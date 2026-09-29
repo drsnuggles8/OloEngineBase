@@ -10,7 +10,7 @@ adding a caster family that is not a `MeshComponent`.
 
 The engine has **two directional shadow techniques** (CSM cascades and the
 Virtual Shadow Map) and **six caster families** (mesh, skinned, terrain, voxel,
-foliage, virtual geometry); groom is wired into neither (#1523). A family reaches
+foliage, virtual geometry); groom is wired into neither (#1323, reopened). A family reaches
 a technique only if somebody wired it there. Nothing detects the gap: the frame renders, every other caster keeps
 its shadow, and the missing one reads as a lighting or bias problem.
 

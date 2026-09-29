@@ -40,9 +40,9 @@ automated test runs the ray tier's GPU composite.
 
 | Limitation | Owner |
 |---|---|
-| Groom scene-shadow casting and receiving (lost in a merge) | #1523 |
+| Groom scene-shadow casting and receiving (lost in a merge) | #1323, reopened 2026-09-29 (first filed as #1523, closed as its duplicate) |
 | Terrain, voxel and foliage casters under VSM | #1524 |
-| Virtual geometry in VSM local-light layers; persistent multi-view cull | #1143, closed by an accidental keyword in PR #1167; reopen requested there on 2026-09-10 |
+| Virtual geometry in VSM local-light layers; persistent multi-view cull | #1143, reopened 2026-09-29 (an accidental keyword in PR #1167 had closed it) |
 | Skinned virtual geometry in the TLAS; emissive virtual meshes as NEE lights | #1525 |
 | Sub-scale benchmark readback, resize VUID rerun, split AOVs, staging timing baselines | #1526 |
 | Textured ray-hit shading; rough-specular ray sampling | #1355, #1356 |
@@ -57,13 +57,13 @@ automated test runs the ray tier's GPU composite.
 
 - **#1359** is the single index for the September 2026 review; this reconcile adds no umbrella.
 - **#654** owns the virtual-geometry gap list. Its body's status table is stale (#1144 and
-  #1149–#1151 are delivered; "no mesh shaders" predates #813), and #1143 needs reopening.
+  #1149–#1151 are delivered; "no mesh shaders" predates #813). #1143 was reopened on 2026-09-29.
 - **#979** closed on 2026-09-22 with every phase delivered. It stays as the design record of the
   quality tiers; restricted ReSTIR PT and the reference modes are not production tiers (#1334
   support matrix). Its follow-ups are #1346, #1355 and #1356.
 - **#812** wraps one open child, #805, and its two recorded seams are resolved or recorded
   elsewhere (`VulkanVertexBuffer`: #1171/#1351; `SetScissorBox`: ADR 0011 amendment (85)). It is
-  the index that no longer earns its row; closing it is recommended, and is the user's call.
+  the index that no longer earned its row, and was closed on 2026-09-29.
 
 ## The September 26 amendment, reconciled
 

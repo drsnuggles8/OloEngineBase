@@ -34,7 +34,7 @@ contract docs before claiming support; read the issues before claiming a gap is 
 
 - [guides/renderer-support-matrix.md](guides/renderer-support-matrix.md) — which geometry, material, backend, path, sample-count and upscale combinations the renderer supports, approximates or refuses, checked against the executable rows in `Renderer/Support/RendererSupportRows.h` (#1334).
 - [analysis/renderer-docs-reconcile-1357.md](analysis/renderer-docs-reconcile-1357.md) — the September 2026 reconcile of renderer comments and docs against the code (#1357): each correction with its evidence, the owners, and why convex reflection weights were not an energy proof.
-- **Roadmap owners** (checked 2026-09-29): #1359 is the single index for the September 2026 renderer review. #654 owns the virtual-geometry gap list (#1152–#1155, #1049; #1143 needs reopening, see the analysis above). #979, the hybrid-to-path-traced roadmap, closed on 2026-09-22 with every phase delivered and stays as the design record; its open follow-ups are #1346, #1355 and #1356. #812, the post-#691 Vulkan umbrella, wraps only #805 and is recommended for closure; #805 stands on its own.
+- **Roadmap owners** (checked 2026-09-29): #1359 is the single index for the September 2026 renderer review. #654 owns the virtual-geometry gap list (#1143, #1152–#1155, #1049). #979, the hybrid-to-path-traced roadmap, closed on 2026-09-22 with every phase delivered and stays as the design record; its open follow-ups are #1346, #1355 and #1356. #812, the post-#691 Vulkan umbrella, was closed on 2026-09-29 because it wrapped only #805, which stands on its own.
 
 ## guides/ — subsystem & tooling how-tos
 

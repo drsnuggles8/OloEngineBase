@@ -395,9 +395,8 @@ namespace OloEngine
         // LAYERS below: a layer is a perspective projection with a per-texel mip,
         // and the current cluster cull is per view, so covering the layers means
         // one dispatch per (instance, layer) — affordable only once #1143 makes
-        // the cull multi-view (#1143 was closed by an accidental keyword in
-        // PR #1167; the work has not started). With LocalLights on, a virtual
-        // caster therefore casts the sun's shadow but not a lamp's.
+        // the cull multi-view. With LocalLights on, a virtual caster therefore
+        // casts the sun's shadow but not a lamp's.
         //
         // Backend-neutral: the only difference between the GL and Vulkan routes is
         // one line in include/VirtualShadowRasterStage.glsl that undoes Vulkan's

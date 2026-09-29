@@ -254,9 +254,7 @@ the light is wrong rather than like a missing feature. Owner: #1524.
 A layer is a perspective projection with a per-texel mip, and the cluster cull is
 still per view, so covering the layers costs one dispatch per (instance, layer) —
 affordable only once #1143 makes the cull multi-view. So with `LocalLights` on, a
-virtualized caster casts the sun's shadow and not a lamp's. (#1143 was closed by
-an accidental closing keyword in PR #1167 and the work has not started; a reopen
-was requested in #1143 on 2026-09-10.) How the clip-level
+virtualized caster casts the sun's shadow and not a lamp's. How the clip-level
 route works, and the two ways to break it silently, are in
 [virtual-geometry-into-a-second-shadow-technique.md](virtual-geometry-into-a-second-shadow-technique.md).
 
