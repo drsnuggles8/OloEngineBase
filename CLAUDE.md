@@ -118,7 +118,8 @@ Mono assemblies relative to `OloEditor/`; run them with `cwd = OloEditor/` (the 
 [.vscode/tasks.json](.vscode/tasks.json) do). The test binary runs from the repo root.
 
 Targets: `OloEngine` (static lib), `OloEditor`, `OloRuntime`, `OloServer`, `OloEngine-Tests`,
-`OloEngine-LuaScriptCore`, and (Visual Studio generator only) `OloEngine-ScriptCore` for C#.
+`OloEngine-LuaScriptCore`, and `OloEngine-ScriptCore` / `Sandbox-Scripting` for C# (`dotnet build`
+under any generator; needs the .NET SDK, `OLO_WITH_CSHARP` defaults ON on Windows).
 `OloEngine` and `OloEngine-ScriptCore` depend on `GenerateBindings` (see *OloHeaderTool*).
 
 ## Tests
@@ -216,7 +217,8 @@ opt a non-trivial one in, give it `auto operator==(const T&) const -> bool = def
 - **A vcpkg port at a different version than the pin** → check the registry version before moving
   a dependency ([vcpkg-dependency-management.md](docs/agent-rules/vcpkg-dependency-management.md)).
 - **`[ScriptEngine] OloEngine-ScriptCore assembly unavailable` in the log** → the
-  `OloEditor → OloEngine-ScriptCore` dependency edge in `CMakeLists.txt` is missing; see
+  `OloEditor → OloEngine-ScriptCore` dependency edge in `CMakeLists.txt` is missing, or the tree was
+  configured with `OLO_WITH_CSHARP=OFF`; see
   [notes-editor-and-assets.md](docs/agent-rules/notes-editor-and-assets.md).
 
 ## Writing docs here
