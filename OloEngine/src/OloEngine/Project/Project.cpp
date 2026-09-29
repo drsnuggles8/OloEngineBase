@@ -49,8 +49,24 @@ namespace OloEngine
         //     the project that way ("../assets/textures/pbr/wall/albedo.png");
         //   - anything else ("assets/...", "Resources/...") -> the working directory.
         const Ref<Project> project = Project::GetActive();
+        // ProjectSerializer stores AssetDirectory canonicalised to an absolute path, so
+        // compare the stored path against its spelling RELATIVE to the project ("Assets").
+        // std::filesystem::relative canonicalises both sides, so a drive-letter or case
+        // difference between the two absolute spellings does not break the match.
+        std::filesystem::path assetDirectory;
+        if (project)
+        {
+            assetDirectory = project->GetConfig().AssetDirectory;
+            if (assetDirectory.is_absolute())
+            {
+                std::error_code relativeError;
+                assetDirectory = std::filesystem::relative(assetDirectory, project->GetDirectory(), relativeError);
+                if (relativeError)
+                    assetDirectory.clear();
+            }
+        }
         const bool projectRooted =
-            project && (StartsWithComponents(path, project->GetConfig().AssetDirectory) || *path.begin() == "..");
+            project && (StartsWithComponents(path, assetDirectory) || *path.begin() == "..");
 
         std::filesystem::path resolved;
         std::string base;
