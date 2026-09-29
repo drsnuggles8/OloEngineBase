@@ -1069,7 +1069,17 @@ The conventional file header comment names the seam the test pins:
 |---|---|---|
 | `OloEngine-Tests` | every PR + push | L1–L8, L10, L11 smoke, plus Functional axis and all subsystem unit tests |
 | `.github/workflows/cross-vendor.yml` | nightly 03:47 UTC + manual | L9 against Mesa llvmpipe; also runs the perf trend detector |
+| `.github/workflows/vulkan-software.yml` | nightly 04:23 UTC + manual + PRs touching `VulkanCapabilities.*` | Device-gated Vulkan suites on Mesa lavapipe (software), with `--olo-require-vulkan`; no ray query |
 | `.github/workflows/fuzz.yml` | nightly 04:13 UTC + manual | L11 fuzzers for 30 s each, uploads crash / leak artefacts on failure |
+
+### 8.2 Vulkan: which machine can run what
+
+PR CI executes no Vulkan device test: hosted runners have no GPU and the self-hosted AMD runner is
+refused by the ADR 0010 contract. The nightly lavapipe job is the only automated Vulkan run, and no
+runner executes the L7 ray-query suites (#1294). Run `OloEngine-Tests --olo-vulkan-capability-report`
+to see what a given machine can execute; the measured matrix, the single contract table and the rule
+for a designated job that must not silently skip are in
+[agent-rules/vulkan-support-matrix.md](agent-rules/vulkan-support-matrix.md).
 
 Local quick paths:
 

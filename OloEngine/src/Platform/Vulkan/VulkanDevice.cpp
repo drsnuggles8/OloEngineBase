@@ -574,24 +574,15 @@ namespace OloEngine
 
         // Enable the contract's feature bits at the gate: a driver that
         // advertises the features but rejects enabling them should fail HERE,
-        // not later at first descriptor-heap use.
-        VkPhysicalDeviceDescriptorHeapFeaturesEXT heapFeatures{};
-        heapFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_HEAP_FEATURES_EXT;
-        heapFeatures.descriptorHeap = VK_TRUE;
-        VkPhysicalDeviceShaderUntypedPointersFeaturesKHR untypedFeatures{};
-        untypedFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_UNTYPED_POINTERS_FEATURES_KHR;
-        untypedFeatures.shaderUntypedPointers = VK_TRUE;
-        untypedFeatures.pNext = &heapFeatures;
-        // #1179: VK_KHR_device_address_commands. Same gate rule as the two
-        // above — a capability-contract row (VulkanCapabilities), so the
-        // device was already refused if the bit is absent, and enabling it
-        // here turns a driver that advertises-but-rejects into a
-        // vkCreateDevice failure rather than a null vkCmdBindIndexBuffer3KHR
-        // at the first draw.
-        VkPhysicalDeviceDeviceAddressCommandsFeaturesKHR addressCommandFeatures{};
-        addressCommandFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEVICE_ADDRESS_COMMANDS_FEATURES_KHR;
-        addressCommandFeatures.deviceAddressCommands = VK_TRUE;
-        addressCommandFeatures.pNext = &untypedFeatures;
+        // not later at first descriptor-heap use. The chain type is the one
+        // Evaluate() queries through, so the enabled set and the checked set
+        // are the same table (VulkanCapabilities). Each bit is a contract row,
+        // so the device was already refused if one is absent; enabling it here
+        // turns a driver that advertises-but-rejects into a vkCreateDevice
+        // failure rather than, for VK_KHR_device_address_commands (#1179), a
+        // null vkCmdBindIndexBuffer3KHR at the first draw.
+        VulkanContractFeatureChain contractFeatures;
+        contractFeatures.RequestAll();
 
         // synchronization2 backs the vkCmdPipelineBarrier2/vkQueueSubmit2 calls in
         // SwapBuffers. Core in 1.3 and MANDATORY for 1.3+ devices, so it needs no
@@ -617,7 +608,7 @@ namespace OloEngine
         // VUID-RuntimeSpirv-LocalSizeId-06434). Same class again: core in 1.3
         // and MANDATORY there, default OFF at device creation.
         vulkan13Features.maintenance4 = VK_TRUE;
-        vulkan13Features.pNext = &addressCommandFeatures;
+        static_cast<void>(contractFeatures.LinkAll(&vulkan13Features.pNext));
 
         // #691: two more core-promoted-but-default-OFF features, both
         // MANDATORY at the 1.3+ floor so neither is a capability-gate row:

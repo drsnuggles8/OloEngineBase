@@ -10,6 +10,9 @@
 #include "Rendering/CommandLifecycleCheck.h"
 #include "Rendering/PropertyTests/TestFailureCapture.h"
 #include "Rendering/VulkanCoverageReport.h"
+#if OLO_WITH_VULKAN
+#include "Platform/Vulkan/VulkanCapabilityReportText.h"
+#endif
 #include "Rendering/StateMachine/StateMachineCoverage.h"
 #include "MemoryCeiling.h"
 #include "TestOptions.h"
@@ -134,6 +137,36 @@ int main(int argc, char** argv)
     // is at its default. Also flushes any malformed-value warning the lazy seed
     // above deferred, now that the logger exists.
     OloEngine::Levers::LogActive();
+
+    // `--olo-vulkan-capability-report` is a TOOL RUN (issue #1358): print the
+    // Vulkan capability report and leave, before any test, GL context or
+    // renderer state exists, so the answer is the gate's on a clean process.
+    if (OloEngine::Tests::Options().VulkanCapabilityReport)
+    {
+#if OLO_WITH_VULKAN
+        const std::string report = OloEngine::VulkanCapabilityReportText::Build();
+        const std::string& path = OloEngine::Tests::Options().VulkanCapabilityReportPath;
+        if (path.empty())
+        {
+            std::fputs(report.c_str(), stdout);
+        }
+        else
+        {
+            std::FILE* file = std::fopen(path.c_str(), "wb");
+            if (file == nullptr)
+            {
+                std::fprintf(stderr, "OloEngine-Tests: cannot write the capability report to '%s'\n", path.c_str());
+                return 2;
+            }
+            std::fwrite(report.data(), 1, report.size(), file);
+            std::fclose(file);
+        }
+        return 0;
+#else
+        std::fprintf(stderr, "OloEngine-Tests: built with OLO_WITH_VULKAN=OFF; there is no Vulkan capability to report.\n");
+        return 2;
+#endif
+    }
 
     // Per-process resident-set ceiling (MemoryCeiling.h, --olo-rss-ceiling-mb).
     // A case that outgrows the runner's cgroup is otherwise killed by the
