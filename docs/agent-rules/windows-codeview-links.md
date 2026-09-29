@@ -75,8 +75,9 @@ and its [thread-option handling](https://github.com/llvm/llvm-project/blob/llvmo
 ## Local worker-limit measurement (2026-09-28)
 
 Treat the worker limit as CPU admission, not a memory fix. On an i7-14700KF
-(28 logical CPUs, 64 GiB), LLVM 23.1.0 replayed the full Debug test link from
-`2662d9f1a`, including USD and FFmpeg, with GHASH off. The same response-file
+(28 logical CPUs, 64 GiB), LLVM 23.1.0 replayed the full Debug test link based on
+`2662d9f1a` with local build-instrumentation and benchmark changes, including USD
+and FFmpeg, with GHASH off. The same response-file
 inputs were used for three alternating repeats per cell; concurrent cells ran
 two separate output links in each repeat. The exclusive build gate enclosed the
 campaign and the normal link semaphore admitted both links. A five-second
@@ -95,7 +96,8 @@ does not hide that cold-start variation. Capping workers reduced median peak
 working set by less than 1% and increased median link time by about 9% alone and
 7% when paired. These are direct-link measurements, not whole-build throughput,
 aggregate host memory, an ASan result, or a GHASH comparison. Raw commands,
-response files, hashes, measurement records and host probes for PR #1520 are
+response files, hashes, the control checkout's dirty diff and untracked sources,
+measurement records and host probes for PR #1520 are
 retained locally under `build-cached/link-replays/`.
 
 The Windows census must install the SDK's optional `com.lunarg.vulkan.debug`
