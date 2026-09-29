@@ -74,7 +74,7 @@ namespace OloEngine::Benchmark
                                                          });
         }
 
-        // ---- ManifestVersion 2 asset provenance (issue #1239) ---------------
+        // ---- Asset provenance (ManifestVersion 2, issue #1239) ---------------
         // Each provenance field is a CLOSED vocabulary, parsed through one
         // helper so a typo ("comitted") is a named parse error rather than a
         // silent fall-through to the first enumerator. That matters more here
@@ -83,7 +83,7 @@ namespace OloEngine::Benchmark
         template<typename T>
         std::optional<T> ParseEnumField(const YAML::Node& node, std::string_view key,
                                         std::initializer_list<std::pair<std::string_view, T>> vocabulary,
-                                        const std::string& context, bool required, ErrorList& errors)
+                                        const std::string& context, ErrorList& errors)
         {
             const auto allowedList = [&vocabulary]
             {
@@ -99,11 +99,8 @@ namespace OloEngine::Benchmark
             const auto field = node[std::string(key)];
             if (!field)
             {
-                if (required)
-                {
-                    errors.Add(context + ": " + std::string(key) + " is required in ManifestVersion 2 (" +
-                               allowedList() + ")");
-                }
+                errors.Add(context + ": " + std::string(key) + " is required in ManifestVersion 2 (" + allowedList() +
+                           ")");
                 return std::nullopt;
             }
             const auto text = field.as<std::string>("");
@@ -132,52 +129,40 @@ namespace OloEngine::Benchmark
                                                              });
         }
 
-        void ParseAssetProvenance(const YAML::Node& entry, const std::string& context, bool required,
-                                  ManifestAssetRecord& record, ErrorList& errors)
+        void ParseAssetProvenance(const YAML::Node& entry, const std::string& context, ManifestAssetRecord& record,
+                                  ErrorList& errors)
         {
             record.Redistribution = ParseEnumField<AssetRedistribution>(
                 entry, "Redistribution",
                 { { "committed", AssetRedistribution::Committed },
                   { "fetch-required", AssetRedistribution::FetchRequired },
                   { "local-only", AssetRedistribution::LocalOnly } },
-                context, required, errors);
+                context, errors);
             record.LicenseVerified = ParseEnumField<LicenseVerification>(
                 entry, "LicenseVerified",
                 { { "in-repo-file", LicenseVerification::InRepoFile },
                   { "upstream-declared", LicenseVerification::UpstreamDeclared },
                   { "unverified", LicenseVerification::Unverified } },
-                context, required, errors);
+                context, errors);
             record.Units = ParseEnumField<AssetUnits>(entry, "Units",
                                                       { { "metres", AssetUnits::Metres },
                                                         { "centimetres", AssetUnits::Centimetres },
                                                         { "unitless", AssetUnits::Unitless } },
-                                                      context, required, errors);
+                                                      context, errors);
             record.UpAxis = ParseEnumField<AssetUpAxis>(entry, "UpAxis",
                                                         { { "+Y", AssetUpAxis::YUp },
                                                           { "+Z", AssetUpAxis::ZUp },
                                                           { "n/a", AssetUpAxis::NotApplicable } },
-                                                        context, required, errors);
+                                                        context, errors);
             record.ColorSpace = ParseEnumField<AssetColorSpace>(entry, "ColorSpace",
                                                                 { { "srgb", AssetColorSpace::Srgb },
                                                                   { "linear", AssetColorSpace::Linear },
                                                                   { "n/a", AssetColorSpace::NotApplicable } },
-                                                                context, required, errors);
+                                                                context, errors);
 
             record.Version = entry["Version"].as<std::string>("");
             record.Sha256 = entry["Sha256"].as<std::string>("");
             record.Acquisition = entry["Acquisition"].as<std::string>("");
-
-            if (!required)
-            {
-                // v1 manifests may carry the fields but are not held to them —
-                // still validate the Sha256 FORMAT when one is present, since a
-                // malformed hash is useless in either version.
-                if (!record.Sha256.IsEmpty() && !IsSha256Hex(record.Sha256.ToView()))
-                {
-                    errors.Add(context + ": Sha256 must be 64 lowercase hex characters");
-                }
-                return;
-            }
 
             if (record.Origin.IsEmpty())
             {
@@ -213,14 +198,9 @@ namespace OloEngine::Benchmark
 
         // ManifestVersion 2: per-frame camera movement (issue #1239).
         std::optional<ManifestCameraMotion> ParseCameraMotion(const YAML::Node& node, const std::string& parentContext,
-                                                              u32 manifestVersion, ErrorList& errors)
+                                                              ErrorList& errors)
         {
             const std::string context = parentContext + ".Motion";
-            if (manifestVersion < 2u)
-            {
-                errors.Add(context + ": camera Motion requires ManifestVersion 2");
-                return std::nullopt;
-            }
             RequireKnownKeys(node, { "VelocityPerSecond", "YawRateDegreesPerSecond", "PitchRateDegreesPerSecond" },
                              context, errors);
 
@@ -287,8 +267,7 @@ namespace OloEngine::Benchmark
             return motion;
         }
 
-        std::optional<ManifestCamera> ParseCamera(const YAML::Node& node, ErrorList& errors, sizet index,
-                                                  u32 manifestVersion)
+        std::optional<ManifestCamera> ParseCamera(const YAML::Node& node, ErrorList& errors, sizet index)
         {
             const std::string context = "Cameras[" + std::to_string(index) + "]";
             RequireKnownKeys(node,
@@ -346,7 +325,7 @@ namespace OloEngine::Benchmark
             }
             if (const auto motion = node["Motion"]; motion)
             {
-                camera.Motion = ParseCameraMotion(motion, context, manifestVersion, errors);
+                camera.Motion = ParseCameraMotion(motion, context, errors);
             }
             return camera;
         }
@@ -425,15 +404,19 @@ namespace OloEngine::Benchmark
         // in result.json (provenance metadata, not security).
         manifest.SourceHash = Hash::FNV1a64(bytes.data(), bytes.size());
 
+        // One current version (docs/agent-rules/binary-format-versioning.md).
+        // v2 added asset provenance and camera motion to issue #974's v1
+        // schema (issue #1239); every committed manifest was migrated, so any
+        // other version is refused, saying what to add, rather than read under
+        // v1's looser provenance rules.
         manifest.ManifestVersion = root["ManifestVersion"].as<u32>(0u);
-        if (manifest.ManifestVersion != 1u && manifest.ManifestVersion != 2u)
+        if (manifest.ManifestVersion != kCurrentManifestVersion)
         {
-            // v1: issue #974's capture schema. v2: adds asset provenance and
-            // camera motion (issue #1239). Both stay readable — a v1 manifest
-            // is not silently upgraded, because the v2 provenance fields are
-            // REQUIRED and a silent upgrade would turn every existing manifest
-            // into a parse error at an unrelated moment.
-            errors.Add("ManifestVersion must be 1 or 2 (got " + std::to_string(manifest.ManifestVersion) + ")");
+            errors.Add("ManifestVersion must be " + std::to_string(kCurrentManifestVersion) + " (got '" +
+                       root["ManifestVersion"].as<std::string>("<missing>") +
+                       "'). A version-1 manifest needs 'ManifestVersion: 2' plus the full provenance record on "
+                       "every Assets entry (Redistribution, LicenseVerified, Version, Sha256, Units, UpAxis, "
+                       "ColorSpace, Acquisition); see docs/guides/benchmark-reference-fixtures.md");
         }
 
         manifest.Id = root["Id"].as<std::string>("");
@@ -503,7 +486,7 @@ namespace OloEngine::Benchmark
         }
         if (const auto camera = root["Camera"]; camera)
         {
-            if (auto parsed = ParseCamera(camera, errors, 0, manifest.ManifestVersion))
+            if (auto parsed = ParseCamera(camera, errors, 0))
             {
                 manifest.Cameras.Add(std::move(*parsed));
             }
@@ -513,7 +496,7 @@ namespace OloEngine::Benchmark
             sizet index = 0;
             for (const auto& entry : cameras)
             {
-                if (auto parsed = ParseCamera(entry, errors, index++, manifest.ManifestVersion))
+                if (auto parsed = ParseCamera(entry, errors, index++))
                 {
                     manifest.Cameras.Add(std::move(*parsed));
                 }
@@ -564,7 +547,7 @@ namespace OloEngine::Benchmark
         // "must be 1.0" gate into Renderer3D::SetRenderScale.
         if (!std::isfinite(manifest.RenderScale) || std::abs(manifest.RenderScale - 1.0f) > 1e-6f)
         {
-            errors.Add("Output.RenderScale must be a finite 1.0 in schema v1 (sub-scale capture is not supported)");
+            errors.Add("Output.RenderScale must be a finite 1.0 (sub-scale capture is not supported)");
         }
 
         if (const auto rs = root["RendererSettings"]; rs)
@@ -943,10 +926,9 @@ namespace OloEngine::Benchmark
 
         // `assets && assets.IsSequence() && assets.size() > 0` on purpose: an
         // EMPTY `Assets: []` is a sequence, so guarding only on IsSequence let
-        // a v2 manifest satisfy "every asset is documented" vacuously.
+        // a manifest satisfy "every asset is documented" vacuously.
         if (const auto assets = root["Assets"]; assets && assets.IsSequence() && assets.size() > 0)
         {
-            const bool requireProvenance = manifest.ManifestVersion >= 2u;
             sizet index = 0;
             for (const auto& entry : assets)
             {
@@ -964,13 +946,13 @@ namespace OloEngine::Benchmark
                     errors.Add(context + ": Path and License are required "
                                          "(recording asset origin/license is an issue-#974 acceptance criterion)");
                 }
-                ParseAssetProvenance(entry, context, requireProvenance, record, errors);
+                ParseAssetProvenance(entry, context, record, errors);
                 manifest.Assets.Add(std::move(record));
             }
         }
-        else if (manifest.ManifestVersion >= 2u)
+        else
         {
-            // A v2 manifest with no Assets block would satisfy "every asset is
+            // A manifest with no Assets block would satisfy "every asset is
             // documented" vacuously. Every fixture renders SOMETHING, so an
             // empty provenance list means the block was forgotten.
             errors.Add("Assets is required and must be a non-empty sequence in ManifestVersion 2 "

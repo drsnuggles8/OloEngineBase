@@ -111,9 +111,14 @@ def fetch_url_error(url):
     return None
 
 
+CURRENT_MANIFEST_VERSION = 2
+
+
 def load_manifests():
-    """Every v2 manifest, as (path, parsed dict). v1 manifests carry no
-    provenance contract and are skipped rather than warned about."""
+    """Every manifest, as (path, parsed dict). The engine reads only
+    ManifestVersion 2, so a manifest at any other version is reported as an
+    error (data None) rather than skipped: skipping it would leave its assets
+    unverified without anyone noticing."""
     out = []
     for path in sorted(MANIFEST_DIR.glob("*.yaml")):
         try:
@@ -124,7 +129,12 @@ def load_manifests():
             continue
         if not isinstance(data, dict):
             continue
-        if data.get("ManifestVersion") != 2:
+        if data.get("ManifestVersion") != CURRENT_MANIFEST_VERSION:
+            print(f"ERROR: {path.name}: ManifestVersion {data.get('ManifestVersion')!r} — only "
+                  f"{CURRENT_MANIFEST_VERSION} is read. Set 'ManifestVersion: {CURRENT_MANIFEST_VERSION}' and give "
+                  f"every Assets entry the full provenance block "
+                  f"(docs/guides/benchmark-reference-fixtures.md).", file=sys.stderr)
+            out.append((path, None))
             continue
         out.append((path, data))
     return out
@@ -183,7 +193,7 @@ def cmd_verify(args):
     if any(data is None for _, data in manifests):
         return 2
     if not manifests:
-        print("no ManifestVersion 2 manifests found")
+        print("no manifests found")
         return 0
 
     records = collect_records(manifests)
@@ -193,7 +203,7 @@ def cmd_verify(args):
 
     failures = 0
     gaps = 0
-    print(f"verifying {len(records)} asset record(s) from {len(manifests)} v2 manifest(s)\n")
+    print(f"verifying {len(records)} asset record(s) from {len(manifests)} manifest(s)\n")
     for (rel, digest), (record, users) in sorted(records.items()):
         status, detail = check_asset(record)
         mark = {OK: "  ok  ", MISSING: " MISS ", MISMATCH: " DIFF ",
@@ -231,7 +241,7 @@ def cmd_verify(args):
 
 
 def cmd_write_hashes(args):
-    """Rewrite each v2 manifest's Sha256 lines from the files on disk.
+    """Rewrite each manifest's Sha256 lines from the files on disk.
 
     Line-oriented rather than a YAML round-trip on purpose: PyYAML's dumper
     would reflow every comment out of these manifests, and the comments carry

@@ -171,9 +171,9 @@ Assets:
 // The committed manifests
 // -----------------------------------------------------------------------------
 
-// Every committed manifest parses, v1 and v2 alike. This is the regression
-// guard on the version gate: widening it to accept 2 must not have narrowed it
-// away from 1, which would break every issue-#974 capture at once.
+// Every committed manifest parses, and at the one current version. The issue-
+// #974 v1 manifests were migrated in place (binary-format-versioning.md), so a
+// v1 file reappearing here is a regression, not a legacy case to tolerate.
 TEST(ReferenceFixtureManifest, EveryCommittedManifestParses)
 {
     const auto files = ManifestFiles();
@@ -181,19 +181,15 @@ TEST(ReferenceFixtureManifest, EveryCommittedManifestParses)
                                    "relative to cwd "
                                 << fs::current_path().string();
 
-    u32 v1Count = 0;
-    u32 v2Count = 0;
     for (const auto& file : files)
     {
         std::string error;
         const auto parsed = LoadBenchmarkManifest(file, error);
         ASSERT_TRUE(parsed.has_value()) << file.filename().string() << ":\n"
                                         << error;
-        EXPECT_TRUE(parsed->ManifestVersion == 1u || parsed->ManifestVersion == 2u);
-        (parsed->ManifestVersion == 1u ? v1Count : v2Count) += 1u;
+        EXPECT_EQ(parsed->ManifestVersion, kCurrentManifestVersion) << file.filename().string();
     }
-    EXPECT_GT(v1Count, 0u) << "the issue-#974 v1 manifests should still be present and parsing";
-    EXPECT_GE(v2Count, kFixtureIds.size()) << "expected at least the five issue-#1239 fixture manifests";
+    EXPECT_GE(files.size(), kFixtureIds.size()) << "expected at least the five issue-#1239 fixture manifests";
 }
 
 // The four sequences the issue asks for, per fixture, by name — and the moving
@@ -244,10 +240,6 @@ TEST(ReferenceFixtureManifest, EveryFixtureAssetCarriesFullProvenance)
         std::string error;
         const auto parsed = LoadBenchmarkManifest(file, error);
         ASSERT_TRUE(parsed.has_value()) << error;
-        if (parsed->ManifestVersion < 2u)
-        {
-            continue;
-        }
         EXPECT_FALSE(parsed->Assets.IsEmpty()) << parsed->Id.ToView() << " declares no assets";
         for (const auto& asset : parsed->Assets)
         {
@@ -337,17 +329,19 @@ TEST(ReferenceFixtureManifest, RejectsEmptyAssetsInV2)
     }
 }
 
-TEST(ReferenceFixtureManifest, RejectsCameraMotionInV1)
+TEST(ReferenceFixtureManifest, RejectsEveryVersionButTheCurrentOne)
 {
-    // A v1 manifest that grew a Motion block would be silently ignored by an
-    // older parser and honoured by a newer one — the exact drift the version
-    // number exists to prevent.
-    auto text = Replaced(ValidV2Manifest(), "ManifestVersion: 2", "ManifestVersion: 1");
-    text = Replaced(text, "  Far: 100.0\n",
-                    "  Far: 100.0\n  Motion:\n    VelocityPerSecond: [1.0, 0.0, 0.0]\n");
-    const auto error = ExpectParseFailure("motion-in-v1", text);
-    EXPECT_NE(error.find("Motion"), std::string::npos) << error;
-    EXPECT_NE(error.find("ManifestVersion 2"), std::string::npos) << error;
+    // One current version. A v1 file is refused even when it carries the full
+    // provenance block — reading it under v1's looser rules is the legacy path
+    // that was deleted — and so are a missing and a future version. Each error
+    // names the version field, so the fix is findable.
+    for (const auto* replacement : { "ManifestVersion: 1", "ManifestVersion: 3", "Description: no version" })
+    {
+        SCOPED_TRACE(replacement);
+        const auto error = ExpectParseFailure(
+            "wrong-version", Replaced(ValidV2Manifest(), "ManifestVersion: 2", replacement));
+        EXPECT_NE(error.find("ManifestVersion must be 2"), std::string::npos) << error;
+    }
 }
 
 TEST(ReferenceFixtureManifest, RejectsAllZeroMotion)
@@ -380,27 +374,6 @@ TEST(ReferenceFixtureManifest, RejectsNonFiniteMotion)
             << "a malformed velocity was silently read as zero:\n"
             << error;
     }
-}
-
-TEST(ReferenceFixtureManifest, V1ManifestRejectsProvenanceRequirement)
-{
-    // The v1 contract is unchanged: a v1 manifest with only Path/Origin/License
-    // still parses. If this ever fails, every issue-#974 manifest is broken.
-    std::string text = Replaced(ValidV2Manifest(), "ManifestVersion: 2", "ManifestVersion: 1");
-    for (const auto* line : { "    Redistribution: committed\n", "    LicenseVerified: in-repo-file\n",
-                              "    Units: metres\n", "    UpAxis: \"+Y\"\n", "    ColorSpace: srgb\n",
-                              "    Version: test\n",
-                              "    Sha256: 34d5fbc23fd081101f26d8b0df1394533ffd9c9b53d8fd550b027b17595636ba\n",
-                              "    Acquisition: https://example.invalid/suzanne\n" })
-    {
-        text = Replaced(text, line, "");
-    }
-    std::string error;
-    const auto parsed = LoadBenchmarkManifest(WriteManifest("plain-v1", text), error);
-    ASSERT_TRUE(parsed.has_value()) << error;
-    EXPECT_EQ(parsed->ManifestVersion, 1u);
-    ASSERT_EQ(parsed->Assets.Num(), 1u);
-    EXPECT_FALSE(parsed->Assets[0].Redistribution.has_value());
 }
 
 // -----------------------------------------------------------------------------
@@ -468,10 +441,6 @@ TEST(ReferenceFixtureManifest, FixtureMotionStaysBounded)
         std::string error;
         const auto parsed = LoadBenchmarkManifest(file, error);
         ASSERT_TRUE(parsed.has_value()) << error;
-        if (parsed->ManifestVersion < 2u)
-        {
-            continue;
-        }
         for (const auto& camera : parsed->Cameras)
         {
             if (!camera.Motion)

@@ -397,7 +397,7 @@ void main()
         // The model transform and entity ID come from the InstanceBuffer SSBO every
         // draw binds; the binding-3 ModelMatrices UBO this used to read is retired
         // and nothing binds it, so the fallback drew with an unbound transform.
-        const std::string instanceBuffer = ShaderBindingLayout::GetInstanceBufferLayout();
+        const std::string instanceBuffer = ShaderBindingLayout::GetInstanceSSBOLayout();
         const std::string vertexSrc = std::string(s_FallbackVertexHead) + instanceBuffer + s_FallbackVertexBody;
         const std::string fragmentSrc = std::string(s_FallbackFragmentHead) + instanceBuffer + s_FallbackFragmentBody;
         s_FallbackShader = Shader::Create("__Fallback", vertexSrc, fragmentSrc);

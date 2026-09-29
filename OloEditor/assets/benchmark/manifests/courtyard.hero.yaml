@@ -2,7 +2,7 @@
 # eyes, committed to docs/images/benchmarks/ — never a regression golden.
 # Camera convention (EditorCamera): YawDegrees 0 looks -Z, +90 looks +X;
 # positive PitchDegrees looks DOWN (negative looks up).
-ManifestVersion: 1
+ManifestVersion: 2
 Id: courtyard-hero
 Product: hero
 Scene: Scenes/Benchmark/Courtyard.olo
@@ -73,69 +73,291 @@ Assets:
   - Path: SandboxProject/Assets/Models/Sponza/Sponza.gltf
     Origin: Crytek Sponza via KhronosGroup glTF-Sample-Assets (CRYENGINE Marketplace original)
     License: LicenseRef-CRYENGINE-Agreement
-  - Path: Assets/Textures/Checkerboard.png
+    Redistribution: committed
+    LicenseVerified: in-repo-file
+    Version: in-repo copy of KhronosGroup glTF-Sample-Assets Models/Sponza, upstream revision not recorded
+    Sha256: 646c10cbc8fab990ca29f363e90e2d65155f3a3569506852eb1434a9465b9501
+    Units: metres
+    UpAxis: +Y
+    ColorSpace: n/a
+    Acquisition: >-
+      Already in-tree, with its licence in SandboxProject/Assets/Models/Sponza/LICENSE.md. Upstream:
+      https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Sponza
+  - Path: SandboxProject/Assets/Textures/Checkerboard.png
     Origin: in-repo sandbox asset; upstream origin not recorded
     License: unverified (no license file in-repo)
+    Redistribution: committed
+    LicenseVerified: unverified
+    Version: in-repo copy, upstream revision not recorded
+    Sha256: 2cbce887b519e062ca14019c3db39e7c9758f080bca9a22d779d5cbed5c63a5f
+    Units: unitless
+    UpAxis: n/a
+    ColorSpace: srgb
+    Acquisition: Already in-tree; the copy predates this manifest and its upstream origin was not recorded
   - Path: assets/textures/hdr/newport_loft.hdr
     Origin: Newport Loft HDR (sIBL Archive / HDR Labs)
     License: unverified (no license file in-repo)
+    Redistribution: committed
+    LicenseVerified: unverified
+    Version: in-repo copy, upstream revision not recorded
+    Sha256: f521688ab09b3e748341921d0c8c114d1256e6ca9e94c6e6783b9952b0042c44
+    Units: unitless
+    UpAxis: n/a
+    ColorSpace: linear
+    Acquisition: >-
+      http://www.hdrlabs.com/sibl/archive.html (upstream archive; the in-repo copy predates this manifest)
   - Path: SandboxProject/Assets/Models/Vegetation/broadleaf/broadleaf.obj
     Origin: Poly Haven asset 'island_tree_01' (https://polyhaven.com/a/island_tree_01), imported
       and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
     License: CC0 1.0 Universal - https://polyhaven.com/license
+    Redistribution: committed
+    LicenseVerified: in-repo-file
+    Version: >-
+      derived asset; see SandboxProject/Assets/Models/Vegetation/broadleaf/LICENSE.md for the source files,
+      the import date and every modification made
+    Sha256: 19c8cccb4bca4bd8eb1714c88d027f3fabf062be55baa102cbd4b5f7aa7d2b1a
+    Units: metres
+    UpAxis: +Y
+    ColorSpace: n/a
+    Acquisition: >-
+      Already in-tree. CC0 permits redistribution and modification, so the DERIVED plant is committed rather
+      than fetched. Rebuild it from the Poly Haven source with: python
+      tools/vegetation-import/import_vegetation.py broadleaf
   - Path: SandboxProject/Assets/Models/Vegetation/broadleaf/broadleaf.mtl
     Origin: Poly Haven asset 'island_tree_01' (https://polyhaven.com/a/island_tree_01), imported
       and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
     License: CC0 1.0 Universal - https://polyhaven.com/license
+    Redistribution: committed
+    LicenseVerified: in-repo-file
+    Version: >-
+      derived asset; see SandboxProject/Assets/Models/Vegetation/broadleaf/LICENSE.md for the source files,
+      the import date and every modification made
+    Sha256: 74eff08b0bc3b92ab6f07de9667c74099ff99eea7b2bfb59a9c4dcc503b2ea64
+    Units: metres
+    UpAxis: +Y
+    ColorSpace: n/a
+    Acquisition: >-
+      Already in-tree. CC0 permits redistribution and modification, so the DERIVED plant is committed rather
+      than fetched. Rebuild it from the Poly Haven source with: python
+      tools/vegetation-import/import_vegetation.py broadleaf
   - Path: SandboxProject/Assets/Models/Vegetation/broadleaf/Textures/broadleaf_card.png
     Origin: Poly Haven asset 'island_tree_01' (https://polyhaven.com/a/island_tree_01), imported
       and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
     License: CC0 1.0 Universal - https://polyhaven.com/license
+    Redistribution: committed
+    LicenseVerified: in-repo-file
+    Version: >-
+      derived asset; see SandboxProject/Assets/Models/Vegetation/broadleaf/LICENSE.md for the source files,
+      the import date and every modification made
+    Sha256: c55deab76965b8fed8529c7215d8859356592ac4af94717873c1460bf159fd87
+    Units: unitless
+    UpAxis: n/a
+    ColorSpace: srgb
+    Acquisition: >-
+      Already in-tree. CC0 permits redistribution and modification, so the DERIVED plant is committed rather
+      than fetched. Rebuild it from the Poly Haven source with: python
+      tools/vegetation-import/import_vegetation.py broadleaf
   - Path: SandboxProject/Assets/Models/Vegetation/broadleaf/Textures/broadleaf_foliage.png
     Origin: Poly Haven asset 'island_tree_01' (https://polyhaven.com/a/island_tree_01), imported
       and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
     License: CC0 1.0 Universal - https://polyhaven.com/license
+    Redistribution: committed
+    LicenseVerified: in-repo-file
+    Version: >-
+      derived asset; see SandboxProject/Assets/Models/Vegetation/broadleaf/LICENSE.md for the source files,
+      the import date and every modification made
+    Sha256: a3be304c53e1f4fd9e2e742d791f5f59c75f85741da3388df1609c40289d0c30
+    Units: unitless
+    UpAxis: n/a
+    ColorSpace: srgb
+    Acquisition: >-
+      Already in-tree. CC0 permits redistribution and modification, so the DERIVED plant is committed rather
+      than fetched. Rebuild it from the Poly Haven source with: python
+      tools/vegetation-import/import_vegetation.py broadleaf
   - Path: SandboxProject/Assets/Models/Vegetation/broadleaf/Textures/broadleaf_trunk.png
     Origin: Poly Haven asset 'island_tree_01' (https://polyhaven.com/a/island_tree_01), imported
       and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
     License: CC0 1.0 Universal - https://polyhaven.com/license
+    Redistribution: committed
+    LicenseVerified: in-repo-file
+    Version: >-
+      derived asset; see SandboxProject/Assets/Models/Vegetation/broadleaf/LICENSE.md for the source files,
+      the import date and every modification made
+    Sha256: 4d8efc120bb04df78dcb40da0322343605b46a85d01555c996adab94ecec4af8
+    Units: unitless
+    UpAxis: n/a
+    ColorSpace: srgb
+    Acquisition: >-
+      Already in-tree. CC0 permits redistribution and modification, so the DERIVED plant is committed rather
+      than fetched. Rebuild it from the Poly Haven source with: python
+      tools/vegetation-import/import_vegetation.py broadleaf
   - Path: SandboxProject/Assets/Models/Vegetation/grass/grass.obj
     Origin: Poly Haven asset 'grass_medium_01' (https://polyhaven.com/a/grass_medium_01), imported
       and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
     License: CC0 1.0 Universal - https://polyhaven.com/license
+    Redistribution: committed
+    LicenseVerified: in-repo-file
+    Version: >-
+      derived asset; see SandboxProject/Assets/Models/Vegetation/grass/LICENSE.md for the source files, the
+      import date and every modification made
+    Sha256: 899bd9323b7d8289c2d4a5371b17a64d2e0e6bdba83439606cca3baf3cb960c6
+    Units: metres
+    UpAxis: +Y
+    ColorSpace: n/a
+    Acquisition: >-
+      Already in-tree. CC0 permits redistribution and modification, so the DERIVED plant is committed rather
+      than fetched. Rebuild it from the Poly Haven source with: python
+      tools/vegetation-import/import_vegetation.py grass
   - Path: SandboxProject/Assets/Models/Vegetation/grass/grass.mtl
     Origin: Poly Haven asset 'grass_medium_01' (https://polyhaven.com/a/grass_medium_01), imported
       and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
     License: CC0 1.0 Universal - https://polyhaven.com/license
+    Redistribution: committed
+    LicenseVerified: in-repo-file
+    Version: >-
+      derived asset; see SandboxProject/Assets/Models/Vegetation/grass/LICENSE.md for the source files, the
+      import date and every modification made
+    Sha256: a010cfd8925081bd8978e4aa650a522714b63236385cad3d53d758f4b72bd087
+    Units: metres
+    UpAxis: +Y
+    ColorSpace: n/a
+    Acquisition: >-
+      Already in-tree. CC0 permits redistribution and modification, so the DERIVED plant is committed rather
+      than fetched. Rebuild it from the Poly Haven source with: python
+      tools/vegetation-import/import_vegetation.py grass
   - Path: SandboxProject/Assets/Models/Vegetation/grass/Textures/grass_blades.png
     Origin: Poly Haven asset 'grass_medium_01' (https://polyhaven.com/a/grass_medium_01), imported
       and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
     License: CC0 1.0 Universal - https://polyhaven.com/license
+    Redistribution: committed
+    LicenseVerified: in-repo-file
+    Version: >-
+      derived asset; see SandboxProject/Assets/Models/Vegetation/grass/LICENSE.md for the source files, the
+      import date and every modification made
+    Sha256: 25fec6ff206d97a16c06ddab9572ccd03bd5d89f3b43877cb449f3ed21636b45
+    Units: unitless
+    UpAxis: n/a
+    ColorSpace: srgb
+    Acquisition: >-
+      Already in-tree. CC0 permits redistribution and modification, so the DERIVED plant is committed rather
+      than fetched. Rebuild it from the Poly Haven source with: python
+      tools/vegetation-import/import_vegetation.py grass
   - Path: SandboxProject/Assets/Models/Vegetation/grass/Textures/grass_card.png
     Origin: Poly Haven asset 'grass_medium_01' (https://polyhaven.com/a/grass_medium_01), imported
       and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
     License: CC0 1.0 Universal - https://polyhaven.com/license
+    Redistribution: committed
+    LicenseVerified: in-repo-file
+    Version: >-
+      derived asset; see SandboxProject/Assets/Models/Vegetation/grass/LICENSE.md for the source files, the
+      import date and every modification made
+    Sha256: 2bd6631c159ed4d630ae4880cbd4092652f7f2fdcd8fa47261a26911c2a700f8
+    Units: unitless
+    UpAxis: n/a
+    ColorSpace: srgb
+    Acquisition: >-
+      Already in-tree. CC0 permits redistribution and modification, so the DERIVED plant is committed rather
+      than fetched. Rebuild it from the Poly Haven source with: python
+      tools/vegetation-import/import_vegetation.py grass
   - Path: SandboxProject/Assets/Models/Vegetation/pine/pine.obj
     Origin: Poly Haven asset 'pine_tree_01' (https://polyhaven.com/a/pine_tree_01), imported
       and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
     License: CC0 1.0 Universal - https://polyhaven.com/license
+    Redistribution: committed
+    LicenseVerified: in-repo-file
+    Version: >-
+      derived asset; see SandboxProject/Assets/Models/Vegetation/pine/LICENSE.md for the source files, the
+      import date and every modification made
+    Sha256: ba37f485220e61bbdd53f00e8f9f72bcb2ae48a276f0fc349f7c7aa6be80158e
+    Units: metres
+    UpAxis: +Y
+    ColorSpace: n/a
+    Acquisition: >-
+      Already in-tree. CC0 permits redistribution and modification, so the DERIVED plant is committed rather
+      than fetched. Rebuild it from the Poly Haven source with: python
+      tools/vegetation-import/import_vegetation.py pine
   - Path: SandboxProject/Assets/Models/Vegetation/pine/pine.mtl
     Origin: Poly Haven asset 'pine_tree_01' (https://polyhaven.com/a/pine_tree_01), imported
       and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
     License: CC0 1.0 Universal - https://polyhaven.com/license
+    Redistribution: committed
+    LicenseVerified: in-repo-file
+    Version: >-
+      derived asset; see SandboxProject/Assets/Models/Vegetation/pine/LICENSE.md for the source files, the
+      import date and every modification made
+    Sha256: 350229e46ea0f4fc600ee53a43d501e570f5978a05659fa18f22e32d2ce0a775
+    Units: metres
+    UpAxis: +Y
+    ColorSpace: n/a
+    Acquisition: >-
+      Already in-tree. CC0 permits redistribution and modification, so the DERIVED plant is committed rather
+      than fetched. Rebuild it from the Poly Haven source with: python
+      tools/vegetation-import/import_vegetation.py pine
   - Path: SandboxProject/Assets/Models/Vegetation/pine/Textures/pine_bark.png
     Origin: Poly Haven asset 'pine_tree_01' (https://polyhaven.com/a/pine_tree_01), imported
       and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
     License: CC0 1.0 Universal - https://polyhaven.com/license
+    Redistribution: committed
+    LicenseVerified: in-repo-file
+    Version: >-
+      derived asset; see SandboxProject/Assets/Models/Vegetation/pine/LICENSE.md for the source files, the
+      import date and every modification made
+    Sha256: bd44911cbeed5b11ac4b96c4020fcb3ad9c96e0b9feb1b1f8ed4542b17594188
+    Units: unitless
+    UpAxis: n/a
+    ColorSpace: srgb
+    Acquisition: >-
+      Already in-tree. CC0 permits redistribution and modification, so the DERIVED plant is committed rather
+      than fetched. Rebuild it from the Poly Haven source with: python
+      tools/vegetation-import/import_vegetation.py pine
   - Path: SandboxProject/Assets/Models/Vegetation/pine/Textures/pine_card.png
     Origin: Poly Haven asset 'pine_tree_01' (https://polyhaven.com/a/pine_tree_01), imported
       and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
     License: CC0 1.0 Universal - https://polyhaven.com/license
+    Redistribution: committed
+    LicenseVerified: in-repo-file
+    Version: >-
+      derived asset; see SandboxProject/Assets/Models/Vegetation/pine/LICENSE.md for the source files, the
+      import date and every modification made
+    Sha256: 14ed9d971f2dfc673772b3de7df88dee4d166b6be720f34b955303ea85cb7627
+    Units: unitless
+    UpAxis: n/a
+    ColorSpace: srgb
+    Acquisition: >-
+      Already in-tree. CC0 permits redistribution and modification, so the DERIVED plant is committed rather
+      than fetched. Rebuild it from the Poly Haven source with: python
+      tools/vegetation-import/import_vegetation.py pine
   - Path: SandboxProject/Assets/Models/Vegetation/pine/Textures/pine_foliage.png
     Origin: Poly Haven asset 'pine_tree_01' (https://polyhaven.com/a/pine_tree_01), imported
       and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
     License: CC0 1.0 Universal - https://polyhaven.com/license
+    Redistribution: committed
+    LicenseVerified: in-repo-file
+    Version: >-
+      derived asset; see SandboxProject/Assets/Models/Vegetation/pine/LICENSE.md for the source files, the
+      import date and every modification made
+    Sha256: 9b870cd095aa83c363abde3f8d8afe40f64569c52d165c66597a42ef57de4023
+    Units: unitless
+    UpAxis: n/a
+    ColorSpace: srgb
+    Acquisition: >-
+      Already in-tree. CC0 permits redistribution and modification, so the DERIVED plant is committed rather
+      than fetched. Rebuild it from the Poly Haven source with: python
+      tools/vegetation-import/import_vegetation.py pine
   - Path: SandboxProject/Assets/Models/Vegetation/pine/Textures/pine_trunk.png
     Origin: Poly Haven asset 'pine_tree_01' (https://polyhaven.com/a/pine_tree_01), imported
       and reduced to a game-ready plant by tools/vegetation-import (issue #1398)
     License: CC0 1.0 Universal - https://polyhaven.com/license
+    Redistribution: committed
+    LicenseVerified: in-repo-file
+    Version: >-
+      derived asset; see SandboxProject/Assets/Models/Vegetation/pine/LICENSE.md for the source files, the
+      import date and every modification made
+    Sha256: c035fa7c19ab7c5307cb4d3ee3dd417f48141d87863114e1b197c20af74ecd90
+    Units: unitless
+    UpAxis: n/a
+    ColorSpace: srgb
+    Acquisition: >-
+      Already in-tree. CC0 permits redistribution and modification, so the DERIVED plant is committed rather
+      than fetched. Rebuild it from the Poly Haven source with: python
+      tools/vegetation-import/import_vegetation.py pine

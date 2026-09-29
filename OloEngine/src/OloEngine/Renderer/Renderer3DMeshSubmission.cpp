@@ -1696,14 +1696,17 @@ namespace OloEngine
 
         if (!shaderToUse)
         {
-            OLO_CORE_WARN("Renderer3D::DrawAnimatedMesh: Preferred shader not available, falling back to default forward shader");
-            shaderToUse = s_Data.DefaultForwardShader;
-            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.Pipeline->RenderStreamPasses.ForwardOverlay)
-                overlayRoute = true;
-        }
-        if (!shaderToUse)
-        {
-            OLO_CORE_ERROR("Renderer3D::DrawAnimatedMesh: No shader available!");
+            // No non-skinned substitute: a static shader would draw the mesh in
+            // bind pose, which looks like an animation bug rather than a missing
+            // shader. Refuse the draw and name the shader that is missing.
+            static std::atomic<bool> s_LoggedMissingSkinnedShader{ false };
+            if (!s_LoggedMissingSkinnedShader.exchange(true, std::memory_order_relaxed))
+            {
+                OLO_CORE_ERROR("Renderer3D::DrawAnimatedMesh: the skinned shader ({}) is not loaded, so skinned meshes are "
+                               "not drawn. Check OloEngine.log for its compile errors.",
+                               s_Data.Settings.Path == RenderingPath::Deferred ? "PBR_GBuffer_Skinned / PBR_MultiLight_Skinned"
+                                                                               : "PBR_MultiLight_Skinned");
+            }
             return nullptr;
         }
 

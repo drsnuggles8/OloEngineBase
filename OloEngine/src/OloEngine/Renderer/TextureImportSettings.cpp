@@ -16,12 +16,11 @@ namespace OloEngine
 {
     namespace
     {
-        // Version 2 added AlphaMipChain (#1453). Emit writes 2 only when that
-        // field is set, so a sidecar that does not use it stays readable by a
-        // version-1 cook; one that does is REJECTED by such a cook, loudly,
-        // instead of cooking with the field silently ignored.
+        // The one sidecar version this build reads and writes (binary-format-
+        // versioning.md: one current version per on-disk format). Version 2 added
+        // AlphaMipChain (#1453); a version-1 file is otherwise the same, so the fix
+        // for one is to change its Version line to 2.
         constexpr u32 kSidecarVersion = 2;
-        constexpr u32 kOldestSidecarVersion = 1;
 
         // Spelling <-> enum tables. Kept as one table per enum so the parser and the
         // emitter cannot drift apart, and so an unknown spelling is rejected rather than
@@ -125,17 +124,23 @@ namespace OloEngine
                     return false;
                 }
 
-                // An unknown version is a hard error rather than a best-effort read: a
-                // future field the cook silently ignores is exactly how a texture ships
-                // in the wrong format without anyone noticing.
-                // A missing Version reads as 1, which is what a version-1 cook
-                // assumes of the same file.
+                // Any version but the current one, or none, is a hard error rather than
+                // a best-effort read: a field the cook silently ignores or misreads is
+                // exactly how a texture ships in the wrong format without anyone noticing.
                 const YAML::Node version = node["Version"];
-                const u32 declaredVersion = version ? version.as<u32>(0u) : kOldestSidecarVersion;
-                if (declaredVersion < kOldestSidecarVersion || declaredVersion > kSidecarVersion)
+                if (!version)
                 {
-                    OLO_CORE_ERROR("TextureImport::Parse - unsupported sidecar version {} (expected {} to {})",
-                                   declaredVersion, kOldestSidecarVersion, kSidecarVersion);
+                    OLO_CORE_ERROR("TextureImport::Parse - the sidecar has no 'Version'; add 'Version: {}' under "
+                                   "'TextureImportSettings'",
+                                   kSidecarVersion);
+                    return false;
+                }
+                if (const u32 declaredVersion = version.as<u32>(0u); declaredVersion != kSidecarVersion)
+                {
+                    OLO_CORE_ERROR("TextureImport::Parse - unsupported sidecar version '{}'; this build reads only "
+                                   "version {}. A version-1 sidecar needs only its Version line changed to {}; "
+                                   "re-save it from olo_asset_import_settings or edit it by hand",
+                                   version.as<std::string>(std::string{}), kSidecarVersion, kSidecarVersion);
                     return false;
                 }
 
@@ -157,14 +162,6 @@ namespace OloEngine
                 }
                 if (const YAML::Node alphaMipChain = node["AlphaMipChain"]; alphaMipChain)
                 {
-                    // A version-1 file carrying the field is the case the version
-                    // exists for: a version-1 cook would read it and drop the field.
-                    if (declaredVersion < 2u)
-                    {
-                        OLO_CORE_ERROR("TextureImport::Parse - AlphaMipChain needs 'Version: 2' (the sidecar says {})",
-                                       declaredVersion);
-                        return false;
-                    }
                     if (!LookupName(kAlphaMipChainNames, alphaMipChain.as<std::string>(std::string{}), out.AlphaMipChain))
                     {
                         OLO_CORE_ERROR("TextureImport::Parse - unknown AlphaMipChain '{}'",
@@ -196,13 +193,12 @@ namespace OloEngine
         {
             std::ostringstream stream;
             stream << "TextureImportSettings:\n";
-            const bool needsVersion2 = settings.AlphaMipChain != TextureImportSettings::AlphaMipChainChoice::Auto;
-            stream << "  Version: " << (needsVersion2 ? kSidecarVersion : kOldestSidecarVersion) << "\n";
+            stream << "  Version: " << kSidecarVersion << "\n";
             stream << "  Format: " << NameIn(kFormatNames, settings.Format) << "\n";
             stream << "  ColorSpace: " << NameIn(kColorSpaceNames, settings.ColorSpace) << "\n";
             if (settings.GenerateMips.has_value())
                 stream << "  GenerateMips: " << (*settings.GenerateMips ? "true" : "false") << "\n";
-            if (needsVersion2)
+            if (settings.AlphaMipChain != TextureImportSettings::AlphaMipChainChoice::Auto)
                 stream << "  AlphaMipChain: " << NameIn(kAlphaMipChainNames, settings.AlphaMipChain) << "\n";
             return stream.str();
         }
@@ -228,7 +224,12 @@ namespace OloEngine
             buffer << file.rdbuf();
             if (!Parse(buffer.str(), out))
             {
-                OLO_CORE_ERROR("TextureImport::LoadForImage - '{}' is malformed; cooking '{}' with automatic settings",
+                // The texture still cooks (with automatic settings) so a bad sidecar
+                // does not drop it from the pack, but that is not what the author
+                // chose: say so as an error naming the file to fix (the reason is the
+                // Parse error logged just above).
+                OLO_CORE_ERROR("TextureImport::LoadForImage - sidecar '{}' was rejected (see the error above); cooking "
+                               "'{}' with AUTOMATIC settings, NOT the ones it asks for, until the sidecar is fixed",
                                sidecar, std::string(sourceImagePath));
                 return false;
             }

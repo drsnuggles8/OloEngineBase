@@ -16,8 +16,9 @@ namespace OloEngine
 {
     std::filesystem::path Texture2D::ResolveStoredSourcePath(std::string_view sourcePath)
     {
-        // One implementation for every stored content path (#1496): project
-        // directory first, then the working directory, else an error and empty.
+        // One implementation for every stored content path (#1496): the path's
+        // spelling picks the project directory or the working directory, never
+        // both; a file missing there is an error and an empty result.
         return ResolveContentPath(sourcePath);
     }
 

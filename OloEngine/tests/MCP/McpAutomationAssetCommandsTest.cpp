@@ -531,7 +531,7 @@ namespace OloEngine::Automation::Tests
     TEST_F(AutomationAssetCommandsTest, AnUnchangedSettingDoesNotRewriteAHandWrittenSidecar)
     {
         const auto path = m_Project / "Assets" / "Textures" / "Checkerboard.png.oloimport";
-        const std::string handWritten = "# chosen for the terrain splat\nTextureImportSettings:\n  Version: 1\n  Format: BC5\n";
+        const std::string handWritten = "# chosen for the terrain splat\nTextureImportSettings:\n  Version: 2\n  Format: BC5\n";
         Write(path, handWritten);
         const Json same = Success("olo_asset_import_settings", Json{ { "path", "Assets/Textures/Checkerboard.png" },
                                                                      { "settings", Json{ { "Format", "BC5" } } } });

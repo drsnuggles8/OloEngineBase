@@ -49,9 +49,9 @@ A later camera is a cut, re-warmed over its own `WarmupFrames` on a fixed schedu
 
 ## Manifest schema v2
 
-`ManifestVersion: 2` adds exactly two things. A v1 manifest is **not** silently upgraded — the v2
-provenance fields are required, so an implicit upgrade would turn every issue-#974 manifest into a
-parse error at an unrelated moment.
+`ManifestVersion: 2` added exactly two things to issue #974's v1 schema, and it is the only
+version the parser reads: every committed manifest was migrated, and a v1 file is refused with an
+error naming what to add (`ManifestVersion: 2` and the provenance block below on every asset).
 
 ### Camera motion
 
@@ -86,7 +86,7 @@ produce a still one — and so is a malformed number, which `as<T>(fallback)` wo
 
 ### Asset provenance
 
-Every `Assets:` record carries the full block, and all of it is required in v2:
+Every `Assets:` record carries the full block, and all of it is required:
 
 | Field | Vocabulary | Why it is here |
 |---|---|---|

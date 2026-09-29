@@ -434,7 +434,7 @@ layout(std140, binding = 0) uniform CameraMatrices
     vec4 u_CameraPosition;
 };
 
-)" + std::string(ShaderBindingLayout::GetInstanceBufferLayout()) +
+)" + std::string(ShaderBindingLayout::GetInstanceSSBOLayout()) +
                R"(
 layout(location = 0) out vec3 v_WorldPosition;
 layout(location = 1) out vec3 v_Normal;
@@ -488,7 +488,7 @@ void main()
         frag << "};\n\n";
 
         // Per-draw instance data (for the entity ID), indexed by the vertex stage's instance
-        frag << ShaderBindingLayout::GetInstanceBufferLayout() << "\n";
+        frag << ShaderBindingLayout::GetInstanceSSBOLayout() << "\n";
         frag << "layout(location = 14) flat in int v_InstanceIndex;\n\n";
 
         // Collect and emit user parameter uniforms

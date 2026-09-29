@@ -318,10 +318,6 @@ namespace OloEngine
         ShaderWarmup::RunWarmupScreen(m_ShaderLibrary, window);
 
         s_Data.LightCubeShader = m_ShaderLibrary.Get("LightCube");
-        // The fallback forward shader DrawAnimatedMesh uses when its preferred
-        // skinned shader is unavailable. Every material is PBR (#1499), so the
-        // material-type routing that once selected it is gone.
-        s_Data.DefaultForwardShader = m_ShaderLibrary.Get("PBR_MultiLight");
         s_Data.QuadShader = m_ShaderLibrary.Get("Renderer3D_Quad");
         s_Data.PBRShader = m_ShaderLibrary.Get("PBR_MultiLight");
         s_Data.PBRSkinnedShader = m_ShaderLibrary.Get("PBR_MultiLight_Skinned");
@@ -929,7 +925,6 @@ namespace OloEngine
         // surviving to static destruction leak their VkShaderModules into
         // vkDestroyDevice (VUID-vkDestroyDevice-device-05137).
         s_Data.LightCubeShader.Reset();
-        s_Data.DefaultForwardShader.Reset();
         s_Data.QuadShader.Reset();
         s_Data.PBRShader.Reset();
         s_Data.PBRSkinnedShader.Reset();
