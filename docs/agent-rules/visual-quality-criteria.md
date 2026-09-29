@@ -71,6 +71,24 @@ quads"* — reduced measured detail to **0.31×**. The feature that exists to ad
 removed it. That is a quality signal a presence test structurally cannot produce, and it would have
 failed at acceptance time.
 
+**The gate is in the code now.** `VisualEvidenceGuards.h` owns `FineDetailDensity` (fixed threshold
+8/255, forward-difference gradient of Rec.601 luma; a central difference reads zero on a 1 px alternation), `ExpectFineDetailNotReduced` (the A/B, the strong
+check) and `ExpectFineDetailFloorAgainstReference` (against a photograph, the weaker check).
+`FineDetailConditions.h` snapshots resolution, path, MSAA and the full post-process settings at each
+arm's capture, and `ExpectConditionsPinned` fails the A/B if the two snapshots differ. A new
+"richness" A/B calls the first and the pinned check; it does not pick its own threshold or crop. The
+CPU proof, including the negative controls (a blurred stand-in fails, an identical frame passes,
+dither raises the absolute number but not the A/B ordering), is `FineDetailDensityTest.cpp`.
+
+The table above is from the #1224 captures as they were when #1389 was accepted; those PNGs have
+since been replaced. On the committed `FloraCloseGeometry_*` frames today the authored meshes carry
+MORE detail than the cards (density ratio 1.69 on `FloraCloseGeometry_*`, 2.43 on
+`FoliageAuthoredMesh_near*`) and 1.18x `grass.png`, so the gate passes: it is a regression guard
+now, not a finding. Swap the arms and it fails, which is the negative control on real frames. One
+limit: a count of pixels over a threshold rises when a HARD edge is lightly blurred (the edge widens
+before it fades), so it orders fine texture reliably and hard-edged content not at all; compare like
+with like (`CaveatHardEdgesWidenUnderLightBlur...` pins this).
+
 Caveats, because a gate nobody can trust is worse than none:
 
 - **Compare only at identical output resolution.** A non-native or upscaled capture scores
@@ -97,3 +115,4 @@ because the numbers are available and look like an answer.
 - [foliage-lod-transition-coverage.md](foliage-lod-transition-coverage.md) — the neighbouring trap
   where a conserved quantity makes a plausible metric read backwards.
 - Issue #1401 carries the proposed gate and the measurements above.
+- [testing-architecture.md](testing-architecture.md): `FineDetailDensityTest` is an L1 CPU test; the A/B calls sit in the L8 evidence tests.

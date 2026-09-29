@@ -88,6 +88,7 @@
 
 #include "RendererAttachedTest.h"
 #include "RenderPropertyTest.h"
+#include "FineDetailConditions.h"
 #include "VisualEvidenceGuards.h"
 
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
@@ -105,6 +106,7 @@
 #include "OloEngine/Utils/PlatformUtils.h" // Time::SetMockTime
 
 #include <gtest/gtest.h>
+#include <stb_image/stb_image.h>
 #include <stb_image/stb_image_write.h>
 
 #include <algorithm>
@@ -1604,6 +1606,7 @@ namespace OloEngine::Tests
         //        shape as a pine drawn as a card.
         std::vector<u8> withMesh;
         Capture(closePose, withMesh);
+        const auto meshConditions = VisualEvidence::SnapshotFineDetailConditions(kWidth, kHeight);
 
         // Snapshot before flipping, restore from the snapshot after. Deriving
         // the restore instead - from "has a MeshPath", which was the first fix
@@ -1621,6 +1624,7 @@ namespace OloEngine::Tests
         foliage.m_NeedsRebuild = true;
         std::vector<u8> cardsOnly;
         Capture(closePose, cardsOnly);
+        const auto cardsConditions = VisualEvidence::SnapshotFineDetailConditions(kWidth, kHeight);
 
         for (i32 i = 0; i < foliage.m_Layers.Num(); ++i)
             foliage.m_Layers[i].UseAuthoredMesh = authoredMeshFlags[i];
@@ -1651,6 +1655,36 @@ namespace OloEngine::Tests
         EXPECT_GT(meshCoverage, cardCoverage * 1.05)
             << "the authored pines take no more of the frame than their flat cards (" << meshCoverage * 100.0
             << "% against " << cardCoverage * 100.0 << "%) — the near field is not gaining any silhouette";
+
+        // ── (a2) Quality, not presence (issue #1401). Everything above is true of
+        //         a feature that makes the plants WORSE: this criterion was once
+        //         marked met on exactly such numbers. The geometry must not carry
+        //         less fine detail than the cards it replaces. Same resolution,
+        //         MSAA and post stack are checked, not assumed.
+        const VisualEvidence::PixelRect wholeFrame{ 0u, 0u, kWidth, kHeight };
+        VisualEvidence::ExpectConditionsPinned(meshConditions, cardsConditions, "close geometry A/B");
+        const f64 detailRatio = VisualEvidence::ExpectFineDetailNotReduced(
+            withMesh, cardsOnly, kWidth, kHeight, wholeFrame, "close flora: authored mesh vs flat cards");
+
+        // The weaker check, against the repo's own photograph of grass (the
+        // albedo every layer here samples). A wide 0.5x margin: the reference is
+        // measured at its native 512 px, not resampled to this frame, and the
+        // frame is a lit 3D scene rather than a photograph.
+        {
+            int refW = 0;
+            int refH = 0;
+            int refChannels = 0;
+            const std::string refPath = "assets/textures/grass.png";
+            stbi_uc* refPixels = ::stbi_load(refPath.c_str(), &refW, &refH, &refChannels, 4);
+            ASSERT_NE(refPixels, nullptr) << "reference photograph " << refPath << " did not load";
+            const std::vector<u8> reference(refPixels, refPixels + static_cast<sizet>(refW) * refH * 4u);
+            ::stbi_image_free(refPixels);
+            const f64 floorRatio = VisualEvidence::ExpectFineDetailFloorAgainstReference(
+                withMesh, kWidth, kHeight, wholeFrame, reference, static_cast<u32>(refW), static_cast<u32>(refH), 0.5,
+                "close flora vs grass.png");
+            GTEST_LOG_(INFO) << "fine detail: mesh/cards ratio " << detailRatio << ", mesh/grass.png ratio "
+                             << floorRatio;
+        }
 
         // ── (b) Transmission: the backlit canopy gets BRIGHTER, and only where
         //        the canopy is.

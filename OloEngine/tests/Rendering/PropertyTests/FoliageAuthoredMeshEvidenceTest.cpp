@@ -55,6 +55,7 @@
 
 #include "RendererAttachedTest.h"
 #include "RenderPropertyTest.h"
+#include "FineDetailConditions.h"
 #include "VisualEvidenceGuards.h"
 
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
@@ -266,6 +267,7 @@ namespace OloEngine::Tests
         std::vector<u8> farMesh;
         std::vector<u8> farMeshRepeat;
         Capture(nearEye, 0.0f, 0.12f, nearMesh);
+        const auto nearMeshConditions = VisualEvidence::SnapshotFineDetailConditions(kWidth, kHeight);
         Capture(farEye, 0.0f, 0.30f, farMesh);
         // The SAME pose again, same arm, same code path: this pair is the
         // renderer's own run-to-run variance and nothing else, which is the only
@@ -331,6 +333,7 @@ namespace OloEngine::Tests
         std::vector<u8> nearCard;
         std::vector<u8> farCard;
         Capture(nearEye, 0.0f, 0.12f, nearCard);
+        const auto nearCardConditions = VisualEvidence::SnapshotFineDetailConditions(kWidth, kHeight);
         Capture(farEye, 0.0f, 0.30f, farCard);
 
         if (GoldenRebaseRequested())
@@ -362,6 +365,18 @@ namespace OloEngine::Tests
         EXPECT_GT(nearDelta, 0.05)
             << "up close the authored mesh and the flat card render the same frame (" << nearDelta * 100.0
             << "% of pixels differ) — the plant geometry is not reaching the screen";
+
+        // NEAR, quality and not presence (issue #1401): "the frames differ"
+        // above is satisfied by a feature that makes the plants WORSE. The
+        // authored mesh exists to add geometric richness, so it must not carry
+        // less fine detail than the card it replaces. Same resolution, same
+        // post stack and same crop are checked, not assumed; both arms carry
+        // the same alpha-test pattern, so noise cancels in the comparison.
+        VisualEvidence::ExpectConditionsPinned(nearMeshConditions, nearCardConditions, "authored mesh A/B (near)");
+        const f64 detailRatio = VisualEvidence::ExpectFineDetailNotReduced(
+            nearMesh, nearCard, kWidth, kHeight, VisualEvidence::PixelRect{ 0u, 0u, kWidth, kHeight },
+            "near authored mesh vs near card control");
+        GTEST_LOG_(INFO) << "authored-mesh A/B fine-detail density on/off ratio: " << detailRatio;
 
         // FAR: an ABSOLUTE bound at the noise floor. Past the band the two arms
         // must be the same frame, so the only difference allowed is the jitter
