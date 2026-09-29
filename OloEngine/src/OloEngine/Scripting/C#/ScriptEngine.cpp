@@ -101,7 +101,13 @@ namespace OloEngine
                     constexpr std::array<u8, 4> portablePdbSignature{ 'B', 'S', 'J', 'B' };
                     const bool isPortablePdb = pdbFileData.Size() >= portablePdbSignature.size() &&
                                                std::equal(portablePdbSignature.begin(), portablePdbSignature.end(), pdbFileData.As<const u8>());
-                    if (isPortablePdb)
+                    if (pdbFileData.Size() == 0)
+                    {
+                        OLO_CORE_WARN("[ScriptEngine] Could not read {} (empty, locked, or still being written); "
+                                      "C# debugging is unavailable for this assembly until it is reloaded.",
+                                      pdbPath.string());
+                    }
+                    else if (isPortablePdb)
                     {
                         ::mono_debug_open_image_from_memory(image, pdbFileData.As<const mono_byte>(), static_cast<int>(pdbFileData.Size()));
                         OLO_CORE_INFO("Loaded PDB {}", pdbPath);
