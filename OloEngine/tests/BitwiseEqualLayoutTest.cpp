@@ -132,6 +132,16 @@ namespace
     X(OloEngine::GroomLodPolicy)                                   \
     X(OloEngine::GroomLodDecision)                                 \
     X(OloEngine::GroomLodState)                                    \
+    /* Scene/Components.h groom family (#1246-#1251, #1323). */    \
+    /* Each implements operator== as BitwiseEqual(*this, other) */ \
+    /* and its header comment names this test as the guard;    */  \
+    /* only the sizeof static_asserts held that promise before. */ \
+    X(OloEngine::GroomComponent)                                   \
+    X(OloEngine::GroomBindingComponent)                            \
+    X(OloEngine::GroomFibreComponent)                              \
+    X(OloEngine::GroomCoatShadowComponent)                         \
+    X(OloEngine::GroomCoatComponent)                               \
+    X(OloEngine::GroomSimulationComponent)                         \
     /* Scene/AnimalScheduler.h (#1258). The population budget's */ \
     /* five value types, each implementing operator== as        */ \
     /* BitwiseEqual(*this, other). AnimalWorkItem is not here:  */ \
@@ -141,7 +151,10 @@ namespace
     X(OloEngine::AnimalBudgetPolicy)                               \
     X(OloEngine::AnimalScheduleState)                              \
     X(OloEngine::AnimalSchedule)                                   \
-    X(OloEngine::AnimalSchedulerStats)
+    X(OloEngine::AnimalSchedulerStats)                             \
+    /* ...and the two per-animal components that feed it. */       \
+    X(OloEngine::AnimalBudgetComponent)                            \
+    X(OloEngine::AnimalPathComponent)
 
 #define OLO_STATIC_ASSERT_TRIVIAL(T) static_assert(std::is_trivially_copyable_v<T>, #T " must stay trivially copyable for Math::BitwiseEqual");
     OLO_BITWISE_EQUAL_TYPES(OLO_STATIC_ASSERT_TRIVIAL)
