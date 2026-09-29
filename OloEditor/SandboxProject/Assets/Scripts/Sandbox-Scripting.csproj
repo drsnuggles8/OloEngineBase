@@ -8,7 +8,8 @@
     <AssemblyName>Sandbox-Scripting</AssemblyName>
     <RootNamespace>Sandbox</RootNamespace>
     <OutDir>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', 'Binaries'))</OutDir>
-    <!-- LuaScripts/ and Binaries/ hold no C#; keep the glob to Source/. -->
+    <!-- Only Source/: the CMake build moves obj/ into the build tree, so an obj/ an IDE build
+         left here would otherwise be globbed in. The CMake SOURCES glob is the same tree. -->
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
 

@@ -28,8 +28,10 @@
 #include <yaml-cpp/yaml.h>
 
 #include <algorithm>
+#include <array>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -244,11 +246,12 @@ namespace OloEngine::Tests
     // were missing from OloEngine-ScriptCore.dll (#1405).
     //
     // Both assemblies are now SDK-style projects built by `dotnet build`
-    // (cmake/CSharpAssembly.cmake), which compile every `.cs` by glob, so the
-    // failure can only come back by editing a project to list or remove files.
-    // This pins the glob: OloEngine-ScriptCore uses the SDK default (every
-    // `.cs` under the project directory), Sandbox-Scripting names exactly one
-    // `Source/**/*.cs` item, and neither removes anything.
+    // (cmake/CSharpAssembly.cmake). Each compiles exactly one recursive glob
+    // over its source tree, the same tree the CMake target globs for its
+    // dependencies. This pins that shape, and forbids every MSBuild way of
+    // dropping files from it: a `Remove`, `DefaultItemExcludes`, turning the
+    // default items back on or off wholesale, and a `Directory.Build.*` file
+    // above the project, which MSBuild imports implicitly.
     // -------------------------------------------------------------------------
     TEST(AssetCSharpScriptValidity, CSharpProjectsCompileEverySourceFile)
     {
@@ -259,46 +262,66 @@ namespace OloEngine::Tests
             buf << in.rdbuf();
             return buf.str();
         };
-        const auto countOf = [](const std::string& text, const std::string& token)
+        const auto countMatches = [](const std::string& text, const std::regex& pattern)
         {
-            sizet count = 0;
-            for (sizet pos = text.find(token); pos != std::string::npos; pos = text.find(token, pos + token.size()))
-                ++count;
-            return count;
+            return static_cast<sizet>(std::distance(std::sregex_iterator(text.begin(), text.end(), pattern),
+                                                    std::sregex_iterator()));
         };
 
-        const fs::path repoRoot = fs::path{ OLO_TEST_EDITOR_ROOT }.parent_path();
+        const fs::path editorRoot{ OLO_TEST_EDITOR_ROOT };
+        const fs::path repoRoot = editorRoot.parent_path();
         const fs::path props = repoRoot / "OloEngine-ScriptCore" / "OloEngine.CSharp.props";
-        const fs::path engineProject = repoRoot / "OloEngine-ScriptCore" / "OloEngine-ScriptCore.csproj";
-        const fs::path sandboxProject = fs::path{ OLO_TEST_EDITOR_ROOT } / "SandboxProject" / "Assets" / "Scripts" /
-                                        "Sandbox-Scripting.csproj";
 
-        for (const fs::path& path : { props, engineProject, sandboxProject })
-            ASSERT_TRUE(fs::exists(path)) << "Missing " << path.string();
-
-        const std::string propsText = readText(props);
-        const std::string engineText = readText(engineProject);
-        const std::string sandboxText = readText(sandboxProject);
-
-        for (const auto& [name, text] : { std::pair{ props.filename().string(), propsText },
-                                          std::pair{ engineProject.filename().string(), engineText },
-                                          std::pair{ sandboxProject.filename().string(), sandboxText } })
+        struct ProjectCase
         {
-            EXPECT_EQ(countOf(text, "<Compile Remove"), 0u)
-                << name << " removes files from compilation; the removed classes are missing from the assembly.";
+            fs::path Project;
+            std::string Glob;    // the one Compile Include the project may have
+            fs::path SourceTree; // the directory that glob covers
+        };
+        const std::array projects{
+            ProjectCase{ repoRoot / "OloEngine-ScriptCore" / "OloEngine-ScriptCore.csproj", "src/**/*.cs",
+                         repoRoot / "OloEngine-ScriptCore" / "src" },
+            ProjectCase{ editorRoot / "SandboxProject" / "Assets" / "Scripts" / "Sandbox-Scripting.csproj", "Source/**/*.cs",
+                         editorRoot / "SandboxProject" / "Assets" / "Scripts" / "Source" },
+        };
+
+        const std::regex compileElement(R"(<\s*Compile\b)");
+        const std::regex removeAttribute(R"(\bRemove\s*=)");
+        const std::regex dropsItems(R"(DefaultItemExcludes|EnableDefaultItems\b)");
+        const std::regex defaultCompileItemsOff(R"(<\s*EnableDefaultCompileItems\s*>\s*false\s*<)");
+
+        ASSERT_TRUE(fs::exists(props)) << "Missing " << props.string();
+        const std::string propsText = readText(props);
+        EXPECT_EQ(countMatches(propsText, compileElement), 0u) << "OloEngine.CSharp.props must not add compile items.";
+        EXPECT_EQ(countMatches(propsText, removeAttribute), 0u) << "OloEngine.CSharp.props removes items.";
+        EXPECT_EQ(countMatches(propsText, dropsItems), 0u) << "OloEngine.CSharp.props changes which items are compiled.";
+
+        for (const ProjectCase& project : projects)
+        {
+            SCOPED_TRACE(project.Project.filename().string());
+            ASSERT_TRUE(fs::exists(project.Project)) << "Missing " << project.Project.string();
+            ASSERT_FALSE(EnumerateCSharpFiles(project.SourceTree).empty()) << project.SourceTree.string();
+            const std::string text = readText(project.Project);
+
+            EXPECT_EQ(countMatches(text, compileElement), 1u)
+                << "The project must compile exactly one item, the glob " << project.Glob << "; a hand-kept list is how Video.cs went missing.";
+            const std::regex expectedInclude(R"(<\s*Compile\s+Include\s*=\s*")" + std::regex_replace(project.Glob, std::regex(R"([.*])"), R"(\$&)") +
+                                             R"("\s*/>)");
+            EXPECT_EQ(countMatches(text, expectedInclude), 1u) << "The project must compile every .cs by <Compile Include=\"" << project.Glob << "\" />.";
+            EXPECT_EQ(countMatches(text, defaultCompileItemsOff), 1u)
+                << "The SDK's whole-directory default must stay off, or an in-source obj/ from an IDE build is compiled too.";
+            EXPECT_EQ(countMatches(text, removeAttribute), 0u) << "The project removes items; their classes would be missing from the assembly.";
+            EXPECT_EQ(countMatches(text, dropsItems), 0u) << "The project changes which items are compiled.";
+
+            for (fs::path dir = project.Project.parent_path(); !dir.empty(); dir = dir.parent_path())
+            {
+                for (const char* implicitImport : { "Directory.Build.props", "Directory.Build.targets" })
+                    EXPECT_FALSE(fs::exists(dir / implicitImport))
+                        << (dir / implicitImport).string() << " is imported into the project implicitly and can change what it compiles.";
+                if (dir == repoRoot || dir == dir.parent_path())
+                    break;
+            }
         }
-
-        EXPECT_EQ(countOf(propsText, "EnableDefaultCompileItems"), 0u)
-            << "OloEngine.CSharp.props must leave each project's compile items alone.";
-        EXPECT_EQ(countOf(engineText, "EnableDefaultCompileItems"), 0u)
-            << "OloEngine-ScriptCore.csproj must compile every .cs under the project (SDK default glob).";
-        EXPECT_EQ(countOf(engineText, "<Compile "), 0u)
-            << "OloEngine-ScriptCore.csproj lists compile items; a hand-kept list is how Video.cs went missing.";
-
-        EXPECT_EQ(countOf(sandboxText, "<Compile "), 1u)
-            << "Sandbox-Scripting.csproj must have exactly one compile item, the Source/ glob.";
-        EXPECT_EQ(countOf(sandboxText, "<Compile Include=\"Source/**/*.cs\" />"), 1u)
-            << "Sandbox-Scripting.csproj must compile every .cs under Source/ by glob.";
     }
 
     // -------------------------------------------------------------------------
