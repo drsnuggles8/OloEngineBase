@@ -30,9 +30,9 @@ namespace OloEngine
     enum class EStreamingAdmissionReason : u8
     {
         None,
-        ResidentBudget,            // loaded + loading bytes plus this region would exceed MaxResidentMegabytes
-        FrameBudget,               // bytes already admitted this frame plus this region would exceed MaxAdmittedMegabytesPerFrame
-        LargerThanResidentBudget   // this region's estimate alone exceeds MaxResidentMegabytes
+        ResidentBudget,          // loaded + loading bytes plus this region would exceed MaxResidentMegabytes
+        FrameBudget,             // bytes already admitted this frame plus this region would exceed MaxAdmittedMegabytesPerFrame
+        LargerThanResidentBudget // this region's estimate alone exceeds MaxResidentMegabytes
     };
 
     [[nodiscard]] const char* ToString(EStreamingAdmissionStatus status) noexcept;

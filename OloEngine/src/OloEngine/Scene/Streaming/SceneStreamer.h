@@ -83,10 +83,10 @@ namespace OloEngine
         u32 MaxLoadedRegions = 0;
         u32 PendingLoads = 0;
         u32 AbandonedLoadsRunning = 0;
-        FAssetByteTotal ResidentBytes; // Ready regions
-        FAssetByteTotal PendingBytes;  // Loading regions
-        u64 MaxResidentBytes = 0;          // 0 = no byte budget
-        u64 MaxAdmittedBytesPerFrame = 0;  // 0 = no per-frame budget
+        FAssetByteTotal ResidentBytes;    // Ready regions
+        FAssetByteTotal PendingBytes;     // Loading regions
+        u64 MaxResidentBytes = 0;         // 0 = no byte budget
+        u64 MaxAdmittedBytesPerFrame = 0; // 0 = no per-frame budget
         u64 AdmittedBytesThisFrame = 0;
 
         u32 DeferredRegions = 0;
