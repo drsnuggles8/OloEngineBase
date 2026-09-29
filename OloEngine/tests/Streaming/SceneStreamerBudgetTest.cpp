@@ -641,9 +641,11 @@ TEST(StreamingSettingsYaml, ByteBudgetsRoundTrip)
 
 TEST(StreamingSettingsYaml, ASceneSavedBeforeTheByteBudgetLoadsWithNoBudget)
 {
-    // The StreamingSettings block exactly as scenes were written before #1365.
-    constexpr std::string_view kPreBudgetScene =
+    // The StreamingSettings block exactly as scenes were written before #1365, at
+    // the current scene version: the new keys are optional, so no version bump.
+    const std::string kPreBudgetScene =
         "Scene: PreBudget\n"
+        "Version: " + std::to_string(SceneSerializer::CurrentVersion) + "\n"
         "StreamingSettings:\n"
         "  Enabled: true\n"
         "  DefaultLoadRadius: 150\n"
@@ -653,7 +655,7 @@ TEST(StreamingSettingsYaml, ASceneSavedBeforeTheByteBudgetLoadsWithNoBudget)
         "Entities: []\n";
 
     Ref<Scene> scene = Scene::Create();
-    ASSERT_TRUE(SceneSerializer(scene).DeserializeFromYAML(std::string(kPreBudgetScene)));
+    ASSERT_TRUE(SceneSerializer(scene).DeserializeFromYAML(kPreBudgetScene));
     const StreamingSettings& ss = scene->GetStreamingSettings();
     EXPECT_TRUE(ss.Enabled);
     EXPECT_FLOAT_EQ(ss.DefaultLoadRadius, 150.0f);
@@ -669,6 +671,9 @@ TEST(StreamingSettingsYaml, CorruptBudgetsAreSanitisedOnLoad)
     auto load = [](const std::string& resident, const std::string& perFrame)
     {
         const std::string yaml = "Scene: Corrupt\n"
+                                 "Version: " +
+                                 std::to_string(SceneSerializer::CurrentVersion) +
+                                 "\n"
                                  "StreamingSettings:\n"
                                  "  MaxResidentMegabytes: " +
                                  resident + "\n  MaxAdmittedMegabytesPerFrame: " + perFrame + "\nEntities: []\n";
