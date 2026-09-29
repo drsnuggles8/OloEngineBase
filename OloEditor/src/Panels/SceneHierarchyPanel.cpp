@@ -8913,7 +8913,7 @@ namespace OloEngine
                                    "Re-import it with group names the importer recognises (or a groom_role "
                                    "attribute) to give it an undercoat and guard hairs.");
             }
-            else if (ImGui::BeginTable("##groomcoatgroups", 7,
+            else if (ImGui::BeginTable("##groomcoatgroups", 12,
                                        ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                                            ImGuiTableFlags_SizingStretchProp))
             {
@@ -8924,7 +8924,40 @@ namespace OloEngine
                 ImGui::TableSetupColumn("Length");
                 ImGui::TableSetupColumn("Width");
                 ImGui::TableSetupColumn("Clump");
+                // Coat authoring v4 (#1533), read-only like the rest: what the
+                // asset was groomed with, cooked in section 9.
+                ImGui::TableSetupColumn("Tint");
+                ImGui::TableSetupColumn("Tip x"); // multiplies Tint at the tip (#1533)
+                ImGui::TableSetupColumn("Curl");
+                ImGui::TableSetupColumn("Wave");
+                ImGui::TableSetupColumn("Stiffness");
                 ImGui::TableHeadersRow();
+
+                // A tint swatch, with its values in the tooltip. HDR because a
+                // tint is a gain up to GroomCoatLimits::MaxTint, and a swatch
+                // clamped at white would hide the difference between 1 and 3.
+                const auto tintSwatch = [](const char* id, const glm::vec3& tint)
+                {
+                    ImGui::ColorButton(id, ImVec4(tint.r, tint.g, tint.b, 1.0f),
+                                       ImGuiColorEditFlags_NoPicker | ImGuiColorEditFlags_HDR |
+                                           ImGuiColorEditFlags_Float,
+                                       ImVec2(12.0f, 12.0f));
+                };
+                // Amplitude in millimetres at a frequency per metre, or a dash
+                // for a group that neither curls nor waves ("either at zero is
+                // the straight coat", GroomCoatGroupDesc).
+                const auto shapeCell = [](f32 amplitude, f32 frequency)
+                {
+                    if (amplitude > 0.0f && frequency > 0.0f)
+                    {
+                        ImGui::Text("%.1f mm %.0f/m", static_cast<f64>(amplitude) * 1000.0,
+                                    static_cast<f64>(frequency));
+                    }
+                    else
+                    {
+                        ImGui::TextDisabled("-");
+                    }
+                };
 
                 // A groom may legally hold 65535 groups, and a widget per row of
                 // that is the budget cpp-coding-quality.md §9 forbids. The
@@ -8941,6 +8974,10 @@ namespace OloEngine
                         const GroomCoatGroupDesc desc = groom->GetGroupCoat(groupIndex);
                         const auto& ranges = groom->GetGroupRanges();
                         ImGui::TableNextRow();
+                        // Per row, so every row's swatches ("##hue", "##tint",
+                        // "##tip") are distinct widgets rather than one ID
+                        // repeated down the table.
+                        ImGui::PushID(row);
                         ImGui::TableNextColumn();
                         // The colour the viewport preview draws this group in, so
                         // a row and a tuft on screen can be matched by eye.
@@ -8962,6 +8999,17 @@ namespace OloEngine
                         ImGui::Text("%.2f", static_cast<f64>(desc.Width));
                         ImGui::TableNextColumn();
                         ImGui::Text("%.2f", static_cast<f64>(desc.Clump));
+                        ImGui::TableNextColumn();
+                        tintSwatch("##tint", desc.Tint);
+                        ImGui::TableNextColumn();
+                        tintSwatch("##tip", desc.TipTint);
+                        ImGui::TableNextColumn();
+                        shapeCell(desc.CurlRadius, desc.CurlFrequency);
+                        ImGui::TableNextColumn();
+                        shapeCell(desc.WaveAmplitude, desc.WaveFrequency);
+                        ImGui::TableNextColumn();
+                        ImGui::Text("x%.2f", static_cast<f64>(desc.StiffnessScale));
+                        ImGui::PopID();
                     }
                 }
                 ImGui::EndTable();
@@ -9378,6 +9426,17 @@ namespace OloEngine
                         ImGui::Text("%u guide(s) held at the bind pose: the body has degenerate "
                                     "triangles under their roots",
                                     stats.GuidesWithHeldRoots);
+                        ImGui::PopStyleColor();
+                    }
+                    if (stats.GuidesStiffnessCapped > 0u)
+                    {
+                        // A group scaled stiffer than this step rate can carry
+                        // is solved at the step's ceiling instead (#1533), and
+                        // looks exactly like a group authored softer.
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                        ImGui::Text("%u guide(s) held to the stability ceiling: their group's stiffness scale "
+                                    "is too stiff for this Fixed Hz",
+                                    stats.GuidesStiffnessCapped);
                         ImGui::PopStyleColor();
                     }
                     const f32 stretch = std::abs(stats.WorstStretchRatio - 1.0f);
