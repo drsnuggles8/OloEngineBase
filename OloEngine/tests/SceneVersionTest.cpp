@@ -13,6 +13,7 @@
 #include "OloEnginePCH.h"
 
 #include <gtest/gtest.h>
+#include "TestTempDir.h"
 
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/SceneSerializer.h"
@@ -63,8 +64,7 @@ namespace OloEngine::Tests
 
         bool DeserializeViaFile(const std::string& yaml, Ref<Scene>& scene)
         {
-            const auto dir = std::filesystem::temp_directory_path() / "OloSceneVersionTest";
-            std::filesystem::create_directories(dir);
+            const auto dir = OloEngine::Tests::TempDir("scene_version");
             const auto path = dir / "scene.olo";
             std::filesystem::remove(path.string() + ".scenebin");
             {
@@ -72,9 +72,7 @@ namespace OloEngine::Tests
                 out << yaml;
             }
             SceneSerializer serializer(scene);
-            const bool ok = serializer.Deserialize(path);
-            std::filesystem::remove_all(dir);
-            return ok;
+            return serializer.Deserialize(path);
         }
     } // namespace
 
