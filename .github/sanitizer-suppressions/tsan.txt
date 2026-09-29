@@ -147,6 +147,11 @@ called_from_lib:libvulkan_radeon
 # thread's release can only be the last one after that read has finished. ASan
 # jobs still catch a genuine use-after-free of an exception object.
 #
-# Scoped to the exception_ptr release frame, not to ~runtime_error, so an
-# exception object freed any other way still reports.
+# What this costs: race: matches _M_release ANYWHERE in either access stack,
+# so it hides every race whose access runs under an exception_ptr release —
+# including a genuine one inside a custom exception type's destructor, if one
+# is ever carried across threads. race_top: cannot replace it: in this report
+# _M_release sits below operator delete and ~runtime_error, never on top.
+# An exception object freed any other way (e.g. __cxa_end_catch dropping the
+# last reference on the catching thread) still reports.
 race:std::__exception_ptr::exception_ptr::_M_release
