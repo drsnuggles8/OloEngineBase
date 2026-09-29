@@ -374,8 +374,9 @@ namespace OloEngine::Tests
         // the same alpha-test pattern, so noise cancels in the comparison.
         VisualEvidence::ExpectConditionsPinned(nearMeshConditions, nearCardConditions, "authored mesh A/B (near)");
         const f64 detailRatio = VisualEvidence::ExpectFineDetailNotReduced(
-            nearMesh, nearCard, kWidth, kHeight, VisualEvidence::PixelRect{ 0u, 0u, kWidth, kHeight },
-            "near authored mesh vs near card control");
+            nearMesh, nearCard, kWidth, kHeight,
+            VisualEvidence::PixelRect{ 0u, 0u, kWidth, kHeight / 2u }, // lower half of the image (GL readback is bottom-up)
+            "near field: authored mesh vs card control");
         GTEST_LOG_(INFO) << "authored-mesh A/B fine-detail density on/off ratio: " << detailRatio;
 
         // FAR: an ABSOLUTE bound at the noise floor. Past the band the two arms

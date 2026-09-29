@@ -1661,11 +1661,19 @@ namespace OloEngine::Tests
         //         marked met on exactly such numbers. The geometry must not carry
         //         less fine detail than the cards it replaces. Same resolution,
         //         MSAA and post stack are checked, not assumed.
-        const VisualEvidence::PixelRect wholeFrame{ 0u, 0u, kWidth, kHeight };
+        // The NEAR FIELD: the lower half of the image, which is the FIRST half
+        // of the unflipped GL readback. A whole-frame crop is dominated by the
+        // canopy and would have PASSED the frame this gate exists for: on the
+        // #1224 acceptance capture (536cd52a9) the whole frame reads 1.85x
+        // (mesh/cards) and the near field 0.35x.
+        const VisualEvidence::PixelRect nearField{ 0u, 0u, kWidth, kHeight / 2u };
         VisualEvidence::ExpectConditionsPinned(meshConditions, cardsConditions, "close geometry A/B");
         const f64 detailRatio = VisualEvidence::ExpectFineDetailNotReduced(
-            withMesh, cardsOnly, kWidth, kHeight, wholeFrame, "close flora: authored mesh vs flat cards");
+            withMesh, cardsOnly, kWidth, kHeight, nearField, "close flora: authored mesh vs flat cards");
 
+        // (Whole frame here on purpose: the near field is mostly bare terrain,
+        // which a photograph of grass says nothing about. This floor is the
+        // weak check; the A/B above is the one that bites.)
         // The weaker check, against the repo's own photograph of grass (the
         // albedo every layer here samples). A wide 0.5x margin: the reference is
         // measured at its native 512 px, not resampled to this frame, and the
@@ -1680,7 +1688,7 @@ namespace OloEngine::Tests
             const std::vector<u8> reference(refPixels, refPixels + static_cast<sizet>(refW) * refH * 4u);
             ::stbi_image_free(refPixels);
             const f64 floorRatio = VisualEvidence::ExpectFineDetailFloorAgainstReference(
-                withMesh, kWidth, kHeight, wholeFrame, reference, static_cast<u32>(refW), static_cast<u32>(refH), 0.5,
+                withMesh, kWidth, kHeight, VisualEvidence::PixelRect{ 0u, 0u, kWidth, kHeight }, reference, static_cast<u32>(refW), static_cast<u32>(refH), 0.5,
                 "close flora vs grass.png");
             GTEST_LOG_(INFO) << "fine detail: mesh/cards ratio " << detailRatio << ", mesh/grass.png ratio "
                              << floorRatio;
