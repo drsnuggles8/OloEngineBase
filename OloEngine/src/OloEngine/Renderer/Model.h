@@ -25,6 +25,7 @@ namespace OloEngine
 {
     // Forward declaration for CommandPacket (defined in Commands/CommandPacket.h)
     class CommandPacket;
+    class MaterialOverrideCache;
     // Configuration for overriding texture paths when model's embedded paths are incorrect
     struct TextureOverride
     {
@@ -69,9 +70,15 @@ namespace OloEngine
         // callback rather than a span because the caller has to resolve the
         // model's sub-key per mesh anyway (LightmapSubKeyForModelMesh), and a
         // model with no bake must cost nothing.
+        //
+        // `materialPatches` is the entity's MaterialOverridesComponent patches of
+        // THIS model's material table (Scene::PrepareMaterialOverrides, issue
+        // #1533), or null; a patched material slots in between the override and
+        // the imported material, exactly as on the MeshComponent paths.
         void DrawParallel(const glm::mat4& transform, const Material* overrideMaterial,
                           const Material& fallbackMaterial, i32 entityID,
-                          const std::function<glm::vec4(sizet)>& lightmapRegionForMesh) const;
+                          const std::function<glm::vec4(sizet)>& lightmapRegionForMesh,
+                          const MaterialOverrideCache* materialPatches = nullptr) const;
 
         void GetDrawCommands(const glm::mat4& transform, const Material& material, TArray<CommandPacket*>& outCommands) const;
         void GetDrawCommands(const glm::mat4& transform, const Ref<const Material>& material, TArray<CommandPacket*>& outCommands) const;

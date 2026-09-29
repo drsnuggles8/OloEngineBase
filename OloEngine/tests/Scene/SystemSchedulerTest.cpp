@@ -542,6 +542,16 @@ TEST(SystemSchedulerTest, GameplayScheduleHonoursDocumentedSeams)
     EXPECT_TRUE(sched.DependsOn("PhysicsFence", "RootMotionApply"));
     EXPECT_TRUE(sched.DependsOn("PropagateTransforms", "RootMotionApply"));
 
+    // Skeleton-pose seam (issue #1533): a BoneAttachmentComponent child is
+    // composed against its parent skeleton's bone, so PropagateTransforms reads
+    // the pose both animation systems write (RAW on SkeletonPose), and the
+    // physics kick drives skeleton-attached cloth from the same pose. The DIRECT
+    // edges are pinned in BoneAttachmentScheduling, since these two were already
+    // reachable through RootMotionApply before the channel existed.
+    EXPECT_TRUE(sched.DependsOn("PropagateTransforms", "Animation"));
+    EXPECT_TRUE(sched.DependsOn("PropagateTransforms", "AnimationGraph"));
+    EXPECT_TRUE(sched.DependsOn("PhysicsKick", "Animation"));
+
     // Physics kick/fence: the kick consumes posed transforms (buoyancy +
     // character/vehicle phases), the fence joins the world step and overwrites
     // the transforms — so the fence must come after the kick AND after every

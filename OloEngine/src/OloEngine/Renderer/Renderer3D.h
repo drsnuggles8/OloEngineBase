@@ -103,6 +103,7 @@ namespace OloEngine
     class CommandPacket;
     class FoliageRenderer;
     class Window;
+    class MaterialOverrideCache;
     struct FramebufferSpecification;
     struct PODMaterialData;
 } // namespace OloEngine
@@ -368,6 +369,17 @@ namespace OloEngine
             const Material* overrideMaterial, u64 stableEntityId, const Ref<MeshSource>& meshSource,
             const Material* importedMaterial, u32 importedSlot,
             GPUSceneMaterialOverrideLane overrideLane = GPUSceneMaterialOverrideLane::MaterialComponent);
+        // The full key, with the entity's PATCH of the imported material in the
+        // precedence (MaterialOverridesComponent, issue #1533): override ->
+        // patched -> imported -> default. `patchedMaterial` is what
+        // ResolveMaterialPatch returned for `importedMaterial`; a patched submesh
+        // gets an EntityPatch key (entity, slot), so the record names the copy
+        // the draw shades with and the shared Imported record is left alone.
+        // The two overloads above are this one with no patch.
+        [[nodiscard]] static GPUSceneMaterialKey ResolveGPUSceneMaterialKey(
+            const Material* overrideMaterial, const Material* patchedMaterial, u64 stableEntityId,
+            const Ref<MeshSource>& meshSource, const Material* importedMaterial, u32 importedSlot,
+            GPUSceneMaterialOverrideLane overrideLane = GPUSceneMaterialOverrideLane::MaterialComponent);
         // Visits a material once per frame: the first call for a key builds the
         // record input (factors, flags, RHI texture identities and their
         // persistent heap offsets); later calls with the same key are no-ops.
@@ -537,13 +549,19 @@ namespace OloEngine
         // classic path, forwarded unchanged so both renderers pose the character
         // from one set of matrices. Empty for a rigid mesh, which is every
         // caller that predates skinned virtual geometry.
+        //
+        // `materialPatches` is the entity's MaterialOverridesComponent patches
+        // (Scene::PrepareMaterialOverrides for this mesh source, issue #1533), or
+        // null: a part whose imported material the entity patches shades with,
+        // and stages its proxy record under, the patched copy.
         [[nodiscard]] static bool SubmitVirtualMesh(AssetHandle meshHandle, const Ref<MeshSource>& meshSource,
                                                     const glm::mat4& modelMatrix, const Material* overrideMaterial,
                                                     const Material& defaultMaterial, i32 entityID,
                                                     u64 stableEntityId, f32 errorThresholdPixels, bool castShadows,
                                                     const glm::vec4& lightmapScaleOffset = glm::vec4(0.0f),
                                                     std::span<const glm::mat4> boneMatrices = {},
-                                                    std::span<const glm::mat4> prevBoneMatrices = {});
+                                                    std::span<const glm::mat4> prevBoneMatrices = {},
+                                                    const MaterialOverrideCache* materialPatches = nullptr);
         // Flatten a Material into the exact POD record the frame material table
         // uploads for a draw (factors, alpha mode/cutoff, and the resolved GL
         // texture id per slot, incl. the global-IBL fallback). Public because it

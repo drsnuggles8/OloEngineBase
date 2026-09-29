@@ -143,6 +143,10 @@ registry.push_back(OLO_GFW_FIELD(BoidComponent, "Velocity", m_Velocity));
 // BoidObstacleComponent
 registry.push_back(OLO_GFW_FIELD_RANGE(BoidObstacleComponent, "Radius", m_Radius, OLO_GFW_BOUND(0.01f), OLO_GFW_BOUND(10000.0f)));
 
+// BoneAttachmentComponent
+registry.push_back(OLO_GFW_FIELD(BoneAttachmentComponent, "BoneName", m_BoneName));
+registry.push_back(OLO_GFW_FIELD(BoneAttachmentComponent, "Enabled", m_Enabled));
+
 // BoxCollider2DComponent
 registry.push_back(OLO_GFW_FIELD(BoxCollider2DComponent, "Offset", Offset));
 registry.push_back(OLO_GFW_FIELD(BoxCollider2DComponent, "Size", Size));

@@ -12,6 +12,7 @@
 #include "OloEngine/Groom/GroomLod.h"
 #include "OloEngine/Groom/GroomVisibility.h"
 #include "OloEngine/Renderer/Material.h"
+#include "OloEngine/Renderer/MaterialOverride.h"
 #include "OloEngine/Renderer/Font.h"
 #include "OloEngine/Audio/AudioSource.h"
 #include "OloEngine/Audio/AudioListener.h"
@@ -2895,6 +2896,48 @@ namespace OloEngine
         }
     };
 
+    // Per-imported-material patches (issue #1533). Where a MaterialComponent
+    // replaces the material of EVERY submesh, each MaterialOverride names one
+    // IMPORTED material (Material::GetName(), what the glTF importer called it)
+    // and patches a COPY of it: kind, skin profile, thickness, and optionally the
+    // base colour / roughness / metallic factors. The shared imported material is
+    // never touched. Built for a skinned body whose nose, tongue, gums and lips
+    // are submeshes of one mesh and each need their own skin profile.
+    //
+    // Precedence on every path that shades or records the entity's submeshes
+    // (see Renderer/SubmeshMaterialResolve.h): MaterialComponent -> a matching
+    // patch -> the imported material -> engine default. Every such path asks
+    // Scene::PrepareMaterialOverrides for the patches, so the draw, the GPU Scene
+    // record, the lightmap bake and olo_material_get agree.
+    //
+    // All-trivial apart from the runtime cache, so scene YAML and the binary
+    // sidecar are generated. Deliberately not C#-annotated (a container has no
+    // OLO_PROPERTY shape) and not Lua-exposed: MaterialComponent's Lua surface is
+    // per-factor on one material, and a list of named patches is authoring data
+    // edited in the inspector, not a runtime-tuning lever.
+    struct MaterialOverridesComponent
+    {
+        TArray<MaterialOverride> m_Overrides;
+
+        // Runtime only: the patched copies this entity shades with, rebuilt by
+        // Scene::PrepareMaterialOverrides whenever the list, the mesh or an
+        // imported material changes. Never serialized, never compared, and a copy
+        // of the component starts with an empty cache (MaterialOverrideCache's
+        // copy constructor), so Play, duplication and undo snapshots never share
+        // Material objects between entities.
+        OLO_SERIALIZE(Skip)
+        MaterialOverrideCache m_Cache;
+
+        MaterialOverridesComponent() = default;
+
+        // The cache is derived state: two components with the same authored list
+        // are equal whatever either has built.
+        auto operator==(const MaterialOverridesComponent& other) const -> bool
+        {
+            return m_Overrides == other.m_Overrides;
+        }
+    };
+
     // 3D Light Components
 
     struct DirectionalLightComponent
@@ -4040,6 +4083,41 @@ namespace OloEngine
             }
             return true;
         }
+    };
+
+    // Follow a BONE of the parent's skeleton (issue #1533). An entity that is a
+    // child (RelationshipComponent) of an entity carrying a SkeletonComponent
+    // composes its world matrix as
+    //
+    //     world = parentWorld * skeleton.m_GlobalTransforms[bone] * local
+    //
+    // instead of parentWorld * local: its own TransformComponent is an offset in
+    // the bone's model-space frame, and its descendants compose on top as usual.
+    //
+    // It exists because a skinned character has no bone ENTITIES — the pose lives
+    // in the Skeleton behind AnimationStateComponent + SkeletonComponent — so
+    // nothing could ride a bone, and only ClothComponent had a private attachment.
+    // An eye has to be its own entity (SkinOcularSurface.h reads each eye's
+    // optical axis from its model matrix), so it needs this to follow the head.
+    //
+    // The bone is resolved BY NAME against the parent's skeleton, and
+    // Scene::PropagateWorldTransforms caches the index per (skeleton, name). An
+    // attachment that cannot resolve — no parent, a parent without a skeleton,
+    // an empty or unknown bone name, or m_Enabled == false — composes
+    // parent-relative instead and SAYS SO: one warning per (entity, reason) in the
+    // log, and the reason in the inspector (Scene::ResolveBoneAttachment).
+    //
+    // Deliberately not C#-annotated, matching RelationshipComponent and
+    // ClothComponent's attachment fields; Lua exposes both fields.
+    struct BoneAttachmentComponent
+    {
+        std::string m_BoneName;
+        bool m_Enabled = true;
+
+        BoneAttachmentComponent() = default;
+        explicit BoneAttachmentComponent(std::string boneName) : m_BoneName(std::move(boneName)) {}
+
+        auto operator==(const BoneAttachmentComponent&) const -> bool = default;
     };
 
     // Transient per-frame component — the composed parent-chain world matrix,

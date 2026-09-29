@@ -21,6 +21,7 @@ namespace OloEngine
     struct PrefabComponent;
     struct TransformComponent;
     struct RelationshipComponent;
+    struct BoneAttachmentComponent;
     struct SpriteRendererComponent;
     struct TilemapComponent;
     struct CircleRendererComponent;
@@ -54,6 +55,7 @@ namespace OloEngine
     struct VideoOverlayComponent;
     struct VideoSurfaceComponent;
     struct MaterialComponent;
+    struct MaterialOverridesComponent;
     struct DirectionalLightComponent;
     struct PointLightComponent;
     struct SpotLightComponent;
@@ -172,6 +174,7 @@ namespace OloEngine
         static void Serialize(FArchive& ar, PrefabComponent& c);
         static void Serialize(FArchive& ar, TransformComponent& c);
         static void Serialize(FArchive& ar, RelationshipComponent& c);
+        static void Serialize(FArchive& ar, BoneAttachmentComponent& c);
         static void Serialize(FArchive& ar, SpriteRendererComponent& c);
         static void Serialize(FArchive& ar, TilemapComponent& c);
         static void Serialize(FArchive& ar, CircleRendererComponent& c);
@@ -205,6 +208,7 @@ namespace OloEngine
         static void Serialize(FArchive& ar, VideoOverlayComponent& c);
         static void Serialize(FArchive& ar, VideoSurfaceComponent& c);
         static void Serialize(FArchive& ar, MaterialComponent& c);
+        static void Serialize(FArchive& ar, MaterialOverridesComponent& c);
         static void Serialize(FArchive& ar, DirectionalLightComponent& c);
         static void Serialize(FArchive& ar, PointLightComponent& c);
         static void Serialize(FArchive& ar, SpotLightComponent& c);

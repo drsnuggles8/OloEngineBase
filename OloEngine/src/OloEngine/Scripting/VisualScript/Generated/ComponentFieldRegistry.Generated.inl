@@ -149,6 +149,10 @@ registry.push_back(OLO_VSF_FIELD(BoidComponent, "Velocity", m_Velocity, Vec3));
 // BoidObstacleComponent
 registry.push_back(OLO_VSF_FIELD_RANGE(BoidObstacleComponent, "Radius", m_Radius, Float, OLO_VSF_BOUND(0.01f), OLO_VSF_BOUND(10000.0f)));
 
+// BoneAttachmentComponent
+registry.push_back(OLO_VSF_FIELD(BoneAttachmentComponent, "BoneName", m_BoneName, String));
+registry.push_back(OLO_VSF_FIELD(BoneAttachmentComponent, "Enabled", m_Enabled, Bool));
+
 // BoxCollider2DComponent
 registry.push_back(OLO_VSF_FIELD(BoxCollider2DComponent, "Offset", Offset, Vec2));
 registry.push_back(OLO_VSF_FIELD(BoxCollider2DComponent, "Size", Size, Vec2));

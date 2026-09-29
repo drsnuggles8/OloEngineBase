@@ -86,6 +86,7 @@
 #include <cctype>
 #include <limits>
 #include <concepts>
+#include <span>
 #include <unordered_map>
 #include <algorithm>
 
@@ -2070,6 +2071,7 @@ namespace OloEngine
             DisplayAddComponentEntry<InstancedMeshComponent>("Instanced Mesh");
             DisplayAddComponentEntry<ModelComponent>("Model (with Materials)");
             DisplayAddComponentEntry<MaterialComponent>("Material");
+            DisplayAddComponentEntry<MaterialOverridesComponent>("Material Overrides");
             DisplayAddComponentEntry<LODGroupComponent>("LOD Group");
             DisplayAddComponentEntry<TileRendererComponent>("Tile Renderer");
             DisplayAddComponentEntry<DirectionalLightComponent>("Directional Light");
@@ -2192,6 +2194,7 @@ namespace OloEngine
             DisplayAddComponentEntry<AnimationStateComponent>("Animation State");
             DisplayAddComponentEntry<AnimationGraphComponent>("Animation Graph");
             DisplayAddComponentEntry<SkeletonComponent>("Skeleton");
+            DisplayAddComponentEntry<BoneAttachmentComponent>("Bone Attachment");
             DisplayAddComponentEntry<SubmeshComponent>("Submesh");
             DisplayAddComponentEntry<MorphTargetComponent>("Morph Targets");
             DisplayAddComponentEntry<CinematicComponent>("Cinematic Sequence");
@@ -2305,6 +2308,72 @@ namespace OloEngine
                 component.SetRotationEuler(glm::radians(rotation));
             }
             DrawVec3Control("Scale", component.Scale, 1.0f); });
+
+        // Bone attachment (issue #1533). The Transform above is an offset in the
+        // bone's model-space frame while this resolves; the status row says what
+        // the renderer is actually doing, because a fallback to parent-relative
+        // composition looks like a plausible pose, not like an error.
+        DrawComponent<BoneAttachmentComponent>("Bone Attachment", entity, [entity, scene = m_Context](auto& component) mutable
+                                               {
+            ImGui::Checkbox("Enabled##BoneAttachment", &component.m_Enabled);
+
+            // The bone list is the PARENT's skeleton: the one the attachment
+            // composes against, not this entity's.
+            const Skeleton* skeleton = nullptr;
+            if (Entity parent = entity.GetParent(); parent && parent.HasComponent<SkeletonComponent>())
+            {
+                skeleton = parent.GetComponent<SkeletonComponent>().m_Skeleton.Raw();
+            }
+
+            const char* preview = component.m_BoneName.empty() ? "<none>" : component.m_BoneName.c_str();
+            if (ImGui::BeginCombo("Bone##BoneAttachment", preview))
+            {
+                if (skeleton == nullptr || skeleton->m_BoneNames.empty())
+                {
+                    ImGui::TextDisabled("The parent entity has no skeleton to pick a bone from.");
+                }
+                else
+                {
+                    for (const std::string& boneName : skeleton->m_BoneNames)
+                    {
+                        if (ImGui::Selectable(boneName.c_str(), boneName == component.m_BoneName))
+                        {
+                            component.m_BoneName = boneName;
+                        }
+                    }
+                }
+                ImGui::EndCombo();
+            }
+
+            // Free text as well: a name can be authored before the skeleton it
+            // names has loaded, and a scene file may carry one it does not have.
+            char boneBuffer[256];
+            ::memset(boneBuffer, 0, sizeof(boneBuffer));
+            std::strncpy(boneBuffer, component.m_BoneName.c_str(), sizeof(boneBuffer) - 1);
+            if (ImGui::InputText("Bone Name##BoneAttachment", boneBuffer, sizeof(boneBuffer)))
+            {
+                component.m_BoneName = std::string(boneBuffer);
+            }
+
+            if (!scene)
+            {
+                return;
+            }
+            if (const auto resolution = scene->ResolveBoneAttachment(static_cast<entt::entity>(entity)); resolution)
+            {
+                if (resolution->Status == BoneAttachmentStatus::Attached)
+                {
+                    ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "Following bone '%s' (index %d).",
+                                       component.m_BoneName.c_str(), resolution->BoneIndex);
+                }
+                else
+                {
+                    ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "Not following a bone: %s.",
+                                       DescribeBoneAttachmentStatus(resolution->Status));
+                    ImGui::TextDisabled("Composing parent-relative instead (%s).",
+                                        BoneAttachmentStatusToString(resolution->Status));
+                }
+            } });
 
         DrawComponent<CameraComponent>("Camera", entity, [](auto& component)
                                        {
@@ -3986,6 +4055,151 @@ namespace OloEngine
                     }
                 }
             } });
+
+        // Per-imported-material patches (issue #1533). Each row names one IMPORTED
+        // material of this entity's mesh and patches a copy of it. The status line
+        // under each row says whether it applies: a typo in a material name patches
+        // nothing, and an unpatched submesh looks entirely plausible on screen.
+        DrawComponent<MaterialOverridesComponent>("Material Overrides", entity, [entity](auto& component) mutable
+                                                  {
+            // The imported table the scene's draw loops resolve this entity's
+            // submeshes against (Scene::PrepareMaterialOverrides' callers). The
+            // holders keep the table alive while the rows below read it.
+            Ref<MeshSource> meshHolder;
+            Ref<Model> modelHolder;
+            std::span<const Ref<Material>> importedTable;
+            if (entity.HasComponent<VirtualMeshComponent>() && entity.GetComponent<VirtualMeshComponent>().m_MeshSource != 0)
+            {
+                meshHolder = AssetManager::GetAsset<MeshSource>(entity.GetComponent<VirtualMeshComponent>().m_MeshSource);
+            }
+            if (!meshHolder && entity.HasComponent<MeshComponent>())
+            {
+                meshHolder = entity.GetComponent<MeshComponent>().m_MeshSource;
+            }
+            if (!meshHolder && entity.HasComponent<SubmeshComponent>() && entity.GetComponent<SubmeshComponent>().m_Mesh)
+            {
+                meshHolder = entity.GetComponent<SubmeshComponent>().m_Mesh->GetMeshSource();
+            }
+            if (meshHolder)
+            {
+                importedTable = meshHolder->GetImportedMaterials();
+            }
+            else if (entity.HasComponent<ModelComponent>() && entity.GetComponent<ModelComponent>().m_Model)
+            {
+                modelHolder = entity.GetComponent<ModelComponent>().m_Model;
+                importedTable = modelHolder->GetMaterials();
+            }
+
+            const ImVec4 warnColor(1.0f, 0.75f, 0.3f, 1.0f);
+            if (entity.HasComponent<MaterialComponent>())
+            {
+                ImGui::TextColored(warnColor, "A Material component overrides every submesh: these overrides are inactive.");
+            }
+            if (importedTable.empty())
+            {
+                ImGui::TextColored(warnColor, "This entity's mesh carries no imported materials, so there is nothing to patch.");
+            }
+
+            i32 removeIndex = -1;
+            for (i32 i = 0; i < component.m_Overrides.Num(); ++i)
+            {
+                ImGui::PushID(i);
+                MaterialOverride& patch = component.m_Overrides[i];
+                const std::string name(patch.MaterialName.ToView());
+                const std::string header = "Override " + std::to_string(i) + ": " + (name.empty() ? std::string("<no material>") : name);
+                if (ImGui::TreeNodeEx("##MaterialOverride", ImGuiTreeNodeFlags_DefaultOpen, "%s", header.c_str()))
+                {
+                    // Pick one of the mesh's imported names, or type one: the
+                    // mesh may not be loaded while the scene is being authored.
+                    if (ImGui::BeginCombo("Material", name.empty() ? "<none>" : name.c_str()))
+                    {
+                        for (const Ref<Material>& imported : importedTable)
+                        {
+                            if (!imported)
+                                continue;
+                            const std::string importedName(imported->GetName().ToView());
+                            if (ImGui::Selectable(importedName.c_str(), importedName == name))
+                                patch.MaterialName = importedName;
+                        }
+                        ImGui::EndCombo();
+                    }
+                    char nameBuffer[256];
+                    ::memset(nameBuffer, 0, sizeof(nameBuffer));
+                    std::strncpy(nameBuffer, name.c_str(), sizeof(nameBuffer) - 1);
+                    if (ImGui::InputText("Name", nameBuffer, sizeof(nameBuffer)))
+                        patch.MaterialName = std::string(nameBuffer);
+
+                    const char* materialKinds[] = { "Generic", "Snow", "Skin", "Foliage" };
+                    static_assert(IM_ARRAYSIZE(materialKinds) == kMaterialKindCount,
+                                  "the override's Material Kind combo lost an entry");
+                    if (int kind = static_cast<int>(patch.Kind); ImGui::Combo("Material Kind", &kind, materialKinds, IM_ARRAYSIZE(materialKinds)))
+                        patch.Kind = static_cast<MaterialKind>(kind);
+
+                    // The skin profile slot: same drag-drop contract as the
+                    // MaterialComponent inspector (type-checked after import).
+                    const std::string profileLabel = patch.SkinProfile != 0
+                                                         ? "Skin Profile: " + std::to_string(static_cast<u64>(patch.SkinProfile))
+                                                         : "Skin Profile: <none — drag a .oloskin here>";
+                    ImGui::Button(profileLabel.c_str(), ImVec2(-1.0f, 0.0f));
+                    if (ImGui::BeginDragDropTarget())
+                    {
+                        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                        {
+                            std::filesystem::path assetPath = PathFromUtf8Payload(*payload);
+                            if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
+                            {
+                                AssetHandle handle = assetManager->ImportAsset(assetPath);
+                                if (handle != 0 && AssetManager::GetAssetType(handle) == AssetType::SkinProfile)
+                                {
+                                    patch.SkinProfile = handle;
+                                }
+                                else if (handle != 0)
+                                {
+                                    OLO_WARN("Drag-dropped asset is not a SkinProfile (type: {0})",
+                                             AssetUtils::AssetTypeToString(AssetManager::GetAssetType(handle)));
+                                }
+                            }
+                        }
+                        ImGui::EndDragDropTarget();
+                    }
+                    if (patch.SkinProfile != 0 && ImGui::SmallButton("Clear##OverrideSkinProfile"))
+                        patch.SkinProfile = 0;
+                    if (patch.Kind != MaterialKind::Skin && patch.SkinProfile != 0)
+                        ImGui::TextDisabled("The profile is only read by a Skin material.");
+
+                    ImGui::DragFloat("Thickness Factor (m)", &patch.ThicknessFactor, 0.0005f, 0.0f, 1.0f, "%.4f");
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("= %.2f mm", static_cast<f64>(patch.ThicknessFactor * 1000.0f));
+
+                    ImGui::Checkbox("Override Base Colour", &patch.OverrideBaseColor);
+                    if (patch.OverrideBaseColor)
+                        ImGui::ColorEdit4("Base Colour", glm::value_ptr(patch.BaseColor));
+                    ImGui::Checkbox("Override Roughness", &patch.OverrideRoughness);
+                    if (patch.OverrideRoughness)
+                        ImGui::SliderFloat("Roughness", &patch.Roughness, 0.0f, 1.0f);
+                    ImGui::Checkbox("Override Metallic", &patch.OverrideMetallic);
+                    if (patch.OverrideMetallic)
+                        ImGui::SliderFloat("Metallic", &patch.Metallic, 0.0f, 1.0f);
+
+                    const std::span<const MaterialOverride> list{ component.m_Overrides.GetData(),
+                                                                  static_cast<sizet>(component.m_Overrides.Num()) };
+                    const MaterialOverrideStatus status = ClassifyMaterialOverride(list, static_cast<sizet>(i), importedTable);
+                    if (status == MaterialOverrideStatus::Applies)
+                        ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "Applies: %s.", DescribeMaterialOverrideStatus(status));
+                    else
+                        ImGui::TextColored(warnColor, "Inactive: %s.", DescribeMaterialOverrideStatus(status));
+
+                    if (ImGui::SmallButton("Remove Override"))
+                        removeIndex = i;
+                    ImGui::TreePop();
+                }
+                ImGui::PopID();
+            }
+            if (removeIndex >= 0)
+                component.m_Overrides.RemoveAt(removeIndex);
+
+            if (ImGui::Button("Add Override"))
+                component.m_Overrides.Add(MaterialOverride{}); });
 
         DrawComponent<DirectionalLightComponent>("Directional Light", entity, [](auto& component)
                                                  {

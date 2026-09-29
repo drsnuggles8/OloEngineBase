@@ -210,7 +210,8 @@ namespace OloEngine::PathTracing
     }
 
     bool ReferenceSceneBuilder::AddMeshEntity(const Ref<MeshSource>& meshSource, const glm::mat4& worldTransform,
-                                              const Material* overrideMaterial)
+                                              const Material* overrideMaterial,
+                                              const MaterialOverrideCache* materialPatches)
     {
         if (m_Consumed)
         {
@@ -275,8 +276,9 @@ namespace OloEngine::PathTracing
         for (i32 submeshIndex = 0; submeshIndex < submeshCount; ++submeshIndex)
         {
             // The ONE material-resolution rule every render submission path
-            // uses (issue #629): override -> imported-per-submesh -> default.
-            const Material& material = ResolveSubmeshMaterial(overrideMaterial, meshSource.get(),
+            // uses (issue #629): override -> the entity's patch of the imported
+            // material (#1533) -> imported-per-submesh -> default.
+            const Material& material = ResolveSubmeshMaterial(overrideMaterial, materialPatches, meshSource.get(),
                                                               static_cast<u32>(submeshIndex), *m_DefaultMaterial);
             const u32 materialIndex = ResolveMaterialIndex(material);
 
@@ -580,7 +582,8 @@ namespace OloEngine::PathTracing
                 const Material* overrideMaterial = entity.HasComponent<MaterialComponent>()
                                                        ? &entity.GetComponent<MaterialComponent>().m_Material
                                                        : nullptr;
-                AddMeshEntity(mesh.m_MeshSource, scene.GetWorldTransform(gathered.Handle), overrideMaterial);
+                AddMeshEntity(mesh.m_MeshSource, scene.GetWorldTransform(gathered.Handle), overrideMaterial,
+                              scene.PrepareMaterialOverrides(gathered.Handle, mesh.m_MeshSource->GetImportedMaterials()));
             }
         }
 
@@ -606,7 +609,7 @@ namespace OloEngine::PathTracing
         // (UUID, SubKey), which is what the builder's own UUID sort exists for.
         for (const OloEngine::LightmapReceiver& receiver : receivers)
         {
-            AddMeshEntity(receiver.Mesh, receiver.WorldTransform, receiver.OverrideMaterial);
+            AddMeshEntity(receiver.Mesh, receiver.WorldTransform, receiver.OverrideMaterial, receiver.MaterialPatches);
         }
 
         AddSceneLights(scene);

@@ -183,6 +183,13 @@ case 3350231697u: // BoidObstacleComponent
     comp.m_Radius = std::clamp(comp.m_Radius, static_cast<f32>(0.01f), static_cast<f32>(10000.0f));
     break;
 }
+case 2765227753u: // BoneAttachmentComponent
+{
+    auto& comp = deserializedEntity.AddComponent<BoneAttachmentComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_BoneName)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_Enabled)) return false;
+    break;
+}
 case 4273541646u: // BuoyancyComponent
 {
     auto& comp = deserializedEntity.AddComponent<BuoyancyComponent>();
@@ -826,6 +833,40 @@ case 4238546909u: // LuaScriptComponent
 {
     auto& comp = deserializedEntity.AddComponent<LuaScriptComponent>();
     if (!SceneBinIO::Read(reader, comp.ScriptFile)) return false;
+    break;
+}
+case 1378335508u: // MaterialOverridesComponent
+{
+    auto& comp = deserializedEntity.AddComponent<MaterialOverridesComponent>();
+    {
+        u32 bn0 = 0;
+        if (!SceneBinIO::ReadU32(reader, bn0) || bn0 > SceneBinIO::MaxContainerElements) return false;
+        comp.m_Overrides.Empty();
+        comp.m_Overrides.Reserve(bn0);
+        for (u32 bi0 = 0; bi0 < bn0; ++bi0)
+        {
+            decltype(comp.m_Overrides)::ElementType btmp0{};
+            if (!SceneBinIO::Read(reader, btmp0.MaterialName)) return false;
+            {
+                decltype(btmp0.Kind) v{};
+                if (!SceneBinIO::Read(reader, v)) return false;
+                if (static_cast<int>(v) >= static_cast<int>(0) && static_cast<int>(v) <= static_cast<int>(3))
+                    btmp0.Kind = v;
+            }
+            if (!SceneBinIO::Read(reader, btmp0.SkinProfile)) return false;
+            if (!SceneBinIO::Read(reader, btmp0.ThicknessFactor)) return false;
+            btmp0.ThicknessFactor = std::max(btmp0.ThicknessFactor, static_cast<f32>(0.0f));
+            if (!SceneBinIO::Read(reader, btmp0.OverrideBaseColor)) return false;
+            if (!SceneBinIO::Read(reader, btmp0.BaseColor)) return false;
+            if (!SceneBinIO::Read(reader, btmp0.OverrideRoughness)) return false;
+            if (!SceneBinIO::Read(reader, btmp0.Roughness)) return false;
+            btmp0.Roughness = std::clamp(btmp0.Roughness, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+            if (!SceneBinIO::Read(reader, btmp0.OverrideMetallic)) return false;
+            if (!SceneBinIO::Read(reader, btmp0.Metallic)) return false;
+            btmp0.Metallic = std::clamp(btmp0.Metallic, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+            comp.m_Overrides.Add(std::move(btmp0));
+        }
+    }
     break;
 }
 case 3602751933u: // NameplateComponent

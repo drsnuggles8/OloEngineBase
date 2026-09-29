@@ -40,6 +40,7 @@ namespace OloEngine
             // Core
             REGISTER_COMPONENT(TagComponent),
             REGISTER_COMPONENT(TransformComponent),
+            REGISTER_COMPONENT(BoneAttachmentComponent),
             REGISTER_COMPONENT(Rigidbody2DComponent),
             REGISTER_COMPONENT(CameraComponent),
             REGISTER_COMPONENT(SpriteRendererComponent),

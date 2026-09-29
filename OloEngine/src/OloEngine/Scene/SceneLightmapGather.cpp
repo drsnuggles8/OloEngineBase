@@ -67,7 +67,9 @@ namespace OloEngine
                                                 mesh.m_MeshSource,
                                                 scene.GetWorldTransform(handle),
                                                 EntityMaterialOverride(scene, handle),
-                                                LightmapReceiverKind::Mesh });
+                                                LightmapReceiverKind::Mesh,
+                                                scene.PrepareMaterialOverrides(
+                                                    handle, mesh.m_MeshSource->GetImportedMaterials()) });
             }
         }
 
@@ -153,6 +155,12 @@ namespace OloEngine
                 const UUID uuid = view.get<IDComponent>(handle).ID;
                 const glm::mat4 worldTransform = scene.GetWorldTransform(handle);
                 const Material* overrideMaterial = EntityMaterialOverride(scene, handle);
+                // Prepared against the MODEL's table — the one its draw resolves
+                // against (issue #1533). A per-mesh source that carries no copy of
+                // those materials finds no patch, exactly as it finds no imported
+                // material, so the bake and its key stay consistent with each other.
+                const MaterialOverrideCache* materialPatches =
+                    scene.PrepareMaterialOverrides(handle, model.m_Model->GetMaterials());
 
                 const auto& meshes = model.m_Model->GetMeshes();
                 for (sizet i = 0; i < meshes.size(); ++i)
@@ -183,7 +191,8 @@ namespace OloEngine
                         continue;
                     }
                     receivers.Add(LightmapReceiver{ uuid, static_cast<u64>(i), handle, source, worldTransform,
-                                                    overrideMaterial, LightmapReceiverKind::ModelMesh });
+                                                    overrideMaterial, LightmapReceiverKind::ModelMesh,
+                                                    materialPatches });
                 }
             }
         }
@@ -230,7 +239,8 @@ namespace OloEngine
                 }
                 receivers.Add(LightmapReceiver{ uuid, 0, handle, source, scene.GetWorldTransform(handle),
                                                 EntityMaterialOverride(scene, handle),
-                                                LightmapReceiverKind::Virtual });
+                                                LightmapReceiverKind::Virtual,
+                                                scene.PrepareMaterialOverrides(handle, source->GetImportedMaterials()) });
             }
         }
 
