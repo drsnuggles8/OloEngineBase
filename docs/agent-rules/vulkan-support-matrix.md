@@ -35,7 +35,7 @@ Every row is a run or a CI log line. A row that is not measured says so.
 | Developer box, RTX 4090 | NVIDIA 617.14, Vulkan 1.4.351 | satisfied | **run** (Debug) | **run**: ray query enabled | this PR, `vulkan-capability-report.rtx4090.md` |
 | Hosted `windows-2025`, no GPU | none | no device | skip (`NOT EXERCISED - none of the 19 device-gated tests ran`) | skip | Windows.yml run 36510914603, shard 1 |
 | Self-hosted Linux, AMD Navi 10 (RX 5600 XT), Mesa 25.2.7 | RADV / radeonsi | **refused** (`No device satisfies the ADR 0010 capability contract`) | skip, 149 tests | skip | gpu-conformance-amd run 36507240680; Mesa version from `docs/ops/self-hosted-gpu-runner.md` |
-| Hosted Windows, Mesa lavapipe 26.2.0 (software) | llvmpipe, API 1.4.354 | satisfied | **run nightly**, `EXERCISED - 122/122 device-gated tests ran` | skip: lavapipe was not tested for ray query | vulkan-software.yml run 36522457757 |
+| Hosted Windows, Mesa lavapipe 26.2.0 (software) | llvmpipe, API 1.4.354 | satisfied | **run nightly**, `EXERCISED - 122/122 device-gated tests ran` | **partly run, on demand**: the real gate enables ray query; 17 of 25 L7 tests pass, the 8 heavy `ReSTIRPTDevice` tests time out (below) | vulkan-software.yml runs 36522457757 (nightly) and 36621566529 (L7 filter dispatch) |
 | Developer box, live editor `--rhi vulkan` | same RTX 4090 | satisfied | n/a | ray query enabled (log: `Ray tracing: ray query enabled + ray-tracing pipeline`) | the editor picked the same device the report names; frame rendered, "Backend: Vulkan", zero errors or VUIDs in `OloEngine.log` |
 | Mesa lavapipe 24.3.4 (software) | llvmpipe, API 1.3.296 | **refused**: API 1.4, descriptor heap, untyped pointers, device address commands | skip | skip | `vulkan-capability-report.lavapipe-24.3.4.md` |
 | Mesa lavapipe 26.1.8 (software) | llvmpipe, API 1.4.354 | **refused**: descriptor heap, untyped pointers, device address commands | skip | skip | `vulkan-capability-report.lavapipe-26.1.8.md` |
@@ -69,9 +69,29 @@ run on the RTX 4090, both from the same binary:
 | L7 filter + `--olo-require-vulkan` | 25 of 26 executed and passed; the one skip is the opt-in `VegetationDetailedVersusCardExperiment` |
 | same, with `OLO_VULKAN_NO_RAY_TRACING=1` | every L7 test skipped, **exit 3** |
 
+## Ray query on lavapipe, measured
+
+The repo's earlier statement that the L7 suites "skip on lavapipe like everywhere else" was never
+tested (#1320 says so). Measured on Mesa 26.2.0 with `vulkan-software.yml` dispatched with
+`gtest_filter=ReSTIRPTDevice.*:RayTracingDevice.*:GpuPathTracerDevice.*` and `--olo-require-vulkan`
+(run 36621566529): the gate enables ray query, and the run reported `PARTIAL - 25 of 26 device-gated
+tests ran` (the one skip is the opt-in `VegetationDetailedVersusCardExperiment`).
+
+| Suite | Result on lavapipe 26.2.0 |
+|---|---|
+| `RayTracingDevice.*` | passes (acceleration-structure build, compaction, traces, hit normals) |
+| `GpuPathTracerDevice.*` | passes, including the CPU-reference Cornell box agreement |
+| `ReSTIRPTDevice.*` | 1 of 9 passes; the other 8 fail at `vkWaitForFences(..., 10 s)` returning `VK_TIMEOUT` after 54-77 s each |
+
+The 8 failures are a wait timeout on software-rasterised path-tracing compute, not a numerical
+mismatch, so they say nothing about the ReSTIR PT maths. That is the suite #1288 shipped red, so
+lavapipe cannot yet stand in for a hardware ray-query runner for it. It can execute the other two
+L7 suites today, so #1294 item 2 is smaller than "a hardware runner": a `RayTracingDevice.*:GpuPathTracerDevice.*`
+lavapipe arm, and a decision on the ReSTIR PT fence budget. Neither is done here.
+
 ## What is still open
 
-- A hardware ray-query CI runner and a scheduled developer-box run: #1294 items 2 and 3. Not
-  authorised or built here.
+- Hardware ray-query CI runner, scheduled developer-box run, and the lavapipe arm above: #1294 items
+  2 and 3. Not authorised or built here.
 - The AMD self-hosted runner's verdict will change if its Mesa reaches a RADV with
   `VK_EXT_descriptor_heap` (ADR 0010 says Mesa 26.1). Re-run the report there before assuming.

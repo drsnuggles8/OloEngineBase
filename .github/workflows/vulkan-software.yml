@@ -260,8 +260,11 @@ jobs:
         #
         # The filter is the Vulkan-named suites. It deliberately does NOT cover
         # the L7 ray-query suites — that gap is issue #1294, a separately scored
-        # piece of work, and widening this filter is the one-line change it
-        # needs once someone confirms lavapipe can serve ray queries.
+        # piece of work. Measured (#1358, run 36621566529): lavapipe 26.2.0 does
+        # serve ray queries; RayTracingDevice.* and GpuPathTracerDevice.* pass,
+        # while 8 ReSTIRPTDevice tests hit the 10 s fence wait. Dispatch this
+        # workflow with gtest_filter to reproduce; widening the nightly is #1294's
+        # decision.
         #
         # ONE TEST IS EXCLUDED, AND IT IS A DRIVER DEFECT, NOT AN ENGINE ONE.
         # FramebufferBlitPreservesUnrequestedDepthStencilAspects asserts that a
