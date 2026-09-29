@@ -3930,3 +3930,6 @@ namespace OloEngine
 	}
 
 }
+
+// NEGATIVE CONTROL (#1405): deliberately invalid C#, reverted by the next commit.
+namespace OloEngine { public class NegativeControl1405 { int x = ; } }
