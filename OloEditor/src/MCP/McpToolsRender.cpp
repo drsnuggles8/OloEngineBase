@@ -7602,6 +7602,8 @@ namespace OloEngine::MCP
                 { "temporalReuseRan", stats.TemporalReuseRan },
                 { "historyPlanesAvailable", stats.HistoryPlanesAvailable },
                 { "historyPlanesRequired", ReSTIRGIStats::kHistoryPlaneCount },
+                { "texturesAvailable", stats.TexturesAvailable },
+                { "maskedGeometryTracedAsSolid", stats.MaskedGeometryTracedAsSolid },
                 { "reconnectionVisibilityRan", stats.ReconnectionVisibilityRan },
                 { "spatialReconnectionVisibilityRan", stats.SpatialReconnectionVisibilityRan },
                 { "ddgiTailRan", stats.DDGITailRan },
@@ -10248,6 +10250,9 @@ namespace OloEngine::MCP
                               .Prop("historyPlanesAvailable", Schema::Int().Min(0))
                               .Prop("historyPlanesRequired", Schema::Int().Min(0).Desc(
                                                                  "A shortfall is why temporal reuse stood down."))
+                              .Prop("texturesAvailable", Schema::Bool())
+                              .Prop("maskedGeometryTracedAsSolid", Schema::Bool().Desc(
+                                                                       "True when no material textures: hits shade from factors and cutouts block as solid."))
                               .Prop("reconnectionVisibilityRan", Schema::Bool().Desc(
                                                                      "False means reuse is lighting through walls."))
                               .Prop("spatialReconnectionVisibilityRan", Schema::Bool())
