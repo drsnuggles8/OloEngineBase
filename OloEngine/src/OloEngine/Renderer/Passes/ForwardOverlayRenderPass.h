@@ -7,21 +7,26 @@
 
 namespace OloEngine
 {
-    // @brief Forward overlay pass for geometry that does NOT participate in the
-    // deferred G-Buffer write (skybox, terrain, voxel terrain, infinite grid,
-    // debug light cubes). Only active in RenderingPath::Deferred; in Forward /
-    // Forward+ these commands are routed to SceneRenderPass as usual and this
-    // pass executes with an empty bucket (no-op).
+    // @brief Forward overlay pass for draws the deferred G-Buffer cannot
+    // represent: the infinite grid, alpha-blended or transmissive meshes,
+    // meshes whose material shader has no G-Buffer output, see-through debug
+    // draws, and the fallback for skybox, light-cube, terrain and voxel draws
+    // whose *_GBuffer shader failed to load (Renderer3DMeshSubmission.cpp,
+    // Renderer3DUtilityDraws.cpp). Registered in the graph only on
+    // RenderingPath::Deferred; on Forward and Forward+ the same draws go to
+    // SceneRenderPass.
     //
     // The pass binds the scene framebuffer (already populated with lit HDR
-    // colour by DeferredLightingPass) with GL_COLOR_ATTACHMENT0 selected and
-    // runs the forward shaders each command carries. G-Buffer depth is
+    // colour by DeferredLightingPass) with colour attachments 0-2 (colour,
+    // entity ID, view normal) selected; velocity (3) is not written. It runs
+    // the forward shaders each command carries. G-Buffer depth is
     // expected to have been blitted into the scene FB's depth attachment by
     // DeferredLightingPass::Execute() immediately before this pass runs, so
     // depth-test against deferred geometry works naturally.
     //
-    // Renders AFTER DeferredLightingPass and BEFORE FoliagePass so that
-    // skybox/terrain still sit beneath translucent foliage/water.
+    // Renders after DeferredLightingPass and before FoliagePass, GroomPass,
+    // DecalPass and WaterPass in the SceneColor read-modify-write chain
+    // (RenderPipelineBuilderScene.cpp).
     class ForwardOverlayRenderPass : public CommandBufferRenderPass
     {
       public:

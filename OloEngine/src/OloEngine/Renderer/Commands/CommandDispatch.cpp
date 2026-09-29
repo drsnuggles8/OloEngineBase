@@ -3224,7 +3224,7 @@ namespace OloEngine
             modelData.PadEntity[0] = 0;
             modelData.PadEntity[1] = 0;
             modelData.PadEntity[2] = 0;
-            modelData.PrevModel = cmd->transform; // terrain: routed through ForwardOverlayPass, no motion tracking
+            modelData.PrevModel = cmd->transform; // terrain: no motion tracking (Deferred draws Terrain_GBuffer through ScenePass)
             UploadModelInstance(modelData, Data().ModelInstanceBuffer);
             // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
         }
@@ -3355,7 +3355,7 @@ namespace OloEngine
             modelData.PadEntity[0] = 0;
             modelData.PadEntity[1] = 0;
             modelData.PadEntity[2] = 0;
-            modelData.PrevModel = cmd->transform; // voxel: routed through ForwardOverlayPass, no motion tracking
+            modelData.PrevModel = cmd->transform; // voxel: no motion tracking (Deferred draws the voxel G-Buffer variant through ScenePass)
             UploadModelInstance(modelData, Data().ModelInstanceBuffer);
             // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
         }

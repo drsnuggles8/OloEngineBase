@@ -385,17 +385,19 @@ namespace OloEngine
         // Off by default: VSM covers static + skinned MESH casters, and since
         // issue #1149 VIRTUALIZED-GEOMETRY casters too — the last go in through
         // ExternalCasterRenderer, one cull + replay per clip level, gated on the
-        // dirty-page pyramid. Terrain, foliage and voxel casters still render
-        // through the CSM path, so a scene that relies on THOSE must keep CSM.
-        // Turning this on replaces the directional CSM and leaves the local-light
-        // atlas untouched.
+        // dirty-page pyramid. Terrain, foliage and voxel casters have only CSM
+        // and atlas routes, so a scene that relies on THOSE must keep VSM off
+        // (#1524). Turning this on replaces the directional CSM; with
+        // LocalLights on (the default) it also replaces the local-light atlas,
+        // which is then not rendered at all.
         //
         // Virtual geometry reaches the CLIP LEVELS only, not the local-light
         // LAYERS below: a layer is a perspective projection with a per-texel mip,
         // and the current cluster cull is per view, so covering the layers means
         // one dispatch per (instance, layer) — affordable only once #1143 makes
-        // the cull multi-view. With LocalLights on, a virtual caster therefore
-        // casts the sun's shadow but not a lamp's.
+        // the cull multi-view (#1143 was closed by an accidental keyword in
+        // PR #1167; the work has not started). With LocalLights on, a virtual
+        // caster therefore casts the sun's shadow but not a lamp's.
         //
         // Backend-neutral: the only difference between the GL and Vulkan routes is
         // one line in include/VirtualShadowRasterStage.glsl that undoes Vulkan's

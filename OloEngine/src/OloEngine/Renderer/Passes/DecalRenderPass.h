@@ -40,11 +40,12 @@ namespace OloEngine
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
 
-        // Deferred-path entry point. Called by SceneRenderPass while the
-        // G-Buffer is still bound, right after the main G-Buffer MRT write.
-        // Drains the decal command bucket with the G-Buffer variant shader,
-        // writing only into colour attachment 0 (albedo). The regular
-        // graph-scheduled Execute() then sees an empty bucket and no-ops.
+        // Deferred-path entry point, called by DeferredOpaqueDecalPass between
+        // ScenePass and DeferredLightingPass. Draws the opaque decals in this
+        // bucket into the G-Buffer with the Decal_GBuffer* shaders; each decal
+        // mode writes only the attachments among RT0-RT2 that it selects,
+        // never entity ID or baked GI. The graph-scheduled Execute() then
+        // draws only the transparent decals.
         //
         // writeTargetFB:      framebuffer decals rasterize into (MS in MSAA
         //                     per-sample mode, resolved FB otherwise).

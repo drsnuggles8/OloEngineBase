@@ -40,7 +40,7 @@ namespace OloEngine
         m_SelectedIndirectSpecularTexture = {};
         m_SelectedIndirectSpecularWeightTexture = {};
 
-        // The tier composites OVER the colour it is handed, so the input is
+        // The tier replaces the specular term in the colour it is handed, so the input is
         // whatever the chain has produced so far — the same versioned-name
         // fallback SSR uses, minus SSR itself, because this pass runs BEFORE it.
         // PostProcessColor is deliberately not a candidate: its alias is
