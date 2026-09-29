@@ -504,10 +504,9 @@ namespace OloEngine::MCP
                 "reloadable names. Returns the post-reload status (ready/failed/compiling/pending), whether it "
                 "was a graphics or compute program ('kind'), the GL program id, who owned it ('libraries': "
                 "Renderer3D / Renderer2D / PassOwned), and the compile/link error log (empty on a clean reload; "
-                "populated from the shader debugger in debug builds). Note: in a Debug build, recompiling a "
-                "shader that contains a GLSL syntax error trips an engine debug assert on the main thread (same "
-                "as the editor's own Recompile button) — the call then times out and can crash the editor, so "
-                "reserve this for edits you expect to compile; to inspect a shader's existing errors without "
+                "populated from the shader debugger in debug builds). A GLSL compile or link error returns "
+                "status 'failed' with the log and leaves the editor running (#568); only a malformed #type "
+                "directive still trips a debug assert. To inspect a shader's existing errors without "
                 "recompiling, use olo_shader_errors / olo_shader_get instead.";
             tool.InputSchema = Schema::Object()
                                    .Prop("name", Schema::String().Desc("Shader name to reload (as shown by olo_shader_list)."))
