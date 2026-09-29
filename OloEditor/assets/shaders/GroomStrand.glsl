@@ -124,10 +124,12 @@ layout(location = 6) out vec3 v_WorldPos;
 layout(location = 7) out vec3 v_WorldTangent;
 // Surface -> eye, UNNORMALISED so it interpolates correctly across the ribbon.
 layout(location = 8) out vec3 v_WorldView;
-// The per-strand coat tint (#1251), already unpacked. FLAT: it is constant over
-// the whole ribbon, and interpolating the packed lane instead would be
-// arithmetic on a bit pattern.
-layout(location = 9) flat out vec3 v_CoatTint;
+// The coat tint (#1251), UNPACKED HERE, per vertex. Not flat since #1533: the
+// strand runs from its root tint to its tip tint, the P0 and P1 corners carry
+// the two ends of each segment, and the rasterizer interpolates the COLOUR along
+// the ribbon. Only the unpacked value may interpolate — the packed lane is a bit
+// pattern, and arithmetic on it would be noise.
+layout(location = 9) out vec3 v_CoatTint;
 
 void main()
 {
@@ -388,7 +390,8 @@ layout(location = 5) in vec3 v_ViewNormal;
 layout(location = 6) in vec3 v_WorldPos;
 layout(location = 7) in vec3 v_WorldTangent;
 layout(location = 8) in vec3 v_WorldView;
-layout(location = 9) flat in vec3 v_CoatTint;
+// Interpolated root-to-tip (#1533); the vertex stage declares it the same way.
+layout(location = 9) in vec3 v_CoatTint;
 
 // ONE block, on the shared PASS-LOCAL slot, declared IDENTICALLY in both
 // stages.
@@ -711,7 +714,8 @@ void main()
 		colour = u_GroomColor.rgb * ramp;
 	}
 
-	// THE COAT TINT (#1251), applied LAST and to the shaded result.
+	// THE COAT TINT (#1251), applied LAST and to the shaded result — the root
+	// tint at the follicle, the tip tint at the end, interpolated between (#1533).
 	//
 	// It multiplies the exit radiance rather than modulating the fibre's
 	// sigma_a, and that is an APPROXIMATION, stated here rather than left to be

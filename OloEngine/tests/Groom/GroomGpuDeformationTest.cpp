@@ -75,12 +75,15 @@ namespace
         TArray<GroomRootTransform> Transforms;
     };
 
-    [[nodiscard]] BoundScene MakeBoundScene(u32 strands = 24u, u32 points = 6u)
+    // `degrees` is this frame's bend (last frame's is 15 less); `coat`, when
+    // given, is the coat group's authored description (#1533).
+    [[nodiscard]] BoundScene MakeBoundScene(u32 strands = 24u, u32 points = 6u, f32 degrees = 55.0f,
+                                            const GroomCoatGroupDesc* coat = nullptr)
     {
         BoundScene scene;
         scene.Grid = MakeGrid(8u);
         WeightAsHinge(scene.Grid);
-        scene.Groom = MakeCoat(strands, points, 0.1f);
+        scene.Groom = MakeCoat(strands, points, 0.1f, 0.0f, 1.0f, coat);
         EXPECT_TRUE(scene.Groom);
         std::string reason;
         GroomBindingBuildStats stats;
@@ -88,8 +91,8 @@ namespace
                                                GroomBindingBuildSettings{}, scene.Binding, stats, reason))
             << reason;
 
-        scene.Palette = BentPalette(55.0f);
-        scene.PrevPalette = BentPalette(40.0f);
+        scene.Palette = BentPalette(degrees);
+        scene.PrevPalette = BentPalette(degrees - 15.0f);
         GroomDeformationInputs inputs;
         inputs.Surface = scene.Grid.View(2u);
         inputs.Skinning = scene.Grid.Skinning(scene.Palette, scene.PrevPalette, true);
@@ -190,7 +193,8 @@ namespace
     // every corner to agree. Returns the number of corners compared.
     u32 ExpectPathsAgree(const GroomBuildSource& source, const GroomStrandBuildSettings& settings,
                          const GroomBindingAsset& binding, std::span<const GroomRootTransform> transforms,
-                         const GroomStrandSimulation* simulation, f32 heldTolerance = -1.0f)
+                         const GroomStrandSimulation* simulation, f32 heldTolerance = -1.0f,
+                         const GroomCoatContext* coat = nullptr)
     {
         GroomStrandDeformation deformation;
         deformation.Binding = &binding;
@@ -199,13 +203,13 @@ namespace
         std::vector<GroomStrandVertex> cpu;
         std::vector<u32> cpuIndices;
         const GroomStrandMeshStats cpuStats =
-            BuildGroomStrandMesh(source, settings, cpu, cpuIndices, &deformation, nullptr, simulation);
+            BuildGroomStrandMesh(source, settings, cpu, cpuIndices, &deformation, coat, simulation);
 
         std::vector<GroomStrandVertex> rest;
         std::vector<u32> restIndices;
         std::vector<u32> rootCurves;
         const GroomStrandMeshStats restStats =
-            BuildGroomStrandRestMesh(source, settings, binding, rest, restIndices, rootCurves);
+            BuildGroomStrandRestMesh(source, settings, binding, rest, restIndices, rootCurves, coat);
 
         EXPECT_EQ(rest.size(), cpu.size()) << "the two paths must walk the same strands";
         EXPECT_EQ(restIndices, cpuIndices) << "and index them identically";
@@ -302,6 +306,121 @@ TEST(GroomGpuDeformation, ASimulatedCoatReproducesTheCpuStreamExactly)
     EXPECT_GT(ExpectPathsAgree(GroomBuildSource::FromAsset(*scene.Groom), GroomStrandBuildSettings{}, *scene.Binding,
                                transforms, &view),
               0u);
+}
+
+namespace
+{
+    // A curled, waved, tip-tinted coat group (#1533): a little over two turns on
+    // the fixture's 10 cm strands, which at 24 points is about ten points a turn.
+    [[nodiscard]] GroomCoatGroupDesc CurledCoat()
+    {
+        GroomCoatGroupDesc desc;
+        desc.CurlRadius = 0.004f;
+        desc.CurlFrequency = 22.0f;
+        desc.WaveAmplitude = 0.003f;
+        desc.WaveFrequency = 15.0f;
+        desc.TipTint = glm::vec3(0.5f, 0.4f, 0.3f);
+        return desc;
+    }
+
+    [[nodiscard]] GroomCoatSettings CurledSettings()
+    {
+        GroomCoatSettings settings;
+        settings.Enabled = true;
+        settings.Seed = 3u;
+        return settings;
+    }
+} // namespace
+
+TEST(GroomGpuDeformation, ACurledCoatReproducesTheCpuStreamExactly)
+{
+    // #1533. Curl and wave are baked into the REST points by the one walk both
+    // builds share, so the GPU path's bind-local stream carries them and the
+    // per-frame deformation moves them rigidly with each root -- exactly what
+    // the CPU path's root transform does to the same curled points. A curl
+    // applied on one path only would fail every corner. The per-corner tint
+    // rides the same way and is compared lane for lane.
+    const GroomCoatGroupDesc curled = CurledCoat();
+    const BoundScene scene = MakeBoundScene(24u, 24u, 55.0f, &curled);
+    const GroomCoatSettings settings = CurledSettings();
+    const GroomCoatContext coat{ &settings, scene.Groom->GetGroupCoats() };
+    const std::span<const GroomRootTransform> transforms{ scene.Transforms.GetData(),
+                                                          static_cast<sizet>(scene.Transforms.Num()) };
+    EXPECT_GT(ExpectPathsAgree(GroomBuildSource::FromAsset(*scene.Groom), GroomStrandBuildSettings{}, *scene.Binding,
+                               transforms, nullptr, -1.0f, &coat),
+              0u);
+
+    // NEGATIVE CONTROL: the curl really is in the GPU path's rest stream, so the
+    // agreement above is about curled points.
+    std::vector<GroomStrandVertex> plain;
+    std::vector<GroomStrandVertex> curledRest;
+    std::vector<u32> indices;
+    std::vector<u32> roots;
+    (void)BuildGroomStrandRestMesh(GroomBuildSource::FromAsset(*scene.Groom), GroomStrandBuildSettings{},
+                                   *scene.Binding, plain, indices, roots);
+    (void)BuildGroomStrandRestMesh(GroomBuildSource::FromAsset(*scene.Groom), GroomStrandBuildSettings{},
+                                   *scene.Binding, curledRest, indices, roots, &coat);
+    ASSERT_EQ(plain.size(), curledRest.size());
+    u32 moved = 0;
+    for (sizet i = 0; i < plain.size(); ++i)
+    {
+        moved += glm::length(curledRest[i].Position - plain[i].Position) > 1.0e-4f ? 1u : 0u;
+    }
+    EXPECT_GT(moved, static_cast<u32>(plain.size() / 2u)) << "the curl did not reach the rest stream";
+}
+
+TEST(GroomGpuDeformation, TheCurlRidesTheRootFrameUnderTwoPoses)
+{
+    // #1251's criterion 2 for the v4 shape terms: in each root's OWN frame a
+    // curled strand is the same at every pose, because the curl was applied in
+    // rest space and the body only ever moves the result rigidly. Two poses of
+    // the hinge; per corner, conjugate(Rotation) * (P - Origin) agrees to float
+    // precision while the world positions differ by centimetres.
+    const GroomCoatGroupDesc curled = CurledCoat();
+    const BoundScene bent = MakeBoundScene(24u, 24u, 55.0f, &curled);
+    const BoundScene straighter = MakeBoundScene(24u, 24u, 20.0f, &curled);
+    const GroomCoatSettings settings = CurledSettings();
+
+    const auto build = [&settings](const BoundScene& scene)
+    {
+        const GroomCoatContext coat{ &settings, scene.Groom->GetGroupCoats() };
+        const GroomStrandDeformation deformation{
+            scene.Binding.Raw(),
+            std::span<const GroomRootTransform>(scene.Transforms.GetData(), static_cast<sizet>(scene.Transforms.Num()))
+        };
+        std::vector<GroomStrandVertex> vertices;
+        std::vector<u32> indices;
+        (void)BuildGroomStrandMesh(*scene.Groom, GroomStrandBuildSettings{}, vertices, indices, &deformation, &coat);
+        return vertices;
+    };
+    const std::vector<GroomStrandVertex> a = build(bent);
+    const std::vector<GroomStrandVertex> b = build(straighter);
+    ASSERT_EQ(a.size(), b.size());
+
+    u32 compared = 0;
+    u32 posesDiffer = 0;
+    sizet corner = 0;
+    for (u32 curve = 0; curve < bent.Groom->GetCurveCount(); ++curve)
+    {
+        const GroomRootTransform& ta = bent.Transforms[static_cast<i32>(curve)];
+        const GroomRootTransform& tb = straighter.Transforms[static_cast<i32>(curve)];
+        const u32 corners = (bent.Groom->GetCurvePointCount(curve) - 1u) * 4u;
+        for (u32 c = 0; c < corners; ++c, ++corner)
+        {
+            if (!ta.Valid || !tb.Valid)
+            {
+                continue;
+            }
+            const glm::vec3 localA = glm::conjugate(ta.Rotation) * (a[corner].Position - ta.Origin);
+            const glm::vec3 localB = glm::conjugate(tb.Rotation) * (b[corner].Position - tb.Origin);
+            EXPECT_LT(glm::length(localA - localB), 1.0e-5f) << "curve " << curve << " corner " << c;
+            posesDiffer += glm::length(a[corner].Position - b[corner].Position) > 1.0e-3f ? 1u : 0u;
+            ++compared;
+        }
+    }
+    EXPECT_EQ(corner, a.size());
+    EXPECT_GT(compared, 0u);
+    EXPECT_GT(posesDiffer, compared / 4u) << "the two poses must genuinely differ, or this compares one pose twice";
 }
 
 TEST(GroomGpuDeformation, ABudgetThatDropsGuidesRenormalisesExactlyAsTheCpuDoes)

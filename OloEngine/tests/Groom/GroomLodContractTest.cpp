@@ -919,6 +919,108 @@ TEST(GroomLodCook, ACardCarriesItsMembersMeanJitterAndNotOneStrands)
     EXPECT_LT(spread(cards), 0.5 * spread(strands)) << "a card drew one strand's jitter for its whole cluster";
 }
 
+TEST(GroomLodCook, ACardCarriesItsMembersMeanCurlAndNotOneStrands)
+{
+    // #1533, the curl's half of the case above. A card stands for N strands
+    // whose curls have independent phases, so it carries the curl of their
+    // MEAN: a helix of radius R / sqrt(N). Measured on the drawn stream: between
+    // an uncurled and a curled build of the SAME curve set, every point past the
+    // envelope has moved by exactly its curl radius, because the offset is
+    // R (cos N + sin B) with N and B unit and orthogonal.
+    //
+    // The coat has NO JITTER at all, so this also pins that a coat which only
+    // curls still takes the card scale: the walk's card coat used to engage for
+    // the jitters alone.
+    const Ref<GroomAsset> pelt = MakeTestPelt();
+    ASSERT_TRUE(pelt);
+    GroomLodLevel level;
+    std::string reason;
+    GroomCardSettings cardSettings;
+    cardSettings.CellSize = 0.15f;
+    ASSERT_TRUE(GroomLodBuilder::BuildCardLevel(*pelt, cardSettings, level, reason, nullptr)) << reason;
+
+    GroomCoatSettings coatSettings;
+    coatSettings.Enabled = true;
+    coatSettings.Seed = 7u;
+    const std::vector<GroomCoatGroupDesc> plainTable = pelt->GetGroupCoats();
+    std::vector<GroomCoatGroupDesc> curledTable = plainTable;
+    for (GroomCoatGroupDesc& desc : curledTable)
+    {
+        desc.CurlRadius = 0.003f;
+        desc.CurlFrequency = 90.0f;
+    }
+    const GroomCoatContext plain{ &coatSettings, plainTable };
+    const GroomCoatContext curled{ &coatSettings, curledTable };
+    GroomStrandBuildSettings build;
+    build.MaxStrands = pelt->GetCurveCount();
+
+    // Every point past the envelope, per curve, against `expectedRadius(curve)`.
+    const auto expectCurlRadii = [&](const GroomBuildSource& source, auto&& expectedRadius)
+    {
+        std::vector<GroomStrandVertex> uncurledStream;
+        std::vector<GroomStrandVertex> curledStream;
+        std::vector<u32> indices;
+        (void)BuildGroomStrandMesh(source, build, uncurledStream, indices, nullptr, &plain);
+        const GroomStrandMeshStats stats = BuildGroomStrandMesh(source, build, curledStream, indices, nullptr, &curled);
+        EXPECT_EQ(stats.StrandsSelected, source.Curves.GetCurveCount()) << "the budget must keep every curve";
+        EXPECT_EQ(uncurledStream.size(), curledStream.size());
+        u32 measured = 0;
+        sizet corner = 0;
+        for (u32 curve = 0; curve < source.Curves.GetCurveCount(); ++curve)
+        {
+            const f32 radius = expectedRadius(curve);
+            const u32 count = source.Curves.GetCurvePointCount(curve);
+            for (u32 i = 0; i + 1u < count; ++i, corner += 4u)
+            {
+                // Segment i's P1 corner is point i + 1.
+                const f32 t = static_cast<f32>(i + 1u) / static_cast<f32>(count - 1u);
+                if (t < GroomCoatCurl::EnvelopeEnd)
+                {
+                    continue;
+                }
+                const f32 moved = glm::length(curledStream[corner + 2u].Position - uncurledStream[corner + 2u].Position);
+                EXPECT_NEAR(moved, radius, radius * 1.0e-3f) << "curve " << curve << " point " << (i + 1u);
+                ++measured;
+            }
+        }
+        EXPECT_EQ(corner, curledStream.size());
+        return measured;
+    };
+
+    // The strands: the full per-strand curl.
+    const GroomBuildSource strands = GroomBuildSource::FromAsset(*pelt);
+    EXPECT_GT(expectCurlRadii(strands,
+                              [&](u32 curve)
+                              {
+                                  return EvaluateGroomCoatStrand(curled, curve, pelt->GetRootUVs()[curve],
+                                                                 pelt->GetCurveGroupIds()[curve])
+                                      .CurlRadius;
+                              }),
+              0u);
+
+    // The cards: the same draw for the card's own curve, times sqrt(cards /
+    // strands) of its group -- computed here from the level, independently of
+    // the walk's own arithmetic.
+    std::vector<u32> cardsInGroup(pelt->GetGroupCount(), 0u);
+    for (const u16 group : level.CurveGroupIds)
+    {
+        ++cardsInGroup[group];
+    }
+    const GroomBuildSource cards = GroomBuildSource::FromLevel(*pelt, level);
+    const GroomCurveView cardView = level.GetCurveView();
+    EXPECT_GT(expectCurlRadii(cards,
+                              [&](u32 card)
+                              {
+                                  const u16 group = cardView.CurveGroupIds[card];
+                                  const f32 members = static_cast<f32>(pelt->GetGroupRanges()[group].CurveCount) /
+                                                      static_cast<f32>(cardsInGroup[group]);
+                                  EXPECT_GT(members, 4.0f) << "the cook must cluster for the claim to mean anything";
+                                  return EvaluateGroomCoatStrand(curled, card, cardView.RootUVs[card], group).CurlRadius /
+                                         std::sqrt(members);
+                              }),
+              0u);
+}
+
 TEST(GroomLodCook, ARawFixtureIsRefusedBecauseItsRootUVsAreUnaddressable)
 {
     // THE GUARD THE MEASUREMENT PUT THERE. GroomCoatClumpCell clamps a root UV

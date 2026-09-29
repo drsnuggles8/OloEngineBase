@@ -223,6 +223,10 @@ namespace OloEngine
         /// deformed frame. Non-zero is a fact about the BODY under this animation,
         /// and it looks identical to a guide that is simply not moving.
         u32 GuidesWithHeldRoots = 0;
+        /// Guides whose group's stiffness scale lifted them past the step's
+        /// stability ceiling, so they were solved softer than authored (#1533).
+        /// A fact about the authoring against the simulation rate.
+        u32 GuidesStiffnessCapped = 0;
         /// Fixed steps taken, summed over every simulated groom, and whether any
         /// of them dropped arrears. A coat permanently in arrears looks fine in
         /// a still frame and lags the body by a constant offset in motion, which

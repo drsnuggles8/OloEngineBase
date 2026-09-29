@@ -565,10 +565,11 @@ namespace OloEngine
     namespace
     {
         // What one emitted segment is made of BEFORE anything moves it: the two
-        // centreline points through the coat's shape, their parameters along the
-        // strand, their radii and the segment's identity. Both builds below start
-        // from exactly this, which is what makes the GPU-deformed stream (#1427)
-        // and the CPU-deformed one describe the same strands.
+        // centreline points through the coat's shape, curl and wave, their
+        // parameters along the strand, their radii, their packed tints and the
+        // segment's identity. Both builds below start from exactly this, which is
+        // what makes the GPU-deformed stream (#1427) and the CPU-deformed one
+        // describe the same strands.
         struct RestSegment
         {
             u32 Curve = 0;
@@ -581,7 +582,11 @@ namespace OloEngine
             f32 Radius0 = 0.0f;
             f32 Radius1 = 0.0f;
             f32 SegmentId = 0.0f;
-            f32 Tint = 0.0f;
+            // The coat tint at each END (#1533): a strand runs from its root tint
+            // to its tip tint, so the two corners at P0 carry one value and the
+            // two at P1 another.
+            f32 Tint0 = 0.0f;
+            f32 Tint1 = 0.0f;
         };
 
         // The strand walk BuildGroomStrandMesh has always done — selection, the
@@ -609,9 +614,15 @@ namespace OloEngine
         // every voxel). N is per group: the base groom's strands over the
         // level's cards.
         //
+        // THE SAME HOLDS FOR CURL AND WAVE (#1533): N helices of independent
+        // phase average to one of radius R/sqrt(N), so a card carries its
+        // members' curl and wave amplitudes at the same scale, and a coat that
+        // curls needs the scales even when it has no jitter at all.
+        //
         // Only the WALK takes it. The selection (Plan, SelectGroomStrandCurves)
-        // reads the raw coat, which is the same answer because jitter never
-        // decides Keep or Role; a jitter that did would make the two disagree.
+        // reads the raw coat, which is the same answer because neither jitter nor
+        // curl ever decides Keep or Role; one that did would make the two
+        // disagree.
         [[nodiscard]] const GroomCoatContext* CardTierCoat(const GroomBuildSource& source, const GroomCoatContext* coat,
                                                            GroomCoatContext& scratch, std::vector<f32>& scales)
         {
@@ -620,7 +631,11 @@ namespace OloEngine
                 return coat;
             }
             const GroomCoatSettings& settings = *coat->Settings;
-            if (!(settings.LengthJitter > 0.0f) && !(settings.WidthJitter > 0.0f) && !(settings.ShadeJitter > 0.0f))
+            const bool jitters =
+                settings.LengthJitter > 0.0f || settings.WidthJitter > 0.0f || settings.ShadeJitter > 0.0f;
+            const bool curls = std::ranges::any_of(coat->Groups, [](const GroomCoatGroupDesc& desc)
+                                                   { return desc.CurlRadius > 0.0f || desc.WaveAmplitude > 0.0f; });
+            if (!jitters && !curls)
             {
                 return coat;
             }
@@ -684,6 +699,12 @@ namespace OloEngine
                                                                     settings.MaxWidthCompensation);
             }
 
+            // One curve's REST polyline through the coat, rebuilt per curve into
+            // the same storage (#1533): the curl and wave need the whole strand at
+            // once, because the frame they follow is transported along it and
+            // their phase runs on its arc length.
+            TArray<glm::vec3> shaped;
+
             RoleWalk walk;
             u32 emittedSegments = 0;
             const u32 curveCount = groom.GetCurveCount();
@@ -737,25 +758,40 @@ namespace OloEngine
 
                 // ── The coat's shape, in REST space, BEFORE the deformation ──
                 //
-                // That order is the whole of criterion 2. Length, clump and width
-                // are functions of the root UV and the curve index, applied to the
-                // asset's own points; the binding's root transform is applied to the
-                // result. So a coat authored on a bind-pose pelt arrives on a
-                // running animal transformed by the body and by nothing else — the
-                // regional map cannot slide, because it was never consulted in a
-                // space the body moves.
+                // That order is the whole of criterion 2. Length, clump, width,
+                // curl and wave are functions of the root UV and the curve index,
+                // applied to the asset's own points; the binding's root transform
+                // is applied to the result. So a coat authored on a bind-pose pelt
+                // arrives on a running animal transformed by the body and by
+                // nothing else — the regional map cannot slide, and a curl cannot
+                // unwind, because neither was ever consulted in a space the body
+                // moves.
                 const glm::vec3& curveRoot = points[first];
                 const glm::vec3 clumpGrowth = curveCoat.Params.Clump > 0.0f
                                                   ? ClumpGrowthFor(clumps, groom, curve, clumpCellSize)
                                                   : glm::vec3(0.0f);
-                const f32 packedTint = PackGroomCoatTint(curveCoat.Params.Tint);
-
-                const auto shape = [&](u32 pointIndex)
+                shaped.SetNumUninitialized(static_cast<i32>(count), EAllowShrinking::No);
+                for (u32 p = 0; p < count; ++p)
                 {
-                    const f32 t = static_cast<f32>(pointIndex) * invSpan;
-                    return ApplyGroomCoatShape(curveRoot, points[first + pointIndex], t, curveCoat.Params.Length,
-                                               curveCoat.Params.Clump, clumpGrowth);
-                };
+                    const f32 t = static_cast<f32>(p) * invSpan;
+                    shaped[static_cast<i32>(p)] = ApplyGroomCoatShape(curveRoot, points[first + p], t,
+                                                                      curveCoat.Params.Length, curveCoat.Params.Clump,
+                                                                      clumpGrowth);
+                }
+                // AFTER the length and clump: the helix winds about the strand the
+                // coat shaped, and the root it never writes is the root the shape
+                // kept exactly. A group with no curl skips it and emits the points
+                // above untouched, which is what keeps it bit-identical to v3.
+                if (curveCoat.Params.CurlsOrWaves())
+                {
+                    ApplyGroomCoatCurl(std::span<glm::vec3>(shaped.GetData(), count), curveCoat.Params);
+                }
+
+                // The tint, per END (#1533). A strand whose tip tint is its root
+                // tint — every coat that authors no gradient — takes the one value
+                // v3 packed for the whole strand, without evaluating the mix.
+                const bool tintRuns = !Math::BitwiseEqual(curveCoat.Params.Tint, curveCoat.Params.TipTint);
+                const f32 rootTint = PackGroomCoatTint(curveCoat.Params.Tint);
 
                 for (u32 i = 0; i + 1u < count; ++i)
                 {
@@ -774,8 +810,8 @@ namespace OloEngine
                     segment.Curve = curve;
                     segment.SourceCurve = sourceCurve;
                     segment.Segment = i;
-                    segment.Rest0 = shape(i);
-                    segment.Rest1 = shape(i + 1u);
+                    segment.Rest0 = shaped[static_cast<i32>(i)];
+                    segment.Rest1 = shaped[static_cast<i32>(i + 1u)];
                     // The SAME parameter the coat's shape term uses, so the guide
                     // sample and the length multiplier agree about where this point
                     // sits along the strand. It is also the root-to-tip ramp
@@ -791,7 +827,8 @@ namespace OloEngine
                     segment.Radius0 = widths[first + i] * 0.5f * widthScale;
                     segment.Radius1 = widths[first + i + 1u] * 0.5f * widthScale;
                     segment.SegmentId = std::bit_cast<f32>(GroomSegmentIdentity(curve, i));
-                    segment.Tint = packedTint;
+                    segment.Tint0 = tintRuns ? PackGroomCoatTintAt(curveCoat.Params, segment.T0) : rootTint;
+                    segment.Tint1 = tintRuns ? PackGroomCoatTintAt(curveCoat.Params, segment.T1) : rootTint;
                     onSegment(segment);
 
                     ++emittedSegments;
@@ -813,7 +850,9 @@ namespace OloEngine
         // proxy read the P0 and P1 corners back by these positions.
         //
         // `vertex` arrives with the lanes that do not vary per corner already
-        // set; `atP1` fills the three that do.
+        // set; `atP0` and `atP1` fill the three position lanes that do, and the
+        // radius, the side, the coordinates and the tint are set here from the
+        // segment — the tint per END since #1533, like the radius.
         template<typename AtP0, typename AtP1>
         void EmitSegmentQuad(std::vector<GroomStrandVertex>& outVertices, std::vector<u32>& outIndices,
                              GroomStrandVertex vertex, const RestSegment& segment, AtP0&& atP0, AtP1&& atP1)
@@ -822,6 +861,7 @@ namespace OloEngine
 
             atP0(vertex);
             vertex.Radius = segment.Radius0;
+            vertex.Tint = segment.Tint0;
             vertex.Side = -1.0f;
             vertex.Coords = { segment.T0, -1.0f };
             outVertices.push_back(vertex);
@@ -832,6 +872,7 @@ namespace OloEngine
 
             atP1(vertex);
             vertex.Radius = segment.Radius1;
+            vertex.Tint = segment.Tint1;
             vertex.Side = 1.0f;
             vertex.Coords = { segment.T1, 1.0f };
             outVertices.push_back(vertex);
@@ -972,12 +1013,12 @@ namespace OloEngine
                 return placed;
             };
 
-            // The REST points from the asset THROUGH THE COAT, then the
-            // deformed pair this frame and the deformed pair last frame. An
-            // undeformed groom takes the identity path through `place`, and a
-            // groom with no coat takes the identity path through `shape`, so
-            // `p0 == rest0` and `prev0 == p0` and the emitted bytes are what
-            // they were before #1249 and #1251.
+            // The REST points from the asset THROUGH THE COAT (shape, curl and
+            // wave), then the deformed pair this frame and the deformed pair
+            // last frame. An undeformed groom takes the identity path through
+            // `place`, and a groom with no coat takes the identity path through
+            // the shape, so `p0 == rest0` and `prev0 == p0` and the emitted bytes
+            // are what they were before #1249 and #1251.
             const glm::vec3 p0 = place(segment.Rest0, segment.T0, false);
             const glm::vec3 p1 = place(segment.Rest1, segment.T1, false);
             const glm::vec3 prev0 = place(segment.Rest0, segment.T0, true);
@@ -1015,7 +1056,6 @@ namespace OloEngine
 
             GroomStrandVertex vertex;
             vertex.SegmentId = segment.SegmentId;
-            vertex.Tint = segment.Tint;
             EmitSegmentQuad(
                 outVertices, outIndices, vertex, segment,
                 [&](GroomStrandVertex& v)
@@ -1118,7 +1158,6 @@ namespace OloEngine
             // the other endpoint's parameter and which end this corner is.
             GroomStrandVertex vertex;
             vertex.SegmentId = segment.SegmentId;
-            vertex.Tint = segment.Tint;
             EmitSegmentQuad(
                 outVertices, outIndices, vertex, segment,
                 [&](GroomStrandVertex& v)

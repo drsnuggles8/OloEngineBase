@@ -193,6 +193,10 @@ TEST(GroomCookDeterminism, WireFormatStructsHaveNoImplicitPadding)
     EXPECT_EQ(sizeof(OloGroomFormat::SectionFrame), 2u + 2u + 4u + 8u);
     EXPECT_EQ(sizeof(OloGroomFormat::InfoSection), (4u * 4u) + (3u * 4u) + (3u * 4u) + 1u + 1u + 2u + 4u);
     EXPECT_EQ(sizeof(OloGroomFormat::ProvenanceHeader), 8u + 4u + 4u + 4u + 4u);
+    // Section 9's entry (format version 4, #1533): root and tip tint, density,
+    // length, width, clump, curl radius and frequency, wave amplitude and
+    // frequency, stiffness scale, then the role and its three pads.
+    EXPECT_EQ(sizeof(GroomCoatGroupDesc), (3u * 4u) + (3u * 4u) + (9u * 4u) + 1u + 1u + 1u + 1u);
 }
 
 TEST(GroomCookDeterminism, EveryEnumeratedSectionIsWrittenExactlyOnce)

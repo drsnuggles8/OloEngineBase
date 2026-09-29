@@ -443,9 +443,15 @@ namespace OloEngine
         for (sizet g = 0; g < m_GroupCoats.size(); ++g)
         {
             const GroomCoatGroupDesc& coat = m_GroupCoats[g];
+            // Every float in the description, the v4 fields (#1533) included: a
+            // NaN curl frequency reaches a sine at strand build, and a NaN
+            // stiffness scale a multiply in the guide solver.
             if (!std::isfinite(coat.Density) || !std::isfinite(coat.Length) || !std::isfinite(coat.Width) ||
                 !std::isfinite(coat.Clump) || !std::isfinite(coat.Tint.r) || !std::isfinite(coat.Tint.g) ||
-                !std::isfinite(coat.Tint.b))
+                !std::isfinite(coat.Tint.b) || !std::isfinite(coat.TipTint.r) || !std::isfinite(coat.TipTint.g) ||
+                !std::isfinite(coat.TipTint.b) || !std::isfinite(coat.CurlRadius) ||
+                !std::isfinite(coat.CurlFrequency) || !std::isfinite(coat.WaveAmplitude) ||
+                !std::isfinite(coat.WaveFrequency) || !std::isfinite(coat.StiffnessScale))
             {
                 outReason = std::format("group {} ('{}') has a non-finite coat parameter", g, m_GroupNames[g]);
                 return false;

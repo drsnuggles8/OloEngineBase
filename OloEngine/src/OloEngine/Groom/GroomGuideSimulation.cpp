@@ -2,6 +2,7 @@
 
 #include "OloEngine/Groom/GroomGuideSimulation.h"
 
+#include "OloEngine/Containers/Array.h"
 #include "OloEngine/Math/Math.h"
 
 #define GLM_ENABLE_EXPERIMENTAL
@@ -113,7 +114,15 @@ namespace OloEngine
         const sizet pointCount = inputs.TargetPoints.size();
         const bool wellFormed = OffsetsAreWellFormed(inputs.GuideOffsets, pointCount) &&
                                 inputs.GuideCurves.size() + 1u == inputs.GuideOffsets.size();
-        if (!wellFormed || !ParamsAreFinite(inputs.Params) || !Math::IsFinite(inputs.DeltaTime) ||
+        // Per-guide stiffness scales (#1533): empty is every guide at 1, and
+        // anything else must name every guide finitely. A short span is a caller
+        // bug, refused like a malformed offset table rather than guessed at.
+        const bool scalesWellFormed =
+            inputs.StiffnessScales.empty() ||
+            (inputs.StiffnessScales.size() + 1u == inputs.GuideOffsets.size() &&
+             std::ranges::all_of(inputs.StiffnessScales, [](f32 scale)
+                                 { return Math::IsFinite(scale); }));
+        if (!wellFormed || !scalesWellFormed || !ParamsAreFinite(inputs.Params) || !Math::IsFinite(inputs.DeltaTime) ||
             inputs.DeltaTime < 0.0f)
         {
             state.Clear();
@@ -140,6 +149,38 @@ namespace OloEngine
         const GroomSimulationParams params = Sanitize(inputs.Params);
         stats.GuidesSimulated = guideCount;
         stats.PointsSimulated = static_cast<u32>(pointCount);
+
+        // ── Each guide's own stiffness (#1533) ─────────────────────────────
+        //
+        // The entity's stiffness times the guide's group scale, held PER GUIDE
+        // to the step's stability ceiling: Sanitize has already held the
+        // entity's number under it, and a scale above 1 can lift one guide back
+        // over — a whisker group scaled for 60 Hz and solved at 15 — where the
+        // explicit shape term never settles (MaxStiffnessTimesStepSquared).
+        // NOT held to MaxStiffness: that bounds the AUTHORED component value,
+        // and a stiff group on a stiff entity is a legitimate product the step
+        // can carry. Counted before the re-seed below can return, so the number
+        // is there on every frame.
+        const f32 step = 1.0f / params.FixedHz;
+        const f32 stiffnessCeiling = GroomSimulationLimits::MaxStiffnessTimesStepSquared / (step * step);
+        TArray<f32> guideStiffness;
+        guideStiffness.Init(params.Stiffness, static_cast<i32>(guideCount));
+        if (!inputs.StiffnessScales.empty())
+        {
+            for (u32 g = 0; g < guideCount; ++g)
+            {
+                const f32 scaled = std::max(0.0f, params.Stiffness * inputs.StiffnessScales[g]);
+                if (scaled > stiffnessCeiling)
+                {
+                    guideStiffness[static_cast<i32>(g)] = stiffnessCeiling;
+                    ++stats.GuidesStiffnessCapped;
+                }
+                else
+                {
+                    guideStiffness[static_cast<i32>(g)] = scaled;
+                }
+            }
+        }
 
         // ── Re-seed, or continue ────────────────────────────────────────────
         //
@@ -193,7 +234,6 @@ namespace OloEngine
         }
 
         // ── The fixed step, with a bounded catch-up ─────────────────────────
-        const f32 step = 1.0f / params.FixedHz;
         state.Accumulator += inputs.DeltaTime;
         if (const f32 maxArrears = static_cast<f32>(params.MaxSubsteps) * step; state.Accumulator > maxArrears)
         {
@@ -257,6 +297,7 @@ namespace OloEngine
                 corrections[first] = glm::vec3(0.0f);
 
                 // ── 1. Predict ──────────────────────────────────────
+                const f32 stiffness = guideStiffness[static_cast<i32>(g)];
                 for (u32 i = first + 1u; i < last; ++i)
                 {
                     const glm::vec3 curr = state.Curr[i];
@@ -264,8 +305,9 @@ namespace OloEngine
                     // The shape term is what makes this fur rather than hair:
                     // the strand is pulled back toward the position the GROOM
                     // put it in, so a coat holds its authored curl instead of
-                    // hanging off the body like a wet rope.
-                    const glm::vec3 accel = params.Stiffness * (inputs.TargetPoints[i] - curr) + params.Gravity;
+                    // hanging off the body like a wet rope. At THIS guide's
+                    // stiffness, which its group may scale (#1533).
+                    const glm::vec3 accel = stiffness * (inputs.TargetPoints[i] - curr) + params.Gravity;
                     state.Prev[i] = curr;
                     state.Curr[i] = curr + velocity + accel * dt2;
                 }

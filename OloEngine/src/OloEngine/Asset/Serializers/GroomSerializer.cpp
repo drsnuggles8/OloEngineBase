@@ -317,6 +317,12 @@ namespace OloEngine
             // no IMPLICIT padding, but its three explicit pad bytes are ordinary
             // members that a caller could have left at anything, and two cooks
             // of one groom must be byte-identical (GroomCooker.h).
+            //
+            // The size is restated HERE so a layout change stops at this list:
+            // version 4 (#1533) grew the entry to 64 bytes and kept the same
+            // three pads, and a future field that brings a pad of its own must
+            // add it below or the cook stops being deterministic.
+            static_assert(sizeof(GroomCoatGroupDesc) == 64, "a new pad in GroomCoatGroupDesc must be zeroed below");
             for (GroomCoatGroupDesc& coat : coats)
             {
                 coat.Pad0 = 0;

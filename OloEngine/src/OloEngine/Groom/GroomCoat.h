@@ -15,12 +15,14 @@
 // So this file adds two things and nothing else:
 //
 //   * A ROLE PER GROUP, plus the per-group density / length / width / clump /
-//     tint the role is authored with. This lives in the ASSET and is cooked
-//     (section 9 of the .ologroom), because it is a property of how the groom
-//     was groomed, not of the entity wearing it. Criterion 1's "preserving
-//     density and silhouette during cooking" is exactly the requirement that
-//     this survives GroomCooker::Canonicalize — which reorders curves — with
-//     every group's share of the strand budget intact.
+//     tint the role is authored with — and, since coat authoring v4 (#1533),
+//     a tip tint, a curl, a wave and a simulation stiffness scale. This lives
+//     in the ASSET and is cooked (section 9 of the .ologroom), because it is a
+//     property of how the groom was groomed, not of the entity wearing it.
+//     Criterion 1's "preserving density and silhouette during cooking" is
+//     exactly the requirement that this survives GroomCooker::Canonicalize —
+//     which reorders curves — with every group's share of the strand budget
+//     intact.
 //
 //   * A BOUNDED RUNTIME OVERRIDE, plus two root-UV maps and a deterministic
 //     per-strand variation. This lives on the COMPONENT and reaches the build
@@ -167,7 +169,60 @@ namespace OloEngine
 
         // Jitter amplitudes, as a fraction of the value they perturb.
         constexpr f32 MaxJitter = 1.0f;
+
+        // ── Coat authoring v4 (#1533) ─────────────────────────────────────
+        //
+        // Curl: a HELIX about the strand's own centreline. The radius is in
+        // METRES and the frequency in turns per metre of REST arc length,
+        // measured from the root along the shaped strand. Five centimetres is
+        // past any ringlet; 400 turns a metre is a 2.5 mm pitch, past the
+        // tightest kink a coat has.
+        constexpr f32 MinCurlRadius = 0.0f;
+        constexpr f32 MaxCurlRadius = 0.05f;
+        constexpr f32 MinCurlFrequency = 0.0f;
+        constexpr f32 MaxCurlFrequency = 400.0f;
+
+        // Wave: a PLANAR sine across the strand, amplitude in metres and
+        // frequency in periods per metre of rest arc length.
+        constexpr f32 MinWaveAmplitude = 0.0f;
+        constexpr f32 MaxWaveAmplitude = 0.05f;
+        constexpr f32 MinWaveFrequency = 0.0f;
+        constexpr f32 MaxWaveFrequency = 200.0f;
+
+        // The factor on the entity's guide-simulation stiffness for a group's
+        // guides: a twentieth to twenty times, a limp tail plume to a stiff
+        // whisker either side of an undercoat. Strictly positive — a group
+        // that should not hold its groom at all has no guides.
+        constexpr f32 MinStiffnessScale = 0.05f;
+        constexpr f32 MaxStiffnessScale = 20.0f;
     } // namespace GroomCoatLimits
+
+    /// The shape of the curl and the wave (#1533), stated once for the build,
+    /// the evaluation and the tests. See ApplyGroomCoatCurl for the formula.
+    namespace GroomCoatCurl
+    {
+        /// Per-strand jitter on an authored AMPLITUDE (curl radius, wave
+        /// amplitude): each strand draws a factor in [0.8, 1.2]. Without it a
+        /// curled coat is a field of identical corkscrews.
+        constexpr f32 AmplitudeJitter = 0.20f;
+
+        /// Per-strand jitter on an authored FREQUENCY: a factor in [0.85, 1.15].
+        constexpr f32 FrequencyJitter = 0.15f;
+
+        /// The strand parameter at which the offset reaches full amplitude. The
+        /// envelope is smoothstep(0, EnvelopeEnd, t): ZERO at the root, so the
+        /// root is a fixed point, and with zero slope there, so the strand
+        /// leaves the skin along its groomed direction and winds up over its
+        /// first quarter instead of kinking at the follicle.
+        constexpr f32 EnvelopeEnd = 0.25f;
+
+        /// The control points a strand needs per turn for its curl to read as a
+        /// curl rather than an aliased zigzag. The build NEVER subdivides — a
+        /// strand of n points is n - 1 segments, curled or not — so this is a
+        /// number for the GROWER: a 3 cm strand at 60 turns a metre is 1.8 turns
+        /// and wants 15 or more points.
+        constexpr u32 MinPointsPerTurn = 8;
+    } // namespace GroomCoatCurl
 
     /// One coat group's authored parameters. Cooked; see GroomBinaryFormat.h
     /// section 9.
@@ -176,10 +231,24 @@ namespace OloEngine
     /// bytes and because Math::BitwiseEqual below compares the whole object —
     /// an implicit padding byte would make two identical descriptions compare
     /// unequal and rebuild the strand geometry every frame.
+    ///
+    /// Every field added by coat authoring v4 (#1533) defaults to "no change":
+    /// a group that authors none of them builds exactly the strands, and packs
+    /// exactly the tints, it built at format version 3.
     struct GroomCoatGroupDesc
     {
-        /// Multiplier on the per-strand tint. White is identity.
+        /// Multiplier on the shaded colour at the strand's ROOT. White is
+        /// identity.
         glm::vec3 Tint{ 1.0f, 1.0f, 1.0f };
+
+        /// A further multiplier at the strand's TIP (#1533): the tip's colour
+        /// is Tint * TipTint, and each ribbon corner takes mix(Tint, Tint *
+        /// TipTint, t), so a strand can run from a dark root to a sun-bleached
+        /// tip. RELATIVE to Tint, and white by default, so every group that
+        /// authors Tint alone -- every coat written before v4, every importer --
+        /// stays one colour root to tip. An absolute tip colour defaulting to
+        /// white would fade every such group to white at its tips.
+        glm::vec3 TipTint{ 1.0f, 1.0f, 1.0f };
 
         /// Fraction of this group's strands a full-budget build keeps.
         f32 Density = 1.0f;
@@ -189,6 +258,21 @@ namespace OloEngine
         f32 Width = 1.0f;
         /// How strongly this group tufts. 0 is the cooked layout.
         f32 Clump = 0.0f;
+
+        /// Curl (#1533): the helix radius in metres, and turns per metre of rest
+        /// arc length. Either at zero is the straight coat.
+        f32 CurlRadius = 0.0f;
+        f32 CurlFrequency = 0.0f;
+
+        /// Wave (#1533): a planar sine's amplitude in metres, and periods per
+        /// metre of rest arc length. Either at zero is no wave.
+        f32 WaveAmplitude = 0.0f;
+        f32 WaveFrequency = 0.0f;
+
+        /// Factor on the entity's guide-simulation stiffness for this group's
+        /// guides (#1533): a tail plume can hang where the undercoat holds. 1 is
+        /// the entity's own stiffness.
+        f32 StiffnessScale = 1.0f;
 
         u8 Role = static_cast<u8>(GroomCoatRole::Unassigned);
         u8 Pad0 = 0;
@@ -207,7 +291,7 @@ namespace OloEngine
         }
     };
 
-    static_assert(sizeof(GroomCoatGroupDesc) == 32,
+    static_assert(sizeof(GroomCoatGroupDesc) == 64,
                   "GroomCoatGroupDesc goes to disk as bytes and is compared with a whole-object memcmp: "
                   "it must have no implicit padding");
     static_assert(std::is_trivially_copyable_v<GroomCoatGroupDesc>);
@@ -457,8 +541,24 @@ namespace OloEngine
         f32 Width = 1.0f;
         /// How far this strand's tip is pulled toward its clump, in [0,1].
         f32 Clump = 0.0f;
-        /// Multiplies the shaded colour. White is identity.
+        /// Multiplies the shaded colour at the ROOT: the group's Tint through
+        /// the colour map and the shade jitter. White is identity.
         glm::vec3 Tint{ 1.0f, 1.0f, 1.0f };
+        /// The same at the TIP (#1533), through the same map and shade. The
+        /// corners between take PackGroomCoatTintAt.
+        glm::vec3 TipTint{ 1.0f, 1.0f, 1.0f };
+
+        /// This strand's curl and wave (#1533): the group's, jittered by the
+        /// strand's own draws and, on a card, scaled by the JitterScale. The
+        /// phases and the azimuth are in TURNS, in [0, 1). ApplyGroomCoatCurl
+        /// spends them.
+        f32 CurlRadius = 0.0f;
+        f32 CurlFrequency = 0.0f;
+        f32 CurlPhase = 0.0f;
+        f32 CurlAzimuth = 0.0f;
+        f32 WaveAmplitude = 0.0f;
+        f32 WaveFrequency = 0.0f;
+        f32 WavePhase = 0.0f;
 
         /// False means this strand is not built: its role is hidden, or it lost
         /// the density draw. A dropped strand costs no geometry and no budget.
@@ -471,9 +571,16 @@ namespace OloEngine
         {
             return Math::BitwiseEqual(*this, other);
         }
+
+        /// True when ApplyGroomCoatCurl has anything to do for this strand. A
+        /// radius with no frequency, or the reverse, is not a curl.
+        [[nodiscard]] bool CurlsOrWaves() const noexcept
+        {
+            return (CurlRadius > 0.0f && CurlFrequency > 0.0f) || (WaveAmplitude > 0.0f && WaveFrequency > 0.0f);
+        }
     };
 
-    static_assert(sizeof(GroomCoatStrandParams) == 28,
+    static_assert(sizeof(GroomCoatStrandParams) == 68,
                   "GroomCoatStrandParams is compared with a whole-object memcmp: it must have no implicit padding");
 
     /// The identity answer: what every strand gets when no coat is authored.
@@ -524,13 +631,27 @@ namespace OloEngine
         constexpr u32 Length = 0x1251'0002u;
         constexpr u32 Width = 0x1251'0003u;
         constexpr u32 Shade = 0x1251'0004u;
+
+        // Coat authoring v4 (#1533). NEW salts, never a reuse of one above: a
+        // curl radius drawn on the length salt would make every long strand a
+        // loose curl and every short one a tight one, which is a correlation
+        // the eye picks out at once.
+        constexpr u32 CurlRadius = 0x1533'0001u;
+        constexpr u32 CurlFrequency = 0x1533'0002u;
+        constexpr u32 CurlPhase = 0x1533'0003u;
+        constexpr u32 CurlAzimuth = 0x1533'0004u;
+        constexpr u32 WaveAmplitude = 0x1533'0005u;
+        constexpr u32 WaveFrequency = 0x1533'0006u;
+        constexpr u32 WavePhase = 0x1533'0007u;
     } // namespace GroomCoatSalt
 
     // -------------------------------------------------------------------------
     // Tint transport
     // -------------------------------------------------------------------------
-    // The per-strand tint rides in the strand vertex's one spare float lane
-    // (GroomStrandVertex::Tint, formerly Pad0) as 8:8:8 in the low 24 bits.
+    // The coat tint rides in the strand vertex's one spare float lane
+    // (GroomStrandVertex::Tint, formerly Pad0) as 8:8:8 in the low 24 bits —
+    // one value per ribbon CORNER since #1533, so a strand can run from its
+    // root tint to its tip tint (PackGroomCoatTintAt).
     //
     // THE TOP BYTE IS FORCED TO 0x3F AND THAT IS LOAD-BEARING. A bare 24-bit
     // payload bit-cast to a float is a DENORMAL for every tint whose blue
@@ -591,6 +712,21 @@ namespace OloEngine
     /// The packed lane for "no tint". Named so the vertex's default initialiser
     /// and the build agree on one constant.
     constexpr f32 GroomCoatIdentityTint = PackGroomCoatTint(glm::vec3(1.0f));
+
+    /// The packed tint of a ribbon corner at strand parameter `t` (#1533):
+    /// pack(ColorMap(rootUV) * shade * mix(Tint, Tint * TipTint, t)), with the
+    /// map and the shade already inside `params.Tint` and `params.TipTint` (the
+    /// strand's TipTint is the tip's absolute value; the group's is relative).
+    ///
+    /// Written as the root plus a delta and NOT as glm::mix, which is
+    /// x * (1 - t) + y * t and is not exact when x == y. The delta form is: a
+    /// strand whose tip tint equals its root tint — every coat that authors no
+    /// gradient — packs, at every corner, exactly the one value format version 3
+    /// packed for the whole strand.
+    [[nodiscard]] inline f32 PackGroomCoatTintAt(const GroomCoatStrandParams& params, f32 t) noexcept
+    {
+        return PackGroomCoatTint(params.Tint + ((params.TipTint - params.Tint) * t));
+    }
 
     // -------------------------------------------------------------------------
     // Clumping
@@ -677,4 +813,41 @@ namespace OloEngine
     /// rather than sliding off it.
     [[nodiscard]] glm::vec3 ApplyGroomCoatShape(const glm::vec3& root, const glm::vec3& restPoint, f32 t,
                                                 f32 lengthScale, f32 clump, const glm::vec3& clumpGrowth) noexcept;
+
+    /// Adds a strand's curl and wave to its SHAPED REST polyline, in place
+    /// (#1533).
+    ///
+    /// `points` is the whole strand, root first, already through
+    /// ApplyGroomCoatShape. Point i sits at strand parameter t = i / (n - 1) —
+    /// the parameter the shape, the tint and the guide sample all use — and at
+    /// arc length s from the root along `points`. It moves by
+    ///
+    ///   envelope(t) * [ R * (cos(2 pi (f s + phi)) N + sin(2 pi (f s + phi)) B)
+    ///                 + A * sin(2 pi (fw s + phiW)) N ]
+    ///
+    /// with R, f, phi the strand's CurlRadius, CurlFrequency and CurlPhase, A,
+    /// fw, phiW its wave's, and envelope(t) = smoothstep(0,
+    /// GroomCoatCurl::EnvelopeEnd, t). (N, B) is a PARALLEL-TRANSPORT
+    /// (rotation-minimising) frame of the polyline, carried point to point by
+    /// double reflection (Wang, Juttler, Zheng and Liu, 2008) from a normal
+    /// perpendicular to the root tangent at CurlAzimuth turns around it.
+    /// Transported rather than Frenet: a Frenet frame is undefined along a
+    /// straight run and flips at every inflection, and each flip would kink the
+    /// helix.
+    ///
+    /// So the curl is a helix of radius R and pitch 1/f about the strand's own
+    /// centreline, and the wave a sine along N — one direction, on a straight
+    /// strand, which is what "planar" means here.
+    ///
+    /// THE ROOT IS NEVER WRITTEN. The envelope is zero there, and adding a zero
+    /// offset would still turn a -0.0 coordinate positive; the loop starts at
+    /// point 1 instead, so the root is a fixed point bit for bit and the coat
+    /// cannot slide off the body at its follicles.
+    ///
+    /// A no-op when the strand neither curls nor waves (CurlsOrWaves), when any
+    /// of its curl parameters is not finite, or when every point coincides with
+    /// the root and there is no direction to curl about. It never adds a point:
+    /// the curl is only as fine as the polyline the grower authored — see
+    /// GroomCoatCurl::MinPointsPerTurn.
+    void ApplyGroomCoatCurl(std::span<glm::vec3> points, const GroomCoatStrandParams& params) noexcept;
 } // namespace OloEngine

@@ -181,13 +181,22 @@ namespace OloEngine::GroomBindingTest
     /// height, so a coat can be authored over a body that is SCALED relative to
     /// it — the case GroomStrandCoat.olo has and the binder has to handle (see
     /// GroomBindingBuildSettings::SurfaceToGroom).
+    /// `coat`, when given, is the group's authored description — a curl, a wave
+    /// or a tip tint to carry through a binding (#1533).
     [[nodiscard]] inline Ref<GroomAsset> MakeCoat(u32 count, u32 pointsPerCurve = 4u, f32 height = 0.1f,
-                                                  f32 rootOffsetY = 0.0f, f32 footprint = 1.0f)
+                                                  f32 rootOffsetY = 0.0f, f32 footprint = 1.0f,
+                                                  const GroomCoatGroupDesc* coat = nullptr)
     {
         GroomBuilder builder;
         std::string reason;
         u16 group = 0;
         EXPECT_TRUE(builder.AddGroup("coat", group, reason)) << reason;
+        if (coat != nullptr)
+        {
+            std::vector<std::string> repairs;
+            EXPECT_TRUE(builder.SetGroupCoat(group, *coat, repairs));
+            EXPECT_TRUE(repairs.empty()) << "the fixture authors only legal values: " << repairs.front();
+        }
 
         std::vector<glm::vec3> points(pointsPerCurve);
         std::vector<f32> widths(pointsPerCurve, 0.001f);
