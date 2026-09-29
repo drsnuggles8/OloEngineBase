@@ -16,8 +16,9 @@ exclude, so a new doc is checked before it is staged.
    resolves to a tracked path. A `.md#anchor` link must name a heading of the target
    (GitHub's slug rules) or an explicit `<a id="...">`.
 2. Every `docs/<path>.md` named in a tracked file outside docs/ (a source comment, a
-   CMake option, a script) exists. The generated, git-ignored test catalogue is the
-   one exception.
+   CMake option, a script, a tool's README) exists; a relative `../docs/x.md` is
+   resolved against the file that cites it. The generated, git-ignored test
+   catalogue is the one exception.
 3. Every tracked Markdown file under docs/ is reachable from docs/README.md by
    following relative links. "Adding a doc? Add it here too." is the rule this
    enforces; an evidence bundle linked from its analysis doc counts as reachable.
@@ -70,6 +71,7 @@ SCHEME_RE = re.compile(r"^[a-z][a-z0-9+.-]*:", re.IGNORECASE)
 # Anchored so a URL or a longer path (`https://…/docs/x.md`, `../docs/x.md`) is not
 # read as this repository's docs/ directory.
 DOCS_PATH_RE = re.compile(r"(?<![\w/.:-])docs/[A-Za-z0-9_./-]+\.md")
+RELATIVE_DOCS_PATH_RE = re.compile(r"(?<![\w/.:-])((?:\.\./)+docs/[A-Za-z0-9_./-]+\.md)")
 SOURCE_EXT = r"(?:h|hpp|inl|cpp|glsl|comp|vert|frag|geom|tesc|tese|py|ps1|cmake|cs|lua)"
 SOURCE_NAME_RE = re.compile(r"`([A-Za-z0-9_./-]+\." + SOURCE_EXT + r")(?:::([A-Za-z_][A-Za-z0-9_]*))?")
 
@@ -208,6 +210,12 @@ def check_cited_doc_paths(repo: Repo) -> list[str]:
         for cited in DOCS_PATH_RE.findall(line):
             if cited not in repo.tracked and not GENERATED_DOCS.match(cited):
                 errors.append(f"{rel}:{number}: names a doc that does not exist: {cited}")
+        # A relative citation (`../../docs/x.md`, e.g. a Markdown link from a
+        # tool's README) is resolved against the file that makes it.
+        for cited in RELATIVE_DOCS_PATH_RE.findall(line):
+            resolved, _ = resolve(rel, cited)
+            if resolved.startswith("docs/") and resolved not in repo.tracked:
+                errors.append(f"{rel}:{number}: names a doc that does not exist: {cited}")
     return errors
 
 
@@ -258,7 +266,8 @@ SELF_TEST = {
     "dead anchor": ({"docs/guides/a.md": "[x](#nowhere)\n"}, "no heading or anchor '#nowhere'"),
     "orphan doc": ({"docs/guides/orphan.md": "# Orphan\n"}, "docs/guides/orphan.md: not reachable"),
     "dead cited doc": ({"src/X.h": "// see docs/guides/missing.md\n"}, "names a doc that does not exist: docs/guides/missing.md"),
-    "a URL is not a local doc": ({"src/Y.h": "// https://github.com/o/r/blob/main/docs/x.md\n"}, None),
+    "dead relative citation": ({"tools/t/README.md": "[g](../../docs/guides/gone.md)\n"}, "names a doc that does not exist: ../../docs/guides/gone.md"),
+    "a URL is not a local doc":({"src/Y.h": "// https://github.com/o/r/blob/main/docs/x.md\n"}, None),
     "explicit anchor, any case": (
         {"docs/guides/a.md": '# A\n\n<a id="Mixed-Case"></a>\n\n[back](../README.md#guides) [m](#Mixed-Case)\n'},
         None,
