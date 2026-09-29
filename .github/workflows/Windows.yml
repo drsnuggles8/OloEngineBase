@@ -1189,6 +1189,19 @@ jobs:
         PY
         exit "$status"
 
+    # #1358: the engine's own capability reader on this runner, in the job
+    # summary. Report-only, like the ray-query step above: hosted Windows has no
+    # GPU, and the report is what says so from a log instead of from a comment.
+    - name: Vulkan capability report
+      if: always() && matrix.shard == 1
+      shell: bash
+      working-directory: ${{github.workspace}}/OloEditor
+      run: |
+        mkdir -p "${GITHUB_WORKSPACE}/test_results"
+        "${GITHUB_WORKSPACE}/build/OloEngine/tests/${BUILD_TYPE}/OloEngine-Tests.exe" \
+          --olo-vulkan-capability-report="${GITHUB_WORKSPACE}/test_results/vulkan_capability_report.md"
+        cat "${GITHUB_WORKSPACE}/test_results/vulkan_capability_report.md" >> "$GITHUB_STEP_SUMMARY"
+
     # `if: always()` on both uploads: a shard that FAILED is the one whose results
     # matter most, and its count is what proves the failure was not an empty run.
     - name: Upload test results

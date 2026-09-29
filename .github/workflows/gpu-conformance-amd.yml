@@ -748,6 +748,20 @@ jobs:
           print("OK - no GPU test was skipped for want of a context.")
           PY
 
+      # #1358: the engine's own Vulkan capability reader on the AMD box, in the
+      # job summary. Report-only (`|| true`): this job's gate is the GL suite
+      # above, and the report is what turns "RADV cannot host the Vulkan
+      # backend" from a claim in three documents into a log line. It runs the
+      # real VulkanDevice::Init headless, so a Mesa that gains
+      # VK_EXT_descriptor_heap changes this output the day it lands.
+      - name: Vulkan capability report
+        if: always()
+        working-directory: OloEditor
+        run: |
+          mkdir -p ../test_results
+          ../build/OloEngine/tests/OloEngine-Tests --olo-vulkan-capability-report=../test_results/vulkan_capability_report.md || true
+          cat ../test_results/vulkan_capability_report.md >> "$GITHUB_STEP_SUMMARY" || true
+
       - name: Perf-history trend analysis
         if: always()
         run: python3 OloEngine/tests/scripts/perf_trend.py
