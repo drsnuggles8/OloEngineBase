@@ -233,62 +233,72 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
-    // EveryCSharpFileIsListedInBuild
+    // CSharpProjectsCompileEverySourceFile
     //
-    // Catches the case where a `.cs` file sits in `Source/` but the
-    // CMakeLists.txt `SOURCES` list never references it. Result: the
-    // class isn't compiled into Sandbox-Scripting.dll, and any scene's
-    // `ScriptComponent.ClassName = Sandbox.<MissingClass>` silently
-    // no-ops — same silent-failure class as the scene-reference check,
-    // but caused by an oversight in CMakeLists.txt rather than the .cs
-    // file itself going missing.
+    // Catches a `.cs` file that sits in a script project's source tree but is
+    // not compiled. The class is then missing from the assembly, and any
+    // scene's `ScriptComponent.ClassName = Sandbox.<MissingClass>` silently
+    // no-ops. This happened three times while the build used hand-kept CMake
+    // SOURCES lists: `SaveLoadTestPlayer.cs` was missing from
+    // Sandbox-Scripting.dll, and `Video.cs` and `Rendering/ShaderLibrary.cs`
+    // were missing from OloEngine-ScriptCore.dll (#1405).
     //
-    // Concretely: this would have caught `SaveLoadTestPlayer.cs` missing
-    // from the build before the discovery via the orphan check —
-    // SaveLoadTest.olo binds to it but the DLL didn't contain the class.
+    // Both assemblies are now SDK-style projects built by `dotnet build`
+    // (cmake/CSharpAssembly.cmake), which compile every `.cs` by glob, so the
+    // failure can only come back by editing a project to list or remove files.
+    // This pins the glob: OloEngine-ScriptCore uses the SDK default (every
+    // `.cs` under the project directory), Sandbox-Scripting names exactly one
+    // `Source/**/*.cs` item, and neither removes anything.
     // -------------------------------------------------------------------------
-    TEST(AssetCSharpScriptValidity, EveryCSharpFileIsListedInCMakeSources)
+    TEST(AssetCSharpScriptValidity, CSharpProjectsCompileEverySourceFile)
     {
-        const fs::path sourceDir = fs::path{ OLO_TEST_EDITOR_ROOT } /
-                                   "SandboxProject" / "Assets" / "Scripts" / "Source";
-        const fs::path cmakeFile = sourceDir / "CMakeLists.txt";
-        ASSERT_TRUE(fs::exists(cmakeFile))
-            << "Missing CMakeLists.txt at " << cmakeFile.string();
-
-        std::ifstream cmakeIn(cmakeFile, std::ios::binary);
-        std::ostringstream cmakeBuf;
-        cmakeBuf << cmakeIn.rdbuf();
-        const std::string cmakeContent = cmakeBuf.str();
-
-        const auto files = EnumerateCSharpFiles(sourceDir);
-        ASSERT_FALSE(files.empty());
-
-        std::vector<Failure> missing;
-        for (const auto& path : files)
+        const auto readText = [](const fs::path& path)
         {
-            // The SOURCES list quotes each entry as `"<FileName>.cs"`.
-            // A simple substring match for the quoted filename is robust
-            // here — CMakeLists.txt edits don't reuse this token outside
-            // the SOURCES set.
-            const std::string token = '"' + path.filename().generic_string() + '"';
-            if (cmakeContent.find(token) == std::string::npos)
-            {
-                missing.push_back({ path.generic_string(),
-                                    "no `\"" + path.filename().generic_string() +
-                                        "\"` entry found in CMakeLists.txt — Sandbox-Scripting.dll "
-                                        "will not contain the class declared in this file." });
-            }
+            std::ifstream in(path, std::ios::binary);
+            std::ostringstream buf;
+            buf << in.rdbuf();
+            return buf.str();
+        };
+        const auto countOf = [](const std::string& text, const std::string& token)
+        {
+            sizet count = 0;
+            for (sizet pos = text.find(token); pos != std::string::npos; pos = text.find(token, pos + token.size()))
+                ++count;
+            return count;
+        };
+
+        const fs::path repoRoot = fs::path{ OLO_TEST_EDITOR_ROOT }.parent_path();
+        const fs::path props = repoRoot / "OloEngine-ScriptCore" / "OloEngine.CSharp.props";
+        const fs::path engineProject = repoRoot / "OloEngine-ScriptCore" / "OloEngine-ScriptCore.csproj";
+        const fs::path sandboxProject = fs::path{ OLO_TEST_EDITOR_ROOT } / "SandboxProject" / "Assets" / "Scripts" /
+                                        "Sandbox-Scripting.csproj";
+
+        for (const fs::path& path : { props, engineProject, sandboxProject })
+            ASSERT_TRUE(fs::exists(path)) << "Missing " << path.string();
+
+        const std::string propsText = readText(props);
+        const std::string engineText = readText(engineProject);
+        const std::string sandboxText = readText(sandboxProject);
+
+        for (const auto& [name, text] : { std::pair{ props.filename().string(), propsText },
+                                          std::pair{ engineProject.filename().string(), engineText },
+                                          std::pair{ sandboxProject.filename().string(), sandboxText } })
+        {
+            EXPECT_EQ(countOf(text, "<Compile Remove"), 0u)
+                << name << " removes files from compilation; the removed classes are missing from the assembly.";
         }
 
-        if (!missing.empty())
-        {
-            std::ostringstream oss;
-            oss << missing.size() << " C# file(s) missing from CMakeLists.txt SOURCES:\n";
-            for (const auto& f : missing)
-                oss << "----\n"
-                    << f.Path << "\n    " << f.Reason << "\n";
-            FAIL() << oss.str();
-        }
+        EXPECT_EQ(countOf(propsText, "EnableDefaultCompileItems"), 0u)
+            << "OloEngine.CSharp.props must leave each project's compile items alone.";
+        EXPECT_EQ(countOf(engineText, "EnableDefaultCompileItems"), 0u)
+            << "OloEngine-ScriptCore.csproj must compile every .cs under the project (SDK default glob).";
+        EXPECT_EQ(countOf(engineText, "<Compile "), 0u)
+            << "OloEngine-ScriptCore.csproj lists compile items; a hand-kept list is how Video.cs went missing.";
+
+        EXPECT_EQ(countOf(sandboxText, "<Compile "), 1u)
+            << "Sandbox-Scripting.csproj must have exactly one compile item, the Source/ glob.";
+        EXPECT_EQ(countOf(sandboxText, "<Compile Include=\"Source/**/*.cs\" />"), 1u)
+            << "Sandbox-Scripting.csproj must compile every .cs under Source/ by glob.";
     }
 
     // -------------------------------------------------------------------------

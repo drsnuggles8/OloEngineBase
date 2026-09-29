@@ -237,15 +237,24 @@ Two more things that bite:
 ## A targeted `--target OloEditor` build ships without C# scripting if one dependency edge goes
 
 **Rule:** keep the `OloEditor → OloEngine-ScriptCore` / `Sandbox-Scripting` dependency edge in the
-root `CMakeLists.txt`, next to the `OloRuntime` edge and inside the same
-`if(CMAKE_GENERATOR MATCHES "Visual Studio")` block.
+root `CMakeLists.txt`, next to the `OloRuntime` edge, inside `if(OLO_WITH_CSHARP)`.
 
 `OloEngine-ScriptCore.dll` builds straight into `OloEditor/Resources/Scripts/`. Without the edge the
 DLL is never built, `ScriptEngine::Init` fails to load it, logs
 `[ScriptEngine] OloEngine-ScriptCore assembly unavailable`, and disables C# scripting for the
 session. That is graceful degradation, not a crash, so a verification loop that only checks for a
-rendered window misses it. If you see that log line, check the edge before diagnosing anything else.
-Found by a `/start-work` runtime smoke test, not a tracked issue.
+rendered window misses it. If you see that log line, check the edge first, then that the tree was
+configured with `OLO_WITH_CSHARP=ON`. Found by a `/start-work` runtime smoke test, not a tracked issue.
+
+Until #1405 the C# targets existed only under the Visual Studio generator (CMake's `CSharp`
+language), so every Ninja tree, including `dev-cached` and all of CI, produced this log line by
+design. They are now `dotnet build` custom targets under every generator
+(`cmake/CSharpAssembly.cmake`, [build.md](../ops/build.md#c-scripting-mono)), and the Windows CI
+job compiles them, so the line now means the edge or the option is off, never the generator.
+Two things that looked fine under the old path were not: the hand-kept CMake source list left
+`Video.cs` and `Rendering/ShaderLibrary.cs` out of the assembly, and the PDBs were Windows-format,
+which Mono cannot read, so C# breakpoints never bound. The projects now compile every `.cs` by
+glob and write portable PDBs, and `ScriptEngine` warns when it is handed a non-portable PDB.
 
 ## `.ply` is already claimed by the mesh importer, so a Gaussian-splat PLY fails as a broken mesh
 

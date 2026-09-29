@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The engine's C# API, loaded by ScriptEngine from Resources/Scripts/. Every .cs under
+       src/ is compiled, including the two OloHeaderTool writes (Components.Generated.cs,
+       InternalCalls.Generated.cs). Built by the OloEngine-ScriptCore CMake target. -->
+  <Import Project="OloEngine.CSharp.props" />
+
+  <PropertyGroup>
+    <AssemblyName>OloEngine-ScriptCore</AssemblyName>
+    <RootNamespace>OloEngine</RootNamespace>
+    <OutDir>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', 'OloEditor', 'Resources', 'Scripts'))</OutDir>
+  </PropertyGroup>
+</Project>
