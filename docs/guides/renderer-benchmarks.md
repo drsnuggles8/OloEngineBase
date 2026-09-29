@@ -260,4 +260,5 @@ live in the `.hdr` exports and the per-attachment min/max in `result.json`.
 noted, not silently skipped): direct vs indirect diffuse/specular splits, per-pixel shadow
 visibility, reflection confidence/hit-distance. When #996 lands, these become candidates
 for real debug-only taps following the `OverdrawRenderPass` / `VolumetricShadowVolume`
-precedents (enable gates hashed into the frame-graph fingerprint).
+precedents (enable gates hashed into the frame-graph fingerprint). *(2026-09-29 annotation,
+#1357: #996 closed on 2026-09-01 without adding these taps; they are owned by #1526.)*

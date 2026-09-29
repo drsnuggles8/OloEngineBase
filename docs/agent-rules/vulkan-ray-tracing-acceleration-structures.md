@@ -173,11 +173,12 @@ reached. Map a Vulkan-only access to the closest GL over-approximation, never to
 
 ## What is deliberately not solved here
 
-The alpha helper reconstructs UVs and applies the cutoff, but does **not** fetch the texel: outside
-`OLO_BINDLESS` a shader reaches a material texture through a per-draw slot binding, and one
-ray-query dispatch has no per-draw scope to bind arbitrary materials into. The fetch is a
-caller-supplied macro. Closing that needs the shader-visible sampler heap ADR 0011 §1.2a already
-records — it is not an acceleration-structure problem.
+The alpha helper reconstructs UVs and applies the cutoff; the texel fetch is a caller-supplied
+macro, because one ray-query dispatch has no per-draw scope to bind arbitrary materials into.
+*Update (#1357, 2026-09-29):* every consumer except `compute/RayTracingProbe.comp` now defines that
+macro as a fetch through the descriptor heap (ADR 0011 amendment (95)): `HybridRayTracingAlpha.glsl`
+for RT shadows and reflections, `RayTracedSurfaceHit.glsl` for the GPU path tracer and ReSTIR GI/PT,
+`ReSTIRDISceneAccess.glsl` for ReSTIR DI. The probe tests the policy against alpha = 1.
 
 Deformed geometry had a class, a refit heuristic and tests but **no live producer** until #1229,
 because every skinned consumer deforms inside its own vertex stage and keeps nothing

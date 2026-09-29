@@ -236,7 +236,7 @@ Three deliberate departures, each of which reads as a mistake until you know why
 ## 7. What VSM does NOT cover yet
 
 Static and skinned **mesh** casters, plus **virtualized geometry** since issue
-#1149. Terrain, foliage and voxel casters still render through the CSM path,
+#1149. Terrain, foliage and voxel casters have only CSM and atlas routes,
 because each needs its own VSM depth variant (the fragment stage is a shared
 include — `VirtualShadowRasterStage.glsl` — so adding one is small, but the clip
 level has to reach the vertex stage and those paths do not use the instance
@@ -244,15 +244,19 @@ buffer).
 
 `VirtualShadowMapSettings::Enabled` is therefore **off by default**, and a scene
 that relies on those caster types must leave it off. This is not a soft
-limitation you can ignore: with VSM on, a terrain-heavy scene renders the terrain
-completely unshadowed, and it looks like the light is wrong rather than like a
-missing feature.
+limitation you can ignore: with VSM on, the CSM cascades are cleared and skipped,
+and with `LocalLights` on (its default) the local-light atlas is not rendered
+either, so terrain, foliage and voxels cast no sun shadow and no lamp shadow. A
+terrain-heavy scene renders the terrain completely unshadowed, and it looks like
+the light is wrong rather than like a missing feature. Owner: #1524.
 
 **Virtual geometry reaches the clip levels only, not the local-light layers.**
 A layer is a perspective projection with a per-texel mip, and the cluster cull is
 still per view, so covering the layers costs one dispatch per (instance, layer) —
 affordable only once #1143 makes the cull multi-view. So with `LocalLights` on, a
-virtualized caster casts the sun's shadow and not a lamp's. How the clip-level
+virtualized caster casts the sun's shadow and not a lamp's. (#1143 was closed by
+an accidental closing keyword in PR #1167 and the work has not started; a reopen
+was requested in #1143 on 2026-09-10.) How the clip-level
 route works, and the two ways to break it silently, are in
 [virtual-geometry-into-a-second-shadow-technique.md](virtual-geometry-into-a-second-shadow-technique.md).
 

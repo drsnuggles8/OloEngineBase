@@ -152,7 +152,8 @@ access needs both `OLO_MCP_AUTOSTART=1` and `OLO_MCP_ALLOW_WRITES=1` set *before
   `OloEditor/OloEngine.log` is the only proof it took. A Vulkan pass-suite test passing is not this.
 - **`attach -Rhi vulkan` can time out and still succeed** on a cold shader cache: check for a live
   `OloEditor` process and poll `%TEMP%\oloengine-mcp-<port>.json` before relaunching.
-- **`olo_shader_errors` answers `notInitialized` on Vulkan.** Grep the log for `[error]` and `VUID`.
+- **`olo_shader_errors` answers `notInitialized` in a Debug Vulkan editor** (the shader debugger is
+  GL-only) and `unavailableInThisBuild` in Release. Grep the log for `[error]` and `VUID`.
 - **Prefer a measured A/B to an eyeball.** `olo_render_toggle_pass` flips a feature in place;
   diff the two frames. "61 000 pixels differ, max delta 89/255" is a result; "looks the same" is not.
 - **Attribute a failure in a pass you touched.** Shaders are runtime assets: restore the base
