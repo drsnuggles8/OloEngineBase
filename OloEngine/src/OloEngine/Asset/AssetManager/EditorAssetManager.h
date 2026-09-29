@@ -410,6 +410,10 @@ namespace OloEngine
         // Asset registry for metadata management
         AssetRegistry m_AssetRegistry;
 
+        // Set when Initialize rejected the on-disk registry and could not move it aside:
+        // SerializeAssetRegistry then refuses to write, so the rejected file is never overwritten.
+        std::atomic<bool> m_RegistryWritesBlocked{ false };
+
         // Loaded assets cache
         std::unordered_map<AssetHandle, Ref<Asset>> m_LoadedAssets;
 

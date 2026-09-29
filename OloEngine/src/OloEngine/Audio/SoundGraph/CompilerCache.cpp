@@ -828,6 +828,19 @@ namespace OloEngine::Audio::SoundGraph
             if (!file.is_open())
                 return false;
 
+            // Every length read from the file is bounded by the bytes left in it, so a corrupt
+            // length is a cache miss instead of an allocation of up to 4 GiB.
+            file.seekg(0, std::ios::end);
+            const std::streamoff fileSize = file.tellg();
+            file.seekg(0, std::ios::beg);
+            if (fileSize < 0 || !file)
+                return false;
+            auto bytesRemaining = [&file, fileSize]() -> u64
+            {
+                const std::streamoff pos = file.tellg();
+                return (pos < 0 || pos > fileSize) ? 0 : static_cast<u64>(fileSize - pos);
+            };
+
             // Platform-independent binary deserialization helpers (little-endian byte order)
             auto read_u32 = [&file]() -> u32
             {
@@ -889,12 +902,19 @@ namespace OloEngine::Audio::SoundGraph
                 return false;
             }
 
-            // Platform-independent string reader using little-endian length
-            auto readString = [&file, &read_u32]() -> std::string
+            // Platform-independent string reader using little-endian length. A length past the
+            // end of the file sets `lengthOverrun` and reads nothing.
+            bool lengthOverrun = false;
+            auto readString = [&file, &read_u32, &bytesRemaining, &lengthOverrun]() -> std::string
             {
                 const u32 length = read_u32();
-                if (!file)
+                if (!file || lengthOverrun)
                 {
+                    return {};
+                }
+                if (length > bytesRemaining())
+                {
+                    lengthOverrun = true;
                     return {};
                 }
                 std::string str(length, '\0');
@@ -906,9 +926,16 @@ namespace OloEngine::Audio::SoundGraph
             result.m_CompiledPath = readString();
 
             const u32 dataSize = read_u32();
-            if (!file)
+            if (!file || lengthOverrun)
             {
-                OLO_CORE_ERROR("CompilerCache: cache file '{}' is truncated", filePath);
+                OLO_CORE_ERROR("CompilerCache: cache file '{}' is truncated or declares a string longer than the file",
+                               filePath);
+                return false;
+            }
+            if (dataSize > bytesRemaining())
+            {
+                OLO_CORE_ERROR("CompilerCache: cache file '{}' declares {} bytes of compiled data, more than the file holds",
+                               filePath, dataSize);
                 return false;
             }
             result.m_CompiledData.resize(dataSize);
@@ -930,9 +957,10 @@ namespace OloEngine::Audio::SoundGraph
 
             // The stream has no exceptions enabled, so a short file would otherwise
             // hand back a result assembled from uninitialised bytes.
-            if (!file)
+            if (!file || lengthOverrun)
             {
-                OLO_CORE_ERROR("CompilerCache: cache file '{}' is truncated", filePath);
+                OLO_CORE_ERROR("CompilerCache: cache file '{}' is truncated or declares a string longer than the file",
+                               filePath);
                 return false;
             }
 

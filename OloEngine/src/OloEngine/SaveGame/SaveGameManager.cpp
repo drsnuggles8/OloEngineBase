@@ -533,20 +533,26 @@ namespace OloEngine
             }
         }
 
-        // Validate checksum first
+        // Header before checksum: a save of another FormatVersion is rejected as such, with
+        // the message naming the fix (SaveGameFile::ProbeHeader), not reported as corruption.
+        SaveGameHeader header;
+        switch (SaveGameFile::ProbeHeader(path, header))
+        {
+            case SaveGameFile::HeaderStatus::Ok:
+                break;
+            case SaveGameFile::HeaderStatus::UnsupportedVersion:
+                OLO_CORE_ERROR("[SaveGameManager] Save '{}' is format v{}, this build loads only v{}: {}",
+                               slotName, header.FormatVersion, kSaveGameFormatVersion, path.string());
+                return SaveLoadResult::UnsupportedVersion;
+            case SaveGameFile::HeaderStatus::Unreadable:
+                OLO_CORE_ERROR("[SaveGameManager] Failed to read header: {}", path.string());
+                return SaveLoadResult::CorruptedFile;
+        }
+
         if (!SaveGameFile::ValidateChecksum(path))
         {
             OLO_CORE_ERROR("[SaveGameManager] Checksum validation failed: {}", path.string());
             return SaveLoadResult::ChecksumMismatch;
-        }
-
-        // The header check rejects any FormatVersion but the current one, with a
-        // message naming the fix (SaveGameFile::ReadHeader).
-        SaveGameHeader header;
-        if (!SaveGameFile::ReadHeader(path, header))
-        {
-            OLO_CORE_ERROR("[SaveGameManager] Failed to read header: {}", path.string());
-            return SaveLoadResult::IOError;
         }
 
         // Read payload

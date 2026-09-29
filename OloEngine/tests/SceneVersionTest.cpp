@@ -116,11 +116,11 @@ namespace OloEngine::Tests
     TEST(SceneVersion, WrongOrMissingVersionIsRejectedFromString)
     {
         const std::string bad[] = {
-            "",                                                              // no Version key
+            "",                                                                // no Version key
             "Version: " + std::to_string(SceneSerializer::CurrentVersion + 1), // newer
-            "Version: 0",                                                    // older
-            "Version: notanumber",                                           // not an integer
-            "Version: [1]",                                                  // not a scalar
+            "Version: 0",                                                      // older
+            "Version: notanumber",                                             // not an integer
+            "Version: [1]",                                                    // not a scalar
         };
         for (const auto& line : bad)
         {

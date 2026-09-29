@@ -83,8 +83,34 @@ namespace OloEngine
                 }
                 else
                 {
-                    OLO_CORE_ERROR("Asset registry {} was rejected; rebuilding it from the asset-directory scan",
-                                   registryPath.string());
+                    // The rescan below assigns fresh handles and SerializeAssetRegistry writes
+                    // them to registryPath. Move the rejected file aside first so writing the new
+                    // registry never destroys the only copy of the handles every scene refers to.
+                    auto rejectedPath = registryPath;
+                    rejectedPath += ".rejected";
+                    std::error_code moveEc;
+                    std::filesystem::remove(rejectedPath, moveEc); // an older .rejected is replaced
+                    moveEc.clear();
+                    std::filesystem::rename(registryPath, rejectedPath, moveEc);
+                    if (moveEc)
+                    {
+                        OLO_CORE_ERROR("Asset registry {} was rejected and could not be moved aside to {} ({}); the "
+                                       "registry will NOT be saved this session, so the file is not overwritten. "
+                                       "Restore a registry this build reads, or move the file away yourself and "
+                                       "reopen the project.",
+                                       registryPath.string(), rejectedPath.string(), moveEc.message());
+                        m_RegistryWritesBlocked.store(true, std::memory_order_release);
+                    }
+                    else
+                    {
+                        OLO_CORE_ERROR("Asset registry {} was rejected and moved to {}. Rebuilding it from the "
+                                       "asset-directory scan with NEW handles: scenes' and assets' handle references "
+                                       "will not resolve until the original is restored (put a registry this build "
+                                       "reads back at {}, e.g. from version control, and reopen the project).",
+                                       registryPath.string(), rejectedPath.string(), registryPath.string());
+                    }
+                    // A rejection can stop part-way through the entries; rescan from empty.
+                    m_AssetRegistry.Clear();
                 }
             }
             else if (ec)
@@ -1631,6 +1657,13 @@ namespace OloEngine
             // individually-atomic AssetRegistry calls have to be atomic together.
             // A single self-synchronised call like Serialize needs none of that.
             const std::filesystem::path registryPath = Project::GetAssetRegistryPath();
+            if (m_RegistryWritesBlocked.load(std::memory_order_acquire))
+            {
+                OLO_CORE_ERROR("Not saving the asset registry to {}: the rejected registry there could not be moved "
+                               "aside at startup, and saving would overwrite it. Move it away and reopen the project.",
+                               registryPath.string());
+                return false;
+            }
             return m_AssetRegistry.Serialize(registryPath);
         }
         catch (const std::exception& e)

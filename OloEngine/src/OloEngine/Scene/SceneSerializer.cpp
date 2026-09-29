@@ -7793,8 +7793,10 @@ namespace OloEngine
 
         // Cache the just-loaded scene to a binary sidecar so the next load takes
         // the fast path above (issue #525). No-op unless the scene is fully
-        // representable in the binary format; `data` is the migrated document,
-        // used to snapshot scene-level settings.
+        // representable in the binary format; `data` is the document, used to
+        // snapshot scene-level settings. This is the only sidecar write, and it
+        // is reached only after CheckSceneVersion above passed, so a sidecar
+        // never vouches for a `.olo` this build would reject (#1496).
         WriteBinarySidecar(filepath, data);
 
         return true;

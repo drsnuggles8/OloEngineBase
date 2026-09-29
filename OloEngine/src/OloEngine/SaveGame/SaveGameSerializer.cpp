@@ -38,9 +38,6 @@ namespace OloEngine
     // Reserved typeHash for ISaveable custom state blob
     static constexpr u32 kSaveableTypeHash = 0x53415645; // "SAVE"
 
-    // Upper bound on one scene-settings block; each struct is a few hundred bytes.
-    static constexpr u32 kMaxSettingsBlockBytes = 64u * 1024u;
-
 // Save: serialize a component with typeHash + dataSize for skip-ability
 #define SAVE_COMPONENT(ComponentType, entity, writer)                       \
     if ((entity).HasComponent<ComponentType>())                             \
@@ -242,9 +239,13 @@ namespace OloEngine
     {
         u32 byteCount = 0;
         reader << byteCount;
-        if (reader.IsError() || byteCount > kMaxSettingsBlockBytes)
+        // The declared length is bounded by what the reader still holds, so a corrupt length
+        // fails here instead of allocating it; the writer puts no cap on a block's size.
+        if (reader.IsError() || static_cast<i64>(byteCount) > reader.TotalSize() - reader.Tell())
         {
-            OLO_CORE_ERROR("[SaveGameSerializer] Settings block '{}' has no valid length (truncated or corrupt save)", name);
+            OLO_CORE_ERROR("[SaveGameSerializer] Settings block '{}' declares {} bytes, more than the save holds "
+                           "(truncated or corrupt save)",
+                           name, byteCount);
             return false;
         }
         std::vector<u8> block(byteCount);

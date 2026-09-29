@@ -5,8 +5,10 @@
 
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Project/Project.h"
 #include "OloEngine/SaveGame/SaveGameFile.h"
 #include "OloEngine/SaveGame/SaveGameComponentSerializer.h"
+#include "OloEngine/SaveGame/SaveGameManager.h"
 #include "OloEngine/SaveGame/SaveGameSerializer.h"
 #include "OloEngine/SaveGame/SaveGameTypes.h"
 #include "OloEngine/Scene/Components.h"
@@ -158,6 +160,77 @@ TEST(SaveGameFormatGuard, AFileFromAnyOtherFormatVersionIsRejectedAtTheHeader)
 
     std::error_code ec;
     std::filesystem::remove(path, ec);
+}
+
+TEST(SaveGameFormatGuard, LoadReportsAnotherFormatVersionAsUnsupportedNotAsCorruption)
+{
+    // The header is outside the CRC, so a save of another FormatVersion has an
+    // intact checksum. Load used to validate the checksum first, whose header
+    // read failed on the version, and reported ChecksumMismatch.
+    const Ref<Project> previousProject = Project::GetActive();
+    const std::filesystem::path root = OloEngine::Tests::TempDir("guard-load");
+    ProjectConfig config;
+    config.Name = "SaveGameFormatGuard";
+    config.AssetDirectory = "Assets";
+    ASSERT_TRUE(Project::NewInMemory(root, config));
+
+    Ref<Scene> source = MakeScene();
+    const std::vector<u8> payload = SaveGameSerializer::CaptureSceneState(*source);
+    SaveGameHeader header;
+    header.EntityCount = 1;
+    std::filesystem::create_directories(SaveGameManager::GetSaveDirectory());
+    const std::filesystem::path path = SaveGameManager::GetSaveFilePath("guard_version");
+    ASSERT_TRUE(SaveGameFile::Write(path, header, SaveGameMetadata{}, {}, payload));
+
+    {
+        Ref<Scene> target = Ref<Scene>::Create();
+        EXPECT_EQ(SaveGameManager::Load(*target, "guard_version"), SaveLoadResult::Success)
+            << "positive control: the current version loads";
+    }
+
+    for (const u32 version : { kSaveGameFormatVersion - 1, kSaveGameFormatVersion + 1 })
+    {
+        SCOPED_TRACE(version);
+        {
+            std::fstream file(path, std::ios::binary | std::ios::in | std::ios::out);
+            ASSERT_TRUE(file.is_open());
+            file.seekp(static_cast<std::streamoff>(offsetof(SaveGameHeader, FormatVersion)));
+            file.write(reinterpret_cast<const char*>(&version), sizeof(version));
+        }
+        Ref<Scene> target = Ref<Scene>::Create();
+        EXPECT_EQ(SaveGameManager::Load(*target, "guard_version"), SaveLoadResult::UnsupportedVersion);
+    }
+
+    // Negative control: a current-version file with a flipped payload byte is
+    // still a checksum failure, so the new result did not swallow corruption.
+    {
+        const u32 current = kSaveGameFormatVersion;
+        std::fstream file(path, std::ios::binary | std::ios::in | std::ios::out);
+        ASSERT_TRUE(file.is_open());
+        file.seekp(static_cast<std::streamoff>(offsetof(SaveGameHeader, FormatVersion)));
+        file.write(reinterpret_cast<const char*>(&current), sizeof(current));
+        file.seekg(-1, std::ios::end);
+        char last = 0;
+        file.read(&last, 1);
+        last = static_cast<char>(last ^ 0x5A);
+        file.seekp(-1, std::ios::end);
+        file.write(&last, 1);
+    }
+    {
+        Ref<Scene> target = Ref<Scene>::Create();
+        EXPECT_EQ(SaveGameManager::Load(*target, "guard_version"), SaveLoadResult::ChecksumMismatch);
+    }
+
+    if (previousProject)
+    {
+        Project::NewInMemory(previousProject->GetDirectory(), previousProject->GetConfig());
+    }
+    else
+    {
+        Project::Unload();
+    }
+    std::error_code ec;
+    std::filesystem::remove_all(root, ec);
 }
 
 // ============================================================================

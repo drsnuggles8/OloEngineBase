@@ -68,7 +68,7 @@ older archive.
 
 | Format | Version constant | On mismatch |
 |---|---|---|
-| Save game (`.olosave`) | `kSaveGameFormatVersion` (`SaveGame/SaveGameTypes.h`) | rejected: re-save |
+| Save game (`.olosave`) | `kSaveGameFormatVersion` (`SaveGame/SaveGameTypes.h`) | rejected: re-save (`SaveLoadResult::UnsupportedVersion`) |
 | Asset pack (`.olopack`) | `AssetPackFile::Version` (`Serialization/AssetPackFile.h`) | rejected: rebuild the pack |
 | Mesh cache (`.omesh`) | `OMeshFormat::CurrentVersion` (`Serialization/MeshBinaryFormat.h`) | rejected: re-imported from the source |
 | Animation cache | `AnimationBinarySerializer` header version | rejected: re-imported from the source |
@@ -76,11 +76,13 @@ older archive.
 | Scene YAML (`.olo`) | `SceneSerializer::CurrentVersion`, the required `Version:` key | rejected: migrate the file in the PR |
 | Imported-material codec | `ImportedMaterialCodec::CurrentVersion` | rejected: re-imported |
 | Virtual-geometry cook (OVGS) | `kSetVersion` (`Renderer/VirtualGeometry/VirtualMesh.cpp`) | rejected: re-cooked |
-| Asset registry (`.oar`) | `AssetRegistry::FileVersion` (`Asset/AssetRegistry.h`) | rejected: restore it from git, or the editor's asset scan writes a fresh one with new handles |
+| Asset registry (`.oar`) | `AssetRegistry::FileVersion` (`Asset/AssetRegistry.h`) | rejected: moved to `AssetRegistry.oar.rejected`, then the editor's asset scan writes a fresh one with new handles; restore the original from git to keep scene references |
 | Sound-graph compiler cache | `CompilerCache::FormatVersion` (`Audio/SoundGraph/CompilerCache.h`) | rejected: cache miss, recompiled |
 | Mesh collider cache (`.omc`) | `OloMeshColliderHeader::CurrentVersion` (`Physics3D/MeshCookingFactory.h`); it also versions the headerless Jolt shape blobs inside it | rejected: re-cooked |
 | Voxel override RLE (`VOX1`) | `VoxelOverride::RLEVersion` (`Terrain/Voxel/VoxelOverride.h`) | rejected: re-save the voxel edits |
 | Lightmap, volume, groom, groom binding | `*BinaryFormat::CurrentVersion` | rejected: re-baked / re-imported |
+| Texture import sidecar (`.oloimport`) | `kSidecarVersion` (`Renderer/TextureImportSettings.cpp`), the required `Version:` key | rejected with an error naming the sidecar; the texture still cooks with automatic settings until the sidecar is fixed |
+| Benchmark capture manifest (YAML) | `Benchmark::kCurrentManifestVersion` (`Renderer/Benchmark/BenchmarkManifest.h`) | rejected: migrate the manifest in the PR (copies under `docs/testing/evidence/` are historical and not read) |
 
 When you add a format, add a row.
 

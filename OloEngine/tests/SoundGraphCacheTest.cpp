@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 #include "TestTempDir.h"
+#include "Rendering/PropertyTests/ScopedWarningCapture.h"
 
 // OLO_TEST_LAYER: unit
 //
@@ -153,4 +154,53 @@ TEST_F(SoundGraphCacheTest, CompilerCacheRejectsAnotherFormatVersion)
         EXPECT_EQ(reader.GetCacheSize(), 0u) << "version " << otherVersion;
         EXPECT_EQ(reader.GetCompiled(source).get(), nullptr);
     }
+}
+
+// Every length in a ".compiled" file is bounded by the bytes left in the file. A string length
+// patched to 0xFFFFFFF0 used to reach std::string(length) directly: an attempted ~4 GiB
+// allocation that either threw or succeeded and then read short. It is now a cache miss that
+// names the overrun before anything is allocated.
+TEST_F(SoundGraphCacheTest, CompilerCacheRejectsALengthLongerThanTheFile)
+{
+    const std::string cacheDir = (m_TempDir / "compiler").string();
+    const std::string source = MakeSourceFile("graph.sgraph", "graph");
+
+    CompilationResult result;
+    result.m_SourcePath = source;
+    result.m_CompilerVersion = OLO_SOUND_GRAPH_COMPILER_VERSION;
+    result.m_CompiledData = { 1, 2, 3, 4 };
+    result.m_IsValid = true;
+    result.m_CompilationTime = std::chrono::system_clock::now();
+
+    std::string cacheFile;
+    {
+        CompilerCache writer(cacheDir);
+        writer.SetAutoSave(false);
+        writer.StoreCompiled(source, result);
+        ASSERT_TRUE(writer.SaveToDisk());
+        cacheFile = writer.GetCacheFilePath(source);
+    }
+    {
+        CompilerCache reader(cacheDir);
+        reader.SetAutoSave(false);
+        ASSERT_EQ(reader.GetCacheSize(), 1u) << "positive control: the intact file loads";
+    }
+
+    {
+        std::fstream file(cacheFile, std::ios::binary | std::ios::in | std::ios::out);
+        ASSERT_TRUE(file.is_open());
+        file.seekp(8); // "OLCC" + u32 version, then the source path's little-endian u32 length
+        constexpr u32 kHugeLength = 0xFFFFFFF0u;
+        const u8 bytes[4] = { static_cast<u8>(kHugeLength), static_cast<u8>(kHugeLength >> 8),
+                              static_cast<u8>(kHugeLength >> 16), static_cast<u8>(kHugeLength >> 24) };
+        file.write(reinterpret_cast<const char*>(bytes), sizeof(bytes));
+    }
+
+    OloEngine::Tests::ScopedWarningCapture capture;
+    CompilerCache reader(cacheDir);
+    reader.SetAutoSave(false);
+    EXPECT_EQ(reader.GetCacheSize(), 0u);
+    EXPECT_EQ(reader.GetCompiled(source).get(), nullptr);
+    EXPECT_EQ(capture.Count("declares a string longer than the file"), 1u)
+        << "the entry must be refused by the length bound, not by a failed allocation or a short read";
 }
