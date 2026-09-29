@@ -472,6 +472,8 @@ namespace OloEngine
         const bool texturesAvailable = m_MaterialTextures != nullptr &&
                                        m_MaterialTextures->GetDeviceAddress() != 0u &&
                                        m_MaterialTextures->GetSamplerHeapOffset() != RHI::HeapOffset::Invalid;
+        m_Stats.TexturesAvailable = texturesAvailable;
+        m_Stats.MaskedAlphaFromFactorOnly = !texturesAvailable;
         // The MOMENTS plane is in this conjunction too, and that is not
         // belt-and-braces. The resolve reads the HISTORY_VALID flag before
         // trusting unit 5, and when the moments history is absent that unit is

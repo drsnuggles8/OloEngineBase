@@ -7511,6 +7511,8 @@ namespace OloEngine::MCP
                 { "temporalReuseRan", stats.TemporalReuseRan },
                 { "historyPlanesAvailable", stats.HistoryPlanesAvailable },
                 { "historyPlanesRequired", ReSTIRDIStats::kHistoryPlaneCount },
+                { "texturesAvailable", stats.TexturesAvailable },
+                { "maskedAlphaFromFactorOnly", stats.MaskedAlphaFromFactorOnly },
                 { "visibilityReuseRan", stats.VisibilityReuseRan },
                 { "raysDispatchedUpperBound", stats.RaysDispatchedUpperBound },
                 { "settingsClamped", stats.SettingsClamped },
@@ -10157,6 +10159,11 @@ namespace OloEngine::MCP
                                                  Schema::Int().Min(0).Desc(
                                                      "Planes the estimator needs; a shortfall is why temporal "
                                                      "reuse stood down."))
+                                           .Prop("texturesAvailable", Schema::Bool())
+                                           .Prop("maskedAlphaFromFactorOnly",
+                                                 Schema::Bool().Desc(
+                                                     "True when no material textures: cutouts are tested on the "
+                                                     "base-colour factor's alpha alone and occlude as whole quads."))
                                            .Prop("visibilityReuseRan", Schema::Bool())
                                            .Prop("raysDispatchedUpperBound", Schema::Int().Min(0).Desc("Derived, not measured."))
                                            .Prop("settingsClamped", Schema::Int().Min(0)))

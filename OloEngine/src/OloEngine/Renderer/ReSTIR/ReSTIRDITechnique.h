@@ -468,6 +468,13 @@ namespace OloEngine
         u32 HistoryPlanesAvailable = 0;
         static constexpr u32 kHistoryPlaneCount = 5;
 
+        // Whether the material texture table was reachable this frame. Without
+        // it OloReSTIRSampleAlpha tests masked candidates against the base-colour
+        // factor's alpha alone, so an alpha-cutout leaf occludes as its whole quad
+        // — the limit GpuPathTracerStats and ReSTIRGIStats count, counted here too.
+        bool TexturesAvailable = false;
+        bool MaskedAlphaFromFactorOnly = false;
+
         // An UPPER BOUND, derived rather than measured — the same honest form
         // the shadow, reflection and path-tracing tiers use. Per pixel: one
         // visibility ray for the initial sample, one for the temporal
