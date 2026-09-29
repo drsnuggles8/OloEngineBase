@@ -231,6 +231,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [spinlock-payload-cache-line-separation.md](spinlock-payload-cache-line-separation.md): keep a lock off its payload's cache line.
 - [per-frame-scratch-reuse.md](per-frame-scratch-reuse.md): three checks before promoting a per-tick scratch vector to persistent state.
 - [bump-allocator-rollover-padding.md](bump-allocator-rollover-padding.md): a rollover must not reserve padding computed for the block it is leaving; over-align the blocks instead.
+- [cancel-a-load-by-removing-its-record.md](cancel-a-load-by-removing-its-record.md): a cancelled async load is dropped by removing its pending record, abandoned tasks are waited out at shutdown, and a re-request of the same key is the test that proves it.
 
 ## Subsystem notes (`notes-*.md`)
 
@@ -507,6 +508,7 @@ The logic is right; when it runs, or how long it lives, is wrong.
 | [visual-script-vm.md](visual-script-vm.md) | A loop node that forgets to charge its own iteration hangs the frame, and one that keeps its index on the C++ stack across a `Trigger` restarts it. |
 | [runtime-scene-switching.md](runtime-scene-switching.md) | Five ordering rules for a swap that destroys the thing being iterated. |
 | [follow-camera-and-character-query-seams.md](follow-camera-and-character-query-seams.md) | Input before the physics kick, camera last. |
+| [cancel-a-load-by-removing-its-record.md](cancel-a-load-by-removing-its-record.md) | A cancelled load's result is dropped by removing its record; a state check hid the missing removal until the same region was requested again. |
 | [two-phase-occlusion-culling.md](two-phase-occlusion-culling.md) | Pass order decides who still sees previous-frame depth. |
 | [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) | Clearing the LRU bit one step early evicts the whole cache every frame; a perspective face cannot be culled like an ortho level (§8). |
 | [ccache-pch-result-key-collision.md](ccache-pch-result-key-collision.md) | Two runner slots write their `.pch` to one ccache result key, and whichever wrote last is what the other slot's next direct-mode hit gets: a redefinition only when a consumer also misses, gone on re-run. |
