@@ -2322,6 +2322,13 @@ namespace OloEngine
                 RenderStreamPasses.Groom->SetCoatRebakePolicy(Renderer3D::GetGroomCoatRebakePolicy());
                 RenderStreamPasses.Groom->SetGpuDeformationEnabled(data.Settings.GroomGpuDeformation);
                 RenderStreamPasses.Groom->SetRequests(Renderer3D::GetGroomStrandRequests());
+                // The groom cache's frame boundary (#1323), HERE and before the
+                // graph executes, because two nodes now acquire from it --
+                // ShadowRenderPass first, GroomRenderPass second -- and neither
+                // may own it: a tick advanced inside the strand pass would hand
+                // the shadow pass last frame's, and a bound coat would cast from
+                // the previous pose.
+                RenderStreamPasses.Groom->BeginFrame();
             }
             if (SceneCompositePasses.Particle)
                 SceneCompositePasses.Particle->SetOITEnabled(oitEnabled);
@@ -5950,6 +5957,14 @@ namespace OloEngine
         RenderStreamPasses.Groom = Ref<GroomRenderPass>::Create();
         RenderStreamPasses.Groom->SetName("GroomPass");
         RenderStreamPasses.Groom->Init(finalPassSpec);
+        // The groom caster family (#1323) borrows the strand pass's geometry:
+        // the shadow map is rasterised BEFORE the strand pass runs, so the
+        // shadow pass acquires a caster's buffers through the groom pass rather
+        // than keeping a second cache that the other could never see.
+        if (FrameCorePasses.Shadow)
+        {
+            FrameCorePasses.Shadow->SetGroomPass(RenderStreamPasses.Groom.Raw());
+        }
 
         RenderStreamPasses.Water = Ref<WaterRenderPass>::Create();
         RenderStreamPasses.Water->SetName("WaterPass");

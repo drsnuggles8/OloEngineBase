@@ -505,10 +505,13 @@ namespace OloEngine
     // ── The double-count invariant, as a guard ───────────────────────────
 
     // THE INVARIANT: a groom proxy occludes other receivers and never its own
-    // coat. It holds today because GroomRenderPass does not write the
-    // G-Buffer, so no screen-space shadow term reaches a strand and #1248's
-    // tau is the only thing attenuating one. That is a property of a SHADER,
-    // and nothing else in this suite would notice it changing.
+    // coat. It holds because GroomRenderPass does not write the G-Buffer, so
+    // no SCREEN-SPACE or RAY-TRACED shadow term reaches a strand: the coat's
+    // own occlusion is #1248's tau, and the only scene term a strand reads is
+    // the raster shadow maps (#1323, re-landed by #1523), sampled at the
+    // coat's LIGHT-EXIT point so a coat that is also a caster is not occluded
+    // by its own strands twice. That is a property of a SHADER, and nothing
+    // else in this suite would notice it changing.
     //
     // WHY THIS COUNTS RATHER THAN CHECKING FOR ABSENCE. A guard that only
     // asserts "this token is not here" passes on an empty string, a renamed
@@ -516,8 +519,9 @@ namespace OloEngine
     // the POSITIVE facts at their exact counts first — if those move, the
     // test fails and a human reads the diff — and only then the absences.
     // The failure it prevents is already on record in a different door:
-    // a groom that both casts and receives goes from 44.98 to 0.22 luma.
-    TEST(GroomRayTracingProxy, TheCoatShaderReadsNoSceneShadowTermSoAProxyCannotShadowItsOwnCoat)
+    // a groom that both casts and receives, with the receiver left at the
+    // fragment, goes from 44.98 to 0.22 luma.
+    TEST(GroomRayTracingProxy, TheCoatShaderReadsNoRayTracedShadowTermSoAProxyCannotShadowItsOwnCoat)
     {
         const auto path = std::filesystem::path{ OLO_TEST_EDITOR_ROOT } / "assets" / "shaders" /
                           "GroomStrand.glsl";
@@ -549,13 +553,28 @@ namespace OloEngine
         EXPECT_EQ(count("oloGroomCoatTransmittance"), 3u)
             << "the coat's own transmittance path moved; same warning";
 
-        // And the absences: no scene shadow term of any kind reaches a strand.
+        // The raster scene-shadow receive (#1323): ONE function, ONE call site in
+        // the light loop, ONE light-exit offset, and each technique's lookup
+        // reached only from inside that function. A second lookup elsewhere is
+        // a receiver left at the fragment, which is the black-coat failure. The
+        // third oloGroomSceneShadow is the fibre shader's comment naming it.
+        EXPECT_EQ(count("oloGroomSceneShadow"), 3u)
+            << "the scene-shadow receive moved; every lookup must go through the one light-exit function";
+        EXPECT_EQ(count("oloGroomCoatLightExitDistance"), 1u)
+            << "the light-exit offset is computed once, in oloGroomSceneShadow";
+        EXPECT_EQ(count("calculateCascadedShadowFactorCSM"), 1u) << "one CSM lookup, in oloGroomSceneShadow";
+        EXPECT_EQ(count("vsmShadowFactor"), 1u) << "one VSM directional lookup, in oloGroomSceneShadow";
+        EXPECT_EQ(count("calculateAtlasEntryShadow"), 2u)
+            << "two atlas lookups (spot, point face), both in oloGroomSceneShadow";
+
+        // And the absences: no screen-space or ray-traced shadow term reaches a
+        // strand.
         for (const std::string_view token : { "u_RayTracedShadowMask", "oloRayTracedShadowFactor",
-                                              "u_ShadowMap", "u_ShadowMapArray", "ShadowMask" })
+                                              "u_ShadowMapArray", "ShadowMask" })
         {
             EXPECT_EQ(count(token), 0u)
                 << "GroomStrand.glsl now reads '" << token << "'. A groom proxy is in the TLAS "
-                                                              "(#1253), so a strand that also RECEIVES a scene shadow is shadowed by its own "
+                                                              "(#1253), so a strand that also RECEIVES a ray-traced shadow is shadowed by its own "
                                                               "coat twice — which is the 44.98 -> 0.22 luma failure. Before allowing this, the "
                                                               "coat's own proxy instance must be excluded from its own visibility rays.";
         }

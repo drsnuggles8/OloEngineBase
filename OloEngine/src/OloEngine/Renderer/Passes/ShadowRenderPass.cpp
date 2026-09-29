@@ -17,6 +17,11 @@
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
+#include "OloEngine/Groom/GroomShadowWidening.h"
+#include "OloEngine/Renderer/Passes/GroomRenderPass.h"
+#include "OloEngine/Renderer/StorageBuffer.h"
+#include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/VertexArray.h"
 
 #include <algorithm>
 #include <ranges>
@@ -106,6 +111,21 @@ namespace OloEngine
         shadowSpec.Height = spec.Height;
         shadowSpec.Attachments = { FramebufferTextureFormat::ShadowDepth };
         m_ShadowFramebuffer = Framebuffer::Create(shadowSpec);
+
+        // The groom route into the Virtual Shadow Map (issue #1323). A SECOND
+        // shader rather than the cascade one because the VSM has no depth
+        // attachment: its fragment stage resolves a page table and does an
+        // imageAtomicMin into the physical pool. The vertex maths is shared
+        // verbatim through include/GroomShadowWidening.glsl, so the two
+        // techniques cannot drift about where a coat's shadow is.
+        //
+        // ONE params UBO, not one per item, because the VSM raster is a single
+        // SEQUENTIAL region -- its clip levels are drawn one after another.
+        // The cascade region forks, which is the only reason that one is a
+        // per-item pool.
+        m_GroomVsmDepthShader = Shader::Create("assets/shaders/VSM_GroomDepth.glsl");
+        m_GroomVsmParamsUBO = UniformBuffer::Create(UBOStructures::GroomShadowParamsUBO::GetSize(),
+                                                    ShaderBindingLayout::UBO_USER_0);
     }
 
     void ShadowRenderPass::Execute(RGCommandContext& context)
@@ -127,16 +147,34 @@ namespace OloEngine
         // that exercised them happened to contain a classic MeshComponent — a ground plane —
         // holding this gate open. Delete the ground from the Nanite stress scene and 24 dragons
         // stop casting, which is exactly how this surfaced.
-        const bool hasCasters = !m_MeshCasters.IsEmpty() || !m_SkinnedCasters.IsEmpty() ||
-                                !m_TerrainCasters.IsEmpty() || !m_VoxelCasters.IsEmpty() ||
-                                !m_FoliageCasters.IsEmpty() || AnyVirtualShadowCaster();
-
         // Root-cause early-out for issue #522: when no light requested shadows this
         // frame the CSM/spot/point matrices are stale (identity), so rendering any
         // caster against them is pure waste (GPU + ×N cascade/face re-submission).
         // Scene already skips caster submission in this case, but gate here too so a
         // caster leaking through any other path can never paint a stale shadow map.
         const bool shadowsRequested = m_ShadowMap && m_ShadowMap->AnyShadowsRequested();
+
+        // Grooms (issue #1323), gathered HERE rather than submitted by Scene:
+        // the buffers a groom caster draws are built from cooked curves by
+        // GroomRenderPass's cache, and that pass runs AFTER this one -- which is
+        // precisely why a coat cast no shadow in any technique. So this pass
+        // borrows the geometry through GroomRenderPass::AcquireShadowCaster.
+        //
+        // GATED ON SHADOWS BEING ACTIVE so a frame with shadows off does not
+        // pay a cache build this pass will not use. GroomRenderPass acquires the
+        // same entries moments later either way, and a GPU-deformed coat's
+        // frame buffer is uploaded once per frame whichever pass asks first, so
+        // nothing is built twice and nothing is built that was not going to be.
+        if (shadowsRequested && m_ShadowMap && m_ShadowMap->IsEnabled())
+        {
+            CollectGroomCasters();
+        }
+
+        // Virtual geometry counts as a caster here too, and since #1323 so do grooms.
+        const bool hasCasters = !m_MeshCasters.IsEmpty() || !m_SkinnedCasters.IsEmpty() ||
+                                !m_TerrainCasters.IsEmpty() || !m_VoxelCasters.IsEmpty() ||
+                                !m_FoliageCasters.IsEmpty() || !m_GroomCasters.IsEmpty() ||
+                                AnyVirtualShadowCaster();
 
         if (!m_ShadowMap || !m_ShadowMap->IsEnabled() || !shadowsRequested || !hasCasters)
         {
@@ -153,6 +191,7 @@ namespace OloEngine
             m_TerrainCasters.Reset();
             m_VoxelCasters.Reset();
             m_FoliageCasters.Reset();
+            m_GroomCasters.Reset();
             return;
         }
 
@@ -285,20 +324,40 @@ namespace OloEngine
             // rejected thread by thread on the GPU — sixteen levels against four
             // cascades is the one place this route could cost more than the one
             // it replaces, and this is what keeps it from doing so.
-            VirtualShadowMap::ExternalCasterRenderer renderVirtualCasters;
+            bool virtualLevelsToDraw = false;
             if (vsmVirtualCasters)
             {
                 BuildVirtualClipViews(vsm);
-                if (!m_VsmClipViews.IsEmpty())
+                virtualLevelsToDraw = !m_VsmClipViews.IsEmpty();
+            }
+
+            // ONE external route that runs BOTH families, not two seams.
+            // RenderCasters takes a single ExternalCasterRenderer, and the
+            // scope it is invoked in -- framebuffer, viewport, page table,
+            // dirty-page pyramid -- is what both need; composing here keeps
+            // grooms inside that scope without widening the VSM's own API for
+            // a second caller (issue #1323).
+            const bool groomLevelsToDraw = !m_GroomCasters.IsEmpty() && m_GroomVsmDepthShader &&
+                                           m_GroomVsmDepthShader->IsReady() && m_GroomVsmParamsUBO;
+            VirtualShadowMap::ExternalCasterRenderer renderVirtualCasters;
+            if (virtualLevelsToDraw || groomLevelsToDraw)
+            {
+                renderVirtualCasters = [this, &vsm, virtualLevelsToDraw, groomLevelsToDraw]()
                 {
-                    renderVirtualCasters = [this, &vsm]()
+                    u32 drawn = 0;
+                    if (virtualLevelsToDraw)
                     {
-                        return VirtualGeometryShadow::RenderVirtualShadowMapLevels(
+                        drawn += VirtualGeometryShadow::RenderVirtualShadowMapLevels(
                             { m_VsmClipViews.GetData(), static_cast<sizet>(m_VsmClipViews.Num()) }, VSM::kVirtualResolution,
                             [&vsm]()
                             { vsm.BindPhysicalPoolImage(); }, m_VsmVirtualResources);
-                    };
-                }
+                    }
+                    if (groomLevelsToDraw)
+                    {
+                        drawn += RenderGroomVirtualShadowLevels(vsm);
+                    }
+                    return drawn;
+                };
             }
 
             vsm.RenderCasters({ m_MeshCasters.GetData(), static_cast<sizet>(m_MeshCasters.Num()) }, { m_SkinnedCasters.GetData(), static_cast<sizet>(m_SkinnedCasters.Num()) }, Renderer3D::GetRenderOrigin(), uploadBones,
@@ -345,6 +404,22 @@ namespace OloEngine
                 casterShaders.Terrain = Renderer3D::GetShaderLibrary().Get("Terrain_Depth");
                 if (!casterShaders.Terrain)
                     casterShaders.Terrain = Renderer3D::GetTerrainDepthShader();
+            }
+            if (!m_GroomCasters.IsEmpty())
+            {
+                casterShaders.Groom = Renderer3D::GetShaderLibrary().Get("GroomStrandDepth");
+                // READY, not merely non-null, and dropped here so ONE predicate
+                // serves the draw, the tally and the panel. OpenGLShader::Bind()
+                // returns WITHOUT issuing glUseProgram on a Failed program, so
+                // drawing the groom VAOs after it would replay them through
+                // whichever depth program the previous caster family left bound --
+                // garbage occluder depth in the cascade rather than simply casting
+                // nothing. Nulling it makes the family ABSENT, which is a state
+                // the counters report honestly. Same check the VSM route makes.
+                if (casterShaders.Groom && !casterShaders.Groom->IsReady())
+                {
+                    casterShaders.Groom = nullptr;
+                }
             }
         };
 
@@ -398,7 +473,18 @@ namespace OloEngine
                     const bool anySkinned = !anyMesh && std::ranges::any_of(m_SkinnedCasters,
                                                                             [&](const ShadowSkinnedCaster& c)
                                                                             { return !ShouldCull(c.WorldBounds, cascadeFrustum); });
-                    if (!anyMesh && !anySkinned)
+                    // GROOMS ARE BOUNDED CASTERS (#1323), so they belong in
+                    // this test rather than in the unbounded set above: the
+                    // strand build publishes the box the emitted centrelines
+                    // actually occupy, in THIS pose. Leaving them out would
+                    // skip a cascade whose only caster is a coat -- the exact
+                    // hole virtual geometry had from #702 to #1149, one caster
+                    // family over.
+                    const bool anyGroom = !anyMesh && !anySkinned &&
+                                          std::ranges::any_of(m_GroomCasters,
+                                                              [&](const ShadowGroomCaster& c)
+                                                              { return !ShouldCull(c.WorldBounds, cascadeFrustum); });
+                    if (!anyMesh && !anySkinned && !anyGroom)
                         continue; // No work for this cascade — skip all GL state changes
                 }
 
@@ -485,6 +571,7 @@ namespace OloEngine
         m_TerrainCasters.Reset();
         m_VoxelCasters.Reset();
         m_FoliageCasters.Reset();
+        m_GroomCasters.Reset();
     }
 
     void ShadowRenderPass::RecordShadowRegion(const ShadowPassType type, const ShadowCasterShaders& shaders,
@@ -532,6 +619,43 @@ namespace OloEngine
                                                           Renderer3D::GetCullViewPosition()));
             }
         }
+        // THE GROOM DRAW TALLY, counted HERE and not inside recordItem: the
+        // region forks, so an item incrementing a shared counter would race its
+        // siblings. The same cull test the items will run, on the render
+        // thread, over a handful of casters -- so the number is exact rather
+        // than an upper bound, which matters because a ZERO next to a non-zero
+        // GroomsCasting is what detects a family that never reached this
+        // technique (virtual-geometry-into-a-second-shadow-technique.md).
+        // GATED ON THE SHADER, because RenderCascadeOrFace is. A tally that
+        // counted draws the recording will not issue would make the INFO line,
+        // the panel and the "this technique drew none of it" detector all
+        // report a wired family when the shader failed to resolve -- which is
+        // the single thing these three counters exist to detect.
+        if (m_GroomPass != nullptr && !m_GroomCasters.IsEmpty() && shaders.Groom)
+        {
+            u32 groomDraws = 0;
+            for (u32 item = 0; item < activeCount; ++item)
+            {
+                for (const auto& caster : m_GroomCasters)
+                {
+                    if (caster.vaoID.IsValid() && caster.indexCount > 0u &&
+                        !ShouldCull(caster.WorldBounds, m_ActiveViews[item].CullFrustum))
+                    {
+                        ++groomDraws;
+                    }
+                }
+            }
+            GroomShadowCasterStats& groomStats = m_GroomPass->MutableSceneShadowStats();
+            if (type == ShadowPassType::CSM)
+            {
+                groomStats.CascadeDraws += groomDraws;
+            }
+            else
+            {
+                groomStats.AtlasDraws += groomDraws;
+            }
+        }
+
         const auto recordItem = [&](const u32 item)
         {
             const ActiveShadowView& view = m_ActiveViews[item];
@@ -562,6 +686,14 @@ namespace OloEngine
             resources.Animation = UniformBuffer::Create(
                 ShaderBindingLayout::AnimationUBO::GetSize(),
                 ShaderBindingLayout::UBO_ANIMATION);
+            // The groom caster in flight (#1323). PER ITEM for the reason the
+            // other two are: a UBO versions its bytes per object, so two items
+            // writing one object would interleave (amendment (92) rule 6). It
+            // is created here, on the render thread, because rule 7 refuses
+            // resource creation on an item context.
+            resources.Groom = UniformBuffer::Create(
+                UBOStructures::GroomShadowParamsUBO::GetSize(),
+                ShaderBindingLayout::UBO_USER_0);
             // Sized HERE, on the render thread: an item may not grow its buffer
             // (StorageBuffer::Resize creates and reclaims GPU memory — amendment
             // (92) rule 7), so the capacity covers the largest batch any item can
@@ -879,6 +1011,29 @@ namespace OloEngine
             }
         }
 
+        // ── Grooms (issue #1323) ──
+        //
+        // ITEM-SAFE, unlike terrain / foliage / virtual geometry: the only
+        // object a groom draw writes is this item's own params UBO, created by
+        // EnsureItemResources on the render thread. So it records inside the
+        // parallel half rather than in the sequential tail, and the Vulkan
+        // cascade fork stays legal -- no resource is created inside an item,
+        // which is the trap the issue calls out by name.
+        //
+        // The resolution the widening is measured in is THIS view's: a cascade
+        // texel and an atlas tile texel are different sizes, and a floor
+        // expressed in texels has to know which.
+        if (shaders.Groom && resources.Groom && !m_GroomCasters.IsEmpty())
+        {
+            auto& groomShadowMap = Renderer3D::GetShadowMap();
+            const u32 groomViewResolution = (type == ShadowPassType::CSM)
+                                                ? groomShadowMap.GetResolution()
+                                                : groomShadowMap.GetAtlasEntryRect(layerOrLight).Size;
+            shaders.Groom->Bind();
+            RenderGroomCasters(cullFrustum, renderOrigin, static_cast<f32>(groomViewResolution), 0,
+                               *resources.Groom);
+        }
+
         // ── Terrain patches ──
         if (!m_TerrainCasters.IsEmpty())
         {
@@ -946,6 +1101,257 @@ namespace OloEngine
                                              : shadowMap.GetAtlasEntryRect(layerOrLight).Size;
         if (virtualResources)
             VirtualGeometryShadow::RenderCascade(lightVPRel, shadowViewResolution, *virtualResources);
+    }
+
+    f32 ShadowRenderPass::WidestShadowTexelMetres() const
+    {
+        if (m_ShadowMap == nullptr)
+        {
+            return 0.0f;
+        }
+        const f32 resolution = static_cast<f32>(std::max(1u, m_ShadowMap->GetResolution()));
+        f32 widest = 0.0f;
+        for (u32 cascade = 0; cascade < ShadowMap::MAX_CSM_CASCADES; ++cascade)
+        {
+            const glm::mat4& lightVP = m_ShadowMap->GetCSMMatrix(cascade);
+            // Row 0 read as a row vector over world xyz. For an orthographic
+            // cascade this is 1/halfExtent, so a half width of
+            // `texels / resolution` in NDC is `texels / (resolution * lenRow0)`
+            // world metres -- the same derivation PBRCommon.glsl spells out for
+            // the depth bias. A degenerate or identity matrix (no light has
+            // requested shadows yet) gives a tiny length, which the guard drops
+            // rather than turning into an enormous pad.
+            const f32 lenRow0 = glm::length(glm::vec3(lightVP[0][0], lightVP[1][0], lightVP[2][0]));
+            if (!(lenRow0 > 1.0e-6f) || !std::isfinite(lenRow0))
+            {
+                continue;
+            }
+            widest = std::max(widest, 1.0f / (resolution * lenRow0));
+        }
+        return widest;
+    }
+
+    void ShadowRenderPass::CollectGroomCasters()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        m_GroomCasters.Reset();
+        if (m_GroomPass == nullptr)
+        {
+            return;
+        }
+
+        GroomShadowCasterStats& stats = m_GroomPass->MutableSceneShadowStats();
+        stats.VirtualShadowMapActive = m_ShadowMap != nullptr && m_ShadowMap->IsVirtualShadowMapActive();
+
+        // THE SAME REQUEST LIST GroomRenderPass DRAWS FROM, read from
+        // Renderer3D rather than handed in: the two passes must agree about
+        // which grooms exist this frame, and a second SetRequests call would be
+        // a second copy to keep in step. Scene publishes it once per frame,
+        // before the graph executes.
+        for (const auto& request : Renderer3D::GetGroomStrandRequests())
+        {
+            if (!request.CastsSceneShadow || !request.Groom)
+            {
+                continue;
+            }
+            ++stats.GroomsAskedToCast;
+
+            // ACQUIRING CAN BUILD, which is why this is on the render thread
+            // and outside every parallel region (amendment (92) rule 7).
+            GroomRenderPass::ShadowCasterGeometry geometry;
+            if (!m_GroomPass->AcquireShadowCaster(request, geometry) || !geometry.Vao.IsValid() ||
+                geometry.IndexCount == 0u)
+            {
+                // A coat that renders and casts nothing is a different fault
+                // from a family that was never wired into a technique, and the
+                // panel has to be able to tell them apart.
+                ++stats.GroomsWithoutGeometry;
+                continue;
+            }
+
+            ShadowGroomCaster caster;
+            caster.vaoID = geometry.Vao;
+            caster.indexCount = geometry.IndexCount;
+            caster.transform = request.Transform;
+            // THE WIDTH THE COAT IS DRAWN AT. Since #1428 the per-role coverage
+            // compensation is baked into the stream's radii, so the only lever
+            // left is the per-groom authoring scale the strand draw applies too.
+            caster.widthScale = request.WidthScale;
+            const f32 axisX = glm::length(glm::vec3(request.Transform[0]));
+            const f32 axisY = glm::length(glm::vec3(request.Transform[1]));
+            const f32 axisZ = glm::length(glm::vec3(request.Transform[2]));
+            // The mean axis length, matching GroomRenderPass and
+            // GroomCoverage::ProjectGroom. One scalar cannot describe an
+            // anisotropically scaled strand, and the places that scale a width
+            // must at least be wrong the same way.
+            caster.objectScale = (axisX + axisY + axisZ) / 3.0f;
+            // Sanitised, not trusted: this comes from a component and reaches
+            // a divisor in the widening. A non-finite or negative floor would
+            // make the half width NaN and the whole coat vanish from the map.
+            caster.minWidthTexels = std::isfinite(request.ShadowWidthTexels)
+                                        ? std::clamp(request.ShadowWidthTexels, 0.0f, 16.0f)
+                                        : 1.0f;
+            caster.deformBuffer = geometry.DeformBuffer;
+            caster.deformModes = geometry.DeformModes;
+            caster.deformBases = geometry.DeformBases;
+
+            // THE COAT IN THIS POSE, not the asset's bind-pose bounds and not a
+            // GPU-deformed stream's bind-local ones: the posed roots padded by
+            // the longest strand's reach (see GroomRenderPass::PosedObjectBounds).
+            // It already includes each strand's own radius, so the only thing
+            // left to pad for is the light-space WIDTH FLOOR, which is a property
+            // of the shadow map rather than of the groom and is applied in clip
+            // space after this test runs: one texel of the coarsest cascade, in
+            // world metres, scaled by the configured floor -- the largest the
+            // widening can be for any view this caster is tested against.
+            if (geometry.BoundsValid)
+            {
+                const BoundingBox objectBounds{ geometry.BoundsMin, geometry.BoundsMax };
+                BoundingBox world = objectBounds.Transform(request.Transform);
+                const f32 pad = WidestShadowTexelMetres() * caster.minWidthTexels;
+                if (std::isfinite(pad) && pad > 0.0f)
+                {
+                    world.Min -= glm::vec3(pad);
+                    world.Max += glm::vec3(pad);
+                }
+                caster.WorldBounds = world;
+            }
+
+            m_GroomCasters.Add(caster);
+            ++stats.GroomsCasting;
+        }
+    }
+
+    void ShadowRenderPass::RenderGroomCasters(const Frustum* cullFrustum, const glm::vec3& renderOrigin,
+                                              f32 resolutionTexels, i32 clipLevel,
+                                              UniformBuffer& paramsUBO) const
+    {
+        if (m_GroomCasters.IsEmpty())
+        {
+            return;
+        }
+
+        OLO_PROFILE_FUNCTION();
+
+        // Ribbons are two-sided by construction: a widened quad has no
+        // meaningful winding, and the pass's front-face cull would drop half of
+        // every coat. Restored below, because the caster families after this one
+        // rely on the FrontCull the pass set once up front.
+        RenderCommand::DisableCulling();
+
+        for (const auto& caster : m_GroomCasters)
+        {
+            if (!caster.vaoID.IsValid() || caster.indexCount == 0u)
+            {
+                continue;
+            }
+            if (cullFrustum != nullptr && ShouldCull(caster.WorldBounds, *cullFrustum))
+            {
+                continue;
+            }
+
+            UBOStructures::GroomShadowParamsUBO params;
+            params.Model = MakeModelRelative(caster.transform, renderOrigin);
+            params.Width = glm::vec4(caster.widthScale, caster.objectScale, resolutionTexels, caster.minWidthTexels);
+            params.Modes = glm::ivec4(clipLevel, 0, 0, 0);
+            // GPU strand deformation (#1427): the SAME lanes and the same buffer
+            // the strand draw uses, so a bound coat casts from the pose the
+            // camera sees. BOUND BEFORE EVERY DRAW, never trusted to survive:
+            // the binding is shared with the terrain VT under a rebound-per-use
+            // rule (ShaderBindingLayout.h, SSBO_GROOM_DEFORMATION), and the
+            // groom pass guarantees a buffer here -- the zeroed placeholder at
+            // mode 0 -- so the declared block always has an occupant.
+            params.DeformModes = caster.deformModes;
+            params.DeformBases = caster.deformBases;
+            if (caster.deformBuffer != nullptr)
+            {
+                caster.deformBuffer->Bind();
+            }
+            // UPLOAD, THEN BIND -- in that order, every draw. The Vulkan
+            // backend's UBOs are arena-versioned: SetData mints a NEW
+            // allocation (ADR 0011 section 4), so binding first publishes the
+            // address of the PREVIOUS one and every ribbon is widened by
+            // another caster's numbers. Same order, same reason, as
+            // GroomRenderPass's own params upload.
+            paramsUBO.SetData(&params, UBOStructures::GroomShadowParamsUBO::GetSize());
+            paramsUBO.Bind();
+
+            RenderCommand::DrawIndexedRaw(caster.vaoID, caster.indexCount);
+        }
+
+        RenderCommand::EnableCulling();
+        RenderCommand::FrontCull();
+    }
+
+    u32 ShadowRenderPass::RenderGroomVirtualShadowLevels(VirtualShadowMap& vsm)
+    {
+        if (m_GroomCasters.IsEmpty() || !m_GroomVsmDepthShader || !m_GroomVsmParamsUBO)
+        {
+            return 0;
+        }
+
+        OLO_PROFILE_FUNCTION();
+
+        const glm::vec3 renderOrigin = Renderer3D::GetRenderOrigin();
+        const auto& clips = vsm.GetClipProjections();
+
+        u32 levelDraws = 0;
+        for (u32 level = 0; level < VSM::kClipLevels; ++level)
+        {
+            // Only the levels a coat actually reaches. A level nothing touches
+            // is dropped here rather than rasterised and discarded page by page
+            // on the GPU -- sixteen clip levels against four cascades is the one
+            // place this route could cost more than the one it replaces.
+            //
+            // The clip projections are RENDER-RELATIVE, so the caster's world
+            // box is shifted by the same origin before the test. Getting that
+            // backwards is invisible near the world origin, which is where every
+            // test scene sits, and wrong everywhere else (issue #429).
+            const bool reached = std::ranges::any_of(
+                m_GroomCasters,
+                [&](const ShadowGroomCaster& caster)
+                {
+                    if (caster.WorldBounds.Min.x >= std::numeric_limits<f32>::max())
+                    {
+                        return true; // no bounds -- include in every level
+                    }
+                    return VirtualShadowMap::BoundsReachClipLevel(clips[level].ViewProjection,
+                                                                  caster.WorldBounds.Min - renderOrigin,
+                                                                  caster.WorldBounds.Max - renderOrigin);
+                });
+            if (!reached)
+            {
+                continue;
+            }
+
+            // THE POOL IMAGE IS RE-BOUND AFTER OUR PROGRAM, EVERY LEVEL.
+            // BindPhysicalPoolImage forks on whether the program currently in
+            // flight is bindless, so it cannot be hoisted out of the shader
+            // switch -- and it is not enough that the mesh raster bound it a
+            // moment ago, because in a scene whose only casters are grooms the
+            // mesh raster returns before binding anything. The failure is every
+            // imageAtomicMin being discarded: a silently unshadowed frame with
+            // no error anywhere (virtual-geometry-into-a-second-shadow-technique.md
+            // section 2).
+            m_GroomVsmDepthShader->Bind();
+            vsm.BindPhysicalPoolImage();
+
+            // NO FRUSTUM here, deliberately: the level was already chosen
+            // by the reach test above, and the fragment stage discards any
+            // page that is not allocated and dirty anyway. A second CPU cull
+            // would only remove draws the raster already throws away.
+            RenderGroomCasters(/*cullFrustum=*/nullptr, renderOrigin,
+                               static_cast<f32>(VSM::kVirtualResolution), static_cast<i32>(level),
+                               *m_GroomVsmParamsUBO);
+            ++levelDraws;
+        }
+
+        if (levelDraws > 0 && m_GroomPass != nullptr)
+        {
+            m_GroomPass->MutableSceneShadowStats().VirtualShadowLevelDraws += levelDraws;
+        }
+        return levelDraws;
     }
 
     bool ShadowRenderPass::CollectVirtualCasterBounds()
@@ -1139,6 +1545,9 @@ namespace OloEngine
         m_ItemResources.Reset();
         m_ItemTallies.Reset();
         m_ActiveViews.Reset();
+        // The groom caster list points at VAOs and deformation buffers owned by
+        // GroomRenderPass, which resets on the same pipeline reset.
+        m_GroomCasters.Reset();
         if (m_FramebufferSpec.Width > 0 && m_FramebufferSpec.Height > 0)
         {
             Init(m_FramebufferSpec);

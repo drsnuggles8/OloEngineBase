@@ -21,7 +21,7 @@ existing tests on 2026-09-23; this page does not claim a new test or live run.
 | Virtual WPO (#1152), tessellation/displacement (#1153), spline/landscape (#1154), programmable raster (#1155) | Unsupported | The virtual-geometry builder, registry and virtual raster shaders have no implementation for these families. Classic terrain and water tessellation are separate representations and do not satisfy a virtual-geometry request. |
 | Gaussian splat as a production scene entity (#1046) | Unsupported | `Renderer/Splat` has PLY decode, ordering and LOD code, and `GaussianSplatVisualEvidenceTest.cpp` renders an isolated GL fixture. There is no splat scene component, asset route or render-pipeline pass. |
 | Groom raster strands without scene shadow | Supported | `GroomRenderPass` draws strands and `GroomStrand.glsl` samples the coat's internal optical-depth volume. This row makes no scene-shadow claim. |
-| Groom raster scene-shadow casting or receiving (#1323) | Unsupported | `ShadowRenderPass` has no groom caster family; `GroomStrand.glsl` does not sample scene shadow maps. The coat's internal self-shadow term is separate. |
+| Groom raster scene-shadow casting or receiving (#1323, restored by #1523) | Supported | `ShadowRenderPass` casts grooms into the CSM cascades, the local-light atlas and the Virtual Shadow Map's clip levels, deforming a bound coat in the depth shaders; `GroomStrand.glsl` samples the scene's shadow at the coat's light-exit point. `GroomSceneShadowVisualEvidenceTest.cpp` pins both directions on GL Forward, Forward+ and Deferred. Gap: with the VSM's LocalLights on, lamps are served from its layer pool, which groom casters do not reach; counted as `VirtualShadowLocalLightsWithoutGrooms` and warned once. |
 | Groom as a Vulkan ray-query surface (#1253) | Approximate | `GroomSurfaceCache::Extract` converts and budgets resident strand proxy geometry for the GPU Scene. `GroomRayTracingProxyTest.cpp` checks tier/coverage/refusal contracts. Residency, update and triangle budgets can refuse an individual groom; a successful proxy is not per-strand RT. |
 
 ## Material, alpha and transmission
@@ -63,9 +63,9 @@ a separate supported rendering family.
 
 ## Contract boundaries
 
-- A raster scene-shadow request for groom returns
-  `Unsupported/GroomSceneShadowMissing`; a capable Vulkan ray-query request
-  returns `Approximate/GroomRayProxy`. These are separate scene techniques.
+- A raster scene-shadow request for groom returns `Supported`; a capable
+  Vulkan ray-query request returns `Approximate/GroomRayProxy`. These are
+  separate scene techniques.
 - `RendererSupport::Evaluate` reports static compatibility. It cannot infer
   whether a particular frame produced or consumed the requested geometry or
   lighting. Pair its decision with the registry's requested/capable/selected/

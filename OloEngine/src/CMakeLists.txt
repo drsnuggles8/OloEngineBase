@@ -288,6 +288,11 @@
 		"OloEngine/Groom/GroomRayTracingProxy.cpp"
 		"OloEngine/Groom/GroomLodBuilder.h"
 		"OloEngine/Groom/GroomLodBuilder.cpp"
+		# The light-space one-texel width floor (#1323), CPU twin of
+		# include/GroomShadowWidening.glsl. Header-only, no renderer headers, so
+		# the claim "a 70 um hair is far below a cascade texel" is assertable in
+		# CI on a machine with no GPU.
+		"OloEngine/Groom/GroomShadowWidening.h"
 		# Build pipeline
 		"OloEngine/Build/GameBuildSettings.h"
 		"OloEngine/Build/GameBuildSettings.cpp"

@@ -140,6 +140,7 @@ namespace
     X(OloEngine::GroomBindingComponent)                            \
     X(OloEngine::GroomFibreComponent)                              \
     X(OloEngine::GroomCoatShadowComponent)                         \
+    X(OloEngine::GroomSceneShadowComponent)                        \
     X(OloEngine::GroomCoatComponent)                               \
     X(OloEngine::GroomSimulationComponent)                         \
     /* Scene/AnimalScheduler.h (#1258). The population budget's */ \

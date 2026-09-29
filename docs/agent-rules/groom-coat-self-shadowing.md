@@ -164,19 +164,12 @@ cadence measurements and the traps in
 [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shadowing.md).
 
 
-**Neither direction of coat-to-scene shadow integration.** The volume contains the groom's own
-strands and nothing else, so:
-
-- hair does not cast onto the body or the scene, and
-- the body does not cast onto the hair.
-
-That is criterion 3's other half and it is a **separate slice**, not an oversight, for a structural
-reason worth recording: the strand geometry is built inside `GroomRenderPass::Execute`, which runs
-*after* `ShadowRenderPass`. Making a groom a shadow caster therefore means lifting the strand
-geometry cache somewhere both passes can reach — a refactor of #1246's cache, not a new caster list.
-Note also that once grooms *are* casters, a strand reading the cascade map would be shadowed by its
-own coat twice; the intended fix is to offset the receiver to the coat's light-exit point, which the
-march already computes.
+**Coat-to-scene shadows live outside this volume (#1323, re-landed by #1523).** The volume contains
+the groom's own strands and nothing else. Hair casting onto the body and the scene, and the scene
+casting onto hair, are the engine's shadow techniques: a groom with a `GroomSceneShadowComponent` is a
+caster family in `ShadowRenderPass` and samples the scene shadow at the coat's light-exit point, so a
+caster is never shadowed by its own coat twice. See
+[groom-into-the-shadow-techniques.md](groom-into-the-shadow-techniques.md).
 
 ## Where the evidence lives
 

@@ -30,12 +30,15 @@
 // what makes the material identical across them rather than three shaders that
 // agree by inspection.
 //
-// WHAT IT STILL DOES NOT DO. It does not participate in the G-Buffer, so a
-// strand casts no shadow and receives none — including from itself. Inter-fibre
-// occlusion and density transport are #1248's, and they are named in the docs
-// rather than approximated here, because a half-shadowed coat is the kind of
-// thing that gets mistaken for a finished tier — which criterion 4 explicitly
-// forbids.
+// SHADOWS. It does not participate in the G-Buffer. The coat's shadow on
+// ITSELF is #1248's density volume, marched per light in GroomStrand.glsl. The
+// coat's shadow on the body and the scene, and the scene's shadow on the coat,
+// are the engine's shadow techniques (#1323, re-landed by #1523): a groom with
+// a GroomSceneShadowComponent is a caster family in ShadowRenderPass — which
+// runs BEFORE this pass and so borrows this pass's geometry through
+// AcquireShadowCaster — and its fragments sample the scene's shadow term at
+// the coat's light-exit point. BeginFrame is what makes the two consumers of
+// one cache agree about which frame it is.
 //
 // IT DOES NOT REPLACE GroomPreview. The debug preview draws the same asset as
 // debug lines and stays, because it answers a different question (did this
@@ -136,6 +139,40 @@ namespace OloEngine
     };
 
     // What the pass did, for the editor's panel and the PR's evidence.
+    /// The groom caster family's tallies for one frame (#1323), written by
+    /// ShadowRenderPass while it draws and read back through GroomRenderStats,
+    /// so the editor has ONE groom readout that answers both directions.
+    struct GroomShadowCasterStats
+    {
+        /// Requests whose GroomSceneShadowComponent asked them to cast.
+        u32 GroomsAskedToCast = 0;
+        /// Of those, the ones that had geometry and were submitted as casters.
+        u32 GroomsCasting = 0;
+        /// Of those, the ones that produced NO geometry — an empty build, or a
+        /// budget that selected nothing. Non-zero is the honest answer to a
+        /// coat that renders and casts nothing, and it is a different fault
+        /// from "the family was never wired into this technique".
+        u32 GroomsWithoutGeometry = 0;
+
+        /// Draws issued, per technique. THREE COUNTERS RATHER THAN ONE, and
+        /// that is the point: virtual-geometry-into-a-second-shadow-technique.md
+        /// says a family reaches a technique only if somebody wired it there and
+        /// that NOTHING detects the gap. A zero here, next to a non-zero
+        /// GroomsCasting, is what detects it.
+        u32 CascadeDraws = 0;
+        u32 AtlasDraws = 0;
+        u32 VirtualShadowLevelDraws = 0;
+        /// Which directional technique owned the sun this frame, so a zero in
+        /// one of the two directional counters can be read as "not this
+        /// frame's technique" rather than as a hole.
+        bool VirtualShadowMapActive = false;
+
+        void Reset() noexcept
+        {
+            *this = GroomShadowCasterStats{};
+        }
+    };
+
     struct GroomRenderStats
     {
         u32 GroomsSubmitted = 0;
@@ -276,6 +313,14 @@ namespace OloEngine
         // inspector's readout on GroomLodComponent.
         GroomLodStats Lod;
 
+        // ── Scene shadows (#1323) ───────────────────────────────────
+        //
+        // The CASTING half, written by ShadowRenderPass earlier in the same
+        // frame through MutableSceneShadowStats. Reset by BeginFrame, never by
+        // Execute, or the shadow pass's tallies would be wiped by the pass that
+        // reports them.
+        GroomShadowCasterStats SceneShadow;
+
         void Reset() noexcept
         {
             *this = GroomRenderStats{};
@@ -322,6 +367,58 @@ namespace OloEngine
         [[nodiscard]] const GroomRenderStats& GetStats() const noexcept
         {
             return m_Stats;
+        }
+
+        /// Starts a frame of this pass's cache (#1323): advances the cache tick
+        /// and resets the stats, BEFORE any consumer acquires geometry.
+        /// RenderPipeline calls it right after SetRequests. A render with NO
+        /// requests starts no frame (the node is culled and nothing acquires, so
+        /// the stats keep describing the last render that drew grooms, as they
+        /// did before). AcquireShadowCaster and Execute start one themselves
+        /// (StartFrame) when nobody has, so a test driving the pass directly
+        /// still gets one tick per frame.
+        ///
+        /// WHY IT EXISTS. The cache has two consumers in one frame now — the
+        /// groom caster family in ShadowRenderPass, which runs first, and this
+        /// pass's own draw. A tick advanced inside Execute would give the shadow
+        /// pass LAST frame's tick: a bound coat's deformation would be skipped
+        /// as "already uploaded this frame" and its shadow cast from the
+        /// previous pose, and the shadow pass's counters would be wiped by the
+        /// Reset at the top of Execute.
+        void BeginFrame();
+
+        /// What the groom caster family draws for one request (#1323). All of it
+        /// is owned by this pass and stays valid until this pass's next frame:
+        /// eviction happens only at the end of Execute, after both consumers.
+        struct ShadowCasterGeometry
+        {
+            RHI::ResourceHandle Vao{};
+            u32 IndexCount = 0;
+            /// The coat's box in GROOM OBJECT SPACE in THIS pose — the posed
+            /// roots padded by the longest strand's reach for a GPU-deformed
+            /// coat, whose stream bounds are bind-local and mean nothing here.
+            glm::vec3 BoundsMin{ 0.0f };
+            glm::vec3 BoundsMax{ 0.0f };
+            bool BoundsValid = false;
+            /// The GPU deformation (#1427) the strand draw uses: this entity's
+            /// frame buffer, or the zeroed placeholder at mode 0 (a final stream).
+            StorageBuffer* DeformBuffer = nullptr;
+            glm::ivec4 DeformModes{ 0 };
+            glm::ivec4 DeformBases{ 0 };
+        };
+
+        /// The geometry `request` casts with, found, refilled or built exactly as
+        /// Execute would find it, and at most once per frame for a GPU-deformed
+        /// coat. RENDER THREAD ONLY and outside any parallel-recording region:
+        /// it can create buffers (ADR 0011 amendment (92) rule 7). False when the
+        /// request produced no geometry.
+        [[nodiscard]] bool AcquireShadowCaster(const GroomStrandRequest& request, ShadowCasterGeometry& out);
+
+        /// The caster family's tallies, for ShadowRenderPass to write while it
+        /// draws. Valid between BeginFrame and the end of Execute.
+        [[nodiscard]] GroomShadowCasterStats& MutableSceneShadowStats() noexcept
+        {
+            return m_Stats.SceneShadow;
         }
 
         /// Upper bound on the strand-buffer cache, in bytes. Exceeding it
@@ -430,6 +527,15 @@ namespace OloEngine
             /// never pays for them.
             std::vector<GroomRestPoseSegment> PoseSegments;
             bool PoseSegmentsBuilt = false;
+            /// The farthest any drawn point sits from its own root, and the widest
+            /// cooked radius, in bind-local units (#1323). The stream's points
+            /// ARE root-relative, so both are properties of the stream alone, and
+            /// they are what bounds a posed coat from its posed roots: nothing the
+            /// vertex shader does moves a point further from its root than the
+            /// strand is long, save the guide displacements, which the caller
+            /// pads for separately.
+            f32 MaxReach = 0.0f;
+            f32 MaxRadius = 0.0f;
             /// The cache tick these bytes were last reported at (#1252), so a
             /// shared stream counts once per frame however many draw it.
             u64 BytesCountedTick = 0;
@@ -605,6 +711,11 @@ namespace OloEngine
             GroomDeformBuffer DeformCpu;
             /// The same bytes on the GPU, at SSBO_GROOM_DEFORMATION.
             Ref<StorageBuffer> DeformGpu;
+            /// The cache tick the frame buffer was last packed and uploaded at
+            /// (#1323). The shadow pass and the strand pass both acquire a
+            /// casting coat in one frame; the second acquire finds this equal to
+            /// the tick and draws the bytes the first uploaded.
+            u64 DeformUploadedTick = 0;
             /// The influence table the static guide weights were written from.
             /// Held so a coat that starts or stops being simulated, or whose
             /// asset re-derives its table, rewrites them rather than reading a
@@ -639,6 +750,14 @@ namespace OloEngine
         /// groom, and for a deformed one whose pose could not be produced.
         [[nodiscard]] std::span<const GroomCoatShadow::CoatSegment> AcquireDrawnPose(const GroomStrandRequest& request,
                                                                                      CacheEntry& entry);
+        /// The coat's box in groom object space in THIS pose (#1323): the posed
+        /// roots padded by the stream's reach for a GPU-deformed coat, the build
+        /// bounds otherwise. False when there is nothing to bound.
+        [[nodiscard]] bool PosedObjectBounds(const GroomStrandRequest& request, const CacheEntry& entry,
+                                             glm::vec3& outMin, glm::vec3& outMax) const;
+        /// Resets the stats and advances the tick, unconditionally: the lazy
+        /// start AcquireShadowCaster and Execute take when no BeginFrame did.
+        void StartFrame();
         void EvictToBudget();
 
         // Root-transform ownership is not bitwise relocatable; stable nodes preserve it.
@@ -734,6 +853,15 @@ namespace OloEngine
         Ref<StorageBuffer> m_DeformPlaceholder;
         /// Latched so a device that cannot create deformation buffers logs once.
         bool m_ReportedDeformBufferFailure = false;
+
+        /// Set by BeginFrame, consumed at the top of Execute (#1323). While it
+        /// is set a lazy BeginFrame is a no-op, so the shadow pass and the
+        /// strand pass share one tick; once Execute has consumed it the next
+        /// consumer starts the next frame.
+        bool m_FrameBegun = false;
+        /// The caster tallies last written to the log, so the line fires on a
+        /// change rather than every frame.
+        GroomShadowCasterStats m_LastReportedShadowStats;
 
         /// Coat volumes currently held across the WHOLE cache, not just the
         /// ones drawn this frame. Counting live draws instead let the resident
