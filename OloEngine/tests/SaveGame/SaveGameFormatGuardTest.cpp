@@ -20,6 +20,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 
 // The save game reads exactly one format version, and a short or malformed
 // payload fails instead of being read as an older layout (#1498). Before, the
@@ -305,4 +306,35 @@ TEST(SaveGameComponentRoundTrip, WaterKeepsTheCascadeCountAndTheFieldsAfterIt)
     EXPECT_EQ(loaded.m_FFTCascades, Ocean::kThreeBandCascadeCount);
     EXPECT_TRUE(loaded.m_PlanarReflectionsEnabled);
     EXPECT_TRUE(loaded.m_WakeShapeEnabled);
+}
+
+// A script can change the streaming byte budgets at runtime (#1365), so a save must
+// carry them: before #1531 the Streaming block stopped at RegionDirectory and a loaded
+// save came back with the scene file's budgets instead of the saved ones.
+TEST(SaveGameSceneSettingsRoundTrip, StreamingByteBudgetsSurviveASave)
+{
+    Ref<Scene> saved = MakeScene();
+    saved->GetStreamingSettings().MaxResidentMegabytes = 256.0f;
+    saved->GetStreamingSettings().MaxAdmittedMegabytesPerFrame = 8.5f;
+    const std::vector<u8> payload = SaveGameSerializer::CaptureSceneState(*saved);
+
+    Ref<Scene> loaded = MakeScene(); // authored with no budget
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*loaded, payload));
+    EXPECT_FLOAT_EQ(loaded->GetStreamingSettings().MaxResidentMegabytes, 256.0f);
+    EXPECT_FLOAT_EQ(loaded->GetStreamingSettings().MaxAdmittedMegabytesPerFrame, 8.5f);
+}
+
+TEST(SaveGameSceneSettingsRoundTrip, CorruptStreamingBudgetsLoadAsNoBudget)
+{
+    Ref<Scene> saved = MakeScene();
+    // Written straight into the settings, past every sanitiser, as a corrupt save would carry them.
+    saved->GetStreamingSettings().MaxResidentMegabytes = std::numeric_limits<f32>::quiet_NaN();
+    saved->GetStreamingSettings().MaxAdmittedMegabytesPerFrame = -4.0f;
+    const std::vector<u8> payload = SaveGameSerializer::CaptureSceneState(*saved);
+
+    Ref<Scene> loaded = MakeScene();
+    loaded->GetStreamingSettings().MaxResidentMegabytes = 64.0f;
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*loaded, payload));
+    EXPECT_FLOAT_EQ(loaded->GetStreamingSettings().MaxResidentMegabytes, 0.0f);
+    EXPECT_FLOAT_EQ(loaded->GetStreamingSettings().MaxAdmittedMegabytesPerFrame, 0.0f);
 }
