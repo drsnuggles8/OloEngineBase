@@ -645,14 +645,15 @@ TEST(StreamingSettingsYaml, ASceneSavedBeforeTheByteBudgetLoadsWithNoBudget)
     // the current scene version: the new keys are optional, so no version bump.
     const std::string kPreBudgetScene =
         "Scene: PreBudget\n"
-        "Version: " + std::to_string(SceneSerializer::CurrentVersion) + "\n"
-        "StreamingSettings:\n"
-        "  Enabled: true\n"
-        "  DefaultLoadRadius: 150\n"
-        "  DefaultUnloadRadius: 180\n"
-        "  MaxLoadedRegions: 5\n"
-        "  RegionDirectory: Regions/World\n"
-        "Entities: []\n";
+        "Version: " +
+        std::to_string(SceneSerializer::CurrentVersion) + "\n"
+                                                          "StreamingSettings:\n"
+                                                          "  Enabled: true\n"
+                                                          "  DefaultLoadRadius: 150\n"
+                                                          "  DefaultUnloadRadius: 180\n"
+                                                          "  MaxLoadedRegions: 5\n"
+                                                          "  RegionDirectory: Regions/World\n"
+                                                          "Entities: []\n";
 
     Ref<Scene> scene = Scene::Create();
     ASSERT_TRUE(SceneSerializer(scene).DeserializeFromYAML(kPreBudgetScene));

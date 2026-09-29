@@ -74,7 +74,7 @@ TEST_F(SchedulerRestartGuardTest, StartWorkersOnARunningSchedulerLeavesItsConfig
     const LowLevelTasks::EThreadPriority workerPriority = scheduler.GetWorkerPriority();
     const LowLevelTasks::EThreadPriority backgroundPriority = scheduler.GetBackgroundPriority();
     const LowLevelTasks::EThreadPriority other = workerPriority == LowLevelTasks::EThreadPriority::TPri_Lowest ? LowLevelTasks::EThreadPriority::TPri_Highest
-                                                                                 : LowLevelTasks::EThreadPriority::TPri_Lowest;
+                                                                                                               : LowLevelTasks::EThreadPriority::TPri_Lowest;
 
     scheduler.StartWorkers(0, 0, LowLevelTasks::EForkable::NonForkable, other, other);
 
