@@ -267,6 +267,11 @@ namespace OloEngine::VulkanCapabilityReportText
                                                       static_cast<int>(listResult));
                 physicalDevices.clear();
             }
+            else
+            {
+                // A shorter successful list leaves unwritten null handles.
+                physicalDevices.resize(deviceCount);
+            }
         }
         for (VkPhysicalDevice device : physicalDevices)
         {

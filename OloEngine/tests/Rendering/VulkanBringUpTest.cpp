@@ -128,6 +128,8 @@ namespace
                 const auto it = std::ranges::find_if(report.Requirements,
                                                      [&name](const VulkanRequirementResult& r)
                                                      { return r.Name == name; });
+                // A contract row must exist in the report before its verdict means anything.
+                EXPECT_NE(it, report.Requirements.end()) << report.DeviceName << ": no report row for " << name;
                 return it != report.Requirements.end() && it->Met;
             };
             for (std::size_t i = 0; i < static_cast<std::size_t>(VulkanContractExtension::Count); ++i)
