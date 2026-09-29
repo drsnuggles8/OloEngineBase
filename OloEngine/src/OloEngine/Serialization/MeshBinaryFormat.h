@@ -115,7 +115,10 @@ namespace OloEngine
         // ImportedMaterialCodec went to wire version 3 (#1499, the Phong type field
         // left each record) and rejects the v2 blob a v12 file holds. Without the
         // bump a warm load would decode-fail that section and serve the mesh with
-        // NO materials; with it, the stale cache is re-imported once.
+        // NO materials; with it, the stale cache is re-imported once. The same bump
+        // covers the static importer relocating a texture a model names at a path
+        // that does not exist (cerberus.fbx's Textures\Cerberus_A.tga), which a v12
+        // cache stored as a material with no albedo.
         constexpr u32 CurrentVersion = 13;
 
         constexpr u32 FlagCompressed = 1;   // Payload is zlib-compressed (always set; required by the reader)
