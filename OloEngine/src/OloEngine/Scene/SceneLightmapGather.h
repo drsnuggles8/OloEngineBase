@@ -12,6 +12,7 @@
 namespace OloEngine
 {
     class Material;
+    class MaterialOverrideCache;
     class MeshSource;
     class Model;
     class Scene;
@@ -43,6 +44,11 @@ namespace OloEngine
         // caller consumes the vector on the game thread before returning.
         const Material* OverrideMaterial = nullptr;
         LightmapReceiverKind Kind = LightmapReceiverKind::Mesh;
+        // The entity's patches of its imported materials (MaterialOverridesComponent,
+        // issue #1533), or null — borrowed exactly like OverrideMaterial. The bake
+        // key and the bake both resolve through it, so a patched skin shades the
+        // bake the way it shades the frame.
+        const MaterialOverrideCache* MaterialPatches = nullptr;
     };
 
     // The reference owns an external mesh; all other fields are values or borrowed

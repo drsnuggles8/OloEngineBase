@@ -151,6 +151,16 @@ if (entity.HasComponent<BoidObstacleComponent>())
     out << YAML::EndMap; // BoidObstacleComponent
 }
 
+if (entity.HasComponent<BoneAttachmentComponent>())
+{
+    out << YAML::Key << "BoneAttachmentComponent";
+    out << YAML::BeginMap; // BoneAttachmentComponent
+    auto const& comp = entity.GetComponent<BoneAttachmentComponent>();
+    out << YAML::Key << "BoneName" << YAML::Value << comp.m_BoneName;
+    out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
+    out << YAML::EndMap; // BoneAttachmentComponent
+}
+
 if (entity.HasComponent<BuoyancyComponent>())
 {
     out << YAML::Key << "BuoyancyComponent";
@@ -683,6 +693,31 @@ if (entity.HasComponent<LuaScriptComponent>())
     auto const& comp = entity.GetComponent<LuaScriptComponent>();
     out << YAML::Key << "ScriptFile" << YAML::Value << comp.ScriptFile;
     out << YAML::EndMap; // LuaScriptComponent
+}
+
+if (entity.HasComponent<MaterialOverridesComponent>())
+{
+    out << YAML::Key << "MaterialOverridesComponent";
+    out << YAML::BeginMap; // MaterialOverridesComponent
+    auto const& comp = entity.GetComponent<MaterialOverridesComponent>();
+    out << YAML::Key << "Overrides" << YAML::Value << YAML::BeginSeq;
+    for (auto const& e : comp.m_Overrides)
+    {
+        out << YAML::BeginMap;
+        out << YAML::Key << "MaterialName" << YAML::Value << e.MaterialName.ToStdString();
+        out << YAML::Key << "Kind" << YAML::Value << static_cast<int>(e.Kind);
+        out << YAML::Key << "SkinProfile" << YAML::Value << static_cast<u64>(e.SkinProfile);
+        out << YAML::Key << "ThicknessFactor" << YAML::Value << e.ThicknessFactor;
+        out << YAML::Key << "OverrideBaseColor" << YAML::Value << e.OverrideBaseColor;
+        out << YAML::Key << "BaseColor" << YAML::Value << e.BaseColor;
+        out << YAML::Key << "OverrideRoughness" << YAML::Value << e.OverrideRoughness;
+        out << YAML::Key << "Roughness" << YAML::Value << e.Roughness;
+        out << YAML::Key << "OverrideMetallic" << YAML::Value << e.OverrideMetallic;
+        out << YAML::Key << "Metallic" << YAML::Value << e.Metallic;
+        out << YAML::EndMap;
+    }
+    out << YAML::EndSeq;
+    out << YAML::EndMap; // MaterialOverridesComponent
 }
 
 if (entity.HasComponent<NameplateComponent>())

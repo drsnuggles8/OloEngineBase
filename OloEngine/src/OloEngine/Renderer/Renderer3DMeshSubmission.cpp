@@ -231,7 +231,7 @@ namespace OloEngine
         void StageVirtualProxy(VirtualMeshRegistry& registry, u32 entryIndex, u32 partIndex, AssetHandle meshHandle,
                                const Ref<MeshSource>& meshSource, u32 submeshIndex, u64 stableEntityId,
                                const glm::mat4& modelMatrix, const Material* overrideMaterial,
-                               const Material& resolvedMaterial, bool castShadows,
+                               const Material* patchedMaterial, const Material& resolvedMaterial, bool castShadows,
                                VirtualMeshRegistry::SubmissionDiagnostics& diagnostics)
         {
             if (!registry.EnsureProxyGeometry(entryIndex))
@@ -247,8 +247,15 @@ namespace OloEngine
             }
 
             const VirtualMeshRegistry::MeshEntry& entry = registry.GetEntry(entryIndex);
-            const GPUSceneMaterialKey materialKey =
-                Renderer3D::ResolveGPUSceneMaterialKey(overrideMaterial, stableEntityId, meshSource, submeshIndex);
+            // The imported material and its slot exactly as the 4-argument key
+            // overload derives them, spelled out here because the entity's patch
+            // of that material (issue #1533) joins the decision.
+            const Material* imported = meshSource ? meshSource->GetImportedMaterialPtrForSubmesh(submeshIndex) : nullptr;
+            const u32 slot = (meshSource && submeshIndex < static_cast<u32>(meshSource->GetSubmeshes().Num()))
+                                 ? meshSource->GetSubmeshes()[static_cast<i32>(submeshIndex)].m_MaterialIndex
+                                 : 0u;
+            const GPUSceneMaterialKey materialKey = Renderer3D::ResolveGPUSceneMaterialKey(
+                overrideMaterial, patchedMaterial, stableEntityId, meshSource, imported, slot);
             Renderer3D::ExtractGPUSceneMaterial(materialKey, resolvedMaterial);
 
             // The registry's own caster rule, applied to the proxy so the two
@@ -299,7 +306,8 @@ namespace OloEngine
                                        f32 errorThresholdPixels, bool castShadows,
                                        const glm::vec4& lightmapScaleOffset,
                                        std::span<const glm::mat4> boneMatrices,
-                                       std::span<const glm::mat4> prevBoneMatrices)
+                                       std::span<const glm::mat4> prevBoneMatrices,
+                                       const MaterialOverrideCache* materialPatches)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -413,7 +421,8 @@ namespace OloEngine
         const bool stageProxies = s_Data.GPUSceneExtractionActive;
 
         // One material slot per part. Precedence: an explicit MaterialComponent overrides
-        // everything, else the material the SUBMESH was imported with (so a multi-material
+        // everything, else the entity's patch of the submesh's imported material (issue
+        // #1533), else the material the SUBMESH was imported with (so a multi-material
         // mesh like Sponza shades each part correctly), else the caller's default.
         submission.MaterialDataIndices.Reserve(parts.Count);
         submission.PartAlphaMasked.Reserve(parts.Count);
@@ -422,7 +431,11 @@ namespace OloEngine
         {
             const auto& entry = registry.GetEntry(parts.FirstEntry + partIndex);
 
-            const Material& resolved = ResolveSubmeshMaterial(overrideMaterial, meshSource.get(), entry.SubmeshIndex, defaultMaterial);
+            // One (override, patched, imported) triple feeds both the draw's
+            // material and the proxy's record key below.
+            const Material* imported = meshSource->GetImportedMaterialPtrForSubmesh(entry.SubmeshIndex);
+            const Material* patched = ResolveMaterialPatch(materialPatches, imported);
+            const Material& resolved = ResolveSubmeshMaterial(overrideMaterial, patched, imported, defaultMaterial);
             const Material* material = &resolved;
 
             PODMaterialData const materialData = CreatePODMaterialDataForMaterial(*material, RHI::NullResource);
@@ -481,8 +494,8 @@ namespace OloEngine
                 else
                 {
                     StageVirtualProxy(registry, parts.FirstEntry + partIndex, partIndex, meshHandle, meshSource,
-                                      entry.SubmeshIndex, stableEntityId, modelMatrix, overrideMaterial, *material,
-                                      castShadows, vgDiagnostics);
+                                      entry.SubmeshIndex, stableEntityId, modelMatrix, overrideMaterial, patched,
+                                      *material, castShadows, vgDiagnostics);
                 }
             }
         }

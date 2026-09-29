@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Material.h"
+#include "OloEngine/Renderer/MaterialOverride.h"
 #include "OloEngine/Renderer/MeshSource.h"
 
 namespace OloEngine
@@ -10,8 +11,10 @@ namespace OloEngine
     /**
      * @brief The ONE place that decides which material shades a submesh.
      *
-     * Precedence: an explicit override (the entity's MaterialComponent) beats the material
-     * the submesh was IMPORTED with, which beats the engine default.
+     * Precedence: an explicit override (the entity's MaterialComponent) beats a
+     * per-entity PATCH of the submesh's imported material (MaterialOverridesComponent,
+     * issue #1533), which beats the material the submesh was IMPORTED with, which beats
+     * the engine default.
      *
      * This exists because the classic and virtualized submission paths each implemented
      * half of it and drifted: Renderer3D::SubmitVirtualMesh did override -> imported ->
@@ -19,10 +22,11 @@ namespace OloEngine
      * Scene MeshComponent / SubmeshComponent / skinned-mesh loops did override -> default
      * (no imported), so a multi-material glTF pushed through a MeshComponent shaded every
      * one of its submeshes with the flat engine-default material. Route every submission
-     * path through these two functions so the paths cannot diverge again (issue #629).
+     * path through these functions so the paths cannot diverge again (issue #629).
      *
      * A procedurally-built MeshSource carries no imported materials at all — then
-     * GetImportedMaterialForSubmesh() returns null and the default applies cleanly.
+     * GetImportedMaterialForSubmesh() returns null and the default applies cleanly (and
+     * there is nothing for a patch to apply to).
      */
     [[nodiscard]] inline const Material& ResolveSubmeshMaterial(const Material* overrideMaterial,
                                                                 const Material* importedMaterial,
@@ -39,9 +43,6 @@ namespace OloEngine
         return defaultMaterial;
     }
 
-    /// Same precedence, pulling the imported material out of the MeshSource by submesh index
-    /// (which maps through Submesh::m_MaterialIndex). A null meshSource, an out-of-range
-    /// index, or a source with no imported materials all fall through to the default.
     /// Where a submesh's material comes from, in precedence order. The GPU-scene
     /// material key (Renderer3D::ResolveGPUSceneMaterialKey) is derived from this
     /// same decision, so the record and the draw cannot disagree about the source.
@@ -50,9 +51,24 @@ namespace OloEngine
         Default,
         Imported,
         Override,
+        // A per-entity patched COPY of the imported material (issue #1533). Its own
+        // origin — and its own GPU Scene key — because it is neither the shared
+        // imported record nor an entity-wide override.
+        Patched,
     };
 
+    /// The patched copy of `importedMaterial` the entity shades with, or null when
+    /// the entity has no patches or none names that material. `patches` comes from
+    /// Scene::PrepareMaterialOverrides for the SAME imported table the caller is
+    /// resolving against.
+    [[nodiscard]] inline const Material* ResolveMaterialPatch(const MaterialOverrideCache* patches,
+                                                              const Material* importedMaterial)
+    {
+        return patches != nullptr ? patches->Find(importedMaterial) : nullptr;
+    }
+
     [[nodiscard]] inline SubmeshMaterialOrigin ResolveSubmeshMaterialOrigin(const Material* overrideMaterial,
+                                                                            const Material* patchedMaterial,
                                                                             const Material* importedMaterial)
     {
         using enum SubmeshMaterialOrigin;
@@ -60,11 +76,21 @@ namespace OloEngine
         {
             return Override;
         }
+        if (patchedMaterial != nullptr)
+        {
+            return Patched;
+        }
         if (importedMaterial != nullptr)
         {
             return Imported;
         }
         return Default;
+    }
+
+    [[nodiscard]] inline SubmeshMaterialOrigin ResolveSubmeshMaterialOrigin(const Material* overrideMaterial,
+                                                                            const Material* importedMaterial)
+    {
+        return ResolveSubmeshMaterialOrigin(overrideMaterial, nullptr, importedMaterial);
     }
 
     [[nodiscard]] inline SubmeshMaterialOrigin ResolveSubmeshMaterialOrigin(const Material* overrideMaterial,
@@ -75,7 +101,36 @@ namespace OloEngine
             overrideMaterial, meshSource != nullptr ? meshSource->GetImportedMaterialPtrForSubmesh(submeshIndex) : nullptr);
     }
 
+    /// The full precedence with the imported material and its patch already in hand —
+    /// the shape every path that also stages a GPU Scene record uses, so the record's
+    /// key and the drawn material come from the same three pointers.
     [[nodiscard]] inline const Material& ResolveSubmeshMaterial(const Material* overrideMaterial,
+                                                                const Material* patchedMaterial,
+                                                                const Material* importedMaterial,
+                                                                const Material& defaultMaterial)
+    {
+        using enum SubmeshMaterialOrigin;
+        switch (ResolveSubmeshMaterialOrigin(overrideMaterial, patchedMaterial, importedMaterial))
+        {
+            case Override:
+                return *overrideMaterial;
+            case Patched:
+                return *patchedMaterial;
+            case Imported:
+                return *importedMaterial;
+            case Default:
+            default:
+                break;
+        }
+        return defaultMaterial;
+    }
+
+    /// Same precedence, pulling the imported material out of the MeshSource by submesh
+    /// index (which maps through Submesh::m_MaterialIndex) and its patch out of
+    /// `patches`. A null meshSource, an out-of-range index, or a source with no
+    /// imported materials all fall through to the default.
+    [[nodiscard]] inline const Material& ResolveSubmeshMaterial(const Material* overrideMaterial,
+                                                                const MaterialOverrideCache* patches,
                                                                 const MeshSource* meshSource,
                                                                 u32 submeshIndex,
                                                                 const Material& defaultMaterial)
@@ -85,20 +140,20 @@ namespace OloEngine
         // was a returned-reference-to-a-just-released-owner pattern (SonarQube "use of memory
         // after it is freed"); the referent is owned by the MeshSource, which every caller
         // keeps alive across its use of the result, so the observer is the honest shape.
+        // The patched copy is owned by the entity's MaterialOverrideCache the same way.
         const Material* imported =
             meshSource != nullptr ? meshSource->GetImportedMaterialPtrForSubmesh(submeshIndex) : nullptr;
-        using enum SubmeshMaterialOrigin;
-        switch (ResolveSubmeshMaterialOrigin(overrideMaterial, imported))
-        {
-            case Override:
-                return *overrideMaterial;
-            case Imported:
-                return *imported;
-            case Default:
-            default:
-                break;
-        }
-        return defaultMaterial;
+        return ResolveSubmeshMaterial(overrideMaterial, ResolveMaterialPatch(patches, imported), imported,
+                                      defaultMaterial);
+    }
+
+    [[nodiscard]] inline const Material& ResolveSubmeshMaterial(const Material* overrideMaterial,
+                                                                const MeshSource* meshSource,
+                                                                u32 submeshIndex,
+                                                                const Material& defaultMaterial)
+    {
+        return ResolveSubmeshMaterial(overrideMaterial, static_cast<const MaterialOverrideCache*>(nullptr), meshSource,
+                                      submeshIndex, defaultMaterial);
     }
 
     /// Shadow-casting is a property of the RESOLVED material, not of the entity: the shared

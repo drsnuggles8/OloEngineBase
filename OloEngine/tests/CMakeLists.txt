@@ -710,6 +710,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/PlayerCameraRigVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VirtualGeometryVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SubmeshMaterialPathParityTest.cpp
+		Rendering/PropertyTests/MaterialOverridesVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ModelWarmCacheGeometryIdentityTest.cpp
 		Rendering/PropertyTests/MeshAssetBoneInfluenceImportTest.cpp
 		Rendering/PropertyTests/StaticMeshCoincidentCornerImportTest.cpp
@@ -1001,6 +1002,7 @@ add_executable(OloEngine-Tests
 		Serialization/Vec3ClampSerializerCodegenTest.cpp
 		# SaveGame Tests
 		SaveGame/SaveGameFileTest.cpp
+		SaveGame/MaterialOverridesSaveLoadTest.cpp
 		SaveGame/SaveGameManagerTest.cpp
 		SaveGame/SaveGameIntegrationTest.cpp
 		SaveGame/SaveGameComponentSerializerCoverageTest.cpp
@@ -1011,6 +1013,7 @@ add_executable(OloEngine-Tests
 		SaveGame/FoliageHabitatRulesSaveLoadTest.cpp
 		SaveGame/GroomFibreMaterialSaveLoadTest.cpp
 		SaveGame/GroomCoatShadowSaveLoadTest.cpp
+		SaveGame/BoneAttachmentSaveLoadTest.cpp
 		SaveGame/FoliageInteractionSaveLoadTest.cpp
 		SaveGame/FoliageLodTransitionSaveLoadTest.cpp
 		SaveGame/DestructibleComponentSaveLoadSanitizeTest.cpp
@@ -1571,6 +1574,7 @@ add_executable(OloEngine-Tests
 		Functional/Scene/RuntimeSceneSwitchTest.cpp
 		Functional/Scene/HierarchyChildFollowsPhysicsParentTest.cpp
 		Functional/Scene/WorldTransformPropagationTest.cpp
+		Functional/Scene/BoneAttachmentFollowsBoneTest.cpp
 		Functional/AI/BehaviorTreeAdvancesViaSceneTickTest.cpp
 		Functional/AI/GoapAgentPlansViaSceneTickTest.cpp
 		Functional/AI/GoapAuthoredFromLuaViaSceneTickTest.cpp
@@ -1670,6 +1674,7 @@ add_executable(OloEngine-Tests
 		Functional/AI/PerceptionMatchesBruteForceViaSpatialIndexTest.cpp
 		Functional/AI/FlockingViaSceneTickTest.cpp
 		Functional/Rendering/AnimalPopulationViaSceneTickTest.cpp
+		Functional/Rendering/MaterialOverridesPatchImportedMaterialsTest.cpp
 		Functional/Scripting/LuaReadsTransformOfAnotherEntityTest.cpp
 		Functional/SaveGame/InventoryComponentSceneYAMLRoundTripTest.cpp
 		Functional/SaveGame/HierarchyPreservedAcrossSaveLoadTest.cpp

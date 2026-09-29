@@ -11,6 +11,7 @@
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Core/FrameTimeTail.h"
 #include "OloEngine/Scene/AnimalScheduler.h"
+#include "OloEngine/Scene/BoneAttachment.h"
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
 #include "OloEngine/Scene/WorldOriginSettings.h"
 #include "OloEngine/Scene/SceneLightmap.h"
@@ -34,6 +35,7 @@
 #include <limits>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -53,6 +55,8 @@ namespace OloEngine
 {
     class Entity;
     class MeshSource;
+    class Material;
+    class MaterialOverrideCache;
     class Skeleton;
     class Prefab;
     class JoltScene;
@@ -1010,6 +1014,11 @@ namespace OloEngine
         // simulation, and editor-preview updates); exposed so headless
         // harnesses / tests can refresh world transforms after reparenting or
         // mutating local transforms outside a tick.
+        //
+        // A BoneAttachmentComponent child composes against its parent skeleton's
+        // bone instead (issue #1533): parentWorld * boneGlobal * local. At runtime
+        // the scheduler orders this pass after every writer of the skeleton pose
+        // (the SkeletonPose channel), so the attachment follows THIS tick's pose.
         void PropagateWorldTransforms();
 
         // Reads the composed world matrix written by PropagateWorldTransforms()
@@ -1019,6 +1028,14 @@ namespace OloEngine
         // Defined out-of-line in Scene.cpp: TransformComponent / WorldTransformComponent
         // are only forward-declared here (full definitions live in Components.h).
         [[nodiscard("Store this!")]] glm::mat4 GetWorldTransform(entt::entity entity) const;
+
+        // How the BoneAttachmentComponent on `entity` resolves right now (issue
+        // #1533): Attached plus the bone index, or the reason the entity composes
+        // parent-relative instead. nullopt when the entity carries no attachment.
+        // Pure — no cache, no log — so the inspector can ask it every frame and a
+        // test can ask it without disturbing the warn-once bookkeeping that
+        // PropagateWorldTransforms keeps.
+        [[nodiscard]] std::optional<BoneAttachmentResolution> ResolveBoneAttachment(entt::entity entity) const;
 
         // Audio Events
         [[nodiscard]] Audio::AudioCommandRegistry* GetAudioCommandRegistry()
@@ -1089,6 +1106,24 @@ namespace OloEngine
         /// that writes a pose.
         [[nodiscard]] static const Skeleton* ResolveSurfaceSkeleton(const SkeletonComponent* skeletonComp,
                                                                     const Ref<MeshSource>& surface);
+
+        /// The per-imported-material patches (MaterialOverridesComponent, issue
+        /// #1533) this entity's submeshes shade with, prepared against
+        /// `importedTable` — the imported materials of the MeshSource (or Model)
+        /// the caller is about to resolve submeshes of. Null when the entity has
+        /// no overrides, or when a MaterialComponent overrides every submesh
+        /// anyway.
+        ///
+        /// PUBLIC and the ONE way in, for the reason ResolveAnimatedSurface is:
+        /// every path that shades or records the entity's submeshes — the scene
+        /// draw loops, the GPU Scene records, the lightmap gather and bake key,
+        /// the reference path tracer, olo_material_get — asks here, so none of
+        /// them can shade a submesh the others see differently. What the list
+        /// does against the table (an unknown name, a duplicate, shadowing by a
+        /// MaterialComponent) is logged once per edit of the list, not silently
+        /// ignored. Game thread only.
+        [[nodiscard]] const MaterialOverrideCache* PrepareMaterialOverrides(entt::entity entity,
+                                                                            std::span<const Ref<Material>> importedTable);
 
       private:
         template<typename T>
@@ -1921,6 +1956,43 @@ namespace OloEngine
         TArray<entt::entity> m_TransformOrder;
         std::unordered_set<entt::entity> m_TransformVisited;
         TArray<entt::entity> m_TransformQueue;
+
+        // ── Bone attachment (issue #1533) ────────────────────────────────────
+        // The parent PropagateWorldTransforms composes an entity against: a
+        // missing, dangling or transform-less RelationshipComponent parent is
+        // entt::null ("no parent"), never a stale reference. One definition, so
+        // the full sweep and the targeted recompose below cannot disagree.
+        [[nodiscard]] entt::entity ResolveTransformParent(entt::entity entity) const;
+        // One entity's world matrix from its local transform and its already
+        // composed parent, following its BoneAttachmentComponent when
+        // `boneAttached` and it resolves (warning once per (entity, reason) when
+        // it does not). Shared by the full sweep and RecomposeBoneAttachedSubtrees;
+        // the caller answers `boneAttached` from the pool it already holds.
+        [[nodiscard]] glm::mat4 ComposeWorldTransform(entt::entity entity, entt::entity parent, bool boneAttached);
+        // The bone's model-space global transform the attachment on `entity`
+        // composes against this frame, or null (after reporting why) when it
+        // falls back to parent-relative composition.
+        [[nodiscard]] const glm::mat4* ResolveAttachedBoneTransform(entt::entity entity, entt::entity parent);
+        // Re-composes every bone-attached entity and its descendants against the
+        // CURRENT pose. OnUpdateEditor runs its full PropagateWorldTransforms
+        // before its animation-preview loop poses the skeletons, so without this
+        // targeted pass an attached entity would render one pose behind its bone.
+        void RecomposeBoneAttachedSubtrees();
+
+        // Per attached entity: the bone index cached against the skeleton it was
+        // resolved on (re-validated by name every use, so a swapped skeleton, a
+        // renamed bone or a reused skeleton address all re-resolve), and the
+        // fallback reasons already logged. Runtime-only; entries for entities that
+        // lost their component are pruned by PropagateWorldTransforms.
+        struct BoneAttachmentRuntimeState
+        {
+            const Skeleton* CachedSkeleton = nullptr;
+            i32 CachedBoneIndex = -1;
+            u32 WarnedReasons = 0; // bit per BoneAttachmentStatus already reported
+        };
+        std::unordered_map<entt::entity, BoneAttachmentRuntimeState> m_BoneAttachmentRuntime;
+        // Scratch for RecomposeBoneAttachedSubtrees, persistent like the three above.
+        TArray<entt::entity> m_BoneRecomposeQueue;
 
         // Audio Events
         std::unique_ptr<Audio::AudioCommandRegistry> m_AudioCommandRegistry;

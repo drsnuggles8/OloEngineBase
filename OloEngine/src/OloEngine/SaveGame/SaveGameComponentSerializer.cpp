@@ -902,6 +902,21 @@ namespace OloEngine
         ar << c.m_ParentHandle;
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, BoneAttachmentComponent& c)
+    {
+        // NO VERSION GATE, and none is possible: the component is new in #1533,
+        // and a save's components are keyed by an FNV hash of the type name (see
+        // RegisterSaveComponent), so a save written before it existed does not
+        // contain the key and the load never reaches this function. That is also
+        // why this did NOT take a kSaveGameFormatVersion number — same reasoning
+        // as GroomBindingComponent.
+        //
+        // Nothing to sanitise: a bone name is resolved against the parent's
+        // skeleton every frame, and one that names no bone is reported and
+        // composes parent-relative (Scene::ResolveAttachedBoneTransform).
+        ar << c.m_BoneName << c.m_Enabled;
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, SpriteRendererComponent& c)
     {
         ar << c.Color << c.TilingFactor;
@@ -1839,6 +1854,91 @@ namespace OloEngine
             }
         }
         // Texture maps: restored by the scene load, see the function header.
+    }
+
+    // One MaterialOverride (issue #1533). Not a component, so it has no FArchive
+    // overload of its own — the TileLayer arrangement. The OLO_SERIALIZE bounds on
+    // the struct reach scene YAML and the binary sidecar, NOT this archive, so
+    // the load half restates them: a save file is untrusted input, and these
+    // values reach the material UBO.
+    static void SerializeMaterialOverride(FArchive& ar, MaterialOverride& patch)
+    {
+        ar << patch.MaterialName;
+        ar << patch.Kind << patch.SkinProfile << patch.ThicknessFactor;
+        ar << patch.OverrideBaseColor << patch.BaseColor;
+        ar << patch.OverrideRoughness << patch.Roughness;
+        ar << patch.OverrideMetallic << patch.Metallic;
+        if (!ar.IsLoading())
+        {
+            return;
+        }
+
+        // A discriminated value REJECTS to Generic rather than saturating onto
+        // a valid neighbour — the MaterialComponent rule.
+        if (!IsValidMaterialKind(static_cast<i32>(std::to_underlying(patch.Kind))))
+        {
+            patch.Kind = MaterialKind::Generic;
+        }
+        patch.ThicknessFactor = std::isfinite(patch.ThicknessFactor) ? std::max(patch.ThicknessFactor, 0.0f) : 0.0f;
+        if (!std::isfinite(patch.BaseColor.r) || !std::isfinite(patch.BaseColor.g) || !std::isfinite(patch.BaseColor.b) ||
+            !std::isfinite(patch.BaseColor.a))
+        {
+            patch.BaseColor = glm::vec4(1.0f);
+        }
+        patch.Roughness = std::isfinite(patch.Roughness) ? std::clamp(patch.Roughness, 0.0f, 1.0f) : 0.5f;
+        patch.Metallic = std::isfinite(patch.Metallic) ? std::clamp(patch.Metallic, 0.0f, 1.0f) : 0.0f;
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, MaterialOverridesComponent& c)
+    {
+        // NO VERSION GATE, and none is possible: the component is new in #1533,
+        // and a save's components are keyed by an FNV hash of the type name (see
+        // RegisterSaveComponent), so a save written before it existed does not
+        // contain the key and the load never reaches this function. That is also
+        // why this did NOT take a kSaveGameFormatVersion number — same reasoning
+        // as GroomBindingComponent.
+        //
+        // The runtime cache is not saved: it is derived from the list and
+        // rebuilt on the next frame that resolves the entity's materials.
+        constexpr u32 kMaxMaterialOverrides = 1024;
+        auto count = static_cast<u32>(c.m_Overrides.Num());
+        ar << count;
+        if (ar.IsError())
+        {
+            return;
+        }
+
+        if (ar.IsLoading())
+        {
+            // Refuse a count no authored entity has rather than reserving
+            // whatever the bytes claim.
+            if (count > kMaxMaterialOverrides)
+            {
+                OLO_CORE_ERROR("SaveGame: MaterialOverridesComponent claims {} overrides (limit {}); refusing to restore.",
+                               count, kMaxMaterialOverrides);
+                ar.SetError();
+                return;
+            }
+            TArray<MaterialOverride> loaded;
+            loaded.SetNum(static_cast<i32>(count));
+            for (MaterialOverride& patch : loaded)
+            {
+                SerializeMaterialOverride(ar, patch);
+                if (ar.IsError())
+                {
+                    return;
+                }
+            }
+            c.m_Overrides = MoveTemp(loaded);
+            c.m_Cache.Reset();
+        }
+        else
+        {
+            for (MaterialOverride& patch : c.m_Overrides)
+            {
+                SerializeMaterialOverride(ar, patch);
+            }
+        }
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, DirectionalLightComponent& c)
@@ -5835,6 +5935,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(PrefabComponent);
         REGISTER_SAVE_COMPONENT(TransformComponent);
         REGISTER_SAVE_COMPONENT(RelationshipComponent);
+        REGISTER_SAVE_COMPONENT(BoneAttachmentComponent);
         REGISTER_SAVE_COMPONENT(SpriteRendererComponent);
         REGISTER_SAVE_COMPONENT(CircleRendererComponent);
         REGISTER_SAVE_COMPONENT(TilemapComponent);
@@ -5868,6 +5969,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(VideoOverlayComponent);
         REGISTER_SAVE_COMPONENT(VideoSurfaceComponent);
         REGISTER_SAVE_COMPONENT(MaterialComponent);
+        REGISTER_SAVE_COMPONENT(MaterialOverridesComponent);
         REGISTER_SAVE_COMPONENT(DirectionalLightComponent);
         REGISTER_SAVE_COMPONENT(PointLightComponent);
         REGISTER_SAVE_COMPONENT(SpotLightComponent);

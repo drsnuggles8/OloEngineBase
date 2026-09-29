@@ -92,6 +92,8 @@ namespace OloEngine
     // does not pull the lightmap gather into every path-tracing translation
     // unit; only the definition of the span's element is needed at the call.
     struct LightmapReceiver;
+    // Renderer/MaterialOverride.h — an entity's patches, passed by pointer.
+    class MaterialOverrideCache;
 } // namespace OloEngine
 
 namespace OloEngine::PathTracing
@@ -183,8 +185,13 @@ namespace OloEngine::PathTracing
         // (adding nothing) for a null/empty meshSource, a non-finite or
         // near-singular transform, or a mesh whose submeshes are all
         // degenerate.
+        //
+        // `materialPatches` is the entity's MaterialOverridesComponent patches
+        // (Scene::PrepareMaterialOverrides for this source, issue #1533), or null:
+        // the same precedence step every raster path takes.
         bool AddMeshEntity(const Ref<MeshSource>& meshSource, const glm::mat4& worldTransform,
-                           const Material* overrideMaterial);
+                           const Material* overrideMaterial,
+                           const MaterialOverrideCache* materialPatches = nullptr);
 
         // Mirror one scene light. Packing matches Scene.cpp's MultiLight UBO
         // fill exactly — same attenuation parameterisation, same cone cosines,

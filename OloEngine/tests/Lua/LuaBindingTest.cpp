@@ -479,6 +479,24 @@ TEST_F(LuaBindingTest, MeshComponent_PrimitiveRoundTrip)
 }
 
 // =============================================================================
+// BoneAttachmentComponent (issue #1533)
+// =============================================================================
+
+TEST_F(LuaBindingTest, BoneAttachmentComponent_PropertyRoundTrip)
+{
+    BoneAttachmentComponent attachment("Head");
+    lua["attachment"] = &attachment;
+
+    EXPECT_EQ(lua.script("return attachment.boneName").get<std::string>(), "Head");
+    EXPECT_TRUE(lua.script("return attachment.enabled").get<bool>());
+
+    // A script re-targets a prop to another bone and switches it off.
+    lua.script("attachment.boneName = 'b_Hand_R'; attachment.enabled = false");
+    EXPECT_EQ(attachment.m_BoneName, "b_Hand_R");
+    EXPECT_FALSE(attachment.m_Enabled);
+}
+
+// =============================================================================
 // UI Components
 // =============================================================================
 

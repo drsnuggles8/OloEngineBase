@@ -149,6 +149,45 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
+    // BoneAttachmentComponent (issue #1533)
+    //
+    // All-trivial (a string and a bool), so its scene (de)serialize is
+    // OloHeaderTool-generated. Both fields are set away from their defaults so a
+    // field the generated block dropped cannot come back equal by accident — and
+    // the attachment only means something under a parent, so the relationship is
+    // round-tripped with it.
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, BoneAttachmentComponentSurvivesYAMLRoundTrip)
+    {
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity character = scene->CreateEntity("RoundTripCharacter_uniqueA72F");
+            Entity entity = scene->CreateEntity(kTestTag);
+            entity.SetParent(character);
+            auto& attachment = entity.AddComponent<BoneAttachmentComponent>("b_Eye_R_018");
+            attachment.m_Enabled = false;
+
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+        ASSERT_FALSE(yaml.empty());
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<BoneAttachmentComponent>())
+            << "BoneAttachmentComponent was dropped by the scene YAML round trip";
+        const auto& attachment = restored.GetComponent<BoneAttachmentComponent>();
+        EXPECT_EQ(attachment.m_BoneName, "b_Eye_R_018");
+        EXPECT_FALSE(attachment.m_Enabled);
+        Entity parent = restored.GetParent();
+        ASSERT_TRUE(static_cast<bool>(parent));
+        EXPECT_EQ(parent.GetComponent<TagComponent>().Tag, "RoundTripCharacter_uniqueA72F");
+    }
+
+    // -------------------------------------------------------------------------
     // DestructibleComponent (issue #459)
     //
     // All-trivial, so its scene (de)serialize is fully OloHeaderTool-generated —
@@ -4757,6 +4796,122 @@ Entities:
         // The authored distances are intact, so the legacy path still works.
         EXPECT_EQ(lod.m_LODGroup.SelectLOD(5.0f), 0);
         EXPECT_EQ(lod.m_LODGroup.SelectLOD(30.0f), 1);
+    }
+
+    // -------------------------------------------------------------------------
+    // MaterialOverridesComponent (issue #1533)
+    //
+    // All-trivial apart from its OLO_SERIALIZE(Skip) runtime cache, so its scene
+    // (de)serialize is OloHeaderTool-generated: a TArray of nested structs, each
+    // carrying an FString, a Reject-bounded enum, an AssetHandle, clamped floats,
+    // a vec4 and three bools. Two overrides with distinct values in every field,
+    // so a dropped field or a swapped element cannot come back equal.
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, MaterialOverridesComponentSurvivesYAMLRoundTrip)
+    {
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& overrides = entity.AddComponent<MaterialOverridesComponent>();
+
+            MaterialOverride nose;
+            nose.MaterialName = "DogNose";
+            nose.Kind = MaterialKind::Skin;
+            nose.SkinProfile = 0x1234'5678'9ABCull;
+            nose.ThicknessFactor = 0.004f;
+            nose.OverrideBaseColor = true;
+            nose.BaseColor = glm::vec4(0.125f, 0.0625f, 0.25f, 1.0f);
+            nose.OverrideRoughness = true;
+            nose.Roughness = 0.375f;
+            overrides.m_Overrides.Add(nose);
+
+            MaterialOverride tongue;
+            tongue.MaterialName = "DogTongue";
+            tongue.Kind = MaterialKind::Foliage;
+            tongue.ThicknessFactor = 0.5f;
+            tongue.OverrideMetallic = true;
+            tongue.Metallic = 0.75f;
+            overrides.m_Overrides.Add(tongue);
+
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+        ASSERT_FALSE(yaml.empty());
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<MaterialOverridesComponent>())
+            << "MaterialOverridesComponent was dropped by the scene YAML round trip";
+        const auto& overrides = restored.GetComponent<MaterialOverridesComponent>().m_Overrides;
+        ASSERT_EQ(overrides.Num(), 2);
+
+        EXPECT_EQ(overrides[0].MaterialName, "DogNose");
+        EXPECT_EQ(overrides[0].Kind, MaterialKind::Skin);
+        EXPECT_EQ(static_cast<u64>(overrides[0].SkinProfile), 0x1234'5678'9ABCull);
+        EXPECT_NEAR(overrides[0].ThicknessFactor, 0.004f, kFloatEpsilon);
+        EXPECT_TRUE(overrides[0].OverrideBaseColor);
+        EXPECT_NEAR(overrides[0].BaseColor.b, 0.25f, kFloatEpsilon);
+        EXPECT_TRUE(overrides[0].OverrideRoughness);
+        EXPECT_NEAR(overrides[0].Roughness, 0.375f, kFloatEpsilon);
+        EXPECT_FALSE(overrides[0].OverrideMetallic);
+
+        EXPECT_EQ(overrides[1].MaterialName, "DogTongue");
+        EXPECT_EQ(overrides[1].Kind, MaterialKind::Foliage);
+        EXPECT_NEAR(overrides[1].ThicknessFactor, 0.5f, kFloatEpsilon);
+        EXPECT_TRUE(overrides[1].OverrideMetallic);
+        EXPECT_NEAR(overrides[1].Metallic, 0.75f, kFloatEpsilon);
+        EXPECT_FALSE(overrides[1].OverrideBaseColor);
+    }
+
+    // A corrupt kind REJECTS to Generic rather than saturating onto a valid
+    // neighbour, and out-of-range factors clamp — the OLO_SERIALIZE bounds on
+    // MaterialOverride, applied by the generated reader.
+    TEST(ComponentRoundTrip, MaterialOverridesComponentRejectsACorruptKindAndClampsFactors)
+    {
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            MaterialOverride patch;
+            patch.MaterialName = "DogNose";
+            patch.Kind = MaterialKind::Skin;
+            patch.Roughness = 0.5f;
+            patch.ThicknessFactor = 0.25f;
+            entity.AddComponent<MaterialOverridesComponent>().m_Overrides.Add(patch);
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+        // Hand-corrupt the file: a kind from the future, a negative roughness and
+        // a negative thickness. Only inside the component's own block, so a key of
+        // the same name elsewhere in the scene file cannot be the one edited.
+        const sizet blockStart = yaml.find("MaterialOverridesComponent:");
+        ASSERT_NE(blockStart, std::string::npos);
+        const auto replaceValue = [&yaml, blockStart](const std::string& key, const std::string& value)
+        {
+            // The leading space keeps "Roughness" from matching inside
+            // "OverrideRoughness".
+            const std::string needle = " " + key + ": ";
+            const sizet at = yaml.find(needle, blockStart);
+            ASSERT_NE(at, std::string::npos) << "no " << key << " key to corrupt";
+            const sizet valueStart = at + needle.size();
+            const sizet lineEnd = yaml.find('\n', valueStart);
+            yaml.replace(valueStart, (lineEnd == std::string::npos ? yaml.size() : lineEnd) - valueStart, value);
+        };
+        replaceValue("Kind", "7");
+        replaceValue("Roughness", "-3.5");
+        replaceValue("ThicknessFactor", "-1");
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        const auto& overrides = restored.GetComponent<MaterialOverridesComponent>().m_Overrides;
+        ASSERT_EQ(overrides.Num(), 1);
+        EXPECT_EQ(overrides[0].Kind, MaterialKind::Generic) << "a corrupt kind must reject to Generic, not saturate";
+        EXPECT_NEAR(overrides[0].Roughness, 0.0f, kFloatEpsilon);
+        EXPECT_NEAR(overrides[0].ThicknessFactor, 0.0f, kFloatEpsilon);
     }
 
 } // namespace OloEngine::Tests

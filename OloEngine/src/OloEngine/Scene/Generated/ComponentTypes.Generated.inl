@@ -21,6 +21,7 @@ void VisitComponentTypes(Visitor&& visitor)
     visitor.template operator()<BoatComponent, true>("BoatComponent");
     visitor.template operator()<BoidComponent, true>("BoidComponent");
     visitor.template operator()<BoidObstacleComponent, true>("BoidObstacleComponent");
+    visitor.template operator()<BoneAttachmentComponent, true>("BoneAttachmentComponent");
     visitor.template operator()<BoxCollider2DComponent, true>("BoxCollider2DComponent");
     visitor.template operator()<BoxCollider3DComponent, true>("BoxCollider3DComponent");
     visitor.template operator()<BuoyancyComponent, true>("BuoyancyComponent");
@@ -77,6 +78,7 @@ void VisitComponentTypes(Visitor&& visitor)
     visitor.template operator()<LocomotionStateComponent, false>("LocomotionStateComponent");
     visitor.template operator()<LuaScriptComponent, true>("LuaScriptComponent");
     visitor.template operator()<MaterialComponent, true>("MaterialComponent");
+    visitor.template operator()<MaterialOverridesComponent, true>("MaterialOverridesComponent");
     visitor.template operator()<MeshCollider3DComponent, true>("MeshCollider3DComponent");
     visitor.template operator()<MeshComponent, true>("MeshComponent");
     visitor.template operator()<ModelComponent, true>("ModelComponent");

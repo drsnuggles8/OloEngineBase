@@ -6065,7 +6065,10 @@ namespace OloEngine::MCP
 
             const Json result = host.MarshalRead([&host, id, requestedSubmesh]() -> Json
                                                  {
-                const Ref<Scene> scene = host.Context().GetActiveScene ? host.Context().GetActiveScene() : nullptr;
+                // Non-const: resolving the entity's material patches fills their
+                // derived-state cache (Scene::PrepareMaterialOverrides, issue #1533)
+                // — the same call the draw makes, which is the point of asking it.
+                Ref<Scene> scene = host.Context().GetActiveScene ? host.Context().GetActiveScene() : nullptr;
                 if (!scene)
                     return Json{ { "__error", "No active scene." } };
 
@@ -6124,23 +6127,34 @@ namespace OloEngine::MCP
                 const u32 first = requestedSubmesh >= 0 ? static_cast<u32>(requestedSubmesh) : 0u;
                 const u32 last = requestedSubmesh >= 0 ? first + 1u : submeshCount;
 
+                // The entity's patches of this source's imported materials (issue
+                // #1533), prepared by the same Scene call the draw makes.
+                const MaterialOverrideCache* materialPatches = scene->PrepareMaterialOverrides(
+                    static_cast<entt::entity>(entity), meshSource->GetImportedMaterials());
+
                 Json submeshes = Json::array();
                 for (u32 index = first; index < last; ++index)
                 {
                     // One precedence rule on EVERY path — MaterialComponent override ->
-                    // the submesh's imported material -> engine default — resolved through
-                    // the same OloEngine::ResolveSubmeshMaterial the renderer itself calls.
-                    // This tool used to special-case the classic path because it genuinely
-                    // ignored imported materials; that divergence is fixed, and reporting a
-                    // rule the renderer no longer follows would make this tool lie to the
-                    // next person debugging a material.
-                    const Material& resolved =
-                        ResolveSubmeshMaterial(overrideMaterial, meshSource.get(), index, *engineDefault);
+                    // the entity's patch of the imported material -> the submesh's imported
+                    // material -> engine default — resolved through the same
+                    // OloEngine::ResolveSubmeshMaterial the renderer itself calls. This tool
+                    // used to special-case the classic path because it genuinely ignored
+                    // imported materials; that divergence is fixed, and reporting a rule the
+                    // renderer no longer follows would make this tool lie to the next person
+                    // debugging a material.
+                    const Material* imported = meshSource->GetImportedMaterialPtrForSubmesh(index);
+                    const Material* patched = ResolveMaterialPatch(materialPatches, imported);
+                    const Material& resolved = ResolveSubmeshMaterial(overrideMaterial, patched, imported, *engineDefault);
                     const Material* material = &resolved;
                     std::string_view source;
                     if (material == overrideMaterial)
                     {
                         source = "MaterialComponent (override)";
+                    }
+                    else if (material == patched)
+                    {
+                        source = "MaterialOverridesComponent (patched copy of the imported material)";
                     }
                     else if (material != engineDefault.get())
                     {
