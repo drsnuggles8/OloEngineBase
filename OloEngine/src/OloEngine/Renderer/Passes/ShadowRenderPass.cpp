@@ -18,6 +18,7 @@
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
 #include "OloEngine/Groom/GroomShadowWidening.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -296,6 +297,9 @@ namespace OloEngine
             // nothing, and with only the PREVIOUS list populated it is the only
             // thing that retires a deleted caster's shadow.
             SubmitVirtualDynamicInvalidations(vsm);
+            // Grooms too (#1523), and unconditionally for the same departure
+            // reason: m_GroomCasters was collected at the top of Execute.
+            SubmitGroomDynamicInvalidations(vsm);
             vsm.UpdatePages();
 
             const bool vsmVirtualCasters =
@@ -1143,6 +1147,13 @@ namespace OloEngine
 
         GroomShadowCasterStats& stats = m_GroomPass->MutableSceneShadowStats();
         stats.VirtualShadowMapActive = m_ShadowMap != nullptr && m_ShadowMap->IsVirtualShadowMapActive();
+        // The VSM's local-light LAYER pool is rasterised by GPU-driven mesh
+        // batches that a groom caster never enters, so while it serves lamps a
+        // groom casts only the sun's shadow (see the counter's comment). Read
+        // once here and reported below only if a groom actually casts.
+        const u32 vsmLocalLights = (stats.VirtualShadowMapActive && m_ShadowMap != nullptr)
+                                       ? m_ShadowMap->GetVirtualShadowMap().GetLocalLightCount()
+                                       : 0u;
 
         // THE SAME REQUEST LIST GroomRenderPass DRAWS FROM, read from
         // Renderer3D rather than handed in: the two passes must agree about
@@ -1195,6 +1206,11 @@ namespace OloEngine
             caster.deformBuffer = geometry.DeformBuffer;
             caster.deformModes = geometry.DeformModes;
             caster.deformBases = geometry.DeformBases;
+            // Identity across frames for the VSM page invalidation: the entity
+            // and the groom it wears, mixed so two coats on one entity differ.
+            caster.key = (static_cast<u64>(request.Handle) * 0x9E3779B97F4A7C15ull) ^
+                         static_cast<u64>(static_cast<u32>(request.EntityID));
+            caster.deforming = GroomRenderPass::IsDeformed(request);
 
             // THE COAT IN THIS POSE, not the asset's bind-pose bounds and not a
             // GPU-deformed stream's bind-local ones: the posed roots padded by
@@ -1220,6 +1236,21 @@ namespace OloEngine
 
             m_GroomCasters.Add(caster);
             ++stats.GroomsCasting;
+        }
+
+        if (stats.GroomsCasting > 0u && vsmLocalLights > 0u)
+        {
+            stats.VirtualShadowLocalLightsWithoutGrooms = vsmLocalLights;
+            // Once per session, and a WARNING: a lamp whose shadow silently omits
+            // the coat reads as a lighting bug two subsystems away.
+            if (!m_WarnedGroomVsmLocalLights)
+            {
+                m_WarnedGroomVsmLocalLights = true;
+                OLO_CORE_WARN("ShadowRenderPass: {} groom caster(s) do not reach the Virtual Shadow Map's local-light "
+                              "layers, so {} lamp(s) cast no groom shadow. The sun's does. Turn off the VSM's "
+                              "LocalLights to route lamps through the shadow atlas, where grooms cast.",
+                              stats.GroomsCasting, vsmLocalLights);
+            }
         }
     }
 
@@ -1451,6 +1482,89 @@ namespace OloEngine
             m_PrevVirtualCasters.emplace(caster.Key, VirtualCasterFootprint{ caster.Min, caster.Max });
     }
 
+    void ShadowRenderPass::SubmitGroomDynamicInvalidations(VirtualShadowMap& vsm)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // AddDynamicInvalidation takes RENDER-RELATIVE bounds; a caster's world
+        // box is absolute (issue #429). Invisible near the origin, where every
+        // test scene sits, and a stale shadow everywhere else.
+        const glm::vec3 renderOrigin = Renderer3D::GetRenderOrigin();
+        const auto hasBounds = [](const BoundingBox& box)
+        { return box.Min.x < std::numeric_limits<f32>::max(); };
+        u32 invalidations = 0;
+        // The negative control's fault: track the footprints, submit nothing.
+        const bool submit = !Levers::FaultSkipGroomVsmInvalidation();
+
+        // ---- Movers and arrivals --------------------------------------------
+        for (const auto& caster : m_GroomCasters)
+        {
+            if (!hasBounds(caster.WorldBounds))
+            {
+                continue; // no box to invalidate; CollectGroomCasters found no bounds
+            }
+            const auto previous = m_PrevGroomCasters.find(caster.key);
+            const bool isNew = previous == m_PrevGroomCasters.end();
+            // A BOUND coat moves with its body's pose every frame, so it is always
+            // a mover; an unbound one moves when its transform does. Compared
+            // bit-exactly, like ShadowCasterBounds::Moved: a rotation about the
+            // centre of a symmetric coat leaves the box identical and the
+            // silhouette not.
+            const bool moved = caster.deforming || isNew ||
+                               !Math::BitwiseEqual(previous->second.Transform, caster.transform);
+            if (!moved)
+            {
+                continue;
+            }
+            // The SWEPT volume: last frame's footprint joins this frame's, because
+            // the old silhouette is exactly what sits in the cached pages.
+            glm::vec3 sweptMin = caster.WorldBounds.Min;
+            glm::vec3 sweptMax = caster.WorldBounds.Max;
+            if (!isNew)
+            {
+                sweptMin = glm::min(sweptMin, previous->second.Min);
+                sweptMax = glm::max(sweptMax, previous->second.Max);
+            }
+            if (submit)
+            {
+                vsm.AddDynamicInvalidation(sweptMin - renderOrigin, sweptMax - renderOrigin);
+                ++invalidations;
+            }
+        }
+
+        // ---- Departures ------------------------------------------------------
+        //
+        // A coat whose component was removed, whose CastShadows was unticked or
+        // whose entity was deleted is simply GONE from this frame's list; its
+        // last footprint is the only record of where its silhouette is.
+        for (const auto& [key, footprint] : m_PrevGroomCasters)
+        {
+            const bool stillPresent = std::ranges::any_of(m_GroomCasters,
+                                                          [key](const ShadowGroomCaster& caster)
+                                                          { return caster.key == key; });
+            if (!stillPresent && submit)
+            {
+                vsm.AddDynamicInvalidation(footprint.Min - renderOrigin, footprint.Max - renderOrigin);
+                ++invalidations;
+            }
+        }
+
+        m_PrevGroomCasters.clear();
+        for (const auto& caster : m_GroomCasters)
+        {
+            if (hasBounds(caster.WorldBounds))
+            {
+                m_PrevGroomCasters.emplace(caster.key, GroomCasterFootprint{ caster.WorldBounds.Min,
+                                                                             caster.WorldBounds.Max, caster.transform });
+            }
+        }
+
+        if (invalidations > 0u && m_GroomPass != nullptr)
+        {
+            m_GroomPass->MutableSceneShadowStats().VirtualShadowInvalidations += invalidations;
+        }
+    }
+
     bool ShadowRenderPass::AnyVirtualShadowCaster()
     {
         // Read SUBMISSIONS, not frame instances.
@@ -1548,6 +1662,7 @@ namespace OloEngine
         // The groom caster list points at VAOs and deformation buffers owned by
         // GroomRenderPass, which resets on the same pipeline reset.
         m_GroomCasters.Reset();
+        m_PrevGroomCasters.clear();
         if (m_FramebufferSpec.Width > 0 && m_FramebufferSpec.Height > 0)
         {
             Init(m_FramebufferSpec);

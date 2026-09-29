@@ -66,6 +66,7 @@
 
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomBuilder.h"
 #include "OloEngine/Groom/GroomCoatShadow.h"
@@ -917,5 +918,156 @@ namespace OloEngine::Tests
             << "with the density volume active, routing both directions darkened the coat by more than a fifth "
                "on top of what the volume already charges it — which is the double count the light-exit receiver "
                "offset exists to remove";
+    }
+
+    // ── 7. The Virtual Shadow Map cell, and a moving coat's cached pages ────
+    //
+    // #1380 routed grooms into the VSM's clip levels and never invalidated the
+    // pages they had been drawn into (#1523). The VSM caches a page until
+    // something marks it dirty, so a coat that MOVES leaves its old silhouette
+    // in every cached page it crossed -- a shadow that stays behind, which
+    // reads as a lighting bug two subsystems away. The comparison that detects
+    // it is against a FROM-SCRATCH render of the same state: the VSM is
+    // restarted (which drops every cached page) and the moved coat captured
+    // again. A frame that matches the fresh one has no stale silhouette in it.
+    TEST_F(GroomSceneShadowVisualEvidenceTest, TheVirtualShadowMapCastsAndFollowsAMovingCoat)
+    {
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+        Renderer3D::ApplyRendererSettings();
+
+        // Process-wide shadow settings: restored on EVERY exit, the way the VSM
+        // evidence test restores them, or a failure here leaves VSM on for every
+        // later test in the process.
+        const auto setVsm = [](bool enabled)
+        {
+            auto& shadowMap = Renderer3D::GetShadowMap();
+            ShadowSettings settings = shadowMap.GetSettings();
+            settings.VSM.Enabled = enabled;
+            shadowMap.SetSettings(settings);
+            return shadowMap.IsVirtualShadowMapActive() == enabled;
+        };
+        struct VsmRestore
+        {
+            std::function<bool(bool)> Set;
+            ~VsmRestore()
+            {
+                (void)Set(false);
+            }
+        } restore{ setVsm };
+        if (!setVsm(true))
+        {
+            GTEST_SKIP() << "the Virtual Shadow Map could not start on this device (VirtualShadowMap::Init refused)";
+        }
+
+        Routing().m_CastShadows = false;
+        Routing().m_ReceiveShadows = false;
+        const std::vector<u8> coatMask = DeriveCoatMask();
+        if (::testing::Test::HasFatalFailure())
+        {
+            return;
+        }
+        std::vector<u8> control;
+        Capture("GroomSceneShadowOff_GL_Deferred_Vsm", control);
+
+        Routing().m_CastShadows = true;
+        std::vector<u8> cast;
+        Capture("GroomSceneShadow_GL_Deferred_Vsm", cast);
+        if (::testing::Test::HasFatalFailure())
+        {
+            return;
+        }
+        const GroomShadowCasterStats castStats = CasterStats();
+        const f64 sceneControl = MeanLumaIn(control, coatMask, /*inside=*/false);
+        const f64 sceneCast = MeanLumaIn(cast, coatMask, false);
+        const u32 castPixels = CountDifferingIn(cast, control, coatMask, false);
+        std::printf("[groom-scene-shadow] VSM         scene luma %.3f -> cast %.3f (%u px) | level draws %u, "
+                    "cascade draws %u\n",
+                    sceneControl, sceneCast, castPixels, castStats.VirtualShadowLevelDraws, castStats.CascadeDraws);
+
+        EXPECT_TRUE(castStats.VirtualShadowMapActive) << "this is the VSM cell; the frame ran the CSM cascades";
+        EXPECT_GT(castStats.VirtualShadowLevelDraws, 0u)
+            << "the coat is a caster and no VSM clip level drew it -- the family is not wired into the VSM";
+        EXPECT_LT(sceneCast, sceneControl - 0.25) << "casting through the VSM did not darken the scene";
+        EXPECT_GT(castPixels, 2000u) << "too little of the scene changed for the coat's VSM shadow to be on it";
+
+        // Move the coat sideways. The body stays: it is a separate caster, and
+        // its shadow is the same in every frame compared below.
+        auto& groomTransform = m_GroomEntity.GetComponent<TransformComponent>();
+        const glm::vec3 home = groomTransform.Translation;
+        const glm::vec3 away = home + glm::vec3(-1.3f, 0.0f, 0.4f);
+        const auto restartVsm = [&setVsm]()
+        {
+            // Restarting the VSM drops every cached page, so the next frame is a
+            // from-scratch render with nothing in it that could be stale.
+            return setVsm(false) && setVsm(true);
+        };
+
+        // THE NEGATIVE CONTROL FIRST: the same move with the groom invalidation
+        // switched off. It must leave the old silhouette behind, or the
+        // stale-page check below could not see staleness at all -- a VSM that
+        // happened to redraw every page every frame would pass it for free.
+        struct FaultRestore
+        {
+            ~FaultRestore()
+            {
+                Levers::SetFaultSkipGroomVsmInvalidation(false);
+            }
+        } faultRestore;
+        Levers::SetFaultSkipGroomVsmInvalidation(true);
+        groomTransform.Translation = away;
+        std::vector<u8> movedWithoutInvalidation;
+        Capture("GroomSceneShadow_GL_Deferred_VsmMovedNoInvalidation", movedWithoutInvalidation);
+        Levers::SetFaultSkipGroomVsmInvalidation(false);
+        if (::testing::Test::HasFatalFailure())
+        {
+            return;
+        }
+
+        // The reference: the coat at `away`, rendered from scratch.
+        ASSERT_TRUE(restartVsm());
+        std::vector<u8> fresh;
+        Capture("GroomSceneShadow_GL_Deferred_VsmMovedFresh", fresh);
+        if (::testing::Test::HasFatalFailure())
+        {
+            return;
+        }
+
+        // The real move: warm the cache at home from scratch, then move once and
+        // read the counter on THAT frame -- the frame the move happens in is the
+        // only one that has anything to invalidate for an unbound coat.
+        groomTransform.Translation = home;
+        ASSERT_TRUE(restartVsm());
+        Step(3);
+        groomTransform.Translation = away;
+        Step(1);
+        const u32 invalidations = CasterStats().VirtualShadowInvalidations;
+        std::vector<u8> moved;
+        Capture("GroomSceneShadow_GL_Deferred_VsmMoved", moved);
+        groomTransform.Translation = home;
+        if (::testing::Test::HasFatalFailure())
+        {
+            return;
+        }
+
+        const std::vector<u8> none(coatMask.size(), 0u);
+        const u32 stalePixels = CountDifferingIn(moved, fresh, none, /*inside=*/false);
+        const u32 staleWithoutInvalidation = CountDifferingIn(movedWithoutInvalidation, fresh, none, false);
+        const u32 shadowMovedPixels = CountDifferingIn(cast, fresh, none, false);
+        std::printf("[groom-scene-shadow] VSM moved   invalidations %u | moved vs fresh %u px, without invalidation "
+                    "%u px (negative control) | home vs fresh %u px (the shadow moved)\n",
+                    invalidations, stalePixels, staleWithoutInvalidation, shadowMovedPixels);
+
+        // THE SENSITIVITY CHECKS FIRST: the comparison can see a moved shadow at
+        // all, and it can see a stale one.
+        ASSERT_GT(shadowMovedPixels, 2000u)
+            << "moving the coat did not move anything the comparison can see, so the stale-page check below "
+               "would pass on a frame with no groom shadow in it";
+        ASSERT_GT(staleWithoutInvalidation, 2000u)
+            << "with the groom invalidation switched off the moved frame still matched a from-scratch render, "
+               "so this check cannot see a stale page and its pass below would mean nothing";
+        EXPECT_GT(invalidations, 0u) << "the coat moved with the VSM on and no page was invalidated for it";
+        EXPECT_LT(stalePixels, 250u)
+            << "the moved coat's frame differs from a from-scratch render of the same state by " << stalePixels
+            << " pixels: its old silhouette is still in the VSM's cached pages";
     }
 } // namespace OloEngine::Tests

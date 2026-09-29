@@ -9905,6 +9905,21 @@ namespace OloEngine
                     }
                     ImGui::Text("Draws: %u cascade, %u virtual-shadow level, %u atlas", stats.CascadeDraws,
                                 stats.VirtualShadowLevelDraws, stats.AtlasDraws);
+                    if (stats.VirtualShadowMapActive)
+                    {
+                        ImGui::Text("Virtual Shadow Map page invalidations: %u", stats.VirtualShadowInvalidations);
+                    }
+                    // The one technique a groom caster does not reach, said in
+                    // front of the viewport rather than only in the log.
+                    if (stats.VirtualShadowLocalLightsWithoutGrooms > 0u)
+                    {
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                        ImGui::TextWrapped("%u lamp(s) are served by the Virtual Shadow Map's local-light layers, "
+                                           "which groom casters do not reach: they cast no coat shadow. Turn off "
+                                           "the VSM's Local Lights to route them through the shadow atlas.",
+                                           stats.VirtualShadowLocalLightsWithoutGrooms);
+                        ImGui::PopStyleColor();
+                    }
 
                     // THE ZERO THAT MATTERS. Which directional technique owns
                     // the sun this frame decides which of the two counters is

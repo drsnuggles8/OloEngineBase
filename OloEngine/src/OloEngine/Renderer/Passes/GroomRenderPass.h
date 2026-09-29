@@ -162,6 +162,18 @@ namespace OloEngine
         u32 CascadeDraws = 0;
         u32 AtlasDraws = 0;
         u32 VirtualShadowLevelDraws = 0;
+        /// Virtual Shadow Map page footprints invalidated for a moving or
+        /// deforming coat this frame. A coat that moves while this stays zero
+        /// leaves its old silhouette in the cached pages.
+        u32 VirtualShadowInvalidations = 0;
+        /// Local lights the Virtual Shadow Map served from its LAYER pool this
+        /// frame while a groom was casting. Groom casters reach the VSM's clip
+        /// levels (the sun) and the local-light ATLAS, not the layer pool — the
+        /// same limit virtual geometry has — so each of these lamps casts no
+        /// groom shadow. Non-zero is that gap, counted rather than silent; turning
+        /// VSM LocalLights off routes lamps through the atlas, where grooms cast.
+        u32 VirtualShadowLocalLightsWithoutGrooms = 0;
+
         /// Which directional technique owned the sun this frame, so a zero in
         /// one of the two directional counters can be read as "not this
         /// frame's technique" rather than as a hole.

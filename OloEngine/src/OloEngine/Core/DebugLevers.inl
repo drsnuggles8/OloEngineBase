@@ -82,6 +82,10 @@ OLO_LEVER_EXACT(FaultShortenTransientLifetimes, "OLO_FAULT_SHORTEN_TRANSIENT_LIF
                 "FAULT (#1349 negative control): end every transient's planned lifetime one pass before its last "
                 "access, so the alias-slot assigner can hand its backing to another transient while it is still "
                 "read. Re-creates an alias-lifetime error in the transient planner.")
+OLO_LEVER_EXACT(FaultSkipGroomVsmInvalidation, "OLO_FAULT_SKIP_GROOM_VSM_INVALIDATION",
+                "FAULT (#1523 negative control): submit no Virtual Shadow Map page invalidation for groom casters, "
+                "so a moving coat leaves its old silhouette in the cached pages. Re-creates the gap #1380 shipped "
+                "with; GroomSceneShadowVisualEvidenceTest proves its stale-page check sees it.")
 
 // --- RHI --------------------------------------------------------------------
 OLO_LEVER_TOGGLE(BindlessDescriptorHeap, "OLO_RHI_BINDLESS",

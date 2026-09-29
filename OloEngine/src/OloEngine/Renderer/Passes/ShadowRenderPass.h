@@ -132,6 +132,12 @@ namespace OloEngine
         StorageBuffer* deformBuffer = nullptr;
         glm::ivec4 deformModes{ 0 };
         glm::ivec4 deformBases{ 0 };
+        // The caster's identity across frames (entity and groom), and whether its
+        // silhouette changes every frame without its transform moving — a bound
+        // coat follows its body's pose. Both feed the Virtual Shadow Map's page
+        // invalidation (SubmitGroomDynamicInvalidations).
+        u64 key = 0;
+        bool deforming = false;
     };
 
     struct ShadowFoliageCaster
@@ -368,6 +374,14 @@ namespace OloEngine
         // "did not move", and lands on pages that are already clean.
         void SubmitVirtualDynamicInvalidations(VirtualShadowMap& vsm);
 
+        // The same three cases for the groom caster family (#1523; #1380 never
+        // invalidated at all, so with the Virtual Shadow Map on a walking coat
+        // left its old silhouette in every cached page it had crossed). A bound
+        // coat is a mover every frame — its body's pose moves it without its
+        // transform changing — and an unbound one moves when its transform does.
+        // BEFORE UpdatePages, for the reason SubmitVirtualDynamicInvalidations
+        // states.
+        void SubmitGroomDynamicInvalidations(VirtualShadowMap& vsm);
 
         // Records every caster category of one view using item-owned uploads
         // and cull outputs. All shader lookups and resource growth precede it.
@@ -445,6 +459,19 @@ namespace OloEngine
             glm::vec3 Max{ 0.0f };
         };
         std::unordered_map<u64, VirtualCasterFootprint> m_PrevVirtualCasters;
+        // Last frame's groom casters, by ShadowGroomCaster::key, for the same
+        // departure and sweep reasons (#1523). The transform is kept so an
+        // unbound coat that did not move costs no invalidation.
+        struct GroomCasterFootprint
+        {
+            glm::vec3 Min{ 0.0f };
+            glm::vec3 Max{ 0.0f };
+            glm::mat4 Transform{ 1.0f };
+        };
+        std::unordered_map<u64, GroomCasterFootprint> m_PrevGroomCasters;
+        // Latched once per session: groom casters and the VSM local-light layers.
+        bool m_WarnedGroomVsmLocalLights = false;
+
         bool m_WarnedOnce = false;
         bool m_LoggedOnce = false;
     };
