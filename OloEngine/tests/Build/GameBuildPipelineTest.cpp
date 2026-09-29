@@ -236,9 +236,9 @@ TEST(GameBuildPipelineTest, HostExecutableNamingIsPlatformSpecific)
 
 TEST(GameBuildPipelineTest, CSharpScriptingIsWindowsOnly)
 {
-    // OloEngine-ScriptCore only builds under the Visual Studio generator
-    // (CLAUDE.md) — so C# scripting cannot be shipped on a non-Windows target
-    // regardless of what a build's other settings ask for.
+    // The engine links the Mono runtime only on Windows, so C# scripting cannot
+    // be shipped on a non-Windows target regardless of what a build's other
+    // settings ask for.
     EXPECT_TRUE(IsScriptingAvailableOnPlatform(BuildTargetPlatform::Windows));
     EXPECT_FALSE(IsScriptingAvailableOnPlatform(BuildTargetPlatform::Linux));
 }

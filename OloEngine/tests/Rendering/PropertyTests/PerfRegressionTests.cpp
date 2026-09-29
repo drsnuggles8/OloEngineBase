@@ -353,19 +353,20 @@ namespace OloEngine::Tests
         // should use that wrapper rather than calling this directly.
         static void CheckPerfRegression(const std::string& name, u64 measuredNs)
         {
+            ::testing::Test::RecordProperty("regression_gate", "workstation lower-bound baseline; not a frame-tail gate");
             auto& cache = PerfBaselineCache();
 
             if (PerfShouldRebase())
             {
                 cache[name] = measuredNs;
                 WritePerfBaselines(cache);
-                ::testing::Test::RecordProperty(name + "_ns_median", std::to_string(measuredNs));
+                ::testing::Test::RecordProperty(name + "_ns_lower_bound", std::to_string(measuredNs));
                 ::testing::Test::RecordProperty(name + "_rebased", "1");
                 AppendPerfHistory(name, measuredNs, measuredNs, 1.0f);
                 return;
             }
 
-            ::testing::Test::RecordProperty(name + "_ns_median", std::to_string(measuredNs));
+            ::testing::Test::RecordProperty(name + "_ns_lower_bound", std::to_string(measuredNs));
 
             // Strict mode fails on a regression; the default records + logs it
             // but never fails (see PerfShouldEnforce — these microbenchmarks
@@ -518,6 +519,7 @@ namespace OloEngine::Tests
 
     TEST(PerfRegressionTest, GPUSceneExtraction1024StaysWithinCpuBudget)
     {
+        ::testing::Test::RecordProperty("measurement_kind", "lower-bound cost");
         constexpr u32 kInstanceCount = 1024u;
         constexpr u32 kWarmupSamples = 5u;
         constexpr u32 kMeasureSamples = 20u;
@@ -582,6 +584,7 @@ namespace OloEngine::Tests
     // work rather than an artificial stress limit.
     TEST(PerfRegressionTest, RenderGraphFenceExecutionStaysWithinCpuBudget)
     {
+        ::testing::Test::RecordProperty("measurement_kind", "lower-bound cost");
         constexpr u32 kEdgeCount = 32u;
         constexpr u32 kExecutionsPerSample = 64u;
         constexpr u32 kWarmupSamples = 5u;
@@ -677,6 +680,7 @@ namespace OloEngine::Tests
     // fallback; the Vulkan device tenant separately pins actual publication.
     TEST_F(GPUFrustumCullPerf, SafeRootBindingDispatchStaysWithinBudget)
     {
+        ::testing::Test::RecordProperty("measurement_kind", "lower-bound cost");
         OLO_ENSURE_GPU_OR_SKIP();
 
         constexpr u32 kInstanceCount = 1024u;
@@ -748,10 +752,11 @@ namespace OloEngine::Tests
     }
 
     // Run the tone-map pass over a uniform input and confirm that GPU timing
-    // infrastructure works end-to-end. Reports the median over N runs. This
+    // infrastructure works end-to-end. Reports the minimum over N runs (lower-bound cost). This
     // is the skeleton for future per-pass microbenchmarks.
     TEST(PerfRegressionTest, ToneMapPassTimingIsMeasurable)
     {
+        ::testing::Test::RecordProperty("measurement_kind", "lower-bound cost");
         OLO_ENSURE_GPU_OR_SKIP();
 
         constexpr u32 kWidth = 512;
@@ -828,7 +833,7 @@ namespace OloEngine::Tests
 
     // -------------------------------------------------------------------------
     // Shared microbenchmark helper: time a single-shader fullscreen pass over
-    // a uniform RGBA32F input. Returns the median GPU time in nanoseconds.
+    // a uniform RGBA32F input. Returns the minimum GPU time in nanoseconds (lower-bound cost).
     // -------------------------------------------------------------------------
     namespace
     {
@@ -934,6 +939,7 @@ namespace OloEngine::Tests
     // Should be fastest of the bloom chain — no cross-pixel sampling.
     TEST(PerfRegressionTest, BloomThresholdPassTimingIsMeasurable)
     {
+        ::testing::Test::RecordProperty("measurement_kind", "lower-bound cost");
         OLO_ENSURE_GPU_OR_SKIP();
         const u64 median = MeasureFullscreenPassStableNs(
             "assets/shaders/PostProcess_BloomThreshold.glsl", 512, 512,
@@ -945,6 +951,7 @@ namespace OloEngine::Tests
     // the tone-map pass (1 tap each), minus ALU overhead.
     TEST(PerfRegressionTest, BloomDownsamplePassTimingIsMeasurable)
     {
+        ::testing::Test::RecordProperty("measurement_kind", "lower-bound cost");
         OLO_ENSURE_GPU_OR_SKIP();
         const u64 median = MeasureFullscreenPassStableNs(
             "assets/shaders/PostProcess_BloomDownsample.glsl", 512, 512,
@@ -955,6 +962,7 @@ namespace OloEngine::Tests
     // Bloom upsample pass: 9-tap tent filter. Classic Call-of-Duty style.
     TEST(PerfRegressionTest, BloomUpsamplePassTimingIsMeasurable)
     {
+        ::testing::Test::RecordProperty("measurement_kind", "lower-bound cost");
         OLO_ENSURE_GPU_OR_SKIP();
         const u64 median = MeasureFullscreenPassStableNs(
             "assets/shaders/PostProcess_BloomUpsample.glsl", 512, 512,
@@ -1064,6 +1072,7 @@ namespace OloEngine::Tests
 
     TEST(PerfRegressionTest, WholeFramePostprocessChainTimingIsMeasurable)
     {
+        ::testing::Test::RecordProperty("measurement_kind", "lower-bound cost");
         OLO_ENSURE_GPU_OR_SKIP();
 
         // Anti-flake: measure twice, keep the faster sample if the first one
@@ -1237,6 +1246,7 @@ namespace OloEngine::Tests
 
     TEST(PerfRegressionTest, SceneDrawBurstBudget)
     {
+        ::testing::Test::RecordProperty("measurement_kind", "lower-bound cost");
         OLO_ENSURE_GPU_OR_SKIP();
 
         u32 draws = 0, shaderBinds = 0, textureBinds = 0;
@@ -1617,6 +1627,7 @@ namespace OloEngine::Tests
     // cluster LOD DAG.
     TEST_F(VirtualGeometryPerf, VirtualVsClassicFrameBudget)
     {
+        ::testing::Test::RecordProperty("measurement_kind", "lower-bound cost");
         OLO_ENSURE_GPU_OR_SKIP();
 
         auto& settings = Renderer3D::GetRendererSettings();
@@ -1701,6 +1712,7 @@ namespace OloEngine::Tests
     // hardware rasterizer — made falsifiable.
     TEST_F(VirtualGeometryPerf, SoftwareVsHardwareRasterBudget)
     {
+        ::testing::Test::RecordProperty("measurement_kind", "lower-bound cost");
         OLO_ENSURE_GPU_OR_SKIP();
 
         auto& settings = Renderer3D::GetRendererSettings();
@@ -1764,6 +1776,7 @@ namespace OloEngine::Tests
     // that the software path actually ran.
     TEST_F(VirtualGeometryPerf, SoftwareRasterSubPassBudget)
     {
+        ::testing::Test::RecordProperty("measurement_kind", "lower-bound cost");
         OLO_ENSURE_GPU_OR_SKIP();
 
         auto& settings = Renderer3D::GetRendererSettings();
@@ -2075,6 +2088,7 @@ namespace OloEngine::Tests
     // docs/agent-rules/notes-renderer.md.
     TEST_F(FSR2Perf, UpscaleCostPerMegapixelAcrossOutputResolutions)
     {
+        ::testing::Test::RecordProperty("measurement_kind", "lower-bound cost");
         OLO_ENSURE_GPU_OR_SKIP();
         if (!TemporalIsUsable())
             GTEST_SKIP() << "FSR2 is not available on this build/backend";
@@ -2111,6 +2125,7 @@ namespace OloEngine::Tests
 
     TEST_F(FSR2Perf, ReportsTemporalUpscaleGpuFrameTimeAtQualityAndBalanced)
     {
+        ::testing::Test::RecordProperty("measurement_kind", "lower-bound cost");
         OLO_ENSURE_GPU_OR_SKIP();
         if (!TemporalIsUsable())
             GTEST_SKIP() << "FSR2 is not available on this build/backend";
@@ -2325,6 +2340,7 @@ namespace OloEngine::Tests
 
     TEST_F(DepthAwareClusterPerf, InterleavedGpuTimeStaysWithinBudget)
     {
+        ::testing::Test::RecordProperty("measurement_kind", "pooled GPU latency and lower-bound cost; no run-level regression inference");
         OLO_ENSURE_GPU_OR_SKIP();
 
         const bool depthAwareCullingWasEnabled = Renderer3D::IsDepthAwareClusterCullingEnabled();
@@ -2487,6 +2503,7 @@ namespace OloEngine::Tests
 
     TEST_F(FoliageWindPerf, HierarchicalColourAndShadowBudget)
     {
+        ::testing::Test::RecordProperty("measurement_kind", "lower-bound cost");
         OLO_ENSURE_GPU_OR_SKIP();
         auto& settings = Renderer3D::GetRendererSettings();
         settings.Path = RenderingPath::Forward;

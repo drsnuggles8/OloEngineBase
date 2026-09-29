@@ -182,13 +182,17 @@ namespace OloEngine::Benchmark
     {
         FString CameraId;
         u32 Index = 0;
+        u64 CpuFrameId = 0;     // continuous editor trace identity; 0 for scene-call host
         f64 RenderCallMs = 0.0; // wall-clock Scene::OnUpdateEditor call, excluding readback
         f64 CpuMs = 0.0;        // profiler's last completed frame; independent clock
         f64 FenceWaitMs = 0.0;
         f64 PresentWaitMs = 0.0;
+        f64 RecordingWallMs = 0.0;
+        f64 RecordingJoinWaitMs = 0.0;
         u64 GpuFrameId = 0; // may lag this row; never infer same-frame attribution
         GpuTimingSample Gpu{};
-        u64 TrackedRendererBytes = 0; // tracker combines CPU and GPU allocations
+        TArray<PassTimingRecord> GpuPasses; // same resolved frame as GpuFrameId
+        u64 TrackedRendererBytes = 0;       // tracker combines CPU and GPU allocations
         u32 DrawCalls = 0;
     };
 
@@ -202,12 +206,16 @@ namespace OloEngine
         using Record = Benchmark::MeasuredFrame;
         static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::CameraId)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::Index)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::CpuFrameId)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::RenderCallMs)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::CpuMs)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::FenceWaitMs)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::PresentWaitMs)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::RecordingWallMs)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::RecordingJoinWaitMs)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::GpuFrameId)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::Gpu)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::GpuPasses)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::TrackedRendererBytes)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::DrawCalls)>;
     };
@@ -220,6 +228,9 @@ namespace OloEngine::Benchmark
     {
         TArray<MeasuredFrame> Frames;
         f32 DeadlineMs = 0.0f;
+        bool ContinuousEditorFrames = false;
+        bool TraceOverflow = false;
+        u32 CompletedSteps = 0; // camera/motion steps, not the intervening editor frames
     };
 
     [[nodiscard]] MeasuredFrame SnapshotMeasuredFrame(std::string_view cameraId, u32 index, f64 renderCallMs);

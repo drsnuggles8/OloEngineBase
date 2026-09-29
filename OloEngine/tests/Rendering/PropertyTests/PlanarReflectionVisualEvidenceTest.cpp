@@ -35,6 +35,12 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/Passes/PlanarReflectionRenderPass.h"
+#include "OloEngine/Renderer/Passes/SceneRenderPass.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Utils/PlatformUtils.h"
@@ -208,6 +214,70 @@ namespace OloEngine::Tests
 
         Entity m_WaterEntity;
     };
+
+    TEST_F(PlanarReflectionVisualEvidenceTest, MirrorReplayRestoresMainViewAoBindings)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        auto& settings = Renderer3D::GetRendererSettings();
+        settings.Path = RenderingPath::Forward;
+        settings.ForwardPlusAutoSwitch = false;
+        settings.DepthPrepassEnabled = true;
+        auto& post = Renderer3D::GetPostProcessSettings();
+        post.ActiveAOTechnique = AOTechnique::GTAO;
+        post.GTAOEnabled = true;
+        post.SSAOEnabled = false;
+        Renderer3D::ApplyRendererSettings();
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / kHeight, 0.05f, 1000.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose({ 0.0f, 5.0f, 6.0f }, 0.0f, 0.32f);
+        RunEditorFrames(camera, 4);
+        CommandDispatch::BindForwardScreenSpaceAO();
+
+        GLint aoBefore = 0, depthBefore = 0;
+        ::glGetIntegeri_v(GL_TEXTURE_BINDING_2D, ShaderBindingLayout::TEX_SSAO, &aoBefore);
+        ::glGetIntegeri_v(GL_TEXTURE_BINDING_2D, ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, &depthBefore);
+        const auto white = Renderer3D::GetWhiteTexture();
+        ASSERT_TRUE(white);
+        ASSERT_NE(aoBefore, 0);
+        ASSERT_NE(depthBefore, 0);
+        ASSERT_NE(static_cast<u32>(aoBefore), white->GetRendererID());
+        ASSERT_NE(static_cast<u32>(depthBefore), white->GetRendererID());
+
+        struct RestorePublishedReflection
+        {
+            RHI::ResourceHandle Texture = Renderer3D::GetPlanarReflectionTextureID();
+            GLint Ubo = 0;
+            RestorePublishedReflection()
+            {
+                ::glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, ShaderBindingLayout::UBO_PLANAR_REFLECTION, &Ubo);
+            }
+            ~RestorePublishedReflection()
+            {
+                Renderer3D::SetPlanarReflectionTextureID(Texture);
+                ::glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_PLANAR_REFLECTION, static_cast<GLuint>(Ubo));
+                CommandDispatch::BindForwardScreenSpaceAO();
+            }
+        } restore;
+
+        // An empty opaque bucket isolates the real pass's suspension/cleanup:
+        // BindSceneResources still replaces both inputs with the white fallback.
+        SceneRenderPass scenePass;
+        PlanarReflectionRenderPass reflection;
+        FramebufferSpecification spec;
+        spec.Width = spec.Height = 64;
+        reflection.Init(spec);
+        reflection.SetScenePass(&scenePass);
+        reflection.SetReflectionState({ 0.0f, 1.0f, 0.0f, 0.0f }, true, 1.0f, 0.0f);
+        RGCommandContext context;
+        reflection.Execute(context);
+
+        GLint aoAfter = 0, depthAfter = 0;
+        ::glGetIntegeri_v(GL_TEXTURE_BINDING_2D, ShaderBindingLayout::TEX_SSAO, &aoAfter);
+        ::glGetIntegeri_v(GL_TEXTURE_BINDING_2D, ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, &depthAfter);
+        EXPECT_EQ(aoAfter, aoBefore);
+        EXPECT_EQ(depthAfter, depthBefore);
+    }
 
     // The reflection of the red pillar must appear in the water ONLY when planar
     // reflections are on. Render the identical frozen frame twice and diff the

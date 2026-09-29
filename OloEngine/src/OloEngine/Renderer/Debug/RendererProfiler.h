@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <chrono>
 #include <array>
+#include <functional>
 
 namespace OloEngine
 {
@@ -522,6 +523,25 @@ namespace OloEngine
             return m_LastCompletedFrame;
         }
 
+        // Main-thread only. Observe every finalized interval, including frames
+        // between MCP requests. A second capture must not replace the owner.
+        u64 BeginCompletedFrameTrace(std::function<void(u64)> observer)
+        {
+            if (m_CompletedFrameObserver || !observer)
+                return 0;
+            m_CompletedFrameObserver = std::move(observer);
+            m_CompletedTraceId = ++m_TraceGeneration;
+            return m_CompletedTraceId;
+        }
+        bool EndCompletedFrameTrace(u64 owner)
+        {
+            if (owner == 0 || owner != m_CompletedTraceId || !m_CompletedFrameObserver)
+                return false;
+            m_CompletedFrameObserver = {};
+            m_CompletedTraceId = 0;
+            return true;
+        }
+
         // @brief Get performance counter
         const PerformanceCounter& GetCounter(MetricType type) const;
 
@@ -651,6 +671,9 @@ namespace OloEngine
         FrameData m_CurrentFrame;
         FrameData m_PreviousFrame;      // raw EndFrame() output for the last frame; FrameTime/GPUWaitTime unpatched until the next BeginFrame()
         FrameData m_LastCompletedFrame; // fully patched, self-consistent snapshot — see GetLastCompletedFrameData()
+        std::function<void(u64)> m_CompletedFrameObserver;
+        u64 m_TraceGeneration = 0;
+        u64 m_CompletedTraceId = 0;
         std::unordered_map<MetricType, PerformanceCounter> m_Counters;
         std::unordered_map<std::string, PerformanceCounter> m_CustomTimings;
 

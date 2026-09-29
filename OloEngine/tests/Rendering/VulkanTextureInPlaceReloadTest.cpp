@@ -270,7 +270,7 @@ namespace OloEngine::Tests
             beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
             ASSERT_EQ(vkBeginCommandBuffer(m_Cmd, &beginInfo), VK_SUCCESS);
 
-            api.BeginRecording(m_Cmd);
+            auto queryCompletion = api.BeginRecording(m_Cmd);
             work();
             api.EndRecording();
 
@@ -282,7 +282,9 @@ namespace OloEngine::Tests
             submit.pCommandBuffers = &m_Cmd;
             ASSERT_EQ(vkResetFences(m_Device->GetDevice(), 1, &m_Fence), VK_SUCCESS);
             ASSERT_EQ(vkQueueSubmit(m_Device->GetQueue(), 1, &submit, m_Fence), VK_SUCCESS);
+            queryCompletion->SubmittedFence = m_Fence;
             ASSERT_EQ(vkWaitForFences(m_Device->GetDevice(), 1, &m_Fence, VK_TRUE, UINT64_MAX), VK_SUCCESS);
+            queryCompletion->Completed = true;
             VulkanDeferredReclaim::Get().NotifyFrameCompleted();
         }
 

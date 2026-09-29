@@ -42,10 +42,11 @@ namespace OloEngine
     /// own executable.
     std::string GetHostExecutableFileName(const std::string& baseName, BuildTargetPlatform platform);
 
-    /// Whether C# scripting can run on `platform`. OloEngine-ScriptCore only
-    /// builds under the Visual Studio generator (see CLAUDE.md), so C#
+    /// Whether C# scripting can run on `platform`. The engine links the Mono
+    /// runtime only on Windows (the vendored libmono-static-sgen.lib), so C#
     /// scripting is Windows-only regardless of what a build's other settings
-    /// ask for — Lua scripting is unaffected.
+    /// ask for, even though the C# assemblies themselves build anywhere
+    /// (#1405). Lua scripting is unaffected.
     bool IsScriptingAvailableOnPlatform(BuildTargetPlatform platform);
 
     /**

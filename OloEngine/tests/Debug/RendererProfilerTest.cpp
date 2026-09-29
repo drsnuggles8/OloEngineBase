@@ -269,4 +269,37 @@ namespace
         EXPECT_EQ(profiler.GetCounter(OloEngine::RendererProfiler::MetricType::GPUTime).m_SampleCount, 3u);
     }
 
+    TEST_F(RendererProfilerTimingTest, CompletedTraceIncludesEveryFrameBetweenConsumerReads)
+    {
+        auto& profiler = OloEngine::RendererProfiler::GetInstance();
+        OloEngine::TArray<u64> identities;
+        OloEngine::TArray<f64> presentWaits;
+        const u64 trace = profiler.BeginCompletedFrameTrace([&](u64 frameId)
+                                                            {
+            identities.Add(frameId);
+            presentWaits.Add(profiler.GetLastCompletedFrameData().m_PresentWaitTime); });
+        ASSERT_NE(trace, 0u);
+        EXPECT_EQ(profiler.BeginCompletedFrameTrace([](u64) {}), 0u) << "another consumer replaced an active trace";
+        // No consumer polling in this loop. Every finalized frame must survive,
+        // including the post-render wait known only at the next BeginFrame.
+        for (int i = 0; i < 6; ++i)
+        {
+            profiler.BeginFrame();
+            profiler.EndFrame();
+            profiler.AddPostFrameGPUWaitTime(4.0);
+        }
+        ASSERT_EQ(identities.Num(), 5);
+        for (int i = 0; i < identities.Num(); ++i)
+        {
+            EXPECT_EQ(identities[i], identities[0] + static_cast<u64>(i));
+            EXPECT_DOUBLE_EQ(presentWaits[i], 4.0);
+        }
+        EXPECT_TRUE(profiler.EndCompletedFrameTrace(trace));
+        profiler.BeginFrame();
+        profiler.EndFrame();
+        EXPECT_EQ(identities.Num(), 5) << "a stopped trace kept recording";
+        const u64 nextTrace = profiler.BeginCompletedFrameTrace([](u64) {});
+        EXPECT_FALSE(profiler.EndCompletedFrameTrace(trace)) << "stale ownership stopped a newer trace";
+        EXPECT_TRUE(profiler.EndCompletedFrameTrace(nextTrace));
+    }
 } // namespace

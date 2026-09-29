@@ -141,7 +141,11 @@ try {
     # can easily be 0 -- reporting SUCCESS for a link that never happened. Clearing it
     # first makes "still null" mean "no native command ran".
     $global:LASTEXITCODE = $null
-    & $exe @rest
+    if ($env:OLO_LINK_METRICS_DIR) {
+        & pwsh -NoProfile -File (Join-Path $PSScriptRoot '../../../scripts/measure-link.ps1') $exe @rest
+    } else {
+        & $exe @rest
+    }
     $ranOk = $?
     if ($null -eq $LASTEXITCODE) {
         # Nothing native executed. $? is then the only signal we have.

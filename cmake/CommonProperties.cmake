@@ -281,10 +281,16 @@ endfunction()
 # Configure link options for all builds
 function(olo_set_link_options target_name)
     if(MSVC)
+        if(OLO_CODEVIEW_GHASH)
+            set(_olo_release_debug_option /DEBUG:GHASH)
+        else()
+            set(_olo_release_debug_option /DEBUG)
+        endif()
         target_link_options(${target_name} PRIVATE
-            $<$<CONFIG:Debug>:/INCREMENTAL>  # Incremental linking for fast Debug iteration
+            # lld-link accepts /INCREMENTAL but does not implement it.
+            $<$<AND:$<CONFIG:Debug>,$<NOT:$<BOOL:${OLO_USING_LLD_LINK}>>>:/INCREMENTAL>
             $<$<CONFIG:Release>:/INCREMENTAL:NO>
-            $<$<CONFIG:Release>:/DEBUG>
+            $<$<CONFIG:Release>:${_olo_release_debug_option}>
             $<$<CONFIG:Release>:/OPT:REF> # Remove unreferenced functions and data
             $<$<CONFIG:Release>:/OPT:ICF> # Identical COMDAT folding
             $<$<CONFIG:Dist>:/INCREMENTAL:NO>
@@ -531,27 +537,4 @@ function(olo_check_archive_size target_name)
                 -P ${CMAKE_SOURCE_DIR}/cmake/CheckArchiveSize.cmake
         COMMENT "Checking ${target_name} archive size against the 4 GiB COFF limit"
         VERBATIM)
-endfunction()
-
-# Configure C# project properties
-function(olo_configure_csharp_project target_name output_dir)
-    # Set output directories for C# assemblies
-    set_target_properties(${target_name} PROPERTIES
-        ARCHIVE_OUTPUT_DIRECTORY_DEBUG      ${output_dir}
-        ARCHIVE_OUTPUT_DIRECTORY_RELEASE    ${output_dir}
-        ARCHIVE_OUTPUT_DIRECTORY_DIST       ${output_dir}
-        LIBRARY_OUTPUT_DIRECTORY_DEBUG      ${output_dir}
-        LIBRARY_OUTPUT_DIRECTORY_RELEASE    ${output_dir}
-        LIBRARY_OUTPUT_DIRECTORY_DIST       ${output_dir}
-        RUNTIME_OUTPUT_DIRECTORY_DEBUG      ${output_dir}
-        RUNTIME_OUTPUT_DIRECTORY_RELEASE    ${output_dir}
-        RUNTIME_OUTPUT_DIRECTORY_DIST       ${output_dir}
-    )
-    
-    # Add common configuration definitions
-    target_compile_definitions(${target_name} PRIVATE
-        $<$<CONFIG:Debug>:OLO_DEBUG>
-        $<$<CONFIG:Release>:OLO_RELEASE>
-        $<$<CONFIG:Dist>:OLO_DIST>
-    )
 endfunction()

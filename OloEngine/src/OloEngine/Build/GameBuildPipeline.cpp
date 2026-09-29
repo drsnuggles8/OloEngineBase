@@ -740,9 +740,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // C# scripting is Windows-only — OloEngine-ScriptCore only builds
-        // under the Visual Studio generator (#891) — so a non-Windows target
-        // has no Mono runtime to ship. This is the honest answer, not a
+        // C# scripting is Windows-only — the engine links the Mono runtime
+        // only on Windows (#891) — so a non-Windows target has no Mono
+        // runtime to ship. This is the honest answer, not a
         // silently incomplete build: Lua scripting is unaffected.
         if (!IsScriptingAvailableOnPlatform(settings.TargetPlatform))
         {
