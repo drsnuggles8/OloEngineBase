@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The Sandbox project's game scripts (Sandbox.oloproj: ScriptModulePath). Every .cs
+       under Source/ is compiled. Built by the Sandbox-Scripting CMake target, after
+       OloEngine-ScriptCore, whose built assembly it references. -->
+  <Import Project="../../../../OloEngine-ScriptCore/OloEngine.CSharp.props" />
+
+  <PropertyGroup>
+    <AssemblyName>Sandbox-Scripting</AssemblyName>
+    <RootNamespace>Sandbox</RootNamespace>
+    <OutDir>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', 'Binaries'))</OutDir>
+    <!-- Only Source/: the CMake build moves obj/ into the build tree, so an obj/ an IDE build
+         left here would otherwise be globbed in. The CMake SOURCES glob is the same tree. -->
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Source/**/*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The engine loads OloEngine-ScriptCore from Resources/Scripts/ before this assembly,
+         so no copy is placed next to Sandbox-Scripting.dll. -->
+    <Reference Include="OloEngine-ScriptCore">
+      <HintPath>$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '..', '..', '..', 'Resources', 'Scripts', 'OloEngine-ScriptCore.dll'))</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

@@ -18,6 +18,7 @@
 | **vcpkg**   | bootstrapped    | **`VCPKG_ROOT` env var must be set** — see below |
 | Vulkan SDK  | **1.4.357.0+, enforced** | `VULKAN_SDK` env var must be set. An older SDK's glslang lacks `GL_EXT_descriptor_heap`, which seven production shaders declare `: require`, and an older SPIRV-Cross cannot parse the SPIR-V a conforming glslang emits — since #1139 the configure REFUSES a below-floor toolchain by name (`Shader toolchain is BELOW the floor this engine requires`) instead of failing two tests 4,000 cases in. There is no fallback: ADR 0011 amendment (97). |
 | C++ compiler| C++23 support   | Known-working: MSVC 17.x / GCC 14+ / Clang 17+. CMake enforces `CMAKE_CXX_STANDARD = 23` (required) but does not enforce specific compiler versions; older compilers with full C++23 support may work but are untested. |
+| .NET SDK    | 8+ (Windows) | Builds the C# scripting assemblies with `dotnet build` (#1405). Required when `OLO_WITH_CSHARP` is ON, the Windows default; configure stops with a named error if `dotnet` or an SDK is missing. `-DOLO_WITH_CSHARP=OFF` builds without C# scripting. |
 | Steamworks SDK | 1.65+ | **Optional, and not in this repo — you download it yourself.** Only needed to work on Steam features (#644); everything builds and tests without it. `STEAMWORKS_SDK_ROOT` env var. [See below](#steamworks-sdk-optional--you-must-obtain-it-yourself). |
 
 The Vulkan SDK must include `glslc` and `glslangValidator`.
@@ -174,15 +175,30 @@ Always run OloEditor / OloRuntime from the `OloEditor/` directory — asset path
 shader files, and Mono assemblies are resolved relative to it.
 
 ### C# Scripting (Mono)
-C# scripting via Mono is built automatically on Windows **when using the Visual
-Studio generator** (the `msvc` preset or `Win-GenerateProjectVS2022.bat` /
-`Win-GenerateProjectVS2026.bat`) — `OloEditor` depends on the `OloEngine-ScriptCore`
-and `Sandbox-Scripting` C# targets, so a plain `cmake --build build --target
-OloEditor` also compiles them and places `OloEngine-ScriptCore.dll` directly into
-`OloEditor/Resources/Scripts/`. The C# targets don't exist under the `clangcl` /
-`clangcl-asan` presets (Ninja has no C#/MSBuild project support), so a build from
-those presets has no C# scripting — this is expected, not a bug. The static Mono
-libraries are bundled under `OloEngine/mono/lib/`.
+The two C# assemblies are SDK-style projects built by `dotnet build`, under **every**
+generator (`dev-cached`, `clangcl`, `msvc`; issue #1405):
+
+| Assembly | Project | Output |
+|---|---|---|
+| `OloEngine-ScriptCore` | `OloEngine-ScriptCore/OloEngine-ScriptCore.csproj` | `OloEditor/Resources/Scripts/` |
+| `Sandbox-Scripting` | `OloEditor/SandboxProject/Assets/Scripts/Sandbox-Scripting.csproj` | `OloEditor/SandboxProject/Assets/Scripts/Binaries/` |
+
+The CMake targets of the same names run `dotnet build` on them (`cmake/CSharpAssembly.cmake`),
+and `OloEditor` depends on both, so `cmake --build build-cached --target OloEditor` also
+produces the assemblies the editor loads. `OloEngine-ScriptCore` runs after `GenerateBindings`,
+which writes `Components.Generated.cs` and `InternalCalls.Generated.cs`. To check the C# alone:
+`cmake --build build-cached --config Debug --target Sandbox-Scripting` (the Windows CI job
+runs this step before the full build).
+
+Each project compiles every `.cs` under its source folder, so a new script file needs no
+build-file edit. References come from the Mono class libraries in `OloEditor/mono/lib/mono/4.5`,
+the ones the embedded runtime loads, so no .NET Framework targeting pack is needed. You can
+also open or build a `.csproj` from an IDE with plain `dotnet build`. Build `OloEngine-ScriptCore`
+before `Sandbox-Scripting`, which references the built DLL. The static Mono libraries are
+bundled under `OloEngine/mono/lib/`.
+
+C# scripting is Windows-only at runtime (ADR 0015). `OLO_WITH_CSHARP` defaults ON on Windows and
+OFF elsewhere.
 
 ---
 
@@ -358,7 +374,8 @@ cd OloEditor && ../bin/Debug/OloEditor/OloEditor
 | `OloServer`               | Headless dedicated server                                                  |
 | `OloEngine-Tests`         | GoogleTest test suite                                                      |
 | `OloEngine-LuaScriptCore` | Lua / Sol2 scripting bindings (built on all platforms)                     |
-| `OloEngine-ScriptCore`    | C# / Mono scripting bindings (Visual Studio generator only — Windows path) |
+| `OloEngine-ScriptCore`    | C# / Mono scripting API, `dotnet build` under any generator (`OLO_WITH_CSHARP`) |
+| `Sandbox-Scripting`       | The Sandbox project's C# game scripts, built after `OloEngine-ScriptCore`  |
 | `GenerateBindings`        | Custom target that runs `OloHeaderTool` to regenerate C++ / C# glue        |
 
 ---

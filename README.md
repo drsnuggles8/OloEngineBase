@@ -42,7 +42,7 @@ Metallic and dielectric PBR spheres (a roughness sweep) reflecting a procedural 
 | `OloEditor/` | ImGui-based editor (`OloEditor`). Panels under `src/`, runtime assets under `assets/`, a sample game under `SandboxProject/`. |
 | `OloRuntime/` | Standalone game runtime (`OloRuntime`) that loads what the editor builds. |
 | `OloServer/` | Headless dedicated server (`OloServer`) — the one target that also runs on WSL2. |
-| `OloEngine-ScriptCore/` | C# scripting runtime library (Windows only, Visual Studio generator). |
+| `OloEngine-ScriptCore/` | C# scripting API library, built with `dotnet build` under any generator; C# scripting runs on Windows only. |
 | `OloEngine-LuaScriptCore/` | Lua scripting core (all platforms). |
 | `OloEngine/tests/` | GoogleTest suite (`OloEngine-Tests`). |
 | `tools/` | Build-time tooling, notably `OloHeaderTool` (code generation — see [Tooling](#tooling)). |

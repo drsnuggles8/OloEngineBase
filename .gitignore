@@ -23,6 +23,9 @@ __pycache__
 **.vcxproj.filters
 **.vcxproj.user
 **.csproj
+# The C# assemblies are tracked SDK-style projects built by `dotnet build` (#1405).
+!OloEngine-ScriptCore/OloEngine-ScriptCore.csproj
+!OloEditor/SandboxProject/Assets/Scripts/Sandbox-Scripting.csproj
 **.nsight-gfxproj
 **.DotSettings
 **.user

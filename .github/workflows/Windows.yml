@@ -290,11 +290,9 @@ jobs:
     # so CMAKE_<LANG>_COMPILER_LAUNCHER engages — the VS/MSBuild generator ignores
     # it, so sccache would never run there. Ninja needs cl.exe + the Windows SDK
     # include/lib paths on the job env; ilammy/msvc-dev-cmd runs vcvars and exports
-    # them to every subsequent step. (Trade-off: the Ninja path does not build the
-    # C# OloEngine-ScriptCore project — it is gated on the VS generator — so that
-    # one assembly's *compile* is no longer covered by this job. The C# source is
-    # still validated by the text-based AssetCSharpScriptValidityTest, and nothing
-    # in the test/runtime build links against the assembly.)
+    # them to every subsequent step. The C# assemblies do not need the VS generator:
+    # they are `dotnet build` custom targets (#1405), compiled by the "Build C#
+    # scripting assemblies" step below.
     - name: Setup MSVC dev environment
       uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
       with:
@@ -373,7 +371,7 @@ jobs:
       run: |
         $ErrorActionPreference = 'Continue'
         $missing = @()
-        foreach ($tool in @('cmake', 'ninja', 'nasm', 'python', 'cl')) {
+        foreach ($tool in @('cmake', 'ninja', 'nasm', 'python', 'cl', 'dotnet')) {
           $found = (Get-Command $tool -ErrorAction SilentlyContinue)
           if ($found) { Write-Host ('  {0,-8} {1}' -f $tool, $found.Source) }
           else { Write-Host "::error::$tool is not on PATH"; $missing += $tool }
@@ -501,6 +499,26 @@ jobs:
       with:
         key: ${{ steps.vcpkg.outputs.cache-key }}
         path: ${{ steps.vcpkg.outputs.cache-path }}
+
+    # Issue #1405: the tracked generated C# (Components.Generated.cs,
+    # InternalCalls.Generated.cs) is compiled here, by `dotnet build` through the
+    # CMake targets, so a codegen change that emits invalid C# fails the PR. The
+    # full build below would compile it too (OloEditor depends on both targets);
+    # this step exists to fail in about a minute, with the C# compiler's error as
+    # the step's own output, instead of after the C++ build. It builds only
+    # OloHeaderTool, runs codegen and compiles the two assemblies; the full build
+    # then finds all of that up to date.
+    - name: Build C# scripting assemblies
+      shell: pwsh
+      run: |
+        dotnet --list-sdks
+        cmake --build "${{github.workspace}}/build" --config ${{env.BUILD_TYPE}} --target Sandbox-Scripting
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        foreach ($dll in @('OloEditor/Resources/Scripts/OloEngine-ScriptCore.dll',
+                           'OloEditor/SandboxProject/Assets/Scripts/Binaries/Sandbox-Scripting.dll')) {
+          if (-not (Test-Path $dll)) { Write-Host "::error::$dll was not produced"; exit 1 }
+          Write-Host ('  {0}  {1:N0} bytes' -f $dll, (Get-Item $dll).Length)
+        }
 
     - name: Build with CMake
       # Build your program with the given configuration

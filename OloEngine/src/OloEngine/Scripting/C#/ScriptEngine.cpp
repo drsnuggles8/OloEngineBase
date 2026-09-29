@@ -94,8 +94,30 @@ namespace OloEngine
                 if (std::filesystem::exists(pdbPath))
                 {
                     ScopedBuffer pdbFileData = FileSystem::ReadFileBinary(pdbPath);
-                    ::mono_debug_open_image_from_memory(image, pdbFileData.As<const mono_byte>(), static_cast<int>(pdbFileData.Size()));
-                    OLO_CORE_INFO("Loaded PDB {}", pdbPath);
+                    // Mono reads portable PDBs only, and mono_debug_open_image_from_memory returns
+                    // nothing, so it drops a Windows (MSF) PDB without a word: no breakpoints, no
+                    // line numbers in script exceptions. Check the portable-PDB metadata signature
+                    // here so that case is logged. The csproj builds portable PDBs (#1405).
+                    constexpr std::array<u8, 4> portablePdbSignature{ 'B', 'S', 'J', 'B' };
+                    const bool isPortablePdb = pdbFileData.Size() >= portablePdbSignature.size() &&
+                                               std::equal(portablePdbSignature.begin(), portablePdbSignature.end(), pdbFileData.As<const u8>());
+                    if (pdbFileData.Size() == 0)
+                    {
+                        OLO_CORE_WARN("[ScriptEngine] Could not read {} (empty, locked, or still being written); "
+                                      "C# debugging is unavailable for this assembly until it is reloaded.",
+                                      pdbPath.string());
+                    }
+                    else if (isPortablePdb)
+                    {
+                        ::mono_debug_open_image_from_memory(image, pdbFileData.As<const mono_byte>(), static_cast<int>(pdbFileData.Size()));
+                        OLO_CORE_INFO("Loaded PDB {}", pdbPath);
+                    }
+                    else
+                    {
+                        OLO_CORE_WARN("[ScriptEngine] {} is not a portable PDB, which is the only format Mono reads; "
+                                      "C# debugging is unavailable for this assembly. Rebuild it with <DebugType>portable</DebugType>.",
+                                      pdbPath.string());
+                    }
                 }
             }
 
@@ -196,8 +218,8 @@ namespace OloEngine
         if (bool status = LoadAssembly("Resources/Scripts/OloEngine-ScriptCore.dll"); !status)
         {
             OLO_CORE_WARN("[ScriptEngine] OloEngine-ScriptCore assembly unavailable; C# scripting disabled for this session. "
-                          "Build the 'OloEngine-ScriptCore' CMake target (built automatically as a dependency of OloEditor "
-                          "under the Visual Studio generator) to produce Resources/Scripts/OloEngine-ScriptCore.dll.");
+                          "Build the 'OloEngine-ScriptCore' CMake target (a dependency of OloEditor whenever "
+                          "OLO_WITH_CSHARP is ON; needs the .NET SDK) to produce Resources/Scripts/OloEngine-ScriptCore.dll.");
             return;
         }
 

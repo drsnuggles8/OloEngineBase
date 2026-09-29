@@ -215,4 +215,8 @@ add_custom_command(
 # now an empty target that merely DEPENDS on the stamp, so depending on it orders
 # consumers after codegen without forcing the scan to re-run.
 add_custom_target(GenerateBindings DEPENDS "${OHT_STAMP}")
-set_target_properties(GenerateBindings PROPERTIES FOLDER "Tools")
+# OLO_STAMP lets a consumer in another directory take a FILE-level dependency on the stamp.
+# The C# assemblies need it (cmake/CSharpAssembly.cmake): the generated .cs are not declared
+# outputs, so under Ninja a .cs that codegen rewrites is not re-stat'ed in the same build, and
+# only the stamp tells the C# rule it must run.
+set_target_properties(GenerateBindings PROPERTIES FOLDER "Tools" OLO_STAMP "${OHT_STAMP}")
