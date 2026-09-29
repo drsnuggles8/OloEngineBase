@@ -61,7 +61,7 @@ CONTRACT_DOCS = (
     "docs/adr/0024-skinned-virtual-geometry-stays-on-the-hardware-rasterizer.md",
 )
 
-FENCE_RE = re.compile(r"^\s*(```|~~~)")
+FENCE_RE = re.compile(r"^\s{0,3}(`{3,}|~{3,})(.*)$")
 INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
 LINK_RE = re.compile(r"(?<!\\)!?\[(?:[^\]\\]|\\.)*\]\(\s*<?([^)\s>]+)>?(?:\s+\"[^\"]*\")?\s*\)")
 REF_DEF_RE = re.compile(r"^\s{0,3}\[[^\]]+\]:\s*<?(\S+?)>?(?:\s+.*)?$")
@@ -85,13 +85,25 @@ def slugify(heading: str) -> str:
 
 
 def prose_lines(text: str):
-    """Yield (line number, line) outside fenced code blocks."""
-    in_fence = False
+    """Yield (line number, line) outside fenced code blocks.
+
+    CommonMark rules: a fence closes only on the same character, at least as long
+    as the opening run, with nothing after it; a backtick fence's info string may
+    not contain a backtick.
+    """
+    fence: tuple[str, int] | None = None
     for number, line in enumerate(text.splitlines(), 1):
-        if FENCE_RE.match(line):
-            in_fence = not in_fence
-            continue
-        if not in_fence:
+        match = FENCE_RE.match(line)
+        if match:
+            marker, rest = match.group(1), match.group(2)
+            if fence is None:
+                if not (marker[0] == "`" and "`" in rest):
+                    fence = (marker[0], len(marker))
+                    continue
+            elif marker[0] == fence[0] and len(marker) >= fence[1] and not rest.strip():
+                fence = None
+                continue
+        if fence is None:
             yield number, line
 
 
@@ -267,7 +279,11 @@ SELF_TEST = {
     "orphan doc": ({"docs/guides/orphan.md": "# Orphan\n"}, "docs/guides/orphan.md: not reachable"),
     "dead cited doc": ({"src/X.h": "// see docs/guides/missing.md\n"}, "names a doc that does not exist: docs/guides/missing.md"),
     "dead relative citation": ({"tools/t/README.md": "[g](../../docs/guides/gone.md)\n"}, "names a doc that does not exist: ../../docs/guides/gone.md"),
-    "a URL is not a local doc":({"src/Y.h": "// https://github.com/o/r/blob/main/docs/x.md\n"}, None),
+    "a nested fence is still code": (
+        {"docs/guides/a.md": "# A\n\n[back](../README.md#guides)\n\n````md\n```js\n[x](gone.md)\n```\n~~~\n[y](also-gone.md)\n````\n"},
+        None,
+    ),
+    "a URL is not a local doc": ({"src/Y.h": "// https://github.com/o/r/blob/main/docs/x.md\n"}, None),
     "explicit anchor, any case": (
         {"docs/guides/a.md": '# A\n\n<a id="Mixed-Case"></a>\n\n[back](../README.md#guides) [m](#Mixed-Case)\n'},
         None,
