@@ -231,7 +231,7 @@ namespace OloEngine
             AssetType type = GetAssetTypeFromPacks(assetHandle);
             if (type != AssetType::None && AssetImporter::CanDeserializeFromAssetPackOffThread(type))
             {
-                m_AssetThread->QueueAssetLoad(RuntimeAssetLoadRequest(0, assetHandle));
+                m_AssetThread->QueueAssetLoad(RuntimeAssetLoadRequest(0, assetHandle, EstimateAssetByteSizeFromPacks(assetHandle)));
 
                 // Not ready yet; caller should call SyncWithAssetThread() and retry.
                 return AsyncAssetResult<Asset>{ nullptr, false };
@@ -406,10 +406,6 @@ namespace OloEngine
 
         OLO_PROFILER_SCOPE("RuntimeAssetManager::SyncWithAssetThread");
 
-        TArray<FCompletedAssetLoad> completed;
-        if (!m_AssetThread->RetrieveCompletedAssets(completed))
-            return;
-
         // Announce integrated assets after releasing the lock so handlers can call back
         // into the manager without deadlocking.
         struct LoadedEvent
@@ -420,7 +416,16 @@ namespace OloEngine
         std::vector<LoadedEvent> loadedEvents;
 
         {
+            // Retrieve under m_AssetsMutex, the lock CancelAssetLoad() also holds across
+            // its call into the system: a cancel can then never fall between a result
+            // leaving the system and it entering m_LoadedAssets. Lock order
+            // m_AssetsMutex -> RuntimeAssetSystem::m_StateMutex; nothing takes them the
+            // other way round (the load worker takes neither).
             TUniqueLock<FSharedMutex> lock(m_AssetsMutex);
+            TArray<FCompletedAssetLoad> completed;
+            if (!m_AssetThread->RetrieveCompletedAssets(completed))
+                return;
+
             for (const auto& result : completed)
             {
                 if (!result.LoadedAsset)
@@ -459,6 +464,112 @@ namespace OloEngine
                 }
             }
         }
+#endif
+    }
+
+    EAssetLoadCancelResult RuntimeAssetManager::CancelAssetLoad([[maybe_unused]] AssetHandle handle)
+    {
+#if OLO_ASYNC_ASSETS
+        if (!m_AssetThread)
+            return EAssetLoadCancelResult::NotPending;
+
+        TUniqueLock<FSharedMutex> lock(m_AssetsMutex);
+        const EAssetLoadCancelResult result = m_AssetThread->CancelAssetLoad(handle);
+        if (result != EAssetLoadCancelResult::NotPending)
+            OLO_CORE_TRACE("RuntimeAssetManager::CancelAssetLoad - asset {}: {}", handle, ToString(result));
+        return result;
+#else
+        return EAssetLoadCancelResult::NotPending;
+#endif
+    }
+
+    FAssetByteSize RuntimeAssetManager::ResidentByteSizeOf(AssetHandle handle, const Ref<Asset>& asset) const
+    {
+        // A placeholder stands in under another handle and is shared by every
+        // failed load of its type, so its bytes are not this asset's.
+        if (!asset || asset->GetHandle() != handle)
+            return FAssetByteSize::Unknown();
+
+        if (const std::optional<u64> measured = asset->GetResidentCpuBytes())
+            return FAssetByteSize::Actual(*measured);
+
+        return EstimateAssetByteSizeFromPacks(handle);
+    }
+
+    FAssetByteSize RuntimeAssetManager::GetAssetByteSize(AssetHandle handle) const
+    {
+        if (handle == 0)
+            return FAssetByteSize::Unknown();
+
+        {
+            TSharedLock<FSharedMutex> lock(m_AssetsMutex);
+            if (auto it = m_LoadedAssets.find(handle); it != m_LoadedAssets.end())
+                return ResidentByteSizeOf(handle, it->second);
+        }
+
+#if OLO_ASYNC_ASSETS
+        if (m_AssetThread)
+        {
+            if (const std::optional<FAssetByteSize> pending = m_AssetThread->GetPendingAssetByteSize(handle))
+                return *pending;
+        }
+#endif
+
+        return EstimateAssetByteSizeFromPacks(handle);
+    }
+
+    FAssetByteSize RuntimeAssetManager::EstimateAssetByteSizeFromPacks(AssetHandle handle) const
+    {
+        TSharedLock<FSharedMutex> lock(m_PacksMutex);
+
+        const auto metaIt = m_AssetMetadata.find(handle);
+        if (metaIt == m_AssetMetadata.end())
+            return FAssetByteSize::Unknown();
+
+        // Same routing as LoadAssetFromPack: a scene's size lives in its SceneInfo,
+        // its AssetInfo record carries none.
+        const bool isScene = (metaIt->second.Type == AssetType::Scene);
+        for (const auto& [packPath, assetPack] : m_LoadedPacks)
+        {
+            u64 packedSize = 0;
+            if (isScene)
+            {
+                if (const auto sceneInfo = assetPack->GetSceneInfo(handle))
+                    packedSize = sceneInfo->PackedSize;
+            }
+            else if (const auto assetInfo = assetPack->GetAssetInfo(handle))
+            {
+                packedSize = assetInfo->PackedSize;
+            }
+
+            // A zero packed size is a record without a payload figure, not an asset
+            // that costs nothing; keep looking, and report unknown if none has one.
+            if (packedSize != 0)
+                return FAssetByteSize::Estimate(packedSize);
+        }
+        return FAssetByteSize::Unknown();
+    }
+
+    FRuntimeAssetStreamingReport RuntimeAssetManager::GetStreamingReport() const
+    {
+        FRuntimeAssetStreamingReport report;
+
+#if OLO_ASYNC_ASSETS
+        if (m_AssetThread)
+            report.Loads = m_AssetThread->GetStats();
+#endif
+
+        TSharedLock<FSharedMutex> lock(m_AssetsMutex);
+        for (const auto& [handle, asset] : m_LoadedAssets)
+            report.Resident.Add(ResidentByteSizeOf(handle, asset));
+        return report;
+    }
+
+    void RuntimeAssetManager::SetAsyncLoadTestHooks([[maybe_unused]] FRuntimeAssetLoadTestHooks hooks)
+    {
+#if OLO_ASYNC_ASSETS
+        if (m_AssetThread)
+            m_AssetThread->SetTestHooks(std::move(hooks));
 #endif
     }
 

@@ -1160,6 +1160,15 @@ TEST_F(LuaBindingTest, StreamingSettings_PropertyRoundTrip)
 
     lua.script("ss.regionDirectory = 'Regions/World1'");
     EXPECT_EQ(ss.RegionDirectory, "Regions/World1");
+
+    lua.script("ss.maxResidentMegabytes = 256.0; ss.maxAdmittedMegabytesPerFrame = 8.0");
+    EXPECT_FLOAT_EQ(ss.MaxResidentMegabytes, 256.0f);
+    EXPECT_FLOAT_EQ(ss.MaxAdmittedMegabytesPerFrame, 8.0f);
+
+    // A script cannot plant a non-finite or negative budget: both mean "no budget".
+    lua.script("ss.maxResidentMegabytes = 0/0; ss.maxAdmittedMegabytesPerFrame = -4.0");
+    EXPECT_FLOAT_EQ(ss.MaxResidentMegabytes, 0.0f);
+    EXPECT_FLOAT_EQ(ss.MaxAdmittedMegabytesPerFrame, 0.0f);
 }
 
 // =============================================================================

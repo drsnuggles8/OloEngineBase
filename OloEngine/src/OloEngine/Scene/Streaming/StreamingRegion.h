@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/UUID.h"
+#include "OloEngine/Asset/AssetByteSize.h"
 
 #include <filesystem>
 #include "OloEngine/Containers/Array.h"
@@ -10,21 +11,40 @@
 
 #include <glm/glm.hpp>
 
-#pragma warning(push)
-#pragma warning(disable : 4275)
-#include <yaml-cpp/yaml.h>
-#pragma warning(pop)
-
 namespace OloEngine
 {
+    /**
+     * @brief Why the last load request for a region did not start (issue #1365).
+     *
+     * A region stays in the state its last request left it in until a later
+     * request is admitted or, for a proximity region, until it leaves its load
+     * radius and nothing wants it any more.
+     */
+    enum class EStreamingAdmissionStatus : u8
+    {
+        None,     // the last request was admitted, or there has been none
+        Deferred, // it would cross a byte budget now; it is retried on the next request
+        Rejected  // it can never fit: its estimate alone exceeds MaxResidentMegabytes
+    };
+
+    enum class EStreamingAdmissionReason : u8
+    {
+        None,
+        ResidentBudget,            // loaded + loading bytes plus this region would exceed MaxResidentMegabytes
+        FrameBudget,               // bytes already admitted this frame plus this region would exceed MaxAdmittedMegabytesPerFrame
+        LargerThanResidentBudget   // this region's estimate alone exceeds MaxResidentMegabytes
+    };
+
+    [[nodiscard]] const char* ToString(EStreamingAdmissionStatus status) noexcept;
+    [[nodiscard]] const char* ToString(EStreamingAdmissionReason reason) noexcept;
+
     class StreamingRegion : public RefCounted
     {
       public:
         enum class State : u8
         {
             Unloaded, // No data in memory
-            Loading,  // Background task in flight
-            Loaded,   // YAML parsed, awaiting main-thread instantiation
+            Loading,  // Background task in flight; its parsed file is the task's result
             Ready,    // Entities live in Scene
             Unloading // Entities being removed
         };
@@ -52,7 +72,16 @@ namespace OloEngine
         // Entity tracking (filled after additive deserialize)
         TArray<UUID> m_EntityUUIDs;
 
-        // Raw YAML data (populated by background thread, consumed on main)
-        YAML::Node m_RawData;
+        // Byte accounting (issue #1365). The .oloregion file size, read at discovery:
+        // a prediction of what the region costs once resident, known before any load.
+        // Unknown when the size could not be read — never zero.
+        FAssetByteSize m_EstimatedSize;
+
+        // Admission outcome of the last load request (guarded like m_State).
+        EStreamingAdmissionStatus m_AdmissionStatus = EStreamingAdmissionStatus::None;
+        EStreamingAdmissionReason m_AdmissionReason = EStreamingAdmissionReason::None;
+        bool m_WarnedAdmission = false; // a rejection or unknown-size admission logs once per region
     };
+
+    [[nodiscard]] const char* ToString(StreamingRegion::State state) noexcept;
 } // namespace OloEngine

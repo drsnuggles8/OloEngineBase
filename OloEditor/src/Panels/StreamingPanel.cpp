@@ -37,7 +37,9 @@ namespace OloEngine
 
     static bool StreamingSettingsEqual(const StreamingSettings& a, const StreamingSettings& b)
     {
-        return a.Enabled == b.Enabled && a.DefaultLoadRadius == b.DefaultLoadRadius && a.DefaultUnloadRadius == b.DefaultUnloadRadius && a.MaxLoadedRegions == b.MaxLoadedRegions && a.RegionDirectory == b.RegionDirectory;
+        // Exact comparison on purpose: this detects "the widget wrote a new value",
+        // not numeric closeness.
+        return a.Enabled == b.Enabled && a.DefaultLoadRadius == b.DefaultLoadRadius && a.DefaultUnloadRadius == b.DefaultUnloadRadius && a.MaxLoadedRegions == b.MaxLoadedRegions && a.RegionDirectory == b.RegionDirectory && a.MaxResidentMegabytes == b.MaxResidentMegabytes && a.MaxAdmittedMegabytesPerFrame == b.MaxAdmittedMegabytesPerFrame;
     }
 
     void StreamingPanel::DrawSettingsSection()
@@ -63,6 +65,16 @@ namespace OloEngine
             if (int maxRegions = static_cast<int>(ss.MaxLoadedRegions); ImGui::DragInt("Max Loaded Regions", &maxRegions, 1, 1, 64))
             {
                 ss.MaxLoadedRegions = static_cast<u32>(maxRegions);
+            }
+
+            // 0 = no byte budget. Clamped to the same range the scene loader enforces.
+            if (ImGui::DragFloat("Max Resident MB", &ss.MaxResidentMegabytes, 1.0f, 0.0f, kMaxStreamingBudgetMegabytes, "%.1f"))
+            {
+                ss.MaxResidentMegabytes = SanitizeStreamingBudgetMegabytes(ss.MaxResidentMegabytes);
+            }
+            if (ImGui::DragFloat("Max Admitted MB / Frame", &ss.MaxAdmittedMegabytesPerFrame, 0.1f, 0.0f, kMaxStreamingBudgetMegabytes, "%.1f"))
+            {
+                ss.MaxAdmittedMegabytesPerFrame = SanitizeStreamingBudgetMegabytes(ss.MaxAdmittedMegabytesPerFrame);
             }
 
             char buf[256] = {};
@@ -270,25 +282,7 @@ namespace OloEngine
 
             for (auto const& [id, region] : streamer->GetRegions())
             {
-                const char* stateStr = "Unknown";
-                switch (region->m_State)
-                {
-                    case StreamingRegion::State::Unloaded:
-                        stateStr = "Unloaded";
-                        break;
-                    case StreamingRegion::State::Loading:
-                        stateStr = "Loading";
-                        break;
-                    case StreamingRegion::State::Loaded:
-                        stateStr = "Loaded";
-                        break;
-                    case StreamingRegion::State::Ready:
-                        stateStr = "Ready";
-                        break;
-                    case StreamingRegion::State::Unloading:
-                        stateStr = "Unloading";
-                        break;
-                }
+                const char* stateStr = ToString(region->m_State);
 
                 auto idStr = std::to_string(static_cast<u64>(id));
                 ImGui::PushID(idStr.c_str());
@@ -297,6 +291,19 @@ namespace OloEngine
                 {
                     ImGui::Text("ID: %llu", static_cast<unsigned long long>(static_cast<u64>(id)));
                     ImGui::Text("Entities: %d", region->m_EntityUUIDs.Num());
+                    if (const auto bytes = region->m_EstimatedSize.GetBytes())
+                    {
+                        ImGui::Text("Estimated Size: %llu bytes", static_cast<unsigned long long>(*bytes));
+                    }
+                    else
+                    {
+                        ImGui::TextDisabled("Estimated Size: unknown");
+                    }
+                    if (region->m_AdmissionStatus != EStreamingAdmissionStatus::None)
+                    {
+                        ImGui::TextColored(ImVec4(0.9f, 0.6f, 0.2f, 1.0f), "Last request: %s (%s)",
+                                           ToString(region->m_AdmissionStatus), ToString(region->m_AdmissionReason));
+                    }
                     ImGui::Text("Source: %s", region->m_SourcePath.c_str());
                     ImGui::Text("Bounds Min: (%.1f, %.1f, %.1f)",
                                 region->m_BoundsMin.x, region->m_BoundsMin.y, region->m_BoundsMin.z);
@@ -346,10 +353,44 @@ namespace OloEngine
         {
             ImGui::Indent();
 
-            ImGui::Text("Loaded Regions: %u / %u",
-                        streamer->GetLoadedRegionCount(),
-                        streamer->GetConfig().MaxLoadedRegions);
-            ImGui::Text("Pending Loads: %u", streamer->GetPendingLoadCount());
+            const FSceneStreamingStats stats = streamer->GetStats();
+            auto megabytes = [](u64 bytes)
+            { return static_cast<f64>(bytes) / (1024.0 * 1024.0); };
+            // A byte total with unknown entries says so: "unknown" is not zero.
+            auto drawBytes = [&megabytes](const char* label, const FAssetByteTotal& total)
+            {
+                ImGui::Text("%s: %.2f MB (%u region(s), %u unknown size)", label, megabytes(total.KnownBytes),
+                            total.Count, total.UnknownCount);
+            };
+
+            ImGui::Text("Loaded Regions: %u / %u", stats.LoadedRegions, stats.MaxLoadedRegions);
+            ImGui::Text("Pending Loads: %u (%u abandoned still running)", stats.PendingLoads, stats.AbandonedLoadsRunning);
+            drawBytes("Resident", stats.ResidentBytes);
+            drawBytes("Pending", stats.PendingBytes);
+            if (stats.MaxResidentBytes != 0)
+            {
+                ImGui::Text("Resident Budget: %.2f MB", megabytes(stats.MaxResidentBytes));
+            }
+            else
+            {
+                ImGui::TextDisabled("Resident Budget: none");
+            }
+            if (stats.MaxAdmittedBytesPerFrame != 0)
+            {
+                ImGui::Text("Admitted This Frame: %.2f / %.2f MB", megabytes(stats.AdmittedBytesThisFrame),
+                            megabytes(stats.MaxAdmittedBytesPerFrame));
+            }
+            ImGui::Text("Deferred: %u region(s) now, %llu request(s) total", stats.DeferredRegions,
+                        static_cast<unsigned long long>(stats.DeferredRequests));
+            ImGui::Text("Rejected: %u region(s) now, %llu request(s) total", stats.RejectedRegions,
+                        static_cast<unsigned long long>(stats.RejectedRequests));
+            ImGui::Text("Cancelled: %llu before start, %llu in flight, %llu completed",
+                        static_cast<unsigned long long>(stats.CancelledBeforeStart),
+                        static_cast<unsigned long long>(stats.AbandonedInFlight),
+                        static_cast<unsigned long long>(stats.DiscardedCompleted));
+            ImGui::Text("Evicted: %llu for count, %llu for bytes",
+                        static_cast<unsigned long long>(stats.EvictedForCount),
+                        static_cast<unsigned long long>(stats.EvictedForBytes));
             ImGui::Text("Load Radius: %.1f", streamer->GetConfig().LoadRadius);
             ImGui::Text("Unload Radius: %.1f", streamer->GetConfig().UnloadRadius);
 

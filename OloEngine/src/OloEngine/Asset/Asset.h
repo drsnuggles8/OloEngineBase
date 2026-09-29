@@ -4,6 +4,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Asset/AssetTypes.h"
+#include <optional>
 #include <type_traits>
 #include <string>
 #include <utility>
@@ -46,6 +47,19 @@ namespace OloEngine
         virtual void OnDependencyUpdated(AssetHandle handle)
         {
             (void)handle;
+        }
+
+        /**
+         * @brief Measured resident CPU bytes of this asset, or std::nullopt when the
+         *        type does not measure itself (issue #1365).
+         *
+         * std::nullopt means unknown, never zero: the runtime asset manager then
+         * falls back to the pack's packed-size estimate and reports it as an
+         * estimate, or reports the size as unknown.
+         */
+        [[nodiscard]] virtual std::optional<u64> GetResidentCpuBytes() const
+        {
+            return std::nullopt;
         }
 
         /**
@@ -217,6 +231,12 @@ namespace OloEngine
             return m_FileSize;
         }
 
+        // Metadata only: the samples live in the audio engine, not in this asset.
+        [[nodiscard]] std::optional<u64> GetResidentCpuBytes() const override
+        {
+            return static_cast<u64>(sizeof(AudioFile));
+        }
+
         static AssetType GetStaticType()
         {
             return AssetType::Audio;
@@ -256,6 +276,11 @@ namespace OloEngine
             if (m_ClassNamespace.empty())
                 return m_ClassName;
             return m_ClassNamespace + "." + m_ClassName;
+        }
+
+        [[nodiscard]] std::optional<u64> GetResidentCpuBytes() const override
+        {
+            return static_cast<u64>(sizeof(ScriptFileAsset) + m_ClassNamespace.capacity() + m_ClassName.capacity());
         }
 
         void SetClassNamespace(std::string classNamespace) noexcept

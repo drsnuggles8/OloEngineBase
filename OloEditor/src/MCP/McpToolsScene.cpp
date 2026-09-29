@@ -6,7 +6,9 @@
 #include "MCP/McpSceneControl.h"
 #include "MCP/McpSchedulerGraph.h"
 #include "MCP/McpSelectEntity.h"
+#include "MCP/McpStreamingStats.h"
 #include "OloEngine/Core/UUID.h"
+#include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/ReflectionProbeBaker.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
@@ -567,6 +569,51 @@ namespace OloEngine::MCP
         // cached derivation) — so this is marshaled onto the game thread rather than
         // read from the HTTP worker, exactly like the scene readers above. The tool
         // needs no active scene: the schedule is authored once at build time.
+        // ---- olo_streaming_stats (main-marshaled) -------------------------------
+        // The streamer's bookkeeping is main-thread state, so the whole read runs on
+        // the game thread and shapes JSON there (see MCP/McpStreamingStats.h).
+        ToolResult Handle_StreamingStats(IAutomationHost& host, const Json& /*arguments*/)
+        {
+            Json result = host.MarshalRead([&host]() -> Json
+                                           {
+                Json j;
+                const Ref<Scene> scene = host.Context().GetActiveScene
+                                             ? host.Context().GetActiveScene()
+                                             : nullptr;
+                if (!scene)
+                {
+                    j["sceneStreamer"] = StreamingStats::Unavailable("no active scene");
+                }
+                else if (const SceneStreamer* streamer = scene->GetSceneStreamer(); !streamer)
+                {
+                    j["sceneStreamer"] = StreamingStats::Unavailable(
+                        scene->GetStreamingSettings().Enabled ? "streaming is enabled but no streamer is running (enter Play or start the editor streamer)"
+                                                              : "streaming is disabled for this scene");
+                }
+                else
+                {
+                    std::vector<StreamingStats::RegionRow> rows;
+                    for (const auto& [id, region] : streamer->GetRegions())
+                    {
+                        rows.push_back(StreamingStats::RegionRow{ static_cast<u64>(id), region->m_Name.ToStdString(),
+                                                                  ToString(region->m_State), region->m_EstimatedSize,
+                                                                  region->m_AdmissionStatus, region->m_AdmissionReason });
+                    }
+                    std::ranges::sort(rows, [](const auto& a, const auto& b)
+                                      { return a.Id < b.Id; });
+                    j["sceneStreamer"] = StreamingStats::SceneStreamerToJson(streamer->GetStats(), rows);
+                }
+
+                const Ref<AssetManagerBase> assets = Project::GetAssetManager();
+                if (const auto* runtime = dynamic_cast<const RuntimeAssetManager*>(assets.Raw()))
+                    j["runtimeAssets"] = StreamingStats::RuntimeAssetsToJson(runtime->GetStreamingReport());
+                else
+                    j["runtimeAssets"] = StreamingStats::Unavailable("the active asset manager is not a RuntimeAssetManager (the editor loads loose assets)");
+                return j; });
+
+            return ToolResult::Structured(result);
+        }
+
         ToolResult Handle_SchedulerGraph(IAutomationHost& host, const Json& args)
         {
             const std::string format = args.value("format", std::string{ "json" });
@@ -1020,6 +1067,96 @@ namespace OloEngine::MCP
                     .Required({ "systemCount", "parallelSystemCount", "executionOrder", "systems", "edgeCount", "edges" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_SchedulerGraph;
+            registry.Register(std::move(tool));
+        }
+
+        {
+            auto byteTotal = []
+            {
+                return Schema::Object()
+                    .Prop("knownBytes", Schema::Int().Min(0))
+                    .Prop("actualBytes", Schema::Int().Min(0))
+                    .Prop("estimateBytes", Schema::Int().Min(0))
+                    .Prop("count", Schema::Int().Min(0))
+                    .Prop("unknownCount", Schema::Int().Min(0).Desc("Entries with no size figure. Non-zero means knownBytes under-reports."))
+                    .Prop("complete", Schema::Bool());
+            };
+            auto nullableBytes = [](const char* desc)
+            {
+                return Schema::Raw(Json{ { "type", Json::array({ "integer", "null" }) }, { "minimum", 0 }, { "description", desc } });
+            };
+
+            ToolDef tool;
+            tool.Name = "olo_streaming_stats";
+            tool.Toolset = "scene";
+            tool.Title = "Streaming byte accounting and admission";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Report what scene streaming holds and why a region is not loaded (issue #1365). `sceneStreamer` is the "
+                "active scene's region streamer: loaded/pending counts, resident and pending BYTES, the byte budgets "
+                "(null = none), what admission did (deferred / rejected, now and in total), what cancellation did, and "
+                "what eviction did (for count vs for bytes). `regions` gives each region's state, its estimated size "
+                "and the last admission outcome with its reason (ResidentBudget, FrameBudget, LargerThanResidentBudget). "
+                "`runtimeAssets` is the packed-asset async queue of a RuntimeAssetManager (unavailable in the editor, "
+                "which loads loose assets). Unknown sizes are never zero: every total has unknownCount and complete, "
+                "and a region's size is {source: unknown, bytes: null} when it has no figure.";
+            tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema =
+                Schema::Object()
+                    .Prop("sceneStreamer", Schema::Object()
+                                               .Prop("available", Schema::Bool())
+                                               .Prop("reason", Schema::String())
+                                               .Prop("loadedRegions", Schema::Int().Min(0))
+                                               .Prop("maxLoadedRegions", Schema::Int().Min(0))
+                                               .Prop("pendingLoads", Schema::Int().Min(0))
+                                               .Prop("abandonedLoadsRunning", Schema::Int().Min(0))
+                                               .Prop("residentBytes", byteTotal())
+                                               .Prop("pendingBytes", byteTotal())
+                                               .Prop("maxResidentBytes", nullableBytes("Resident byte budget; null = none."))
+                                               .Prop("maxAdmittedBytesPerFrame", nullableBytes("Per-frame admission byte budget; null = none."))
+                                               .Prop("admittedBytesThisFrame", Schema::Int().Min(0))
+                                               .Prop("admission", Schema::Object()
+                                                                      .Prop("deferredRegions", Schema::Int().Min(0))
+                                                                      .Prop("rejectedRegions", Schema::Int().Min(0))
+                                                                      .Prop("deferredRequests", Schema::Int().Min(0))
+                                                                      .Prop("rejectedRequests", Schema::Int().Min(0))
+                                                                      .Prop("admittedUnknownSize", Schema::Int().Min(0)))
+                                               .Prop("cancellation", Schema::Object()
+                                                                         .Prop("cancelledBeforeStart", Schema::Int().Min(0))
+                                                                         .Prop("abandonedInFlight", Schema::Int().Min(0))
+                                                                         .Prop("discardedCompleted", Schema::Int().Min(0))
+                                                                         .Prop("abandonedResultsDropped", Schema::Int().Min(0)))
+                                               .Prop("eviction", Schema::Object()
+                                                                     .Prop("forCount", Schema::Int().Min(0))
+                                                                     .Prop("forBytes", Schema::Int().Min(0)))
+                                               .Prop("regions", Schema::Array(Schema::Object()
+                                                                                  .Prop("id", Schema::String())
+                                                                                  .Prop("name", Schema::String())
+                                                                                  .Prop("state", Schema::String())
+                                                                                  .Prop("estimatedSize", Schema::Object()
+                                                                                                             .Prop("source", Schema::String().Enum({ "unknown", "estimate", "actual" }))
+                                                                                                             .Prop("bytes", nullableBytes("null when the size is unknown.")))
+                                                                                  .Prop("admissionStatus", Schema::String())
+                                                                                  .Prop("admissionReason", Schema::String())))
+                                               .Required({ "available" }))
+                    .Prop("runtimeAssets", Schema::Object()
+                                               .Prop("available", Schema::Bool())
+                                               .Prop("reason", Schema::String())
+                                               .Prop("pendingCount", Schema::Int().Min(0))
+                                               .Prop("completedUnretrievedCount", Schema::Int().Min(0))
+                                               .Prop("pendingBytes", byteTotal())
+                                               .Prop("residentBytes", byteTotal())
+                                               .Prop("abandonedRunningCount", Schema::Int().Min(0))
+                                               .Prop("cancellation", Schema::Object()
+                                                                         .Prop("cancelledBeforeStart", Schema::Int().Min(0))
+                                                                         .Prop("abandonedInFlight", Schema::Int().Min(0))
+                                                                         .Prop("discardedCompleted", Schema::Int().Min(0))
+                                                                         .Prop("abandonedResultsDropped", Schema::Int().Min(0)))
+                                               .Prop("rejectedWhileStopped", Schema::Int().Min(0))
+                                               .Required({ "available" }))
+                    .Required({ "sceneStreamer", "runtimeAssets" });
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_StreamingStats;
             registry.Register(std::move(tool));
         }
     }
