@@ -80,14 +80,20 @@ arm's capture, and `ExpectConditionsPinned` fails the A/B if the two snapshots d
 CPU proof, including the negative controls (a blurred stand-in fails, an identical frame passes,
 dither raises the absolute number but not the A/B ordering), is `FineDetailDensityTest.cpp`.
 
-The table above is from the #1224 captures as they were when #1389 was accepted; those PNGs have
-since been replaced. On the committed `FloraCloseGeometry_*` frames today the authored meshes carry
-MORE detail than the cards (density ratio 1.69 on `FloraCloseGeometry_*`, 2.43 on
-`FoliageAuthoredMesh_near*`) and 1.18x `grass.png`, so the gate passes: it is a regression guard
-now, not a finding. Swap the arms and it fails, which is the negative control on real frames. One
-limit: a count of pixels over a threshold rises when a HARD edge is lightly blurred (the edge widens
-before it fades), so it orders fine texture reliably and hard-edged content not at all; compare like
-with like (`CaveatHardEdgesWidenUnderLightBlur...` pins this).
+**Crop to the near field.** The criterion is about close flora, and the canopy fills the upper half
+of the frame with detail either way. Recomputed on the committed `FloraCloseGeometry_*` captures at
+the #1224 acceptance commit (`536cd52a9`), mesh/cards is **1.85x on the whole frame and 0.35x on the
+lower half**: a whole-frame gate would have passed the frame it exists for. The lower half is the
+crop the tests use (it is the FIRST half of an unflipped GL readback). After the #1398 art import
+(`58f34c208`) the same cell reads 2.0x to 2.6x, and today 2.31x (Deferred, Forward and Forward+
+alike), so the gate is a regression guard now, not a finding. Swapping the arms fails both tests
+(the negative control on real frames). `FoliageAuthoredMesh_near*` reads 3.51x.
+
+The count is not a sharpness meter for hard-edged content: a light blur of a hard edge RAISES it
+(the edge widens before it fades). It orders fine texture reliably; compare like with like
+(`CaveatHardEdgesWidenUnderLightBlur...` pins this). And a passing number is not a verdict: the
+pine near-field crop passes at 3.51x, yet at 3x the pines are smooth flat-shaded cones with grass
+blades hanging off them. The frame wins; that is #1398's art gap.
 
 Caveats, because a gate nobody can trust is worse than none:
 
