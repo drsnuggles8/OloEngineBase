@@ -44,6 +44,8 @@ from pathlib import Path
 from urllib.parse import unquote
 
 INDEX = "docs/README.md"
+# This script's own fixtures name docs that do not exist, on purpose.
+SELF = "scripts/check_docs_consistency.py"
 ROOT_DOCS = ("CLAUDE.md", "AGENTS.md", "README.md", "CONTRIBUTING.md")
 GENERATED_DOCS = re.compile(r"^docs/test-catalogue\.[a-z]+\.md$")
 
@@ -65,7 +67,9 @@ REF_DEF_RE = re.compile(r"^\s{0,3}\[[^\]]+\]:\s*<?(\S+?)>?(?:\s+.*)?$")
 HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$")
 EXPLICIT_ANCHOR_RE = re.compile(r"<a\s+(?:id|name)=\"([^\"]+)\"")
 SCHEME_RE = re.compile(r"^[a-z][a-z0-9+.-]*:", re.IGNORECASE)
-DOCS_PATH_RE = re.compile(r"docs/[A-Za-z0-9_./-]+\.md")
+# Anchored so a URL or a longer path (`https://…/docs/x.md`, `../docs/x.md`) is not
+# read as this repository's docs/ directory.
+DOCS_PATH_RE = re.compile(r"(?<![\w/.:-])docs/[A-Za-z0-9_./-]+\.md")
 SOURCE_EXT = r"(?:h|hpp|inl|cpp|glsl|comp|vert|frag|geom|tesc|tese|py|ps1|cmake|cs|lua)"
 SOURCE_NAME_RE = re.compile(r"`([A-Za-z0-9_./-]+\." + SOURCE_EXT + r")(?:::([A-Za-z_][A-Za-z0-9_]*))?")
 
@@ -124,7 +128,7 @@ class Repo:
                     count = seen.get(base, 0)
                     seen[base] = count + 1
                     found.add(base if count == 0 else f"{base}-{count}")
-                found.update(EXPLICIT_ANCHOR_RE.findall(line))
+                found.update(anchor.lower() for anchor in EXPLICIT_ANCHOR_RE.findall(line))
             self._anchors[rel] = found
         return self._anchors[rel]
 
@@ -177,15 +181,18 @@ def lines_citing_docs(repo: Repo):
     """Yield (file, line number, line) for text lines outside docs/ that mention docs/."""
     if repo.use_git:
         grep = subprocess.run(
-            ["git", "grep", "-n", "-I", "-F", "docs/", "--", ".", ":!docs", ":!**/vendor/**"],
+            ["git", "grep", "--untracked", "-n", "-I", "-F", "docs/", "--", ".", ":!docs", ":!**/vendor/**", f":!{SELF}"],
             cwd=repo.root, capture_output=True, text=True, encoding="utf-8", errors="replace",
         )
+        # 1 means no match; anything else is git failing, which must not read as "clean".
+        if grep.returncode not in (0, 1):
+            raise RuntimeError(f"git grep failed ({grep.returncode}): {grep.stderr.strip()}")
         for hit in grep.stdout.splitlines():
             rel, number, line = hit.split(":", 2)
             yield rel, int(number), line
         return
     for rel in sorted(repo.tracked):
-        if not rel.startswith("docs/"):
+        if not rel.startswith("docs/") and rel != SELF:
             for number, line in enumerate(repo.text(rel).splitlines(), 1):
                 if "docs/" in line:
                     yield rel, number, line
@@ -193,7 +200,11 @@ def lines_citing_docs(repo: Repo):
 
 def check_cited_doc_paths(repo: Repo) -> list[str]:
     errors = []
-    for rel, number, line in lines_citing_docs(repo):
+    try:
+        cited_lines = list(lines_citing_docs(repo))
+    except RuntimeError as failure:
+        return [f"check 2 could not run: {failure}"]
+    for rel, number, line in cited_lines:
         for cited in DOCS_PATH_RE.findall(line):
             if cited not in repo.tracked and not GENERATED_DOCS.match(cited):
                 errors.append(f"{rel}:{number}: names a doc that does not exist: {cited}")
@@ -247,6 +258,11 @@ SELF_TEST = {
     "dead anchor": ({"docs/guides/a.md": "[x](#nowhere)\n"}, "no heading or anchor '#nowhere'"),
     "orphan doc": ({"docs/guides/orphan.md": "# Orphan\n"}, "docs/guides/orphan.md: not reachable"),
     "dead cited doc": ({"src/X.h": "// see docs/guides/missing.md\n"}, "names a doc that does not exist: docs/guides/missing.md"),
+    "a URL is not a local doc": ({"src/Y.h": "// https://github.com/o/r/blob/main/docs/x.md\n"}, None),
+    "explicit anchor, any case": (
+        {"docs/guides/a.md": '# A\n\n<a id="Mixed-Case"></a>\n\n[back](../README.md#guides) [m](#Mixed-Case)\n'},
+        None,
+    ),
     "renamed test": (
         {"docs/guides/renderer-support-matrix.md": "`T.cpp::OldName` pins it. [i](../README.md)\n", "tests/T.cpp": "TEST(S, NewName) {}\n"},
         "T.cpp has no symbol 'OldName'",
@@ -282,12 +298,16 @@ def main() -> int:
         for line in failures:
             print(f"  {line}", file=sys.stderr)
         return 2
-    root = Path(subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True).stdout.strip())
+    root = Path(
+        subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, encoding="utf-8", check=True
+        ).stdout.strip()
+    )
     # Untracked files count, so a new doc is checked before `git add`; a tracked
     # file deleted from the working tree does not.
     listed = subprocess.run(
         ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
-        cwd=root, capture_output=True, text=True, check=True,
+        cwd=root, capture_output=True, text=True, encoding="utf-8", check=True,
     ).stdout.split("\0")
     files = sorted({t for t in listed if t and (root / t).is_file()})
     errors = run_checks(Repo(root, files, use_git=True))
