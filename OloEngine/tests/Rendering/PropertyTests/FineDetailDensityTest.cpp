@@ -120,7 +120,7 @@ namespace OloEngine::Tests
             return out;
         }
 
-        // A frame with real structure: 8 px checker cells modulated by a smooth
+        // A frame with real structure: 3 px checker cells modulated by a smooth
         // ramp, i.e. moderate-amplitude edges spread over the frame.
         [[nodiscard]] std::vector<u8> Structured(u32 w, u32 h)
         {
@@ -170,7 +170,7 @@ namespace OloEngine::Tests
             EXPECT_LE(d, previous) << "blur of " << r << " passes increased detail";
             previous = d;
         }
-        EXPECT_LT(previous, 0.05) << "16 blur passes should leave a 3 px checker as a near-flat field";
+        EXPECT_LT(previous, 0.05) << "16 blur passes should leave noise as a near-flat field";
     }
 
     TEST(FineDetailDensityTest, CaveatHardEdgesWidenUnderLightBlurSoTheCountIsNotAStructureMeter)
