@@ -203,16 +203,6 @@ namespace OloEngine::Tests
                     glm::vec4(0.25f, 0.45f, 0.8f, 1.0f));
         }
 
-        // Is FSR2 actually usable in this process? Asked through the same factory
-        // the pass uses, so the answer cannot disagree with what the pipeline
-        // decides. Deliberately NOT a compile-time check: a Windows GL build can
-        // still fail at context creation, and that is a skip, not a failure.
-        [[nodiscard]] static bool TemporalUpscalerUsable()
-        {
-            const Ref<TemporalUpscaler> upscaler = TemporalUpscaler::Create();
-            return upscaler && upscaler->IsAvailable();
-        }
-
         void RunFramesAndCapture(const EditorCamera& camera, u32 frames, const std::string& tag,
                                  std::vector<u8>& outPixels)
         {
