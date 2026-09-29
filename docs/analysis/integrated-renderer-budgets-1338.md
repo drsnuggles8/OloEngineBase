@@ -208,14 +208,14 @@ CPU, fence-wait and present-wait distributions are retained in each summary.
   optimization claim. Feed this baseline to #1259.
 - Every measured Vulkan path, including Deferred and hybrid after #1437,
   misses 33.333 ms on every sampled frame.
-- Investigate the Vulkan resize image-lifetime VUID and the Forward+ storage
-  binding errors (#1487) before claiming backend parity. The water geometry
-  difference is resolved (#1470, `water-parity-1470/`); Vulkan Forward water
-  shading is #1486. *(2026-09-29: #1486 and #1487 fixed by PR #1517; the resize
-  VUID needs a rerun, owner #1526.)*
-- Enable valid sub-scale benchmark readback and resolve the live-editor crop
-  (#1397) before evaluating non-native upscaling quality or performance.
-  *(2026-09-29: the crop is fixed, PR #1443; sub-scale readback is #1526.)*
+- Rerun the Vulkan benchmark and confirm the resize image-lifetime VUID is gone
+  before claiming backend parity (#1526). *(Updated 2026-09-29, #1357: the
+  Forward+ storage-binding errors (#1487), the Vulkan Forward water shading
+  (#1486) and the water geometry difference (#1470, `water-parity-1470/`) are
+  fixed.)*
+- Enable valid sub-scale benchmark readback before evaluating non-native
+  upscaling quality or performance (#1526). *(Updated 2026-09-29: the
+  live-editor crop that also blocked this is fixed, PR #1443 / #1397.)*
 - Improve the integrated content fixture's grass/water boundary and bound
   groom assets before using it as a production visual quality gate (#1259,
   groom and flora owners).

@@ -76,7 +76,10 @@ Tenant: `VulkanPassSuite.InterleavedInstanceBufferUploadsKeepCommandOrderAcrossD
 The versioning above is only correct for a buffer whose **producer is the CPU**.
 Applied to a GPU-produced one it inverts. `PushSnapshot` now refuses outright for
 the transfer-written usages, `StorageBufferUsage::DynamicCopy` and (since #1427)
-`StreamCommandOrdered`; this section is why.
+`StreamCommandOrdered`. This section is why for `DynamicCopy`, which the GPU produces.
+`StreamCommandOrdered` is different: the CPU writes it every frame, megabytes at a time, so
+`VulkanStorageBuffer::SetData` records its writes as command-ordered transfers instead of
+spending arena snapshots on it (see its row in the audit table below).
 
 Draws read `VulkanStorageBuffer::GetRootDataAddress()` — the snapshot when one is
 live. Compute dispatches read `GetDeviceAddress()`, always the persistent buffer

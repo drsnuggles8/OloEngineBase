@@ -256,9 +256,9 @@ image of that lane; and PNG clamps float sources to [0,1] unless normalized — 
 live in the `.hdr` exports and the per-attachment min/max in `result.json`.
 
 **Declared unavailable** (their implementation lives inside `DeferredLightingShared.glsl` /
-`PBRCommon.glsl`, owned by the in-flight G-Buffer flags-lane branch #996 — coordination
-noted, not silently skipped): direct vs indirect diffuse/specular splits, per-pixel shadow
-visibility, reflection confidence/hit-distance. When #996 lands, these become candidates
-for real debug-only taps following the `OverdrawRenderPass` / `VolumetricShadowVolume`
-precedents (enable gates hashed into the frame-graph fingerprint). *(2026-09-29 annotation,
-#1357: #996 closed on 2026-09-01 without adding these taps; they are owned by #1526.)*
+`PBRCommon.glsl` — noted, not silently skipped): direct vs indirect diffuse/specular splits,
+per-pixel shadow visibility, reflection confidence/hit-distance. Adding them as debug-only
+taps, following the `OverdrawRenderPass` / `VolumetricShadowVolume` precedents (enable gates
+hashed into the frame-graph fingerprint), is owned by #1526. *(Updated 2026-09-29, #1357:
+this used to name the G-Buffer flags-lane branch #996 as owner; #996 closed on 2026-09-01
+without adding them.)*

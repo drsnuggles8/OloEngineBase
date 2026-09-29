@@ -116,6 +116,9 @@ enough for one sample to mean something, and rough surfaces stay on probes, wher
 nothing. On a miss `c_ray = 0` and the tier contributes exactly nothing — the same "a miss costs
 nothing" property SSR's early-outs already have.
 
+*The next three paragraphs record the boundary as it stood for #1057 (2026-09). They are historical:
+the current state is the note at the end of this section.*
+
 **What it may shade — the #805 boundary, stated plainly.** A reflection tier must *shade* its hit,
 where the shadow tier (#1063) needed only a visibility bit. Arbitrary material texture sampling at a
 hit needs a shader-visible sampler heap, which is **#805, open and not in this slice** — this is why
