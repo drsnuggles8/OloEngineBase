@@ -34,6 +34,7 @@
 
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Core/FastRandom.h"
+#include "OloEngine/Core/Environment.h"
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Benchmark/BenchmarkCapture.h"
@@ -53,10 +54,13 @@
 
 #include <algorithm>
 #include <chrono>
+#include <charconv>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -103,6 +107,21 @@ TEST(BenchmarkCapture, RunWhenRequested)
     {
         GTEST_SKIP() << "pass --olo-capture-manifest=<path> to run a benchmark capture "
                         "(the issue-#974 entry point; see docs/guides/renderer-benchmarks.md)";
+    }
+
+    // Explicit, test-binary-only negative control for the paired frame gate
+    // (#1339). It changes measured wall latency, never the visual workload.
+    u32 injectedDelayMs = 0;
+    if (const auto value = Env::Get("OLO_CAPTURE_TEST_DELAY_MS"))
+    {
+        const auto parsed = std::from_chars(value->data(), value->data() + value->size(), injectedDelayMs);
+        ASSERT_TRUE(parsed.ec == std::errc{} && parsed.ptr == value->data() + value->size() && injectedDelayMs <= 1000u)
+            << "OLO_CAPTURE_TEST_DELAY_MS must be an integer in [0, 1000]";
+    }
+    RecordProperty("injected_wall_delay_ms", std::to_string(injectedDelayMs));
+    if (injectedDelayMs > 0u)
+    {
+        std::printf("[BenchmarkCapture] NEGATIVE CONTROL: injecting %u ms per measured wall interval\n", injectedDelayMs);
     }
 
     // An explicitly REQUESTED capture must not skip-and-exit-0 on a headless
@@ -292,6 +311,10 @@ TEST(BenchmarkCapture, RunWhenRequested)
                 GLStateGuard guard("BenchmarkMeasurement", GLStateGuard::Policy::Restore);
                 scene->OnUpdateEditor(ts, camera);
             }
+            if (injectedDelayMs > 0u)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(injectedDelayMs));
+            }
             const f64 renderCallMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - begin).count();
             runInfoMeasurement.Frames.Add(Benchmark::SnapshotMeasuredFrame(cameraSpec.Id.ToView(), i, renderCallMs));
             ++frameIndex;
@@ -346,6 +369,13 @@ TEST(BenchmarkCapture, RunWhenRequested)
     std::string writeError;
     ASSERT_TRUE(Benchmark::WriteResultDirectory(*manifest, manifestPath, outDir, std::span{ cameraSets.GetData(), static_cast<sizet>(cameraSets.Num()) }, runInfo, writeError))
         << writeError;
+    {
+        std::ofstream calibration(outDir / "calibration.json");
+        calibration << "{\"injectedWallDelayMs\":" << injectedDelayMs
+                    << ",\"channel\":\"renderCallMs\",\"scope\":\"test-binary negative control only\"}\n";
+        calibration.close();
+        ASSERT_TRUE(calibration) << "cannot persist capture calibration provenance";
+    }
 
     // -- Restore the process-wide renderer configuration (every block this
     //    run overwrote, not just the two structs — see the snapshot above) ---

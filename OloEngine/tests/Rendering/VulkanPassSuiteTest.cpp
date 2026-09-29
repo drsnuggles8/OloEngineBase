@@ -771,7 +771,7 @@ class VulkanPassSuite : public ::testing::Test
     }
 
     // One simulated frame through the GLOBAL backend's recording bracket.
-    void SubmitFrame(const std::function<void()>& work)
+    void SubmitFrame(const std::function<void()>& work, const std::function<void()>& beforeFenceWait = {})
     {
         auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
         ASSERT_EQ(vkResetCommandBuffer(m_Cmd, 0), VK_SUCCESS);
@@ -780,7 +780,7 @@ class VulkanPassSuite : public ::testing::Test
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         ASSERT_EQ(vkBeginCommandBuffer(m_Cmd, &beginInfo), VK_SUCCESS);
 
-        api.BeginRecording(m_Cmd);
+        auto queryCompletion = api.BeginRecording(m_Cmd);
         work();
         api.EndRecording();
 
@@ -792,7 +792,13 @@ class VulkanPassSuite : public ::testing::Test
         submit.pCommandBuffers = &m_Cmd;
         ASSERT_EQ(vkResetFences(m_Device->GetDevice(), 1, &m_Fence), VK_SUCCESS);
         ASSERT_EQ(vkQueueSubmit(m_Device->GetQueue(), 1, &submit, m_Fence), VK_SUCCESS);
+        queryCompletion->SubmittedFence = m_Fence;
+        if (beforeFenceWait)
+        {
+            beforeFenceWait();
+        }
         ASSERT_EQ(vkWaitForFences(m_Device->GetDevice(), 1, &m_Fence, VK_TRUE, UINT64_MAX), VK_SUCCESS);
+        queryCompletion->Completed = true;
         VulkanDeferredReclaim::Get().NotifyFrameCompleted();
     }
 
@@ -7463,6 +7469,125 @@ TEST_F(VulkanPassSuite, VirtualGeometrySoftwareRasterMatchesTheGLReference)
 // pool is cold, and SKIPs (never fails, never silently no-ops) when it is not.
 // That makes it an isolated-run instrument, which is exactly what it is for.
 // =============================================================================
+// A reused Vulkan slot still exposes its old availability/value while the new
+// reset is merely recorded. Exercise all facade query kinds without relying on
+// GPU load or timestamp ordering to make that window happen.
+TEST_F(VulkanPassSuite, ReusedQueriesWaitForTheirOwnSubmissionGeneration)
+{
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    for (const auto type : { RHI::QueryType::Timestamp, RHI::QueryType::TimeElapsed,
+                             RHI::QueryType::OcclusionAnySamples })
+    {
+        SCOPED_TRACE(static_cast<int>(type));
+        std::array<RHI::ResourceHandle, 1> queries{};
+        api.CreateQueries(type, queries);
+        ASSERT_TRUE(queries[0].IsValid());
+        for (u32 generation = 0; generation < 4; ++generation)
+        {
+            SCOPED_TRACE(generation);
+            SubmitFrame(
+                [&]()
+                {
+                    if (type == RHI::QueryType::Timestamp)
+                    {
+                        EXPECT_TRUE(api.WriteTimestamp(queries[0]));
+                    }
+                    else
+                    {
+                        api.BeginQuery(type, queries[0]);
+                        EXPECT_FALSE(api.IsQueryResultAvailable(queries[0]));
+                        api.EndQuery(type);
+                    }
+                    if (generation > 0)
+                    {
+                        const auto* entry = VulkanQueryRegistry::Get().Lookup(queries[0]);
+                        ASSERT_NE(entry, nullptr);
+                        std::array<u64, 2> oldResult{};
+                        ASSERT_EQ(vkGetQueryPoolResults(m_Device->GetDevice(), entry->Pool, entry->Index, 1,
+                                                        sizeof(oldResult), oldResult.data(), sizeof(oldResult),
+                                                        VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT),
+                                  VK_SUCCESS);
+                        EXPECT_NE(oldResult[1], 0u) << "the previous generation is still available on the device";
+                    }
+                    EXPECT_FALSE(api.IsQueryResultAvailable(queries[0]));
+                    u64 result = 123u;
+                    EXPECT_FALSE(api.TryGetQueryResultU64(queries[0], result));
+                    EXPECT_EQ(result, 123u) << "a rejected read must leave the caller value untouched";
+                },
+                [&]()
+                {
+                    // The owner has submitted but has NOT waited or latched
+                    // Completed. A blocking facade read must wait for this proof.
+                    u64 result = 0u;
+                    EXPECT_TRUE(api.TryGetQueryResultU64(queries[0], result));
+                    EXPECT_TRUE(api.IsQueryResultAvailable(queries[0]));
+                });
+            EXPECT_TRUE(api.IsQueryResultAvailable(queries[0]));
+        }
+        api.DeleteQueries(queries);
+    }
+}
+
+TEST_F(VulkanPassSuite, FlushedAndDiscardedQueryGenerationsDoNotFollowResumedWrites)
+{
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    std::array<RHI::ResourceHandle, 1> queries{};
+    api.CreateQueries(RHI::QueryType::Timestamp, queries);
+    ASSERT_TRUE(queries[0].IsValid());
+    SubmitFrame([&]()
+                { EXPECT_TRUE(api.WriteTimestamp(queries[0])); });
+
+    for (const bool submitFlush : { true, false })
+    {
+        SCOPED_TRACE(submitFlush);
+        VkCommandBufferBeginInfo begin{};
+        begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        VkSubmitInfo submit{};
+        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit.commandBufferCount = 1;
+        submit.pCommandBuffers = &m_Cmd;
+        ASSERT_EQ(vkResetCommandBuffer(m_Cmd, 0), VK_SUCCESS);
+        ASSERT_EQ(vkBeginCommandBuffer(m_Cmd, &begin), VK_SUCCESS);
+        auto completion = api.BeginRecording(m_Cmd);
+        EXPECT_TRUE(api.WriteTimestamp(queries[0]));
+        ASSERT_EQ(api.SuspendRecordingForFlush(), m_Cmd);
+        ASSERT_EQ(vkEndCommandBuffer(m_Cmd), VK_SUCCESS);
+        if (submitFlush)
+        {
+            ASSERT_EQ(vkResetFences(m_Device->GetDevice(), 1, &m_Fence), VK_SUCCESS);
+            ASSERT_EQ(vkQueueSubmit(m_Device->GetQueue(), 1, &submit, m_Fence), VK_SUCCESS);
+            ASSERT_EQ(vkWaitForFences(m_Device->GetDevice(), 1, &m_Fence, VK_TRUE, UINT64_MAX), VK_SUCCESS);
+        }
+        completion = api.RetireFlushedRecording(submitFlush);
+        EXPECT_EQ(api.IsQueryResultAvailable(queries[0]), submitFlush);
+
+        // Reset discards the unsubmitted arm exactly as a failed flush does.
+        ASSERT_EQ(vkResetCommandBuffer(m_Cmd, 0), VK_SUCCESS);
+        ASSERT_EQ(vkBeginCommandBuffer(m_Cmd, &begin), VK_SUCCESS);
+        api.ResumeRecordingAfterFlush(m_Cmd);
+        // Keep the discarded query untouched: a successful final submission
+        // must not revive it. The successful-flush arm rewrites the same slot
+        // and must not inherit the flushed generation's completed proof.
+        if (submitFlush)
+        {
+            EXPECT_TRUE(api.WriteTimestamp(queries[0]));
+        }
+        EXPECT_FALSE(api.IsQueryResultAvailable(queries[0]));
+        u64 result = 123u;
+        EXPECT_FALSE(api.TryGetQueryResultU64(queries[0], result));
+        api.EndRecording();
+        ASSERT_EQ(vkEndCommandBuffer(m_Cmd), VK_SUCCESS);
+        ASSERT_EQ(vkResetFences(m_Device->GetDevice(), 1, &m_Fence), VK_SUCCESS);
+        ASSERT_EQ(vkQueueSubmit(m_Device->GetQueue(), 1, &submit, m_Fence), VK_SUCCESS);
+        completion->SubmittedFence = m_Fence;
+        ASSERT_EQ(vkWaitForFences(m_Device->GetDevice(), 1, &m_Fence, VK_TRUE, UINT64_MAX), VK_SUCCESS);
+        completion->Completed = true;
+        EXPECT_EQ(api.IsQueryResultAvailable(queries[0]), submitFlush);
+    }
+    api.DeleteQueries(queries);
+}
+
 TEST_F(VulkanPassSuite, VirtualGeometrySoftwareRasterReportsGpuTimingsOnVulkan)
 {
     auto& timers = GPUPassTimerPool::GetInstance();

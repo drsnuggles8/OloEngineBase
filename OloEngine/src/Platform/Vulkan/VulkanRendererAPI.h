@@ -37,6 +37,7 @@
 
 #include <array>
 #include <atomic>
+#include <memory>
 #include <mutex>
 #include <span>
 #include <string>
@@ -69,6 +70,16 @@ namespace OloEngine
     //
     // Render-thread only, same as everything else here.
     // -------------------------------------------------------------------------
+    // Render-thread completion proof for one recording, including every split
+    // graphics/compute segment. Publish the fence only AFTER successful submission;
+    // latch completion before resetting/destroying it. Abandoned recordings never
+    // complete. Query readers may poll a submitted fence without adding frame latency.
+    struct VulkanRecordingCompletion
+    {
+        VkFence SubmittedFence = VK_NULL_HANDLE;
+        bool Completed = false;
+    };
+
     class VulkanQueryRegistry
     {
       public:
@@ -76,6 +87,7 @@ namespace OloEngine
         {
             VkQueryPool Pool = VK_NULL_HANDLE;
             u32 Index = 0;
+            std::shared_ptr<VulkanRecordingCompletion> Completion;
             bool Recorded = false; ///< the query's write(s) reached a command buffer
             // How this entry reads back (#691): OcclusionAnySamples is
             // one occlusion slot (raw count); Timestamp is one timestamp slot
@@ -139,7 +151,9 @@ namespace OloEngine
         }
 
         // --- Recording bracket (backend-internal, not facade) ------------
-        void BeginRecording(VkCommandBuffer cmd);
+        // Retain the returned proof, publish SubmittedFence after submission, and
+        // set Completed after its successful wait, before reusing/destroying the fence.
+        [[nodiscard]] std::shared_ptr<VulkanRecordingCompletion> BeginRecording(VkCommandBuffer cmd);
         void EndRecording();
         [[nodiscard]] VkCommandBuffer CurrentCommandBuffer() const
         {
@@ -173,6 +187,10 @@ namespace OloEngine
         // queue. Keeps the executed-layout view accurate while a graph records
         // later split segments in the same frame.
         void MarkSuspendedRecordingSubmitted();
+        // After a blocking flush, retire only the commands it actually executed.
+        // Failed/discarded segments retain an unreadable proof forever. Resumed
+        // writes use a fresh proof, owned by the frame's eventual final submission.
+        [[nodiscard]] std::shared_ptr<VulkanRecordingCompletion> RetireFlushedRecording(bool completed);
         void ResumeRecordingAfterFlush(VkCommandBuffer cmd);
 
         // Backend-internal (#691): record a staged buffer→image copy
@@ -980,6 +998,7 @@ namespace OloEngine
         // limits.timestampPeriod: nanoseconds per timestamp tick, cached at
         // Init so query readback (Timestamp / TimeElapsed scaling to the
         // facade's nanosecond contract) never touches the physical device.
+        std::shared_ptr<VulkanRecordingCompletion> m_RecordingCompletion;
         f64 m_TimestampPeriodNs = 1.0;
         u32 m_MaxFramebufferSamples = 1;
         u32 m_MaxColorTextureSamples = 1;

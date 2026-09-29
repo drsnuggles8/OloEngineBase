@@ -4,6 +4,9 @@ Operational knowledge from the #632 DDGI bring-up and the #661 ASan
 investigation. Two independent topics that share a failure surface: the
 `build/` (msvc) and `build-clang/` (clangcl / clangcl-asan) trees.
 
+For clang-cl CodeView worker limits, GHASH and direct linker measurements, see
+[windows-codeview-links.md](windows-codeview-links.md).
+
 ## 1. Never run the two build trees at the same time
 
 Both trees run `GenerateBindings`, and **both write the same generated files

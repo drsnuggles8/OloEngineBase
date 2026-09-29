@@ -2981,7 +2981,12 @@ namespace OloEngine::Tests
         }
 
         SetPath(RenderingPath::Forward);
-        const MotionResult motion = PlayFromStart(45);
+        // This is an asset round-trip/attachment check, not a stride or
+        // convergence test: two reseed frames plus six integrating frames
+        // exercise the packed bindings without replaying a full walk.
+        constexpr u32 kPackedRuntimeFrames = 8;
+        const MotionResult motion = PlayFromStart(kPackedRuntimeFrames);
+        ::testing::Test::RecordProperty("packed_runtime_frames", static_cast<int>(kPackedRuntimeFrames));
         EXPECT_EQ(motion.Last.GroomsDrawn, 3u);
         EXPECT_EQ(motion.MinGroomsDeformed, 3u) << "the packed bindings attach to the live bodies";
         EXPECT_EQ(motion.MaxBindingRefused, 0u);

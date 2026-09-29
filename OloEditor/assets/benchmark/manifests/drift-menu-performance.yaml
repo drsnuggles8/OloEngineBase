@@ -1,0 +1,97 @@
+# Small/startup workload paired with the dense integrated manifests (#1339).
+# A stationary camera permits long tail runs without walking out of the scene.
+ManifestVersion: 2
+Id: drift-menu-performance
+Product: diagnostic
+Scene: Scenes/DriftMenu.olo
+Backends:
+  Supported: [opengl, vulkan]
+  Features:
+    vulkan:
+      UnsupportedAttachments: []
+Camera:
+  Id: stationary
+  Position: [0.0, 0.0, 5.0]
+  YawDegrees: 0.0
+  PitchDegrees: 0.0
+  FovDegrees: 45.0
+  Near: 0.01
+  Far: 1000.0
+Output:
+  Resolution: [1920, 1080]
+  RenderScale: 1.0
+RendererSettings:
+  Path: Deferred
+  RayTracedShadowsEnabled: false
+  EnableDDGI: false
+  TAAEnabled: false
+  MSAASampleCount: 1
+  Upscale: 'Off'
+  UpscaleTechnique: Spatial
+Exposure:
+  Mode: Manual
+  Exposure: 1.0
+Determinism:
+  Seed: 1339
+  StartTimeSeconds: 12.0
+  FixedDtSeconds: 0.016666666
+Warmup:
+  Frames: 64
+Attachments:
+  - Name: Beauty
+    Source: UIComposite
+    Format: png
+Measurement:
+  Frames: 1000
+  DeadlineMs: 33.333
+Presets:
+  opengl: gl-deferred-native
+  vulkan: vk-deferred-native
+Tolerance:
+  # Performance-only fixture: exact-repeat image bound is not calibrated here.
+  RepeatRmse: 0.0
+Assets:
+  - Path: SandboxProject/Assets/Textures/DriftMenuBackground-v2.png
+    Origin: Existing DriftMenu background; upstream provenance not recorded
+    License: unverified
+    Redistribution: committed
+    LicenseVerified: unverified
+    Version: in-repo copy at 2662d9f1a
+    Sha256: 37537406196e36e23794636b0f672809dae0be4ccf59ab31830524520207608e
+    Units: unitless
+    UpAxis: n/a
+    ColorSpace: srgb
+    Acquisition: git checkout 2662d9f1a -- OloEditor/SandboxProject/Assets/Textures/DriftMenuBackground-v2.png
+  - Path: assets/fonts/opensans/OpenSans-Light.ttf
+    Origin: Open Sans; accompanying opensans/LICENSE.txt
+    License: Apache-2.0
+    Redistribution: committed
+    LicenseVerified: in-repo-file
+    Version: in-repo copy at 2662d9f1a
+    Sha256: 80d5513e21af52eeac6e5893ad47c3f7d74b2464987ad669d28690d45eeafa23
+    Units: unitless
+    UpAxis: n/a
+    ColorSpace: n/a
+    Acquisition: git checkout 2662d9f1a -- OloEditor/assets/fonts/opensans/OpenSans-Light.ttf
+  - Path: assets/fonts/opensans/OpenSans-Regular.ttf
+    Origin: Open Sans; accompanying opensans/LICENSE.txt
+    License: Apache-2.0
+    Redistribution: committed
+    LicenseVerified: in-repo-file
+    Version: in-repo copy at 2662d9f1a
+    Sha256: 037236ed4bf58a85f67074c165d308260fd6be01c86d7df4e79ea16eb273f8c5
+    Units: unitless
+    UpAxis: n/a
+    ColorSpace: n/a
+    Acquisition: git checkout 2662d9f1a -- OloEditor/assets/fonts/opensans/OpenSans-Regular.ttf
+  - Path: assets/fonts/opensans/OpenSans-SemiBold.ttf
+    Origin: Open Sans; accompanying opensans/LICENSE.txt
+    License: Apache-2.0
+    Redistribution: committed
+    LicenseVerified: in-repo-file
+    Version: in-repo copy at 2662d9f1a
+    Sha256: 5e8d9e1a89083cd1b0849993fe2f3acc9aa33b7f439f7e8616872f6897f30684
+    Units: unitless
+    UpAxis: n/a
+    ColorSpace: n/a
+    Acquisition: git checkout 2662d9f1a -- OloEditor/assets/fonts/opensans/OpenSans-SemiBold.ttf

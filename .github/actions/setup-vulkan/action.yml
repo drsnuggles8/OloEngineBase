@@ -26,6 +26,10 @@ inputs:
     description: 'Enable caching'
     required: false
     default: true
+  windows-debug-libraries:
+    description: 'Install matching Windows Debug shader libraries (ordinary Debug CRT)'
+    required: false
+    default: 'false'
 # The version this action actually installed, so a cache key can be hashed over it.
 # A compiler cache keyed WITHOUT it restores cleanly across an SDK bump and then misses
 # on every TU that reaches a Vulkan header -- measured on PR #1112's Windows ASan build:
@@ -54,3 +58,21 @@ runs:
       with:
         version: ${{ inputs.version }}
         cache: ${{ inputs.cache }}
+
+    # Default SDK installs omit these optional libraries. Falling back to the
+    # release SPIRV-Cross archives breaks ordinary Debug with ITERATOR_DEBUG_LEVEL
+    # 2 versus 0. ASan intentionally uses the release CRT and does not need them.
+    # https://vulkan.lunarg.com/doc/view/1.4.357.0/windows/getting_started.html
+    - name: Install Windows Debug shader libraries
+      if: runner.os == 'Windows' && inputs.windows-debug-libraries == 'true'
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $maintenance = Join-Path $env:VULKAN_SDK 'maintenancetool.exe'
+        & $maintenance --accept-licenses --default-answer --confirm-command install com.lunarg.vulkan.debug
+        if ($LASTEXITCODE) { exit $LASTEXITCODE }
+        foreach ($library in 'shaderc_sharedd.lib', 'spirv-cross-cored.lib', 'spirv-cross-glsld.lib') {
+          if (-not (Test-Path -LiteralPath (Join-Path $env:VULKAN_SDK "Lib/$library"))) {
+            throw "Vulkan SDK Debug component did not supply $library"
+          }
+        }

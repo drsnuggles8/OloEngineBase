@@ -32,12 +32,15 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [substituted-seams-compound.md](substituted-seams-compound.md): every substitution a test makes is a seam it stops testing, and they compound — including building the same object a different way.
 - [no-silent-fallbacks.md](no-silent-fallbacks.md): a path that cannot do what it was asked says so loudly and countably; rank a fallback by whether the substituted value can be INDEXED, and lower every entry point a caller falls back to.
 - [measurement-validity-and-sentinels.md](measurement-validity-and-sentinels.md): a measured number travels with a status saying whether it IS a measurement, because zero is a legal timing and a legal counter; classify in a pure function, make the backend report its refusals, and audit for fields that have a consumer and no producer.
+- [vulkan-query-generations.md](vulkan-query-generations.md): prove completion of the submission that reset and wrote a reused query before trusting its availability or value.
+- [planar-reflection-ao-restoration.md](planar-reflection-ao-restoration.md): republish main-view AO/depth bindings after mirror replay; restoring the camera does not restore textures.
 - [reference-path-tracer.md](reference-path-tracer.md): the ground-truth oracle for "is it correct", where a golden can only say "did it change".
 - [visual-quality-criteria.md](visual-quality-criteria.md): a criterion containing a judgement word — *convincing*, *natural*, *stable to the eye* — is settled by the frame, not by a proxy; enlarge before judging, measure the asset and not only the renderer, and require that a richness feature does not REDUCE measured fine detail.
 - [resampled-estimator-measure-convention.md](resampled-estimator-measure-convention.md): write a resampled estimator's measure convention into the header that owns the sample, pin its Jacobian by an identity rather than an expected value, and add a negative control that fails if the term is removed.
 - [vendor-golden-baseline-crosscheck.md](vendor-golden-baseline-crosscheck.md): measure the noise floor and audit a recording before baking a per-vendor baseline.
 - [single-mesh-visual-test-lighting.md](single-mesh-visual-test-lighting.md): give a visual-test scene a ground plane, then look at the PNG.
 - [live-verification-noise-floor.md](live-verification-noise-floor.md): measure frame-to-frame noise before attributing a pixel change, and confirm the editor is drawing at all.
+- [verification-workload-attribution.md](verification-workload-attribution.md): use Release with symbols for live verification, preserve the full workload, and separate CPU overhead from GPU shadow cost.
 - [procedural-generator-golden-coupling.md](procedural-generator-golden-coupling.md): a generator fix and its golden rebake ship in the same PR.
 - [timed-wait-test-assertions.md](timed-wait-test-assertions.md): measure timed waits in microseconds and assert one-sided.
 - [thread-local-lifetime-at-exit.md](thread-local-lifetime-at-exit.md): keep the "is it still alive?" signal in a trivially destructible `thread_local`; a destroyed one is not readable.
@@ -52,6 +55,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 
 - [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md): never build msvc and clangcl trees together; caches, link bounds, memory, the local ASan recipe.
 - [build-memory-per-tu.md](build-memory-per-tu.md): set `--parallel` and every memory cap from the published per-TU peak-RSS ranking, not from a remembered number.
+- [windows-codeview-links.md](windows-codeview-links.md): retain `/Z7`, bound lld workers as well as processes, and compare full-input link measurements before enabling GHASH.
 - [ci-oom-read-the-kernel-report.md](ci-oom-read-the-kernel-report.md): for a CI OOM kill, read the kernel's OOM report, which names the full cgroup and every resident process, before blaming a neighbour.
 - [concurrent-cmake-configure.md](concurrent-cmake-configure.md): one configure at a time per build tree; the error blames your CMakeLists.txt and LTO instead.
 - [static-archive-4gib-ceiling.md](static-archive-4gib-ceiling.md): a .lib cannot exceed 4 GiB, and `LNK1248` under-reports the overshoot.
@@ -277,6 +281,8 @@ The dominant archetype here. If your change is in one of these areas, a passing 
 | [light-path-photometric-parity.md](light-path-photometric-parity.md) | Two lighting bugs survived 4300 green tests. |
 | [lighting-signal-contract.md](lighting-signal-contract.md) | DDGI and lightmaps lit surfaces pi times too bright, AO darkened emission and direct light, and SSGI and ReSTIR GI each counted light a second time — every one a plausible-looking frame, because each estimator was right about its own output and wrong about what it was added to. |
 | [measurement-validity-and-sentinels.md](measurement-validity-and-sentinels.md) | Four unrelated failures — a dropped query ring, a timestamp the backend refused on a recording worker, a backwards cross-queue pair, and a device with no timestamp queries at all — all published `0.0 ms`, which every panel, MCP tool and persisted benchmark export reported as a pass that cost nothing. A checked-in study measured a 26% recording-time win and could claim no GPU number to go with it. |
+| [vulkan-query-generations.md](vulkan-query-generations.md) | Dense Vulkan frames produced backward whole-frame timestamps and plausible stale pass timings because query availability still described the previous reset/write generation. |
+| [planar-reflection-ao-restoration.md](planar-reflection-ao-restoration.md) | Reflection replay left white AO/depth fallbacks bound after clearing the suspension flag; the GL core-state guard did not restore texture bindings. |
 | [engine-owned-containers.md](engine-owned-containers.md) | A `TArray` holding a type that cannot survive a bitwise relocation. libstdc++'s `std::string` keeps an SSO self-pointer and MSVC's does not, so the heap corruption is invisible on this box and aborts only on Linux CI. |
 | [shader-tuning-constants-need-a-unit.md](shader-tuning-constants-need-a-unit.md) | Every directional shadow in the project sat metres away from its caster, and the tests pinned the constant's VALUE, which had not changed. |
 | [framebuffer-bind-owns-the-viewport.md](framebuffer-bind-owns-the-viewport.md) | Vulkan's `Bind()` kept the previous pass's viewport, so every upscaled frame presented a magnified corner. OpenGL was correct, so every headless test was green, and the one pass that set its viewport correctly (grooms) looked like the broken one. |
@@ -385,6 +391,7 @@ The same fact written in more than one place, with nothing enforcing agreement.
 | [runtime-scene-switching.md](runtime-scene-switching.md) | The build pipeline and the runtime must agree on an asset layout. |
 | [audio-voice-budget.md](audio-voice-budget.md) | One config field costs four edits, one of them silent. |
 | [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) | Two build trees writing the same generated files. |
+| [windows-codeview-links.md](windows-codeview-links.md) | A process-count limit leaves lld worker pools unbounded; `/INCREMENTAL` can make CMake invoke lld twice. |
 | [build-memory-per-tu.md](build-memory-per-tu.md) | A build-memory number nobody re-measures: five sources disagreed by 3x while `--parallel` and two cgroup caps rested on it. An absolute records path silently zeroes the compiler cache's cross-tree hit rate; a relative one yields one file per subdirectory under Makefiles, and reading only the top-level file ranks the wrong fraction of the build. |
 | [build-trees-and-windows-asan.md §4b](build-trees-and-windows-asan.md#4b-live-toolchain-bug-a-throw-from-inside-a-catch-handler-avs-clang-cl--asan) | A throw executed inside a `catch` handler AVs under clang-cl ASan; the catch type and rethrow form are irrelevant. |
 | [thread-local-lifetime-at-exit.md](thread-local-lifetime-at-exit.md) | A static destructor reading a `thread_local` that `__dyn_tls_dtor` already destroyed; 219 failures, one bug. |
@@ -456,6 +463,7 @@ The check passes for a correct implementation and for a broken one.
 |---|---|
 | [editor-input-coordinates-and-imgui-viewports.md](editor-input-coordinates-and-imgui-viewports.md) | `olo_input_inject` refused the whole right-hand dock as "outside the editor window (1280x720)": the bound was a window size cached before `GLFW_SCALE_TO_MONITOR` resized the window to 1920x1080. |
 | [live-verification-noise-floor.md](live-verification-noise-floor.md) | A crop check that a mirrored, wrong position scored better on; read tools that answer 200 with a stale frame from an iconified window. |
+| [verification-workload-attribution.md](verification-workload-attribution.md) | Debug CPU overhead improved in Release, but the dense scene still spent hundreds of milliseconds in GPU shadows. |
 | [forward-deferred-parity-measurement.md](forward-deferred-parity-measurement.md) | A live Forward-vs-Deferred diff blamed the point-light evaluator for a gap that was screen-space AO, which Forward applies to the composed colour; the evaluators agreed to 1e-5. |
 | [gpu-readback-stats-channel.md](gpu-readback-stats-channel.md) | A GPU counter that stopped updating is byte-identical to one that is constant. |
 | [vulkan-parallel-cascade-recording-fault.md](vulkan-parallel-cascade-recording-fault.md) | A Vulkan device-fault checkpoint named `ScenePrepassPass` in every report, and inlining that pass's parallel region changed nothing: the region that set the fault up was the shadow cascades, recorded earlier in the frame. The issue's "opened directly: clean 3/3" control was a 1-in-2 fault that missed three times. |

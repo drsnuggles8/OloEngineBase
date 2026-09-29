@@ -28,6 +28,27 @@ Already provisioned on this machine; listed for a clean box. There is no
 - **A GPU with real OpenGL 4.6** for OloEditor/OloRuntime. WSL2's software GL is only 4.5 and will not run the editor.
 - **PowerShell 7 (`pwsh`)** to run the driver (Windows PowerShell 5.1 also works; the driver is `#requires -version 5.1`).
 
+## Choose the verification configuration
+
+Use **Release with symbols** for representative live visual verification and
+performance attribution (#1488). Build and launch it explicitly; the driver's
+compatibility default remains Debug. Preserve the complete scene, render path,
+resolution, cameras, and required long groom simulations when comparing runs.
+
+```powershell
+pwsh -File .claude/skills/run-oloengine/build-lock.ps1 -Command `
+  'cmake --build build-cached --target OloEditor OloEngine-Tests --config Release --parallel 6'
+pwsh -NoProfile -File .claude/skills/run-oloengine/driver.ps1 -Action attach -Config Release -AllowWrites
+```
+
+Retain targeted **Debug** runs for assertions and Debug-specific failures.
+Windows ASan also uses **Release**, following
+[the ASan recipe](../../../docs/agent-rules/build-trees-and-windows-asan.md).
+For performance conclusions, reserve an idle CPU/GPU host: another worktree's
+test binary can contend even after its build has released the gate. Follow
+[controlled-performance.md](../../../docs/guides/controlled-performance.md)
+for throttle checks, complete-frame samples, provenance, and calibration.
+
 ## Build
 
 The `build/` tree already exists here. Configure (only needed on a clean clone,
@@ -105,7 +126,7 @@ Behaviour worth knowing:
 
 Other notes:
 
-- OloEditor links to `bin\Debug\OloEditor\OloEditor.exe` (note: `bin\`, not `build\`).
+- OloEditor links to `bin\<Config>\OloEditor\OloEditor.exe` (note: `bin\`, not `build\`).
 - A first full editor build is long; here only the editor + networking objects were stale, so it linked in a few minutes off the 899 prebuilt engine objects.
 
 ## Run the editor (agent path)
@@ -113,17 +134,17 @@ Other notes:
 One shot — launch, wait out the 42-shader warmup, screenshot, kill:
 
 ```powershell
-pwsh -NoProfile -File .claude\skills\run-oloengine\driver.ps1 -Action capture
+pwsh -NoProfile -File .claude\skills\run-oloengine\driver.ps1 -Action capture -Config Release
 ```
 
-The PNG lands at `.claude\skills\run-oloengine\shots\OloEditor-Debug.png` and the
+The PNG lands at `.claude\skills\run-oloengine\shots\OloEditor-Release.png` and the
 driver prints its size + a luminance mean/spread (a near-zero `StdLum` warns that
 the frame is blank — see Gotchas). **Open the PNG and look at it** — a good
 capture shows the menu bar, Scene Hierarchy (left), the 3D Viewport, and the
 docked Console/Content Browser.
 
-The driver also **snapshots `OloEngine.log` next to the PNG** (`OloEditor-Debug.png`
-→ `OloEditor-Debug.log`) on every `capture`/`shot`, because the editor truncates
+The driver also **snapshots `OloEngine.log` next to the PNG** (`OloEditor-Release.png`
+→ `OloEditor-Release.log`) on every `capture`/`shot`, because the editor truncates
 that file on the *next* launch. If the editor crashes during init (no window
 appears), the driver prints the last 30 log lines inline and points you at the
 snapshot — read it for shader compile/link errors.
@@ -131,7 +152,7 @@ snapshot — read it for shader compile/link errors.
 Interactive — leave it running and shoot it repeatedly (e.g. after poking the UI):
 
 ```powershell
-pwsh -NoProfile -File .claude\skills\run-oloengine\driver.ps1 -Action launch   # detached; stores the PID
+pwsh -NoProfile -File .claude\skills\run-oloengine\driver.ps1 -Action launch -Config Release   # detached; stores the PID
 pwsh -NoProfile -File .claude\skills\run-oloengine\driver.ps1 -Action shot -Out .claude\skills\run-oloengine\shots\after.png
 pwsh -NoProfile -File .claude\skills\run-oloengine\driver.ps1 -Action stop
 ```
@@ -164,7 +185,7 @@ so you can inspect the *live* frame (multi-angle screenshots, intermediate rende
 targets) without touching the user's viewport.
 
 ```powershell
-pwsh -NoProfile -File .claude\skills\run-oloengine\driver.ps1 -Action attach
+pwsh -NoProfile -File .claude\skills\run-oloengine\driver.ps1 -Action attach -Config Release
 # ... use the olo_* tools ...
 pwsh -NoProfile -File .claude\skills\run-oloengine\driver.ps1 -Action stop   # kills the editor + deregisters
 ```
@@ -188,7 +209,7 @@ radio group, so a detached `attach` has nobody to click it and the tools come ba
 `OLO_MCP_ALLOW_WRITES=1` alongside `OLO_MCP_AUTOSTART=1` before launching:
 
 ```powershell
-pwsh -NoProfile -File .claude\skills\run-oloengine\driver.ps1 -Action attach -AllowWrites
+pwsh -NoProfile -File .claude\skills\run-oloengine\driver.ps1 -Action attach -Config Release -AllowWrites
 ```
 
 The variable is read **only inside the editor's autostart block, after the server
