@@ -168,7 +168,7 @@ layout(std140, binding = 23) uniform WaterParams
     // w = band-limit spacing per metre of ray distance: one grid step of view
     //     angle, so a vertex t metres out is sampled ~w*t metres apart. The
     //     rim radius a missed ray is pushed to is derived in-shader from the
-    //     half-extents below and u_Model, not uploaded.
+    //     half-extents below and the instance Transform, not uploaded.
     vec4 u_ProjectedGridParams;
     // xy = the surface's LOCAL half-extents. The clamp into this rect is what
     //      keeps a finite water tile finite: a screen-space grid has no idea

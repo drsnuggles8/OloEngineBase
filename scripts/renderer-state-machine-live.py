@@ -230,7 +230,7 @@ class Session:
             reply = payload(self.mcp.call("olo_cvar_set", {"name": name, "value": value}))
             if not reply.get("changed", True):
                 raise RuntimeError("%s was already %s: the pair would compare a state with itself" % (name, value))
-            previous = reply["restoreWith"]
+            previous = reply["previous"]
             return lambda: self.mcp.call("olo_cvar_set", {"name": name, "value": previous})
         return flip
 
@@ -239,7 +239,7 @@ class Session:
             reply = payload(self.mcp.call("olo_render_debug_set", {"disableAliasing": True}))
             if not reply.get("changed", True):
                 raise RuntimeError("transient aliasing was already disabled: the pair would compare a state with itself")
-            previous = reply["restoreWith"]
+            previous = reply["previous"]
             return lambda: self.mcp.call("olo_render_debug_set", previous)
         return flip
 

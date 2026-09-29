@@ -264,8 +264,6 @@ namespace OloEngine
                 return AssetType::Mesh;
             if (assetType == "StaticMesh")
                 return AssetType::StaticMesh;
-            if (assetType == "MeshAsset")
-                return AssetType::MeshSource; // DEPRECATED
             if (assetType == "MeshSource")
                 return AssetType::MeshSource;
             if (assetType == "Material")

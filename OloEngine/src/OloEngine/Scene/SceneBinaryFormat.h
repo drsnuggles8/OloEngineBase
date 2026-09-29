@@ -103,8 +103,15 @@ namespace OloEngine
         // 0.005 TEXELS (no bias at all) where the YAML path gives the default
         // and a warning. A value's unit changing is a version bump for the same
         // reason a reordered field is.
-        constexpr u32 CurrentVersion = 5;
-        constexpr u32 MinSupportedVersion = 5;
+        //
+        // v6 (issue #1496): scene YAML now requires a top-level Version key
+        // and is rejected without it. The sidecar is tried BEFORE the YAML
+        // version check, and a v5 sidecar only records that its `.olo` parsed
+        // under the old rules, so an unversioned scene with a fresh v5 sidecar
+        // would still load. Sidecars written before that are invalidated; a
+        // new one is written only after a YAML load that passed the check.
+        constexpr u32 CurrentVersion = 6;
+        constexpr u32 MinSupportedVersion = 6;
 
         // Per-entity storage kind (the u8 that prefixes each EntityRecord).
         enum EntityKind : u8

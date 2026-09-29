@@ -6595,7 +6595,7 @@ namespace OloEngine
             ray.m_Origin = footWorld + glm::vec3(0.0f, footIK.RaycastUp, 0.0f);
             ray.m_Direction = glm::vec3(0.0f, -1.0f, 0.0f);
             ray.m_MaxDistance = footIK.RaycastUp + footIK.RaycastDown;
-            ray.m_ExcludedEntities.push_back(entity.GetUUID());
+            ray.m_ExcludedEntities.AddExcludedEntity(entity.GetUUID());
             if (SceneQueryHit hit; m_JoltScene->CastRay(ray, hit) && hit.HasHit())
             {
                 foot.HasGround = true;

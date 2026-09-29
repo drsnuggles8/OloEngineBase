@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include <limits>
 #include "OloEngine/Terrain/TerrainMaterial.h"
+#include "OloEngine/Project/ContentPath.h"
 
 #include <stb_image/stb_image.h>
 
@@ -60,9 +61,18 @@ namespace OloEngine
             return false;
         }
 
+        // Project-relative or working-directory-relative (#1496); an unresolvable
+        // path is logged by the resolver and loads nothing.
+        const std::filesystem::path file = ResolveContentPath(path.ToView());
+        if (file.empty())
+        {
+            return false;
+        }
+
         i32 w = 0, h = 0, channels = 0;
         stbi_set_flip_vertically_on_load_thread(0);
-        u8* pixels = stbi_load(path.GetData(), &w, &h, &channels, 4); // Force RGBA
+        const std::string fileString = file.string();
+        u8* pixels = stbi_load(fileString.c_str(), &w, &h, &channels, 4); // Force RGBA
         if (!pixels)
         {
             OLO_CORE_WARN("TerrainMaterial: Failed to load texture '{}'", path.ToView());

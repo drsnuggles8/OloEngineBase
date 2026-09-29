@@ -443,8 +443,7 @@ namespace OloEngine
         }
 
         // Write texture metadata (layout shared with the pre-compressed path; the srgb
-        // byte and any embedded blob are appended last to keep the uncompressed record
-        // byte-identical to the legacy layout).
+        // byte and any embedded blob come last).
         stream.WriteRaw<u32>(spec.Width);
         stream.WriteRaw<u32>(spec.Height);
         stream.WriteRaw<u32>(static_cast<u32>(std::to_underlying(recordFormat)));
@@ -458,17 +457,15 @@ namespace OloEngine
         auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
         stream.WriteRaw<i64>(timestamp);
 
-        // Persist the sRGB flag so the pack round-trip preserves colour-space. Without
-        // this the deserializer falls back to the linear default and every albedo /
-        // emissive shipped through an .olopack loses its GL_SRGB8_ALPHA8 conversion.
+        // Persist the sRGB flag so the pack round-trip preserves colour-space: every
+        // albedo / emissive shipped through an .olopack keeps its GL_SRGB8_ALPHA8 conversion.
         stream.WriteRaw<bool>(recordSRGB);
 
         // Block-compressed textures (#440) cannot be re-created from the path via
         // stb_image, so embed the whole .olotex container blob here, making the pack
         // self-contained. For a just-cooked texture that blob is the in-memory container;
         // for a pre-compressed (.olotex) texture it is the exact on-disk bytes re-read
-        // from the source path. Appended AFTER srgb so the legacy record layout for
-        // uncompressed textures is byte-identical.
+        // from the source path. Written after the srgb byte.
         if (IsCompressedFormat(recordFormat))
         {
             std::vector<u8> blob;
@@ -533,31 +530,25 @@ namespace OloEngine
         stream.ReadRaw(isLoaded);
         stream.ReadRaw(timestamp);
 
-        // Read the sRGB flag. End-of-stream tolerance: packs written before
-        // this field existed don't carry the byte at all; fall back to the
-        // filename heuristic so legacy packs still get colour textures
-        // tagged correctly instead of silently demoting every albedo to
-        // linear. AssetPackFile::AssetInfo carries the packed byte length,
-        // so we only read when the cursor hasn't already consumed the whole
-        // record.
+        // The sRGB byte is always written (AssetPack::Load accepts only the current
+        // pack version), so a record too short to hold it is corrupt. Guard the
+        // end-of-record sum against u64 overflow: a corrupt PackedOffset + PackedSize
+        // could wrap and spuriously satisfy the bounds check.
+        if (assetInfo.PackedSize > std::numeric_limits<u64>::max() - assetInfo.PackedOffset)
+        {
+            OLO_CORE_ERROR("TextureSerializer::DeserializeFromAssetPack - record bounds overflow (offset {}, size {}); rebuild the pack",
+                           assetInfo.PackedOffset, assetInfo.PackedSize);
+            return nullptr;
+        }
+        const u64 recordEnd = assetInfo.PackedOffset + assetInfo.PackedSize;
+        if (stream.GetStreamPosition() + sizeof(bool) > recordEnd)
+        {
+            OLO_CORE_ERROR("TextureSerializer::DeserializeFromAssetPack - record for '{}' ends before its sRGB byte; rebuild the pack",
+                           path);
+            return nullptr;
+        }
         bool srgb = false;
-        // Guard against u64 overflow when computing the end-of-record offset:
-        // a corrupt pack could have PackedOffset + PackedSize wrap around and
-        // spuriously satisfy the bounds check below. If the addition would
-        // overflow, treat the byte as absent and fall back to the heuristic.
-        const bool packedEndOverflows = assetInfo.PackedSize > std::numeric_limits<u64>::max() - assetInfo.PackedOffset;
-        if (!packedEndOverflows && stream.GetStreamPosition() + sizeof(bool) <= assetInfo.PackedOffset + assetInfo.PackedSize)
-        {
-            stream.ReadRaw(srgb);
-        }
-        else if (!path.empty())
-        {
-            srgb = IsLikelyColorTextureByName(std::filesystem::path(path).filename().string());
-        }
-        else
-        {
-            // No additional handling required.
-        }
+        stream.ReadRaw(srgb);
 
         // Block-compressed textures (#440) embed the whole .olotex container blob after
         // the srgb byte (see SerializeToAssetPack). Reconstruct the GPU texture straight
@@ -566,8 +557,6 @@ namespace OloEngine
         {
             u64 blobSize = 0;
             stream.ReadRaw(blobSize);
-            const u64 recordEnd = packedEndOverflows ? std::numeric_limits<u64>::max()
-                                                     : assetInfo.PackedOffset + assetInfo.PackedSize;
             if (blobSize == 0 || stream.GetStreamPosition() + blobSize > recordEnd)
             {
                 OLO_CORE_ERROR("TextureSerializer::DeserializeFromAssetPack - compressed blob size {} out of record bounds", blobSize);
@@ -1081,8 +1070,7 @@ namespace OloEngine
         }
 
         // Load shader
-        const auto authoredShaderName = materialNode["Shader"].as<std::string>("PBR_MultiLight");
-        const std::string shaderName = ResolveRuntimeShaderName(authoredShaderName);
+        const auto shaderName = materialNode["Shader"].as<std::string>("PBR_MultiLight");
         auto& shaderLibrary = Renderer3D::GetShaderLibrary();
         Ref<Shader> shader;
         if (shaderLibrary.Exists(shaderName))
@@ -1264,19 +1252,6 @@ namespace OloEngine
         }
 
         return true;
-    }
-
-    std::string MaterialAssetSerializer::ResolveRuntimeShaderName(std::string_view authoredName)
-    {
-        // DefaultPBR was retired when the forward material path moved to the
-        // multi-light shader. Older projects still carry the authored name in
-        // .olomaterial files, so translate it at the serialization boundary.
-        if (authoredName == "DefaultPBR")
-        {
-            return "PBR_MultiLight";
-        }
-
-        return std::string(authoredName);
     }
 
     //////////////////////////////////////////////////////////////////////////////////
@@ -2415,23 +2390,11 @@ namespace OloEngine
             {
                 YAML::Node materialNode = meshColliderNode["Material"];
                 ColliderMaterial material;
-                // Handle both old and new material formats for backward compatibility
-                if (materialNode["Friction"])
-                {
-                    float friction = materialNode["Friction"].as<float>(0.5f);
-                    // Clamp friction values to valid range [0.0, 1.0]
-                    friction = std::clamp(friction, 0.0f, 1.0f);
-                    material.SetStaticFriction(friction);
-                    material.SetDynamicFriction(friction);
-                }
-                else
-                {
-                    float staticFriction = materialNode["StaticFriction"].as<float>(0.6f);
-                    float dynamicFriction = materialNode["DynamicFriction"].as<float>(0.6f);
-                    // Clamp friction values to valid range [0.0, 1.0]
-                    material.SetStaticFriction(std::clamp(staticFriction, 0.0f, 1.0f));
-                    material.SetDynamicFriction(std::clamp(dynamicFriction, 0.0f, 1.0f));
-                }
+                float staticFriction = materialNode["StaticFriction"].as<float>(0.6f);
+                float dynamicFriction = materialNode["DynamicFriction"].as<float>(0.6f);
+                // Clamp friction values to valid range [0.0, 1.0]
+                material.SetStaticFriction(std::clamp(staticFriction, 0.0f, 1.0f));
+                material.SetDynamicFriction(std::clamp(dynamicFriction, 0.0f, 1.0f));
 
                 float restitution = materialNode["Restitution"].as<float>(0.0f);
                 float density = materialNode["Density"].as<float>(1000.0f);
@@ -2735,8 +2698,7 @@ namespace OloEngine
         const auto& vertices = meshSource->GetVertices();
         const auto& indices = meshSource->GetIndices();
         const auto& submeshes = meshSource->GetSubmeshes();
-        // Use the const overload to read materials — the non-const overload is deprecated.
-        const auto& materials = std::as_const(*meshSource).GetMaterials();
+        const auto& materials = meshSource->GetMaterials();
 
         auto vertexCount = static_cast<u32>(vertices.Num());
         auto indexCount = static_cast<u32>(indices.Num());
@@ -3989,72 +3951,63 @@ namespace OloEngine
             return nullptr;
         }
 
-        // ── Virtualized-geometry cluster-LOD-DAG blob (issue #629, pack v4) ──
-        // Gated on the version that introduced it: a v1-v3 pack never wrote these
-        // bytes, so reading them would consume whatever follows in the pack and
-        // desync (docs/agent-rules/binary-format-versioning.md). Without a blob the
-        // registry just falls back to a synchronous runtime build, so a corrupt or
-        // oversized blob is a warn-and-skip, not a hard asset failure.
-        if (stream.GetArchiveVersion() >= AssetPackFile::VirtualMeshPackVersion)
+        // ── Virtualized-geometry cluster-LOD-DAG blob (issue #629) ──
+        // Always present (AssetPack::Load accepts only AssetPackFile::Version); a
+        // zero length means the mesh has no precooked DAG.
+        u64 virtualMeshBlobSize = 0;
+        stream.ReadRaw<u64>(virtualMeshBlobSize);
+        if (virtualMeshBlobSize > OMeshFormat::MaxVirtualMeshBlobSize)
         {
-            u64 virtualMeshBlobSize = 0;
-            stream.ReadRaw<u64>(virtualMeshBlobSize);
-            if (virtualMeshBlobSize > OMeshFormat::MaxVirtualMeshBlobSize)
+            OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Virtual-mesh blob size ({}) exceeds cap ({}); "
+                           "the record is corrupt, rebuild the pack",
+                           virtualMeshBlobSize, OMeshFormat::MaxVirtualMeshBlobSize);
+            return nullptr; // the stream position is now untrustworthy — fail the asset
+        }
+        if (virtualMeshBlobSize > 0)
+        {
+            std::vector<u8> virtualMeshBlob(static_cast<sizet>(virtualMeshBlobSize));
+            if (!stream.ReadData(reinterpret_cast<char*>(virtualMeshBlob.data()),
+                                 static_cast<sizet>(virtualMeshBlobSize)))
             {
-                OLO_CORE_WARN("MeshSourceSerializer::DeserializeFromAssetPack - Virtual-mesh blob size ({}) exceeds cap ({}); "
-                              "skipping the precooked DAG (it will be rebuilt at runtime if used virtually)",
-                              virtualMeshBlobSize, OMeshFormat::MaxVirtualMeshBlobSize);
-                return nullptr; // the stream position is now untrustworthy — fail the asset
+                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Failed to read the virtual-mesh blob");
+                return nullptr;
             }
-            if (virtualMeshBlobSize > 0)
-            {
-                std::vector<u8> virtualMeshBlob(static_cast<sizet>(virtualMeshBlobSize));
-                if (!stream.ReadData(reinterpret_cast<char*>(virtualMeshBlob.data()),
-                                     static_cast<sizet>(virtualMeshBlobSize)))
-                {
-                    OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Failed to read the virtual-mesh blob");
-                    return nullptr;
-                }
-                meshSource->SetVirtualMeshBlob(std::move(virtualMeshBlob));
-            }
+            meshSource->SetVirtualMeshBlob(std::move(virtualMeshBlob));
         }
 
-        // ── Imported-material table (issue #629, pack v5) ──
-        // Same gate, next appended field: a v1-v4 pack never wrote it. Read the bytes
+        // ── Imported-material table (issue #629) ──
+        // Always present, like the blob above. Read the bytes
         // first and only THEN resolve the textures — resolving calls back into the asset
         // manager (a nested asset load), and no stream reads may follow it.
         // A malformed table costs the materials, not the mesh: the consumer falls back to
         // its own default material, exactly as it did before this field existed.
-        if (stream.GetArchiveVersion() >= AssetPackFile::ImportedMaterialsPackVersion)
+        u64 materialBlobSize = 0;
+        stream.ReadRaw<u64>(materialBlobSize);
+        if (materialBlobSize > ImportedMaterialCodec::MaxBlobSize)
         {
-            u64 materialBlobSize = 0;
-            stream.ReadRaw<u64>(materialBlobSize);
-            if (materialBlobSize > ImportedMaterialCodec::MaxBlobSize)
+            OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Imported-material blob size ({}) exceeds cap ({})",
+                           materialBlobSize, ImportedMaterialCodec::MaxBlobSize);
+            return nullptr; // the stream position is now untrustworthy — fail the asset
+        }
+        if (materialBlobSize > 0)
+        {
+            std::vector<u8> materialBlob(static_cast<sizet>(materialBlobSize));
+            if (!stream.ReadData(reinterpret_cast<char*>(materialBlob.data()),
+                                 static_cast<sizet>(materialBlobSize)))
             {
-                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Imported-material blob size ({}) exceeds cap ({})",
-                               materialBlobSize, ImportedMaterialCodec::MaxBlobSize);
-                return nullptr; // the stream position is now untrustworthy — fail the asset
+                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Failed to read the imported-material blob");
+                return nullptr;
             }
-            if (materialBlobSize > 0)
-            {
-                std::vector<u8> materialBlob(static_cast<sizet>(materialBlobSize));
-                if (!stream.ReadData(reinterpret_cast<char*>(materialBlob.data()),
-                                     static_cast<sizet>(materialBlobSize)))
-                {
-                    OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Failed to read the imported-material blob");
-                    return nullptr;
-                }
 
-                std::vector<Ref<Material>> importedMaterials;
-                if (ImportedMaterialCodec::DecodeMaterials(materialBlob, importedMaterials))
-                {
-                    meshSource->SetImportedMaterials(std::move(importedMaterials));
-                }
-                else
-                {
-                    OLO_CORE_WARN("MeshSourceSerializer::DeserializeFromAssetPack - Imported-material table is malformed; "
-                                  "the mesh loads without materials");
-                }
+            std::vector<Ref<Material>> importedMaterials;
+            if (ImportedMaterialCodec::DecodeMaterials(materialBlob, importedMaterials))
+            {
+                meshSource->SetImportedMaterials(std::move(importedMaterials));
+            }
+            else
+            {
+                OLO_CORE_WARN("MeshSourceSerializer::DeserializeFromAssetPack - Imported-material table is malformed; "
+                              "the mesh loads without materials");
             }
         }
 
@@ -5554,9 +5507,6 @@ namespace OloEngine
             ParticleCurveSerializer::Deserialize(ps["SizeCurve"], sys.SizeModule.SizeCurve);
             TrySetPS(sys.VelocityModule.Enabled, ps["VelocityOverLifetimeEnabled"]);
             TrySetPS(sys.VelocityModule.LinearAcceleration, ps["LinearAcceleration"]);
-            // Backward compatibility with older assets
-            if (!ps["LinearAcceleration"])
-                TrySetPS(sys.VelocityModule.LinearAcceleration, ps["LinearVelocity"]);
             TrySetPS(sys.VelocityModule.SpeedMultiplier, ps["SpeedMultiplier"]);
             ParticleCurveSerializer::Deserialize(ps["SpeedCurve"], sys.VelocityModule.SpeedCurve);
             TrySetPS(sys.RotationModule.Enabled, ps["RotationOverLifetimeEnabled"]);
@@ -5589,22 +5539,6 @@ namespace OloEngine
                     TrySetPS(ff.Axis, ffNode["Axis"]);
                     sys.ForceFields.Add(ff);
                 }
-            }
-            else if (auto oldEnabled = ps["ForceFieldEnabled"]; oldEnabled)
-            {
-                ModuleForceField ff{};
-                TrySetPS(ff.Enabled, oldEnabled);
-                if (auto val = ps["ForceFieldType"]; val)
-                    ff.Type = static_cast<ForceFieldType>(val.as<int>());
-                TrySetPS(ff.Position, ps["ForceFieldPosition"]);
-                TrySetPS(ff.Strength, ps["ForceFieldStrength"]);
-                TrySetPS(ff.Radius, ps["ForceFieldRadius"]);
-                TrySetPS(ff.Axis, ps["ForceFieldAxis"]);
-                sys.ForceFields.Add(ff);
-            }
-            else
-            {
-                // No additional handling required.
             }
 
             TrySetPS(sys.TrailModule.Enabled, ps["TrailEnabled"]);

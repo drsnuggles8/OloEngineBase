@@ -20,10 +20,8 @@ namespace OloCtl
     {
         using Json = nlohmann::json;
 
-        // The port McpServer binds when the host names none. A discovery file for
-        // this port keeps the legacy unnumbered name.
-        constexpr int kDefaultPort = 7345;
-        constexpr const char* kLegacyDiscoveryName = "oloengine-mcp.json";
+        // McpServer::DiscoveryFilePath names the file `oloengine-mcp-<port>.json`
+        // for every port, the default one included.
         constexpr const char* kDiscoveryPrefix = "oloengine-mcp-";
 
         // The newest revision McpServer::kSupportedProtocolVersions accepts. Sent as
@@ -54,8 +52,6 @@ namespace OloCtl
 
         std::filesystem::path DiscoveryPathForPort(const std::filesystem::path& directory, int port)
         {
-            if (port == kDefaultPort)
-                return directory / kLegacyDiscoveryName;
             return directory / (std::string(kDiscoveryPrefix) + std::to_string(port) + ".json");
         }
 
@@ -100,9 +96,8 @@ namespace OloCtl
             for (const auto& entry : std::filesystem::directory_iterator(directory, ec))
             {
                 const std::string name = entry.path().filename().string();
-                const bool matches = name == kLegacyDiscoveryName ||
-                                     (name.rfind(kDiscoveryPrefix, 0) == 0 && name.size() > 5 &&
-                                      name.compare(name.size() - 5, 5, ".json") == 0);
+                const bool matches = name.rfind(kDiscoveryPrefix, 0) == 0 && name.size() > 5 &&
+                                     name.compare(name.size() - 5, 5, ".json") == 0;
                 if (matches)
                     found.push_back(entry.path());
             }
@@ -328,8 +323,8 @@ namespace OloCtl
         const std::vector<std::filesystem::path> candidates = FindDiscoveryFiles(*temp);
         if (candidates.empty())
         {
-            outError = "no running editor found: nothing matching " + std::string(kLegacyDiscoveryName) + " or " +
-                       kDiscoveryPrefix + "<port>.json in " + temp->string() +
+            outError = "no running editor found: nothing matching " + std::string(kDiscoveryPrefix) +
+                       "<port>.json in " + temp->string() +
                        ". Start OloEditor and its MCP Server panel, or pass --url and --token.";
             return std::nullopt;
         }

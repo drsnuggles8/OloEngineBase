@@ -16,7 +16,7 @@
 #include "OloEngine/Templates/Invoke.h"
 #include "OloEngine/Templates/UnrealTemplate.h"
 #include "OloEngine/Misc/IntrusiveUnsetOptionalState.h"
-// Note: Do NOT include FunctionRef.h - this file provides complete implementations
+// This file provides the complete implementations
 // of TFunctionRef, TFunction, and TUniqueFunction with inline storage support
 
 #include <type_traits>

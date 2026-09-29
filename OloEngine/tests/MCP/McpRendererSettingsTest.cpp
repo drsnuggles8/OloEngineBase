@@ -110,7 +110,7 @@ namespace
 // JSON-RPC error and NOTHING is mutated.
 TEST_F(McpRendererSettingsWriteTest, GateOffRejectsWriteAndMutatesNothing)
 {
-    ASSERT_FALSE(m_Server.AllowWrites()); // off by default
+    ASSERT_EQ(m_Server.GetWriteConsentMode(), OloEngine::MCP::WriteConsentMode::Disabled); // off by default
     ASSERT_EQ(m_PP.Upscale, UpscaleMode::Off);
 
     const Json resp = m_Server.HandleMessage(MakeCallRequest(1, Json{ { "setting", "upscale" }, { "value", "performance" } }));
@@ -127,7 +127,7 @@ TEST_F(McpRendererSettingsWriteTest, GateOffRejectsWriteAndMutatesNothing)
 // the prior value so the change can be reverted by setting it back.
 TEST_F(McpRendererSettingsWriteTest, GateOnAppliesWriteAndReportsPrior)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
 
     const Json resp = m_Server.HandleMessage(MakeCallRequest(2, Json{ { "setting", "upscale" }, { "value", "performance" } }));
 
@@ -142,7 +142,8 @@ TEST_F(McpRendererSettingsWriteTest, GateOnAppliesWriteAndReportsPrior)
     EXPECT_EQ(payload["previousValue"], "off");
     EXPECT_EQ(payload["value"], "performance");
     EXPECT_TRUE(payload["changed"].get<bool>());
-    EXPECT_EQ(payload["restoreWith"], "off");
+    // previousValue is the ONE restore field; the old duplicate is gone (#1501).
+    EXPECT_FALSE(payload.contains("restoreWith"));
 
     // Restore by setting it back to the reported prior value.
     const Json restore = m_Server.HandleMessage(MakeCallRequest(3, Json{ { "setting", "upscale" }, { "value", "off" } }));
@@ -154,7 +155,7 @@ TEST_F(McpRendererSettingsWriteTest, GateOnAppliesWriteAndReportsPrior)
 // tool), and once on it lists every setting with its live current value.
 TEST_F(McpRendererSettingsWriteTest, IntrospectionListsSettingsWhenGateOn)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     m_PP.Tonemap = TonemapOperator::ACES;
 
     const Json resp = m_Server.HandleMessage(MakeCallRequest(4, Json::object()));
@@ -179,7 +180,7 @@ TEST_F(McpRendererSettingsWriteTest, IntrospectionListsSettingsWhenGateOn)
 
 TEST_F(McpRendererSettingsWriteTest, SchemaRejectsUnknownSetting)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     const Json resp = m_Server.HandleMessage(MakeCallRequest(5, Json{ { "setting", "bogus" }, { "value", "off" } }));
     ASSERT_TRUE(resp.contains("result")); // SEP-1303: schema failures are tool errors
     EXPECT_EQ(resp["result"]["isError"], true);
@@ -188,7 +189,7 @@ TEST_F(McpRendererSettingsWriteTest, SchemaRejectsUnknownSetting)
 
 TEST_F(McpRendererSettingsWriteTest, SchemaRejectsUnknownProperty)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     const Json resp = m_Server.HandleMessage(
         MakeCallRequest(6, Json{ { "setting", "upscale" }, { "value", "off" }, { "extra", true } }));
     ASSERT_TRUE(resp.contains("result")); // SEP-1303: schema failures are tool errors
@@ -202,7 +203,7 @@ TEST_F(McpRendererSettingsWriteTest, SchemaRejectsUnknownProperty)
 // handler's ParseArgs rejected the value.
 TEST_F(McpRendererSettingsWriteTest, MismatchedValueIsToolError)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     // "reinhard" is a tonemap value, not an upscale value.
     const Json resp = m_Server.HandleMessage(MakeCallRequest(7, Json{ { "setting", "upscale" }, { "value", "reinhard" } }));
     ASSERT_TRUE(resp.contains("result"));
@@ -214,7 +215,7 @@ TEST_F(McpRendererSettingsWriteTest, MismatchedValueIsToolError)
 // A setting without a value is a tool error naming the valid values.
 TEST_F(McpRendererSettingsWriteTest, MissingValueIsToolError)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     const Json resp = m_Server.HandleMessage(MakeCallRequest(8, Json{ { "setting", "tonemap" } }));
     ASSERT_TRUE(resp.contains("result"));
     EXPECT_TRUE(resp["result"]["isError"]);
@@ -404,7 +405,6 @@ TEST(McpRendererSettingsApply, DepthAwareCullingLeverIsIndependentOfTheDepthPrep
     EXPECT_FALSE(lever.DepthAwareCulling);
     EXPECT_EQ(result.Data["previousValue"], "on");
     EXPECT_EQ(result.Data["value"], "off");
-    EXPECT_EQ(result.Data["restoreWith"], "on");
     EXPECT_TRUE(result.Data["changed"].get<bool>());
 
     const auto restored = RS::Apply(RS::Setting::DepthAwareCulling, RS::kDepthAwareCullingOn, pp, rs, lever);
@@ -425,7 +425,6 @@ TEST(McpRendererSettingsApply, SoftShadowsPcfDisablesPcssAndReportsPrior)
     EXPECT_FALSE(lever.SoftShadows);
     EXPECT_EQ(result.Data["previousValue"], "pcss");
     EXPECT_EQ(result.Data["value"], "pcf");
-    EXPECT_EQ(result.Data["restoreWith"], "pcss");
     EXPECT_TRUE(result.Data["changed"].get<bool>());
 
     // Restore by setting the reported prior value back.
@@ -450,7 +449,6 @@ TEST(McpRendererSettingsApply, HZBOcclusionTogglesTheLeverAndReportsPrior)
     EXPECT_TRUE(lever.HZBOcclusion);
     EXPECT_EQ(result.Data["previousValue"], "off");
     EXPECT_EQ(result.Data["value"], "on");
-    EXPECT_EQ(result.Data["restoreWith"], "off");
     EXPECT_TRUE(result.Data["changed"].get<bool>());
 
     // Restore by setting the reported prior value back.
@@ -479,7 +477,6 @@ TEST(McpRendererSettingsApply, DDGICascadesTogglesTheRendererSettingAndReportsPr
     EXPECT_TRUE(rs.DDGICascadesEnabled);
     EXPECT_EQ(result.Data["previousValue"], "off");
     EXPECT_EQ(result.Data["value"], "on");
-    EXPECT_EQ(result.Data["restoreWith"], "off");
     EXPECT_TRUE(result.Data["changed"].get<bool>());
 
     // Describe is the READ side and reaches the value through CurrentValue, not
@@ -550,7 +547,6 @@ TEST(McpRendererSettingsApply, SceneTemporalResolveReachesTheRefusedTierAndBack)
     ASSERT_TRUE(ignored.Ok);
     EXPECT_FALSE(rs.HonourSceneTemporalResolveRequests);
     EXPECT_EQ(ignored.Data["previousValue"], "honour");
-    EXPECT_EQ(ignored.Data["restoreWith"], "honour");
     EXPECT_FALSE(ignored.RequiresRenderGraphRebuild) << "read at BeginScene; nothing to rebuild";
     EXPECT_EQ(currentValue(pp, rs, lever), "ignore");
     EXPECT_FALSE(pp.TAAEnabled) << "the lever must never tick the user's own TAA box";
@@ -590,7 +586,6 @@ TEST(McpRendererSettingsApply, GroomDeformationReachesTheCpuReferenceAndBack)
     ASSERT_TRUE(cpu.Ok);
     EXPECT_FALSE(rs.GroomGpuDeformation);
     EXPECT_EQ(cpu.Data["previousValue"], "gpu");
-    EXPECT_EQ(cpu.Data["restoreWith"], "gpu");
     EXPECT_FALSE(cpu.RequiresRenderGraphRebuild) << "handed to the pass per frame; nothing to rebuild";
     EXPECT_EQ(currentValue(pp, rs, lever), "cpu");
 
@@ -778,7 +773,7 @@ TEST(McpRendererSettingsApply, TechniqueReachesThePostProcessFieldAndBack)
     const auto restored = RS::Apply(RS::Setting::UpscaleTechnique, static_cast<i32>(UpscalerTechnique::Spatial), pp, rs, lever);
     ASSERT_TRUE(restored.Ok);
     EXPECT_EQ(pp.Technique, UpscalerTechnique::Spatial);
-    EXPECT_EQ(restored.Data["restoreWith"], "temporal");
+    EXPECT_EQ(restored.Data["previousValue"], "temporal");
 
     i32 value = -1;
     EXPECT_TRUE(RS::ParseValue(RS::Setting::UpscaleTechnique, "Temporal", value));

@@ -257,8 +257,7 @@ namespace OloEngine::Tests
         // The warn-only form was what made step 2 necessary: it is a
         // [[deprecated]]-backed warning, so a violation compiled and shipped.
         std::string error;
-        const std::string containers[] = { "Containers/Array.h", "Containers/CompactSet.h", "Containers/Deque.h",
-                                           "Containers/SparseArray.h" };
+        const std::string containers[] = { "Containers/Array.h", "Containers/Deque.h", "Containers/SparseArray.h" };
         for (const auto& relative : containers)
         {
             SCOPED_TRACE(relative);

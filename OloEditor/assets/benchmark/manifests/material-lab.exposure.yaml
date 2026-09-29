@@ -9,7 +9,7 @@
 # std::chrono::steady_clock to the mocked Time::GetTime() (see the
 # determinism contract in the guide) — with a stepped mock clock the
 # adaptation integrates identical dt every frame, every run.
-ManifestVersion: 1
+ManifestVersion: 2
 Id: material-lab-exposure
 Product: diagnostic
 Scene: Scenes/Benchmark/MaterialLab.olo
@@ -73,21 +73,90 @@ Assets:
   - Path: assets/textures/hdr/newport_loft.hdr
     Origin: LearnOpenGL PBR/IBL sample HDRI (Newport Loft)
     License: unverified — no license file in-repo
+    Redistribution: committed
+    LicenseVerified: unverified
+    Version: in-repo copy, upstream revision not recorded
+    Sha256: f521688ab09b3e748341921d0c8c114d1256e6ca9e94c6e6783b9952b0042c44
+    Units: unitless
+    UpAxis: n/a
+    ColorSpace: linear
+    Acquisition: >-
+      http://www.hdrlabs.com/sibl/archive.html (upstream archive; the in-repo copy predates this manifest)
   - Path: assets/textures/pbr/rusted_iron/albedo.png
     Origin: LearnOpenGL PBR sample texture set (rusted iron)
     License: unverified — no license file in-repo
+    Redistribution: committed
+    LicenseVerified: unverified
+    Version: in-repo copy, upstream revision not recorded
+    Sha256: ea49f2c44684c8810dfb628297c6b1bd8a8477fc77c469510f54db83edd1ba3b
+    Units: unitless
+    UpAxis: n/a
+    ColorSpace: srgb
+    Acquisition: >-
+      Already in-tree; the copy predates this manifest. Upstream: the LearnOpenGL PBR sample textures
+      (https://learnopengl.com/PBR/Lighting); their licence is not confirmed
   - Path: assets/textures/pbr/rusted_iron/normal.png
     Origin: LearnOpenGL PBR sample texture set (rusted iron)
     License: unverified — no license file in-repo
+    Redistribution: committed
+    LicenseVerified: unverified
+    Version: in-repo copy, upstream revision not recorded
+    Sha256: 59efd21ea2bf8882b0fe5d0659e08a8fdd8a7230d6d0f133d4dccec7099fc46c
+    Units: unitless
+    UpAxis: n/a
+    ColorSpace: linear
+    Acquisition: >-
+      Already in-tree; the copy predates this manifest. Upstream: the LearnOpenGL PBR sample textures
+      (https://learnopengl.com/PBR/Lighting); their licence is not confirmed
   - Path: assets/textures/pbr/wall/albedo.png
     Origin: LearnOpenGL PBR sample texture set (wall)
     License: unverified — no license file in-repo
+    Redistribution: committed
+    LicenseVerified: unverified
+    Version: in-repo copy, upstream revision not recorded
+    Sha256: 26c0a8040ebf40f5088c60679a3708dbff54f838bd558c0d2cbce1fe70d64797
+    Units: unitless
+    UpAxis: n/a
+    ColorSpace: srgb
+    Acquisition: >-
+      Already in-tree; the copy predates this manifest. Upstream: the LearnOpenGL PBR sample textures
+      (https://learnopengl.com/PBR/Lighting); their licence is not confirmed
   - Path: assets/textures/pbr/wall/normal.png
     Origin: LearnOpenGL PBR sample texture set (wall)
     License: unverified — no license file in-repo
+    Redistribution: committed
+    LicenseVerified: unverified
+    Version: in-repo copy, upstream revision not recorded
+    Sha256: 6a60abb130fc2906ded455c137f247d992edec88f571091ada28268c669f0b4f
+    Units: unitless
+    UpAxis: n/a
+    ColorSpace: linear
+    Acquisition: >-
+      Already in-tree; the copy predates this manifest. Upstream: the LearnOpenGL PBR sample textures
+      (https://learnopengl.com/PBR/Lighting); their licence is not confirmed
   - Path: assets/textures/pbr/gold/albedo.png
     Origin: LearnOpenGL PBR sample texture set (gold)
     License: unverified — no license file in-repo
+    Redistribution: committed
+    LicenseVerified: unverified
+    Version: in-repo copy, upstream revision not recorded
+    Sha256: 44f334985b741aea0ba15f4dd02a6e4bc83a2d18703d23f8b97ec17f22e4be84
+    Units: unitless
+    UpAxis: n/a
+    ColorSpace: srgb
+    Acquisition: >-
+      Already in-tree; the copy predates this manifest. Upstream: the LearnOpenGL PBR sample textures
+      (https://learnopengl.com/PBR/Lighting); their licence is not confirmed
   - Path: assets/textures/pbr/gold/normal.png
     Origin: LearnOpenGL PBR sample texture set (gold)
     License: unverified — no license file in-repo
+    Redistribution: committed
+    LicenseVerified: unverified
+    Version: in-repo copy, upstream revision not recorded
+    Sha256: f6c848c640d460155a05a610212d600cbf056ba07b3bd134cb3a9c5d8a6eaea9
+    Units: unitless
+    UpAxis: n/a
+    ColorSpace: linear
+    Acquisition: >-
+      Already in-tree; the copy predates this manifest. Upstream: the LearnOpenGL PBR sample textures
+      (https://learnopengl.com/PBR/Lighting); their licence is not confirmed

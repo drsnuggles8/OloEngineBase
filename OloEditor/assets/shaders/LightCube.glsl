@@ -42,9 +42,9 @@ void main()
     vec3 a_Position = vec3(b_Vertices.v[vertBase + 0], b_Vertices.v[vertBase + 1], b_Vertices.v[vertBase + 2]);
 #endif
     OLO_INSTANCE_FORWARD();
-    vec4 worldPos = u_Model * vec4(a_Position, 1.0);
+    vec4 worldPos = instances[gl_InstanceIndex].Transform * vec4(a_Position, 1.0);
     vec4 clipCurr = u_ViewProjection * worldPos;
-    vec4 prevWorldPos = u_PrevModel * vec4(a_Position, 1.0);
+    vec4 prevWorldPos = instances[gl_InstanceIndex].PrevTransform * vec4(a_Position, 1.0);
     vec4 clipPrev = u_PrevViewProjection * prevWorldPos;
 
     v_ClipPosCurr = clipCurr;

@@ -83,7 +83,7 @@ volumes; precedents: VirtualGeometryDebug, FluidIntermediates):
 ## 6. Post-pass hooks are keyed and multi-listener; snapshots must copy at hook time
 
 `RenderGraph::AddPostPassHook(key, fn)` / `RemovePostPassHook(key)` replaced
-the single-slot `SetPostPassHook` (#607): the debugger's frame capture
+the single-slot `SetPostPassHook` (#607, since deleted): the debugger's frame capture
 (`"framecapture"`) and the MCP afterPass snapshot (`"mcp-afterpass-snapshot"`)
 coexist on the same graph. Never re-introduce a single-slot install, and never
 use the graph's `HasPostPassHook()` to test whether *your* hook is installed —

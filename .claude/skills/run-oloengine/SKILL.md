@@ -249,8 +249,8 @@ Notes:
 - If the `claude` CLI isn't on PATH, `attach` prints the exact `claude mcp add` line to
   run manually (same as the editor's `Window ▸ MCP Server` panel "Copy command" button).
 - `stop` runs `claude mcp remove <name>` and deletes the discovery file. The editor's
-  MCP panel still works for a manually started server (default port 7345, legacy
-  `%TEMP%\oloengine-mcp.json` discovery file) — `attach` only adds the per-worktree path.
+  MCP panel still works for a manually started server (default port 7345,
+  `%TEMP%\oloengine-mcp-7345.json` discovery file) — `attach` only adds the per-worktree path.
 - To verify the full round-trip without depending on session tool surfacing, run
   [mcp-smoke-test.ps1](mcp-smoke-test.ps1) (set
   `$env:OLO_MCP_DISCOVERY_FILE` to the per-worktree path first, or pass `-DiscoveryPath`).

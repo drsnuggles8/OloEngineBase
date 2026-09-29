@@ -323,9 +323,8 @@ bakes a Preetham 1999 analytic daylight sky into a cubemap via
 feeds it through the existing `EnvironmentMap` IBL pipeline. Because the
 output is the same cubemap + irradiance / prefilter / BRDF set that the
 file-based environment map produces, water reflections, IBL ambient, and
-the skybox all consume it with no shader changes. Sun direction can track
-the scene's directional light (`m_LinkSunToDirectionalLight`) for a
-time-of-day controller, and a representative sun disk is baked in. The
+the skybox all consume it with no shader changes. Sun direction is driven
+by `TimeOfDayComponent` (issue #633), and a representative sun disk is baked in. The
 Preetham math is pinned by `ProceduralSkyMathTest.cpp` and the GPU bake by
 `ProceduralSkyBakeTest.cpp`.
 

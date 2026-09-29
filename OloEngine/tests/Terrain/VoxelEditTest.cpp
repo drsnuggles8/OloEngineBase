@@ -6,6 +6,7 @@
 
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
+#include <cstring>
 
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Ray.h"
@@ -98,4 +99,30 @@ TEST(VoxelEdit, PaintedMaterialSurvivesVoxelSerialization)
     ASSERT_TRUE(restored->DeserializeRLE(voxels->SerializeRLE()));
     EXPECT_FLOAT_EQ(restored->GetVoxelSDF({ -1, 4, 2 }), -1.0f);
     EXPECT_EQ(restored->GetVoxelMaterial({ -1, 4, 2 }), 23);
+}
+
+TEST(VoxelEdit, DeserializeRejectsAWrongVersionOrAHeaderlessBlob)
+{
+    auto voxels = MakeVoxels();
+    voxels->SetVoxel({ 3, 4, 5 }, -1.0f, 7);
+    const TArray<u8> blob = voxels->SerializeRLE();
+    ASSERT_GE(static_cast<sizet>(blob.Num()), sizet{ 12 });
+
+    auto restored = MakeVoxels();
+    ASSERT_TRUE(restored->DeserializeRLE(blob));
+    const u32 chunksBefore = restored->GetChunkCount();
+
+    // Version word bumped past the current one: rejected, state untouched.
+    TArray<u8> wrongVersion = blob;
+    const i32 nextVersion = VoxelOverride::RLEVersion + 1;
+    std::memcpy(wrongVersion.GetData() + 4, &nextVersion, sizeof(nextVersion));
+    EXPECT_FALSE(restored->DeserializeRLE(wrongVersion));
+
+    // The pre-VOX1 layout started directly with the chunk count; it is no longer read.
+    TArray<u8> headerless;
+    headerless.Append(blob.GetData() + 8, blob.Num() - 8);
+    EXPECT_FALSE(restored->DeserializeRLE(headerless));
+
+    EXPECT_EQ(restored->GetChunkCount(), chunksBefore);
+    EXPECT_FLOAT_EQ(restored->GetVoxelSDF({ 3, 4, 5 }), -1.0f);
 }

@@ -71,7 +71,7 @@ void main()
     {
         // Any positive depth: the probe's grid has one slice.
         lit = fplusEvaluateTileLightsSplit(N, V, worldPos, s.Albedo.rgb, s.NormalAndMetallic.w,
-                                           s.PositionAndRoughness.w, 1.0, pbrModel);
+                                           s.PositionAndRoughness.w, 1.0, pbrModel, vec2(0.0, 1.0), vec4(0.0));
     }
     o_Result = vec4(oloSurfaceLightingSum(lit), 1.0);
 }

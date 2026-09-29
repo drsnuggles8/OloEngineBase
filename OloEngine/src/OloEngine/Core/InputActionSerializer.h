@@ -13,9 +13,8 @@ namespace OloEngine
     {
       public:
         // Persists one InputActionMap per context under an "InputActionContexts" sequence,
-        // so authored per-context maps survive a save/reload. DeserializeContexts also reads
-        // the legacy single-map format (an "InputActionMap" root node written by older
-        // versions), mapping it to the Gameplay context, so pre-existing files still load.
+        // so authored per-context maps survive a save/reload. A file without that sequence
+        // (including the retired single-map "InputActionMap" root) is rejected.
         using ContextMaps = std::unordered_map<InputContextType, InputActionMap>;
         static bool SerializeContexts(const ContextMaps& contexts, const std::filesystem::path& filepath);
         static std::optional<ContextMaps> DeserializeContexts(const std::filesystem::path& filepath);

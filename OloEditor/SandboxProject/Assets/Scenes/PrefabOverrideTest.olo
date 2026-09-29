@@ -1,4 +1,5 @@
 Scene: PrefabOverrideTest.olo
+Version: 1
 Entities:
   - Entity: 1000000000001
     TagComponent:

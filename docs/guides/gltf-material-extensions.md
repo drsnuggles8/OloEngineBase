@@ -130,8 +130,8 @@ data still loads with the neutral defaults:
 |---|---|
 | Scene YAML (`MaterialComponent`) | Keys omitted at their defaults, so pre-#970 scenes re-serialize byte-identical. A missing `AttenuationDistance` means `+∞`. |
 | `.omaterial` (`MaterialAssetSerializer`) | A `PhysicalMaterial` block, written only when the material is non-neutral. Deliberately *not* in the generic `Properties` bag, which round-trips into uniforms rather than the typed setters. |
-| `.omesh` / asset pack (`ImportedMaterialCodec`) | Wire version `2`; a v1 blob stops before the block and keeps the defaults. `OMeshFormat::CurrentVersion` also moves 6 → 7, so an existing warm `.omesh` is re-imported rather than serving a v1 material blob — without that, an already-imported transmissive glTF would keep rendering opaque with no error. |
-| Save-game | Introduced at `kSaveGameFormatVersion` 29 (`HasFieldsSince(ar, 29)`); a pre-v29 save stops before the block. |
+| `.omesh` / asset pack (`ImportedMaterialCodec`) | Read unconditionally. The codec accepts only its current wire version (3 since #1499) and rejects an older blob, so the mesh must be re-imported; `OMeshFormat::CurrentVersion` moves with each codec bump so a warm `.omesh` is re-imported rather than decode-failing into a material-less mesh, and `AssetPackFile::Version` moves with it (6 since #1496) so an older pack is rejected with "rebuild the pack". |
+| Save-game | Read unconditionally. The save game reads one format version and rejects any other (#1498). |
 
 ## Authoring
 
@@ -149,6 +149,6 @@ what `GltfPhysicalMaterialImportTest` reads.
 |---|---|
 | `MaterialTransmissionTest` | Neutral defaults, the Beer-Lambert derivation against an independently written spec formula, boundedness, and the hostile-input sweep. |
 | `GltfPhysicalMaterialImportTest` | The Assimp key mapping, against the real fixture rather than a mock. |
-| `ImportedMaterialCodecTest` | Wire round-trip, v1 compatibility, and that `+∞` survives. |
+| `ImportedMaterialCodecTest` | Wire round-trip, rejection of the previous wire version, and that `+∞` survives. |
 | `MaterialCopyTest` | The three hand-maintained copy paths carry the new fields. |
 | `TransmissionVisualEvidenceTest` | That the shader actually applies it, on the real pipeline. |

@@ -337,37 +337,9 @@ OloSurfaceLighting fplusEvaluateTileLightsSplit(vec3 N, vec3 V, vec3 worldPos,
     return Lo;
 }
 
-// Legacy-model convenience overload: call sites with no material model (the
-// terrain shader) keep their existing signature and closure. The sphere-area
-// branch above deliberately stays on the Legacy representative-point
-// evaluator for every model — see PBR CLOSURE V2 in PBRCommon.glsl.
-
-// The combined spelling with an explicit closure model — what the forward and
-// deferred paths called before #1231 split the body, and what every caller that
-// does not need the two halves still calls.
-// The pre-#1243 signature, for every caller that is not shading skin. An
-// overload rather than a default argument because GLSL has no default
-// arguments, and a wrapper rather than making every call site type
-// `vec2(0.0, 1.0)` because a parameter whose only legal value at most call sites
-// is a magic constant is a parameter that will eventually be passed wrong.
-// The pre-#1245 signature, for a caller that shades skin but not an oral
-// surface. An overload rather than a default argument because GLSL has none.
-OloSurfaceLighting fplusEvaluateTileLightsSplit(vec3 N, vec3 V, vec3 worldPos,
-                                                vec3 albedo, float metallic, float roughness,
-                                                float viewDepth, int pbrModel, vec2 skinLobe)
-{
-    return fplusEvaluateTileLightsSplit(N, V, worldPos, albedo, metallic, roughness,
-                                        viewDepth, pbrModel, skinLobe, vec4(0.0));
-}
-
-OloSurfaceLighting fplusEvaluateTileLightsSplit(vec3 N, vec3 V, vec3 worldPos,
-                                                vec3 albedo, float metallic, float roughness,
-                                                float viewDepth, int pbrModel)
-{
-    return fplusEvaluateTileLightsSplit(N, V, worldPos, albedo, metallic, roughness,
-                                        viewDepth, pbrModel, vec2(0.0, 1.0), vec4(0.0));
-}
-
+// The combined spelling with an explicit closure model: the Split evaluator
+// summed, for a caller that shades neither skin nor an oral surface and does
+// not need the two halves.
 vec3 fplusEvaluateTileLights(vec3 N, vec3 V, vec3 worldPos,
                              vec3 albedo, float metallic, float roughness,
                              float viewDepth, int pbrModel)
@@ -377,7 +349,9 @@ vec3 fplusEvaluateTileLights(vec3 N, vec3 V, vec3 worldPos,
                                                               vec2(0.0, 1.0), vec4(0.0)));
 }
 
-// And the Legacy-model convenience overload itself.
+// Legacy-model convenience overload: a call site with no material model. The
+// sphere-area branch above deliberately stays on the Legacy representative-point
+// evaluator for every model — see PBR CLOSURE V2 in PBRCommon.glsl.
 vec3 fplusEvaluateTileLights(vec3 N, vec3 V, vec3 worldPos,
                               vec3 albedo, float metallic, float roughness,
                               float viewDepth)

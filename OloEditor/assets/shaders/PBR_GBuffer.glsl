@@ -120,18 +120,18 @@ void main()
     }
 #endif
     OLO_INSTANCE_FORWARD();
-    v_WorldPos = vec3(u_Model * vec4(a_Position, 1.0));
-    v_Normal = mat3(u_Normal) * a_Normal;
+    v_WorldPos = vec3(instances[gl_InstanceIndex].Transform * vec4(a_Position, 1.0));
+    v_Normal = mat3(instances[gl_InstanceIndex].Normal) * a_Normal;
     v_TexCoord = a_TexCoord;
     v_TexCoord2 = a_TexCoord2;
 
     v_ClipPosCurr = u_ViewProjection * vec4(v_WorldPos, 1.0);
-    // Per-entity previous-frame transform (u_PrevModel) plus the previous
+    // Per-entity previous-frame transform (the instance PrevTransform) plus the previous
     // view-projection lets DeferredLightingPass reconstruct full screen-space
     // velocity including object motion. Renderer3D caches prev transforms per
     // entity ID; the first frame copies current→prev so velocity reads zero
     // for newly-spawned geometry.
-    vec4 prevWorldPos = u_PrevModel * vec4(a_Position, 1.0);
+    vec4 prevWorldPos = instances[gl_InstanceIndex].PrevTransform * vec4(a_Position, 1.0);
     v_ClipPosPrev = u_PrevViewProjection * prevWorldPos;
 
     gl_Position = v_ClipPosCurr;
@@ -285,11 +285,8 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     uvec4 u_MaterialHeapOffsets[3];
 };
 
-// Model UBO (binding 3) — entity-ID is not written from the G-Buffer path
-// (picking remains a Forward-path responsibility). Block re-declared here
-// identical to the vertex stage so GLSL/SPIR-V link validation accepts it;
-// u_PrevModel goes unused by the fragment stage but must be present to keep
-// block signatures matched across stages.
+// Instance SSBO for the entity ID and the ocular axis
+// (instances[v_InstanceIndex]).
 #include "include/InstanceBlock.glsl"
 // Snow as a material layer (issue #1451) — the forward shaders' functions,
 // so a deferred pixel carries the same snow. Brings the Snow UBO (13).
@@ -572,7 +569,7 @@ void main()
     {
         OloSkinOcular oloOcular = oloSkinOcularApply(albedo, N,
                                                      normalize(u_CameraPosition - v_WorldPos),
-                                                     u_Model[2].xyz,
+                                                     instances[v_InstanceIndex].Transform[2].xyz,
                                                      u_SkinOcularCorneaLane, u_SkinOcularIrisLane,
                                                      u_SkinOcularResponseLane, u_SkinOcularTintLane);
         albedo = oloOcular.Albedo;
@@ -595,7 +592,7 @@ void main()
     o_GBufferEmissive = vec4(emissive, oloEncodeGBufferPbrFlagsEx(matPBRModel, matMaterialKind, matSkinProfileSlot)); // flag-lane layout: see oloEncodeGBufferPbrFlagsEx (#975, #1231)
     // .a: the material profile (#1256) is the snow weight (issue #1451).
     o_GBufferVelocity = vec4(velocity, 1.0, snowWeight);
-    o_GBufferEntityID = u_EntityID;
+    o_GBufferEntityID = instances[v_InstanceIndex].EntityID;
     // vec4(0) whenever the scene kill switch is off, this draw has no atlas
     // region, or the texel was never baked — the deferred ambient ladder then
     // falls through to probes/IBL exactly as it did before #865. Coverage is the

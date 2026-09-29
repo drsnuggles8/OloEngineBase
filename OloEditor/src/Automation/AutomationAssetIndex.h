@@ -34,11 +34,10 @@
 // key names that would go stale the moment a component gains a field.
 //
 // THE RESOLUTION RULE, and why it is anchored rather than fuzzy. Checked-in
-// content spells the same kind of reference at least five ways:
+// content spells the same kind of reference at least four ways:
 //
 //     Assets/Textures/x.png              project-relative -- the documented one
 //     Scripts/LuaScripts/x.lua           asset-directory-relative (Project::GetAssetFileSystemPath)
-//     SandboxProject/Assets/Models/x.obj the legacy project-prefixed spelling (#1098)
 //     assets/textures/x.png              relative to the working directory
 //     ../../assets/models/y/z.gltf       ...which is also how these resolve
 //
@@ -74,7 +73,7 @@ namespace OloEngine::Automation
 
     // Which base a path reference resolved against. This is NOT an invention of
     // this index: it mirrors EditorAssetManager::ImportAsset's own ordered
-    // resolution (issues #887 and #1098) step for step, so a referrer answer
+    // resolution (issues #887 and #1496) step for step, so a referrer answer
     // agrees with what the engine will actually load. Recording WHICH step won
     // is what lets a move re-spell the value in the style the file already used
     // instead of rewriting every reference into one canonical form.
@@ -90,8 +89,7 @@ namespace OloEngine::Automation
         // "Audio/ding.wav" -- and omitting it drops those references silently,
         // which is the direction that loses data.
         AssetDirectoryRelative,
-        LegacyProjectPrefixed, // ProjectRoot / (value minus its leading component).
-        BaseDirectory,         // one of AssetIndexScope::BaseDirectories.
+        BaseDirectory, // one of AssetIndexScope::BaseDirectories.
         // The REFERRING FILE's own directory. Tried last, after every anchor
         // EditorAssetManager::ImportAsset uses, so it can only ever resolve
         // something that would otherwise be unresolved -- the index must never

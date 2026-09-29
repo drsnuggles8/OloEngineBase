@@ -75,7 +75,9 @@ inventing a finding. It publishes `null` now, and a total assembled from a list 
 **5. Sums and elapsed times are different kinds and must be labelled.** The study measured
 25.3–27.8 ms of summed worker CPU inside a 2.4 ms wall. Adding a sum to an elapsed figure, or
 reading one as the other, is off by the worker count. `recordingBreakdown` in
-`olo_perf_pass_timings` marks each of the seven frame measurements ELAPSED or SUM.
+`olo_perf_pass_timings` names each recording measurement for its kind (`summedWorkerCpuMs` vs
+`elapsedRecordingWallMs`), and publishes each quantity once: the old unlabelled
+`parallelRecording.workerRecordMs` spelling is gone (#1501).
 
 **6. Nesting is stated by the producer, never inferred by the consumer.** A sub-pass interval sits
 inside its parent's, so summing both double-counts. That used to be re-derived from a `/` in the

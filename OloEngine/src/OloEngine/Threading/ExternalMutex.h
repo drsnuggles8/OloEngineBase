@@ -97,20 +97,4 @@ namespace OloEngine
         std::atomic<StateType>& m_State;
     };
 
-    namespace Private
-    {
-        // @struct FExternalMutexParams
-        // @brief Default parameters for FExternalMutex
-        struct FExternalMutexParams
-        {
-            inline constexpr static u8 IsLockedFlag = 1 << 0;
-            inline constexpr static u8 MayHaveWaitingLockFlag = 1 << 1;
-        };
-
-    } // namespace Private
-
-    // @brief Default external mutex using u8 state
-    // @deprecated Use TExternalMutex or TIntrusiveMutex directly
-    using FExternalMutex [[deprecated("Use TExternalMutex or TIntrusiveMutex.")]] = TExternalMutex<Private::FExternalMutexParams>;
-
 } // namespace OloEngine

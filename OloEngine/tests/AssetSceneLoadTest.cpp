@@ -542,9 +542,8 @@ namespace OloEngine::Tests
     //
     // This pins the fix for both the decal texture arm (the reported symptom, freshly
     // authored with the current "Assets/..." convention) and the pre-existing sprite
-    // texture control (PinkCubeWithTextures.olo, still spelled the older
-    // "SandboxProject/Assets/..." working-directory-relative way, which ImportAsset must
-    // keep resolving via its cwd-relative fallback) so a regression in either direction is
+    // texture control (PinkCubeWithTextures.olo, a pre-existing scene whose texture must
+    // resolve inside the staged project) so a regression in either direction is
     // caught. Two loads of the same scene path are checked because the reported failure is
     // a "second load" class of bug: the binary sidecar written on the first load must carry
     // the same correct path forward, not silently drop it.
@@ -693,7 +692,7 @@ namespace OloEngine::Tests
                 << "The YAML and binary-sidecar loads disagree about the decal's texture path.";
         }
 
-        // -------------------- sprite control (pre-existing, older path spelling) --------------------
+        // -------------------- sprite control (pre-existing scene) --------------------
         {
             const fs::path scenePath = tempRoot / "Assets" / "Scenes" / "PinkCubeWithTextures.olo";
             ASSERT_TRUE(fs::exists(scenePath)) << scenePath.string();
@@ -714,16 +713,13 @@ namespace OloEngine::Tests
                 return result;
             };
 
-            // THE DECISION (issue #1098), so it is not re-litigated: the legacy
-            // "SandboxProject/Assets/..." spelling STAYS SUPPORTED. It is carried by
-            // eleven shipped scenes and by any user scene authored before #887, and
-            // dropping it loses their textures with only a warning thousands of log
-            // lines away. What changed is WHERE it resolves against: the project
-            // root, not the process working directory. The cwd spelling only ever
-            // worked because OloEditor happens to run one directory above the
-            // project — a property of the launch, not of the project — and under it
+            // This scene used to carry the "SandboxProject/Assets/..." spelling,
+            // which only ever resolved because OloEditor runs one directory above
+            // the project — a property of the launch, not of the project. Under it
             // this very test resolved to the ORIGINAL repository texture rather than
             // to the staged copy, and registered the same file under two handles.
+            // The content is project-relative now and the prefixed spelling is no
+            // longer tolerated (#1496).
             //
             // So the assertion is not merely "non-empty": it is that the texture
             // resolves INSIDE the project it was loaded from. That is the property
@@ -732,7 +728,7 @@ namespace OloEngine::Tests
             auto [firstPath, secondPath] = loadTwiceAndGetPath(scenePath, findFirstSpriteTexture);
             EXPECT_FALSE(firstPath.empty())
                 << "SpriteRendererComponent::Texture had an empty GetPath() on the FIRST load — "
-                   "the older 'SandboxProject/Assets/...' path spelling must still resolve.";
+                   "the scene's project-relative texture path must resolve.";
             EXPECT_FALSE(secondPath.empty())
                 << "SpriteRendererComponent::Texture had an empty GetPath() on the SECOND load.";
             EXPECT_EQ(firstPath, secondPath);
@@ -746,7 +742,7 @@ namespace OloEngine::Tests
                 << ") — scene texture references must stay project-relative to be portable.";
             EXPECT_EQ(firstPath.find(".."), std::string::npos)
                 << "the sprite texture resolved OUTSIDE the project (" << firstPath
-                << ") — the legacy spelling must resolve against the project root, not the cwd.";
+                << ") — the scene texture path must resolve against the project root, not the cwd.";
             EXPECT_TRUE(fs::exists(tempRoot / resolved))
                 << "the sprite texture path '" << firstPath
                 << "' does not name a file inside the staged project at " << tempRoot.string();

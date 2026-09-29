@@ -3276,6 +3276,7 @@ namespace OloEngine::Tests
     {
         // Hand-written YAML with the pre-#438 Rigidbody3DComponent key set only.
         const std::string legacyYaml = R"(Scene: Legacy
+Version: 1
 Entities:
   - Entity: 1234567890123456789
     TagComponent:
@@ -4339,7 +4340,7 @@ Entities:
     {
         auto scene = Scene::Create();
         const std::string yaml =
-            "Scene: Untitled\n"
+            "Scene: Untitled\nVersion: 1\n"
             "Entities:\n"
             "  - Entity: 12345\n"
             "    TagComponent:\n"
@@ -4419,7 +4420,7 @@ Entities:
         // corrupt scene a different, plausible, wrong silhouette — the same
         // reasoning behind VehicleComponent::m_DriveMode.
         auto scene = Scene::Create();
-        const std::string yaml = std::string("Scene: Untitled\n") +
+        const std::string yaml = std::string("Scene: Untitled\nVersion: 1\n") +
                                  "Entities:\n" +
                                  "  - Entity: 424242\n" +
                                  "    TagComponent:\n" +

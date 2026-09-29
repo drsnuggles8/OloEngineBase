@@ -155,7 +155,7 @@ add_executable(OloEngine-Tests
 		OloHeaderToolOutputsTest.cpp
 		OloHeaderToolClassifierTest.cpp
 		SceneSerializerFuzzRegressionTest.cpp
-		SceneVersionMigrationTest.cpp
+		SceneVersionTest.cpp
 		EngineSubsystemSmokeTest.cpp
 		AppLaunchSmokeTest.cpp
 		GpuGateSwitchTest.cpp
@@ -1003,8 +1003,8 @@ add_executable(OloEngine-Tests
 		SaveGame/SaveGameFileTest.cpp
 		SaveGame/SaveGameManagerTest.cpp
 		SaveGame/SaveGameIntegrationTest.cpp
+		SaveGame/SaveGameFormatGuardTest.cpp
 		SaveGame/SaveGameComponentSerializerCoverageTest.cpp
-		SaveGame/SaveGameVersionMigrationTest.cpp
 		SaveGame/BoidComponentSaveLoadSanitizeTest.cpp
 		SaveGame/FoliageLeafMaterialSaveLoadTest.cpp
         SaveGame/FoliageWindSaveLoadTest.cpp
@@ -1796,6 +1796,18 @@ target_compile_definitions(OloEngine-Tests PRIVATE
 # Fix UTF-8 compilation issue
 if(MSVC)
 	target_compile_options(OloEngine-Tests PRIVATE /utf-8 /FS /bigobj)
+endif()
+
+# Tests do not go through olo_set_compiler_options, so repeat its #1501 rule
+# here: calling a [[deprecated]] declaration is an error, in tests too.
+# _CRT_SECURE_NO_WARNINGS matches the engine targets: getenv / strerror / sscanf
+# are standard C, not engine shims, and MSVC's "unsafe" advisory is not what the
+# rule is for.
+target_compile_definitions(OloEngine-Tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR NOT MSVC)
+	target_compile_options(OloEngine-Tests PRIVATE -Werror=deprecated-declarations)
+else()
+	target_compile_options(OloEngine-Tests PRIVATE /we4996)
 endif()
 
 # atomic_queue and spdlog now arrive as vcpkg IMPORTED targets propagated by

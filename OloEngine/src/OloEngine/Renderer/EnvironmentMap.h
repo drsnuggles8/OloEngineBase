@@ -153,9 +153,6 @@ namespace OloEngine
 
       private:
         void GenerateIBLTextures();
-        void GenerateIrradianceMap();
-        void GeneratePrefilterMap();
-        void GenerateBRDFLut();
 
         // Enhanced IBL generation with configurable quality
         void GenerateIBLWithConfig(const IBLConfiguration& config);

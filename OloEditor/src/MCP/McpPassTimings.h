@@ -303,17 +303,15 @@ namespace OloEngine::MCP::PassTimings
         EmitSample(frame, "gpuMs", "gpuStatus", totals.Gpu);
         o["frame"] = std::move(frame);
         // Parallel command recorder telemetry (#806). Counters go out as
-        // integers; the two times get the same 3-decimal rounding as every
-        // other ms value here. The block is always present (zeros on a
-        // backend that never forks) so a caller can rely on the key.
+        // integers. The block is always present (zeros on a backend that never
+        // forks) so a caller can rely on the key. The frame-level recording
+        // TIMES are not here: they live once, labelled ELAPSED or SUM, in
+        // recordingBreakdown below.
         const ParallelRecordingStats& pr = totals.ParallelRecording;
         o["parallelRecording"] = Json{ { "regions", pr.Regions },
                                        { "inlineRegions", pr.InlineRegions },
                                        { "secondariesExecuted", pr.SecondariesExecuted },
                                        { "mergeConflicts", pr.MergeConflicts },
-                                       { "workerRecordMs", Round3(pr.WorkerRecordMs) },
-                                       { "regionWallMs", Round3(pr.RegionWallMs) },
-                                       { "joinWaitMs", Round3(pr.JoinWaitMs) },
                                        { "declinedGroups", pr.DeclinedGroups },
                                        { "regionTimings", Json::array() } };
         for (const auto& region : pr.RegionTimings)
@@ -333,17 +331,18 @@ namespace OloEngine::MCP::PassTimings
                                   { "ownershipTransfers", ac.OwnershipTransfers },
                                   { "computeSubmits", ac.ComputeSubmits },
                                   { "declineReason", ac.DeclineReason } };
-        // ---- The seven numbers, named for what each one IS (#1337 criterion 2).
+        // ---- The frame's recording times, named for what each one IS (#1337
+        // criterion 2).
         //
-        // They were all already published, under keys that do not say which
-        // kind of quantity they are. `workerRecordMs` in particular is a SUM
-        // ACROSS WORKERS and routinely exceeds elapsed time — the checked-in
-        // parallel-recording study measured 25.3-27.8 ms of worker CPU inside a
-        // 2.4 ms wall — so a reader who takes it for elapsed frame time
-        // concludes the change made things ten times slower. This block states
-        // the kind next to the number so that reading is not available.
-        //
-        // Duplicated rather than renamed: the existing keys have consumers.
+        // The summed worker time used to go out as `workerRecordMs`, a name
+        // that does not say it is a SUM ACROSS WORKERS; it routinely exceeds
+        // elapsed time — the checked-in parallel-recording study measured
+        // 25.3-27.8 ms of worker CPU inside a 2.4 ms wall — so a reader who
+        // takes it for elapsed frame time concludes the change made things ten
+        // times slower. This block states the kind next to the number so that
+        // reading is not available. Each quantity is published exactly once:
+        // the fence / present waits and the GPU execution time are the
+        // `frame` block's fenceWaitMs / presentWaitMs / gpuMs (all ELAPSED).
         f64 cpuPrepareMs = 0.0;
         for (const auto& region : pr.RegionTimings)
         {
@@ -361,15 +360,6 @@ namespace OloEngine::MCP::PassTimings
                   // A SUM. Caller-side setup before any item records, from the
                   // optional cost probe; 0 unless OLO_VK_RECORDING_COSTS=1.
                   { "summedCpuPrepareMs", Round3(cpuPrepareMs) },
-                  // ELAPSED. CPU blocked on the frame fence: the GPU is behind.
-                  { "fenceWaitMs", Round3(totals.FenceWaitMs) },
-                  // ELAPSED. CPU inside SwapBuffers. Vsync on OpenGL; on Vulkan
-                  // it overlaps elapsedRecordingWallMs (the frame renders in
-                  // SwapBuffers), so it is not display pacing there.
-                  { "presentWaitMs", Round3(totals.PresentWaitMs) },
-                  // ELAPSED on the GPU timeline, or null when unmeasured.
-                  { "gpuExecutionMs", totals.Gpu.IsValid() ? Json(Round3(totals.Gpu.GpuMs)) : Json(nullptr) },
-                  { "gpuExecutionStatus", std::string(ToString(totals.Gpu.Status)) },
                   { "note",
                     "summedWorkerCpuMs and summedCpuPrepareMs are SUMS across workers/regions, not elapsed "
                     "time, and may exceed elapsedRecordingWallMs when work ran concurrently. Never add a "

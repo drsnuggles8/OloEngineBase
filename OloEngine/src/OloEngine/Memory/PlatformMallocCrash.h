@@ -239,11 +239,11 @@ namespace OloEngine
 
         FMallocCrashPool& GetPool(i32 Index)
         {
-            return *PoolStorage[Index].GetTypedPtr();
+            return PoolStorage[Index].GetUnchecked();
         }
         const FMallocCrashPool& GetPool(i32 Index) const
         {
-            return *PoolStorage[Index].GetTypedPtr();
+            return PoolStorage[Index].GetUnchecked();
         }
     };
 

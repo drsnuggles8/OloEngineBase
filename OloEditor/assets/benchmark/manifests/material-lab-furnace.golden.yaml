@@ -7,7 +7,7 @@
 # sphere darker than the sky is losing energy, brighter is gaining it.
 # Manual exposure 1.0 — auto exposure would meter the furnace to grey and
 # destroy the reading.
-ManifestVersion: 1
+ManifestVersion: 2
 Id: material-lab-furnace-golden
 Product: golden
 Scene: Scenes/Benchmark/MaterialLabFurnace.olo
@@ -67,3 +67,11 @@ Assets:
   - Path: assets/textures/hdr/furnace_white_1x1.hdr
     Origin: generated in-repo (uniform white 1x1 Radiance HDR, issue #974)
     License: CC0-1.0
+    Redistribution: committed
+    LicenseVerified: in-repo-file
+    Version: generated
+    Sha256: e17cf72c496b5e2c4092069f424a3384094af9b4e9f693ef280f40184fdfe593
+    Units: unitless
+    UpAxis: n/a
+    ColorSpace: linear
+    Acquisition: Already in-tree. A 1x1 Radiance HDR holding radiance (1, 1, 1); any HDR writer reproduces it

@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -134,4 +135,30 @@ TEST(MeshCookingFactoryCache, ReturnsTrueWhenTimestampsAreEqual)
     // the cache is still authoritative.
     MeshCookingFactory factory(dir);
     EXPECT_TRUE(factory.IsCacheValid(cachePath, sourcePath));
+}
+
+// The .omc reader accepts exactly OloMeshColliderHeader::CurrentVersion. A file
+// written by any other version is rejected, so the cooker re-cooks it instead of
+// loading a layout it no longer understands.
+TEST(MeshCookingFactoryCache, DeserializeRejectsAnotherFormatVersion)
+{
+    const auto dir = MakeUniqueScratchDir("OmcVersion");
+    const auto cachePath = dir / "cache.omc";
+
+    MeshCookingFactory factory(dir);
+    MeshColliderData data;
+    data.m_Type = EMeshColliderType::Convex;
+    ASSERT_TRUE(factory.SerializeMeshCollider(cachePath, data));
+    ASSERT_TRUE(factory.DeserializeMeshCollider(cachePath).m_IsValid) << "positive control: current version loads";
+
+    for (const u32 otherVersion : { OloMeshColliderHeader::CurrentVersion - 1, OloMeshColliderHeader::CurrentVersion + 1 })
+    {
+        {
+            std::fstream file(cachePath, std::ios::binary | std::ios::in | std::ios::out);
+            ASSERT_TRUE(file.is_open());
+            file.seekp(static_cast<std::streamoff>(offsetof(OloMeshColliderHeader, m_Version)));
+            file.write(reinterpret_cast<const char*>(&otherVersion), sizeof(otherVersion));
+        }
+        EXPECT_FALSE(factory.DeserializeMeshCollider(cachePath).m_IsValid) << "version " << otherVersion;
+    }
 }

@@ -204,6 +204,14 @@ function(olo_set_compiler_options target_name)
             /Zc:inline        # Remove unreferenced COMDAT functions (reduces linker work)
             /bigobj           # Increase COFF section limit for large translation units
         )
+        # A [[deprecated]] declaration is migrated in the PR that adds it, never
+        # left for later (#1501): using one is an error on both Windows compilers.
+        # clang-cl reports as MSVC but spells the warning the clang way.
+        if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+            target_compile_options(${target_name} PRIVATE -Werror=deprecated-declarations)
+        else()
+            target_compile_options(${target_name} PRIVATE /we4996)
+        endif()
         # Static-initialisation audit (issue #763), OPT-IN and off by default.
         #
         # Why opt-in rather than always on: the audit measured 220 distinct sites that
@@ -246,7 +254,7 @@ function(olo_set_compiler_options target_name)
             -Wall 
             -Wextra 
             -Wno-cast-function-type 
-            -Wno-error=deprecated-declarations
+            -Werror=deprecated-declarations # a [[deprecated]] shim is migrated in the PR that adds it (#1501)
             -Wno-error=delete-incomplete # Forward-declared types in Ref<T> smart pointers
         )
     endif()

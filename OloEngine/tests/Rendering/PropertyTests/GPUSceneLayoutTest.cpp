@@ -63,11 +63,9 @@ namespace OloEngine::Tests
             { "Generation", offsetof(GPUSceneGeometry, Generation) },
             { "Flags", offsetof(GPUSceneGeometry, Flags) },
         } };
-        constexpr std::array<MemberPin, 36> kMaterialPins{ {
+        constexpr std::array<MemberPin, 30> kMaterialPins{ {
             { "BaseColorFactor", offsetof(GPUSceneMaterial, BaseColorFactor) },
             { "EmissiveFactor", offsetof(GPUSceneMaterial, EmissiveFactor) },
-            { "LegacyAmbient", offsetof(GPUSceneMaterial, LegacyAmbient) },
-            { "LegacySpecular", offsetof(GPUSceneMaterial, LegacySpecular) },
             { "MetallicFactor", offsetof(GPUSceneMaterial, MetallicFactor) },
             { "RoughnessFactor", offsetof(GPUSceneMaterial, RoughnessFactor) },
             { "NormalScale", offsetof(GPUSceneMaterial, NormalScale) },
@@ -86,20 +84,16 @@ namespace OloEngine::Tests
             { "OcclusionTextureGeneration", offsetof(GPUSceneMaterial, OcclusionTextureGeneration) },
             { "EmissiveTextureIndex", offsetof(GPUSceneMaterial, EmissiveTextureIndex) },
             { "EmissiveTextureGeneration", offsetof(GPUSceneMaterial, EmissiveTextureGeneration) },
-            { "SpecularTextureIndex", offsetof(GPUSceneMaterial, SpecularTextureIndex) },
-            { "SpecularTextureGeneration", offsetof(GPUSceneMaterial, SpecularTextureGeneration) },
             { "AlbedoHeapOffset", offsetof(GPUSceneMaterial, AlbedoHeapOffset) },
             { "MetallicRoughnessHeapOffset", offsetof(GPUSceneMaterial, MetallicRoughnessHeapOffset) },
             { "NormalHeapOffset", offsetof(GPUSceneMaterial, NormalHeapOffset) },
             { "OcclusionHeapOffset", offsetof(GPUSceneMaterial, OcclusionHeapOffset) },
             { "EmissiveHeapOffset", offsetof(GPUSceneMaterial, EmissiveHeapOffset) },
-            { "SpecularHeapOffset", offsetof(GPUSceneMaterial, SpecularHeapOffset) },
             { "StableIndex", offsetof(GPUSceneMaterial, StableIndex) },
             { "Generation", offsetof(GPUSceneMaterial, Generation) },
             { "MaterialKind", offsetof(GPUSceneMaterial, MaterialKind) },
             { "SkinProfileSlot", offsetof(GPUSceneMaterial, SkinProfileSlot) },
-            { "SkinPad0", offsetof(GPUSceneMaterial, SkinPad0) },
-            { "SkinPad1", offsetof(GPUSceneMaterial, SkinPad1) },
+            { "Pad0", offsetof(GPUSceneMaterial, Pad0) },
         } };
         constexpr std::array<MemberPin, 8> kLightPins{ {
             { "PositionAndRange", offsetof(GPUSceneLight, PositionAndRange) },

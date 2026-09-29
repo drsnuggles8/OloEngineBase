@@ -219,7 +219,7 @@ layout(std140, binding = 23) uniform WaterParams
     // w = band-limit spacing per metre of ray distance: one grid step of view
     //     angle, so a vertex t metres out is sampled ~w*t metres apart. The
     //     rim radius a missed ray is pushed to is derived in-shader from the
-    //     half-extents below and u_Model, not uploaded.
+    //     half-extents below and the instance Transform, not uploaded.
     vec4 u_ProjectedGridParams;
     // xy = the surface's LOCAL half-extents. The clamp into this rect is what
     //      keeps a finite water tile finite: a screen-space grid has no idea
@@ -691,7 +691,7 @@ void main()
         vec3 underFinal = mix(underColor, cubemapU, rim * 0.25);
 
         o_Color = vec4(underFinal, 1.0);
-        o_EntityID = u_EntityID;
+        o_EntityID = instances[0].EntityID;
         o_ViewNormal = octEncode(normalize(mat3(u_View) * normal));
         vec4 clipCurrU = u_ViewProjection     * vec4(v_WorldPos,     1.0);
         vec4 clipPrevU = u_PrevViewProjection * vec4(v_PrevWorldPos, 1.0);
@@ -1039,12 +1039,12 @@ void main()
     float transparency = 1.0;
 
     o_Color = vec4(finalColor, transparency);
-    o_EntityID = u_EntityID;
+    o_EntityID = instances[0].EntityID;
     o_ViewNormal = octEncode(normalize(mat3(u_View) * normal));
 
     // Camera + wave-reprojection velocity. v_PrevWorldPos is the Gerstner
     // displacement re-evaluated at prev time (packed into u_NormalMapSpeed.z)
-    // through u_PrevModel, so on-surface wave motion is captured correctly.
+    // through the instance PrevTransform, so on-surface wave motion is captured correctly.
     vec4 clipCurr = u_ViewProjection     * vec4(v_WorldPos,     1.0);
     vec4 clipPrev = u_PrevViewProjection * vec4(v_PrevWorldPos, 1.0);
     vec2 ndcCurr = clipCurr.xy / clipCurr.w;

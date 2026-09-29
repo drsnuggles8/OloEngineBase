@@ -1,5 +1,5 @@
 Material:
-  Shader: DefaultPBR
+  Shader: PBR_MultiLight
   Textures: {}
   Properties:
     u_MaterialUniforms.AlbedoColor:

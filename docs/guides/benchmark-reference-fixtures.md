@@ -49,9 +49,9 @@ A later camera is a cut, re-warmed over its own `WarmupFrames` on a fixed schedu
 
 ## Manifest schema v2
 
-`ManifestVersion: 2` adds exactly two things. A v1 manifest is **not** silently upgraded — the v2
-provenance fields are required, so an implicit upgrade would turn every issue-#974 manifest into a
-parse error at an unrelated moment.
+`ManifestVersion: 2` added exactly two things to issue #974's v1 schema, and it is the only
+version the parser reads: every committed manifest was migrated, and a v1 file is refused with an
+error naming what to add (`ManifestVersion: 2` and the provenance block below on every asset).
 
 ### Camera motion
 
@@ -86,7 +86,7 @@ produce a still one — and so is a malformed number, which `as<T>(fallback)` wo
 
 ### Asset provenance
 
-Every `Assets:` record carries the full block, and all of it is required in v2:
+Every `Assets:` record carries the full block, and all of it is required:
 
 | Field | Vocabulary | Why it is here |
 |---|---|---|
@@ -107,6 +107,10 @@ python tools/benchmark/reference_assets.py                # verify every hash
 python tools/benchmark/reference_assets.py --write-hashes # after a deliberate asset change
 python tools/benchmark/reference_assets.py --fetch        # pull fetch-required assets
 ```
+
+A pin is the hash of the bytes git stores, so it is the same on every checkout: a file git keeps as
+text (`git ls-files --eol` shows `i/lf`) is hashed with CRLF folded to LF, anything else byte for
+byte. A pin taken from a Windows working copy's CRLF bytes would verify nowhere else (#1521).
 
 `--write-hashes` is the only way a hash should ever move. Review that diff: a hash that changed
 without an intended asset change is the bug the mechanism exists to catch.

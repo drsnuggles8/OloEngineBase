@@ -51,12 +51,12 @@ void main()
     vec3 a_Position = vec3(b_Vertices.v[vertBase + 0], b_Vertices.v[vertBase + 1], b_Vertices.v[vertBase + 2]);
 #endif
     OLO_INSTANCE_FORWARD();
-    vec4 worldPos = u_Model * vec4(a_Position, 1.0);
+    vec4 worldPos = instances[gl_InstanceIndex].Transform * vec4(a_Position, 1.0);
     v_ClipPosCurr = u_ViewProjection * worldPos;
 
     // Per-entity previous transform — gizmo cubes translate with their
     // owning light so motion blur should reflect that.
-    vec4 prevWorldPos = u_PrevModel * vec4(a_Position, 1.0);
+    vec4 prevWorldPos = instances[gl_InstanceIndex].PrevTransform * vec4(a_Position, 1.0);
     v_ClipPosPrev = u_PrevViewProjection * prevWorldPos;
 
     gl_Position = v_ClipPosCurr;
@@ -97,6 +97,6 @@ void main()
     // Bright white unlit — matches forward LightCube behaviour.
     o_GBufferEmissive = vec4(1.0, 1.0, 1.0, 1.0);
     o_GBufferVelocity = vec4((ndcCurr - ndcPrev) * 0.5, 1.0, 0.0);
-    o_GBufferEntityID = u_EntityID;
+    o_GBufferEntityID = instances[v_InstanceIndex].EntityID;
     o_GBufferBakedGI = vec4(0.0); // no baked lightmap on this surface (issue #865)
 }

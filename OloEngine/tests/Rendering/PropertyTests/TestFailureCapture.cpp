@@ -286,9 +286,11 @@ namespace OloEngine::Tests::TestFailureCapture
         out << "# OloEngine FrameCaptureManager — last captured frame\n";
         out << "FrameNumber        = " << last.FrameNumber << '\n';
         out << "TimestampSeconds   = " << last.TimestampSeconds << '\n';
-        out << "PreSortCommands    = " << last.PreSortCommands.Num() << '\n';
-        out << "PostSortCommands   = " << last.PostSortCommands.Num() << '\n';
-        out << "PostBatchCommands  = " << last.PostBatchCommands.Num() << '\n';
+        const OloEngine::CapturedPassData& source = last.SourcePass();
+        out << "SourcePassName     = " << last.SourcePassName.ToStdString() << '\n';
+        out << "PreSortCommands    = " << source.PreSortCommands.Num() << '\n';
+        out << "PostSortCommands   = " << source.PostSortCommands.Num() << '\n';
+        out << "PostBatchCommands  = " << source.PostBatchCommands.Num() << '\n';
         out << "Stats.TotalCommands  = " << last.Stats.TotalCommands << '\n';
         out << "Stats.BatchedCommands= " << last.Stats.BatchedCommands << '\n';
         out << "Stats.DrawCalls      = " << last.Stats.DrawCalls << '\n';

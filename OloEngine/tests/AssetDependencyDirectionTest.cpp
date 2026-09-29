@@ -73,7 +73,7 @@ namespace OloEngine::Tests
             {
                 std::ofstream material(m_Project / "Assets" / "Materials" / "Test.olomaterial");
                 material << "Material:\n"
-                            "  Shader: DefaultPBR\n"
+                            "  Shader: PBR_MultiLight\n"
                             "  Textures:\n"
                             "    AlbedoMap: "
                          << kTexture << "\n";

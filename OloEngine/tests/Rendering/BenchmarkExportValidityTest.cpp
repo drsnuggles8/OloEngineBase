@@ -42,7 +42,7 @@ namespace
     Benchmark::BenchmarkManifest MinimalManifest()
     {
         Benchmark::BenchmarkManifest manifest;
-        manifest.ManifestVersion = 1;
+        manifest.ManifestVersion = Benchmark::kCurrentManifestVersion;
         manifest.Id = "timing-validity-probe";
         manifest.ScenePath = "Scenes/Benchmark/MaterialLab.olo";
         manifest.Width = 1920;

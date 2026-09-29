@@ -87,8 +87,8 @@ namespace OloEngine
             // Exclude both endpoints: the perceiver's own body must not block its
             // eyes, and the target's collider is exactly what we are trying to
             // see — only a *third* body in between counts as an occluder.
-            ray.m_ExcludedEntities.push_back(perceiver);
-            ray.m_ExcludedEntities.push_back(target);
+            ray.m_ExcludedEntities.AddExcludedEntity(perceiver);
+            ray.m_ExcludedEntities.AddExcludedEntity(target);
 
             SceneQueryHit hit;
             return physics->CastRay(ray, hit) && hit.HasHit();

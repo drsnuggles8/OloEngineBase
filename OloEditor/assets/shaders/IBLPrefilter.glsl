@@ -1,7 +1,9 @@
 // =============================================================================
 // IBLPrefilter.glsl - Environment Map Prefiltering for IBL
 // Part of OloEngine PBR System
-// Generates prefiltered environment map for specular IBL
+// Generates prefiltered environment map for specular IBL. Selected by
+// IBLPrecompute::GeneratePrefilterMapAdvanced when
+// IBLConfiguration::UseImportanceSampling is false.
 // =============================================================================
 
 #type vertex
@@ -58,7 +60,7 @@ layout(binding = 9) uniform samplerCube u_EnvironmentMap;
 #endif
 
 // UBO_USER_0 (binding 7) — must match ShaderBindingLayout::UBO_USER_0
-// and IBLPrecompute.cpp GeneratePrefilterMap() which creates the UBO at this binding
+// and IBLPrecompute.cpp GeneratePrefilterMapAdvanced() which creates the UBO at this binding
 layout(std140, binding = 7) uniform IBLParameters {
     float u_Roughness;
     float u_ExposureAdjustment;

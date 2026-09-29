@@ -168,6 +168,11 @@ namespace OloEngine
                             m_StatusMessage = "Loaded: " + save.Metadata.DisplayName;
                             m_StatusTimer = 3.0f;
                         }
+                        else if (result == SaveLoadResult::UnsupportedVersion)
+                        {
+                            m_StatusMessage = "Load failed: save is from another format version (see log)";
+                            m_StatusTimer = 5.0f;
+                        }
                         else
                         {
                             m_StatusMessage = "Load failed!";
@@ -281,6 +286,11 @@ namespace OloEngine
             {
                 m_StatusMessage = "Quick Load complete";
                 m_StatusTimer = 2.0f;
+            }
+            else if (result == SaveLoadResult::UnsupportedVersion)
+            {
+                m_StatusMessage = "Quick Load failed: save is from another format version (see log)";
+                m_StatusTimer = 5.0f;
             }
             else
             {

@@ -40,7 +40,7 @@ void main()
 	vec3 a_Position = vec3(b_Vertices.v[vertBase + 0], b_Vertices.v[vertBase + 1], b_Vertices.v[vertBase + 2]);
 #endif
 	OLO_INSTANCE_FORWARD();
-	gl_Position = u_ViewProjection * u_Model * vec4(a_Position, 1.0);
+	gl_Position = u_ViewProjection * instances[gl_InstanceIndex].Transform * vec4(a_Position, 1.0);
 }
 
 #type fragment

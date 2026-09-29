@@ -2,18 +2,15 @@
 // IrradianceConvolutionAdvanced.glsl - Quality-configurable diffuse irradiance
 // Part of OloEngine PBR System
 //
-// The "advanced" diffuse irradiance generator selected by
+// The diffuse irradiance generator selected by
 // IBLPrecompute::GenerateIrradianceMapAdvanced (the production default when
-// IBLConfiguration::UseSphericalHarmonics is false). Where the baseline
-// IrradianceConvolution.glsl walks a fixed sampleDelta=0.025 hemisphere grid,
-// this path uses cosine-weighted importance sampling with a configurable,
-// quality-scaled sample count and mip-biased environment lookups. That removes
-// the baseline's banding at low resolutions and lets Ultra converge with fewer
-// directions than the ~10k the fixed grid implies.
+// IBLConfiguration::UseSphericalHarmonics is false). It uses cosine-weighted
+// importance sampling with a configurable, quality-scaled sample count and
+// mip-biased environment lookups.
 //
-// Normalisation matches the baseline exactly: the output is the *normalised*
-// irradiance E(N)/PI, which evaluates to 1.0 for uniform-white input (pinned by
-// PbrIrradianceTest.UniformWhiteYieldsNormalisedUnity). With cosine-importance
+// The output is the *normalised* irradiance E(N)/PI, which evaluates to 1.0 for
+// uniform-white input (pinned by
+// PbrIrradianceAdvancedTest.ImportanceUniformWhiteYieldsUnity). With cosine-importance
 // sampling the Monte-Carlo estimator of E(N)/PI collapses to the plain sample
 // mean (1/N) * Sum L_i, since the cos(theta)/PI weight cancels the pdf.
 // =============================================================================

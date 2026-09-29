@@ -66,24 +66,14 @@ TEST(SaveGameHeaderTest, InvalidMagic)
     EXPECT_FALSE(header.IsValid());
 }
 
-// A save written by an older (but still supported) schema version must be
-// accepted, not rejected outright — the component deserializer gates any
-// field added after that version (issue #454). Only versions outside
-// [kMinSupportedSaveGameFormatVersion, kSaveGameFormatVersion] are invalid.
-TEST(SaveGameHeaderTest, OlderSupportedFormatVersionIsValid)
+// One format version is readable (#1498): an older save is not migrated, it is
+// rejected at the header, however close to current it is.
+TEST(SaveGameHeaderTest, OlderFormatVersionIsInvalid)
 {
-    static_assert(kSaveGameFormatVersion > kMinSupportedSaveGameFormatVersion,
-                  "Test requires at least one version below current to be supported");
-
     SaveGameHeader header;
     header.FormatVersion = kSaveGameFormatVersion - 1;
-    EXPECT_TRUE(header.IsValid());
-}
-
-TEST(SaveGameHeaderTest, FormatVersionBelowMinSupportedIsInvalid)
-{
-    SaveGameHeader header;
-    header.FormatVersion = kMinSupportedSaveGameFormatVersion - 1;
+    EXPECT_FALSE(header.IsValid());
+    header.FormatVersion = 1;
     EXPECT_FALSE(header.IsValid());
 }
 

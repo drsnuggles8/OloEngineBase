@@ -1,4 +1,5 @@
 Scene: PerfStressSmoke.olo
+Version: 1
 Entities:
   - Entity: 910000000000001
     TagComponent:

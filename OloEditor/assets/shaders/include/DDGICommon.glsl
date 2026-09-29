@@ -360,12 +360,6 @@ float ddgiVolumeWeightBounds(vec3 worldPos, vec3 boundsMin, vec3 boundsMax, vec3
     return (w > 0.0) ? w : 0.0;
 }
 
-// Cascade-0 form, kept for source compatibility.
-float ddgiVolumeWeight(vec3 worldPos, vec3 margin)
-{
-    return ddgiVolumeWeightBounds(worldPos, u_DDGIBoundsMin.xyz, u_DDGIBoundsMax.xyz, margin);
-}
-
 // Mirrors DDGI::CascadeInteriorWeight, with the bounce margin folded in.
 //
 // `marginScale` grows the window by that many probe spacings BEFORE the band
@@ -791,7 +785,7 @@ vec3 ddgiRelocateProbeSpring(vec3 currentOffsetN, DDGIProbeHitAggregates agg, ve
 // The attenuation the INFINITE-BOUNCE gather would apply at `relPos` — exactly
 // the `fade` factor ddgiGatherIrradiance computes, evaluated without touching
 // an atlas. This is the #751 bounce-coverage diagnostic, now cascade-aware:
-// with one authored cascade it reduces to the old ddgiVolumeWeight against the
+// with one authored cascade it reduces to ddgiVolumeWeightBounds against the
 // volume grown by one probe spacing, so the number keeps its old meaning.
 float ddgiBounceCoverageWeight(vec3 relPos)
 {

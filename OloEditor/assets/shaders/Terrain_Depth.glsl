@@ -172,7 +172,7 @@ void main()
     {
         vec2 clipCenter = u_ClipmapCenterAndExtent[0].xy;
         float clipExtent = u_ClipmapCenterAndExtent[0].z;
-        vec3 worldP = (u_Model * vec4(pos, 1.0)).xyz + u_RenderOrigin; // camera-relative (issue #429)
+        vec3 worldP = (instances[0].Transform * vec4(pos, 1.0)).xyz + u_RenderOrigin; // camera-relative (issue #429)
         vec2 snowUV = (worldP.xz - clipCenter) / clipExtent + 0.5;
         if (snowUV.x >= 0.0 && snowUV.x <= 1.0 && snowUV.y >= 0.0 && snowUV.y <= 1.0)
         {
@@ -188,7 +188,7 @@ void main()
                      + gl_TessCoord.z * tc_Position[2].y;
     pos.y = mix(pos.y, meshHeight, morphFactor);
 
-    gl_Position = u_ViewProjection * u_Model * vec4(pos, 1.0);
+    gl_Position = u_ViewProjection * instances[0].Transform * vec4(pos, 1.0);
 }
 
 #type fragment

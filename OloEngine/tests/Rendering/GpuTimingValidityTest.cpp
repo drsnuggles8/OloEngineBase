@@ -600,25 +600,20 @@ TEST(GpuTimingValidity, TheSevenMeasurementsAreLabelledElapsedOrSum)
     // the 3-decimal rounding, and the assertion is about the LABEL, not about
     // the last bit of the mantissa.
     EXPECT_NEAR(breakdown["summedCpuPrepareMs"].get<f64>(), 0.077, 1e-9);
-    EXPECT_DOUBLE_EQ(breakdown["fenceWaitMs"].get<f64>(), 1.5);
-    EXPECT_DOUBLE_EQ(breakdown["presentWaitMs"].get<f64>(), 8.0);
-    EXPECT_DOUBLE_EQ(breakdown["gpuExecutionMs"].get<f64>(), 4.0);
+    // The three frame-level ELAPSED measurements are published once, in
+    // `frame`, not repeated in the breakdown (#1501).
+    const auto& frame = json["frame"];
+    EXPECT_DOUBLE_EQ(frame["fenceWaitMs"].get<f64>(), 1.5);
+    EXPECT_DOUBLE_EQ(frame["presentWaitMs"].get<f64>(), 8.0);
+    EXPECT_DOUBLE_EQ(frame["gpuMs"].get<f64>(), 4.0);
+    EXPECT_FALSE(breakdown.contains("fenceWaitMs"));
+    EXPECT_FALSE(breakdown.contains("presentWaitMs"));
+    EXPECT_FALSE(breakdown.contains("gpuExecutionMs"));
 
     // The sum exceeding the wall is the NORMAL case under concurrency, and the
     // output must not have quietly reconciled them.
     EXPECT_GT(breakdown["summedWorkerCpuMs"].get<f64>(), breakdown["elapsedRecordingWallMs"].get<f64>());
     EXPECT_NE(breakdown["note"].get<std::string>().find("not elapsed"), std::string::npos);
-}
-
-TEST(GpuTimingValidity, GpuExecutionInTheBreakdownIsNullWhenUnmeasured)
-{
-    PT::FrameTotals totals = ValidTotals();
-    totals.Gpu = GpuTimingSample::Absent(GpuTimingStatus::NotStamped);
-
-    const auto json = PT::BuildPassTimings({}, {}, totals);
-
-    EXPECT_TRUE(json["recordingBreakdown"]["gpuExecutionMs"].is_null());
-    EXPECT_EQ(json["recordingBreakdown"]["gpuExecutionStatus"].get<std::string>(), "notStamped");
 }
 
 // =============================================================================

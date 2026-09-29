@@ -23,8 +23,9 @@
 // (relocated out of SceneRenderPass::OnFrameEnd, which used to commit mid-graph
 // before the other passes ran). The captured frame therefore carries one
 // CapturedPassData per command-bucket pass (CapturedFrameData::Passes); the
-// top-level lists remain the SOURCE pass (SourcePassName, the scene pass) for
-// backward compatibility. BuildBreakdown emits a `passBreakdowns` array — one
+// breakdown's top-level `commands` shape the SOURCE pass among them
+// (CapturedFrameData::SourcePass(), the scene pass). BuildBreakdown emits a
+// `passBreakdowns` array — one
 // per-command list per pass, each tagged with its graph pass name. To place those
 // buckets in the whole-graph picture, the MCP handler also gathers a
 // GraphAttribution off the live RenderGraph (every pass, which own a command
@@ -131,12 +132,6 @@ namespace OloEngine::MCP::FrameBreakdown
                 usedMode = ViewMode::PreSort;
                 return preSort;
         }
-    }
-
-    // Convenience overload selecting from a frame's top-level (source-pass) lists.
-    [[nodiscard]] inline const TArray<CapturedCommandData>& SelectCommands(const CapturedFrameData& frame, ViewMode requested, ViewMode& usedMode)
-    {
-        return SelectStage(frame.PreSortCommands, frame.PostSortCommands, frame.PostBatchCommands, requested, usedMode);
     }
 
     // One render-graph pass as seen by the command-attribution view. The MCP
@@ -258,9 +253,10 @@ namespace OloEngine::MCP::FrameBreakdown
     [[nodiscard]] inline Json BuildBreakdown(const CapturedFrameData& frame, ViewMode requested, int maxCommands,
                                              const GraphAttribution* attribution = nullptr)
     {
-        // Shape the top-level (source / scene pass) bucket — backward-compatible
-        // with the single-pass breakdown.
-        Json out = ShapeBucket(frame.PreSortCommands, frame.PostSortCommands, frame.PostBatchCommands,
+        // Shape the source (scene) pass's bucket as the top-level view; an empty
+        // bucket when the frame captured no pass.
+        const CapturedPassData& source = frame.SourcePass();
+        Json out = ShapeBucket(source.PreSortCommands, source.PostSortCommands, source.PostBatchCommands,
                                requested, maxCommands);
 
         const FrameCaptureStats& stats = frame.Stats;
@@ -291,21 +287,17 @@ namespace OloEngine::MCP::FrameBreakdown
         // Per-pass command breakdown (issue #463 / #316). One entry per
         // command-bucket pass that executed this frame (Scene, Water, Foliage,
         // Decal, ForwardOverlay), each tagged with its graph pass name and shaped
-        // identically to the top-level bucket. The capture is no longer limited to
-        // the single scene-pass bucket. Empty for a legacy single-pass capture.
-        if (!frame.Passes.IsEmpty())
+        // identically to the top-level bucket. Empty when nothing was captured.
+        Json passBreakdowns = Json::array();
+        for (const auto& pass : frame.Passes)
         {
-            Json passBreakdowns = Json::array();
-            for (const auto& pass : frame.Passes)
-            {
-                Json entry = ShapeBucket(pass.PreSortCommands, pass.PostSortCommands, pass.PostBatchCommands,
-                                         requested, maxCommands);
-                entry["name"] = pass.PassName.ToStdString();
-                entry["isCaptureSource"] = !sourcePass.empty() && pass.PassName == sourcePass;
-                passBreakdowns.push_back(std::move(entry));
-            }
-            out["passBreakdowns"] = std::move(passBreakdowns);
+            Json entry = ShapeBucket(pass.PreSortCommands, pass.PostSortCommands, pass.PostBatchCommands,
+                                     requested, maxCommands);
+            entry["name"] = pass.PassName.ToStdString();
+            entry["isCaptureSource"] = !sourcePass.empty() && pass.PassName == sourcePass;
+            passBreakdowns.push_back(std::move(entry));
         }
+        out["passBreakdowns"] = std::move(passBreakdowns);
 
         // Names of the passes actually captured this frame — used to flag each
         // graph pass below as captured / not, and to size capturedPassCount.
@@ -314,11 +306,7 @@ namespace OloEngine::MCP::FrameBreakdown
             capturedPassNames.insert(pass.PassName.ToStdString());
 
         // capturedPassCount is the number of per-pass command captures this frame.
-        // Falls back to the legacy single-pass count (0/1) for an old-style frame
-        // that has no per-pass entries.
-        const u32 capturedPassCount = frame.Passes.IsEmpty()
-                                          ? (sourcePass.empty() ? 0u : 1u)
-                                          : static_cast<u32>(frame.Passes.Num());
+        const auto capturedPassCount = static_cast<u32>(frame.Passes.Num());
 
         // Graph-wide command-bucket attribution: place the captured per-pass
         // buckets in the context of the whole render graph (issue #316).

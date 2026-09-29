@@ -19,7 +19,19 @@ namespace OloEngine
                           const std::vector<u8>& thumbnailPNG,
                           const std::vector<u8>& payload);
 
-        // Read only the fixed header (128 bytes)
+        // Outcome of reading the fixed header. UnsupportedVersion means the magic matched but
+        // FormatVersion is not kSaveGameFormatVersion (the error names the fix).
+        enum class HeaderStatus : u8
+        {
+            Ok = 0,
+            Unreadable,
+            UnsupportedVersion
+        };
+
+        // Read only the fixed header (128 bytes) and say why it was rejected.
+        static HeaderStatus ProbeHeader(const std::filesystem::path& path, SaveGameHeader& outHeader);
+
+        // Read only the fixed header (128 bytes); true only for HeaderStatus::Ok.
         static bool ReadHeader(const std::filesystem::path& path, SaveGameHeader& outHeader);
 
         // Read header + metadata (fast — no decompression)

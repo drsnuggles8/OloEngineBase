@@ -235,7 +235,7 @@ namespace
                                                            10s));
         };
         m_Server.RegisterTool(std::move(tool));
-        m_Server.SetAllowWrites(true);
+        m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
         ASSERT_TRUE(StartServer());
         auto result = std::async(std::launch::async, [this]
                                  { return m_Server.HandleMessage(Json{ { "jsonrpc", "2.0" },

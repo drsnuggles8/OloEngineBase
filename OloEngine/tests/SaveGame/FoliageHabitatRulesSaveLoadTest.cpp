@@ -3,14 +3,10 @@
 // FoliageHabitatRulesSaveLoadTest.cpp
 //
 // The save-game cell for issue #1254's species habitat rules, clumping and
-// ground contact — the v35 band of SerializeFoliageLayer.
+// ground contact in SerializeFoliageLayer.
 //
-// Two things can go wrong here and both are silent. A field appended in the
-// wrong ORDER desynchronises the fixed-order archive, corrupting every
-// component after this one rather than just this one; and a v34-or-older save
-// that acquired the new rules by default would MOVE every plant in every world
-// that save ever produced, because DecorrelatedVariation changes the
-// cell -> XZ mapping.
+// A field written in the wrong ORDER desynchronises the fixed-order archive,
+// corrupting every component after this one rather than just this one.
 // =============================================================================
 
 #include "OloEnginePCH.h"
@@ -66,7 +62,7 @@ namespace OloEngine::Tests
             return layer;
         }
 
-        [[nodiscard]] FoliageComponent RoundTrip(const FoliageComponent& seed, u32 readVersion)
+        [[nodiscard]] FoliageComponent RoundTrip(const FoliageComponent& seed)
         {
             std::vector<u8> buffer;
             {
@@ -80,112 +76,13 @@ namespace OloEngine::Tests
             FoliageComponent loaded{};
             FMemoryReader reader(buffer);
             reader.ArIsSaveGame = true;
-            reader.SetArchiveVersion(readVersion);
+            reader.SetArchiveVersion(kSaveGameFormatVersion);
             SaveGameComponentSerializer::Serialize(reader, loaded);
             EXPECT_FALSE(reader.IsError());
             EXPECT_TRUE(reader.AtEnd())
                 << "the reader did not consume exactly the payload — a field-order desync, which in a "
                    "fixed-order archive corrupts every component after this one, not just this one";
             return loaded;
-        }
-
-        // A FoliageComponent payload in the EXACTLY v34 layout: one layer, every
-        // field SerializeFoliageLayer wrote through the v33 leaf band and
-        // nothing after, then the component's trailing m_Enabled. (No foliage
-        // field was added at v34 — that version belongs to GroomComponent — so
-        // the v34 foliage layout IS the v33 one.)
-        //
-        // Hand-written because a v34 save can no longer be PRODUCED: saving
-        // always emits the current layout, since HasFieldsSince short-circuits
-        // on IsSaving. Writing at version 34 and reading at 34 therefore does
-        // not test an old save at all; it desyncs, which is how this test first
-        // failed. Mirror any change to SerializeFoliageLayer's pre-v35 field
-        // ORDER here; if the two drift, this fails with a desync rather than
-        // passing wrongly, which is the behaviour to want.
-        [[nodiscard]] std::vector<u8> BuildV34Payload(const FoliageLayer& l, bool componentEnabled)
-        {
-            std::vector<u8> buffer;
-            FMemoryWriter ar(buffer);
-            ar.ArIsSaveGame = true;
-            ar.SetArchiveVersion(34);
-
-            u32 layerCount = 1;
-            ar << layerCount;
-
-            std::string name = l.Name.ToStdString();
-            std::string meshPath = l.MeshPath.ToStdString();
-            std::string albedoPath = l.AlbedoPath.ToStdString();
-            ar << name << meshPath << albedoPath;
-            f32 density = l.Density;
-            ar << density;
-            i32 splat = l.SplatmapChannel;
-            ar << splat;
-            f32 minSlope = l.MinSlopeAngle;
-            f32 maxSlope = l.MaxSlopeAngle;
-            ar << minSlope << maxSlope;
-            f32 minScale = l.MinScale;
-            f32 maxScale = l.MaxScale;
-            ar << minScale << maxScale;
-            f32 minHeight = l.MinHeight;
-            f32 maxHeight = l.MaxHeight;
-            ar << minHeight << maxHeight;
-            bool randomRotation = l.RandomRotation;
-            ar << randomRotation;
-            f32 viewDistance = l.ViewDistance;
-            f32 fadeStart = l.FadeStartDistance;
-            ar << viewDistance << fadeStart;
-            f32 windStrength = l.WindStrength;
-            f32 windSpeed = l.WindSpeed;
-            ar << windStrength << windSpeed;
-            glm::vec3 baseColor = l.BaseColor;
-            ar << baseColor;
-            f32 roughness = l.Roughness;
-            f32 alphaCutoff = l.AlphaCutoff;
-            ar << roughness << alphaCutoff;
-            bool enabled = l.Enabled;
-            ar << enabled;
-
-            // v11 impostor block
-            bool useImpostor = l.UseImpostor;
-            ar << useImpostor;
-            f32 impostorStart = l.ImpostorStartDistance;
-            f32 impostorBand = l.ImpostorTransitionBand;
-            ar << impostorStart << impostorBand;
-            u32 impostorFrames = l.ImpostorFramesPerAxis;
-            u32 impostorRes = l.ImpostorAtlasResolution;
-            ar << impostorFrames << impostorRes;
-            bool impostorHemi = l.ImpostorHemiOctahedral;
-            ar << impostorHemi;
-
-            // v32 authored-mesh block
-            bool useAuthoredMesh = l.UseAuthoredMesh;
-            ar << useAuthoredMesh;
-            f32 meshViewDistance = l.MeshViewDistance;
-            f32 meshFadeStart = l.MeshFadeStartDistance;
-            ar << meshViewDistance << meshFadeStart;
-
-            // v33 leaf-material block — and then nothing, which is the point.
-            std::string normalMap = l.NormalMapPath.ToStdString();
-            std::string roughnessMap = l.RoughnessMapPath.ToStdString();
-            std::string thicknessMap = l.ThicknessMapPath.ToStdString();
-            ar << normalMap << roughnessMap << thicknessMap;
-            f32 normalStrength = l.NormalStrength;
-            ar << normalStrength;
-            f32 transmissionStrength = l.TransmissionStrength;
-            glm::vec3 transmissionColor = l.TransmissionColor;
-            ar << transmissionStrength << transmissionColor;
-            f32 thickness = l.Thickness;
-            ar << thickness;
-            f32 transmissionDistortion = l.TransmissionDistortion;
-            f32 transmissionPower = l.TransmissionPower;
-            ar << transmissionDistortion << transmissionPower;
-            f32 transmissionWrap = l.TransmissionWrap;
-            f32 transmissionAmbient = l.TransmissionAmbient;
-            ar << transmissionWrap << transmissionAmbient;
-
-            bool compEnabled = componentEnabled;
-            ar << compEnabled;
-            return buffer;
         }
     } // namespace
 
@@ -195,7 +92,7 @@ namespace OloEngine::Tests
         seed.m_Enabled = true;
         seed.m_Layers.Add(MakeHabitatLayer());
 
-        const FoliageComponent loaded = RoundTrip(seed, kSaveGameFormatVersion);
+        const FoliageComponent loaded = RoundTrip(seed);
         ASSERT_EQ(loaded.m_Layers.Num(), 1u);
         const FoliageLayer& got = loaded.m_Layers[0];
         const FoliageLayer& want = seed.m_Layers[0];
@@ -226,47 +123,6 @@ namespace OloEngine::Tests
                                     "so editor undo will not see it change";
     }
 
-    TEST(FoliageHabitatRulesSaveLoad, AnOlderSaveKeepsEveryRuleOff)
-    {
-        // The conservative default a pre-#1254 save is entitled to. This matters
-        // more than usual: DecorrelatedVariation changes the cell -> XZ mapping,
-        // so defaulting it the other way would move every plant in every world
-        // an older save ever produced.
-        FoliageComponent seed;
-        seed.m_Enabled = true;
-        seed.m_Layers.Add(MakeHabitatLayer());
-
-        const std::vector<u8> buffer = BuildV34Payload(seed.m_Layers[0], /*componentEnabled=*/true);
-
-        FoliageComponent loaded{};
-        FMemoryReader reader(buffer);
-        reader.ArIsSaveGame = true;
-        reader.SetArchiveVersion(34);
-        SaveGameComponentSerializer::Serialize(reader, loaded);
-        ASSERT_FALSE(reader.IsError());
-        EXPECT_TRUE(reader.AtEnd()) << "a v34 reader did not consume exactly the v34 payload";
-
-        ASSERT_EQ(loaded.m_Layers.Num(), 1u);
-        const FoliageLayer& got = loaded.m_Layers[0];
-        const FoliageLayer defaults;
-
-        EXPECT_TRUE(Math::BitwiseEqual(got.SlopeFeather, defaults.SlopeFeather));
-        EXPECT_EQ(got.UseAltitudeBand, defaults.UseAltitudeBand);
-        EXPECT_EQ(got.UseMoisture, defaults.UseMoisture);
-        EXPECT_EQ(got.ExclusionSplatmapChannel, defaults.ExclusionSplatmapChannel);
-        EXPECT_TRUE(Math::BitwiseEqual(got.ClumpStrength, defaults.ClumpStrength));
-        EXPECT_TRUE(Math::BitwiseEqual(got.ClumpScaleInfluence, defaults.ClumpScaleInfluence));
-        EXPECT_EQ(got.ClumpGroup, defaults.ClumpGroup);
-        EXPECT_TRUE(Math::BitwiseEqual(got.GroundOffset, defaults.GroundOffset));
-        EXPECT_TRUE(Math::BitwiseEqual(got.SlopeSinkFactor, defaults.SlopeSinkFactor));
-        EXPECT_FALSE(got.DecorrelatedVariation)
-            << "an older save acquired the new placement hash, which moves every plant it ever had";
-
-        // The fields that DID round-trip before v35 still do.
-        EXPECT_EQ(got.Name, seed.m_Layers[0].Name);
-        EXPECT_EQ(got.AlbedoPath, seed.m_Layers[0].AlbedoPath);
-    }
-
     TEST(FoliageHabitatRulesSaveLoad, ACorruptSaveIsClampedRatherThanTrusted)
     {
         // A save file is no more trusted than a .olo: every float here reaches
@@ -284,7 +140,7 @@ namespace OloEngine::Tests
         hostile.AltitudeFeather = -5.0f;
         seed.m_Layers.Add(hostile);
 
-        const FoliageComponent loaded = RoundTrip(seed, kSaveGameFormatVersion);
+        const FoliageComponent loaded = RoundTrip(seed);
         ASSERT_EQ(loaded.m_Layers.Num(), 1u);
         const FoliageLayer& got = loaded.m_Layers[0];
 

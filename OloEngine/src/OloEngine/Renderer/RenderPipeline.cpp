@@ -1070,8 +1070,6 @@ namespace OloEngine
         data.ParallelContext.DynamicCullingEnabled = data.DynamicCullingEnabled;
 
         // Cache shader references for parallel access.
-        data.ParallelContext.DefaultForwardShader = data.DefaultForwardShader;
-        data.ParallelContext.DefaultForwardSkinnedShader = data.DefaultForwardSkinnedShader;
         // Route PBR shader slot to the G-Buffer write variant in Deferred mode
         // so parallel-submission workers pick the correct program without
         // needing to query RendererSettings per draw.
@@ -2357,33 +2355,12 @@ namespace OloEngine
 
             for (const auto& [resourceName, resource] : globalResources)
             {
-                if (registry->GetBindingInfo(resourceName) == nullptr)
+                if (registry->GetBindingInfo(resourceName) == nullptr || std::holds_alternative<std::monostate>(resource))
                 {
                     continue;
                 }
 
-                ShaderResourceInput input;
-                if (std::holds_alternative<Ref<UniformBuffer>>(resource))
-                {
-                    input = ShaderResourceInput(std::get<Ref<UniformBuffer>>(resource));
-                }
-                else if (std::holds_alternative<Ref<Texture2D>>(resource))
-                {
-                    input = ShaderResourceInput(std::get<Ref<Texture2D>>(resource));
-                }
-                else if (std::holds_alternative<Ref<TextureCubemap>>(resource))
-                {
-                    input = ShaderResourceInput(std::get<Ref<TextureCubemap>>(resource));
-                }
-                else
-                {
-                    // No additional handling required.
-                }
-
-                if (input.Type != ShaderResourceType::None)
-                {
-                    registry->SetResource(resourceName, input);
-                }
+                registry->SetResource(resourceName, resource);
             }
         }
     }

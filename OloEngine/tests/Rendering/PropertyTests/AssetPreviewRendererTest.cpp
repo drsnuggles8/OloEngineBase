@@ -43,33 +43,21 @@ namespace OloEngine::Tests
 {
     namespace
     {
-        // The renderer can't run without a basic Renderer3D so that
-        // `MaterialAsset` can resolve its DefaultPBR shader from the
-        // shader library. We don't need the whole pipeline up — just
-        // a compiled `DefaultPBR` so the MaterialAsset constructor
-        // succeeds. Static so this initialisation happens once per
-        // process.
-        class RendererBoot
+        // The material is built from a shader this test loads itself rather
+        // than one registered in Renderer3D's shader library: the library
+        // outlives the test, and a later Renderer3D::Init adding the same
+        // name asserts. Not a static: a Ref held past the test would be
+        // destroyed at process exit, after the GL context.
+        Ref<Shader> PreviewShader()
         {
-          public:
-            static void EnsureMinimalShaderLibrary()
-            {
-                ShaderLibrary& lib = Renderer3D::GetShaderLibrary();
-                if (!lib.Exists("DefaultPBR"))
-                {
-                    auto shader = Shader::Create("assets/shaders/PBR_MultiLight.glsl");
-                    if (shader)
-                        lib.Add("DefaultPBR", shader);
-                }
-            }
-        };
+            return Shader::Create("assets/shaders/PBR_MultiLight.glsl");
+        }
 
         // Build a stock MaterialAsset and tweak its factors a little so
         // the test doesn't fail spuriously when default values change.
         Ref<MaterialAsset> MakeTestMaterial()
         {
-            RendererBoot::EnsureMinimalShaderLibrary();
-            auto material = Ref<MaterialAsset>::Create(false);
+            auto material = Ref<MaterialAsset>::Create(Material::Create(PreviewShader()));
             material->SetAlbedoColor(glm::vec3(0.6f, 0.2f, 0.2f));
             material->SetMetalness(0.3f);
             material->SetRoughness(0.5f);

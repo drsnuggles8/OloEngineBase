@@ -211,7 +211,7 @@ namespace OloEngine::Tests
         const GPUSceneMaterial deadMaterial{};
         for (u32 offset : { deadMaterial.AlbedoHeapOffset, deadMaterial.MetallicRoughnessHeapOffset,
                             deadMaterial.NormalHeapOffset, deadMaterial.OcclusionHeapOffset,
-                            deadMaterial.EmissiveHeapOffset, deadMaterial.SpecularHeapOffset })
+                            deadMaterial.EmissiveHeapOffset })
         {
             EXPECT_EQ(offset, GPUSceneHeapOffsetUnresolved);
         }

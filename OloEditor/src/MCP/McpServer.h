@@ -953,19 +953,6 @@ namespace OloEngine::MCP
             return m_ConsentMode.load();
         }
 
-        // Back-compat binary gate over the mode: true maps to AllowSession (writes go
-        // straight through, no prompt), false to Disabled. `AllowWrites()` is "any
-        // mode that permits a write" (Prompt or AllowSession). Kept so the existing
-        // dispatch tests and any external caller need not learn the tri-state.
-        void SetAllowWrites(bool enabled)
-        {
-            SetWriteConsentMode(enabled ? WriteConsentMode::AllowSession : WriteConsentMode::Disabled);
-        }
-        [[nodiscard]] bool AllowWrites() const
-        {
-            return m_ConsentMode.load() != WriteConsentMode::Disabled;
-        }
-
         // A consent prompt awaiting a human decision, as a snapshot for the panel to
         // render. The panel polls PendingConsents() each frame; when non-empty it
         // shows the modal and calls ResolveConsent() on a button press. Main-thread
@@ -1081,10 +1068,9 @@ namespace OloEngine::MCP
         //   1. The OLO_MCP_DISCOVERY_FILE env var, verbatim, when set & non-empty —
         //      the launching tool (e.g. the run-oloengine skill) picks the exact path
         //      it reads back, so parallel worktrees never collide regardless of port.
-        //   2. Otherwise the OS temp dir. The default port keeps the legacy
-        //      `oloengine-mcp.json` name (back-compat for the panel / manual attach);
-        //      any other port namespaces the file as `oloengine-mcp-<port>.json` so
-        //      two editors on distinct ports don't clobber each other's host/token.
+        //   2. Otherwise `oloengine-mcp-<port>.json` in the OS temp dir — every
+        //      port, the default included — so two editors on distinct ports don't
+        //      clobber each other's host/token.
         // Returns an empty string only if the temp dir can't be resolved and no
         // override is set.
         [[nodiscard]] static std::string DiscoveryFilePath(u16 port = DefaultPort);

@@ -134,7 +134,7 @@ quietly attach to *this* worktree's editor and answer about the wrong scene with
 
 The search in (5) never picks between candidates:
 
-- **one** `oloengine-mcp*.json` → it attaches to that editor;
+- **one** `oloengine-mcp-*.json` → it attaches to that editor;
 - **several** → it lists them all and stops. Attaching to the wrong editor answers every
   question about the wrong scene, and the answer looks correct.
 - **none** → it says so and how to fix it.

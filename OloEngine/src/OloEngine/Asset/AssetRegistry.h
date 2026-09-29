@@ -31,6 +31,10 @@ namespace OloEngine
     class AssetRegistry
     {
       public:
+        // On-disk .oar format version. Deserialize accepts exactly this version; any other file
+        // is rejected and has to be rebuilt from the project (docs/agent-rules/binary-format-versioning.md).
+        static constexpr u32 FileVersion = 2;
+
         AssetRegistry() = default;
         ~AssetRegistry() = default;
 

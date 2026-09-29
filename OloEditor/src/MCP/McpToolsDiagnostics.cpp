@@ -232,7 +232,6 @@ namespace OloEngine::MCP
                     { "value", set.NewValue },
                     { "previous", set.OldValue },
                     { "changed", set.Changed },
-                    { "restoreWith", set.OldValue },
                     // The note has to match what actually happened. A no-op
                     // write schedules no notification at all, so promising one
                     // would send a caller looking for an effect that is not
@@ -579,7 +578,7 @@ namespace OloEngine::MCP
             tool.Title = "Set a console variable";
             // Flips a session-global engine switch — the same read-only line
             // olo_render_debug_set crosses, so the same gate. Reversible via the
-            // reported 'restoreWith'.
+            // reported 'previous'.
             tool.ProjectWrite = true;
             tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
             tool.Description =
@@ -606,14 +605,13 @@ namespace OloEngine::MCP
             tool.OutputSchema = Schema::Object()
                                     .Prop("name", Schema::String().Desc("The registered name, in its canonical casing."))
                                     .Prop("value", Schema::String().Desc("Rendered value after the call."))
-                                    .Prop("previous", Schema::String().Desc("Rendered value before the call."))
+                                    .Prop("previous", Schema::String().Desc("Rendered value before the call — pass it back as 'value' to restore."))
                                     .Prop("changed", Schema::Bool().Desc("False when the value was already what you asked for."))
-                                    .Prop("restoreWith", Schema::String().Desc("Pass this back as 'value' to restore."))
                                     .Prop("type", Schema::String().Enum({ "bool", "tristate", "int", "float", "string" }))
                                     .Prop("isDefault", Schema::Bool().Desc("True when the variable is now doing nothing."))
                                     .Prop("help", Schema::String())
                                     .Prop("note", Schema::String().Desc("When the change reaches subsystems that cached it."))
-                                    .Required({ "name", "value", "previous", "changed", "restoreWith" });
+                                    .Required({ "name", "value", "previous", "changed" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_CVarSet;
             registry.Register(std::move(tool));

@@ -1487,6 +1487,27 @@ namespace OloEngine
             }
 
             std::filesystem::path texturePath = std::filesystem::path(m_Directory.ToStdString()) / relativePath;
+
+            // A model file often names a texture that is not where it says: a folder
+            // from the authoring machine, or a format converted after export
+            // (cerberus.fbx references Textures\Cerberus_A.tga; the repo ships
+            // cerberus_A.png beside it). Look for the same file name, any image
+            // extension, case-insensitively, in the referenced folder and then the
+            // model's own, and say which file stands in for the missing one.
+            if (std::error_code existsError; !std::filesystem::exists(texturePath, existsError))
+            {
+                const std::filesystem::path modelDirectory(m_Directory.ToStdString());
+                std::filesystem::path relocated = FindTextureInDirectory(texturePath.parent_path(), relativePath.filename());
+                if (relocated.empty())
+                    relocated = FindTextureInDirectory(modelDirectory, relativePath.filename());
+                if (!relocated.empty())
+                {
+                    OLO_CORE_WARN("Model '{}': texture '{}' does not exist; using '{}', the image with the same name "
+                                  "in the model's folder",
+                                  m_SourcePath.ToView(), relativePath.generic_string(), relocated.generic_string());
+                    texturePath = relocated;
+                }
+            }
             const std::string texturePathStr = texturePath.string() + std::string(srgbSuffix);
 
             if (!m_LoadedTextures.contains(texturePathStr))

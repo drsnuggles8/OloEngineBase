@@ -6,8 +6,6 @@
 layout(local_size_x = 64) in;
 #include "../include/FoliageParams.glsl"
 #include "../include/FoliageInstanceGeometry.glsl"
-#define u_Model mat4(1.0)
-#define u_PrevModel mat4(1.0)
 #include "../include/FoliageWind.glsl"
 layout(buffer_reference, std430, buffer_reference_align = 16) buffer Floats { float Values[]; };
 layout(std140, binding = 65) uniform RayTracingVegetationParams
@@ -34,7 +32,7 @@ void main()
     float height = rows.Values[row+5u];
     float phase = rows.Values[row+7u];
     vec3 rest = foliageInstanceRotation(rotation) * foliageInstanceLocalPos(vertex, scale, height, u_MeshParams.x > 0.5);
-    vec3 point = pivot + foliageDeform(rest, vertex, pivot, phase).Current;
+    vec3 point = pivot + foliageDeform(rest, vertex, pivot, phase, mat4(1.0), mat4(1.0)).Current;
     if (u_MeshParams.y > 0.5 && u_MeshParams.y < 1.5)
         point = pivot + rest + vertex.y * foliageWindOffset(vec3(0, 1, 0), pivot, pivot.xz, phase, u_Time);
     if (u_MeshParams.y > 1.5)

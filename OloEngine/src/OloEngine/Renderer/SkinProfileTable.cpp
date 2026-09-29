@@ -159,19 +159,6 @@ namespace OloEngine
         return m_FallbackCounts[index];
     }
 
-    void SkinProfileTable::ReportFallback(SkinProfileFallbackReason reason, AssetHandle handle)
-    {
-        const u64 key = static_cast<u64>(handle);
-        std::scoped_lock lock(m_Mutex);
-        ++m_FallbackCounts[static_cast<sizet>(reason)];
-        if (m_LoggedHandles.insert(key).second)
-        {
-            OLO_CORE_ERROR("SkinProfileTable - skin material with profile {} falls back ({}); "
-                           "shading it as a generic material.",
-                           key, ToString(reason));
-        }
-    }
-
     void SkinProfileTable::ReportTransmissionFallback(SkinTransmissionFallbackReason reason, AssetHandle handle)
     {
         const u64 handleKey = static_cast<u64>(handle);

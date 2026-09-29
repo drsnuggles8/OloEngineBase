@@ -115,6 +115,7 @@ class SceneWriter:
         self._lines = []
         self._handle = handle_base
         self._lines.append(f"Scene: {name}")
+        self._lines.append("Version: 1")
         for line in note:
             self._lines.append(f"# {line}" if line else "#")
         self._lines.append("Entities:")

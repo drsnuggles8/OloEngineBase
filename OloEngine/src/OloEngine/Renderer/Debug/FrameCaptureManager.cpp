@@ -190,25 +190,12 @@ namespace OloEngine
         pass.Stats.TotalFrameTimeMs = sortTimeMs + batchTimeMs + executeTimeMs;
     }
 
-    CapturedPassData* FrameCaptureManager::FindSourcePass()
-    {
-        if (!m_PendingFrame.SourcePassName.IsEmpty())
-        {
-            for (auto& pass : m_PendingFrame.Passes)
-            {
-                if (pass.PassName == m_PendingFrame.SourcePassName)
-                    return &pass;
-            }
-        }
-        return m_PendingFrame.Passes.IsEmpty() ? nullptr : &m_PendingFrame.Passes[0];
-    }
-
     void FrameCaptureManager::ApplyGpuTimingsToSource(const TArray<f64>& resultsMs)
     {
         if (resultsMs.IsEmpty())
             return;
 
-        CapturedPassData* source = FindSourcePass();
+        CapturedPassData* source = m_PendingFrame.FindSourcePass();
         if (!source)
             return;
 
@@ -299,64 +286,31 @@ namespace OloEngine
         }
     }
 
-    void FrameCaptureManager::OnFrameEnd(u32 frameNumber, f64 sortTimeMs, f64 batchTimeMs, f64 executeTimeMs)
-    {
-        OLO_PROFILE_FUNCTION();
-        if (!IsCapturing())
-            return;
-
-        // Legacy single-pass entrypoint: stash the timings on the current/implicit
-        // pass, then commit with the caller-supplied frame number. GPU timings use
-        // the pool's readable (previous-tick) results, matching the old behaviour.
-        RecordPassTimings(sortTimeMs, batchTimeMs, executeTimeMs);
-        if (const auto& gpuTimer = GPUTimerQueryPool::GetInstance(); gpuTimer.IsInitialized() && gpuTimer.GetReadableQueryCount() > 0)
-        {
-            TArray<f64> resultsMs;
-            resultsMs.SetNum(static_cast<i32>(gpuTimer.GetReadableQueryCount()), EAllowShrinking::No);
-            for (u32 i = 0; i < gpuTimer.GetReadableQueryCount(); ++i)
-                resultsMs[i] = gpuTimer.GetQueryResultMs(i);
-            ApplyGpuTimingsToSource(resultsMs);
-        }
-        CommitPendingFrame(frameNumber);
-    }
-
     void FrameCaptureManager::CommitPendingFrame(u32 frameNumber)
     {
         OLO_PROFILE_FUNCTION();
 
-        // Pick the source / primary pass whose stage lists become the top-level
-        // (legacy) view consumed by the markdown report, olo_perf_capture_frame and
-        // the single-pass tests. Prefer the recorded SourcePassName; fall back to
-        // the first captured pass (the implicit entry the direct-API hooks create
-        // when no BeginPass() was issued). Per-command GPU timings have already
-        // been applied by ApplyGpuTimingsToSource (deferred one-shot resolve, or
-        // previous-tick results for Recording / the legacy OnFrameEnd path), so
-        // the copies below carry them into the top-level view.
-        CapturedPassData* source = FindSourcePass();
+        // The source pass's bucket feeds the frame-level Stats. Prefer the
+        // recorded SourcePassName; fall back to the first captured pass (the
+        // implicit entry the direct-API hooks create when no BeginPass() was
+        // issued). Per-command GPU timings have already been applied to it by
+        // ApplyGpuTimingsToSource (deferred one-shot resolve, or previous-tick
+        // results for Recording).
+        const CapturedPassData& sourcePass = m_PendingFrame.SourcePass();
+        const bool hasPostSort = sourcePass.HasPostSort;
+        const bool hasPostBatch = sourcePass.HasPostBatch;
+        const FrameCaptureStats& sourceStats = sourcePass.Stats;
 
-        bool hasPostSort = false;
-        bool hasPostBatch = false;
-        FrameCaptureStats sourceStats;
-        if (source)
-        {
-            m_PendingFrame.PreSortCommands = source->PreSortCommands;
-            m_PendingFrame.PostSortCommands = source->PostSortCommands;
-            m_PendingFrame.PostBatchCommands = source->PostBatchCommands;
-            hasPostSort = source->HasPostSort;
-            hasPostBatch = source->HasPostBatch;
-            sourceStats = source->Stats;
-
-            // Legacy implicit pass (no BeginPass/SetSourcePass): adopt its name so
-            // the breakdown still labels the bucket.
-            if (m_PendingFrame.SourcePassName.IsEmpty())
-                m_PendingFrame.SourcePassName = source->PassName;
-        }
+        // Implicit pass (no BeginPass/SetSourcePass): adopt its name so the
+        // breakdown still labels the bucket.
+        if (m_PendingFrame.SourcePassName.IsEmpty())
+            m_PendingFrame.SourcePassName = sourcePass.PassName;
 
         m_PendingFrame.FrameNumber = frameNumber;
         m_PendingFrame.TimestampSeconds =
             std::chrono::duration<f64>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
 
-        m_PendingFrame.Stats.TotalCommands = static_cast<u32>(m_PendingFrame.PreSortCommands.Num());
+        m_PendingFrame.Stats.TotalCommands = static_cast<u32>(sourcePass.PreSortCommands.Num());
         m_PendingFrame.Stats.SortTimeMs = sourceStats.SortTimeMs;
         m_PendingFrame.Stats.BatchTimeMs = sourceStats.BatchTimeMs;
         m_PendingFrame.Stats.ExecuteTimeMs = sourceStats.ExecuteTimeMs;
@@ -364,8 +318,8 @@ namespace OloEngine
 
         // Count draw calls and state changes from post-batch (or post-sort) commands
         const auto& finalCommands = hasPostBatch
-                                        ? m_PendingFrame.PostBatchCommands
-                                        : (hasPostSort ? m_PendingFrame.PostSortCommands : m_PendingFrame.PreSortCommands);
+                                        ? sourcePass.PostBatchCommands
+                                        : (hasPostSort ? sourcePass.PostSortCommands : sourcePass.PreSortCommands);
 
         u32 drawCalls = 0;
         u32 stateChanges = 0;
@@ -386,7 +340,7 @@ namespace OloEngine
         // Count batched commands (difference between post-sort and post-batch)
         if (hasPostSort && hasPostBatch)
         {
-            i32 diff = static_cast<i32>(m_PendingFrame.PostSortCommands.Num()) - static_cast<i32>(m_PendingFrame.PostBatchCommands.Num());
+            i32 diff = static_cast<i32>(sourcePass.PostSortCommands.Num()) - static_cast<i32>(sourcePass.PostBatchCommands.Num());
             m_PendingFrame.Stats.BatchedCommands = diff > 0 ? static_cast<u32>(diff) : 0;
         }
 
@@ -428,15 +382,11 @@ namespace OloEngine
             m_CaptureGeneration.fetch_add(1, std::memory_order_release);
         }
 
-        // State machine transition (a one-shot capture — committed either directly
-        // via the legacy OnFrameEnd path or from the claimed deferred hold —
-        // returns to Idle; recording stays in Recording for the next frame).
+        // State machine transition: a one-shot capture (committed from the
+        // claimed deferred hold) returns to Idle; recording stays in Recording
+        // for the next frame.
         auto expected = CaptureState::Committing;
-        if (!m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel))
-        {
-            expected = CaptureState::CaptureNextFrame;
-            m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel);
-        }
+        m_State.compare_exchange_strong(expected, CaptureState::Idle, std::memory_order_acq_rel);
 
         // Re-init pending frame for the next capture
         m_PendingFrame = CapturedFrameData{};

@@ -60,8 +60,8 @@ void main()
 #endif
     OLO_INSTANCE_FORWARD();
     OloDeformedSurface surface = OloDeformSkinnedVertex(a_Position, a_Normal, a_BoneIDs, a_BoneWeights);
-    v_WorldPos = vec3(u_Model * surface.Position);
-    v_Normal = mat3(u_Normal) * surface.Normal;
+    v_WorldPos = vec3(instances[gl_InstanceIndex].Transform * surface.Position);
+    v_Normal = mat3(instances[gl_InstanceIndex].Normal) * surface.Normal;
     v_TexCoord = a_TexCoord;
     gl_Position = u_ViewProjection * vec4(v_WorldPos, 1.0);
 }

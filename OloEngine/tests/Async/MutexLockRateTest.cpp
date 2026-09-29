@@ -3,7 +3,7 @@
  * @brief Lock rate benchmarks for OloEngine mutex implementations
  *
  * Ported from UE5.7's Tests/Async/MutexLockRateTest.cpp
- * Tests: FMutex, FRecursiveMutex, FSharedMutex, FSharedRecursiveMutex, FExternalMutex
+ * Tests: FMutex, FRecursiveMutex, FSharedMutex, FSharedRecursiveMutex, TExternalMutex
  *
  * These are benchmarks rather than unit tests - they measure lock/unlock throughput
  * across varying thread counts. Run with --gtest_filter=*LockRate* for benchmark output.

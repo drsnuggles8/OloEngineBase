@@ -183,9 +183,9 @@ hold:
    `WatchdogScope` and *restored* when a nested call unwinds — so a nested
    read-only tool runs read-only even when a write-tier tool called it, and the
    caller gets its own authority back afterwards); **and**
-2. the session **still** permits writes at that instant (`AllowWrites()`), which
-   is re-checked at each inner call rather than trusted from the dispatch-time
-   gate — so flipping the panel back to Disabled stops a long-running macro's
+2. the session **still** permits writes at that instant (`GetWriteConsentMode()` is not
+   `Disabled`), which is re-checked at each inner call rather than trusted from
+   the dispatch-time gate — so flipping the panel back to Disabled stops a long-running macro's
    remaining writes.
 
 Condition (1) is also what closes the escalation path, and it does so

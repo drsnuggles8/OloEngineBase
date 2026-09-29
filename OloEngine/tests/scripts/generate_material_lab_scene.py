@@ -82,7 +82,7 @@ def sweep_tag(metallic, roughness):
 
 class SceneWriter:
     def __init__(self, scene_name, id_base):
-        self.parts = [f"Scene: {scene_name}\n"]
+        self.parts = [f"Scene: {scene_name}\nVersion: 1\n"]
         self.next_id = id_base
         self.count = 0
 

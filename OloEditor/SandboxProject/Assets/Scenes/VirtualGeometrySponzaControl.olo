@@ -1,4 +1,5 @@
 Scene: VirtualGeometrySponzaControl.olo
+Version: 1
 # ─────────────────────────────────────────────────────────────────────────────
 # Nanite-style virtualized geometry on a real production asset (issue #629).
 #
@@ -122,5 +123,5 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     ModelComponent:
-      FilePath: SandboxProject/Assets/Models/Sponza/Sponza.gltf
+      FilePath: Assets/Models/Sponza/Sponza.gltf
       Visible: true

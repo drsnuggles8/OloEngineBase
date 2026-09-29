@@ -107,8 +107,8 @@ void main()
     // hash and the same UBO parameters the beauty stage uses — the caster and
     // the drawn plant are the same plant at the same size or the shadow is of
     // something that is not there.
-    vec3 lodPivot = (u_Model * vec4(a_PositionScale.xyz, 1.0)).xyz;
-    vec3 lodPivotPrev = (u_PrevModel * vec4(a_PositionScale.xyz, 1.0)).xyz;
+    vec3 lodPivot = (instances[0].Transform * vec4(a_PositionScale.xyz, 1.0)).xyz;
+    vec3 lodPivotPrev = (instances[0].PrevTransform * vec4(a_PositionScale.xyz, 1.0)).xyz;
     float lodDist = distance(lodPivot, u_MeshViewPos.xyz);
     float lodPrevDist = distance(lodPivotPrev, u_PrevMeshViewPos.xyz);
     float instanceSeed = foliageLodInstanceHash(a_PositionScale.xyz);
@@ -119,10 +119,11 @@ void main()
     vec3 rotatedPos = foliageInstanceRotation(rotation) *
                       foliageInstanceLocalPos(a_Position, scale, height, isAuthoredMesh);
 
-    rotatedPos = foliageDeform(rotatedPos, a_Position, a_PositionScale.xyz, a_RotationHeight.w).Current;
+    rotatedPos = foliageDeform(rotatedPos, a_Position, a_PositionScale.xyz, a_RotationHeight.w,
+                               instances[0].Transform, instances[0].PrevTransform).Current;
 
     vec3 instancePos = a_PositionScale.xyz;
-    vec3 worldPos = (u_Model * vec4(instancePos + rotatedPos, 1.0)).xyz;
+    vec3 worldPos = (instances[0].Transform * vec4(instancePos + rotatedPos, 1.0)).xyz;
 
     // Same per-instance hand-over as the beauty pass, measured from the render
     // origin rather than the camera for exactly the reason this stage exists:

@@ -843,13 +843,12 @@ namespace OloEngine::MCP::RendererSettings
         result.Ok = true;
         result.Data = Json{
             { "setting", std::string(SettingToken(setting)) },
+            // Restore: these are session-global settings, so a revert is just this
+            // same tool with `value` = previousValue (no CommandHistory / Ctrl-Z
+            // entry, unlike the entity field writes).
             { "previousValue", ValueToken(setting, previous) },
             { "value", ValueToken(setting, value) },
             { "changed", changed },
-            // Restore hint: these are session-global settings, so a revert is just
-            // this same tool with `value` = previousValue (no CommandHistory / Ctrl-Z
-            // entry, unlike the entity field writes).
-            { "restoreWith", ValueToken(setting, previous) },
         };
         if (requestedAuto)
             result.Data["requested"] = "auto";

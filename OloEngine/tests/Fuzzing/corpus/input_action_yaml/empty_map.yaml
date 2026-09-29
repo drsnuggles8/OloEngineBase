@@ -1,3 +1,5 @@
-InputActionMap:
-  Name: Default
-  Actions: []
+InputActionContexts:
+  - Context: Gameplay
+    Map:
+      Name: Default
+      Actions: []

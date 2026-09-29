@@ -110,8 +110,6 @@ namespace OloEngine
             if (!surface)
                 return;
 
-            out.SetType(MaterialType::PBR);
-
             auto readFloat = [&](const char* name) -> std::optional<f32>
             {
                 UsdShadeInput input = surface.GetInput(TfToken(name));

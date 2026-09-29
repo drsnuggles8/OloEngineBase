@@ -132,12 +132,10 @@ TEST_F(DiscoveryLoopLandingAndSaveTest, DiscoveredSetSurvivesSaveReloadRoundTrip
     EXPECT_EQ(static_cast<u64>(restoredDiscovered[0]), static_cast<u64>(m_Island.GetUUID()));
 }
 
-// Simulates a save file written BEFORE this game added DiscoveredSetComponent
-// to the boat: the captured payload simply has no such component on that
-// entity. Restoring it into a scene that fully knows about the component
-// type must still succeed — a brand-new component type needs no version
-// gate, only a field added to an already-shipped component does (see
-// HasFieldsSince usage elsewhere in SaveGameComponentSerializer.cpp).
+// A save whose boat entity carries no DiscoveredSetComponent: the captured
+// payload simply has no such component on that entity. Restoring it into a
+// scene that fully knows about the component type must still succeed, and
+// must not default-construct the missing component.
 TEST_F(DiscoveryLoopLandingAndSaveTest, OldSaveWithoutDiscoveredSetComponentStillLoads)
 {
     ASSERT_TRUE(m_Boat.HasComponent<DiscoveredSetComponent>());

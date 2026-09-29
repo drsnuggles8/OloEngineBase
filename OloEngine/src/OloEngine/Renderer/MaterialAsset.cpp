@@ -31,72 +31,26 @@ namespace OloEngine
     constexpr const char* s_MetalnessMapUniform = "u_MetalnessTexture";
     constexpr const char* s_RoughnessMapUniform = "u_RoughnessTexture";
 
+    constexpr const char* kShaderName = "PBR_MultiLight";
+
     MaterialAsset::MaterialAsset(bool transparent)
         : m_Transparent(transparent)
     {
         SetHandle(AssetHandle{});
 
-        // Try to get the desired shader, fallback to a simpler shader if not available
-        Ref<Shader> shader;
+        // Opaque and transparent materials share the forward PBR shader; transparency
+        // is the material's alpha mode (SetDefaults). The DefaultPBR /
+        // DefaultPBR_Transparent names this used to ask for no longer exist, so every
+        // new material logged an error and fell back to Basic3D.
         ShaderLibrary& shaderLibrary = Renderer3D::GetShaderLibrary();
-
-        if (transparent)
+        if (!shaderLibrary.Exists(kShaderName))
         {
-            if (shaderLibrary.Exists("DefaultPBR_Transparent"))
-            {
-                shader = shaderLibrary.Get("DefaultPBR_Transparent");
-            }
-            else
-            {
-                OLO_CORE_WARN("MaterialAsset: DefaultPBR_Transparent shader not found, falling back to DefaultPBR");
-                if (shaderLibrary.Exists("DefaultPBR"))
-                {
-                    shader = shaderLibrary.Get("DefaultPBR");
-                }
-                else
-                {
-                    OLO_CORE_ERROR("MaterialAsset: DefaultPBR shader not found, falling back to Basic3D");
-                    if (shaderLibrary.Exists("Basic3D"))
-                    {
-                        shader = shaderLibrary.Get("Basic3D");
-                    }
-                    else
-                    {
-                        OLO_CORE_ASSERT(false, "MaterialAsset: No fallback shader available! Basic3D shader is missing.");
-                        return; // Cannot create material without a shader
-                    }
-                }
-            }
-        }
-        else
-        {
-            if (shaderLibrary.Exists("DefaultPBR"))
-            {
-                shader = shaderLibrary.Get("DefaultPBR");
-            }
-            else
-            {
-                OLO_CORE_ERROR("MaterialAsset: DefaultPBR shader not found, falling back to Basic3D");
-                if (shaderLibrary.Exists("Basic3D"))
-                {
-                    shader = shaderLibrary.Get("Basic3D");
-                }
-                else
-                {
-                    OLO_CORE_ASSERT(false, "MaterialAsset: No fallback shader available! Basic3D shader is missing.");
-                    return; // Cannot create material without a shader
-                }
-            }
-        }
-
-        // Verify we have a valid shader before creating the material
-        if (!shader)
-        {
-            OLO_CORE_ASSERT(false, "MaterialAsset: Failed to obtain a valid shader");
+            OLO_CORE_ERROR("MaterialAsset: the '{}' shader is not loaded; the material has no shader", kShaderName);
+            OLO_CORE_ASSERT(false, "MaterialAsset: PBR_MultiLight is missing from the shader library");
             return;
         }
 
-        m_Material = Material::Create(shader);
+        m_Material = Material::Create(shaderLibrary.Get(kShaderName));
 
         SetDefaults();
     }

@@ -107,7 +107,7 @@ namespace
 // refused with a JSON-RPC error and the selection action NEVER runs.
 TEST_F(McpSelectEntityTest, GateOffRejectsAndDoesNotInvoke)
 {
-    ASSERT_FALSE(m_Server.AllowWrites()); // off by default
+    ASSERT_EQ(m_Server.GetWriteConsentMode(), OloEngine::MCP::WriteConsentMode::Disabled); // off by default
 
     const Json resp = m_Server.HandleMessage(MakeCallRequest(1, Json{ { "entity", "42" } }));
     ASSERT_TRUE(resp.contains("error"));
@@ -119,7 +119,7 @@ TEST_F(McpSelectEntityTest, GateOffRejectsAndDoesNotInvoke)
 // carries the resolved entity through.
 TEST_F(McpSelectEntityTest, GateOnValidUuidSelects)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     m_FakeResult.Available = true;
     m_FakeResult.Ok = true;
     m_FakeResult.Changed = true;
@@ -152,7 +152,7 @@ TEST_F(McpSelectEntityTest, GateOnValidUuidSelects)
 // so it exercises the actual schema declared by InputSchema().
 TEST_F(McpSelectEntityTest, SchemaAcceptsNumericEntity)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     m_FakeResult.Available = true;
     m_FakeResult.Ok = true;
     m_FakeResult.Changed = true;
@@ -174,7 +174,7 @@ TEST_F(McpSelectEntityTest, SchemaAcceptsNumericEntity)
 // crash and not a tool error — and does NOT report a selection.
 TEST_F(McpSelectEntityTest, GateOnUnknownUuidReportsOkFalseNotSelected)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     m_FakeResult.Available = true;
     m_FakeResult.Ok = false;
     m_FakeResult.Changed = false;
@@ -198,7 +198,7 @@ TEST_F(McpSelectEntityTest, GateOnUnknownUuidReportsOkFalseNotSelected)
 // selected:false.
 TEST_F(McpSelectEntityTest, GateOnClearDeselects)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     m_FakeResult.Available = true;
     m_FakeResult.Ok = true;
     m_FakeResult.Changed = true;
@@ -225,7 +225,7 @@ TEST_F(McpSelectEntityTest, GateOnClearDeselects)
 // An unexpected property is rejected before the handler runs.
 TEST_F(McpSelectEntityTest, SchemaRejectsUnknownProperty)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     const Json resp = m_Server.HandleMessage(MakeCallRequest(5, Json{ { "entity", "1" }, { "speed", 2 } }));
 
     ASSERT_TRUE(resp.contains("result")); // SEP-1303: schema failures are tool errors
@@ -237,7 +237,7 @@ TEST_F(McpSelectEntityTest, SchemaRejectsUnknownProperty)
 // caught by the handler's ParseArgs, so the action never runs.
 TEST_F(McpSelectEntityTest, HandlerRejectsEmptyArgs)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     const Json resp = m_Server.HandleMessage(MakeCallRequest(6, Json::object()));
 
     ASSERT_TRUE(resp.contains("result"));
@@ -248,7 +248,7 @@ TEST_F(McpSelectEntityTest, HandlerRejectsEmptyArgs)
 // Giving BOTH 'entity' and 'clear':true is ambiguous and rejected.
 TEST_F(McpSelectEntityTest, HandlerRejectsBothEntityAndClear)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     const Json resp = m_Server.HandleMessage(MakeCallRequest(7, Json{ { "entity", "1" }, { "clear", true } }));
 
     ASSERT_TRUE(resp.contains("result"));

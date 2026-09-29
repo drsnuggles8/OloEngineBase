@@ -24,12 +24,8 @@ namespace OloEngine
         // is the Vulkan close-crash shape (#691).
         static void Shutdown();
 
-        // Standard IBL generation methods (backward compatibility)
-        static void GenerateIrradianceMap(const Ref<TextureCubemap>& environmentMap, const Ref<TextureCubemap>& irradianceMap, ShaderLibrary& shaderLibrary);
-        static void GeneratePrefilterMap(const Ref<TextureCubemap>& environmentMap, const Ref<TextureCubemap>& prefilterMap, ShaderLibrary& shaderLibrary);
-        static void GenerateBRDFLut(const Ref<Texture2D>& brdfLutMap, ShaderLibrary& shaderLibrary);
-
-        // Enhanced IBL generation methods with configurable quality
+        // IBL generation methods with configurable quality. A missing bake
+        // shader logs an error and leaves the target unbaked.
         static void GenerateIrradianceMapAdvanced(const Ref<TextureCubemap>& environmentMap,
                                                   const Ref<TextureCubemap>& irradianceMap,
                                                   ShaderLibrary& shaderLibrary,

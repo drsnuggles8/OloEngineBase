@@ -13,6 +13,7 @@
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Project/ContentPath.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Passes/DeferredLightingPass.h"
 #include "OloEngine/Renderer/CameraRelative.h"
@@ -145,7 +146,7 @@ namespace OloEngine
                         surface.Material.m_AlphaCutoff = layer.AlphaCutoff;
                         surface.Material.m_ClosureVersion = std::to_underlying(PBRModel::ClosureV2);
                         surface.Material.m_MaterialKind = std::to_underlying(MaterialKind::Foliage);
-                        surface.Material.m_Flags = GPUSceneMaterialFlagPBR | GPUSceneMaterialFlagTwoSided | GPUSceneMaterialFlagDepthTest;
+                        surface.Material.m_Flags = GPUSceneMaterialFlagTwoSided | GPUSceneMaterialFlagDepthTest;
                         const auto albedo = mesh && layer.MeshParts[part].Albedo ? layer.MeshParts[part].Albedo : layer.AlbedoTexture;
                         if (albedo && albedo->IsLoaded())
                         {
@@ -332,8 +333,6 @@ namespace OloEngine
                         if (const Ref<Material>& material = model.GetMaterial(sub.m_MaterialIndex); material)
                         {
                             part.Albedo = material->GetAlbedoMap();
-                            if (!part.Albedo)
-                                part.Albedo = material->GetDiffuseMap();
                         }
                     }
                 }
@@ -398,8 +397,12 @@ namespace OloEngine
         data.MeshGeometryPath.Empty();
         data.BoundsProfile = FoliageBoundsProfile{};
 
-        auto model = Ref<Model>::Create(layer.MeshPath.ToStdString());
-        if (model->GetMeshCount() == 0)
+        // Project-relative for project content, working-directory-relative for
+        // engine content (#1496). An unresolvable path is logged by the resolver
+        // and takes the same did-not-load branch as a file Assimp rejects.
+        const std::filesystem::path meshFile = ResolveContentPath(layer.MeshPath.ToView());
+        Ref<Model> model = meshFile.empty() ? Ref<Model>{} : Ref<Model>::Create(meshFile.generic_string());
+        if (!model || model->GetMeshCount() == 0)
         {
             OLO_CORE_ERROR("FoliageRenderer: layer '{}' asks for the authored mesh '{}' and it did not load. The "
                            "layer draws its flat card at ALL distances instead; the census counts the variant as "
@@ -814,9 +817,13 @@ namespace OloEngine
             if (renderData.LoadedAlbedoPath != layer.AlbedoPath)
             {
                 renderData.LoadedAlbedoPath = layer.AlbedoPath;
-                renderData.AlbedoTexture = layer.AlbedoPath.IsEmpty()
+                // An albedo path that resolves to no file (logged by the resolver)
+                // draws with no albedo texture, never a read against the cwd.
+                const std::filesystem::path albedoFile =
+                    layer.AlbedoPath.IsEmpty() ? std::filesystem::path{} : ResolveContentPath(layer.AlbedoPath.ToView());
+                renderData.AlbedoTexture = albedoFile.empty()
                                                ? nullptr
-                                               : Texture2D::Create(layer.AlbedoPath.ToStdString(), /*srgb=*/true);
+                                               : Texture2D::Create(albedoFile.generic_string(), /*srgb=*/true);
                 renderData.AlphaCoverageDirty = true;
             }
 
@@ -856,7 +863,9 @@ namespace OloEngine
                 if (loadedPath == path)
                     return;
                 loadedPath = path;
-                texture = path.IsEmpty() ? nullptr : Texture2D::Create(path.ToStdString(), /*srgb=*/false);
+                const std::filesystem::path file =
+                    path.IsEmpty() ? std::filesystem::path{} : ResolveContentPath(path.ToView());
+                texture = file.empty() ? nullptr : Texture2D::Create(file.generic_string(), /*srgb=*/false);
 
                 // Texture2D::Create NEVER RETURNS NULL — a file that will not
                 // open still yields a Ref, and IsLoaded() is the only thing
@@ -1560,7 +1569,25 @@ namespace OloEngine
         // also what keeps the impostor card and the mesh the same tree.
         Ref<Model> owned;
         if (!data.MeshModel || data.MeshGeometryPath != layer.MeshPath)
-            owned = Ref<Model>::Create(layer.MeshPath.ToStdString());
+        {
+            const std::filesystem::path meshFile = ResolveContentPath(layer.MeshPath.ToView());
+            if (meshFile.empty())
+            {
+                OLO_CORE_WARN("FoliageRenderer: impostor layer '{}' mesh '{}' does not resolve — impostor disabled "
+                              "for this layer",
+                              layer.Name.ToView(), layer.MeshPath.ToView());
+                ImpostorBaker::Free(data.Impostor);
+                data.Impostor = ImpostorAtlas{};
+                if (!data.ImpostorPartTextures.IsEmpty())
+                {
+                    data.ImpostorPartTextures.Reset();
+                    data.ImpostorPartSurfaceUVs.Reset();
+                    data.AlphaCoverageDirty = true;
+                }
+                return;
+            }
+            owned = Ref<Model>::Create(meshFile.generic_string());
+        }
         const Model& model = owned ? *owned : *data.MeshModel;
         // The coverage diagnostic re-measures only when what is baked changes.
         // A bake that fails, or bakes nothing, leaves nothing to judge.

@@ -461,9 +461,9 @@ TEST(SHProjectionTest, UniformWhiteAfterCosineLobeScalingYieldsUnity)
 {
     // Regression test for the brightness convention.
     //
-    // The production IrradianceConvolution.glsl shader outputs *normalised*
+    // The production IrradianceConvolutionAdvanced.glsl shader outputs *normalised*
     // irradiance — for uniform-white L=1 the cubemap stores 1.0, NOT the raw
-    // Lambertian integral π (see `PbrIrradianceTest.UniformWhiteYieldsNormalisedUnity`
+    // Lambertian integral π (see `PbrIrradianceAdvancedTest.ImportanceUniformWhiteYieldsUnity`
     // for the convolution side). The SH path in
     // `IBLPrecompute::GenerateIrradianceMapFromSH` must match that convention,
     // so its cosine-lobe constants are (1, 2/3, 1/4) — the Ramamoorthi-Hanrahan

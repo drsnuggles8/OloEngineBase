@@ -10,23 +10,13 @@
 // values the scene loader would have rejected feeds them straight into a pow()
 // exponent in the shared shader evaluation.
 //
-// Three claims:
+// Two claims:
 //
 //   THE FIELDS SURVIVE A ROUND TRIP at the current format version. A field
 //   added to FoliageLayer and to the scene serializer but forgotten here
 //   round-trips fine through a .olo and silently vanishes through a save —
 //   the exact bug class SaveGameComponentSerializerCoverageTest exists for at
 //   the component level, asserted here at the field level.
-//
-//   A v32 SAVE STILL LOADS, AND LOADS WITH THE MATERIAL OFF. The archive is
-//   fixed-order, so an ungated read of the v33 leaf block would consume the
-//   NEXT field's bytes out of every older save and desync everything after it.
-//   The payload below is hand-built to the v32 layout for exactly that reason —
-//   the same technique SaveGameVersionMigrationTest uses for TerrainComponent's
-//   pre-v3 block, and the only way to test a version you can no longer write.
-//   The second half of the claim matters as much as the first: the older save
-//   must come back with TransmissionStrength 0, so a world saved before this
-//   material existed renders as the build that saved it rendered.
 //
 //   HOSTILE VALUES ARE SANITIZED ON LOAD. A save file is no more trusted than
 //   a .olo, and the bounds are declared in both places by hand.
@@ -72,7 +62,7 @@ namespace OloEngine::Tests
             return layer;
         }
 
-        [[nodiscard]] FoliageComponent RoundTrip(const FoliageComponent& seed, u32 readVersion)
+        [[nodiscard]] FoliageComponent RoundTrip(const FoliageComponent& seed)
         {
             std::vector<u8> buffer;
             {
@@ -86,89 +76,13 @@ namespace OloEngine::Tests
             FoliageComponent loaded{};
             FMemoryReader reader(buffer);
             reader.ArIsSaveGame = true;
-            reader.SetArchiveVersion(readVersion);
+            reader.SetArchiveVersion(kSaveGameFormatVersion);
             SaveGameComponentSerializer::Serialize(reader, loaded);
             EXPECT_FALSE(reader.IsError());
             EXPECT_TRUE(reader.AtEnd())
                 << "the reader did not consume exactly the payload — a field-order desync, which in a fixed-order "
                    "archive corrupts every component after this one, not just this one";
             return loaded;
-        }
-
-        // A FoliageComponent payload in the EXACTLY v32 layout: one layer, every
-        // field SerializeFoliageLayer wrote at v32 and nothing after, then the
-        // component's trailing m_Enabled.
-        //
-        // Hand-written because a v32 save can no longer be produced — the writer
-        // always emits the current layout (HasFieldsSince short-circuits on
-        // IsSaving). Mirror any change to SerializeFoliageLayer's pre-v33 field
-        // ORDER here; if the two drift, this test fails with a desync rather
-        // than passing wrongly, which is the behaviour to want.
-        [[nodiscard]] std::vector<u8> BuildV32Payload(const FoliageLayer& l, bool componentEnabled)
-        {
-            std::vector<u8> buffer;
-            FMemoryWriter ar(buffer);
-            ar.ArIsSaveGame = true;
-            ar.SetArchiveVersion(32);
-
-            u32 layerCount = 1;
-            ar << layerCount;
-
-            std::string name = l.Name.ToStdString();
-            std::string meshPath = l.MeshPath.ToStdString();
-            std::string albedoPath = l.AlbedoPath.ToStdString();
-            ar << name << meshPath << albedoPath;
-            f32 density = l.Density;
-            ar << density;
-            i32 splat = l.SplatmapChannel;
-            ar << splat;
-            f32 minSlope = l.MinSlopeAngle;
-            f32 maxSlope = l.MaxSlopeAngle;
-            ar << minSlope << maxSlope;
-            f32 minScale = l.MinScale;
-            f32 maxScale = l.MaxScale;
-            ar << minScale << maxScale;
-            f32 minHeight = l.MinHeight;
-            f32 maxHeight = l.MaxHeight;
-            ar << minHeight << maxHeight;
-            bool randomRotation = l.RandomRotation;
-            ar << randomRotation;
-            f32 viewDistance = l.ViewDistance;
-            f32 fadeStart = l.FadeStartDistance;
-            ar << viewDistance << fadeStart;
-            f32 windStrength = l.WindStrength;
-            f32 windSpeed = l.WindSpeed;
-            ar << windStrength << windSpeed;
-            glm::vec3 baseColor = l.BaseColor;
-            ar << baseColor;
-            f32 roughness = l.Roughness;
-            f32 alphaCutoff = l.AlphaCutoff;
-            ar << roughness << alphaCutoff;
-            bool enabled = l.Enabled;
-            ar << enabled;
-
-            // v11 impostor block
-            bool useImpostor = l.UseImpostor;
-            ar << useImpostor;
-            f32 impostorStart = l.ImpostorStartDistance;
-            f32 impostorBand = l.ImpostorTransitionBand;
-            ar << impostorStart << impostorBand;
-            u32 impostorFrames = l.ImpostorFramesPerAxis;
-            u32 impostorRes = l.ImpostorAtlasResolution;
-            ar << impostorFrames << impostorRes;
-            bool impostorHemi = l.ImpostorHemiOctahedral;
-            ar << impostorHemi;
-
-            // v32 authored-mesh block — and then nothing, which is the point.
-            bool useAuthoredMesh = l.UseAuthoredMesh;
-            ar << useAuthoredMesh;
-            f32 meshViewDistance = l.MeshViewDistance;
-            f32 meshFadeStart = l.MeshFadeStartDistance;
-            ar << meshViewDistance << meshFadeStart;
-
-            bool compEnabled = componentEnabled;
-            ar << compEnabled;
-            return buffer;
         }
     } // namespace
 
@@ -178,7 +92,7 @@ namespace OloEngine::Tests
         seed.m_Enabled = true;
         seed.m_Layers.Add(MakeAuthoredLeafLayer());
 
-        const FoliageComponent loaded = RoundTrip(seed, kSaveGameFormatVersion);
+        const FoliageComponent loaded = RoundTrip(seed);
         ASSERT_EQ(loaded.m_Layers.Num(), 1u);
         const FoliageLayer& got = loaded.m_Layers[0];
         const FoliageLayer& want = seed.m_Layers[0];
@@ -194,44 +108,6 @@ namespace OloEngine::Tests
         EXPECT_TRUE(Math::BitwiseEqual(got.TransmissionPower, want.TransmissionPower));
         EXPECT_TRUE(Math::BitwiseEqual(got.TransmissionWrap, want.TransmissionWrap));
         EXPECT_TRUE(Math::BitwiseEqual(got.TransmissionAmbient, want.TransmissionAmbient));
-    }
-
-    TEST(FoliageLeafMaterialSaveLoad, AV32SaveLoadsCleanlyWithTheMaterialOff)
-    {
-        FoliageLayer authored = MakeAuthoredLeafLayer();
-        // The leaf fields below are what a v32 payload CANNOT carry; they are
-        // set here only to prove they do not leak into the loaded layer.
-        const std::vector<u8> payload = BuildV32Payload(authored, /*componentEnabled=*/true);
-
-        FoliageComponent loaded{};
-        FMemoryReader reader(payload);
-        reader.ArIsSaveGame = true;
-        reader.SetArchiveVersion(32);
-        SaveGameComponentSerializer::Serialize(reader, loaded);
-
-        ASSERT_FALSE(reader.IsError());
-        EXPECT_TRUE(reader.AtEnd())
-            << "the v33 reader consumed bytes a v32 save does not have. In a fixed-order archive that is not a "
-               "wrong value — it is every component after this one reading the wrong bytes.";
-
-        ASSERT_EQ(loaded.m_Layers.Num(), 1u);
-        const FoliageLayer& l = loaded.m_Layers[0];
-
-        // The fields v32 DID carry came back, so this is a test of the gate and
-        // not of a load that failed.
-        EXPECT_EQ(l.Name, authored.Name);
-        EXPECT_EQ(l.AlbedoPath, authored.AlbedoPath);
-        EXPECT_TRUE(Math::BitwiseEqual(l.Roughness, authored.Roughness));
-        EXPECT_TRUE(l.UseAuthoredMesh == authored.UseAuthoredMesh);
-        EXPECT_TRUE(loaded.m_Enabled);
-
-        // And the material is OFF — the documented conservative default.
-        EXPECT_FLOAT_EQ(l.TransmissionStrength, 0.0f)
-            << "a v32 save came back with the leaf material ON. A world saved before #1234 must render as the "
-               "build that saved it rendered.";
-        EXPECT_TRUE(l.NormalMapPath.IsEmpty());
-        EXPECT_TRUE(l.RoughnessMapPath.IsEmpty());
-        EXPECT_TRUE(l.ThicknessMapPath.IsEmpty());
     }
 
     TEST(FoliageLeafMaterialSaveLoad, HostileValuesAreSanitizedOnLoad)
@@ -264,7 +140,7 @@ namespace OloEngine::Tests
         outOfRange.Thickness = 0.5f;
         seed.m_Layers.Add(outOfRange);
 
-        const FoliageComponent loaded = RoundTrip(seed, kSaveGameFormatVersion);
+        const FoliageComponent loaded = RoundTrip(seed);
         ASSERT_EQ(loaded.m_Layers.Num(), 2u);
         const FoliageLayer& l = loaded.m_Layers[0];
 

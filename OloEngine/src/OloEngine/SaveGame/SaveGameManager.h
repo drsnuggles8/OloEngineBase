@@ -36,7 +36,8 @@ namespace OloEngine
         NoActiveScene,
         IOError,
         InvalidInput,
-        Pending // Async save dispatched, result delivered via callback
+        Pending,           // Async save dispatched, result delivered via callback
+        UnsupportedVersion // An .olosave of another FormatVersion; re-save it with the build that wrote it
     };
 
     // Callback for async save completion

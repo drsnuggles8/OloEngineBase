@@ -21,6 +21,7 @@
 #include <chrono>
 #include <functional>
 #include <stdexcept>
+#include <string_view>
 #include <thread>
 
 using OloEngine::CaptureState;
@@ -112,6 +113,21 @@ namespace
         static constexpr std::chrono::milliseconds kShortTimeout{ 120 };
         bool m_OwnsFrameData = false;
     };
+
+    // Renders the armed capture frame the way Renderer3D::EndScene does: one
+    // CommitFrame per frame. A one-shot capture parks on the first while its GPU
+    // timer queries resolve and publishes on a later one; the loop stands in for
+    // those frames. `marker` becomes the frame's source-pass name, so a test can
+    // tell the frame this call committed from any other.
+    void RenderCaptureFrame(std::string_view marker)
+    {
+        auto& mgr = FrameCaptureManager::GetInstance();
+        mgr.SetSourcePass(marker);
+        mgr.CommitFrame();
+        constexpr int kMaxLaterFrames = 16;
+        for (int later = 0; later < kMaxLaterFrames && mgr.GetState() == CaptureState::AwaitingGpuResults; ++later)
+            mgr.CommitFrame();
+    }
 } // namespace
 
 TEST_F(McpFrameCaptureWaitTest, ATimedOutCaptureIsWithdrawn)
@@ -161,7 +177,7 @@ TEST_F(McpFrameCaptureWaitTest, ACaptureThatLandsIsReturned)
         while (!stop.load() && !host.Polling.load())
             std::this_thread::yield();
         if (!stop.load())
-            FrameCaptureManager::GetInstance().OnFrameEnd(11, 0.0, 0.0, 0.0); });
+            RenderCaptureFrame("capture-frame-11"); });
 
     const auto result = CaptureOneFrame(host, std::chrono::seconds(10));
     stop.store(true);
@@ -169,7 +185,7 @@ TEST_F(McpFrameCaptureWaitTest, ACaptureThatLandsIsReturned)
 
     EXPECT_EQ(result.Outcome, FrameCaptureWaitOutcome::Captured);
     ASSERT_FALSE(result.Frames.IsEmpty());
-    EXPECT_EQ(result.Frames.Last().FrameNumber, 11u);
+    EXPECT_EQ(result.Frames.Last().SourcePassName.ToStdString(), "capture-frame-11");
     EXPECT_EQ(FrameCaptureManager::GetInstance().GetState(), CaptureState::Idle);
 }
 
@@ -183,12 +199,12 @@ TEST_F(McpFrameCaptureWaitTest, AFrameCommittedAfterTheLastPollIsKept)
     host.AfterJob = [](int marshal)
     {
         if (marshal == 1)
-            FrameCaptureManager::GetInstance().OnFrameEnd(21, 0.0, 0.0, 0.0);
+            RenderCaptureFrame("capture-frame-21");
     };
     const auto result = CaptureOneFrame(host, std::chrono::milliseconds(0));
 
     EXPECT_EQ(result.Outcome, FrameCaptureWaitOutcome::Captured);
     ASSERT_FALSE(result.Frames.IsEmpty());
-    EXPECT_EQ(result.Frames.Last().FrameNumber, 21u);
+    EXPECT_EQ(result.Frames.Last().SourcePassName.ToStdString(), "capture-frame-21");
     EXPECT_EQ(FrameCaptureManager::GetInstance().GetState(), CaptureState::Idle);
 }

@@ -38,6 +38,15 @@ namespace OloEngine::Tests
             const auto source = fs::path(OLO_TEST_EDITOR_ROOT) / "SandboxProject/Assets/Scenes/Benchmark/ParallelRecording.olo";
             const auto scenePath = m_TempDir / "Assets/ParallelRecording.olo";
             fs::copy_file(source, scenePath, fs::copy_options::overwrite_existing);
+            // The scene names its caster model project-relative
+            // ("Assets/Models/Benchmark/RecordingCasters.glb", #1496), so it resolves
+            // against THIS temp project: stage the model at the same relative path.
+            // A scratch project rather than the real SandboxProject keeps the asset
+            // manager's registry write and the model's mesh cache out of the tree.
+            const auto modelRelative = fs::path("Assets/Models/Benchmark/RecordingCasters.glb");
+            fs::create_directories((m_TempDir / modelRelative).parent_path());
+            fs::copy_file(fs::path(OLO_TEST_EDITOR_ROOT) / "SandboxProject" / modelRelative, m_TempDir / modelRelative,
+                          fs::copy_options::overwrite_existing);
             const auto projectPath = m_TempDir / "Recording.oloproj";
             {
                 std::ofstream project(projectPath);

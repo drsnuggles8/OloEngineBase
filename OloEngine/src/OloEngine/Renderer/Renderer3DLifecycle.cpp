@@ -96,12 +96,10 @@ namespace
         "assets/shaders/ProceduralSky.glsl",
         "assets/shaders/StarNestSky.glsl",
         "assets/shaders/AtmosphereSky.glsl",
-        "assets/shaders/IrradianceConvolution.glsl",
         "assets/shaders/IrradianceConvolutionAdvanced.glsl",
         "assets/shaders/IrradianceFromSH.glsl",
         "assets/shaders/IBLPrefilter.glsl",
         "assets/shaders/IBLPrefilterImportance.glsl",
-        "assets/shaders/BRDFLutGeneration.glsl",
         "assets/shaders/BRDFIntegrationAdvanced.glsl",
         "assets/shaders/Skybox.glsl",
         "assets/shaders/Skybox_GBuffer.glsl",
@@ -320,14 +318,6 @@ namespace OloEngine
         ShaderWarmup::RunWarmupScreen(m_ShaderLibrary, window);
 
         s_Data.LightCubeShader = m_ShaderLibrary.Get("LightCube");
-        // The legacy single-light forward shaders (Lighting3D /
-        // SkinnedLighting3D_Simple, binding-1 LightUBO) were retired. The
-        // default/fallback forward shader for materials without an explicit
-        // shader is now the multi-light PBR path (binding-5 MultiLightUBO).
-        // These stay forward-only, so the Deferred-path overlay rerouting in
-        // Renderer3DMeshSubmission still applies unchanged.
-        s_Data.DefaultForwardShader = m_ShaderLibrary.Get("PBR_MultiLight");
-        s_Data.DefaultForwardSkinnedShader = m_ShaderLibrary.Get("PBR_MultiLight_Skinned");
         s_Data.QuadShader = m_ShaderLibrary.Get("Renderer3D_Quad");
         s_Data.PBRShader = m_ShaderLibrary.Get("PBR_MultiLight");
         s_Data.PBRSkinnedShader = m_ShaderLibrary.Get("PBR_MultiLight_Skinned");
@@ -401,8 +391,7 @@ namespace OloEngine
         }
 
         s_Data.SharedSceneUBOs.Camera = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
-        // Allocate enough for the larger PBR layout (PBRMaterialUBO > MaterialUBO)
-        constexpr u32 materialBufferSize = std::max(ShaderBindingLayout::MaterialUBO::GetSize(), ShaderBindingLayout::PBRMaterialUBO::GetSize());
+        constexpr u32 materialBufferSize = ShaderBindingLayout::PBRMaterialUBO::GetSize();
         s_Data.SharedSceneUBOs.Material = UniformBuffer::Create(materialBufferSize, ShaderBindingLayout::UBO_MATERIAL);
         // Validate the MultiLightUBO fits within the GPU's uniform block size limit.
         // MAX_LIGHTS=256 produces ~20 KB which exceeds the GL spec minimum of 16 KB
@@ -936,8 +925,6 @@ namespace OloEngine
         // surviving to static destruction leak their VkShaderModules into
         // vkDestroyDevice (VUID-vkDestroyDevice-device-05137).
         s_Data.LightCubeShader.Reset();
-        s_Data.DefaultForwardShader.Reset();
-        s_Data.DefaultForwardSkinnedShader.Reset();
         s_Data.QuadShader.Reset();
         s_Data.PBRShader.Reset();
         s_Data.PBRSkinnedShader.Reset();

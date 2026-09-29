@@ -15,9 +15,6 @@ namespace OloEngine
     // Forward declarations
     class Entity;
 
-    // Type aliases for scene queries
-    using ExcludedEntityMap = std::vector<UUID>;
-
     // Character controller contact callback function type
     using ContactCallbackFn = std::function<void(Entity entity, Entity otherEntity)>;
 

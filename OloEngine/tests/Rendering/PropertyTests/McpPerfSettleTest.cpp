@@ -110,7 +110,7 @@ namespace OloEngine::Tests
         ASSERT_NE(port, 0) << "McpHeadlessHost failed to bind a port for the MCP server";
 
         // olo_renderer_settings_set is a consented WRITE tool.
-        host.Server().SetAllowWrites(true);
+        host.Server().SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
 
         // Get past the host's own frame==0 "unready" special-case before timing
         // the settle window, so the measurement below isolates the NEW settle
