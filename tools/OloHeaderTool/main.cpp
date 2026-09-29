@@ -4055,8 +4055,6 @@ int main(int argc, char* argv[])
     {
         std::ostringstream ss;
         EmitCsComponents(ss, components);
-        // NEGATIVE CONTROL (#1405): codegen emits invalid C#. Reverted by the next commit.
-        ss << "\nnamespace OloEngine { public class NegativeControl1405 { int x = ; } }\n";
         auto path = csOutDir / "Scene" / "Components.Generated.cs";
         switch (WriteIfChanged(path, ss.str()))
         {
