@@ -182,7 +182,7 @@ Assets:
     # upstream project, and saying so is the point of the field.
     LicenseVerified: upstream-declared
     Version: glTF-Sample-Assets Models/Fox (in-repo copy; upstream revision not recorded)
-    Sha256: 681ae12c7eba99a68a1f8071889cadea95d01ade3b62816c3134bd63eead06c3
+    Sha256: 6ddcabf511c0257b87dedf6ac51f1bdb6f21e570eee5fa7c4fa6162d055cb002
     # Fox.gltf's position accessor spans ~79 units in Y. The scene applies a
     # 0.01 scale to land a ~0.79 m animal; getting this wrong by 100x would
     # invalidate every screen-coverage number taken from the capture.

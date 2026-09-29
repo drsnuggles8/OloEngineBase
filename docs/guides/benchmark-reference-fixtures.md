@@ -108,6 +108,10 @@ python tools/benchmark/reference_assets.py --write-hashes # after a deliberate a
 python tools/benchmark/reference_assets.py --fetch        # pull fetch-required assets
 ```
 
+A pin is the hash of the bytes git stores, so it is the same on every checkout: a file git keeps as
+text (`git ls-files --eol` shows `i/lf`) is hashed with CRLF folded to LF, anything else byte for
+byte. A pin taken from a Windows working copy's CRLF bytes would verify nowhere else (#1521).
+
 `--write-hashes` is the only way a hash should ever move. Review that diff: a hash that changed
 without an intended asset change is the bug the mechanism exists to catch.
 

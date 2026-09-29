@@ -201,7 +201,7 @@ Assets:
     LicenseVerified: in-repo-file
     Version: derived asset; see SandboxProject/Assets/Models/Vegetation/broadleaf/LICENSE.md for the
       source files, the import date and every modification made
-    Sha256: 19c8cccb4bca4bd8eb1714c88d027f3fabf062be55baa102cbd4b5f7aa7d2b1a
+    Sha256: f136f62818e20203fe414acba86e4a4ebeb666500c79d7ce0b4db6bb9fa7e340
     Units: metres
     UpAxis: +Y
     ColorSpace: n/a
@@ -281,7 +281,7 @@ Assets:
     LicenseVerified: in-repo-file
     Version: derived asset; see SandboxProject/Assets/Models/Vegetation/fern/LICENSE.md for the
       source files, the import date and every modification made
-    Sha256: 78dbac5ad84c4aa139fffaa5e6c46882108f813c957f725f535320f614d62b56
+    Sha256: cfbefff3da992d63f4fd1a391e10d921cb3d2358af4ea5340dad12dc2ff56156
     Units: metres
     UpAxis: +Y
     ColorSpace: n/a
@@ -345,7 +345,7 @@ Assets:
     LicenseVerified: in-repo-file
     Version: derived asset; see SandboxProject/Assets/Models/Vegetation/pine/LICENSE.md for the
       source files, the import date and every modification made
-    Sha256: ba37f485220e61bbdd53f00e8f9f72bcb2ae48a276f0fc349f7c7aa6be80158e
+    Sha256: 58b4cffbd0f9497df6ebecd23a0d5455d3598654db85de2c32d90d09a5f733b0
     Units: metres
     UpAxis: +Y
     ColorSpace: n/a
@@ -441,7 +441,7 @@ Assets:
     LicenseVerified: in-repo-file
     Version: derived asset; see SandboxProject/Assets/Models/Vegetation/shrub/LICENSE.md for the
       source files, the import date and every modification made
-    Sha256: bc07fd950f07294ad8d9183d73f3b9266cf00ec19c8e4042cca29d3b9379c24f
+    Sha256: 5b869a649a5ac111fed9999adcc6540c4496e5a22529102d6027159c5dd57744
     Units: metres
     UpAxis: +Y
     ColorSpace: n/a

@@ -204,7 +204,7 @@ Assets:
     Version: >-
       derived asset; see SandboxProject/Assets/Models/Vegetation/broadleaf/LICENSE.md for the source files,
       the import date and every modification made
-    Sha256: 19c8cccb4bca4bd8eb1714c88d027f3fabf062be55baa102cbd4b5f7aa7d2b1a
+    Sha256: f136f62818e20203fe414acba86e4a4ebeb666500c79d7ce0b4db6bb9fa7e340
     Units: metres
     UpAxis: +Y
     ColorSpace: n/a
@@ -289,7 +289,7 @@ Assets:
     Version: >-
       derived asset; see SandboxProject/Assets/Models/Vegetation/grass_dry/LICENSE.md for the source files,
       the import date and every modification made
-    Sha256: e6e82fa508d5a0945d937e1c3da221889bfb39ea5e71b1607b3db4f04b214906
+    Sha256: 1cb255c889b3adc907bef2b251c91c6d8c8d7fa0675787e10956164948b04369
     Units: metres
     UpAxis: +Y
     ColorSpace: n/a
