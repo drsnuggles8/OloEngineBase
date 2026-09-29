@@ -127,6 +127,10 @@ add_executable(OloEngine-Tests
 		# through the cook, the per-role budget that keeps the silhouette, and the
 		# pose-independence that makes a regional map stay attached.
 		Groom/GroomCoatAuthoringTest.cpp
+		# Coat authoring v4 (#1533): curl and wave measured on the emitted
+		# stream (helix radius and pitch, planar wave, exact root), the v3 stream
+		# bit for bit where nothing is authored, and the root-to-tip tint.
+		Groom/GroomCoatCurlTest.cpp
 		# Representation LOD (#1252). The strand/card/mesh ladder's selection and
 		# its two anti-thrash mechanisms, the coverage compensation's linear rule,
 		# and the card cook's determinism and density conservation.

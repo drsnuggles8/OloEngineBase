@@ -9893,6 +9893,13 @@ namespace OloEngine
         // the target -- so a constant offset cancels to first order. Including it
         // would mean rebuilding the strand build's clump table here, which is a
         // second copy of a computation that must agree exactly with the first.
+        //
+        // CURL AND WAVE are not applied either (#1533), and for a stronger
+        // reason: only a DISPLACEMENT crosses from a guide to its strands, and
+        // every strand adds its OWN curl back in the strand build. A curled
+        // target would put one strand's helix into the guide's rest lengths and
+        // its phase into the displacement of every strand the guide drives. The
+        // guide solves the groomed centreline; the curl rides on top.
         const auto& points = groom.GetPoints();
         const auto& rootUVs = groom.GetRootUVs();
         const auto& groupIds = groom.GetCurveGroupIds();
@@ -9903,6 +9910,12 @@ namespace OloEngine
         offsets.Add(0u);
         TArray<u32> guideCurves;
         guideCurves.Reserve(state.m_SlotOfGuide.Num());
+        // Each guide's own group's stiffness scale (#1533), read from the ASSET's
+        // table whether or not the coat component is enabled -- how stiff a tail
+        // plume is against the undercoat is part of how the groom was groomed,
+        // the way the role the budget above reads is.
+        TArray<f32> stiffnessScales;
+        stiffnessScales.Reserve(state.m_SlotOfGuide.Num());
 
         // COUNTED, not folded into a single flag. A guide whose root has no
         // deformed frame is already handled per guide by
@@ -9934,6 +9947,7 @@ namespace OloEngine
             }
             offsets.Add(static_cast<u32>(state.m_Targets.Num()));
             guideCurves.Add(curve);
+            stiffnessScales.Add(coat.GroupDesc(groupIds[curve]).StiffnessScale);
         }
 
         // == The body proxy, re-fitted only when the surface's identity moved ==
@@ -10073,6 +10087,7 @@ namespace OloEngine
         inputs.GuideCurves = std::span{ guideCurves.GetData(), static_cast<sizet>(guideCurves.Num()) };
         inputs.TargetPoints = std::span{ state.m_Targets.GetData(), static_cast<sizet>(state.m_Targets.Num()) };
         inputs.Colliders = std::span{ state.m_Colliders.GetData(), static_cast<sizet>(state.m_Colliders.Num()) };
+        inputs.StiffnessScales = std::span{ stiffnessScales.GetData(), static_cast<sizet>(stiffnessScales.Num()) };
         inputs.Params = params;
         inputs.DeltaTime = m_GroomSimulationDeltaSeconds;
         inputs.HasHistory = hasHistory;

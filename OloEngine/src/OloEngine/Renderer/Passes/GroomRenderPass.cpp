@@ -1827,6 +1827,7 @@ namespace OloEngine
                 m_Stats.GuidePointsSimulated += simulation.PointsSimulated;
                 m_Stats.SimulationContacts += simulation.ContactsResolved;
                 m_Stats.GuidesWithHeldRoots += simulation.GuidesWithHeldRoots;
+                m_Stats.GuidesStiffnessCapped += simulation.GuidesStiffnessCapped;
                 m_Stats.SimulationSteps += simulation.StepsTaken;
                 m_Stats.SimulationStepsClamped =
                     m_Stats.SimulationStepsClamped || simulation.StepsClamped;

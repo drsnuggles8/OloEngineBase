@@ -8,6 +8,7 @@
 #include "OloEngine/Animation/SpringBoneComponent.h"
 #include "OloEngine/Audio/AudioListener.h"
 #include "OloEngine/Audio/AudioSource.h"
+#include "OloEngine/Groom/GroomCoat.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Physics3D/ColliderMaterial.h"
 #include "OloEngine/Renderer/GPUScene/GPUSceneTypes.h"
@@ -123,6 +124,11 @@ namespace
     X(OloEngine::FogVolumeComponent)                               \
     X(OloEngine::NetworkInterestComponent)                         \
     X(OloEngine::NameplateComponent)                               \
+    /* Groom/GroomCoat.h (#1251, grown by #1533): */               \
+    /* all three compare as BitwiseEqual(*this). */                \
+    X(OloEngine::GroomCoatGroupDesc)                               \
+    X(OloEngine::GroomCoatRoleOverride)                            \
+    X(OloEngine::GroomCoatStrandParams)                            \
     /* Groom/GroomLod.h (#1252). The component, plus the three */  \
     /* value types its policy and decision travel as: all four */  \
     /* implement operator== as BitwiseEqual(*this, other), and */  \

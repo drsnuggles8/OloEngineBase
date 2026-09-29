@@ -30,6 +30,7 @@
 #include <cmath>
 #include <cstdio>
 #include <limits>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -615,6 +616,161 @@ TEST(GroomGuideSimulation, TheStiffnessCeilingDoesNotBindAtSixtyHertz)
     // and the coat would sag visibly further than the analytic g/k bound.
     EXPECT_LT(stats.MaxRestDeviation, 9.81f / 1000.0f * 12.0f)
         << "the 60 Hz ceiling must not be clamping an already-stable stiffness";
+}
+
+// -----------------------------------------------------------------------------
+// Per-group stiffness (#1533)
+// -----------------------------------------------------------------------------
+
+// The entity's stiffness is ONE number, so a body undercoat and a long tail
+// plume used to sag by the same g/k. Each guide now carries its group's
+// StiffnessScale, and at equilibrium a guide four times as stiff holds four
+// times closer to its groom. g/k is the steady offset of every free particle of
+// a chain laid across gravity: the first segment tilts by atan(g / (k L)) and
+// the rest follow it almost level, so the tip sags by L sin(atan(g/(kL))) ~ g/k.
+TEST(GroomGuideSimulation, APerGuideStiffnessScaleSetsEachGuidesSag)
+{
+    // Long segments, so the sag is small beside them and the chain stays in the
+    // regime where the offset IS g/k rather than a bent chain's.
+    const TestGuides guides = TestGuides::Make(2, 8, 0.2f, glm::vec3(1.0f, 0.0f, 0.0f));
+    GroomSimulationParams params;
+    params.CollisionEnabled = false;
+    params.Stiffness = 400.0f;
+    params.Damping = 12.0f;
+    const std::vector<f32> scales{ 1.0f, 4.0f };
+
+    GroomGuideSimulationState state;
+    GroomSimulationInputs inputs = guides.Inputs(params, 1.0f / 60.0f, false);
+    inputs.StiffnessScales = scales;
+    (void)StepGroomGuideSimulation(inputs, state);
+    inputs.HasHistory = true;
+    GroomSimulationStats stats;
+    for (u32 frame = 0; frame < 600u; ++frame) // ten seconds: long past settling
+    {
+        stats = StepGroomGuideSimulation(inputs, state);
+    }
+    ASSERT_FALSE(stats.Refused);
+    EXPECT_EQ(stats.GuidesStiffnessCapped, 0u) << "1600 is inside the 60 Hz ceiling of 3600";
+
+    const auto tipSag = [&](u32 guide)
+    {
+        const u32 tip = guides.Offsets[guide + 1u] - 1u;
+        return guides.Targets[tip].y - state.Curr[tip].y;
+    };
+    const f32 soft = tipSag(0u);
+    const f32 stiff = tipSag(1u);
+    EXPECT_NEAR(soft, 9.81f / 400.0f, 0.1f * (9.81f / 400.0f)) << "the unscaled guide sags by g/k";
+    EXPECT_NEAR(stiff / soft, 0.25f, 0.02f) << "a guide four times as stiff sagged " << stiff << " against " << soft;
+}
+
+// EMPTY is every guide at 1 — bit for bit the solve that existed before, so a
+// groom whose groups author no stiffness moves exactly as it did. A span of
+// ones is the same solve again.
+TEST(GroomGuideSimulation, AnEmptyStiffnessSpanIsEveryGuideAtOne)
+{
+    const TestGuides guides = TestGuides::Make(3, 9, 0.1f, glm::vec3(1.0f, 0.0f, 0.0f));
+    GroomSimulationParams params;
+    params.CollisionEnabled = false;
+    const std::vector<f32> ones(3u, 1.0f);
+
+    GroomGuideSimulationState unscaled;
+    GroomGuideSimulationState scaledByOne;
+    const RunResult plain = RunMotion(guides, params, 1.0f / 60.0f, 1.5f, unscaled);
+    // RunMotion builds its own inputs, so the span-of-ones arm is driven by hand
+    // over the same motion.
+    {
+        GroomSimulationInputs seed = guides.Inputs(params, 1.0f / 60.0f, false);
+        seed.StiffnessScales = ones;
+        (void)StepGroomGuideSimulation(seed, scaledByOne);
+        f32 time = 0.0f;
+        while (time < 1.5f)
+        {
+            time += 1.0f / 60.0f;
+            TestGuides moved = guides;
+            moved.Translate(glm::vec3(0.4f * std::sin(time * 6.0f), 0.0f, 0.0f));
+            GroomSimulationInputs inputs = moved.Inputs(params, 1.0f / 60.0f, true);
+            inputs.StiffnessScales = ones;
+            (void)StepGroomGuideSimulation(inputs, scaledByOne);
+        }
+    }
+    ASSERT_FALSE(plain.Last.Refused);
+    EXPECT_EQ(unscaled.Curr, scaledByOne.Curr);
+    EXPECT_EQ(unscaled.Prev, scaledByOne.Prev);
+}
+
+// A span that does not name every guide, or names one with a non-finite
+// scale, is a malformed input: REFUSED and cleared, like a malformed offset
+// table, never quietly padded with ones.
+TEST(GroomGuideSimulation, AMalformedStiffnessSpanIsRefused)
+{
+    const TestGuides guides = TestGuides::Make(3, 6);
+    GroomSimulationParams params;
+    const std::vector<std::vector<f32>> malformed{
+        { 1.0f, 2.0f },                                        // one short
+        { 1.0f, 2.0f, 3.0f, 4.0f },                            // one long
+        { 1.0f, std::numeric_limits<f32>::quiet_NaN(), 1.0f }, // NaN
+        { 1.0f, 1.0f, std::numeric_limits<f32>::infinity() },  // infinity
+    };
+    for (sizet c = 0; c < malformed.size(); ++c)
+    {
+        SCOPED_TRACE("case " + std::to_string(c));
+        GroomGuideSimulationState state;
+        (void)StepGroomGuideSimulation(guides.Inputs(params, 1.0f / 60.0f, false), state);
+        ASSERT_TRUE(state.Initialized);
+        GroomSimulationInputs inputs = guides.Inputs(params, 1.0f / 60.0f, true);
+        inputs.StiffnessScales = malformed[c];
+        const GroomSimulationStats stats = StepGroomGuideSimulation(inputs, state);
+        EXPECT_TRUE(stats.Refused);
+        EXPECT_FALSE(state.Initialized);
+    }
+}
+
+// The step's stability ceiling applies to each guide's PRODUCT. At 15 Hz the
+// ceiling is 225 (Stiffness * dt^2 <= 1); an entity at 90 with a group scaled
+// by 4 asks for 360, is solved at the ceiling -- exactly as an entity authored
+// straight at the ceiling is -- and is COUNTED. A product under the ceiling is
+// the product, bit for bit.
+TEST(GroomGuideSimulation, AScaledStiffnessPastTheStepCeilingIsHeldThereAndCounted)
+{
+    const TestGuides guides = TestGuides::Make(1, 10, 0.1f, glm::vec3(1.0f, 0.0f, 0.0f));
+    const auto run = [&](f32 stiffness, std::span<const f32> scales, GroomSimulationStats& outStats)
+    {
+        GroomSimulationParams params;
+        params.CollisionEnabled = false;
+        params.FixedHz = 15.0f;
+        params.Stiffness = stiffness;
+        GroomGuideSimulationState state;
+        GroomSimulationInputs inputs = guides.Inputs(params, 1.0f / 15.0f, false);
+        inputs.StiffnessScales = scales;
+        (void)StepGroomGuideSimulation(inputs, state);
+        inputs.HasHistory = true;
+        for (u32 frame = 0; frame < 60u; ++frame)
+        {
+            outStats = StepGroomGuideSimulation(inputs, state);
+        }
+        return state.Curr;
+    };
+
+    const std::vector<f32> four{ 4.0f };
+    GroomSimulationStats scaledStats;
+    GroomSimulationStats ceilingStats;
+    const std::vector<glm::vec3> scaled = run(90.0f, four, scaledStats);
+    // Authored at the maximum, which Sanitize holds to the ceiling: the same
+    // number the scaled guide is held to. The scale did not do that, so it is
+    // not counted.
+    const std::vector<glm::vec3> atCeiling = run(GroomSimulationLimits::MaxStiffness, {}, ceilingStats);
+    ASSERT_FALSE(scaledStats.Refused);
+    EXPECT_EQ(scaledStats.GuidesStiffnessCapped, 1u) << "the scale lifted the guide past the ceiling";
+    EXPECT_EQ(ceilingStats.GuidesStiffnessCapped, 0u);
+    EXPECT_EQ(scaled, atCeiling) << "the capped guide must be solved at exactly the ceiling";
+
+    // Under the ceiling: 50 x 4 is 200, exactly, and solves exactly as 200 does.
+    GroomSimulationStats underStats;
+    GroomSimulationStats plainStats;
+    const std::vector<glm::vec3> under = run(50.0f, four, underStats);
+    const std::vector<glm::vec3> plain = run(200.0f, {}, plainStats);
+    EXPECT_EQ(underStats.GuidesStiffnessCapped, 0u);
+    EXPECT_EQ(under, plain) << "a scale is a multiplier on the stiffness and nothing else";
 }
 
 // -----------------------------------------------------------------------------

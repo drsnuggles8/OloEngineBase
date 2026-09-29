@@ -76,7 +76,9 @@ you need motion for a capture, drive it through `RunFrames` (runtime), not `RunE
 on disk today. Everything authored here lives on `GroomSimulationComponent` — scene YAML and the
 save game, both of which have real backward-compatibility machinery — and the guide-to-strand
 influence table is derived at runtime and cached. Keep it that way unless you are prepared to
-re-cook every groom in the project.
+re-cook every groom in the project. The one exception, since #1533, is the per-GROUP
+`StiffnessScale` in section 9: how stiff a tail plume is against the undercoat is part of the groom,
+so it is cooked, and it multiplies the component's `m_Stiffness` per guide.
 
 **The coat-shadow volume is not part of this, and that is #1248's decision rather than an oversight.**
 `GroomRenderPass::AcquireCoatVolume` releases the volume and reports not-ready for any DEFORMED groom, so a

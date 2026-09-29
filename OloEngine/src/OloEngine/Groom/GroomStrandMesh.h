@@ -103,10 +103,16 @@ namespace OloEngine
         /// bit-casts it back; no arithmetic is ever done on it as a float.
         f32 SegmentId = 0.0f;
 
-        /// This strand's coat TINT (issue #1251), 8:8:8 in the low 24 bits of
+        /// This corner's coat TINT (issue #1251), 8:8:8 in the low 24 bits of
         /// this lane with the exponent forced — see PackGroomCoatTint, which is
         /// the twin of GroomStrand.glsl's unpack, and which explains why the
         /// exponent is not optional.
+        ///
+        /// PER CORNER since #1533: the two corners at a segment's P0 carry the
+        /// strand's tint at T0 and the two at P1 its tint at T1
+        /// (PackGroomCoatTintAt), so a strand runs from its root tint to its tip
+        /// tint. The vertex stage unpacks it and the rasterizer interpolates the
+        /// COLOUR — never the packed bits, which are not a number.
         ///
         /// It took the lane that was Pad0. The vertex is SIXTEEN FLOATS and the
         /// Vulkan arm pulls it as a flat float array at that stride, so spending
