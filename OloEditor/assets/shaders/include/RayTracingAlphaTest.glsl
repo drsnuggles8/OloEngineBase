@@ -38,8 +38,12 @@
 // (HybridRayTracingAlpha.glsl: RT shadows and reflections), the reference
 // tracers (RayTracedSurfaceHit.glsl: GPU path tracer, ReSTIR GI/PT) and
 // ReSTIR DI (ReSTIRDISceneAccess.glsl) define it as a fetch through the
-// descriptor heap (ADR 0011 amendment (95)). compute/RayTracingProbe.comp does
-// not define it, so it tests the policy against alpha = 1.
+// descriptor heap (ADR 0011 amendment (95)). The hybrid consumers stand down
+// when the heap is unresolved; without the material texture table the
+// reference tracers trace masked geometry as solid and ReSTIR DI tests the
+// factor alpha alone, and each counts it in its stats.
+// compute/RayTracingProbe.comp does not define the macro, so it tests the
+// policy against alpha = 1.
 // =============================================================================
 
 #ifndef OLO_RAY_TRACING_ALPHA_TEST_GLSL
