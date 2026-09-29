@@ -26,11 +26,14 @@
 //     displacement crosses the boundary, so the renderer cannot accidentally
 //     mix a guide's curl into a strand that was groomed differently.
 //
-// WHAT THE TABLE IS KEYED ON. The ROOT UV and the GROUP, both of which are
-// invariant under body deformation — the same key GroomCoat.h chose, for the
-// same reason. A strand is influenced only by guides in its OWN group: a whisker
-// must not be blended toward the undercoat, which is what a purely geometric
-// nearest-neighbour search on a muzzle would do.
+// WHAT THE TABLE IS KEYED ON. The GROUP, and the distance between REST ROOT
+// POSITIONS — the cooked asset's first control points in groom object space, not
+// the root UVs. Both are invariant under body deformation, because the search
+// runs once over the asset and never sees a pose: the same reason GroomCoat.h
+// keys on the root UV, reached through a different quantity. A strand is
+// influenced only by guides in its OWN group: a whisker must not be blended
+// toward the undercoat, which is what a purely geometric nearest-neighbour
+// search on a muzzle would do.
 //
 // WHY THE TABLE IS DERIVED AT RUNTIME AND NOT COOKED. The .ologroom's minimum
 // supported version equals its current version by design (GroomBinaryFormat.h):
