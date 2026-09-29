@@ -118,3 +118,38 @@ Earlier invalid query-generation and mislabeled Forward+ captures are preserved
 separately and excluded from these results. The binaries were built before the
 test-only packed-groom frame-count instrumentation; source and binary provenance
 are recorded separately rather than inferred from a clean checkout.
+
+## Shorten only the packed-asset smoke check
+
+Keep stride, integration and temporal-convergence durations in their dedicated tests.
+`LooseAndPackedGroomsAreTheAssetsThatWereCooked` checks cooked asset identity and
+attachment, so its packed runtime now uses eight frames: two reseed frames and six
+integrating frames. All three subjects must still draw and deform, with zero binding
+refusals and more than 1% packed-coat coverage. The actual frame count is emitted as
+`packed_runtime_frames` in GoogleTest XML.
+
+Three alternating AB/BA fresh-process pairs per configuration compared the preserved
+45-frame executable with the eight-frame candidate. All 12 runs passed without skips.
+Process wall times in seconds (median and range):
+
+| Configuration | 45 frames | 8 frames |
+|---|---:|---:|
+| Release | 23.228 [23.219, 26.011] | 20.699 [20.504, 20.701] |
+| Debug | 204.197 [204.054, 204.934] | 171.310 [170.913, 171.425] |
+
+These are descriptive local measurements, not a universal CI threshold. The single
+full baseline per configuration passed all ten acceptance cases plus frame-rate
+invariance and over-budget logging checks. Acceptance process times were 521.139 s
+Release and 5,854.534 s Debug; this is not a paired whole-suite speedup claim.
+The 60-frame integration run, full stride, 24-frame resolve, 30/60/144 Hz comparison
+and adaptive near/far convergence remain unchanged. The existing near/far test
+reported ShortCoat energy as unmeasurable; its energy oracle is not claimed as passed.
+
+Every comparison run produced fresh ShortCoat, LongCoat and Human PNGs. Viewed
+representative A/B images retain coats and hair, with the expected earlier walk/head
+pose at eight frames. Both arms retain noisy strands and sparse scalp coverage;
+these images establish functional attachment, not art quality or convergence.
+The three committed `GroomAnimalsPacked_GL_Forward_*.png` images are the final
+Debug candidate captures. Raw XML, image hashes and executable hashes are retained
+under `build-cached/live-evidence/groom-frame-comparison/`; its host monitor sampled
+known competing processes every five seconds with no contention observed.
