@@ -268,7 +268,43 @@ namespace OloEngine
         // ITERATING to produce output. Nothing here iterates it — it is only ever
         // looked up by key — so the output order and every value in it are a pure
         // function of the groom.
-        using ClumpTable = std::unordered_map<u64, GroomCoatClumpAccum>;
+        //
+        // A CLUMP IS A PATCH OF PELT IN ONE GROUP: keyed by (group, cell), the key
+        // the card cook clusters on (GroomLodBuilder's Member). Keyed by the cell
+        // alone, every group growing from a cell pulled toward ONE mean -- a guard
+        // coat's tufts were bent toward the undercoat under it, and a clumped mane
+        // toward whatever short fur shared its chart cell.
+        struct ClumpKey
+        {
+            u64 Cell = 0;
+            u16 Group = 0;
+
+            [[nodiscard]] bool operator==(const ClumpKey&) const = default;
+        };
+
+        struct ClumpKeyHash
+        {
+            [[nodiscard]] sizet operator()(const ClumpKey& key) const noexcept
+            {
+                // The group into the high bits through a golden-ratio multiply,
+                // then a 64-bit finaliser: a cell key's two halves are small
+                // signed integers, so an unmixed XOR would collide on
+                // neighbouring cells of neighbouring groups.
+                u64 h = key.Cell ^ (static_cast<u64>(key.Group) * 0x9E3779B97F4A7C15ull);
+                h ^= h >> 33;
+                h *= 0xFF51AFD7ED558CCDull;
+                h ^= h >> 33;
+                return static_cast<sizet>(h);
+            }
+        };
+
+        using ClumpTable = std::unordered_map<ClumpKey, GroomCoatClumpAccum, ClumpKeyHash>;
+
+        [[nodiscard]] ClumpKey ClumpKeyOf(const GroomCurveView& groom, u32 curveIndex, f32 cellSize) noexcept
+        {
+            return ClumpKey{ GroomCoatClumpCell(groom.GetRootUVs()[curveIndex], cellSize),
+                             groom.GetCurveGroupIds()[curveIndex] };
+        }
 
         [[nodiscard]] ClumpTable BuildClumpTable(const GroomCurveView& groom, const GroomStrandBuildSettings& settings,
                                                  const GroomCoatContext* coat)
@@ -296,8 +332,7 @@ namespace OloEngine
                 const u32 count = groom.GetCurvePointCount(curve);
                 const glm::vec3& root = points[first];
                 const glm::vec3& tip = points[first + count - 1u];
-                const u64 cell = GroomCoatClumpCell(groom.GetRootUVs()[curve], cellSize);
-                GroomCoatClumpAccum& accum = table[cell];
+                GroomCoatClumpAccum& accum = table[ClumpKeyOf(groom, curve, cellSize)];
                 // The LENGTH-SCALED growth, so a clump of strands that were all
                 // shortened converges at the shortened tips rather than reaching
                 // for where the tips used to be.
@@ -310,7 +345,7 @@ namespace OloEngine
         [[nodiscard]] glm::vec3 ClumpGrowthFor(const ClumpTable& table, const GroomCurveView& groom, u32 curveIndex,
                                                f32 cellSize) noexcept
         {
-            const auto it = table.find(GroomCoatClumpCell(groom.GetRootUVs()[curveIndex], cellSize));
+            const auto it = table.find(ClumpKeyOf(groom, curveIndex, cellSize));
             return it != table.end() ? it->second.MeanGrowth() : glm::vec3(0.0f);
         }
 

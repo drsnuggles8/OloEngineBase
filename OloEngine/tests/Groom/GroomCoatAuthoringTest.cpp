@@ -1070,3 +1070,83 @@ TEST(GroomCoatAuthoring, ClumpCellsPartitionTheRootUvSpace)
     EXPECT_NE(GroomCoatClumpCell({ 0.01f, 0.01f }, cell), GroomCoatClumpCell({ 0.06f, 0.01f }, cell));
     EXPECT_NE(GroomCoatClumpCell({ -0.01f, 0.0f }, cell), GroomCoatClumpCell({ 0.01f, 0.0f }, cell));
 }
+
+TEST(GroomCoatAuthoring, TwoGroupsSharingACellClumpIndependently)
+{
+    // A clump is a patch of pelt IN ONE GROUP -- the (group, cell) key the card
+    // cook already clusters on. Keyed by the cell alone, a long guard coat and
+    // the short undercoat under it pulled toward ONE mean growth, so every guard
+    // tuft was bent toward the undercoat. Two groups here share a single root-UV
+    // cell and grow at right angles; at full clump each strand's tip must land
+    // on its own root plus its OWN group's mean growth.
+    GroomBuilder builder;
+    std::string reason;
+    u16 along = 0;
+    u16 across = 0;
+    ASSERT_TRUE(builder.AddGroup("tuft_along", along, reason)) << reason;
+    ASSERT_TRUE(builder.AddGroup("tuft_across", across, reason)) << reason;
+    GroomCoatGroupDesc clumped;
+    clumped.Clump = 1.0f;
+    std::vector<std::string> repairs;
+    ASSERT_TRUE(builder.SetGroupCoat(along, clumped, repairs));
+    ASSERT_TRUE(builder.SetGroupCoat(across, clumped, repairs));
+
+    constexpr u32 kPerGroup = 4;
+    const std::array<f32, 3> widths{ 1.0e-4f, 1.0e-4f, 1.0e-4f };
+    for (u32 s = 0; s < kPerGroup * 2u; ++s)
+    {
+        const bool isAlong = s < kPerGroup;
+        const auto k = static_cast<f32>(s % kPerGroup);
+        const glm::vec3 root(0.01f * static_cast<f32>(s), 0.0f, 0.0f);
+        // Group "along" grows 5 cm along +x, fanned a little in y; group
+        // "across" grows 1 cm along +z, fanned a little in x.
+        const glm::vec3 growth = isAlong ? glm::vec3(0.05f, 0.004f * k, 0.0f) : glm::vec3(0.002f * k, 0.0f, 0.01f);
+        const std::array<glm::vec3, 3> points{ root, root + (growth * 0.5f), root + growth };
+        GroomCurveInput curve;
+        curve.Points = points;
+        curve.Widths = widths;
+        curve.RootUV = { 0.5f, 0.5f }; // one cell for everything
+        curve.GroupId = isAlong ? along : across;
+        ASSERT_TRUE(builder.AddCurve(curve, reason)) << reason;
+    }
+    Ref<GroomAsset> groom = builder.Build(reason);
+    ASSERT_TRUE(groom) << reason;
+
+    // The mean growth of each group, and of both together -- the answer the
+    // cell-only key gave everyone.
+    glm::vec3 alongMean(0.0f);
+    glm::vec3 acrossMean(0.0f);
+    for (u32 curve = 0; curve < groom->GetCurveCount(); ++curve)
+    {
+        const u32 first = groom->GetCurveFirstPoint(curve);
+        const glm::vec3 growth = groom->GetPoints()[first + 2u] - groom->GetPoints()[first];
+        (groom->GetCurveGroupIds()[curve] == along ? alongMean : acrossMean) += growth;
+    }
+    const glm::vec3 jointMean = (alongMean + acrossMean) / static_cast<f32>(kPerGroup * 2u);
+    alongMean /= static_cast<f32>(kPerGroup);
+    acrossMean /= static_cast<f32>(kPerGroup);
+    ASSERT_GT(glm::length(alongMean - jointMean), 0.01f) << "the fixture's groups must disagree about the growth";
+
+    GroomCoatSettings settings = ActiveSettings();
+    const GroomCoatContext coat = ContextFor(*groom, settings);
+    GroomStrandBuildSettings build;
+    build.CoatDigest = GroomCoatDigest(settings);
+    std::vector<GroomStrandVertex> vertices;
+    std::vector<u32> indices;
+    const GroomStrandMeshStats stats = BuildGroomStrandMesh(*groom, build, vertices, indices, nullptr, &coat);
+    ASSERT_EQ(stats.StrandsSelected, kPerGroup * 2u);
+    ASSERT_EQ(vertices.size(), static_cast<sizet>(kPerGroup * 2u * 2u * 4u)) << "two segments of four corners each";
+
+    for (u32 curve = 0; curve < groom->GetCurveCount(); ++curve)
+    {
+        // Curve order, two segments each: the second segment's P1 corners are
+        // the tip, at t == 1, where a full clump lands exactly on the target.
+        const glm::vec3 root = groom->GetPoints()[groom->GetCurveFirstPoint(curve)];
+        const glm::vec3 tip = vertices[(static_cast<sizet>(curve) * 8u) + 4u + 2u].Position;
+        const bool isAlong = groom->GetCurveGroupIds()[curve] == along;
+        const glm::vec3 expected = isAlong ? alongMean : acrossMean;
+        EXPECT_LT(glm::length((tip - root) - expected), 1.0e-6f)
+            << "curve " << curve << " (" << (isAlong ? "along" : "across") << ") clumped toward ("
+            << (tip - root).x << ", " << (tip - root).y << ", " << (tip - root).z << "), not its own group's mean";
+    }
+}
