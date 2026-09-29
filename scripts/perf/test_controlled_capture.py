@@ -61,6 +61,14 @@ class AttributionPathTest(unittest.TestCase):
                 self.run_attribution(directory, applied='forward')
             self.assertFalse((Path(directory) / 'attribution.json').exists())
 
+    def test_requested_configuration_is_not_attached_binary_provenance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.run_attribution(directory)
+            self.assertEqual(result['requestedConfig'], 'Release')
+            self.assertIsNone(result['config'])
+            self.assertEqual(result['configurationVerification']['status'], 'unverified')
+            self.assertFalse(result['crossConfigurationEligible'])
+
     def test_path_drift_leaves_block_incomplete(self):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaisesRegex(RuntimeError, 'Render path changed'):

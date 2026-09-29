@@ -3,6 +3,10 @@
 Launch with driver.ps1 -Action attach -AllowWrites -Config Debug|Release -Rhi
 opengl|vulkan. Pass its discovery path; credentials never enter the output.
 These are attribution samples, not independent full-frame regression runs.
+The requested configuration is a hint only: current MCP discovery/initialization
+does not attest the attached binary's build configuration. These standalone
+samples are excluded from cross-configuration attribution without separate
+launched-binary provenance.
 """
 import argparse
 import json
@@ -18,7 +22,8 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--scene', required=True)
     parser.add_argument('--path', choices=['forward', 'forward+', 'deferred'], required=True)
-    parser.add_argument('--config', choices=['Debug', 'Release'], required=True)
+    parser.add_argument('--config', choices=['Debug', 'Release'], required=True,
+                        help='requested build hint, not verified editor provenance')
     parser.add_argument('--settle-seconds', type=float, default=30)
     parser.add_argument('--repeats', type=int, default=3)
     parser.add_argument('--samples', type=int, default=10)
@@ -34,7 +39,11 @@ def main():
     client = Client(args.discovery)
     scene = client.tool('olo_scene_open', path=args.scene)
     client.wait_ready()
-    result = {'scene': scene, 'config': args.config,
+    result = {'scene': scene, 'config': None, 'requestedConfig': args.config,
+              'configurationVerification': {
+                  'status': 'unverified',
+                  'reason': 'Attached editor MCP does not attest its compiled build configuration'},
+              'crossConfigurationEligible': False,
               'pathChange': client.tool('olo_renderer_settings_set', setting='renderpath', value=path_token),
               'measurementKind': 'live attribution snapshots, correlated within blocks',
               'readInterruptions': [], 'blocks': []}

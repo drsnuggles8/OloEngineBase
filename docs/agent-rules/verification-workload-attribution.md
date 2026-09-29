@@ -119,6 +119,12 @@ separately and excluded from these results. The binaries were built before the
 test-only packed-groom frame-count instrumentation; source and binary provenance
 are recorded separately rather than inferred from a clean checkout.
 
+The standalone `editor-attribution.py --config` argument is only a requested hint;
+MCP does not attest the attached binary's build configuration. Its output therefore
+has `config: null` and is ineligible for cross-configuration attribution. The matrix
+above additionally used explicit per-configuration executable launches and retained
+binary/build provenance; do not infer that verification from the script argument.
+
 ## Shorten only the packed-asset smoke check
 
 Keep stride, integration and temporal-convergence durations in their dedicated tests.
