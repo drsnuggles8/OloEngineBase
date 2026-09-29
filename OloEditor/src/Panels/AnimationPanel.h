@@ -68,8 +68,7 @@ namespace OloEngine
 
         // Playback state
         bool m_IsPlaying = false;
-        f32 m_PlaybackSpeed = 1.0f;
-        bool m_LoopPlayback = true;
+        f32 m_PlaybackSpeedSnapshot = 1.0f; // undo "before" for the speed drag
 
         // Timeline state
         f32 m_TimelineZoom = 1.0f;
