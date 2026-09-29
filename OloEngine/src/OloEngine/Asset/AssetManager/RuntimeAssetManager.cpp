@@ -64,6 +64,9 @@ namespace OloEngine
 
     void RuntimeAssetManager::Shutdown() noexcept
     {
+        if (m_IsShutDown.exchange(true))
+            return;
+
         OLO_CORE_INFO("Shutting down RuntimeAssetManager");
 
 #if OLO_ASYNC_ASSETS

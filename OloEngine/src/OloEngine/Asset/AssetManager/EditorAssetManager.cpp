@@ -195,6 +195,9 @@ namespace OloEngine
 
     void EditorAssetManager::Shutdown() noexcept
     {
+        if (m_IsShutDown.exchange(true))
+            return;
+
 #if OLO_ASYNC_ASSETS
         // Stop asset thread
         if (m_AssetThread)

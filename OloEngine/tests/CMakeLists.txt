@@ -96,6 +96,8 @@ add_executable(OloEngine-Tests
 		# Issue #1365, cooked path: async-load cancellation under the real race and
 		# estimate/actual/unknown byte accounting.
 		RuntimeAssetLoadCancelTest.cpp
+		# Shutdown() then the destructor must release the shared placeholder set once.
+		AssetManagerShutdownTest.cpp
 		AssetLoadedEventTest.cpp
 		${_olo_component_round_trip_src}
 		TilemapTest.cpp

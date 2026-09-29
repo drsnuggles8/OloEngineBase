@@ -8,6 +8,7 @@
 #include "OloEngine/Asset/AssetPack.h"
 #include "OloEngine/Threading/SharedMutex.h"
 
+#include <atomic>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -221,6 +222,11 @@ namespace OloEngine
 
         // Async asset loading system
         Ref<RuntimeAssetSystem> m_AssetThread;
+
+        // Shutdown() runs once: an explicit call followed by the destructor's would
+        // release this manager's placeholder reference twice and tear the shared
+        // placeholder set down under another live manager.
+        std::atomic<bool> m_IsShutDown{ false };
 
         // Thread synchronization
         mutable FSharedMutex m_AssetsMutex;
