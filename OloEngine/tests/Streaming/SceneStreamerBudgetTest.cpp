@@ -32,6 +32,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <algorithm>
 #include <functional>
 #include <memory>
 #include <string>
@@ -397,8 +398,12 @@ TEST_F(SceneStreamerBudgetTest, PerFrameBudgetAdmitsOneRegionThenDefersUntilTheN
     EXPECT_EQ(Region(22)->m_AdmissionReason, EStreamingAdmissionReason::FrameBudget);
     EXPECT_EQ(m_Streamer.GetStats().AdmittedBytesThisFrame, a);
 
-    Tick(); // a new frame resets the per-frame total
-    EXPECT_EQ(m_Streamer.LoadRegion(RegionID{ 22 }), EStreamingAdmission::Admitted);
+    // A new frame resets the per-frame total, and the streamer retries the standing
+    // manual request itself.
+    Tick();
+    EXPECT_NE(Region(22)->m_State, StreamingRegion::State::Unloaded);
+    EXPECT_EQ(Region(22)->m_AdmissionStatus, EStreamingAdmissionStatus::None);
+    EXPECT_EQ(m_Streamer.GetStats().AdmittedBytesThisFrame, a);
 
     Tick();
     EXPECT_EQ(m_Streamer.LoadRegion(RegionID{ 23 }), EStreamingAdmission::Admitted)
@@ -480,6 +485,130 @@ TEST_F(SceneStreamerBudgetTest, TheRegionCountStillEvictsAlongsideTheByteBudget)
     EXPECT_EQ(m_Streamer.GetLoadedRegionCount(), 1u);
     EXPECT_EQ(m_Streamer.GetStats().EvictedForCount, 1u);
     EXPECT_EQ(m_Streamer.GetStats().EvictedForBytes, 0u);
+}
+
+// -----------------------------------------------------------------------------
+// Review follow-ups: requests that must not be lost, room that must be made,
+// and re-entry from a streamed entity's OnCreate
+// -----------------------------------------------------------------------------
+TEST_F(SceneStreamerBudgetTest, ADeferredManualLoadIsRetriedUntilAdmitted)
+{
+    const u64 a = WriteRegion(m_Directory, 61, 6101, 1000);
+    WriteRegion(m_Directory, 62, 6201, 1000);
+    m_Scene->GetStreamingSettings().MaxAdmittedMegabytesPerFrame = BytesToMegabytes(static_cast<f64>(a) * 1.5);
+    Start();
+    Tick();
+
+    ASSERT_EQ(m_Streamer.LoadRegion(RegionID{ 61 }), EStreamingAdmission::Admitted);
+    ASSERT_EQ(m_Streamer.LoadRegion(RegionID{ 62 }), EStreamingAdmission::Deferred);
+
+    // No second LoadRegion: the streamer itself must ask again on a later frame.
+    ASSERT_TRUE(TickUntil([this]
+                          { return Region(62)->m_State == StreamingRegion::State::Ready; }))
+        << "a deferred manual request was dropped instead of retried";
+    EXPECT_TRUE(EntityExists(6201));
+    EXPECT_EQ(Region(62)->m_AdmissionStatus, EStreamingAdmissionStatus::None);
+}
+
+TEST_F(SceneStreamerBudgetTest, UnloadingADeferredManualRegionWithdrawsTheRequest)
+{
+    const u64 a = WriteRegion(m_Directory, 63, 6301, 1000);
+    WriteRegion(m_Directory, 64, 6401, 1000);
+    m_Scene->GetStreamingSettings().MaxAdmittedMegabytesPerFrame = BytesToMegabytes(static_cast<f64>(a) * 1.5);
+    Start();
+    Tick();
+
+    ASSERT_EQ(m_Streamer.LoadRegion(RegionID{ 63 }), EStreamingAdmission::Admitted);
+    ASSERT_EQ(m_Streamer.LoadRegion(RegionID{ 64 }), EStreamingAdmission::Deferred);
+    m_Streamer.UnloadRegion(RegionID{ 64 });
+
+    for (int i = 0; i < 5; ++i)
+        Tick();
+    EXPECT_EQ(Region(64)->m_State, StreamingRegion::State::Unloaded);
+    EXPECT_FALSE(EntityExists(6401));
+}
+
+TEST_F(SceneStreamerBudgetTest, DeferredDemandFreesARegionHeldOnlyByHysteresis)
+{
+    // A at x=0 and B at x=55, each with load radius 10 and unload radius 60. The
+    // budget fits one region. Standing at x=50, B is inside its load radius and A
+    // is only inside its unload radius: A is kept by hysteresis, B is wanted.
+    const u64 a = WriteRegion(m_Directory, 71, 7101, 1000);
+    const u64 b = WriteRegion(m_Directory, 72, 7201, 1000);
+    auto addVolume = [this](u64 regionId, f32 x)
+    {
+        Entity volume = m_Scene->CreateEntity("volume_" + std::to_string(regionId));
+        volume.GetComponent<TransformComponent>().Translation = glm::vec3{ x, 0.0f, 0.0f };
+        auto& vol = volume.AddComponent<StreamingVolumeComponent>();
+        vol.RegionAssetHandle = AssetHandle{ regionId };
+        vol.LoadRadius = 10.0f;
+        vol.UnloadRadius = 60.0f;
+    };
+    addVolume(71, 0.0f);
+    addVolume(72, 55.0f);
+    m_Scene->GetStreamingSettings().MaxResidentMegabytes = BytesToMegabytes(static_cast<f64>(std::max(a, b)) * 1.5);
+    Start();
+
+    auto tickAt = [this](f32 x)
+    { m_Streamer.Update(glm::vec3{ x, 0.0f, 0.0f }, ++m_Frame); };
+    const auto deadline = std::chrono::steady_clock::now() + kLoadHookFailAfter;
+    while (Region(71)->m_State != StreamingRegion::State::Ready && std::chrono::steady_clock::now() < deadline)
+        tickAt(0.0f);
+    ASSERT_EQ(Region(71)->m_State, StreamingRegion::State::Ready);
+
+    // Walk into B while still inside A's unload radius.
+    while (Region(72)->m_State != StreamingRegion::State::Ready && std::chrono::steady_clock::now() < deadline)
+        tickAt(50.0f);
+
+    EXPECT_EQ(Region(72)->m_State, StreamingRegion::State::Ready) << "the region the player needs was starved by one held only by hysteresis";
+    EXPECT_EQ(Region(71)->m_State, StreamingRegion::State::Unloaded);
+    const FSceneStreamingStats stats = m_Streamer.GetStats();
+    EXPECT_EQ(stats.EvictedForBytes, 1u);
+    EXPECT_LE(stats.ResidentBytes.KnownBytes, stats.MaxResidentBytes);
+}
+
+TEST_F(SceneStreamerBudgetTest, ReEnteringFromOnCreateNeitherCorruptsNorLosesRequests)
+{
+    WriteRegion(m_Directory, 81, 8101);
+    WriteRegion(m_Directory, 82, 8201);
+    WriteRegion(m_Directory, 83, 8301);
+    Start();
+
+    // What a streamed entity's OnCreate can do: unload its own region while it is
+    // being instantiated, and request another one.
+    FRegionLoadTestHooks hooks;
+    hooks.OnRegionInstantiated = [this](RegionID id)
+    {
+        if (id == RegionID{ 81 })
+        {
+            m_Streamer.UnloadRegion(RegionID{ 81 });
+            EXPECT_EQ(m_Streamer.LoadRegion(RegionID{ 83 }), EStreamingAdmission::Admitted);
+        }
+    };
+    m_Streamer.SetTestHooks(hooks);
+
+    ASSERT_EQ(m_Streamer.LoadRegion(RegionID{ 81 }), EStreamingAdmission::Admitted);
+    ASSERT_EQ(m_Streamer.LoadRegion(RegionID{ 82 }), EStreamingAdmission::Admitted);
+    ASSERT_TRUE(TickUntil([this]
+                          { return Region(82)->m_State == StreamingRegion::State::Ready &&
+                                   Region(83)->m_State == StreamingRegion::State::Ready; }));
+
+    EXPECT_EQ(Region(81)->m_State, StreamingRegion::State::Unloaded) << "the unload asked for during instantiation was lost";
+    EXPECT_FALSE(EntityExists(8101));
+    EXPECT_TRUE(EntityExists(8201));
+    EXPECT_TRUE(EntityExists(8301));
+    EXPECT_EQ(m_Streamer.GetPendingLoadCount(), 0u);
+}
+
+TEST_F(SceneStreamerBudgetTest, AnUnknownSizeUnderOnlyAFrameBudgetIsStillCounted)
+{
+    WriteRegion(m_Directory, 91, 9101, 1000);
+    m_Scene->GetStreamingSettings().MaxAdmittedMegabytesPerFrame = 1.0f;
+    Start();
+    Region(91)->m_EstimatedSize = FAssetByteSize::Unknown();
+
+    EXPECT_EQ(m_Streamer.LoadRegion(RegionID{ 91 }), EStreamingAdmission::Admitted);
+    EXPECT_EQ(m_Streamer.GetStats().AdmittedUnknownSize, 1u) << "an unknown size slipped past the frame budget silently";
 }
 
 // -----------------------------------------------------------------------------

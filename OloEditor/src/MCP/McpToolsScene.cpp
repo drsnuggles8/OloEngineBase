@@ -563,12 +563,6 @@ namespace OloEngine::MCP
             return ToolResult::Structured(result);
         }
 
-        // ---- olo_scheduler_graph (main-marshaled) ------------------------------
-        // Scene::GetGameplayScheduler() is a process-global function-local static
-        // shared by every Scene, and ExportGraph() calls Build() (which mutates the
-        // cached derivation) — so this is marshaled onto the game thread rather than
-        // read from the HTTP worker, exactly like the scene readers above. The tool
-        // needs no active scene: the schedule is authored once at build time.
         // ---- olo_streaming_stats (main-marshaled) -------------------------------
         // The streamer's bookkeeping is main-thread state, so the whole read runs on
         // the game thread and shapes JSON there (see MCP/McpStreamingStats.h).
@@ -614,6 +608,12 @@ namespace OloEngine::MCP
             return ToolResult::Structured(result);
         }
 
+        // ---- olo_scheduler_graph (main-marshaled) ------------------------------
+        // Scene::GetGameplayScheduler() is a process-global function-local static
+        // shared by every Scene, and ExportGraph() calls Build() (which mutates the
+        // cached derivation) — so this is marshaled onto the game thread rather than
+        // read from the HTTP worker, exactly like the scene readers above. The tool
+        // needs no active scene: the schedule is authored once at build time.
         ToolResult Handle_SchedulerGraph(IAutomationHost& host, const Json& args)
         {
             const std::string format = args.value("format", std::string{ "json" });

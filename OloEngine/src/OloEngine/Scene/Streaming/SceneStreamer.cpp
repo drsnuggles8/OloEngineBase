@@ -96,15 +96,20 @@ namespace OloEngine
         return "Unknown";
     }
 
-    SceneStreamerConfig MakeSceneStreamerConfig(const StreamingSettings& settings)
+    void ApplyPerFrameStreamingSettings(SceneStreamerConfig& config, const StreamingSettings& settings)
     {
-        SceneStreamerConfig config;
         config.LoadRadius = settings.DefaultLoadRadius;
         config.UnloadRadius = settings.DefaultUnloadRadius;
         config.MaxLoadedRegions = settings.MaxLoadedRegions;
-        config.RegionDirectory = settings.RegionDirectory;
         config.MaxResidentBytes = StreamingBudgetMegabytesToBytes(settings.MaxResidentMegabytes);
         config.MaxAdmittedBytesPerFrame = StreamingBudgetMegabytesToBytes(settings.MaxAdmittedMegabytesPerFrame);
+    }
+
+    SceneStreamerConfig MakeSceneStreamerConfig(const StreamingSettings& settings)
+    {
+        SceneStreamerConfig config;
+        ApplyPerFrameStreamingSettings(config, settings);
+        config.RegionDirectory = settings.RegionDirectory;
         return config;
     }
 
@@ -120,11 +125,13 @@ namespace OloEngine
         m_Scene = scene;
         m_Config = config;
         m_CurrentFrame = 0;
-        m_PendingLoads.Reset();
-        m_AbandonedLoads.Reset();
+        TArray<FRegionLoadRecord> dropped;
+        m_Loads.Clear(dropped);
+        m_Loads.ResetCounters();
         m_Stats = {};
         m_AdmittedBytesThisFrame = 0;
         m_AdmittedRegionsThisFrame = 0;
+        m_DeferredDemandBytes = 0;
 
         DiscoverRegions();
     }
@@ -136,27 +143,19 @@ namespace OloEngine
         // Withdraw every load a worker has not started, then wait for every task,
         // live and abandoned, so none outlives the streamer. A withdrawn load's body
         // still runs, sees its Cancelled ticket and returns without parsing.
-        for (const auto& pending : m_PendingLoads)
+        m_Loads.CancelUnstarted();
+        TArray<Tasks::TTask<FRegionLoadResult>> tasks;
+        m_Loads.CollectTasks(tasks);
+        for (const auto& task : tasks)
         {
-            auto expected = FAssetLoadTicket::EState::Queued;
-            pending.Ticket->State.compare_exchange_strong(expected, FAssetLoadTicket::EState::Cancelled);
-        }
-        for (const auto& pending : m_PendingLoads)
-        {
-            if (pending.Task.IsValid())
+            if (task.IsValid())
             {
-                pending.Task.Wait();
+                task.Wait();
             }
         }
-        for (const auto& abandoned : m_AbandonedLoads)
-        {
-            if (abandoned.Task.IsValid())
-            {
-                abandoned.Task.Wait();
-            }
-        }
-        m_PendingLoads.Reset();
-        m_AbandonedLoads.Reset();
+        TArray<FRegionLoadRecord> dropped;
+        m_Loads.Clear(dropped);
+
         {
             // Regions whose load was withdrawn above never reached Ready; put them back.
             TUniqueLock<FMutex> lock(m_RegionMutex);
@@ -255,18 +254,15 @@ namespace OloEngine
         {
             m_AdmittedBytesThisFrame = 0;
             m_AdmittedRegionsThisFrame = 0;
+            m_DeferredDemandBytes = 0;
         }
         m_CurrentFrame = frameNumber;
 
-        // Sync config from Scene's authoritative StreamingSettings each frame
+        // Sync config from Scene's authoritative StreamingSettings each frame. Only the
+        // scalars: the region directory is read once, at Initialize.
         if (m_Scene)
         {
-            const SceneStreamerConfig synced = MakeSceneStreamerConfig(m_Scene->m_StreamingSettings);
-            m_Config.LoadRadius = synced.LoadRadius;
-            m_Config.UnloadRadius = synced.UnloadRadius;
-            m_Config.MaxLoadedRegions = synced.MaxLoadedRegions;
-            m_Config.MaxResidentBytes = synced.MaxResidentBytes;
-            m_Config.MaxAdmittedBytesPerFrame = synced.MaxAdmittedBytesPerFrame;
+            ApplyPerFrameStreamingSettings(m_Config, m_Scene->m_StreamingSettings);
         }
 
         ProcessCompletedLoads();
@@ -274,6 +270,19 @@ namespace OloEngine
         if (!m_Scene)
         {
             return;
+        }
+
+        // A manual request the budget deferred (or rejected) is retried every frame
+        // until it is admitted or unloaded: nothing else would ever re-ask for it.
+        {
+            TUniqueLock<FMutex> lock(m_RegionMutex);
+            for (auto& [id, region] : m_Regions)
+            {
+                if (region->m_LoadRequested && region->m_State == StreamingRegion::State::Unloaded)
+                {
+                    RequestRegionLoad(id);
+                }
+            }
         }
 
         // Query all streaming volume entities for distance-based activation
@@ -302,6 +311,13 @@ namespace OloEngine
 
             const bool insideLoad = distSq < vol.LoadRadius * vol.LoadRadius;
             const bool outsideUnload = distSq > vol.UnloadRadius * vol.UnloadRadius;
+            if (insideLoad)
+            {
+                // Wanted this frame. EvictOverBudget will not free this region to make
+                // room for a deferred one.
+                region->m_InLoadRadiusFrame = frameNumber;
+            }
+
             if (insideLoad && region->m_State == StreamingRegion::State::Unloaded)
             {
                 region->m_LastUsedFrame = frameNumber;
@@ -320,7 +336,7 @@ namespace OloEngine
                 lock.Unlock();
                 CancelRegionLoad(regionId);
             }
-            else if (!insideLoad && region->m_State == StreamingRegion::State::Unloaded)
+            else if (!insideLoad && region->m_State == StreamingRegion::State::Unloaded && !region->m_LoadRequested)
             {
                 // A deferred or rejected request that nothing wants any more.
                 region->m_AdmissionStatus = EStreamingAdmissionStatus::None;
@@ -356,6 +372,9 @@ namespace OloEngine
             return EStreamingAdmission::NotRequestable;
         }
 
+        // An explicit request stands until it is admitted or unloaded; Update retries
+        // it while the budget defers it.
+        it->second->m_LoadRequested = true;
         return RequestRegionLoad(regionId);
     }
 
@@ -365,20 +384,34 @@ namespace OloEngine
 
         TDynamicUniqueLock<FMutex> lock(m_RegionMutex);
         auto it = m_Regions.find(regionId);
-        if (it != m_Regions.end() && it->second->m_State == StreamingRegion::State::Loading)
+        if (it == m_Regions.end())
+        {
+            return;
+        }
+        Ref<StreamingRegion> region = it->second;
+        region->m_LoadRequested = false;
+
+        if (region->m_State == StreamingRegion::State::Loading)
         {
             // Unloading a region that is still loading means its load is unwanted.
             lock.Unlock();
-            CancelRegionLoad(regionId);
+            if (CancelRegionLoad(regionId) == EAssetLoadCancelResult::NotPending)
+            {
+                // Its load already left the pending set: ProcessCompletedLoads is
+                // instantiating it right now (this call comes from a streamed entity's
+                // OnCreate). Honour the unload once instantiation finishes.
+                TUniqueLock<FMutex> relock(m_RegionMutex);
+                region->m_UnloadRequested = true;
+            }
             return;
         }
-        if (it == m_Regions.end() || it->second->m_State != StreamingRegion::State::Ready)
+        if (region->m_State != StreamingRegion::State::Ready)
         {
             return;
         }
 
-        auto& region = it->second;
         region->m_State = StreamingRegion::State::Unloading;
+        region->m_ManuallyLoaded = false;
 
         // Physics bodies must be destroyed BEFORE entity destruction
         // 3D (Jolt)
@@ -449,7 +482,7 @@ namespace OloEngine
 
     u32 SceneStreamer::GetPendingLoadCount() const
     {
-        return static_cast<u32>(m_PendingLoads.Num());
+        return static_cast<u32>(m_Loads.LiveCount());
     }
 
     FSceneStreamingStats SceneStreamer::GetStats() const
@@ -459,15 +492,14 @@ namespace OloEngine
         stats.MaxResidentBytes = m_Config.MaxResidentBytes;
         stats.MaxAdmittedBytesPerFrame = m_Config.MaxAdmittedBytesPerFrame;
         stats.AdmittedBytesThisFrame = m_AdmittedBytesThisFrame;
-        stats.PendingLoads = static_cast<u32>(m_PendingLoads.Num());
-        stats.AbandonedLoadsRunning = 0;
-        for (const auto& abandoned : m_AbandonedLoads)
-        {
-            if (!abandoned.Task.IsCompleted())
-            {
-                ++stats.AbandonedLoadsRunning;
-            }
-        }
+        stats.PendingLoads = static_cast<u32>(m_Loads.LiveCount());
+        stats.AbandonedLoadsRunning = m_Loads.AbandonedRunningCount();
+
+        const FCancellableLoadCounters& counters = m_Loads.Counters();
+        stats.CancelledBeforeStart = counters.CancelledBeforeStart;
+        stats.AbandonedInFlight = counters.AbandonedInFlight;
+        stats.DiscardedCompleted = counters.DiscardedCompleted;
+        stats.AbandonedResultsDropped = counters.AbandonedResultsDropped;
 
         TUniqueLock<FMutex> lock(m_RegionMutex);
         for (const auto& [id, region] : m_Regions)
@@ -538,34 +570,38 @@ namespace OloEngine
         };
 
         const std::optional<u64> bytes = region.m_EstimatedSize.GetBytes();
+        const bool anyByteBudget = m_Config.MaxResidentBytes != 0 || m_Config.MaxAdmittedBytesPerFrame != 0;
 
-        if (m_Config.MaxResidentBytes != 0)
+        if (anyByteBudget && !bytes)
         {
-            if (!bytes)
+            // No figure to check against either budget. Admitting keeps the region
+            // loadable; the counter and the one-time warning keep the gap visible.
+            ++m_Stats.AdmittedUnknownSize;
+            if (!region.m_WarnedAdmission)
             {
-                // No figure to check. Admitting keeps the region loadable; the counter
-                // and the one-time warning keep the gap in the budget visible.
-                ++m_Stats.AdmittedUnknownSize;
-                if (!region.m_WarnedAdmission)
-                {
-                    region.m_WarnedAdmission = true;
-                    OLO_CORE_WARN("SceneStreamer: Region '{0}' has no byte estimate; admitted without a resident budget check",
-                                  region.m_Name.ToView());
-                }
+                region.m_WarnedAdmission = true;
+                OLO_CORE_WARN("SceneStreamer: Region '{0}' has no byte estimate; admitted without a byte budget check",
+                              region.m_Name.ToView());
             }
-            else if (*bytes > m_Config.MaxResidentBytes)
+        }
+        else if (bytes && m_Config.MaxResidentBytes != 0)
+        {
+            if (*bytes > m_Config.MaxResidentBytes)
             {
                 return refuse(EStreamingAdmissionStatus::Rejected, EStreamingAdmissionReason::LargerThanResidentBudget);
             }
-            else if (CommittedBytesLocked() + *bytes > m_Config.MaxResidentBytes)
+            if (CommittedBytesLocked() + *bytes > m_Config.MaxResidentBytes)
             {
+                // Tell EvictOverBudget how much room is wanted, so it can free regions
+                // held only by hysteresis instead of starving this one.
+                m_DeferredDemandBytes += *bytes;
                 return refuse(EStreamingAdmissionStatus::Deferred, EStreamingAdmissionReason::ResidentBudget);
             }
         }
 
         // The first region of a frame is always admitted, so a region larger than the
         // per-frame budget still loads.
-        if (m_Config.MaxAdmittedBytesPerFrame != 0 && bytes && m_AdmittedRegionsThisFrame > 0 &&
+        if (bytes && m_Config.MaxAdmittedBytesPerFrame != 0 && m_AdmittedRegionsThisFrame > 0 &&
             m_AdmittedBytesThisFrame + *bytes > m_Config.MaxAdmittedBytesPerFrame)
         {
             return refuse(EStreamingAdmissionStatus::Deferred, EStreamingAdmissionReason::FrameBudget);
@@ -587,53 +623,39 @@ namespace OloEngine
             return EStreamingAdmission::NotRequestable;
         }
 
-        auto& region = it->second;
+        Ref<StreamingRegion> region = it->second;
         if (const EStreamingAdmission admission = AdmitLocked(*region); admission != EStreamingAdmission::Admitted)
         {
             return admission;
         }
 
         region->m_State = StreamingRegion::State::Loading;
+        region->m_ManuallyLoaded = region->m_LoadRequested;
+        region->m_LoadRequested = false;
+        region->m_UnloadRequested = false;
 
         // The worker gets copies of everything it needs and never touches the region
         // or the streamer: its only output is its task result.
-        auto ticket = Ref<FAssetLoadTicket>::Create();
-        auto body = [ticket, path = region->m_SourcePath, id, onStarted = m_TestHooks.OnLoadStarted,
-                     onFinished = m_TestHooks.OnLoadFinished]() -> FRegionLoadResult
-        {
-            auto expected = FAssetLoadTicket::EState::Queued;
-            if (!ticket->State.compare_exchange_strong(expected, FAssetLoadTicket::EState::Running))
+        m_Loads.Launch(
+            "SceneRegionLoad", id, region,
+            [path = region->m_SourcePath, id, onStarted = m_TestHooks.OnLoadStarted,
+             onFinished = m_TestHooks.OnLoadFinished]() -> FRegionLoadResult
             {
-                return {};
-            }
-
-            OLO_PROFILE_SCOPE("StreamingRegion::Parse");
-            if (onStarted)
-            {
-                onStarted(id);
-            }
-            FRegionLoadResult result;
-            result.Data = StreamingRegionSerializer::ParseRegionFile(path);
-            result.Success = result.Data && result.Data["Region"];
-            if (onFinished)
-            {
-                onFinished(id);
-            }
-            return result;
-        };
-
-        Tasks::TTask<FRegionLoadResult> task;
-        if (m_TestHooks.StartGate.has_value())
-        {
-            task = Tasks::Launch("SceneRegionLoad", std::move(body), Tasks::Prerequisites(*m_TestHooks.StartGate),
-                                 Tasks::ETaskPriority::BackgroundNormal);
-        }
-        else
-        {
-            task = Tasks::Launch("SceneRegionLoad", std::move(body), Tasks::ETaskPriority::BackgroundNormal);
-        }
-
-        m_PendingLoads.Add(PendingLoad{ id, std::move(task), region, std::move(ticket) });
+                OLO_PROFILE_SCOPE("StreamingRegion::Parse");
+                if (onStarted)
+                {
+                    onStarted(id);
+                }
+                FRegionLoadResult result;
+                result.Data = StreamingRegionSerializer::ParseRegionFile(path);
+                result.Success = result.Data && result.Data["Region"];
+                if (onFinished)
+                {
+                    onFinished(id);
+                }
+                return result;
+            },
+            m_TestHooks.StartGate);
 
         OLO_CORE_TRACE("SceneStreamer: Requested load for region '{0}'", region->m_Name.ToView());
         return EStreamingAdmission::Admitted;
@@ -643,97 +665,51 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        for (i32 index = 0; index < m_PendingLoads.Num(); ++index)
+        TArray<FRegionLoadRecord> dropped;
+        const EAssetLoadCancelResult result = m_Loads.Cancel(regionId, dropped);
+        if (result == EAssetLoadCancelResult::NotPending)
         {
-            if (m_PendingLoads[index].RegionId != regionId)
-            {
-                continue;
-            }
-
-            PendingLoad& load = m_PendingLoads[index];
-            EAssetLoadCancelResult result;
-            auto expected = FAssetLoadTicket::EState::Queued;
-            if (load.Ticket->State.compare_exchange_strong(expected, FAssetLoadTicket::EState::Cancelled))
-            {
-                // Never parses. Its (now trivial) body must still run before the task
-                // handle is dropped, so it waits with the abandoned loads.
-                ++m_Stats.CancelledBeforeStart;
-                result = EAssetLoadCancelResult::CancelledBeforeStart;
-                m_AbandonedLoads.Add(std::move(load));
-            }
-            else if (load.Task.IsCompleted())
-            {
-                ++m_Stats.DiscardedCompleted;
-                result = EAssetLoadCancelResult::DiscardedCompleted;
-            }
-            else
-            {
-                // Mid-parse. Out of m_PendingLoads, ProcessCompletedLoads never sees it.
-                ++m_Stats.AbandonedInFlight;
-                result = EAssetLoadCancelResult::AbandonedInFlight;
-                m_AbandonedLoads.Add(std::move(load));
-            }
-            m_PendingLoads.RemoveAt(index);
-
-            TUniqueLock<FMutex> lock(m_RegionMutex);
-            if (auto it = m_Regions.find(regionId); it != m_Regions.end() && it->second->m_State == StreamingRegion::State::Loading)
-            {
-                it->second->m_State = StreamingRegion::State::Unloaded;
-            }
-            OLO_CORE_TRACE("SceneStreamer: Cancelled load for region {0}: {1}", static_cast<u64>(regionId), ToString(result));
             return result;
         }
 
-        return EAssetLoadCancelResult::NotPending;
-    }
-
-    void SceneStreamer::ReapAbandonedLoads()
-    {
-        for (i32 index = m_AbandonedLoads.Num() - 1; index >= 0; --index)
+        TUniqueLock<FMutex> lock(m_RegionMutex);
+        if (auto it = m_Regions.find(regionId); it != m_Regions.end() && it->second->m_State == StreamingRegion::State::Loading)
         {
-            if (!m_AbandonedLoads[index].Task.IsCompleted())
-            {
-                continue;
-            }
-            if (m_AbandonedLoads[index].Ticket->State.load() == FAssetLoadTicket::EState::Running)
-            {
-                ++m_Stats.AbandonedResultsDropped;
-            }
-            m_AbandonedLoads.RemoveAtSwap(index);
+            it->second->m_State = StreamingRegion::State::Unloaded;
+            it->second->m_ManuallyLoaded = false;
         }
+        OLO_CORE_TRACE("SceneStreamer: Cancelled load for region {0}: {1}", static_cast<u64>(regionId), ToString(result));
+        return result;
     }
 
     void SceneStreamer::ProcessCompletedLoads()
     {
         OLO_PROFILE_FUNCTION();
 
-        ReapAbandonedLoads();
+        // Take the finished loads out of the pending set BEFORE instantiating any of
+        // them. Instantiation runs script OnCreate, which may load, unload or cancel
+        // regions; none of that can disturb records this function already owns.
+        TArray<FRegionLoadRecord> dropped;
+        m_Loads.ReapAbandoned(dropped);
+        TArray<FRegionLoadRecord> completed;
+        m_Loads.ExtractCompleted(completed);
 
-        if (m_PendingLoads.IsEmpty())
+        for (FRegionLoadRecord& load : completed)
         {
-            return;
-        }
+            // Only a load still live reaches here: a cancelled one left the set, so its
+            // result is never instantiated.
+            const FRegionLoadResult& loadResult = load.Task.GetResult();
+            Ref<StreamingRegion> region = load.Payload; // non-const: Ref is const-propagating
 
-        for (i32 index = 0; index < m_PendingLoads.Num();)
-        {
-            if (!m_PendingLoads[index].Task.IsCompleted())
-            {
-                ++index;
-                continue;
-            }
-
-            // Only a load still in m_PendingLoads gets here: a cancelled one was moved
-            // out, so its result is never instantiated.
-            const FRegionLoadResult& loadResult = m_PendingLoads[index].Task.GetResult();
-            auto& region = m_PendingLoads[index].Region;
-
+            bool unloadRequested = false;
             StreamingRegion::State regionState;
             {
                 TUniqueLock<FMutex> lock(m_RegionMutex);
                 regionState = region->m_State;
+                unloadRequested = region->m_UnloadRequested;
             }
 
-            if (loadResult.Success && regionState == StreamingRegion::State::Loading && m_Scene)
+            if (loadResult.Success && regionState == StreamingRegion::State::Loading && !unloadRequested && m_Scene)
             {
                 // Main-thread entity instantiation
                 Ref<Scene> sceneRef{ m_Scene };
@@ -748,19 +724,32 @@ namespace OloEngine
                     }
                 }
 
-                // Initialize subsystems for new entities
+                // Initialize subsystems for new entities (scripts' OnCreate runs here)
                 InitializeStreamedEntities(region->m_EntityUUIDs);
+                if (m_TestHooks.OnRegionInstantiated)
+                {
+                    m_TestHooks.OnRegionInstantiated(load.Key);
+                }
 
                 {
                     TUniqueLock<FMutex> lock(m_RegionMutex);
                     region->m_State = StreamingRegion::State::Ready;
+                    unloadRequested = region->m_UnloadRequested;
+                    region->m_UnloadRequested = false;
+                }
+
+                if (unloadRequested)
+                {
+                    // An OnCreate asked for this region to go while it was coming in.
+                    UnloadRegion(load.Key);
+                    continue;
                 }
 
                 // Update volume component IsLoaded flag
                 auto volView = m_Scene->GetAllEntitiesWith<StreamingVolumeComponent>();
                 for (auto&& [ve, vol] : volView.each())
                 {
-                    if (RegionID(static_cast<u64>(vol.RegionAssetHandle)) == m_PendingLoads[index].RegionId)
+                    if (RegionID(static_cast<u64>(vol.RegionAssetHandle)) == load.Key)
                     {
                         vol.IsLoaded = true;
                     }
@@ -779,10 +768,10 @@ namespace OloEngine
                 if (region->m_State == StreamingRegion::State::Loading)
                 {
                     region->m_State = StreamingRegion::State::Unloaded;
+                    region->m_ManuallyLoaded = false;
                 }
+                region->m_UnloadRequested = false;
             }
-
-            m_PendingLoads.RemoveAt(index);
         }
     }
 
@@ -792,57 +781,58 @@ namespace OloEngine
 
         TDynamicUniqueLock<FMutex> lock(m_RegionMutex);
 
-        // Count ready regions
-        u32 readyCount = 0;
-        for (auto& [id, region] : m_Regions)
-        {
-            if (region->m_State == StreamingRegion::State::Ready)
-            {
-                ++readyCount;
-            }
-        }
-
-        u64 committedBytes = CommittedBytesLocked();
-        auto overCount = [&]
-        { return readyCount > m_Config.MaxLoadedRegions; };
-        auto overBytes = [&]
-        { return m_Config.MaxResidentBytes != 0 && committedBytes > m_Config.MaxResidentBytes; };
-
-        if (!overCount() && !overBytes())
-        {
-            return;
-        }
-
-        // Collect ready regions sorted by LRU frame
         struct ReadyRegion
         {
             RegionID Id;
             u64 LastUsedFrame;
             u64 Bytes;
+            bool HeldOnlyByHysteresis; // not in any load radius this frame, not manually loaded
         };
         TArray<ReadyRegion> sortedRegions;
-        sortedRegions.Reserve(static_cast<i32>(readyCount));
         for (auto& [id, region] : m_Regions)
         {
             if (region->m_State == StreamingRegion::State::Ready)
             {
-                sortedRegions.Add(ReadyRegion{ id, region->m_LastUsedFrame, region->m_EstimatedSize.GetBytes().value_or(0) });
+                sortedRegions.Add(ReadyRegion{ id, region->m_LastUsedFrame, region->m_EstimatedSize.GetBytes().value_or(0),
+                                               region->m_InLoadRadiusFrame != m_CurrentFrame && !region->m_ManuallyLoaded });
             }
+        }
+
+        u32 readyCount = static_cast<u32>(sortedRegions.Num());
+        u64 committedBytes = CommittedBytesLocked();
+        auto overCount = [&]
+        { return readyCount > m_Config.MaxLoadedRegions; };
+        auto overBytes = [&]
+        { return m_Config.MaxResidentBytes != 0 && committedBytes > m_Config.MaxResidentBytes; };
+        // Room wanted by requests the resident budget deferred this frame. Only a
+        // region nothing wants right now may be freed for it.
+        auto overDemand = [&]
+        { return m_Config.MaxResidentBytes != 0 && m_DeferredDemandBytes != 0 &&
+                 committedBytes + m_DeferredDemandBytes > m_Config.MaxResidentBytes; };
+
+        if (!overCount() && !overBytes() && !overDemand())
+        {
+            return;
         }
 
         std::ranges::sort(sortedRegions,
                           [](const auto& a, const auto& b)
                           { return a.LastUsedFrame < b.LastUsedFrame; });
 
-        // Evict oldest until both the count and the byte budget hold. Loading regions
-        // count against the bytes but cannot be evicted, so the loop may run out of
-        // Ready regions first; admission keeps that from happening in steady state.
+        // Evict oldest until the count, the byte budget and the deferred demand all
+        // hold. Loading regions count against the bytes but cannot be evicted, so the
+        // loop may run out of candidates first.
         for (const ReadyRegion& victim : sortedRegions)
         {
             const bool count = overCount();
-            if (!count && !overBytes())
+            const bool bytes = overBytes();
+            if (!count && !bytes && !overDemand())
             {
                 break;
+            }
+            if (!count && !bytes && !victim.HeldOnlyByHysteresis)
+            {
+                continue; // demand alone never evicts a region that is still wanted
             }
             ++(count ? m_Stats.EvictedForCount : m_Stats.EvictedForBytes);
 

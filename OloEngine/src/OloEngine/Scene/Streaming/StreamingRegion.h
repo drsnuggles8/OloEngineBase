@@ -81,6 +81,12 @@ namespace OloEngine
         EStreamingAdmissionStatus m_AdmissionStatus = EStreamingAdmissionStatus::None;
         EStreamingAdmissionReason m_AdmissionReason = EStreamingAdmissionReason::None;
         bool m_WarnedAdmission = false; // a rejection or unknown-size admission logs once per region
+
+        // Request bookkeeping (guarded like m_State).
+        bool m_LoadRequested = false;   // an explicit LoadRegion not yet admitted; Update retries it
+        bool m_ManuallyLoaded = false;  // loaded by an explicit request: never freed for deferred demand
+        bool m_UnloadRequested = false; // unload asked for while the region was being instantiated
+        u64 m_InLoadRadiusFrame = 0;    // last frame an activation point was inside its load radius
     };
 
     [[nodiscard]] const char* ToString(StreamingRegion::State state) noexcept;

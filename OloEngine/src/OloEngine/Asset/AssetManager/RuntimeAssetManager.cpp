@@ -418,6 +418,11 @@ namespace OloEngine
         };
         std::vector<LoadedEvent> loadedEvents;
 
+        // Declared before the lock so every result that is not integrated — a failed
+        // or stale completion, a reaped abandoned load — is released after it: an
+        // asset's destructor must not run under the non-recursive m_AssetsMutex.
+        TArray<FCompletedAssetLoad> completed;
+        TArray<FAssetLoadRecord> dropped;
         {
             // Retrieve under m_AssetsMutex, the lock CancelAssetLoad() also holds across
             // its call into the system: a cancel can then never fall between a result
@@ -425,8 +430,7 @@ namespace OloEngine
             // m_AssetsMutex -> RuntimeAssetSystem::m_StateMutex; nothing takes them the
             // other way round (the load worker takes neither).
             TUniqueLock<FSharedMutex> lock(m_AssetsMutex);
-            TArray<FCompletedAssetLoad> completed;
-            if (!m_AssetThread->RetrieveCompletedAssets(completed))
+            if (!m_AssetThread->RetrieveCompletedAssets(completed, dropped))
                 return;
 
             for (const auto& result : completed)
@@ -476,8 +480,13 @@ namespace OloEngine
         if (!m_AssetThread)
             return EAssetLoadCancelResult::NotPending;
 
-        TUniqueLock<FSharedMutex> lock(m_AssetsMutex);
-        const EAssetLoadCancelResult result = m_AssetThread->CancelAssetLoad(handle);
+        // A discarded result is released after the lock (see SyncWithAssetThread).
+        TArray<FAssetLoadRecord> dropped;
+        EAssetLoadCancelResult result;
+        {
+            TUniqueLock<FSharedMutex> lock(m_AssetsMutex);
+            result = m_AssetThread->CancelAssetLoad(handle, dropped);
+        }
         if (result != EAssetLoadCancelResult::NotPending)
             OLO_CORE_TRACE("RuntimeAssetManager::CancelAssetLoad - asset {}: {}", handle, ToString(result));
         return result;

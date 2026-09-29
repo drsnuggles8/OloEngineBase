@@ -5,6 +5,7 @@
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Asset/AssetByteSize.h"
 #include "OloEngine/Asset/AssetSystem/AssetLoadTicket.h"
+#include "OloEngine/Asset/AssetSystem/CancellableLoadSet.h"
 #include "OloEngine/Task/Task.h"
 #include "OloEngine/Threading/Mutex.h"
 #include "OloEngine/Threading/UniqueLock.h"
@@ -51,6 +52,8 @@ namespace OloEngine
 
     // The one conversion from the scene's authored settings to the streamer's config.
     [[nodiscard]] SceneStreamerConfig MakeSceneStreamerConfig(const StreamingSettings& settings);
+    // The part of it synced every frame: everything but the region directory.
+    void ApplyPerFrameStreamingSettings(SceneStreamerConfig& config, const StreamingSettings& settings);
 
     /**
      * @brief What happened to one region load request (issue #1365).
@@ -102,15 +105,20 @@ namespace OloEngine
     };
 
     /**
-     * @brief Test seam on the region load worker; see FRuntimeAssetLoadTestHooks,
-     *        which this mirrors. The hooks are captured by value when a load is
-     *        launched, so the worker never reads streamer state.
+     * @brief Test seam on the region load path; see FRuntimeAssetLoadTestHooks,
+     *        which the first three mirror. The worker hooks are captured by value
+     *        when a load is launched, so the worker never reads streamer state.
+     *
+     * OnRegionInstantiated runs on the main thread right after a region's
+     * entities are initialised — where their scripts' OnCreate runs — so a test
+     * can re-enter the streamer the way a script would, without a script runtime.
      */
     struct FRegionLoadTestHooks
     {
         std::optional<Tasks::FTaskEvent> StartGate;
         std::function<void(RegionID)> OnLoadStarted;
         std::function<void(RegionID)> OnLoadFinished;
+        std::function<void(RegionID)> OnRegionInstantiated;
     };
 
     /**
@@ -120,17 +128,27 @@ namespace OloEngine
      *
      * The load worker parses the .oloregion file and returns the YAML as its task
      * result; it never writes to the region or the streamer. Only
-     * ProcessCompletedLoads() instantiates a result, and only for a load still in
-     * m_PendingLoads. CancelRegionLoad() takes the load out of m_PendingLoads and
-     * puts the region back to Unloaded, so a later-arriving result is never
-     * instantiated: a load not yet started never parses (ticket Queued ->
-     * Cancelled), a running one finishes into m_AbandonedLoads and is dropped when
-     * reaped, a finished-but-unprocessed one is dropped at once. UnloadRegion() on
-     * a Loading region, and a proximity region leaving its unload radius while
-     * Loading, cancel the load. Shutdown() cancels the unstarted loads and waits
-     * for every task, live and abandoned.
+     * ProcessCompletedLoads() instantiates a result, and only for a load still live
+     * in m_Loads (the per-state table is on TCancellableLoadSet).
+     * CancelRegionLoad() takes the load out and puts the region back to Unloaded,
+     * so a later-arriving result is never instantiated — even into a later request
+     * for the same region. UnloadRegion() on a Loading region, and a proximity
+     * region leaving its unload radius while Loading, cancel the load; an unload
+     * requested while the region is being instantiated (from a streamed entity's
+     * OnCreate) is honoured once instantiation finishes. Shutdown() cancels the
+     * unstarted loads and waits for every task, live and abandoned.
      *
-     * All of m_PendingLoads, m_AbandonedLoads and m_Stats are main-thread state.
+     * ## Byte budgets
+     *
+     * Admission defers a request that would cross MaxResidentBytes (loaded plus
+     * loading) or MaxAdmittedBytesPerFrame, and rejects one that alone exceeds
+     * MaxResidentBytes. A manual LoadRegion stands until admitted or unloaded, and
+     * Update retries it. Eviction unloads least-recently-used Ready regions while
+     * the count or the bytes exceed their budgets, and, to make room for a
+     * request the resident budget deferred, frees regions held only by hysteresis
+     * (inside no load radius this frame and not manually loaded).
+     *
+     * m_Loads and m_Stats are main-thread state.
      */
     class SceneStreamer
     {
@@ -197,34 +215,19 @@ namespace OloEngine
         // Region registry (discovered from disk, keyed by RegionID)
         std::unordered_map<RegionID, Ref<StreamingRegion>> m_Regions;
 
-        // In-flight async loads
-        struct PendingLoad
-        {
-            RegionID RegionId;
-            Tasks::TTask<FRegionLoadResult> Task;
-            Ref<StreamingRegion> Region;
-            Ref<FAssetLoadTicket> Ticket;
-        };
-        friend struct TIsTriviallyRelocatable<PendingLoad>;
-        TArray<PendingLoad> m_PendingLoads;
-        TArray<PendingLoad> m_AbandonedLoads;
+        // Async region loads: keyed by region, the result the parsed file, the
+        // payload the region the load fills.
+        using FRegionLoadRecord = TCancellableLoadRecord<RegionID, FRegionLoadResult, Ref<StreamingRegion>>;
+        TCancellableLoadSet<RegionID, FRegionLoadResult, Ref<StreamingRegion>> m_Loads;
 
-        FSceneStreamingStats m_Stats; // cumulative counters only; GetStats() fills the rest
+        FSceneStreamingStats m_Stats; // admission and eviction counters; GetStats() fills the rest
         u64 m_AdmittedBytesThisFrame = 0;
         u32 m_AdmittedRegionsThisFrame = 0;
+        u64 m_DeferredDemandBytes = 0; // bytes the resident budget deferred this frame
         FRegionLoadTestHooks m_TestHooks;
 
         mutable FMutex m_RegionMutex; // Protects m_Regions and each region's state fields
         u64 m_CurrentFrame = 0;
         UUID m_ActivationEntityId{}; // 0 = use primary camera
-    };
-    template<>
-    struct TIsTriviallyRelocatable<SceneStreamer::PendingLoad>
-    {
-        using Load = SceneStreamer::PendingLoad;
-        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Load::RegionId)> &&
-                                      TIsTriviallyRelocatable_V<decltype(Load::Task)> &&
-                                      TIsTriviallyRelocatable_V<decltype(Load::Region)> &&
-                                      TIsTriviallyRelocatable_V<decltype(Load::Ticket)>;
     };
 } // namespace OloEngine

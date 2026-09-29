@@ -5,6 +5,7 @@
 #include "OloEngine/Asset/AssetByteSize.h"
 #include "OloEngine/Asset/AssetMetadata.h"
 #include "OloEngine/Asset/AssetSystem/AssetLoadTicket.h"
+#include "OloEngine/Asset/AssetSystem/CancellableLoadSet.h"
 #include "OloEngine/Containers/Array.h"
 #include "OloEngine/Task/Task.h"
 #include "OloEngine/Threading/Mutex.h"
@@ -25,29 +26,17 @@ namespace OloEngine
         AssetHandle Handle = 0;
         Ref<Asset> LoadedAsset; // named LoadedAsset (not Asset) so it doesn't shadow the Asset type
     };
-
-    // Task results remain in heap storage; these records own only handles.
-    struct FInFlightAssetLoad
-    {
-        AssetHandle Handle = 0;
-        Tasks::TTask<Ref<Asset>> Task;
-        Ref<FAssetLoadTicket> Ticket;
-        FAssetByteSize EstimatedSize;
-    };
-    template<>
-    struct TIsTriviallyRelocatable<FInFlightAssetLoad>
-    {
-        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(FInFlightAssetLoad::Handle)> &&
-                                      TIsTriviallyRelocatable_V<decltype(FInFlightAssetLoad::Task)> &&
-                                      TIsTriviallyRelocatable_V<decltype(FInFlightAssetLoad::Ticket)> &&
-                                      TIsTriviallyRelocatable_V<decltype(FInFlightAssetLoad::EstimatedSize)>;
-    };
     template<>
     struct TIsTriviallyRelocatable<FCompletedAssetLoad>
     {
         static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(FCompletedAssetLoad::Handle)> &&
                                       TIsTriviallyRelocatable_V<decltype(FCompletedAssetLoad::LoadedAsset)>;
     };
+
+    // One async asset load: keyed by handle, its result the loaded asset, its
+    // payload the size estimate it was queued with. Task results remain in heap
+    // storage; the record owns only handles.
+    using FAssetLoadRecord = TCancellableLoadRecord<AssetHandle, Ref<Asset>, FAssetByteSize>;
 
     /**
      * @brief Counters and byte totals for the async load queue (issue #1365).
@@ -107,36 +96,30 @@ namespace OloEngine
      *
      * Concurrency is built entirely on the UE-ported task/threading stack: loads run
      * as `Tasks::TTask` jobs on `LowLevelTasks::FScheduler`, in-flight bookkeeping is
-     * a `TArray` guarded by a UE `FMutex`, and shutdown waits on the task handles via
-     * `Tasks::TTask::Wait`. Each task's *result* is the loaded asset, so the handle
-     * doubles as both the completion signal and the result channel — no separate
-     * completion queue or atomic counter is needed.
+     * a TCancellableLoadSet guarded by a UE `FMutex`, and shutdown waits on the task
+     * handles via `Tasks::TTask::Wait`. Each task's *result* is the loaded asset, so
+     * the handle doubles as both the completion signal and the result channel — no
+     * separate completion queue or atomic counter is needed.
      *
      * ## Cancellation contract (issue #1365)
      *
      * A result reaches the caller only through RetrieveCompletedAssets(), and only
-     * for a request that is still in m_InFlight when it is retrieved. Cancelling
-     * removes the request from m_InFlight under m_StateMutex, the same lock
-     * RetrieveCompletedAssets() takes, so a cancel and a retrieve are ordered: the
-     * result is either retrieved before the cancel (the cancel then reports
-     * NotPending) or never retrieved at all.
-     *
-     * | state at cancel             | what cancel does                              | the result                                   |
-     * |-----------------------------|-----------------------------------------------|----------------------------------------------|
-     * | queued, not started         | ticket Queued -> Cancelled                    | none: the body sees Cancelled and returns null without reading the pack |
-     * | running (worker mid-load)   | ticket stays Running; record moves to m_Abandoned | produced, never retrieved; released when the abandoned task is reaped |
-     * | completed, not retrieved    | record dropped                                | released immediately                         |
-     * | retrieved, or never queued  | nothing                                       | NotPending                                   |
-     *
-     * Nothing else reads a task result: no subsequent task is chained on a load
-     * task, so there is no queued work that could observe a dropped result.
+     * for a request still live when it is retrieved. CancelAssetLoad() takes the
+     * request out of the live set under m_StateMutex, the lock
+     * RetrieveCompletedAssets() also takes, so a cancel and a retrieve are ordered:
+     * the result is either retrieved before the cancel (which then reports
+     * NotPending) or never retrieved at all. The per-state table is on
+     * TCancellableLoadSet. No task is chained on a load task, so no queued work can
+     * observe a dropped result.
      *
      * An abandoned task still calls back into the owning RuntimeAssetManager, so
-     * it stays in m_Abandoned until it completes: RetrieveCompletedAssets() reaps
-     * the finished ones, and StopAndWait() waits for every one of them as well as
-     * for the live requests. A handle can be queued again while its abandoned
-     * predecessor is still running; the two are separate records and only the new
-     * one's result can be retrieved.
+     * StopAndWait() waits for abandoned tasks as well as live ones. A handle can
+     * be queued again while its abandoned predecessor still runs; only the new
+     * request's result can be retrieved.
+     *
+     * Records that leave the system are handed to the caller through `outDropped`,
+     * so a caller holding its own lock can release the results after unlocking;
+     * the overloads without it release them after m_StateMutex is dropped.
      *
      * StopAndWait() cancels every request that has not started, waits for every
      * task (live and abandoned) to finish, then drops all results. After it returns
@@ -187,18 +170,22 @@ namespace OloEngine
         /**
          * @brief Withdraw a queued request or abandon a running one. See the
          *        cancellation contract in the class comment.
+         * @param outDropped Receives a discarded record, to be released by the caller.
          */
+        EAssetLoadCancelResult CancelAssetLoad(AssetHandle handle, TArray<FAssetLoadRecord>& outDropped);
         EAssetLoadCancelResult CancelAssetLoad(AssetHandle handle);
 
         /**
          * @brief Retrieve assets that have finished loading on worker threads
          * @param outAssets Output array, appended with completed loads.
+         * @param outDropped Receives the finished abandoned loads reaped on the way,
+         *        to be released by the caller.
          * @return True if any completed assets were retrieved
          *
          * Called from the main thread (by RuntimeAssetManager::SyncWithAssetThread),
-         * which integrates the results into its loaded-asset cache. Also reaps
-         * finished abandoned loads, releasing their results.
+         * which integrates the results into its loaded-asset cache.
          */
+        bool RetrieveCompletedAssets(TArray<FCompletedAssetLoad>& outAssets, TArray<FAssetLoadRecord>& outDropped);
         bool RetrieveCompletedAssets(TArray<FCompletedAssetLoad>& outAssets);
 
         /**
@@ -241,13 +228,9 @@ namespace OloEngine
          */
         Ref<Asset> LoadAssetFromPack(AssetHandle handle);
 
-        // The worker body of one load request. Takes no lock of this system's.
-        Ref<Asset> RunLoad(AssetHandle handle, const FAssetLoadTicket& ticket,
-                           const std::function<void(AssetHandle)>& onStarted,
+        // The worker body of one started load. Takes no lock of this system's.
+        Ref<Asset> RunLoad(AssetHandle handle, const std::function<void(AssetHandle)>& onStarted,
                            const std::function<void(AssetHandle, const Ref<Asset>&)>& onFinished);
-
-        // Caller holds m_StateMutex. Drops every finished abandoned task.
-        void ReapAbandonedLocked();
 
       private:
         RuntimeAssetManager* m_Manager = nullptr;
@@ -255,13 +238,12 @@ namespace OloEngine
         // Everything below is guarded by m_StateMutex (a UE-ported FMutex). The UE
         // task stack has no atomic wrapper of its own — its scheduler uses
         // std::atomic internally — so this system keeps its own state under the
-        // mutex rather than introducing parallel atomics. The one exception is
-        // FAssetLoadTicket::State, which the worker reads and writes without the
-        // lock; the worker never takes m_StateMutex.
+        // mutex rather than introducing parallel atomics. The one exception is each
+        // load's FAssetLoadTicket::State, which the worker reads and writes without
+        // the lock; the worker never takes m_StateMutex.
         bool m_Running = true;
-        TArray<FInFlightAssetLoad> m_InFlight;
-        TArray<FInFlightAssetLoad> m_Abandoned;
-        FRuntimeAssetLoadStats m_Counters; // only the cumulative counters are kept here
+        TCancellableLoadSet<AssetHandle, Ref<Asset>, FAssetByteSize> m_Loads;
+        u64 m_RejectedWhileStopped = 0;
         FRuntimeAssetLoadTestHooks m_TestHooks;
         mutable FMutex m_StateMutex;
     };

@@ -10,6 +10,7 @@
 #include "OloEngine/Utils/PlatformUtils.h"
 
 #include <imgui.h>
+#include <bit>
 #include <glm/gtc/type_ptr.hpp>
 
 namespace OloEngine
@@ -35,11 +36,19 @@ namespace OloEngine
         ImGui::End();
     }
 
+    // "Did a widget write a different value", not numeric closeness: compare the
+    // bit patterns, which is exact without a float == (CLAUDE.md, Conventions).
+    static bool SameBits(f32 a, f32 b)
+    {
+        return std::bit_cast<u32>(a) == std::bit_cast<u32>(b);
+    }
+
     static bool StreamingSettingsEqual(const StreamingSettings& a, const StreamingSettings& b)
     {
-        // Exact comparison on purpose: this detects "the widget wrote a new value",
-        // not numeric closeness.
-        return a.Enabled == b.Enabled && a.DefaultLoadRadius == b.DefaultLoadRadius && a.DefaultUnloadRadius == b.DefaultUnloadRadius && a.MaxLoadedRegions == b.MaxLoadedRegions && a.RegionDirectory == b.RegionDirectory && a.MaxResidentMegabytes == b.MaxResidentMegabytes && a.MaxAdmittedMegabytesPerFrame == b.MaxAdmittedMegabytesPerFrame;
+        return a.Enabled == b.Enabled && SameBits(a.DefaultLoadRadius, b.DefaultLoadRadius) &&
+               SameBits(a.DefaultUnloadRadius, b.DefaultUnloadRadius) && a.MaxLoadedRegions == b.MaxLoadedRegions &&
+               a.RegionDirectory == b.RegionDirectory && SameBits(a.MaxResidentMegabytes, b.MaxResidentMegabytes) &&
+               SameBits(a.MaxAdmittedMegabytesPerFrame, b.MaxAdmittedMegabytesPerFrame);
     }
 
     void StreamingPanel::DrawSettingsSection()
