@@ -365,8 +365,9 @@ The evidence, all from runs or CI logs, is in
 - The contract is satisfied on the developer's RTX 4090 (driver 617.14, Vulkan 1.4.351) and on
   Mesa lavapipe 26.2.0, the software driver the nightly `vulkan-software.yml` runs (122 of 122
   device-gated tests executed on 2026-09-29).
-- It is refused on the self-hosted AMD Navi 10 runner (Mesa 25.2.7) and satisfied by no hosted
-  runner, so PR CI never exercises the Vulkan device suites.
+- It is refused on the self-hosted AMD Navi 10 runner (Mesa 25.2.7). The hosted lavapipe runner
+  satisfies it, but only the nightly job and the PRs that touch `vulkan-software.yml` or
+  `VulkanCapabilities.*` run the device-gated suites there; ordinary PRs do not exercise them.
 - The cost of the floor, then, is verification reach rather than only hardware reach: the machines
   that can verify the backend are one developer box and one software driver. Nothing measured shows
   the floor to be wrong; it shows it to be expensive to verify on hardware. That is a runner

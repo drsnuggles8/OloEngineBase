@@ -158,8 +158,12 @@ int main(int argc, char** argv)
                 std::fprintf(stderr, "OloEngine-Tests: cannot write the capability report to '%s'\n", path.c_str());
                 return 2;
             }
-            std::fwrite(report.data(), 1, report.size(), file);
-            std::fclose(file);
+            const bool wrote = std::fwrite(report.data(), 1, report.size(), file) == report.size();
+            if (std::fclose(file) != 0 || !wrote)
+            {
+                std::fprintf(stderr, "OloEngine-Tests: failed writing the capability report to '%s'\n", path.c_str());
+                return 2;
+            }
         }
         return 0;
 #else

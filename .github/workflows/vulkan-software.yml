@@ -195,6 +195,8 @@ jobs:
           & "$env:VULKAN_SDK\Bin\vulkaninfoSDK.exe" --summary
 
       - name: Vulkan capability report (lavapipe)
+        # Report-only: a failure here must never stop the suite step below.
+        continue-on-error: true
         working-directory: OloEditor
         shell: pwsh
         # #1358: the engine's own reader, on this driver, published in the job

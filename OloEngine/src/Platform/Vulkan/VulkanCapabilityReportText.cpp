@@ -66,23 +66,27 @@ namespace OloEngine::VulkanCapabilityReportText
         const bool rayQueryFeatures = anyDevice([](const VulkanCapabilityReport& r)
                                                 { return r.Satisfied && r.RayQueryFeatures; });
 
+        // The tests call VulkanDevice::Init after the per-device predicate, so a
+        // machine whose contract is met but whose real gate did not create a
+        // device still skips at bring-up.
+        const bool gatePassed = gate.Ran && gate.Created;
+
         std::vector<ExecutableTier> tiers;
 
         ExecutableTier deviceGated;
         deviceGated.Population = "Device-gated Vulkan suites (OLO_VULKAN_DEVICE_OR_SKIP)";
         deviceGated.Filter = "Vulkan*:VirtualShadowMapVulkanShaders*";
-        deviceGated.Executable = contractMet;
-        deviceGated.Why = contractMet
-                              ? (hardwareContractMet ? "a hardware device satisfies the ADR 0010 contract"
-                                                     : "only a SOFTWARE device satisfies the ADR 0010 contract")
-                              : "no device satisfies the ADR 0010 contract; every such test skips";
+        deviceGated.Executable = contractMet && gatePassed;
+        deviceGated.Why = !contractMet          ? "no device satisfies the ADR 0010 contract; every such test skips"
+                          : !gatePassed         ? "a device satisfies the contract but the real VulkanDevice::Init gate did not admit one: " + gate.Refusal
+                          : hardwareContractMet ? "a hardware device satisfies the ADR 0010 contract"
+                                                : "only a SOFTWARE device satisfies the ADR 0010 contract";
         tiers.push_back(std::move(deviceGated));
 
         ExecutableTier rayQuery;
         rayQuery.Population = "L7 ray-query device suites (#1294)";
         rayQuery.Filter = "ReSTIRPTDevice.*:RayTracingDevice.*:GpuPathTracerDevice.*";
-        const bool gateRan = gate.Ran && gate.Created;
-        if (gateRan)
+        if (gatePassed)
         {
             // The real gate's verdict beats the feature-level prediction.
             rayQuery.Executable = gate.RayQueryEnabled;
@@ -243,12 +247,26 @@ namespace OloEngine::VulkanCapabilityReportText
         volkLoadInstance(probe);
 
         u32 deviceCount = 0;
-        vkEnumeratePhysicalDevices(probe, &deviceCount, nullptr);
-        std::vector<VkPhysicalDevice> physicalDevices(deviceCount);
-        if (deviceCount > 0)
+        std::vector<VkPhysicalDevice> physicalDevices;
+        // A failed or partial enumeration is reported as a loader problem and the
+        // list is rejected, never presented as "no devices".
+        const VkResult countResult = vkEnumeratePhysicalDevices(probe, &deviceCount, nullptr);
+        if (countResult != VK_SUCCESS)
         {
-            vkEnumeratePhysicalDevices(probe, &deviceCount, physicalDevices.data());
+            environment.LoaderError =
+                std::format("vkEnumeratePhysicalDevices (count) failed with VkResult {}", static_cast<int>(countResult));
+        }
+        else if (deviceCount > 0)
+        {
             physicalDevices.resize(deviceCount);
+            const VkResult listResult = vkEnumeratePhysicalDevices(probe, &deviceCount, physicalDevices.data());
+            if (listResult != VK_SUCCESS)
+            {
+                environment.LoaderError = std::format("vkEnumeratePhysicalDevices (list) returned VkResult {}; "
+                                                      "the device list is incomplete and was discarded",
+                                                      static_cast<int>(listResult));
+                physicalDevices.clear();
+            }
         }
         for (VkPhysicalDevice device : physicalDevices)
         {

@@ -90,6 +90,18 @@ namespace
         EXPECT_TRUE(Find(ClassifyTests(devices, enabled), "ray-query")->Executable);
     }
 
+    TEST(VulkanCapabilityReportText, AContractMetDeviceWhoseRealGateRefusedRunsNothing)
+    {
+        GateOutcome gate;
+        gate.Ran = true;
+        gate.Refusal = "vkCreateDevice failed";
+        const std::vector<VulkanCapabilityReport> devices{ MakeDevice("X", true, false, true) };
+        const auto tiers = ClassifyTests(devices, gate);
+        EXPECT_FALSE(Find(tiers, "Device-gated")->Executable);
+        EXPECT_NE(Find(tiers, "Device-gated")->Why.find("vkCreateDevice failed"), std::string::npos);
+        EXPECT_FALSE(Find(tiers, "ray-query")->Executable);
+    }
+
     TEST(VulkanCapabilityReportText, ARefusingGateIsReportedVerbatim)
     {
         GateOutcome gate;

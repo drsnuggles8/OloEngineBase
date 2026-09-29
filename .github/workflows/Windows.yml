@@ -1194,6 +1194,8 @@ jobs:
     # GPU, and the report is what says so from a log instead of from a comment.
     - name: Vulkan capability report
       if: always() && matrix.shard == 1
+      # Report-only: the shard tests are the gate, never this step.
+      continue-on-error: true
       shell: bash
       working-directory: ${{github.workspace}}/OloEditor
       run: |
