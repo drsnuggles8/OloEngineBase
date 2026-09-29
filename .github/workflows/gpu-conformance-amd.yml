@@ -760,7 +760,8 @@ jobs:
         run: |
           mkdir -p ../test_results
           ../build/OloEngine/tests/OloEngine-Tests --olo-vulkan-capability-report=../test_results/vulkan_capability_report.md || true
-          cat ../test_results/vulkan_capability_report.md >> "$GITHUB_STEP_SUMMARY" || true
+          # tee: the job summary has no API, the log does
+          tee -a "$GITHUB_STEP_SUMMARY" < ../test_results/vulkan_capability_report.md || true
 
       - name: Perf-history trend analysis
         if: always()

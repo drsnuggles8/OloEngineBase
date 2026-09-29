@@ -120,26 +120,27 @@ namespace
                 return std::ranges::find(report.Missing, item) != report.Missing.end();
             };
 
-            // Every table row reports itself, and is in Missing exactly when it
-            // is unmet -- read off the table, so a row added to the contract is
-            // covered here without editing this test.
-            for (const VulkanRequirementResult& requirement : report.Requirements)
+            // Every table row reports itself. An unmet extension row and an unmet
+            // feature row of a LISTED extension are in Missing; a feature row whose
+            // extension is unlisted is not (the extension is the one finding).
+            const auto met = [&report](const std::string& name)
             {
-                if (requirement.Name.starts_with("Vulkan API version"))
-                {
-                    continue; // Missing carries this one with the device's version appended.
-                }
-                EXPECT_EQ(!requirement.Met, missingContains(requirement.Name))
-                    << report.DeviceName << ": " << requirement.Name;
-            }
+                const auto it = std::ranges::find_if(report.Requirements,
+                                                     [&name](const VulkanRequirementResult& r)
+                                                     { return r.Name == name; });
+                return it != report.Requirements.end() && it->Met;
+            };
             for (std::size_t i = 0; i < static_cast<std::size_t>(VulkanContractExtension::Count); ++i)
             {
                 const VulkanContractExtensionRow& row =
                     VulkanCapabilities::Row(static_cast<VulkanContractExtension>(i));
-                const auto named = [&row](const VulkanRequirementResult& r)
-                { return r.Name == row.Extension; };
-                EXPECT_EQ(std::ranges::count_if(report.Requirements, named), 1)
-                    << report.DeviceName << ": " << row.Extension << " missing from the report's rows";
+                EXPECT_EQ(!met(row.Extension), missingContains(row.Extension))
+                    << report.DeviceName << ": " << row.Extension;
+                if (row.FeatureBit != nullptr)
+                {
+                    EXPECT_EQ(met(row.Extension) && !met(row.FeatureBit), missingContains(row.FeatureBit))
+                        << report.DeviceName << ": " << row.FeatureBit;
+                }
             }
 
             // A feature bit can only be reported true when its extension is listed.

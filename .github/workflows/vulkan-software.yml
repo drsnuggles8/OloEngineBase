@@ -37,6 +37,14 @@ name: Vulkan Software Conformance
 
 on:
   workflow_dispatch:
+    inputs:
+      gtest_filter:
+        # Diagnostic only (#1358/#1294): lets a dispatch measure a population the
+        # nightly filter does not select, e.g. whether lavapipe serves the L7
+        # ray-query suites. Empty keeps the nightly filter exactly as it was.
+        description: 'gtest filter override (empty = the nightly Vulkan filter)'
+        type: string
+        default: ''
   schedule:
     # Nightly at 04:23 UTC — after cross-vendor.yml's 03:47 so the two software
     # jobs do not contend for hosted concurrency, and on an odd minute to avoid
@@ -232,6 +240,8 @@ jobs:
           LIBGL_ALWAYS_SOFTWARE: '1'
           MESA_GL_VERSION_OVERRIDE: '4.6'
           MESA_GLSL_VERSION_OVERRIDE: '460'
+          # Read as data, never interpolated into the script (see the AMD workflow).
+          OLO_GTEST_FILTER: ${{ inputs.gtest_filter }}
         # THE FLAG THAT MAKES THIS JOB WORTH HAVING IS `--olo-require-vulkan`
         # (issue #1300). Every device-gated Vulkan test skips cleanly when no
         # usable device is present, so without it this job would report GREEN on
@@ -267,7 +277,8 @@ jobs:
         # when it passes — docs/agent-rules/vulkan-software-driver-ci.md has
         # the measurement.
         run: |
-          ..\build\OloEngine\tests\${{env.BUILD_TYPE}}\OloEngine-Tests.exe "--gtest_filter=Vulkan*:VirtualShadowMapVulkanShaders*-VulkanDrawPath.FramebufferBlitPreservesUnrequestedDepthStencilAspects" --olo-require-vulkan --olo-golden-vendor=lavapipe --olo-perf-machine=ci-lavapipe-windows --gtest_catch_exceptions=1 --gtest_output=xml:..\test_results\vulkan_software.xml
+          $filter = if ($env:OLO_GTEST_FILTER) { $env:OLO_GTEST_FILTER } else { 'Vulkan*:VirtualShadowMapVulkanShaders*-VulkanDrawPath.FramebufferBlitPreservesUnrequestedDepthStencilAspects' }
+          ..\build\OloEngine\tests\${{env.BUILD_TYPE}}\OloEngine-Tests.exe "--gtest_filter=$filter" --olo-require-vulkan --olo-golden-vendor=lavapipe --olo-perf-machine=ci-lavapipe-windows --gtest_catch_exceptions=1 --gtest_output=xml:..\test_results\vulkan_software.xml
 
       - name: Upload Vulkan software test results
         if: always()
