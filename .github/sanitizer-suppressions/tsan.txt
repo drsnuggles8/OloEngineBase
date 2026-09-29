@@ -123,3 +123,30 @@ called_from_lib:libgallium
 # barrier frames carry no symbol to match on. Also seen on PR #1292, Sanitizers
 # run 34984922536, 'TSan (Linux) tests 1/4'.
 called_from_lib:libvulkan_radeon
+
+# ── libstdc++ exception_ptr refcount, not engine code ─────────────────────────
+# An exception carried across threads by std::promise/std::future is one object
+# shared by refcount. The thread that drops the LAST reference destroys it,
+# which is ordered after every other holder's reads by that refcount. The
+# refcount lives in libsupc++ (eh_ptr.cc, __cxa_end_catch), which is not
+# instrumented, so TSan cannot see the ordering and reports the destructor's
+# free as racing an earlier what() read on another thread.
+#
+# Observed on PR #1520, Sanitizers run 36544589100, 'TSan (Linux) tests 4/4',
+# McpMainThreadMarshalTest.RequestCancellationBeforeQueueDrainSuppressesTheWrite
+# (test and code unchanged from master; intermittent):
+#
+#   Write (main): operator delete <- std::runtime_error::~runtime_error
+#                 <- exception_ptr::_M_release <- ~promise
+#                 <- ~AutomationMainThreadJob   (queue drain drops the last job)
+#   Read  (T39):  string append of e.what() in
+#                 AutomationRegistry::RunHandlerUnobserved (caller caught the
+#                 cancellation rethrown by future::get)
+#
+# The waiter's catch holds its own reference until __cxa_end_catch, so the main
+# thread's release can only be the last one after that read has finished. ASan
+# jobs still catch a genuine use-after-free of an exception object.
+#
+# Scoped to the exception_ptr release frame, not to ~runtime_error, so an
+# exception object freed any other way still reports.
+race:std::__exception_ptr::exception_ptr::_M_release
