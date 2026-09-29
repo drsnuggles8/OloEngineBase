@@ -3959,6 +3959,42 @@ Entities:
         EXPECT_TRUE(std::isfinite(anim.m_BlendDuration)) << "Inf BlendDuration should be sanitized to a finite value";
     }
 
+    // The loop flag and the playback speed (issue #1533) are authored state: a
+    // sit saved as a one-shot must not come back looping, and a hostile speed
+    // must not reach the clip clock.
+    TEST(ComponentRoundTrip, AnimationStateComponentLoopAndSpeedSurviveYAMLRoundTrip)
+    {
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& anim = entity.AddComponent<AnimationStateComponent>();
+            anim.m_Loop = false;
+            anim.m_PlaybackSpeed = 0.5f;
+            anim.m_RequestedClip = "Sit"; // runtime: never written to the scene
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+        EXPECT_EQ(yaml.find("Sit"), std::string::npos) << "a pending request is not scene state";
+
+        {
+            auto reloaded = Scene::Create();
+            ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+            Entity restored = FindByTag(*reloaded, kTestTag);
+            ASSERT_TRUE(static_cast<bool>(restored));
+            const auto& anim = restored.GetComponent<AnimationStateComponent>();
+            EXPECT_FALSE(anim.m_Loop);
+            EXPECT_NEAR(anim.m_PlaybackSpeed, 0.5f, kFloatEpsilon);
+            EXPECT_TRUE(anim.m_RequestedClip.empty());
+        }
+
+        yaml = std::regex_replace(yaml, std::regex(R"(PlaybackSpeed: [0-9.e+-]+)"), "PlaybackSpeed: .nan");
+        auto hostile = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(hostile).DeserializeFromYAML(yaml));
+        Entity restored = FindByTag(*hostile, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        EXPECT_FLOAT_EQ(restored.GetComponent<AnimationStateComponent>().m_PlaybackSpeed, 1.0f);
+    }
+
     // -------------------------------------------------------------------------
     // ProgressionComponent (issue #635) — fully GENERATED serializer blocks.
     // This is the first real component exercising the generated

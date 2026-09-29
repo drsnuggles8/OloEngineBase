@@ -4212,6 +4212,32 @@ namespace OloEngine
         Animation::RetargetingSystem::OnUpdate(this);
     }
 
+    namespace
+    {
+        // Morph keyframes follow the skeletal cross-fade (issue #1533): while
+        // a blend runs both clips are sampled and mixed by the blend factor
+        // Update just computed, so a face does not snap to the target clip's
+        // expression on the frame the blend completes.
+        void SampleClipMorphs(Entity entity, const AnimationStateComponent& animState)
+        {
+            if (!entity.HasComponent<MorphTargetComponent>())
+            {
+                return;
+            }
+            auto& morphComp = entity.GetComponent<MorphTargetComponent>();
+            if (animState.m_Blending && animState.m_NextClip)
+            {
+                MorphTargetSystem::SampleMorphKeyframesBlended(animState.m_CurrentClip, animState.m_CurrentTime,
+                                                               animState.m_NextClip, animState.m_NextTime,
+                                                               animState.m_BlendFactor, morphComp);
+            }
+            else
+            {
+                MorphTargetSystem::SampleMorphKeyframes(animState.m_CurrentClip, animState.m_CurrentTime, morphComp);
+            }
+        }
+    } // namespace
+
     void Scene::UpdateAnimation(Timestep ts)
     {
 
@@ -4240,6 +4266,11 @@ namespace OloEngine
             {
                 auto& animState = animView.get<AnimationStateComponent>(e);
                 auto& skelComp = animView.get<SkeletonComponent>(e);
+
+                // A clip request (issue #1533) lands even on an entity that is
+                // paused or has no clip yet; Update applies it too, but the gate
+                // below keeps both of those away from Update.
+                Animation::AnimationSystem::ApplyClipRequest(animState);
 
                 if (animState.m_IsPlaying && animState.m_CurrentClip && skelComp.m_Skeleton)
                 {
@@ -4284,15 +4315,7 @@ namespace OloEngine
 
                     Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, poseSeconds, ikTarget, entityTransform, springBone, springState, noise, noiseState, footIK, footIKState);
 
-                    // Sample morph target keyframes from the current animation clip
-                    if (!animState.m_CurrentClip->MorphKeyframes.empty())
-                    {
-                        if (entity.HasComponent<MorphTargetComponent>())
-                        {
-                            auto& morphComp = entity.GetComponent<MorphTargetComponent>();
-                            MorphTargetSystem::SampleMorphKeyframes(animState.m_CurrentClip, animState.m_CurrentTime, morphComp);
-                        }
-                    }
+                    SampleClipMorphs(entity, animState);
                 }
             }
 
@@ -4301,14 +4324,30 @@ namespace OloEngine
             for (auto e : morphAnimView)
             {
                 auto& animState = morphAnimView.get<AnimationStateComponent>(e);
+                // No skeleton means no pose to cross-fade, so a clip request
+                // (issue #1533) switches at once.
+                Animation::AnimationSystem::ApplyClipRequest(animState);
+                if (animState.m_Blending && animState.m_NextClip)
+                {
+                    animState.m_CurrentClip = animState.m_NextClip;
+                    animState.m_CurrentTime = animState.m_NextTime;
+                    animState.m_Loop = animState.m_NextLoop;
+                    animState.m_NextClip = nullptr;
+                    animState.m_Blending = false;
+                    animState.m_BlendFactor = 0.0f;
+                }
                 if (!animState.m_IsPlaying || !animState.m_CurrentClip)
                     continue;
 
-                // Advance time for morph-only entities
-                animState.m_CurrentTime += ts.GetSeconds();
+                // Advance time for morph-only entities: a looping clip wraps, a
+                // one-shot holds its last frame.
+                const f32 playbackSpeed = std::isfinite(animState.m_PlaybackSpeed) ? std::clamp(animState.m_PlaybackSpeed, 0.0f, 10.0f) : 1.0f;
+                animState.m_CurrentTime += ts.GetSeconds() * playbackSpeed;
                 if (const float duration = animState.m_CurrentClip->Duration; duration > 0.0f && animState.m_CurrentTime > duration)
                 {
-                    animState.m_CurrentTime -= static_cast<int>(animState.m_CurrentTime / duration) * duration;
+                    animState.m_CurrentTime = animState.m_Loop
+                                                  ? animState.m_CurrentTime - static_cast<int>(animState.m_CurrentTime / duration) * duration
+                                                  : duration;
                 }
 
                 if (!animState.m_CurrentClip->MorphKeyframes.empty())
@@ -5887,6 +5926,11 @@ namespace OloEngine
                 auto& animState = animView.get<AnimationStateComponent>(e);
                 auto& skelComp = animView.get<SkeletonComponent>(e);
 
+                // A clip request (issue #1533) lands even on an entity that is
+                // paused or has no clip yet; Update applies it too, but the gate
+                // below keeps both of those away from Update.
+                Animation::AnimationSystem::ApplyClipRequest(animState);
+
                 if (animState.m_IsPlaying && animState.m_CurrentClip && skelComp.m_Skeleton)
                 {
                     IKTargetComponent tempIk;
@@ -5930,15 +5974,7 @@ namespace OloEngine
 
                     Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, poseSeconds, ikTarget, entityTransform, springBone, springState, noise, noiseState, footIK, footIKState);
 
-                    // Sample morph target keyframes from the current animation clip
-                    if (!animState.m_CurrentClip->MorphKeyframes.empty())
-                    {
-                        if (entity.HasComponent<MorphTargetComponent>())
-                        {
-                            auto& morphComp = entity.GetComponent<MorphTargetComponent>();
-                            MorphTargetSystem::SampleMorphKeyframes(animState.m_CurrentClip, animState.m_CurrentTime, morphComp);
-                        }
-                    }
+                    SampleClipMorphs(entity, animState);
                 }
             }
         }

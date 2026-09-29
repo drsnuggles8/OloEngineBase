@@ -88,6 +88,10 @@ registry.push_back(OLO_GFW_FIELD(AnimationGraphComponent, "AnimationGraphAssetHa
 // AnimationStateComponent
 registry.push_back(OLO_GFW_FIELD_RANGE(AnimationStateComponent, "BlendDuration", m_BlendDuration, OLO_GFW_BOUND(0.001f), OLO_GFW_NO_BOUND));
 registry.push_back(OLO_GFW_FIELD(AnimationStateComponent, "IsPlaying", m_IsPlaying));
+registry.push_back(OLO_GFW_FIELD(AnimationStateComponent, "RequestedClip", m_RequestedClip));
+registry.push_back(OLO_GFW_FIELD(AnimationStateComponent, "RequestedLoop", m_RequestedLoop));
+registry.push_back(OLO_GFW_FIELD(AnimationStateComponent, "Loop", m_Loop));
+registry.push_back(OLO_GFW_FIELD_RANGE(AnimationStateComponent, "PlaybackSpeed", m_PlaybackSpeed, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(10.0f)));
 
 // AudioListenerComponent
 registry.push_back(OLO_GFW_FIELD(AudioListenerComponent, "Active", Active));

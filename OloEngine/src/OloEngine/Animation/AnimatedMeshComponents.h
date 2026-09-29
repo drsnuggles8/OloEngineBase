@@ -203,6 +203,40 @@ namespace OloEngine
         bool m_IsPlaying = false;     // Whether animation is currently playing
         std::string m_SourceFilePath; // Path to the animated model file for serialization/reload
 
+        // ── Clip requests (issue #1533) ──────────────────────────────────
+        //
+        // THE ONE WAY anything outside the animation system switches clips: the
+        // editor's clip combo while playing, a Lua script (`anim:PlayClip("Sit",
+        // false)`), a visual script or an MCP field write. The next pose update
+        // consumes it (AnimationSystem::ApplyClipRequest): it blends to the named
+        // clip over m_BlendDuration from its first frame and clears the request.
+        // A name no available clip carries is REFUSED LOUDLY -- logged once per
+        // name -- and cleared, never silently ignored. Requesting the clip that
+        // is already current and not blending only moves the loop flag, so a
+        // script may write it every frame.
+        //
+        // Not scene-serialized: the scene stores the CURRENT clip. A save game
+        // carries a pending request, like the rest of the playback state.
+        std::string m_RequestedClip;
+        // Whether the requested clip loops once it is current. False holds its
+        // final pose -- a sit stays seated instead of standing up at the loop
+        // point. Read when the request is consumed, like the name beside it.
+        bool m_RequestedLoop = true;
+        // Whether the CURRENT clip loops. False holds its final pose. Authored
+        // state: scene-serialized as `Loop`.
+        bool m_Loop = true;
+        // Whether the NEXT clip loops, carried through a blend and moved into
+        // m_Loop when the blend completes. Runtime state.
+        bool m_NextLoop = true;
+        // Rate of this entity's clip clock: 1 plays clips as authored, 0 freezes
+        // the pose. Scales the clip time, the blend and the root motion, but not
+        // the IK, spring-bone and noise post passes, which run on real time.
+        // The editor's Playback Speed slider writes it. Scene-serialized as
+        // `PlaybackSpeed`; the upper bound keeps one tick from lapping a clip
+        // many times over.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 10.0f)
+        float m_PlaybackSpeed = 1.0f;
+
         // Bone entity management
         /**
          * @brief Global skeleton-to-entity mapping used across all submeshes

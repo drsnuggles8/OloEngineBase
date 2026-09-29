@@ -1023,6 +1023,7 @@ add_executable(OloEngine-Tests
 		SaveGame/GroomFibreMaterialSaveLoadTest.cpp
 		SaveGame/GroomCoatShadowSaveLoadTest.cpp
 		SaveGame/GroomSceneShadowSaveLoadTest.cpp
+		SaveGame/AnimationClipRequestSaveLoadTest.cpp
 		SaveGame/FoliageInteractionSaveLoadTest.cpp
 		SaveGame/FoliageLodTransitionSaveLoadTest.cpp
 		SaveGame/DestructibleComponentSaveLoadSanitizeTest.cpp

@@ -150,6 +150,7 @@ namespace OloEngine
             // entry are two edits, not one.
             REGISTER_COMPONENT(WaterComponent),
             // Animation
+            REGISTER_COMPONENT(AnimationStateComponent),
             REGISTER_COMPONENT(AnimationGraphComponent),
             REGISTER_COMPONENT(MorphTargetComponent),
             // Cinematic

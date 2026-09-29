@@ -3632,6 +3632,13 @@ namespace OloEngine
             SanitizeFloat(anim.m_BlendDuration, 0.001f, 1.0e6f, 0.3f);
             anim.m_CurrentClipIndex = animComponent["CurrentClipIndex"].as<int>(anim.m_CurrentClipIndex);
             anim.m_IsPlaying = animComponent["IsPlaying"].as<bool>(anim.m_IsPlaying);
+            // Absent in scenes written before issue #1533, which all looped at
+            // the authored rate.
+            anim.m_Loop = animComponent["Loop"].as<bool>(anim.m_Loop);
+            anim.m_PlaybackSpeed = animComponent["PlaybackSpeed"].as<f32>(anim.m_PlaybackSpeed);
+            // The OLO_SERIALIZE(Clamp) on the field reaches the live-write
+            // registries, not this hand-written block, so the range is restated.
+            SanitizeFloat(anim.m_PlaybackSpeed, 0.0f, 10.0f, 1.0f);
 
             // Load source file path (stored as relative, convert to absolute) and reload animated model if available
             if (animComponent["SourceFilePath"])
@@ -6190,6 +6197,8 @@ namespace OloEngine
             out << YAML::Key << "BlendDuration" << YAML::Value << animComponent.m_BlendDuration;
             out << YAML::Key << "CurrentClipIndex" << YAML::Value << animComponent.m_CurrentClipIndex;
             out << YAML::Key << "IsPlaying" << YAML::Value << animComponent.m_IsPlaying;
+            out << YAML::Key << "Loop" << YAML::Value << animComponent.m_Loop;
+            out << YAML::Key << "PlaybackSpeed" << YAML::Value << animComponent.m_PlaybackSpeed;
             // Store source file path as relative path for portability
             if (!animComponent.m_SourceFilePath.empty())
             {

@@ -4152,6 +4152,25 @@ namespace OloEngine
         ar << c.m_BoneEntityIds;
         ar << c.m_RootBoneTransform;
         // Ref<AnimationClip> members are runtime — not serialized
+
+        // The loop flags, the pending clip request and the playback speed
+        // (issue #1533), appended
+        // when kSaveGameFormatVersion went 38 -> 40. v39 is taken by the open
+        // legacy-removal PR (#1529), so this band starts at 40 and whichever of
+        // the two merges second re-checks the number. A pre-v40 save stops here
+        // and keeps the constructor defaults: every clip loops at the authored
+        // rate, which is what every clip did in the build that wrote it, and no
+        // request is pending.
+        if (HasFieldsSince(ar, 40))
+        {
+            ar << c.m_Loop << c.m_NextLoop;
+            ar << c.m_RequestedClip << c.m_RequestedLoop;
+            ar << c.m_PlaybackSpeed;
+            if (ar.IsLoading() && !(std::isfinite(c.m_PlaybackSpeed) && c.m_PlaybackSpeed >= 0.0f && c.m_PlaybackSpeed <= 10.0f))
+            {
+                c.m_PlaybackSpeed = 1.0f;
+            }
+        }
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, StreamingVolumeComponent& c)

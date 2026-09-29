@@ -9,6 +9,7 @@
 #include "OloEngine/Core/InputActionManager.h"
 #include "OloEngine/Core/MouseCodes.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
+#include "OloEngine/Animation/AnimationClip.h"
 #include "OloEngine/Animation/IKTargetComponent.h"
 #include "OloEngine/Animation/SpringBoneComponent.h"
 #include "OloEngine/Audio/AudioSource.h"
@@ -961,6 +962,61 @@ TEST_F(LuaBindingTest, NameplateComponent_PropertyRoundTrip)
 // =============================================================================
 // IKTargetComponent
 // =============================================================================
+
+// =============================================================================
+// AnimationStateComponent (issue #1533)
+// =============================================================================
+
+TEST_F(LuaBindingTest, AnimationStateComponent_PlayClipFilesARequestByName)
+{
+    auto idle = Ref<AnimationClip>::Create();
+    idle->Name = "Idle";
+    idle->Duration = 2.0f;
+    auto sit = Ref<AnimationClip>::Create();
+    sit->Name = "Sit";
+    sit->Duration = 1.0f;
+
+    AnimationStateComponent anim;
+    anim.m_AvailableClips = { idle, sit };
+    anim.m_CurrentClip = idle;
+    lua["anim"] = &anim;
+
+    lua.script("anim:PlayClip('Sit', false)");
+    EXPECT_EQ(anim.m_RequestedClip, "Sit");
+    EXPECT_FALSE(anim.m_RequestedLoop);
+    // Only a request: the clip changes on the animation system's next update.
+    EXPECT_EQ(anim.m_CurrentClip, idle);
+
+    lua.script("anim:PlayClip('Idle')");
+    EXPECT_EQ(anim.m_RequestedClip, "Idle");
+    EXPECT_TRUE(anim.m_RequestedLoop) << "a clip loops unless the script says otherwise";
+
+    EXPECT_TRUE(lua.script("return anim:HasClip('Sit')").get<bool>());
+    EXPECT_FALSE(lua.script("return anim:HasClip('Fetch')").get<bool>());
+    EXPECT_EQ(lua.script("return anim.currentClip").get<std::string>(), "Idle");
+    EXPECT_EQ(lua.script("local n = anim:GetClipNames(); return n[1] .. ',' .. n[2]").get<std::string>(), "Idle,Sit");
+}
+
+TEST_F(LuaBindingTest, AnimationStateComponent_IsFinishedOnlyForAHeldOneShot)
+{
+    auto sit = Ref<AnimationClip>::Create();
+    sit->Name = "Sit";
+    sit->Duration = 1.0f;
+
+    AnimationStateComponent anim;
+    anim.m_CurrentClip = sit;
+    anim.m_CurrentTime = 1.0f;
+    anim.m_Loop = false;
+    lua["anim"] = &anim;
+    EXPECT_TRUE(lua.script("return anim.isFinished").get<bool>());
+
+    anim.m_Loop = true; // a looping clip never finishes
+    EXPECT_FALSE(lua.script("return anim.isFinished").get<bool>());
+
+    lua.script("anim.loop = false; anim.blendDuration = 0.5; anim.blendDuration = -1.0");
+    EXPECT_FALSE(anim.m_Loop);
+    EXPECT_FLOAT_EQ(anim.m_BlendDuration, 0.5f) << "a non-positive blend duration divides the blend clock by zero";
+}
 
 TEST_F(LuaBindingTest, IKTargetComponent_AimProperties)
 {

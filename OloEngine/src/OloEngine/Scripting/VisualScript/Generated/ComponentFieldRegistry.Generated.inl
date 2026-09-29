@@ -94,6 +94,10 @@ registry.push_back(OLO_VSF_FIELD(AnimationGraphComponent, "AnimationGraphAssetHa
 // AnimationStateComponent
 registry.push_back(OLO_VSF_FIELD_RANGE(AnimationStateComponent, "BlendDuration", m_BlendDuration, Float, OLO_VSF_BOUND(0.001f), OLO_VSF_NO_BOUND));
 registry.push_back(OLO_VSF_FIELD(AnimationStateComponent, "IsPlaying", m_IsPlaying, Bool));
+registry.push_back(OLO_VSF_FIELD(AnimationStateComponent, "RequestedClip", m_RequestedClip, String));
+registry.push_back(OLO_VSF_FIELD(AnimationStateComponent, "RequestedLoop", m_RequestedLoop, Bool));
+registry.push_back(OLO_VSF_FIELD(AnimationStateComponent, "Loop", m_Loop, Bool));
+registry.push_back(OLO_VSF_FIELD_RANGE(AnimationStateComponent, "PlaybackSpeed", m_PlaybackSpeed, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(10.0f)));
 
 // AudioListenerComponent
 registry.push_back(OLO_VSF_FIELD(AudioListenerComponent, "Active", Active, Bool));
