@@ -12,10 +12,12 @@
 		"OloEngine/Network.cs"
 		"OloEngine/NetworkManager.cs"
 		"OloEngine/Physics.cs"
+		"OloEngine/Rendering/ShaderLibrary.cs"
 		"OloEngine/SaveGame.cs"
 		"OloEngine/Vector2.cs"
 		"OloEngine/Vector3.cs"
 		"OloEngine/Vector4.cs"
+		"OloEngine/Video.cs"
 		"OloEngine/VisualScript.cs"
 		
 		"OloEngine/Scene/Components.cs"
