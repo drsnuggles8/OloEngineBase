@@ -41,9 +41,11 @@ SkinProfile:
     DetailStrength: 0
     ExpressionDetailGain: 0
   # The tear film: a wet eye is the one surface the catch-light has to read on.
+  # 0.04 is the coat's floor (kMinSkinOralCoatRoughness, #1421): smoother, the
+  # unclamped GGX lobe turns a delta light into a one-pixel firefly.
   Oral:
     CoatStrength: 0.55
-    CoatRoughness: 0.035
+    CoatRoughness: 0.04
     CoatIor: 1.337
     CavityOcclusion: 0
   Ocular:

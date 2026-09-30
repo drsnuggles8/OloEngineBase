@@ -27,6 +27,7 @@
 #include "../../TestOptions.h"
 
 #include "RendererAttachedTest.h"
+#include "ScopedWarningCapture.h"
 #include "TestTempDir.h"
 
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
@@ -2041,7 +2042,15 @@ namespace OloEngine::Tests
             ASSERT_TRUE(fs::exists(DogPath())) << DogPath().string() << " (run build_dog.py)";
             d.Rig = ReadRig();
             ASSERT_TRUE(d.Rig.Valid) << "Dog.rig.json missing or malformed";
-            d.Model = Ref<AnimatedModel>::Create(DogPath().string());
+            {
+                // The scene opens without warnings (#1533 D1). A joint that
+                // weights nothing -- an eye bone, kept since the importer stopped
+                // dropping them -- reaches ProcessBones as one zero weight, which
+                // is not malformed. Only a cold import runs it; CI's always is.
+                const ScopedWarningCapture warnings;
+                d.Model = Ref<AnimatedModel>::Create(DogPath().string());
+                EXPECT_EQ(warnings.Count("Invalid weight"), 0u) << "the dog's import reported malformed bone weights";
+            }
             ASSERT_TRUE(d.Model);
             ASSERT_TRUE(d.Model->HasSkeleton());
 
@@ -2060,12 +2069,19 @@ namespace OloEngine::Tests
                 anim.m_BlendDuration = 0.35f;
             }
 
-            // The bare skins.
-            for (sizet i = 0; i < kSkinPatches.size(); ++i)
+            // The bare skins, every value inside its documented range: a clamp on
+            // load is a warning in the scene's log (#1533 D1), and the profile
+            // renders something other than what the file says.
             {
-                m_SkinHandles[i] = LoadSkinProfile(kSkinPatches[i].Profile);
+                const ScopedWarningCapture warnings;
+                for (sizet i = 0; i < kSkinPatches.size(); ++i)
+                {
+                    m_SkinHandles[i] = LoadSkinProfile(kSkinPatches[i].Profile);
+                }
+                m_SkinHandles[4] = LoadSkinProfile("DogEye.oloskin");
+                EXPECT_EQ(warnings.Count("had out-of-range parameters"), 0u)
+                    << "a dog skin profile was clamped on load";
             }
-            m_SkinHandles[4] = LoadSkinProfile("DogEye.oloskin");
             auto& overrides = d.Body.AddComponent<MaterialOverridesComponent>();
             // The skin under the coat is seen only through the gaps between
             // strands. It is given the colour of the coat in its own shade --
