@@ -1098,6 +1098,41 @@ namespace OloEngine::Tests
         EXPECT_TRUE(std::isfinite(SkinOcularCorneaLane(worst).w));
     }
 
+    TEST(SkinOcularSurfaceTest, AnIrisPlaneInFrontOfTheLimbusIsMovedBehindIt)
+    {
+        // A wide iris behind a shallow chamber: the limbus sits at
+        // asin(9.6 / 12) = 53.1 degrees, 4.8 mm behind the apex, and a plane at
+        // 2.4 mm leaves every ray refracted between them with no plane ahead.
+        SkinProfileParameters p{};
+        p.EvaluationModel = SkinEvaluationModel::OcularSurface;
+        p.Ocular.EyeRadiusMM = 12.0f;
+        p.Ocular.CorneaRadiusMM = 11.5f;
+        p.Ocular.IrisRadiusMM = 9.6f;
+        p.Ocular.PupilRadiusMM = 4.3f;
+        p.Ocular.IrisPlaneDepthMM = 2.4f;
+        EXPECT_FALSE(p.Sanitize()) << "a hidden outer iris went unreported";
+        EXPECT_NEAR(p.Ocular.IrisPlaneDepthMM, 4.8f, 1.0e-3f) << "the plane moves back to the limbus, not to a default";
+
+        // The prediction the rule protects: a ray refracted just inside the
+        // limbus now reaches the plane. On the old depth it did not.
+        const glm::vec3 axis(0.0f, 0.0f, 1.0f);
+        const f32 limbusSine = 9.6f / 12.0f;
+        const f32 inside = std::asin(limbusSine) - 0.02f;
+        const glm::vec3 entry(std::sin(inside), 0.0f, std::cos(inside)); // on the unit globe
+        const glm::vec3 inward = -entry;                                 // straight toward the centre
+        glm::vec3 hit(0.0f);
+        EXPECT_TRUE(SkinIrisPlaneHit(entry, axis, inward, p.Ocular.IrisPlaneDepthMM / p.Ocular.EyeRadiusMM, hit));
+        EXPECT_FALSE(SkinIrisPlaneHit(entry, axis, inward, 2.4f / 12.0f, hit))
+            << "the control: at 2.4 mm the plane is behind this entry point's ray";
+
+        // A human-proportioned eye is untouched.
+        SkinProfileParameters human{};
+        human.EvaluationModel = SkinEvaluationModel::OcularSurface;
+        const f32 before = human.Ocular.IrisPlaneDepthMM;
+        EXPECT_TRUE(human.Sanitize());
+        EXPECT_EQ(human.Ocular.IrisPlaneDepthMM, before);
+    }
+
     TEST(SkinOcularSurfaceTest, TheDefaultProfileIsItselfValid)
     {
         SkinProfileParameters p{};

@@ -137,6 +137,17 @@ than a fitted number.
 An eye mesh **with** corneal geometry authors the clinical 3.6 here, together with
 `CorneaRadiusMM == EyeRadiusMM`.
 
+### The iris plane sits behind the limbus
+
+The plane must be at least `EyeRadiusMM * (1 - cos(asin(IrisRadiusMM / EyeRadiusMM)))` deep, and
+`SkinProfile` moves it back to that depth and reports the profile invalid when it is not. The globe
+between a shallower plane and the limbus lies behind the plane, so a ray refracted there never
+reaches it (`SkinIrisPlaneHit` returns false) and the pixel shades as sclera. The eye then draws a
+smaller iris than the authored one and nothing says so. The human 5.85 mm iris has its limbus
+1.52 mm deep, well in front of 2.48. A wide animal iris does not: the showcase dog's 8.6 mm iris
+behind 2.4 mm drew as a 7.2 mm one in a white surround (#1533), and `DogEye.oloskin` now authors
+5.0 mm behind its 9.6 mm iris.
+
 ## What the approximation costs, and where it runs
 
 The model is **one refracting surface** with the mesh normal bent into the corneal dome's by
