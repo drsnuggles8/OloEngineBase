@@ -351,7 +351,7 @@ def layer(where, role, per_m2, length, diameter, points, **kw):
                wave_amplitude=0.0, wave_frequency=0.0, stiffness=1.0, tint=(1.0, 1.0, 1.0),
                tip_tint=(1.0, 1.0, 1.0), ramp=None, ramp_base=1.0, guide_every=12, suffix=None,
                lock_radius=0.0, lock_amount=0.0, fine_lock_radius=0.0, fine_lock_amount=0.0,
-               tip_width=0.2, eye_ramp=False)
+               tip_width=0.2, eye_ramp=False, flat_length=1.0, flat_lift=None)
     lay.update(kw)
     return lay
 
@@ -522,10 +522,13 @@ def dog_coat_recipe():
             lay["per_m2"] *= 0.5
             lay["diameter"] *= fine_width
         lay["tip_width"] = min(lay["tip_width"], fine_tip * 2.0 if w == "tailplume" else fine_tip)
-        # THE MUZZLE is a few millimetres of dense fur lying flat along it.
+        # THE MUZZLE is a few millimetres of dense fur lying flat along it -- toward the nose. At
+        # the stop and the inner corners of the eyes it keeps the face's length and lift
+        # (muzzle_flat_at): laid short and flat right up to the eyes, it bared their inner corners
+        # and the eyes read as set wider apart (Ole's review of the Blender coat).
         if w == "muzzle" and not lay["suffix"]:
-            lay["length"] *= muzzle_length
-            lay["lift"] = min(lay["lift"], 0.25)
+            lay["flat_length"] = muzzle_length
+            lay["flat_lift"] = min(lay["lift"], 0.25)
             lay.update(lock_radius=0.004, lock_amount=0.5)
     # The eye ramp on every head layer, strays included: a long stray beside an eye is a hair in it.
     for lay in L:
@@ -556,6 +559,14 @@ def ramp_at(lay, fr, root, normal):
             scale = 0.45 + 0.55 * _smoothstep01((0.25 - normal @ UP) / 0.85)
         return (lay["ramp_base"] + (1.0 - lay["ramp_base"]) * t) * scale
     return np.ones(len(root))
+
+
+def muzzle_flat_at(fr, root):
+    """How far down the muzzle a root is, for its short flat coat: 0 at the stop and the eyes'
+    inner corners, 1 from about three centimetres off the sockets toward the nose."""
+    d = np.minimum(np.linalg.norm(root - fr.eye_centre[0], axis=1),
+                   np.linalg.norm(root - fr.eye_centre[1], axis=1)) - fr.socket_radius
+    return _smoothstep01((d - 0.008) / 0.02)
 
 
 def eye_ramp_at(fr, root):
@@ -656,12 +667,18 @@ def grow_layer(lay, li, tris, fr, flow, density):
     root = P[:, 0] * c[:, None] + P[:, 1] * a[:, None] + P[:, 2] * b[:, None]
     uv = UV[:, 0] * c[:, None] + UV[:, 1] * a[:, None] + UV[:, 2] * b[:, None]
     length = lay["length"] * ramp_at(lay, fr, root, N)
+    lift = np.full(total, lay["lift"])
+    if lay["flat_length"] != 1.0 or lay["flat_lift"] is not None:
+        flat = muzzle_flat_at(fr, root)
+        length = length * (1.0 + (lay["flat_length"] - 1.0) * flat)
+        if lay["flat_lift"] is not None:
+            lift = lay["lift"] + (lay["flat_lift"] - lay["lift"]) * flat
     if lay["eye_ramp"]:
         length = length * eye_ramp_at(fr, root)
     length = length * (0.75 + 0.5 * hash01(salt, 3))
     wander = np.stack([hash01(salt, 4), hash01(salt, 5), hash01(salt, 6)], axis=1).astype(np.float64) - 0.5
     comb = flow[t]
-    direction = _normalize(N * lay["lift"] + comb + wander * lay["wander"])
+    direction = _normalize(N * lift[:, None] + comb + wander * lay["wander"])
     pc = lay["points"]
     pts = np.zeros((total, pc, 3))
     widths = np.zeros((total, pc))
