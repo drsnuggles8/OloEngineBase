@@ -33,9 +33,15 @@
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/AssetRegistry.h"
 #include "OloEngine/Asset/AssetMetadata.h"
+#include "OloEngine/Project/Project.h"
+
+#include "TestTempDir.h"
 
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
+#include <vector>
 
 namespace OloEngine::Tests
 {
@@ -235,6 +241,94 @@ namespace OloEngine::Tests
     {
         const std::filesystem::path file{ "Assets/Textures/Foo.png" };
         EXPECT_EQ(EditorAssetManager::MakeRegistryKey(file, {}), file);
+    }
+
+    // -------------------------------------------------------------------------
+    // The .oar reader accepts exactly AssetRegistry::FileVersion. A file of any
+    // other version is rejected (and leaves the registry empty), never read with
+    // a guessed layout.
+    // -------------------------------------------------------------------------
+    TEST(AssetRegistryInvariants, DeserializeRejectsAnotherFileVersion)
+    {
+        const std::filesystem::path oar = TempDir() / "AssetRegistry.oar";
+
+        AssetRegistry written;
+        written.AddAsset(MakeMetadata(AssetHandle{ 424242ULL }, AssetType::Texture2D, "Assets/Textures/Foo.png"));
+        ASSERT_TRUE(written.Serialize(oar));
+
+        AssetRegistry current;
+        ASSERT_TRUE(current.Deserialize(oar)) << "positive control: the current version loads";
+        EXPECT_EQ(current.GetAssetCount(), 1u);
+
+        for (const u32 otherVersion : { AssetRegistry::FileVersion - 1, AssetRegistry::FileVersion + 1 })
+        {
+            {
+                std::fstream file(oar, std::ios::binary | std::ios::in | std::ios::out);
+                ASSERT_TRUE(file.is_open());
+                file.seekp(0); // the version is the file's first u32
+                file.write(reinterpret_cast<const char*>(&otherVersion), sizeof(otherVersion));
+            }
+            AssetRegistry rejected;
+            EXPECT_FALSE(rejected.Deserialize(oar)) << "version " << otherVersion;
+            EXPECT_EQ(rejected.GetAssetCount(), 0u);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // EditorAssetManager::Initialize rebuilds a rejected registry from a rescan
+    // with NEW handles. The rejected file is the only record of the handles
+    // scenes refer to, so it is moved to AssetRegistry.oar.rejected (replacing
+    // an older one) before the rebuilt registry is written, never overwritten.
+    // -------------------------------------------------------------------------
+    TEST(AssetRegistryInvariants, InitializeMovesARejectedRegistryAsideBeforeRebuilding)
+    {
+        const std::filesystem::path root = TempDir("rejected-oar");
+        std::error_code ec;
+        std::filesystem::create_directories(root / "Assets", ec);
+        ASSERT_FALSE(ec) << ec.message();
+        {
+            std::ofstream project(root / "Test.oloproj");
+            project << "Project:\n"
+                       "  Name: RejectedOar\n"
+                       "  StartScene: \"\"\n"
+                       "  AssetDirectory: \"Assets\"\n"
+                       "  ScriptModulePath: \"\"\n";
+        }
+
+        const std::filesystem::path oar = root / "AssetRegistry.oar";
+        const std::filesystem::path rejectedPath = root / "AssetRegistry.oar.rejected";
+        {
+            AssetRegistry written;
+            written.AddAsset(MakeMetadata(AssetHandle{ 424242ULL }, AssetType::Texture2D, "Assets/Textures/Foo.png"));
+            ASSERT_TRUE(written.Serialize(oar));
+            std::fstream file(oar, std::ios::binary | std::ios::in | std::ios::out);
+            ASSERT_TRUE(file.is_open());
+            const u32 otherVersion = AssetRegistry::FileVersion + 1;
+            file.write(reinterpret_cast<const char*>(&otherVersion), sizeof(otherVersion));
+        }
+        std::ofstream(rejectedPath) << "an older rejected registry";
+
+        auto readAll = [](const std::filesystem::path& path)
+        {
+            std::ifstream in(path, std::ios::binary);
+            return std::vector<char>(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        };
+        const std::vector<char> originalBytes = readAll(oar);
+
+        ASSERT_TRUE(Project::Load(root / "Test.oloproj"));
+        {
+            auto manager = Ref<EditorAssetManager>::Create();
+            manager->Initialize(/*startFileWatcher=*/false);
+        }
+        Project::Unload();
+
+        ASSERT_TRUE(std::filesystem::exists(rejectedPath));
+        EXPECT_EQ(readAll(rejectedPath), originalBytes)
+            << "the rejected registry must be preserved byte for byte, replacing the older .rejected";
+
+        AssetRegistry rebuilt;
+        EXPECT_TRUE(rebuilt.Deserialize(oar)) << "the rebuilt registry is written in the current version";
+        EXPECT_FALSE(rebuilt.Exists(AssetHandle{ 424242ULL }));
     }
 
 } // namespace OloEngine::Tests

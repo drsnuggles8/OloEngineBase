@@ -1,4 +1,5 @@
 Scene: OceanCoast.olo
+Version: 1
 # =============================================================================
 # OceanCoast — ocean / coast hero benchmark scene (issue #974).
 #
@@ -26,10 +27,8 @@ Scene: OceanCoast.olo
 #     the point of the frame.
 #   * TimeOfDayComponent is PAUSED at a fixed golden-hour ephemeris time, so
 #     TimeOfDaySystem rewrites the Sun entity to the same direction/colour
-#     every frame. (ProceduralSkyComponent's old LinkSunToDirectionalLight
-#     was retired by issue #633 — the TimeOfDayComponent owns sun driving
-#     now; the Sun entity's authored values are the pre-first-frame
-#     placeholder only.)
+#     every frame; the Sun entity's authored values are the pre-first-frame
+#     placeholder only.
 #
 # WHY THE COMPOSITION IS SHAPED LIKE THIS (VehiclesTest.olo's lesson): water
 # is largely a mirror, and over a flat sky gradient it reads as a dark void.
@@ -520,8 +519,8 @@ Entities:
       Enabled: true
       Layers:
         - Name: Broadleaf
-          MeshPath: SandboxProject/Assets/Models/Vegetation/broadleaf/broadleaf.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/broadleaf/Textures/broadleaf_card.png
+          MeshPath: Assets/Models/Vegetation/broadleaf/broadleaf.obj
+          AlbedoPath: Assets/Models/Vegetation/broadleaf/Textures/broadleaf_card.png
           Density: 0.014
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -546,8 +545,8 @@ Entities:
           ImpostorHemiOctahedral: true
           Enabled: true
         - Name: Dune grass
-          MeshPath: SandboxProject/Assets/Models/Vegetation/grass_dry/grass_dry.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
+          MeshPath: Assets/Models/Vegetation/grass_dry/grass_dry.obj
+          AlbedoPath: Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
           Density: 0.16
           SplatmapChannel: 0
           MinSlopeAngle: 0
@@ -589,7 +588,7 @@ Entities:
       Rotation: [0.03, -0.55, 0.09]
       Scale: [0.57, 0.57, 0.57]
     ModelComponent:
-      FilePath: SandboxProject/Assets/Models/KenneyVehicles/ship-small-hull.glb
+      FilePath: Assets/Models/KenneyVehicles/ship-small-hull.glb
       Visible: true
     RelationshipComponent:
       ParentHandle: 0
@@ -608,7 +607,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     ModelComponent:
-      FilePath: SandboxProject/Assets/Models/KenneyVehicles/ship-small-sail.glb
+      FilePath: Assets/Models/KenneyVehicles/ship-small-sail.glb
       Visible: true
     RelationshipComponent:
       ParentHandle: 974000003000007

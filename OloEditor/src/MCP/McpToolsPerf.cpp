@@ -295,7 +295,7 @@ namespace OloEngine::MCP
 
             // Top-K draw commands by GPU time (post-batch = what actually executed).
             std::vector<const CapturedCommandData*> draws;
-            for (const auto& cmd : cap.PostBatchCommands)
+            for (const auto& cmd : cap.SourcePass().PostBatchCommands)
             {
                 if (cmd.IsDrawCommand())
                     draws.push_back(&cmd);
@@ -662,8 +662,10 @@ namespace OloEngine::MCP
                 "unrepresentative frame; gpuDroppedSlots counts how many frames were lost that way. "
                 "parallelRecording is the parallel command recorder's telemetry "
                 "for the same frame (issue #806): regions (RecordParallel calls that forked) vs inlineRegions, "
-                "secondariesExecuted, workerRecordMs (summed per-item record time) vs regionWallMs "
-                "(fork-to-join wall time); all zero on OpenGL, whose facade default reports nothing. Vulkan reports item and region timings for both inline and parallel execution. "
+                "secondariesExecuted; all zero on OpenGL, whose facade default reports nothing. Vulkan reports item and region timings for both inline and parallel execution. "
+                "The frame's recording times are in recordingBreakdown, each labelled ELAPSED or SUM: "
+                "summedWorkerCpuMs (summed per-item record time) vs elapsedRecordingWallMs (fork-to-join wall "
+                "time). "
                 "mergeConflicts > 0 means two items transitioned the same subresource "
                 "differently - a bug in the pass that forked, never a driver condition.";
             tool.InputSchema = Schema::EmptyObject();
@@ -683,9 +685,6 @@ namespace OloEngine::MCP
                                                                    .Prop("inlineRegions", Schema::Int().Min(0).Desc("RecordParallel calls that ran inline on the render thread (backend unsupported, declined, or fewer than 2 items)."))
                                                                    .Prop("secondariesExecuted", Schema::Int().Min(0).Desc("Secondary command buffers executed into the primary at the join."))
                                                                    .Prop("mergeConflicts", Schema::Int().Min(0).Desc("Subresources two items transitioned differently (ADR 0011 amendment (92) rule 5). Any non-zero value is a bug in the pass that forked."))
-                                                                   .Prop("workerRecordMs", Schema::Number().Desc("Sum of per-item recording time, including caller items and inline regions."))
-                                                                   .Prop("regionWallMs", Schema::Number().Desc("Sum of fork-to-join wall time on the render thread."))
-                                                                   .Prop("joinWaitMs", Schema::Number().Desc("Time after the caller's last item until the parallel loop returned, including scheduler/join bookkeeping."))
                                                                    .Prop("regionTimings", Schema::Array(Schema::Object()
                                                                                                             .Prop("pass", Schema::String())
                                                                                                             .Prop("parallel", Schema::Bool())
@@ -710,16 +709,12 @@ namespace OloEngine::MCP
                                                                                                            .Prop("gpuStatus", Schema::String()))
                                                                                              .Desc("GPU sub-pass brackets stamped inside this pass (e.g. ScenePass DepthPrepass/Color). Contained in the parent's gpuMs; absent when the pass has no sub-brackets."))))
                                     .Prop("recordingBreakdown", Schema::Object()
-                                                                    .Prop("elapsedRecordingWallMs", Schema::Number().Desc("ELAPSED: fork-to-join wall time on the render thread."))
-                                                                    .Prop("summedWorkerCpuMs", Schema::Number().Desc("A SUM across workers, NOT elapsed time. Legitimately exceeds elapsedRecordingWallMs when work ran concurrently."))
-                                                                    .Prop("joinWaitMs", Schema::Number().Desc("ELAPSED, inside the wall time: waiting for the last worker."))
+                                                                    .Prop("elapsedRecordingWallMs", Schema::Number().Desc("ELAPSED: summed fork-to-join wall time on the render thread."))
+                                                                    .Prop("summedWorkerCpuMs", Schema::Number().Desc("A SUM of per-item recording time across workers (including caller items and inline regions), NOT elapsed time. Legitimately exceeds elapsedRecordingWallMs when work ran concurrently."))
+                                                                    .Prop("joinWaitMs", Schema::Number().Desc("ELAPSED, inside the wall time: after the caller's last item until the parallel loop returned, including scheduler/join bookkeeping."))
                                                                     .Prop("summedCpuPrepareMs", Schema::Number().Desc("A SUM: caller-side setup per region. Zero unless OLO_VK_RECORDING_COSTS=1."))
-                                                                    .Prop("fenceWaitMs", Schema::Number().Desc("ELAPSED: CPU blocked on the frame fence."))
-                                                                    .Prop("presentWaitMs", Schema::Number().Desc("ELAPSED: CPU time inside SwapBuffers. Vsync on OpenGL; on Vulkan it overlaps elapsedRecordingWallMs because the frame renders inside SwapBuffers."))
-                                                                    .Prop("gpuExecutionMs", Schema::NullableNumber().Desc("ELAPSED on the GPU timeline, or null when unmeasured."))
-                                                                    .Prop("gpuExecutionStatus", Schema::String())
                                                                     .Prop("note", Schema::String())
-                                                                    .Desc("The seven distinct frame measurements, each labelled ELAPSED or SUM so they are not added together (#1337 criterion 2)."))
+                                                                    .Desc("The frame's parallel-recording times, each labelled ELAPSED or SUM so they are not added together (#1337 criterion 2). The frame's fence / present waits and GPU execution time are frame.fenceWaitMs / presentWaitMs / gpuMs, all ELAPSED."))
                                     .Prop("passGpuTotalMs", Schema::Number().Desc("Sum of the MEASURED top-level passes. A lower bound unless passGpuTotalIsComplete."))
                                     .Prop("unmeasuredPasses", Schema::Int().Min(0).Desc("Passes that carried no GPU measurement, so are missing from passGpuTotalMs."))
                                     .Prop("passGpuTotalIsComplete", Schema::Bool().Desc("True when every pass contributed to passGpuTotalMs."))

@@ -14,35 +14,6 @@ namespace OloEngine
         delete ptr;
     }
 
-    // ---------------------------------------------------------------------
-    // Asset-pack index versioning (issue #454)
-    // ---------------------------------------------------------------------
-    // Placeholder for an ordered migration chain applied to the in-memory
-    // AssetPackFile once its (currently fixed-layout) index has been read.
-    // Empty today -- AssetPackFile::Version has never changed, so there is no
-    // older on-disk layout to convert -- but this is where a future version
-    // bump adds a step once AssetPack::Load has been updated to read that
-    // older layout (see the comment on AssetPackFile::MinSupportedVersion).
-    static void MigrateAssetPackIndex([[maybe_unused]] AssetPackFile& file, u32 fromVersion)
-    {
-        if (fromVersion >= AssetPackFile::Version)
-        {
-            return;
-        }
-
-        OLO_CORE_INFO("AssetPack: migrating pack index from version {} to {}", fromVersion, AssetPackFile::Version);
-
-        for (u32 v = fromVersion; v < AssetPackFile::Version; ++v)
-        {
-            switch (v)
-            {
-                // case 2: Migrate_V2_to_V3(file); break;
-                default:
-                    break;
-            }
-        }
-    }
-
     AssetPackLoadResult AssetPack::Load(const std::filesystem::path& path)
     {
         auto startTime = std::chrono::high_resolution_clock::now();
@@ -129,18 +100,14 @@ namespace OloEngine
                                        "Invalid magic number. This is not a valid asset pack file.");
         }
 
-        // Validate version. A pack from a newer engine (Version > current) is rejected
-        // outright -- this build doesn't know its layout. A pack in
-        // [MinSupportedVersion, Version) is accepted and migrated below instead of being
-        // rejected outright (issue #454); see AssetPackFile::MinSupportedVersion.
-        if (m_AssetPackFile.Header.Version > AssetPackFile::Version ||
-            m_AssetPackFile.Header.Version < AssetPackFile::MinSupportedVersion)
+        // Exactly one pack version is read (docs/agent-rules/binary-format-versioning.md):
+        // an older or newer pack is rejected, never migrated or half-read.
+        if (m_AssetPackFile.Header.Version != AssetPackFile::Version)
         {
-            OLO_CORE_ERROR("AssetPack::Load - Unsupported version. Supported range: [{}, {}], Got: {}",
-                           AssetPackFile::MinSupportedVersion, AssetPackFile::Version, m_AssetPackFile.Header.Version);
-            return AssetPackLoadResult(AssetPackLoadError::UnsupportedVersion,
-                                       std::format("Unsupported pack version. Supported range: [{}, {}], Got: {}",
-                                                   AssetPackFile::MinSupportedVersion, AssetPackFile::Version, m_AssetPackFile.Header.Version));
+            auto const message = std::format("'{}' is asset pack v{}; this build reads v{} only. Rebuild the pack.",
+                                             path.string(), m_AssetPackFile.Header.Version, AssetPackFile::Version);
+            OLO_CORE_ERROR("AssetPack::Load - {}", message);
+            return AssetPackLoadResult(AssetPackLoadError::UnsupportedVersion, message);
         }
 
         // Get file size for bounds checking
@@ -431,9 +398,6 @@ namespace OloEngine
                                        "Failed to read asset index table: " + std::string(e.what()));
         }
 
-        // Migrate the in-memory index if it came from an older pack version (no-op today).
-        MigrateAssetPackIndex(m_AssetPackFile, m_AssetPackFile.Header.Version);
-
         // All validations passed, safe to update object state
         m_PackPath = path;
         m_IsLoaded = true;
@@ -446,18 +410,6 @@ namespace OloEngine
                       path.string(), m_AssetPackFile.Index.AssetCount, m_AssetPackFile.Index.SceneCount, result.LoadTimeMs);
 
         return result;
-    }
-
-    bool AssetPack::LoadLegacy(const std::filesystem::path& path)
-    {
-        AssetPackLoadResult result = Load(path);
-        if (!result.Success)
-        {
-            // Log the detailed error for debugging
-            OLO_CORE_ERROR("AssetPack::LoadLegacy - Load failed: {} (Code: {})",
-                           result.ErrorMessage, static_cast<int>(result.ErrorCode));
-        }
-        return result.Success;
     }
 
     void AssetPack::Unload() noexcept
@@ -538,14 +490,6 @@ namespace OloEngine
                 OLO_CORE_ERROR("AssetPack::GetAssetStreamReader - FileStreamReader is not in a valid state for path: {}", m_PackPath.string());
                 return nullptr;
             }
-
-            // Stamp the pack's recorded format version onto every reader handed out, so a
-            // per-asset DeserializeFromAssetPack can gate a field appended in a later
-            // version (`stream.GetArchiveVersion() >= kIntroducedIn`) instead of reading
-            // bytes an older pack never wrote and desyncing everything after it
-            // (docs/agent-rules/binary-format-versioning.md). Doing it at this single
-            // choke point means no call site can forget.
-            reader->SetArchiveVersion(m_AssetPackFile.Header.Version);
 
             return reader;
         }

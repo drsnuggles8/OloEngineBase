@@ -1,4 +1,5 @@
 Scene: AnimalPopulation
+Version: 1
 # MIXED-DISTANCE ANIMAL POPULATION (issue #1258).
 #
 # GENERATED — edit OloEngine/tests/scripts/generate_animal_population_scene.py,

@@ -46,7 +46,7 @@ namespace OloEngine::RenderPipelineBuilderInternal
         // calling builder.DependsOnPreviousWriter("SceneColor") — no
         // class-specific setter wiring is required here. The chain is:
         //   Scene (forward) OR DeferredLighting (deferred)
-        //     -> ForwardOverlay (deferred only) -> Foliage -> Decal -> Water
+        //     -> ForwardOverlay (deferred only) -> Foliage -> Groom -> Decal -> Water
         //     -> FluidComposite -> Particle -> OITResolve
         // BuildRenderPipelineGraph registers the SceneColor producer
         // (Scene / DeferredLighting) before this stage, so the modifier

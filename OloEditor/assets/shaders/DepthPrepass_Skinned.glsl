@@ -86,7 +86,7 @@ void main()
 #endif
     OLO_INSTANCE_FORWARD();
     vec4 localPosition = OloDeformSkinnedPosition(a_Position, a_BoneIDs, a_BoneWeights);
-    vec3 worldPos = vec3(u_Model * localPosition);
+    vec3 worldPos = vec3(instances[gl_InstanceIndex].Transform * localPosition);
     gl_Position = u_ViewProjection * vec4(worldPos, 1.0);
 }
 

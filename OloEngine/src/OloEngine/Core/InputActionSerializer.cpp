@@ -43,7 +43,7 @@ namespace OloEngine
 
     // Emit the body of a single action map (a YAML map node holding Name + Actions).
     // The per-map writer used by SerializeContexts for each context; paired with
-    // ParseActionMapNode, which reads back the same shape (including for legacy files).
+    // ParseActionMapNode, which reads back the same shape.
     static void EmitActionMapNode(YAML::Emitter& out, const InputActionMap& map)
     {
         // Collect and sort action names for deterministic output
@@ -350,7 +350,6 @@ namespace OloEngine
                 return std::nullopt;
             }
 
-            // New multi-context format.
             if (auto contextsNode = (*data)["InputActionContexts"]; contextsNode && contextsNode.IsSequence())
             {
                 ContextMaps result;
@@ -401,15 +400,17 @@ namespace OloEngine
                 return result;
             }
 
-            // Legacy single-map format — load it as the Gameplay context.
-            if (auto legacyNode = (*data)["InputActionMap"]; legacyNode && legacyNode.IsMap())
+            if ((*data)["InputActionMap"])
             {
-                ContextMaps result;
-                result[InputContextType::Gameplay] = ParseActionMapNode(legacyNode);
-                return result;
+                OLO_CORE_ERROR("InputActionSerializer: '{}' uses the retired single-map 'InputActionMap' root; this build "
+                               "reads only an 'InputActionContexts' sequence. Rewrite it as "
+                               "'InputActionContexts: [{{Context: Gameplay, Map: <the old InputActionMap>}}]' or re-save it "
+                               "from the editor.",
+                               filepath.string());
+                return std::nullopt;
             }
 
-            OLO_CORE_ERROR("InputActionSerializer: Missing 'InputActionContexts' sequence or legacy 'InputActionMap' root node");
+            OLO_CORE_ERROR("InputActionSerializer: '{}' has no 'InputActionContexts' sequence", filepath.string());
             return std::nullopt;
         }
         catch (const YAML::Exception& e)

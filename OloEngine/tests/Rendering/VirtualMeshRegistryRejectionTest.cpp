@@ -87,7 +87,6 @@ namespace
     u32 AllocateMaterialSlot(AlphaMode mode)
     {
         PODMaterialData data;
-        data.enablePBR = true;
         data.baseColorFactor = glm::vec4(1.0f);
         data.alphaMode = static_cast<i32>(mode);
         return FrameDataBufferManager::Get().AllocateMaterialData(data);

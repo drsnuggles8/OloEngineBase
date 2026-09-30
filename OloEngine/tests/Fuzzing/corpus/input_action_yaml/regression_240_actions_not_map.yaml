@@ -1,5 +1,7 @@
-InputActionMap:
-  Name: Test
-  Actions:
-    - just_a_scalar
-    - [1, 2, 3]
+InputActionContexts:
+  - Context: Gameplay
+    Map:
+      Name: Test
+      Actions:
+        - just_a_scalar
+        - [1, 2, 3]

@@ -20,7 +20,7 @@
 #include "OloEngine/HAL/Runnable.h"
 #include "OloEngine/HAL/RunnableThread.h"
 #include "OloEngine/HAL/PlatformProcess.h"
-#include "OloEngine/Templates/FunctionRef.h"
+#include "OloEngine/Templates/Function.h"
 
 #include <atomic>
 #include <type_traits>

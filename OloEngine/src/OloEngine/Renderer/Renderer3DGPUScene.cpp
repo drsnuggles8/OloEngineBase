@@ -46,16 +46,9 @@ namespace OloEngine
         // IBL trio is environment data (GPUSceneEnvironment), not material data.
         [[nodiscard]] GPUSceneMaterialInput BuildMaterialInput(const Material& material, bool heapEnabled)
         {
-            const bool pbr = material.GetType() == MaterialType::PBR;
-
             GPUSceneMaterialInput input;
-            // One albedo lane: the PBR base colour, or the legacy diffuse colour
-            // and diffuse map for a Phong material.
-            input.m_BaseColorFactor = pbr ? material.GetBaseColorFactor() : glm::vec4(material.GetDiffuse(), 1.0f);
+            input.m_BaseColorFactor = material.GetBaseColorFactor();
             input.m_EmissiveFactor = material.GetEmissiveFactor();
-            input.m_LegacyAmbient = material.GetAmbient();
-            input.m_LegacySpecular = material.GetSpecular();
-            input.m_Shininess = material.GetShininess();
             input.m_MetallicFactor = material.GetMetallicFactor();
             input.m_RoughnessFactor = material.GetRoughnessFactor();
             input.m_NormalScale = material.GetNormalScale();
@@ -74,10 +67,6 @@ namespace OloEngine
             }
 
             u32 flags = 0;
-            if (pbr)
-            {
-                flags |= GPUSceneMaterialFlagPBR;
-            }
             if (material.GetFlag(MaterialFlag::TwoSided))
             {
                 flags |= GPUSceneMaterialFlagTwoSided;
@@ -98,20 +87,15 @@ namespace OloEngine
             {
                 flags |= GPUSceneMaterialFlagIBL;
             }
-            if (material.IsUsingTextureMaps())
-            {
-                flags |= GPUSceneMaterialFlagUseTextureMaps;
-            }
             if (material.IsTransmissive())
                 flags |= GPUSceneMaterialFlagTransmission;
             input.m_Flags = flags;
 
-            input.m_Albedo = ResolveRecordTexture2D(pbr ? material.GetAlbedoMap() : material.GetDiffuseMap(), heapEnabled);
+            input.m_Albedo = ResolveRecordTexture2D(material.GetAlbedoMap(), heapEnabled);
             input.m_MetallicRoughness = ResolveRecordTexture2D(material.GetMetallicRoughnessMap(), heapEnabled);
             input.m_Normal = ResolveRecordTexture2D(material.GetNormalMap(), heapEnabled);
             input.m_Occlusion = ResolveRecordTexture2D(material.GetAOMap(), heapEnabled);
             input.m_Emissive = ResolveRecordTexture2D(material.GetEmissiveMap(), heapEnabled);
-            input.m_Specular = ResolveRecordTexture2D(material.GetSpecularMap(), heapEnabled);
             return input;
         }
 

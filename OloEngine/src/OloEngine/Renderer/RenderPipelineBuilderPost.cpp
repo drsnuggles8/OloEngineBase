@@ -20,12 +20,12 @@ namespace OloEngine::RenderPipelineBuilderInternal
         // The ray-query reflection tier (#1057), registered BEFORE SSR and after
         // SSGI. ADR 0020 composites the reflection hierarchy BOTTOM-UP — planar >
         // SSR > ray query > probe/IBL — and evaluating it in that direction is
-        // what lets each tier lerp over the colour it was handed without ever
-        // needing the confidence of a tier above it. So the LOWER tier runs
-        // FIRST: this pass lays its answer over the probe/IBL specular already
-        // baked into the lit colour, and SSR then lerps over this pass's output
-        // by its own blend. Swapping the two would make SSR the thing being
-        // composited over, which is the double-count #979's non-goal names.
+        // what lets each tier replace the indirect specular term in the colour
+        // it was handed (#1325) without ever needing the confidence of a tier
+        // above it. So the LOWER tier runs FIRST: this pass replaces the
+        // probe/IBL specular term DeferredLightingPass composed, and SSR then
+        // replaces the term this pass hands on. Swapping the two would let the
+        // ray tier overwrite SSR's answer where SSR is confident.
         // Self-skips on the forward path and on a non-RT device (its
         // RTReflectionColor resource is never declared).
         if (inputs.Passes->RayTracedReflection)

@@ -251,7 +251,6 @@ namespace OloEngine
         // Draw commands dispatch functions
         static void BindDefaultFramebuffer(const void* data, RendererAPI& api);
         static void BindTexture(const void* data, RendererAPI& api);
-        static void SetShaderResource(const void* data, RendererAPI& api);
         static void DrawIndexed(const void* data, RendererAPI& api);
         static void DrawIndexedInstanced(const void* data, RendererAPI& api);
         static void DrawArrays(const void* data, RendererAPI& api);
@@ -281,8 +280,5 @@ namespace OloEngine
         // bucket replay. Outside an item these return the supplied main object.
         static Ref<UniformBuffer> ResolveRecordingUpload(u32 binding, const Ref<UniformBuffer>& mainBuffer);
         static Ref<InstanceBuffer> ResolveRecordingInstances(const Ref<InstanceBuffer>& mainBuffer);
-
-      private:
-        static void UpdateMaterialTextureFlag(bool useTextures);
     };
 } // namespace OloEngine

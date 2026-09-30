@@ -31,12 +31,6 @@ namespace OloEngine
         DisableShadowCasting = 1u << 3
     };
 
-    enum class MaterialType
-    {
-        Legacy = 0, // Legacy Phong-style material
-        PBR = 1     // Physically Based Rendering material
-    };
-
     // PBRModel (the versioned closure selector, issue #975) lives in
     // Renderer/PBRModel.h — included above — so the GL-free reference path
     // tracer can name it without pulling in Material's renderer dependencies.
@@ -74,14 +68,13 @@ namespace OloEngine
     // millimetre) and keeps the derivation comfortably finite.
     inline constexpr f32 kMinAttenuationDistance = 1.0e-4f;
 
-    // @brief Material class for handling PBR and legacy material properties
+    // @brief PBR material: typed factors, texture maps and a named-uniform store
     //
     // This class uses a consistent encapsulated design with getter/setter methods.
     // All material properties are accessed through typed methods that handle
     // both the uniform system and direct property access efficiently.
     //
     // Features:
-    // - Unified interface for both PBR and legacy materials
     // - Automatic uniform management for shader binding
     // - Type-safe property access with validation
     // - Efficient texture and parameter caching
@@ -129,15 +122,6 @@ namespace OloEngine
         const FString& GetName() const
         {
             return m_Name;
-        }
-
-        void SetType(MaterialType type)
-        {
-            m_MaterialType = type;
-        }
-        MaterialType GetType() const
-        {
-            return m_MaterialType;
         }
 
         // The versioned PBR closure this material shades with (issue #975).
@@ -258,23 +242,13 @@ namespace OloEngine
         virtual const glm::mat3& GetMatrix3(const std::string& name) const;
         virtual const glm::mat4& GetMatrix4(const std::string& name) const;
 
-        virtual Ref<Texture2D> GetTexture2D(const std::string& name);
-        virtual Ref<Texture2D> GetTexture2D(const std::string& name, u32 arrayIndex);
-        virtual Ref<TextureCubemap> GetTextureCube(const std::string& name);
+        virtual Ref<Texture2D> GetTexture2D(const std::string& name) const;
+        virtual Ref<Texture2D> GetTexture2D(const std::string& name, u32 arrayIndex) const;
+        virtual Ref<TextureCubemap> GetTextureCube(const std::string& name) const;
 
-        // Const overloads that forward to the non-const virtuals for backward compatibility
-        Ref<Texture2D> GetTexture2D(const std::string& name) const;
-        Ref<Texture2D> GetTexture2D(const std::string& name, u32 arrayIndex) const;
-        Ref<TextureCubemap> GetTextureCube(const std::string& name) const;
-
-        [[nodiscard]] virtual Ref<Texture2D> TryGetTexture2D(const std::string& name);
-        [[nodiscard]] virtual Ref<Texture2D> TryGetTexture2D(const std::string& name, u32 arrayIndex);
-        virtual Ref<TextureCubemap> TryGetTextureCube(const std::string& name);
-
-        // Const overloads that forward to the non-const virtuals for backward compatibility
-        [[nodiscard]] Ref<Texture2D> TryGetTexture2D(const std::string& name) const;
-        [[nodiscard]] Ref<Texture2D> TryGetTexture2D(const std::string& name, u32 arrayIndex) const;
-        Ref<TextureCubemap> TryGetTextureCube(const std::string& name) const;
+        [[nodiscard]] virtual Ref<Texture2D> TryGetTexture2D(const std::string& name) const;
+        [[nodiscard]] virtual Ref<Texture2D> TryGetTexture2D(const std::string& name, u32 arrayIndex) const;
+        virtual Ref<TextureCubemap> TryGetTextureCube(const std::string& name) const;
 
         virtual u32 GetFlags() const
         {
@@ -300,64 +274,6 @@ namespace OloEngine
         // =====================================================================
         // TYPED PROPERTY ACCESSORS (Replacement for public member variables)
         // =====================================================================
-
-        // Legacy material properties (for backward compatibility)
-        const glm::vec3& GetAmbient() const
-        {
-            return m_Ambient;
-        }
-        void SetAmbient(const glm::vec3& ambient)
-        {
-            m_Ambient = ambient;
-        }
-        const glm::vec3& GetDiffuse() const
-        {
-            return m_Diffuse;
-        }
-        void SetDiffuse(const glm::vec3& diffuse)
-        {
-            m_Diffuse = diffuse;
-        }
-        const glm::vec3& GetSpecular() const
-        {
-            return m_Specular;
-        }
-        void SetSpecular(const glm::vec3& specular)
-        {
-            m_Specular = specular;
-        }
-        f32 GetShininess() const
-        {
-            return m_Shininess;
-        }
-        void SetShininess(f32 shininess)
-        {
-            m_Shininess = shininess;
-        }
-        bool IsUsingTextureMaps() const
-        {
-            return m_UseTextureMaps;
-        }
-        void SetUseTextureMaps(bool use)
-        {
-            m_UseTextureMaps = use;
-        }
-        Ref<Texture2D> GetDiffuseMap() const
-        {
-            return m_DiffuseMap;
-        }
-        void SetDiffuseMap(const Ref<Texture2D>& texture)
-        {
-            m_DiffuseMap = texture;
-        }
-        Ref<Texture2D> GetSpecularMap() const
-        {
-            return m_SpecularMap;
-        }
-        void SetSpecularMap(const Ref<Texture2D>& texture)
-        {
-            m_SpecularMap = texture;
-        }
 
         // PBR material properties
         const glm::vec4& GetBaseColorFactor() const
@@ -439,7 +355,7 @@ namespace OloEngine
             m_AlphaCutoff = std::clamp(cutoff, 0.0f, 1.0f);
         }
 
-        // Give a Mask material's albedo (the diffuse map for a legacy material)
+        // Give a Mask material's albedo map
         // the coverage-preserving mip chain its alpha test needs, at this
         // material's cutoff (issue #1441; Texture2D::SetAlphaCoverageCutoff).
         // Without it a cutout thins with distance on every backend that samples
@@ -802,18 +718,6 @@ namespace OloEngine
         // =====================================================================
         // PRIVATE MATERIAL PROPERTIES (Encapsulated)
         // =====================================================================
-
-        // Material type
-        MaterialType m_MaterialType = MaterialType::PBR;
-
-        // Legacy material properties (for backward compatibility)
-        glm::vec3 m_Ambient = glm::vec3(0.2f);
-        glm::vec3 m_Diffuse = glm::vec3(0.8f);
-        glm::vec3 m_Specular = glm::vec3(1.0f);
-        f32 m_Shininess = 32.0f;
-        bool m_UseTextureMaps = false;
-        Ref<Texture2D> m_DiffuseMap;
-        Ref<Texture2D> m_SpecularMap;
 
         // PBR material properties
         glm::vec4 m_BaseColorFactor = glm::vec4(1.0f); // Base color (albedo) with alpha

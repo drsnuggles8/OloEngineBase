@@ -115,7 +115,7 @@ namespace OloEngine::Tests
         // Helper used to assume `PostProcessSettings` was a map — a scalar
         // here used to cascade into bad operator[] calls.
         constexpr std::string_view kYaml =
-            "Scene: Untitled\n"
+            "Scene: Untitled\nVersion: 1\n"
             "PostProcessSettings: just_a_string\n";
         // Should succeed with default post-process settings, not crash.
         EXPECT_TRUE(DeserializeBytes(kYaml));
@@ -124,7 +124,7 @@ namespace OloEngine::Tests
     TEST(SceneSerializerFuzzRegression, StreamingSettingsIsSequence)
     {
         constexpr std::string_view kYaml =
-            "Scene: Untitled\n"
+            "Scene: Untitled\nVersion: 1\n"
             "StreamingSettings: [1, 2]\n";
         EXPECT_TRUE(DeserializeBytes(kYaml));
     }
@@ -136,7 +136,7 @@ namespace OloEngine::Tests
     TEST(SceneSerializerFuzzRegression, EntitiesIsScalar)
     {
         constexpr std::string_view kYaml =
-            "Scene: Untitled\n"
+            "Scene: Untitled\nVersion: 1\n"
             "Entities: not_a_sequence\n";
         EXPECT_TRUE(DeserializeBytes(kYaml));
     }
@@ -144,7 +144,7 @@ namespace OloEngine::Tests
     TEST(SceneSerializerFuzzRegression, EntitiesContainsScalar)
     {
         constexpr std::string_view kYaml =
-            "Scene: Untitled\n"
+            "Scene: Untitled\nVersion: 1\n"
             "Entities:\n"
             "  - just_a_scalar\n";
         // Entity entry not a map → skip; whole load should succeed.
@@ -154,7 +154,7 @@ namespace OloEngine::Tests
     TEST(SceneSerializerFuzzRegression, EntityIdIsMap)
     {
         constexpr std::string_view kYaml =
-            "Scene: Untitled\n"
+            "Scene: Untitled\nVersion: 1\n"
             "Entities:\n"
             "  - Entity: {x: 1}\n"
             "    TagComponent:\n"
@@ -166,7 +166,7 @@ namespace OloEngine::Tests
     TEST(SceneSerializerFuzzRegression, TagComponentIsScalar)
     {
         constexpr std::string_view kYaml =
-            "Scene: Untitled\n"
+            "Scene: Untitled\nVersion: 1\n"
             "Entities:\n"
             "  - Entity: 1234\n"
             "    TagComponent: just_a_string\n";

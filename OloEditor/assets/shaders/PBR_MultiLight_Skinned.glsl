@@ -83,15 +83,15 @@ void main()
     vec4 prevLocalPosition = surface.PrevPosition;
 
     // Transform to world space
-    v_WorldPos = vec3(u_Model * localPosition);
-    v_Normal = mat3(u_Normal) * localNormal;
+    v_WorldPos = vec3(instances[gl_InstanceIndex].Transform * localPosition);
+    v_Normal = mat3(instances[gl_InstanceIndex].Normal) * localNormal;
     v_TexCoord = a_TexCoord;
 
     vec4 clipCurr = u_ViewProjection * vec4(v_WorldPos, 1.0);
-    // Combine per-bone previous pose with u_PrevModel so the emitted motion
+    // Combine per-bone previous pose with the instance PrevTransform so the emitted motion
     // vector captures both rigid entity motion and intra-skeleton bone
     // deltas — matching what PBR_GBuffer_Skinned.glsl does in Deferred.
-    vec4 prevWorldPos = u_PrevModel * prevLocalPosition;
+    vec4 prevWorldPos = instances[gl_InstanceIndex].PrevTransform * prevLocalPosition;
     vec4 clipPrev = u_PrevViewProjection * prevWorldPos;
 
     v_ClipPosCurr = clipCurr;
@@ -427,11 +427,8 @@ layout(location = 4) out vec4 o_SkinDiffuse;
 
 
 
-// Model UBO (binding 3) for entity ID access
-// Fragment-side ModelMatrices must match the vertex stage's layout
-// (which includes the trailing u_PrevModel). u_PrevModel is unused in
-// fragment but the declaration keeps the two stages' block types
-// identical so glLinkProgram() succeeds.
+// Instance SSBO for the entity ID and the ocular axis
+// (instances[v_InstanceIndex]).
 #include "include/InstanceBlock.glsl"
 
 // Probe-volume irradiance (issue #439): skinned meshes are DYNAMIC objects, so
@@ -551,7 +548,7 @@ void main()
     {
         OloSkinOcular oloOcular = oloSkinOcularApply(albedo, N,
                                                      normalize(u_CameraPosition - v_WorldPos),
-                                                     u_Model[2].xyz,
+                                                     instances[v_InstanceIndex].Transform[2].xyz,
                                                      u_SkinOcularCorneaLane, u_SkinOcularIrisLane,
                                                      u_SkinOcularResponseLane, u_SkinOcularTintLane);
         albedo = oloOcular.Albedo;
@@ -1001,7 +998,7 @@ void main()
     // Alpha is the material's own: the snow mask no longer rides scene
     // alpha (issue #1451), it rides the hand-off below.
     o_Color = vec4(color, u_BaseColorFactor.a);
-    o_EntityID = u_EntityID;
+    o_EntityID = instances[v_InstanceIndex].EntityID;
 
     // The diffusion hand-off (issue #1241). `lighting` is the split from #1231
     // with the profile's specular tint already applied to the other half, which
@@ -1022,7 +1019,7 @@ void main()
 
     // Screen-space velocity - see PBR_MultiLight.glsl for the derivation.
     // Skinned meshes combine per-bone pose delta (PrevBoneMatrices, binding 31)
-    // with u_PrevModel so both rigid motion and intra-skeleton animation
+    // with the instance PrevTransform so both rigid motion and intra-skeleton animation
     // contribute to the motion vector.
     vec2 ndcCurr = v_ClipPosCurr.xy / v_ClipPosCurr.w;
     vec2 ndcPrev = v_ClipPosPrev.xy / v_ClipPosPrev.w;

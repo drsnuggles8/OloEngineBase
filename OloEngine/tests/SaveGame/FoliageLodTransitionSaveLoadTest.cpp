@@ -2,20 +2,12 @@
 // =============================================================================
 // Persistence for issue #1237's authored fields, across both surfaces they
 // reach: scene YAML (hand-written keys next to the impostor band) and save
-// games (a hand-written positional band at format v38).
+// games (a hand-written positional band).
 //
-// The back-compat question is the one that matters here, and it is asserted
-// twice — once per surface. Every field defaults to the IDENTITY: no
-// per-instance transition spread, no hysteresis, no stochastic coverage and no
-// density reduction. So a scene or a save written before #1237 has to load with
-// its plants handing over at exactly the distances that build handed over at.
-// A default the other way would make every existing world change appearance on
-// upgrade, under cover of a "smoother transitions" feature.
-//
-// The v37 test below writes the OLD positional layout by hand rather than
-// through the production writer, so it tests the reader's version gate rather
-// than the writer agreeing with itself — and `AtEnd()` is what catches a v38
-// band that consumed bytes a v37 save does not contain.
+// Every field defaults to the IDENTITY: no per-instance transition spread, no
+// hysteresis, no stochastic coverage and no density reduction. So a scene
+// without the keys has to load with its plants handing over at exactly the
+// authored distances.
 #include "OloEnginePCH.h"
 #include "OloEngine/SaveGame/SaveGameComponentSerializer.h"
 #include "OloEngine/SaveGame/SaveGameTypes.h"
@@ -78,33 +70,6 @@ namespace OloEngine::Tests
             EXPECT_TRUE(Math::BitwiseEqual(got.DensityLodFadeFraction, want.DensityLodFadeFraction));
             EXPECT_TRUE(Math::BitwiseEqual(got.DensityLodMaxScale, want.DensityLodMaxScale));
         }
-
-        // The v37 positional layout, written by hand. Everything up to and
-        // including InteractionResponse, and nothing after it.
-        void WriteV37Layer(FMemoryWriter& ar, FoliageLayer& l)
-        {
-            ar << l.Name << l.MeshPath << l.AlbedoPath;
-            ar << l.Density << l.SplatmapChannel << l.MinSlopeAngle << l.MaxSlopeAngle;
-            ar << l.MinScale << l.MaxScale << l.MinHeight << l.MaxHeight << l.RandomRotation;
-            ar << l.ViewDistance << l.FadeStartDistance << l.WindStrength << l.WindSpeed;
-            ar << l.BaseColor << l.Roughness << l.AlphaCutoff << l.Enabled;
-            ar << l.UseImpostor << l.ImpostorStartDistance << l.ImpostorTransitionBand;
-            ar << l.ImpostorFramesPerAxis << l.ImpostorAtlasResolution << l.ImpostorHemiOctahedral;
-            ar << l.UseAuthoredMesh << l.MeshViewDistance << l.MeshFadeStartDistance;
-            ar << l.NormalMapPath << l.RoughnessMapPath << l.ThicknessMapPath;
-            ar << l.NormalStrength << l.TransmissionStrength << l.TransmissionColor << l.Thickness;
-            ar << l.TransmissionDistortion << l.TransmissionPower << l.TransmissionWrap << l.TransmissionAmbient;
-            ar << l.SlopeFeather;
-            ar << l.UseAltitudeBand << l.MinAltitude << l.MaxAltitude << l.AltitudeFeather;
-            ar << l.UseMoisture << l.MinMoisture << l.MaxMoisture << l.MoistureFeather;
-            ar << l.ExclusionSplatmapChannel << l.ExclusionThreshold;
-            ar << l.ClumpStrength << l.ClumpScale << l.ClumpFalloff << l.ClumpScaleInfluence;
-            ar << l.ClumpGroup;
-            ar << l.GroundOffset << l.SlopeSinkFactor;
-            ar << l.DecorrelatedVariation;
-            ar << l.WindStiffness << l.WindBranchWeight << l.WindLeafWeight << l.WindDebugDisplacement;
-            ar << l.InteractionResponse;
-        }
     } // namespace
 
     TEST(FoliageLodTransitionSaveLoad, SceneYamlRoundTripsEveryAuthoredField)
@@ -166,6 +131,7 @@ namespace OloEngine::Tests
         // not with a plausible-looking default that changes its image.
         auto scene = Scene::Create();
         const std::string yaml = R"(Scene: Untitled
+Version: 1
 Entities:
   - Entity: 1234567890123456
     TagComponent:
@@ -195,6 +161,7 @@ Entities:
     {
         auto scene = Scene::Create();
         const std::string yaml = R"(Scene: Untitled
+Version: 1
 Entities:
   - Entity: 1234567890123456
     TagComponent:
@@ -249,7 +216,7 @@ Entities:
             reader.SetArchiveVersion(kSaveGameFormatVersion);
             SaveGameComponentSerializer::Serialize(reader, loaded);
             EXPECT_FALSE(reader.IsError());
-            EXPECT_TRUE(reader.AtEnd()) << "the reader and the writer disagree about the v38 band's length";
+            EXPECT_TRUE(reader.AtEnd()) << "the reader and the writer disagree about the LOD band's length";
         }
         ASSERT_EQ(loaded.m_Layers.Num(), 1u);
         ExpectLodEqual(loaded.m_Layers[0], authored.m_Layers[0]);
@@ -288,31 +255,5 @@ Entities:
         EXPECT_GE(r.DensityLodMinFraction, FoliageLod::kMinKeepFraction);
         EXPECT_LE(r.DensityLodFadeFraction, 1.0f);
         EXPECT_GE(r.DensityLodMaxScale, 1.0f);
-    }
-
-    TEST(FoliageLodTransitionSaveLoad, AV37SaveLoadsInertAndConsumesItsExactPayload)
-    {
-        std::vector<u8> bytes;
-        {
-            FMemoryWriter ar(bytes);
-            FoliageLayer l;
-            l.MeshViewDistance = 44.0f; // a pre-#1237 field, to prove the walk landed
-            u32 count = 1;
-            ar << count;
-            WriteV37Layer(ar, l);
-            bool enabled = true;
-            ar << enabled;
-        }
-
-        FoliageComponent loaded;
-        FMemoryReader reader(bytes);
-        reader.SetArchiveVersion(37);
-        SaveGameComponentSerializer::Serialize(reader, loaded);
-        EXPECT_FALSE(reader.IsError());
-        EXPECT_TRUE(reader.AtEnd()) << "the v38 band consumed bytes a v37 save does not contain";
-        ASSERT_EQ(loaded.m_Layers.Num(), 1u);
-        EXPECT_FLOAT_EQ(loaded.m_Layers[0].MeshViewDistance, 44.0f);
-        ExpectLodEqual(loaded.m_Layers[0], FoliageLayer{});
-        EXPECT_TRUE(loaded.m_Enabled);
     }
 } // namespace OloEngine::Tests

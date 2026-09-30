@@ -149,7 +149,7 @@ namespace
 // refused with a JSON-RPC error and the scene action NEVER runs.
 TEST_F(McpSceneControlTest, GateOffRejectsAllAndDoesNotInvoke)
 {
-    ASSERT_FALSE(m_Server.AllowWrites()); // off by default
+    ASSERT_EQ(m_Server.GetWriteConsentMode(), OloEngine::MCP::WriteConsentMode::Disabled); // off by default
 
     const Json openResp = m_Server.HandleMessage(MakeCallRequest(1, "olo_scene_open", Json{ { "path", "Scenes/Sandbox.olo" } }));
     ASSERT_TRUE(openResp.contains("error"));
@@ -173,7 +173,7 @@ TEST_F(McpSceneControlTest, GateOffRejectsAllAndDoesNotInvoke)
 // shaped result (available/ok/path/sceneName/entityCount).
 TEST_F(McpSceneControlTest, GateOnOpenInvokesAndReturnsResult)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     m_FakeOpenResult.Available = true;
     m_FakeOpenResult.Ok = true;
     m_FakeOpenResult.Path = "C:/proj/Assets/Scenes/Sandbox.olo";
@@ -199,7 +199,7 @@ TEST_F(McpSceneControlTest, GateOnOpenInvokesAndReturnsResult)
 // resulting play state through.
 TEST_F(McpSceneControlTest, GateOnPlayStopInvokeAndReturnResult)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
 
     m_FakePlayResult.Available = true;
     m_FakePlayResult.Ok = true;
@@ -231,7 +231,7 @@ TEST_F(McpSceneControlTest, GateOnPlayStopInvokeAndReturnResult)
 
 TEST_F(McpSceneControlTest, GateOnSimulateInvokesAndReportsExactMode)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     m_FakeSimulateResult.Available = true;
     m_FakeSimulateResult.Ok = true;
     m_FakeSimulateResult.Simulating = true;
@@ -256,7 +256,7 @@ TEST_F(McpSceneControlTest, GateOnSimulateInvokesAndReportsExactMode)
 // outcome, so an agent isn't told a failed transition worked.
 TEST_F(McpSceneControlTest, PlayFailureReportsOkFalse)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     m_FakePlayResult.Available = true;
     m_FakePlayResult.Ok = false;
     m_FakePlayResult.Playing = false;
@@ -278,7 +278,7 @@ TEST_F(McpSceneControlTest, PlayFailureReportsOkFalse)
 // layer before the handler runs.
 TEST_F(McpSceneControlTest, OpenSchemaRejectsMissingPath)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     const Json resp = m_Server.HandleMessage(MakeCallRequest(8, "olo_scene_open", Json::object()));
 
     ASSERT_TRUE(resp.contains("result")); // SEP-1303: schema failures are tool errors
@@ -290,7 +290,7 @@ TEST_F(McpSceneControlTest, OpenSchemaRejectsMissingPath)
 // the handler runs.
 TEST_F(McpSceneControlTest, PlaySchemaRejectsUnknownProperty)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     const Json resp = m_Server.HandleMessage(MakeCallRequest(9, "olo_scene_play", Json{ { "speed", 2 } }));
 
     ASSERT_TRUE(resp.contains("result")); // SEP-1303: schema failures are tool errors
@@ -303,7 +303,7 @@ TEST_F(McpSceneControlTest, PlaySchemaRejectsUnknownProperty)
 // so the scene action never runs and the call is a tool error.
 TEST_F(McpSceneControlTest, OpenHandlerRejectsBadExtension)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     const Json resp = m_Server.HandleMessage(MakeCallRequest(10, "olo_scene_open", Json{ { "path", "notes.txt" } }));
 
     ASSERT_TRUE(resp.contains("result"));

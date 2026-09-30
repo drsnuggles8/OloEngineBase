@@ -297,7 +297,6 @@ int oloGBufferFlagsPbrModel(int gbFlags)
 #define UBO_CAMERA 0
 #define UBO_LIGHTS 1
 #define UBO_MATERIAL 2
-#define UBO_MODEL 3
 #define UBO_BONES 4
 #define UBO_MULTI_LIGHTS 5
 
@@ -2395,7 +2394,7 @@ vec3 calculateIBLImportanceSampled(vec3 N, vec3 V, vec3 albedo, float metallic, 
 //
 // Every ambient helper here computes `kD * X * albedo` with no 1/pi, so X is
 // NORMALIZED irradiance E/pi -- the quantity the IBL irradiance cube stores
-// (IrradianceConvolution.glsl, IBLPrecompute's SH path) and the radiance of the
+// (IrradianceConvolutionAdvanced.glsl, IBLPrecompute's SH path) and the radiance of the
 // uniform sky that would produce E. The lightmap, the DDGI atlas and the
 // probe-volume sampler all return full irradiance E instead, so each of them
 // enters the ladder through this function and nowhere else. Feeding one in raw

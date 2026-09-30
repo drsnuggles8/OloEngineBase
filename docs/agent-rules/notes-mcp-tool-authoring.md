@@ -193,7 +193,8 @@ The server already negotiates 2025-06-18, so annotations need no protocol bump. 
 
 - **Session gate.** Set `ToolDef::ProjectWrite = true` — the authority class, which now lives on
   `AutomationCommand` (`ToolDef` is an alias for it). `HandleToolsCall` refuses it with a clean
-  `kInvalidParams` unless `SetAllowWrites` is on — atomic, default OFF, **never persisted**. Pair
+  `kInvalidParams` while `GetWriteConsentMode()` is `Disabled` (`Prompt` asks the human per call,
+  `AllowSession` passes) — atomic, default `Disabled`, **never persisted**. Pair
   with `MutatingAnnotations(/*idempotent*/ false)`. Read-only and ephemeral-editor-state tools
   (camera, viewport, render overrides) are not `ProjectWrite`, so the gate never touches them.
 - **Undo.** Route the mutation through the editor `CommandHistory` as a UUID-keyed
@@ -319,9 +320,10 @@ Established building `olo_render_why_not_visible`:
   culling. Renderer3D expands the sphere radius by **1.3×** before testing; match that. It reflects
   whatever camera last rendered, so compute "behind camera" independently from the editor camera
   pose.
-- **HZB occlusion result and LOD selection are NOT queryable** — private per-frame renderer state. An
-  editor-side tool cannot honestly claim a verdict; report them as not-observable and fall back to a
-  screenshot or capture target.
+- **Per-entity HZB occlusion and LOD selection are NOT queryable** — private per-frame renderer
+  state. An editor-side tool cannot honestly claim a verdict; report them as not-observable and fall
+  back to a screenshot or capture target. `olo_render_lod_stats` gives only a session-cumulative LOD
+  histogram, not one entity's pick.
 - **No world-transform flattening** — the scene path submits each entity's **local**
   `TransformComponent::GetTransform()`, so use the local transform for visibility math.
 - **A scene mesh's shader is the shared deferred PBR shader**, not `material.GetShader()` (usually
@@ -337,19 +339,19 @@ Established building `olo_render_why_not_visible`:
 > fundamental precondition first, stopping at the first blocker so `reasonCode` is the root cause,
 > not a symptom.
 
-## 10. Two known tool limitations
+## 10. Two former tool limitations (corrected by #1357)
 
-- **`olo_shader_list` over-reports what is reloadable.** It reads `ShaderDebugger::GetAllShaders()` —
-  *every* GL program including post-process and compute — but only shaders owned by the two
-  `ShaderLibrary` instances can be reloaded **by name**. The rest are created directly by their pass
-  and there is no name→`Ref<Shader>` registry; the ShaderDebugger stores only id/name/path. The
-  tool's not-found error lists the reloadable names to bridge the gap.
-- **A GLSL syntax error crashes a Debug editor.** Reloading a shader that fails to compile trips
-  `OLO_CORE_VERIFY(false, …)` → `__debugbreak()`, and `catch(...)` does **not** catch the SEH
-  breakpoint. The MarshalRead job never completes, the tool times out after ~5 s, and the editor
-  crashes. This is pre-existing engine behaviour identical to the editor's own Recompile button — so
-  reserve reload for edits you expect to compile, and use `olo_shader_errors`/`olo_shader_get` to
-  inspect a known-broken shader.
+Both limits below were true when this section was written and are not true at `7c5aa1b98`:
+
+- **`olo_shader_list` used to over-report what is reloadable.** It now reports a `reloadable` flag:
+  every file-backed shader, library- or pass-owned and including compute, reloads by name through
+  `ShaderRegistry`; only source-string shaders (boot, fallback, shader-graph) cannot
+  (`McpToolsShader.cpp`, `olo_shader_list` / `olo_shader_reload`).
+- **A GLSL syntax error used to crash a Debug editor** through `OLO_CORE_VERIFY(false, …)`. Since
+  #568 (PR #583) a compile or link failure logs and returns, so `olo_shader_reload` answers
+  `status: "failed"` with the log (`ShaderCompileFailureRecoveryTest`). A malformed `#type`
+  directive still trips an `OLO_CORE_ASSERT` in `OpenGLShader::PreProcess`. Not re-run live for
+  this correction.
 
 ## 10b. A synthetic input event is a REQUEST, not a guarantee — measure it (issue #854)
 

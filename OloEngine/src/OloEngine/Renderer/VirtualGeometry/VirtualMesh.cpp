@@ -897,23 +897,13 @@ namespace OloEngine
                 return false;
             }
 
-            // Back-compat: a cook written before multi-submesh support is a bare single-mesh
-            // blob. Read it as a one-part set rather than forcing a re-cook of every asset.
-            if (magic == kMagic)
-            {
-                VirtualMeshPart part;
-                if (!DeserializeFromBlob(blob, part.Dag))
-                {
-                    return false;
-                }
-                VirtualMeshSet parsed;
-                parsed.Parts.Add(std::move(part));
-                out = std::move(parsed);
-                return true;
-            }
-
+            // A cooked mesh is always an "OVGS" set. A bare single-DAG "OVGM" blob is a part,
+            // not a cook, and is rejected like any other foreign magic: the caller re-cooks.
             if (magic != kSetMagic)
             {
+                OLO_CORE_ERROR("VirtualMeshSerializer: blob magic 0x{:08X} is not an 'OVGS' virtual-geometry set{}; "
+                               "re-cook the mesh",
+                               magic, magic == kMagic ? " (a bare single-DAG 'OVGM' blob)" : "");
                 return false;
             }
 

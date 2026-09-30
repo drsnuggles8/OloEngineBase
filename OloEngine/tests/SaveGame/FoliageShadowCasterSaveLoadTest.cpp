@@ -3,9 +3,10 @@
 // FoliageShadowCasterSaveLoadTest -- issue #1533.
 //
 // FoliageLayer::CastShadows keeps a layer out of the shadow maps (it still
-// receives). It defaults on, which is what every layer did before it existed,
-// so the load paths have one job each: carry an authored "off" across scene
-// YAML and a save game, and leave every older file casting.
+// receives). It defaults on, which is what every layer did before it existed.
+// Scene YAML and a save game must carry an authored "off"; a layer written
+// without the key casts. A save of any other format version is rejected at the
+// header, so there is no older save layout to read (binary-format-versioning.md).
 // =============================================================================
 
 #include "OloEnginePCH.h"
@@ -102,56 +103,22 @@ namespace OloEngine::Tests
             << "a scene authored before the switch lost its plants' shadows";
     }
 
-    TEST(FoliageShadowCasterSaveLoad, SaveGameRoundTripsTheSwitchAndAnOlderSaveCasts)
+    TEST(FoliageShadowCasterSaveLoad, SaveGameRoundTripsTheSwitch)
     {
-        // The current format carries it.
+        FoliageComponent authored = MakeLawn(false);
+        std::vector<u8> bytes;
         {
-            FoliageComponent authored = MakeLawn(false);
-            std::vector<u8> bytes;
-            {
-                FMemoryWriter writer(bytes);
-                writer.SetArchiveVersion(kSaveGameFormatVersion);
-                SaveGameComponentSerializer::Serialize(writer, authored);
-            }
-            FoliageComponent loaded;
-            FMemoryReader reader(bytes);
-            reader.SetArchiveVersion(kSaveGameFormatVersion);
-            SaveGameComponentSerializer::Serialize(reader, loaded);
-            EXPECT_FALSE(reader.IsError());
-            EXPECT_TRUE(reader.AtEnd()) << "the overload wrote more bytes than it reads back";
-            ASSERT_EQ(loaded.m_Layers.Num(), 1);
-            EXPECT_FALSE(loaded.m_Layers[0].CastShadows);
+            FMemoryWriter writer(bytes);
+            writer.SetArchiveVersion(kSaveGameFormatVersion);
+            SaveGameComponentSerializer::Serialize(writer, authored);
         }
-        // A v39 save stops before the field, and loads casting -- even into a
-        // layer object a v40 load left off, which the restore path reuses.
-        {
-            // A writer writes every field whatever version it is stamped with,
-            // so the v39 payload is the current one without the switch: the
-            // last two bools are the layer's CastShadows and the component's
-            // m_Enabled, four bytes each. Checked, so a layout change fails
-            // here instead of cutting the wrong bytes.
-            FoliageComponent older = MakeLawn(false);
-            std::vector<u8> bytes;
-            {
-                FMemoryWriter writer(bytes);
-                writer.SetArchiveVersion(kSaveGameFormatVersion);
-                SaveGameComponentSerializer::Serialize(writer, older);
-            }
-            constexpr sizet kBool = 4;
-            ASSERT_GE(bytes.size(), 2 * kBool);
-            const std::vector<u8> tail(bytes.end() - 2 * kBool, bytes.end());
-            ASSERT_EQ(tail, (std::vector<u8>{ 0, 0, 0, 0, 1, 0, 0, 0 }))
-                << "the payload no longer ends in CastShadows (off) then m_Enabled (on)";
-            bytes.erase(bytes.end() - 2 * kBool, bytes.end() - kBool);
-
-            FoliageComponent reused = MakeLawn(false);
-            FMemoryReader reader(bytes);
-            reader.SetArchiveVersion(39);
-            SaveGameComponentSerializer::Serialize(reader, reused);
-            EXPECT_FALSE(reader.IsError());
-            EXPECT_TRUE(reader.AtEnd()) << "a v39 payload was not consumed exactly";
-            ASSERT_EQ(reused.m_Layers.Num(), 1);
-            EXPECT_TRUE(reused.m_Layers[0].CastShadows) << "a v39 save kept the previous load's switch";
-        }
+        FoliageComponent loaded;
+        FMemoryReader reader(bytes);
+        reader.SetArchiveVersion(kSaveGameFormatVersion);
+        SaveGameComponentSerializer::Serialize(reader, loaded);
+        EXPECT_FALSE(reader.IsError());
+        EXPECT_TRUE(reader.AtEnd()) << "the overload wrote more bytes than it reads back";
+        ASSERT_EQ(loaded.m_Layers.Num(), 1);
+        EXPECT_FALSE(loaded.m_Layers[0].CastShadows);
     }
 } // namespace OloEngine::Tests

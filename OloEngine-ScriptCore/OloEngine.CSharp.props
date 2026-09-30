@@ -1,0 +1,42 @@
+<Project>
+  <!--
+    Shared settings for every C# assembly the engine's embedded Mono runtime loads
+    (OloEngine-ScriptCore and game-script projects such as Sandbox-Scripting). Issue #1405.
+
+    The one build path is `dotnet build` on the .csproj, driven by the CMake target of the
+    same name under any generator (see cmake/CSharpAssembly.cmake), or run by hand from an
+    IDE. Nothing here is Windows- or Visual-Studio-specific.
+
+    References come from the Mono class libraries vendored under OloEditor/mono/lib/mono/4.5,
+    the same assemblies the runtime loads, so an API Mono does not implement fails at compile
+    time instead of as a MissingMethodException in play mode. It also means the build needs
+    no .NET Framework targeting pack and no NuGet download.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net481</TargetFramework>
+    <LangVersion>8</LangVersion>
+    <Configurations>Debug;Release;Dist</Configurations>
+    <Platforms>AnyCPU</Platforms>
+
+    <OloMonoFrameworkDir>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', 'OloEditor', 'mono', 'lib', 'mono', '4.5'))</OloMonoFrameworkDir>
+    <FrameworkPathOverride>$(OloMonoFrameworkDir)</FrameworkPathOverride>
+    <AutomaticallyUseReferenceAssemblyPackages>false</AutomaticallyUseReferenceAssemblyPackages>
+
+    <!-- Mono's debugger reads portable PDBs only (ScriptEngine loads <assembly>.pdb). -->
+    <DebugType>portable</DebugType>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <DefineConstants>$(DefineConstants);OLO_DEBUG</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <DefineConstants>$(DefineConstants);OLO_RELEASE</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)' == 'Dist'">
+    <Optimize>true</Optimize>
+    <DefineConstants>$(DefineConstants);OLO_DIST</DefineConstants>
+  </PropertyGroup>
+</Project>

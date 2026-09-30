@@ -150,23 +150,6 @@ namespace OloEngine
             static_assert(MAX_BONES % 4 == 0, "MAX_BONES should be multiple of 4 for optimal GPU alignment");
         };
 
-        struct MaterialUBO
-        {
-            glm::vec4 Ambient;
-            glm::vec4 Diffuse;
-            glm::vec4 Specular; // w = shininess
-            glm::vec4 Emissive;
-            i32 UseTextureMaps;
-            i32 AlphaMode;   // Alpha blending mode (repurposed from padding)
-            i32 DoubleSided; // Double-sided rendering flag (repurposed from padding)
-            i32 Pad;         // Only 4 bytes padding needed for 16-byte alignment
-
-            static constexpr u32 GetSize()
-            {
-                return sizeof(MaterialUBO);
-            }
-        };
-
         struct PBRMaterialUBO
         {
             glm::vec4 BaseColorFactor;   // Base color (albedo) with alpha
@@ -427,7 +410,8 @@ namespace OloEngine
             // Order is fixed and mirrored by OLO_MATERIAL_* in include/BindlessHeap.glsl:
             //   [0] = .x albedo   .y metallicRoughness .z normal    .w ao
             //   [1] = .x emissive .y environment       .z irradiance .w prefilter
-            //   [2] = .x brdfLut  .y diffuse (legacy)  .z specular (legacy) .w unused
+            //   [2] = .x brdfLut  .y unused            .z unused    .w unused
+            // ([2].y / [2].z carried the Phong diffuse / specular maps until #1499.)
             // Vulkan keeps the five map lanes, uses [2].w for the sampler byte
             // offset, and [1].yzw for the static deferred material table's
             // address low/high words and record count (ADR 0011 (101)). Zero
@@ -449,12 +433,9 @@ namespace OloEngine
             glm::mat4 Normal; // transpose(inverse(model))
             i32 EntityID;
             i32 PadEntity[3];
-            // Previous-frame world transform for per-object motion vectors in
-            // the deferred G-Buffer path. Equals Model for static objects or
-            // on the first frame so the resulting velocity is zero. Other
-            // shaders that bind UBO_MODEL ignore this tail by declaring a
-            // ModelMatrices block that stops at EntityID; std140 allows the
-            // C++-side buffer to carry extra trailing bytes.
+            // Previous-frame world transform for per-object motion vectors.
+            // Equals Model for static objects or on the first frame so the
+            // resulting velocity is zero.
             glm::mat4 PrevModel;
 
             static constexpr u32 GetSize()
@@ -463,10 +444,9 @@ namespace OloEngine
             }
         };
 
-        // std140 layout sanity check. A mismatch here means the C++-side
-        // buffer no longer mirrors the GLSL ModelMatrices block and any
-        // SetData() call will produce garbage (shader reads wrong offsets,
-        // resulting in black geometry / broken normals / wrong entity IDs).
+        // Per-draw staging record: CommandDispatch's UploadModelInstance copies it
+        // into the InstanceBuffer SSBO entry (InstanceData). No GLSL block
+        // mirrors it any more; the size pin keeps the struct from growing silently.
         // Expected: mat4(64) + mat4(64) + int+pad(16) + mat4(64) = 208 B.
         static_assert(sizeof(ModelUBO) == 208, "ModelUBO std140 size drifted from GLSL expectation (208 B)");
 
@@ -3053,19 +3033,21 @@ namespace OloEngine
         // Binding 1 was freed when the legacy single-light LightUBO was retired
         // (all lighting flows through UBO_MULTI_LIGHTS at binding 5); it now
         // carries the scene lightmap parameters (issue #439).
-        static constexpr u32 UBO_LIGHTMAP = 1;       // Baked lightmap parameters (issue #439)
-        static constexpr u32 UBO_MATERIAL = 2;       // Material properties
-        static constexpr u32 UBO_MODEL = 3;          // Model/transform matrices
-        static constexpr u32 UBO_ANIMATION = 4;      // Animation/bone matrices
-        static constexpr u32 UBO_MULTI_LIGHTS = 5;   // Multi-light buffer for advanced lighting
-        static constexpr u32 UBO_SHADOW = 6;         // Shadow mapping matrices and parameters
-        static constexpr u32 UBO_USER_0 = 7;         // User-defined buffer 0 (PostProcess)
-        static constexpr u32 UBO_USER_1 = 8;         // User-defined buffer 1 (MotionBlur)
-        static constexpr u32 UBO_SSAO = 9;           // SSAO parameters
-        static constexpr u32 UBO_TERRAIN = 10;       // Terrain parameters (height scale, world size, etc.)
-        static constexpr u32 UBO_BRUSH_PREVIEW = 11; // Brush preview overlay for terrain editing
-        static constexpr u32 UBO_FOLIAGE = 12;       // Foliage instance rendering parameters
-        static constexpr u32 UBO_SNOW = 13;          // Snow rendering parameters
+        static constexpr u32 UBO_LIGHTMAP = 1; // Baked lightmap parameters (issue #439)
+        static constexpr u32 UBO_MATERIAL = 2; // Material properties
+        // Binding 3 was UBO_MODEL / ModelMatrices; per-draw transforms now live in the
+        // InstanceBuffer SSBO (SSBO_INSTANCE_DATA). Only mesh particles still use it.
+        static constexpr u32 UBO_PARTICLE_MESH_INSTANCE = 3; // MeshParticleInstance (Particle_Mesh*.glsl)
+        static constexpr u32 UBO_ANIMATION = 4;              // Animation/bone matrices
+        static constexpr u32 UBO_MULTI_LIGHTS = 5;           // Multi-light buffer for advanced lighting
+        static constexpr u32 UBO_SHADOW = 6;                 // Shadow mapping matrices and parameters
+        static constexpr u32 UBO_USER_0 = 7;                 // User-defined buffer 0 (PostProcess)
+        static constexpr u32 UBO_USER_1 = 8;                 // User-defined buffer 1 (MotionBlur)
+        static constexpr u32 UBO_SSAO = 9;                   // SSAO parameters
+        static constexpr u32 UBO_TERRAIN = 10;               // Terrain parameters (height scale, world size, etc.)
+        static constexpr u32 UBO_BRUSH_PREVIEW = 11;         // Brush preview overlay for terrain editing
+        static constexpr u32 UBO_FOLIAGE = 12;               // Foliage instance rendering parameters
+        static constexpr u32 UBO_SNOW = 13;                  // Snow rendering parameters
         // Subsurface-scattering pass parameters. SHARED by two passes that can
         // never appear in one shader: SSS_Blur.glsl's `SSSParams` (snow's
         // wrap-lighting blur) and SkinDiffusion.glsl's `SkinDiffusionParams`
@@ -4201,7 +4183,6 @@ namespace OloEngine
         using CameraUBO = UBOStructures::CameraUBO;
         using MultiLightData = UBOStructures::MultiLightData;
         using MultiLightUBO = UBOStructures::MultiLightUBO;
-        using MaterialUBO = UBOStructures::MaterialUBO;
         using PBRMaterialUBO = UBOStructures::PBRMaterialUBO;
         using ModelUBO = UBOStructures::ModelUBO;
         using AnimationUBO = UBOStructures::AnimationUBO;
@@ -4233,9 +4214,8 @@ namespace OloEngine
                 case UBO_MATERIAL:
                     return name.contains("Material") || name.contains("material") ||
                            name.contains("Particle") || name.contains("particle");
-                case UBO_MODEL:
-                    return name.contains("Model") || name.contains("model") ||
-                           name.contains("Instance") || name.contains("instance");
+                case UBO_PARTICLE_MESH_INSTANCE:
+                    return name == "MeshInstanceData";
                 case UBO_ANIMATION:
                     return name.contains("Animation") || name.contains("animation") ||
                            name.contains("Bone") || name.contains("bone");
@@ -4906,21 +4886,6 @@ layout(std140, binding = 5) uniform MultiLightBuffer {
 };)";
         }
 
-        static const char* GetMaterialUBOLayout()
-        {
-            return R"(
-layout(std140, binding = 2) uniform MaterialProperties {
-    vec4 u_MaterialAmbient;
-    vec4 u_MaterialDiffuse;
-    vec4 u_MaterialSpecular;
-    vec4 u_MaterialEmissive;
-    int u_UseTextureMaps;
-    int u_AlphaMode;
-    int u_DoubleSided;
-    int _padding;
-};)";
-        }
-
         static const char* GetPBRMaterialUBOLayout()
         {
             return R"(
@@ -4951,26 +4916,6 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     float u_AttenuationSigmaB;
     float _pbrMaterialPad0;
     float _pbrMaterialPad1;
-};)";
-        }
-
-        // Documentation helper: the GLSL block text below mirrors the runtime
-        // `UBOStructures::ModelUBO` struct verbatim (including the trailing
-        // `u_PrevModel`). Legacy shaders that don't sample the prev-frame
-        // world transform can still declare a shorter block thanks to std140
-        // trailing-byte tolerance; new shaders should prefer this full layout
-        // so per-object motion-vector paths get the correct member offsets.
-        static const char* GetModelUBOLayout()
-        {
-            return R"(
-layout(std140, binding = 3) uniform ModelMatrices {
-    mat4 u_Model;
-    mat4 u_Normal;
-    int u_EntityID;
-    int _paddingEntity0;
-    int _paddingEntity1;
-    int _paddingEntity2;
-    mat4 u_PrevModel;
 };)";
         }
 
@@ -5076,7 +5021,9 @@ layout(std140, binding = 25) uniform ForwardPlusParams {
         // replace `u_Model` with `instances[gl_InstanceIndex].Transform`,
         // `u_Normal` with `instances[gl_InstanceIndex].Normal`, etc. Non-
         // instanced draws bind a single-element instance buffer so the same
-        // shader body works in both cases.
+        // shader body works in both cases. Shader source generated in C++ (the
+        // magenta fallback, ShaderGraph output) splices this block in too: every
+        // draw binds it, so a vertex stage reads instances[gl_InstanceIndex].
         static const char* GetInstanceSSBOLayout()
         {
             return R"(

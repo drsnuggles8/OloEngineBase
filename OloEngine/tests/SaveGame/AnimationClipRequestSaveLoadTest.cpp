@@ -2,13 +2,12 @@
 // =============================================================================
 // AnimationClipRequestSaveLoadTest.cpp
 //
-// The save-game cell for issue #1533's clip playback state — the v40 band of
+// The save-game cell for issue #1533's clip playback state in
 // AnimationStateComponent: the loop flags, the pending clip request and the
-// playback speed.
-//
-// A v38 save must keep the defaults (every clip loops at the authored rate,
-// which is what every clip did in the build that wrote it), and the band must
-// be consumed exactly, or every component after this one reads garbage.
+// playback speed. They must round-trip, a hostile speed must load as the
+// authored rate, and the fields must be consumed exactly, or every component
+// after this one reads garbage. There is no older layout to read: a save of any
+// other format version is rejected at the header (binary-format-versioning.md).
 // =============================================================================
 
 #include "OloEnginePCH.h"
@@ -50,7 +49,7 @@ namespace OloEngine::Tests
         }
     } // namespace
 
-    TEST(AnimationClipRequestSaveLoad, TheV40BandSurvivesARoundTrip)
+    TEST(AnimationClipRequestSaveLoad, TheLoopFlagsRequestAndSpeedSurviveARoundTrip)
     {
         AnimationStateComponent seed;
         seed.m_Loop = false;
@@ -67,46 +66,6 @@ namespace OloEngine::Tests
         EXPECT_FALSE(loaded.m_RequestedLoop);
         EXPECT_FLOAT_EQ(loaded.m_PlaybackSpeed, 0.625f);
         EXPECT_FLOAT_EQ(loaded.m_CurrentTime, 1.25f);
-    }
-
-    TEST(AnimationClipRequestSaveLoad, AV38SaveKeepsEveryClipLoopingAtTheAuthoredRate)
-    {
-        // Hand-built in the exact pre-v40 layout: a v38 save can no longer be
-        // produced, because HasFieldsSince always writes the current layout.
-        // Mirror any change to the serializer's pre-v40 field ORDER here.
-        AnimationStateComponent old;
-        old.m_CurrentTime = 0.75f;
-        old.m_IsPlaying = true;
-        std::vector<u8> buffer;
-        {
-            FMemoryWriter ar(buffer);
-            ar.ArIsSaveGame = true;
-            ar.SetArchiveVersion(38);
-            ar << old.m_State;
-            ar << old.m_CurrentClipIndex;
-            ar << old.m_CurrentTime << old.m_NextTime;
-            ar << old.m_BlendFactor << old.m_Blending;
-            ar << old.m_BlendDuration << old.m_BlendTime;
-            ar << old.m_IsPlaying;
-            ar << old.m_SourceFilePath;
-            ar << old.m_BoneEntityIds;
-            ar << old.m_RootBoneTransform;
-        }
-
-        // Restore default-constructs the component, so the v38 read, which
-        // stops before the band, leaves the constructor defaults in place.
-        AnimationStateComponent loaded;
-        FMemoryReader reader(buffer);
-        reader.ArIsSaveGame = true;
-        reader.SetArchiveVersion(38);
-        SaveGameComponentSerializer::Serialize(reader, loaded);
-        EXPECT_FALSE(reader.IsError());
-        EXPECT_TRUE(reader.AtEnd()) << "a v38 read must stop exactly where a v38 save ends";
-        EXPECT_TRUE(loaded.m_Loop);
-        EXPECT_FLOAT_EQ(loaded.m_PlaybackSpeed, 1.0f);
-        EXPECT_TRUE(loaded.m_RequestedClip.empty());
-        EXPECT_FLOAT_EQ(loaded.m_CurrentTime, 0.75f);
-        EXPECT_TRUE(loaded.m_IsPlaying);
     }
 
     TEST(AnimationClipRequestSaveLoad, AHostilePlaybackSpeedLoadsAsTheAuthoredRate)

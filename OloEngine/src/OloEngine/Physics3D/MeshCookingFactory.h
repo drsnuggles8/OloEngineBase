@@ -69,11 +69,15 @@ namespace OloEngine
         bool m_IsValid = false;
     };
 
-    // .omc file format (OloEngine Mesh Collider)
+    // .omc file format (OloEngine Mesh Collider). The reader accepts exactly CurrentVersion; a cache
+    // file of any other version is re-cooked from the source mesh. v2: the embedded Jolt shape blobs
+    // no longer carry a per-material name length.
     struct OloMeshColliderHeader
     {
+        static constexpr u32 CurrentVersion = 2;
+
         char m_Header[8] = { 'O', 'l', 'o', 'M', 'e', 's', 'h', 'C' }; // "OloMeshC" as 8-byte header (no null terminator)
-        u32 m_Version = 1;
+        u32 m_Version = CurrentVersion;
         EMeshColliderType m_Type = EMeshColliderType::Triangle;
         u32 m_SubmeshCount = 0;
         glm::vec3 m_Scale = glm::vec3(1.0f);

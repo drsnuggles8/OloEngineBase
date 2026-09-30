@@ -100,8 +100,8 @@ corruption; and the engine log is where capacity-limit errors surface.
   out in Dist. Physics/ECS/script scenes therefore show up only as frame-total
   deltas; for a per-system view run `-Config Release` and read the Statistics
   panel (Performance tab) via `olo_screenshot`. Tracked on #316.
-- `scripts_swarm_cs` needs the VS-generator C# target: build
-  `Sandbox-Scripting` (the scene loads with script errors otherwise).
+- `scripts_swarm_cs` needs the C# assemblies: build `Sandbox-Scripting`
+  (the scene loads with script errors otherwise). `OloEditor` depends on it.
 - Scene-load wall time at high entity counts is itself a finding (tracked in
   the results table `scene open s` column), not a harness defect.
 - **`MarshalRead`'s tool-dispatch watchdog defaults to 5 s** — plenty for a

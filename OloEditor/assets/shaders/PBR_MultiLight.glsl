@@ -97,13 +97,13 @@ void main()
     }
 #endif
     OLO_INSTANCE_FORWARD();
-    v_WorldPos = vec3(u_Model * vec4(a_Position, 1.0));
-    v_Normal = mat3(u_Normal) * a_Normal;
+    v_WorldPos = vec3(instances[gl_InstanceIndex].Transform * vec4(a_Position, 1.0));
+    v_Normal = mat3(instances[gl_InstanceIndex].Normal) * a_Normal;
     v_TexCoord = a_TexCoord;
     v_TexCoord2 = a_TexCoord2;
 
     vec4 clipCurr = u_ViewProjection * vec4(v_WorldPos, 1.0);
-    vec4 prevWorldPos = u_PrevModel * vec4(a_Position, 1.0);
+    vec4 prevWorldPos = instances[gl_InstanceIndex].PrevTransform * vec4(a_Position, 1.0);
     vec4 clipPrev = u_PrevViewProjection * prevWorldPos;
 
     v_ClipPosCurr = clipCurr;
@@ -480,12 +480,8 @@ layout(location = 4) out vec4 o_SkinDiffuse;
 
 
 
-// Model UBO (binding 3) for entity ID access
-// Fragment-side ModelMatrices must match the vertex stage's block layout
-// (which includes the trailing u_PrevModel for per-object velocity).
-// glLinkProgram() rejects per-program UBO blocks whose members disagree
-// between stages; u_PrevModel is unused in fragment but its declaration
-// keeps the two stages' block types identical.
+// Instance SSBO for the entity ID and the ocular axis
+// (instances[v_InstanceIndex]).
 #include "include/InstanceBlock.glsl"
 
 // Baked lightmap sampling (issue #439): UBO 1 + the atlas sampler at TEX 16.
@@ -601,7 +597,7 @@ void main()
     {
         OloSkinOcular oloOcular = oloSkinOcularApply(albedo, N,
                                                      normalize(u_CameraPosition - v_WorldPos),
-                                                     u_Model[2].xyz,
+                                                     instances[v_InstanceIndex].Transform[2].xyz,
                                                      u_SkinOcularCorneaLane, u_SkinOcularIrisLane,
                                                      u_SkinOcularResponseLane, u_SkinOcularTintLane);
         albedo = oloOcular.Albedo;
@@ -1053,7 +1049,7 @@ void main()
     // Alpha is the material's own: the snow mask no longer rides scene
     // alpha (issue #1451), it rides the hand-off below.
     o_Color = vec4(color, u_BaseColorFactor.a);
-    o_EntityID = u_EntityID;
+    o_EntityID = instances[v_InstanceIndex].EntityID;
 
     // The diffusion hand-off (issue #1241). `lighting` is the split from #1231
     // with the profile's specular tint already applied to the other half, which

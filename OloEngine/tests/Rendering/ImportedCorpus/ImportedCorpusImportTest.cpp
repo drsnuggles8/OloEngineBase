@@ -585,6 +585,7 @@ namespace OloEngine::Tests::ImportedCorpus
         const std::string riggedPath = ModelPath("RiggedSimple/RiggedSimple.gltf").generic_string();
         // One entity per model; {MORPH} and {RIGGED} are replaced below.
         std::string yaml = R"(Scene: MorphOnly1439
+Version: 1
 Entities:
   - Entity: 1439000000000001
     TagComponent:
@@ -666,7 +667,6 @@ Entities:
         assetInfo.Type = AssetType::MeshSource;
         FileStreamReader reader(packPath);
         ASSERT_TRUE(reader.IsStreamGood());
-        reader.SetArchiveVersion(AssetPackFile::Version);
         auto loaded = serializer.DeserializeFromAssetPack(reader, assetInfo).As<MeshSource>();
         ASSERT_TRUE(loaded);
         EXPECT_EQ(loaded->GetSubmeshes().Num(), 3);

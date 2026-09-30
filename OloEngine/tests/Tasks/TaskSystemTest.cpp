@@ -55,6 +55,35 @@ class TaskTestBase : public ::testing::Test
 };
 
 // ============================================================================
+// StartWorkers on a running scheduler (#1365)
+// ============================================================================
+
+class SchedulerRestartGuardTest : public TaskTestBase
+{
+};
+
+// A second StartWorkers while workers are running changes nothing. It used to
+// write the worker priority/affinity before checking whether workers already
+// ran, racing every live worker's read of m_WorkerPriority in ExecuteTask (a
+// TSan data race) while the workers themselves kept their old settings.
+TEST_F(SchedulerRestartGuardTest, StartWorkersOnARunningSchedulerLeavesItsConfigurationAlone)
+{
+    auto& scheduler = LowLevelTasks::FScheduler::Get();
+    ASSERT_GT(scheduler.GetNumWorkers(), 0u);
+    const u32 workers = scheduler.GetNumWorkers();
+    const LowLevelTasks::EThreadPriority workerPriority = scheduler.GetWorkerPriority();
+    const LowLevelTasks::EThreadPriority backgroundPriority = scheduler.GetBackgroundPriority();
+    const LowLevelTasks::EThreadPriority other = workerPriority == LowLevelTasks::EThreadPriority::TPri_Lowest ? LowLevelTasks::EThreadPriority::TPri_Highest
+                                                                                                               : LowLevelTasks::EThreadPriority::TPri_Lowest;
+
+    scheduler.StartWorkers(0, 0, LowLevelTasks::EForkable::NonForkable, other, other);
+
+    EXPECT_EQ(scheduler.GetNumWorkers(), workers);
+    EXPECT_EQ(scheduler.GetWorkerPriority(), workerPriority);
+    EXPECT_EQ(scheduler.GetBackgroundPriority(), backgroundPriority);
+}
+
+// ============================================================================
 // Basic Task Tests
 // ============================================================================
 

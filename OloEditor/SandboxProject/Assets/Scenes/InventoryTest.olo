@@ -1,4 +1,5 @@
 Scene: InventoryTest.olo
+Version: 1
 PostProcessSettings:
   TonemapOperator: 1
   Exposure: 1

@@ -22,7 +22,7 @@
 #include "OloEngine/Memory/Platform.h"
 #include "OloEngine/Memory/UnrealMemory.h"
 #include "OloEngine/Memory/AlignmentTemplates.h"
-#include "OloEngine/Templates/FunctionRef.h"
+#include "OloEngine/Templates/Function.h"
 
 #include <atomic>
 #include <type_traits>

@@ -99,7 +99,7 @@ class SceneWriter:
     """Streams entity blocks; avoids holding a 50MB string tree in memory."""
 
     def __init__(self, scene_name, watch_tags=()):
-        self.parts = [f"Scene: {scene_name}\nEntities:\n"]
+        self.parts = [f"Scene: {scene_name}\nVersion: 1\nEntities:\n"]
         self.next_id = ID_BASE
         self.count = 0
         # Camera pose, recorded for the manifest: edit-mode scenes are viewed

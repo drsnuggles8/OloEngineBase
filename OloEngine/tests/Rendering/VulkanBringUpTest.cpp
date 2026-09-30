@@ -32,7 +32,10 @@ TEST(VulkanBringUp, SkipsWhenNotCompiledIn)
 
 #include <volk.h>
 
+#include <algorithm>
+#include <array>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace
@@ -112,27 +115,40 @@ namespace
             EXPECT_FALSE(report.DeviceName.empty());
             EXPECT_EQ(report.Satisfied, report.Missing.empty()) << report.DeviceName;
 
-            auto missingContains = [&report](const char* item)
+            auto missingContains = [&report](const std::string& item)
             {
-                for (const std::string& entry : report.Missing)
-                {
-                    if (entry == item)
-                    {
-                        return true;
-                    }
-                }
-                return false;
+                return std::ranges::find(report.Missing, item) != report.Missing.end();
             };
-            EXPECT_EQ(!report.HasDescriptorHeap, missingContains(VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME))
-                << report.DeviceName;
-            EXPECT_EQ(!report.HasShaderUntypedPointers,
-                      missingContains(VK_KHR_SHADER_UNTYPED_POINTERS_EXTENSION_NAME))
-                << report.DeviceName;
-            EXPECT_EQ(!report.HasSwapchain, missingContains(VK_KHR_SWAPCHAIN_EXTENSION_NAME)) << report.DeviceName;
+
+            // Every table row reports itself. An unmet extension row and an unmet
+            // feature row of a LISTED extension are in Missing; a feature row whose
+            // extension is unlisted is not (the extension is the one finding).
+            const auto met = [&report](const std::string& name)
+            {
+                const auto it = std::ranges::find_if(report.Requirements,
+                                                     [&name](const VulkanRequirementResult& r)
+                                                     { return r.Name == name; });
+                // A contract row must exist in the report before its verdict means anything.
+                EXPECT_NE(it, report.Requirements.end()) << report.DeviceName << ": no report row for " << name;
+                return it != report.Requirements.end() && it->Met;
+            };
+            for (std::size_t i = 0; i < static_cast<std::size_t>(VulkanContractExtension::Count); ++i)
+            {
+                const VulkanContractExtensionRow& row =
+                    VulkanCapabilities::Row(static_cast<VulkanContractExtension>(i));
+                EXPECT_EQ(!met(row.Extension), missingContains(row.Extension))
+                    << report.DeviceName << ": " << row.Extension;
+                if (row.FeatureBit != nullptr)
+                {
+                    EXPECT_EQ(met(row.Extension) && !met(row.FeatureBit), missingContains(row.FeatureBit))
+                        << report.DeviceName << ": " << row.FeatureBit;
+                }
+            }
 
             // A feature bit can only be reported true when its extension is listed.
             EXPECT_LE(report.DescriptorHeapFeature, report.HasDescriptorHeap) << report.DeviceName;
             EXPECT_LE(report.ShaderUntypedPointersFeature, report.HasShaderUntypedPointers) << report.DeviceName;
+            EXPECT_LE(report.DeviceAddressCommandsFeature, report.HasDeviceAddressCommands) << report.DeviceName;
         }
     }
 
@@ -180,27 +196,16 @@ namespace
         queueInfo.queueCount = 1;
         queueInfo.pQueuePriorities = &queuePriority;
 
-        VkPhysicalDeviceDescriptorHeapFeaturesEXT heapFeatures{};
-        heapFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_HEAP_FEATURES_EXT;
-        heapFeatures.descriptorHeap = VK_TRUE;
-        VkPhysicalDeviceShaderUntypedPointersFeaturesKHR untypedFeatures{};
-        untypedFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_UNTYPED_POINTERS_FEATURES_KHR;
-        untypedFeatures.shaderUntypedPointers = VK_TRUE;
-        untypedFeatures.pNext = &heapFeatures;
-        // #1179's contract row — mirrored here for the same reason as the two
-        // above: this test's claim is "the gate's enables are accepted".
-        VkPhysicalDeviceDeviceAddressCommandsFeaturesKHR addressCommandFeatures{};
-        addressCommandFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEVICE_ADDRESS_COMMANDS_FEATURES_KHR;
-        addressCommandFeatures.deviceAddressCommands = VK_TRUE;
-        addressCommandFeatures.pNext = &untypedFeatures;
-
-        // Mirror VulkanContext::Init's chain exactly, sync2 included — this test's
-        // claim is "the gate's enables are accepted", so the enable list must not
-        // drift from the gate's.
+        // The enable chain is VulkanContractFeatureChain, the same type the gate
+        // enables through and Evaluate() queries through, so this test's claim
+        // ("the gate's enables are accepted") cannot drift from the gate's.
+        // sync2 rides alongside exactly as VulkanDevice::Init chains it.
+        VulkanContractFeatureChain contractFeatures;
+        contractFeatures.RequestAll();
         VkPhysicalDeviceVulkan13Features vulkan13Features{};
         vulkan13Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
         vulkan13Features.synchronization2 = VK_TRUE;
-        vulkan13Features.pNext = &addressCommandFeatures;
+        static_cast<void>(contractFeatures.LinkAll(&vulkan13Features.pNext));
 
         const std::vector<const char*> extensions = VulkanCapabilities::RequiredDeviceExtensions();
 

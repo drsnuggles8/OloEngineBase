@@ -156,7 +156,7 @@ TEST_F(WeaponImpactUsesGameplayDamageTest, HitscanExcludesShooterAndDamagesClose
 
     ASSERT_TRUE(hit);
     ASSERT_TRUE(queries.WasCast);
-    EXPECT_EQ(queries.LastRay.m_ExcludedEntities, ExcludedEntityMap{ m_Shooter.GetUUID() });
+    EXPECT_EQ(queries.LastRay.m_ExcludedEntities, ExcludedEntitySet{ m_Shooter.GetUUID() });
     EXPECT_FLOAT_EQ(queries.LastRay.m_MaxDistance, 80.0f);
     EXPECT_FLOAT_EQ(glm::length(queries.LastRay.m_Direction), 1.0f);
     EXPECT_FLOAT_EQ(m_Target.GetComponent<AbilityComponent>().Attributes.GetCurrentValue("Health"), 40.0f);

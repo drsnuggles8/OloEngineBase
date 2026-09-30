@@ -494,7 +494,6 @@ namespace OloEngine::Tests
 
             FileStreamReader reader(packPath);
             EXPECT_TRUE(reader.IsStreamGood());
-            reader.SetArchiveVersion(AssetPackFile::Version);
             return serializer.DeserializeFromAssetPack(reader, assetInfo).As<MeshSource>();
         }
 

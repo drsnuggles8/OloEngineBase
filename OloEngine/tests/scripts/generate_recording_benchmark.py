@@ -91,7 +91,7 @@ def make_scene():
     scene = SceneWriter("ParallelRecording", 1013_000_001_000_000)
     scene.raw("Entities:\n")
     scene.entity("BenchmarkCamera", (0, 50, 85), (-0.61, 0, 0), components=camera())
-    scene.entity("UniqueShadowCasters3600", components=model("SandboxProject/Assets/Models/Benchmark/RecordingCasters.glb"))
+    scene.entity("UniqueShadowCasters3600", components=model("Assets/Models/Benchmark/RecordingCasters.glb"))
     scene.entity("Ground", (0, -0.15, 0), scale=(110, 0.2, 110),
                  components=mesh(1) + material((0.42, 0.42, 0.42), 0, 0.9))
     scene.entity("Sun", components=(

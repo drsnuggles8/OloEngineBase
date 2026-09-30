@@ -73,19 +73,16 @@ struct GPUSceneGeometry
 #define OLO_GPU_SCENE_GEOMETRY_ACTIVE (1u << 0)
 
 #define OLO_GPU_SCENE_MATERIAL_ACTIVE (1u << 0)
-#define OLO_GPU_SCENE_MATERIAL_PBR (1u << 1)
 #define OLO_GPU_SCENE_MATERIAL_TWO_SIDED (1u << 2)
 #define OLO_GPU_SCENE_MATERIAL_BLEND (1u << 3)
 #define OLO_GPU_SCENE_MATERIAL_DEPTH_TEST (1u << 4)
 #define OLO_GPU_SCENE_MATERIAL_DISABLE_SHADOW_CASTING (1u << 5)
 #define OLO_GPU_SCENE_MATERIAL_IBL (1u << 6)
-#define OLO_GPU_SCENE_MATERIAL_USE_TEXTURE_MAPS (1u << 7)
 #define OLO_GPU_SCENE_MATERIAL_ALBEDO_MAP (1u << 8)
 #define OLO_GPU_SCENE_MATERIAL_METALLIC_ROUGHNESS_MAP (1u << 9)
 #define OLO_GPU_SCENE_MATERIAL_NORMAL_MAP (1u << 10)
 #define OLO_GPU_SCENE_MATERIAL_OCCLUSION_MAP (1u << 11)
 #define OLO_GPU_SCENE_MATERIAL_EMISSIVE_MAP (1u << 12)
-#define OLO_GPU_SCENE_MATERIAL_SPECULAR_MAP (1u << 13)
 #define OLO_GPU_SCENE_MATERIAL_TRANSMISSION (1u << 14)
 
 // A heap offset a consumer must not index with: the texture was not
@@ -97,8 +94,6 @@ struct GPUSceneMaterial
 {
     vec4 BaseColorFactor;
     vec4 EmissiveFactor;
-    vec4 LegacyAmbient;
-    vec4 LegacySpecular;
     float MetallicFactor;
     float RoughnessFactor;
     float NormalScale;
@@ -117,24 +112,20 @@ struct GPUSceneMaterial
     uint OcclusionTextureGeneration;
     uint EmissiveTextureIndex;
     uint EmissiveTextureGeneration;
-    uint SpecularTextureIndex;
-    uint SpecularTextureGeneration;
     uint AlbedoHeapOffset;
     uint MetallicRoughnessHeapOffset;
     uint NormalHeapOffset;
     uint OcclusionHeapOffset;
     uint EmissiveHeapOffset;
-    uint SpecularHeapOffset;
     uint StableIndex;
     uint Generation;
     // Issue #1231 — mirrors GPUSceneMaterial's tail in GPUSceneTypes.h, which
-    // static_asserts the 192-byte size this completes. The two pads are real
-    // members on both sides rather than implicit padding, so neither compiler
+    // static_asserts the 144-byte size this completes. The pad is a real
+    // member on both sides rather than implicit padding, so neither compiler
     // has to agree with the other about something it was not told.
     uint MaterialKind;
     uint SkinProfileSlot;
-    uint SkinPad0;
-    uint SkinPad1;
+    uint Pad0;
 };
 
 // GPUSceneLightType — the same numbering as PBRCommon.glsl's *_LIGHT tags.

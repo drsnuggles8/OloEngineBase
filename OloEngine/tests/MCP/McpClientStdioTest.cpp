@@ -308,7 +308,7 @@ TEST(McpClientStdio, BridgedCallRoundTripsContentAndStructuredContent)
     };
     ASSERT_TRUE(server.ConnectClientWithTransport(FilesConfig(), FakeFactory(fake, WellBehavedScript(onCall))).empty());
 
-    server.SetAllowWrites(true); // bridged tools are always ProjectWrite
+    server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession); // bridged tools are always ProjectWrite
     const Json response = server.HandleMessage(MakeRequest(
         2, "tools/call", Json{ { "name", "ext.files.read_file" }, { "arguments", Json{ { "path", "a.txt" } } } }));
 
@@ -331,7 +331,7 @@ TEST(McpClientStdio, ChildErrorSurfacesAsToolError)
                               { "error", Json{ { "code", -32000 }, { "message", "disk on fire" } } } });
     };
     ASSERT_TRUE(server.ConnectClientWithTransport(FilesConfig(), FakeFactory(fake, WellBehavedScript(onCall))).empty());
-    server.SetAllowWrites(true);
+    server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
 
     const Json response =
         server.HandleMessage(MakeRequest(3, "tools/call", Json{ { "name", "ext.files.read_file" } }));
@@ -351,7 +351,7 @@ TEST(McpClientStdio, UnansweredCallTimesOutWithACleanError)
                     .ConnectClientWithTransport(FilesConfig(std::chrono::milliseconds(100)),
                                                 FakeFactory(fake, WellBehavedScript()))
                     .empty());
-    server.SetAllowWrites(true);
+    server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
 
     const Json response =
         server.HandleMessage(MakeRequest(4, "tools/call", Json{ { "name", "ext.files.read_file" } }));
@@ -841,7 +841,7 @@ TEST(McpClientStdio, InputRequiredResultIsRefusedRatherThanForwarded)
     ASSERT_TRUE(
         server.ConnectClientWithTransport(FilesConfig(), FakeFactory(fake, ModernScript({ "2026-07-28" }, onCall)))
             .empty());
-    server.SetAllowWrites(true);
+    server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
 
     const Json response =
         server.HandleMessage(MakeRequest(21, "tools/call", Json{ { "name", "ext.files.read_file" } }));
@@ -867,7 +867,7 @@ TEST(McpClientStdio, AbsentResultTypeStillCountsAsComplete)
                                                                                  { "text", "legacy payload" } } }) } } } });
     };
     ASSERT_TRUE(server.ConnectClientWithTransport(FilesConfig(), FakeFactory(fake, WellBehavedScript(onCall))).empty());
-    server.SetAllowWrites(true);
+    server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
 
     const Json response =
         server.HandleMessage(MakeRequest(22, "tools/call", Json{ { "name", "ext.files.read_file" } }));

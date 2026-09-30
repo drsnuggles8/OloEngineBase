@@ -119,7 +119,7 @@ namespace OloEngine
         ray.m_Origin = origin;
         ray.m_Direction = direction / std::sqrt(lengthSquared);
         ray.m_MaxDistance = definition.Range;
-        ray.m_ExcludedEntities.push_back(source.GetUUID());
+        ray.m_ExcludedEntities.AddExcludedEntity(source.GetUUID());
 
         SceneQueryHit hit;
         if (!queries.CastRay(ray, hit) || !hit.HasHit())
@@ -163,7 +163,7 @@ namespace OloEngine
         SphereCastInfo sweep(projectile.Position, projectile.Direction,
                              std::isfinite(definition.ProjectileRadius) ? std::max(0.0f, definition.ProjectileRadius) : 0.0f,
                              stepDistance);
-        sweep.m_ExcludedEntities.push_back(projectile.Owner);
+        sweep.m_ExcludedEntities.AddExcludedEntity(projectile.Owner);
 
         SceneQueryHit hit;
         if (queries.CastSphere(sweep, hit) && hit.HasHit())

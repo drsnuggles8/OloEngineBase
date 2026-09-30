@@ -413,13 +413,6 @@ namespace OloEngine
                     ImGui::BulletText("%u x %s", stats.ByReason[i], std::string(ToString(reason)).c_str());
                 }
             }
-            if (stats.MaskedOccludersShadowedAsSolid > 0)
-            {
-                // Not an error, and not hidden either: it is why an alpha-cutout
-                // leaf casts the shadow of its quad. Unblocked by #805.
-                ImGui::TextDisabled("%u masked occluder BLAS shadow as solid (needs #805)",
-                                    stats.MaskedOccludersShadowedAsSolid);
-            }
         }
 
         if (changed)

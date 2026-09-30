@@ -1,4 +1,5 @@
 Scene: FSR2UpscaleTest.olo
+Version: 1
 # FSR2 temporal upscaling (#684) — the scene this feature is verified in.
 #
 # Geometry and lighting are SponzaDeferred's, deliberately: dense thin geometry
@@ -190,7 +191,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     ModelComponent:
-      FilePath: SandboxProject/Assets/Models/Sponza/Sponza.gltf
+      FilePath: Assets/Models/Sponza/Sponza.gltf
       Visible: true
   # ── DamagedHelmet (focal object — easier to spot G-Buffer artifacts on a high-roughness sweep) ──
   - Entity: 790000000000011

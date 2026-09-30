@@ -27,23 +27,6 @@ namespace OloEngine
         Ref<Texture2D>,
         Ref<TextureCubemap>>;
 
-    // @brief Shader resource input structure for legacy compatibility
-    struct ShaderResourceInput
-    {
-        ShaderResourceType Type = ShaderResourceType::None;
-        u32 BindingPoint = 0;
-        ShaderResource Resource;
-
-        // Legacy constructors for backward compatibility
-        ShaderResourceInput() = default;
-        explicit ShaderResourceInput(Ref<UniformBuffer> buffer)
-            : Type(ShaderResourceType::UniformBuffer), Resource(buffer) {}
-        explicit ShaderResourceInput(Ref<Texture2D> texture)
-            : Type(ShaderResourceType::Texture2D), Resource(texture) {}
-        explicit ShaderResourceInput(Ref<TextureCubemap> texture)
-            : Type(ShaderResourceType::TextureCube), Resource(texture) {}
-    };
-
     // @brief Resource binding information
     struct ResourceBinding
     {
@@ -106,7 +89,7 @@ namespace OloEngine
         // the object is still live (under the same mutex Ref<T>::DecRef's
         // release path uses) before incrementing, so a caller that reached
         // this registry via the raw-pointer-keyed ShaderResourceRegistry::Find()
-        // map — as CommandDispatch::SetShaderResource already does — can never
+        // map can never
         // resurrect a Ref during the shader's own release. A plain
         // Ref<Shader>(m_Shader) would skip that check entirely (see
         // docs/agent-rules/intrusive-refcount-weakref-races.md, case 2).
@@ -132,11 +115,9 @@ namespace OloEngine
         void SetTexture(const std::string& name, Ref<Texture2D> texture);
         void SetTexture(const std::string& name, Ref<TextureCubemap> texture);
 
-        // @brief Generic resource setter (using variant)
-        void SetResource(const std::string& name, const ShaderResource& resource);
-
-        // @brief Set resource using input structure (legacy compatibility)
-        bool SetResource(const std::string& name, const ShaderResourceInput& input);
+        // @brief Generic resource setter (using variant). Returns false, with a
+        // warning, when the shader declares no binding called `name`.
+        bool SetResource(const std::string& name, const ShaderResource& resource);
 
         // @brief Template method for type-safe resource setting
         template<typename T>

@@ -255,7 +255,7 @@ namespace OloEngine
                       "dynamic state); pipeline-shaped entry points still stubbed");
     }
 
-    void VulkanRendererAPI::BeginRecording(const VkCommandBuffer cmd)
+    std::shared_ptr<VulkanRecordingCompletion> VulkanRendererAPI::BeginRecording(const VkCommandBuffer cmd)
     {
         OLO_CORE_ASSERT(!OnWorkerContext() && !m_InParallelRegion, "BeginRecording from a RecordParallel item");
         auto& ctx = Ctx();
@@ -264,6 +264,7 @@ namespace OloEngine
         // (VulkanRecordingContext::ResetForCommandBuffer) — an item context
         // starts from the same list at every fork.
         ctx.ResetForCommandBuffer(cmd);
+        m_RecordingCompletion = std::make_shared<VulkanRecordingCompletion>();
         BindDescriptorHeaps(ctx);
         // The parallel recorder's tallies are per recording (#806); they stay
         // readable until the next bracket opens.
@@ -272,6 +273,7 @@ namespace OloEngine
         // queue classification; a frame always starts on the graphics queue.
         m_AsyncComputeStats = {};
         m_BackbufferWritten = false;
+        return m_RecordingCompletion;
     }
 
     void VulkanRendererAPI::EndRecording()
@@ -368,6 +370,14 @@ namespace OloEngine
     {
         auto& ctx = Ctx();
         ctx.Tracker.CommitRecordedToExecuted();
+    }
+
+    std::shared_ptr<VulkanRecordingCompletion> VulkanRendererAPI::RetireFlushedRecording(const bool completed)
+    {
+        OLO_CORE_ASSERT(Ctx().Cmd == VK_NULL_HANDLE, "RetireFlushedRecording requires a suspended recording");
+        m_RecordingCompletion->Completed = completed;
+        m_RecordingCompletion = std::make_shared<VulkanRecordingCompletion>();
+        return m_RecordingCompletion;
     }
 
     void VulkanRendererAPI::ResumeRecordingAfterFlush(const VkCommandBuffer cmd)
@@ -7464,6 +7474,9 @@ namespace OloEngine
                           "WriteTimestamp, never bracketed; ignored");
             return;
         }
+        // Invalidate the previous generation before recording its GPU reset.
+        entry->Recorded = false;
+        entry->Completion = m_RecordingCompletion;
         // Discipline 1 + 2 (see the block comment above): both the reset and
         // the begin/stamp must sit outside a render pass instance.
         EndRenderingScope();
@@ -7554,6 +7567,7 @@ namespace OloEngine
         EndRenderingScope();
         vkCmdResetQueryPool(ctx.Cmd, entry->Pool, entry->Index, 1u);
         vkCmdWriteTimestamp2(ctx.Cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, entry->Pool, entry->Index);
+        entry->Completion = m_RecordingCompletion;
         entry->Recorded = true;
         return true;
     }
@@ -7563,7 +7577,8 @@ namespace OloEngine
         outValue = 0;
         auto* entry = VulkanQueryRegistry::Get().Lookup(query);
         auto* device = VulkanDevice::Get();
-        if (entry == nullptr || !entry->Recorded || device == nullptr || device->GetDevice() == VK_NULL_HANDLE)
+        if (entry == nullptr || !entry->Recorded || !entry->Completion ||
+            device == nullptr || device->GetDevice() == VK_NULL_HANDLE)
         {
             // A stale handle (or one never written) has no result and never
             // will. Reporting "available" would make the caller read a zero and
@@ -7572,6 +7587,26 @@ namespace OloEngine
             return false;
         }
 
+        auto& completion = *entry->Completion;
+        if (!completion.Completed)
+        {
+            if (completion.SubmittedFence == VK_NULL_HANDLE)
+            {
+                return false;
+            }
+            const VkResult completed = wait
+                                           ? vkWaitForFences(device->GetDevice(), 1, &completion.SubmittedFence, VK_TRUE, UINT64_MAX)
+                                           : vkGetFenceStatus(device->GetDevice(), completion.SubmittedFence);
+            if (completed != VK_SUCCESS)
+            {
+                return false;
+            }
+            completion.Completed = true;
+        }
+
+        // Availability (even WAIT_BIT) can expose the PREVIOUS query generation
+        // until the GPU executes vkCmdResetQueryPool. The completion proof above
+        // covers this generation's reset and write, never just a CPU frame age.
         // Per-kind readback (#691): occlusion reads its single slot
         // raw; Timestamp reads one timestamp slot and scales ticks →
         // nanoseconds; TimeElapsed reads its PAIR (availability keyed on the
@@ -7603,10 +7638,8 @@ namespace OloEngine
             return false;
         };
 
-        // Availability first, never blocking: this is both the answer for
-        // IsQueryResultAvailable and the guard that keeps the WAIT read below
-        // off a slot whose submission has not been made yet. Layout: pairs of
-        // (value, availability) per slot.
+        // The fence proof above establishes the generation. Probe its results
+        // without blocking first. Layout: pairs of (value, availability) per slot.
         std::array<u64, 4> probe{ 0u, 0u, 0u, 0u };
         const VkResult status = vkGetQueryPoolResults(
             device->GetDevice(), entry->Pool, entry->Index, slotCount, sizeof(u64) * 2u * slotCount, probe.data(),

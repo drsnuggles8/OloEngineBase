@@ -1,4 +1,5 @@
 Scene: DeccerCubesTest.olo
+Version: 1
 # The "deccer cubes" challenge (github.com/deccer/deccer-cubes). Seven .gltf
 # variants of the same cube cluster, each stressing a different aspect of the
 # importer:

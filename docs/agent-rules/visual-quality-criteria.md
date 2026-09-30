@@ -71,6 +71,30 @@ quads"* — reduced measured detail to **0.31×**. The feature that exists to ad
 removed it. That is a quality signal a presence test structurally cannot produce, and it would have
 failed at acceptance time.
 
+**The gate is in the code now.** `VisualEvidenceGuards.h` owns `FineDetailDensity` (fixed threshold
+8/255, forward-difference gradient of Rec.601 luma; a central difference reads zero on a 1 px alternation), `ExpectFineDetailNotReduced` (the A/B, the strong
+check) and `ExpectFineDetailFloorAgainstReference` (against a photograph, the weaker check).
+`FineDetailConditions.h` snapshots resolution, path, MSAA and the full post-process settings at each
+arm's capture, and `ExpectConditionsPinned` fails the A/B if the two snapshots differ. A new
+"richness" A/B calls the first and the pinned check; it does not pick its own threshold or crop. The
+CPU proof, including the negative controls (a blurred stand-in fails, an identical frame passes,
+dither raises the absolute number but not the A/B ordering), is `FineDetailDensityTest.cpp`.
+
+**Crop to the near field.** The criterion is about close flora, and the canopy fills the upper half
+of the frame with detail either way. Recomputed on the committed `FloraCloseGeometry_*` captures at
+the #1224 acceptance commit (`536cd52a9`), mesh/cards is **1.85x on the whole frame and 0.35x on the
+lower half**: a whole-frame gate would have passed the frame it exists for. The lower half is the
+crop the tests use (it is the FIRST half of an unflipped GL readback). After the #1398 art import
+(`58f34c208`) the same cell reads 2.0x to 2.6x, and today 2.31x (Deferred, Forward and Forward+
+alike), so the gate is a regression guard now, not a finding. Swapping the arms fails both tests
+(the negative control on real frames). `FoliageAuthoredMesh_near*` reads 3.51x.
+
+The count is not a sharpness meter for hard-edged content: a light blur of a hard edge RAISES it
+(the edge widens before it fades). It orders fine texture reliably; compare like with like
+(`CaveatHardEdgesWidenUnderLightBlur...` pins this). And a passing number is not a verdict: the
+pine near-field crop passes at 3.51x, yet at 3x the pines are smooth flat-shaded cones with grass
+blades hanging off them. The frame wins; that is #1398's art gap.
+
 Caveats, because a gate nobody can trust is worse than none:
 
 - **Compare only at identical output resolution.** A non-native or upscaled capture scores
@@ -97,3 +121,4 @@ because the numbers are available and look like an answer.
 - [foliage-lod-transition-coverage.md](foliage-lod-transition-coverage.md) — the neighbouring trap
   where a conserved quantity makes a plausible metric read backwards.
 - Issue #1401 carries the proposed gate and the measurements above.
+- [testing-architecture.md](testing-architecture.md): `FineDetailDensityTest` is an L1 CPU test; the A/B calls sit in the L8 evidence tests.

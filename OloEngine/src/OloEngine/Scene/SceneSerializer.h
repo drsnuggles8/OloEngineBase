@@ -20,14 +20,12 @@ namespace OloEngine
     class SceneSerializer
     {
       public:
-        // Scene YAML schema version. Bump this and add a migration step to
-        // MigrateSceneYAML (in SceneSerializer.cpp) whenever a change to the
-        // on-disk format needs one. Every scene file written before this
-        // versioning scheme existed has no "Version" key at all; those are
-        // treated as ImplicitVersion so the entire existing scene library
-        // keeps loading unmodified.
+        // Scene YAML schema version, written as the required top-level
+        // `Version` key. A scene whose Version is missing or differs from this
+        // is rejected on every deserialize entry point. Bumping it means
+        // migrating every scene in the repo in the same PR
+        // (docs/agent-rules/binary-format-versioning.md).
         static constexpr u32 CurrentVersion = 1;
-        static constexpr u32 ImplicitVersion = 0;
 
         explicit SceneSerializer(const Ref<Scene>& scene);
 

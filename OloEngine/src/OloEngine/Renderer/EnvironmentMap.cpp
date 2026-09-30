@@ -133,21 +133,6 @@ namespace OloEngine
         OLO_CORE_INFO("IBL textures generated successfully");
     }
 
-    void EnvironmentMap::GenerateIrradianceMap()
-    {
-        GenerateIrradianceMapWithConfig(m_Specification.IBLConfig);
-    }
-
-    void EnvironmentMap::GeneratePrefilterMap()
-    {
-        GeneratePrefilterMapWithConfig(m_Specification.IBLConfig);
-    }
-
-    void EnvironmentMap::GenerateBRDFLut()
-    {
-        GenerateBRDFLutWithConfig(m_Specification.IBLConfig);
-    }
-
     // Enhanced IBL generation methods
     void EnvironmentMap::GenerateIBLWithConfig(const IBLConfiguration& config)
     {

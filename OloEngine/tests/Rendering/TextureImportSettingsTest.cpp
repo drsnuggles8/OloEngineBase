@@ -99,36 +99,34 @@ TEST(TextureImportSettings, EmitParseRoundTrip)
     EXPECT_EQ(restored.AlphaMipChain, TextureImportSettings::AlphaMipChainChoice::Coverage);
 }
 
-TEST(TextureImportSettings, OnlyASidecarThatUsesAlphaMipChainIsVersionTwo)
+TEST(TextureImportSettings, OnlyTheCurrentVersionIsRead)
 {
-    // Version 2 added AlphaMipChain (#1453). A version-1 cook ignores a key it
-    // does not know, so a sidecar that USES the field says version 2 and such a
-    // cook rejects it loudly; one that does not stays version 1 and readable.
+    // One current version (binary-format-versioning.md). Emit always writes it,
+    // with or without AlphaMipChain, and Parse refuses a missing Version and every
+    // other number, including the retired version 1.
     TextureImportSettings plain;
     plain.Format = TextureImportSettings::FormatChoice::BC5;
-    const std::string v1 = TextureImport::Emit(plain);
-    EXPECT_NE(v1.find("Version: 1"), std::string::npos) << v1;
-    EXPECT_EQ(v1.find("AlphaMipChain"), std::string::npos) << v1;
+    const std::string emitted = TextureImport::Emit(plain);
+    EXPECT_NE(emitted.find("Version: 2\n"), std::string::npos) << emitted;
+    EXPECT_EQ(emitted.find("AlphaMipChain"), std::string::npos) << emitted;
 
     TextureImportSettings boxed;
     boxed.AlphaMipChain = TextureImportSettings::AlphaMipChainChoice::Box;
-    const std::string v2 = TextureImport::Emit(boxed);
-    EXPECT_NE(v2.find("Version: 2"), std::string::npos) << v2;
+    EXPECT_NE(TextureImport::Emit(boxed).find("Version: 2\n"), std::string::npos);
 
     TextureImportSettings parsed;
-    EXPECT_TRUE(TextureImport::Parse(v1, parsed));
-    EXPECT_TRUE(TextureImport::Parse(v2, parsed));
+    EXPECT_TRUE(TextureImport::Parse(emitted, parsed));
+    EXPECT_FALSE(TextureImport::Parse("TextureImportSettings:\n  Version: 1\n  Format: BC5\n", parsed));
     EXPECT_FALSE(TextureImport::Parse("TextureImportSettings:\n  Version: 3\n", parsed));
-    // The field in a file that does not say version 2 (or says nothing, which a
-    // version-1 cook reads as 1) is refused, not read.
-    EXPECT_FALSE(TextureImport::Parse("TextureImportSettings:\n  Version: 1\n  AlphaMipChain: Box\n", parsed));
+    EXPECT_FALSE(TextureImport::Parse("TextureImportSettings:\n  Format: BC5\n", parsed));
     EXPECT_FALSE(TextureImport::Parse("TextureImportSettings:\n  AlphaMipChain: Box\n", parsed));
+    EXPECT_TRUE(parsed.IsAllAuto()) << "a rejected sidecar must not leave a half-read result behind";
 }
 
 TEST(TextureImportSettings, OmittedFieldsMeanAuto)
 {
     TextureImportSettings settings;
-    ASSERT_TRUE(TextureImport::Parse("TextureImportSettings:\n  Version: 1\n", settings));
+    ASSERT_TRUE(TextureImport::Parse("TextureImportSettings:\n  Version: 2\n", settings));
     EXPECT_TRUE(settings.IsAllAuto());
 }
 
@@ -137,9 +135,9 @@ TEST(TextureImportSettings, RejectsUnknownSpellingsAndVersions)
     // A typo must be a loud failure, not a silent fall back to Auto — the whole point of
     // the sidecar is that the format was chosen deliberately.
     TextureImportSettings settings;
-    EXPECT_FALSE(TextureImport::Parse("TextureImportSettings:\n  Format: BC9\n", settings));
-    EXPECT_FALSE(TextureImport::Parse("TextureImportSettings:\n  ColorSpace: Rec709\n", settings));
-    EXPECT_FALSE(TextureImport::Parse("TextureImportSettings:\n  AlphaMipChain: Castano\n", settings));
+    EXPECT_FALSE(TextureImport::Parse("TextureImportSettings:\n  Version: 2\n  Format: BC9\n", settings));
+    EXPECT_FALSE(TextureImport::Parse("TextureImportSettings:\n  Version: 2\n  ColorSpace: Rec709\n", settings));
+    EXPECT_FALSE(TextureImport::Parse("TextureImportSettings:\n  Version: 2\n  AlphaMipChain: Castano\n", settings));
     EXPECT_FALSE(TextureImport::Parse("TextureImportSettings:\n  Version: 99\n  Format: BC5\n", settings));
     EXPECT_FALSE(TextureImport::Parse("NotOurRoot:\n  Format: BC5\n", settings));
     EXPECT_FALSE(TextureImport::Parse("this: [is: not: yaml", settings));
@@ -180,7 +178,7 @@ TEST(TextureImportSettings, SidecarSteersTheCookToBC5)
     EXPECT_EQ(withoutSidecar.Format, TextureCompressionFormat::BC7)
         << "a texture with no sidecar must cook exactly as it did before sidecars existed";
 
-    WriteSidecar(png, "TextureImportSettings:\n  Version: 1\n  Format: BC5\n");
+    WriteSidecar(png, "TextureImportSettings:\n  Version: 2\n  Format: BC5\n");
     CompressedTextureImage withSidecar;
     ASSERT_TRUE(TextureCompression::CompressImageFile(png.string(), autoOptions, withSidecar));
     EXPECT_EQ(withSidecar.Format, TextureCompressionFormat::BC5);
@@ -192,7 +190,7 @@ TEST(TextureImportSettings, SidecarSteersTheCookToBC5)
 TEST(TextureImportSettings, ExplicitOptionsOutrankTheSidecar)
 {
     const std::filesystem::path png = WriteSourcePng("_explicit", 16, 16);
-    WriteSidecar(png, "TextureImportSettings:\n  Version: 1\n  Format: BC5\n");
+    WriteSidecar(png, "TextureImportSettings:\n  Version: 2\n  Format: BC5\n");
 
     TextureCompression::CompressOptions options;
     options.Format = TextureCompressionFormat::BC7; // caller was explicit
@@ -210,7 +208,7 @@ TEST(TextureImportSettings, SidecarGenerateMipsBeatsTheCallersValue)
     // caller-passed false is indistinguishable from a default and the sidecar — an
     // authored, per-asset statement — is taken as the more specific one.
     const std::filesystem::path png = WriteSourcePng("_mips", 16, 16);
-    WriteSidecar(png, "TextureImportSettings:\n  Version: 1\n  GenerateMips: false\n");
+    WriteSidecar(png, "TextureImportSettings:\n  Version: 2\n  GenerateMips: false\n");
 
     TextureCompression::CompressOptions options;
     options.GenerateMips = true; // caller asked for a chain; the sidecar says no
@@ -224,7 +222,7 @@ TEST(TextureImportSettings, SidecarGenerateMipsBeatsTheCallersValue)
 TEST(TextureImportSettings, UseImportSettingsFalseIgnoresTheSidecar)
 {
     const std::filesystem::path png = WriteSourcePng("_ignored", 16, 16);
-    WriteSidecar(png, "TextureImportSettings:\n  Version: 1\n  Format: BC5\n  GenerateMips: false\n");
+    WriteSidecar(png, "TextureImportSettings:\n  Version: 2\n  Format: BC5\n  GenerateMips: false\n");
 
     TextureCompression::CompressOptions options;
     options.UseImportSettings = false;
@@ -249,7 +247,7 @@ TEST(TextureImportSettings, SidecarOverridesColorSpaceAgainstTheFilenameHeuristi
     ASSERT_TRUE(TextureCompression::CompressImageFile(png.string(), options, linearByName));
     EXPECT_FALSE(linearByName.SRGB);
 
-    WriteSidecar(png, "TextureImportSettings:\n  Version: 1\n  ColorSpace: sRGB\n");
+    WriteSidecar(png, "TextureImportSettings:\n  Version: 2\n  ColorSpace: sRGB\n");
     CompressedTextureImage srgbBySidecar;
     ASSERT_TRUE(TextureCompression::CompressImageFile(png.string(), options, srgbBySidecar));
     EXPECT_TRUE(srgbBySidecar.SRGB);
@@ -262,7 +260,7 @@ TEST(TextureImportSettings, MalformedSidecarFallsBackToAutoAndDoesNotCookTheWron
     // A malformed sidecar is logged as an error and the cook proceeds automatically — it
     // must never half-apply a broken file (e.g. take Format but drop ColorSpace).
     const std::filesystem::path png = WriteSourcePng("_malformed", 16, 16);
-    WriteSidecar(png, "TextureImportSettings:\n  Version: 1\n  Format: BC5\n  ColorSpace: Nonsense\n");
+    WriteSidecar(png, "TextureImportSettings:\n  Version: 2\n  Format: BC5\n  ColorSpace: Nonsense\n");
 
     TextureCompression::CompressOptions options;
     CompressedTextureImage image;

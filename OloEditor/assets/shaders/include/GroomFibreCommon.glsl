@@ -471,8 +471,8 @@ OloGroomFibreLobes oloGroomFibreAmbientResponse(OloGroomFibre fibre, float sinTh
 // the scene's IBL irradiance cube along `direction`. Issue #1450.
 //
 // THE SAMPLE IS THE ANSWER, WITH NO 1/PI. The cube stores NORMALIZED irradiance
-// E/pi, whichever producer baked it (IrradianceConvolution.glsl's
-// pi * mean(L cos sin), or IrradianceFromSH.glsl's A0 = 1), so a uniform sky of
+// E/pi, whichever producer baked it (IrradianceConvolutionAdvanced.glsl's
+// mean(L) under cosine sampling, or IrradianceFromSH.glsl's A0 = 1), so a uniform sky of
 // radiance L reads back as exactly L. That is the quantity the ambient response
 // wants. Dividing by pi here made every coat pi times too dark against a
 // Lambertian surface lit by the same cube, because the old comment took the

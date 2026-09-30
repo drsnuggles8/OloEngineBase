@@ -1,4 +1,5 @@
 Scene: FoliageGenerationTest.olo
+Version: 1
 PostProcessSettings:
   TonemapOperator: 1
   Exposure: 1
@@ -181,8 +182,8 @@ Entities:
       Enabled: true
       Layers:
         - Name: Grass
-          MeshPath: SandboxProject/Assets/Models/Vegetation/grass/grass.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass/Textures/grass_card.png
+          MeshPath: Assets/Models/Vegetation/grass/grass.obj
+          AlbedoPath: Assets/Models/Vegetation/grass/Textures/grass_card.png
           Density: 6
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -203,8 +204,8 @@ Entities:
           AlphaCutoff: 0.5
           Enabled: true
         - Name: Wildflowers
-          MeshPath: SandboxProject/Assets/Models/Vegetation/flower/flower.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/flower/Textures/flower_card.png
+          MeshPath: Assets/Models/Vegetation/flower/flower.obj
+          AlbedoPath: Assets/Models/Vegetation/flower/Textures/flower_card.png
           Density: 1.5
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -225,8 +226,8 @@ Entities:
           AlphaCutoff: 0.5
           Enabled: true
         - Name: Dune Grass
-          MeshPath: SandboxProject/Assets/Models/Vegetation/grass_dry/grass_dry.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
+          MeshPath: Assets/Models/Vegetation/grass_dry/grass_dry.obj
+          AlbedoPath: Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
           Density: 1
           SplatmapChannel: 0
           MinSlopeAngle: 0

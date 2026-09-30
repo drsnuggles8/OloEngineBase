@@ -97,6 +97,7 @@ class SceneWriter:
 
         header = (
             f"Scene: {self.name}.olo\n"
+            "Version: 1\n"
             "# ─────────────────────────────────────────────────────────────────────────────\n"
             + comment(self.header_note[0])
         )
@@ -559,7 +560,7 @@ def foliage(layers):
 # needles in the lower half and pine cones in the upper - so pointing a card at
 # it puts cones on the billboard. One texture standing in for a plant it is not
 # a picture of is precisely the defect issue #1398 records.
-VEG = "SandboxProject/Assets/Models/Vegetation"
+VEG = "Assets/Models/Vegetation"
 
 
 def veg_mesh(species):
@@ -800,7 +801,7 @@ def build_animal_long_coat():
     ] + ANIMAL_NOTE_COMMON
     return build_animal(
         "AnimalLongCoat", note,
-        model("SandboxProject/Assets/Models/Reference/longcoat-quadruped.obj")
+        model("Assets/Models/Reference/longcoat-quadruped.obj")
         + material((0.46, 0.40, 0.32), 0.0, 0.78),
         ((0, 0, 0), (0, 0, 0), (1, 1, 1)),
         "LongCoatedQuadruped",

@@ -8,6 +8,7 @@ Prefab:
   # (BoomLength 0 + CollisionEnabled false = first person).
   Scene: |
     Scene: FirstPersonPlayer
+    Version: 1
     Entities:
       - Entity: 6450000000000000101
         TagComponent:

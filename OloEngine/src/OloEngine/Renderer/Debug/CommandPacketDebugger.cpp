@@ -387,20 +387,21 @@ namespace OloEngine
         ImGui::Separator();
 
         // Select the command list based on view mode
+        const CapturedPassData& source = frame->SourcePass();
         const TArray<CapturedCommandData>* commands = nullptr;
         switch (m_CommandViewMode)
         {
             case CommandViewMode::PreSort:
-                commands = &frame->PreSortCommands;
+                commands = &source.PreSortCommands;
                 break;
             case CommandViewMode::PostSort:
-                commands = &frame->PostSortCommands;
+                commands = &source.PostSortCommands;
                 break;
             case CommandViewMode::PostBatch:
-                commands = &frame->PostBatchCommands;
+                commands = &source.PostBatchCommands;
                 break;
             default:
-                commands = &frame->PostSortCommands;
+                commands = &source.PostSortCommands;
                 break;
         }
 
@@ -602,7 +603,7 @@ namespace OloEngine
             ImGui::Text("  [%.2f, %.2f, %.2f, %.2f]", t[row][0], t[row][1], t[row][2], t[row][3]);
 
         ImGui::Separator();
-        if (matPtr && matPtr->enablePBR)
+        if (matPtr)
         {
             ImGui::Text("PBR Material:");
             ImGui::Text("  Base Color: (%.2f, %.2f, %.2f, %.2f)", matPtr->baseColorFactor.r, matPtr->baseColorFactor.g, matPtr->baseColorFactor.b, matPtr->baseColorFactor.a);
@@ -617,15 +618,6 @@ namespace OloEngine
                         FormatHandle(matPtr->normalMapID).c_str(),
                         FormatHandle(matPtr->aoMapID).c_str(),
                         FormatHandle(matPtr->emissiveMapID).c_str());
-        }
-        else if (matPtr)
-        {
-            ImGui::Text("Legacy Material:");
-            ImGui::Text("  Ambient: (%.2f, %.2f, %.2f)", matPtr->ambient.r, matPtr->ambient.g, matPtr->ambient.b);
-            ImGui::Text("  Diffuse: (%.2f, %.2f, %.2f)", matPtr->diffuse.r, matPtr->diffuse.g, matPtr->diffuse.b);
-            ImGui::Text("  Specular: (%.2f, %.2f, %.2f)", matPtr->specular.r, matPtr->specular.g, matPtr->specular.b);
-            ImGui::Text("  Shininess: %.1f", matPtr->shininess);
-            ImGui::Text("  Textures: diffuse=%u, specular=%u", matPtr->diffuseMapID, matPtr->specularMapID);
         }
         else
         {
@@ -728,8 +720,9 @@ namespace OloEngine
             return;
         }
 
-        const auto& pre = frame->PreSortCommands;
-        const auto& post = frame->PostSortCommands;
+        const CapturedPassData& source = frame->SourcePass();
+        const auto& pre = source.PreSortCommands;
+        const auto& post = source.PostSortCommands;
 
         if (pre.IsEmpty() || post.IsEmpty())
         {
@@ -808,7 +801,8 @@ namespace OloEngine
         }
 
         // Use post-sort or post-batch
-        const auto& commands = !frame->PostBatchCommands.IsEmpty() ? frame->PostBatchCommands : frame->PostSortCommands;
+        const CapturedPassData& source = frame->SourcePass();
+        const auto& commands = !source.PostBatchCommands.IsEmpty() ? source.PostBatchCommands : source.PostSortCommands;
 
         if (commands.Num() < 2)
         {
@@ -919,8 +913,9 @@ namespace OloEngine
             return;
         }
 
-        const auto& preBatch = frame->PostSortCommands;
-        const auto& postBatch = frame->PostBatchCommands;
+        const CapturedPassData& source = frame->SourcePass();
+        const auto& preBatch = source.PostSortCommands;
+        const auto& postBatch = source.PostBatchCommands;
 
         ImGui::Text("Batching Analysis");
         ImGui::Separator();
@@ -997,7 +992,8 @@ namespace OloEngine
             return;
         }
 
-        const auto& commands = !frame->PostBatchCommands.IsEmpty() ? frame->PostBatchCommands : frame->PostSortCommands;
+        const CapturedPassData& source = frame->SourcePass();
+        const auto& commands = !source.PostBatchCommands.IsEmpty() ? source.PostBatchCommands : source.PostSortCommands;
 
         if (commands.IsEmpty())
         {
@@ -1221,7 +1217,8 @@ namespace OloEngine
 
             file << "Index,Type,DrawKey,ViewportID,ViewLayer,RenderMode,MaterialID,ShaderID,Depth,Static,GroupID,DebugName,GpuTimeMs\n";
 
-            const auto& commands = !selectedFrame->PostSortCommands.IsEmpty() ? selectedFrame->PostSortCommands : selectedFrame->PreSortCommands;
+            const CapturedPassData& source = selectedFrame->SourcePass();
+            const auto& commands = !source.PostSortCommands.IsEmpty() ? source.PostSortCommands : source.PreSortCommands;
 
             for (sizet i = 0; i < commands.Num(); ++i)
             {
@@ -1301,13 +1298,14 @@ namespace OloEngine
 
         void AppendFrameInfoSection(const CapturedFrameData* frame, std::ostringstream& file)
         {
+            const CapturedPassData& source = frame->SourcePass();
             file << "# Command Bucket Frame Capture Report\n\n";
             file << "## Frame Info\n\n";
             file << "- **Frame Number:** " << frame->FrameNumber << "\n";
             file << "- **Timestamp:** " << std::fixed << std::setprecision(3) << frame->TimestampSeconds << "s\n";
-            file << "- **Total Commands (pre-sort):** " << frame->PreSortCommands.Num() << "\n";
-            file << "- **Total Commands (post-sort):** " << frame->PostSortCommands.Num() << "\n";
-            file << "- **Total Commands (post-batch):** " << frame->PostBatchCommands.Num() << "\n";
+            file << "- **Total Commands (pre-sort):** " << source.PreSortCommands.Num() << "\n";
+            file << "- **Total Commands (post-sort):** " << source.PostSortCommands.Num() << "\n";
+            file << "- **Total Commands (post-batch):** " << source.PostBatchCommands.Num() << "\n";
             if (!frame->Notes.IsEmpty())
                 file << "- **Notes:** " << frame->Notes.ToView() << "\n";
             file << "\n";
@@ -1358,10 +1356,11 @@ namespace OloEngine
 
         void AppendSortAnalysisSection(const CapturedFrameData* frame, std::ostringstream& file)
         {
+            const CapturedPassData& source = frame->SourcePass();
             file << "## Sort Analysis\n\n";
-            if (!frame->PreSortCommands.IsEmpty() && !frame->PostSortCommands.IsEmpty())
+            if (!source.PreSortCommands.IsEmpty() && !source.PostSortCommands.IsEmpty())
             {
-                const auto& post = frame->PostSortCommands;
+                const auto& post = source.PostSortCommands;
 
                 f64 totalDisplacement = 0.0;
                 u32 maxDisplacement = 0;
@@ -1438,14 +1437,15 @@ namespace OloEngine
 
         void AppendBatchingAnalysisSection(const CapturedFrameData* frame, const TArray<CapturedCommandData>& commands, std::ostringstream& file)
         {
+            const CapturedPassData& source = frame->SourcePass();
             file << "## Batching Analysis\n\n";
-            if (!frame->PostBatchCommands.IsEmpty())
+            if (!source.PostBatchCommands.IsEmpty())
             {
-                i32 merged = static_cast<i32>(frame->PostSortCommands.Num()) - static_cast<i32>(frame->PostBatchCommands.Num());
-                f32 batchRatio = frame->PostSortCommands.IsEmpty() ? 1.0f : static_cast<f32>(frame->PostBatchCommands.Num()) / static_cast<f32>(frame->PostSortCommands.Num());
+                i32 merged = static_cast<i32>(source.PostSortCommands.Num()) - static_cast<i32>(source.PostBatchCommands.Num());
+                f32 batchRatio = source.PostSortCommands.IsEmpty() ? 1.0f : static_cast<f32>(source.PostBatchCommands.Num()) / static_cast<f32>(source.PostSortCommands.Num());
 
-                file << "- **Pre-batch commands:** " << frame->PostSortCommands.Num() << "\n";
-                file << "- **Post-batch commands:** " << frame->PostBatchCommands.Num() << "\n";
+                file << "- **Pre-batch commands:** " << source.PostSortCommands.Num() << "\n";
+                file << "- **Post-batch commands:** " << source.PostBatchCommands.Num() << "\n";
                 file << "- **Merged:** " << (merged > 0 ? merged : 0) << " commands\n";
                 file << "- **Batch ratio:** " << std::fixed << std::setprecision(1) << (batchRatio * 100.0f) << "%\n\n";
             }
@@ -1489,7 +1489,7 @@ namespace OloEngine
                         file << "- VAO: " << FormatHandle(meshCmd->vertexArrayID) << ", Index Count: " << meshCmd->indexCount << "\n";
                         file << "- Entity ID: " << meshCmd->entityID << "\n";
                         file << "- Material Data Index: " << meshCmd->materialDataIndex << "\n";
-                        if (mat && mat->enablePBR)
+                        if (mat)
                         {
                             file << "- PBR Material: baseColor=(" << mat->baseColorFactor.r << "," << mat->baseColorFactor.g << "," << mat->baseColorFactor.b << ")"
                                  << " metallic=" << mat->metallicFactor << " roughness=" << mat->roughnessFactor << "\n";
@@ -1603,10 +1603,11 @@ namespace OloEngine
             }
 
             // Low batch merge rate
-            if (!frame->PostBatchCommands.IsEmpty() && !frame->PostSortCommands.IsEmpty())
+            const CapturedPassData& source = frame->SourcePass();
+            if (!source.PostBatchCommands.IsEmpty() && !source.PostSortCommands.IsEmpty())
             {
-                f32 batchRatio = static_cast<f32>(frame->PostBatchCommands.Num()) / static_cast<f32>(frame->PostSortCommands.Num());
-                if (batchRatio > 0.95f && frame->PostSortCommands.Num() > 10)
+                f32 batchRatio = static_cast<f32>(source.PostBatchCommands.Num()) / static_cast<f32>(source.PostSortCommands.Num());
+                if (batchRatio > 0.95f && source.PostSortCommands.Num() > 10)
                 {
                     file << "- **Low batch merge rate** (" << std::fixed << std::setprecision(1) << ((1.0f - batchRatio) * 100.0f) << "% merged): "
                          << "Check if meshes with the same shader/material could share vertex buffers for instancing.\n";
@@ -1650,7 +1651,8 @@ namespace OloEngine
 
         // Post-sort is the most useful for analysis; fall back to pre-sort when the
         // sort stage wasn't captured. The section builders share this selection.
-        const auto& commands = !frame->PostSortCommands.IsEmpty() ? frame->PostSortCommands : frame->PreSortCommands;
+        const CapturedPassData& source = frame->SourcePass();
+        const auto& commands = !source.PostSortCommands.IsEmpty() ? source.PostSortCommands : source.PreSortCommands;
 
         AppendFrameInfoSection(frame, file);
         AppendPipelineStatisticsSection(frame, file);

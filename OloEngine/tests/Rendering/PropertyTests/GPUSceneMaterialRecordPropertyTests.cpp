@@ -117,8 +117,6 @@ namespace OloEngine::Tests
         materialB.m_MetallicFactor = 0.75f;
         materialB.m_RoughnessFactor = 0.25f;
         expectCompatible("metallic and roughness");
-        materialB.m_Shininess = 64.0f;
-        expectCompatible("legacy shininess");
         materialB.m_AlphaCutoff = 0.3f;
         expectCompatible("alpha cutoff");
         materialB.m_Flags |= GPUSceneMaterialFlagTwoSided;
@@ -216,8 +214,6 @@ namespace OloEngine::Tests
         expectIncompatible("albedo texture re-created (RHI generation only)");
         materialB.m_AlphaMode = 1;
         expectIncompatible("alpha mode");
-        materialB.m_Flags ^= GPUSceneMaterialFlagPBR;
-        expectIncompatible("PBR classification flag");
     }
 
     TEST(GPUScene, MaterialRemovalRetiresTheSlotBeforeReuse)
@@ -336,16 +332,15 @@ namespace OloEngine::Tests
 
     TEST(GPUScene, EveryMaterialTextureLaneIsPartOfIdentity)
     {
-        // Each of the six texture lanes is a swap when it changes. A lane the
+        // Each of the five texture lanes is a swap when it changes. A lane the
         // encoder carries but the identity projection ignores would keep the
         // generation and let temporal history survive a texture change.
-        constexpr std::array<GPUSceneTextureRef GPUSceneMaterialInput::*, 6> kLanes{
+        constexpr std::array<GPUSceneTextureRef GPUSceneMaterialInput::*, 5> kLanes{
             &GPUSceneMaterialInput::m_Albedo,
             &GPUSceneMaterialInput::m_MetallicRoughness,
             &GPUSceneMaterialInput::m_Normal,
             &GPUSceneMaterialInput::m_Occlusion,
             &GPUSceneMaterialInput::m_Emissive,
-            &GPUSceneMaterialInput::m_Specular,
         };
         static_assert(GPUSceneMaterialTextureIdentity(GPUSceneMaterial{}).size() == 2 * kLanes.size(),
                       "one index and one generation per lane");

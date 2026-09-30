@@ -30,7 +30,7 @@
 #type vertex
 #version 460 core
 
-// The fragment below reads u_EntityID through InstanceBlock.glsl, so the
+// The fragment below reads the instance EntityID through InstanceBlock.glsl, so the
 // instance index IS forwarded: no OLO_INSTANCE_NO_FORWARD here.
 #include "include/FoliageImpostorVertexStage.glsl"
 
@@ -65,7 +65,7 @@ layout(location = 3) in vec2 v_LodSeedFade; // (instance draw, thinning fade) �
 
 #include "include/FoliageParams.glsl"
 
-// u_EntityID rides the per-draw instance SSBO (foliage uploads ONE shared
+// the instance EntityID rides the per-draw instance SSBO (foliage uploads ONE shared
 // entry — OLO_INSTANCE_SINGLE in the vertex stage).
 #include "include/InstanceBlock.glsl"
 #include "include/FoliageImpostorSampling.glsl"
@@ -143,7 +143,7 @@ void main()
     o_GBufferVelocity = vec4((ndcCurr - ndcPrev) * 0.5,
                              clamp(card.Coverage * card.DistFade, 0.0, 1.0), 0.0);
 
-    o_GBufferEntityID = u_EntityID;
+    o_GBufferEntityID = instances[v_InstanceIndex].EntityID;
     // RT5's red channel is the THICKNESS LANE for a foliage pixel (issue
     // #1234) — see Foliage_Instance_GBuffer.glsl for why coverage 0 makes that
     // free. Constant across the card, for the reason stated above.

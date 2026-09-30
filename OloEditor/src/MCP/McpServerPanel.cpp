@@ -239,7 +239,7 @@ namespace OloEngine::MCP
                 s_MetricsProfile = exposure.Profile;
             }
             ImGui::Text("Exposed (%s): %d of %d tools, %d resources, %d prompts",
-                        server.AllowWrites() ? "writes ON" : "read-only",
+                        server.GetWriteConsentMode() != WriteConsentMode::Disabled ? "writes ON" : "read-only",
                         static_cast<int>(s_Metrics.ListedTools), static_cast<int>(server.ToolCount()),
                         static_cast<int>(server.ResourcesSnapshot()->size()),
                         static_cast<int>(server.Prompts().size()));

@@ -1579,34 +1579,7 @@ namespace OloEngine
                 Set.ConditionalRehash(Set.Elements.Num(), EAllowShrinking::No);
             }
         }
-
-        /** Legacy comparison - also tests whether elements were added in same order */
-        template<typename ElementType, typename KeyFuncs, typename Allocator>
-        [[nodiscard]] static bool LegacyCompareEqual(const TSparseSet<ElementType, KeyFuncs, Allocator>& A, const TSparseSet<ElementType, KeyFuncs, Allocator>& B)
-        {
-            return A.Elements == B.Elements;
-        }
     };
-
-    // Alias for compatibility with Map.h
-    using TSetPrivateFriend = TSparseSetPrivateFriend;
-
-    // ============================================================================
-    // Legacy Comparison Functions
-    // ============================================================================
-
-    /** Legacy equality comparison - also tests whether elements were added in same order */
-    template<typename ElementType, typename KeyFuncs, typename Allocator>
-    [[nodiscard]] bool LegacyCompareEqual(const TSparseSet<ElementType, KeyFuncs, Allocator>& A, const TSparseSet<ElementType, KeyFuncs, Allocator>& B)
-    {
-        return TSparseSetPrivateFriend::LegacyCompareEqual(A, B);
-    }
-
-    template<typename ElementType, typename KeyFuncs, typename Allocator>
-    [[nodiscard]] bool LegacyCompareNotEqual(const TSparseSet<ElementType, KeyFuncs, Allocator>& A, const TSparseSet<ElementType, KeyFuncs, Allocator>& B)
-    {
-        return !TSparseSetPrivateFriend::LegacyCompareEqual(A, B);
-    }
 
     // ============================================================================
     // Deduction Guide

@@ -69,96 +69,6 @@ namespace OloEngine
         s_IBLCameraUBO->Bind();
     }
 
-    void IBLPrecompute::GenerateIrradianceMap(const Ref<TextureCubemap>& environmentMap, const Ref<TextureCubemap>& irradianceMap, ShaderLibrary& shaderLibrary)
-    {
-        OLO_PROFILE_FUNCTION();
-        OLO_CORE_INFO("Generating irradiance map from environment map");
-
-        if (!shaderLibrary.Exists("IrradianceConvolution"))
-        {
-            OLO_CORE_ERROR("IBLPrecompute::GenerateIrradianceMap: IrradianceConvolution shader not found");
-            return;
-        }
-
-        auto shader = shaderLibrary.Get("IrradianceConvolution");
-
-        // Bind environment map
-        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_ENVIRONMENT,
-                                                 environmentMap->GetRHIHandle(),
-                                                 RHI::HeapSlotLifetime::Persistent, {},
-                                                 RHI::NullSamplerKind::Cube);
-
-        // Use the render to cubemap helper
-        RenderToCubemap(irradianceMap, shader, GetCubeMesh());
-
-        OLO_CORE_INFO("Irradiance map generation complete");
-    }
-
-    void IBLPrecompute::GeneratePrefilterMap(const Ref<TextureCubemap>& environmentMap, const Ref<TextureCubemap>& prefilterMap, ShaderLibrary& shaderLibrary)
-    {
-        OLO_PROFILE_FUNCTION();
-        OLO_CORE_INFO("Generating prefiltered environment map");
-
-        if (!shaderLibrary.Exists("IBLPrefilter"))
-        {
-            OLO_CORE_ERROR("IBLPrecompute::GeneratePrefilterMap: IBLPrefilter shader not found");
-            return;
-        }
-
-        auto shader = shaderLibrary.Get("IBLPrefilter");
-
-        // Bind environment map
-        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_ENVIRONMENT,
-                                                 environmentMap->GetRHIHandle(),
-                                                 RHI::HeapSlotLifetime::Persistent, {},
-                                                 RHI::NullSamplerKind::Cube);
-
-        // Create IBL parameters uniform buffer
-        auto iblParamsUBO = UniformBuffer::Create(ShaderBindingLayout::IBLParametersUBO::GetSize(), ShaderBindingLayout::UBO_USER_0);
-
-        // Generate each mip level with different roughness values
-        const u32 maxMipLevels = 5;                             // 0 to 4
-        const u32 sampleCounts[] = { 1024, 512, 256, 128, 64 }; // More samples for lower roughness
-
-        for (u32 mip = 0; mip < maxMipLevels; ++mip)
-        {
-            f32 roughness = static_cast<f32>(mip) / static_cast<f32>(maxMipLevels - 1);
-
-            // Update IBL parameters with sample count for importance sampling
-            ShaderBindingLayout::IBLParametersUBO iblParams;
-            iblParams.Roughness = roughness;
-            iblParams.ExposureAdjustment = static_cast<f32>(sampleCounts[mip]); // Use exposure for sample count
-            iblParams.IBLIntensity = 1.0f;                                      // Default IBL intensity
-            iblParams.IBLRotation = 0.0f;                                       // Default rotation
-
-            iblParamsUBO->SetData(&iblParams, sizeof(iblParams));
-
-            shader->Bind();
-
-            RenderToCubemap(prefilterMap, shader, GetCubeMesh(), mip);
-        }
-
-        OLO_CORE_INFO("Prefiltered environment map generation complete");
-    }
-
-    void IBLPrecompute::GenerateBRDFLut(const Ref<Texture2D>& brdfLutMap, ShaderLibrary& shaderLibrary)
-    {
-        OLO_PROFILE_FUNCTION();
-        OLO_CORE_INFO("Generating BRDF lookup table");
-
-        if (!shaderLibrary.Exists("BRDFLutGeneration"))
-        {
-            OLO_CORE_ERROR("IBLPrecompute::GenerateBRDFLut: BRDFLutGeneration shader not found");
-            return;
-        }
-
-        auto shader = shaderLibrary.Get("BRDFLutGeneration");
-
-        RenderToTexture(brdfLutMap, shader);
-
-        OLO_CORE_INFO("BRDF lookup table generation complete");
-    }
-
     Ref<TextureCubemap> IBLPrecompute::ConvertEquirectangularToCubemap(const std::string& filePath, ShaderLibrary& shaderLibrary, u32 resolution)
     {
         OLO_PROFILE_FUNCTION();
@@ -538,23 +448,13 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         OLO_CORE_INFO("Generating enhanced irradiance map with {} samples", config.IrradianceSamples);
 
-        const bool advancedAvailable = shaderLibrary.Exists("IrradianceConvolutionAdvanced");
-        Ref<Shader> shader = nullptr;
-        if (advancedAvailable)
+        if (!shaderLibrary.Exists("IrradianceConvolutionAdvanced"))
         {
-            shader = shaderLibrary.Get("IrradianceConvolutionAdvanced");
-        }
-        else if (shaderLibrary.Exists("IrradianceConvolution"))
-        {
-            // Fallback to standard shader if advanced version not available
-            OLO_CORE_WARN("Advanced irradiance shader not found, using standard version");
-            shader = shaderLibrary.Get("IrradianceConvolution");
-        }
-        else
-        {
-            OLO_CORE_ERROR("IBLPrecompute::GenerateIrradianceMapAdvanced: No irradiance shader available");
+            OLO_CORE_ERROR("IBLPrecompute::GenerateIrradianceMapAdvanced: IrradianceConvolutionAdvanced shader not found; "
+                           "the irradiance map is left unbaked");
             return;
         }
+        const Ref<Shader> shader = shaderLibrary.Get("IrradianceConvolutionAdvanced");
 
         // The advanced shader reads bright source texels at coarser mips to cut
         // Monte-Carlo noise — refresh the source mip chain so that bias has valid
@@ -564,46 +464,41 @@ namespace OloEngine
         // The advanced shader is parameterised through the IBLAdvancedParams UBO
         // (binding 7). The strict Vulkan-SPIR-V pipeline rejects loose default-
         // block uniforms, so the parameters cannot be set via SetInt/SetFloat.
-        // The legacy IrradianceConvolution fallback ignores the UBO entirely.
         shader->Bind();
-        // Function-scoped, NOT inside the if: the UBO must outlive the
-        // RenderToCubemap draw below. On Vulkan its destructor clears the
-        // published binding-state occupant, so a block-scoped UBO left the
-        // bake shader reading a NULL device address — a GPU page fault that
-        // escalated to VK_ERROR_DEVICE_LOST (#691). GL only tolerated
-        // the dangling bind by accident of its object lifetime rules.
-        Ref<UniformBuffer> paramsUBO;
-        if (advancedAvailable)
+        const auto qualityMultiplier = [&]() -> f32
         {
-            const auto qualityMultiplier = [&]() -> f32
+            switch (config.Quality)
             {
-                switch (config.Quality)
-                {
-                    case IBLQuality::Low:
-                        return 0.5f;
-                    case IBLQuality::Medium:
-                        return 1.0f;
-                    case IBLQuality::High:
-                        return 2.0f;
-                    case IBLQuality::Ultra:
-                        return 4.0f;
-                    default:
-                        OLO_CORE_WARN("IBLPrecompute::GenerateIrradianceMapAdvanced: Unhandled IBLQuality value, defaulting to Medium");
-                        return 1.0f;
-                }
-            }();
+                case IBLQuality::Low:
+                    return 0.5f;
+                case IBLQuality::Medium:
+                    return 1.0f;
+                case IBLQuality::High:
+                    return 2.0f;
+                case IBLQuality::Ultra:
+                    return 4.0f;
+                default:
+                    OLO_CORE_WARN("IBLPrecompute::GenerateIrradianceMapAdvanced: Unhandled IBLQuality value, defaulting to Medium");
+                    return 1.0f;
+            }
+        }();
 
-            ShaderBindingLayout::IBLAdvancedParamsUBO params{};
-            params.Roughness = 0.0f; // unused by the irradiance path
-            params.QualityMultiplier = qualityMultiplier;
-            params.SampleCount = static_cast<i32>(config.IrradianceSamples);
-            params.UseImportanceSampling = config.UseImportanceSampling ? 1 : 0;
-            params.SourceResolution = static_cast<i32>(environmentMap->GetWidth());
+        ShaderBindingLayout::IBLAdvancedParamsUBO params{};
+        params.Roughness = 0.0f; // unused by the irradiance path
+        params.QualityMultiplier = qualityMultiplier;
+        params.SampleCount = static_cast<i32>(config.IrradianceSamples);
+        params.UseImportanceSampling = config.UseImportanceSampling ? 1 : 0;
+        params.SourceResolution = static_cast<i32>(environmentMap->GetWidth());
 
-            paramsUBO = UniformBuffer::Create(ShaderBindingLayout::IBLAdvancedParamsUBO::GetSize(), ShaderBindingLayout::UBO_USER_0);
-            paramsUBO->SetData(&params, ShaderBindingLayout::IBLAdvancedParamsUBO::GetSize());
-            paramsUBO->Bind();
-        }
+        // Function-scoped: the UBO must outlive the RenderToCubemap draw
+        // below. On Vulkan its destructor clears the published binding-state
+        // occupant, so a block-scoped UBO left the bake shader reading a NULL
+        // device address — a GPU page fault that escalated to
+        // VK_ERROR_DEVICE_LOST (#691). GL only tolerated the dangling bind by
+        // accident of its object lifetime rules.
+        Ref<UniformBuffer> paramsUBO = UniformBuffer::Create(ShaderBindingLayout::IBLAdvancedParamsUBO::GetSize(), ShaderBindingLayout::UBO_USER_0);
+        paramsUBO->SetData(&params, ShaderBindingLayout::IBLAdvancedParamsUBO::GetSize());
+        paramsUBO->Bind();
 
         // Bind environment map
         HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_ENVIRONMENT,
@@ -629,24 +524,17 @@ namespace OloEngine
         OLO_CORE_INFO("Generating enhanced prefilter map with {} samples and importance sampling: {}",
                       config.PrefilterSamples, config.UseImportanceSampling);
 
-        Ref<Shader> shader = nullptr;
-        bool usingAdvancedShader = false;
-        if (const std::string preferredShader = config.UseImportanceSampling ? "IBLPrefilterImportance" : "IBLPrefilter"; shaderLibrary.Exists(preferredShader))
+        // UseImportanceSampling picks between two production shaders; a missing
+        // one is an error, never a silent swap to the other.
+        const bool usingImportanceShader = config.UseImportanceSampling;
+        const std::string shaderName = usingImportanceShader ? "IBLPrefilterImportance" : "IBLPrefilter";
+        if (!shaderLibrary.Exists(shaderName))
         {
-            shader = shaderLibrary.Get(preferredShader);
-            usingAdvancedShader = (preferredShader == "IBLPrefilterImportance");
-        }
-        else if (shaderLibrary.Exists("IBLPrefilter"))
-        {
-            // Fallback to standard shader
-            OLO_CORE_WARN("Advanced prefilter shader not found, using standard version");
-            shader = shaderLibrary.Get("IBLPrefilter");
-        }
-        else
-        {
-            OLO_CORE_ERROR("IBLPrecompute::GeneratePrefilterMapAdvanced: No prefilter shader available");
+            OLO_CORE_ERROR("IBLPrecompute::GeneratePrefilterMapAdvanced: {} shader not found; the prefilter map is left unbaked",
+                           shaderName);
             return;
         }
+        const Ref<Shader> shader = shaderLibrary.Get(shaderName);
 
         // Each importance sample reads a source mip chosen from its solid angle;
         // refresh the chain so that lookup has valid data (no-op for single-level
@@ -659,9 +547,9 @@ namespace OloEngine
                                                  RHI::HeapSlotLifetime::Persistent, {},
                                                  RHI::NullSamplerKind::Cube);
 
-        // The advanced importance shader is driven by IBLAdvancedParams; the
-        // legacy IBLPrefilter fallback by IBLParametersUBO. Both live at
-        // UBO_USER_0 (binding 7) — only one prefilter shader is bound at a time.
+        // IBLPrefilterImportance is driven by IBLAdvancedParams, IBLPrefilter by
+        // IBLParametersUBO. Both live at UBO_USER_0 (binding 7) — only one
+        // prefilter shader is bound at a time.
         const f32 qualityMultiplier = [&]() -> f32
         {
             switch (config.Quality)
@@ -681,7 +569,7 @@ namespace OloEngine
         }();
         const i32 sourceResolution = static_cast<i32>(environmentMap->GetWidth());
 
-        Ref<UniformBuffer> paramsUBO = usingAdvancedShader
+        Ref<UniformBuffer> paramsUBO = usingImportanceShader
                                            ? UniformBuffer::Create(ShaderBindingLayout::IBLAdvancedParamsUBO::GetSize(), ShaderBindingLayout::UBO_USER_0)
                                            : UniformBuffer::Create(ShaderBindingLayout::IBLParametersUBO::GetSize(), ShaderBindingLayout::UBO_USER_0);
 
@@ -696,7 +584,7 @@ namespace OloEngine
             const u32 sampleCount = std::max(config.PrefilterSamples >> mip, 32u);
 
             shader->Bind();
-            if (usingAdvancedShader)
+            if (usingImportanceShader)
             {
                 ShaderBindingLayout::IBLAdvancedParamsUBO params{};
                 params.Roughness = roughness;
@@ -708,11 +596,11 @@ namespace OloEngine
             }
             else
             {
-                // Legacy IBLPrefilter layout: sample count is smuggled through
-                // ExposureAdjustment to match GeneratePrefilterMap().
+                // IBLPrefilter.glsl reads only u_Roughness; its sample count is
+                // fixed at 1024 in the shader, so sampleCount does not reach it.
                 ShaderBindingLayout::IBLParametersUBO params{};
                 params.Roughness = roughness;
-                params.ExposureAdjustment = static_cast<f32>(sampleCount);
+                params.ExposureAdjustment = 1.0f;
                 params.IBLIntensity = 1.0f;
                 params.IBLRotation = 0.0f;
                 paramsUBO->SetData(&params, ShaderBindingLayout::IBLParametersUBO::GetSize());
@@ -732,65 +620,49 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         OLO_CORE_INFO("Generating enhanced BRDF LUT");
 
-        Ref<Shader> shader = nullptr;
-        bool usingAdvancedShader = false;
-        if (shaderLibrary.Exists("BRDFIntegrationAdvanced"))
+        if (!shaderLibrary.Exists("BRDFIntegrationAdvanced"))
         {
-            shader = shaderLibrary.Get("BRDFIntegrationAdvanced");
-            usingAdvancedShader = true;
-        }
-        else if (shaderLibrary.Exists("BRDFLutGeneration"))
-        {
-            // Fallback to standard shader (fixed 1024 samples, no parameters).
-            OLO_CORE_WARN("Advanced BRDF LUT shader not found, using standard version");
-            shader = shaderLibrary.Get("BRDFLutGeneration");
-        }
-        else
-        {
-            OLO_CORE_ERROR("IBLPrecompute::GenerateBRDFLutAdvanced: No BRDF LUT shader available");
+            OLO_CORE_ERROR("IBLPrecompute::GenerateBRDFLutAdvanced: BRDFIntegrationAdvanced shader not found; "
+                           "the BRDF LUT is left unbaked");
             return;
         }
+        const Ref<Shader> shader = shaderLibrary.Get("BRDFIntegrationAdvanced");
 
         shader->Bind();
 
-        // Drive the advanced integrator's sample count through IBLAdvancedParams
-        // (binding 7). The legacy BRDFLutGeneration fallback hard-codes its count
-        // and ignores the UBO entirely.
+        // Drive the integrator's sample count through IBLAdvancedParams
+        // (binding 7).
+        const i32 sampleCount = [&]() -> i32
+        {
+            switch (config.Quality)
+            {
+                case IBLQuality::Low:
+                    return 256;
+                case IBLQuality::Medium:
+                    return 512;
+                case IBLQuality::High:
+                    return 1024;
+                case IBLQuality::Ultra:
+                    return 2048;
+                default:
+                    OLO_CORE_WARN("IBLPrecompute::GenerateBRDFLutAdvanced: Unhandled IBLQuality value, defaulting to Medium");
+                    return 512;
+            }
+        }();
+
+        ShaderBindingLayout::IBLAdvancedParamsUBO params{};
+        params.Roughness = 0.0f;         // unused by the BRDF path (swept via UV)
+        params.QualityMultiplier = 1.0f; // sample count is already final here
+        params.SampleCount = sampleCount;
+        params.UseImportanceSampling = 1;
+        params.SourceResolution = 1; // unused by the BRDF path
+
         // Function-scoped for the same reason as the irradiance bake above:
         // the UBO must outlive the RenderToTexture draw, or on Vulkan the
         // shader reads a NULL device address and faults the GPU.
-        Ref<UniformBuffer> paramsUBO;
-        if (usingAdvancedShader)
-        {
-            const i32 sampleCount = [&]() -> i32
-            {
-                switch (config.Quality)
-                {
-                    case IBLQuality::Low:
-                        return 256;
-                    case IBLQuality::Medium:
-                        return 512;
-                    case IBLQuality::High:
-                        return 1024;
-                    case IBLQuality::Ultra:
-                        return 2048;
-                    default:
-                        OLO_CORE_WARN("IBLPrecompute::GenerateBRDFLutAdvanced: Unhandled IBLQuality value, defaulting to Medium");
-                        return 512;
-                }
-            }();
-
-            ShaderBindingLayout::IBLAdvancedParamsUBO params{};
-            params.Roughness = 0.0f;         // unused by the BRDF path (swept via UV)
-            params.QualityMultiplier = 1.0f; // sample count is already final here
-            params.SampleCount = sampleCount;
-            params.UseImportanceSampling = 1;
-            params.SourceResolution = 1; // unused by the BRDF path
-
-            paramsUBO = UniformBuffer::Create(ShaderBindingLayout::IBLAdvancedParamsUBO::GetSize(), ShaderBindingLayout::UBO_USER_0);
-            paramsUBO->SetData(&params, ShaderBindingLayout::IBLAdvancedParamsUBO::GetSize());
-            paramsUBO->Bind();
-        }
+        Ref<UniformBuffer> paramsUBO = UniformBuffer::Create(ShaderBindingLayout::IBLAdvancedParamsUBO::GetSize(), ShaderBindingLayout::UBO_USER_0);
+        paramsUBO->SetData(&params, ShaderBindingLayout::IBLAdvancedParamsUBO::GetSize());
+        paramsUBO->Bind();
 
         // config.Quality already selected the integrator's sample budget above
         // (256/512/1024/2048). The BRDF LUT is view-independent and cached on
@@ -954,13 +826,13 @@ namespace OloEngine
         SHCoefficients radianceSH = ProjectCubemapToSH(environmentMap);
 
         // 2. Apply Ramamoorthi-Hanrahan per-band cosine-lobe scaling, divided
-        //    by π to match the convention IrradianceConvolution.glsl outputs.
+        //    by π to match the convention IrradianceConvolutionAdvanced.glsl outputs.
         //    The Ramamoorthi-Hanrahan analytic cosine-lobe constants are
         //    (π, 2π/3, π/4) — those produce the *raw* Lambertian irradiance
         //    integral E(n) = ∫ L(ω) max(N·ω, 0) dω, which for uniform-white
         //    L=1 evaluates to π. But the production convolution shader divides
         //    by π so the stored cubemap reads as 1.0 for uniform-white input
-        //    (see `PbrIrradianceTest.UniformWhiteYieldsNormalisedUnity`); the
+        //    (see `PbrIrradianceAdvancedTest.ImportanceUniformWhiteYieldsUnity`); the
         //    PBR pipeline then does `diffuse = irradiance * albedo` *without*
         //    re-dividing by π. To stay bit-compatible with that convention
         //    every coefficient is divided by π here:

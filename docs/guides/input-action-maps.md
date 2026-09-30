@@ -44,12 +44,11 @@ InputActionContexts:
       Actions: [...]
 ```
 
-**Back-compat:** a file written in the old single-map format (an `InputActionMap`
-root node, no contexts) still loads — `DeserializeContexts` reads that shape and
-maps it to the `Gameplay` context. The old single-map `Serialize`/`Deserialize`
-public methods were removed; only the legacy *read* branch survives, and every
-per-map read/write goes through the shared `EmitActionMapNode` / `ParseActionMapNode`
-helpers so the on-disk per-map shape is identical for both paths.
+**One format:** a file without an `InputActionContexts` sequence is rejected. The
+retired single-map format (an `InputActionMap` root node, no contexts) gets an error
+naming the fix: wrap the old map as `InputActionContexts: [{Context: Gameplay, Map: ...}]`
+or re-save it from the editor (issue #1496). Every per-map read/write goes through the
+shared `EmitActionMapNode` / `ParseActionMapNode` helpers.
 
 **Loading is a wholesale replace.** Project open and the editor's "Load from Disk"
 both call `InputActionManager::ReplaceAllContextMaps`, which drops any context not

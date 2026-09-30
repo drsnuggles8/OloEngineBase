@@ -12,11 +12,6 @@ namespace OloEngine
     // File-static atomic flag to warn only once about null user data
     static std::atomic<bool> s_NullUserDataWarned{ false };
 
-    EntityExclusionBodyFilter::EntityExclusionBodyFilter(const std::vector<UUID>& excludedEntities)
-        : m_ExcludedEntities(excludedEntities)
-    {
-    }
-
     EntityExclusionBodyFilter::EntityExclusionBodyFilter(const ExcludedEntitySet& excludedEntitySet)
         : m_ExcludedEntities(excludedEntitySet)
     {
@@ -81,12 +76,6 @@ namespace OloEngine
     {
         TSharedLock<FSharedMutex> lock(m_ExclusionMutex);
         return m_ExcludedEntities.IsEntityExcluded(entityID);
-    }
-
-    [[nodiscard]] std::vector<UUID> EntityExclusionBodyFilter::GetExcludedEntities() const
-    {
-        TSharedLock<FSharedMutex> lock(m_ExclusionMutex);
-        return m_ExcludedEntities.ToVector();
     }
 
 } // namespace OloEngine

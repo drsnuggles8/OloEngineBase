@@ -78,52 +78,58 @@ namespace OloEngine
     // ---------------------------------------------------------------------
     // Scene YAML versioning
     // ---------------------------------------------------------------------
-    // Ordered migration chain, applied in place from a file's recorded
-    // version up to SceneSerializer::CurrentVersion. Empty today -- v1 only
-    // seeds the version field, no schema has changed yet -- but this is
-    // where a future breaking change adds a Migrate_VN_to_VNplus1(node) step
-    // and a matching `case N:` below.
-    static void MigrateSceneYAML([[maybe_unused]] YAML::Node& data, u32 fromVersion)
+    // A scene carries a required top-level `Version` key and this build reads
+    // exactly SceneSerializer::CurrentVersion. Anything else (missing key,
+    // non-integer, older or newer) is rejected with a message naming the fix;
+    // there is no migration chain (docs/agent-rules/binary-format-versioning.md).
+    [[nodiscard]] static bool CheckSceneVersion(const YAML::Node& data, std::string_view source)
     {
-        if (fromVersion >= SceneSerializer::CurrentVersion)
-            return;
-
-        OLO_CORE_INFO("SceneSerializer: migrating scene YAML from version {} to {}", fromVersion, SceneSerializer::CurrentVersion);
-
-        for (u32 v = fromVersion; v < SceneSerializer::CurrentVersion; ++v)
+        const auto versionNode = data["Version"];
+        if (!versionNode)
         {
-            switch (v)
-            {
-                // case 0: Migrate_V0_to_V1(data); break;
-                default:
-                    break;
-            }
+            OLO_CORE_ERROR("SceneSerializer: scene '{}' has no top-level Version key; this build reads Version {} only. "
+                           "Add `Version: {}` after the `Scene:` key, or re-save the scene from the editor.",
+                           source, SceneSerializer::CurrentVersion, SceneSerializer::CurrentVersion);
+            return false;
         }
-    }
 
-    // Absence of the "Version" key means the file predates this scheme
-    // entirely, so it defaults to SceneSerializer::ImplicitVersion rather
-    // than being rejected.
-    static u32 ReadSceneVersion(const YAML::Node& data)
-    {
-        if (auto versionNode = data["Version"]; versionNode && versionNode.IsScalar())
+        u32 fileVersion = 0;
+        bool parsed = false;
+        if (versionNode.IsScalar())
         {
             try
             {
-                return versionNode.as<u32>();
+                fileVersion = versionNode.as<u32>();
+                parsed = true;
             }
             catch (const YAML::Exception&)
             {
-                return SceneSerializer::ImplicitVersion;
+                parsed = false;
             }
         }
-        return SceneSerializer::ImplicitVersion;
+        if (!parsed)
+        {
+            OLO_CORE_ERROR("SceneSerializer: scene '{}' has a Version key that is not an unsigned integer; this build reads "
+                           "Version {} only. Fix the key or re-save the scene from the editor.",
+                           source, SceneSerializer::CurrentVersion);
+            return false;
+        }
+
+        if (fileVersion != SceneSerializer::CurrentVersion)
+        {
+            OLO_CORE_ERROR("SceneSerializer: scene '{}' has Version {}; this build reads Version {} only. Migrate the scene "
+                           "file to the current schema (scenes in the repo are migrated in the PR that bumps the version), "
+                           "or load it with a build that matches its version and re-save it.",
+                           source, fileVersion, SceneSerializer::CurrentVersion);
+            return false;
+        }
+        return true;
     }
 
     // Load a texture referenced by scene YAML through the asset registry so
     // it participates in hot-reload and is de-duplicated across the scene
     // graph. Falls back to a raw Texture2D::Create() when no EditorAssetManager
-    // is active (e.g. the runtime path loading a v0 scene with raw paths) --
+    // is active (e.g. the runtime path loading a scene with raw texture paths) --
     // matches the legacy behaviour exactly in that case.
     static Ref<Texture2D> LoadSceneTexture(const std::string& texPath)
     {
@@ -1203,8 +1209,6 @@ namespace OloEngine
         TrySet(sys.RotationModule.AngularVelocity, particleComponent["AngularVelocity"]);
         TrySet(sys.VelocityModule.Enabled, particleComponent["VelocityOverLifetimeEnabled"]);
         TrySet(sys.VelocityModule.LinearAcceleration, particleComponent["LinearAcceleration"]);
-        if (!particleComponent["LinearAcceleration"])
-            TrySet(sys.VelocityModule.LinearAcceleration, particleComponent["LinearVelocity"]);
         TrySet(sys.VelocityModule.SpeedMultiplier, particleComponent["SpeedMultiplier"]);
         ParticleCurveSerializer::Deserialize(particleComponent["SpeedCurve"], sys.VelocityModule.SpeedCurve);
         TrySet(sys.NoiseModule.Enabled, particleComponent["NoiseEnabled"]);
@@ -1221,7 +1225,7 @@ namespace OloEngine
         TrySet(sys.CollisionModule.LifetimeLoss, particleComponent["CollisionLifetimeLoss"]);
         TrySet(sys.CollisionModule.KillOnCollide, particleComponent["CollisionKillOnCollide"]);
 
-        // Force Fields (vector, with backward compat for old single-field format)
+        // Force Fields
         if (auto forceFieldsNode = particleComponent["ForceFields"]; forceFieldsNode && forceFieldsNode.IsSequence())
         {
             sys.ForceFields.Reset();
@@ -1237,23 +1241,6 @@ namespace OloEngine
                 TrySet(forceField.Axis, ffNode["Axis"]);
                 sys.ForceFields.Add(forceField);
             }
-        }
-        else if (auto oldEnabled = particleComponent["ForceFieldEnabled"]; oldEnabled)
-        {
-            // Backward compatibility: old single force field format
-            ModuleForceField forceField{};
-            TrySet(forceField.Enabled, oldEnabled);
-            if (auto val = particleComponent["ForceFieldType"]; val)
-                forceField.Type = static_cast<ForceFieldType>(val.as<int>());
-            TrySet(forceField.Position, particleComponent["ForceFieldPosition"]);
-            TrySet(forceField.Strength, particleComponent["ForceFieldStrength"]);
-            TrySet(forceField.Radius, particleComponent["ForceFieldRadius"]);
-            TrySet(forceField.Axis, particleComponent["ForceFieldAxis"]);
-            sys.ForceFields.Add(forceField);
-        }
-        else
-        {
-            // No additional handling required.
         }
 
         // Trail
@@ -3017,9 +3004,6 @@ namespace OloEngine
             if (std::isfinite(sunDiskSize) && sunDiskSize > 0.0f)
                 sky.m_SunDiskSize = sunDiskSize;
             sky.m_ShowSunDisk = procSky["ShowSunDisk"].as<bool>(sky.m_ShowSunDisk);
-            // "LinkSunToDirectionalLight" (retired by issue #633) is silently
-            // dropped when present in older scenes — the TimeOfDayComponent
-            // now owns sun driving.
             sky.m_EnableSkybox = procSky["EnableSkybox"].as<bool>(sky.m_EnableSkybox);
             sky.m_EnableIBL = procSky["EnableIBL"].as<bool>(sky.m_EnableIBL);
             const f32 iblIntensity = procSky["IBLIntensity"].as<f32>(sky.m_IBLIntensity);
@@ -4520,23 +4504,6 @@ namespace OloEngine
         // #380) — the read-side complement of SceneSerializeComponents.Generated.inl.
         // Floats are validated with std::isfinite; a missing key keeps the default.
 #include "OloEngine/Scene/Generated/SceneDeserializeComponents.Generated.inl"
-
-        // Legacy-key report (issue #1119). DirectionalLightComponent's
-        // `ShadowBias` was a raw normalized cascade depth; it is now
-        // `ShadowDepthBiasTexels`, a count of shadow-map texels. The two are
-        // not convertible without the cascade the number was authored against,
-        // so the generated block above deliberately does not read the old key
-        // and the light keeps the engine default. Say so rather than letting a
-        // scene lose its authored bias without a word - the old value was the
-        // cause of the peter-panning this issue fixed, so the default is what
-        // the author wanted, but it is still a value being dropped.
-        if (const auto lightNode = entity["DirectionalLightComponent"];
-            lightNode && lightNode["ShadowBias"] && !lightNode["ShadowDepthBiasTexels"])
-        {
-            OLO_CORE_WARN("[SceneSerializer] Directional light carries the retired 'ShadowBias' key "
-                          "(normalized cascade depth). Ignoring it and using the default "
-                          "ShadowDepthBiasTexels; re-save the scene to adopt the texel unit (#1119).");
-        }
     }
 
     SceneSerializer::SceneSerializer(const Ref<Scene>& scene)
@@ -7214,6 +7181,8 @@ namespace OloEngine
             out << YAML::Key << "DefaultUnloadRadius" << YAML::Value << ss.DefaultUnloadRadius;
             out << YAML::Key << "MaxLoadedRegions" << YAML::Value << ss.MaxLoadedRegions;
             out << YAML::Key << "RegionDirectory" << YAML::Value << ss.RegionDirectory;
+            out << YAML::Key << "MaxResidentMegabytes" << YAML::Value << ss.MaxResidentMegabytes;
+            out << YAML::Key << "MaxAdmittedMegabytesPerFrame" << YAML::Value << ss.MaxAdmittedMegabytesPerFrame;
             out << YAML::EndMap;
         }
 
@@ -7582,6 +7551,9 @@ namespace OloEngine
             TrySet(ss.DefaultUnloadRadius, ssNode["DefaultUnloadRadius"]);
             TrySet(ss.MaxLoadedRegions, ssNode["MaxLoadedRegions"]);
             TrySet(ss.RegionDirectory, ssNode["RegionDirectory"]);
+            // Absent in scenes saved before issue #1365: the defaults (no byte budget) stand.
+            TrySet(ss.MaxResidentMegabytes, ssNode["MaxResidentMegabytes"]);
+            TrySet(ss.MaxAdmittedMegabytesPerFrame, ssNode["MaxAdmittedMegabytesPerFrame"]);
 
             SanitizeStreamingSettings(ss);
         }
@@ -7755,11 +7727,13 @@ namespace OloEngine
             return false;
         }
 
+        if (!CheckSceneVersion(data, filepath.string()))
+        {
+            return false;
+        }
+
         OLO_CORE_TRACE("Deserializing scene '{0}'", sceneName);
         m_Scene->SetName(sceneName);
-
-        const u32 fileVersion = ReadSceneVersion(data);
-        MigrateSceneYAML(data, fileVersion);
 
         try
         {
@@ -7835,8 +7809,10 @@ namespace OloEngine
 
         // Cache the just-loaded scene to a binary sidecar so the next load takes
         // the fast path above (issue #525). No-op unless the scene is fully
-        // representable in the binary format; `data` is the migrated document,
-        // used to snapshot scene-level settings.
+        // representable in the binary format; `data` is the document, used to
+        // snapshot scene-level settings. This is the only sidecar write, and it
+        // is reached only after CheckSceneVersion above passed, so a sidecar
+        // never vouches for a `.olo` this build would reject (#1496).
         WriteBinarySidecar(filepath, data);
 
         return true;
@@ -7880,6 +7856,8 @@ namespace OloEngine
             out << YAML::Key << "DefaultUnloadRadius" << YAML::Value << ss.DefaultUnloadRadius;
             out << YAML::Key << "MaxLoadedRegions" << YAML::Value << ss.MaxLoadedRegions;
             out << YAML::Key << "RegionDirectory" << YAML::Value << ss.RegionDirectory;
+            out << YAML::Key << "MaxResidentMegabytes" << YAML::Value << ss.MaxResidentMegabytes;
+            out << YAML::Key << "MaxAdmittedMegabytesPerFrame" << YAML::Value << ss.MaxAdmittedMegabytesPerFrame;
             out << YAML::EndMap;
         }
 
@@ -7962,10 +7940,11 @@ namespace OloEngine
         {
             return false;
         }
+        if (!CheckSceneVersion(data, sceneName))
+        {
+            return false;
+        }
         OLO_CORE_TRACE("Deserializing scene '{0}'", sceneName);
-
-        const u32 fileVersion = ReadSceneVersion(data);
-        MigrateSceneYAML(data, fileVersion);
 
         // Top-level guard for the schema-walk: fuzz inputs that pass the
         // "is map + Scene scalar" check above can still hit `.as<T>()`

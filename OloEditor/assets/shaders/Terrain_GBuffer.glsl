@@ -17,7 +17,7 @@
 // deferred; snow is treated as a diffuse overlay for now.
 //
 // **Velocity:** terrain is assumed static (zero velocity written). A future
-// dynamic-terrain pass could add per-entity `u_PrevModel` + previous-frame
+// dynamic-terrain pass could add per-entity `PrevTransform` + previous-frame
 // heightmap sampling here.
 // =============================================================================
 
@@ -214,7 +214,7 @@ void main()
     {
         vec2 clipCenter = u_ClipmapCenterAndExtent[0].xy;
         float clipExtent = u_ClipmapCenterAndExtent[0].z;
-        vec3 worldP = (u_Model * vec4(pos, 1.0)).xyz + u_RenderOrigin; // camera-relative (issue #429)
+        vec3 worldP = (instances[0].Transform * vec4(pos, 1.0)).xyz + u_RenderOrigin; // camera-relative (issue #429)
         vec2 snowUV = (worldP.xz - clipCenter) / clipExtent + 0.5;
         if (snowUV.x >= 0.0 && snowUV.x <= 1.0 && snowUV.y >= 0.0 && snowUV.y <= 1.0)
         {
@@ -242,9 +242,9 @@ void main()
     pos.y = mix(sampledHeight, meshHeight, morphFactor);
     nrm = normalize(mix(nrm, meshNormal, morphFactor));
 
-    vec4 worldPos = u_Model * vec4(pos, 1.0);
+    vec4 worldPos = instances[0].Transform * vec4(pos, 1.0);
     v_WorldPos = worldPos.xyz;
-    v_Normal = mat3(u_Normal) * nrm;
+    v_Normal = mat3(instances[0].Normal) * nrm;
     v_TexCoord = uv;
 
     gl_Position = u_ViewProjection * worldPos;
@@ -587,6 +587,6 @@ void main()
     // Static terrain → zero screen-space velocity.
     // .a: the material profile (#1256) is the snow weight (issue #1451).
     o_GBufferVelocity = vec4(0.0, 0.0, 1.0, snowWeight);
-    o_GBufferEntityID = u_EntityID;
+    o_GBufferEntityID = instances[0].EntityID;
     o_GBufferBakedGI = vec4(0.0); // no baked lightmap on this surface (issue #865)
 }

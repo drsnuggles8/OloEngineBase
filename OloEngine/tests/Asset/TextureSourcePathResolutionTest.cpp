@@ -139,10 +139,10 @@ namespace OloEngine::Tests
         EXPECT_EQ(Texture2D::ResolveStoredSourcePath(absolute.string()), absolute);
     }
 
-    // A path that exists relative to the working directory but not under the
-    // project keeps working — engine-owned textures (editor icons) are loaded that
-    // way, and the fix must not break their reload.
-    TEST(TextureSourcePathResolution, FallsBackToAWorkingDirectoryRelativePathThatExists)
+    // A path not spelled "Assets/..." resolves against the working directory —
+    // engine-owned textures (editor icons, "assets/...") are loaded that way, and
+    // the fix must not break their reload.
+    TEST(TextureSourcePathResolution, ResolvesAnEnginePathAgainstTheWorkingDirectory)
     {
         ProjectScope scope;
         const std::filesystem::path projectDir = MakeProject("cwd_relative");
@@ -164,6 +164,65 @@ namespace OloEngine::Tests
         EXPECT_EQ(Texture2D::ResolveStoredSourcePath(relative.string()), relative);
     }
 
+    // The spelling picks the base; the other base is never probed. An engine path
+    // whose twin also exists under the project ("assets/..." vs "Assets/...", one
+    // file on a case-insensitive filesystem) must still resolve to the engine
+    // file, and a project path must never be found under the working directory.
+    TEST(TextureSourcePathResolution, TheSpellingPicksOneBaseAndTheOtherIsNeverProbed)
+    {
+        ProjectScope scope;
+        const std::filesystem::path projectDir = MakeProject("one_base");
+        ASSERT_FALSE(::testing::Test::HasFatalFailure());
+
+        const std::filesystem::path workingDir = TempDir("one_base_cwd");
+        const ScopedWorkingDirectory movedCwd(workingDir);
+        ASSERT_NE(std::filesystem::current_path(), projectDir);
+
+        // The engine file, and its project twin that probing used to find first.
+        const std::filesystem::path engine = std::filesystem::path("assets") / "models" / "Twin.gltf";
+        WriteFile(std::filesystem::current_path() / engine);
+        WriteFile(projectDir / "Assets" / "Models" / "Twin.gltf");
+        ASSERT_FALSE(::testing::Test::HasFatalFailure());
+        EXPECT_EQ(Texture2D::ResolveStoredSourcePath(engine.generic_string()), engine);
+
+        // A project spelling that exists only under the working directory is refused.
+        const std::filesystem::path projectOnlyInCwd = std::filesystem::path("Assets") / "Textures" / "CwdOnly.png";
+        WriteFile(std::filesystem::current_path() / projectOnlyInCwd);
+        ASSERT_FALSE(::testing::Test::HasFatalFailure());
+        ASSERT_FALSE(std::filesystem::exists(projectDir / projectOnlyInCwd));
+        EXPECT_TRUE(Texture2D::ResolveStoredSourcePath(projectOnlyInCwd.generic_string()).empty());
+
+        // An engine spelling that exists only under the project is refused too.
+        const std::filesystem::path engineOnlyInProject = std::filesystem::path("Textures") / "ProjectOnly.png";
+        WriteFile(projectDir / engineOnlyInProject);
+        ASSERT_FALSE(::testing::Test::HasFatalFailure());
+        EXPECT_TRUE(Texture2D::ResolveStoredSourcePath(engineOnlyInProject.generic_string()).empty());
+    }
+
+    // The asset registry keys content outside the project directory with a
+    // leading "..", relative to the project (SandboxProject's registry holds
+    // "../assets/textures/pbr/wall/albedo.png"). That spelling resolves against the
+    // project directory, not the working directory.
+    TEST(TextureSourcePathResolution, ResolvesARegistryParentPathAgainstTheProjectDirectory)
+    {
+        ProjectScope scope;
+        const std::filesystem::path projectDir = MakeProject("parent_relative");
+        ASSERT_FALSE(::testing::Test::HasFatalFailure());
+
+        // "../<project dir name>/..." climbs out and back in, so the file stays in
+        // this case's own temp directory rather than a shared parent.
+        const std::filesystem::path dirName =
+            projectDir.has_filename() ? projectDir.filename() : projectDir.parent_path().filename();
+        ASSERT_FALSE(dirName.empty());
+        const std::filesystem::path relative = std::filesystem::path("..") / dirName / "Outside" / "Albedo.png";
+        WriteFile(projectDir / "Outside" / "Albedo.png");
+        ASSERT_FALSE(::testing::Test::HasFatalFailure());
+        ASSERT_FALSE(std::filesystem::exists(relative))
+            << "the path also resolves against the working directory, so this case proves nothing.";
+
+        EXPECT_EQ(Texture2D::ResolveStoredSourcePath(relative.string()), projectDir / relative);
+    }
+
     // Unresolvable input refuses loudly rather than handing the loader a path that
     // silently reads against the CWD — the failure mode #1067 was.
     TEST(TextureSourcePathResolution, RefusesARelativePathThatExistsNowhere)
@@ -177,8 +236,9 @@ namespace OloEngine::Tests
         EXPECT_TRUE(Texture2D::ResolveStoredSourcePath(missing.string()).empty());
     }
 
-    // With no project open there is no base to resolve against; a relative path
-    // must not fall through to the CWD.
+    // With no project open there is no project base: a project spelling is looked
+    // up against the working directory only (the test binary runs from the repo
+    // root, which has no Assets/Textures/Foo.png), so it refuses.
     TEST(TextureSourcePathResolution, RefusesARelativePathWhenNoProjectIsOpen)
     {
         ProjectScope scope;

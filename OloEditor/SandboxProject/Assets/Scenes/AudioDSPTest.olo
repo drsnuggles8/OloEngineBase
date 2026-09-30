@@ -1,4 +1,5 @@
 Scene: AudioDSPTest.olo
+Version: 1
 Entities:
   - Entity: 8800000000000000001
     TagComponent:

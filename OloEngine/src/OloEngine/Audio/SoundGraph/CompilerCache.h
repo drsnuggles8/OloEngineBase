@@ -45,6 +45,10 @@ namespace OloEngine::Audio::SoundGraph
     class CompilerCache : public RefCounted
     {
       public:
+        // On-disk ".compiled" file format ("OLCC" magic + this version). The reader accepts exactly
+        // this version; any other file is a cache miss and is recompiled from the source graph.
+        static constexpr u32 FormatVersion = 2;
+
         CompilerCache(const std::string& cacheDirectory = "cache/compiler/");
         ~CompilerCache();
 

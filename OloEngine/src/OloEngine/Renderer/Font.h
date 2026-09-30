@@ -65,26 +65,12 @@ namespace OloEngine
             return m_IsLoaded ? m_Data.get() : nullptr;
         }
 
-        // Legacy accessor kept temporarily so callers compile during migration.
-        // Returns nullptr — callers that used MSDFData should migrate to GetSlugData().
-        [[deprecated("Use GetSlugData() instead")]] [[nodiscard("Store this!")]] const void* GetMSDFData() const
-        {
-            return nullptr;
-        }
-
         // Out-of-line: both first flush any GPU texture upload deferred by a
         // headless load (SlugFontProcessor::EnsureGpuTextures), so a font parsed
         // before the renderer came up becomes renderable on the first draw that
         // needs it rather than staying permanently textureless (issue #520).
         Ref<Texture2D> GetCurveTexture() const;
         Ref<Texture2D> GetBandTexture() const;
-
-        // Legacy accessor — returns nullptr. Use GetCurveTexture() / GetBandTexture().
-        [[deprecated("Use GetCurveTexture() / GetBandTexture() instead")]]
-        Ref<Texture2D> GetAtlasTexture() const
-        {
-            return nullptr;
-        }
 
         std::string GetName() const
         {

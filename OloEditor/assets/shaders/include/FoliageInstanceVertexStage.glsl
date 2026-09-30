@@ -24,10 +24,10 @@
 // hard-code, so the card renders as it always did.
 //
 // The includer decides ONE thing before including: whether the consuming
-// fragment reads the instance index (u_EntityID) —
+// fragment reads the instance index (the instance EntityID) —
 //   forward  : `#define OLO_INSTANCE_NO_FORWARD 1` (nothing reads it; a
 //              written-but-unconsumed output is a Vulkan validation warning)
-//   deferred : no define (the fragment includes InstanceBlock.glsl for u_EntityID)
+//   deferred : no define (the fragment includes InstanceBlock.glsl for the instance EntityID)
 //
 // Varying contract every consumer must declare:
 //   location 0 vec3  v_WorldPos       location 4 float v_AlphaCutoff
@@ -146,8 +146,8 @@ void main()
     // The pivot is also what the mesh/card hand-over has always used, for the
     // reason spelled out below it.
     vec3 lodInstancePos = a_PositionScale.xyz;
-    vec3 lodPivot = (u_Model * vec4(lodInstancePos, 1.0)).xyz;
-    vec3 lodPivotPrev = (u_PrevModel * vec4(lodInstancePos, 1.0)).xyz;
+    vec3 lodPivot = (instances[0].Transform * vec4(lodInstancePos, 1.0)).xyz;
+    vec3 lodPivotPrev = (instances[0].PrevTransform * vec4(lodInstancePos, 1.0)).xyz;
     float lodDist = distance(lodPivot, u_MeshViewPos.xyz);
     float lodPrevDist = distance(lodPivotPrev, u_PrevMeshViewPos.xyz);
     float instanceSeed = foliageLodInstanceHash(lodInstancePos);
@@ -183,7 +183,8 @@ void main()
     // card's normal comes out as the vec3(0, 1, 0) this stage used to hard-code.
     vec3 rotatedNormal = rotY * a_Normal;
 
-    FoliageDeformation deformation = foliageDeform(rotatedPos, a_Position, a_PositionScale.xyz, a_RotationHeight.w);
+    FoliageDeformation deformation = foliageDeform(rotatedPos, a_Position, a_PositionScale.xyz, a_RotationHeight.w,
+                                                   instances[0].Transform, instances[0].PrevTransform);
     vec3 rotatedPosPrev = deformation.Previous;
     rotatedPos = deformation.Current;
     // Re-place the PREVIOUS frame's vertex at the previous frame's size. The
@@ -209,13 +210,13 @@ void main()
         vec3 size = isAuthoredMesh ? vec3(height * scale) : vec3(scale, height * scale, scale);
         mat3 shapeJacobian = rotY * mat3(vec3(size.x, 0.0, 0.0), vec3(0.0, size.y, 0.0), vec3(0.0, 0.0, size.z));
         rotatedNormal = foliageWindNormal(a_Normal, a_Position, a_PositionScale.xyz, a_RotationHeight.w,
-                                          shapeJacobian, displacement);
+                                          shapeJacobian, displacement, instances[0].Transform);
     }
 
     // World position
     vec3 instancePos = a_PositionScale.xyz;
-    vec3 worldPos     = (u_Model * vec4(instancePos + rotatedPos,     1.0)).xyz;
-    vec3 worldPosPrev = (u_PrevModel * vec4(instancePos + rotatedPosPrev, 1.0)).xyz;
+    vec3 worldPos     = (instances[0].Transform * vec4(instancePos + rotatedPos,     1.0)).xyz;
+    vec3 worldPosPrev = (instances[0].PrevTransform * vec4(instancePos + rotatedPosPrev, 1.0)).xyz;
 
     // The mesh/card hand-over is decided PER INSTANCE, from the plant's pivot,
     // not per fragment from its surface: a per-fragment distance puts the trunk
@@ -228,7 +229,7 @@ void main()
 
     v_WorldPos = worldPos;
     v_PrevWorldPos = worldPosPrev;
-    v_Normal = normalize(mat3(u_Normal) * rotatedNormal);
+    v_Normal = normalize(mat3(instances[0].Normal) * rotatedNormal);
     v_TexCoord = a_TexCoord;
     v_Color = u_WindWeights.w > 0.5 ? vec3(clamp(length(displacement) / max(abs(u_WindStrength) * 2.5, 1e-5), 0.0, 1.0), 0.0, 1.0) : a_ColorAlpha.rgb;
     v_AlphaCutoff = a_ColorAlpha.a;

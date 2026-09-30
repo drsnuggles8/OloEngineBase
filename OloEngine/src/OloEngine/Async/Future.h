@@ -8,7 +8,7 @@
 #include "OloEngine/HAL/ManualResetEvent.h"
 #include "OloEngine/Threading/Mutex.h"
 #include "OloEngine/Threading/UniqueLock.h"
-#include "OloEngine/Templates/FunctionRef.h"
+#include "OloEngine/Templates/Function.h"
 #include "OloEngine/Templates/UnrealTemplate.h"
 
 #include <atomic>

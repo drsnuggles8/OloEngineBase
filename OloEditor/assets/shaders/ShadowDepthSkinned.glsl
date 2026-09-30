@@ -72,7 +72,7 @@ void main()
 	// collapsed onto the model origin, so its shadow detached from the caster
 	// that the colour and depth passes drew at the rest position.
 	vec4 animatedPosition = OloDeformSkinnedPosition(a_Position, a_BoneIndices, a_BoneWeights);
-	gl_Position = u_ViewProjection * u_Model * animatedPosition;
+	gl_Position = u_ViewProjection * instances[gl_InstanceIndex].Transform * animatedPosition;
 }
 
 #type fragment

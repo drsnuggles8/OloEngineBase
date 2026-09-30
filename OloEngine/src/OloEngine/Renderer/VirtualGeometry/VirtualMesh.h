@@ -319,13 +319,13 @@ namespace OloEngine
     // hostile: exact-size check, count caps, finite-float validation, and full
     // cross-referencing of every offset.
     //
-    // Two formats, distinguished by magic:
-    //   "OVGM" — a single DAG. The original single-submesh format.
+    // Two layers, distinguished by magic:
+    //   "OVGM" — a single DAG (SerializeToBlob / DeserializeFromBlob).
     //   "OVGS" — a SET: a count plus one length-prefixed "OVGM" blob per part. The set
     //            format simply wraps the single-mesh one, so the hardened OVGM reader
     //            validates every part and there is no second parser to keep in sync.
-    // DeserializeSetFromBlob accepts BOTH, reading a bare "OVGM" blob as a one-part set,
-    // so cooks written before multi-submesh support still load.
+    // A cooked mesh (the .omesh VirtualMesh section, the asset pack's blob) is always an
+    // "OVGS" set. DeserializeSetFromBlob accepts exactly that and rejects a bare "OVGM" blob.
     namespace VirtualMeshSerializer
     {
         // Fingerprint of the cook this build produces: kVirtualMeshBuilderVersion mixed with a

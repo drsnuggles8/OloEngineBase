@@ -245,7 +245,7 @@ namespace OloEngine
             file.exceptions(std::ofstream::failbit | std::ofstream::badbit);
 
             // Write header
-            const u32 version = 2;
+            const u32 version = FileVersion;
             file.write(reinterpret_cast<const char*>(&version), sizeof(version));
 
             // Write asset count
@@ -311,9 +311,12 @@ namespace OloEngine
             u32 version;
             file.read(reinterpret_cast<char*>(&version), sizeof(version));
 
-            if (version != 1 && version != 2)
+            if (version != FileVersion)
             {
-                OLO_CORE_ERROR("AssetRegistry::Deserialize - Unsupported version: {}", version);
+                OLO_CORE_ERROR("AssetRegistry::Deserialize - {}: format v{} is not supported (this build reads v{} only). "
+                               "Restore it from version control, or let the editor rebuild it from the project "
+                               "(the asset-directory rescan writes a fresh registry with newly assigned handles).",
+                               filepath.string(), version, FileVersion);
                 return false;
             }
 
@@ -334,28 +337,18 @@ namespace OloEngine
             {
                 AssetMetadata metadata;
 
-                if (version == 1)
-                {
-                    // Legacy format - read raw types directly (may have endianness issues)
-                    file.read(reinterpret_cast<char*>(&metadata.Handle), sizeof(metadata.Handle));
-                    file.read(reinterpret_cast<char*>(&metadata.Type), sizeof(metadata.Type));
-                    file.read(reinterpret_cast<char*>(&metadata.Status), sizeof(metadata.Status));
-                }
-                else // version == 2
-                {
-                    // New format - read fixed-width types for cross-platform compatibility
-                    uint64_t handleValue;
-                    uint32_t typeValue;
-                    uint32_t statusValue;
+                // Fixed-width fields for cross-platform compatibility
+                uint64_t handleValue;
+                uint32_t typeValue;
+                uint32_t statusValue;
 
-                    file.read(reinterpret_cast<char*>(&handleValue), sizeof(handleValue));
-                    file.read(reinterpret_cast<char*>(&typeValue), sizeof(typeValue));
-                    file.read(reinterpret_cast<char*>(&statusValue), sizeof(statusValue));
+                file.read(reinterpret_cast<char*>(&handleValue), sizeof(handleValue));
+                file.read(reinterpret_cast<char*>(&typeValue), sizeof(typeValue));
+                file.read(reinterpret_cast<char*>(&statusValue), sizeof(statusValue));
 
-                    metadata.Handle = static_cast<AssetHandle>(handleValue);
-                    metadata.Type = static_cast<AssetType>(typeValue);
-                    metadata.Status = static_cast<AssetStatus>(statusValue);
-                }
+                metadata.Handle = static_cast<AssetHandle>(handleValue);
+                metadata.Type = static_cast<AssetType>(typeValue);
+                metadata.Status = static_cast<AssetStatus>(statusValue);
                 // Note: LastWriteTime deserialization temporarily skipped - will be refreshed from filesystem
 
                 // Read path string
@@ -372,13 +365,7 @@ namespace OloEngine
 
                 std::string pathStr(pathLength, '\0');
                 file.read(pathStr.data(), pathLength);
-                // Normalize Windows-style backslash separators that may be
-                // present in legacy .oar files serialized before Serialize()
-                // switched to generic_string(). On Linux a fs::path built
-                // from "Assets\Textures\foo.png" sees one component (literal
-                // filename with backslashes) and fs::exists / fs::relative
-                // both miss the actual on-disk file.
-                std::replace(pathStr.begin(), pathStr.end(), '\\', '/');
+                // Serialize() writes generic_string(), so paths are always forward-slashed.
                 metadata.FilePath = pathStr;
 
                 // Refresh LastWriteTime from filesystem if file exists

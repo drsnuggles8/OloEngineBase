@@ -385,10 +385,11 @@ namespace OloEngine
         // Off by default: VSM covers static + skinned MESH casters, and since
         // issue #1149 VIRTUALIZED-GEOMETRY casters too — the last go in through
         // ExternalCasterRenderer, one cull + replay per clip level, gated on the
-        // dirty-page pyramid. Terrain, foliage and voxel casters still render
-        // through the CSM path, so a scene that relies on THOSE must keep CSM.
-        // Turning this on replaces the directional CSM and leaves the local-light
-        // atlas untouched.
+        // dirty-page pyramid. Terrain, foliage and voxel casters have only CSM
+        // and atlas routes, so a scene that relies on THOSE must keep VSM off
+        // (#1524). Turning this on replaces the directional CSM; with
+        // LocalLights on (the default) it also replaces the local-light atlas,
+        // which is then not rendered at all.
         //
         // Virtual geometry reaches the CLIP LEVELS only, not the local-light
         // LAYERS below: a layer is a perspective projection with a per-texel mip,

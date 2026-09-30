@@ -3,7 +3,8 @@
 Issue #975. The renderer's material closure gains an explicit version
 (`PBRModel { Legacy, ClosureV2 }`) and a three-function contract
 (`Evaluate` / `Sample` / `Pdf`) that raster lighting, the CPU reference path
-tracer (#709), and any future GPU path tracer / ReSTIR pass share. This ADR
+tracer (#709), and any future GPU path tracer / ReSTIR pass share (both exist
+now: the GPU reference path tracer, #1055, and the ReSTIR passes). This ADR
 records the decisions the issue asked to have recorded — where the version
 lives, what v2 is, how the one-specification problem is solved, and every
 deliberate clamp and approximation. It is the contract for all later transport
@@ -250,9 +251,12 @@ are symmetric in (v, l), so v2 stays reciprocal.
 
 ## 6. Consequences
 
-* A future GPU path tracer / ReSTIR pass consumes `closureV2Sample/Pdf`
-  directly; the density its MIS uses is the same function the CPU integrator
-  divides by, which is the entire point.
+* The GPU reference path tracer (#1055) consumes `closureV2Sample/Pdf`
+  directly through `include/PathTracerBSDF.glsl`, dispatching on the
+  material's `ClosureVersion`; the density its MIS uses is the same function
+  the CPU integrator divides by, which is the entire point. The restricted
+  ReSTIR PT prototype (#1211) supports finite-width Legacy and v2 reflection
+  only. (Written as a future consumer; updated by #1357.)
 * Changing any v2 formula is a TWO-file edit (GLSL + C++ twin) — same law as
   the Legacy BRDF, enforced by the same parity probe.
 * **v2 is not frozen.** Until it becomes the engine default, a defect in v2

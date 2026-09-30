@@ -86,6 +86,10 @@ Forward+ path switch logged 15 unpublished storage-binding errors for
 logged `VUID-vkDestroyImage-image-01000` during a 1920 × 1080 resize. Neither
 log is clean, and this report does not infer visual parity from valid timing
 samples. Full logs and raw measurements are retained with each result.
+*(2026-09-29 annotation, #1357; the measurements above are unchanged: the
+whitish-water shading was fixed by PR #1517 (#1486) and the Forward+
+unpublished-binding errors by PR #1517 (#1487). The resize VUID has not been
+re-checked on this benchmark; owner #1526.)*
 
 Vulkan's renderer tracker reported only 6 MiB peak/live for both completed
 runs and no post-scene-release value. That clearly misses large GPU allocations
@@ -153,7 +157,9 @@ Its manifest and failure log are in `gl-nonnative-upscale/`. This is an
 explicitly **unverified non-native cell** for all three GL paths; the parser
 gate applies before path selection. Issue #1397 separately records cropped
 non-native framing in the live editor, so a live editor A/B cannot substitute
-for an aligned headless capture.
+for an aligned headless capture. *(2026-09-29 annotation, #1357: the crop was
+fixed by PR #1443 (#1397). The capture still refuses sub-scale `RenderScale`,
+so this cell stays unverified; owner #1526.)*
 
 On Vulkan after #1437, the `integrated-deferred-msaa4`,
 `integrated-deferred-upscale-quality` and `integrated-hybrid-upscale-quality`
@@ -169,7 +175,12 @@ timing.
 The representative stationary Beauty captures visibly contain the fox herd,
 grass, water, and sky. Matching per-camera `SceneColorHDR.hdr`, depth, and
 where the path supplies them, albedo, normals and velocity, are under
-`docs/testing/evidence/integrated-renderer-1338/`. The dolly and rapid-turn
+`docs/testing/evidence/integrated-renderer-1338/`; the per-path run summaries are
+[GL Forward](../testing/evidence/integrated-renderer-1338/gl-forward-warm/summary.md),
+[GL Forward+](../testing/evidence/integrated-renderer-1338/gl-forward-plus-warm/summary.md) and
+[GL Deferred](../testing/evidence/integrated-renderer-1338/gl-deferred-warm/summary.md), and the
+water parity note is [water-parity-1470](../testing/evidence/integrated-renderer-1338/water-parity-1470/README.md).
+The dolly and rapid-turn
 captures provide different camera poses, and their velocity AOVs show motion.
 For a fixed-camera visual motion check after rebasing, `gl-motion-pair/` holds
 stationary GL Deferred captures at frames 100 and 190, both 960 × 540 with the
@@ -197,17 +208,20 @@ CPU, fence-wait and present-wait distributions are retained in each summary.
   optimization claim. Feed this baseline to #1259.
 - Every measured Vulkan path, including Deferred and hybrid after #1437,
   misses 33.333 ms on every sampled frame.
-- Investigate the Vulkan resize image-lifetime VUID and the Forward+ storage
-  binding errors (#1487) before claiming backend parity. The water geometry
-  difference is resolved (#1470, `water-parity-1470/`); Vulkan Forward water
-  shading is #1486.
-- Enable valid sub-scale benchmark readback and resolve the live-editor crop
-  (#1397) before evaluating non-native upscaling quality or performance.
+- Rerun the Vulkan benchmark and confirm the resize image-lifetime VUID is gone
+  before claiming backend parity (#1526). *(Updated 2026-09-29, #1357: the
+  Forward+ storage-binding errors (#1487), the Vulkan Forward water shading
+  (#1486) and the water geometry difference (#1470, `water-parity-1470/`) are
+  fixed.)*
+- Enable valid sub-scale benchmark readback before evaluating non-native
+  upscaling quality or performance (#1526). *(Updated 2026-09-29: the
+  live-editor crop that also blocked this is fixed, PR #1443 / #1397.)*
 - Improve the integrated content fixture's grass/water boundary and bound
   groom assets before using it as a production visual quality gate (#1259,
   groom and flora owners).
 - Add isolated GPU/pooled/history/AS retention telemetry before declaring a
-  VRAM or post-release retention budget (#1338).
+  VRAM or post-release retention budget (#1338; *2026-09-29: #1338 is closed,
+  and this is owned by #1342*).
 - Streaming transitions await the relevant #434 capability; this fixture
   currently checks fresh scene load and warm reload only.
 

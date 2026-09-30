@@ -3,12 +3,18 @@
 > **Manifest schema v2 and the character/flora reference fixtures live in
 > [benchmark-reference-fixtures.md](benchmark-reference-fixtures.md)** (issue #1239): asset
 > provenance, per-frame camera motion for moving sequences, and the five head / animal /
-> vegetation fixtures. Everything below is the v1 contract and is unchanged by it.
+> vegetation fixtures. Version 2 is the only manifest version the parser reads; the schema
+> below is the part v2 kept from issue #974's v1, and every `Assets:` record also carries the
+> provenance block documented there.
 
 Deterministic benchmark scenes + a manifest-driven capture entry point that answers the
 questions the regression suite cannot: *is this frame good, which term is responsible, and
 what does it cost?* This is a different product from the golden-image suite (which measures
 change, not quality) and from the perf baselines (which measure cost, not quality).
+
+For repeated A/B comparisons and separate p50/p95/p99/deadline gates, use
+[controlled-performance.md](controlled-performance.md). Minimum-based microbenchmarks
+remain lower-bound cost metrics, not whole-frame regression evidence.
 
 ## The two capture products — and why they can never mix
 
@@ -57,13 +63,13 @@ way to add registry entries is an editor launch. Path spelling: `Assets/...`
 (project-relative) for SandboxProject assets, `assets/...` (CWD-relative to `OloEditor/`)
 for editor-tree assets.
 
-## Capture manifest schema (v1)
+## Capture manifest schema
 
-One YAML file per capture product. Versioned from day one; the parser rejects an unknown
-`ManifestVersion` or unknown top-level key rather than shrugging.
+One YAML file per capture product. The parser reads exactly `ManifestVersion: 2` and rejects
+any other version, or an unknown top-level key, rather than shrugging.
 
 ```yaml
-ManifestVersion: 1
+ManifestVersion: 2
 Id: ocean-coast-hero            # result dir name; [a-z0-9-]
 Product: hero                   # golden | diagnostic | hero
 Scene: Scenes/Benchmark/OceanCoast.olo    # project-relative
@@ -138,6 +144,9 @@ Assets:                          # origin + license of every referenced asset
   - Path: SandboxProject/Assets/Models/KenneyVehicles/ship-small-hull.glb
     Origin: Kenney (kenney.nl)
     License: CC0-1.0
+    # ...plus the required provenance block (Redistribution, LicenseVerified,
+    # Version, Sha256, Units, UpAxis, ColorSpace, Acquisition) —
+    # see benchmark-reference-fixtures.md
 ```
 
 ## The capture entry point
@@ -256,8 +265,9 @@ image of that lane; and PNG clamps float sources to [0,1] unless normalized — 
 live in the `.hdr` exports and the per-attachment min/max in `result.json`.
 
 **Declared unavailable** (their implementation lives inside `DeferredLightingShared.glsl` /
-`PBRCommon.glsl`, owned by the in-flight G-Buffer flags-lane branch #996 — coordination
-noted, not silently skipped): direct vs indirect diffuse/specular splits, per-pixel shadow
-visibility, reflection confidence/hit-distance. When #996 lands, these become candidates
-for real debug-only taps following the `OverdrawRenderPass` / `VolumetricShadowVolume`
-precedents (enable gates hashed into the frame-graph fingerprint).
+`PBRCommon.glsl` — noted, not silently skipped): direct vs indirect diffuse/specular splits,
+per-pixel shadow visibility, reflection confidence/hit-distance. Adding them as debug-only
+taps, following the `OverdrawRenderPass` / `VolumetricShadowVolume` precedents (enable gates
+hashed into the frame-graph fingerprint), is owned by #1526. *(Updated 2026-09-29, #1357:
+this used to name the G-Buffer flags-lane branch #996 as owner; #996 closed on 2026-09-01
+without adding them.)*

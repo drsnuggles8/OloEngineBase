@@ -1544,8 +1544,8 @@ void main()
         }
 
         // Floor guard: a regex that matched nothing would pass every check below.
-        EXPECT_GE(laneByName.size(), 12u)
-            << "expected at least the eleven texture lanes plus the sampler lane; the scan found "
+        EXPECT_GE(laneByName.size(), 10u)
+            << "expected at least the nine texture lanes plus the sampler lane; the scan found "
             << laneByName.size() << " — the #define spelling in BindlessHeap.glsl probably moved";
 
         std::string report;

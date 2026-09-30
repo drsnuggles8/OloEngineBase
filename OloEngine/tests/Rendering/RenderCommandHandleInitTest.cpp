@@ -5,8 +5,8 @@
 //
 // `AssetHandle` is `UUID`, and a bare `AssetHandle x;` member default-constructs
 // one, which draws a random ID. `CommandAllocator::AllocatePacketWithCommand<T>`
-// value-initialises T, and `Renderer3D::DrawMeshParallel` /
-// `DrawAnimatedMeshParallel` call it on the `SubmitMeshesParallel` workers. So
+// value-initialises T, and `Renderer3D::DrawMeshParallel` calls it on the
+// `SubmitMeshesParallel` workers. So
 // every parallel-submitted mesh used to draw two IDs from the shared generator on
 // a worker thread, for values the submitter overwrites on the next line. Every
 // AssetHandle member in RenderCommand.h now has `= 0`.
@@ -134,8 +134,7 @@ TEST(RenderCommandHandleInit, WorkersBuildMeshCommandsWithoutDrawingIds)
                 const u64 before = UUID::GetDrawCountOnThisThread();
                 for (u32 i = 0; i < commandsPerWorker; ++i)
                 {
-                    // The shape of DrawMeshParallel (and of DrawAnimatedMeshParallel,
-                    // which builds the same command): allocate, then overwrite the
+                    // The shape of DrawMeshParallel: allocate, then overwrite the
                     // handles with the asset's.
                     CommandPacket* packet = allocator.AllocatePacketWithCommand<DrawMeshCommand>();
                     if (!packet)

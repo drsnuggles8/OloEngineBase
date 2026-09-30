@@ -14,7 +14,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Task/TaskShared.h"
 #include "OloEngine/HAL/Event.h"
-#include "OloEngine/Templates/FunctionRef.h"
+#include "OloEngine/Templates/Function.h"
 
 #include <atomic>
 

@@ -91,7 +91,7 @@ namespace
 // is refused with a JSON-RPC error and the reload action NEVER runs.
 TEST_F(McpReloadScriptTest, GateOffRejectsReloadAndDoesNotInvoke)
 {
-    ASSERT_FALSE(m_Server.AllowWrites()); // off by default
+    ASSERT_EQ(m_Server.GetWriteConsentMode(), OloEngine::MCP::WriteConsentMode::Disabled); // off by default
 
     const Json resp = m_Server.HandleMessage(MakeCallRequest(1, Json::object()));
 
@@ -105,7 +105,7 @@ TEST_F(McpReloadScriptTest, GateOffRejectsReloadAndDoesNotInvoke)
 // the structured result carries the hook's outcome (available/ok/scriptClassCount).
 TEST_F(McpReloadScriptTest, GateOnInvokesReloadAndReturnsResult)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     m_FakeResult.Available = true;
     m_FakeResult.Ok = true;
     m_FakeResult.ScriptClassCount = 7;
@@ -133,7 +133,7 @@ TEST_F(McpReloadScriptTest, GateOnInvokesReloadAndReturnsResult)
 // isn't told a broken reload worked.
 TEST_F(McpReloadScriptTest, FailedReloadReportsOkFalse)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     m_FakeResult.Available = true;
     m_FakeResult.Ok = false;
     m_FakeResult.Message = "Reload failed: the C# app assembly did not load (see the engine log).";
@@ -155,7 +155,7 @@ TEST_F(McpReloadScriptTest, FailedReloadReportsOkFalse)
 // a tool error. The agent learns scripting is off rather than getting a generic fail.
 TEST_F(McpReloadScriptTest, UnavailableScriptingIsCleanResult)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     m_FakeResult.Available = false;
     m_FakeResult.Ok = false;
     m_FakeResult.Message = "C# scripting is disabled in this build (Mono not available on this platform).";
@@ -179,7 +179,7 @@ TEST_F(McpReloadScriptTest, UnavailableScriptingIsCleanResult)
 // the reload action never fires).
 TEST_F(McpReloadScriptTest, SchemaRejectsUnknownProperty)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     const Json resp = m_Server.HandleMessage(MakeCallRequest(4, Json{ { "name", "Player" } }));
 
     ASSERT_TRUE(resp.contains("result")); // SEP-1303: schema failures are tool errors

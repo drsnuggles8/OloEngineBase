@@ -877,11 +877,8 @@ namespace OloEngine::MCP
         if (ec)
             return {};
 
-        // Default port keeps the legacy single-file name (back-compat for the panel /
-        // manual attach and the docs); any other port namespaces by port so two
-        // editors on distinct ports don't overwrite each other's host/token.
-        if (port == DefaultPort)
-            return (dir / "oloengine-mcp.json").string();
+        // Namespaced by port (the default port included) so two editors on distinct
+        // ports don't overwrite each other's host/token.
         return (dir / ("oloengine-mcp-" + std::to_string(port) + ".json")).string();
     }
 

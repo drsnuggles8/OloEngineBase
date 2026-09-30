@@ -1,4 +1,5 @@
 Scene: ProgressionDemo.olo
+Version: 1
 Entities:
   - Entity: 63501
     TagComponent:

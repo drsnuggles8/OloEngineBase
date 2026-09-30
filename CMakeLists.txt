@@ -85,15 +85,11 @@ if(NOT DEFINED BUILD_TESTS OR BUILD_TESTS)
     list(APPEND VCPKG_MANIFEST_FEATURES "tests")
 endif()
 
-if(CMAKE_GENERATOR MATCHES "Visual Studio")
-    project(OloEngineBase
-            VERSION 0.0.1
-            LANGUAGES CXX C CSharp)
-else()
-    project(OloEngineBase
-            VERSION 0.0.1
-            LANGUAGES CXX C)
-endif()
+# No CSharp language here, under any generator: the C# assemblies are built by `dotnet build`
+# (cmake/CSharpAssembly.cmake, #1405), because CMake's CSharp exists only for Visual Studio.
+project(OloEngineBase
+        VERSION 0.0.1
+        LANGUAGES CXX C)
 
 # --------------------------------------------------------------------------
 # Build identity (#894) — a git hash and a configure-time timestamp, computed
@@ -241,8 +237,7 @@ option(OLO_ENABLE_UNITY_BUILD "Enable Unity (Jumbo) Builds for faster compilatio
 
 # Static-initialisation audit (issue #763). clang-cl only, warnings only, never -Werror.
 # OFF by default: ~220 distinct sites are deliberate process-lifetime singletons, so
-# always-on would be noise rather than signal. See cmake/CommonProperties.cmake and
-# docs/agent-rules/static-initialisation.md.
+# always-on would be noise rather than signal. See cmake/CommonProperties.cmake.
 option(OLO_WARN_STATIC_INIT "Warn on global constructors / exit-time destructors (clang-cl only)" OFF)
 
 # Asset-import format options (#655). All default ON — importing USD / Alembic / MaterialX works
@@ -447,6 +442,7 @@ endif()
 # with an OS-named semaphore every tree contends for. MUST stay above the
 # add_subdirectory() calls below: a linker launcher is read when a target is created.
 include(cmake/LinkSemaphore.cmake)
+include(cmake/WindowsLinkResources.cmake)
 
 # --------------------------------------------------------------------------
 # Heavy-TU compile concurrency (CMake 4.4+, Ninja only — issue #822).
@@ -654,10 +650,6 @@ set(CMAKE_C_EXTENSIONS ON)
 if(NOT MSVC)
     add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX>:-ffp-contract=off>")
 endif()
-if(CMAKE_GENERATOR MATCHES "Visual Studio")
-    set(CMAKE_DOTNET_TARGET_FRAMEWORK_VERSION "v4.8.1")
-    set(CMAKE_CSharp_FLAGS "/langversion:8")
-endif()
 set_property(GLOBAL PROPERTY USE_FOLDERS YES)
 set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "Utilities/cmake")
 
@@ -680,11 +672,11 @@ if(OLO_WITH_OPENVDB)
     add_subdirectory(OloEngine-VolumeCook)
 endif()
 
-if(CMAKE_GENERATOR MATCHES "Visual Studio")
+# C# scripting assemblies (#1405): `dotnet build` on tracked .csproj files, under any generator.
+include(cmake/CSharpAssembly.cmake)
+if(OLO_WITH_CSHARP)
     add_subdirectory(OloEngine-ScriptCore)
     add_subdirectory(OloEditor/SandboxProject/Assets/Scripts)
-    set_target_properties(OloEngine-ScriptCore PROPERTIES FOLDER "Scripting")
-    set_target_properties(Sandbox-Scripting PROPERTIES FOLDER "Scripting")
 endif()
 
 add_subdirectory(OloEditor)
@@ -699,14 +691,13 @@ add_dependencies(OloEditor OloRuntime)
 
 # Ensure a targeted `--target OloEditor` build also produces a working C#
 # scripting setup. OloEngine-ScriptCore.dll builds straight into
-# OloEditor/Resources/Scripts/ (see olo_configure_csharp_project in
-# cmake/CommonProperties.cmake) and Sandbox-Scripting.dll is the sample
-# project's game-script assembly the editor loads at startup; without this
-# edge, ScriptEngine::Init silently disables C# scripting because neither
-# DLL exists on disk yet. C# targets only exist under the Visual Studio
-# generator (see the guard above), so this edge must live inside the same
-# guard or clang/ninja configure would fail on an unknown target.
-if(CMAKE_GENERATOR MATCHES "Visual Studio")
+# OloEditor/Resources/Scripts/ (OutDir in OloEngine-ScriptCore.csproj) and
+# Sandbox-Scripting.dll is the sample project's game-script assembly the
+# editor loads at startup; without this edge, ScriptEngine::Init silently
+# disables C# scripting because neither DLL exists on disk yet. The C#
+# targets exist whenever OLO_WITH_CSHARP is ON (the Windows default), under
+# every generator.
+if(OLO_WITH_CSHARP)
     add_dependencies(OloEditor OloEngine-ScriptCore Sandbox-Scripting)
 endif()
 
@@ -750,12 +741,9 @@ if(TARGET OloEngine-Tests)
 endif()
 
 # Auto-run OloHeaderTool before compiling targets that consume its output.
-# OloEngine includes the generated .inl files; OloEngine-ScriptCore includes
-# the generated .cs files.
+# OloEngine includes the generated .inl files. OloEngine-ScriptCore compiles
+# the generated .cs files; its edge lives in OloEngine-ScriptCore/CMakeLists.txt.
 add_dependencies(OloEngine GenerateBindings)
-if(CMAKE_GENERATOR MATCHES "Visual Studio")
-	add_dependencies(OloEngine-ScriptCore GenerateBindings)
-endif()
 
 if(${CMAKE_GENERATOR} MATCHES "Visual Studio")
     set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT "OloEditor")

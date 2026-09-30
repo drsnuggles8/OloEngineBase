@@ -22,7 +22,7 @@
 //   [x] Metallic kills diffuse       (PbrDiffuseTest.*)
 //   [x] Roughness = 0 is mirror      (PbrNdfTest.LowRoughnessConcentratesHighlight)
 //   [x] Normal map identity          (PbrNormalMapTest.FlatNormalReturnsGeometricNormal)
-//   [x] White environment irradiance (PbrIrradianceTest.UniformWhiteYieldsNormalisedUnity)
+//   [x] White environment irradiance (PbrIrradianceAdvancedTest.ImportanceUniformWhiteYieldsUnity)
 // =============================================================================
 
 #include "OloEnginePCH.h"
@@ -1058,63 +1058,6 @@ namespace OloEngine::Tests
     }
 
     // =========================================================================
-    // White-environment irradiance. Runs the exact hemisphere integrator used
-    // by production IrradianceConvolution.glsl but substitutes the cubemap
-    // lookup with a uniform-white constant radiance L_i(ω) = 1. The production
-    // convolution uses the learnopengl-style normalisation
-    //
-    //     E = π * (1/N) * Σ L_i(ω) cos(θ) sin(θ)
-    //
-    // which, for uniform-white radiance, evaluates to 1.0 — a direct
-    // consequence of the discrete normalisation `1/N * Σ cos(θ)sin(θ) = 1/π`
-    // on the fixed sampleDelta=0.025 grid. (This is NOT the raw Lambertian
-    // irradiance π; it's a pre-normalised value the shader then feeds into
-    // `kD * albedo / π` during lighting.) Catches dropped cos(θ) or sin(θ)
-    // weights, sample-count errors, hemisphere-bound errors, and drift of the
-    // π multiplier.
-    //
-    // Tolerance: the fixed-delta integrator has small Riemann truncation
-    // error; empirically within 5e-3 of 1.0 on NVIDIA fp32. 2e-2 for slack.
-    // =========================================================================
-    TEST(PbrIrradianceTest, UniformWhiteYieldsNormalisedUnity)
-    {
-        OLO_ENSURE_GPU_OR_SKIP();
-
-        constexpr u32 kWidth = 32;
-        constexpr u32 kHeight = 32;
-
-        PbrProbeHarness harness(kWidth, kHeight, "assets/shaders/tests/ShaderUnit_WhiteIrradiance.glsl");
-        harness.Draw();
-
-        std::vector<f32> pixels;
-        harness.ReadOutputRgbaFloat(pixels);
-        ASSERT_EQ(pixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4);
-
-        const std::size_t centre = (static_cast<std::size_t>(kHeight / 2) * kWidth + kWidth / 2) * 4;
-        const f32 r = pixels[centre + 0];
-        const f32 g = pixels[centre + 1];
-        const f32 b = pixels[centre + 2];
-
-        constexpr f32 kExpected = 1.0f;
-        constexpr f32 kTolerance = 2e-2f;
-
-        EXPECT_NEAR(r, kExpected, kTolerance) << "irradiance.r drifts from unity for uniform-white env";
-        EXPECT_NEAR(g, kExpected, kTolerance) << "irradiance.g drifts from unity";
-        EXPECT_NEAR(b, kExpected, kTolerance) << "irradiance.b drifts from unity";
-
-        // Spatial uniformity: every pixel should match within a tighter
-        // tolerance (same integrator, no input variation).
-        for (u32 y = 0; y < kHeight; ++y)
-        {
-            for (u32 x = 0; x < kWidth; ++x)
-            {
-                const std::size_t idx = (static_cast<std::size_t>(y) * kWidth + x) * 4;
-                EXPECT_NEAR(pixels[idx + 0], r, 1e-4f) << "non-uniform irradiance at (" << x << "," << y << ")";
-            }
-        }
-    }
-
-    // =========================================================================
     // Prefilter white-environment invariant. Runs the exact GGX importance
     // sampling integrator from `IBLPrefilter.glsl` with the cubemap lookup
     // replaced by uniform-white radiance. The normalised integral
@@ -1163,8 +1106,12 @@ namespace OloEngine::Tests
     // =========================================================================
     // Prefilter pipeline integration: mip energy monotonicity + mip 0 identity.
     //
-    // This test exercises the full `IBLPrecompute::GeneratePrefilterMap`
-    // production path — not just the shader math in isolation. It constructs
+    // This test exercises the full `IBLPrecompute::GeneratePrefilterMapAdvanced`
+    // production path with IBLConfiguration::UseImportanceSampling = false —
+    // the option that bakes through `IBLPrefilter.glsl` (the importance-sampled
+    // option has its own copy of this test,
+    // PbrPrefilterAdvancedTest.ImportanceMipChainEnergyIsMonotonic). It
+    // is not just the shader math in isolation. It constructs
     // a source environment cubemap with a non-uniform radiance pattern
     // (bright hotspot on one face, mid-gray elsewhere), generates the
     // prefilter chain, and asserts:
@@ -1249,8 +1196,10 @@ namespace OloEngine::Tests
         localLib.Load("IBLPrefilter", "assets/shaders/IBLPrefilter.glsl");
         ASSERT_TRUE(localLib.Exists("IBLPrefilter")) << "IBLPrefilter shader failed to load";
 
-        // -- Run the production pipeline.
-        IBLPrecompute::GeneratePrefilterMap(env, prefilter, localLib);
+        // -- Run the production pipeline, non-importance-sampled option.
+        IBLConfiguration config;
+        config.UseImportanceSampling = false;
+        IBLPrecompute::GeneratePrefilterMapAdvanced(env, prefilter, localLib, config);
 
         // Helper: compute mean + peak luminance over face 0 of a given mip.
         // Returns false if the readback or size check failed — callers must
@@ -1567,9 +1516,9 @@ namespace OloEngine::Tests
     // invariant through GenerateIrradianceMapAdvanced + IrradianceConvolution-
     // Advanced.glsl, the production default when UseSphericalHarmonics is false.
     //
-    // The normalisation matches the baseline convolution (output = E(N)/π = 1.0
-    // for uniform white), so this is a drop-in correctness check on the new
-    // Monte-Carlo path: a non-unity result means a dropped pdf cancellation, a
+    // The cube stores normalised irradiance (output = E(N)/π = 1.0 for uniform
+    // white), and this test is the pin for that convention on the production
+    // convolution: a non-unity result means a dropped pdf cancellation, a
     // mis-bound UBO, or a broken cosine sampler.
     // =========================================================================
     TEST(PbrIrradianceAdvancedTest, ImportanceUniformWhiteYieldsUnity)

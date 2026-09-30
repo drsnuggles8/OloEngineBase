@@ -73,10 +73,10 @@ namespace OloEngine
         }
 
         // Records the name of the SOURCE render-graph pass — the pass whose
-        // command bucket becomes CapturedFrameData's top-level PreSort/PostSort/
-        // PostBatch lists (SceneRenderPass today). No-op when not capturing. Lets
-        // the breakdown attribute the top-level bucket to a real graph pass instead
-        // of a hard-coded label.
+        // command bucket CapturedFrameData::SourcePass() returns and whose stats
+        // become the frame's Stats (SceneRenderPass today). No-op when not
+        // capturing. Lets the breakdown attribute the top-level bucket to a real
+        // graph pass instead of a hard-coded label.
         void SetSourcePass(std::string_view passName);
 
         // Per-pass capture (issue #463 / #316) ------------------------
@@ -91,7 +91,7 @@ namespace OloEngine
 
         // Capture hooks — called by each command-bucket pass's Execute(). They
         // target the CURRENT per-pass entry (created by BeginPass, or implicitly
-        // created on first use for the legacy single-pass direct-API path).
+        // created on first use by a direct-API capture with no BeginPass).
         void OnPreSort(const CommandBucket& bucket);
         void OnPostSort(const CommandBucket& bucket);
         void OnPostBatch(const CommandBucket& bucket);
@@ -115,12 +115,6 @@ namespace OloEngine
         // CommitFrame resolves the queries into it before pushing it to the ring.
         // Continuous Recording keeps the immediate previous-frame-results commit.
         void CommitFrame();
-
-        // Legacy single-pass commit. Records the current pass's timings and commits
-        // with an explicit frame number in one call. Retained for the direct-API
-        // unit tests (FrameCaptureTest) and any single-pass driver; the production
-        // multi-pass path uses RecordPassTimings + CommitFrame instead.
-        void OnFrameEnd(u32 frameNumber, f64 sortTimeMs, f64 batchTimeMs, f64 executeTimeMs);
 
         // Access captured data (thread-safe copies for UI consumption)
         TArray<CapturedFrameData> GetCapturedFramesCopy() const;
@@ -151,22 +145,17 @@ namespace OloEngine
         // Deep-copy all commands from a bucket into a vector
         void DeepCopyCommands(const CommandBucket& bucket, TArray<CapturedCommandData>& outCommands, bool useSortedOrder) const;
 
-        // Locate the pending frame's source pass (SourcePassName match, else the
-        // first captured pass). Null when nothing was captured.
-        CapturedPassData* FindSourcePass();
-
         // Write per-command GPU times (execution order) onto the source pass's
         // final command list. Must run BEFORE CommitPendingFrame copies the
         // source lists into the top-level view.
         void ApplyGpuTimingsToSource(const TArray<f64>& resultsMs);
 
         // Return the current per-pass entry being built, creating an implicit one
-        // when no BeginPass() has run yet (the legacy single-pass direct-API path).
+        // when no BeginPass() has run yet (a direct-API capture).
         CapturedPassData& EnsureCurrentPass();
 
-        // Finalise m_PendingFrame and push it to the captured-frame ring. Shared
-        // by CommitFrame() (central, auto frame number) and OnFrameEnd() (legacy,
-        // explicit frame number). Resets the pending frame afterwards.
+        // Finalise m_PendingFrame and push it to the captured-frame ring with the
+        // given frame number. Resets the pending frame afterwards.
         void CommitPendingFrame(u32 frameNumber);
 
         std::atomic<CaptureState> m_State = CaptureState::Idle;

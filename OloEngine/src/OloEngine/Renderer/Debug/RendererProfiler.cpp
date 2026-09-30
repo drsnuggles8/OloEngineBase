@@ -83,6 +83,8 @@ namespace OloEngine
         m_Counters.clear();
         m_CustomTimings.clear();
         m_FrameHistory.Reset();
+        m_CompletedFrameObserver = {};
+        m_CompletedTraceId = 0;
 
         OLO_CORE_INFO("Renderer Profiler shutdown");
     }
@@ -114,6 +116,8 @@ namespace OloEngine
         m_CurrentFrame = {};
         m_PreviousFrame = {};
         m_LastCompletedFrame = {};
+        m_CompletedFrameObserver = {};
+        m_CompletedTraceId = 0;
         m_HasCompletedFrame = false;
         m_PendingPostFrameGPUWaitTime = 0.0;
 
@@ -167,6 +171,8 @@ namespace OloEngine
             // m_PreviousFrame is now fully self-consistent (every field
             // describes the same completed frame) — publish it.
             m_LastCompletedFrame = m_PreviousFrame;
+            if (m_CompletedFrameObserver)
+                m_CompletedFrameObserver(static_cast<u64>(m_FrameNumber - 1u));
         }
         m_PendingPostFrameGPUWaitTime = 0.0;
         m_LastFrameTime = m_FrameStartTime;

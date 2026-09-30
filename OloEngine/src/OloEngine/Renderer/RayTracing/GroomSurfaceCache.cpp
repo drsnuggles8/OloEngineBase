@@ -548,7 +548,7 @@ namespace OloEngine::RayTracing
             // remove it a second time. Opaque also keeps the instance off
             // GeometryClass::Masked, so a ray commits on intersection instead of
             // stopping on every strand as a candidate.
-            material.m_Flags = GPUSceneMaterialFlagPBR | GPUSceneMaterialFlagTwoSided | GPUSceneMaterialFlagDepthTest;
+            material.m_Flags = GPUSceneMaterialFlagTwoSided | GPUSceneMaterialFlagDepthTest;
             scene.ExtractMaterial(materialKey, material);
 
             scene.ExtractGeometry(geometryKey,

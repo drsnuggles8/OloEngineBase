@@ -213,6 +213,12 @@ namespace OloEngine::MCP::Schema
     {
         return Node(Json{ { "type", "boolean" } });
     }
+    // A boolean that may be JSON null, for the same reason as NullableNumber: a
+    // flag with no frame behind it (the tier did not run) is null, not false.
+    [[nodiscard]] inline Node NullableBool()
+    {
+        return Node(Json{ { "type", Json::array({ "boolean", "null" }) } });
+    }
     [[nodiscard]] inline Node String()
     {
         return Node(Json{ { "type", "string" } });

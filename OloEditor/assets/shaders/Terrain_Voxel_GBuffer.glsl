@@ -58,18 +58,17 @@ void main()
     vec3 a_Normal = vec3(b_Vertices.v[vertBase + 3], b_Vertices.v[vertBase + 4], b_Vertices.v[vertBase + 5]);
 #endif
     OLO_INSTANCE_FORWARD();
-    vec4 worldPos = u_Model * vec4(a_Position, 1.0);
+    vec4 worldPos = instances[gl_InstanceIndex].Transform * vec4(a_Position, 1.0);
     v_WorldPos = worldPos.xyz;
-    v_Normal = normalize(mat3(u_Normal) * a_Normal);
+    v_Normal = normalize(mat3(instances[gl_InstanceIndex].Normal) * a_Normal);
     gl_Position = u_ViewProjection * worldPos;
 }
 
 #type fragment
 #version 460 core
 
-// Mirror the vertex-stage ModelMatrices block so u_EntityID is available
-// for the location=4 picking write. SPIR-V link validation requires the
-// padding fields to match the vertex declaration exactly.
+// Instance SSBO so instances[v_InstanceIndex].EntityID is available for the
+// location=4 picking write.
 #include "include/InstanceBlock.glsl"
 
 // Camera block (binding 0) — the fragment only needs u_RenderOrigin (issue
@@ -200,6 +199,6 @@ void main()
     o_GBufferEmissive = vec4(0.0, 0.0, 0.0, 0.0);
     // Static terrain → zero velocity.
     o_GBufferVelocity = vec4(0.0, 0.0, 1.0, 0.0);
-    o_GBufferEntityID = u_EntityID;
+    o_GBufferEntityID = instances[v_InstanceIndex].EntityID;
     o_GBufferBakedGI = vec4(0.0); // no baked lightmap on this surface (issue #865)
 }

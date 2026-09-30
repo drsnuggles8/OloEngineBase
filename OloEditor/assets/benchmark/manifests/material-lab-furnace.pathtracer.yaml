@@ -23,7 +23,7 @@
 # fallback instead of the thing this manifest is about. Run it through the
 # editor's olo_benchmark_capture under --rhi=vulkan; it is a diagnostic, not a
 # gate, and CI never runs it (no runner has an RT device).
-ManifestVersion: 1
+ManifestVersion: 2
 Id: material-lab-furnace-pathtracer
 Product: diagnostic
 Scene: Scenes/Benchmark/MaterialLabFurnace.olo
@@ -100,3 +100,11 @@ Assets:
   - Path: assets/textures/hdr/furnace_white_1x1.hdr
     Origin: generated in-repo (uniform white 1x1 Radiance HDR, issue #974)
     License: CC0-1.0
+    Redistribution: committed
+    LicenseVerified: in-repo-file
+    Version: generated
+    Sha256: e17cf72c496b5e2c4092069f424a3384094af9b4e9f693ef280f40184fdfe593
+    Units: unitless
+    UpAxis: n/a
+    ColorSpace: linear
+    Acquisition: Already in-tree. A 1x1 Radiance HDR holding radiance (1, 1, 1); any HDR writer reproduces it

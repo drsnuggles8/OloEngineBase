@@ -150,9 +150,8 @@ namespace OloEngine::SkyBake
         // with — the reflection aliases into hard-edged flats (issue #943, and
         // the "plateaus" of #898). Water.glsl now samples it with textureGrad so
         // the footprint picks a mip. Consumers that must keep reading the base
-        // level ask for it explicitly (IBLPrefilter.glsl, IrradianceConvolution
-        // .glsl); the skybox draw is unaffected because it samples with no
-        // gradient spread.
+        // level ask for it explicitly (IBLPrefilter.glsl); the skybox draw is
+        // unaffected because it samples with no gradient spread.
         //
         // No-op for a cubemap created with GenerateMips = false, so the three
         // sky bakes that route through here opt in via their own spec.

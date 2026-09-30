@@ -94,7 +94,7 @@ TEST(McpEditorDebugDraw, ProjectWriteGateRejectsBeforeCallbackAndAllowsAfterCons
     EXPECT_FALSE(denied.contains("result"));
     EXPECT_EQ(calls, 0);
 
-    server.SetAllowWrites(true);
+    server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     const Json response = server.HandleMessage(request);
     ASSERT_TRUE(response.contains("result"));
     EXPECT_FALSE(response["result"]["isError"]);
@@ -115,7 +115,7 @@ TEST(McpEditorDebugDraw, SchemaRejectsUnknownCategoryBeforeCallback)
         return ToolResult::Text("unexpected");
     };
     server.RegisterTool(std::move(tool));
-    server.SetAllowWrites(true);
+    server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
 
     const Json response = server.HandleMessage(Call(Json{ { "category", "fog" }, { "enabled", false } }));
     EXPECT_TRUE(response["result"]["isError"]);

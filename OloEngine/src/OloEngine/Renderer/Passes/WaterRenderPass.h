@@ -10,7 +10,8 @@ namespace OloEngine
     // @brief Render pass for animated water surfaces.
     //
     // Uses the command bucket system for sorted dispatch of DrawWaterCommands.
-    // Renders into the ScenePass framebuffer after foliage geometry but before decals.
+    // Renders into the ScenePass framebuffer after foliage, groom strands and
+    // decals, and before the screen-space fluid composite.
     // Water is rendered with alpha blending for transparency support.
     //
     // This pass follows the Molecular Matters design — water surfaces are POD

@@ -72,9 +72,9 @@ void main()
     OloVoxelQuad quad = oloUnpackVoxelQuad(geometryWord, materialWord);
     vec3 localPos = oloVoxelQuadCorner(quad, a_Corner);
 
-    vec4 worldPos = u_Model * vec4(localPos, 1.0);
+    vec4 worldPos = instances[0].Transform * vec4(localPos, 1.0);
     v_WorldPos = worldPos.xyz;
-    v_Normal = normalize(mat3(u_Normal) * quad.Normal);
+    v_Normal = normalize(mat3(instances[0].Normal) * quad.Normal);
     v_Material = quad.Material;
     gl_Position = u_ViewProjection * worldPos;
 }
@@ -225,6 +225,6 @@ void main()
     o_GBufferNormal   = vec4(octEncodeGB(N), roughness, ao);
     o_GBufferEmissive = vec4(0.0, 0.0, 0.0, 0.0);
     o_GBufferVelocity = vec4(0.0, 0.0, 1.0, 0.0);
-    o_GBufferEntityID = u_EntityID;
+    o_GBufferEntityID = instances[v_InstanceIndex].EntityID;
     o_GBufferBakedGI = vec4(0.0); // no baked lightmap on this surface (issue #865)
 }

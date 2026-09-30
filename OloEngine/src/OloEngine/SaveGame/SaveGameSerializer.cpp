@@ -75,7 +75,6 @@ namespace OloEngine
                          : (entity).GetComponent<ComponentType>();                                               \
         FMemoryReader cr(dataBuf);                                                                               \
         cr.ArIsSaveGame = true;                                                                                  \
-        cr.SetArchiveVersion(reader.GetArchiveVersion());                                                        \
         SaveGameComponentSerializer::Serialize(cr, comp);                                                        \
         if (cr.IsError() || cr.Tell() != static_cast<i64>((dataBuf).size()))                                     \
         {                                                                                                        \
@@ -147,25 +146,10 @@ namespace OloEngine
         ar << s.EnableNoise << s.NoiseScale << s.NoiseSpeed << s.NoiseIntensity;
         ar << s.EnableLightShafts << s.LightShaftIntensity;
         // NOT SERIALIZED, deliberately: FogSettings' three volumetric
-        // self-shadow fields (issue #723).
-        //
-        // This section is a FLAT byte stream between the "SETS" and "ENTS"
-        // markers — unlike a component block, it carries no length prefix. So
-        // the per-field version gate that binary-format-versioning.md
-        // prescribes cannot be used here: a gated field makes the reader and
-        // writer consume different byte counts, and with nothing to resync
-        // against, everything after it slides. (Proven by
-        // SaveGameVersionMigration.FullSaveWithPreV3TerrainRestoresThrough-
-        // RestoreSceneState, which is the first test to put a current-layout
-        // capture through an older archive version once such a field existed.)
-        //
-        // The values are not lost. They are authored scene state, persisted by
-        // SceneSerializer, and RestoreSceneState now seeds its settings structs
-        // from the LIVE scene rather than from a default-constructed one — so a
-        // field this archive does not carry keeps the value the scene was
-        // loaded with instead of snapping back to a global default. That is the
-        // right answer for every settings field a save game legitimately does
-        // not own, not just these three.
+        // self-shadow fields (issue #723). They are authored scene state,
+        // persisted by SceneSerializer, and RestoreSceneState seeds its settings
+        // structs from the LIVE scene, so a field this archive does not carry
+        // keeps the value the scene was loaded with.
     }
 
     static void SerializeWindSettings(FArchive& ar, WindSettings& s)
@@ -222,6 +206,77 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         ar << s.Enabled << s.DefaultLoadRadius << s.DefaultUnloadRadius;
         ar << s.MaxLoadedRegions << s.RegionDirectory;
+        ar << s.MaxResidentMegabytes << s.MaxAdmittedMegabytesPerFrame; // #1365 byte budgets
+        if (ar.IsLoading())
+        {
+            // A save file is untrusted input: a NaN, infinite or negative budget is
+            // "no budget", exactly as the scene YAML loader treats it.
+            s.MaxResidentMegabytes = SanitizeStreamingBudgetMegabytes(s.MaxResidentMegabytes);
+            s.MaxAdmittedMegabytesPerFrame = SanitizeStreamingBudgetMegabytes(s.MaxAdmittedMegabytesPerFrame);
+        }
+    }
+
+    // ========================================================================
+    // Framed settings blocks
+    // ========================================================================
+
+    // Each scene-settings struct is written as {u32 byteCount, payload}, the same
+    // framing a component block has. The reader hands the payload to a bounded
+    // sub-archive and requires it to be consumed exactly, so a truncated save, or
+    // a struct whose writer and reader disagree by one field, fails naming the
+    // struct instead of shifting every later read (#1498).
+    template<typename SerializeFn>
+    static void WriteSettingsBlock(FMemoryWriter& writer, SerializeFn&& serialize)
+    {
+        std::vector<u8> block;
+        {
+            FMemoryWriter blockWriter(block);
+            blockWriter.ArIsSaveGame = true;
+            serialize(blockWriter);
+        }
+        u32 byteCount = static_cast<u32>(block.size());
+        writer << byteCount;
+        if (byteCount > 0)
+        {
+            writer.Serialize(block.data(), static_cast<i64>(byteCount));
+        }
+    }
+
+    template<typename SerializeFn>
+    [[nodiscard]] static bool ReadSettingsBlock(FMemoryReader& reader, const char* name, SerializeFn&& serialize)
+    {
+        u32 byteCount = 0;
+        reader << byteCount;
+        // The declared length is bounded by what the reader still holds, so a corrupt length
+        // fails here instead of allocating it; the writer puts no cap on a block's size.
+        if (reader.IsError() || static_cast<i64>(byteCount) > reader.TotalSize() - reader.Tell())
+        {
+            OLO_CORE_ERROR("[SaveGameSerializer] Settings block '{}' declares {} bytes, more than the save holds "
+                           "(truncated or corrupt save)",
+                           name, byteCount);
+            return false;
+        }
+        std::vector<u8> block(byteCount);
+        if (byteCount > 0)
+        {
+            reader.Serialize(block.data(), static_cast<i64>(byteCount));
+        }
+        if (reader.IsError())
+        {
+            OLO_CORE_ERROR("[SaveGameSerializer] Settings block '{}' is truncated: {} bytes declared", name, byteCount);
+            return false;
+        }
+        FMemoryReader blockReader(block);
+        blockReader.ArIsSaveGame = true;
+        serialize(blockReader);
+        if (blockReader.IsError() || blockReader.Tell() != static_cast<i64>(byteCount))
+        {
+            OLO_CORE_ERROR("[SaveGameSerializer] Settings block '{}' read {} of {} bytes; the save does not match "
+                           "this build's layout",
+                           name, blockReader.Tell(), byteCount);
+            return false;
+        }
+        return true;
     }
 
     // ========================================================================
@@ -240,14 +295,22 @@ namespace OloEngine
         u32 settingsMarker = 0x53455453; // "SETS"
         writer << settingsMarker;
 
-        SerializePostProcessSettings(writer, scene.m_PostProcessSettings);
-        SerializeSnowSettings(writer, scene.m_SnowSettings);
-        SerializeFogSettings(writer, scene.m_FogSettings);
-        SerializeWindSettings(writer, scene.m_WindSettings);
-        SerializeSnowAccumulationSettings(writer, scene.m_SnowAccumulationSettings);
-        SerializeSnowEjectaSettings(writer, scene.m_SnowEjectaSettings);
-        SerializePrecipitationSettings(writer, scene.m_PrecipitationSettings);
-        SerializeStreamingSettings(writer, scene.m_StreamingSettings);
+        WriteSettingsBlock(writer, [&scene](FArchive& ar)
+                           { SerializePostProcessSettings(ar, scene.m_PostProcessSettings); });
+        WriteSettingsBlock(writer, [&scene](FArchive& ar)
+                           { SerializeSnowSettings(ar, scene.m_SnowSettings); });
+        WriteSettingsBlock(writer, [&scene](FArchive& ar)
+                           { SerializeFogSettings(ar, scene.m_FogSettings); });
+        WriteSettingsBlock(writer, [&scene](FArchive& ar)
+                           { SerializeWindSettings(ar, scene.m_WindSettings); });
+        WriteSettingsBlock(writer, [&scene](FArchive& ar)
+                           { SerializeSnowAccumulationSettings(ar, scene.m_SnowAccumulationSettings); });
+        WriteSettingsBlock(writer, [&scene](FArchive& ar)
+                           { SerializeSnowEjectaSettings(ar, scene.m_SnowEjectaSettings); });
+        WriteSettingsBlock(writer, [&scene](FArchive& ar)
+                           { SerializePrecipitationSettings(ar, scene.m_PrecipitationSettings); });
+        WriteSettingsBlock(writer, [&scene](FArchive& ar)
+                           { SerializeStreamingSettings(ar, scene.m_StreamingSettings); });
 
         // --- Entities ---
         u32 entitiesMarker = 0x454E5453; // "ENTS"
@@ -487,7 +550,7 @@ namespace OloEngine
         return !reader.IsError();
     }
 
-    bool SaveGameSerializer::RestoreSceneState(Scene& scene, const std::vector<u8>& data, u32 formatVersion)
+    bool SaveGameSerializer::RestoreSceneState(Scene& scene, const std::vector<u8>& data)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -498,7 +561,6 @@ namespace OloEngine
 
         FMemoryReader reader(data);
         reader.ArIsSaveGame = true;
-        reader.SetArchiveVersion(formatVersion);
 
         // --- Parse settings into local temporaries ---
         u32 settingsMarker = 0;
@@ -524,18 +586,26 @@ namespace OloEngine
         PrecipitationSettings precipitation = scene.m_PrecipitationSettings;
         StreamingSettings streaming = scene.m_StreamingSettings;
 
-        SerializePostProcessSettings(reader, postProcess);
-        SerializeSnowSettings(reader, snow);
-        SerializeFogSettings(reader, fog);
-        SerializeWindSettings(reader, wind);
-        SerializeSnowAccumulationSettings(reader, snowAccum);
-        SerializeSnowEjectaSettings(reader, snowEjecta);
-        SerializePrecipitationSettings(reader, precipitation);
-        SerializeStreamingSettings(reader, streaming);
-
-        if (reader.IsError())
+        const bool settingsRead =
+            ReadSettingsBlock(reader, "PostProcess", [&](FArchive& ar)
+                              { SerializePostProcessSettings(ar, postProcess); }) &&
+            ReadSettingsBlock(reader, "Snow", [&](FArchive& ar)
+                              { SerializeSnowSettings(ar, snow); }) &&
+            ReadSettingsBlock(reader, "Fog", [&](FArchive& ar)
+                              { SerializeFogSettings(ar, fog); }) &&
+            ReadSettingsBlock(reader, "Wind", [&](FArchive& ar)
+                              { SerializeWindSettings(ar, wind); }) &&
+            ReadSettingsBlock(reader, "SnowAccumulation", [&](FArchive& ar)
+                              { SerializeSnowAccumulationSettings(ar, snowAccum); }) &&
+            ReadSettingsBlock(reader, "SnowEjecta", [&](FArchive& ar)
+                              { SerializeSnowEjectaSettings(ar, snowEjecta); }) &&
+            ReadSettingsBlock(reader, "Precipitation", [&](FArchive& ar)
+                              { SerializePrecipitationSettings(ar, precipitation); }) &&
+            ReadSettingsBlock(reader, "Streaming", [&](FArchive& ar)
+                              { SerializeStreamingSettings(ar, streaming); });
+        if (!settingsRead)
         {
-            OLO_CORE_ERROR("[SaveGameSerializer] Failed to parse scene settings");
+            OLO_CORE_ERROR("[SaveGameSerializer] Failed to parse scene settings, scene is unchanged");
             return false;
         }
 

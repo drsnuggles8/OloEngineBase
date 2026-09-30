@@ -56,19 +56,6 @@ namespace OloEngine
     };
 
     /**
-     * @struct TIsCompactSet
-     * @brief Traits class which determines whether or not a type is a TCompactSet
-     */
-    template<typename T>
-    struct TIsCompactSet
-    {
-        enum
-        {
-            Value = false
-        };
-    };
-
-    /**
      * @struct BaseKeyFuncs
      * @brief The base KeyFuncs type with useful definitions; meant to be derived from
      *

@@ -162,7 +162,7 @@ layout(std140, binding = 23) uniform WaterParams
     // w = band-limit spacing per metre of ray distance: one grid step of view
     //     angle, so a vertex t metres out is sampled ~w*t metres apart. The
     //     rim radius a missed ray is pushed to is derived in-shader from the
-    //     half-extents below and u_Model, not uploaded.
+    //     half-extents below and the instance Transform, not uploaded.
     vec4 u_ProjectedGridParams;
     // xy = the surface's LOCAL half-extents. The clamp into this rect is what
     //      keeps a finite water tile finite: a screen-space grid has no idea
@@ -369,10 +369,10 @@ void main()
         // render-relative space u_ViewProjection works in. Column 1 is the
         // transformed up axis and column 3 the surface centre, which is how the
         // planar-reflection plane is derived on the C++ side too.
-        vec3 planeNormal = u_Model[1].xyz;
+        vec3 planeNormal = instances[0].Transform[1].xyz;
         float normalLenSq = dot(planeNormal, planeNormal);
         planeNormal = (normalLenSq > 1e-12) ? (planeNormal * inversesqrt(normalLenSq)) : vec3(0.0, 1.0, 0.0);
-        vec3 planePoint = u_Model[3].xyz;
+        vec3 planePoint = instances[0].Transform[3].xyz;
 
         // The grid spans the rectangle WaterSurfaceLod::ComputeNdcBounds
         // measured, NOT the screen. It is SMALLER than the screen at the
@@ -425,8 +425,8 @@ void main()
         // How far a missed ray is pushed before the rect clamp catches it: past
         // the surface's world-space half-diagonal, doubled. Derived here rather
         // than uploaded so the .w slot can carry the spacing step instead.
-        float rimRadius = 2.0 * length(vec2(u_ProjectedGridParams2.x * length(u_Model[0].xyz),
-                                            u_ProjectedGridParams2.y * length(u_Model[2].xyz)));
+        float rimRadius = 2.0 * length(vec2(u_ProjectedGridParams2.x * length(instances[0].Transform[0].xyz),
+                                            u_ProjectedGridParams2.y * length(instances[0].Transform[2].xyz)));
         float projSpacing = 0.0;
         vec3 hit = waterProjectGridVertex(ndc, planePoint, planeNormal, rimRadius,
                                           localSpacingPerMetre, projSpacing);
@@ -436,10 +436,10 @@ void main()
         // is what keeps a finite tile finite; rows that would land past the rect
         // pile onto its edge as zero-area triangles.
         // Back into surface-local space WITHOUT a per-vertex mat4 inverse:
-        // u_NormalMatrix is transpose(inverse(u_Model)), already uploaded per
+        // the instance Normal is transpose(inverse(Transform)), already uploaded per
         // draw, so its 3x3 transpose is the inverse of the model's linear part
         // and the translation is undone by subtracting column 3 first.
-        vec3 local = transpose(mat3(u_NormalMatrix)) * (hit - u_Model[3].xyz);
+        vec3 local = transpose(mat3(instances[0].Normal)) * (hit - instances[0].Transform[3].xyz);
         local.xz = clamp(local.xz, -u_ProjectedGridParams2.xy, u_ProjectedGridParams2.xy);
         local.y = 0.0;
         gridLocalPos = local;
@@ -449,8 +449,8 @@ void main()
         gridUV = local.xz / max(u_ProjectedGridParams2.xy, vec2(1e-3)) * 0.5 + 0.5;
     }
 
-    vec4 worldPos = u_Model * vec4(gridLocalPos, 1.0);
-    vec4 worldPosPrev = u_PrevModel * vec4(gridLocalPos, 1.0);
+    vec4 worldPos = instances[0].Transform * vec4(gridLocalPos, 1.0);
+    vec4 worldPosPrev = instances[0].PrevTransform * vec4(gridLocalPos, 1.0);
     // The vertex stage NEVER displaces (issue #1470). Every program that
     // includes this stage — Water.glsl and Water_Depth.glsl — also has a
     // tessellation-evaluation stage, and every water draw is a patch list

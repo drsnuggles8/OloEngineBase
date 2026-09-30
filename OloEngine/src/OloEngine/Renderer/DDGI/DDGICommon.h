@@ -279,7 +279,7 @@ namespace OloEngine::DDGI
     }
 
     // -------------------------------------------------------------------------
-    // Volume membership. GLSL mirror: ddgiIsInsideVolume, ddgiVolumeWeight.
+    // Volume membership. GLSL mirror: ddgiIsInsideVolume, ddgiVolumeWeightBounds.
     // -------------------------------------------------------------------------
 
     [[nodiscard("the membership test is the only effect")]] inline bool IsInsideVolume(const glm::vec3& worldPos, const glm::vec3& boundsMin, const glm::vec3& boundsMax) noexcept

@@ -2060,12 +2060,6 @@ namespace OloEngine
         {
             Slot << InMap.Pairs;
         }
-
-        template<typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
-        [[nodiscard]] static bool LegacyCompareEqual(const TMapBase<KeyType, ValueType, SetAllocator, KeyFuncs>& A, const TMapBase<KeyType, ValueType, SetAllocator, KeyFuncs>& B)
-        {
-            return TSetPrivateFriend::LegacyCompareEqual(A.Pairs, B.Pairs);
-        }
     };
 
     // ============================================================================
@@ -2084,23 +2078,6 @@ namespace OloEngine
     OLO_FINLINE void operator<<(FStructuredArchive::FSlot Slot, TMapBase<KeyType, ValueType, SetAllocator, KeyFuncs>& InMap)
     {
         TMapPrivateFriend::SerializeStructured(Slot, InMap);
-    }
-
-    // ============================================================================
-    // Legacy Comparison Functions
-    // ============================================================================
-
-    /** Legacy comparison operators. Note that these also test whether the map's key-value pairs were added in the same order! */
-    template<typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
-    [[nodiscard]] bool LegacyCompareEqual(const TMapBase<KeyType, ValueType, SetAllocator, KeyFuncs>& A, const TMapBase<KeyType, ValueType, SetAllocator, KeyFuncs>& B)
-    {
-        return TMapPrivateFriend::LegacyCompareEqual(A, B);
-    }
-
-    template<typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
-    [[nodiscard]] bool LegacyCompareNotEqual(const TMapBase<KeyType, ValueType, SetAllocator, KeyFuncs>& A, const TMapBase<KeyType, ValueType, SetAllocator, KeyFuncs>& B)
-    {
-        return !TMapPrivateFriend::LegacyCompareEqual(A, B);
     }
 
     // ============================================================================
