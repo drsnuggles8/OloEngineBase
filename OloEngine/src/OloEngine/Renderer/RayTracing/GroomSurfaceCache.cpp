@@ -169,8 +169,9 @@ namespace OloEngine::RayTracing
         if (deformed)
         {
             deformation.Binding = request.Binding.Raw();
-            deformation.RootTransforms = std::span<const GroomRootTransform>(
-                request.RootTransforms.GetData(), static_cast<sizet>(request.RootTransforms.Num()));
+            // The drawn roots on the CPU: evaluated here when the producer left
+            // them to the raster pass's GPU evaluation (#1533 E1).
+            deformation.RootTransforms = GroomCpuRootTransforms(request, m_RootScratch);
         }
         const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
         const GroomStrandSimulation simulation = request.Simulation();

@@ -1493,6 +1493,22 @@ namespace OloEngine
             TArray<u32> m_SelectedCurves;
             TArray<GroomRootTransform> m_Transforms;
 
+            // The DRAWN selection -- before the simulation's guides are merged
+            // in -- remembered with what it was chosen from (#1533 E1).
+            // SelectGroomStrandCurves walks every curve through the coat
+            // authoring, ~20 ms a frame on the showcase dog's 300k strands, and
+            // its answer changes only with the build settings (the budget and
+            // the coat digest) or the curves it chooses among. The asset
+            // POINTER alone would be the recycling trap m_TargetGeneration
+            // describes, so the handle and the curve count ride with it.
+            TArray<u32> m_DrawnSelection;
+            GroomStrandBuildSettings m_DrawnSelectionSettings{};
+            const GroomAsset* m_DrawnSelectionGroom = nullptr;
+            const void* m_DrawnSelectionLevel = nullptr;
+            AssetHandle m_DrawnSelectionHandle = 0;
+            u32 m_DrawnSelectionCurveCount = 0;
+            bool m_DrawnSelectionValid = false;
+
             // ── History identity ───────────────────────────────
 
             AssetHandle m_Binding = 0; ///< binding asset last deformed with

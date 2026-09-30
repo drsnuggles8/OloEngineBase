@@ -546,6 +546,7 @@ if (entity.HasComponent<GroomCoatShadowComponent>())
     out << YAML::Key << "Mode" << YAML::Value << static_cast<u32>(comp.m_Mode);
     out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
     out << YAML::Key << "MultipleScattering" << YAML::Value << comp.m_MultipleScattering;
+    out << YAML::Key << "BakeAtRest" << YAML::Value << comp.m_BakeAtRest;
     out << YAML::EndMap; // GroomCoatShadowComponent
 }
 

@@ -74,7 +74,7 @@ namespace OloEngine
         // a scene that stops publishing them must not keep the last frame's.
         s_Data.RayTracedShadowLightRequests.Reset();
         // Groom submissions are per-frame for the same reason (issue #1246).
-        s_Data.GroomStrandRequests.Empty();
+        RecycleGroomStrandRequests();
         // Leaf-profile slots are rebuilt from THIS frame's submissions (issue
         // #1234). Cleared here for the same reason as the line above: an
         // assignment that accumulated across frames would fill up from the
@@ -106,7 +106,7 @@ namespace OloEngine
         // a scene that stops publishing them must not keep the last frame's.
         s_Data.RayTracedShadowLightRequests.Reset();
         // Groom submissions are per-frame for the same reason (issue #1246).
-        s_Data.GroomStrandRequests.Empty();
+        RecycleGroomStrandRequests();
         // Leaf-profile slots are rebuilt from THIS frame's submissions (issue
         // #1234). Cleared here for the same reason as the line above: an
         // assignment that accumulated across frames would fill up from the
@@ -138,7 +138,7 @@ namespace OloEngine
         // a scene that stops publishing them must not keep the last frame's.
         s_Data.RayTracedShadowLightRequests.Reset();
         // Groom submissions are per-frame for the same reason (issue #1246).
-        s_Data.GroomStrandRequests.Empty();
+        RecycleGroomStrandRequests();
         // Leaf-profile slots are rebuilt from THIS frame's submissions (issue
         // #1234). Cleared here for the same reason as the line above: an
         // assignment that accumulated across frames would fill up from the

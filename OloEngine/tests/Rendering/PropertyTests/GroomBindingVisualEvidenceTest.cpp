@@ -69,6 +69,7 @@
 #include "TestTempDir.h"
 
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
+#include "OloEngine/Animation/MorphTargets/MorphTargetComponents.h"
 #include "OloEngine/Animation/Skeleton.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetSerializer.h"
@@ -987,6 +988,14 @@ namespace OloEngine::Tests
         Renderer3D::ApplyRendererSettings();
         SetBindingEnabled(true);
         SetBodyPose(0.0f);
+        // THE BODY SAYS IT IS MORPHED, as every morphing body does: a
+        // MorphTargetComponent (no targets, so nothing but this test writes the
+        // vertices), on for both captures. It is what keeps the coat's roots on
+        // the CPU (#1533 E1): the GPU root kernel holds the REST surface it was
+        // sent, and a vertex array rewritten in place with no generation bump
+        // never reaches it. So this case pins that routing too -- without it the
+        // coat stands still.
+        m_BodyEntity.AddOrReplaceComponent<MorphTargetComponent>();
 
         const glm::vec3 eye{ 0.0f, 0.9f, 4.6f };
 
@@ -1037,6 +1046,7 @@ namespace OloEngine::Tests
             vertices[i].Position = rest[static_cast<sizet>(i)];
         }
         m_BodySurface->Build();
+        m_BodyEntity.RemoveComponent<MorphTargetComponent>();
     }
 
     // ── Criterion 1: a refused binding is a refusal, not a quiet bind pose ──

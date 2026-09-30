@@ -4,6 +4,7 @@
 
 #include "OloEngine/Containers/Array.h"
 #include "OloEngine/Math/Math.h"
+#include "OloEngine/Task/ParallelFor.h"
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/norm.hpp>
@@ -332,21 +333,40 @@ namespace OloEngine
         // its own range.
         std::vector<glm::vec3> corrections(pointCount, glm::vec3(0.0f));
 
+        // The steps this call owes, counted before any runs: every guide takes
+        // the same number.
         u32 steps = 0;
         while (state.Accumulator >= step && steps < params.MaxSubsteps)
         {
             state.Accumulator -= step;
             ++steps;
-            stats.ContactsResolved = 0; // the LAST step's count is the reported one
+        }
 
-            for (u32 g = 0; g < guideCount; ++g)
+        // EVERY GUIDE IN PARALLEL, EACH THROUGH ALL OF THIS CALL'S STEPS (#1533
+        // E1). A step does nothing to one guide that reaches another: the roots,
+        // the targets and the colliders are fixed for the whole call, and a
+        // guide reads and writes only its own particle range (and its own range
+        // of the correction scratch). So the loops are swapped -- guides
+        // outside, steps inside -- and the guides split across workers: the same
+        // arithmetic in the same order for every particle, so the same bits on
+        // any number of threads. Serial, this was ~4 ms a step on the showcase
+        // dog, at one to two steps a frame. The contact count stays the LAST
+        // step's, summed over the workers.
+        struct GuideSolveContext
+        {
+            u32 ContactsResolved = 0;
+        };
+        const auto solveGuide = [&](const u32 g, GuideSolveContext& context)
+        {
+            const u32 first = inputs.GuideOffsets[g];
+            const u32 last = inputs.GuideOffsets[g + 1u];
+            if (last <= first)
             {
-                const u32 first = inputs.GuideOffsets[g];
-                const u32 last = inputs.GuideOffsets[g + 1u];
-                if (last <= first)
-                {
-                    continue;
-                }
+                return;
+            }
+            for (u32 stepIndex = 0; stepIndex < steps; ++stepIndex)
+            {
+                const bool lastStep = stepIndex + 1u == steps;
 
                 // The ROOT is kinematic: it is where the body put it, exactly,
                 // with no integration at all. A simulated root is a coat that
@@ -449,7 +469,7 @@ namespace OloEngine
                             const glm::vec3 alongNormal = normal * glm::dot(relative, normal);
                             const glm::vec3 tangential = relative - alongNormal;
                             state.Prev[i] = state.Curr[i] + tangential * params.ColliderFriction;
-                            ++stats.ContactsResolved;
+                            context.ContactsResolved += lastStep ? 1u : 0u;
                         }
                     }
                 }
@@ -549,6 +569,18 @@ namespace OloEngine
                     case GroomSolverModel::Count:
                         break;
                 }
+            }
+        };
+        if (steps > 0u)
+        {
+            TArray<GuideSolveContext> contexts;
+            ParallelForWithTaskContext("GroomGuideSolve", contexts, static_cast<i32>(guideCount), 16,
+                                       [&](GuideSolveContext& context, i32 index)
+                                       { solveGuide(static_cast<u32>(index), context); });
+            stats.ContactsResolved = 0;
+            for (const GuideSolveContext& context : contexts)
+            {
+                stats.ContactsResolved += context.ContactsResolved;
             }
         }
 

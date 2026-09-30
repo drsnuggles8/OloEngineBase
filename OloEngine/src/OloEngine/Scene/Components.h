@@ -6273,8 +6273,18 @@ namespace OloEngine
         /// evidence is measured on.
         bool m_MultipleScattering = true;
 
-        OLO_SERIALIZE(Skip)
-        u8 Pad1 = 0;
+        /// Bake the volume ONCE, from the coat at rest, and look each fragment
+        /// up at its own bind-pose point with the light turned back through its
+        /// root's motion (#1533), instead of rebaking from the drawn pose as the
+        /// body moves (#1426). Exact for everything the body carries whole -- a
+        /// turning head, a wagging tail, a limb through its stride -- and free
+        /// after the first frame. A bias where a limb moves AGAINST its
+        /// neighbours: their fur shadows each other as it did at rest. The pose
+        /// bake costs a CPU pose of every segment each frame and a rebuild each
+        /// time the coat drifts half a voxel, which on a dense coat is the
+        /// frame. Only a GPU-deformed coat carries each vertex's bind point, so
+        /// any other keeps the pose bake.
+        bool m_BakeAtRest = false;
 
         GroomCoatShadowComponent() = default;
         GroomCoatShadowComponent(const GroomCoatShadowComponent&) = default;

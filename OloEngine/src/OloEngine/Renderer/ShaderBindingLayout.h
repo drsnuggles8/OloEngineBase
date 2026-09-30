@@ -1746,6 +1746,44 @@ namespace OloEngine
         static_assert(sizeof(GroomShadowParamsUBO) == 128,
                       "GroomShadowParamsUBO std140 size drifted from GLSL expectation (128 B)");
 
+        // @brief The GPU root evaluation's dispatch (#1533 E1), uploaded at
+        // UBO_USER_0 (7) right before it. GLSL twin: the GroomRootFrameParams
+        // block in compute/GroomRootFrames.comp.
+        //
+        // AT 7, the number every groom draw rebinds (GroomStrandParams,
+        // GroomShadowParams), so the dispatch can neither clobber a draw's block
+        // nor inherit one: the pass records it outside any draw, and the next
+        // groom draw binds its own. The within-shader rule holds -- the compute
+        // declares nothing else at 7.
+        struct GroomRootFrameParamsUBO
+        {
+            /// The bound surface's space into the groom's, this frame and the
+            /// frame the previous palette belongs to (GroomDeformationInputs).
+            glm::mat4 SurfaceToGroom{ 1.0f };
+            glm::mat4 PrevSurfaceToGroom{ 1.0f };
+            /// x = drawn roots, y = bones, z = 1 when last frame's pose is
+            /// usable (else the previous frame is this one), w = vertices.
+            glm::ivec4 Counts{ 0, 0, 0, 0 };
+            /// The deformation buffer's regions, in 16-byte units: x = root
+            /// records (written), y = skin records, z = vertices, w = palette.
+            glm::ivec4 Bases{ 0, 0, 0, 0 };
+            /// x = the bind frames a root the binding does not reach is held
+            /// on; yzw unused.
+            glm::ivec4 Bind{ 0, 0, 0, 0 };
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(GroomRootFrameParamsUBO));
+            }
+        };
+
+        static_assert(sizeof(GroomRootFrameParamsUBO) % 16 == 0,
+                      "GroomRootFrameParamsUBO must be 16-byte aligned for std140");
+        // Two mat4 (128) and three ivec4 lanes (48): every member is a mat4 or
+        // vec4-sized, so the std140 layout is the C++ layout.
+        static_assert(sizeof(GroomRootFrameParamsUBO) == 176,
+                      "GroomRootFrameParamsUBO std140 size drifted from GLSL expectation (176 B)");
+
         // @brief Auto-exposure metering/adaptation parameters (issue #691),
         // uploaded at UBO_AUTO_EXPOSURE (58). GLSL twin: the
         // AutoExposureParams block shared verbatim by

@@ -32,14 +32,11 @@ layout(std430, binding = 79) readonly buffer GroomDeformation
 	uvec4 b_GroomDeform[];
 };
 
-// glm's quat * vec3, term for term (glm/detail/type_quat.inl), so the CPU twin
-// and this agree to the rounding of the same operations. q is (x, y, z, w).
-vec3 oloGroomQuatRotate(vec4 q, vec3 v)
-{
-	vec3 uv = cross(q.xyz, v);
-	vec3 uuv = cross(q.xyz, uv);
-	return v + ((uv * q.w) + uuv) * 2.0;
-}
+// oloGroomQuatRotate and its kin are include/GroomQuat.glsl's, which every
+// shader including this one includes first.
+#ifndef GROOM_QUAT_GLSL
+#error "include/GroomQuat.glsl must be included before include/GroomStrandDeform.glsl"
+#endif
 
 vec4 oloGroomDeformFloat4(uint unit)
 {
@@ -53,6 +50,7 @@ struct OloGroomDeformLayout
 {
 	uint RootCount;
 	uint SlotCount;
+	uint BindBase;
 	uint RootBase;
 	uint SlotBase;
 	uint DisplacementBase;
@@ -66,6 +64,9 @@ OloGroomDeformLayout oloGroomDeformLayout(ivec4 modes, ivec4 bases)
 	buf.Simulated = modes.y != 0;
 	buf.RootCount = uint(max(modes.z, 0));
 	buf.SlotCount = uint(max(modes.w, 0));
+	// Right after the two-unit guide weights, so derived rather than given a
+	// lane: GroomDeformBufferLayout::Make writes BindBase = RootCount * 2.
+	buf.BindBase = buf.RootCount * 2u;
 	buf.RootBase = uint(max(bases.x, 0));
 	buf.SlotBase = uint(max(bases.y, 0));
 	buf.DisplacementBase = uint(max(bases.z, 0));
@@ -123,6 +124,27 @@ vec3 oloGroomSampleDisplacement(OloGroomDeformLayout buf, uint root, float t, bo
 		applied += weight;
 	}
 	return applied > 0.0 ? result / applied : vec3(0.0);
+}
+
+// The root's BIND frame (#1533): where the rest stream's bind-local points
+// rest, `origin + rotation * local`. Past the buffer, the identity -- the same
+// answer oloGroomDeformPoint gives an out-of-range root.
+void oloGroomDeformBindFrame(OloGroomDeformLayout buf, uint root, out vec3 origin, out vec4 rotation)
+{
+	origin = vec3(0.0);
+	rotation = vec4(0.0, 0.0, 0.0, 1.0);
+	if (root < buf.RootCount)
+	{
+		uint base = buf.BindBase + root * 2u;
+		origin = oloGroomDeformFloat4(base + 0u).xyz;
+		rotation = oloGroomDeformFloat4(base + 1u);
+	}
+}
+
+// The root's rotation this frame (the same record oloGroomDeformPoint reads).
+vec4 oloGroomDeformRootRotation(OloGroomDeformLayout buf, uint root)
+{
+	return root < buf.RootCount ? oloGroomDeformFloat4(buf.RootBase + root * 4u + 1u) : vec4(0.0, 0.0, 0.0, 1.0);
 }
 
 // One point of one strand, this frame (previous = false) or last.

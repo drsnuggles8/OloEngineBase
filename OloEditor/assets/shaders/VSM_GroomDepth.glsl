@@ -27,6 +27,7 @@
 
 #include "include/GroomStrandCommon.glsl"
 #include "include/GroomShadowWidening.glsl"
+#include "include/GroomQuat.glsl"
 #include "include/GroomStrandDeform.glsl"
 #include "include/VirtualShadowResources.glsl"
 

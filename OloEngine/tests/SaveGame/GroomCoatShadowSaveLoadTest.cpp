@@ -64,6 +64,7 @@ namespace OloEngine::Tests
             component.m_Mode = static_cast<u8>(GroomCoatShadow::CoatShadowMode::IsotropicDensityVolume);
             component.m_Enabled = true;
             component.m_MultipleScattering = false; // off, so the round trip cannot pass on the default
+            component.m_BakeAtRest = true;          // on, for the same reason
             return component;
         }
 
@@ -105,6 +106,7 @@ namespace OloEngine::Tests
         EXPECT_EQ(loaded.m_Mode, seed.m_Mode);
         EXPECT_EQ(loaded.m_Enabled, seed.m_Enabled);
         EXPECT_EQ(loaded.m_MultipleScattering, seed.m_MultipleScattering);
+        EXPECT_EQ(loaded.m_BakeAtRest, seed.m_BakeAtRest);
 
         // The whole-object equality, which is the statement that nothing was
         // missed — the per-field checks above exist to say WHICH field moved

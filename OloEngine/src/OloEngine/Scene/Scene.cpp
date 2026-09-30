@@ -8,6 +8,8 @@
 // include is direct rather than transitive through RendererAPI.h, which is
 // now GL-free.
 #include <algorithm>
+#include <chrono>
+#include <cstdint>
 #include <cmath>
 #include <limits>
 #include <string_view>
@@ -5664,6 +5666,9 @@ namespace OloEngine
 
     void Scene::RenderRuntime(Timestep const ts)
     {
+        // In the editor's CPU-scope table (#1533): the once-per-frame half of a runtime
+        // frame, beside the per-tick System:: scopes the gameplay schedule reports.
+        OLO_PERF_SCOPE_AUTO("Scene::RenderRuntime");
         // Advance video playback once per displayed frame at the display rate
         // (frozen while paused). This is a presentation concern moved out of the
         // fixed-step sim body so it runs exactly once per frame instead of 0..N
@@ -9259,6 +9264,9 @@ namespace OloEngine
     void Scene::PublishGroomStrandRequests()
     {
         OLO_PROFILE_FUNCTION();
+        // In the editor's CPU-scope table (#1533): the coats' per-frame CPU -- selection,
+        // the roots the CPU still evaluates, the guide simulation.
+        OLO_PERF_SCOPE_AUTO("Scene::PublishGroomStrandRequests");
 
         TArray64<GroomStrandRequest> groomRequests;
         // Every root-UV map handle a groom asked for this frame; the tail of this
@@ -9285,6 +9293,7 @@ namespace OloEngine
             {
                 continue;
             }
+            OLO_PERF_SCOPE_AUTO("Groom::Request");
 
             auto groom = AssetManager::GetAsset<GroomAsset>(groomComponent.m_Groom);
             if (!groom)
@@ -9346,6 +9355,7 @@ namespace OloEngine
                 request.CoatLod = MakeGroomCoatLodPolicy(*coat);
                 request.CoatStepVoxels = MakeGroomCoatStepVoxels(*coat);
                 request.CoatMultipleScattering = coat->m_MultipleScattering;
+                request.CoatBakeAtRest = coat->m_BakeAtRest;
             }
 
             // Scene-shadow routing, in both directions, if this groom asks for
@@ -9533,7 +9543,10 @@ namespace OloEngine
             request.Build.CoatDigest = GroomCoatDigest(request.Coat);
 
             liveGrooms.insert(groomComponent.m_Groom);
-            DeformGroomAgainstSurface(groomEntity, *groom, request);
+            {
+                OLO_PERF_SCOPE_AUTO("Groom::Deform");
+                DeformGroomAgainstSurface(groomEntity, *groom, request);
+            }
 
             groomRequests.Add(std::move(request));
         }
@@ -9905,7 +9918,8 @@ namespace OloEngine
         const auto& rootUVs = groom.GetRootUVs();
         const auto& groupIds = groom.GetCurveGroupIds();
 
-        state.m_Targets.Reset();
+        // Emptied, not Reset (which frees): refilled at the same size every frame.
+        state.m_Targets.Empty();
         TArray<u32> offsets;
         offsets.Reserve(state.m_SlotOfGuide.Num() + 1);
         offsets.Add(0u);
@@ -10056,7 +10070,7 @@ namespace OloEngine
         // of that slot, which every slot has -- instead of at the groomed rest
         // shape the solver re-seeds a teleport to. Without it every simulation
         // budget step popped the whole coat back to its groomed shape.
-        state.m_Seeds.Reset();
+        state.m_Seeds.Empty();
         const bool guideSetChanges =
             state.m_Solver.Initialized &&
             !std::ranges::equal(state.m_Solver.GuideCurves,
@@ -10093,7 +10107,10 @@ namespace OloEngine
         inputs.DeltaTime = m_GroomSimulationDeltaSeconds;
         inputs.HasHistory = hasHistory;
 
+        const auto solveStart = std::chrono::steady_clock::now();
         GroomSimulationStats stats = StepGroomGuideSimulation(inputs, state.m_Solver);
+        stats.SolveMicroseconds = static_cast<u64>(
+            std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - solveStart).count());
         // Counted here because this is the only place that holds the root
         // transforms; the solver never sees them.
         stats.GuidesWithHeldRoots = guidesWithHeldRoots;
@@ -10192,7 +10209,7 @@ namespace OloEngine
                                                      spanV(state.m_Displacements), state.m_PublishedOffsets,
                                                      state.m_PublishedDisplacements);
         }
-        state.m_PublishedPrevDisplacements.Reset();
+        state.m_PublishedPrevDisplacements.Empty();
         if (expanded && !state.m_PrevDisplacements.IsEmpty())
         {
             // All or nothing: a previous frame that does not expand publishes no
@@ -10538,18 +10555,61 @@ namespace OloEngine
         // hand-over distance is precisely the silent failure this issue's
         // confidence-0.5 rating is about.
         const GroomBuildSource buildSource = request.BuildSource();
-        SelectGroomStrandCurves(buildSource, request.Build, state.m_SelectedCurves, &coat);
-        // Mapped back to BASE curves, because everything downstream of here —
-        // the root-transform evaluation, the guide widening, the binding
-        // preview — is indexed by the base groom. The map is a bijection onto a
-        // subset (a cluster picks one of its own members, and clusters are
-        // disjoint), so this cannot produce duplicates.
-        if (!buildSource.SourceCurves.empty())
+        const auto selectStart = std::chrono::steady_clock::now();
+        // THE DRAWN ROOTS ON THE GPU (#1533 E1). Skinning every drawn strand's
+        // triangle here, then packing and sending its 64-byte record, was the
+        // largest CPU cost of the showcase dog's frame (~28 ms for ~300k roots).
+        // A coat whose drawn roots nothing on the CPU needs leaves them to
+        // GroomRenderPass's compute pass, handed the inputs below, and only the
+        // guides the simulation solves against are evaluated here. What needs
+        // them on the CPU keeps the CPU evaluation: a coat shadow baked from the
+        // pose, the binding preview drawn from these transforms, and a morphing
+        // body, whose positions the GPU is not sent. The pass evaluates them
+        // itself if it takes a CPU path after all (GroomCpuRootTransforms).
+        const auto& rendererSettings = Renderer3D::GetRendererSettings();
+        const bool coatBakesFromPose =
+            request.CoatShadow != GroomCoatShadow::CoatShadowMode::None && !request.CoatBakeAtRest;
+        const bool gpuRootFrames = rendererSettings.GroomGpuDeformation && rendererSettings.GroomGpuRootFrames &&
+                                   skeleton != nullptr && morph == nullptr && !coatBakesFromPose &&
+                                   !binding->m_ShowBindingPreview;
+        // Chosen again only when what it is chosen from changed (#1533 E1; see
+        // GroomBindingRuntimeState::m_DrawnSelection).
+        // A coat whose roots the GPU evaluates selects nothing here: the pass
+        // draws its own selection, and the guides are added below.
+        const bool selectionCurrent = gpuRootFrames ||
+            (state.m_DrawnSelectionValid && state.m_DrawnSelectionGroom == request.Groom.Raw() &&
+             state.m_DrawnSelectionLevel == static_cast<const void*>(request.LodLevel) &&
+             state.m_DrawnSelectionHandle == request.Handle && state.m_DrawnSelectionCurveCount == groom.GetCurveCount() &&
+             state.m_DrawnSelectionSettings == request.Build);
+        if (!selectionCurrent)
         {
-            for (u32& selected : state.m_SelectedCurves)
+            SelectGroomStrandCurves(buildSource, request.Build, state.m_DrawnSelection, &coat);
+            // Mapped back to BASE curves, because everything downstream of here —
+            // the root-transform evaluation, the guide widening, the binding
+            // preview — is indexed by the base groom. The map is a bijection onto a
+            // subset (a cluster picks one of its own members, and clusters are
+            // disjoint), so this cannot produce duplicates.
+            if (!buildSource.SourceCurves.empty())
             {
-                selected = buildSource.SourceCurve(selected);
+                for (u32& selected : state.m_DrawnSelection)
+                {
+                    selected = buildSource.SourceCurve(selected);
+                }
             }
+            state.m_DrawnSelectionSettings = request.Build;
+            state.m_DrawnSelectionGroom = request.Groom.Raw();
+            state.m_DrawnSelectionLevel = static_cast<const void*>(request.LodLevel);
+            state.m_DrawnSelectionHandle = request.Handle;
+            state.m_DrawnSelectionCurveCount = groom.GetCurveCount();
+            state.m_DrawnSelectionValid = true;
+        }
+        if (gpuRootFrames)
+        {
+            state.m_SelectedCurves.Reset();
+        }
+        else
+        {
+            state.m_SelectedCurves = state.m_DrawnSelection;
         }
         // ...WIDENED to cover every guide the simulation will solve (#1250).
         // A guide with no deformed root is a guide solved against the bind
@@ -10557,6 +10617,9 @@ namespace OloEngine
         // animation; SelectGroomSimulationGuides says so at more length.
         const bool simulating = SelectGroomSimulationGuides(groomEntity, groom, coat, request,
                                                             state.m_SelectedCurves);
+        const auto evaluateStart = std::chrono::steady_clock::now();
+        request.CurveSelectMicroseconds = static_cast<u64>(
+            std::chrono::duration_cast<std::chrono::microseconds>(evaluateStart - selectStart).count());
 
         GroomDeformationInputs inputs;
         inputs.Surface = view;
@@ -10575,9 +10638,27 @@ namespace OloEngine
         inputs.PrevSurfaceToGroom = hasHistory ? state.m_PrevSurfaceToGroom : inputs.SurfaceToGroom;
         inputs.HasHistory = hasHistory;
 
-        request.DeformationStats =
-            EvaluateGroomRootTransforms(groom, *bindingAsset, inputs,
-                                        std::span<const u32>{ state.m_SelectedCurves.GetData(), static_cast<sizet>(state.m_SelectedCurves.Num()) }, state.m_Transforms);
+        request.GpuRootFrames = gpuRootFrames;
+        if (gpuRootFrames)
+        {
+            request.GpuRootInputs = inputs;
+            // Identity, generation and size: the pass re-sends the surface it
+            // keeps on the GPU when any of them changes under the coat.
+            request.GpuRootSurfaceKey =
+                (static_cast<u64>(reinterpret_cast<std::uintptr_t>(surface.Raw())) * 1099511628211ull) ^
+                (static_cast<u64>(surface->GetGeneration()) << 20) ^ static_cast<u64>(view.VertexCount);
+        }
+        {
+            OLO_PERF_SCOPE_AUTO("Groom::RootEvaluate");
+            // Last frame's array back from the renderer, when the swap below left
+            // this one without an allocation (see TakePooledGroomRootTransforms).
+            Renderer3D::TakePooledGroomRootTransforms(state.m_Transforms, groom.GetCurveCount());
+            request.DeformationStats =
+                EvaluateGroomRootTransforms(groom, *bindingAsset, inputs,
+                                            std::span<const u32>{ state.m_SelectedCurves.GetData(), static_cast<sizet>(state.m_SelectedCurves.Num()) }, state.m_Transforms);
+        }
+        request.RootEvaluateMicroseconds = static_cast<u64>(
+            std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - evaluateStart).count());
         request.Binding = bindingAsset;
         request.BindingReject = GroomBindingRejectReason::None;
 
@@ -10587,6 +10668,7 @@ namespace OloEngine
         // buffer this reads.
         if (simulating)
         {
+            OLO_PERF_SCOPE_AUTO("Groom::Simulate");
             SimulateGroomGuides(groomEntity, groom, *bindingAsset, coat, view, inputs.Skinning,
                                 inputs.SurfaceToGroom, targetEntity.GetUUID(), surface->GetGeneration(),
                                 std::span{ state.m_Transforms.GetData(), static_cast<sizet>(state.m_Transforms.Num()) }, hasHistory, request);

@@ -43,6 +43,7 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <numeric>
 #include <span>
 #include <string>
 #include <vector>
@@ -633,4 +634,64 @@ TEST(GroomGpuDeformation, ABindingThatDoesNotSpanTheGroomBuildsNothing)
     EXPECT_TRUE(rest.empty());
     EXPECT_TRUE(rootCurves.empty());
     EXPECT_EQ(stats.SegmentCount, 0u);
+}
+
+TEST(GroomGpuDeformation, TheSkeletonBoundsEveryRootTheKernelWrites)
+{
+    // #1533 E1: while GroomRootFrames.comp evaluates a coat's drawn roots, the
+    // CPU holds none of them, so the posed box the shadow pass culls the coat
+    // by comes from the bones: each bone's rest box of the corners it moves,
+    // posed. Every root the reference evaluates must lie inside it -- for a bent
+    // pose and a groom mapping that is not the identity.
+    const BoundScene scene = MakeBoundScene(48u, 6u, 55.0f);
+    ASSERT_TRUE(scene.Groom && scene.Binding);
+    const u32 curves = scene.Groom->GetCurveCount();
+    std::vector<u32> rootCurves(curves);
+    std::iota(rootCurves.begin(), rootCurves.end(), 0u);
+
+    GroomDeformationInputs inputs;
+    inputs.Surface = scene.Grid.View(2u);
+    inputs.Skinning = scene.Grid.Skinning(scene.Palette, scene.PrevPalette, true);
+    inputs.HasHistory = true;
+    inputs.SurfaceToGroom = glm::rotate(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.02f, 0.01f)), 0.3f,
+                                        glm::vec3(0.0f, 1.0f, 0.0f));
+    TArray<GroomRootTransform> posed;
+    (void)EvaluateGroomRootTransforms(*scene.Groom, *scene.Binding, inputs, std::nullopt, posed);
+    ASSERT_EQ(posed.Num(), static_cast<i32>(curves));
+
+    const GroomRootBoneBounds bounds =
+        BuildGroomRootBoneBounds(rootCurves, *scene.Binding, inputs.Surface, inputs.Skinning,
+                                 static_cast<u32>(scene.Palette.size()), curves);
+    glm::vec3 lo(0.0f);
+    glm::vec3 hi(0.0f);
+    ASSERT_TRUE(PoseGroomRootBoneBounds(bounds, scene.Palette, inputs.SurfaceToGroom, lo, hi));
+
+    // Two float orderings of the same blend, so a root on a face of the box may
+    // land a rounding error outside it.
+    constexpr f32 kSlack = 1.0e-5f;
+    const auto inside = [kSlack](const glm::vec3& p, const glm::vec3& boxMin, const glm::vec3& boxMax)
+    {
+        return glm::all(glm::greaterThanEqual(p, boxMin - glm::vec3(kSlack))) &&
+               glm::all(glm::lessThanEqual(p, boxMax + glm::vec3(kSlack)));
+    };
+    for (i32 curve = 0; curve < posed.Num(); ++curve)
+    {
+        SCOPED_TRACE("curve " + std::to_string(curve));
+        ASSERT_TRUE(posed[curve].Valid) << "the reference held a root on a healthy triangle";
+        EXPECT_TRUE(inside(posed[curve].Origin, lo, hi));
+    }
+
+    // THE CONTROL: the same boxes at rest do not hold the bent coat. A box that
+    // ignored the palette -- or one so loose it held anything -- would pass the
+    // loop above just as well.
+    const std::vector<glm::mat4> rest(scene.Palette.size(), glm::mat4(1.0f));
+    glm::vec3 restLo(0.0f);
+    glm::vec3 restHi(0.0f);
+    ASSERT_TRUE(PoseGroomRootBoneBounds(bounds, rest, inputs.SurfaceToGroom, restLo, restHi));
+    u32 outsideRest = 0;
+    for (const GroomRootTransform& root : posed)
+    {
+        outsideRest += inside(root.Origin, restLo, restHi) ? 0u : 1u;
+    }
+    EXPECT_GT(outsideRest, 0u);
 }

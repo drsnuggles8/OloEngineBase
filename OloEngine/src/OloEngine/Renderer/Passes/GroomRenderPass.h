@@ -64,6 +64,7 @@
 
 namespace OloEngine
 {
+    class ComputeShader;
     class Framebuffer;
     class IndexBuffer;
     class Shader;
@@ -226,6 +227,11 @@ namespace OloEngine
         /// RendererSettings::GroomGpuDeformation lever, or a binding the rest
         /// stream could not be built against.
         u32 GroomsGpuDeformed = 0;
+        /// Of those, the grooms whose drawn roots the GPU evaluated (#1533 E1;
+        /// compute/GroomRootFrames.comp), and how many roots that was. The rest
+        /// packed CPU-evaluated roots.
+        u32 GroomsRootsOnGpu = 0;
+        u32 RootsEvaluatedOnGpu = 0;
         /// Bound grooms the GPU path REFUSED this frame because their
         /// deformation buffer could not be created; they were drawn through the
         /// CPU path. Non-zero is a device problem, and a count so it is visible.
@@ -282,6 +288,12 @@ namespace OloEngine
         /// reads as a binding error -- so the flag is how anyone finds it.
         u32 SimulationSteps = 0;
         bool SimulationStepsClamped = false;
+        /// CPU microseconds the solver took this frame, summed over grooms.
+        u64 SimulationMicroseconds = 0;
+        /// CPU microseconds the Scene spent choosing the drawn curves and
+        /// evaluating their roots on the skinned surface, summed over grooms.
+        u64 CurveSelectMicroseconds = 0;
+        u64 RootEvaluateMicroseconds = 0;
         /// Grooms whose particles were RE-SEEDED this frame: a teleport, a
         /// budget change, the reset control, the first frame. Such a frame emits
         /// zero motion by design, so a count that never falls to zero is a coat
@@ -737,6 +749,16 @@ namespace OloEngine
             /// asset re-derives its table, rewrites them rather than reading a
             /// freed table's weights.
             Ref<GroomGuideInfluenceTable> DeformWeightsFrom;
+            /// The bound surface the GPU root evaluation's static regions were
+            /// written from (GroomStrandRequest::GpuRootSurfaceKey); a different
+            /// one relays the buffer out.
+            u64 RootSkinKey = 0;
+            /// Where the kernel's roots can be, for the posed box while the
+            /// CPU holds no drawn root (see BuildGroomRootBoneBounds).
+            GroomRootBoneBounds RootBoneBounds;
+            /// The root slots the kernel evaluates (WriteSurfaceSkin); the rest
+            /// of the layout's roots are held at rest.
+            u32 RootsReached = 0;
         };
 
         /// The groom's geometry for this frame: cached, refilled or built. For a
@@ -760,6 +782,10 @@ namespace OloEngine
         /// Packs and uploads this frame's deformation into `entry`'s buffer,
         /// (re)creating the buffer when the request outgrew it.
         void UploadDeformation(const GroomStrandRequest& request, CacheEntry& entry);
+        /// The GPU root evaluation's kernel, loaded on first use; false when it cannot run.
+        [[nodiscard]] bool EnsureRootFrameKernel();
+        /// Records GroomRootFrames.comp over `entry`'s drawn roots (#1533 E1).
+        void DispatchRootFrames(const GroomStrandRequest& request, CacheEntry& entry, bool usePreviousPose);
         /// The drawn pose of a DEFORMED groom, as centrelines, for the coat bake
         /// (#1426). Evaluated from the frame buffer on the GPU path and read
         /// from the rebuilt stream on the CPU path. Empty for an undeformed
@@ -801,10 +827,13 @@ namespace OloEngine
         /// caller records the reason rather than re-deriving it.
         ///
         /// `drawnPose` is this frame's drawn pose for a bound groom (empty
-        /// otherwise); see AcquireDrawnPose.
+        /// otherwise); see AcquireDrawnPose. `bakeAtRest` bakes a bound groom
+        /// from its rest curves instead, once (#1533): its draw looks the
+        /// volume up at each fragment's bind point.
         [[nodiscard]] GroomCoatShadowDecision AcquireCoatVolume(const GroomStrandRequest& request, CacheEntry& entry,
                                                                 u32& residentVolumes,
-                                                                std::span<const GroomCoatShadow::CoatSegment> drawnPose);
+                                                                std::span<const GroomCoatShadow::CoatSegment> drawnPose,
+                                                                bool bakeAtRest);
 
         /// Bakes `segments` into `entry`'s coat volume. The one place a volume
         /// is created, for the rest-curve bake and the drawn-pose bake alike, so
@@ -869,6 +898,16 @@ namespace OloEngine
         Ref<StorageBuffer> m_DeformPlaceholder;
         /// Latched so a device that cannot create deformation buffers logs once.
         bool m_ReportedDeformBufferFailure = false;
+
+        /// The GPU root evaluation (#1533 E1): its kernel and its params block,
+        /// created on first use. A kernel that fails to load is said once and
+        /// the drawn roots are then evaluated on the CPU instead.
+        Ref<ComputeShader> m_RootFrameShader;
+        Ref<UniformBuffer> m_RootFrameParams;
+        bool m_RootFrameShaderFailed = false;
+        /// The drawn roots evaluated on the CPU for a request that left them to
+        /// the GPU, when the pass takes a CPU path after all.
+        TArray<GroomRootTransform> m_CpuRootScratch;
 
         /// Set by BeginFrame, consumed at the top of Execute (#1323). While it
         /// is set a lazy BeginFrame is a no-op, so the shadow pass and the

@@ -9742,6 +9742,18 @@ namespace OloEngine
                                   "Off treats every fibre crossing as an opaque, colourless occluder. Needs the\n"
                                   "coat shadow on: the volume is what counts the fibres.");
             }
+            ImGui::BeginDisabled(!component.m_Enabled);
+            ImGui::Checkbox("Bake at rest", &component.m_BakeAtRest);
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            {
+                ImGui::SetTooltip("Bake the volume once, from the coat at rest, and look each strand up at its own\n"
+                                  "bind-pose point, turned with its root (#1533). Exact for whatever the body carries\n"
+                                  "whole and free after the first frame; where a limb moves against its neighbours,\n"
+                                  "their fur shadows each other as it did at rest. Off rebakes from the drawn pose\n"
+                                  "as the body moves, which costs a CPU pass over every segment. Needs a bound,\n"
+                                  "GPU-deformed coat; any other keeps the pose bake.");
+            }
 
             ImGui::SeparatorText("Representation");
             {

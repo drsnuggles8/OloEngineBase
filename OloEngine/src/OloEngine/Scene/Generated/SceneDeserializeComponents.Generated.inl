@@ -630,6 +630,7 @@ if (auto node = entity["GroomCoatShadowComponent"]; node)
         comp.m_Mode = v;
     comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
     comp.m_MultipleScattering = node["MultipleScattering"].as<bool>(comp.m_MultipleScattering);
+    comp.m_BakeAtRest = node["BakeAtRest"].as<bool>(comp.m_BakeAtRest);
 }
 
 if (auto node = entity["GroomComponent"]; node)

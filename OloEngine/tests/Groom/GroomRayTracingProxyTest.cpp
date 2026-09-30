@@ -548,14 +548,19 @@ namespace OloEngine
         // Pinned at its count so a second call site — the shape a scene-shadow
         // term would most likely arrive in — fails here.
         //
-        // Three marches since dual scattering (#1533): each light, the sky on
-        // the viewer's side, and the sky BEHIND the fibre (the TT paths, whose
-        // light comes through the coat below). Five transmittance mentions:
-        // one per march plus two comments naming the function. All three are
-        // the coat's own strands -- none is a scene term.
-        EXPECT_EQ(count("oloGroomCoatOpticalDepth"), 3u)
+        // ONE FUNNEL since the rest bake (#1533): oloGroomCoatTau holds both
+        // marches -- the posed coat's, and a coat baked at rest from its
+        // bind-pose point -- and is called for each light, the sky on the
+        // viewer's side, and the sky BEHIND the fibre (the TT paths, whose light
+        // comes through the coat below). Five transmittance mentions: one per
+        // call plus two comments naming the function. All of it is the coat's
+        // own strands -- none is a scene term.
+        EXPECT_EQ(count("oloGroomCoatOpticalDepth"), 2u)
             << "the coat's own optical-depth path moved; re-read the double-count boundary in "
                "GroomCoatShadow.h before changing this number";
+        EXPECT_EQ(count("oloGroomCoatTau("), 4u)
+            << "one definition and three marches (each light, the sky, the sky behind the fibre); a new "
+               "caller is a new attenuation path";
         EXPECT_EQ(count("oloGroomCoatTransmittance"), 5u)
             << "the coat's own transmittance path moved; same warning";
 
@@ -566,7 +571,11 @@ namespace OloEngine
         // third oloGroomSceneShadow is the fibre shader's comment naming it.
         EXPECT_EQ(count("oloGroomSceneShadow"), 3u)
             << "the scene-shadow receive moved; every lookup must go through the one light-exit function";
-        EXPECT_EQ(count("oloGroomCoatLightExitDistance"), 1u)
+        // The offset's two spaces (posed, and at rest) inside one wrapper, plus
+        // the comment that names it; the wrapper is called once.
+        EXPECT_EQ(count("oloGroomCoatLightExitDistance"), 3u)
+            << "the light-exit offset moved out of oloGroomCoatExitDistance";
+        EXPECT_EQ(count("oloGroomCoatExitDistance("), 2u)
             << "the light-exit offset is computed once, in oloGroomSceneShadow";
         EXPECT_EQ(count("calculateCascadedShadowFactorCSM"), 1u) << "one CSM lookup, in oloGroomSceneShadow";
         EXPECT_EQ(count("vsmShadowFactor"), 1u) << "one VSM directional lookup, in oloGroomSceneShadow";

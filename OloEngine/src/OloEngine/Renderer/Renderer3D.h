@@ -954,6 +954,15 @@ namespace OloEngine
         {
             return s_Data.GroomStrandRequests;
         }
+        // Hands `storage` a root-transform ALLOCATION from the frame before
+        // (#1533 E1), when it has none big enough and one is pooled. BeginScene
+        // keeps the drawn frame's arrays instead of freeing them: a bound coat's
+        // array is one record per strand (~18 MB for the showcase dog), and the
+        // producer swaps it into its request, so without the pool every frame
+        // allocated it afresh and paid for every page of it. Contents are NOT
+        // carried -- EvaluateGroomRootTransforms rewrites every record -- so
+        // which groom an array came from does not matter.
+        static void TakePooledGroomRootTransforms(TArray<GroomRootTransform>& storage, u32 needed) noexcept;
         // When a bound coat's self-shadow volume is rebaked from its drawn pose
         // (issue #1426). Held here and handed to GroomRenderPass every frame
         // with its frame state, so it survives a pipeline rebuild. A budget, not
@@ -2184,6 +2193,9 @@ namespace OloEngine
 
       private:
         static void ObserveTemporalProjection(const glm::mat4& projection);
+        // BeginScene's clear of the groom requests, keeping their root-transform
+        // arrays for TakePooledGroomRootTransforms (#1533 E1).
+        static void RecycleGroomStrandRequests() noexcept;
 
         struct SceneBindingUBOs
         {
@@ -2505,6 +2517,10 @@ namespace OloEngine
             TArray64<RayTracedShadowLightRequest> RayTracedShadowLightRequests;
             // See SetGroomStrandRequests (issue #1246).
             TArray64<GroomStrandRequest> GroomStrandRequests;
+            // See TakePooledGroomRootTransforms (#1533 E1). Refilled at every
+            // BeginScene from the requests it clears, so it never holds more
+            // than one frame's arrays.
+            TArray<TArray<GroomRootTransform>> GroomRootTransformPool;
             // See SetGroomCoatRebakePolicy (issue #1426).
             GroomCoatShadow::CoatRebakePolicy GroomCoatRebakePolicy;
             // See RequestSceneTemporalResolve (issue #1429). Pending is what the

@@ -468,6 +468,7 @@ if (entity.HasComponent<GroomCoatShadowComponent>())
     SceneBinIO::Write(out, comp.m_Mode);
     SceneBinIO::Write(out, comp.m_Enabled);
     SceneBinIO::Write(out, comp.m_MultipleScattering);
+    SceneBinIO::Write(out, comp.m_BakeAtRest);
 }
 
 if (entity.HasComponent<GroomComponent>())

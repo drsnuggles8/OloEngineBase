@@ -132,6 +132,7 @@ namespace OloEngine
             AppendChange(changes, "HonourSceneTemporalResolveRequests", before.HonourSceneTemporalResolveRequests,
                          after.HonourSceneTemporalResolveRequests);
             AppendChange(changes, "GroomGpuDeformation", before.GroomGpuDeformation, after.GroomGpuDeformation);
+            AppendChange(changes, "GroomGpuRootFrames", before.GroomGpuRootFrames, after.GroomGpuRootFrames);
             AppendChange(changes, "Deferred.GBufferDecalsEnabled", before.Deferred.GBufferDecalsEnabled, after.Deferred.GBufferDecalsEnabled);
             AppendChange(changes, "Deferred.EnableLightProbes", before.Deferred.EnableLightProbes, after.Deferred.EnableLightProbes);
 
@@ -1249,6 +1250,17 @@ namespace OloEngine
                 ImGui::SetTooltip("A coat bound to an animating body is deformed in the strand vertex shader.\n"
                                   "Untick to rebuild and re-upload every deformed strand on the CPU each frame:\n"
                                   "the reference path, for an A/B. Same coat, a fraction of the frame rate.");
+            }
+
+            // Read by Scene per frame; nothing to apply (#1533).
+            ImGui::BeginDisabled(!settings.GroomGpuDeformation);
+            ImGui::Checkbox("Evaluate bound grooms' roots on the GPU", &settings.GroomGpuRootFrames);
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            {
+                ImGui::SetTooltip("Each drawn strand's root is skinned from the bone palette by a compute pass.\n"
+                                  "Untick to skin, pack and upload every root on the CPU each frame: the\n"
+                                  "reference path, for an A/B. Needs GPU deformation.");
             }
 
             ImGui::Unindent();

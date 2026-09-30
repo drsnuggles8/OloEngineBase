@@ -28,6 +28,7 @@
 #version 450 core
 
 #include "include/GroomStrandCommon.glsl"
+#include "include/GroomQuat.glsl"
 #include "include/GroomStrandDeform.glsl"
 
 // The depth prepass (#1533 E1) draws every coat twice with this program and
@@ -110,7 +111,9 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	vec4 u_GroomCoatInvExtent;     // xyz = 1/(max-min), w = march step in world metres
 	// x = effective CoatShadowMode; y = receives the scene shadow (#1323);
 	// z = the object box above is valid for the scene-shadow receiver offset
-	// (set for a CASTER, volume or not); w unused.
+	// (set for a CASTER, volume or not); w = the volume is the coat AT REST and is
+	// marched from v_CoatRestPos along the direction v_CoatRestFrame turns back
+	// (#1533; only a GPU-deformed draw sets it).
 	ivec4 u_GroomCoatModes;
 	// GPU strand deformation (#1427). Mirrored lane for lane from
 	// UBOStructures::GroomStrandParamsUBO; include/GroomStrandDeform.glsl reads
@@ -146,6 +149,12 @@ layout(location = 8) out vec3 v_WorldView;
 // the ribbon. Only the unpacked value may interpolate — the packed lane is a bit
 // pattern, and arithmetic on it would be noise.
 layout(location = 9) out vec3 v_CoatTint;
+// A coat BAKED AT REST (#1533): this point where it rests, in groom object
+// space, and the turn its root has made since the bind, as the quaternion that
+// takes a direction on the posed coat back to the rest coat. On any other draw
+// the posed point and the identity, which the fragment stage never reads.
+layout(location = 10) out vec3 v_CoatRestPos;
+layout(location = 11) flat out vec4 v_CoatRestFrame;
 
 void main()
 {
@@ -167,6 +176,8 @@ void main()
 	vec3 position = a_Position;
 	vec3 other = a_Other;
 	vec3 prevPosition = a_PrevPosition;
+	vec3 coatRestPos = a_Position;
+	vec4 coatRestFrame = vec4(0.0, 0.0, 0.0, 1.0);
 	if (u_GroomDeformModes.x == 1)
 	{
 		// A BOUND coat, deformed here (#1427). The stream holds this corner's
@@ -194,10 +205,25 @@ void main()
 		//
 		// THE DEPTH PREPASS (u_GroomModeFrame.w, #1533 E1) needs only the
 		// position: it writes depth and nothing else, so it skips last frame's
-		// deformation, which does not feed gl_Position -- the two draws still
-		// meet at depth EQUAL.
+		// deformation and the rest lookup below. Neither feeds gl_Position, so
+		// the two draws still meet at depth EQUAL.
 		bool depthOnly = u_GroomModeFrame.w != 0;
 		prevPosition = depthOnly ? position : oloGroomDeformPoint(deform, root, a_Position, tSelf, true);
+
+		// Where this point RESTS, and the turn since the bind (#1533): a coat
+		// baked at rest is looked up there, in the direction the root has
+		// turned back. Local to the root, so rigid with it -- exact for all the
+		// body carries, and the simulation's displacement is not in it: a
+		// swinging lock is shadowed by the neighbours it was groomed among.
+		if (!depthOnly && u_GroomCoatModes.w != 0)
+		{
+			vec3 bindOrigin;
+			vec4 bindRotation;
+			oloGroomDeformBindFrame(deform, root, bindOrigin, bindRotation);
+			coatRestPos = bindOrigin + oloGroomQuatRotate(bindRotation, a_Position);
+			coatRestFrame =
+			    oloGroomQuatMul(bindRotation, oloGroomQuatConjugate(oloGroomDeformRootRotation(deform, root)));
+		}
 	}
 
 	vec4 worldCurr = u_GroomModel * vec4(position, 1.0);
@@ -223,6 +249,8 @@ void main()
 		v_WorldTangent = vec3(1.0, 0.0, 0.0);
 		v_WorldView = vec3(0.0, 0.0, 1.0);
 		v_CoatTint = vec3(1.0);
+		v_CoatRestPos = vec3(0.0);
+		v_CoatRestFrame = vec4(0.0, 0.0, 0.0, 1.0);
 		return;
 	}
 
@@ -332,6 +360,8 @@ void main()
 	v_WorldPos = worldCurr.xyz;
 	v_WorldView = axisToEye;
 	v_CoatTint = oloGroomUnpackTint(a_Tint);
+	v_CoatRestPos = coatRestPos;
+	v_CoatRestFrame = coatRestFrame;
 }
 
 #type fragment
@@ -340,6 +370,7 @@ void main()
 #include "include/GroomStrandCommon.glsl"
 #include "include/GroomFibreCommon.glsl"
 #include "include/GroomCoatShadowCommon.glsl"
+#include "include/GroomQuat.glsl"
 
 #include "include/BindlessHeap.glsl"
 
@@ -464,6 +495,8 @@ layout(location = 7) in vec3 v_WorldTangent;
 layout(location = 8) in vec3 v_WorldView;
 // Interpolated root-to-tip (#1533); the vertex stage declares it the same way.
 layout(location = 9) in vec3 v_CoatTint;
+layout(location = 10) in vec3 v_CoatRestPos;
+layout(location = 11) flat in vec4 v_CoatRestFrame;
 
 // ONE block, on the shared PASS-LOCAL slot, declared IDENTICALLY in both
 // stages.
@@ -509,7 +542,9 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	vec4 u_GroomCoatInvExtent;     // xyz = 1/(max-min), w = march step in world metres
 	// x = effective CoatShadowMode; y = receives the scene shadow (#1323);
 	// z = the object box above is valid for the scene-shadow receiver offset
-	// (set for a CASTER, volume or not); w unused.
+	// (set for a CASTER, volume or not); w = the volume is the coat AT REST and is
+	// marched from v_CoatRestPos along the direction v_CoatRestFrame turns back
+	// (#1533; only a GPU-deformed draw sets it).
 	ivec4 u_GroomCoatModes;
 	// GPU strand deformation (#1427). Mirrored lane for lane from
 	// UBOStructures::GroomStrandParamsUBO; include/GroomStrandDeform.glsl reads
@@ -559,6 +594,38 @@ void oloGroomAccumulate(inout OloGroomFibreLobes total, OloGroomFibreLobes add, 
 // How much of `light` reaches this strand THROUGH THE SCENE. Issue #1323,
 // re-landed by #1523.
 //
+// WHERE THIS FRAGMENT IS IN ITS COAT. A volume baked from the drawn pose is
+// marched from the fragment's own point. One baked AT REST (#1533,
+// u_GroomCoatModes.w) is marched from where the point rests, along the
+// direction turned back through its root's motion: the neighbourhood it was
+// groomed in, seen from the side the light now comes from, wherever the body
+// has carried it. The rotation keeps the direction's length, which the exit
+// distance relies on (see oloGroomCoatLightExitDistance).
+float oloGroomCoatTau(vec3 worldDir)
+{
+	if (u_GroomCoatModes.w != 0)
+	{
+		vec3 dirObject = normalize(oloGroomQuatRotate(v_CoatRestFrame, mat3(u_GroomCoatWorldToObject) * worldDir));
+		return oloGroomCoatOpticalDepthObject(u_GroomCoatVolume, u_GroomCoatBoundsMin.xyz, u_GroomCoatInvExtent.xyz,
+		                                      v_CoatRestPos, dirObject, u_GroomCoatInvExtent.w, u_GroomCoatModes.x);
+	}
+	return oloGroomCoatOpticalDepth(u_GroomCoatVolume, u_GroomCoatWorldToObject, u_GroomCoatBoundsMin.xyz,
+	                                u_GroomCoatInvExtent.xyz, v_WorldPos, worldDir, u_GroomCoatInvExtent.w,
+	                                u_GroomCoatModes.x);
+}
+
+float oloGroomCoatExitDistance(vec3 worldDir)
+{
+	if (u_GroomCoatModes.w != 0)
+	{
+		return oloGroomCoatLightExitDistanceObject(
+		    u_GroomCoatBoundsMin.xyz, u_GroomCoatInvExtent.xyz, v_CoatRestPos,
+		    oloGroomQuatRotate(v_CoatRestFrame, mat3(u_GroomCoatWorldToObject) * worldDir), u_GroomCoatModes.z);
+	}
+	return oloGroomCoatLightExitDistance(u_GroomCoatWorldToObject, u_GroomCoatBoundsMin.xyz, u_GroomCoatInvExtent.xyz,
+	                                     v_WorldPos, worldDir, u_GroomCoatModes.z);
+}
+
 // THE RECEIVER IS THE COAT'S LIGHT-EXIT POINT, NOT THE FRAGMENT, and that one
 // substitution is the whole double-count fix. Once grooms are shadow CASTERS
 // their own strands are in the shadow map, so a strand sampling that map at its
@@ -596,9 +663,7 @@ float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L
 		return 1.0;
 	}
 
-	float exitDistance = oloGroomCoatLightExitDistance(u_GroomCoatWorldToObject, u_GroomCoatBoundsMin.xyz,
-	                                                   u_GroomCoatInvExtent.xyz, v_WorldPos, L,
-	                                                   u_GroomCoatModes.z);
+	float exitDistance = oloGroomCoatExitDistance(L);
 	vec3 shadowPos = v_WorldPos + L * exitDistance;
 
 	if (lightType == DIRECTIONAL_LIGHT)
@@ -816,9 +881,7 @@ OloGroomShading oloGroomShadeFibre()
 		// How much of this coat is between the fragment and this light. Zero
 		// crossings (or an inactive mode) gives transmittance 1, so a coat with
 		// no volume built renders exactly as it did before this existed.
-		float coatTau = oloGroomCoatOpticalDepth(u_GroomCoatVolume, u_GroomCoatWorldToObject,
-		                                         u_GroomCoatBoundsMin.xyz, u_GroomCoatInvExtent.xyz,
-		                                         v_WorldPos, L, u_GroomCoatInvExtent.w, u_GroomCoatModes.x);
+		float coatTau = oloGroomCoatTau(L);
 		float coatShadow = oloGroomCoatTransmittance(coatTau, u_GroomCoatBoundsMin.w);
 		// The scene's occlusion of this light (#1323): 1 unless this coat
 		// receives scene shadows.
@@ -896,9 +959,7 @@ OloGroomShading oloGroomShadeFibre()
 		// consistent with the term it attenuates rather than an invented
 		// ambient-occlusion factor. A strand buried in the coat sees the sky
 		// through the coat; one on the surface sees it directly.
-		float envTau = oloGroomCoatOpticalDepth(u_GroomCoatVolume, u_GroomCoatWorldToObject,
-		                                        u_GroomCoatBoundsMin.xyz, u_GroomCoatInvExtent.xyz,
-		                                        v_WorldPos, envDir, u_GroomCoatInvExtent.w, u_GroomCoatModes.x);
+		float envTau = oloGroomCoatTau(envDir);
 		float envShadow = oloGroomCoatTransmittance(envTau, u_GroomCoatBoundsMin.w);
 		OloGroomFibreLobes ambient = oloGroomFibreAmbientResponse(fibre, sinThetaO);
 		if (!dualScattering)
@@ -927,10 +988,7 @@ OloGroomShading oloGroomShadeFibre()
 			vec3 front = averageRadiance * (vec3(envShadow) + (envForwarded * densityForward));
 
 			vec3 behindDir = -envDir;
-			float behindTau = oloGroomCoatOpticalDepth(u_GroomCoatVolume, u_GroomCoatWorldToObject,
-			                                           u_GroomCoatBoundsMin.xyz, u_GroomCoatInvExtent.xyz,
-			                                           v_WorldPos, behindDir, u_GroomCoatInvExtent.w,
-			                                           u_GroomCoatModes.x);
+			float behindTau = oloGroomCoatTau(behindDir);
 			vec3 behind = oloGroomFibreEnvironmentRadiance(u_IrradianceMap, behindDir, u_GroomFibreLobe.w) *
 			              oloGroomCoatTransmittance(behindTau, u_GroomCoatBoundsMin.w);
 

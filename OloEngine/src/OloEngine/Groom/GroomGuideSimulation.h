@@ -481,6 +481,11 @@ namespace OloEngine
         /// Seconds of arrears carried into the next frame.
         f32 Accumulator = 0.0f;
 
+        /// Wall-clock microseconds the solve took, stamped by the CALLER
+        /// around StepGroomGuideSimulation (#1533 E4: the simulation's cost
+        /// is CPU time, so it is reported as CPU time).
+        u64 SolveMicroseconds = 0;
+
         /// True when the catch-up bound dropped time this frame. Surfaced
         /// because a coat that is permanently in arrears looks fine in a still
         /// frame and lags the body by a constant offset in motion, which reads

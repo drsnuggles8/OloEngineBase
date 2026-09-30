@@ -3547,12 +3547,13 @@ namespace OloEngine
         ar << c.m_Kappa << c.m_Resolution << c.m_StepVoxels;
         ar << c.m_MaxLodSteps << c.m_PixelSizeForLod0 << c.m_MinResolution;
         ar << c.m_Mode << c.m_Enabled;
-        // Version 40 (#1533): the dual-scattering switch. The component itself
-        // predates it, so an older save does carry this block and simply ends
-        // before the field; it loads at the default (on).
+        // Version 40 (#1533): the dual-scattering and rest-bake switches. The
+        // component itself predates them, so an older save does carry this block
+        // and simply ends before the fields; they load at their defaults (dual
+        // scattering on, the pose bake).
         if (HasFieldsSince(ar, 40))
         {
-            ar << c.m_MultipleScattering;
+            ar << c.m_MultipleScattering << c.m_BakeAtRest;
         }
 
         if (ar.IsLoading())

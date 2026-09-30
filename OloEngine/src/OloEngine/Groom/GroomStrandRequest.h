@@ -41,6 +41,8 @@
 
 #include <glm/glm.hpp>
 
+#include <optional>
+#include <span>
 #include <vector>
 
 namespace OloEngine
@@ -135,6 +137,24 @@ namespace OloEngine
         /// so "why is this coat at the bind pose" is answerable from the editor.
         GroomDeformationStats DeformationStats;
 
+        /// THE DRAWN ROOTS ARE THE GPU'S (#1533 E1). Set when the producer left
+        /// every drawn strand's root for GroomRenderPass to evaluate on the GPU
+        /// (compute/GroomRootFrames.comp) and evaluated on the CPU only what the
+        /// CPU itself needs: the simulation's guides. `RootTransforms` still
+        /// spans the groom, but only those entries are Valid.
+        ///
+        /// `GpuRootInputs` is the evaluation the producer would have run,
+        /// borrowed for the frame -- the surface, the influences and both bone
+        /// palettes, all of which outlive the frame's render. A consumer that
+        /// needs the drawn roots on the CPU (the CPU-deformed reference, a
+        /// ray-tracing proxy) evaluates them from it through
+        /// GroomCpuRootTransforms rather than reading entries nobody wrote.
+        bool GpuRootFrames = false;
+        GroomDeformationInputs GpuRootInputs{};
+        /// The bound surface's identity and generation, so the pass re-sends
+        /// the surface it keeps on the GPU when the body changes under a coat.
+        u64 GpuRootSurfaceKey = 0;
+
         /// Why this groom is NOT bound, when it asked to be. None on a groom
         /// that never asked and on one that attached — the two are distinguished
         /// by `Binding` being null, which is what keeps a scene full of unbound
@@ -186,6 +206,18 @@ namespace OloEngine
         /// GroomCoatShadowComponent::m_MultipleScattering). Read only where the
         /// volume is built and bound.
         bool CoatMultipleScattering = true;
+
+        /// Bake the coat volume at rest and look it up through each root's
+        /// motion (#1533, GroomCoatShadowComponent::m_BakeAtRest). Honoured only
+        /// for a GPU-deformed draw, the one whose vertices carry a bind point.
+        bool CoatBakeAtRest = false;
+
+        /// Wall-clock microseconds the Scene spent publishing this request's
+        /// bound pose on the CPU (#1533 E4): choosing the drawn curves, and
+        /// evaluating each drawn root's transform on the skinned surface. Kept
+        /// out of GroomDeformationStats, whose equality tests compare counts.
+        u64 CurveSelectMicroseconds = 0;
+        u64 RootEvaluateMicroseconds = 0;
 
         // ── Scene shadow routing (#1323) ─────────────────────────────
         //
@@ -403,6 +435,9 @@ namespace OloEngine
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::Binding)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::RootTransforms)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::DeformationStats)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::GpuRootFrames)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::GpuRootInputs)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::GpuRootSurfaceKey)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::BindingReject)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::CoatShadow)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::CoatKappa)> &&
@@ -427,4 +462,21 @@ namespace OloEngine
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::Lod)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::LodLevel)>;
     };
+
+    /// The drawn roots on the CPU (#1533 E1): the request's own transforms when
+    /// the producer evaluated them, otherwise every curve's, evaluated into
+    /// `scratch` from the inputs the producer handed over. Indexed by curve and
+    /// spanning the groom either way, so a caller indexes it exactly as it
+    /// indexes `RootTransforms`.
+    [[nodiscard]] inline std::span<const GroomRootTransform> GroomCpuRootTransforms(const GroomStrandRequest& request,
+                                                                                    TArray<GroomRootTransform>& scratch)
+    {
+        if (!request.GpuRootFrames || !request.Groom || !request.Binding)
+        {
+            return { request.RootTransforms.GetData(), static_cast<sizet>(request.RootTransforms.Num()) };
+        }
+        (void)EvaluateGroomRootTransforms(*request.Groom, *request.Binding, request.GpuRootInputs, std::nullopt,
+                                          scratch);
+        return { scratch.GetData(), static_cast<sizet>(scratch.Num()) };
+    }
 } // namespace OloEngine

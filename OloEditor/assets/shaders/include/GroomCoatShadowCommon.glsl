@@ -190,17 +190,17 @@ bool oloGroomCoatIntersectUnitBox(vec3 originUvw, vec3 dirUvw, out float tEnter,
 // fully shadowed one. The failure mode of a missing lookup has to be a bright
 // coat, which reads as "this did not run", rather than a black one, which is
 // indistinguishable from a correct silhouette.
-float oloGroomCoatOpticalDepth(sampler3D coatVolume, mat4 worldToObject, vec3 boundsMin, vec3 invExtent,
-                               vec3 worldPos, vec3 L, float stepWorld, int mode)
+// The march itself, from a point and a UNIT direction already in the volume's
+// object space. oloGroomCoatOpticalDepth below takes them there from the world;
+// a coat baked AT REST (#1533) starts from the fragment's bind-pose point with
+// the direction turned back through its root, and calls this directly.
+float oloGroomCoatOpticalDepthObject(sampler3D coatVolume, vec3 boundsMin, vec3 invExtent, vec3 originObject,
+                                     vec3 dirObject, float stepWorld, int mode)
 {
 	if (mode == OLO_GROOM_COAT_MODE_NONE || stepWorld <= 0.0)
 	{
 		return 0.0;
 	}
-
-	vec3 originObject = (worldToObject * vec4(worldPos, 1.0)).xyz;
-	// The rigid rotation, so the direction keeps its angles with the fibres.
-	vec3 dirObject = normalize(mat3(worldToObject) * L);
 
 	vec3 originUvw = (originObject - boundsMin) * invExtent;
 	// NOT normalised: the UVW direction has to carry the per-axis scale, or a
@@ -256,6 +256,15 @@ float oloGroomCoatOpticalDepth(sampler3D coatVolume, mat4 worldToObject, vec3 bo
 	return tau;
 }
 
+float oloGroomCoatOpticalDepth(sampler3D coatVolume, mat4 worldToObject, vec3 boundsMin, vec3 invExtent,
+                               vec3 worldPos, vec3 L, float stepWorld, int mode)
+{
+	vec3 originObject = (worldToObject * vec4(worldPos, 1.0)).xyz;
+	// The rigid rotation, so the direction keeps its angles with the fibres.
+	vec3 dirObject = normalize(mat3(worldToObject) * L);
+	return oloGroomCoatOpticalDepthObject(coatVolume, boundsMin, invExtent, originObject, dirObject, stepWorld, mode);
+}
+
 // How far along `L` this point is from LEAVING the coat, in WORLD metres.
 // Issue #1323.
 //
@@ -295,16 +304,18 @@ float oloGroomCoatOpticalDepth(sampler3D coatVolume, mat4 worldToObject, vec3 bo
 // Returns 0 for a ray that misses -- NO offset, which degrades to the
 // unshadowed-by-its-own-coat reading rather than to a receiver flung somewhere
 // arbitrary.
-float oloGroomCoatLightExitDistance(mat4 worldToObject, vec3 boundsMin, vec3 invExtent, vec3 worldPos, vec3 L,
-                                    int boxIsValid)
+//
+// The object-space core takes the point in object space and the direction
+// through the transform's linear part UNNORMALISED, for the reason above; a coat
+// baked at rest (#1533) turns that direction back through its root, which keeps
+// its length.
+float oloGroomCoatLightExitDistanceObject(vec3 boundsMin, vec3 invExtent, vec3 originObject, vec3 dirWorldScaled,
+                                          int boxIsValid)
 {
 	if (boxIsValid == 0)
 	{
 		return 0.0;
 	}
-
-	vec3 originObject = (worldToObject * vec4(worldPos, 1.0)).xyz;
-	vec3 dirWorldScaled = mat3(worldToObject) * L;
 
 	vec3 originUvw = (originObject - boundsMin) * invExtent;
 	vec3 dirUvw = dirWorldScaled * invExtent;
@@ -323,6 +334,13 @@ float oloGroomCoatLightExitDistance(mat4 worldToObject, vec3 boundsMin, vec3 inv
 		return 0.0;
 	}
 	return tExit;
+}
+
+float oloGroomCoatLightExitDistance(mat4 worldToObject, vec3 boundsMin, vec3 invExtent, vec3 worldPos, vec3 L,
+                                    int boxIsValid)
+{
+	vec3 originObject = (worldToObject * vec4(worldPos, 1.0)).xyz;
+	return oloGroomCoatLightExitDistanceObject(boundsMin, invExtent, originObject, mat3(worldToObject) * L, boxIsValid);
 }
 
 // exp(-tau * (1 - exp(-kappa))), clamped. THE TWIN OF

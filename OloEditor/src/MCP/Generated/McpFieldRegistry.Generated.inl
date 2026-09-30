@@ -472,6 +472,7 @@ registry.push_back(OLO_GFW_FIELD_RANGE(GroomCoatShadowComponent, "MinResolution"
 registry.push_back(OLO_GFW_FIELD_RANGE(GroomCoatShadowComponent, "Mode", m_Mode, OLO_GFW_BOUND(0), OLO_GFW_BOUND(3)));
 registry.push_back(OLO_GFW_FIELD(GroomCoatShadowComponent, "Enabled", m_Enabled));
 registry.push_back(OLO_GFW_FIELD(GroomCoatShadowComponent, "MultipleScattering", m_MultipleScattering));
+registry.push_back(OLO_GFW_FIELD(GroomCoatShadowComponent, "BakeAtRest", m_BakeAtRest));
 
 // GroomComponent
 registry.push_back(OLO_GFW_FIELD(GroomComponent, "Groom", m_Groom));
