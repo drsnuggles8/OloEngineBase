@@ -23,12 +23,9 @@
 			"doubleSided":true,
 			"name":"DogEyeball",
 			"pbrMetallicRoughness":{
-				"baseColorFactor":[
-					0.800000011920929,
-					0.800000011920929,
-					0.800000011920929,
-					1
-				],
+				"baseColorTexture":{
+					"index":0
+				},
 				"metallicFactor":0,
 				"roughnessFactor":0.5
 			}
@@ -50,11 +47,24 @@
 			]
 		}
 	],
+	"textures":[
+		{
+			"sampler":0,
+			"source":0
+		}
+	],
+	"images":[
+		{
+			"mimeType":"image/png",
+			"name":"DogIrisColor",
+			"uri":"DogIrisColor.png"
+		}
+	],
 	"accessors":[
 		{
 			"bufferView":0,
 			"componentType":5126,
-			"count":8383,
+			"count":8066,
 			"max":[
 				0.9999995827674866,
 				1,
@@ -70,13 +80,13 @@
 		{
 			"bufferView":1,
 			"componentType":5126,
-			"count":8383,
+			"count":8066,
 			"type":"VEC3"
 		},
 		{
 			"bufferView":2,
 			"componentType":5126,
-			"count":8383,
+			"count":8066,
 			"type":"VEC2"
 		},
 		{
@@ -89,32 +99,38 @@
 	"bufferViews":[
 		{
 			"buffer":0,
-			"byteLength":100596,
+			"byteLength":96792,
 			"byteOffset":0,
 			"target":34962
 		},
 		{
 			"buffer":0,
-			"byteLength":100596,
-			"byteOffset":100596,
+			"byteLength":96792,
+			"byteOffset":96792,
 			"target":34962
 		},
 		{
 			"buffer":0,
-			"byteLength":67064,
-			"byteOffset":201192,
+			"byteLength":64528,
+			"byteOffset":193584,
 			"target":34962
 		},
 		{
 			"buffer":0,
 			"byteLength":96768,
-			"byteOffset":268256,
+			"byteOffset":258112,
 			"target":34963
+		}
+	],
+	"samplers":[
+		{
+			"magFilter":9729,
+			"minFilter":9987
 		}
 	],
 	"buffers":[
 		{
-			"byteLength":365024,
+			"byteLength":354880,
 			"uri":"DogEyeball.bin"
 		}
 	]

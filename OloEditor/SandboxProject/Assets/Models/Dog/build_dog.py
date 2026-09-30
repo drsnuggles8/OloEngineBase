@@ -307,7 +307,9 @@ def nose_outline(q):
 
 
 def f_nose(q):
-    return smax(sd_ellipsoid(q, NOSE_C, NOSE_R, NOSE_ROT), nose_outline(q), 0.003)
+    # The blend is the edge where the front of the leather turns into its sides. At 3 mm it caught
+    # the sky as one even ring and the nose read as a bevelled button (Ole's review, #1533).
+    return smax(sd_ellipsoid(q, NOSE_C, NOSE_R, NOSE_ROT), nose_outline(q), 0.0055)
 
 
 def f_muzzle(q):
@@ -366,6 +368,7 @@ def _nostril_chain():
 
 
 NOSTRIL_CHAIN = None
+NOSTRIL_DRY = 0.0015  # metres into the leather where a nostril's wall stops being wet leather
 
 
 def f_nostrils(q):
@@ -1531,17 +1534,24 @@ PAD_SHAPES = _pad_shapes()
 def material_fields(p):
     """Smooth scalar fields whose zero sets are the material boundaries (negative = inside).
 
-    Returns dict: nose, eye (lid rims and socket walls), mouth (lip band), pad, plus the
-    boolean `gum_side` telling which positive-mouth side is gum rather than skin."""
+    Returns dict: nose, nostril (the nostrils' walls deep inside the leather), eye (lid rims and
+    socket walls), mouth (lip band), pad, plus the boolean `gum_side` telling which positive-mouth
+    side is gum rather than skin."""
     p = np.asarray(p, dtype=F32)
     q = hrel(p)
     n = len(p)
-    out = {k: np.full(n, 1.0, dtype=F32) for k in ("nose", "eye", "mouth", "pad")}
+    out = {k: np.full(n, 1.0, dtype=F32) for k in ("nose", "nostril", "eye", "mouth", "pad")}
     gum = np.zeros(n, dtype=bool)
     near = np.all((p >= HEAD_LO) & (p <= HEAD_HI), axis=1)
     if near.any():
         hq = q[near]
-        out["nose"][near] = f_nose(hq) - F32(0.0006)
+        d_nose = f_nose(hq)
+        out["nose"][near] = d_nose - F32(0.0006)
+        # INSIDE THE NOSTRILS the leather's wet film caught the key light on the walls the
+        # camera looks into, and the pair read as glass beads (Ole's review, #1533). A real
+        # nostril is dark because its inside is dry and unlit: past NOSTRIL_DRY into the
+        # leather, on the nostrils' walls, the surface is DogPad's matte dark skin.
+        out["nostril"][near] = np.maximum(d_nose + F32(NOSTRIL_DRY), f_nostrils(hq) - F32(0.001))
         e = np.full(len(hq), 1.0, dtype=F32)
         for s in (1.0, -1.0):
             e = np.minimum(e, _norm(hq - EYE_OFF * v3((s, 1, 1))) - F32(EYE_R + SOCKET_CLEAR + EYE_RIM))
@@ -1582,6 +1592,7 @@ def classify_by_fields(centres):
     m[f["eye"] < 0] = M_LIP
     m[f["pad"] < 0] = M_PAD
     m[f["nose"] < 0] = M_NOSE
+    m[f["nostril"] < 0] = M_PAD
     return m
 
 
@@ -1660,7 +1671,7 @@ def cut_isocontour(co, tri, s, snap=0.22):
 
 def cut_material_boundaries(co, tri, log=print):
     """Cut every material boundary into the mesh as an exact contour; re-project what moved."""
-    for key in ("nose", "eye", "mouth", "pad"):
+    for key in ("nose", "nostril", "eye", "mouth", "pad"):
         s = material_fields(co.astype(F32))[key].astype(np.float64)
         co, tri, _, moved = cut_isocontour(co, tri, s)
         if len(moved):
@@ -2186,10 +2197,13 @@ def coat_colour(p, n):
     ears = np.isin(lab, ["ear_l", "ear_r"])
     tip = _smoothstep(0.02, -0.12, q[:, 2])
     c += (red - c) * (ears * (0.65 + 0.35 * tip))[:, None]
-    # tail: golden on top, a slightly paler feathered underside (at 0.8 cream, bleached at the tips and
-    # lit from behind, the plume read white: a haze beside the tail rather than its feathering)
+    # tail: a deeper gold than the body, the underside barely paler. The plume is a few fibres deep
+    # where the body is dozens, so its fibres gather far less of the colour dual scattering compounds
+    # with every crossing: at the body's gold the flag read as a pale cream brush beside a golden dog
+    # (Ole's review, #1533); at 0.8 cream it read white.
     tail = lab == "tail"
-    c += (cream - c) * (tail * _smoothstep(0.0, -0.6, n[:, 2]) * 0.25)[:, None]
+    c += (red - c) * (tail * 0.45)[:, None]
+    c += (cream - c) * (tail * _smoothstep(0.0, -0.6, n[:, 2]) * 0.10)[:, None]
     # large, soft variation so the coat is not a flat fill (deterministic)
     k = 2.0 * math.pi
     v = (np.sin(k * (pd[:, 0] * 3.1 + pd[:, 1] * 2.3 + 0.4)) * np.sin(k * (pd[:, 2] * 2.7 - pd[:, 1] * 1.3 + 0.9))
@@ -2292,6 +2306,246 @@ def bake_coat_map(ob, out_path, log=print):
     return img
 
 
+# The nose leather's cobblestones (Ole's review, #1533): a dog's planum nasale is a mosaic of
+# small domed polygons with grooves between them, and a smooth button under a wet coat read as a
+# plastic bead. The cells are 1.5-2 mm, under two voxels of the body's 1.1 mm grid, so they are a
+# tangent-space normal map baked from a procedural height rather than geometry. The leather is
+# ~0.1% of the pelt, so in the pelt's atlas a 4096^2 map would still give it ~0.25 mm a texel --
+# the grooves one texel wide -- and 64 MB of texture to a few square centimetres. It gets its own
+# UV square instead: the bare skins grow no fur, and the groom keys only its roots on the UVs.
+NOSE_NORMAL_SIZE = 2048  # ~0.02 mm a texel on the leather: finer than a pixel at any editor close-up
+NOSE_CELL = 0.0017  # metres between cell centres
+NOSE_RELIEF = 0.00035  # metres from groove floor to dome top
+NOSE_AO_DISTANCE = 0.012  # metres: the nostrils and the crease where the leather meets the muzzle
+NOSE_AO_SAMPLES = 64
+
+
+def unwrap_nose(ob, log=print):
+    """Re-unwrap the DogNose faces alone into the whole UV square (after the coat map is baked:
+    they overlap the pelt's islands from here on, which only the nose material samples)."""
+    import bpy
+
+    me = ob.data
+    idx = np.zeros(len(me.polygons), dtype=np.int32)
+    me.polygons.foreach_get("material_index", idx)
+    face_sel = idx == M_NOSE
+    vert_sel = np.zeros(len(me.vertices), dtype=bool)
+    loop_v = np.zeros(len(me.loops), dtype=np.int32)
+    me.loops.foreach_get("vertex_index", loop_v)
+    start = np.zeros(len(me.polygons), dtype=np.int32)
+    total = np.zeros(len(me.polygons), dtype=np.int32)
+    me.polygons.foreach_get("loop_start", start)
+    me.polygons.foreach_get("loop_total", total)
+    for f in np.nonzero(face_sel)[0]:
+        vert_sel[loop_v[start[f]:start[f] + total[f]]] = True
+    edge_v = np.zeros(len(me.edges) * 2, dtype=np.int32)
+    me.edges.foreach_get("vertices", edge_v)
+    edge_sel = vert_sel[edge_v.reshape(-1, 2)].all(axis=1)
+    me.polygons.foreach_set("select", face_sel)
+    me.vertices.foreach_set("select", vert_sel)
+    me.edges.foreach_set("select", edge_sel)
+    for o in bpy.context.view_layer.objects:
+        o.select_set(False)
+    ob.select_set(True)
+    bpy.context.view_layer.objects.active = ob
+    with bpy.context.temp_override(active_object=ob, object=ob, edit_object=ob):
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.uv.smart_project(angle_limit=math.radians(66.0), island_margin=0.01, area_weight=0.0,
+                                 correct_aspect=True, scale_to_bounds=False)
+        bpy.ops.object.mode_set(mode="OBJECT")
+    uv = np.zeros(len(me.loops) * 2, dtype=np.float32)
+    me.uv_layers.active.data.foreach_get("uv", uv)
+    uv = uv.reshape(-1, 2)
+    nose_loops = np.concatenate([np.arange(start[f], start[f] + total[f]) for f in np.nonzero(face_sel)[0]])
+    lo, hi = uv[nose_loops].min(axis=0), uv[nose_loops].max(axis=0)
+    log(f"[uv] nose: {int(face_sel.sum())} faces into their own square, uv [{lo[0]:.3f},{lo[1]:.3f}]-"
+        f"[{hi[0]:.3f},{hi[1]:.3f}]")
+
+
+def bake_nose_normal(ob, out_path, log=print):
+    """Bake the nose leather's cobblestone relief into a tangent-space normal map (Cycles NORMAL).
+
+    The height is a Voronoi mosaic in OBJECT space -- domed cells with narrow grooves between
+    them -- so its scale is the same on every part of the leather whatever the UVs do. Baked from
+    a copy holding only the DogNose faces, since from unwrap_nose on they share UV space with the
+    pelt."""
+    import bmesh
+    import bpy
+
+    dup = ob.copy()
+    dup.data = ob.data.copy()
+    bpy.context.collection.objects.link(dup)
+    bm = bmesh.new()
+    bm.from_mesh(dup.data)
+    bmesh.ops.delete(bm, geom=[f for f in bm.faces if f.material_index != M_NOSE], context="FACES")
+    bm.to_mesh(dup.data)
+    bm.free()
+    dup.data.polygons.foreach_set("material_index", np.zeros(len(dup.data.polygons), dtype=np.int32))
+
+    img = bpy.data.images.new("DogNoseNormal", NOSE_NORMAL_SIZE, NOSE_NORMAL_SIZE, alpha=False,
+                              float_buffer=False)
+    img.colorspace_settings.name = "Non-Color"
+    bake = bpy.data.materials.new("NoseBake")
+    nt = bake.node_tree
+    for nd in list(nt.nodes):
+        nt.nodes.remove(nd)
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
+    coord = nt.nodes.new("ShaderNodeTexCoord")
+    # F1: each cell a dome, highest at its centre.
+    dome = nt.nodes.new("ShaderNodeTexVoronoi")
+    dome.voronoi_dimensions = "3D"
+    dome.feature = "F1"
+    dome.inputs["Scale"].default_value = 1.0 / NOSE_CELL
+    # The grooves: narrow valleys along the cells' edges.
+    edge = nt.nodes.new("ShaderNodeTexVoronoi")
+    edge.voronoi_dimensions = "3D"
+    edge.feature = "DISTANCE_TO_EDGE"
+    edge.inputs["Scale"].default_value = 1.0 / NOSE_CELL
+    nt.links.new(coord.outputs["Object"], dome.inputs["Vector"])
+    nt.links.new(coord.outputs["Object"], edge.inputs["Vector"])
+    # height = max(0, 1 - 4 F1^2) * smoothstep(0, 0.12, edge), both in cell units: a dome falling to
+    # zero half a cell out, ~35 degrees steep at its foot. A shallower dome (1 - F1^2) left the lit
+    # side one broad streak; a wet nose shows one small glint per cobble.
+    sq = nt.nodes.new("ShaderNodeMath")
+    sq.operation = "MULTIPLY"
+    nt.links.new(dome.outputs["Distance"], sq.inputs[0])
+    nt.links.new(dome.outputs["Distance"], sq.inputs[1])
+    inv = nt.nodes.new("ShaderNodeMath")
+    inv.operation = "MULTIPLY_ADD"
+    inv.use_clamp = True
+    inv.inputs[1].default_value = -4.0
+    inv.inputs[2].default_value = 1.0
+    nt.links.new(sq.outputs["Value"], inv.inputs[0])
+    groove = nt.nodes.new("ShaderNodeMapRange")
+    groove.interpolation_type = "SMOOTHSTEP"
+    groove.inputs["From Min"].default_value = 0.0
+    groove.inputs["From Max"].default_value = 0.12
+    nt.links.new(edge.outputs["Distance"], groove.inputs["Value"])
+    height = nt.nodes.new("ShaderNodeMath")
+    height.operation = "MULTIPLY"
+    nt.links.new(inv.outputs["Value"], height.inputs[0])
+    nt.links.new(groove.outputs["Result"], height.inputs[1])
+    bump = nt.nodes.new("ShaderNodeBump")
+    bump.inputs["Strength"].default_value = 1.0
+    bump.inputs["Distance"].default_value = NOSE_RELIEF
+    nt.links.new(height.outputs["Value"], bump.inputs["Height"])
+    nt.links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
+    nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+    tex = nt.nodes.new("ShaderNodeTexImage")
+    tex.image = img
+    nt.nodes.active = tex
+    dup.data.materials.clear()
+    dup.data.materials.append(bake)
+
+    scene = bpy.context.scene
+    scene.render.engine = "CYCLES"
+    scene.cycles.device = "CPU"
+    scene.cycles.samples = 1
+    scene.render.bake.normal_space = "TANGENT"
+    for o in bpy.context.view_layer.objects:
+        o.select_set(False)
+    dup.select_set(True)
+    bpy.context.view_layer.objects.active = dup
+    t0 = time.time()
+    bpy.ops.object.bake(type="NORMAL", margin=16, use_clear=True)
+    log(f"[nose] baked {NOSE_NORMAL_SIZE}^2 cobblestone normal map in {time.time() - t0:.1f}s")
+    img.filepath_raw = out_path
+    img.file_format = "PNG"
+    img.save()
+    mesh = dup.data
+    bpy.data.objects.remove(dup)
+    bpy.data.meshes.remove(mesh)
+    bpy.data.materials.remove(bake)
+    return img
+
+
+def bake_nose_occlusion(ob, out_path, log=print):
+    """Bake the nose leather's ambient occlusion (Cycles AO node, EMIT) into its UV square.
+
+    Without it the nostrils were lit from inside: the wet film reflected the sky off their walls and
+    the pair read as two glass beads. The engine applies a material's occlusion to the ambient
+    light, the film's reflection of the environment included. Baked on a copy of the WHOLE body so
+    the muzzle occludes too, with every other face's UVs collapsed outside the image, where the
+    bake writes nothing; the AO node's only_local keeps the original body, coincident with the
+    copy, out of the rays."""
+    import bpy
+
+    dup = ob.copy()
+    dup.data = ob.data.copy()
+    bpy.context.collection.objects.link(dup)
+    me = dup.data
+    idx = np.zeros(len(me.polygons), dtype=np.int32)
+    me.polygons.foreach_get("material_index", idx)
+    start = np.zeros(len(me.polygons), dtype=np.int32)
+    total = np.zeros(len(me.polygons), dtype=np.int32)
+    me.polygons.foreach_get("loop_start", start)
+    me.polygons.foreach_get("loop_total", total)
+    uv = np.zeros(len(me.loops) * 2, dtype=np.float32)
+    me.uv_layers.active.data.foreach_get("uv", uv)
+    uv = uv.reshape(-1, 2)
+    for f in np.nonzero(idx != M_NOSE)[0]:
+        uv[start[f]:start[f] + total[f]] = (-4.0, -4.0)
+    me.uv_layers.active.data.foreach_set("uv", uv.ravel())
+    me.polygons.foreach_set("material_index", np.zeros(len(me.polygons), dtype=np.int32))
+
+    img = bpy.data.images.new("DogNoseOcclusion", NOSE_NORMAL_SIZE, NOSE_NORMAL_SIZE, alpha=False,
+                              float_buffer=False)
+    img.colorspace_settings.name = "Non-Color"
+    bake = bpy.data.materials.new("NoseAOBake")
+    nt = bake.node_tree
+    for nd in list(nt.nodes):
+        nt.nodes.remove(nd)
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    emit = nt.nodes.new("ShaderNodeEmission")
+    ao = nt.nodes.new("ShaderNodeAmbientOcclusion")
+    ao.samples = NOSE_AO_SAMPLES
+    ao.only_local = True
+    ao.inputs["Distance"].default_value = NOSE_AO_DISTANCE
+    ao.inputs["Color"].default_value = (1.0, 1.0, 1.0, 1.0)
+    nt.links.new(ao.outputs["Color"], emit.inputs["Color"])
+    nt.links.new(emit.outputs["Emission"], out.inputs["Surface"])
+    tex = nt.nodes.new("ShaderNodeTexImage")
+    tex.image = img
+    nt.nodes.active = tex
+    me.materials.clear()
+    me.materials.append(bake)
+
+    scene = bpy.context.scene
+    scene.render.engine = "CYCLES"
+    scene.cycles.device = "CPU"
+    scene.cycles.samples = 8
+    for o in bpy.context.view_layer.objects:
+        o.select_set(False)
+    dup.select_set(True)
+    bpy.context.view_layer.objects.active = dup
+    t0 = time.time()
+    bpy.ops.object.bake(type="EMIT", margin=16, use_clear=True)
+    px = np.zeros(NOSE_NORMAL_SIZE * NOSE_NORMAL_SIZE * 4, dtype=np.float32)
+    img.pixels.foreach_get(px)
+    ao_px = px.reshape(-1, 4)[:, 0]
+    log(f"[nose] baked {NOSE_NORMAL_SIZE}^2 occlusion in {time.time() - t0:.1f}s "
+        f"(p5 {np.percentile(ao_px, 5):.2f}, median {np.median(ao_px):.2f})")
+    img.filepath_raw = out_path
+    img.file_format = "PNG"
+    img.save()
+    bpy.data.objects.remove(dup)
+    bpy.data.meshes.remove(me)
+    bpy.data.materials.remove(bake)
+    return img
+
+
+def _gltf_occlusion_group():
+    """The glTF exporter's custom output group: an Occlusion socket it exports as occlusionTexture."""
+    import bpy
+
+    ng = bpy.data.node_groups.get("glTF Material Output")
+    if ng is None:
+        ng = bpy.data.node_groups.new("glTF Material Output", "ShaderNodeTree")
+        ng.interface.new_socket("Occlusion", in_out="INPUT", socket_type="NodeSocketFloat")
+    return ng
+
+
 MATERIAL_LOOKS = {  # sRGB base colour, roughness (the engine patches skin profiles over these)
     "DogNose": ((0.035, 0.030, 0.030), 0.30),
     "DogLip": ((0.090, 0.060, 0.055), 0.55),
@@ -2302,8 +2556,9 @@ MATERIAL_LOOKS = {  # sRGB base colour, roughness (the engine patches skin profi
 }
 
 
-def build_materials(coat_img):
-    """Principled materials under the contract names. DogSkin and DogLid sample the coat map."""
+def build_materials(coat_img, nose_normal=None, nose_occlusion=None):
+    """Principled materials under the contract names. DogSkin and DogLid sample the coat map; DogNose
+    carries the cobblestone normal map and its occlusion."""
     import bpy
 
     for nm in MATERIALS:
@@ -2319,6 +2574,21 @@ def build_materials(coat_img):
             rgb, rough = MATERIAL_LOOKS[nm]
             bsdf.inputs["Base Color"].default_value = (*_srgb_to_linear(rgb).tolist(), 1.0)
             bsdf.inputs["Roughness"].default_value = rough
+            if nm == "DogNose" and nose_normal is not None:
+                ntex = nt.nodes.new("ShaderNodeTexImage")
+                ntex.image = nose_normal
+                nmap = nt.nodes.new("ShaderNodeNormalMap")
+                nmap.space = "TANGENT"
+                nt.links.new(ntex.outputs["Color"], nmap.inputs["Color"])
+                nt.links.new(nmap.outputs["Normal"], bsdf.inputs["Normal"])
+            if nm == "DogNose" and nose_occlusion is not None:
+                otex = nt.nodes.new("ShaderNodeTexImage")
+                otex.image = nose_occlusion
+                sep = nt.nodes.new("ShaderNodeSeparateColor")
+                grp = nt.nodes.new("ShaderNodeGroup")
+                grp.node_tree = _gltf_occlusion_group()
+                nt.links.new(otex.outputs["Color"], sep.inputs["Color"])
+                nt.links.new(sep.outputs["Red"], grp.inputs["Occlusion"])
         m.diffuse_color = (*_srgb_to_linear(MATERIAL_LOOKS.get(nm, (COAT_GOLD, 0))[0]).tolist(), 1.0)
 
 
@@ -2656,10 +2926,91 @@ def write_rig_json(path):
         fh.write("\n")
 
 
+# The painted iris (Ole's review, #1533). The engine's ocular model (DogEye.oloskin) refracts the
+# view into the eye and draws the pupil and the limbal ring on the iris plane, but its iris is one
+# flat colour: a dark disc with a hole in it read as a glass bead. The iris's structure -- the
+# radial fibres, the lighter pupillary zone inside the collarette, a few crypts -- is painted into
+# the globe's albedo instead, which the model multiplies by its tint inside the iris. Sizes are the
+# profile's, as fractions of the globe radius: the limbus at IrisRadiusMM / EyeRadiusMM, the
+# pupil's edge at PupilRadiusMM / EyeRadiusMM.
+IRIS_TEX_SIZE = 1024
+IRIS_LIMBUS = 9.6 / 12.0
+IRIS_PUPIL = 4.3 / 12.0
+IRIS_SCLERA_LINEAR = (0.78, 0.74, 0.71)  # the globe's albedo outside the iris, warm: the eye's old base colour
+# sRGB: amber in the pupillary zone, chestnut across the ciliary zone, dark toward the limbus
+IRIS_PUPILLARY = (0.64, 0.42, 0.19)
+IRIS_CILIARY = (0.46, 0.27, 0.11)
+IRIS_OUTER = (0.29, 0.155, 0.065)
+
+
+def _periodic_value_noise(rng, ang, rad, n_ang, n_rad):
+    """Bilinear value noise on (angle, radius), periodic in angle: n_ang cells around, n_rad out."""
+    grid = rng.random((n_rad + 2, n_ang)).astype(np.float32)
+    a = (ang / (2.0 * np.pi) % 1.0) * n_ang
+    r = np.clip(rad, 0.0, 1.0) * n_rad
+    a0 = np.floor(a).astype(np.int64)
+    r0 = np.floor(r).astype(np.int64)
+    fa = (a - a0).astype(np.float32)
+    fr = (r - r0).astype(np.float32)
+    fa = fa * fa * (3.0 - 2.0 * fa)
+    fr = fr * fr * (3.0 - 2.0 * fr)
+    a1 = (a0 + 1) % n_ang
+    a0 = a0 % n_ang
+    r1 = r0 + 1
+    g00, g01 = grid[r0, a0], grid[r0, a1]
+    g10, g11 = grid[r1, a0], grid[r1, a1]
+    return (g00 + (g01 - g00) * fa) * (1.0 - fr) + (g10 + (g11 - g10) * fa) * fr
+
+
+def iris_albedo(size=IRIS_TEX_SIZE, seed=1533):
+    """The globe's albedo in its planar UV (u, v) = 0.5 + 0.5 (x, y) across the gaze: sRGB, (H, W, 3)."""
+    rng = np.random.default_rng(seed)
+    t = (np.arange(size, dtype=np.float32) + 0.5) / size * 2.0 - 1.0
+    x, y = np.meshgrid(t, t)
+    rs = np.hypot(x, y)  # sin(angle off the gaze): the ocular model's painted-arm offset
+    ang = np.arctan2(y, x)
+    ri = rs / IRIS_LIMBUS  # 0 at the gaze, 1 at the limbus
+    pupil = IRIS_PUPIL / IRIS_LIMBUS
+    # The collarette: a wavy ring a third of the way from the pupil to the limbus.
+    wobble = _periodic_value_noise(rng, ang, np.zeros_like(ri), 40, 1) - 0.5
+    collar = pupil + 0.28 * (1.0 - pupil) + 0.025 * wobble
+    zone = np.clip((ri - pupil) / np.maximum(1.0 - pupil, 1e-3), 0.0, 1.0)  # 0 pupil edge, 1 limbus
+    lin = lambda c: _srgb_to_linear(np.array(c, dtype=np.float64)).astype(np.float32)
+    inner, mid, outer = lin(IRIS_PUPILLARY), lin(IRIS_CILIARY), lin(IRIS_OUTER)
+    in_pupillary = _smoothstep(collar + 0.015, collar - 0.015, ri)[..., None]
+    t_out = _smoothstep(0.35, 1.0, zone)[..., None]
+    base = mid[None, None, :] * (1.0 - t_out) + outer[None, None, :] * t_out
+    base = base * (1.0 - in_pupillary) + inner[None, None, :] * in_pupillary
+    # The fibres: long radial streaks, many around and few out, in two octaves.
+    fib = (0.6 * _periodic_value_noise(rng, ang, zone, 180, 3) +
+           0.4 * _periodic_value_noise(rng, ang + 0.013, zone, 420, 6))
+    fibres = 0.60 + 0.80 * fib  # 0.6 .. 1.4
+    # The collarette's ridge, a little lighter, and the pupil's ruff just outside the pupil.
+    ridge = np.exp(-((ri - collar) / 0.02) ** 2)
+    ruff = np.exp(-((ri - pupil - 0.012) / 0.012) ** 2)
+    # Crypts: dark lozenges in the ciliary zone, just outside the collarette.
+    crypt = np.ones_like(ri)
+    for _ in range(26):
+        ca = rng.uniform(-np.pi, np.pi)
+        cr = rng.uniform(0.05, 0.45) * (1.0 - collar.mean()) + collar.mean() + 0.03
+        da = np.angle(np.exp(1j * (ang - ca))) * ri
+        dr = ri - cr
+        crypt *= 1.0 - 0.45 * np.exp(-(da / 0.022) ** 2 - (dr / 0.05) ** 2)
+    iris = base * (fibres * crypt)[..., None] * (1.0 + 0.25 * ridge + 0.15 * ruff)[..., None]
+    iris = np.clip(iris, 0.0, 1.0)
+    # The limbus: the iris ends at ri = 1 (the model's own ring darkens the edge band on top).
+    in_iris = _smoothstep(1.03, 0.97, ri)[..., None]
+    out = iris * in_iris + np.array(IRIS_SCLERA_LINEAR, dtype=np.float32)[None, None, :] * (1.0 - in_iris)
+    return np.clip(np.where(out <= 0.0031308, out * 12.92, 1.055 * np.power(out, 1.0 / 2.4) - 0.055), 0.0, 1.0)
+
+
 def export_eyeball(out_dir, log=print):
-    """DogEyeball.gltf: a unit sphere at film-close-up tessellation. The scene draws each eye as
-    this mesh on its own entity (the engine's primitive sphere reloads from a scene file at 16
-    segments, a polygon silhouette at a face close-up)."""
+    """DogEyeball.gltf: a unit sphere at film-close-up tessellation, with the painted iris
+    (DogIrisColor.png -- "Color" in the name, or the asset loader decodes it as linear data) on a
+    planar UV across the gaze. The scene draws each eye as this mesh on its own
+    entity (the engine's primitive sphere reloads from a scene file at 16 segments, a polygon
+    silhouette at a face close-up). The engine takes the gaze as the entity's +Z: glTF +Z, which is
+    Blender's -Y."""
     import bpy
 
     bpy.ops.mesh.primitive_uv_sphere_add(segments=128, ring_count=64, radius=1.0, location=(0.0, 0.0, 0.0))
@@ -2667,14 +3018,38 @@ def export_eyeball(out_dir, log=print):
     ob.name = "DogEyeball"
     ob.data.name = "DogEyeball"
     ob.data.shade_smooth()
-    ob.data.materials.append(bpy.data.materials.new("DogEyeball"))
+    me = ob.data
+    loop_v = np.zeros(len(me.loops), dtype=np.int32)
+    me.loops.foreach_get("vertex_index", loop_v)
+    co = np.zeros(len(me.vertices) * 3, dtype=np.float32)
+    me.vertices.foreach_get("co", co)
+    co = co.reshape(-1, 3)[loop_v]
+    # Planar across the gaze, looking down it (from glTF +Z, the viewer's side): u follows glTF +X
+    # (Blender +X), v follows glTF +Y (Blender +Z).
+    uv = np.stack([0.5 + 0.5 * co[:, 0], 0.5 + 0.5 * co[:, 2]], axis=1).astype(np.float32)
+    me.uv_layers.active.data.foreach_set("uv", uv.ravel())
+    px = iris_albedo()
+    img = bpy.data.images.new("DogIrisColor", IRIS_TEX_SIZE, IRIS_TEX_SIZE, alpha=False, float_buffer=False)
+    img.colorspace_settings.name = "sRGB"
+    rgba = np.concatenate([px, np.ones(px.shape[:2] + (1,), dtype=px.dtype)], axis=2).astype(np.float32)
+    img.pixels.foreach_set(rgba.ravel())
+    img.filepath_raw = os.path.join(out_dir, "DogIrisColor.png")
+    img.file_format = "PNG"
+    img.save()
+    mat = bpy.data.materials.new("DogEyeball")
+    nt = mat.node_tree
+    bsdf = nt.nodes.get("Principled BSDF")
+    tex = nt.nodes.new("ShaderNodeTexImage")
+    tex.image = img
+    nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    bsdf.inputs["Roughness"].default_value = 0.5
+    me.materials.append(mat)
     for o in bpy.context.view_layer.objects:
         o.select_set(o is ob)
     path = os.path.join(out_dir, "DogEyeball.gltf")
     bpy.ops.export_scene.gltf(filepath=path, export_format="GLTF_SEPARATE", use_selection=True, export_yup=True,
                               export_animations=False, export_skins=False, export_materials="EXPORT",
-                              export_texcoords=True, export_normals=True)
-    me = ob.data
+                              export_image_format="AUTO", export_texcoords=True, export_normals=True)
     bpy.data.objects.remove(ob)
     bpy.data.meshes.remove(me)
     log(f"[export] wrote {path}")
@@ -2789,7 +3164,8 @@ def render_previews(body, arm, out_dir, log=print):
 def main():
     """blender -b --factory-startup --python build_dog.py -- [out_dir] [preview_dir]
 
-    Writes Dog.gltf + Dog.bin + DogCoatColor.png + Dog.rig.json into out_dir (default: this
+    Writes Dog.gltf + Dog.bin + DogCoatColor.png + DogNoseNormal.png + DogNoseOcclusion.png +
+    Dog.rig.json into out_dir, then the coat (build_dog_groom.py) into .dog-groom/Dog.abc (default: this
     script's directory) and, when preview_dir is given, Workbench renders of the rest pose,
     every clip, a blink and the pant."""
     import bpy
@@ -2812,7 +3188,10 @@ def main():
     W = assemble(body, W_body, names, log=log)
     unwrap(body, log=log)
     img = bake_coat_map(body, os.path.join(out_dir, "DogCoatColor.png"), log=log)
-    build_materials(img)
+    unwrap_nose(body, log=log)
+    nose = bake_nose_normal(body, os.path.join(out_dir, "DogNoseNormal.png"), log=log)
+    nose_ao = bake_nose_occlusion(body, os.path.join(out_dir, "DogNoseOcclusion.png"), log=log)
+    build_materials(img, nose, nose_ao)
     write_weights(body, arm, W, names, log=log)
     bake_clips(arm, log=log)
     use_clip(arm, None)
@@ -2821,6 +3200,11 @@ def main():
     write_rig_json(os.path.join(out_dir, "Dog.rig.json"))
     if preview_dir:
         render_previews(body, arm, preview_dir, log=log)
+    # The coat, grown on the dog just written (build_dog_groom.py, which resets the scene).
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import build_dog_groom
+
+    build_dog_groom.build(out_dir, build_dog_groom.default_abc_path(), log=log)
     log("done")
 
 

@@ -39,7 +39,9 @@
 #include "OloEngine/Groom/GroomBinding.h"
 #include "OloEngine/Groom/GroomBindingBuilder.h"
 #include "OloEngine/Groom/GroomBindingCooker.h"
-#include "OloEngine/Groom/GroomBuilder.h"
+#if defined(OLO_WITH_ALEMBIC)
+#include "OloEngine/Asset/Interchange/Alembic/AlembicGroomImporter.h"
+#endif
 #include "OloEngine/Groom/GroomCoat.h"
 #include "OloEngine/Groom/GroomCooker.h"
 #include "OloEngine/Groom/GroomLodBuilder.h"
@@ -93,6 +95,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <map>
 #include <numeric>
 #include <sstream>
 #include <string>
@@ -123,31 +126,6 @@ namespace OloEngine::Tests
         [[nodiscard]] fs::path DogPath()
         {
             return DogDir() / "Dog.gltf";
-        }
-
-        // A deterministic hash in [0,1), so the coat is a function of its inputs.
-        [[nodiscard]] f32 Hash01(u32 a, u32 b)
-        {
-            u32 h = (a * 0x9E3779B1u) ^ (b * 0x85EBCA77u) ^ 0xC2B2AE3Du;
-            h ^= h >> 15;
-            h *= 0x2C1B3C6Du;
-            h ^= h >> 12;
-            h *= 0x297A2D39u;
-            h ^= h >> 15;
-            return static_cast<f32>(h >> 8) * (1.0f / 16777216.0f);
-        }
-
-        // OLO_DOG_DENSITY scales every layer's strand density (look development
-        // and the cost sweep); unset is 1.
-        [[nodiscard]] f32 DensityScale()
-        {
-            const char* v = std::getenv("OLO_DOG_DENSITY");
-            if (v == nullptr)
-            {
-                return 1.0f;
-            }
-            const f32 s = static_cast<f32>(std::atof(v));
-            return std::isfinite(s) && s > 0.0f ? s : 1.0f;
         }
 
         // ---------------------------------------------------------------------
@@ -201,930 +179,120 @@ namespace OloEngine::Tests
             return rig;
         }
 
-        // ---------------------------------------------------------------------
-        // Coat regions (the design: see the fixture comment at the top)
-        // ---------------------------------------------------------------------
-        enum class Region : u8
-        {
-            Muzzle,
-            Face,
-            EyeRim, // short fur round the eye opening, combed away from it
-            Brow,   // tufts above the eyes: most of a character dog's expression
-            Cheek,  // the scruffy fluff below and behind the eyes
-            Skull,
-            EarOuter,
-            EarInner,
-            Lid,
-            Neck,
-            ChestRuff,
-            Body,
-            Belly,
-            Leg,
-            LegBack,
-            Paw,
-            TailTop,
-            TailPlume,
-            Count
-        };
-
-        [[nodiscard]] const char* RegionName(Region r)
-        {
-            switch (r)
-            {
-                case Region::Muzzle:
-                    return "muzzle";
-                case Region::Face:
-                    return "face";
-                case Region::EyeRim:
-                    return "eyerim";
-                case Region::Brow:
-                    return "brow";
-                case Region::Cheek:
-                    return "cheek";
-                case Region::Skull:
-                    return "skull";
-                case Region::EarOuter:
-                    return "earouter";
-                case Region::EarInner:
-                    return "earinner";
-                case Region::Lid:
-                    return "lid";
-                case Region::Neck:
-                    return "neck";
-                case Region::ChestRuff:
-                    return "chestruff";
-                case Region::Body:
-                    return "body";
-                case Region::Belly:
-                    return "belly";
-                case Region::Leg:
-                    return "leg";
-                case Region::LegBack:
-                    return "legback";
-                case Region::Paw:
-                    return "paw";
-                case Region::TailTop:
-                    return "tailtop";
-                case Region::TailPlume:
-                    return "tailplume";
-                case Region::Count:
-                    break;
-            }
-            return "body";
-        }
-
-        // OLO_DOG_REGION_DEBUG=1 paints each region one flat hue (and drops the
-        // colour map), so the surface classification can be checked by eye.
+        // OLO_DOG_REGION_DEBUG=1: build_dog_groom.py, run with it, paints each coat
+        // region one flat hue, and the evidence drops the colour map so they show.
         [[nodiscard]] bool RegionDebugEnabled()
         {
             const char* v = std::getenv("OLO_DOG_REGION_DEBUG");
             return v != nullptr && v[0] == '1';
         }
 
-        [[nodiscard]] glm::vec3 RegionDebugTint(Region r)
-        {
-            static const std::array<glm::vec3, static_cast<sizet>(Region::Count)> kHues{ {
-                { 1.0f, 0.2f, 0.2f }, // muzzle
-                { 1.0f, 0.6f, 0.1f }, // face
-                { 0.0f, 0.0f, 0.0f }, // eye rim
-                { 1.0f, 0.0f, 1.0f }, // brow
-                { 0.0f, 1.0f, 0.6f }, // cheek
-                { 1.0f, 1.0f, 0.2f }, // skull
-                { 0.2f, 1.0f, 0.2f }, // ear outer
-                { 0.1f, 0.5f, 0.1f }, // ear inner
-                { 1.0f, 1.0f, 1.0f }, // lid
-                { 0.2f, 0.5f, 1.0f }, // neck
-                { 0.7f, 0.2f, 1.0f }, // chest ruff
-                { 0.8f, 0.8f, 0.8f }, // body
-                { 0.2f, 1.0f, 1.0f }, // belly
-                { 0.5f, 0.3f, 0.1f }, // leg
-                { 1.0f, 0.3f, 0.8f }, // leg back
-                { 0.3f, 0.3f, 0.3f }, // paw
-                { 0.1f, 0.1f, 0.8f }, // tail top
-                { 0.9f, 0.9f, 0.5f }, // tail plume
-            } };
-            return kHues[static_cast<sizet>(r)];
-        }
-
-        // One triangle of the pelt, in the GROOM's space (metres).
-        struct SurfaceTriangle
-        {
-            std::array<glm::vec3, 3> P;
-            std::array<glm::vec2, 3> UV;
-            glm::vec3 Normal{ 0.0f, 1.0f, 0.0f };
-            f32 Area = 0.0f;
-            Region Where = Region::Body;
-        };
-
         struct DogFrame
         {
-            glm::vec3 Forward{ 0.0f, 0.0f, 1.0f }; // toward the nose
-            glm::vec3 Up{ 0.0f, 1.0f, 0.0f };
             glm::vec3 EyeMid{ 0.0f };
-            glm::vec3 Gaze[2]{};
-            glm::vec3 EyeCentre[2]{};
-            glm::vec3 EyeApex[2]{}; // the socket sphere's pole on each gaze: the front of the eye
-            f32 SocketRadius = 0.0f;
-            glm::vec3 Brow[2]{};
-            f32 EyeRimRadius = 0.0f; // skin nearer an eye centre than this is the eye rim
-            glm::vec3 TailRoot{ 0.0f };
-            glm::vec3 TailTip{ 0.0f };
-            f32 EarTop = 0.0f;    // the ears' root height
-            f32 EarBottom = 0.0f; // their tips
         };
 
-        [[nodiscard]] bool StartsWith(const std::string& s, const char* prefix)
-        {
-            return s.rfind(prefix, 0) == 0;
-        }
-
-        [[nodiscard]] std::string DominantBone(const MeshSource& surface, const Skeleton& skeleton, u32 vertex)
-        {
-            const auto& influences = surface.GetBoneInfluences();
-            if (static_cast<i32>(vertex) >= influences.Num())
-            {
-                return {};
-            }
-            const BoneInfluence& inf = influences[static_cast<i32>(vertex)];
-            u32 best = 0;
-            for (u32 k = 1; k < 4; ++k)
-            {
-                if (inf.m_Weights[k] > inf.m_Weights[best])
-                {
-                    best = k;
-                }
-            }
-            const u32 id = inf.m_BoneIDs[best];
-            return id < skeleton.m_BoneNames.size() ? skeleton.m_BoneNames[id] : std::string{};
-        }
-
-        // A bone's head in model space at the bind pose.
-        [[nodiscard]] glm::vec3 BindHead(const Skeleton& skeleton, const std::string& bone)
-        {
-            for (sizet i = 0; i < skeleton.m_BoneNames.size(); ++i)
-            {
-                if (skeleton.m_BoneNames[i] == bone && i < skeleton.m_InverseBindPoses.size())
-                {
-                    return glm::vec3(glm::inverse(skeleton.m_InverseBindPoses[i])[3]);
-                }
-            }
-            return glm::vec3(0.0f);
-        }
-
-        // Which pelt material a triangle belongs to (the bare skins grow nothing).
-        enum class Skin : u8
-        {
-            Pelt,
-            Lid,
-            Bare
-        };
-
-        [[nodiscard]] Skin SkinOf(const MeshSource& surface, u32 t)
-        {
-            const auto& submeshes = surface.GetSubmeshes();
-            for (i32 i = 0; i < submeshes.Num(); ++i)
-            {
-                const Submesh& sm = submeshes[i];
-                if (t * 3u >= sm.m_BaseIndex && t * 3u < sm.m_BaseIndex + sm.m_IndexCount)
-                {
-                    const Material* m = surface.GetImportedMaterialPtrForSubmesh(static_cast<u32>(i));
-                    if (m == nullptr)
-                    {
-                        return Skin::Bare;
-                    }
-                    const std::string name = m->GetName().ToStdString();
-                    if (name == "DogSkin")
-                    {
-                        return Skin::Pelt;
-                    }
-                    return name == "DogLid" ? Skin::Lid : Skin::Bare;
-                }
-            }
-            return Skin::Bare;
-        }
-
-        [[nodiscard]] std::vector<SurfaceTriangle> CollectSurface(const MeshSource& surface, const Skeleton& skeleton,
-                                                                  const RigDesc& rig, DogFrame& frame)
-        {
-            std::vector<SurfaceTriangle> out;
-            const auto& vertices = surface.GetVertices();
-            const auto& indices = surface.GetIndices();
-            const u32 triangles = static_cast<u32>(indices.Num() / 3);
-            out.reserve(triangles);
-
-            for (u32 i = 0; i < 2u; ++i)
-            {
-                frame.EyeCentre[i] = rig.Eyes[i].Centre;
-                frame.Gaze[i] = rig.Eyes[i].Gaze;
-                frame.EyeApex[i] = rig.Eyes[i].Centre + rig.Eyes[i].Gaze * rig.SocketRadius;
-            }
-            frame.SocketRadius = rig.SocketRadius;
-            frame.EyeMid = 0.5f * (frame.EyeCentre[0] + frame.EyeCentre[1]);
-            frame.EyeRimRadius = rig.SocketRadius + 0.012f;
-            frame.Brow[0] = BindHead(skeleton, "brow_L");
-            frame.Brow[1] = BindHead(skeleton, "brow_R");
-            frame.TailRoot = BindHead(skeleton, "tail_01");
-            frame.TailTip = BindHead(skeleton, "tail_06");
-            frame.EarTop = BindHead(skeleton, "ear_L_01").y;
-            frame.EarBottom = BindHead(skeleton, "ear_L_03").y - 0.04f;
-            const glm::vec3 side = glm::normalize(glm::cross(frame.Up, frame.Forward)); // the dog's left, +X
-            // Bone dominance alone draws the leg regions over the torso: the
-            // scapula, upper arm and thigh carry the shoulders, flanks and hips.
-            // Skin above the elbow and the stifle is body coat; the paw bones'
-            // skin is paw only near the ground.
-            const f32 elbowY = BindHead(skeleton, "forearm_L").y;
-            const f32 stifleY = BindHead(skeleton, "shin_L").y;
-            constexpr f32 kPawTop = 0.075f;
-            // The ear-root bones also carry the skull between the ears; the ear
-            // flaps hang outside the skull's width.
-            constexpr f32 kSkullHalfWidth = 0.075f;
-
-            for (u32 t = 0; t < triangles; ++t)
-            {
-                const Skin skin = SkinOf(surface, t);
-                if (skin == Skin::Bare)
-                {
-                    continue;
-                }
-                SurfaceTriangle tri;
-                glm::vec3 shading(0.0f);
-                for (u32 c = 0; c < 3; ++c)
-                {
-                    const Vertex& v = vertices[static_cast<i32>(indices[static_cast<i32>(t * 3u + c)])];
-                    tri.P[c] = v.Position;
-                    tri.UV[c] = v.TexCoord;
-                    shading += v.Normal;
-                }
-                glm::vec3 n = glm::cross(tri.P[1] - tri.P[0], tri.P[2] - tri.P[0]);
-                tri.Area = 0.5f * glm::length(n);
-                if (tri.Area <= 1.0e-10f)
-                {
-                    continue;
-                }
-                n = glm::normalize(n);
-                if (glm::dot(n, shading) < 0.0f)
-                {
-                    n = -n;
-                }
-                tri.Normal = n;
-                const glm::vec3 c = (tri.P[0] + tri.P[1] + tri.P[2]) / 3.0f;
-                if (skin == Skin::Lid)
-                {
-                    tri.Where = Region::Lid;
-                    out.push_back(tri);
-                    continue;
-                }
-                const std::string bone = DominantBone(surface, skeleton, indices[static_cast<i32>(t * 3u)]);
-                const f32 up = glm::dot(n, frame.Up);
-                const f32 fwd = glm::dot(n, frame.Forward);
-                const auto headRegion = [&]()
-                {
-                    const glm::vec3 rel = c - frame.EyeMid;
-                    const f32 ahead = glm::dot(rel, frame.Forward);
-                    const f32 above = glm::dot(rel, frame.Up);
-                    if (ahead > 0.012f && above < 0.0f)
-                    {
-                        return Region::Muzzle;
-                    }
-                    // The rim of the eye opening: short fur, or the face's longer
-                    // coat falls into the eye.
-                    const glm::vec3 nearEye = frame.EyeCentre[c.x >= 0.0f ? 0 : 1];
-                    if (glm::distance(c, nearEye) < frame.EyeRimRadius)
-                    {
-                        return Region::EyeRim;
-                    }
-                    // The brow: the band of skin just above each eye (the brow
-                    // bones sit ~2 cm inside it, so the band is measured from
-                    // the eye, not from the bone).
-                    const glm::vec3 eyeC = frame.EyeCentre[c.x >= 0.0f ? 0 : 1];
-                    const glm::vec3 fromEye = c - eyeC;
-                    const f32 eyeUp = glm::dot(fromEye, frame.Up);
-                    const f32 eyeAhead = glm::dot(fromEye, frame.Forward);
-                    if (eyeUp > 0.022f && eyeUp < 0.05f && std::abs(fromEye.x) < 0.03f && eyeAhead > -0.03f &&
-                        eyeAhead < 0.02f)
-                    {
-                        return Region::Brow;
-                    }
-                    if (above < -0.006f && ahead < 0.012f && ahead > -0.07f)
-                    {
-                        return Region::Cheek;
-                    }
-                    // The cranium: facing up, or anywhere behind the eyes and
-                    // above them (its sides included, which face outward).
-                    if ((up > 0.45f && ahead < 0.02f) || (ahead < -0.01f && above > -0.01f))
-                    {
-                        return Region::Skull;
-                    }
-                    return Region::Face;
-                };
-                const auto legRegion = [&]()
-                { return fwd < -0.35f ? Region::LegBack : Region::Leg; };
-                if (bone == "head" || bone == "jaw" || StartsWith(bone, "brow") || StartsWith(bone, "lid") ||
-                    StartsWith(bone, "tongue"))
-                {
-                    tri.Where = headRegion();
-                }
-                else if (StartsWith(bone, "ear_"))
-                {
-                    // Above the ear's root line the ear-root bones carry skull skin;
-                    // ear hair grown there hangs off the skull and bares its roots.
-                    if (std::abs(c.x) < kSkullHalfWidth || c.y > frame.EarTop - 0.005f)
-                    {
-                        tri.Where = headRegion();
-                    }
-                    else
-                    {
-                        // The flap's OUTER face looks away from the head.
-                        const f32 out = glm::dot(n, side) * (c.x >= 0.0f ? 1.0f : -1.0f);
-                        tri.Where = out > 0.0f ? Region::EarOuter : Region::EarInner;
-                    }
-                }
-                else if (StartsWith(bone, "neck"))
-                {
-                    tri.Where = (fwd > 0.35f || up < -0.45f) ? Region::ChestRuff : Region::Neck;
-                }
-                else if (bone == "spine_03")
-                {
-                    tri.Where = (fwd > 0.30f || up < -0.50f) ? Region::ChestRuff : Region::Body;
-                }
-                else if (bone == "spine_01" || bone == "spine_02" || bone == "pelvis" || bone == "root")
-                {
-                    tri.Where = up < -0.55f ? Region::Belly : Region::Body;
-                }
-                else if (StartsWith(bone, "scapula") || StartsWith(bone, "upperarm"))
-                {
-                    if (c.y > elbowY + 0.02f)
-                    {
-                        tri.Where = (fwd > 0.30f || up < -0.50f) ? Region::ChestRuff : Region::Body;
-                    }
-                    else
-                    {
-                        tri.Where = legRegion();
-                    }
-                }
-                else if (StartsWith(bone, "thigh"))
-                {
-                    tri.Where = c.y > stifleY + 0.02f ? (up < -0.55f ? Region::Belly : Region::Body) : legRegion();
-                }
-                else if (StartsWith(bone, "forearm") || StartsWith(bone, "shin"))
-                {
-                    tri.Where = legRegion();
-                }
-                else if (StartsWith(bone, "wrist") || StartsWith(bone, "hock") || StartsWith(bone, "paw"))
-                {
-                    tri.Where = c.y < kPawTop ? Region::Paw : legRegion();
-                }
-                else if (StartsWith(bone, "tail"))
-                {
-                    // The plume grows up the tail's sides, under the top coat's
-                    // edge: split at the equator, the two coats parted along it
-                    // and drew a dark line down each side of the tail.
-                    tri.Where = up < 0.25f ? Region::TailPlume : Region::TailTop;
-                }
-                else
-                {
-                    tri.Where = Region::Body;
-                }
-                out.push_back(tri);
-            }
-            return out;
-        }
-
-        // How a layer's length varies across its region.
-        enum class Ramp : u8
-        {
-            None,
-            DownTheEar, // short at the ear's root, full at its tip
-            AlongTail,  // short at the dock, full toward the tip
-        };
-
-        // One layer of the coat on one region.
-        struct CoatLayer
-        {
-            Region Where = Region::Body;
-            GroomCoatRole Role = GroomCoatRole::Undercoat;
-            f32 StrandsPerM2 = 10000.0f;
-            f32 Length = 0.01f;       // metres (at the ramp's far end)
-            f32 RootDiameter = 1e-4f; // metres: a strand stands for a lock (widths carry coverage)
-            f32 Lift = 0.3f;          // how far off the skin the strand leaves
-            f32 Droop = 0.05f;        // per-segment gravity bend
-            u32 Points = 6;
-            f32 Clump = 0.0f;
-            f32 Wander = 0.10f;    // random direction per strand; it scatters the sheen into speckle
-            f32 CurlRadius = 0.0f; // coat v4, metres
-            f32 CurlFrequency = 0.0f;
-            f32 WaveAmplitude = 0.0f;
-            f32 WaveFrequency = 0.0f;
-            f32 StiffnessScale = 1.0f;
-            glm::vec3 Tint{ 1.0f };
-            glm::vec3 TipTint{ 1.0f }; // multiplies Tint at the tip
-            Ramp LengthRamp = Ramp::None;
-            f32 RampBase = 1.0f; // length fraction at the ramp's near end
-            u32 GuideEvery = 12;
-            const char* Suffix = nullptr; // the group's name suffix when not its role's
-            // Locks authored into the curves (see ApplyLocks): strands within
-            // ~LockRadius of a centre strand gather toward it over their outer
-            // part. Two scales, a lock and the finer tufts inside it.
-            f32 LockRadius = 0.0f;
-            f32 LockAmount = 0.0f;
-            f32 FineLockRadius = 0.0f;
-            f32 FineLockAmount = 0.0f;
-            f32 TipWidth = 0.2f;  // the strand's width at its tip, a fraction of the root's
-            bool EyeRamp = false; // shortens toward the eyes (EyeRampAt)
-        };
-
-        struct CoatRecipe
-        {
-            const char* Name = "DogCoat";
-            std::vector<CoatLayer> Layers;
-            u32 Seed = 1533;
-        };
-
-        [[nodiscard]] const char* RoleSuffix(GroomCoatRole role)
-        {
-            switch (role)
-            {
-                case GroomCoatRole::Undercoat:
-                    return "undercoat";
-                case GroomCoatRole::GuardHair:
-                    return "guard";
-                case GroomCoatRole::Whisker:
-                    return "whiskers";
-                case GroomCoatRole::LongHair:
-                    return "longhair";
-                default:
-                    return "coat";
-            }
-        }
-
-        // The direction a region's hair is combed, in groom space.
-        [[nodiscard]] glm::vec3 CombDirectionBase(Region region, const DogFrame& frame, const glm::vec3& at);
-
-        // On the head the coat parts round each eye: the base comb, bent away
-        // from the nearer eye over the last few centimetres, so the fur in front
-        // of an eye flows round it instead of back over it.
-        [[nodiscard]] glm::vec3 CombDirection(Region region, const DogFrame& frame, const glm::vec3& at)
-        {
-            glm::vec3 comb = CombDirectionBase(region, frame, at);
-            if (region == Region::Muzzle || region == Region::Face || region == Region::Brow || region == Region::Cheek ||
-                region == Region::Skull || region == Region::EyeRim)
-            {
-                const glm::vec3 eye = frame.EyeCentre[at.x >= 0.0f ? 0 : 1];
-                const glm::vec3 away = at - eye;
-                const f32 dist = glm::length(away);
-                const f32 w = std::clamp((0.065f - dist) / 0.035f, 0.0f, 1.0f);
-                if (dist > 1.0e-6f && w > 0.0f)
-                {
-                    comb = glm::normalize(comb + (away / dist) * (1.6f * w * w));
-                }
-            }
-            return comb;
-        }
-
-        [[nodiscard]] glm::vec3 CombDirectionBase(Region region, const DogFrame& frame, const glm::vec3& at)
-        {
-            const glm::vec3 back = -frame.Forward;
-            const glm::vec3 down = -frame.Up;
-            const glm::vec3 side = glm::normalize(glm::cross(frame.Up, frame.Forward));
-            // Fades to nothing at the midline: a hard sign parts the coat down
-            // the middle of the face and the back like a zip.
-            const glm::vec3 outward = side * std::clamp(at.x / 0.025f, -1.0f, 1.0f);
-            const glm::vec3 tail = glm::normalize(frame.TailTip - frame.TailRoot);
-            switch (region)
-            {
-                case Region::Muzzle:
-                    return glm::normalize(back + outward * 0.35f + down * 0.15f);
-                case Region::Face:
-                    return glm::normalize(back + outward * 0.35f + down * 0.2f);
-                case Region::Brow:
-                    return glm::normalize(frame.Up * 0.8f + outward * 0.6f + back * 0.4f);
-                case Region::EyeRim:
-                    return glm::normalize(back + outward * 0.3f);
-                case Region::Cheek:
-                    return glm::normalize(back * 0.8f + down * 0.6f + outward * 0.3f);
-                case Region::Skull:
-                    return glm::normalize(back + down * 0.1f);
-                case Region::EarOuter:
-                case Region::EarInner:
-                    return glm::normalize(down + back * 0.15f);
-                case Region::Lid:
-                {
-                    // Away from the eye opening -- radial from the nearer eye's
-                    // optical axis -- turned half toward the back corner, the way
-                    // the face's own coat flows past the eye. Purely radial, the
-                    // lid fur stood out round the eye like lashes all the way
-                    // round: a sea urchin's ring in a close-up.
-                    const u32 e = at.x >= 0.0f ? 0u : 1u;
-                    glm::vec3 r = at - frame.EyeCentre[e];
-                    r -= frame.Gaze[e] * glm::dot(r, frame.Gaze[e]);
-                    const glm::vec3 radial = glm::dot(r, r) > 1.0e-10f ? glm::normalize(r) : back;
-                    return glm::normalize(radial + (back + outward * 0.3f) * 0.9f);
-                }
-                case Region::Neck:
-                    return glm::normalize(back * 0.6f + down * 0.8f);
-                case Region::ChestRuff:
-                    return glm::normalize(down + frame.Forward * 0.3f);
-                case Region::Belly:
-                    return glm::normalize(down + back * 0.25f);
-                case Region::Leg:
-                    return glm::normalize(down + back * 0.1f);
-                case Region::LegBack:
-                    return glm::normalize(down + back * 0.45f);
-                case Region::Paw:
-                    return glm::normalize(frame.Forward + down * 0.6f);
-                case Region::TailTop:
-                    return tail;
-                case Region::TailPlume:
-                    return glm::normalize(tail + down * 0.8f);
-                default:
-                    return glm::normalize(back + down * 0.35f);
-            }
-        }
-
-        struct GrownCoat
+        // THE COAT is grown in Blender (issue #1533): build_dog_groom.py writes it as
+        // .dog-groom/Dog.abc at the repository root, one hair object per coat group
+        // carrying its coat as `groom_` user properties, and the editor's own
+        // AlembicGroomImporter cooks it. The .abc is a ~60 MB build output, kept
+        // out of SandboxProject/Assets because the editor registers whatever it
+        // finds there; what ships -- and what CI draws -- is its cooked form,
+        // Grooms/Dog/Dog.ologroom, which ExportsTheLiveScene writes. The fixture
+        // cooks the .abc itself only when asked: OLO_DOG_ABC=1 (or a path) for look
+        // development, and OLO_DOG_EXPORT=1, which then ships what it cooked.
+        struct DogCoatAsset
         {
             Ref<GroomAsset> Groom;
             u32 Strands = 0;
             u32 Guides = 0;
-            std::array<u32, static_cast<sizet>(Region::Count)> PerRegion{};
-            std::array<f64, static_cast<sizet>(Region::Count)> AreaPerRegion{};
+            u32 Cards = 0;
+            bool FromAbc = false;
         };
 
-        struct GrownStrand
+        [[nodiscard]] fs::path DogCoatAbcPath()
         {
-            std::vector<glm::vec3> Points;
-            std::vector<f32> Widths;
-            glm::vec2 UV{ 0.0f };
-            bool Guide = false;
-        };
-
-        // Gather strands into locks: a strand's outer part moves toward the
-        // shape of its nearest lock centre, carried to the strand's own root,
-        // with the offset between the roots closing toward the tip. The root
-        // never moves (weight 0 at t = 0), so the coat stays on the skin. Lock
-        // centres are strands drawn at random at a rate of about one per lock
-        // area, and each strand joins its NEAREST centre: Voronoi locks, with
-        // no grid in them. Deterministic: every draw is a hash of the seed.
-        void ApplyLocks(std::vector<GrownStrand>& strands, f32 radius, f32 amount, u32 seed)
-        {
-            if (radius <= 0.0f || amount <= 0.0f || strands.size() < 2u)
+            if (const char* v = std::getenv("OLO_DOG_ABC"); v != nullptr && v[0] != '\0' && std::string(v) != "1")
             {
-                return;
+                return fs::path(v);
             }
-            // One centre per lock area: the layer's strand count per unit area
-            // is unknown here, so draw by spacing instead -- a strand becomes a
-            // centre when no centre is yet within `radius` of its root (a
-            // greedy Poisson-disc pass over a hashed order).
-            const auto cellOf = [radius](const glm::vec3& p)
-            {
-                const glm::ivec3 c = glm::ivec3(glm::floor(p / radius));
-                return (static_cast<u64>(static_cast<u32>(c.x) & 0x1FFFFFu) << 42) |
-                       (static_cast<u64>(static_cast<u32>(c.y) & 0x1FFFFFu) << 21) |
-                       static_cast<u64>(static_cast<u32>(c.z) & 0x1FFFFFu);
-            };
-            std::vector<u32> order(strands.size());
-            std::iota(order.begin(), order.end(), 0u);
-            std::sort(order.begin(), order.end(), [seed](u32 a, u32 b)
-                      { return Hash01(a, seed) < Hash01(b, seed); });
-            std::unordered_map<u64, std::vector<u32>> centres;
-            const auto nearest = [&](const glm::vec3& p, f32& bestDist)
-            {
-                const glm::ivec3 c = glm::ivec3(glm::floor(p / radius));
-                u32 best = 0xFFFFFFFFu;
-                bestDist = 1.0e9f;
-                for (i32 dz = -1; dz <= 1; ++dz)
-                    for (i32 dy = -1; dy <= 1; ++dy)
-                        for (i32 dx = -1; dx <= 1; ++dx)
-                        {
-                            const glm::vec3 q = (glm::vec3(c + glm::ivec3(dx, dy, dz)) + 0.5f) * radius;
-                            const auto it = centres.find(cellOf(q));
-                            if (it == centres.end())
-                                continue;
-                            for (const u32 idx : it->second)
-                            {
-                                const f32 d = glm::distance(p, strands[idx].Points.front());
-                                if (d < bestDist)
-                                {
-                                    bestDist = d;
-                                    best = idx;
-                                }
-                            }
-                        }
-                return best;
-            };
-            for (const u32 i : order)
-            {
-                f32 d = 0.0f;
-                if (nearest(strands[i].Points.front(), d) == 0xFFFFFFFFu || d > radius)
-                {
-                    centres[cellOf(strands[i].Points.front())].push_back(i);
-                }
-            }
-            // Gather, from a copy, so a centre's own shape is its authored one.
-            const std::vector<GrownStrand> source = strands;
-            for (sizet i = 0; i < strands.size(); ++i)
-            {
-                f32 d = 0.0f;
-                const u32 c = nearest(source[i].Points.front(), d);
-                if (c == 0xFFFFFFFFu || c == i)
-                {
-                    continue;
-                }
-                const auto& mine = source[i].Points;
-                const auto& centre = source[c].Points;
-                const glm::vec3 rootOffset = mine.front() - centre.front();
-                // Strands at the lock's edge gather a little less, so a lock is
-                // a soft-edged tuft rather than a cone.
-                const f32 edge = 1.0f - 0.35f * std::clamp(d / radius, 0.0f, 1.0f);
-                const sizet n = std::min(mine.size(), centre.size());
-                for (sizet k = 1; k < n; ++k)
-                {
-                    const f32 t = static_cast<f32>(k) / static_cast<f32>(n - 1u);
-                    const f32 w = amount * edge * (t * t * (3.0f - 2.0f * t));
-                    const glm::vec3 target = centre[k] + rootOffset * (1.0f - t);
-                    strands[i].Points[k] = glm::mix(mine[k], target, w);
-                }
-            }
+            return fs::path{ OLO_TEST_EDITOR_ROOT }.parent_path() / ".dog-groom" / "Dog.abc";
         }
 
-        [[nodiscard]] f32 Smoothstep01(f32 t)
+        [[nodiscard]] bool DogCoatFromAbc()
         {
-            t = std::clamp(t, 0.0f, 1.0f);
-            return t * t * (3.0f - (2.0f * t));
+            const char* abc = std::getenv("OLO_DOG_ABC");
+            const char* exporting = std::getenv("OLO_DOG_EXPORT");
+            return (abc != nullptr && abc[0] != '\0' && std::string(abc) != "0") ||
+                   (exporting != nullptr && exporting[0] == '1');
         }
 
-        [[nodiscard]] f32 RampAt(const CoatLayer& layer, const DogFrame& frame, const glm::vec3& root, const glm::vec3& normal)
+        // The cards the coat hands over to at range: a 1.2 cm root-UV cell for a
+        // subject seen close (the horses' 5 cm default made one card of a cheek).
+        [[nodiscard]] GroomCardSettings DogCardSettings()
         {
-            f32 t = 1.0f;
-            f32 scale = 1.0f;
-            if (layer.LengthRamp == Ramp::DownTheEar)
-            {
-                t = std::clamp((frame.EarTop - root.y) / std::max(frame.EarTop - frame.EarBottom, 1.0e-3f), 0.0f, 1.0f);
-            }
-            else if (layer.LengthRamp == Ramp::AlongTail)
-            {
-                const glm::vec3 axis = frame.TailTip - frame.TailRoot;
-                t = std::clamp(glm::dot(root - frame.TailRoot, axis) / std::max(glm::dot(axis, axis), 1.0e-6f), 0.0f, 1.0f);
-                // Round the tail too: the plume is longest straight down and
-                // no longer than the top's coat at the tail's sides, where the
-                // two meet. A step there parted the coat along the tail and
-                // the plume hung off it like a separate fringe.
-                if (layer.Where == Region::TailPlume)
-                {
-                    scale = 0.45f + (0.55f * Smoothstep01((0.25f - glm::dot(normal, frame.Up)) / 0.85f));
-                }
-            }
-            return (layer.RampBase + ((1.0f - layer.RampBase) * t)) * scale;
+            GroomCardSettings cards;
+            cards.CellSize = 0.012f;
+            cards.PointsPerCard = 6;
+            return cards;
         }
 
-        // The face's fur shortens toward each eye opening continuously, from
-        // the region's full length ~2 cm out to under a third of it at the
-        // opening's edge, whichever surface that edge is: the skin over the
-        // socket above the eye, the cheek below it. The rim of short fur the
-        // eye needs used to be its own region, and the step from its 14 mm to
-        // the face's 28 mm drew a ring round each eye. Measured from the
-        // SOCKET, not from a point: from the eye's centre the whole lid dome
-        // got one length, a cushion inside a ring; from the front of the eye
-        // the cheek's edge below it, much nearer the front than the lids'
-        // margin, got the shortest fur on the face -- a pale crescent.
-        [[nodiscard]] f32 EyeRampAt(const DogFrame& frame, const glm::vec3& root)
+        [[nodiscard]] DogCoatAsset LoadDogCoat()
         {
-            constexpr f32 kReach = 0.022f;
-            constexpr f32 kShortest = 0.30f;
-            const f32 d = std::min(glm::distance(root, frame.EyeCentre[0]), glm::distance(root, frame.EyeCentre[1])) -
-                          frame.SocketRadius;
-            return kShortest + ((1.0f - kShortest) * Smoothstep01(d / kReach));
-        }
-
-        // THE FLOW FIELD. Each region is combed its own way, and taken alone
-        // those directions switch at every region boundary: the skull combed
-        // back met the ear combed down, the brow's upward tuft met the face
-        // combed back, and the coat PARTED along each seam and showed the skin.
-        // A groomer's flow turns across a boundary instead. So the per-triangle
-        // region directions are screened-smoothed over the mesh: every pass
-        // moves a triangle's direction toward its neighbours' mean and pulls it
-        // back toward its own region's by `kFlowAnchor`, which keeps the interior
-        // of each region combed as authored and blends a band about
-        // sqrt((1 - a) / a) triangles wide (~1.5 cm here) across each seam. The
-        // lids keep their radial comb unsmoothed: they are a ring round an
-        // opening, and averaging a ring cancels it.
-        [[nodiscard]] std::vector<glm::vec3> SmoothFlowField(const std::vector<SurfaceTriangle>& surface,
-                                                             const DogFrame& frame)
-        {
-            constexpr f32 kFlowAnchor = 0.12f;
-            u32 kFlowPasses = 24; // OLO_DOG_FLOW_PASSES overrides, for the A/B (0 = per-region comb)
-            if (const char* tune = std::getenv("OLO_DOG_FLOW_PASSES"); tune != nullptr)
+            DogCoatAsset out;
+            if (DogCoatFromAbc())
             {
-                kFlowPasses = static_cast<u32>(std::max(0, std::atoi(tune)));
-            }
-            const sizet n = surface.size();
-            std::vector<glm::vec3> authored(n);
-            for (sizet t = 0; t < n; ++t)
-            {
-                const SurfaceTriangle& tri = surface[t];
-                const glm::vec3 centroid = (tri.P[0] + tri.P[1] + tri.P[2]) / 3.0f;
-                glm::vec3 comb = CombDirection(tri.Where, frame, centroid);
-                comb -= tri.Normal * glm::dot(comb, tri.Normal);
-                authored[t] = glm::dot(comb, comb) > 1.0e-6f ? glm::normalize(comb) : glm::vec3(0.0f);
-            }
-            // Vertex-sharing adjacency, keyed by quantised position: the surface
-            // arrives as loose triangles, and its seams (UV, material) duplicate
-            // vertices that are one point on the skin.
-            const auto key = [](const glm::vec3& p)
-            {
-                const glm::ivec3 q = glm::ivec3(glm::round(p * 20000.0f)); // 0.05 mm
-                return (static_cast<u64>(static_cast<u32>(q.x) & 0x1FFFFFu) << 42) |
-                       (static_cast<u64>(static_cast<u32>(q.y) & 0x1FFFFFu) << 21) |
-                       static_cast<u64>(static_cast<u32>(q.z) & 0x1FFFFFu);
-            };
-            std::unordered_map<u64, std::vector<u32>> byVertex;
-            byVertex.reserve(n * 2);
-            for (u32 t = 0; t < static_cast<u32>(n); ++t)
-            {
-                for (const glm::vec3& p : surface[t].P)
+#if defined(OLO_WITH_ALEMBIC)
+                const fs::path abc = DogCoatAbcPath();
+                if (!fs::exists(abc))
                 {
-                    byVertex[key(p)].push_back(t);
+                    ADD_FAILURE() << abc.string() << " is missing: build_dog_groom.py writes it (see its header)";
+                    return out;
+                }
+                AlembicGroomImporter::Options options;
+                options.ProvenancePath = ".dog-groom/Dog.abc"; // repository-relative, never absolute
+                options.BuildCardLod = true;
+                options.Cards = DogCardSettings();
+                const auto imported = AlembicGroomImporter::Import(abc, options);
+                if (!imported.Succeeded())
+                {
+                    ADD_FAILURE() << "cooking " << abc.string() << ": " << imported.Diagnostic;
+                    return out;
+                }
+                // Every warning is authored data the coat arrived without.
+                for (const std::string& warning : imported.Warnings)
+                {
+                    ADD_FAILURE() << "cooking " << abc.string() << ": " << warning;
+                }
+                out.Groom = imported.Groom;
+                out.FromAbc = true;
+#else
+                ADD_FAILURE() << "OLO_DOG_ABC / OLO_DOG_EXPORT cook Dog.abc, and this build has no Alembic (OLO_WITH_ALEMBIC)";
+                return out;
+#endif
+            }
+            else
+            {
+                const fs::path cooked = SandboxAssets() / "Grooms" / "Dog" / "Dog.ologroom";
+                std::ifstream in(cooked, std::ios::binary | std::ios::ate);
+                if (!in)
+                {
+                    ADD_FAILURE() << cooked.string() << " is missing";
+                    return out;
+                }
+                std::vector<u8> bytes(static_cast<sizet>(in.tellg()));
+                in.seekg(0);
+                in.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+                std::string reason;
+                if (!GroomSerializer::DecodeFromBytes(bytes.data(), bytes.size(), out.Groom, reason))
+                {
+                    ADD_FAILURE() << cooked.string() << ": " << reason;
+                    return out;
                 }
             }
-            std::vector<std::vector<u32>> neighbours(n);
-            for (u32 t = 0; t < static_cast<u32>(n); ++t)
-            {
-                auto& list = neighbours[t];
-                for (const glm::vec3& p : surface[t].P)
-                {
-                    for (const u32 other : byVertex[key(p)])
-                    {
-                        if (other != t && std::find(list.begin(), list.end(), other) == list.end())
-                        {
-                            list.push_back(other);
-                        }
-                    }
-                }
-            }
-            std::vector<glm::vec3> field = authored;
-            std::vector<glm::vec3> next(n);
-            for (u32 pass = 0; pass < kFlowPasses; ++pass)
-            {
-                for (sizet t = 0; t < n; ++t)
-                {
-                    const SurfaceTriangle& tri = surface[t];
-                    if (tri.Where == Region::Lid || glm::dot(authored[t], authored[t]) < 0.5f)
-                    {
-                        next[t] = authored[t];
-                        continue;
-                    }
-                    glm::vec3 mean(0.0f);
-                    for (const u32 other : neighbours[t])
-                    {
-                        if (surface[other].Where == Region::Lid)
-                        {
-                            continue;
-                        }
-                        mean += field[other] * surface[other].Area;
-                    }
-                    glm::vec3 d = (authored[t] * kFlowAnchor) +
-                                  ((glm::dot(mean, mean) > 1.0e-20f ? glm::normalize(mean) : field[t]) * (1.0f - kFlowAnchor));
-                    d -= tri.Normal * glm::dot(d, tri.Normal);
-                    next[t] = glm::dot(d, d) > 1.0e-8f ? glm::normalize(d) : authored[t];
-                }
-                std::swap(field, next);
-            }
-            return field;
-        }
-
-        // Grow the coat: roots area-weighted and deterministic on the bind-pose
-        // pelt, each carrying the body's own UV as its root UV so the colour map
-        // the body is textured with lands on the coat that grows out of it.
-        [[nodiscard]] GrownCoat GrowCoat(const std::vector<SurfaceTriangle>& surface, const DogFrame& frame,
-                                         const CoatRecipe& recipe)
-        {
-            const std::vector<glm::vec3> flow = SmoothFlowField(surface, frame);
-            GrownCoat out;
-            GroomBuilder builder;
-            std::string reason;
-            const f32 density = DensityScale();
-            std::vector<u16> groupIds(recipe.Layers.size(), 0);
-            for (sizet l = 0; l < recipe.Layers.size(); ++l)
-            {
-                const CoatLayer& layer = recipe.Layers[l];
-                const std::string name = std::string(RegionName(layer.Where)) + "_" +
-                                         (layer.Suffix != nullptr ? layer.Suffix : RoleSuffix(layer.Role));
-                EXPECT_TRUE(builder.AddGroup(name, groupIds[l], reason)) << reason;
-                GroomCoatGroupDesc desc;
-                desc.Role = static_cast<u8>(layer.Role);
-                desc.Tint = RegionDebugEnabled() ? RegionDebugTint(layer.Where) : layer.Tint;
-                desc.TipTint = RegionDebugEnabled() ? glm::vec3(1.0f) : layer.TipTint;
-                desc.Clump = layer.Clump;
-                desc.CurlRadius = layer.CurlRadius;
-                desc.CurlFrequency = layer.CurlFrequency;
-                desc.WaveAmplitude = layer.WaveAmplitude;
-                desc.WaveFrequency = layer.WaveFrequency;
-                desc.StiffnessScale = layer.StiffnessScale;
-                std::vector<std::string> reasons;
-                EXPECT_TRUE(builder.SetGroupCoat(groupIds[l], desc, reasons))
-                    << (reasons.empty() ? std::string{} : reasons.front());
-            }
-            for (const SurfaceTriangle& tri : surface)
-            {
-                out.AreaPerRegion[static_cast<sizet>(tri.Where)] += tri.Area;
-            }
-
-            std::vector<GrownStrand> grown;
-            for (sizet l = 0; l < recipe.Layers.size(); ++l)
-            {
-                const CoatLayer& layer = recipe.Layers[l];
-                u32 inLayer = 0;
-                grown.clear();
-                for (u32 t = 0; t < static_cast<u32>(surface.size()); ++t)
-                {
-                    const SurfaceTriangle& tri = surface[t];
-                    if (tri.Where != layer.Where)
-                    {
-                        continue;
-                    }
-                    const f32 expected = tri.Area * layer.StrandsPerM2 * density;
-                    u32 count = static_cast<u32>(expected);
-                    if (Hash01(t, recipe.Seed * 131u + static_cast<u32>(l)) < (expected - static_cast<f32>(count)))
-                    {
-                        ++count;
-                    }
-                    const glm::vec3 comb = flow[t];
-
-                    for (u32 s = 0; s < count; ++s)
-                    {
-                        const u32 salt = (t * 977u) + (s * 31u) + static_cast<u32>(l) * 7919u + recipe.Seed;
-                        f32 a = Hash01(salt, 1u);
-                        f32 b = Hash01(salt, 2u);
-                        if (a + b > 1.0f)
-                        {
-                            a = 1.0f - a;
-                            b = 1.0f - b;
-                        }
-                        const f32 c = 1.0f - a - b;
-                        const glm::vec3 root = (tri.P[0] * c) + (tri.P[1] * a) + (tri.P[2] * b);
-                        const glm::vec2 uv = (tri.UV[0] * c) + (tri.UV[1] * a) + (tri.UV[2] * b);
-                        const f32 length = layer.Length * RampAt(layer, frame, root, tri.Normal) *
-                                           (layer.EyeRamp ? EyeRampAt(frame, root) : 1.0f) *
-                                           (0.75f + (0.5f * Hash01(salt, 3u)));
-                        const glm::vec3 wander =
-                            glm::vec3(Hash01(salt, 4u) - 0.5f, Hash01(salt, 5u) - 0.5f, Hash01(salt, 6u) - 0.5f) *
-                            layer.Wander;
-                        glm::vec3 direction = glm::normalize((tri.Normal * layer.Lift) + comb + wander);
-
-                        GrownStrand g;
-                        g.Points.reserve(layer.Points);
-                        g.Widths.reserve(layer.Points);
-                        glm::vec3 p = root;
-                        const f32 step = length / static_cast<f32>(layer.Points - 1u);
-                        for (u32 k = 0; k < layer.Points; ++k)
-                        {
-                            const f32 along = static_cast<f32>(k) / static_cast<f32>(layer.Points - 1u);
-                            g.Points.push_back(p);
-                            g.Widths.push_back(layer.RootDiameter * (1.0f - ((1.0f - layer.TipWidth) * along)));
-                            direction = glm::normalize(direction + (comb * 0.2f) - (frame.Up * layer.Droop));
-                            // Never back into the skin: the strand keeps a little
-                            // height over its root's tangent plane.
-                            const f32 over = glm::dot(direction, tri.Normal);
-                            const f32 floorLift = 0.12f * (1.0f - along);
-                            if (over < floorLift)
-                            {
-                                direction = glm::normalize(direction + tri.Normal * (floorLift - over));
-                            }
-                            p += direction * step;
-                        }
-                        g.UV = uv;
-                        g.Guide = (inLayer % layer.GuideEvery) == 0u;
-                        grown.push_back(std::move(g));
-                        ++inLayer;
-                    }
-                }
-                ApplyLocks(grown, layer.LockRadius, layer.LockAmount, recipe.Seed * 977u + static_cast<u32>(l));
-                ApplyLocks(grown, layer.FineLockRadius, layer.FineLockAmount, recipe.Seed * 1543u + static_cast<u32>(l));
-                for (const GrownStrand& g : grown)
-                {
-                    GroomCurveInput input;
-                    input.Points = g.Points;
-                    input.Widths = g.Widths;
-                    input.RootUV = g.UV;
-                    input.GroupId = groupIds[l];
-                    input.IsGuide = g.Guide;
-                    if (!builder.AddCurve(input, reason))
-                    {
-                        ADD_FAILURE() << reason;
-                        return out;
-                    }
-                    out.Guides += input.IsGuide ? 1u : 0u;
-                    ++out.PerRegion[static_cast<sizet>(layer.Where)];
-                    ++out.Strands;
-                }
-            }
-            builder.SetName(recipe.Name);
-            out.Groom = builder.Build(reason);
-            EXPECT_TRUE(out.Groom) << reason;
-            if (out.Groom)
-            {
-                EXPECT_TRUE(GroomCooker::Canonicalize(*out.Groom, reason)) << reason;
-            }
+            out.Strands = out.Groom->GetCurveCount();
+            out.Guides = out.Groom->GetGuideCount();
+            out.Cards = out.Groom->GetLodLevels().empty() ? 0u : out.Groom->GetLodLevels().front().GetCurveCount();
             return out;
         }
 
@@ -1141,590 +309,6 @@ namespace OloEngine::Tests
             view.BoneCount = skeleton != nullptr ? static_cast<u32>(skeleton->m_FinalBoneMatrices.size()) : 0u;
             view.SkeletonNameHash = skeleton != nullptr ? HashGroomSkeletonNames(skeleton->m_BoneNames) : 0u;
             return view;
-        }
-
-        // THE COAT. A strand stands for a lock (widths carry coverage, as for the
-        // horses): a real golden retriever has thousands of hairs per cm^2.
-        // Short and dense on the face, muzzle and paws; feathering on the ears,
-        // chest, belly and the backs of the legs; a plume on the tail. Scruffy:
-        // clumped, waved, and curled in the undercoat.
-        [[nodiscard]] CoatRecipe DogCoatRecipe()
-        {
-            using R = Region;
-            using Role = GroomCoatRole;
-            const glm::vec3 under(0.95f); // a touch darker inside the coat
-            const glm::vec3 one(1.0f);
-            const glm::vec3 bleached(1.06f); // sun-lightened tips
-            CoatRecipe r;
-            r.Name = "DogCoat";
-            auto layer = [](R where, Role role, f32 perM2, f32 length, f32 diameter, u32 points)
-            {
-                CoatLayer l;
-                l.Where = where;
-                l.Role = role;
-                l.StrandsPerM2 = perM2;
-                l.Length = length;
-                l.RootDiameter = diameter;
-                l.Points = points;
-                return l;
-            };
-            std::vector<CoatLayer>& L = r.Layers;
-            // --- the face: dense and lifted, so it reads as fur and not as skin
-            //     at a close-up; brow tufts and scruffy cheeks carry the character ---
-            {
-                CoatLayer u = layer(R::Muzzle, Role::Undercoat, 420000.0f, 0.012f, 4.0e-4f, 5);
-                u.Lift = 0.45f;
-                u.Droop = 0.0f;
-                u.Clump = 0.1f;
-                u.StiffnessScale = 3.0f;
-                u.Tint = under;
-                u.GuideEvery = 40;
-                L.push_back(u);
-                CoatLayer g = layer(R::Muzzle, Role::GuardHair, 160000.0f, 0.018f, 5.0e-4f, 6);
-                g.Lift = 0.5f;
-                g.Droop = 0.0f;
-                g.Clump = 0.3f;
-                g.Wander = 0.12f;
-                g.StiffnessScale = 3.0f;
-                g.TipTint = bleached;
-                g.GuideEvery = 40;
-                L.push_back(g);
-            }
-            {
-                CoatLayer u = layer(R::Face, Role::Undercoat, 320000.0f, 0.016f, 4.5e-4f, 5);
-                u.Lift = 0.45f;
-                u.Droop = 0.0f;
-                u.Clump = 0.15f;
-                u.StiffnessScale = 3.0f;
-                u.Tint = under;
-                u.GuideEvery = 40;
-                L.push_back(u);
-                CoatLayer g = layer(R::Face, Role::GuardHair, 160000.0f, 0.028f, 5.5e-4f, 7);
-                g.Lift = 0.45f;
-                g.Droop = 0.01f;
-                g.Clump = 0.4f;
-                g.Wander = 0.12f;
-                g.StiffnessScale = 3.0f;
-                g.TipTint = bleached;
-                g.GuideEvery = 30;
-                L.push_back(g);
-            }
-            {
-                // Right up to the dark lid: at 6 mm and 38/cm^2 this ring left
-                // over half its skin showing, a bald halo round each eye. The
-                // face's lengths, shortened by the eye ramp like the face's
-                // own, so nothing steps where the two regions meet.
-                CoatLayer u = layer(R::EyeRim, Role::Undercoat, 600000.0f, 0.016f, 4.5e-4f, 5);
-                u.Lift = 0.25f;
-                u.Droop = 0.0f;
-                u.StiffnessScale = 3.0f;
-                u.Tint = under;
-                u.GuideEvery = 40;
-                L.push_back(u);
-                CoatLayer g = layer(R::EyeRim, Role::GuardHair, 170000.0f, 0.028f, 5.0e-4f, 6);
-                g.Lift = 0.20f;
-                g.Droop = 0.005f;
-                g.Wander = 0.12f;
-                g.StiffnessScale = 3.0f;
-                g.GuideEvery = 40;
-                L.push_back(g);
-            }
-            {
-                CoatLayer u = layer(R::Brow, Role::Undercoat, 300000.0f, 0.016f, 4.5e-4f, 5);
-                u.Lift = 0.5f;
-                u.Droop = 0.0f;
-                u.StiffnessScale = 3.0f;
-                u.Tint = under;
-                u.GuideEvery = 40;
-                L.push_back(u);
-                CoatLayer g = layer(R::Brow, Role::GuardHair, 220000.0f, 0.034f, 6.0e-4f, 8);
-                g.Lift = 0.75f;
-                g.Droop = 0.015f;
-                g.Clump = 0.5f;
-                g.Wander = 0.10f;
-                g.WaveAmplitude = 0.002f;
-                g.WaveFrequency = 25.0f;
-                g.StiffnessScale = 2.0f;
-                g.TipTint = bleached;
-                g.GuideEvery = 20;
-                L.push_back(g);
-            }
-            {
-                CoatLayer u = layer(R::Cheek, Role::Undercoat, 280000.0f, 0.020f, 4.5e-4f, 6);
-                u.Lift = 0.45f;
-                u.Droop = 0.02f;
-                u.Clump = 0.15f;
-                u.Tint = under;
-                u.GuideEvery = 30;
-                L.push_back(u);
-                CoatLayer g = layer(R::Cheek, Role::GuardHair, 150000.0f, 0.042f, 6.0e-4f, 9);
-                g.Lift = 0.5f;
-                g.Droop = 0.05f;
-                g.Clump = 0.55f;
-                g.Wander = 0.16f;
-                g.WaveAmplitude = 0.003f;
-                g.WaveFrequency = 20.0f;
-                g.StiffnessScale = 1.5f;
-                g.TipTint = bleached;
-                g.GuideEvery = 12;
-                L.push_back(g);
-            }
-            {
-                CoatLayer u = layer(R::Skull, Role::Undercoat, 220000.0f, 0.016f, 4.5e-4f, 5);
-                u.Lift = 0.3f;
-                u.Droop = 0.01f;
-                u.Tint = under;
-                u.GuideEvery = 30;
-                L.push_back(u);
-                CoatLayer g = layer(R::Skull, Role::GuardHair, 100000.0f, 0.028f, 5.5e-4f, 7);
-                g.Lift = 0.25f;
-                g.Droop = 0.02f;
-                g.Clump = 0.3f;
-                g.WaveAmplitude = 0.002f;
-                g.WaveFrequency = 30.0f;
-                g.TipTint = bleached;
-                g.GuideEvery = 16;
-                L.push_back(g);
-            }
-            {
-                // The lids wear the face's fur up to the dark rim; bald they
-                // read as a pair of goggles. The face's lengths, which the eye
-                // ramp takes to a fifth at the margin: shorter than that, the
-                // lid a blink brings out from under the skin was a bare round
-                // pad. Flat and loosely gathered, or it stands out in spikes.
-                CoatLayer u = layer(R::Lid, Role::Undercoat, 600000.0f, 0.016f, 4.0e-4f, 4);
-                u.Lift = 0.10f;
-                u.Droop = 0.0f;
-                u.StiffnessScale = 3.0f;
-                u.Tint = under;
-                u.GuideEvery = 40;
-                L.push_back(u);
-                CoatLayer g = layer(R::Lid, Role::GuardHair, 110000.0f, 0.028f, 4.0e-4f, 5);
-                g.Lift = 0.10f;
-                g.Droop = 0.0f;
-                g.StiffnessScale = 3.0f;
-                g.GuideEvery = 40;
-                L.push_back(g);
-            }
-            // --- the ears: long, wavy feathering outside, short inside ---
-            {
-                CoatLayer eu = layer(R::EarOuter, Role::Undercoat, 220000.0f, 0.014f, 4.0e-4f, 5);
-                eu.Lift = 0.3f;
-                eu.Droop = 0.02f;
-                eu.Tint = under;
-                eu.GuideEvery = 30;
-                L.push_back(eu);
-                CoatLayer o = layer(R::EarOuter, Role::LongHair, 180000.0f, 0.10f, 5.0e-4f, 14);
-                o.Lift = 0.18f;
-                o.Droop = 0.09f;
-                o.Clump = 0.55f;
-                o.WaveAmplitude = 0.005f;
-                o.WaveFrequency = 22.0f;
-                o.StiffnessScale = 0.35f;
-                o.TipTint = bleached;
-                o.LengthRamp = Ramp::DownTheEar;
-                o.RampBase = 0.5f;
-                o.GuideEvery = 8;
-                L.push_back(o);
-                CoatLayer i = layer(R::EarInner, Role::Undercoat, 150000.0f, 0.008f, 3.0e-4f, 4);
-                i.Lift = 0.2f;
-                i.Droop = 0.02f;
-                i.Tint = under;
-                i.GuideEvery = 30;
-                L.push_back(i);
-            }
-            // --- neck, chest ruff, body, belly ---
-            {
-                CoatLayer u = layer(R::Neck, Role::Undercoat, 100000.0f, 0.025f, 4.5e-4f, 8);
-                u.Lift = 0.45f;
-                u.Droop = 0.04f;
-                u.CurlRadius = 0.0010f;
-                u.CurlFrequency = 40.0f;
-                u.Tint = under;
-                u.GuideEvery = 20;
-                L.push_back(u);
-                CoatLayer g = layer(R::Neck, Role::GuardHair, 45000.0f, 0.050f, 6.0e-4f, 10);
-                g.Lift = 0.3f;
-                g.Droop = 0.08f;
-                g.Clump = 0.45f;
-                g.WaveAmplitude = 0.003f;
-                g.WaveFrequency = 18.0f;
-                g.TipTint = bleached;
-                g.GuideEvery = 12;
-                L.push_back(g);
-            }
-            {
-                CoatLayer c = layer(R::ChestRuff, Role::LongHair, 70000.0f, 0.10f, 6.0e-4f, 16);
-                c.Lift = 0.2f;
-                c.Droop = 0.12f;
-                c.Clump = 0.5f;
-                c.WaveAmplitude = 0.005f;
-                c.WaveFrequency = 15.0f;
-                c.StiffnessScale = 0.4f;
-                c.TipTint = bleached;
-                c.GuideEvery = 8;
-                L.push_back(c);
-            }
-            {
-                CoatLayer u = layer(R::Body, Role::Undercoat, 90000.0f, 0.022f, 4.5e-4f, 8);
-                u.Lift = 0.45f;
-                u.Droop = 0.04f;
-                u.CurlRadius = 0.0012f;
-                u.CurlFrequency = 40.0f;
-                u.StiffnessScale = 1.5f;
-                u.Tint = under;
-                u.GuideEvery = 20;
-                L.push_back(u);
-                CoatLayer g = layer(R::Body, Role::GuardHair, 40000.0f, 0.055f, 6.0e-4f, 10);
-                g.Lift = 0.3f;
-                g.Droop = 0.10f;
-                g.Clump = 0.45f;
-                g.WaveAmplitude = 0.0035f;
-                g.WaveFrequency = 18.0f;
-                g.StiffnessScale = 1.5f;
-                g.TipTint = bleached;
-                g.GuideEvery = 12;
-                L.push_back(g);
-            }
-            {
-                CoatLayer b = layer(R::Belly, Role::LongHair, 55000.0f, 0.08f, 5.5e-4f, 14);
-                b.Lift = 0.15f;
-                b.Droop = 0.15f;
-                b.Clump = 0.5f;
-                b.WaveAmplitude = 0.004f;
-                b.WaveFrequency = 16.0f;
-                b.StiffnessScale = 0.4f;
-                b.TipTint = bleached;
-                b.GuideEvery = 8;
-                L.push_back(b);
-            }
-            // --- legs and paws ---
-            {
-                CoatLayer u = layer(R::Leg, Role::Undercoat, 150000.0f, 0.016f, 4.0e-4f, 5);
-                u.Lift = 0.3f;
-                u.Droop = 0.02f;
-                u.Tint = under;
-                u.GuideEvery = 30;
-                L.push_back(u);
-                CoatLayer g = layer(R::Leg, Role::GuardHair, 60000.0f, 0.026f, 4.5e-4f, 6);
-                g.Lift = 0.25f;
-                g.Droop = 0.03f;
-                g.TipTint = bleached;
-                g.GuideEvery = 20;
-                L.push_back(g);
-            }
-            {
-                CoatLayer f = layer(R::LegBack, Role::LongHair, 60000.0f, 0.075f, 5.0e-4f, 12);
-                f.Lift = 0.2f;
-                f.Droop = 0.12f;
-                f.Clump = 0.5f;
-                f.WaveAmplitude = 0.004f;
-                f.WaveFrequency = 18.0f;
-                f.StiffnessScale = 0.4f;
-                f.TipTint = bleached;
-                f.GuideEvery = 8;
-                L.push_back(f);
-            }
-            {
-                CoatLayer u = layer(R::Paw, Role::Undercoat, 250000.0f, 0.012f, 3.5e-4f, 4);
-                u.Lift = 0.25f;
-                u.Droop = 0.02f;
-                u.StiffnessScale = 3.0f;
-                u.Tint = under;
-                u.GuideEvery = 40;
-                L.push_back(u);
-                CoatLayer g = layer(R::Paw, Role::GuardHair, 80000.0f, 0.020f, 4.0e-4f, 5);
-                g.Lift = 0.25f;
-                g.Droop = 0.03f;
-                g.Clump = 0.4f;
-                g.StiffnessScale = 3.0f;
-                g.GuideEvery = 30;
-                L.push_back(g);
-            }
-            // --- the tail: shorter on top, a long plume below ---
-            {
-                CoatLayer t = layer(R::TailTop, Role::GuardHair, 120000.0f, 0.07f, 5.5e-4f, 12);
-                t.Lift = 0.25f;
-                t.Droop = 0.08f;
-                t.Clump = 0.4f;
-                t.WaveAmplitude = 0.003f;
-                t.WaveFrequency = 20.0f;
-                t.TipTint = bleached;
-                t.GuideEvery = 10;
-                L.push_back(t);
-                // The plume is the tail's feathering, not a fringe hung off it:
-                // 22 strands/cm^2, grown from the sides at the top coat's length
-                // (RampAt), gathered into long flat locks with tapered tips. At
-                // 11 strands/cm^2, a 0.14 droop and no locks it hung away from
-                // the tail as a pale haze.
-                CoatLayer p = layer(R::TailPlume, Role::LongHair, 220000.0f, 0.175f, 6.0e-4f, 18);
-                p.Lift = 0.22f;
-                p.Droop = 0.11f;
-                p.Clump = 0.55f;
-                p.WaveAmplitude = 0.009f;
-                p.WaveFrequency = 12.0f;
-                // Stiff enough to keep its fan through a wag: at 0.35 it trailed
-                // the tail as a flat sheet and the tufts behind it thinned out.
-                p.StiffnessScale = 0.8f;
-                p.TipTint = bleached;
-                p.LengthRamp = Ramp::AlongTail;
-                p.RampBase = 0.5f;
-                p.TipWidth = 0.28f;
-                p.GuideEvery = 6;
-                L.push_back(p);
-            }
-            // Strays: sparse, long and wandering, over the coat's fuller regions.
-            // A groomed-looking silhouette is a smooth one; a scruffy dog's is
-            // broken by the odd hair standing out of it.
-            for (R where : { R::Skull, R::Neck, R::Body, R::ChestRuff, R::Cheek })
-            {
-                CoatLayer x = layer(where, Role::GuardHair, 3500.0f, 0.06f, 4.5e-4f, 10);
-                x.Lift = 0.8f;
-                x.Droop = 0.06f;
-                x.Wander = 0.9f;
-                x.WaveAmplitude = 0.004f;
-                x.WaveFrequency = 15.0f;
-                x.TipTint = bleached;
-                x.GuideEvery = 6;
-                x.Suffix = "strays";
-                L.push_back(x);
-            }
-            // Locks: the look is in these numbers. Guard and long hair gather into
-            // visible locks with finer tufts inside them; the undercoat into
-            // small tufts only. The engine's own clump (desc.Clump) aligns a
-            // cell's growth directions and reads as combed, so it is left off
-            // where the curves carry their locks.
-            for (CoatLayer& l : L)
-            {
-                if (l.Suffix != nullptr)
-                {
-                    continue; // strays stay loose
-                }
-                l.Clump = 0.0f;
-                const bool longHair = l.Role == Role::LongHair;
-                const bool guard = l.Role == Role::GuardHair;
-                if (l.Role == Role::Undercoat)
-                {
-                    l.FineLockRadius = 0.0028f;
-                    l.FineLockAmount = 0.35f;
-                    continue;
-                }
-                switch (l.Where)
-                {
-                    // Big, and gathered hard: at the sizes a real coat's locks
-                    // have, a lock is a stroke the eye reads, where a
-                    // centimetre-or-less lock at these densities read as felt.
-                    case R::Muzzle:
-                    case R::EyeRim:
-                    case R::Paw:
-                        l.LockRadius = 0.009f;
-                        l.LockAmount = 0.9f;
-                        break;
-                    // The lid's fur lies flat and fine; gathered into the
-                    // muzzle's tufts it stood up in spikes round the eye.
-                    case R::Lid:
-                        l.LockRadius = 0.004f;
-                        l.LockAmount = 0.4f;
-                        break;
-                    // The tail: smaller, softer locks. Gathered like the body's
-                    // round a thin, curved tail, they banded it into lit tufts
-                    // and dark gaps -- a raccoon's rings.
-                    case R::TailTop:
-                        l.LockRadius = 0.012f;
-                        l.LockAmount = 0.55f;
-                        l.FineLockRadius = 0.003f;
-                        l.FineLockAmount = 0.4f;
-                        break;
-                    // The plume: a retriever's flag, feathering gathered into long,
-                    // flat, tapered locks that hang and wave.
-                    case R::TailPlume:
-                        l.LockRadius = 0.028f;
-                        l.LockAmount = 0.88f;
-                        l.FineLockRadius = 0.003f;
-                        l.FineLockAmount = 0.45f;
-                        break;
-                    case R::Face:
-                    case R::Brow:
-                    case R::Skull:
-                        l.LockRadius = 0.014f;
-                        l.LockAmount = 0.9f;
-                        l.FineLockRadius = 0.0022f;
-                        l.FineLockAmount = 0.4f;
-                        break;
-                    default:
-                        l.LockRadius = longHair ? 0.0275f : (guard ? 0.02f : 0.015f);
-                        l.LockAmount = 0.9f;
-                        l.FineLockRadius = 0.0032f;
-                        l.FineLockAmount = 0.5f;
-                        break;
-                }
-            }
-            // OLO_DOG_TAIL="lockRadius,lockAmount,lengthScale,droop,waveAmplitude,tipWidth"
-            // re-shapes the plume for look-dev A/B (the locks are set above).
-            if (const char* tune = std::getenv("OLO_DOG_TAIL"); tune != nullptr)
-            {
-                for (CoatLayer& l : L)
-                {
-                    if (l.Where != R::TailPlume || l.Suffix != nullptr)
-                    {
-                        continue;
-                    }
-                    f32 lengthScale = 1.0f;
-                    (void)std::sscanf(tune, "%f,%f,%f,%f,%f,%f", &l.LockRadius, &l.LockAmount, &lengthScale, &l.Droop,
-                                      &l.WaveAmplitude, &l.TipWidth);
-                    l.Length *= lengthScale;
-                }
-            }
-            // OLO_DOG_LOCKS="radiusScale,amount,rootTint,tipTint" for look-dev A/B.
-            if (const char* tune = std::getenv("OLO_DOG_LOCKS"); tune != nullptr)
-            {
-                f32 radiusScale = 1.0f;
-                f32 amount = -1.0f;
-                f32 rootTint = -1.0f;
-                f32 tipTint = -1.0f;
-                (void)std::sscanf(tune, "%f,%f,%f,%f", &radiusScale, &amount, &rootTint, &tipTint);
-                for (CoatLayer& l : L)
-                {
-                    if (l.Suffix != nullptr)
-                    {
-                        continue;
-                    }
-                    if (l.Role != Role::Undercoat)
-                    {
-                        l.LockRadius *= radiusScale;
-                        if (amount >= 0.0f)
-                        {
-                            l.LockAmount = amount;
-                        }
-                        if (tipTint > 0.0f)
-                        {
-                            // TipTint is relative to Tint: undo the root darkening at the tip.
-                            l.TipTint = glm::vec3(tipTint / std::max(rootTint > 0.0f ? rootTint : 1.0f, 0.05f));
-                        }
-                    }
-                    if (rootTint > 0.0f)
-                    {
-                        l.Tint = glm::vec3(rootTint);
-                    }
-                }
-            }
-            // ROOT DARKENING: what a coat's locks are read BY. Every strand
-            // darkens toward its root -- the depth of the coat, which the
-            // self-shadow volume is too coarse to resolve inside one lock -- and
-            // guard and long hair lighten toward a sun-bleached tip, so a lock's
-            // tip catches the light and the gap between two locks goes dark.
-            constexpr f32 kRootTint = 0.6f;
-            constexpr f32 kTipTint = 1.15f;
-            for (CoatLayer& l : L)
-            {
-                if (l.Suffix != nullptr)
-                {
-                    continue;
-                }
-                l.Tint = glm::vec3(kRootTint);
-                if (l.Role != Role::Undercoat)
-                {
-                    l.TipTint = glm::vec3(kTipTint / kRootTint); // relative to Tint
-                }
-            }
-            // ...except where it reads as a line. Round the eye the dark roots
-            // drew a ring about the lid, and down the tail they banded the top
-            // coat. The plume's tips go unbleached: cream, bleached and lit from
-            // behind, they glowed white, a haze beside the tail.
-            for (CoatLayer& l : L)
-            {
-                if (l.Suffix != nullptr)
-                {
-                    continue;
-                }
-                f32 root = kRootTint;
-                f32 tip = kTipTint;
-                switch (l.Where)
-                {
-                    case R::Lid:
-                        // Lighter than the face's roots, but not by much: the
-                        // whole upper lid shows when the eye closes.
-                        root = 0.70f;
-                        tip = 1.08f;
-                        break;
-                    case R::EyeRim:
-                        root = 0.72f;
-                        break;
-                    case R::TailTop:
-                        root = 0.75f;
-                        break;
-                    case R::TailPlume:
-                        root = 0.75f;
-                        tip = 0.98f;
-                        break;
-                    default:
-                        continue;
-                }
-                l.Tint = glm::vec3(root);
-                if (l.Role != Role::Undercoat)
-                {
-                    l.TipTint = glm::vec3(tip / root);
-                }
-            }
-            // COVERAGE WHERE THE PELT SHOWED. Rendered over a magenta pelt, the
-            // skin showed through at the crown, the topline, the tail's top and
-            // the paws -- the regions whose fur lies along the view or is short
-            // -- and nowhere near as much on the face, which is already dense
-            // (doubling it there only darkened it: the coat's optical depth
-            // grows with the count). So the count rises only where the pelt
-            // showed, and those coats lie a little flatter over the skin.
-            for (CoatLayer& l : L)
-            {
-                if (l.Suffix != nullptr)
-                {
-                    continue;
-                }
-                f32 more = 1.0f;
-                switch (l.Where)
-                {
-                    case R::Skull:
-                    case R::Body:
-                        more = 1.8f;
-                        break;
-                    case R::Neck:
-                    case R::TailTop:
-                    case R::Paw:
-                        more = 1.5f;
-                        break;
-                    case R::Leg:
-                    case R::ChestRuff:
-                        more = 1.3f;
-                        break;
-                    default:
-                        break;
-                }
-                if (more > 1.0f)
-                {
-                    l.StrandsPerM2 *= more;
-                    l.Lift = std::max(0.12f, l.Lift - 0.1f);
-                }
-            }
-            // The eye ramp (EyeRampAt) on every head layer, the strays
-            // included: a long stray grown beside an eye is a hair in it.
-            for (CoatLayer& l : L)
-            {
-                switch (l.Where)
-                {
-                    case R::Muzzle:
-                    case R::Face:
-                    case R::EyeRim:
-                    case R::Brow:
-                    case R::Cheek:
-                    case R::Skull:
-                    case R::Lid:
-                        l.EyeRamp = true;
-                        break;
-                    default:
-                        break;
-                }
-            }
-            (void)one;
-            return r;
         }
 
         // The bare skins' profiles, patched over the imported materials by name.
@@ -1749,7 +333,7 @@ namespace OloEngine::Tests
             Entity Coat;
             std::array<Entity, 2> Eyes;
             Ref<AnimatedModel> Model;
-            GrownCoat Grown;
+            DogCoatAsset CoatAsset;
             AssetHandle GroomHandle = 0;
             AssetHandle BindingHandle = 0;
             AssetHandle ColorMap = 0;
@@ -2042,6 +626,7 @@ namespace OloEngine::Tests
             ASSERT_TRUE(fs::exists(DogPath())) << DogPath().string() << " (run build_dog.py)";
             d.Rig = ReadRig();
             ASSERT_TRUE(d.Rig.Valid) << "Dog.rig.json missing or malformed";
+            d.Frame.EyeMid = 0.5f * (d.Rig.Eyes[0].Centre + d.Rig.Eyes[1].Centre);
             {
                 // The scene opens without warnings (#1533 D1). A joint that
                 // weights nothing -- an eye bone, kept since the importer stopped
@@ -2053,6 +638,22 @@ namespace OloEngine::Tests
             }
             ASSERT_TRUE(d.Model);
             ASSERT_TRUE(d.Model->HasSkeleton());
+            // The nose leather's two maps (build_dog.py): the cobblestones, and the
+            // occlusion that keeps its nostrils dark. Assimp files a glTF
+            // occlusionTexture as a LIGHTMAP, which the skinned import dropped.
+            {
+                const Material* nose = nullptr;
+                for (const Material& m : d.Model->GetMaterials())
+                {
+                    if (m.GetName().ToStdString() == "DogNose")
+                    {
+                        nose = &m;
+                    }
+                }
+                ASSERT_NE(nose, nullptr) << "the dog has no DogNose material";
+                EXPECT_TRUE(nose->GetNormalMap()) << "the nose leather lost its cobblestone normal map";
+                EXPECT_TRUE(nose->GetAOMap()) << "the nose leather's occlusion map was dropped on import";
+            }
 
             d.Body = scene.CreateEntity("Dog");
             (void)ModelImporter::PopulateAnimatedEntity(d.Body, d.Model, DogPath().string(), true);
@@ -2140,6 +741,8 @@ namespace OloEngine::Tests
             // so the evidence renders the same mesh the export ships.
             const Ref<Model> eyeball = Ref<Model>::Create((DogDir() / "DogEyeball.gltf").string());
             ASSERT_TRUE(eyeball && eyeball->GetMeshCount() > 0 && eyeball->GetMesh(0)->GetMeshSource());
+            const Ref<Texture2D> irisColor = Texture2D::Create((DogDir() / "DogIrisColor.png").string(), true);
+            ASSERT_TRUE(irisColor && irisColor->IsLoaded()) << "build_dog.py writes DogIrisColor.png beside the eyeball";
             for (u32 e = 0; e < 2u; ++e)
             {
                 const EyeDesc& eye = d.Rig.Eyes[e];
@@ -2148,7 +751,11 @@ namespace OloEngine::Tests
                 eyeEntity.AddComponent<BoneAttachmentComponent>(eye.Bone);
                 eyeEntity.AddComponent<MeshComponent>(eyeball->GetMesh(0)->GetMeshSource());
                 auto& material = eyeEntity.AddComponent<MaterialComponent>().m_Material;
-                material.SetBaseColorFactor(glm::vec4(0.78f, 0.74f, 0.71f, 1.0f));
+                // The painted iris and the warm sclera around it (build_dog.py's
+                // iris_albedo). The eye's own material, not the glTF's: this
+                // component replaces every imported one.
+                material.SetBaseColorFactor(glm::vec4(1.0f));
+                material.SetAlbedoMap(irisColor);
                 material.SetMetallicFactor(0.0f);
                 material.SetRoughnessFactor(0.08f);
                 material.SetMaterialKind(MaterialKind::Skin);
@@ -2176,31 +783,42 @@ namespace OloEngine::Tests
                 d.Eyes[e] = eyeEntity;
             }
 
-            // The coat.
+            // The coat (build_dog_groom.py's; see LoadDogCoat).
             const Ref<MeshSource> surface = d.Body.GetComponent<MeshComponent>().m_MeshSource;
             ASSERT_TRUE(surface);
-            const std::vector<SurfaceTriangle> tris = CollectSurface(*surface, skeleton, d.Rig, d.Frame);
-            d.Grown = GrowCoat(tris, d.Frame, DogCoatRecipe());
-            ASSERT_TRUE(d.Grown.Groom);
+            d.CoatAsset = LoadDogCoat();
+            ASSERT_TRUE(d.CoatAsset.Groom);
+            d.CardCount = d.CoatAsset.Cards;
+            std::printf("[dog] coat: %u strands, %u guides, %u cards, %s;", d.CoatAsset.Strands, d.CoatAsset.Guides,
+                        d.CardCount, d.CoatAsset.FromAbc ? "cooked from Dog.abc" : "the shipped Dog.ologroom");
             {
-                GroomCardSettings cardSettings;
-                cardSettings.CellSize = 0.012f;
-                cardSettings.PointsPerCard = 6;
-                GroomLodLevel level;
-                GroomCardBuildStats cardStats;
-                std::string reason;
-                ASSERT_TRUE(GroomLodBuilder::BuildCardLevel(*d.Grown.Groom, cardSettings, level, reason, &cardStats))
-                    << reason;
-                d.CardCount = level.GetCurveCount();
-                ASSERT_TRUE(GroomLodBuilder::AttachLodLevels(*d.Grown.Groom, { std::move(level) }, reason)) << reason;
-            }
-            std::printf("[dog] coat: %u strands, %u guides, %u cards;", d.Grown.Strands, d.Grown.Guides, d.CardCount);
-            for (sizet r = 0; r < d.Grown.PerRegion.size(); ++r)
-            {
-                if (d.Grown.PerRegion[r] > 0)
+                // Its groups are build_dog_groom.py's objects, "/<region>_<layer>/<region>_<layer>".
+                std::map<std::string, u32> perRegion;
+                const auto& names = d.CoatAsset.Groom->GetGroupNames();
+                for (const u16 g : d.CoatAsset.Groom->GetCurveGroupIds())
                 {
-                    std::printf(" %s=%u (%.0f cm2)", RegionName(static_cast<Region>(r)), d.Grown.PerRegion[r],
-                                d.Grown.AreaPerRegion[r] * 1.0e4);
+                    const std::string& path = names[g];
+                    const std::string leaf = path.substr(path.find_last_of('/') + 1u);
+                    ++perRegion[leaf.substr(0, leaf.find('_'))];
+                }
+                for (const auto& [region, count] : perRegion)
+                {
+                    std::printf(" %s=%u", region.c_str(), count);
+                }
+                // The widest root per group, in millimetres: the recipe's diameters, or
+                // an exporter's width convention has crept in.
+                const GroomAsset& g = *d.CoatAsset.Groom;
+                std::map<std::string, f32> widest;
+                for (u32 c = 0; c < g.GetCurveCount(); ++c)
+                {
+                    const std::string& path = names[g.GetCurveGroupIds()[c]];
+                    f32& w = widest[path.substr(path.find_last_of('/') + 1u)];
+                    w = std::max(w, g.GetPointWidths()[g.GetCurveOffsets()[c]]);
+                }
+                std::printf("\n[dog] widest roots (mm):");
+                for (const auto& [group, w] : widest)
+                {
+                    std::printf(" %s=%.3f", group.c_str(), w * 1000.0f);
                 }
             }
             std::printf("\n");
@@ -2211,11 +829,11 @@ namespace OloEngine::Tests
             std::vector<u8> bytes;
             GroomBindingBuildStats stats;
             std::string reason;
-            ASSERT_TRUE(GroomBindingCooker::CookPair(*d.Grown.Groom, MakeSurfaceView(*surface, &skeleton), "Dog", bind,
+            ASSERT_TRUE(GroomBindingCooker::CookPair(*d.CoatAsset.Groom, MakeSurfaceView(*surface, &skeleton), "Dog", bind,
                                                      bytes, d.Binding, stats, reason))
                 << reason;
             ASSERT_TRUE(GroomBindingSerializer::DecodeFromBytes(bytes.data(), bytes.size(), d.Binding, reason)) << reason;
-            d.GroomHandle = AssetManager::AddMemoryOnlyAsset<GroomAsset>(d.Grown.Groom);
+            d.GroomHandle = AssetManager::AddMemoryOnlyAsset<GroomAsset>(d.CoatAsset.Groom);
             d.BindingHandle = AssetManager::AddMemoryOnlyAsset<GroomBindingAsset>(d.Binding);
 
             // sRGB, as the editor's importer decodes it (its name says colour,
@@ -2226,7 +844,7 @@ namespace OloEngine::Tests
             ASSERT_TRUE(colorMap);
             d.ColorMap = AssetManager::AddMemoryOnlyAsset<Texture2D>(colorMap);
 
-            d.Coat = MakeCoat("DogCoat", d.GroomHandle, d.BindingHandle, d.Body, d.ColorMap, d.Grown.Strands);
+            d.Coat = MakeCoat("DogCoat", d.GroomHandle, d.BindingHandle, d.Body, d.ColorMap, d.CoatAsset.Strands);
         }
 
         // Every groom component, as the shipping scene authors the coat.
@@ -2283,7 +901,7 @@ namespace OloEngine::Tests
             auto& coatComp = coat.AddComponent<GroomCoatComponent>();
             coatComp.m_ColorMap = RegionDebugEnabled() ? AssetHandle(0) : colorMap;
             coatComp.m_LengthJitter = 0.2f;
-            coatComp.m_ShadeJitter = 0.12f;
+            coatComp.m_ShadeJitter = 0.06f; // at 0.12 neighbouring strands flickered light and dark
             coatComp.m_ClumpCellSize = 0.014f;
 
             // The self-shadow volume, sized for a close-up hero subject. The
@@ -2482,6 +1100,17 @@ namespace OloEngine::Tests
             camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
             camera.SetPose(view.Eye, yaw, pitch);
             RunEditorFrames(camera, settleFrames);
+            ReadbackFrame(out);
+            ASSERT_FALSE(HasFatalFailure());
+            if (!name.empty())
+            {
+                WritePng(name, out, kWidth, kHeight);
+            }
+        }
+
+        // The last frame the graph composited, top row first.
+        static void ReadbackFrame(std::vector<u8>& out)
+        {
             auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite);
             if (!fb)
             {
@@ -2499,10 +1128,6 @@ namespace OloEngine::Tests
                 std::memcpy(tmp.data(), top, rowBytes);
                 std::memcpy(top, bot, rowBytes);
                 std::memcpy(bot, tmp.data(), rowBytes);
-            }
-            if (!name.empty())
-            {
-                WritePng(name, out, kWidth, kHeight);
             }
         }
 
@@ -2590,6 +1215,56 @@ namespace OloEngine::Tests
     // =========================================================================
     // F1: the real pipeline from every hero angle, the coat covering the dog.
     // =========================================================================
+    // =========================================================================
+    // #1533: the coat is Blender's. build_dog_groom.py grows it, AlembicGroomImporter
+    // cooks it, and the shipped Dog.ologroom says so in its provenance. Its coat
+    // description rode through the .abc as user properties, which Blender's
+    // exporter is the only way to carry: without them every group would arrive
+    // Unassigned, untinted and at stiffness 1, and the flag would be as stiff as
+    // the muzzle.
+    // =========================================================================
+    TEST_F(DogShowcaseEvidenceTest, TheCoatIsBlendersGroomWithItsCoatDescription)
+    {
+        const GroomAsset& groom = *m_Dog.CoatAsset.Groom;
+        EXPECT_EQ(groom.GetProvenance().SourceFormat, "AlembicCurves");
+        EXPECT_EQ(groom.GetProvenance().SourcePath, ".dog-groom/Dog.abc");
+#if defined(OLO_WITH_ALEMBIC)
+        EXPECT_EQ(groom.GetProvenance().ImporterVersion, AlembicGroomImporter::kImporterVersion)
+            << "the shipped coat was cooked by an older importer: re-export it (OLO_DOG_EXPORT=1)";
+#endif
+        EXPECT_GT(m_Dog.CoatAsset.Guides, 0u) << "the guides ride as the groom_guide user property";
+        EXPECT_GT(m_Dog.CoatAsset.Cards, 0u) << "the card tier is cooked with the coat";
+
+        bool sawPlume = false;
+        const auto& names = groom.GetGroupNames();
+        for (u16 g = 0; g < static_cast<u16>(names.size()); ++g)
+        {
+            SCOPED_TRACE(names[g]);
+            const GroomCoatGroupDesc coat = groom.GetGroupCoat(g);
+            EXPECT_NE(coat.Role, static_cast<u8>(GroomCoatRole::Unassigned));
+            if (!names[g].ends_with("_strays")) // the odd loose hair is not a lock with a dark root
+            {
+                EXPECT_LT(coat.Tint.x, 1.0f) << "every lock is darkened toward its roots";
+            }
+            if (names[g].ends_with("/tailplume_longhair"))
+            {
+                sawPlume = true;
+                EXPECT_EQ(coat.Role, static_cast<u8>(GroomCoatRole::LongHair));
+                EXPECT_NEAR(coat.StiffnessScale, 0.5f, 1e-5f) << "the flag trails the wag";
+                EXPECT_NEAR(coat.Tint.x, 0.75f, 1e-5f);
+            }
+        }
+        EXPECT_TRUE(sawPlume) << "no tail flag among the coat's groups";
+        // Root UVs came through: they key the colour map, and all-zero would
+        // paint the whole coat one texel's colour.
+        u32 zeroUVs = 0;
+        for (const glm::vec2& uv : groom.GetRootUVs())
+        {
+            zeroUVs += (uv.x == 0.0f && uv.y == 0.0f) ? 1u : 0u;
+        }
+        EXPECT_LT(zeroUVs, groom.GetCurveCount() / 1000u) << "the root UVs did not arrive";
+    }
+
     TEST_F(DogShowcaseEvidenceTest, TheDogIsFurredFromEveryHeroAngle)
     {
         SetPath(RenderingPath::Forward);
@@ -3080,7 +1755,7 @@ namespace OloEngine::Tests
         // The coat and its binding, cooked exactly as the fixture drew them.
         std::string reason;
         std::vector<u8> groomBytes, bindingBytes;
-        ASSERT_TRUE(GroomSerializer::EncodeToBytes(*m_Dog.Grown.Groom, groomBytes, reason)) << reason;
+        ASSERT_TRUE(GroomSerializer::EncodeToBytes(*m_Dog.CoatAsset.Groom, groomBytes, reason)) << reason;
         ASSERT_TRUE(GroomBindingSerializer::EncodeToBytes(*m_Dog.Binding, bindingBytes, reason)) << reason;
         const fs::path groomPath = groomDir / "Dog.ologroom";
         const fs::path bindingPath = groomDir / "Dog.ologroombinding";
@@ -3092,10 +1767,12 @@ namespace OloEngine::Tests
         const AssetHandle binding = assets->ImportAsset(bindingPath);
         const AssetHandle colorMap = assets->ImportAsset(assetDir / "Models" / "Dog" / "DogCoatColor.png");
         const AssetHandle eyeball = assets->ImportAsset(assetDir / "Models" / "Dog" / "DogEyeball.gltf");
+        const AssetHandle irisColor = assets->ImportAsset(assetDir / "Models" / "Dog" / "DogIrisColor.png");
         ASSERT_NE(static_cast<u64>(groom), 0u) << groomPath.string();
         ASSERT_NE(static_cast<u64>(binding), 0u) << bindingPath.string();
         ASSERT_NE(static_cast<u64>(colorMap), 0u);
         ASSERT_NE(static_cast<u64>(eyeball), 0u);
+        ASSERT_NE(static_cast<u64>(irisColor), 0u);
 
         auto& coat = m_Dog.Coat;
         coat.GetComponent<GroomComponent>().m_Groom = groom;
@@ -3133,6 +1810,8 @@ namespace OloEngine::Tests
             mc.m_MeshSource = eyeballMesh;
             mc.m_Primitive = MeshPrimitive::None;
             eye.GetComponent<MaterialComponent>().m_Material.SetSkinProfileHandle(eyeProfile);
+            // As a project asset, so the scene saves its project-relative path.
+            eye.GetComponent<MaterialComponent>().m_Material.SetAlbedoMap(AssetManager::GetAsset<Texture2D>(irisColor));
         }
         ASSERT_TRUE(assets->SerializeAssetRegistry());
 
@@ -3246,7 +1925,10 @@ namespace OloEngine::Tests
         // above, where the plume has to read as the tail's own feathering; and
         // the rear hero view, which looks toward the sun through the plume --
         // the one place a thin coat's forward scatter shows.
-        const std::array<View, 7> views{ {
+        // And three the way a viewer's editor camera finds the dog up close (Ole's
+        // review, #1533): the neck from its other side, near enough to count
+        // strands; the muzzle in profile, near; and the tail from above.
+        const std::array<View, 10> views{ {
             { "FaceFront", { 0.0f, 0.60f, 1.05f }, { 0.0f, 0.57f, 0.42f }, 30.0f },
             { "FaceThreeQuarter", { 0.42f, 0.63f, 0.95f }, { 0.0f, 0.57f, 0.40f }, 30.0f },
             { "FaceProfile", { 0.78f, 0.60f, 0.42f }, { 0.0f, 0.57f, 0.40f }, 30.0f },
@@ -3254,10 +1936,19 @@ namespace OloEngine::Tests
             { "EyeThreeQuarter", { 0.30f, 0.63f, 0.80f }, { 0.05f, 0.585f, 0.47f }, 24.0f },
             { "TailRear", { 0.55f, 0.75f, -1.05f }, { 0.0f, 0.50f, -0.36f }, 30.0f },
             { "TailBacklit", { -0.95f, 0.70f, -1.35f }, { 0.0f, 0.40f, -0.25f }, 35.0f },
+            { "NeckClose", { -0.30f, 0.40f, 0.22f }, { 0.0f, 0.46f, 0.24f }, 30.0f },
+            { "MuzzleClose", { -0.36f, 0.58f, 0.47f }, { 0.0f, 0.56f, 0.47f }, 24.0f },
+            { "TailTop", { 0.30f, 1.05f, -0.80f }, { 0.0f, 0.48f, -0.40f }, 30.0f },
         } };
+        // OLO_DOG_LOOKDEV_ONLY=wag skips the stills for the wag flip-book alone.
+        const bool wagOnly = [] { const char* v = std::getenv("OLO_DOG_LOOKDEV_ONLY"); return v != nullptr && std::string(v) == "wag"; }();
         std::vector<std::vector<u8>> frames;
         for (const View& view : views)
         {
+            if (wagOnly)
+            {
+                break;
+            }
             std::vector<u8> px;
             ColdHistory();
             Capture(std::string("DogLookDev_GL_Forward_") + view.Name, view, px, 32);
@@ -3277,8 +1968,44 @@ namespace OloEngine::Tests
             frames.push_back(std::move(px));
             frames.push_back(std::move(crop));
         }
-        WriteStrip("DogLookDev_GL_Forward", frames, 2u);
+        if (!frames.empty())
+        {
+            WriteStrip("DogLookDev_GL_Forward", frames, 2u);
+        }
         m_Dog.Body.GetComponent<AnimationStateComponent>().m_IsPlaying = true;
+
+        // OLO_DOG_LOOKDEV_WAG=1: the tail through one wag of the Pant clip (3
+        // wags in its 2 s, so 40 frames at 60 Hz), eight frames from above and
+        // eight from behind, played from the scene camera so the coat simulates.
+        // How the plume moves is what a still cannot show (Ole's review, #1533).
+        if (const char* wag = std::getenv("OLO_DOG_LOOKDEV_WAG"); wag != nullptr && wag[0] == '1')
+        {
+            Entity camera;
+            for (auto e : GetScene().GetAllEntitiesWith<CameraComponent>())
+            {
+                camera = Entity{ e, &GetScene() };
+            }
+            ASSERT_TRUE(camera);
+            for (const View& view : { views[9], views[5] })
+            {
+                auto& t = camera.GetComponent<TransformComponent>();
+                const glm::vec3 d = glm::normalize(view.Target - view.Eye);
+                t.Translation = view.Eye;
+                t.SetRotationEuler(glm::vec3(std::asin(std::clamp(d.y, -1.0f, 1.0f)), std::atan2(-d.x, -d.z), 0.0f));
+                camera.GetComponent<CameraComponent>().Camera.SetPerspective(glm::radians(view.Fov), 0.02f, 400.0f);
+                (void)PlayClip("Pant", true, 60);
+                std::vector<std::vector<u8>> wagFrames;
+                for (u32 k = 0; k < 8u; ++k)
+                {
+                    (void)Play(5u);
+                    std::vector<u8> px;
+                    ReadbackFrame(px);
+                    ASSERT_FALSE(HasFatalFailure());
+                    wagFrames.push_back(std::move(px));
+                }
+                WriteStrip(std::string("DogLookDev_GL_Forward_Wag") + view.Name, wagFrames, 4u);
+            }
+        }
     }
 
     // =========================================================================

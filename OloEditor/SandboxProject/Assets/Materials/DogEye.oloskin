@@ -16,8 +16,12 @@ SkinProfile:
   #     limbus's sin(theta) = 0.8 by EyeRadius / CorneaRadius; at the human 7.8 mm
   #     the product would pass the sin(phi) = 1 clamp in SkinCornealNormal. At 11.5
   #     it is 0.83, inside the range a clinical eye occupies.
-  #   * A DARK, WARM BROWN IRIS, as a golden retriever's is: a light one read as a
-  #     glass bead.
+  #   * THE IRIS IS PAINTED, not tinted: DogIrisColor.png, the globe's albedo on a planar
+  #     UV across the gaze (build_dog.py, iris_albedo), carries a golden retriever's
+  #     warm brown with its structure -- amber inside the collarette, chestnut fibres
+  #     across the ciliary zone, crypts, a dark outer rim. The model multiplies the
+  #     albedo by IrisColor inside the iris, so IrisColor is white. One flat colour
+  #     read as a glass bead at any brightness (Ole's review, #1533).
   #
   # The ocular maths uses RATIOS of these lengths (SkinOcularSurface.h), so the
   # 12 mm globe is a reference size; the scene scales the sphere to the dog's eye.
@@ -64,4 +68,4 @@ SkinProfile:
     LimbalRingStrength: 0.85
     PupilDarkening: 1
     IrisConcavity: 0.25
-    IrisColor: [0.20, 0.095, 0.035]
+    IrisColor: [1.0, 1.0, 1.0]
