@@ -20,6 +20,7 @@
 #include "OloEngine/Build/GameBuildSettings.h"
 #include "OloEngine/Build/LinuxDesktopLauncher.h"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstdlib>
@@ -27,6 +28,7 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <vector>
 
 using namespace OloEngine;
 
@@ -305,6 +307,107 @@ TEST(GameBuildPipelineTest, LooseRuntimeTexturesPreserveTheirProjectRelativePath
         EXPECT_TRUE(std::filesystem::exists(outputAssets / path)) << path;
     }
     EXPECT_FALSE(std::filesystem::exists(outputAssets / "Textures/Menu/readme.txt"));
+}
+
+// Issue #1392: a foliage layer opens its MeshPath from disk, not from the pack,
+// so a packaged game without the .obj (and the .mtl and textures it pulls in)
+// drew every authored plant as a flat card. The staging follows a scene's path
+// scalars and each staged file's own references, and nothing else.
+TEST(GameBuildPipelineTest, SceneReferencedContentStagesEveryFileAScenePathOpens)
+{
+    namespace fs = std::filesystem;
+    // The project sits one level down so its "../" reference lands in this
+    // case's own scratch directory.
+    const auto project = OloEngine::Tests::TempDir("scene-refs") / "project";
+    const auto engine = OloEngine::Tests::TempDir("scene-refs-engine");
+    const auto output = OloEngine::Tests::TempDir("scene-refs-output");
+    fs::create_directories(project / "Assets/Scenes");
+    fs::create_directories(project / "Assets/Models/Plant/Textures");
+    fs::create_directories(project / "Assets/Models/Rock");
+    fs::create_directories(project / "Assets/Models/Unused");
+    fs::create_directories(project / "Assets/Skies/Day");
+    fs::create_directories(engine / "assets/textures");
+
+    std::ofstream(project / "Assets/Models/Plant/plant.obj") << "# plant\nmtllib plant.mtl\nv 0 0 0\n";
+    std::ofstream(project / "Assets/Models/Plant/plant.mtl")
+        << "newmtl leaves\nmap_Kd Textures/leaves.png\nmap_Bump -bm 0.5 Textures/leaves_n.png\n";
+    WritePngSignature(project / "Assets/Models/Plant/Textures/leaves.png");
+    WritePngSignature(project / "Assets/Models/Plant/Textures/leaves_n.png");
+    std::ofstream(project / "Assets/Models/Plant/plant.obj.oloimport") << "FlipUV: false\n";
+    std::ofstream(project / "Assets/Models/Rock/rock.gltf")
+        << R"({"buffers":[{"uri":"rock%20data.bin"},{"uri":"data:application/octet-stream;base64,AAAA"}],)"
+        << R"("images":[{"uri":"rock_albedo.png"}]})";
+    std::ofstream(project / "Assets/Models/Rock/rock data.bin") << "bytes";
+    WritePngSignature(project / "Assets/Models/Rock/rock_albedo.png");
+    std::ofstream(project / "Assets/Models/Unused/unused.obj") << "v 0 0 0\n";
+    WritePngSignature(project / "Assets/Skies/Day/right.png");
+    WritePngSignature(project / "Assets/Skies/Day/left.png");
+    WritePngSignature(engine / "assets/textures/leaf_normal.png");
+
+    const fs::path scene = project / "Assets/Scenes/Meadow.olo";
+    std::ofstream(scene) << "Scene: Meadow.olo\n"
+                            "Entities:\n"
+                            "  - Entity: 1\n"
+                            "    TagComponent:\n"
+                            "      Tag: Assets is not a path\n"
+                            "    FoliageComponent:\n"
+                            "      Layers:\n"
+                            "        - Name: Grass\n"
+                            "          MeshPath: Assets/Models/Plant/plant.obj\n"
+                            "          NormalMapPath: assets/textures/leaf_normal.png\n"
+                            "          RoughnessMapPath: assets/textures/missing.png\n"
+                            "        - Name: Rocks\n"
+                            "          MeshPath: Assets/Models/Rock/rock.gltf\n"
+                            "          AlbedoPath: ../outside/texture.png\n"
+                            "          ThicknessMapPath: Assets/../../escape.png\n"
+                            "    EnvironmentMapComponent:\n"
+                            "      FilePath: Assets/Skies/Day\n";
+    fs::create_directories(project.parent_path() / "outside");
+    WritePngSignature(project.parent_path() / "outside/texture.png");
+
+    sizet copiedCount = 0;
+    std::vector<std::string> unresolved;
+    std::string errorMessage;
+    ASSERT_TRUE(StageSceneReferencedContent({ scene }, project, "Assets", engine, output, copiedCount, unresolved,
+                                            errorMessage))
+        << errorMessage;
+
+    const std::array staged{
+        fs::path{ "Assets/Models/Plant/plant.obj" },
+        fs::path{ "Assets/Models/Plant/plant.mtl" },
+        fs::path{ "Assets/Models/Plant/Textures/leaves.png" },
+        fs::path{ "Assets/Models/Plant/Textures/leaves_n.png" },
+        fs::path{ "Assets/Models/Plant/plant.obj.oloimport" },
+        fs::path{ "Assets/Models/Rock/rock.gltf" },
+        fs::path{ "Assets/Models/Rock/rock data.bin" },
+        fs::path{ "Assets/Models/Rock/rock_albedo.png" },
+        fs::path{ "Assets/Skies/Day/left.png" },
+        fs::path{ "Assets/Skies/Day/right.png" },
+        fs::path{ "assets/textures/leaf_normal.png" },
+    };
+    for (const auto& path : staged)
+    {
+        EXPECT_TRUE(fs::is_regular_file(output / path)) << path.generic_string() << " was not staged";
+    }
+    EXPECT_EQ(copiedCount, staged.size());
+    EXPECT_FALSE(fs::exists(output / "Assets/Models/Unused/unused.obj")) << "an unreferenced model was staged";
+    EXPECT_FALSE(fs::exists(output / "Assets/Scenes")) << "the scenes ship through CopySceneFiles, not here";
+
+    // Missing, outside the project, and escaping the asset root: each named,
+    // none staged, none a build failure.
+    ASSERT_EQ(unresolved.size(), 3u);
+    const auto mentions = [&](const std::string& needle)
+    {
+        return std::ranges::any_of(unresolved, [&](const std::string& line)
+                                   { return line.find(needle) != std::string::npos; });
+    };
+    EXPECT_TRUE(mentions("assets/textures/missing.png"));
+    EXPECT_TRUE(mentions("../outside/texture.png"));
+    EXPECT_TRUE(mentions("escape.png"));
+    for (const auto& line : unresolved)
+    {
+        EXPECT_EQ(line.rfind("Meadow.olo: ", 0), 0u) << "an unresolved reference must name its scene: " << line;
+    }
 }
 
 TEST(GameBuildPipelineTest, ShaderPackIsStagedWhenPresent)
