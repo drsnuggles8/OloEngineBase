@@ -1273,13 +1273,15 @@ namespace OloEngine::Tests::StateMachine
         // trace fresh-vs-sequence, the minimiser's commonest predicate) skips
         // the control captures entirely: twelve rendered frames and every
         // target read back twice, for nothing.
-        static constexpr std::array<std::string_view, 9> kOwnedPairs{
+        static constexpr std::array<std::string_view, 11> kOwnedPairs{
             "cached-vs-rebuild.gl",
             "cached-vs-rebuild.plan",
             "alias-vs-noalias.gl",
             "batch-vs-nobatch.gl",
             "serial-vs-parallel.gl",
             "binding-cache-cold.gl",
+            "schedule-reversed.gl",
+            "out-of-band-ledger",
             "harness.round-trip",
             "harness.capture",
             "resolve-failures",
@@ -1302,6 +1304,25 @@ namespace OloEngine::Tests::StateMachine
             fail("harness.capture", "the composite could not be read back");
         const std::vector<ControlFloor> controls = MeasureControls(first, control);
         RenderGraph* graph = ActiveGraph();
+
+        // --- the out-of-band ledger of the settled frame (#1331) ---------------
+        // Every out-of-band access the frame made is declared by the pass (or
+        // frame phase) that made it, and none ran on the wrong side of a write.
+        const auto checkLedger = [&](std::string_view when)
+        {
+            if (!graph)
+                return;
+            const auto hazards = graph->ValidateOutOfBandLedger();
+            Coverage::RecordComparison("out-of-band-ledger");
+            if (hazards.IsEmpty())
+                return;
+            std::string detail = std::to_string(hazards.Num()) + " out-of-band hazard(s) " + std::string(when) + ":\n";
+            for (const auto& hazard : hazards)
+                detail += "    " + hazard.Message.ToStdString() + "\n";
+            fail("out-of-band-ledger", std::move(detail));
+        };
+        if (wants("out-of-band-ledger"))
+            checkLedger("in the settled frame");
 
         // --- cached vs forced rebuild ----------------------------------------
         if (wants("cached-vs-rebuild.gl") || wants("cached-vs-rebuild.plan"))
@@ -1407,6 +1428,32 @@ namespace OloEngine::Tests::StateMachine
                                                   " mesh(es) still went through the worker branch: the lever did not act");
             else
                 judge("serial-vs-parallel.gl", control, serial, controls);
+        }
+
+        // --- canonical vs reversed tie-break (#1331) ---------------------------
+        // Every pass pair no edge orders runs the other way round. A frame that
+        // changes depended on registration order: an undeclared edge, a hidden
+        // CPU publication, or GL state one pass leaves for another.
+        if ((wants("schedule-reversed.gl") || wants("out-of-band-ledger")) && graph)
+        {
+            const std::vector<FString> canonicalOrder(graph->GetExecutionOrder().begin(), graph->GetExecutionOrder().end());
+            FrameCapture reversed;
+            std::vector<FString> reversedOrder;
+            {
+                const ScopedLever reverse(&Levers::RenderGraphReverseTieBreak, &Levers::SetRenderGraphReverseTieBreak, true);
+                reversed = CaptureFrame();
+                reversedOrder.assign(graph->GetExecutionOrder().begin(), graph->GetExecutionOrder().end());
+                if (wants("out-of-band-ledger"))
+                    checkLedger("with the tie-break reversed");
+            }
+            RenderFrames(1);
+            if (wants("schedule-reversed.gl"))
+            {
+                if (reversedOrder == canonicalOrder)
+                    Coverage::RecordVacuous("schedule-reversed.gl");
+                else
+                    judge("schedule-reversed.gl", control, reversed, controls);
+            }
         }
 
         // --- warm vs cold binding caches ---------------------------------------

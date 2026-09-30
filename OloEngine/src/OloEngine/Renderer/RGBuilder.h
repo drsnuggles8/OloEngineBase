@@ -4,6 +4,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Renderer/RenderGraphOutOfBand.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 
@@ -383,6 +384,32 @@ namespace OloEngine
             u32 colorAttachmentIndex = 0);
 
         // -------------------------------------------------------------------
+        // Out-of-band declarations (issue #1331, RenderGraphOutOfBand.h)
+        // -------------------------------------------------------------------
+
+        // Declare an access to a registered out-of-band boundary: GPU state the
+        // graph cannot back (a TLAS, a retained pyramid). The graph orders
+        // every writer before a CurrentFrame reader and every PreviousFrame
+        // reader before a writer, independent of registration order unless a
+        // resource edge contradicts it (then ValidateCompiledResourceHazards
+        // reports OutOfBandOrdering), and keeps a CurrentFrame reader's
+        // writers reachable. Nothing reaches the
+        // barrier or transient planners: the owner records its own barriers.
+        void ReadOutOfBand(std::string_view boundary, RGOutOfBandEpoch epoch = RGOutOfBandEpoch::CurrentFrame);
+        void WriteOutOfBand(std::string_view boundary);
+
+        // The same contract for CPU data one pass hands to another. Separate
+        // entry points so a reader can tell a GPU hazard from a binding
+        // hand-off in the declaration and in the exposed schedule.
+        void Publish(std::string_view publication);
+        void ConsumePublication(std::string_view publication);
+
+        [[nodiscard]] const TArray64<RGOutOfBandDeclaration>& GetDeclaredOutOfBandAccesses() const noexcept
+        {
+            return m_DeclaredOutOfBandAccesses;
+        }
+
+        // -------------------------------------------------------------------
         // Blackboard access
         // -------------------------------------------------------------------
 
@@ -467,6 +494,7 @@ namespace OloEngine
         void RecordRead(std::string_view resourceName, RGReadUsage usage, const RGSubresourceRange& range);
         void RecordWrite(std::string_view resourceName, RGWriteUsage usage, const RGSubresourceRange& range);
         void RecordLifetimeExtension(std::string_view resourceName);
+        void RecordOutOfBand(std::string_view boundary, RGOutOfBandKind kind, RGOutOfBandAccess access);
 
         RenderGraph& m_Graph;
         const FrameBlackboard& m_Blackboard;
@@ -477,6 +505,7 @@ namespace OloEngine
         TArray64<RGFeedbackDeclaration> m_DeclaredFeedbacks;
         TArray64<FString> m_DeclaredPassDependencies;
         TArray64<FString> m_DeclaredLifetimeExtensions;
+        TArray64<RGOutOfBandDeclaration> m_DeclaredOutOfBandAccesses;
         RGTransparentStringMap<u32> m_NextVersionOrdinalByResource;
     };
 

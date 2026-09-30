@@ -3414,7 +3414,7 @@ TEST(RenderGraph, DumpToJsonWritesCompiledGraphDetails)
     ASSERT_TRUE(in.is_open());
 
     std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    EXPECT_NE(json.find("\"schemaVersion\": 17"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 18"), std::string::npos);
     EXPECT_NE(json.find("\"timingVersion\": 4"), std::string::npos);
     EXPECT_NE(json.find("\"hasTimings\": true"), std::string::npos);
     EXPECT_NE(json.find("\"frameSummary\""), std::string::npos);
@@ -3431,6 +3431,7 @@ TEST(RenderGraph, DumpToJsonWritesCompiledGraphDetails)
     // #530: the load-bearing cache key must be observable in the dump.
     EXPECT_NE(json.find("\"topologyGeneration\":"), std::string::npos)
         << "frameSummary must expose topologyGeneration";
+    EXPECT_NE(json.find("\"outOfBandSchedule\""), std::string::npos) << "the #1331 schedule must ride in the dump";
     EXPECT_NE(json.find("\"passFlags\""), std::string::npos);
     EXPECT_NE(json.find("\"workType\": \"Graphics\""), std::string::npos);
     EXPECT_NE(json.find("\"asyncComputeCandidate\": false"), std::string::npos);
@@ -6910,7 +6911,7 @@ TEST(RenderGraphTypedHandles, ExternallyBackedTransientFramebufferViewsResolveBa
     ASSERT_TRUE(in.is_open());
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 17"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 18"), std::string::npos);
     EXPECT_NE(json.find("\"externallyBackedTransientRootCount\": 1"), std::string::npos);
     EXPECT_NE(json.find("\"externallyBackedResourceCount\": 3"), std::string::npos);
     EXPECT_NE(json.find("\"hasExternalBacking\": true"), std::string::npos);
@@ -7036,7 +7037,7 @@ TEST(RenderGraphTypedHandles, ExternallyBackedTransientTextureViewsResolveBackin
     ASSERT_TRUE(in.is_open());
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 17"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 18"), std::string::npos);
     EXPECT_NE(json.find("\"externallyBackedTransientRootCount\": 2"), std::string::npos);
     EXPECT_NE(json.find("\"externallyBackedResourceCount\": 4"), std::string::npos);
     EXPECT_NE(json.find("\"resource\": \"ExternallyBackedShadowCSMCascade2\", \"isImported\": false, \"isExtracted\": false, \"isHistory\": false, \"isTransient\": true, \"hasExternalBacking\": true"), std::string::npos);
@@ -8846,7 +8847,7 @@ TEST(RenderGraphDumpJson, PassFlagsAreSurfacedInDump)
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
     // Schema version bump
-    EXPECT_NE(json.find("\"schemaVersion\": 17"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 18"), std::string::npos);
 
     // frameSummary compute counts
     EXPECT_NE(json.find("\"computePassCount\": 1"), std::string::npos);
@@ -9546,7 +9547,7 @@ TEST(RenderGraphSubmissionPlan, DumpToJsonIncludesSubmissionPlan)
     ASSERT_TRUE(in.is_open());
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 17"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 18"), std::string::npos);
     EXPECT_NE(json.find("\"submissionCommandCount\":"), std::string::npos);
     EXPECT_NE(json.find("\"submissionPlan\""), std::string::npos);
     EXPECT_NE(json.find("\"kind\": \"BatchBegin\""), std::string::npos);
@@ -10108,7 +10109,7 @@ TEST(RenderGraphTemporalHistoryContracts, DumpToJsonIncludesHistoryResourcesAndC
     ASSERT_TRUE(in.is_open());
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 17"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 18"), std::string::npos);
     EXPECT_NE(json.find("\"historyResourceCount\": 1"), std::string::npos);
     EXPECT_NE(json.find("\"temporalHistoryContractCount\": 1"), std::string::npos);
     EXPECT_NE(json.find("\"name\": \"TAAHistory\", \"kind\": \"Texture2D\", \"imported\": true, \"isHistory\": true"), std::string::npos);
@@ -10410,7 +10411,7 @@ TEST(RenderGraphAsyncBatchResources, DumpToJsonIncludesBatchResourceDeps)
     ASSERT_TRUE(in.is_open());
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 17"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 18"), std::string::npos);
     EXPECT_NE(json.find("\"asyncBatchCount\": 1"), std::string::npos);
     EXPECT_NE(json.find("\"batchInputResourceCount\": 1"), std::string::npos);
     EXPECT_NE(json.find("\"batchOutputResourceCount\": 1"), std::string::npos);
@@ -10847,7 +10848,7 @@ TEST(RenderGraphResourceTransitions, DumpToJsonIncludesResourceTransitions)
     ASSERT_TRUE(in.is_open());
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 17"), std::string::npos)
+    EXPECT_NE(json.find("\"schemaVersion\": 18"), std::string::npos)
         << "Schema must be version 16 after external-backing dump visibility updates";
     EXPECT_NE(json.find("\"resourceTransitionCount\": 1"), std::string::npos)
         << "frameSummary must expose resourceTransitionCount";
@@ -11052,7 +11053,7 @@ TEST(RenderGraphResourceLifetimes, DumpToJsonIncludesResourceLifetimes)
     ASSERT_TRUE(in.is_open());
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 17"), std::string::npos)
+    EXPECT_NE(json.find("\"schemaVersion\": 18"), std::string::npos)
         << "Schema must be version 16 after external-backing dump visibility updates";
     EXPECT_NE(json.find("\"resourceLifetimeCount\""), std::string::npos)
         << "frameSummary must expose resourceLifetimeCount";
@@ -11426,7 +11427,7 @@ TEST(RenderGraphSubresourceRange, DumpToJsonIncludesRange)
     ASSERT_TRUE(in.is_open()) << "DumpToJson must create the output file";
     std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 17"), std::string::npos)
+    EXPECT_NE(json.find("\"schemaVersion\": 18"), std::string::npos)
         << "Schema must be version 16 after external-backing dump visibility updates";
     EXPECT_NE(json.find("\"range\""), std::string::npos)
         << "At least one range object must be present in the JSON output";
@@ -11599,7 +11600,7 @@ TEST(RenderGraphCrossLaneSync, DumpToJsonIncludesCrossLaneSyncFields)
     ASSERT_TRUE(in.is_open()) << "DumpToJson must create the output file";
     std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 17"), std::string::npos)
+    EXPECT_NE(json.find("\"schemaVersion\": 18"), std::string::npos)
         << "Schema must be version 16 after external-backing dump visibility updates";
     EXPECT_NE(json.find("\"crossLaneSyncCount\""), std::string::npos)
         << "frameSummary must include crossLaneSyncCount";
@@ -11685,11 +11686,13 @@ TEST(RenderGraphQueueAwareScheduler, LegalOverlapDisjointResourcesNoHazard)
         << "Disjoint-resource compute+graphics must report no resource hazards";
 }
 
-TEST(RenderGraphQueueAwareScheduler, ForbiddenOverlapComputeWritesAfterGraphicsRead)
+TEST(RenderGraphQueueAwareScheduler, ComputeWriteAfterGraphicsReadIsOrderedAndFenced)
 {
     // A compute pass writes a resource that a prior graphics pass has already
-    // read, with no execution dependency connecting the read to the write.
-    // ValidateResourceHazards must detect a WriteAfterRead hazard.
+    // read, with no hand-written dependency between them. Before #1331 that
+    // was a WriteAfterRead hazard only the validator could see; the graph now
+    // derives the edge, so the write waits for the read and the queue
+    // boundary between them carries a fence.
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
@@ -11719,22 +11722,27 @@ TEST(RenderGraphQueueAwareScheduler, ForbiddenOverlapComputeWritesAfterGraphicsR
             builder.Write(depth, RGWriteUsage::ShaderStorage);
         });
 
-    // Intentionally NO execution dependency from GfxReader to ComputeWriter —
-    // this models a programmer error that the hazard validator must catch.
+    // Intentionally NO hand-written dependency from GfxReader to ComputeWriter.
     graph.SetFinalPass("ComputeWriter");
     graph.BuildFrameGraph();
 
     const auto hazards = graph.ValidateResourceHazards();
-    const bool hasWriteAfterRead = std::ranges::any_of(
-        hazards,
-        [](const RenderGraph::Hazard& h)
-        {
-            return h.Kind == RenderGraph::HazardKind::WriteAfterRead &&
-                   h.Resource == "SceneDepth";
-        });
-    EXPECT_TRUE(hasWriteAfterRead)
-        << "WriteAfterRead hazard must be detected when compute overwrites a "
-           "resource that a prior graphics pass reads without an ordering edge";
+    EXPECT_TRUE(hazards.IsEmpty()) << "the derived write-after-read edge must order the pair";
+
+    const auto order = graph.GetExecutionOrder();
+    ASSERT_EQ(order.size(), 2u);
+    EXPECT_EQ(order[0], "GfxReader");
+    EXPECT_EQ(order[1], "ComputeWriter");
+
+    // The read and the write sit on different queues: the plan must fence them.
+    bool fenced = false;
+    for (const auto& command : graph.GetSubmissionPlan())
+    {
+        if (command.CommandKind == RenderGraph::SubmissionCommand::Kind::FenceWait ||
+            command.CommandKind == RenderGraph::SubmissionCommand::Kind::FenceSignal)
+            fenced = true;
+    }
+    EXPECT_TRUE(fenced) << "no fence between the graphics read and the compute write";
 }
 
 TEST(RenderGraphQueueAwareScheduler, OrderingPreservedAfterComputeHoist)
@@ -12004,7 +12012,7 @@ TEST(RenderGraphResolveFailureTelemetry, DumpToJsonUsesResolveFailureFieldNames)
     buffer << in.rdbuf();
     const std::string json = buffer.str();
 
-    EXPECT_NE(json.find("\"schemaVersion\": 17"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 18"), std::string::npos);
     EXPECT_NE(json.find("\"resolveFailureCount\": 2"), std::string::npos);
     EXPECT_NE(json.find("\"resolveFailures\": ["), std::string::npos);
     EXPECT_EQ(json.find("\"fallbackActivationCount\""), std::string::npos);
@@ -13291,4 +13299,79 @@ TEST(RenderGraphStringInterner, OwnedNamesSurviveGrowthAndClear)
     EXPECT_EQ(names.Find("short"), 0u);
     EXPECT_EQ(snapshot, "short");
     EXPECT_TRUE(names.NameOf(original).IsEmpty());
+}
+
+// =============================================================================
+// Reachability roots and the single fixpoint (found while working on #1331).
+// =============================================================================
+namespace
+{
+    [[nodiscard]] bool IsCulledPass(const RenderGraph& graph, std::string_view pass)
+    {
+        const auto culled = graph.GetCulledPasses();
+        return std::ranges::any_of(culled, [pass](const FString& name)
+                                   { return name.ToView() == pass; });
+    }
+
+    [[nodiscard]] i64 ExecutionPositionOf(const RenderGraph& graph, std::string_view pass)
+    {
+        const auto order = graph.GetExecutionOrder();
+        const auto it = std::ranges::find_if(order, [pass](const FString& name)
+                                             { return name.ToView() == pass; });
+        return it == order.end() ? -1 : static_cast<i64>(it - order.begin());
+    }
+
+    [[nodiscard]] RGResourceDesc ReachabilityDesc(std::string_view name)
+    {
+        return RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, name);
+    }
+} // namespace
+
+// A side-effecting pass is kept even when nothing reaches it, and it used to be
+// folded back in AFTER the reachability scan, so what it reads was never
+// walked: a kept readback whose producer was culled reads a stale resource.
+TEST(RenderGraphReachability, SideEffectingPassKeepsWhatItReadsAlive)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+    AddSetupNode(graph, "StatsProducer", [](RGBuilder& builder)
+                 { builder.Write(builder.ImportTexture("Stats", 31u, ReachabilityDesc("Stats")), RGWriteUsage::RenderTarget); });
+    AddSetupNode(graph, "Readback", RenderGraphNodeFlags::Graphics | RenderGraphNodeFlags::Readback, [](RGBuilder& builder)
+                 { [[maybe_unused]] const auto read = builder.Read(builder.ImportTexture("Stats", 31u, ReachabilityDesc("Stats")), RGReadUsage::TransferSource); });
+    AddSetupNode(graph, "Final", [](RGBuilder& builder)
+                 { builder.Write(builder.ImportTexture("FinalTarget", 7u, ReachabilityDesc("FinalTarget")), RGWriteUsage::RenderTarget); });
+    graph.SetFinalPass("Final");
+    graph.BuildFrameGraph();
+
+    EXPECT_FALSE(IsCulledPass(graph, "Readback"));
+    EXPECT_FALSE(IsCulledPass(graph, "StatsProducer")) << "the readback's producer was culled: it would read a stale resource";
+    EXPECT_LT(ExecutionPositionOf(graph, "StatsProducer"), ExecutionPositionOf(graph, "Readback"));
+}
+
+// A reachable pass never runs while a producer it declared is culled. W is
+// registered after Final and overwrites what Final reads, so only the
+// read -> writer expansion reaches it. The old two-stage scan walked edges
+// first and reads second: it kept W and culled D, the producer W
+// DependsOnPass. W and D now live or die together -- and since W is ordered
+// after Final (write after read) and produces nothing Final consumes, both are
+// culled.
+TEST(RenderGraphReachability, AReachablePassNeverLosesItsDeclaredProducer)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+    AddSetupNode(graph, "D", [](RGBuilder&) {});
+    AddSetupNode(graph, "Final", [](RGBuilder& builder)
+                 {
+                     [[maybe_unused]] const auto read = builder.Read(builder.ImportTexture("X", 41u, ReachabilityDesc("X")), RGReadUsage::ShaderSample);
+                     builder.Write(builder.ImportTexture("FinalTarget", 7u, ReachabilityDesc("FinalTarget")), RGWriteUsage::RenderTarget); });
+    AddSetupNode(graph, "W", [](RGBuilder& builder)
+                 {
+                     builder.DependsOnPass("D");
+                     builder.Write(builder.ImportTexture("X", 41u, ReachabilityDesc("X")), RGWriteUsage::RenderTarget); });
+    graph.SetFinalPass("Final");
+    graph.BuildFrameGraph();
+
+    EXPECT_FALSE(!IsCulledPass(graph, "W") && IsCulledPass(graph, "D"))
+        << "W runs while D, the producer it depends on, was culled";
+    EXPECT_TRUE(IsCulledPass(graph, "W")) << "W overwrites what Final read after it; nothing consumes it";
 }

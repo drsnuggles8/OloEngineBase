@@ -364,7 +364,7 @@ namespace OloEngine::RayTracing
         if (!scene.IsAvailable())
             return refuse("The ray-tracing scene is not available on this device.");
 
-        const u64 tlasAddress = scene.GetTlasDeviceAddress();
+        const u64 tlasAddress = scene.GetTlasDeviceAddressForTrace();
         if (tlasAddress == 0u)
         {
             return refuse("No TLAS has been built yet. A scene with no traceable geometry is exactly this — "

@@ -45,6 +45,10 @@ OLO_LEVER_TOGGLE(BlackSquareHunt, "OLO_RG_BLACKSQUARE_HUNT",
 OLO_LEVER_EXACT(RenderGraphSequential, "OLO_RENDERGRAPH_SEQUENTIAL",
                 "Keep render-graph work in one submission and suppress split-barrier fence scheduling. "
                 "The normal per-pass barriers remain, making this the A/B for a queue-scheduling race.")
+OLO_LEVER_EXACT(RenderGraphReverseTieBreak, "OLO_RENDERGRAPH_REVERSE_TIE_BREAK",
+                "Order passes that no edge orders in REVERSE registration order (#1331). Still a valid topological "
+                "order, so a frame that changes under it depended on an undeclared edge: registration order, a "
+                "hidden CPU publication or an unnamed out-of-band resource. The A/B for hidden scheduling edges.")
 OLO_LEVER_EXACT(DisableGBufferFlagsResolve, "OLO_GBUFFER_NO_FLAGS_RESOLVE",
                 "Skip the G-Buffer flags-lane resolve (issue #996), leaving RT2's alpha as the average "
                 "blit left it. That is the pre-#996 behaviour, so this is the A/B for the black fringe on "
@@ -78,6 +82,11 @@ OLO_LEVER_EXACT(FaultSkipDispatchBindingReset, "OLO_FAULT_SKIP_DISPATCH_BINDING_
                 "render-state caches across the frame-start ResetState(), so a binding changed behind the "
                 "dispatcher's back since the last frame is skipped as already bound. Re-creates a missing binding "
                 "reset.")
+OLO_LEVER_TEXT(FaultOmitOutOfBandDeclaration, "OLO_FAULT_OMIT_OUT_OF_BAND_DECLARATION",
+               "FAULT (#1331 negative control): drop matching out-of-band declarations in RGBuilder while the access "
+               "they declare still runs. \"Boundary\" drops every pass's declaration of it, \"Pass/Boundary\" one "
+               "pass's. The out-of-band ledger must report the undeclared access. Read once; tests override it "
+               "through RGOutOfBand::SetOmittedDeclarationFault.")
 OLO_LEVER_EXACT(FaultShortenTransientLifetimes, "OLO_FAULT_SHORTEN_TRANSIENT_LIFETIMES",
                 "FAULT (#1349 negative control): end every transient's planned lifetime one pass before its last "
                 "access, so the alias-slot assigner can hand its backing to another transient while it is still "

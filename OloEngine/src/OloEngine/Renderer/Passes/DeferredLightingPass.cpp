@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RenderGraphOutOfBand.h"
 #include "OloEngine/Renderer/Passes/DeferredLightingPass.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 
@@ -197,6 +198,12 @@ namespace OloEngine
 
         if (!m_GBuffer)
             return;
+
+        // CPU / engine-slot state it binds rather than reads through the
+        // graph (#1331): the Forward+ cluster lists ScenePass culled, and the
+        // DDGI probe volume.
+        builder.ConsumePublication(RGOutOfBandBoundaries::ForwardPlusLightClusters);
+        builder.ReadOutOfBand(RGOutOfBandBoundaries::DDGIProbeVolume);
 
         m_UseMSAAShading = m_PerSampleLighting && m_GBuffer->GetSampleCount() > 1u && static_cast<bool>(m_ShaderMSAA);
         if (m_UseMSAAShading)

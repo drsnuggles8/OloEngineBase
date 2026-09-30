@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RenderGraphOutOfBand.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingScene.h"
 
 #include "OloEngine/Math/Math.h"
@@ -360,6 +361,10 @@ namespace OloEngine::RayTracing
         }
 
         ++m_FrameNumber;
+        // Out-of-band ledger (#1331): the BLAS builds read the deformed
+        // buffers, and the build / refit below rewrites the TLAS.
+        RGOutOfBand::Note(RGOutOfBandBoundaries::DeformedVertices, RGOutOfBandAccess::Read);
+        RGOutOfBand::Note(RGOutOfBandBoundaries::SceneTLAS, RGOutOfBandAccess::Write);
         const glm::vec3 renderOrigin = scene.GetRenderOrigin();
         // A camera-relative origin rebase re-encodes every instance transform
         // in the same frame, so it is a whole-TLAS event rather than N
@@ -715,5 +720,13 @@ namespace OloEngine::RayTracing
     u64 RayTracingScene::GetTlasDeviceAddress() const
     {
         return IsAvailable() && IsVegetationReady() ? m_Backend->GetTlasDeviceAddress() : 0u;
+    }
+
+    u64 RayTracingScene::GetTlasDeviceAddressForTrace() const
+    {
+        const u64 address = GetTlasDeviceAddress();
+        if (address != 0u)
+            RGOutOfBand::Note(RGOutOfBandBoundaries::SceneTLAS, RGOutOfBandAccess::Read);
+        return address;
     }
 } // namespace OloEngine::RayTracing

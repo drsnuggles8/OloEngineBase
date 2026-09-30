@@ -66,13 +66,12 @@ namespace OloEngine
             !blackboard.Post.IndirectSpecularWeightTexture.IsValid())
             return;
 
-        // The by-name execution dependency RayTracingScenePass::Setup reserved
-        // for ray-query consumers. The acceleration structure is not a graph
-        // resource — there is no handle to Read — so this edge is the only thing
-        // stopping a reorder from putting the AS build after the pass that
-        // traces against it. The symptom would be a frame with no ray-traced
-        // reflections and nothing in the log.
-        builder.DependsOnPass("RayTracingScenePass");
+        // The acceleration structure this pass traces against (#1331). Not a
+        // graph resource, so it is a named out-of-band boundary: every writer
+        // (RayTracingScenePass) runs first wherever it was registered, and the
+        // ledger reports a trace nobody declared. The symptom of a missing
+        // edge would be a frame traced against last frame's TLAS, or none.
+        builder.ReadOutOfBand(RGOutOfBandBoundaries::SceneTLAS);
 
         [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.Scene.SceneDepth, RGReadUsage::ShaderSample);
         [[maybe_unused]] const auto normalRead = builder.Read(blackboard.GBuffer.GBufferNormal, RGReadUsage::ShaderSample);
@@ -311,7 +310,7 @@ namespace OloEngine
         // than skipped: it is the value the shader's first guard tests, so an
         // inactive tier reaches the GPU as "trace nothing" instead of as a
         // stale address left over from the last frame that had one.
-        const u64 tlasAddress = tierActive ? m_RayTracingScene->GetTlasDeviceAddress() : 0u;
+        const u64 tlasAddress = tierActive ? m_RayTracingScene->GetTlasDeviceAddressForTrace() : 0u;
         params.TlasAddress = glm::uvec4(static_cast<u32>(tlasAddress & 0xFFFFFFFFull),
                                         static_cast<u32>(tlasAddress >> 32u),
                                         RayTracing::kInstanceMaskAll,

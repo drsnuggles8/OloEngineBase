@@ -436,6 +436,8 @@ add_executable(OloEngine-Tests
 		Rendering/CommandLifecycleCheck.cpp
 		Rendering/CommandDispatchRecordingTest.cpp
 		Rendering/RenderGraphParallelRecordingTest.cpp
+		Rendering/RenderGraphOutOfBandTest.cpp
+		Rendering/RenderGraphOutOfBandScheduleTest.cpp
 		Rendering/PODRenderStateChannelMaskTest.cpp
 		#Rendering/CommandDispatchTest.cpp  # Requires full engine (calls CommandDispatch::Initialize which pulls in OpenGL statics)
 		# Listed directly since #1305 dropped it from the heavy-compile pool (0.94 GiB, #34);

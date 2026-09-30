@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RenderGraphOutOfBand.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
@@ -72,6 +73,15 @@ namespace OloEngine
             SetPrimaryInputFramebufferHandle(board.Scene.SceneColor);
 
         builder.DependsOnPass("ShadowPass");
+
+        // CPU state this pass prepares for later passes (#1331): the sorted,
+        // batched opaque bucket PlanarReflection and Overdraw replay, and the
+        // Forward+ cluster lists it culls and leaves bound for
+        // DeferredLightingPass and VolumetricFogPass.
+        builder.Publish(RGOutOfBandBoundaries::SceneOpaqueCommandBucket);
+        builder.Publish(RGOutOfBandBoundaries::ForwardPlusLightClusters);
+        // It samples the DDGI probe volume through the engine slots.
+        builder.ReadOutOfBand(RGOutOfBandBoundaries::DDGIProbeVolume);
 
         if (board.Shadows.ShadowMapCSM.IsValid())
         {
@@ -168,6 +178,10 @@ namespace OloEngine
         // bucket, and terrain / voxel draws keep their own full program in it
         // (colour masked), which samples the shadow maps and the IBL set.
         builder.DependsOnPass("ShadowPass");
+        // The prepass is the pass that sorts and batches the bucket when it
+        // runs (BeginSceneFrame), so it publishes it too (#1331).
+        builder.Publish(RGOutOfBandBoundaries::SceneOpaqueCommandBucket);
+        builder.ReadOutOfBand(RGOutOfBandBoundaries::DDGIProbeVolume);
         if (board.Shadows.ShadowMapCSM.IsValid())
         {
             [[maybe_unused]] const auto shadowCSMRead = builder.Read(board.Shadows.ShadowMapCSM, RGReadUsage::ShaderSample);
@@ -362,6 +376,8 @@ namespace OloEngine
 
         if (capturing)
             captureManager.OnPostSort(m_CommandBucket);
+        // The bucket other passes replay is now in its final order (#1331).
+        RGOutOfBand::Note(RGOutOfBandBoundaries::SceneOpaqueCommandBucket, RGOutOfBandAccess::Write);
 
         // Invoke post-batch capture step when capturing is active
         if (capturing)

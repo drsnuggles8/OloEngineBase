@@ -596,6 +596,9 @@ namespace OloEngine
                 occ.HZBUVFactor = data.OcclusionHZB.GetUVFactor();
                 occ.DepthBias = data.HZBOcclusionDepthBias;
                 data.GPUFrustumCuller->SetOcclusion(occ);
+                // A prologue read of the retained pyramid (#1331): the phase-1
+                // cull dispatches at submission, before any pass.
+                RGOutOfBand::Note(RGOutOfBandBoundaries::OcclusionHZB, RGOutOfBandAccess::ReadPreviousFrame);
             }
         }
 

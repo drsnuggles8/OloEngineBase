@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RenderGraphOutOfBand.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Passes/WaterRenderPass.h"
@@ -31,6 +32,9 @@ namespace OloEngine
 
         if (!HasSubmittedCommands())
             return;
+
+        // The mirror PlanarReflectionPass renders and publishes (#1331).
+        builder.ConsumePublication(RGOutOfBandBoundaries::PlanarReflectionTexture);
 
         if (board.Scene.SceneColor.IsValid())
         {
@@ -227,6 +231,7 @@ namespace OloEngine
         // has a live mirror VP + enable flag. The UBO's enable flag (set to 0 when
         // the pass is disabled / the texture id is 0) gates the shader, so a stale
         // texture is never sampled as a reflection.
+        RGOutOfBand::Note(RGOutOfBandBoundaries::PlanarReflectionTexture, RGOutOfBandAccess::Read);
         HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_WATER_PLANAR_REFLECTION,
                                                  Renderer3D::GetPlanarReflectionTextureID(),
                                                  RHI::HeapSlotLifetime::FrameTransient);

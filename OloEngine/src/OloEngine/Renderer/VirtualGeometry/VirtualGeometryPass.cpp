@@ -245,6 +245,17 @@ namespace OloEngine
         declareExport(board.GBuffer.VelocityMS, m_SelectedVelocityMS);
         declareExport(board.GBuffer.SceneDepthMS, m_SelectedSceneDepthMS);
 
+        // The two-phase cluster cull (#682, #1331): phase 1 tests the RETAINED
+        // occlusion pyramid, last frame's final depth, and phase 2 rebuilds it
+        // in place. The previous-frame read orders this pass before every
+        // other in-place rebuild (DeferredGPUOcclusionPass). Both also write
+        // the G-Buffer exports, so registering the rebuilder FIRST would derive
+        // a resource edge the other way; that contradiction is reported as
+        // OutOfBandOrdering rather than silently ordering the pair by
+        // registration, which is all that held it before.
+        builder.ReadOutOfBand(RGOutOfBandBoundaries::OcclusionHZB, RGOutOfBandEpoch::PreviousFrame);
+        builder.WriteOutOfBand(RGOutOfBandBoundaries::OcclusionHZB);
+
         // Publish the cluster/LOD/overdraw debug capture target (issue #629) when a
         // debug mode is active. Named so olo_render_capture_target /
         // olo_render_list_targets resolve it.

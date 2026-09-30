@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/RenderGraphOutOfBand.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/ComputeShader.h"
@@ -111,9 +112,13 @@ namespace OloEngine
         // dispatches). FogRenderPass gates the shader's froxel path on this
         // and re-uploads a disabled froxel UBO when false, so a stale
         // "enabled" flag can never outlive a toggle.
+        //
+        // Stamped with the scene frame that set it (#1331): this pass is culled
+        // whenever FogRenderPass is, and a culled Execute never clears the flag,
+        // so a bare bool would report a volume from frames ago as current.
         [[nodiscard]] bool RanThisFrame() const
         {
-            return m_RanThisFrame;
+            return m_RanThisFrame && m_RanFrameSerial == RGOutOfBand::GetFrameSerial();
         }
 
         // Upload the froxel UBO with enabled = 0 (called by FogRenderPass when
@@ -133,6 +138,7 @@ namespace OloEngine
       private:
         bool m_Enabled = false;
         bool m_RanThisFrame = false;
+        u64 m_RanFrameSerial = 0;
         bool m_HistoryValid = false;
         u32 m_FrameIndex = 0;
 
