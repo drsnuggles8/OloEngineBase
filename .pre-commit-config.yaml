@@ -83,3 +83,17 @@ repos:
       language: system
       pass_filenames: false
       files: '(OloEngine/src/.*\.(h|hpp|inl)|scripts/check_header_profiling_include\.py)$'
+
+    - id: docs-consistency
+      name: documentation links, anchors, index and contract-doc names resolve
+      description: >-
+        Fails on mechanical documentation drift: a relative link or anchor in docs/ or
+        the root Markdown that no longer resolves, a docs/*.md path named in source that
+        does not exist, a doc not reachable from docs/README.md, or a file or
+        File::Symbol a renderer contract doc cites that no longer exists (issue #1357).
+        It checks names only; it is not evidence that any sentence is true. Runs its own
+        negative-control fixtures first and fails if they are not caught.
+      entry: python scripts/check_docs_consistency.py
+      language: system
+      pass_filenames: false
+      always_run: true

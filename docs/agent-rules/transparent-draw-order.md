@@ -93,8 +93,9 @@ Audited for #1327, all of these are safe *because* of rule 4 or because they nev
 | `ForwardOverlayPass` | Its own bucket, no batching; the grid is a `DrawInfiniteGrid`, the skybox sorts last by `ViewLayerType::Skybox`. |
 | Decals / water / particles / groom | Not `CommandType::DrawMesh`, so the batcher never considers them; decals and particles route to OIT when it is on. |
 
-One thing the audit found and did **not** fix: on `RenderingPath::Deferred` a blended classic mesh is
-sent to `PBRGBufferShader` rather than rerouted to `ForwardOverlayPass`, so it blends into the
-G-Buffer's channels and shades to pure black (issue #1404). That is a shading defect, not an
-ordering one — it reproduces unchanged on master — so the deferred cell of the pixel test is a
-tripwire on the defect rather than a skip, and it fails the day #1404 is fixed.
+One thing the audit found and did **not** fix at the time: on `RenderingPath::Deferred` a blended
+classic mesh was sent to `PBRGBufferShader`, blended into the G-Buffer's channels and shaded to pure
+black (issue #1404). #1404 is fixed: the mesh is now rerouted to `ForwardOverlayPass`
+(`DeferredForwardOverlayRoute.h`), and the deferred cell
+(`TransparentBlendOrderVisualEvidence.DeferredBlendsTheNearerQuadLast`) carries the same positive
+ordering assertion as the forward cells, with and without G-Buffer MSAA.

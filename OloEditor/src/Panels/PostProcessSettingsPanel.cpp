@@ -546,7 +546,7 @@ namespace OloEngine
                                     static_cast<unsigned long long>(stats.ReflectionRaysDispatchedUpperBound));
                         if (stats.HitsShadedUntextured)
                             ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
-                                               "hits shaded UNTEXTURED - blocked on #805");
+                                               "hits shaded UNTEXTURED - see #1355");
                     }
                     else
                     {
@@ -557,9 +557,9 @@ namespace OloEngine
 
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("A ray hit is shaded from its material's base-colour,\n"
-                                      "metallic, roughness and emissive FACTORS. Sampling its\n"
-                                      "TEXTURES needs the shader-visible sampler heap (#805),\n"
-                                      "so a brick wall currently reflects flat brick-red.");
+                                      "metallic, roughness and emissive FACTORS, so a brick\n"
+                                      "wall currently reflects flat brick-red. Textured hit\n"
+                                      "shading is #1355.");
             }
 
             ImGui::Unindent();

@@ -32,15 +32,18 @@
 // shadows disagree with raster ones. The cost is alpha-mask cache pressure on
 // long rays, and that is the trade this comment exists to record.
 //
-// WHO SUPPLIES THE TEXTURE. Everything above is complete here. The texture
-// FETCH is not, and cannot be yet: outside `OLO_BINDLESS` (a GL-only path this
-// engine does not ship enabled) a shader reaches a material texture through a
-// PER-DRAW slot binding, and a single ray-query dispatch has no per-draw scope
-// to bind arbitrary materials into. So the fetch is a caller-supplied macro,
-// `OLO_RT_SAMPLE_ALPHA(materialIndex, uv)`. A consumer that can bind its
-// material set defines it and gets the whole helper; a consumer that needs
-// arbitrary materials is blocked on the shader-visible sampler heap recorded as
-// ADR 0011 §1.2a's follow-up, not on anything in this file.
+// WHO SUPPLIES THE TEXTURE. The fetch is a caller-supplied macro,
+// `OLO_RT_SAMPLE_ALPHA(materialIndex, uv)`, because a ray-query dispatch has no
+// per-draw scope to bind arbitrary materials into. The hybrid consumers
+// (HybridRayTracingAlpha.glsl: RT shadows and reflections), the reference
+// tracers (RayTracedSurfaceHit.glsl: GPU path tracer, ReSTIR GI/PT) and
+// ReSTIR DI (ReSTIRDISceneAccess.glsl) define it as a fetch through the
+// descriptor heap (ADR 0011 amendment (95)). The hybrid consumers stand down
+// when the heap is unresolved; without the material texture table the
+// reference tracers trace masked geometry as solid and ReSTIR DI tests the
+// factor alpha alone, and each counts it in its stats.
+// compute/RayTracingProbe.comp does not define the macro, so it tests the
+// policy against alpha = 1.
 // =============================================================================
 
 #ifndef OLO_RAY_TRACING_ALPHA_TEST_GLSL

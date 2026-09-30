@@ -31,7 +31,7 @@ or a model. It exposes data over a standard protocol; you bring your own agent. 
   mutate **serialized components of the loaded scene in memory** — undoable in the
   editor, discarded on reload, and reaching disk only if you save the scene yourself;
   no tool ever writes a file. The gate is off by default and never persisted (see
-  [Write consent](#write-consent--disabled--prompt--allow-all-issue-306-item-c)).
+  [Write consent](#write-consent--disabled--prompt--allow-all-issue-306)).
 - Optional **path redaction** scrubs absolute filesystem paths from text output (toggle in
   the panel) for when you don't want project layout / usernames leaving the process.
 
@@ -46,7 +46,7 @@ before launching OloEditor; the server starts during editor init. Add
 `OLO_MCP_ALLOW_WRITES=1` if the session needs the **write** tools (`olo_scene_open`,
 `olo_renderer_settings_set`, …) — without it they are refused, because the write
 consent control is an ImGui toggle nobody is there to click. See
-[Write consent](#write-consent--disabled--prompt--allow-all-issue-306-item-c).
+[Write consent](#write-consent--disabled--prompt--allow-all-issue-306).
 
 `OLO_MCP_TOOL_PROFILE=full` (or `=toolset` with `OLO_MCP_TOOLSETS=render,physics`)
 widens what `tools/list` advertises; the default lists a core set plus the discovery
@@ -187,7 +187,7 @@ constrain), and the `format:"markdown"`/`"mermaid"` paths of the dual-format too
 text-only (their schemas describe the json format).
 
 Fourteen table-shaped tools additionally return **audience-tagged content blocks** — see
-[Audience-tagged content blocks](#audience-tagged-content-blocks-673-tier-2) for the list
+[Audience-tagged content blocks](#audience-tagged-content-blocks-673) for the list
 and for what to do when adding a tool.
 
 | Tool | What it returns |
@@ -281,7 +281,7 @@ and for what to do when adding a tool.
 | `olo_rt_vegetation_diagnostic` | **(consented write)** force every wind-aware vegetation group to a detailed update instead of its distance-selected temporal snapshot, so a detailed-versus-proxy A/B is measurable on one running editor (#1240). Omit `forceDetailed` to read the current state; `false` restores automatic distance selection. It changes UPDATE FREQUENCY ONLY — not plants, wind, camera, raster LOD or budgets — and is render-thread state that no scene, save-game or asset owns, so it is never persisted. Restore it when the benchmark ends; a session left forced keeps paying for refreshes it does not need. Read the result against `olo_rt_scene_stats.vegetation`, whose `detailedGroups`/`proxyGroups` split is what the override moves. Gated behind **Agent writes** |
 | `olo_pathtracer_stats` | The GPU reference path tracer's counters for the last completed frame (#1055): `status` (`unavailable` / `disabled` / `fallback` with the reason / `active`), the accumulation state (samples per pixel, samples added, `consecutiveRestarts` — a climbing count means the image can never converge), the scene as the tracer saw it (emissive triangles and area, punctual and sphere-area lights, lights past the shader's slot bound, Legacy-closure materials), the texture path (`texturesAvailable`, and the counted limits `hitsShadedUntextured` / `maskedGeometryTracedAsSolid` / `materialTexturesUnresolved` where it is not), and the settings the frame ran with. Read it before trusting a traced frame as ground truth: every `true` limit names a term the frame is missing |
 | `olo_restir_stats` | The ReSTIR DI tier's verdict and counters for the last completed frame (#1140): `status` (`unavailable` / `disabled` / `fallback` with the reason named / `active`), the MEASURED engagement criterion's own inputs (emitter count, the per-pixel candidate budget it must exceed, the hysteresis margin), the light census, and what the estimator actually did — which normalisation ran, the reservoir layout version, `historyPlanesAvailable` against `historyPlanesRequired`, and whether temporal and visibility reuse ran at all. Read it before trusting a resampled frame: `visibilityReuseRan` false means light leaks through occluders, `temporalReuseRan` false means every pixel restarted this frame, `lightsBeyondShaderBound` and `emittersBeyondEncodableIndex` name emitters the tier cannot reach, and `settingsClamped` means the frame did LESS than was asked. This is the tool that turns "the frame is black" into a named cause; it found `TargetUnavailable` and an unbound GPU Scene during bring-up. Directional lights are deliberately absent from every count — the clustered loop keeps them so they keep their cascades, their ray-traced shadow mask channel and their cloud shadow |
-| `olo_restir_gi_stats` | The ReSTIR GI tier's verdict and counters for the last completed frame (#1169): `status` (`unavailable` / `disabled` / `fallback` with the reason named / `active`), and the four blocks that answer a different question each. READ `indirectDiffuse` FIRST when a room looks twice as bright or has lost its indirect light: it names which mechanism added the term at the primary vertex, at which vertex the probe cache was read, and whether SSGI was stood down (`ssgiStoodDown`, which is what makes "my SSGI slider does nothing" answerable). The cache is read at exactly ONE vertex per path and enabling this tier MOVES which one - never both, which is what keeps this tier and DDGI from double-counting. `engagement` carries the measured criterion's inputs, and unlike the DI tier's it is not a count comparison: this tier stands down only when the scene has no light, no emissive triangle and no environment, because DDGI is a coarser CACHE of the same integral rather than an enumeration of it. `estimator` says what the frame actually did - `reconnectionVisibilityRan` false means reuse is lighting surfaces through walls, `temporalReuseRan` false means every pixel restarted this frame, `historyPlanesAvailable` against `historyPlanesRequired` says why, and `settingsClamped` means the frame did LESS than was asked. Sibling of `olo_restir_stats` above; the two tiers are independent and either can stand down without the other |
+| `olo_restir_gi_stats` | The ReSTIR GI tier's verdict and counters for the last completed frame (#1169): `status` (`unavailable` / `disabled` / `fallback` with the reason named / `active`), and the four blocks that answer a different question each. READ `indirectDiffuse` FIRST when a room looks twice as bright or has lost its indirect light: it names which mechanism added the term at the primary vertex, at which vertex the probe cache was read, and whether SSGI was stood down (`ssgiStoodDown`, which is what makes "my SSGI slider does nothing" answerable). The cache is read at exactly ONE vertex per path and enabling this tier MOVES which one - never both, which is what keeps this tier and DDGI from double-counting. `engagement` carries the measured criterion's inputs, and unlike the DI tier's it is not a count comparison: this tier stands down only when the scene has no light, no emissive triangle and no environment, because DDGI is a coarser CACHE of the same integral rather than an enumeration of it. `estimator` says what the frame actually did - `reconnectionVisibilityRan` false means reuse is lighting surfaces through walls, `temporalReuseRan` false means every pixel restarted this frame, `historyPlanesAvailable` against `historyPlanesRequired` says why, `settingsClamped` means the frame did LESS than was asked, and `maskedGeometryTracedAsSolid` true (with `texturesAvailable` false) means hits shade from material factors and cutouts block as solid. Sibling of `olo_restir_stats` above; the two tiers are independent and either can stand down without the other |
 | `olo_restir_pt_stats` | Restricted ReSTIR PT availability, stand-down reason, initial-only history state, allocation bytes, and measured GPU ray/acceptance/rejection counters (#1211). Read `countersValid` and `counterFrame` before interpreting counts. Enable through `olo_postprocess_settings_set` with `ReSTIRPTEnabled`; `ReSTIRPTMappingMask` selects reconnection (1), replay (2), hybrid (4), or their bitwise union. This deferred Vulkan tier owns both indirect diffuse and specular, suppressing GI, SSGI, SSR and RT reflections while active. `ReSTIRPTDebugView` selects radiance (0), raw initial (1), selected temporal ancestry (2), raw candidate variance (3), lineage (4), conditioning (5), or clamp (6). The variance is not the final estimator's variance. `ReSTIRPTRadiance` and its attachments can be captured with the generic target tools. Radiance clamp defaults to zero; enabling it is biased. |
 | `olo_ddgi_probe_stats` | one synchronous DDGI diagnostics readback: live/active/relit/captured/blended probe counters, active-probe bounce coverage, and each active cascade's origin/spacing/lattice bounds. `bounceCoverage:null` means no active probe had a measurable bounce hit; numeric zero remains valid data |
 | `olo_perf_pass_timings` SSGI row | SSGI is independently GPU-timed as top-level `SSGIPass`; its cost is not folded into `DeferredLightingPass` |
@@ -929,24 +929,20 @@ read from the shader debugger and is richest in debug builds. A worked loop:
 A clean recompile returns `status: "ready"` with an empty `log`; on failure you get
 `status: "failed"` and the compiler diagnostics in `log`.
 
-**Which shaders are reloadable.** `olo_shader_list` reports *every* GL program the shader
-debugger knows about, but only shaders owned by the Renderer3D / Renderer2D shader libraries
-(the main scene shaders — `PBR_MultiLight`, `Water`, `Terrain_PBR`, `InfiniteGrid`, `Decal`,
-`LightCube`, the `Renderer2D_*` shaders, …) can be hot-reloaded by name. Post-process and
-compute shaders (`GTAO`, `SSAO`, `SSR`, bloom, …) are owned by their render pass and the
-engine keeps no name-to-shader registry for them, so they are **not** reloadable; asking for
-one returns an error that lists the names that *are* reloadable. To inspect a shader's
-*existing* errors without recompiling, use `olo_shader_errors` / `olo_shader_get` instead.
+**Which shaders are reloadable.** `olo_shader_list` reports a `reloadable` flag per shader.
+Every file-backed shader reloads by name, whether a shader library or a render pass owns it,
+compute included (`GTAO`, `SSAO`, `SSR`, `VirtualCluster*`, …): pass-owned names resolve
+through the engine's `ShaderRegistry`. Only source-string shaders (boot, fallback,
+shader-graph) have no file to reload from; asking for one returns an error that lists the
+reloadable names. To inspect a shader's *existing* errors without recompiling, use
+`olo_shader_errors` / `olo_shader_get` instead.
 
-**Debug-build caveat (verified).** In a Debug build, recompiling a shader that contains a
-GLSL *syntax* error trips an engine debug assert (`OLO_CORE_VERIFY` → `__debugbreak`) on the
-render/main thread — the same behaviour as the editor's own *Shader ▸ Recompile* button. The
-reload then doesn't return a clean `status: "failed"`; instead the main-thread marshal times
-out (~5 s) and the tool returns *"Timed out waiting for the editor main thread"*, and the
-editor can crash. So reserve `olo_shader_reload` for applying an edit you **expect to
-compile** (the normal inner-loop case — confirm the result `status` is `ready`, then
-screenshot); to inspect a shader that you know is broken, read `olo_shader_errors` /
-`olo_shader_get` rather than recompiling it.
+**Compile failures (corrected 2026-09-29, #1357).** This section used to warn that a GLSL
+syntax error trips `OLO_CORE_VERIFY` in a Debug build and times the reload out. Since #568
+(PR #583) a compile or link failure logs and returns, so the reload answers
+`status: "failed"` with the compiler log (`ShaderCompileFailureRecoveryTest`). A malformed
+`#type` directive still trips an `OLO_CORE_ASSERT` in `OpenGLShader::PreProcess`. The
+correction is from the code and that test; it was not re-run live.
 
 ### The scripting inner loop (`olo_reload_script`)
 
@@ -968,7 +964,7 @@ component bindings.
 - **It is a consented WRITE tool** (issue #306): like the other writes it is
   refused while **Agent writes** is *Disabled* in the editor's MCP panel (the default),
   prompts for per-action consent in *Prompt* mode, and applies directly in *Allow all*
-  — see [Write consent](#write-consent--disabled--prompt--allow-all-issue-306-item-c).
+  — see [Write consent](#write-consent--disabled--prompt--allow-all-issue-306).
   Reloading runs the user's freshly-built assembly code, so it deliberately crosses the
   read-only line — hence the gate.
 - **Whole-assembly, no arguments.** C# reload has no per-script granularity (the editor
@@ -2861,7 +2857,7 @@ What that changes — and nothing else:
 - it goes through the **same write-consent gate as a native write tool**:
   refused outright while "Agent writes" is **Disabled** (the default), a modal
   in **Prompt**, straight through in **Allow all** (see
-  [Write consent](#write-consent--disabled--prompt--allow-all-issue-306-item-c));
+  [Write consent](#write-consent--disabled--prompt--allow-all-issue-306));
 - **only then** may its handler call project-mutating tools through
   `olo.call_tool` — and each such inner call re-checks the *current* consent
   mode, so flipping writes back to Disabled stops the rest of the macro.

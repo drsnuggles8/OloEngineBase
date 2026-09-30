@@ -32,17 +32,22 @@ namespace OloEngine
         // Primary sorting key - packed bitfield for maximum performance
         DrawKey m_SortKey;
 
-        // Execution properties
+        // Execution properties. No production producer sets the first three
+        // today; tests do. CommandBucket's sort and instancing keep a packet
+        // with m_DependsOnPrevious after its predecessor, and CanBatchWith()
+        // refuses it and refuses two different non-zero group IDs.
         bool m_DependsOnPrevious = false; // This command must execute after the previous one
-        u32 m_GroupID = 0;                // Commands with the same groupId should be kept together
-        u32 m_ExecutionOrder = 0;         // Sequence number for preserving order when needed
+        u32 m_GroupID = 0;                // Non-zero IDs that differ never batch together
+        u32 m_ExecutionOrder = 0;         // Not read for ordering: only frame capture and the freeze digest see it
 
-        // Statistics/debugging
+        // Statistics/debugging. Set by Renderer3D's mesh submission; read by
+        // frame capture and the freeze digest, not by sorting or dispatch.
         bool m_IsStatic = false;           // Command doesn't change between frames
         const char* m_DebugName = nullptr; // Optional name for debugging
     };
 
-    // Command packet that wraps a command with metadata and links to other packets
+    // Command packet: a command plus its metadata. Packets hold no links to one
+    // another; a CommandBucket orders them through its m_Keys / m_Packets arrays.
     class CommandPacket
     {
       public:
@@ -249,8 +254,9 @@ namespace OloEngine
                       "the packet state must stay a lock-free byte in the header's padding");
         CommandDispatchFn m_DispatchFn = nullptr;
         PacketMetadata m_Metadata;
-        // Recorded by Freeze() when validation is on; 0 otherwise. Also keeps
-        // the header a multiple of COMMAND_ALIGNMENT (64 bytes, was 56).
+        // Recorded by Freeze() when validation is on; 0 otherwise. Also pads
+        // the header to a multiple of COMMAND_ALIGNMENT (16): 64 bytes on a
+        // 64-bit target, 56 before this field existed.
         mutable u64 m_FrozenDigest = 0;
     };
 

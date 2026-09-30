@@ -377,7 +377,8 @@ void main()
         hitNormal = -hitNormal;
 
     // ---- Shade the hit ----------------------------------------------------
-    // Untextured, per #805: these are the material's FACTORS. See the header.
+    // Untextured: these are the material's FACTORS (textured hit shading is
+    // #1355). See the pass header.
     const vec3 hitAlbedo = material.BaseColorFactor.rgb;
     const vec3 hitEmissive = material.EmissiveFactor.rgb;
     // The body lobe's reflectance (issue #1336): albedo * (1 - metallic), the

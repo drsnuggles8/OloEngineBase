@@ -199,9 +199,11 @@ namespace OloEngine
 
         // ── Directional light: Virtual Shadow Maps (issue #702) ──
         //
-        // Replaces the four fixed cascades below when enabled. Everything after
-        // this block — the local-light atlas — is unaffected, so a scene can use
-        // VSM for the sun and the priority-ranked atlas for its spots and points.
+        // Replaces the four fixed cascades below when enabled. The atlas block
+        // after it still runs, but with VSM LocalLights on (the default) the
+        // atlas has zero entries (Scene.cpp sets the count to 0) and does
+        // nothing; with LocalLights off, a scene can use VSM for the sun and the
+        // priority-ranked atlas for its spots and points.
         //
         // The page management runs HERE, at the start of the frame, on the pages
         // VirtualShadowMapMarkPass marked at the end of the last one; only the

@@ -399,14 +399,6 @@ namespace OloEngine
         // neither is a failure to deliver something that was asked for.
         std::array<u32, static_cast<sizet>(ShadowTechniqueFallbackReason::Count)> ByReason{};
 
-        // TLAS instances whose geometry the acceleration structure classified
-        // as masked (alpha tested). They shadow as SOLID here, because a ray
-        // query has no per-draw scope to bind an arbitrary material's alpha
-        // map and the shader-visible sampler heap that would fix it is issue
-        // #805. Counted rather than merely commented, so the artefact is
-        // diagnosable when someone asks why a leaf casts a rectangle.
-        u32 MaskedOccludersShadowedAsSolid = 0;
-
         // Shadow rays the trace dispatched this frame, as an UPPER BOUND:
         // width * height * raysPerPixel * rayTracedLights. It is an upper bound
         // and not a measurement because the shader early-outs on sky pixels and

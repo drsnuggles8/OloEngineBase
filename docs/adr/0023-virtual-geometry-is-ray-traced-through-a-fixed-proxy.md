@@ -95,12 +95,14 @@ The path tracer's **area-light (next-event estimation) table does not gather vir
 walks a `MeshSource` submesh's triangles, and those are the full-resolution triangles, not the proxy
 the TLAS holds; emitters that are not the traced surface make NEE aim rays at geometry that is not
 there. So an emissive virtual mesh *is* hit by rays and shades correctly, but is not sampled as a
-light source. `Renderer3D::SubmitVirtualMesh` warns once per mesh when it sees one. Closing that
-means gathering emitters from the proxy, which is a separate change to
-`EmissiveTriangleTable::QueueSubmesh`.
+light source. `StageVirtualProxy`, called from `Renderer3D::SubmitVirtualMesh`, warns once per mesh
+when it sees one. Closing that means gathering emitters from the proxy, which is a separate change to
+`EmissiveTriangleTable::QueueSubmesh` (owner: #1525).
 
 Skinned, cloth and particle geometry remain excluded and remain counted. Their problem is a
-deformed-vertex stream, which is a different shape of work (#1150 tracks skinned virtual geometry).
+deformed-vertex stream, which is a different shape of work. #1150 delivered skinned virtual geometry
+for raster only; a skinned virtual part is still refused as a ray-tracing proxy and counted in
+`ProxylessParts` (owner: #1525).
 
 ## 6. Consequences
 

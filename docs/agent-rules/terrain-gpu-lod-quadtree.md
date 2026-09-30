@@ -414,7 +414,8 @@ GL 4.6 context — remember §6a: `glslc` accepting a `.comp` proves nothing abo
 whether the driver will). What could not be driven over MCP is the **brush
 cursor itself**: `olo_input_inject` reaches the menu bar and its popups but the
 Terrain Editor panel's Edit-Mode radios never took, so `IsActive()` stayed false
-and the editor never called into the picker. There is no `olo_terrain_pick` tool
-to ask directly. Logged on the MCP follow-up tracker; until one exists, the
-brush-cursor half of this feature's acceptance is argued from the evidence test
-(the brush consumes `TerrainRaycast`'s output verbatim) rather than observed.
+and the editor never called into the picker, so the brush-cursor half of this
+feature's acceptance was argued from the evidence test (the brush consumes
+`TerrainRaycast`'s output verbatim) rather than observed. `olo_terrain_pick`
+(PR #1028) has since added the direct query: it casts the `TerrainGPUPicker`
+from a viewport pixel or a world ray.

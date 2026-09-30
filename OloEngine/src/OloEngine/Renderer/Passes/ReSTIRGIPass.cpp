@@ -482,6 +482,8 @@ namespace OloEngine
         const bool texturesAvailable = m_MaterialTextures != nullptr &&
                                        m_MaterialTextures->GetDeviceAddress() != 0u &&
                                        m_MaterialTextures->GetSamplerHeapOffset() != RHI::HeapOffset::Invalid;
+        m_Stats.TexturesAvailable = texturesAvailable;
+        m_Stats.MaskedGeometryTracedAsSolid = !texturesAvailable;
 
         m_Stats.HistoryPlanesAvailable =
             (sampleHistoryID.IsValid() ? 1u : 0u) + (radianceHistoryID.IsValid() ? 1u : 0u) +

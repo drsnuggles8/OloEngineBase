@@ -40,7 +40,7 @@ namespace OloEngine
         m_SelectedIndirectSpecularTexture = {};
         m_SelectedIndirectSpecularWeightTexture = {};
 
-        // The tier composites OVER the colour it is handed, so the input is
+        // The tier replaces the specular term in the colour it is handed, so the input is
         // whatever the chain has produced so far — the same versioned-name
         // fallback SSR uses, minus SSR itself, because this pass runs BEFORE it.
         // PostProcessColor is deliberately not a candidate: its alias is
@@ -216,10 +216,10 @@ namespace OloEngine
 
         if (m_Stats.RayQueryTierActive)
         {
-            // Both are STANDING limitations of this slice rather than occasional
-            // ones, so they are true whenever the tier ran at all. Counted
-            // instead of commented because neither is visible in a still frame.
-            m_Stats.HitsShadedUntextured = true; // #805 — untextured material factors
+            // A STANDING limitation rather than an occasional one, so it is true
+            // whenever the tier ran at all. Counted instead of commented because
+            // it is not visible in a still frame.
+            m_Stats.HitsShadedUntextured = true; // untextured material factors; #1355
             // No "masked geometry reflects as solid" flag beside it. One was
             // declared, never written, and by the time #1337 audited it the
             // statement had stopped being true: this tier stands down unless

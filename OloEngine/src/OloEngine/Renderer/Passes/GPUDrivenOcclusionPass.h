@@ -31,8 +31,12 @@ namespace OloEngine
     //     out visible this frame — eliminating the one-frame disocclusion pop.
     //
     // Forward / Forward+ only: the instanced batches are forward-lit PBR meshes.
-    // In Deferred they stay on the SceneRenderPass G-Buffer path (the legacy
-    // single-phase frustum+HZB cull still applies there).
+    // In Deferred, phase 1 draws through ScenePass's G-Buffer bucket and phase 2
+    // through DeferredGPUOcclusionPass (#486). The single-phase frustum-only
+    // Cull() runs instead when HZB occlusion is off, when
+    // DeferredGPUOcclusionPass is unavailable, while the culling camera is
+    // frozen, and for draws rerouted to ForwardOverlayPass
+    // (Renderer3D::SubmitGPUCulledInstanced).
     //
     // Known Stage-1 gap (closed in Stage 3): ScenePass exports SceneDepth /
     // SceneNormals at the end of its Execute, before this pass draws, so the

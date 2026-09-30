@@ -7459,6 +7459,8 @@ namespace OloEngine::MCP
                 { "temporalReuseRan", stats.TemporalReuseRan },
                 { "historyPlanesAvailable", stats.HistoryPlanesAvailable },
                 { "historyPlanesRequired", ReSTIRDIStats::kHistoryPlaneCount },
+                { "texturesAvailable", stats.Active ? Json(stats.TexturesAvailable) : Json(nullptr) },
+                { "maskedAlphaFromFactorOnly", stats.Active ? Json(stats.MaskedAlphaFromFactorOnly) : Json(nullptr) },
                 { "visibilityReuseRan", stats.VisibilityReuseRan },
                 { "raysDispatchedUpperBound", stats.RaysDispatchedUpperBound },
                 { "settingsClamped", stats.SettingsClamped },
@@ -7550,6 +7552,8 @@ namespace OloEngine::MCP
                 { "temporalReuseRan", stats.TemporalReuseRan },
                 { "historyPlanesAvailable", stats.HistoryPlanesAvailable },
                 { "historyPlanesRequired", ReSTIRGIStats::kHistoryPlaneCount },
+                { "texturesAvailable", stats.Active ? Json(stats.TexturesAvailable) : Json(nullptr) },
+                { "maskedGeometryTracedAsSolid", stats.Active ? Json(stats.MaskedGeometryTracedAsSolid) : Json(nullptr) },
                 { "reconnectionVisibilityRan", stats.ReconnectionVisibilityRan },
                 { "spatialReconnectionVisibilityRan", stats.SpatialReconnectionVisibilityRan },
                 { "ddgiTailRan", stats.DDGITailRan },
@@ -10090,6 +10094,11 @@ namespace OloEngine::MCP
                                                  Schema::Int().Min(0).Desc(
                                                      "Planes the estimator needs; a shortfall is why temporal "
                                                      "reuse stood down."))
+                                           .Prop("texturesAvailable", Schema::NullableBool().Desc("Null when the tier did not run this frame."))
+                                           .Prop("maskedAlphaFromFactorOnly",
+                                                 Schema::NullableBool().Desc(
+                                                     "True when no material textures: cutouts are tested on the "
+                                                     "base-colour factor's alpha alone and occlude as whole quads."))
                                            .Prop("visibilityReuseRan", Schema::Bool())
                                            .Prop("raysDispatchedUpperBound", Schema::Int().Min(0).Desc("Derived, not measured."))
                                            .Prop("settingsClamped", Schema::Int().Min(0)))
@@ -10183,6 +10192,9 @@ namespace OloEngine::MCP
                               .Prop("historyPlanesAvailable", Schema::Int().Min(0))
                               .Prop("historyPlanesRequired", Schema::Int().Min(0).Desc(
                                                                  "A shortfall is why temporal reuse stood down."))
+                              .Prop("texturesAvailable", Schema::NullableBool().Desc("Null when the tier did not run this frame."))
+                              .Prop("maskedGeometryTracedAsSolid", Schema::NullableBool().Desc(
+                                                                       "True when no material textures: hits shade from factors and cutouts block as solid."))
                               .Prop("reconnectionVisibilityRan", Schema::Bool().Desc(
                                                                      "False means reuse is lighting through walls."))
                               .Prop("spatialReconnectionVisibilityRan", Schema::Bool())

@@ -828,9 +828,10 @@ namespace OloEngine
                 overlayRoute = true;
             }
             // Route PBR default shader to the G-Buffer write variant when the
-            // deferred path is active. Material overrides still win (so
-            // custom shaders, e.g. terrain/foliage, keep their forward
-            // pipeline until their own G-Buffer variants land in later phases).
+            // deferred path is active. Material overrides still win. (Terrain,
+            // voxels and foliage are not routed here: they pick their own
+            // *_GBuffer variants in Renderer3DUtilityDraws.cpp and
+            // Renderer3DSpecializedDraws.cpp.)
             else if (deferred && s_Data.PBRGBufferShader)
                 shaderToUse = s_Data.PBRGBufferShader;
             else

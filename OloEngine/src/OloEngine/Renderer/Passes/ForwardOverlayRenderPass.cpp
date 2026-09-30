@@ -106,8 +106,8 @@ namespace OloEngine
                 ++sceneColorAttachmentCount;
         }
 
-        // Forward-overlay draws (skybox / terrain / voxel / non-PBR mesh /
-        // grid / debug) use the forward fragment layout that writes o_Color
+        // Forward-overlay draws (grid / blended / transmissive / debug, and
+        // the skybox / terrain / voxel fallback) use the forward fragment layout that writes o_Color
         // (location 0), o_EntityID (location 1) and o_ViewNormal (location 2).
         // Binding only attachment 0 silently discards the entity-ID and
         // view-normal writes — breaking picking for any entity rendered
