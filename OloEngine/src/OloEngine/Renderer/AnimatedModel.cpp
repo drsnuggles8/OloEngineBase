@@ -49,6 +49,14 @@ namespace OloEngine
             // one in ProcessMesh instead left a mesh with no indices at all, which
             // MeshSource::Build cannot upload (issue #1440).
             importer.SetPropertyInteger(AI_CONFIG_PP_SBP_REMOVE, aiPrimitiveType_POINT | aiPrimitiveType_LINE);
+            // Keep the skin's joints that weight no vertex. Assimp drops them by
+            // default, and they are exactly the bones other entities attach to: a
+            // prop's socket, or an eye riding its eye bone (#1533). Dropped, a
+            // BoneAttachmentComponent cannot find its bone and composes against the
+            // parent instead -- right at the bind pose, wrong as soon as the
+            // skeleton moves: the showcase dog's eyes stayed put while its head
+            // turned, and rolled in their lids.
+            importer.SetPropertyBool(AI_CONFIG_IMPORT_REMOVE_EMPTY_BONES, false);
         }
 
         // Combine multiple MeshSources into a single MeshSource for binary cache serialization.

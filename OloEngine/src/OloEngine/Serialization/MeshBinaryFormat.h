@@ -111,7 +111,14 @@ namespace OloEngine
         // face, and the index stream then shifted by one or two indices at each of them.
         // The cache stored that shifted stream, so it would keep serving a garbage mesh
         // (and a count meshoptimizer asserts on) after the importer was fixed.
-        constexpr u32 CurrentVersion = 12;
+        //
+        // v13 adds no section. It invalidates every v12 ANIMATED cache (issue #1533): the
+        // animated importer dropped a skin's joints that weight no vertex, and those are
+        // exactly the bones a BoneAttachmentComponent rides. A warm load hands back the
+        // skeleton the file holds, so a cached rig would keep its missing sockets -- and a
+        // groom binding cooked against the full skeleton would be refused against it --
+        // after the importer began keeping them.
+        constexpr u32 CurrentVersion = 13;
 
         constexpr u32 MinSupportedVersion = 1;
         constexpr u32 FlagCompressed = 1;   // Payload is zlib-compressed
