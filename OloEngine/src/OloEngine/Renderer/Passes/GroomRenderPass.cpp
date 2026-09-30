@@ -2185,10 +2185,29 @@ namespace OloEngine
                 m_DeformPlaceholder->Bind();
             }
 
+            entry->Array->Bind();
+
+            // THE DEPTH PREPASS (#1533 E1): coverage and depth first, colour
+            // writes off, then the shading draw at depth EQUAL with depth
+            // writes off -- one shaded fragment per covered pixel instead of
+            // one per overlapping strand. The same program in both draws (see
+            // the shader), so the two depths are the same numbers. Upload,
+            // then bind, before EACH draw: the lane differs and the Vulkan
+            // UBO is arena-versioned (see above).
+            params.ModeFrame.w = 1;
             m_ParamsUBO->SetData(&params, UBOStructures::GroomStrandParamsUBO::GetSize());
             m_ParamsUBO->Bind();
+            RenderCommand::SetColorMask(false, false, false, false);
+            RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+            context.SetDepthMask(true);
+            context.DrawIndexed(entry->Array, entry->Stats.IndexCount);
 
-            entry->Array->Bind();
+            params.ModeFrame.w = 0;
+            m_ParamsUBO->SetData(&params, UBOStructures::GroomStrandParamsUBO::GetSize());
+            m_ParamsUBO->Bind();
+            RenderCommand::SetColorMask(true, true, true, true);
+            RenderCommand::SetDepthFunc(RHI::CompareOp::Equal);
+            context.SetDepthMask(false);
             context.DrawIndexed(entry->Array, entry->Stats.IndexCount);
 
             ++m_Stats.GroomsDrawn;
@@ -2200,8 +2219,12 @@ namespace OloEngine
         // Leave the state as the next pass expects to find it. The depth func
         // is reset for the same reason FoliageRenderPass resets it: a pass
         // that leaves a non-default compare behind breaks a later one in a way
-        // that looks like the later one's bug.
+        // that looks like the later one's bug. The depth MASK too: the shading
+        // draws above end with depth writes off, and a later geometry pass
+        // that inherits that renders with no depth (see
+        // PreparedFullscreenPass).
         RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+        context.SetDepthMask(true);
         CommandDispatch::InvalidateRenderStateCache();
         // This pass bound TEX_USER_0 through the RGCommandContext seam, which
         // does not go through the dispatcher's redundant-bind cache — so that

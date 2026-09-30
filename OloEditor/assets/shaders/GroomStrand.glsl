@@ -30,6 +30,12 @@
 #include "include/GroomStrandCommon.glsl"
 #include "include/GroomStrandDeform.glsl"
 
+// The depth prepass (#1533 E1) draws every coat twice with this program and
+// shades the second draw at depth EQUAL, so the two draws must put each vertex
+// at the same depth to the bit. One program with the same inputs already does
+// on every driver seen; this makes it the language's promise, not the driver's.
+invariant gl_Position;
+
 #ifdef OLO_VULKAN
 // ADR 0011 §5: the Vulkan backend declares no vertex input state at all, so
 // every attribute is pulled from the engine-wide vertex SSBO by index. The
@@ -85,7 +91,7 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	ivec4 u_GroomIDs;        // x = EntityID, yzw unused
 	vec4 u_GroomViewport;    // xy = width/height in pixels, zw unused
 	vec4 u_GroomRampWidth;   // x = ramp floor, y = width scale, z = object scale, w = alpha cutoff
-	ivec4 u_GroomModeFrame;  // x = composition mode, y = frame index, z = stochastic seed, w unused
+	ivec4 u_GroomModeFrame;  // x = composition mode, y = frame index, z = stochastic seed, w = depth prepass
 	// Fibre scattering (#1247). The DERIVED GroomFibreParams, mirrored lane for
 	// lane from UBOStructures::GroomStrandParamsUBO — see that struct for why
 	// they are derived on the CPU rather than here.
@@ -185,7 +191,13 @@ void main()
 		// Last frame's centreline point comes from last frame's root transform
 		// and last frame's guide displacements — never from this frame's
 		// position — so the velocity is the strand's own motion.
-		prevPosition = oloGroomDeformPoint(deform, root, a_Position, tSelf, true);
+		//
+		// THE DEPTH PREPASS (u_GroomModeFrame.w, #1533 E1) needs only the
+		// position: it writes depth and nothing else, so it skips last frame's
+		// deformation, which does not feed gl_Position -- the two draws still
+		// meet at depth EQUAL.
+		bool depthOnly = u_GroomModeFrame.w != 0;
+		prevPosition = depthOnly ? position : oloGroomDeformPoint(deform, root, a_Position, tSelf, true);
 	}
 
 	vec4 worldCurr = u_GroomModel * vec4(position, 1.0);
@@ -478,7 +490,7 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	ivec4 u_GroomIDs;        // x = EntityID, yzw unused
 	vec4 u_GroomViewport;    // xy = width/height in pixels, zw unused
 	vec4 u_GroomRampWidth;   // x = ramp floor, y = width scale, z = object scale, w = alpha cutoff
-	ivec4 u_GroomModeFrame;  // x = composition mode, y = frame index, z = stochastic seed, w unused
+	ivec4 u_GroomModeFrame;  // x = composition mode, y = frame index, z = stochastic seed, w = depth prepass
 	// Fibre scattering (#1247). The DERIVED GroomFibreParams, mirrored lane for
 	// lane from UBOStructures::GroomStrandParamsUBO — see that struct for why
 	// they are derived on the CPU rather than here.
@@ -999,6 +1011,19 @@ void main()
 		{
 			discard;
 		}
+	}
+
+	// THE DEPTH PREPASS (#1533 E1). GroomRenderPass draws every coat twice with
+	// this program: first with colour writes off and .w set, which decides
+	// coverage above and writes depth, then with depth EQUAL and depth writes
+	// off, which shades only the fragment that won. The coverage decision is a
+	// pure function of the fragment (its pixel, frame, segment and alpha), so
+	// the second draw keeps exactly the fragments the first did, and the same
+	// program computes the same depth in both. A dense coat overlaps itself
+	// tens of times per pixel; without this, every layer was shaded in full.
+	if (u_GroomModeFrame.w != 0)
+	{
+		return;
 	}
 
 	// GEOMETRIC ramp only — see the file header. v_Coords.x is the root-to-tip
