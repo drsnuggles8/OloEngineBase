@@ -5,6 +5,7 @@
 
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Groom/GroomBuilder.h"
+#include "OloEngine/Groom/GroomCoat.h"
 #include "OloEngine/Groom/GroomCooker.h"
 
 #include <Alembic/Abc/All.h>
@@ -45,6 +46,9 @@ namespace OloEngine
         // the header's convention note for why a mixed group is a rejection.
         constexpr const char* kRoleParamName = "groom_role";
         constexpr const char* kGroomParamPrefix = "groom_";
+        // Issue #1533: the same data as USER PROPERTIES, the one channel
+        // Blender's exporter gives hair curves (see the header's convention).
+        constexpr const char* kRootUVPropertyName = "groom_root_uv";
 
         // Accumulated across the whole archive. `Failed` short-circuits the
         // traversal: the first rejection is the one reported, and no later prim
@@ -58,6 +62,7 @@ namespace OloEngine
             GroomCurveBasis Basis = GroomCurveBasis::Linear;
             bool WarnedMissingWidths = false;
             bool WarnedMissingUVs = false;
+            bool NotedWidthScopeByCount = false;
             bool Failed = false;
             std::string Diagnostic;
             std::vector<std::string> Warnings;
@@ -198,6 +203,215 @@ namespace OloEngine
             return true;
         }
 
+        // Reads a `.userProperties` entry as numbers, whatever integer or float
+        // POD and whichever shape the DCC wrote it in: Blender writes every
+        // custom property as an ARRAY (an int as int32[1], a float as
+        // float64[1]); another DCC may write a scalar.
+        [[nodiscard]] bool ReadUserNumbers(const Abc::ICompoundProperty& props, const Abc::PropertyHeader& header,
+                                           std::vector<f64>& out, std::string& outWhy)
+        {
+            namespace Util = Alembic::Util;
+            out.clear();
+            const Util::PlainOldDataType pod = header.getDataType().getPod();
+            const sizet extent = header.getDataType().getExtent();
+            const auto append = [&](const void* data, sizet count) -> bool
+            {
+                out.reserve(out.size() + count);
+                for (sizet i = 0; i < count; ++i)
+                {
+                    switch (pod)
+                    {
+                        case Util::kInt8POD:
+                            out.push_back(static_cast<const i8*>(data)[i]);
+                            break;
+                        case Util::kUint8POD:
+                            out.push_back(static_cast<const u8*>(data)[i]);
+                            break;
+                        case Util::kInt16POD:
+                            out.push_back(static_cast<const i16*>(data)[i]);
+                            break;
+                        case Util::kUint16POD:
+                            out.push_back(static_cast<const u16*>(data)[i]);
+                            break;
+                        case Util::kInt32POD:
+                            out.push_back(static_cast<const i32*>(data)[i]);
+                            break;
+                        case Util::kUint32POD:
+                            out.push_back(static_cast<const u32*>(data)[i]);
+                            break;
+                        case Util::kFloat32POD:
+                            out.push_back(static_cast<const f32*>(data)[i]);
+                            break;
+                        case Util::kFloat64POD:
+                            out.push_back(static_cast<const f64*>(data)[i]);
+                            break;
+                        default:
+                            outWhy = std::format("holds {} values, not integers or floats", Util::PODName(pod));
+                            return false;
+                    }
+                }
+                return true;
+            };
+            if (header.isArray())
+            {
+                Abc::IArrayProperty prop(props, header.getName());
+                Abc::ArraySamplePtr sample;
+                prop.get(sample, Abc::ISampleSelector(Abc::index_t(0)));
+                if (!sample)
+                {
+                    outWhy = "has no sample";
+                    return false;
+                }
+                return append(sample->getData(), sample->size() * extent);
+            }
+            if (header.isScalar())
+            {
+                Abc::IScalarProperty prop(props, header.getName());
+                std::vector<std::byte> buffer(Util::PODNumBytes(pod) * extent);
+                prop.get(buffer.data(), Abc::ISampleSelector(Abc::index_t(0)));
+                return append(buffer.data(), extent);
+            }
+            outWhy = "is a compound property, not a value";
+            return false;
+        }
+
+        // What a prim's USER PROPERTIES author (see the header's convention).
+        struct PrimUserGroomData
+        {
+            std::vector<i32> Guides;        // per curve, empty when not authored
+            std::vector<glm::vec2> RootUVs; // per curve, empty when not authored
+            bool AnyCoat = false;           // any group-coat field authored
+            bool HasRole = false;
+            GroomCoatGroupDesc Coat;
+        };
+
+        // Reads every `groom_` user property of one ICurves prim, and REJECTS any
+        // it does not implement -- the arbGeomParam rule, for the same reason.
+        [[nodiscard]] bool ReadGroomUserProperties(GroomTraversalState& state, const Abc::ICompoundProperty& props,
+                                                   sizet curveCount, const std::string& primPath, PrimUserGroomData& out)
+        {
+            if (!props.valid())
+            {
+                return true;
+            }
+            struct CoatField
+            {
+                const char* Name;
+                sizet Arity;
+                f32* Target;
+            };
+            GroomCoatGroupDesc& c = out.Coat;
+            const CoatField coatFields[] = {
+                { "groom_tint", 3u, &c.Tint.x },
+                { "groom_tip_tint", 3u, &c.TipTint.x },
+                { "groom_density", 1u, &c.Density },
+                { "groom_length", 1u, &c.Length },
+                { "groom_width", 1u, &c.Width },
+                { "groom_clump", 1u, &c.Clump },
+                { "groom_curl_radius", 1u, &c.CurlRadius },
+                { "groom_curl_frequency", 1u, &c.CurlFrequency },
+                { "groom_wave_amplitude", 1u, &c.WaveAmplitude },
+                { "groom_wave_frequency", 1u, &c.WaveFrequency },
+                { "groom_stiffness", 1u, &c.StiffnessScale },
+            };
+            std::vector<f64> values;
+            std::string why;
+            for (sizet i = 0; i < props.getNumProperties(); ++i)
+            {
+                const Abc::PropertyHeader& header = props.getPropertyHeader(i);
+                const std::string& name = header.getName();
+                if (!name.starts_with(kGroomParamPrefix))
+                {
+                    continue; // the DCC's own bookkeeping (Blender's "blender:resolution")
+                }
+                if (!ReadUserNumbers(props, header, values, why))
+                {
+                    state.Fail(std::format("'{}' user property '{}' {}", primPath, name, why));
+                    return false;
+                }
+                if (name == kGuideParamName)
+                {
+                    if (values.size() != curveCount)
+                    {
+                        state.Fail(std::format("'{}' user property '{}' holds {} values but the prim has {} curves",
+                                               primPath, name, values.size(), curveCount));
+                        return false;
+                    }
+                    out.Guides.assign(values.size(), 0);
+                    for (sizet v = 0; v < values.size(); ++v)
+                    {
+                        out.Guides[v] = values[v] != 0.0 ? 1 : 0;
+                    }
+                    continue;
+                }
+                if (name == kRootUVPropertyName)
+                {
+                    if (values.size() != curveCount * 2u)
+                    {
+                        state.Fail(std::format("'{}' user property '{}' holds {} values but the prim's {} curves need "
+                                               "two each",
+                                               primPath, name, values.size(), curveCount));
+                        return false;
+                    }
+                    out.RootUVs.resize(curveCount);
+                    for (sizet v = 0; v < curveCount; ++v)
+                    {
+                        out.RootUVs[v] = glm::vec2(static_cast<f32>(values[2u * v]), static_cast<f32>(values[2u * v + 1u]));
+                        if (!std::isfinite(out.RootUVs[v].x) || !std::isfinite(out.RootUVs[v].y))
+                        {
+                            state.Fail(std::format("'{}' user property '{}' has a non-finite root UV at curve {}",
+                                                   primPath, name, v));
+                            return false;
+                        }
+                    }
+                    continue;
+                }
+                if (name == kRoleParamName)
+                {
+                    if (values.size() != 1u || values[0] != std::floor(values[0]) ||
+                        !IsValidGroomCoatRole(static_cast<i32>(values[0])))
+                    {
+                        state.Fail(std::format("'{}' user property '{}' must be one GroomCoatRole value (0-{})",
+                                               primPath, name, GroomCoatRoleCount - 1));
+                        return false;
+                    }
+                    out.Coat.Role = static_cast<u8>(values[0]);
+                    out.HasRole = true;
+                    out.AnyCoat = true;
+                    continue;
+                }
+                bool known = false;
+                for (const CoatField& field : coatFields)
+                {
+                    if (name != field.Name)
+                    {
+                        continue;
+                    }
+                    known = true;
+                    if (values.size() != field.Arity)
+                    {
+                        state.Fail(std::format("'{}' user property '{}' holds {} values; it takes {}", primPath, name,
+                                               values.size(), field.Arity));
+                        return false;
+                    }
+                    for (sizet v = 0; v < field.Arity; ++v)
+                    {
+                        field.Target[v] = static_cast<f32>(values[v]);
+                    }
+                    out.AnyCoat = true;
+                }
+                if (!known)
+                {
+                    state.Fail(std::format("'{}' carries the groom user property '{}', which this build does not "
+                                           "implement. Importing without it would silently drop authored groom intent; "
+                                           "remove the property or use a build that supports it.",
+                                           primPath, name));
+                    return false;
+                }
+            }
+            return true;
+        }
+
         void ReadCurves(GroomTraversalState& state, const Abc::IObject& obj, const Imath::M44d& worldXf)
         {
             const std::string primPath = obj.getFullName();
@@ -289,6 +503,13 @@ namespace OloEngine
                 return;
             }
 
+            // ── User properties (issue #1533) ──
+            PrimUserGroomData user;
+            if (!ReadGroomUserProperties(state, schema.getUserProperties(), curveCount, primPath, user))
+            {
+                return;
+            }
+
             // ── Widths ──
             std::vector<f32> widthValues;
             AbcG::GeometryScope widthScope = AbcG::kUnknownScope;
@@ -312,6 +533,31 @@ namespace OloEngine
                     return;
                 }
                 widthValues.assign(values->get(), values->get() + values->size());
+
+                // Blender (5.x) writes a hair object's per-point widths under
+                // CONSTANT scope (issue #1533). A constant param holds ONE value,
+                // so a count that matches the control points or the curves says
+                // what the data is without ambiguity: read it by its count, and
+                // say so once. Any other count is still rejected below.
+                if (widthScope == AbcG::kConstantScope && widthValues.size() != 1u)
+                {
+                    const AbcG::GeometryScope byCount = widthValues.size() == static_cast<sizet>(totalVertices)
+                                                            ? AbcG::kVertexScope
+                                                        : widthValues.size() == curveCount ? AbcG::kUniformScope
+                                                                                           : AbcG::kConstantScope;
+                    if (byCount != AbcG::kConstantScope)
+                    {
+                        if (!state.NotedWidthScopeByCount)
+                        {
+                            state.NotedWidthScopeByCount = true;
+                            OLO_CORE_INFO("AlembicGroomImporter: '{}' declares constant-scope widths but holds one per "
+                                          "{} (as Blender's exporter writes them); read as {} scope.",
+                                          primPath, byCount == AbcG::kVertexScope ? "control point" : "curve",
+                                          ScopeName(byCount));
+                        }
+                        widthScope = byCount;
+                    }
+                }
 
                 // kVaryingScope on curves means one value per curve, like
                 // uniform — normalise here so the emit loop has two cases.
@@ -378,7 +624,19 @@ namespace OloEngine
                                   primPath);
                 }
             }
-            else if (!state.WarnedMissingUVs)
+            if (!user.RootUVs.empty())
+            {
+                if (!uvValues.empty())
+                {
+                    state.Fail(std::format("'{}' authors its root UVs twice, as `uvs` and as the '{}' user property; "
+                                           "remove one",
+                                           primPath, kRootUVPropertyName));
+                    return;
+                }
+                uvValues = std::move(user.RootUVs);
+                uvScope = AbcG::kUniformScope;
+            }
+            else if (uvValues.empty() && !state.WarnedMissingUVs)
             {
                 state.WarnedMissingUVs = true;
                 state.Warn(std::format("'{}' carries no `uvs`; every root UV is (0,0). Root UVs are what bind a "
@@ -402,6 +660,24 @@ namespace OloEngine
                 !ReadUniformIntParam(state, arbGeomParams, kGroupParamName, curveCount, primPath, subGroups) ||
                 !ReadUniformIntParam(state, arbGeomParams, kRoleParamName, curveCount, primPath, roles))
             {
+                return;
+            }
+            if (!user.Guides.empty())
+            {
+                if (!guideFlags.empty())
+                {
+                    state.Fail(std::format("'{}' marks its guides twice, as the '{}' attribute and as the user "
+                                           "property of that name; remove one",
+                                           primPath, kGuideParamName));
+                    return;
+                }
+                guideFlags = std::move(user.Guides);
+            }
+            if (user.HasRole && !roles.empty())
+            {
+                state.Fail(std::format("'{}' authors its coat role twice, as the per-curve '{}' attribute and as the "
+                                       "prim's user property; remove one",
+                                       primPath, kRoleParamName));
                 return;
             }
 
@@ -462,9 +738,9 @@ namespace OloEngine
             // GroomBuilder::AddGroup inferred from its NAME — which is the path
             // every groom exported by a DCC that has never heard of this engine
             // takes, and is why the name heuristic exists.
+            std::unordered_map<u16, i32> roleByGroup;
             if (!roles.empty())
             {
-                std::unordered_map<u16, i32> roleByGroup;
                 for (sizet c = 0; c < curveCount; ++c)
                 {
                     const u16 groupId = groupIdBySubGroup.empty() ? primGroupId : groupIdBySubGroup[c];
@@ -484,23 +760,51 @@ namespace OloEngine
                         return;
                     }
                 }
-                // Iterated as a SORTED vector, not as the map: the map's own
-                // order is unspecified, and although only the reasons (not the
-                // asset) would differ, GroomCooker.h's determinism rule is that
-                // nothing here iterates an unordered container to produce
-                // output.
-                std::vector<std::pair<u16, i32>> ordered(roleByGroup.begin(), roleByGroup.end());
-                std::sort(ordered.begin(), ordered.end());
-                std::vector<std::string> repairs;
-                for (const auto& [groupId, role] : ordered)
+            }
+
+            // THE COAT (issues #1251, #1533): the role, per group, from the
+            // attribute; every other field, per prim, from the user properties
+            // -- and the role from them too when the attribute is absent. A
+            // group given fields but no role keeps the one its NAME implies.
+            // Iterated in ascending group id, never in the map's own order:
+            // GroomCooker.h's determinism rule.
+            if (!roleByGroup.empty() || user.AnyCoat)
+            {
+                std::vector<std::pair<u16, std::string>> groups; // this prim's (id, name)
+                if (groupIdBySubGroup.empty())
                 {
-                    GroomCoatGroupDesc desc;
-                    desc.Role = static_cast<u8>(role);
+                    groups.emplace_back(primGroupId, primPath);
+                }
+                else
+                {
+                    for (sizet c = 0; c < groupIdBySubGroup.size(); ++c)
+                    {
+                        groups.emplace_back(groupIdBySubGroup[c], std::format("{}#{}", primPath, subGroups[c]));
+                    }
+                    std::sort(groups.begin(), groups.end());
+                    groups.erase(std::unique(groups.begin(), groups.end()), groups.end());
+                }
+                std::vector<std::string> repairs;
+                for (const auto& [groupId, groupName] : groups)
+                {
+                    const auto role = roleByGroup.find(groupId);
+                    if (role == roleByGroup.end() && !user.AnyCoat)
+                    {
+                        continue;
+                    }
+                    GroomCoatGroupDesc desc = user.AnyCoat ? user.Coat : GroomCoatGroupDesc{};
+                    if (role != roleByGroup.end())
+                    {
+                        desc.Role = static_cast<u8>(role->second);
+                    }
+                    else if (!user.HasRole)
+                    {
+                        desc.Role = static_cast<u8>(InferGroomCoatRole(groupName));
+                    }
                     if (!state.Builder.SetGroupCoat(groupId, desc, repairs))
                     {
                         state.Fail(std::format("'{}': {}", primPath,
-                                               repairs.empty() ? std::string("coat role assignment failed")
-                                                               : repairs.back()));
+                                               repairs.empty() ? std::string("coat assignment failed") : repairs.back()));
                         return;
                     }
                 }

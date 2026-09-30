@@ -75,6 +75,12 @@ namespace OloEngine::Tests
             // tests to plant an unsupported `groom_*` attribute.
             std::vector<std::string> ExtraIntParamNames;
 
+            // User properties (issue #1533), written the way Blender writes a
+            // hair object's custom properties: every one an ARRAY, ints as
+            // int32, floats as float64. In authoring order.
+            std::vector<std::pair<std::string, std::vector<i32>>> UserInts;
+            std::vector<std::pair<std::string, std::vector<f64>>> UserDoubles;
+
             // Applied as an OXform above the curves when not identity.
             Imath::M44d Transform = Imath::M44d();
         };
@@ -139,6 +145,21 @@ namespace OloEngine::Tests
                         paramSample.setScope(AbcG::kUniformScope);
                         param.set(paramSample);
                     };
+
+                    if (!prim.UserInts.empty() || !prim.UserDoubles.empty())
+                    {
+                        Abc::OCompoundProperty user = schema.getUserProperties();
+                        for (const auto& [name, values] : prim.UserInts)
+                        {
+                            Abc::OInt32ArrayProperty property(user, name);
+                            property.set(Abc::Int32ArraySample(values.data(), values.size()));
+                        }
+                        for (const auto& [name, values] : prim.UserDoubles)
+                        {
+                            Abc::ODoubleArrayProperty property(user, name);
+                            property.set(Abc::DoubleArraySample(values.data(), values.size()));
+                        }
+                    }
 
                     writeIntParam("groom_guide", prim.GuideFlags);
                     writeIntParam("groom_group", prim.SubGroups);
