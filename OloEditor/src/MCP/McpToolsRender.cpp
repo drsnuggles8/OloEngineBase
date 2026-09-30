@@ -7994,6 +7994,48 @@ namespace OloEngine::MCP
                 "'ledgerHazards' every access nobody declared or that ran on the wrong side of a write. Read-only; "
                 "requires the editor to be rendering in 3D mode.";
             tool.InputSchema = Schema::Object().NoAdditional();
+            tool.OutputSchema =
+                Schema::Object()
+                    .Prop("schema", Schema::String().Desc("Always 'olo-render-graph-out-of-band-schedule'."))
+                    .Prop("version", Schema::Int().Min(1))
+                    .Prop("finalPass", Schema::String())
+                    .Prop("passes", Schema::Array(Schema::Object()
+                                                      .Prop("name", Schema::String())
+                                                      .Prop("position", Schema::Int().Desc("Index in the execution order; -1 for a pass that was not scheduled."))
+                                                      .Prop("culled", Schema::Bool())
+                                                      .Prop("sideEffects", Schema::Array(Schema::String()))
+                                                      .Prop("sideEffectReason", Schema::String().Desc("Present only with side effects; 'UNDOCUMENTED' when RenderGraphOutOfBand.cpp gives none."))
+                                                      .Prop("outOfBand", Schema::Array(Schema::Object()
+                                                                                           .Prop("boundary", Schema::String())
+                                                                                           .Prop("kind", Schema::String().Enum({ "gpu-resource", "cpu-publication" }))
+                                                                                           .Prop("access", Schema::String().Enum({ "read", "read-previous-frame", "write" }))))
+                                                      .Prop("dependsOn", Schema::Array(Schema::Object()
+                                                                                           .Prop("pass", Schema::String())
+                                                                                           .Prop("orderingOnly", Schema::Bool())))))
+                    .Prop("boundaries", Schema::Array(Schema::Object()
+                                                          .Prop("name", Schema::String())
+                                                          .Prop("kind", Schema::String())
+                                                          .Prop("producers", Schema::Array(Schema::String()))
+                                                          .Prop("consumers", Schema::Array(Schema::String()))
+                                                          .Prop("previousFrameConsumers", Schema::Array(Schema::String()))
+                                                          .Prop("prologue", Schema::String())
+                                                          .Prop("epilogue", Schema::String())
+                                                          .Prop("owner", Schema::String())
+                                                          .Prop("reason", Schema::String())))
+                    .Prop("frameEpilogueReads", Schema::Array(Schema::Object().Prop("resource", Schema::String()).Prop("consumer", Schema::String())))
+                    .Prop("framePhaseWork", Schema::Array(Schema::Object()
+                                                              .Prop("name", Schema::String())
+                                                              .Prop("phase", Schema::String().Enum({ "prologue", "epilogue" }))
+                                                              .Prop("owner", Schema::String())
+                                                              .Prop("consumers", Schema::String())
+                                                              .Prop("reason", Schema::String())))
+                    .Prop("ledger", Schema::Array(Schema::Object()
+                                                      .Prop("boundary", Schema::String())
+                                                      .Prop("pass", Schema::String())
+                                                      .Prop("phase", Schema::String())
+                                                      .Prop("access", Schema::String())))
+                    .Prop("ledgerHazards", Schema::Array(Schema::String()))
+                    .Required({ "schema", "version", "passes", "boundaries", "framePhaseWork", "ledger", "ledgerHazards" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderGraphSchedule;
             registry.Register(std::move(tool));
