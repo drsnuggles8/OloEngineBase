@@ -272,11 +272,22 @@ namespace OloEngine
             }
         }
 
+        // Log once per distinct result: validation can run every frame, and a
+        // persistent declaration fault must not flood the log.
+        std::string digest;
+        for (const Hazard& hazard : hazards)
+        {
+            if (hazard.Kind == HazardKind::OutOfBandOrdering || hazard.Kind == HazardKind::UnregisteredOutOfBandBoundary)
+                digest.append(hazard.Message.ToView()).push_back(';');
+        }
+        if (std::string_view(digest) == m_LastLoggedOutOfBandDeclarationDigest.ToView())
+            return;
         for (const Hazard& hazard : hazards)
         {
             if (hazard.Kind == HazardKind::OutOfBandOrdering || hazard.Kind == HazardKind::UnregisteredOutOfBandBoundary)
                 OLO_CORE_ERROR("RenderGraph hazard: {}", hazard.Message.ToView());
         }
+        m_LastLoggedOutOfBandDeclarationDigest = FString(digest);
     }
 
     // ------------------------------------------------------------------------

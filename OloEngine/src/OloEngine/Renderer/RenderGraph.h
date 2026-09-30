@@ -1613,6 +1613,8 @@ namespace OloEngine
         // a rebuild because it changes the execution order.
         bool m_LastBuildReverseTieBreak = false;
         FString m_LastLoggedOutOfBandLedgerDigest;
+        // AppendOutOfBandDeclarationHazards is const; its log-once state is not.
+        mutable FString m_LastLoggedOutOfBandDeclarationDigest;
         TArray64<Hazard> m_LastOutOfBandLedgerHazards;
         RGTransparentStringMap<MemoryBarrierFlags> m_PassBarrierFlags;
         TArray64<PlannedBarrier> m_PlannedBarriers;

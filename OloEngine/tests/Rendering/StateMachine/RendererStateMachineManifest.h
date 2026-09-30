@@ -314,7 +314,9 @@ namespace OloEngine::Tests::StateMachine
         NegativeControlRow{ "omitted-tlas-read.cpu",
                             "a TLAS reader's declaration dropped: it schedules ahead of the real RayTracingScenePass",
                             "RGOutOfBand::SetOmittedDeclarationFault(\"TlasReader/SceneTLAS\")",
-                            "schedule-reversed.gl (order) and out-of-band-ledger", Placement::CpuEverywhere,
+                            "out-of-band-ledger (a CPU ledger frame reports the undeclared trace; the test also "
+                            "shows the reader scheduled ahead of the build)",
+                            Placement::CpuEverywhere,
                             "RenderGraphOutOfBand.AccelerationStructureChainOrdersByDeclarationNotRegistration" },
         NegativeControlRow{ "draw-order.cpu", "a batcher that groups blended draws on a partial key",
                             "test-local key", "batch-order.cpu", Placement::CpuEverywhere,

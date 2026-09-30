@@ -452,6 +452,14 @@ namespace OloEngine
         m_PassAccessDeclarations.clear();
         m_PassFeedbackDeclarations.clear();
         m_PassLifetimeExtensions.clear();
+        // Out-of-band state (#1331): the epilogue objects are pooled
+        // framebuffers that must not outlive the pool, and stale declarations
+        // must not reach the schedule export or the validator.
+        m_PassOutOfBandDeclarations.clear();
+        m_OrderingOnlyEdges.clear();
+        m_FrameEpilogueFramebuffers.clear();
+        m_FrameEpilogueTextures.clear();
+        m_FrameEpilogueReads.Reset();
         m_PassBarrierFlags.clear();
         m_PlannedBarriers.Reset();
         m_BuildDiagnostics.Reset();
@@ -530,6 +538,13 @@ namespace OloEngine
         m_PassAccessDeclarations.clear();
         m_PassFeedbackDeclarations.clear();
         m_PassLifetimeExtensions.clear();
+        // Out-of-band state (#1331): the epilogue objects are pooled
+        // framebuffers that must not outlive the pool, and stale declarations
+        // must not reach the schedule export or the validator.
+        m_PassOutOfBandDeclarations.clear();
+        m_OrderingOnlyEdges.clear();
+        m_FrameEpilogueFramebuffers.clear();
+        m_FrameEpilogueTextures.clear();
         m_PassBarrierFlags.clear();
         m_PlannedBarriers.Reset();
         m_BuildDiagnostics.Reset();

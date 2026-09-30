@@ -16,10 +16,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         SetName("RayTracingScenePass");
-        // The node's whole output is a VkAccelerationStructureKHR, which the
-        // graph's resource model has no kind for — so backward reachability
-        // from the final pass sees a node nobody reads and prunes it. Same
-        // flag and same reason as VirtualShadowMapMarkPass.
+        // The TLAS is the SceneTLAS out-of-band boundary (#1331), so a tracing
+        // pass that reads it roots this node. NeverCull stays for the frames
+        // with NO tracer: the BLAS/TLAS refit chain must still advance every
+        // frame, and the MCP ray probe (olo_rt_trace_ray) runs inside Execute.
         SetSideEffects(SideEffect::NeverCull);
         // Compute work, and an async candidate: nothing in the frame's
         // graphics work depends on it until a ray-query consumer declares a

@@ -719,7 +719,13 @@ namespace OloEngine::Tests
             graph.BuildFrameGraph();
             const bool reordered = PositionOf(graph, "TlasReader") < PositionOf(graph, "RayTracingScenePass");
             EXPECT_TRUE(reordered) << "the control is vacuous: something other than the declaration ordered the reader";
-            if (reordered)
+
+            // And the ledger sees the trace nobody declared. The real passes
+            // return early without a scene, so this frame runs headless.
+            const auto hazards = RunLedgerFrame(graph);
+            const bool caught = HasHazard(hazards, RenderGraph::HazardKind::UndeclaredOutOfBandAccess, RGOutOfBandBoundaries::SceneTLAS);
+            EXPECT_TRUE(caught) << Describe(hazards);
+            if (reordered && caught)
                 StateMachine::Coverage::RecordComparison("omitted-tlas-read.cpu");
         }
     }
