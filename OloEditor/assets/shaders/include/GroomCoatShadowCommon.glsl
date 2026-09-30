@@ -22,11 +22,13 @@
 // WHAT IT COMPUTES. tau = the expected number of fibre crossings between a
 // point and the light, from which transmittance is exp(-tau * (1 - exp(-kappa)))
 // — the MEAN of the per-ray transmittances rather than the transmittance of the
-// mean crossing count, which is the Jensen correction #1360 made. Purely
+// mean crossing count, which is the Jensen correction #1360 made. tau is purely
 // geometric — fibre areal density times the sine of the angle between the ray
-// and the local fibre direction, integrated along the ray. It sees NO colour:
-// the pigment already attenuates inside each fibre in GroomFibreCommon.glsl,
-// and applying it twice is the double-count the issue's scope note forbids.
+// and the local fibre direction, integrated along the ray — and sees NO colour:
+// the pigment attenuates inside the SHADED fibre in GroomFibreCommon.glsl.
+// oloGroomCoatForwardTransmittance (#1533) is the one place colour enters, and
+// it is the pigment of the fibres CROSSED, which is a different fibre on the
+// same path rather than the same absorption counted twice.
 //
 // THE SAMPLER IS A PARAMETER, not a declaration in this header. That is the
 // FogVolumeCommon.glsl pattern (evaluateFogVolumesAtPointVDB takes its
@@ -360,6 +362,27 @@ float oloGroomCoatTransmittance(float opticalDepth, float kappa)
 	// the exp() it feeds.
 	float perCrossing = 1.0 - exp(-kappa);
 	return clamp(exp(-perCrossing * opticalDepth), 0.0, 1.0);
+}
+
+// THE SAME CROSSINGS, WITH WHAT EACH ONE PASSES ON (dual scattering, #1533).
+// Twin of GroomCoatShadow::CoatForwardTransmittance; the formula and why it is
+// the generating function above at a coloured per-crossing survival are there.
+// oloGroomCoatTransmittance is the part of this that arrives UNSCATTERED, and
+// the strand pass shades the two parts differently, so both are kept.
+//
+// The guards are oloGroomCoatTransmittance's, in its order: a corrupt tau or
+// kappa reads fully lit in every channel. isnan on forwardScatter rather than
+// trusting clamp(), which returns an unspecified value for a NaN.
+vec3 oloGroomCoatForwardTransmittance(float opticalDepth, float kappa, vec3 forwardScatter)
+{
+	if (!(opticalDepth > 0.0) || !(kappa > 0.0) || isinf(opticalDepth) || isinf(kappa))
+	{
+		return vec3(1.0);
+	}
+	vec3 forwarded = clamp(forwardScatter, vec3(0.0), vec3(1.0));
+	forwarded = mix(forwarded, vec3(0.0), bvec3(isnan(forwardScatter)));
+	float perCrossing = 1.0 - exp(-kappa);
+	return clamp(exp(-(perCrossing * opticalDepth) * (vec3(1.0) - forwarded)), vec3(0.0), vec3(1.0));
 }
 
 #endif // OLO_GROOM_COAT_SHADOW_COMMON_GLSL

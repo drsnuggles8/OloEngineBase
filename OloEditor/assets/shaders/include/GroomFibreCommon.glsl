@@ -43,10 +43,12 @@
 #define OLO_GROOM_FIBRE_DEBUG_TRT 3
 #define OLO_GROOM_FIBRE_DEBUG_RESIDUAL 4
 #define OLO_GROOM_FIBRE_DEBUG_TANGENT 5
+#define OLO_GROOM_FIBRE_DEBUG_MULTIPLE 6
 
 #define OLO_GROOM_FIBRE_PI 3.14159265358979323846
 #define OLO_GROOM_FIBRE_TWO_PI 6.28318530717958647692
 #define OLO_GROOM_FIBRE_INV_TWO_PI 0.15915494309189533577
+#define OLO_GROOM_FIBRE_SQRT_TWO_PI 2.50662827463100050242
 
 // Twin of GroomFibreParams. Filled from the strand pass's UBO by
 // oloGroomFibreFromUniforms so the unpacking lives in one place.
@@ -484,6 +486,44 @@ OloGroomFibreLobes oloGroomFibreAmbientResponse(OloGroomFibre fibre, float sinTh
 vec3 oloGroomFibreEnvironmentRadiance(samplerCube irradianceMap, vec3 direction, float iblIntensity)
 {
 	return texture(irradianceMap, direction).rgb * iblIntensity;
+}
+
+// THE LOCAL MULTIPLE BACK-SCATTER (dual scattering, #1533), times
+// cos(theta_i). Twin of GroomFibreBackScatterProjected, which states the
+// normalisation: A_b spread as a Gaussian in theta_h and a cosine over the
+// backward azimuths, integrating to A_b over dTheta_i dPhi. The cosine of the
+// measure is inside it, so the caller multiplies by the light's radiance and
+// NOT by oloGroomFibreCosineWeight again.
+//
+// `multipleBackScatter`, `shift` and `width` are the per-groom constants
+// GroomFibreComputeDualScattering derived; `cosPhi` is the cosine of the
+// azimuth difference, 1 straight back.
+// Twin of GroomFibreErf: Abramowitz & Stegun 7.1.26, term for term.
+float oloGroomFibreErf(float x)
+{
+	float ax = abs(x);
+	float t = 1.0 / (1.0 + (0.3275911 * ax));
+	float poly = t * (0.254829592 + (t * (-0.284496736 + (t * (1.421413741 + (t * (-1.453152027 + (t * 1.061405429))))))));
+	float magnitude = 1.0 - (poly * exp(-ax * ax));
+	return (x < 0.0) ? -magnitude : magnitude;
+}
+
+// The Gaussian is renormalised over the theta_h range theta_i can reach — half
+// of it at a grazing view, so without this a silhouette strand would lose half
+// its back-scatter. GroomFibreBackScatterProjected states the range.
+vec3 oloGroomFibreBackScatterProjected(vec3 multipleBackScatter, float shift, float width, float sinThetaO,
+                                       float sinThetaI, float cosPhi)
+{
+	float thetaO = oloGroomFibreSafeASin(sinThetaO);
+	float thetaH = 0.5 * (oloGroomFibreSafeASin(sinThetaI) + thetaO);
+	float w = max(width, 1.0e-3);
+	float d = thetaH - shift;
+	float gaussian = exp(-(d * d) / (2.0 * w * w)) / (w * OLO_GROOM_FIBRE_SQRT_TWO_PI);
+	float k = 1.0 / (w * 1.41421356237309504880);
+	float lo = 0.5 * (thetaO - (0.5 * OLO_GROOM_FIBRE_PI));
+	float hi = 0.5 * (thetaO + (0.5 * OLO_GROOM_FIBRE_PI));
+	float kept = max(0.5 * (oloGroomFibreErf((hi - shift) * k) - oloGroomFibreErf((lo - shift) * k)), 1.0e-4);
+	return multipleBackScatter * ((gaussian / kept) * max(cosPhi, 0.0) * 0.25);
 }
 
 // The fibre's projected width as seen from `wi`: a strand lit end-on

@@ -625,6 +625,7 @@ case 2438904161u: // GroomCoatShadowComponent
             comp.m_Mode = v;
     }
     if (!SceneBinIO::Read(reader, comp.m_Enabled)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_MultipleScattering)) return false;
     break;
 }
 case 2551117928u: // GroomComponent

@@ -9046,12 +9046,14 @@ namespace OloEngine
 
             ImGui::SeparatorText("Diagnostics");
             {
-                constexpr std::array<const char*, 6> kDebug{ "Full",     "R only",       "TT only",
-                                                             "TRT only", "Residual only", "Tangent frame" };
+                constexpr std::array<const char*, 7> kDebug{ "Full",          "R only",        "TT only",
+                                                             "TRT only",      "Residual only", "Tangent frame",
+                                                             "Multiple scattering" };
+                static_assert(kDebug.size() == static_cast<sizet>(GroomFibreDebugMode::Count));
                 int debug = static_cast<int>(component.m_DebugMode);
                 if (ImGui::Combo("Show", &debug, kDebug.data(), static_cast<int>(kDebug.size())))
                 {
-                    component.m_DebugMode = static_cast<u8>(std::clamp(debug, 0, 5));
+                    component.m_DebugMode = static_cast<u8>(std::clamp(debug, 0, static_cast<int>(kDebug.size()) - 1));
                 }
                 ImGui::TextDisabled("A pale coat that looks wrong is almost always a TT that is too dim");
                 ImGui::TextDisabled("or a TRT that is too bright, and the sum cannot tell you which.");
@@ -9722,6 +9724,16 @@ namespace OloEngine
                 ImGui::SetTooltip("Off renders the unshadowed coat the fibre material shipped (#1247).\n"
                                   "That is the A/B control this feature's evidence is measured against, not a\n"
                                   "performance switch.");
+            }
+            ImGui::BeginDisabled(!component.m_Enabled);
+            ImGui::Checkbox("Multiple scattering", &component.m_MultipleScattering);
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            {
+                ImGui::SetTooltip("Dual scattering (#1533): the light the coat's other fibres forward and scatter\n"
+                                  "back. It is what makes a pale coat golden rather than grey in its depths.\n"
+                                  "Off treats every fibre crossing as an opaque, colourless occluder. Needs the\n"
+                                  "coat shadow on: the volume is what counts the fibres.");
             }
 
             ImGui::SeparatorText("Representation");

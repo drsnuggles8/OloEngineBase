@@ -158,6 +158,10 @@ namespace OloEngine
         // is the one input every lobe shares, so a coat that shades wrong
         // everywhere is checked here first.
         Tangent = 5,
+        // The light the coat's OTHER fibres pass on (dual scattering, #1533):
+        // the local multiple back-scatter. Zero on a coat with no density
+        // volume, because without one there are no neighbours to count.
+        MultipleScattering = 6,
 
         Count
     };
@@ -273,6 +277,80 @@ namespace OloEngine
     };
 
     // ------------------------------------------------------------------------
+    // Dual scattering (#1533)
+    // ------------------------------------------------------------------------
+    // WHAT A FIBRE'S NEIGHBOURS DO. Everything above is ONE fibre. In a dense
+    // coat almost none of the light a strand receives comes straight from the
+    // light: it has already passed through other strands, and most of what a
+    // pale fibre intercepts it passes ON — forward, through TT, with the
+    // fibre's colour — rather than absorbing. A coat of pale fibres is golden
+    // because of that transport, not because any one fibre is: the colour
+    // compounds with every crossing. Treating each crossing as an opaque,
+    // colourless occluder (the #1248 volume alone) turns such a coat grey and
+    // its depths charcoal, and lighting it with the single-fibre model alone
+    // leaves it dark wherever the light is not behind the strand.
+    //
+    // THE MODEL IS ZINKE ET AL. 2008, "Dual Scattering Approximation for Fast
+    // Multiple Scattering in Hair", the approximation real-time hair renderers
+    // use for exactly this. It splits the transport in two:
+    //
+    //   GLOBAL  light arriving through the coat keeps the fraction a_f of what
+    //           each crossing intercepts (GroomCoatShadow::
+    //           CoatForwardTransmittance), where the #1248 term kept none;
+    //   LOCAL   light scattered back towards the viewer by the fibres around
+    //           the shaded one, A_b, spread as a broad lobe
+    //           (GroomFibreBackScatterProjected).
+    //
+    // All of it is derived from the SAME attenuations and azimuthal lobes as
+    // the single-fibre model, once per groom, so a pigment change moves both
+    // halves together and nothing here is a second, drifting description of
+    // the fibre.
+    //
+    // NO DOUBLE COUNT with #1247's in-fibre absorption, and the boundary is
+    // stated rather than implied: exp(-sigma_a * chord) attenuates light inside
+    // the fibre being SHADED, once, and a_f is the pigment of the fibres the
+    // light crossed on its WAY there, once each. They are different fibres on
+    // one path, which is what a coat is.
+
+    /// Zinke's density factors d_f and d_b: how much of the transport a real
+    /// coat's packing actually delivers, against the idealised layer the
+    /// formulas assume. 0.7 is the paper's value for hair; a coat constant,
+    /// not a material one.
+    inline constexpr f32 kGroomCoatDensityFactor = 0.7f;
+
+    /// One fibre's returned energy, split by the half-space it leaves into.
+    /// FORWARD is the half the light was travelling towards (|phi| > pi/2 in
+    /// this model's azimuth convention, where phi = 0 is straight back),
+    /// BACKWARD the half it came from. Forward + Backward is the fibre's albedo
+    /// at that angle, exactly: the split partitions the same quadrature.
+    struct GroomFibreScatterSplit
+    {
+        glm::vec3 Forward{ 0.0f };
+        glm::vec3 Backward{ 0.0f };
+    };
+
+    /// The per-groom constants the strand pass needs, derived by
+    /// GroomFibreComputeDualScattering.
+    struct GroomFibreDualScattering
+    {
+        /// a_f: the fraction of intercepted light one crossing passes on
+        /// forward, averaged over incidence.
+        glm::vec3 ForwardScatter{ 0.0f };
+        /// a_b: the fraction it sends back, averaged the same way.
+        glm::vec3 BackwardScatter{ 0.0f };
+        /// A_b: the light the fibres BEHIND a strand scatter back to it,
+        /// through every forward-back-forward path of up to three back
+        /// scatters (Zinke's A1 + A3).
+        glm::vec3 MultipleBackScatter{ 0.0f };
+        /// The back-scatter lobe's centre and width, in radians of theta_h =
+        /// (theta_i + theta_o) / 2. One value for all three channels.
+        f32 BackShift = 0.0f;
+        f32 BackWidth = 0.0f;
+
+        [[nodiscard]] bool operator==(const GroomFibreDualScattering&) const = default;
+    };
+
+    // ------------------------------------------------------------------------
     // Derived parameters
     // ------------------------------------------------------------------------
     // Everything the evaluation needs, precomputed once per groom. This is the
@@ -300,6 +378,11 @@ namespace OloEngine
         f32 Eta = kGroomFibreDefaultIOR;
         f32 Intensity = 1.0f;
         u32 HSamples = 4;
+
+        /// What this fibre does to its neighbours' light, derived from the
+        /// fields above by MakeGroomFibreParams. Read only where the coat has
+        /// a density volume to count the neighbours with.
+        GroomFibreDualScattering Dual;
 
         [[nodiscard]] bool operator==(const GroomFibreParams&) const = default;
     };
@@ -377,6 +460,42 @@ namespace OloEngine
     [[nodiscard]] glm::vec3 GroomFibreSigmaAForAlbedo(const glm::vec3& color, f32 eta, u32 hSamples) noexcept;
 
     [[nodiscard]] GroomFibreParams MakeGroomFibreParams(const GroomFibreAuthoring& authored) noexcept;
+
+    /// The forward/backward split of the far field at `sinTheta`, through the
+    /// shipped quadrature: the same h nodes, the same attenuations and the same
+    /// node-widened azimuthal lobes GroomFibreEvaluateFar sums, each lobe's
+    /// mass on the backward half-circle taken from the trimmed logistic's
+    /// closed-form CDF. The residual is isotropic, so it splits evenly.
+    [[nodiscard]] GroomFibreScatterSplit GroomFibreScatterSplitAt(const GroomFibreParams& params,
+                                                                  f32 sinTheta) noexcept;
+
+    /// The dual-scattering constants for `params` (whose Dual field it
+    /// ignores). a_f and a_b are the split averaged over a sphere of incident
+    /// directions (four Gauss-Legendre nodes in sin(theta)); A_b, the lobe's
+    /// shift and its width follow Zinke et al. 2008 from those. See the
+    /// .cpp for each formula and the path it sums.
+    [[nodiscard]] GroomFibreDualScattering GroomFibreComputeDualScattering(const GroomFibreParams& params) noexcept;
+
+    /// The LOCAL multiple back-scatter, times cos(theta_i): the projected lobe
+    /// a light's radiance is multiplied by, in the same units as
+    /// GroomFibreEvaluateFar times GroomFibreCosineWeight.
+    ///
+    /// A_b spread as a Gaussian in theta_h (centre BackShift, width
+    /// BackWidth) and a cosine over the backward azimuths, normalised so that
+    /// integrating it over dTheta_i dPhi returns A_b at EVERY theta_o: the
+    /// Gaussian is renormalised over the theta_h range theta_i can reach, which
+    /// at a grazing view is half of it. The cosine of the measure is already
+    /// inside, which is why the lobe itself never divides by cos(theta_i).
+    /// Zero over the forward half-circle, continuously.
+    ///
+    /// `cosPhi` is the cosine of the azimuth difference, 1 straight back.
+    [[nodiscard]] glm::vec3 GroomFibreBackScatterProjected(const GroomFibreDualScattering& dual, f32 sinThetaO,
+                                                           f32 sinThetaI, f32 cosPhi) noexcept;
+
+    /// The error function as Abramowitz & Stegun 7.1.26 (|error| < 1.5e-7),
+    /// the form the shader twin can spell. Exposed for the back-scatter
+    /// lobe's normalisation and the test that bounds it against std::erf.
+    [[nodiscard]] f32 GroomFibreErf(f32 x) noexcept;
 
     // ------------------------------------------------------------------------
     // Evaluation

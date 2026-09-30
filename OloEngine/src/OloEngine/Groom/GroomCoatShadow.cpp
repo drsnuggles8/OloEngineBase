@@ -1025,6 +1025,26 @@ namespace OloEngine::GroomCoatShadow
         return static_cast<f32>(std::clamp(t, 0.0, 1.0));
     }
 
+    glm::vec3 CoatForwardTransmittance(f64 opticalDepth, f32 kappa, const glm::vec3& forwardScatter) noexcept
+    {
+        // The same guards as CoatTransmittance, in the same order, so the two
+        // agree on every input where a_f cannot matter.
+        if (!std::isfinite(opticalDepth) || opticalDepth <= 0.0 || !std::isfinite(kappa) || kappa <= 0.0f)
+        {
+            return glm::vec3(1.0f);
+        }
+        const f64 perCrossing = -std::expm1(-static_cast<f64>(kappa));
+        glm::vec3 out(0.0f);
+        for (int c = 0; c < 3; ++c)
+        {
+            const f64 forwarded =
+                std::isfinite(forwardScatter[c]) ? std::clamp(static_cast<f64>(forwardScatter[c]), 0.0, 1.0) : 0.0;
+            const f64 t = std::exp(-opticalDepth * perCrossing * (1.0 - forwarded));
+            out[c] = std::isfinite(t) ? static_cast<f32>(std::clamp(t, 0.0, 1.0)) : 0.0f;
+        }
+        return out;
+    }
+
     // =========================================================================
     // Density volume
     // =========================================================================

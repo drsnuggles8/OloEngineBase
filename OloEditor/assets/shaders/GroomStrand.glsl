@@ -112,6 +112,13 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	// stream is final and neither lane is read.
 	ivec4 u_GroomDeformModes;      // x = mode, y = simulated, z = roots, w = guide slots
 	ivec4 u_GroomDeformBases;      // x = root base, y = slot base, z = displacement base, w = displacements
+
+	// Dual scattering (#1533): what the coat's other fibres pass on. The .w
+	// density factors are ZERO unless this draw has a built, bound coat
+	// volume, so a coat without one shades exactly as #1247/#1248 did.
+	vec4 u_GroomFibreForwardScatter; // rgb = a_f, w = d_f
+	vec4 u_GroomFibreBackScatter;    // rgb = A_b, w = d_b
+	vec4 u_GroomFibreBackLobe;       // x = shift, y = width (radians of theta_h), zw unused
 };
 
 layout(location = 0) out vec2 v_Coords;
@@ -498,6 +505,13 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	// stream is final and neither lane is read.
 	ivec4 u_GroomDeformModes;      // x = mode, y = simulated, z = roots, w = guide slots
 	ivec4 u_GroomDeformBases;      // x = root base, y = slot base, z = displacement base, w = displacements
+
+	// Dual scattering (#1533): what the coat's other fibres pass on. The .w
+	// density factors are ZERO unless this draw has a built, bound coat
+	// volume, so a coat without one shades exactly as #1247/#1248 did.
+	vec4 u_GroomFibreForwardScatter; // rgb = a_f, w = d_f
+	vec4 u_GroomFibreBackScatter;    // rgb = A_b, w = d_b
+	vec4 u_GroomFibreBackLobe;       // x = shift, y = width (radians of theta_h), zw unused
 };
 
 vec2 octEncode(vec3 n)
@@ -553,8 +567,18 @@ void oloGroomAccumulate(inout OloGroomFibreLobes total, OloGroomFibreLobes add, 
 // bias direction passed below is L: an offset TOWARDS the light, which is the
 // direction the exit offset already moves in and the only direction on a fibre
 // that means anything for occlusion.
-float oloGroomSceneShadow(LightData light, int lightType, vec3 L)
+//
+// THE CASCADES ARE THE FIRST DIRECTIONAL LIGHT'S. Scene.cpp builds them for UBO
+// index 0 only, so a second directional light reads 1 here rather than the
+// first one's map — the same rule every lit surface shader applies.
+//
+// `known` says whether a map ANSWERED — whether the body's occlusion of this
+// light is accounted for at all. 1.0 with known == false is "nothing here can
+// say", not "lit", and dual scattering needs the difference (see
+// oloGroomShadeFibre).
+float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L, out bool known)
 {
+	known = false;
 	if (u_GroomCoatModes.y == 0)
 	{
 		return 1.0;
@@ -567,7 +591,7 @@ float oloGroomSceneShadow(LightData light, int lightType, vec3 L)
 
 	if (lightType == DIRECTIONAL_LIGHT)
 	{
-		if (u_DirectionalShadowEnabled == 0)
+		if (u_DirectionalShadowEnabled == 0 || lightIndex != 0)
 		{
 			return 1.0;
 		}
@@ -575,6 +599,7 @@ float oloGroomSceneShadow(LightData light, int lightType, vec3 L)
 		// are not rendered at all in that case, so this is an either/or rather
 		// than a blend. Read at runtime rather than through a shader variant,
 		// as the lit shaders do.
+		known = true;
 		if (VSM_ENABLED != 0)
 		{
 			return vsmShadowFactor(shadowPos, L);
@@ -591,10 +616,12 @@ float oloGroomSceneShadow(LightData light, int lightType, vec3 L)
 		float localShadow;
 		if (vsmLocalShadow(shadowPos, L, atlasEntry, false, localShadow))
 		{
+			known = true;
 			return localShadow;
 		}
 		if (atlasEntry >= 0 && atlasEntry < u_AtlasEntryCount)
 		{
+			known = true;
 			return calculateAtlasEntryShadow(shadowPos, u_AtlasEntryMatrices[atlasEntry],
 			                                 u_AtlasEntryScaleOffset[atlasEntry], u_ShadowAtlas, u_ShadowAtlasRaw,
 			                                 u_AtlasDepthBias, u_AtlasResolution, u_SoftShadowMode,
@@ -612,10 +639,12 @@ float oloGroomSceneShadow(LightData light, int lightType, vec3 L)
 		float localShadow;
 		if (vsmLocalShadow(shadowPos, L, baseEntry, true, localShadow))
 		{
+			known = true;
 			return localShadow;
 		}
 		if (baseEntry >= 0 && baseEntry + 5 < u_AtlasEntryCount)
 		{
+			known = true;
 			int entry = baseEntry + atlasCubeFace(shadowPos - light.position.xyz);
 			return calculateAtlasEntryShadow(shadowPos, u_AtlasEntryMatrices[entry],
 			                                 u_AtlasEntryScaleOffset[entry], u_ShadowAtlas, u_ShadowAtlasRaw,
@@ -640,10 +669,11 @@ float oloGroomSceneShadow(LightData light, int lightType, vec3 L)
 // below is untouched.
 //
 // THAT IS WHERE THE DOUBLE-COUNT BOUNDARY LIVES. #1247's per-fibre
-// attenuations already absorb light INSIDE one fibre, so the coat term must be
-// geometric and colourless or the pigment is applied twice — which is the trap
-// the issue's scope note names. tau sees no colour: it is fibre length density
-// times diameter times the sine of the angle to the fibre, and nothing else.
+// attenuations absorb light INSIDE the fibre being shaded, so tau itself stays
+// geometric and colourless: fibre length density times diameter times the sine
+// of the angle to the fibre, and nothing else. What dual scattering (below)
+// adds is the pigment of the OTHER fibres the light crossed on its way here —
+// once per crossing, never the shaded fibre's again.
 //
 // OCCLUSION BY THE REST OF THE SCENE is the shadow map's job, not this
 // volume's, and it multiplies the same incoming radiance through
@@ -652,7 +682,38 @@ float oloGroomSceneShadow(LightData light, int lightType, vec3 L)
 // deliberately contains the groom's own strands and nothing else. With the coat
 // term active the geometric root-to-tip ramp is bypassed — see main() —
 // because that ramp was the crude stand-in for exactly this.
-vec3 oloGroomShadeFibre()
+//
+// DUAL SCATTERING (#1533) IS THE LIGHT THE COAT'S OTHER FIBRES PASS ON, and it
+// runs only on a coat with a density volume, because the volume is what counts
+// them: u_GroomFibreBackScatter.w is zero otherwise and every term below
+// reduces to the #1247/#1248 picture. Zinke et al. 2008, with the constants
+// GroomFibreComputeDualScattering derived from THIS fibre's attenuations:
+//
+//   * The volume's crossings no longer destroy what they intercept. Of the
+//     light that reaches this strand through the coat, the part no fibre
+//     intercepted (oloGroomCoatTransmittance) is shaded as before, and the part
+//     other fibres FORWARDED (oloGroomCoatForwardTransmittance minus that) is
+//     shaded as scattered light, weighted by the density factor d_f.
+//   * The fibres around this one scatter light back to it: the local lobe A_b,
+//     for the direct part and — pi times, as Zinke integrates it over the
+//     azimuths the scattered light arrives from — for the forwarded part.
+//
+// A pale coat's colour lives in these terms: its fibres absorb little each, and
+// the gold compounds with every crossing. Without them such a coat renders grey
+// in its depths, and bright only where the environment's uniform transmission
+// term — a lone fibre's answer — lit it from a direction the body blocks.
+//
+// THE FORWARDED PART IS NOT SCATTERED IN ANGLE. Zinke widens the single-scatter
+// lobes by the spread the forwarded light picked up; this shades it with the
+// unwidened ones, which keeps highlights a little crisper in the coat's depths
+// than they should be. Stated rather than hidden, like the far-field choice.
+struct OloGroomShading
+{
+	OloGroomFibreLobes Single; // this fibre's own four paths
+	vec3 Multiple;             // what the coat's other fibres scattered back to it
+};
+
+OloGroomShading oloGroomShadeFibre()
 {
 	OloGroomFibre fibre = oloGroomFibreFromUniforms();
 
@@ -664,6 +725,16 @@ vec3 oloGroomShadeFibre()
 	total.TT = vec3(0.0);
 	total.TRT = vec3(0.0);
 	total.Residual = vec3(0.0);
+	vec3 multiple = vec3(0.0);
+
+	bool dualScattering = u_GroomFibreBackScatter.w > 0.0;
+	vec3 forwardScatter = u_GroomFibreForwardScatter.rgb;
+	float densityForward = u_GroomFibreForwardScatter.w;
+	vec3 multipleBackScatter = u_GroomFibreBackScatter.rgb;
+	float densityBack = u_GroomFibreBackScatter.w;
+	float sinThetaView = clamp(dot(T, V), -1.0, 1.0);
+	vec3 perpView = V - (T * sinThetaView);
+	float perpViewLength = length(perpView);
 
 	int lightCount = min(u_LightCount, MAX_LIGHTS);
 	for (int i = 0; i < MAX_LIGHTS; ++i)
@@ -739,9 +810,24 @@ vec3 oloGroomShadeFibre()
 		float coatShadow = oloGroomCoatTransmittance(coatTau, u_GroomCoatBoundsMin.w);
 		// The scene's occlusion of this light (#1323): 1 unless this coat
 		// receives scene shadows.
-		float sceneShadow = oloGroomSceneShadow(light, lightType, L);
+		bool occlusionKnown = false;
+		float sceneShadow = oloGroomSceneShadow(light, i, lightType, L, occlusionKnown);
+		// What the other fibres forwarded on top of it (dual scattering) —
+		// ONLY where a shadow map accounts for the body. The volume holds
+		// strands, not the body, so a light nothing shadows would forward
+		// straight through the animal: a rim light behind the head lit the front
+		// of the face through it, as a frost of backlit strands. Unscattered,
+		// such a light is still stopped by the coat's two root layers, which is
+		// the #1248 behaviour; that part stays.
+		vec3 forwarded = vec3(0.0);
+		if (dualScattering && occlusionKnown)
+		{
+			forwarded = max(oloGroomCoatForwardTransmittance(coatTau, u_GroomCoatBoundsMin.w, forwardScatter) -
+			                    vec3(coatShadow),
+			                vec3(0.0));
+		}
 
-		vec3 radiance = light.color.rgb * light.color.w * attenuation * coatShadow * sceneShadow;
+		vec3 radiance = light.color.rgb * light.color.w * attenuation * sceneShadow;
 
 		// THE FIBRE'S PROJECTED WIDTH, not a surface N.L. A strand lit along
 		// its own length intercepts almost no light per unit length, and this
@@ -754,7 +840,26 @@ vec3 oloGroomShadeFibre()
 			continue;
 		}
 
-		oloGroomAccumulate(total, oloGroomFibreEvaluateDirections(fibre, T, V, L), radiance * cosWeight);
+		vec3 arriving = radiance * (vec3(coatShadow) + (forwarded * densityForward));
+		oloGroomAccumulate(total, oloGroomFibreEvaluateDirections(fibre, T, V, L), arriving * cosWeight);
+
+		if (dualScattering)
+		{
+			float sinThetaLight = clamp(dot(T, L), -1.0, 1.0);
+			vec3 perpLight = L - (T * sinThetaLight);
+			float perpLightLength = length(perpLight);
+			float cosPhi = 0.0;
+			if (perpViewLength > 1.0e-6 && perpLightLength > 1.0e-6)
+			{
+				cosPhi = dot(perpView, perpLight) / (perpViewLength * perpLightLength);
+			}
+			// Projected: the lobe already carries cos(theta_i).
+			vec3 back = oloGroomFibreBackScatterProjected(multipleBackScatter, u_GroomFibreBackLobe.x,
+			                                              u_GroomFibreBackLobe.y, sinThetaView, sinThetaLight,
+			                                              cosPhi);
+			multiple += back * radiance *
+			            ((vec3(coatShadow) * densityBack) + (forwarded * (densityForward * OLO_GROOM_FIBRE_PI * densityBack)));
+		}
 	}
 
 	// THE ENVIRONMENT, through the SAME material parameters and the same
@@ -782,13 +887,81 @@ vec3 oloGroomShadeFibre()
 		float envTau = oloGroomCoatOpticalDepth(u_GroomCoatVolume, u_GroomCoatWorldToObject,
 		                                        u_GroomCoatBoundsMin.xyz, u_GroomCoatInvExtent.xyz,
 		                                        v_WorldPos, envDir, u_GroomCoatInvExtent.w, u_GroomCoatModes.x);
-		averageRadiance *= oloGroomCoatTransmittance(envTau, u_GroomCoatBoundsMin.w);
-		oloGroomAccumulate(total, oloGroomFibreAmbientResponse(fibre, sinThetaO), averageRadiance);
+		float envShadow = oloGroomCoatTransmittance(envTau, u_GroomCoatBoundsMin.w);
+		OloGroomFibreLobes ambient = oloGroomFibreAmbientResponse(fibre, sinThetaO);
+		if (!dualScattering)
+		{
+			oloGroomAccumulate(total, ambient, averageRadiance * envShadow);
+		}
+		else
+		{
+			// IN A COAT THE SKY IS NOT ALL AROUND THE FIBRE. The uniform
+			// approximation hands every path its albedo, TT included — and TT is
+			// light from BEHIND the fibre, which on a coat is more coat and then
+			// the body. So the paths split by where they look: R and TRT, and
+			// half the isotropic residual, see the sky on the viewer's side
+			// through the coat above; TT and the other half see it behind,
+			// through the coat below.
+			//
+			// BEHIND, ONLY THE UNSCATTERED PART. The volume holds strands, not
+			// the body, so a ray through the coat's roots and on through the
+			// body would find a second coat and read the sky beyond it. Counting
+			// what pale fibres forward along that ray would light the front of
+			// the dog with the sky behind it; the colourless transmittance does
+			// not, because the two root layers stop it.
+			vec3 envForwarded = max(oloGroomCoatForwardTransmittance(envTau, u_GroomCoatBoundsMin.w, forwardScatter) -
+			                            vec3(envShadow),
+			                        vec3(0.0));
+			vec3 front = averageRadiance * (vec3(envShadow) + (envForwarded * densityForward));
+
+			vec3 behindDir = -envDir;
+			float behindTau = oloGroomCoatOpticalDepth(u_GroomCoatVolume, u_GroomCoatWorldToObject,
+			                                           u_GroomCoatBoundsMin.xyz, u_GroomCoatInvExtent.xyz,
+			                                           v_WorldPos, behindDir, u_GroomCoatInvExtent.w,
+			                                           u_GroomCoatModes.x);
+			vec3 behind = oloGroomFibreEnvironmentRadiance(u_IrradianceMap, behindDir, u_GroomFibreLobe.w) *
+			              oloGroomCoatTransmittance(behindTau, u_GroomCoatBoundsMin.w);
+
+			total.R += ambient.R * front;
+			total.TRT += ambient.TRT * front;
+			total.TT += ambient.TT * behind;
+			total.Residual += ambient.Residual * (0.5 * (front + behind));
+			// The sky's back-scatter: the lobe integrates to A_b over a uniform
+			// hemisphere, times cos(theta_o) as every ambient path here is.
+			float cosThetaO = sqrt(max(0.0, 1.0 - (sinThetaO * sinThetaO)));
+			multiple += multipleBackScatter * (densityBack * cosThetaO) * front;
+		}
 	}
 
 	// Intensity multiplies AFTER the lobes are separated, so a debug capture of
 	// one lobe is exposed the same way the full frame is.
-	return oloGroomFibreSelect(total, u_GroomFibreModes.z) * fibre.Intensity;
+	OloGroomShading shading;
+	shading.Single.R = total.R * fibre.Intensity;
+	shading.Single.TT = total.TT * fibre.Intensity;
+	shading.Single.TRT = total.TRT * fibre.Intensity;
+	shading.Single.Residual = total.Residual * fibre.Intensity;
+	shading.Multiple = multiple * fibre.Intensity;
+	return shading;
+}
+
+// The coat tint (#1251) and the debug selection, together, because the tint
+// is PIGMENT: it colours every path that entered a fibre and not R, which is
+// the cuticle's surface reflection and carries the light's colour — the white
+// sheen on a golden coat. Tinting R as well (#1251's first form) coloured the
+// sheen with the coat and left the coat looking matte.
+vec3 oloGroomComposite(OloGroomShading shading, int debugMode, vec3 tint)
+{
+	OloGroomFibreLobes tinted = shading.Single;
+	tinted.TT *= tint;
+	tinted.TRT *= tint;
+	tinted.Residual *= tint;
+	vec3 multiple = shading.Multiple * tint;
+	if (debugMode == OLO_GROOM_FIBRE_DEBUG_MULTIPLE)
+	{
+		return multiple;
+	}
+	vec3 single = oloGroomFibreSelect(tinted, debugMode);
+	return (debugMode == OLO_GROOM_FIBRE_DEBUG_FULL) ? (single + multiple) : single;
 }
 
 void main()
@@ -866,7 +1039,7 @@ void main()
 			// is darker near the root because it is deeper in the coat), not of
 			// the lighting, and dropping it when the material arrives would
 			// make the two paths differ by more than the lighting.
-			colour = oloGroomShadeFibre() * ramp;
+			colour = oloGroomComposite(oloGroomShadeFibre(), u_GroomFibreModes.z, v_CoatTint) * ramp;
 		}
 	}
 	else
@@ -890,7 +1063,10 @@ void main()
 	// The TANGENT diagnostic is deliberately left untinted: it is a picture of a
 	// geometric input, and colouring it by the coat would make a tint look like
 	// a broken tangent frame.
-	if (u_GroomFibreModes.z != OLO_GROOM_FIBRE_DEBUG_TANGENT || u_GroomFibreModes.x == 0)
+	//
+	// A LIT groom is tinted inside oloGroomComposite, path by path; this is the
+	// UNLIT one, whose neutral ramp has no paths to tell apart.
+	if (u_GroomFibreModes.x == 0)
 	{
 		colour *= v_CoatTint;
 	}

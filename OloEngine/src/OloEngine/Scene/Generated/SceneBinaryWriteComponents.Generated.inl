@@ -467,6 +467,7 @@ if (entity.HasComponent<GroomCoatShadowComponent>())
     SceneBinIO::Write(out, comp.m_MinResolution);
     SceneBinIO::Write(out, comp.m_Mode);
     SceneBinIO::Write(out, comp.m_Enabled);
+    SceneBinIO::Write(out, comp.m_MultipleScattering);
 }
 
 if (entity.HasComponent<GroomComponent>())

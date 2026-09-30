@@ -188,6 +188,8 @@ namespace OloEngine
     // m_RequestedLoop) and its playback speed. v39 belongs to the open legacy-removal PR (#1529); the
     // second of the two to merge re-checks the number. A v38 save keeps every
     // clip looping, which is what every clip did before the flag existed.
+    // Same band: GroomCoatShadowComponent::m_MultipleScattering (dual
+    // scattering). An older save stops before it and keeps the default, on.
     static constexpr u32 kSaveGameFormatVersion = 40;
     static constexpr u32 kSaveGameHeaderSize = 128;
 

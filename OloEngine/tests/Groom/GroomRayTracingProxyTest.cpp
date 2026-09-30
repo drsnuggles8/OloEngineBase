@@ -547,10 +547,16 @@ namespace OloEngine
         // The coat's OWN attenuation, which must stay exactly where it is.
         // Pinned at its count so a second call site — the shape a scene-shadow
         // term would most likely arrive in — fails here.
-        EXPECT_EQ(count("oloGroomCoatOpticalDepth"), 2u)
+        //
+        // Three marches since dual scattering (#1533): each light, the sky on
+        // the viewer's side, and the sky BEHIND the fibre (the TT paths, whose
+        // light comes through the coat below). Five transmittance mentions:
+        // one per march plus two comments naming the function. All three are
+        // the coat's own strands -- none is a scene term.
+        EXPECT_EQ(count("oloGroomCoatOpticalDepth"), 3u)
             << "the coat's own optical-depth path moved; re-read the double-count boundary in "
                "GroomCoatShadow.h before changing this number";
-        EXPECT_EQ(count("oloGroomCoatTransmittance"), 3u)
+        EXPECT_EQ(count("oloGroomCoatTransmittance"), 5u)
             << "the coat's own transmittance path moved; same warning";
 
         // The raster scene-shadow receive (#1323): ONE function, ONE call site in

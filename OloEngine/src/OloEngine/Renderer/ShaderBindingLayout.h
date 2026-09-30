@@ -1662,6 +1662,20 @@ namespace OloEngine
             // The guide weights start at 0, always.
             glm::ivec4 DeformBases{ 0, 0, 0, 0 };
 
+            // ── Dual scattering (#1533) ──────────────────────────────
+            //
+            // What a fibre's NEIGHBOURS pass on: the GroomFibreDualScattering
+            // constants, derived with the rest of the fibre parameters.
+            //
+            // THE .w DENSITY FACTORS GO UP ZERO AND THE SUCCESS PATH TURNS THEM
+            // ON, like CoatModes.x: dual scattering counts the neighbours through
+            // the coat volume, so only a draw with a built, bound volume writes
+            // Zinke's d_f = d_b = 0.7, and every other draw keeps #1247/#1248's
+            // shading by construction rather than by a flag being reset.
+            glm::vec4 FibreForwardScatter{ 0.0f }; // rgb = a_f, w = d_f
+            glm::vec4 FibreBackScatter{ 0.0f };    // rgb = A_b, w = d_b
+            glm::vec4 FibreBackLobe{ 0.0f };       // x = shift, y = width (radians of theta_h), zw unused
+
             static constexpr u32 GetSize()
             {
                 return static_cast<u32>(sizeof(GroomStrandParamsUBO));
@@ -1670,14 +1684,15 @@ namespace OloEngine
 
         static_assert(sizeof(GroomStrandParamsUBO) % 16 == 0,
                       "GroomStrandParamsUBO must be 16-byte aligned for std140");
-        // 432 B: 208 through #1246's lanes, the five vec4/ivec4 lanes #1247's
+        // 480 B: 208 through #1246's lanes, the five vec4/ivec4 lanes #1247's
         // fibre material added (288), #1248's coat-shadow block — one mat4
-        // and three vec4-sized lanes (112) — and #1427's two deformation lanes
-        // (32). Every lane is vec4-sized or a mat4, so the std140 layout is the
-        // C++ layout and the number is a plain sum — which is what makes this
-        // assertion able to catch a lane added to one side and not the other.
-        static_assert(sizeof(GroomStrandParamsUBO) == 432,
-                      "GroomStrandParamsUBO std140 size drifted from GLSL expectation (432 B)");
+        // and three vec4-sized lanes (112) — #1427's two deformation lanes
+        // (32) and #1533's three dual-scattering lanes (48). Every lane is
+        // vec4-sized or a mat4, so the std140 layout is the C++ layout and the
+        // number is a plain sum — which is what makes this assertion able to
+        // catch a lane added to one side and not the other.
+        static_assert(sizeof(GroomStrandParamsUBO) == 480,
+                      "GroomStrandParamsUBO std140 size drifted from GLSL expectation (480 B)");
 
         // @brief One groom shadow-caster draw (issue #1323), uploaded at
         // UBO_USER_0 (7). GLSL twin: the GroomShadowParams block, declared

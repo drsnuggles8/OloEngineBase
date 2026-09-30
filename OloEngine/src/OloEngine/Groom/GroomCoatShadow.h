@@ -452,6 +452,28 @@ namespace OloEngine
         // in #1247's model. See the double-count boundary in the file header.
         [[nodiscard]] f32 CoatTransmittance(f64 opticalDepth, f32 kappa) noexcept;
 
+        // The same crossings, with what each crossing PASSES ON counted back in
+        // (dual scattering, #1533): exp(-tau * (1 - exp(-kappa)) * (1 - a_f)),
+        // per channel.
+        //
+        // CoatTransmittance treats every intercepted ray as lost. A fibre
+        // forwards the fraction `forwardScatter` (a_f,
+        // GroomFibreDualScattering::ForwardScatter) of what it intercepts,
+        // through TT and with its pigment, so a crossing keeps
+        // (1 - p) + p a_f of the light where p = 1 - exp(-kappa) is the chance
+        // it intercepts at all. The Poisson mean of that over N crossings is
+        // the same generating function as above, evaluated at the new
+        // per-crossing survival — which is the whole formula.
+        //
+        // With a_f = 0 it IS CoatTransmittance, in every channel; with a_f > 0
+        // it is never below it. The difference between the two is the
+        // forward-scattered light, and the strand pass shades that part as
+        // scattered light rather than direct (GroomStrand.glsl). The same
+        // non-finite rules apply: a corrupt tau or kappa reads fully lit, and
+        // a non-finite a_f is treated as a fibre that forwards nothing.
+        [[nodiscard]] glm::vec3 CoatForwardTransmittance(f64 opticalDepth, f32 kappa,
+                                                         const glm::vec3& forwardScatter) noexcept;
+
         // ── The candidates ──────────────────────────────────────────────────
 
         // Which representation answers tau(x, L).

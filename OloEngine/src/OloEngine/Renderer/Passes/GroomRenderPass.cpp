@@ -2118,6 +2118,17 @@ namespace OloEngine
                         if (coatActive)
                         {
                             params.CoatModes.x = static_cast<i32>(coatDecision.Effective);
+                            // Dual scattering counts the neighbours through the
+                            // volume, so it switches on here and nowhere else:
+                            // the density factors are the only lanes the
+                            // shader tests (#1533).
+                            if (request.CoatMultipleScattering)
+                            {
+                                const GroomFibreDualScattering& dual = request.Fibre.Dual;
+                                params.FibreForwardScatter = glm::vec4(dual.ForwardScatter, kGroomCoatDensityFactor);
+                                params.FibreBackScatter = glm::vec4(dual.MultipleBackScatter, kGroomCoatDensityFactor);
+                                params.FibreBackLobe = glm::vec4(dual.BackShift, dual.BackWidth, 0.0f, 0.0f);
+                            }
                         }
                     }
                 }

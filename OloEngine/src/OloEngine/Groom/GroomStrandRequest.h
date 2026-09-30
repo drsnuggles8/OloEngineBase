@@ -182,6 +182,11 @@ namespace OloEngine
         /// docs/analysis/groom-coat-self-shadowing-1248.md.
         f32 CoatStepVoxels = 3.0f;
 
+        /// Dual scattering on the coat volume (#1533,
+        /// GroomCoatShadowComponent::m_MultipleScattering). Read only where the
+        /// volume is built and bound.
+        bool CoatMultipleScattering = true;
+
         // ── Scene shadow routing (#1323) ─────────────────────────────
         //
         // Whether this groom takes part in the engine's shadow TECHNIQUES, in

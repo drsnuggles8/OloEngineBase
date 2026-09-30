@@ -629,6 +629,7 @@ if (auto node = entity["GroomCoatShadowComponent"]; node)
     if (const decltype(comp.m_Mode) v = node["Mode"].as<decltype(comp.m_Mode)>(comp.m_Mode); v >= static_cast<decltype(comp.m_Mode)>(0) && v <= static_cast<decltype(comp.m_Mode)>(3))
         comp.m_Mode = v;
     comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+    comp.m_MultipleScattering = node["MultipleScattering"].as<bool>(comp.m_MultipleScattering);
 }
 
 if (auto node = entity["GroomComponent"]; node)

@@ -6265,8 +6265,14 @@ namespace OloEngine
         /// measured against — not a performance switch.
         bool m_Enabled = true;
 
-        OLO_SERIALIZE(Skip)
-        u8 Pad0 = 0;
+        /// Dual scattering (#1533): what the coat's other fibres pass on — the
+        /// light they forward and the light they scatter back. Needs the volume
+        /// above to count them, so it does nothing with m_Enabled off. Off is
+        /// #1248's picture, every crossing an opaque, colourless occluder: the
+        /// A/B control for the transport, and the arm #1248's own occlusion
+        /// evidence is measured on.
+        bool m_MultipleScattering = true;
+
         OLO_SERIALIZE(Skip)
         u8 Pad1 = 0;
 

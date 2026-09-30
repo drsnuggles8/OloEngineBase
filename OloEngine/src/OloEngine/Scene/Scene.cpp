@@ -9345,6 +9345,7 @@ namespace OloEngine
                 request.CoatKappa = MakeGroomCoatKappa(*coat);
                 request.CoatLod = MakeGroomCoatLodPolicy(*coat);
                 request.CoatStepVoxels = MakeGroomCoatStepVoxels(*coat);
+                request.CoatMultipleScattering = coat->m_MultipleScattering;
             }
 
             // Scene-shadow routing, in both directions, if this groom asks for

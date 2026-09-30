@@ -12,7 +12,9 @@ coat half of `GroomStrand.glsl`, or `GroomCoatShadowComponent`.
    `tau` is fibre length density times diameter times the sine of the angle to the fibre, and
    nothing else. Deriving `kappa` from the pigment — which looks like a tidy unification — applies
    the pigment twice and darkens every coloured coat. That is the double-count the issue's own
-   scope note forbids.
+   scope note forbids. Dual scattering (#1533) adds the colour of the fibres the light CROSSED on
+   top of `tau`, which is a different fibre's pigment and not this double count:
+   [groom-dual-scattering.md](groom-dual-scattering.md).
 
 2. **The root-to-tip ramp is bypassed when coat shadowing is active, and that is not an
    optimisation.** `#1246`'s ramp exists because "a strand is darker near the root because it is

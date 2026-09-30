@@ -876,6 +876,10 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/AnimalBudgetVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomLodVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomFibrePropertyTests.cpp
+		# #1533: dual scattering -- what a fibre's neighbours pass on. The
+		# forward/back split, Zinke's A_b and the coloured coat transmittance,
+		# settled in arithmetic. CPU-only: it runs in CI.
+		Rendering/PropertyTests/GroomFibreDualScatteringTests.cpp
 		# The #1248 bake-off itself. Every number in
 		# docs/analysis/groom-coat-self-shadowing-1248.md is an assertion here,
 		# so the argument behind the selected representation fails loudly rather

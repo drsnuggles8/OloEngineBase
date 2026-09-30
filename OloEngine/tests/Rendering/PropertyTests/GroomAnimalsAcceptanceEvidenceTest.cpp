@@ -1139,6 +1139,12 @@ namespace OloEngine::Tests
             // the refusal count.
             auto& coatShadow = coatEntity.AddComponent<GroomCoatShadowComponent>();
             coatShadow.m_Enabled = true;
+            // Dual scattering (#1533) off: this fixture's self-shadow evidence
+            // -- the coat shadow darkens the moving coat, a frozen bake is
+            // caught -- is #1248's, measured on the crossings as occluders, and
+            // the coats were graded without the transport. The #1533 lever in
+            // ActiveVisualLeversChangeTheMovingLongCoat switches it on alone.
+            coatShadow.m_MultipleScattering = false;
 
             auto& lod = coatEntity.AddComponent<GroomLodComponent>(); // #1252, engine defaults
             lod.m_Enabled = true;
@@ -1764,6 +1770,13 @@ namespace OloEngine::Tests
             { "#1249", "Binding",
               [coat](bool on) mutable
               { coat.GetComponent<GroomBindingComponent>().m_Enabled = on; }, true },
+            // #1533's transport, as a lever of its own. The fixture's SHIPPED
+            // state is occluders only (see MakeCoat), so this row's "off" arm
+            // switches dual scattering ON and must change the frame like any
+            // other child.
+            { "#1533", "OccludersOnly",
+              [coat](bool on) mutable
+              { coat.GetComponent<GroomCoatShadowComponent>().m_MultipleScattering = !on; }, true },
             { "#1250", "Simulation",
               [coat](bool on) mutable
               { coat.GetComponent<GroomSimulationComponent>().m_Enabled = on; }, true },
