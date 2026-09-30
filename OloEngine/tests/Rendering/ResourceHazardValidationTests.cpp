@@ -251,7 +251,12 @@ TEST(RenderGraphResourceHazards, Slice27_DeclarationChainTransitivityIsHazardFre
 // =============================================================================
 // WAR: later writer overwrites a resource a live reader still needs.
 // =============================================================================
-TEST(RenderGraphResourceHazards, WriteAfterReadWithoutDependencyIsFlagged)
+// A write after a read with no hand-written edge between them. Before #1331
+// the declarations left Rewriter and Reader unordered, the order came from
+// registration alone, and the validator flagged it. The graph now derives the
+// edge from the declarations, so the pair is ordered in either tie-break
+// direction and nothing is left to flag.
+TEST(RenderGraphResourceHazards, WriteAfterReadIsOrderedByADerivedEdge)
 {
     RenderGraph graph;
     auto w1 = AddDeclStub(graph, "Writer1");
@@ -262,14 +267,17 @@ TEST(RenderGraphResourceHazards, WriteAfterReadWithoutDependencyIsFlagged)
     r->TestDeclareRead("R");
     rw->TestDeclareWrite("R");
 
-    // Writer1 → Reader and Writer1 → Rewriter, but Rewriter doesn't depend
-    // on Reader — WAR (or WAW depending on topo order) expected.
     graph.ConnectPass("Writer1", "Reader");
     graph.ConnectPass("Writer1", "Rewriter");
 
     const auto hazards = graph.ValidateResourceHazards();
-    ASSERT_FALSE(hazards.IsEmpty());
-    EXPECT_TRUE(ContainsHazardForResource(hazards, "R")) << HazardsToString(hazards);
+    EXPECT_TRUE(hazards.IsEmpty()) << HazardsToString(hazards);
+    const auto order = graph.GetExecutionOrder();
+    const auto at = [&order](std::string_view name)
+    { return std::ranges::find_if(order, [name](const FString& n)
+                                  { return n.ToView() == name; }) -
+             order.begin(); };
+    EXPECT_LT(at("Reader"), at("Rewriter"));
 }
 
 // =============================================================================

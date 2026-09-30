@@ -17,6 +17,7 @@
 #include <limits>
 #include <map>
 #include <optional>
+#include <set>
 #include <span>
 #include <vector>
 #include <unordered_map>
@@ -1521,6 +1522,10 @@ namespace OloEngine
         // Consumed only by RenderGraphTransientPlanner — deliberately kept
         // out of m_PassAccessDeclarations; see the comment in RGBuilder::Write.
         RGTransparentStringMap<TArray64<FString>> m_PassLifetimeExtensions;
+        // Derived edges that only ORDER two passes — a write after a read, a
+        // previous-frame read before an in-place rebuild. Reachability ignores
+        // them: a later writer must not keep an earlier reader alive.
+        std::set<std::pair<std::string, std::string>> m_OrderingOnlyEdges;
         RGTransparentStringMap<MemoryBarrierFlags> m_PassBarrierFlags;
         TArray64<PlannedBarrier> m_PlannedBarriers;
         TArray64<BuildDiagnostic> m_BuildDiagnostics;

@@ -2,11 +2,13 @@
 
 #include "OloEngine/Renderer/RGBuilder.h"
 
+#include <set>
 #include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace OloEngine::RenderGraphReachability
@@ -45,11 +47,17 @@ namespace OloEngine::RenderGraphReachability
         // history / external-sink contracts. Each entry is a resource name
         // whose writers must remain reachable. Empty entries are ignored.
         std::span<const FString> ExtractedResourceNames;
+
         // Passes that are roots in their own right: side-effecting passes
         // (Present, NeverCull, readback). Seeding them, rather than folding
         // them back in after the scan, keeps what THEY read alive too — a
         // kept readback whose producer was culled reads a stale resource.
         std::span<const FString> SeedPasses;
+
+        // Edges in Dependencies that only order two passes (write after read,
+        // previous-frame read before an in-place rebuild). They are not
+        // walked: the later pass does not consume the earlier one.
+        const std::set<std::pair<std::string, std::string>>* OrderingOnlyEdges = nullptr; // (before, after)
     };
 
     [[nodiscard]] auto ComputeReachableSet(const ScanInput& input) -> RGTransparentStringSet;

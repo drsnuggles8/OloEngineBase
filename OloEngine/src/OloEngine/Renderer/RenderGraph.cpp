@@ -5006,6 +5006,7 @@ namespace OloEngine
             .Dependencies = m_Dependencies,
             .ExtractedResourceNames = std::span<const FString>(extractedResourceNames.GetData(), static_cast<sizet>(extractedResourceNames.Num())),
             .SeedPasses = std::span<const FString>(sideEffectingPasses.GetData(), static_cast<sizet>(sideEffectingPasses.Num())),
+            .OrderingOnlyEdges = &m_OrderingOnlyEdges,
         });
 
         // Refresh contract metadata (depends on m_ReachablePasses) before the
@@ -7148,6 +7149,7 @@ namespace OloEngine
         m_PassAccessDeclarations.clear();
         m_PassFeedbackDeclarations.clear();
         m_PassLifetimeExtensions.clear();
+        m_OrderingOnlyEdges.clear();
         m_PassBarrierFlags.clear();
         m_PlannedBarriers.Reset();
         m_BuildDiagnostics.Reset();
@@ -7170,8 +7172,14 @@ namespace OloEngine
             RGSubresourceRange Range;
         };
         RGTransparentStringMap<std::vector<DepWriterSlot>> lastWriterByResource;
+        // Readers of each resource since its last overlapping write, so the
+        // next writer is ordered after them (write-after-read). Without this a
+        // pass that overwrites a resource in place was ordered after an
+        // earlier reader by registration order alone.
+        RGTransparentStringMap<std::vector<DepWriterSlot>> liveReadersByResource;
         const auto graphEntryCount = m_InsertionOrder.Num();
         lastWriterByResource.reserve(graphEntryCount * 4u);
+        liveReadersByResource.reserve(graphEntryCount * 4u);
 
         struct EdgeKey
         {
@@ -7421,7 +7429,12 @@ namespace OloEngine
             return expandedFeedbacks;
         };
 
-        auto tryAddDerivedDependency = [this](std::string_view beforePass, std::string_view afterPass) -> bool
+        // `orderingOnly`: the edge orders the two passes but carries no data
+        // from `beforePass` to `afterPass` (a write after a read, a
+        // previous-frame read before an in-place rebuild). Reachability skips
+        // such edges, so the later pass cannot keep the earlier one alive.
+        auto tryAddDerivedDependency = [this](std::string_view beforePass, std::string_view afterPass,
+                                              const bool orderingOnly = false) -> bool
         {
             if (beforePass == afterPass)
                 return false;
@@ -7442,7 +7455,13 @@ namespace OloEngine
             }
 
             if (auto& deps = m_Dependencies[std::string(afterPass)]; std::ranges::find(deps, beforePass) != deps.end())
+            {
+                // An edge first derived for ordering and later for data is a
+                // data edge.
+                if (!orderingOnly)
+                    m_OrderingOnlyEdges.erase({ std::string(beforePass), std::string(afterPass) });
                 return false;
+            }
 
             // Avoid introducing a derived edge that would close a cycle.
             // m_Dependencies stores incoming edges (consumer -> producers),
@@ -7478,12 +7497,14 @@ namespace OloEngine
             }
 
             AddExecutionDependency(std::string(beforePass), std::string(afterPass), false);
+            if (orderingOnly)
+                m_OrderingOnlyEdges.emplace(std::string(beforePass), std::string(afterPass));
             return true;
         };
 
         auto processGraphNode = [this, &builder, &expandTextureViewAccesses, &expandTextureViewFeedbacks,
                                  &declaredPassDependenciesByPass, &tryAddDerivedDependency, &lastWriterByResource,
-                                 &depSubresourceRangesOverlap, &processedNodeNames](RenderGraphNode& node)
+                                 &liveReadersByResource, &depSubresourceRangesOverlap, &processedNodeNames](RenderGraphNode& node)
         {
             const std::string nodeName(node.GetName());
             if (nodeName.empty())
@@ -7555,6 +7576,16 @@ namespace OloEngine
                         continue;
                     }
 
+                    // Recorded before the writer lookup: a read of a resource
+                    // no earlier pass wrote (an import, last frame's content)
+                    // still has to finish before a later pass overwrites it.
+                    auto& readers = liveReadersByResource[access.ResourceName.ToStdString()];
+                    if (std::ranges::none_of(readers, [&](const DepWriterSlot& reader)
+                                             { return reader.PassName == nodeName && reader.Range == access.Range; }))
+                    {
+                        readers.emplace_back(nodeName, access.Range);
+                    }
+
                     const auto writerIt = lastWriterByResource.find(access.ResourceName);
                     if (writerIt == lastWriterByResource.end())
                         continue;
@@ -7570,6 +7601,24 @@ namespace OloEngine
                 }
                 else
                 {
+                    // Write after read: every earlier reader of an overlapping
+                    // range runs first. Ordering only — this writer does not
+                    // consume what the reader produced.
+                    if (const auto readersIt = liveReadersByResource.find(access.ResourceName);
+                        readersIt != liveReadersByResource.end())
+                    {
+                        auto& readers = readersIt->second;
+                        for (const auto& reader : readers)
+                        {
+                            if (reader.PassName == nodeName || !depSubresourceRangesOverlap(reader.Range, access.Range))
+                                continue;
+                            if (tryAddDerivedDependency(reader.PassName, nodeName, true))
+                                ++m_LastBuildStats.DerivedEdges;
+                        }
+                        std::erase_if(readers, [&](const DepWriterSlot& reader)
+                                      { return reader.PassName != nodeName && depSubresourceRangesOverlap(reader.Range, access.Range); });
+                    }
+
                     auto& writerVec = lastWriterByResource[access.ResourceName.ToStdString()];
                     for (const auto& slot : writerVec)
                     {
@@ -7690,7 +7739,9 @@ namespace OloEngine
             SimulatedDependencyResult result{};
             result.Dependencies = m_ExplicitDependencies;
             RGTransparentStringMap<std::vector<DepWriterSlot>> simulatedLastWriterByResource;
+            RGTransparentStringMap<std::vector<DepWriterSlot>> simulatedLiveReadersByResource;
             simulatedLastWriterByResource.reserve(visitOrder.size() * 4u);
+            simulatedLiveReadersByResource.reserve(visitOrder.size() * 4u);
 
             result.DerivedEdges.reserve(visitOrder.size() * 4u);
 
@@ -7774,6 +7825,10 @@ namespace OloEngine
                             continue;
                         }
 
+                        // Mirrors the real derivation: a read is a live
+                        // reader the next overlapping writer waits for.
+                        simulatedLiveReadersByResource[access.ResourceName.ToStdString()].emplace_back(nodeName, access.Range);
+
                         const auto writerIt = simulatedLastWriterByResource.find(access.ResourceName);
                         if (writerIt == simulatedLastWriterByResource.end())
                             continue;
@@ -7792,6 +7847,20 @@ namespace OloEngine
                     }
                     else
                     {
+                        if (const auto readersIt = simulatedLiveReadersByResource.find(access.ResourceName);
+                            readersIt != simulatedLiveReadersByResource.end())
+                        {
+                            for (const auto& reader : readersIt->second)
+                            {
+                                if (reader.PassName == nodeName || !depSubresourceRangesOverlap(reader.Range, access.Range))
+                                    continue;
+                                tryAddSimulatedDerivedDependency(reader.PassName, nodeName,
+                                                                 DerivedEdgeOrigin{ access.ResourceName.ToStdString(), false });
+                            }
+                            std::erase_if(readersIt->second, [&](const DepWriterSlot& reader)
+                                          { return reader.PassName != nodeName && depSubresourceRangesOverlap(reader.Range, access.Range); });
+                        }
+
                         auto& writerVec = simulatedLastWriterByResource[access.ResourceName.ToStdString()];
                         for (const auto& slot : writerVec)
                         {

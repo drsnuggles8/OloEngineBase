@@ -94,7 +94,14 @@ namespace OloEngine::RenderGraphReachability
             if (const auto dependencyIt = input.Dependencies.find(current); dependencyIt != input.Dependencies.end())
             {
                 for (const auto& dependency : dependencyIt->second)
+                {
+                    if (input.OrderingOnlyEdges &&
+                        input.OrderingOnlyEdges->contains({ dependency.ToStdString(), current }))
+                    {
+                        continue;
+                    }
                     enqueueReachablePass(dependency.ToView());
+                }
             }
 
             const auto accessIt = input.PassAccessDeclarations.find(current);

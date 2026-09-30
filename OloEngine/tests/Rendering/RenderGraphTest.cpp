@@ -11685,11 +11685,13 @@ TEST(RenderGraphQueueAwareScheduler, LegalOverlapDisjointResourcesNoHazard)
         << "Disjoint-resource compute+graphics must report no resource hazards";
 }
 
-TEST(RenderGraphQueueAwareScheduler, ForbiddenOverlapComputeWritesAfterGraphicsRead)
+TEST(RenderGraphQueueAwareScheduler, ComputeWriteAfterGraphicsReadIsOrderedAndFenced)
 {
     // A compute pass writes a resource that a prior graphics pass has already
-    // read, with no execution dependency connecting the read to the write.
-    // ValidateResourceHazards must detect a WriteAfterRead hazard.
+    // read, with no hand-written dependency between them. Before #1331 that
+    // was a WriteAfterRead hazard only the validator could see; the graph now
+    // derives the edge, so the write waits for the read and the queue
+    // boundary between them carries a fence.
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
@@ -11719,22 +11721,27 @@ TEST(RenderGraphQueueAwareScheduler, ForbiddenOverlapComputeWritesAfterGraphicsR
             builder.Write(depth, RGWriteUsage::ShaderStorage);
         });
 
-    // Intentionally NO execution dependency from GfxReader to ComputeWriter —
-    // this models a programmer error that the hazard validator must catch.
+    // Intentionally NO hand-written dependency from GfxReader to ComputeWriter.
     graph.SetFinalPass("ComputeWriter");
     graph.BuildFrameGraph();
 
     const auto hazards = graph.ValidateResourceHazards();
-    const bool hasWriteAfterRead = std::ranges::any_of(
-        hazards,
-        [](const RenderGraph::Hazard& h)
-        {
-            return h.Kind == RenderGraph::HazardKind::WriteAfterRead &&
-                   h.Resource == "SceneDepth";
-        });
-    EXPECT_TRUE(hasWriteAfterRead)
-        << "WriteAfterRead hazard must be detected when compute overwrites a "
-           "resource that a prior graphics pass reads without an ordering edge";
+    EXPECT_TRUE(hazards.IsEmpty()) << "the derived write-after-read edge must order the pair";
+
+    const auto order = graph.GetExecutionOrder();
+    ASSERT_EQ(order.size(), 2u);
+    EXPECT_EQ(order[0], "GfxReader");
+    EXPECT_EQ(order[1], "ComputeWriter");
+
+    // The read and the write sit on different queues: the plan must fence them.
+    bool fenced = false;
+    for (const auto& command : graph.GetSubmissionPlan())
+    {
+        if (command.CommandKind == RenderGraph::SubmissionCommand::Kind::FenceWait ||
+            command.CommandKind == RenderGraph::SubmissionCommand::Kind::FenceSignal)
+            fenced = true;
+    }
+    EXPECT_TRUE(fenced) << "no fence between the graphics read and the compute write";
 }
 
 TEST(RenderGraphQueueAwareScheduler, OrderingPreservedAfterComputeHoist)
