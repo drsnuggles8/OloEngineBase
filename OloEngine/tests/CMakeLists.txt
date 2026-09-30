@@ -792,6 +792,9 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/VRCSPerfProbe.cpp
 		Rendering/PropertyTests/PCSSVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ShadowEarlyOutVisualEvidenceTest.cpp
+		# #1533: the directional cascades are the FIRST directional light's; a
+		# second sun must not be shadowed by them, on every path.
+		Rendering/PropertyTests/SecondSunShadowVisualEvidenceTest.cpp
 		Rendering/PropertyTests/TwoSidedShadowCastTest.cpp
 		Rendering/PropertyTests/WaterShoreVisualEvidenceTest.cpp
 		Rendering/PropertyTests/WaterShoreWaveTest.cpp

@@ -611,7 +611,10 @@ vec3 ComputeDeferredLitSplit(
         {
             lightVisibility *= rayTracedDirectional;
         }
-        else if (lightType == DIRECTIONAL_LIGHT && u_DirectionalShadowEnabled != 0)
+        // ...and it is tested against the light's INDEX as well: the cascades
+        // are the first directional light's alone, so a second one is
+        // unshadowed here rather than shadowed by the first one's map.
+        else if (lightType == DIRECTIONAL_LIGHT && i == 0 && u_DirectionalShadowEnabled != 0)
         {
             // Virtual Shadow Maps own the directional light when active (issue
             // #702); the CSM cascades are not even rendered in that case, so this

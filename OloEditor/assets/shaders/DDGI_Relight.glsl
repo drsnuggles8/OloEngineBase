@@ -277,7 +277,10 @@ void main()
         // Shadow visibility — identical evaluator calls + entry indexing to
         // DeferredLightingShared.glsl's UBO path.
         float shadow = 1.0;
-        if (lightType == DIRECTIONAL_LIGHT && u_DirectionalShadowEnabled != 0)
+        // The cascades (and VSM's clip map) are the FIRST directional light's:
+        // Scene.cpp builds them for UBO index 0 only. A second directional light
+        // is unshadowed here rather than shadowed by the first one's map.
+        if (lightType == DIRECTIONAL_LIGHT && i == 0 && u_DirectionalShadowEnabled != 0)
         {
             float viewDepth = (u_View * vec4(hitPos, 1.0)).z;
             shadow = calculateCascadedShadowFactorCSM(

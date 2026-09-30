@@ -10748,7 +10748,43 @@ namespace OloEngine
 
             // Collect directional lights
             auto dirLightView = m_Registry.view<TransformComponent, DirectionalLightComponent>();
+
+            // THE CASCADES' OWNER, chosen before anything is packed. The CSM and
+            // VSM cover ONE directional light, and every lit shader reads them
+            // for UBO index 0 alone (directional-shadow-ownership.md), so the
+            // light that owns them must BE index 0. It is the brightest light
+            // that casts, packed first. Handing them to whichever light the view
+            // yielded first gave them to a non-casting fill light as often as
+            // not — EnTT yields the newest entity first — and then nothing cast
+            // at all: a sun created before its rim light threw no shadow. With
+            // no casting light the order is the view's, as it always was.
+            entt::entity cascadeOwner = entt::null;
+            f32 cascadeOwnerIntensity = 0.0f;
             for (auto entity : dirLightView)
+            {
+                const auto& dirLight = dirLightView.get<DirectionalLightComponent>(entity);
+                if (dirLight.m_CastShadows &&
+                    (cascadeOwner == entt::null || dirLight.m_Intensity > cascadeOwnerIntensity))
+                {
+                    cascadeOwner = entity;
+                    cascadeOwnerIntensity = dirLight.m_Intensity;
+                }
+            }
+            TArray<entt::entity> directionalOrder;
+            directionalOrder.Reserve(static_cast<i32>(dirLightView.size_hint()));
+            if (cascadeOwner != entt::null)
+            {
+                directionalOrder.Add(cascadeOwner);
+            }
+            for (auto entity : dirLightView)
+            {
+                if (entity != cascadeOwner)
+                {
+                    directionalOrder.Add(entity);
+                }
+            }
+
+            for (auto entity : directionalOrder)
             {
                 const auto& [transform, dirLight] = dirLightView.get<TransformComponent, DirectionalLightComponent>(entity);
 
@@ -10800,8 +10836,9 @@ namespace OloEngine
                     }
                 }
 
-                // The first directional light drives the camera view position
-                // (used by shading/specular) and the directional CSM shadow setup.
+                // The first directional light — the cascades' owner whenever one
+                // casts — drives the camera view position (used by
+                // shading/specular) and the directional CSM shadow setup.
                 if (lightIndex == 0)
                 {
                     Renderer3D::SetViewPosition(cameraPosition);

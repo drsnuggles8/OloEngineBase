@@ -306,7 +306,10 @@ void main()
         {
             lightContrib *= cloudShadow;
         }
-        if (lightType == DIRECTIONAL_LIGHT && u_DirectionalShadowEnabled != 0)
+        // The cascades (and VSM's clip map) are the FIRST directional light's:
+        // Scene.cpp builds them for UBO index 0 only. A second directional light
+        // is unshadowed here rather than shadowed by the first one's map.
+        if (lightType == DIRECTIONAL_LIGHT && i == 0 && u_DirectionalShadowEnabled != 0)
         {
             vec4 viewSpacePos = u_View * vec4(v_WorldPos, 1.0);
             float viewDepth = viewSpacePos.z;
