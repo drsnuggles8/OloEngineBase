@@ -77,8 +77,41 @@ namespace OloEngine
             std::error_code ec;
             if (std::filesystem::exists(registryPath, ec) && !ec)
             {
-                m_AssetRegistry.Deserialize(registryPath);
-                OLO_CORE_INFO("Loaded asset registry from {}", registryPath.string());
+                if (m_AssetRegistry.Deserialize(registryPath))
+                {
+                    OLO_CORE_INFO("Loaded asset registry from {}", registryPath.string());
+                }
+                else
+                {
+                    // The rescan below assigns fresh handles and SerializeAssetRegistry writes
+                    // them to registryPath. Move the rejected file aside first so writing the new
+                    // registry never destroys the only copy of the handles every scene refers to.
+                    auto rejectedPath = registryPath;
+                    rejectedPath += ".rejected";
+                    std::error_code moveEc;
+                    std::filesystem::remove(rejectedPath, moveEc); // an older .rejected is replaced
+                    moveEc.clear();
+                    std::filesystem::rename(registryPath, rejectedPath, moveEc);
+                    if (moveEc)
+                    {
+                        OLO_CORE_ERROR("Asset registry {} was rejected and could not be moved aside to {} ({}); the "
+                                       "registry will NOT be saved this session, so the file is not overwritten. "
+                                       "Restore a registry this build reads, or move the file away yourself and "
+                                       "reopen the project.",
+                                       registryPath.string(), rejectedPath.string(), moveEc.message());
+                        m_RegistryWritesBlocked.store(true, std::memory_order_release);
+                    }
+                    else
+                    {
+                        OLO_CORE_ERROR("Asset registry {} was rejected and moved to {}. Rebuilding it from the "
+                                       "asset-directory scan with NEW handles: scenes' and assets' handle references "
+                                       "will not resolve until the original is restored (put a registry this build "
+                                       "reads back at {}, e.g. from version control, and reopen the project).",
+                                       registryPath.string(), rejectedPath.string(), registryPath.string());
+                    }
+                    // A rejection can stop part-way through the entries; rescan from empty.
+                    m_AssetRegistry.Clear();
+                }
             }
             else if (ec)
             {
@@ -162,6 +195,9 @@ namespace OloEngine
 
     void EditorAssetManager::Shutdown() noexcept
     {
+        if (m_IsShutDown.exchange(true))
+            return;
+
 #if OLO_ASYNC_ASSETS
         // Stop asset thread
         if (m_AssetThread)
@@ -783,92 +819,17 @@ namespace OloEngine
         return result;
     }
 
-    namespace
-    {
-        // The pre-#887 spelling, resolved against the PROJECT instead of the process
-        // working directory.
-        //
-        // Several shipped scenes still store a texture as
-        // "SandboxProject/Assets/Textures/Otter.png" — the project directory's own
-        // folder name, then the project-relative path. That spelling used to resolve
-        // only by coincidence: OloEditor runs with cwd = OloEditor/, which happens to
-        // be the parent of OloEditor/SandboxProject/, so std::filesystem::absolute()
-        // landed on the right file. Two things are wrong with leaning on that.
-        //
-        // First, it is not a property of the project, it is a property of where the
-        // process was started. Any tool, test or packaged runtime whose cwd is
-        // elsewhere resolves the same scene to nothing — or, worse, to a same-named
-        // file somewhere else on disk. The AssetSceneLoad round-trip test stages the
-        // project into a temp directory and the cwd fallback quietly resolved the
-        // texture to the ORIGINAL repository copy, outside the staged project entirely.
-        //
-        // Second, it registers the same file twice: once under "Assets/Textures/Otter.png"
-        // from a correctly-spelled reference and again under a cwd-derived key, so the
-        // two references never dedupe to one handle.
-        //
-        // So strip the leading component and retry against the project. Deliberately
-        // narrow, because a heuristic that fires when it should not is worse than one
-        // that does not fire: it needs at least two components, a leading component
-        // that is NOT itself present in the project (so a real "Assets/..." directory
-        // can never be eaten), and the stripped remainder to actually exist there.
-        [[nodiscard]] std::filesystem::path TryLegacyProjectPrefixedPath(const std::filesystem::path& projectPath,
-                                                                         const std::filesystem::path& filepath)
-        {
-            if (projectPath.empty() || filepath.empty() || filepath.is_absolute())
-                return {};
-
-            auto it = filepath.begin();
-            const auto end = filepath.end();
-            if (it == end)
-                return {};
-
-            const std::filesystem::path leading = *it;
-            if (leading.empty() || leading == "." || leading == "..")
-                return {};
-
-            std::filesystem::path remainder;
-            for (++it; it != end; ++it)
-                remainder /= *it;
-            if (remainder.empty())
-                return {};
-
-            std::error_code ec;
-            // A leading component that IS in the project is a real directory name, not
-            // a stale prefix — never strip it.
-            if (std::filesystem::exists(projectPath / leading, ec) || ec)
-                return {};
-
-            ec.clear();
-            std::filesystem::path candidate = projectPath / remainder;
-            if (!std::filesystem::exists(candidate, ec) || ec)
-                return {};
-
-            OLO_CORE_WARN("EditorAssetManager: asset path '{}' uses the legacy project-prefixed spelling; "
-                          "resolved it against the project root as '{}'. Re-save the scene to store the "
-                          "project-relative path instead.",
-                          filepath.generic_string(), remainder.generic_string());
-            return candidate;
-        }
-    } // namespace
-
     AssetHandle EditorAssetManager::ImportAsset(const std::filesystem::path& filepath)
     {
         OLO_PROFILER_SCOPE("EditorAssetManager::ImportAsset");
 
-        // Normalize to an absolute path. A relative input is ambiguous between two
-        // conventions that both exist in checked-in scene content today (issue #887):
-        //   - project-relative ("Assets/Textures/Foo.png") — the current, documented
-        //     contract (SceneSerializer::LoadSceneTexture resolves scene texture paths
-        //     against the project asset root), used by newly-authored references.
-        //   - project-PREFIXED ("SandboxProject/Assets/Textures/Foo.png") — an older
-        //     spelling several existing scenes still carry (PinkCubeWithTextures, the
-        //     Sponza scenes, VehiclesTest, Drift). It used to resolve only because
-        //     OloEditor's cwd is OloEditor/, one level above the project directory
-        //     (OloEditor/SandboxProject/) — a property of the launch, not the project.
-        //     It is now resolved against the project root instead (issue #1098).
-        // Try the documented project-relative form first. A path that doesn't exist
-        // there is then tried as the LEGACY project-prefixed spelling (see
-        // TryLegacyProjectPrefixedPath below), and only then falls back to plain
+        // Normalize to an absolute path. A relative input is project-relative
+        // ("Assets/Textures/Foo.png"), the documented contract
+        // (SceneSerializer::LoadSceneTexture resolves scene texture paths against the
+        // project asset root). The older project-PREFIXED spelling
+        // ("SandboxProject/Assets/Textures/Foo.png") is no longer tolerated (#1496):
+        // checked-in content was migrated to the project-relative form.
+        // Try the project-relative form first, and only then fall back to plain
         // std::filesystem::absolute() (cwd-relative). Resolving unconditionally against
         // cwd (the pre-#887 behaviour) silently walked a project-relative input into the
         // engine's own OloEditor/assets/ tree instead whenever a same-named file happened
@@ -887,11 +848,6 @@ namespace OloEngine
             if (std::filesystem::exists(projectRelative, existsEc) && !existsEc)
             {
                 absolutePath = projectRelative;
-            }
-            else if (std::filesystem::path legacy = TryLegacyProjectPrefixedPath(m_ProjectPath, filepath);
-                     !legacy.empty())
-            {
-                absolutePath = legacy;
             }
             else
             {
@@ -1369,12 +1325,6 @@ namespace OloEngine
         }
     }
 
-    std::unordered_map<AssetHandle, Ref<Asset>> EditorAssetManager::GetLoadedAssetsCopy() const
-    {
-        TSharedLock<FSharedMutex> lock(m_AssetsMutex);
-        return m_LoadedAssets;
-    }
-
 #if OLO_ASYNC_ASSETS
     void EditorAssetManager::OnFileSystemEvent(const std::string& file, const filewatch::Event change_type)
     {
@@ -1710,6 +1660,13 @@ namespace OloEngine
             // individually-atomic AssetRegistry calls have to be atomic together.
             // A single self-synchronised call like Serialize needs none of that.
             const std::filesystem::path registryPath = Project::GetAssetRegistryPath();
+            if (m_RegistryWritesBlocked.load(std::memory_order_acquire))
+            {
+                OLO_CORE_ERROR("Not saving the asset registry to {}: the rejected registry there could not be moved "
+                               "aside at startup, and saving would overwrite it. Move it away and reopen the project.",
+                               registryPath.string());
+                return false;
+            }
             return m_AssetRegistry.Serialize(registryPath);
         }
         catch (const std::exception& e)

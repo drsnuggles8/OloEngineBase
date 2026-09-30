@@ -22,40 +22,46 @@ namespace OloEngine
     // @brief The RAY-QUERY tier of the reflection hierarchy (issue #1057).
     // One draw, one node. The contract it implements is ADR 0020.
     //
-    // WHERE IT SITS, AND WHY THAT IS THE DESIGN. ADR 0020 evaluates the
-    // hierarchy BOTTOM-UP — every tier lerps over the colour it was handed, so
-    // no tier needs the confidence of a tier ABOVE it. This pass therefore runs
-    // AFTER DeferredLightingPass (whose output already carries the probe-over-IBL
-    // blend, the two tiers below) and BEFORE SSRRenderPass (the tier above),
-    // which then lerps over this pass's output using its own existing delta
-    // composite. Not one line of SSR's five-stage denoiser chain changes.
+    // WHAT IT COMPOSES (#1325). The tier replaces the indirect specular term S
+    // that the lit colour already holds, and nothing else:
+    // C' = C + c * (W * L - S) (include/ReflectionTierComposite.glsl, CPU twin
+    // ComposeSpecularTier in ReflectionTier.h). S and its weight W come from
+    // DeferredLightingPass's IndirectSpecular output; diffuse, emission and
+    // direct light are left alone. Fresnel lives in W, never in the
+    // confidence c.
     //
-    // The alternative reading of the same ordering — the better tier claims its
-    // share and hands the residual down — is the same algebra and would need
-    // SSR's per-pixel confidence transported through that chain, whose only
-    // spare lane deliberately carries view depth on every path.
+    // WHERE IT SITS. ADR 0020 evaluates the hierarchy BOTTOM-UP, so no tier
+    // needs the confidence of a tier above it. This pass runs after
+    // DeferredLightingPass, AOApply and SSGI (it reads the newest of
+    // SSGIColor / AOApplyColor / SceneColor) and before SSRRenderPass, which
+    // replaces the S this pass hands on in its second attachment
+    // (RTReflectionSpecular) using the same delta. SSR's per-pixel confidence
+    // never has to travel through its denoiser chain.
     //
-    // It fills exactly the gap SSR cannot: OFF-SCREEN and OCCLUDED hits. A ray
-    // that misses contributes nothing, so the probe/IBL tier below answers —
-    // reflecting the sky here would double-count it.
+    // It fills the gap SSR cannot: OFF-SCREEN and OCCLUDED hits. A miss leaves
+    // the colour and S untouched, so the probe/IBL term stays the
+    // environment's answer.
     //
     // WHAT IT COSTS IN BINDINGS: nothing new. The TLAS is a device address
     // inside UBO_RAY_TRACING (65), shared with RayTracedShadow.glsl and
-    // RayTracingProbe.comp the way #978 established; the three GPU Scene tables
-    // come from their canonical SSBO bindings (15/16/17).
+    // RayTracingProbe.comp the way #978 established, and the same block
+    // carries the material shader-heap address and sampler the alpha test
+    // uses. The three GPU Scene tables come from their canonical SSBO bindings
+    // (15/16/17).
     //
-    // THE FALLBACK IS STRUCTURAL, NOT A FLAG. Every way this pass can fail to
-    // trace leaves the pixel's confidence at exactly 0, and `mix(base, L, 0)` is
-    // `base` — so the raster-only output is byte-identical when the tier is off
-    // BY CONSTRUCTION rather than by a test that happens to pass. The reason is
-    // counted in GetStats() and reported once per change, never silently
+    // THE FALLBACK IS STRUCTURAL, NOT A FLAG. Every early-out copies the colour
+    // and hands S on unchanged, and a zero confidence makes the delta exactly
+    // zero, so the raster-only output is unchanged by construction rather than
+    // by a test that happens to pass. The reason is counted in GetStats() and
+    // reported once per change, never silently
     // (docs/agent-rules/no-silent-fallbacks.md).
     //
-    // FIRST-SLICE LIMITS, both deliberate and both recorded in ADR 0020 §4:
-    // hits are shaded from UNTEXTURED material factors (arbitrary-material
-    // sampling is blocked on the shader-visible sampler heap, #805), and masked
-    // geometry reflects as solid (the same trade RayTracedShadowPass makes).
-    // Both are counted, not commented.
+    // LIMITS. Masked candidates are alpha-tested against the material's albedo
+    // alpha and canonical cutoff (HybridRayTracingAlpha.glsl, the helper
+    // RayTracedShadow uses); the tier stands down with GPUSceneUnavailable when
+    // the material heap is unresolved. Hits are shaded from material FACTORS,
+    // untextured, and that is counted (ReflectionTierStats::HitsShadedUntextured);
+    // canonical textured hit shading with a ray-footprint policy is #1355.
     class RayTracedReflectionPass : public RenderGraphNode
     {
       public:

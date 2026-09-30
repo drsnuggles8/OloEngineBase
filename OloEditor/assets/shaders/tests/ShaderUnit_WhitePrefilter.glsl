@@ -2,8 +2,7 @@
 // ShaderUnit_WhitePrefilter.glsl
 //
 // Unit probe for the GGX specular importance-sampling prefilter kernel used
-// by IBLPrefilter.glsl. Mirrors `ShaderUnit_WhiteIrradiance.glsl` but for the
-// specular lobe. Replaces the samplerCube lookup with uniform-white radiance
+// by IBLPrefilter.glsl. Replaces the samplerCube lookup with uniform-white radiance
 // so we can run the exact same integrator over a known analytic integrand.
 //
 // Invariant: for a uniform-white environment L_i(ω) = 1, the normalized

@@ -1,4 +1,5 @@
 Scene: WindFuzz
+Version: 1
 Entities:
   - Entity: 1236
     FoliageComponent:

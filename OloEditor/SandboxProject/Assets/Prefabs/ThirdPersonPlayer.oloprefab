@@ -6,6 +6,7 @@ Prefab:
   # entity's UUID, BoomLength 4 and CollisionEnabled true.
   Scene: |
     Scene: ThirdPersonPlayer
+    Version: 1
     Entities:
       - Entity: 6460000000000000101
         TagComponent:

@@ -51,7 +51,7 @@ does not survive it; MSVC's does not keep one and does. So the abort is
 nothing here. `FString` exists for exactly this reason and for no other.
 
 `TIsTriviallyRelocatable` is the guard. It defaults to `std::is_trivially_copyable_v<T>` and is a
-**hard** `static_assert` in `Array`, `CompactSet`, `Deque` and `SparseArray`. It fails closed: a
+**hard** `static_assert` in `Array`, `Deque` and `SparseArray`. It fails closed: a
 type it cannot prove safe is rejected at compile time.
 
 ## Adding a `TArray<T>` whose `T` is not trivially copyable

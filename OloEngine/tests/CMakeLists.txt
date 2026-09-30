@@ -93,6 +93,11 @@ add_executable(OloEngine-Tests
 		AssetRegistryInvariantsTest.cpp
 		AssetDependencyDirectionTest.cpp
 		RuntimeAssetManagerTest.cpp
+		# Issue #1365, cooked path: async-load cancellation under the real race and
+		# estimate/actual/unknown byte accounting.
+		RuntimeAssetLoadCancelTest.cpp
+		# Shutdown() then the destructor must release the shared placeholder set once.
+		AssetManagerShutdownTest.cpp
 		AssetLoadedEventTest.cpp
 		${_olo_component_round_trip_src}
 		TilemapTest.cpp
@@ -155,7 +160,7 @@ add_executable(OloEngine-Tests
 		OloHeaderToolOutputsTest.cpp
 		OloHeaderToolClassifierTest.cpp
 		SceneSerializerFuzzRegressionTest.cpp
-		SceneVersionMigrationTest.cpp
+		SceneVersionTest.cpp
 		EngineSubsystemSmokeTest.cpp
 		AppLaunchSmokeTest.cpp
 		GpuGateSwitchTest.cpp
@@ -734,6 +739,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/ReflectionTierTermEvidenceTest.cpp
 		Rendering/PropertyTests/MeshVisibilityEvidenceTest.cpp
 		Rendering/PropertyTests/VisualEvidenceGuards.cpp
+		Rendering/PropertyTests/FineDetailDensityTest.cpp
 		Rendering/PropertyTests/BloomVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ObserverCameraVisualEvidenceTest.cpp
 		Rendering/PropertyTests/FogVisualEvidenceTest.cpp
@@ -929,6 +935,9 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/RHIHandleNativeIdentityTest.cpp
 		Rendering/PropertyTests/TextureInPlaceReloadTest.cpp
 		Streaming/SceneStreamingTest.cpp
+		# Issue #1365, loose path: region-load cancellation, byte-budget admission and
+		# eviction, and the StreamingSettings budget fields in scene YAML.
+		Streaming/SceneStreamerBudgetTest.cpp
 		InputActionTest.cpp
 		# The synthetic-input overlay behind olo_input_inject, and specifically the
 		# absolute-vs-relative distinction (#607): an ABSOLUTE override integrates to
@@ -1006,8 +1015,8 @@ add_executable(OloEngine-Tests
 		SaveGame/SaveGameFileTest.cpp
 		SaveGame/SaveGameManagerTest.cpp
 		SaveGame/SaveGameIntegrationTest.cpp
+		SaveGame/SaveGameFormatGuardTest.cpp
 		SaveGame/SaveGameComponentSerializerCoverageTest.cpp
-		SaveGame/SaveGameVersionMigrationTest.cpp
 		SaveGame/BoidComponentSaveLoadSanitizeTest.cpp
 		SaveGame/FoliageLeafMaterialSaveLoadTest.cpp
         SaveGame/FoliageWindSaveLoadTest.cpp
@@ -1241,6 +1250,9 @@ add_executable(OloEngine-Tests
 		# the sequential order and only becomes a race under the parallel executor).
 		# Header-only (MCP/McpSchedulerGraph.h), no extra editor TU pulled in.
 		MCP/McpSchedulerGraphTest.cpp
+		# Pure JSON shaping behind olo_streaming_stats (#1365): unknown sizes are null,
+		# not zero. Header-only (MCP/McpStreamingStats.h).
+		MCP/McpStreamingStatsTest.cpp
 		# Pure reasoning behind olo_physics_why_no_collision (#306 item A). Header-
 		# only (MCP/McpPhysicsExplain.h), so no extra editor TU is pulled in.
 		MCP/McpPhysicsExplainTest.cpp
@@ -1799,6 +1811,18 @@ target_compile_definitions(OloEngine-Tests PRIVATE
 # Fix UTF-8 compilation issue
 if(MSVC)
 	target_compile_options(OloEngine-Tests PRIVATE /utf-8 /FS /bigobj)
+endif()
+
+# Tests do not go through olo_set_compiler_options, so repeat its #1501 rule
+# here: calling a [[deprecated]] declaration is an error, in tests too.
+# _CRT_SECURE_NO_WARNINGS matches the engine targets: getenv / strerror / sscanf
+# are standard C, not engine shims, and MSVC's "unsafe" advisory is not what the
+# rule is for.
+target_compile_definitions(OloEngine-Tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR NOT MSVC)
+	target_compile_options(OloEngine-Tests PRIVATE -Werror=deprecated-declarations)
+else()
+	target_compile_options(OloEngine-Tests PRIVATE /we4996)
 endif()
 
 # atomic_queue and spdlog now arrive as vcpkg IMPORTED targets propagated by

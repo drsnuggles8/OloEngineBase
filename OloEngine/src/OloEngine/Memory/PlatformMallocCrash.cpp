@@ -254,7 +254,8 @@ namespace OloEngine
         // Construct each pool in-place and initialize
         for (int i = 0; i < NUM_POOLS; ++i)
         {
-            FMallocCrashPool* Pool = new (PoolStorage[i].GetTypedPtr()) FMallocCrashPool();
+            PoolStorage[i].EmplaceUnchecked();
+            FMallocCrashPool* Pool = &PoolStorage[i].GetUnchecked();
             Pool->Initialize(PoolDescs[i], *this);
         }
     }

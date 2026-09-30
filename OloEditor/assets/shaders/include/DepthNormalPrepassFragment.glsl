@@ -101,7 +101,7 @@ layout(binding = 0) uniform sampler2D u_AlbedoMap; // TEX_DIFFUSE
 layout(binding = 2) uniform sampler2D u_NormalMap; // TEX_NORMAL
 #endif
 
-// u_Model, for the ocular surface's optical axis.
+// instances[v_InstanceIndex].Transform, for the ocular surface's optical axis.
 #include "InstanceBlock.glsl"
 #include "ForwardShadingNormal.glsl"
 #include "SnowLayer.glsl"
@@ -128,7 +128,7 @@ void main()
     if (oloSkinEvaluatesOcularSurface(u_MaterialKind, u_SkinEvaluationModel))
     {
         OloSkinOcular oloOcular = oloSkinOcularApply(vec3(0.0), N, normalize(u_CameraPosition - v_WorldPos),
-                                                     u_Model[2].xyz, u_SkinOcularCorneaLane, u_SkinOcularIrisLane,
+                                                     instances[v_InstanceIndex].Transform[2].xyz, u_SkinOcularCorneaLane, u_SkinOcularIrisLane,
                                                      u_SkinOcularResponseLane, u_SkinOcularTintLane);
         N = oloOcular.Normal;
     }

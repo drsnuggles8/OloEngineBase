@@ -302,7 +302,7 @@ namespace OloEngine::Tests
     {
         ShadowTechniqueStats stats;
         stats.Record(SelectShadowTechnique(MakeReadyInputs(), 0));
-        stats.MaskedOccludersShadowedAsSolid = 7;
+        stats.ShadowRaysDispatchedUpperBound = 7;
 
         stats.Reset();
 

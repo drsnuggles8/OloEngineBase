@@ -405,20 +405,6 @@ namespace OloEngine
         T* m_Instance = nullptr;
     };
 
-    // Convenience aliases for backward compatibility
-    template<typename T>
-    using AssetRef = Ref<T>;
-
-    template<typename T>
-    using WeakAssetRef = WeakRef<T>;
-
-    // Additional aliases
-    template<typename T>
-    using AssetPtr = Ref<T>;
-
-    template<typename T>
-    using WeakAssetPtr = WeakRef<T>;
-
 } // namespace OloEngine
 
 namespace OloEngine

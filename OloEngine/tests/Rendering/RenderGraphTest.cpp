@@ -9820,8 +9820,10 @@ TEST(RenderGraphExecutePlanDriven, BatchEventHookBatchIndexIsZeroForFirstBatch)
 
 TEST(RenderGraphExecutePlanDriven, PostPassHookStillFiresForEachPass)
 {
-    // SetPostPassHook contract: the hook must fire once per executed pass
-    // in order, regardless of whether the plan-driven path is active.
+    // Post-pass hook contract: a keyed listener (AddPostPassHook, what
+    // RenderGraphFrameCapture and the MCP afterPass snapshot install) must fire
+    // once per executed pass in order, regardless of whether the plan-driven
+    // path is active.
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
@@ -9831,7 +9833,7 @@ TEST(RenderGraphExecutePlanDriven, PostPassHookStillFiresForEachPass)
     graph.SetFinalPass("Y");
 
     std::vector<std::string> firedFor;
-    graph.SetPostPassHook([&](std::string_view passName, RenderGraph& /*g*/)
+    graph.AddPostPassHook("test", [&](std::string_view passName, RenderGraph& /*g*/)
                           { firedFor.push_back(std::string(passName)); });
 
     graph.Execute();
@@ -9839,6 +9841,12 @@ TEST(RenderGraphExecutePlanDriven, PostPassHookStillFiresForEachPass)
     ASSERT_EQ(firedFor.size(), 2u);
     EXPECT_EQ(firedFor[0], "X");
     EXPECT_EQ(firedFor[1], "Y");
+
+    // Removing the listener by its key stops it firing.
+    graph.RemovePostPassHook("test");
+    EXPECT_FALSE(graph.HasPostPassHook());
+    graph.Execute();
+    EXPECT_EQ(firedFor.size(), 2u);
 }
 
 // =============================================================================

@@ -47,7 +47,7 @@ Detects `std::memcmp` (or equivalents) used to compare objects whose type is not
 
 ### Why it's a false positive here
 
-The 21 hits are *all* at the single helper `Math::BitwiseEqual`, called from the editor's `DrawComponent<T>` undo/redo machinery documented in [CLAUDE.md](../../CLAUDE.md#editor-undoredo-for-components). The pattern is:
+The 21 hits are *all* at the single helper `Math::BitwiseEqual`, called from the editor's `DrawComponent<T>` undo/redo machinery documented in [CLAUDE.md](../../CLAUDE.md#editor-undo-for-components). The pattern is:
 
 ```cpp
 // In Math/Math.h
@@ -123,7 +123,7 @@ Boolean expressions with more than three `&&` / `||` operators. Intent: such exp
 
 ### Why this codebase is different
 
-The ECS layer iterates the `AllComponents` tuple (see [CLAUDE.md cross-binding check](../../CLAUDE.md#definition-of-done---before-you-hand-back-to-the-user)) and the serializer dispatches per component type. Both inevitably produce expressions like:
+The ECS layer iterates the `AllComponents` tuple (see [CLAUDE.md cross-binding check](../../CLAUDE.md#definition-of-done)) and the serializer dispatches per component type. Both inevitably produce expressions like:
 
 ```cpp
 if (entity.HasComponent<TransformComponent>() &&
@@ -482,7 +482,7 @@ the one compile-time check that fails when a C++ lane moves alone. On the first 
 the 26 pin lines carried 52 CRITICAL issues (S986 at 20 min each, M23_224 at 1 h each), about
 35 of the 49 hours of computed debt on new code, and that alone put the Maintainability
 Rating on new code at B. `S1820` fires on `GPUSceneMaterial` (32 fields), which mirrors
-`PBRMaterialUBO` + `MaterialUBO` one lane per field on purpose; splitting it would create a
+`PBRMaterialUBO` one lane per field on purpose; splitting it would create a
 second struct to keep in parity. Same shape as `lever_s1820` above: the count is the contract,
 not a smell.
 

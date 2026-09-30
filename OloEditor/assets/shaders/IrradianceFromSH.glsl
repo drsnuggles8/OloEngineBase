@@ -1,7 +1,7 @@
 // =============================================================================
 // IrradianceFromSH.glsl — IBL irradiance evaluation from L2 spherical harmonics
 //
-// Alternative to IrradianceConvolution.glsl: instead of Monte-Carlo summing
+// Alternative to IrradianceConvolutionAdvanced.glsl: instead of Monte-Carlo summing
 // thousands of cubemap samples per output texel, this shader evaluates a
 // pre-projected 9-coefficient L2 SH expansion of the environment map. The
 // output cubemap stays bit-compatible with the convolution path so PBR

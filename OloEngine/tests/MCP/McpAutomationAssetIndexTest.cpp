@@ -11,7 +11,7 @@
 // the delete goes through, the scene still loads, the mesh renders untextured
 // and nothing says why. An INVENTED referrer is merely an annoying refusal. So
 // the cases below lean hard on the missed direction -- indexed material maps,
-// the five path spellings in checked-in content, references from a file format
+// the four path spellings in checked-in content, references from a file format
 // nobody thought about -- and on the one case where inventing a referrer would
 // be catastrophic rather than annoying: two different files with the same name.
 
@@ -170,21 +170,6 @@ namespace OloEngine::Automation::Tests
         EXPECT_EQ(index.Coverage.UnresolvedReferences, 0u)
             << "a bare filename with no directory separator that resolves to nothing is a NAME, not a broken "
                "reference; the coverage note states the ambiguity rather than guessing either way";
-    }
-
-    TEST_F(AutomationAssetIndexTest, ResolvesTheLegacyProjectPrefixedSpelling)
-    {
-        // The spelling several checked-in scenes still carry (#1098). It only
-        // ever resolved because the editor's cwd sits one level above the
-        // project, and EditorAssetManager now strips the stale leading component.
-        Write(m_Project / "Assets" / "Scenes" / "Legacy.olo",
-              "Scene: Legacy\nEntities:\n  - Entity: 1\n    MeshComponent:\n"
-              "      MeshPath: SandboxProject/Assets/Textures/Checkerboard.png\n");
-
-        const AssetIndex index = Build();
-        const auto referrers = FindReferrers(index, ProjectTexture(), 0);
-        ASSERT_EQ(referrers.size(), 1u);
-        EXPECT_EQ(referrers[0].Anchor, AssetReferenceAnchor::LegacyProjectPrefixed);
     }
 
     // --- the direction that loses data --------------------------------------
@@ -457,8 +442,8 @@ namespace OloEngine::Automation::Tests
     {
         Write(m_Project / "Assets" / "Scenes" / "Project.olo",
               "Scene: P\n  AlbedoTexturePath: Assets/Textures/Checkerboard.png\n");
-        Write(m_Project / "Assets" / "Scenes" / "Legacy.olo",
-              "Scene: L\n  MeshPath: SandboxProject/Assets/Textures/Checkerboard.png\n");
+        Write(m_Project / "Assets" / "Scenes" / "AssetDir.olo",
+              "Scene: A\n  MeshPath: Textures/Checkerboard.png\n");
 
         const AssetIndex index = Build();
         const auto referrers = FindReferrers(index, ProjectTexture(), 0);
@@ -474,10 +459,11 @@ namespace OloEngine::Automation::Tests
             }
             else
             {
-                // The stale prefix is put back rather than modernised: a move is
-                // not the place to smuggle in an unrelated re-spelling.
-                EXPECT_EQ(reference.Anchor, AssetReferenceAnchor::LegacyProjectPrefixed);
-                EXPECT_EQ(respelled, "SandboxProject/Assets/Textures/Moved/Checkerboard.png");
+                // The asset-directory-relative spelling stays asset-directory-relative
+                // rather than being modernised: a move is not the place to smuggle in
+                // an unrelated re-spelling.
+                EXPECT_EQ(reference.Anchor, AssetReferenceAnchor::AssetDirectoryRelative);
+                EXPECT_EQ(respelled, "Textures/Moved/Checkerboard.png");
             }
         }
     }

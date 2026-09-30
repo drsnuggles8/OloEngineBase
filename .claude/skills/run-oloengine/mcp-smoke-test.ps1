@@ -5,23 +5,24 @@
 #
 # The editor must be running with the server started. Easiest: launch OloEditor with
 # the env var OLO_MCP_AUTOSTART=1 (optionally OLO_MCP_PORT=<port>); on start it writes
-# a discovery file to %TEMP%\oloengine-mcp.json with the port + auth token, which this
-# script reads. Not committed — a developer convenience for verifying the round trip.
+# a discovery file to %TEMP%\oloengine-mcp-<port>.json with the port + auth token, which
+# this script reads. Not committed — a developer convenience for verifying the round trip.
 #
 # Usage:  pwsh -File smoke_test.ps1
 
 param(
     # Path to the editor's MCP discovery JSON. Precedence: this flag, then the
     # OLO_MCP_DISCOVERY_FILE env var (the per-worktree path the run-oloengine
-    # `attach` action uses), then the legacy %TEMP%\oloengine-mcp.json (the
-    # default-port / manual-start location).
-    [string]$DiscoveryPath
+    # `attach` action uses), then %TEMP%\oloengine-mcp-<Port>.json (the
+    # manual-start location; the port defaults to the editor's 7345).
+    [string]$DiscoveryPath,
+    [int]$Port = 7345
 )
 
 $ErrorActionPreference = 'Stop'
 
 if (-not $DiscoveryPath) {
-    $DiscoveryPath = if ($env:OLO_MCP_DISCOVERY_FILE) { $env:OLO_MCP_DISCOVERY_FILE } else { Join-Path $env:TEMP 'oloengine-mcp.json' }
+    $DiscoveryPath = if ($env:OLO_MCP_DISCOVERY_FILE) { $env:OLO_MCP_DISCOVERY_FILE } else { Join-Path $env:TEMP "oloengine-mcp-$Port.json" }
 }
 $discoveryPath = $DiscoveryPath
 if (-not (Test-Path $discoveryPath)) {

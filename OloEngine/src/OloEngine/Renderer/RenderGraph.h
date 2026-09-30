@@ -1059,18 +1059,9 @@ namespace OloEngine
         using PostPassHook = std::function<void(std::string_view passName, RenderGraph& graph)>;
         void AddPostPassHook(std::string_view key, PostPassHook hook);
         void RemovePostPassHook(std::string_view key);
-        // Legacy single-slot form: equivalent to Add/Remove under a reserved
-        // key. Pass the empty function (or assign {}) to disable.
-        void SetPostPassHook(PostPassHook hook)
-        {
-            if (hook)
-                AddPostPassHook("__default", std::move(hook));
-            else
-                RemovePostPassHook("__default");
-        }
-        // True when ANY post-pass listener is registered (not just the legacy
-        // slot). A tool that needs to know whether ITS hook is installed must
-        // track that itself (see RenderGraphFrameCapture::IsHookInstalled).
+        // True when ANY post-pass listener is registered. A tool that needs to
+        // know whether ITS hook is installed must track that itself (see
+        // RenderGraphFrameCapture::IsHookInstalled).
         [[nodiscard]] bool HasPostPassHook() const
         {
             return m_PostPassHooks.Num() != 0;

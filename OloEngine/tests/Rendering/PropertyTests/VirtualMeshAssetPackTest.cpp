@@ -8,11 +8,9 @@
 // every launch. This test pins the fix by driving the production
 // MeshSourceSerializer::SerializeToAssetPack / DeserializeFromAssetPack pair:
 //
-//   * a MeshSource carrying a cooked OVGM blob  -> the blob survives the pack round
+//   * a MeshSource carrying a cooked OVGS blob  -> the blob survives the pack round
 //     trip byte-for-byte and still deserializes into an equivalent DAG;
-//   * a MeshSource with NO blob                 -> round-trips cleanly (empty, not garbage);
-//   * a pre-v4 pack (reader pinned to v3)       -> the trailing blob field is NOT read,
-//     which is the desync guard required by docs/agent-rules/binary-format-versioning.md.
+//   * a MeshSource with NO blob                 -> round-trips cleanly (empty, not garbage).
 //
 // Needs a GL context because MeshSource::Build() (called by DeserializeFromAssetPack)
 // uploads GPU buffers; SKIPs cleanly on headless CI.
@@ -120,9 +118,8 @@ class VirtualMeshAssetPackTest : public ::testing::Test
         fs::remove_all(m_TempDir, ec);
     }
 
-    // Write the registered MeshSource into a one-record pack, then read it back with the
-    // reader pinned to `readerVersion` (defaults to the current pack version).
-    Ref<MeshSource> RoundTrip(AssetHandle handle, u32 readerVersion = AssetPackFile::Version)
+    // Write the registered MeshSource into a one-record pack, then read it back.
+    Ref<MeshSource> RoundTrip(AssetHandle handle)
     {
         const fs::path packPath = m_TempDir / "mesh.pack";
         MeshSourceSerializer serializer;
@@ -141,7 +138,6 @@ class VirtualMeshAssetPackTest : public ::testing::Test
 
         FileStreamReader reader(packPath);
         EXPECT_TRUE(reader.IsStreamGood());
-        reader.SetArchiveVersion(readerVersion);
         return serializer.DeserializeFromAssetPack(reader, assetInfo).As<MeshSource>();
     }
 
@@ -156,12 +152,13 @@ TEST_F(VirtualMeshAssetPackTest, CookedDagSurvivesThePackRoundTrip)
     Ref<MeshSource> source = MakeGridMesh(24); // 24*24*2 = 1152 triangles
     ASSERT_TRUE(source);
 
-    // Cook exactly as Model::CookVirtualMesh does.
-    VirtualMesh const built = VirtualMeshBuilder::Build(*source);
+    // Cook exactly as Model::CookVirtualMesh does: a cooked mesh always stores the OVGS set.
+    VirtualMeshSet const built = VirtualMeshBuilder::BuildSet(*source);
     ASSERT_TRUE(built.IsValid()) << "the DAG builder rejected the grid mesh";
-    ASSERT_GT(built.LevelCount, 1u) << "expected a multi-level DAG to make the round trip meaningful";
+    ASSERT_EQ(built.Parts.Num(), 1) << "the single-submesh grid should cook to exactly one part";
+    ASSERT_GT(built.Parts[0].Dag.LevelCount, 1u) << "expected a multi-level DAG to make the round trip meaningful";
 
-    std::vector<u8> const cooked = VirtualMeshSerializer::SerializeToBlob(built);
+    std::vector<u8> const cooked = VirtualMeshSerializer::SerializeSetToBlob(built);
     ASSERT_FALSE(cooked.empty());
     source->SetVirtualMeshBlob(cooked);
     ASSERT_TRUE(source->HasVirtualMeshBlob());
@@ -176,11 +173,14 @@ TEST_F(VirtualMeshAssetPackTest, CookedDagSurvivesThePackRoundTrip)
     EXPECT_TRUE(std::ranges::equal(unpacked->GetVirtualMeshBlob(), cooked));
 
     // ...and still deserializes into the same DAG, which is what the registry consumes.
-    VirtualMesh restored;
-    ASSERT_TRUE(VirtualMeshSerializer::DeserializeFromBlob(unpacked->GetVirtualMeshBlob(), restored));
-    EXPECT_TRUE(restored.IsValid());
-    EXPECT_EQ(restored.LevelCount, built.LevelCount);
-    EXPECT_EQ(static_cast<sizet>(restored.Clusters.Num()), static_cast<sizet>(built.Clusters.Num()));
+    VirtualMeshSet restored;
+    ASSERT_TRUE(VirtualMeshSerializer::DeserializeSetFromBlob(unpacked->GetVirtualMeshBlob(), restored));
+    ASSERT_TRUE(restored.IsValid());
+    ASSERT_EQ(restored.Parts.Num(), built.Parts.Num());
+    EXPECT_EQ(restored.Parts[0].Dag.LevelCount, built.Parts[0].Dag.LevelCount);
+    EXPECT_EQ(static_cast<sizet>(restored.Parts[0].Dag.Clusters.Num()),
+              static_cast<sizet>(built.Parts[0].Dag.Clusters.Num()));
+    EXPECT_EQ(restored.TotalClusters(), built.TotalClusters());
 }
 
 TEST_F(VirtualMeshAssetPackTest, MeshWithoutADagRoundTripsWithAnEmptyBlob)
@@ -199,32 +199,6 @@ TEST_F(VirtualMeshAssetPackTest, MeshWithoutADagRoundTripsWithAnEmptyBlob)
 
     ASSERT_TRUE(unpacked);
     EXPECT_FALSE(unpacked->HasVirtualMeshBlob());
-    EXPECT_EQ(unpacked->GetVertices().Num(), source->GetVertices().Num());
-    EXPECT_EQ(unpacked->GetIndices().Num(), source->GetIndices().Num());
-}
-
-TEST_F(VirtualMeshAssetPackTest, PreV4ReaderDoesNotConsumeTheTrailingBlobField)
-{
-    OLO_ENSURE_GPU_OR_SKIP();
-
-    // The desync guard. A v1-v3 pack never wrote the trailing blob length, so a reader
-    // that sees Header.Version < 4 must not try to read it. Pinning the reader to v3
-    // simulates loading an older pack: the geometry must still come back intact and the
-    // blob must simply be absent — NOT a misread of whatever bytes follow.
-    Ref<MeshSource> source = MakeGridMesh(24);
-    ASSERT_TRUE(source);
-
-    VirtualMesh const built = VirtualMeshBuilder::Build(*source);
-    ASSERT_TRUE(built.IsValid());
-    source->SetVirtualMeshBlob(VirtualMeshSerializer::SerializeToBlob(built));
-    ASSERT_TRUE(source->HasVirtualMeshBlob());
-
-    AssetHandle const handle = AssetManager::AddMemoryOnlyAsset(source);
-    Ref<MeshSource> unpacked = RoundTrip(handle, AssetPackFile::VirtualMeshPackVersion - 1);
-
-    ASSERT_TRUE(unpacked) << "an older pack must still load";
-    EXPECT_FALSE(unpacked->HasVirtualMeshBlob())
-        << "a pre-v4 reader must not consume the trailing blob field";
     EXPECT_EQ(unpacked->GetVertices().Num(), source->GetVertices().Num());
     EXPECT_EQ(unpacked->GetIndices().Num(), source->GetIndices().Num());
 }

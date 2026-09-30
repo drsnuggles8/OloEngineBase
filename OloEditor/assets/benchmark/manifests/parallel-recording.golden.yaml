@@ -1,5 +1,5 @@
 # Independent mesh index windows keep the 3600-caster workload unbatched.
-ManifestVersion: 1
+ManifestVersion: 2
 Id: parallel-recording-golden
 Product: golden
 Scene: Scenes/Benchmark/ParallelRecording.olo
@@ -66,3 +66,12 @@ Assets:
   - Path: SandboxProject/Assets/Models/Benchmark/RecordingCasters.glb
     Origin: generated in-repo by generate_recording_benchmark.py
     License: repository license (no third-party rights)
+    Redistribution: committed
+    LicenseVerified: in-repo-file
+    Version: generated
+    Sha256: 127bd4219d2091446c16e0d93d8f9a2c4185e7d0a6f151cab0a006e651a82316
+    Units: metres
+    UpAxis: +Y
+    ColorSpace: n/a
+    Acquisition: >-
+      Already in-tree. Regenerate with: python OloEngine/tests/scripts/generate_recording_benchmark.py

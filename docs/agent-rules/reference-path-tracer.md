@@ -20,8 +20,9 @@ Read this before validating a GI / lighting / BRDF change against it, and before
   a scene TLAS upload, a compute traversal, a dependency on a live GL context (which kills
   "runs headless so it can gate CI"), and a collision with the in-flight RHI/bindless work.
   The CPU tracer reuses `BoundingVolumeHierarchy` directly, whose const queries are already
-  documented thread-safe once built. If you ever *do* need the GPU version, note that the
-  headless CI gate is the thing you must not lose.
+  documented thread-safe once built. A GPU version now exists (`GpuPathTracerPass`, #1055; see
+  [gpu-path-tracer.md](gpu-path-tracer.md)). It mirrors this tracer and does not replace it, and
+  this CPU tracer's headless CI gate is the thing you must not lose.
 - **`ReferenceBRDF.h` is a hand transcription of `PBRCommon.glsl`**, function for function, quirks
   included — see §3.
 - **`ReferenceScene`** is not the ECS `Scene`. It is a literal-constructible, GL-free description

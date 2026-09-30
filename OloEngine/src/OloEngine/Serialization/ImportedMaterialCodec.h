@@ -80,13 +80,11 @@ namespace OloEngine
     namespace ImportedMaterialCodec
     {
         constexpr u32 MagicNumber = 0x54414D4F; // "OMAT" little-endian
-        // v1 -> v2: the physical glTF material extensions (issue #970) —
-        // transmission, IOR and the volume trio, APPENDED to each material
-        // record. A v1 blob still decodes: the reader stops before the new
-        // fields and every one keeps its neutral default, so an .omesh cache
-        // or asset pack written by an older build stays valid and its
-        // materials shade exactly as they did.
-        constexpr u32 CurrentVersion = 2;
+        // v3 (#1499): the Phong material type field is gone from each record.
+        // Decode accepts EXACTLY this version and rejects every other one — an
+        // older blob is not migrated, its mesh must be re-imported so the
+        // .omesh cache or asset pack is rewritten at v3.
+        constexpr u32 CurrentVersion = 3;
 
         // ── Safety caps (defence against a corrupt/hostile blob) ──
         constexpr u32 MaxMaterialCount = 10'000;
@@ -117,7 +115,6 @@ namespace OloEngine
             // addresses the table POSITIONALLY, so entries can never be compacted away.
             bool Present = true;
             std::string Name;
-            i32 Type = static_cast<i32>(MaterialType::PBR);
             u32 Flags = 0; // MaterialFlag bitfield
             i32 AlphaMode = static_cast<i32>(AlphaMode::Opaque);
             f32 AlphaCutoff = 0.5f;
@@ -129,7 +126,7 @@ namespace OloEngine
             f32 OcclusionStrength = 1.0f;
             bool EnableIBL = false;
 
-            // Physical glTF material extensions (issue #970), wire version 2.
+            // Physical glTF material extensions (issue #970).
             // Stored AS AUTHORED — the attenuation colour and distance, not the
             // derived extinction — so a round-trip returns what the asset said
             // and the derivation stays in one place (Material::GetAttenuationSigma).

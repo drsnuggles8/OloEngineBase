@@ -201,7 +201,7 @@ namespace OloEngine::Tests
         // Touch a fake start scene + script module so the on-load
         // path-resolution doesn't complain about missing files.
         {
-            std::ofstream(tempDir / "Assets" / "Main.olo") << "Scene: Main\n";
+            std::ofstream(tempDir / "Assets" / "Main.olo") << "Scene: Main\nVersion: 1\n";
             std::ofstream(tempDir / "Assets" / "Scripting.dll") << "";
         }
 

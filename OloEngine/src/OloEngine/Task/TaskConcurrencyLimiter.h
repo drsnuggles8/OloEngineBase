@@ -10,7 +10,7 @@
 #include "OloEngine/HAL/EventPool.h"
 #include "OloEngine/Memory/LockFreeList.h"
 #include "OloEngine/Templates/SharedPointer.h"
-#include "OloEngine/Templates/FunctionRef.h"
+#include "OloEngine/Templates/Function.h"
 #include "OloEngine/Templates/RefCounting.h"
 #include "OloEngine/Containers/Array.h"
 

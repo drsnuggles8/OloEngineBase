@@ -61,7 +61,7 @@ void main()
     OloVoxelQuad quad = oloUnpackVoxelQuad(geometryWord, 0u);
     vec3 localPos = oloVoxelQuadCorner(quad, a_Corner);
 
-    gl_Position = u_ViewProjection * u_Model * vec4(localPos, 1.0);
+    gl_Position = u_ViewProjection * instances[0].Transform * vec4(localPos, 1.0);
 }
 
 #type fragment

@@ -272,15 +272,15 @@ layout(std140, binding = 56) uniform OloHeapOffsetBlock
 #define OLO_MATERIAL_NORMAL_OFFSET u_MaterialHeapOffsets[0].z
 #define OLO_MATERIAL_AO_OFFSET u_MaterialHeapOffsets[0].w
 #define OLO_MATERIAL_EMISSIVE_OFFSET u_MaterialHeapOffsets[1].x
-// Environment/IBL/legacy lanes below retain their GL meanings. Vulkan samples
+// Environment/IBL lanes below retain their GL meanings. Vulkan samples
 // those resources through classic bindings; [1].yzw instead carries the static
 // deferred material table's address low/high and count (ADR 0011 (101)).
 #define OLO_MATERIAL_ENVIRONMENT_OFFSET u_MaterialHeapOffsets[1].y
 #define OLO_MATERIAL_IRRADIANCE_OFFSET u_MaterialHeapOffsets[1].z
 #define OLO_MATERIAL_PREFILTER_OFFSET u_MaterialHeapOffsets[1].w
 #define OLO_MATERIAL_BRDF_LUT_OFFSET u_MaterialHeapOffsets[2].x
-#define OLO_MATERIAL_DIFFUSE_OFFSET u_MaterialHeapOffsets[2].y
-#define OLO_MATERIAL_SPECULAR_OFFSET u_MaterialHeapOffsets[2].z
+// [2].y and [2].z are unused (written as the null offset). They carried the
+// Phong diffuse / specular maps until that material type was removed (#1499).
 
 // THE SAMPLER LANE, and it exists for one arm only. GL_ARB_bindless_texture
 // bakes sampler state into its uvec2 handle, so a GL offset is a complete

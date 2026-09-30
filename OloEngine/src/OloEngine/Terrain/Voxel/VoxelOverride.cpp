@@ -402,16 +402,16 @@ namespace OloEngine
 
     // ── RLE Serialization ────────────────────────────────────────────────
     //
-    // Format:
-    //   V1: [4 bytes: 'VOX1'][4 bytes: version][4 bytes: chunk count]
-    //   Legacy: [4 bytes: chunk count] (SDF only)
+    // Format (RLEMagic / RLEVersion, VoxelOverride.h):
+    //   [4 bytes: 'VOX1'][4 bytes: version][4 bytes: chunk count]
     //   Per chunk:
     //     [12 bytes: VoxelCoord (X, Y, Z as i32)]
     //     [4 bytes: run count]
     //     Per run:
     //       [4 bytes: f32 value]
     //       [2 bytes: u16 count]
-    //   V1 only: [1 byte: material-data-present][32768 material bytes if present]
+    //     [1 byte: material-data-present][32768 material bytes if present]
+    // The reader accepts exactly RLEVersion; there is no headerless variant.
 
     TArray<u8> VoxelOverride::SerializeRLE() const
     {
@@ -426,10 +426,8 @@ namespace OloEngine
         auto writeF32 = [&data](f32 v)
         { data.Append(reinterpret_cast<const u8*>(&v), 4); };
 
-        constexpr i32 magic = 0x31584F56; // little-endian "VOX1"
-        constexpr i32 version = 1;
-        writeI32(magic);
-        writeI32(version);
+        writeI32(RLEMagic);
+        writeI32(RLEVersion);
         u32 chunkCount = static_cast<u32>(m_Chunks.size());
         writeI32(static_cast<i32>(chunkCount));
 
@@ -482,8 +480,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (data.Num() < 4)
+        if (data.Num() < 12)
         {
+            OLO_CORE_ERROR("VoxelOverride::DeserializeRLE: {} bytes is too short for the VOX1 header", data.Num());
             return false;
         }
 
@@ -495,20 +494,21 @@ namespace OloEngine
         auto readF32 = [&data, &offset]() -> f32
         { f32 v; std::memcpy(&v, &data[offset], 4); offset += 4; return v; };
 
-        constexpr i32 magic = 0x31584F56;
-        const i32 firstWord = readI32();
-        bool hasMaterials = false;
-        i32 rawChunkCount = firstWord;
-        if (firstWord == magic)
+        if (const i32 magic = readI32(); magic != RLEMagic)
         {
-            if (offset + 8 > data.Num())
-                return false;
-            const i32 version = readI32();
-            if (version != 1)
-                return false;
-            rawChunkCount = readI32();
-            hasMaterials = true;
+            OLO_CORE_ERROR("VoxelOverride::DeserializeRLE: missing 'VOX1' magic (read 0x{:08X}); "
+                           "the blob is not a voxel override, re-save the voxel edits",
+                           static_cast<u32>(magic));
+            return false;
         }
+        if (const i32 version = readI32(); version != RLEVersion)
+        {
+            OLO_CORE_ERROR("VoxelOverride::DeserializeRLE: format v{} is not supported (this build reads v{} only); "
+                           "re-save the voxel edits",
+                           version, RLEVersion);
+            return false;
+        }
+        const i32 rawChunkCount = readI32();
         if (rawChunkCount < 0)
             return false;
         u32 chunkCount = static_cast<u32>(rawChunkCount);
@@ -561,22 +561,25 @@ namespace OloEngine
             if (idx != VoxelChunk::TOTAL_VOXELS)
                 return false;
 
-            if (hasMaterials)
+            if (offset + 1 > data.Num())
+                return false;
+            const bool materialPresent = data[offset++] != 0;
+            if (materialPresent)
             {
-                if (offset + 1 > data.Num())
+                if (offset + VoxelChunk::TOTAL_VOXELS > data.Num())
                     return false;
-                const bool materialPresent = data[offset++] != 0;
-                if (materialPresent)
-                {
-                    if (offset + VoxelChunk::TOTAL_VOXELS > data.Num())
-                        return false;
-                    chunk.MaterialData.Reset();
-                    chunk.MaterialData.Append(data.GetData() + offset, VoxelChunk::TOTAL_VOXELS);
-                    offset += VoxelChunk::TOTAL_VOXELS;
-                }
+                chunk.MaterialData.Reset();
+                chunk.MaterialData.Append(data.GetData() + offset, VoxelChunk::TOTAL_VOXELS);
+                offset += VoxelChunk::TOTAL_VOXELS;
             }
 
             chunk.Dirty = true;
+        }
+
+        if (offset != data.Num())
+        {
+            OLO_CORE_ERROR("VoxelOverride::DeserializeRLE: {} trailing bytes after {} chunks", data.Num() - offset, chunkCount);
+            return false;
         }
 
         m_Chunks = std::move(tempChunks);

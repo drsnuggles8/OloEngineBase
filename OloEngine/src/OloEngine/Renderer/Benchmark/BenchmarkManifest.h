@@ -23,8 +23,8 @@
 // work needed and nothing else: full ASSET PROVENANCE (redistribution class,
 // upstream version, SHA-256, units, up axis, colour space, acquisition path,
 // and how the licence was verified) and per-frame CAMERA MOTION for moving
-// sequences. Both are rejected in a v1 manifest and required in a v2 one, so
-// the version number tells you exactly which contract a file signed up to.
+// sequences. Version 2 is the only version the parser reads: every committed
+// manifest was migrated, and a v1 file is refused with what to add.
 // See docs/guides/benchmark-reference-fixtures.md.
 // =============================================================================
 
@@ -114,7 +114,7 @@ namespace OloEngine::Benchmark
         // defaults to Warmup.Frames; a later camera is a deterministic camera
         // CUT, and defaults to the same full warm-up unless it declares fewer.
         std::optional<u32> WarmupFrames;
-        // ManifestVersion 2+ only. Absent = the still pose above, unchanged.
+        // Absent = the still pose above, unchanged.
         std::optional<ManifestCameraMotion> Motion;
     };
 
@@ -212,8 +212,7 @@ namespace OloEngine::Benchmark
         FString License;
 
         // ---- ManifestVersion 2 provenance (issue #1239) -------------------
-        // Required from v2; absent (nullopt / empty) in a v1 manifest, which
-        // keeps every issue-#974 manifest parsing byte-for-byte as before.
+        // Required on every record: a parsed manifest has all of them set.
         std::optional<AssetRedistribution> Redistribution;
         std::optional<LicenseVerification> LicenseVerified;
         std::optional<AssetUnits> Units;
@@ -318,6 +317,9 @@ namespace OloEngine
 
 namespace OloEngine::Benchmark
 {
+    // The one ManifestVersion LoadBenchmarkManifest accepts.
+    inline constexpr u32 kCurrentManifestVersion = 2;
+
     struct BenchmarkManifest
     {
         u32 ManifestVersion = 0;

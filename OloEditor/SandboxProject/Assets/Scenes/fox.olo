@@ -1,4 +1,5 @@
 Scene: fox.olo
+Version: 1
 Entities:
   - Entity: 3654357267115472602
     TagComponent:

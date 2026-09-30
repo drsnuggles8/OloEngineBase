@@ -117,8 +117,6 @@ namespace OloEngine::MaterialXImport
             const std::string category = shader->getCategory();
             const InputNames names = NamesForCategory(category);
 
-            material.SetType(MaterialType::PBR);
-
             if (auto baseColor = ReadColor4(shader, names.BaseColor))
                 material.SetBaseColorFactor(*baseColor);
             if (auto metallic = ReadFloat(shader, names.Metallic))

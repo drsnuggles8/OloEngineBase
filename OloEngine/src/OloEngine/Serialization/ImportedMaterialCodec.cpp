@@ -293,7 +293,6 @@ namespace OloEngine::ImportedMaterialCodec
 
             desc.Present = true;
             desc.Name = material->GetName().ToStdString();
-            desc.Type = static_cast<i32>(material->GetType());
             desc.Flags = material->GetFlags();
             desc.AlphaMode = static_cast<i32>(material->GetAlphaMode());
             desc.AlphaCutoff = material->GetAlphaCutoff();
@@ -357,13 +356,12 @@ namespace OloEngine::ImportedMaterialCodec
                 continue;
             }
 
-            material->SetType(static_cast<MaterialType>(desc.Type));
             material->SetFlags(desc.Flags);
             material->SetAlphaMode(static_cast<AlphaMode>(desc.AlphaMode));
             material->SetAlphaCutoff(desc.AlphaCutoff);
             // Physical glTF material extensions (issue #970). Each setter
-            // re-sanitizes, so a v1 blob's defaults and a hostile v2 blob's
-            // values land in the same validated range.
+            // re-sanitizes, so a hostile blob's values land in the same
+            // validated range as an authored material's.
             material->SetTransmissionFactor(desc.TransmissionFactor);
             material->SetIOR(desc.IOR);
             material->SetThicknessFactor(desc.ThicknessFactor);
@@ -469,7 +467,6 @@ namespace OloEngine::ImportedMaterialCodec
             }
 
             WriteString(blob, desc.Name);
-            WritePod(blob, desc.Type);
             WritePod(blob, desc.Flags);
             WritePod(blob, desc.AlphaMode);
             WritePod(blob, desc.AlphaCutoff);
@@ -487,9 +484,7 @@ namespace OloEngine::ImportedMaterialCodec
             WriteTextureRef(blob, desc.AO);
             WriteTextureRef(blob, desc.Emissive);
 
-            // --- wire version 2 (issue #970) ---
-            // Appended AFTER every v1 field so a v1 reader's cursor never sees
-            // them and a v2 reader can gate on the version alone.
+            // Physical glTF material extensions (issue #970).
             WritePod(blob, desc.TransmissionFactor);
             WritePod(blob, desc.IOR);
             WritePod(blob, desc.ThicknessFactor);
@@ -528,9 +523,10 @@ namespace OloEngine::ImportedMaterialCodec
             OLO_CORE_ERROR("ImportedMaterialCodec::Decode: bad magic (got {:#x})", magic);
             return false;
         }
-        if (version == 0 || version > CurrentVersion)
+        if (version != CurrentVersion)
         {
-            OLO_CORE_ERROR("ImportedMaterialCodec::Decode: unsupported blob version {} (this build reads 1..{})",
+            OLO_CORE_ERROR("ImportedMaterialCodec::Decode: unsupported blob version {} (this build reads only {}); "
+                           "the cached material table must be re-imported from its source asset",
                            version, CurrentVersion);
             return false;
         }
@@ -560,7 +556,6 @@ namespace OloEngine::ImportedMaterialCodec
 
             u8 enableIBL = 0;
             if (!ReadString(cursor, desc.Name) ||
-                !ReadPod(cursor, desc.Type) ||
                 !ReadPod(cursor, desc.Flags) ||
                 !ReadPod(cursor, desc.AlphaMode) ||
                 !ReadPod(cursor, desc.AlphaCutoff) ||
@@ -575,7 +570,12 @@ namespace OloEngine::ImportedMaterialCodec
                 !ReadTextureRef(cursor, desc.MetallicRoughness) ||
                 !ReadTextureRef(cursor, desc.Normal) ||
                 !ReadTextureRef(cursor, desc.AO) ||
-                !ReadTextureRef(cursor, desc.Emissive))
+                !ReadTextureRef(cursor, desc.Emissive) ||
+                !ReadPod(cursor, desc.TransmissionFactor) ||
+                !ReadPod(cursor, desc.IOR) ||
+                !ReadPod(cursor, desc.ThicknessFactor) ||
+                !ReadPod(cursor, desc.AttenuationColor) ||
+                !ReadPod(cursor, desc.AttenuationDistance))
             {
                 OLO_CORE_ERROR("ImportedMaterialCodec::Decode: truncated/invalid material {}", i);
                 return false;
@@ -584,9 +584,7 @@ namespace OloEngine::ImportedMaterialCodec
 
             // Enum fields land in a switch that assumes a valid case — validate them the
             // same way the floats below are sanitized. Ranges track the enum definitions in
-            // Material.h (MaterialType: Legacy..PBR, AlphaMode: Opaque..Blend).
-            desc.Type = SanitizeEnum(desc.Type, static_cast<i32>(MaterialType::Legacy),
-                                     static_cast<i32>(MaterialType::PBR), static_cast<i32>(MaterialType::PBR));
+            // Material.h (AlphaMode: Opaque..Blend).
             desc.AlphaMode = SanitizeEnum(desc.AlphaMode, static_cast<i32>(AlphaMode::Opaque),
                                           static_cast<i32>(AlphaMode::Blend), static_cast<i32>(AlphaMode::Opaque));
 
@@ -600,39 +598,23 @@ namespace OloEngine::ImportedMaterialCodec
             desc.NormalScale = SanitizeFloat(desc.NormalScale, 1.0f);
             desc.OcclusionStrength = SanitizeFloat(desc.OcclusionStrength, 1.0f);
 
-            // --- wire version 2 (issue #970) ---
-            // A v1 blob simply has nothing here, and every physical field keeps
-            // the neutral default MaterialDesc gave it — which is what makes an
-            // older .omesh cache or asset pack shade identically under this build.
-            if (version >= 2)
+            // Physical glTF material extensions (issue #970).
+            desc.TransmissionFactor = SanitizeFloat(desc.TransmissionFactor, 0.0f);
+            desc.IOR = SanitizeFloat(desc.IOR, kDefaultIOR);
+            desc.ThicknessFactor = SanitizeFloat(desc.ThicknessFactor, 0.0f);
+            if (!std::isfinite(desc.AttenuationColor.x) || !std::isfinite(desc.AttenuationColor.y) ||
+                !std::isfinite(desc.AttenuationColor.z))
             {
-                if (!ReadPod(cursor, desc.TransmissionFactor) ||
-                    !ReadPod(cursor, desc.IOR) ||
-                    !ReadPod(cursor, desc.ThicknessFactor) ||
-                    !ReadPod(cursor, desc.AttenuationColor) ||
-                    !ReadPod(cursor, desc.AttenuationDistance))
-                {
-                    OLO_CORE_ERROR("ImportedMaterialCodec::Decode: truncated physical-material block at material {}", i);
-                    return false;
-                }
-
-                desc.TransmissionFactor = SanitizeFloat(desc.TransmissionFactor, 0.0f);
-                desc.IOR = SanitizeFloat(desc.IOR, kDefaultIOR);
-                desc.ThicknessFactor = SanitizeFloat(desc.ThicknessFactor, 0.0f);
-                if (!std::isfinite(desc.AttenuationColor.x) || !std::isfinite(desc.AttenuationColor.y) ||
-                    !std::isfinite(desc.AttenuationColor.z))
-                {
-                    desc.AttenuationColor = glm::vec3(1.0f);
-                }
-                // NOT SanitizeFloat: +infinity is this field's DEFAULT and its
-                // "no absorption" value, so rejecting every non-finite value
-                // would turn the neutral case into a finite distance and tint
-                // glass that should be clear. Only NaN and a non-positive
-                // distance are nonsense, and both mean "no absorption" too.
-                if (std::isnan(desc.AttenuationDistance) || desc.AttenuationDistance <= 0.0f)
-                {
-                    desc.AttenuationDistance = std::numeric_limits<f32>::infinity();
-                }
+                desc.AttenuationColor = glm::vec3(1.0f);
+            }
+            // NOT SanitizeFloat: +infinity is this field's DEFAULT and its
+            // "no absorption" value, so rejecting every non-finite value
+            // would turn the neutral case into a finite distance and tint
+            // glass that should be clear. Only NaN and a non-positive
+            // distance are nonsense, and both mean "no absorption" too.
+            if (std::isnan(desc.AttenuationDistance) || desc.AttenuationDistance <= 0.0f)
+            {
+                desc.AttenuationDistance = std::numeric_limits<f32>::infinity();
             }
 
             outDescs.push_back(std::move(desc));

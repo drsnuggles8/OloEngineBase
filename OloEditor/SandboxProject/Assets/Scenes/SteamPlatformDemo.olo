@@ -1,4 +1,5 @@
 Scene: SteamPlatformDemo.olo
+Version: 1
 Entities:
   - Entity: 6440000000000000001
     TagComponent:

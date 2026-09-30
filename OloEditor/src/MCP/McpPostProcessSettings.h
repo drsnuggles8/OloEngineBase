@@ -32,7 +32,7 @@
 // Restore semantics — restore-PRIOR-VALUE, NOT CommandHistory, identical to
 // McpRendererSettings.h: these are session-global renderer settings, not scene /
 // ECS data, so an undo-stack entry would be wrong. Every write reports
-// `previousValue` + `restoreWith`; a scene reload also restores them.
+// `previousValue`; a scene reload also restores them.
 //
 // Range handling — every numeric field carries a Min/Max and the write CLAMPS to
 // it (reporting `clamped: true` when it bit). The bounds mirror the engine's own
@@ -1048,10 +1048,9 @@ namespace OloEngine::MCP::PostProcess
             { "previousValue", previous },
             { "value", applied },
             { "changed", applied != previous },
-            { "clamped", clamped },
-            // Restore hint: session-global settings, so a revert is this same tool
+            // Restore: session-global settings, so a revert is this same tool
             // with `value` = previousValue (no CommandHistory / Ctrl-Z entry).
-            { "restoreWith", previous },
+            { "clamped", clamped },
         };
         if (clamped)
             result.Data["range"] = Json{ { "min", field.Min }, { "max", field.Max } };

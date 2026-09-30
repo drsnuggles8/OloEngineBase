@@ -3114,7 +3114,7 @@ namespace OloEngine
         f32 m_IBLIntensity = 1.0f;
 
         // Diffuse-irradiance generator selection. False = Monte-Carlo cubemap
-        // convolution (production default — IrradianceConvolution.glsl, ~1024
+        // convolution (production default — IrradianceConvolutionAdvanced.glsl, ~1024
         // samples per output texel). True = L2 spherical-harmonics projection
         // (IrradianceFromSH.glsl, 9 coefficients, ~100x faster generation).
         // Output texture is the same RGBA32F irradiance cubemap in both cases

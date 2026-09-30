@@ -14,9 +14,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
 };
 
 // Per-draw transform / normal matrix / entity id come from the instance SSBO
-// at binding = 15. The shader body keeps reading `u_Model` etc. via the
-// macros declared in InstanceBlock.glsl, so only the resource declaration
-// differs from the legacy ModelMatrices UBO at binding = 3.
+// at binding = 15, read as instances[gl_InstanceIndex].Transform.
 // This shader's consuming stage never reads v_InstanceIndex — declare no
 // varying (a written-but-unconsumed output is a per-pipeline Vulkan
 // validation interface warning).
@@ -31,7 +29,7 @@ void main()
     OLO_INSTANCE_FORWARD();
     v_Color = a_Color;
     v_TexCoord = a_TexCoord;
-    gl_Position = u_ViewProjection * u_Model * vec4(a_Position, 1.0);
+    gl_Position = u_ViewProjection * instances[gl_InstanceIndex].Transform * vec4(a_Position, 1.0);
 }
 
 #type fragment

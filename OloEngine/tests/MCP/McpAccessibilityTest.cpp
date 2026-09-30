@@ -73,7 +73,7 @@ TEST(McpAccessibility, AppliesBothBooleanSettingsWithStrictTypes)
     ASSERT_TRUE(subtitles.Ok) << subtitles.Error;
     EXPECT_TRUE(settings.SubtitlesEnabled);
     EXPECT_EQ(subtitles.Data["scope"], "process");
-    EXPECT_EQ(subtitles.Data["restoreWith"], false);
+    EXPECT_EQ(subtitles.Data["previousValue"], false);
 
     auto speaker = Apply("SubtitleShowSpeaker", false, settings);
     ASSERT_TRUE(speaker.Ok) << speaker.Error;
@@ -176,7 +176,7 @@ TEST_F(McpAccessibilityGlobalTest, ApplyGlobalMutatesTheProcessGlobalAndRestores
     EXPECT_FLOAT_EQ(Accessibility::Get().UITextScale, 2.25f);
     EXPECT_EQ(A11y::DescribeGlobal()["scope"], "process");
 
-    const auto restored = A11y::ApplyGlobal(*field, applied.Data["restoreWith"]);
+    const auto restored = A11y::ApplyGlobal(*field, applied.Data["previousValue"]);
     ASSERT_TRUE(restored.Ok) << restored.Error;
     EXPECT_FLOAT_EQ(Accessibility::Get().UITextScale, 1.0f);
 }

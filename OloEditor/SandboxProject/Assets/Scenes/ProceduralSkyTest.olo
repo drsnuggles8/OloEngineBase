@@ -1,4 +1,5 @@
 Scene: ProceduralSkyTest.olo
+Version: 1
 PostProcessSettings:
   TonemapOperator: 0
   Exposure: 1
@@ -65,7 +66,6 @@ Entities:
       SunIntensity: 1
       SunDiskSize: 1
       ShowSunDisk: true
-      LinkSunToDirectionalLight: false
       EnableSkybox: true
       EnableIBL: true
       IBLIntensity: 1

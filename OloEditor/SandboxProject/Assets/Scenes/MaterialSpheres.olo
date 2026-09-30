@@ -1,4 +1,5 @@
 Scene: MaterialSpheres.olo
+Version: 1
 PostProcessSettings:
   TonemapOperator: 0
   Exposure: 1

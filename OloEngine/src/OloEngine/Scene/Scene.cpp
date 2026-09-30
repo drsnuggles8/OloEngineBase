@@ -1710,12 +1710,7 @@ namespace OloEngine
         if (m_StreamingSettings.Enabled)
         {
             m_SceneStreamer = std::make_unique<SceneStreamer>();
-            SceneStreamerConfig config;
-            config.LoadRadius = m_StreamingSettings.DefaultLoadRadius;
-            config.UnloadRadius = m_StreamingSettings.DefaultUnloadRadius;
-            config.MaxLoadedRegions = m_StreamingSettings.MaxLoadedRegions;
-            config.RegionDirectory = m_StreamingSettings.RegionDirectory;
-            m_SceneStreamer->Initialize(this, config);
+            m_SceneStreamer->Initialize(this, MakeSceneStreamerConfig(m_StreamingSettings));
         }
 
         // Auto-bake NavMesh if agents exist but no valid NavMesh is loaded
@@ -6011,12 +6006,7 @@ namespace OloEngine
         }
 
         m_SceneStreamer = std::make_unique<SceneStreamer>();
-        SceneStreamerConfig config;
-        config.LoadRadius = m_StreamingSettings.DefaultLoadRadius;
-        config.UnloadRadius = m_StreamingSettings.DefaultUnloadRadius;
-        config.MaxLoadedRegions = m_StreamingSettings.MaxLoadedRegions;
-        config.RegionDirectory = m_StreamingSettings.RegionDirectory;
-        m_SceneStreamer->Initialize(this, config);
+        m_SceneStreamer->Initialize(this, MakeSceneStreamerConfig(m_StreamingSettings));
     }
 
     void Scene::ShutdownEditorStreamer()
@@ -6595,7 +6585,7 @@ namespace OloEngine
             ray.m_Origin = footWorld + glm::vec3(0.0f, footIK.RaycastUp, 0.0f);
             ray.m_Direction = glm::vec3(0.0f, -1.0f, 0.0f);
             ray.m_MaxDistance = footIK.RaycastUp + footIK.RaycastDown;
-            ray.m_ExcludedEntities.push_back(entity.GetUUID());
+            ray.m_ExcludedEntities.AddExcludedEntity(entity.GetUUID());
             if (SceneQueryHit hit; m_JoltScene->CastRay(ray, hit) && hit.HasHit())
             {
                 foot.HasGround = true;

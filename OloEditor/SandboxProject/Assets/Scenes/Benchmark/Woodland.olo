@@ -1,4 +1,5 @@
 Scene: Woodland.olo
+Version: 1
 # ─────────────────────────────────────────────────────────────────────────────
 # WOODLAND vegetation fixture (issue #1239).
 #
@@ -286,8 +287,8 @@ Entities:
       Enabled: true
       Layers:
         - Name: Understory
-          MeshPath: SandboxProject/Assets/Models/Vegetation/fern/fern.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/fern/Textures/fern_card.png
+          MeshPath: Assets/Models/Vegetation/fern/fern.obj
+          AlbedoPath: Assets/Models/Vegetation/fern/Textures/fern_card.png
           Density: 4
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -308,8 +309,8 @@ Entities:
           AlphaCutoff: 0.5
           Enabled: true
         - Name: Shrubs
-          MeshPath: SandboxProject/Assets/Models/Vegetation/shrub/shrub.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/shrub/Textures/shrub_card.png
+          MeshPath: Assets/Models/Vegetation/shrub/shrub.obj
+          AlbedoPath: Assets/Models/Vegetation/shrub/Textures/shrub_card.png
           Density: 0.6
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -330,8 +331,8 @@ Entities:
           AlphaCutoff: 0.5
           Enabled: true
         - Name: Pines
-          MeshPath: SandboxProject/Assets/Models/Vegetation/pine/pine.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/pine/Textures/pine_card.png
+          MeshPath: Assets/Models/Vegetation/pine/pine.obj
+          AlbedoPath: Assets/Models/Vegetation/pine/Textures/pine_card.png
           Density: 0.09
           SplatmapChannel: 1
           MinSlopeAngle: 0
@@ -358,8 +359,8 @@ Entities:
           ImpostorHemiOctahedral: true
           Enabled: true
         - Name: Broadleaf
-          MeshPath: SandboxProject/Assets/Models/Vegetation/broadleaf/broadleaf.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/broadleaf/Textures/broadleaf_card.png
+          MeshPath: Assets/Models/Vegetation/broadleaf/broadleaf.obj
+          AlbedoPath: Assets/Models/Vegetation/broadleaf/Textures/broadleaf_card.png
           Density: 0.03
           SplatmapChannel: 0
           MinSlopeAngle: 0

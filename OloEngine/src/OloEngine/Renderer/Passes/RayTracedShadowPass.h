@@ -139,14 +139,6 @@ namespace OloEngine
             m_LightRequests.Reset();
             m_LightRequests.Append(requests.data(), static_cast<i64>(requests.size()));
         }
-        // TLAS instances whose geometry is alpha-tested. They shadow as solid
-        // here (no shader-visible sampler heap yet, #805) and the count is what
-        // makes that diagnosable.
-        void SetMaskedOccluderCount(u32 count) noexcept
-        {
-            m_MaskedOccluderCount = count;
-        }
-
         [[nodiscard]] const ShadowTechniqueStats& GetStats() const noexcept
         {
             return m_Stats;
@@ -174,7 +166,6 @@ namespace OloEngine
         glm::mat4 m_Projection{ 1.0f };
         glm::vec3 m_RenderOrigin{ 0.0f };
         u32 m_FrameIndex = 0;
-        u32 m_MaskedOccluderCount = 0;
 
         TArray64<RayTracedShadowLightRequest> m_LightRequests;
         // Channel -> the request that won it, BY VALUE. Rebuilt every frame by

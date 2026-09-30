@@ -408,7 +408,7 @@ namespace OloEngine::MCP
             //       WatchdogScope and restored on unwind, so it is never inherited
             //       across a nested call), and
             //   (b) the session still permits writes at THIS instant
-            //       (server->AllowWrites()) — re-checked here rather than trusted
+            //       (server->GetWriteConsentMode() != Disabled) — re-checked here rather than trusted
             //       from the dispatch-time gate, so flipping the panel back to
             //       Disabled stops a long-running macro's remaining writes.
             // (a) also closes the laundering path: a write-tier script tool is
@@ -480,7 +480,7 @@ namespace OloEngine::MCP
                     if (!runtime->CallMayWrite)
                         return fail("tool '" + name + "' mutates the project; this script tool is read-only "
                                                       "(declare writes = true in RegisterMcpTool to call write tools)");
-                    if (!server->AllowWrites())
+                    if (server->GetWriteConsentMode() == WriteConsentMode::Disabled)
                         return fail("tool '" + name + "' mutates the project; the editor's MCP write consent is "
                                                       "Disabled");
                 }

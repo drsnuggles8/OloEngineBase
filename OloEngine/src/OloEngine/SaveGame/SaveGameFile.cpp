@@ -129,23 +129,43 @@ namespace OloEngine
     // ReadHeader
     // ========================================================================
 
-    bool SaveGameFile::ReadHeader(const std::filesystem::path& path, SaveGameHeader& outHeader)
+    SaveGameFile::HeaderStatus SaveGameFile::ProbeHeader(const std::filesystem::path& path, SaveGameHeader& outHeader)
     {
         OLO_PROFILE_FUNCTION();
 
         std::ifstream file(path, std::ios::binary);
         if (!file.is_open())
         {
-            return false;
+            return HeaderStatus::Unreadable;
         }
 
-        file.read(reinterpret_cast<char*>(&outHeader), sizeof(SaveGameHeader));
-        if (!file.good() || !outHeader.IsValid())
+        // Read into a local so a short read never leaves a half-filled header that
+        // looks like a real one to the caller.
+        SaveGameHeader header;
+        file.read(reinterpret_cast<char*>(&header), sizeof(SaveGameHeader));
+        if (!file.good())
         {
-            return false;
+            return HeaderStatus::Unreadable;
+        }
+        outHeader = header;
+        if (outHeader.Magic == kSaveGameMagic && outHeader.FormatVersion != kSaveGameFormatVersion)
+        {
+            OLO_CORE_ERROR("[SaveGameFile] '{}' is save format v{}; this build reads only v{}. Old saves are not "
+                           "migrated: re-save it with the build that wrote it, or start a new save.",
+                           path.string(), outHeader.FormatVersion, kSaveGameFormatVersion);
+            return HeaderStatus::UnsupportedVersion;
+        }
+        if (!outHeader.IsValid())
+        {
+            return HeaderStatus::Unreadable;
         }
 
-        return true;
+        return HeaderStatus::Ok;
+    }
+
+    bool SaveGameFile::ReadHeader(const std::filesystem::path& path, SaveGameHeader& outHeader)
+    {
+        return ProbeHeader(path, outHeader) == HeaderStatus::Ok;
     }
 
     // ========================================================================

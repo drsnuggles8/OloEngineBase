@@ -142,8 +142,6 @@ namespace OloEngine
         bool DynamicCullingEnabled = true;
 
         // Shader references (immutable during frame)
-        Ref<Shader> DefaultForwardShader;
-        Ref<Shader> DefaultForwardSkinnedShader;
         Ref<Shader> PBRShader;
         Ref<Shader> PBRSkinnedShader;
         Ref<Shader> LightCubeShader;
@@ -2423,8 +2421,6 @@ namespace OloEngine
             Ref<Mesh> SkyboxMesh;
             Ref<Mesh> LineQuadMesh; // Cached unit-length quad for debug lines
             Ref<Shader> LightCubeShader;
-            Ref<Shader> DefaultForwardShader;
-            Ref<Shader> DefaultForwardSkinnedShader;
             Ref<Shader> QuadShader;
             Ref<Shader> PBRShader;
             Ref<Shader> PBRSkinnedShader;

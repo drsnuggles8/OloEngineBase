@@ -19,14 +19,16 @@
 // The signal is a sidecar file next to the source image, "<image>.oloimport":
 //
 //     TextureImportSettings:
-//       Version: 1
+//       Version: 2         # required; the only version this build reads
 //       Format: BC5          # Auto | BC7 | BC5 | BC4 | BC6H | BC6HSigned
 //       ColorSpace: Linear   # Auto | Linear | sRGB
 //       GenerateMips: true   # omit for Auto
 //       AlphaMipChain: Auto  # Auto | Coverage | Box
 //
-// Every field is optional and every omitted field means "Auto", i.e. exactly the
-// behaviour the cook had before this file existed. A project with no sidecars cooks
+// Every field but Version is optional and every omitted field means "Auto", i.e.
+// exactly the behaviour the cook had before this file existed. A sidecar with no
+// Version or any version but the current one is rejected, loudly (the texture still
+// cooks, with automatic settings, and the error names the sidecar to fix). A project with no sidecars cooks
 // bit-identically to #440's pipeline.
 //
 // Where an alpha-tested texture's cutoff comes from (#1453): NOWHERE, because the cook

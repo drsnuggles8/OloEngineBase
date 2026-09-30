@@ -619,6 +619,13 @@ namespace OloEngine
         u32 HistoryPlanesAvailable = 0;
         static constexpr u32 kHistoryPlaneCount = 5;
 
+        // Whether the material texture table was reachable this frame. Without
+        // it every hit shades from the material factors and masked geometry
+        // traces as SOLID (RayTracedSurfaceHit.glsl's OloRtRayFlags) — the same
+        // limit GpuPathTracerStats counts, counted here for the same reason.
+        bool TexturesAvailable = false;
+        bool MaskedGeometryTracedAsSolid = false;
+
         // An UPPER BOUND, derived rather than measured — the same honest form the
         // shadow, reflection and path-tracing tiers use. Per pixel and per
         // candidate: one bounce ray plus one NEE shadow ray at the vertex it

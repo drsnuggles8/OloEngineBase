@@ -19,18 +19,30 @@ namespace OloEngine
     // This pass handles the rendering of 3D scene objects to an offscreen framebuffer
     // using the command bucket system for efficient batching and sorting.
     //
-    // All standard meshes, terrain, voxels, and skybox go through the CommandBucket
-    // for DrawKey-based sorting and dispatch (Molecular Matters style).
+    // Standard meshes, terrain, voxels and the skybox are sorted by DrawKey and
+    // dispatched through this pass's CommandBucket on every path (Molecular
+    // Matters style). The exceptions: dense instanced statics under HZB
+    // occlusion on Forward/Forward+ go to GPUDrivenOcclusionPass, virtual
+    // meshes go to VirtualGeometryPass, and on Deferred the draws listed below
+    // go to ForwardOverlayRenderPass (Renderer3DMeshSubmission.cpp).
     //
-    // Foliage and decals are handled by their own dedicated render passes
-    // (FoliageRenderPass, DecalRenderPass) that execute after this pass in the
-    // render graph.
+    // Foliage: on Forward and Forward+ FoliageRenderPass draws it after this
+    // pass, and with forward screen-space AO its depth-normal share runs before
+    // this pass in FoliagePrepassPass (#1474). On Deferred this pass draws it
+    // into the G-Buffer (SelectFoliageRenderStream in
+    // Renderer3DSpecializedDraws.cpp). Decals: DecalRenderPass draws them after
+    // this pass, except that on Deferred DeferredOpaqueDecalPass writes the
+    // opaque ones into the G-Buffer before DeferredLightingPass.
     //
     // Deferred path: when RenderingPath::Deferred is active, Execute() binds a
-    // G-Buffer instead of the forward scene target. After the G-Buffer
-    // color pass, DeferredLightingPass composites lit HDR into the scene
-    // framebuffer; ForwardOverlayRenderPass then adds overlay geometry that
-    // did not participate in G-Buffer writes (skybox, terrain, foliage…).
+    // G-Buffer instead of the forward scene target; the skybox, terrain and
+    // voxels switch to their *_GBuffer shader variants. DeferredLightingPass
+    // then composites lit HDR into the scene framebuffer, and
+    // ForwardOverlayRenderPass draws what the G-Buffer cannot represent: the
+    // infinite grid, alpha-blended or transmissive meshes, meshes whose
+    // material shader has no G-Buffer output, see-through debug draws, and any
+    // skybox, light-cube, terrain or voxel draw whose G-Buffer shader failed
+    // to load.
     class SceneRenderPass : public CommandBufferRenderPass
     {
       public:
@@ -101,6 +113,8 @@ namespace OloEngine
         // prepass stays inside Execute().
         void SetupForwardPrepass(RGBuilder& builder, FrameBlackboard& board);
         void ExecuteForwardPrepass(RGCommandContext& context, const Ref<Framebuffer>& sceneTarget);
+
+        // The forward paths' screen-space AO state for this frame:
         //   produced — an AO buffer is built this frame, so the prepass writes
         //              the view normals it needs and ScenePass reads it;
         //   applied  — the forward shaders multiply their ambient term by it
@@ -145,8 +159,8 @@ namespace OloEngine
         // editor viewport shows something meaningful before deferred lighting.
         void BlitGBufferDebug(u32 channel);
 
-        // Blit the forward scene FB's velocity attachment (RG16F at slot 3)
-        // into colour[0] for visualisation in Forward / Forward+ paths.
+        // Blit the forward scene FB's velocity attachment (slot 3, RGBA16F,
+        // velocity in .rg) into colour[0] for visualisation in Forward / Forward+ paths.
         // Called when RendererSettings::DebugVelocityOverlayForward is true
         // and the active path is not Deferred (the Deferred path has its
         // own velocity debug visualisation through BlitGBufferDebug(5)).

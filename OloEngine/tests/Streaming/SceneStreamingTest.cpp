@@ -81,9 +81,6 @@ TEST(StreamingRegion, StateTransitions)
     region.m_State = StreamingRegion::State::Loading;
     EXPECT_EQ(region.m_State, StreamingRegion::State::Loading);
 
-    region.m_State = StreamingRegion::State::Loaded;
-    EXPECT_EQ(region.m_State, StreamingRegion::State::Loaded);
-
     region.m_State = StreamingRegion::State::Ready;
     EXPECT_EQ(region.m_State, StreamingRegion::State::Ready);
 

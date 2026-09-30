@@ -1063,7 +1063,7 @@ namespace
 
 TEST(McpDiscoveryFile, OverrideEnvWinsVerbatimRegardlessOfPort)
 {
-    const std::string custom = "C:/tmp/my-worktree/oloengine-mcp.json";
+    const std::string custom = "C:/tmp/my-worktree/my-editor.json";
     ScopedDiscoveryOverride guard(custom.c_str());
 
     // The override is returned exactly, ignoring both the default and a custom port.
@@ -1071,16 +1071,16 @@ TEST(McpDiscoveryFile, OverrideEnvWinsVerbatimRegardlessOfPort)
     EXPECT_EQ(McpServer::DiscoveryFilePath(54321), custom);
 }
 
-TEST(McpDiscoveryFile, DefaultPortKeepsLegacyUnsuffixedName)
+TEST(McpDiscoveryFile, DefaultPortIsNamespacedLikeAnyOther)
 {
     ScopedDiscoveryOverride guard(""); // ensure no override is in effect
 
     const std::string path = McpServer::DiscoveryFilePath(OloEngine::MCP::DefaultPort);
     ASSERT_FALSE(path.empty());
-    // Back-compat: the default port must keep the single legacy file name (no port
-    // suffix) so the panel / docs / manual attach still find oloengine-mcp.json.
-    EXPECT_TRUE(path.ends_with("oloengine-mcp.json"));
-    EXPECT_FALSE(path.ends_with("oloengine-mcp-7345.json"));
+    // One naming rule for every port: the unsuffixed oloengine-mcp.json name the
+    // default port used to keep is gone (#1501).
+    EXPECT_TRUE(path.ends_with("oloengine-mcp-" + std::to_string(OloEngine::MCP::DefaultPort) + ".json"));
+    EXPECT_FALSE(path.ends_with("oloengine-mcp.json"));
 }
 
 TEST(McpDiscoveryFile, NonDefaultPortNamespacesByPort)

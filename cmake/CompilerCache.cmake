@@ -19,6 +19,21 @@
 
 option(OLO_ENABLE_COMPILER_CACHE "Use sccache/ccache as a compiler launcher when available (Ninja/Makefiles only)" OFF)
 
+# CodeView hashes preserve type information and /Z7 cacheability. Keep opt-in
+# until build-memory.yml publishes the Windows cost (issue #1386). This lives
+# outside the cache-enabled branch so uncached measurement builds can price it.
+option(OLO_CODEVIEW_GHASH "Precompute CodeView type hashes for clang-cl/lld-link" OFF)
+if(OLO_CODEVIEW_GHASH)
+    get_filename_component(_olo_linker_name "${CMAKE_LINKER}" NAME_WE)
+    if(NOT MSVC OR NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang"
+       OR NOT _olo_linker_name STREQUAL "lld-link")
+        message(FATAL_ERROR "OLO_CODEVIEW_GHASH requires Windows clang-cl and lld-link; MSVC link.exe and DWARF are not supported")
+    endif()
+    add_compile_options("$<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<CONFIG:Debug,Release>>:-gcodeview-ghash>")
+    add_link_options("$<$<CONFIG:Debug,Release>:/DEBUG:GHASH>")
+    unset(_olo_linker_name)
+endif()
+
 if(OLO_ENABLE_COMPILER_CACHE)
     # Honor an explicit -DOLO_COMPILER_CACHE_TOOL=... ; otherwise prefer sccache and
     # fall back to ccache.

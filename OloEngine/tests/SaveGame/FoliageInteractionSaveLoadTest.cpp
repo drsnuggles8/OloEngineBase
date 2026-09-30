@@ -10,11 +10,9 @@
 //   * save games — a hand-written Serialize overload plus its RegisterAll
 //     registration, neither of which any coverage test guards.
 //
-// And the back-compat question this feature answers differently from its
-// neighbours: the response DEFAULTS TO 1, not 0, because the off switch is the
-// absence of an influence SOURCE. A v36 save has no FoliageInteractionComponent
-// in it at all, so a response of 1 multiplies an empty set and that save
-// renders exactly as it did.
+// The layer response DEFAULTS TO 1, not 0, because the off switch is the
+// absence of an influence SOURCE: with no FoliageInteractionComponent in the
+// world, a response of 1 multiplies an empty set.
 #include "OloEnginePCH.h"
 #include "OloEngine/SaveGame/SaveGameComponentSerializer.h"
 #include "OloEngine/SaveGame/SaveGameTypes.h"
@@ -203,6 +201,7 @@ namespace OloEngine::Tests
         // response of 1 — NOT 0 — and with nothing that emits an influence, so
         // its foliage renders exactly as it rendered.
         const std::string priorYaml = R"(Scene: Prior
+Version: 1
 Entities:
   - Entity: 12345678901234567891
     TagComponent:
@@ -240,6 +239,7 @@ Entities:
         // here is not a wrong-looking bend — it is a bend that never recovers,
         // because NaN compares false against the retire threshold.
         const std::string hostileYaml = R"(Scene: Hostile
+Version: 1
 Entities:
   - Entity: 12345678901234567891
     TagComponent:
@@ -350,53 +350,5 @@ Entities:
         EXPECT_TRUE(std::isfinite(recovered.m_RecoverySeconds));
         EXPECT_GE(recovered.m_RecoverySeconds, kFoliageInteractionMinRecovery);
         EXPECT_GE(recovered.m_TrailSpacing, 0.0f);
-    }
-
-    TEST(FoliageInteractionSaveLoad, AV36SaveKeepsAResponseOfOneAndConsumesItsExactPayload)
-    {
-        // The old positional layout, written independently of the production
-        // writer — so this is a test of the reader's version gate rather than a
-        // test of the writer agreeing with itself.
-        std::vector<u8> bytes;
-        {
-            FMemoryWriter ar(bytes);
-            FoliageLayer l;
-            l.WindStiffness = 0.25f;
-            u32 count = 1;
-            ar << count;
-            ar << l.Name << l.MeshPath << l.AlbedoPath;
-            ar << l.Density << l.SplatmapChannel << l.MinSlopeAngle << l.MaxSlopeAngle;
-            ar << l.MinScale << l.MaxScale << l.MinHeight << l.MaxHeight << l.RandomRotation;
-            ar << l.ViewDistance << l.FadeStartDistance << l.WindStrength << l.WindSpeed;
-            ar << l.BaseColor << l.Roughness << l.AlphaCutoff << l.Enabled;
-            ar << l.UseImpostor << l.ImpostorStartDistance << l.ImpostorTransitionBand;
-            ar << l.ImpostorFramesPerAxis << l.ImpostorAtlasResolution << l.ImpostorHemiOctahedral;
-            ar << l.UseAuthoredMesh << l.MeshViewDistance << l.MeshFadeStartDistance;
-            ar << l.NormalMapPath << l.RoughnessMapPath << l.ThicknessMapPath;
-            ar << l.NormalStrength << l.TransmissionStrength << l.TransmissionColor << l.Thickness;
-            ar << l.TransmissionDistortion << l.TransmissionPower << l.TransmissionWrap << l.TransmissionAmbient;
-            ar << l.SlopeFeather;
-            ar << l.UseAltitudeBand << l.MinAltitude << l.MaxAltitude << l.AltitudeFeather;
-            ar << l.UseMoisture << l.MinMoisture << l.MaxMoisture << l.MoistureFeather;
-            ar << l.ExclusionSplatmapChannel << l.ExclusionThreshold;
-            ar << l.ClumpStrength << l.ClumpScale << l.ClumpFalloff << l.ClumpScaleInfluence;
-            ar << l.ClumpGroup;
-            ar << l.GroundOffset << l.SlopeSinkFactor;
-            ar << l.DecorrelatedVariation;
-            ar << l.WindStiffness << l.WindBranchWeight << l.WindLeafWeight << l.WindDebugDisplacement;
-            bool enabled = true;
-            ar << enabled;
-        }
-
-        FoliageComponent loaded;
-        FMemoryReader reader(bytes);
-        reader.SetArchiveVersion(36);
-        SaveGameComponentSerializer::Serialize(reader, loaded);
-        EXPECT_FALSE(reader.IsError());
-        EXPECT_TRUE(reader.AtEnd()) << "the v37 band consumed bytes a v36 save does not contain";
-        ASSERT_EQ(loaded.m_Layers.Num(), 1u);
-        EXPECT_FLOAT_EQ(loaded.m_Layers[0].InteractionResponse, 1.0f);
-        EXPECT_FLOAT_EQ(loaded.m_Layers[0].WindStiffness, 0.25f);
-        EXPECT_TRUE(loaded.m_Enabled);
     }
 } // namespace OloEngine::Tests

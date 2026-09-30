@@ -1,4 +1,5 @@
 Scene: AnimalLongCoat.olo
+Version: 1
 # ─────────────────────────────────────────────────────────────────────────────
 # LONG-COATED ANIMAL fixture (issue #1239).
 #
@@ -176,7 +177,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     ModelComponent:
-      FilePath: SandboxProject/Assets/Models/Reference/longcoat-quadruped.obj
+      FilePath: Assets/Models/Reference/longcoat-quadruped.obj
       Visible: true
     MaterialComponent:
       AlbedoColor: [0.46, 0.4, 0.32]

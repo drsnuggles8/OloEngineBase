@@ -9,10 +9,10 @@
 // exactly one vertex stage drifting from its sibling).
 //
 // The includer decides ONE thing before including: whether the consuming
-// fragment reads the instance index (u_EntityID) —
+// fragment reads the instance index (the instance EntityID) —
 //   forward  : `#define OLO_INSTANCE_NO_FORWARD 1` (nothing reads it; a
 //              written-but-unconsumed output is a Vulkan validation warning)
-//   deferred : no define (the fragment includes InstanceBlock.glsl for u_EntityID)
+//   deferred : no define (the fragment includes InstanceBlock.glsl for the instance EntityID)
 //
 // Varying contract every consumer must declare:
 //   location 0  vec3  v_CardWorld       location 5  float v_Rotation
@@ -141,10 +141,10 @@ void main()
     // tree sinking into the ground as the layer thins. One multiply on the lane
     // they share is what keeps a grown plant standing on its own base.
     //
-    // `instWorld` is the pivot and is computed below from u_Model alone, so it
+    // `instWorld` is the pivot and is computed below from the instance Transform alone, so it
     // is hoisted here; nothing above this point depends on it.
-    vec3 instWorldPivot = (u_Model * vec4(a_PositionScale.xyz, 1.0)).xyz;
-    vec3 instWorldPrev = (u_PrevModel * vec4(a_PositionScale.xyz, 1.0)).xyz;
+    vec3 instWorldPivot = (instances[0].Transform * vec4(a_PositionScale.xyz, 1.0)).xyz;
+    vec3 instWorldPrev = (instances[0].PrevTransform * vec4(a_PositionScale.xyz, 1.0)).xyz;
     float lodDist = distance(instWorldPivot, u_MeshViewPos.xyz);
     float lodPrevDist = distance(instWorldPrev, u_PrevMeshViewPos.xyz);
     float instanceSeed = foliageLodInstanceHash(a_PositionScale.xyz);
@@ -164,7 +164,7 @@ void main()
     // Instance pivot. Foliage's per-instance positions are TERRAIN-LOCAL (x/z in
     // [0, WorldSize], y the raw sampled height), so they only become world
     // positions after the owning terrain's transform — which DrawFoliageLayer
-    // uploads as the single u_Model entry, already made render-relative by
+    // uploads as the single instance entry, already made render-relative by
     // UploadModelInstance. Foliage_Instance.glsl has always multiplied through
     // it; this stage did not, and subtracted the render origin directly instead
     // on the belief that a_PositionScale was absolute world (issue #953). It is
@@ -173,8 +173,8 @@ void main()
     // over open water near (0,0,0), hanging above anything the terrain can
     // reach, which from the boat reads as a swarm of dark specks in the sky.
     //
-    // The OLO_INSTANCE_SINGLE define above is what makes u_Model safe here: it
-    // pins the read to instances[0] rather than indexing by gl_InstanceIndex,
+    // Reading instances[0] (with OLO_INSTANCE_SINGLE above) is what makes the
+    // transform safe here, rather than indexing by gl_InstanceIndex,
     // which is the out-of-bounds hazard the old comment was really about (issue
     // #433). The two got conflated, and the transform was dropped with them.
     vec3 instWorld = instWorldPivot;
@@ -211,12 +211,13 @@ void main()
     // Far field retains coherent whole-card trunk/branch motion. Fine leaf
     // flutter is baked away; the near mesh remains its detailed consumer.
     float influence = dot(u_WindWeights.xyz, vec3(1.0)) > 0.0 ? 0.5 : 0.15;
-    FoliageDeformation sway = foliageDeform(vec3(0.0), vec3(0.0, influence, 0.0), a_PositionScale.xyz, a_RotationHeight.w);
-    vec3 cardCenterCur = cardCenter + mat3(u_Model) * sway.Current;
-    vec3 prevInstWorld = (u_PrevModel * vec4(a_PositionScale.xyz, 1.0)).xyz;
+    FoliageDeformation sway = foliageDeform(vec3(0.0), vec3(0.0, influence, 0.0), a_PositionScale.xyz, a_RotationHeight.w,
+                                            instances[0].Transform, instances[0].PrevTransform);
+    vec3 cardCenterCur = cardCenter + mat3(instances[0].Transform) * sway.Current;
+    vec3 prevInstWorld = (instances[0].PrevTransform * vec4(a_PositionScale.xyz, 1.0)).xyz;
     vec3 cardCenterPrev = prevInstWorld +
                           vec3(0.0, 0.5 * height * scale * (lodScale > 0.0 ? lodScalePrev / lodScale : 1.0), 0.0) +
-                          mat3(u_PrevModel) * sway.Previous;
+                          mat3(instances[0].PrevTransform) * sway.Previous;
 
     // Camera-facing basis. u_CameraPosition is treated in the same space as the
     // render-relative pivot (renderOrigin ~ 0 for authored scenes) — matches the

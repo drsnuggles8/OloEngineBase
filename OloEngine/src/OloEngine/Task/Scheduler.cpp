@@ -418,18 +418,6 @@ namespace OloEngine::LowLevelTasks
             NumBackgroundWorkers = std::max<u32>(1, TotalWorkers - NumForegroundWorkers);
         }
 
-        m_WorkerPriority = InWorkerPriority;
-        m_BackgroundPriority = InBackgroundPriority;
-
-        if (InWorkerAffinity)
-        {
-            m_WorkerAffinity = InWorkerAffinity;
-        }
-        if (InBackgroundAffinity)
-        {
-            m_BackgroundAffinity = InBackgroundAffinity;
-        }
-
         // Check if multithreading is supported
         // UE5.7 logic: enable multithreading if platform supports it OR we're a forked multithread instance
         const bool bSupportsMultithreading = FPlatformProcess::SupportsMultithreading() || FForkProcessHelper::IsForkedMultithreadInstance();
@@ -439,6 +427,22 @@ namespace OloEngine::LowLevelTasks
         if (OldActiveWorkers == 0 && bSupportsMultithreading && m_ActiveWorkers.compare_exchange_strong(OldActiveWorkers, NumForegroundWorkers + NumBackgroundWorkers, std::memory_order_relaxed))
         {
             TUniqueLock<FRecursiveMutex> Lock(m_WorkerThreadsCS);
+
+            // The worker configuration is written only here, before any worker thread
+            // exists (thread creation orders these writes before the workers' reads).
+            // Written above the "already running?" check, a second StartWorkers call
+            // raced every live worker's read of m_WorkerPriority in ExecuteTask — a
+            // TSan data race (#1365) — while changing nothing about the workers.
+            m_WorkerPriority = InWorkerPriority;
+            m_BackgroundPriority = InBackgroundPriority;
+            if (InWorkerAffinity)
+            {
+                m_WorkerAffinity = InWorkerAffinity;
+            }
+            if (InBackgroundAffinity)
+            {
+                m_BackgroundAffinity = InBackgroundAffinity;
+            }
 
             OLO_CORE_ASSERT(!m_WorkerThreads, "WorkerThreads should be null");
             OLO_CORE_ASSERT(!m_WorkerLocalQueues, "WorkerLocalQueues should be empty");

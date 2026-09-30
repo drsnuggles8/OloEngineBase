@@ -1,144 +1,93 @@
-# Versioning a fixed-order binary archive (save-game / asset-pack)
+# One current version per on-disk format
 
-Short rule for anyone bumping `kSaveGameFormatVersion`, `AssetPackFile::Version`,
-or introducing a new fixed-order binary format that needs to survive a schema
-change without breaking existing files on disk.
+**A reader accepts exactly its format's current version. Any other version is rejected with a
+message that says how to fix the file: regenerate it (a cache or a cooked artefact) or re-save it
+(a scene or a save game). Bumping a format means migrating the repo's own content in the same PR.**
 
-## The trap
+No range checks, no per-field version gates, no read-and-discard fields, no fallback that guesses an
+old layout, and no empty migration scaffold kept "for the next change". Git history is where the
+old layouts live.
 
-Scene YAML is self-describing (a key can be missing and the reader just skips
-it), so versioning it is a tree-migration problem: read the file, note its
-recorded version, walk an ordered chain of `Migrate_VN_to_VNplus1(node)` steps
-over the parsed tree (see `SceneSerializer::MigrateSceneYAML`).
+## Why
 
-A `FArchive`-backed binary format (`SaveGameComponentSerializer`,
-`AssetPack::Load`) is **not** self-describing at the field level: every
-`ar << field` reads or writes the next N bytes unconditionally, in the exact
-order they're written. If a save produced by an older build is missing the
-bytes for a field added later, every `ar <<` after that field desyncs — the
-reader silently reinterprets whatever bytes come next as the wrong field,
-producing garbage instead of an error. That's why the exact-match version
-check (`FormatVersion == kSaveGameFormatVersion`) existed: it was hiding this
-desync risk by refusing to load anything but the exact current format,
-turning "every future schema change permanently breaks every existing save"
-into an accepted trade-off (issue #454).
+The engine has no external users, and no binary content is checked in: there is no `.olosave`,
+`.olopack` or `.omesh` in the repo. So a reader for an older version protects only a stale file on
+one developer's disk, which the fix message tells them how to replace. Caches regenerate; scenes are
+text and are migrated in the PR that changes them.
 
-## The rule
+The previous version of this guide *required* compat: a range-accepting header check, a
+`HasFieldsSince` gate on every new field and a no-op migration chain. Agents followed it, so every
+bump added a branch that never went away. By #1496 the save game carried 38 versions and 47 gates,
+the asset pack had an empty `MigrateAssetPackIndex`, and six other formats kept a reader for a
+layout nothing could still produce. Parallel branches also collided on the version number, and the
+loser had to renumber a gate chain after the merge.
 
-**Relax the header check to a range, not an exact match — reject only a
-version *newer* than this build understands (its layout is unknowable), and
-gate every field added after the format's first version behind the archive's
-recorded version, not behind absence of a migration step.**
+## What to do when a format changes
 
-Concretely (see `SaveGameComponentSerializer.cpp` / `AssetPack.cpp`):
+1. **Change the writer and the reader in place**, to the new layout.
+2. **Bump the version constant once per PR**, not once per commit.
+3. **Reject everything else.** The check reads, in substance:
 
-1. **Header check becomes a range.** `IsValid()` (save-game) / `AssetPack::Load`
-   (asset-pack) accept `[MinSupportedVersion, CurrentVersion]`, not just
-   `== CurrentVersion`. A version above `CurrentVersion` is still rejected
-   outright — this build cannot safely guess a future layout.
-2. **Thread the file's recorded version into the archive.** `FArchive` carries
-   a generic `ArArchiveVersion` (`GetArchiveVersion()`/`SetArchiveVersion()`),
-   set once from the header (`SaveGameSerializer::RestoreSceneState`'s
-   `formatVersion` parameter → `reader.SetArchiveVersion(...)`) and copied onto
-   every per-component sub-reader the deserializer spins up (the
-   `LOAD_COMPONENT` macro's `cr.SetArchiveVersion(reader.GetArchiveVersion())`
-   — easy to forget if a format ever nests archives).
-3. **Gate each field at the version it was introduced in**, not with a comment
-   promising the header check already excluded old data:
    ```cpp
-   // WRONG — desyncs the moment the header check is relaxed:
-   // Appended at the end; pre-vN archives are rejected by the header check.
-   ar << c.NewField;
-
-   // RIGHT — gate the read/write itself:
-   if (ar.IsSaving() || ar.GetArchiveVersion() >= kIntroducedInVersion)
-       ar << c.NewField;
+   if (header.Version != CurrentVersion)
+   {
+       OLO_CORE_ERROR("{}: format v{} is not supported (this build reads v{} only). Re-save it / "
+                      "regenerate it from the source asset.", path, header.Version, CurrentVersion);
+       return false;
+   }
    ```
-   `ar.IsSaving()` short-circuits the check on write, so this build always
-   *writes* the full current layout — only *loading* an old file skips a
-   not-yet-existing field, leaving it at the component's constructor default.
-   `SaveGameComponentSerializer.cpp`'s `HasFieldsSince(ar, introducedInVersion)`
-   is the shared helper; `TerrainComponent` (3 gated blocks) and
-   `IKTargetComponent` (1) are the reference examples.
 
-   **A gated field in the middle of `WaterComponent`'s block also has to be
-   excised by `SaveGameVersionMigrationTest`'s `BuildPreV24WaterPayload`.**
-   That fixture synthesizes a v23 archive by writing the current layout and
-   cutting out every non-trailing gated field, located by probing two values.
-   Because `IsSaving()` always writes, a new gated field lands in the payload
-   and desyncs the v23 read by its wire width — and `FArchive` writes a bool
-   as a 32-bit UBOOL, so the flag's probe differs in one byte but four have to
-   go (#1035's `m_ProjectedGridEnabled` failed the test both ways).
-4. **Keep a no-op migration-chain scaffold** for the day a change can't be
-   expressed as a per-field gate (a field renamed/removed, a cross-field
-   invariant) — `MigrateSceneYAML` (scene) and `MigrateAssetPackIndex`
-   (asset-pack) are both empty today by design; they exist so the next
-   breaking change has an obvious place to add a step instead of reinventing
-   the plumbing under deadline pressure.
-5. **Sanitize on load regardless of whether a gate fired.** A field skipped
-   because the archive predates it is left at its constructor default — make
-   sure that default passes whatever `Sanitize*`/clamp logic runs after the
-   gated block (it should, by construction, but check when adding a new
-   gate — a bad default only surfaces the first time an old save is loaded).
+   A version *above* current is rejected by the same check. Name the fix in the message; "invalid
+   version" alone leaves the reader to work out whether the file or the build is wrong.
+4. **Migrate the content in the same PR.** Text formats (scene `.olo`, asset YAML, input actions)
+   are rewritten by a script and then checked by loading every file, not by counting edits. Binary
+   caches need nothing: they are rejected and regenerated.
+5. **Replace the tests that built an old-version file** with one wrong-version rejection test. A
+   fixture that hand-synthesises an older archive is compat code in the test tree.
 
-Asset packs are a **build artifact** (regenerable from source assets), not
-irreplaceable player data like a save-game — so `AssetPackFile` doesn't yet
-have a real historical layout change to migrate (its `Version` has never
-actually been bumped). The scaffold above is intentionally speculative there:
-it establishes the pattern so the *next* dev who adds a field to
-`AssetInfo`/`SceneInfo`/`IndexTable` gates it correctly on the first try,
-instead of learning the desync trap from a corrupted pack.
+If two branches both bump to N+1, the second to merge keeps N+1 or moves to N+2; there is no chain
+to renumber.
 
-## The rule has a PRECONDITION: the field must live inside a framed block
+`Scene/SceneBinaryFormat.h` has always worked this way (`MinSupportedVersion` moves with
+`CurrentVersion`; its comment explains why for a cache) and is the reference.
 
-Discovered by issue #723, which added a settings field and broke
-`FullSaveWithPreV3TerrainRestoresThroughRestoreSceneState` while following
-rule 3 exactly.
+## A fixed-order archive must be framed and length-checked
 
-"Gate each new field" only resynchronises if something downstream can recover
-the reader's position when the gate skips bytes the writer emitted. In the
-save-game archive that something is the **per-component length prefix**:
-each entity's components are written as `{typeHash, byteCount, payload}`, so a
-component reading fewer fields than were written still lands on the next
-block's header. Every gated field to date — `TerrainComponent`,
-`IKTargetComponent`, `VehicleComponent`, `AircraftComponent` — is inside one.
+An `FArchive`-backed format is not self-describing: each `ar << field` reads the next N bytes in the
+order they were written. If the reader and the writer disagree about one field, every later read
+desyncs and reinterprets bytes as the wrong field, with no error. The single-version rule removes
+the *old-layout* source of that desync; it does not remove truncation or a bug.
 
-The **scene-settings section is not framed**. It is a flat run of structs
-between the `"SETS"` and `"ENTS"` markers, with no count and no length. A
-version-gated field there makes reader and writer consume different byte
-counts with nothing to resync against, so every later settings struct reads
-shifted bytes and the `"ENTS"` marker check fails — a clean rejection, but a
-rejection.
+So a fixed-order archive is written as **length-prefixed blocks**, and the reader checks, once per
+block, that it consumed exactly the declared length. A short or long read is a loud failure naming
+the block. Do not probe `ar.AtEnd()` in the middle of a block to decide whether a field is present:
+that probe cannot tell "older archive" from "truncated archive", and under this policy there is no
+older archive.
 
-So, before gating a field, ask **which framed block is it inside?**
+## Format inventory
 
-- Inside a component block → gate it, per rule 3.
-- In the settings section (or any other flat run) → you cannot gate it. Either
-  frame the section first, or leave the field out of the archive.
+| Format | Version constant | On mismatch |
+|---|---|---|
+| Save game (`.olosave`) | `kSaveGameFormatVersion` (`SaveGame/SaveGameTypes.h`) | rejected: re-save (`SaveLoadResult::UnsupportedVersion`) |
+| Asset pack (`.olopack`) | `AssetPackFile::Version` (`Serialization/AssetPackFile.h`) | rejected: rebuild the pack |
+| Mesh cache (`.omesh`) | `OMeshFormat::CurrentVersion` (`Serialization/MeshBinaryFormat.h`) | rejected: re-imported from the source |
+| Animation cache | `AnimationBinarySerializer` header version | rejected: re-imported from the source |
+| Scene sidecar (`.scenebin`) | `OSceneFormat::CurrentVersion` (`Scene/SceneBinaryFormat.h`) | rejected: re-read from the `.olo` |
+| Scene YAML (`.olo`) | `SceneSerializer::CurrentVersion`, the required `Version:` key | rejected: migrate the file in the PR |
+| Imported-material codec | `ImportedMaterialCodec::CurrentVersion` | rejected: re-imported |
+| Virtual-geometry cook (OVGS) | `kSetVersion` (`Renderer/VirtualGeometry/VirtualMesh.cpp`) | rejected: re-cooked |
+| Asset registry (`.oar`) | `AssetRegistry::FileVersion` (`Asset/AssetRegistry.h`) | rejected: moved to `AssetRegistry.oar.rejected`, then the editor's asset scan writes a fresh one with new handles; restore the original from git to keep scene references |
+| Sound-graph compiler cache | `CompilerCache::FormatVersion` (`Audio/SoundGraph/CompilerCache.h`) | rejected: cache miss, recompiled |
+| Mesh collider cache (`.omc`) | `OloMeshColliderHeader::CurrentVersion` (`Physics3D/MeshCookingFactory.h`); it also versions the headerless Jolt shape blobs inside it | rejected: re-cooked |
+| Voxel override RLE (`VOX1`) | `VoxelOverride::RLEVersion` (`Terrain/Voxel/VoxelOverride.h`) | rejected: re-save the voxel edits |
+| Lightmap, volume, groom, groom binding | `*BinaryFormat::CurrentVersion` | rejected: re-baked / re-imported |
+| Texture import sidecar (`.oloimport`) | `kSidecarVersion` (`Renderer/TextureImportSettings.cpp`), the required `Version:` key | rejected with an error naming the sidecar; the texture still cooks with automatic settings until the sidecar is fixed |
+| Benchmark capture manifest (YAML) | `Benchmark::kCurrentManifestVersion` (`Renderer/Benchmark/BenchmarkManifest.h`) | rejected: migrate the manifest in the PR (copies under `docs/testing/evidence/` are historical and not read) |
 
-`FogSettings`' volumetric self-shadow fields took the second option, and the
-loss is smaller than it looks once `RestoreSceneState` seeds its settings
-structs **from the live scene** instead of default-constructing them: a field
-the archive does not carry then keeps the value the scene was loaded with,
-rather than snapping to a global default. That is the right default for every
-settings field a save game does not own, and it is what makes "leave it out"
-a real option rather than a silent drop.
-
-**Why the guard test catches this and a hand-check would not:** the test builds
-its "old" archive by taking a CURRENT-layout capture and declaring it version
-2. That is an archive no build could ever have written, and it is exactly the
-right adversary — it holds the writer at the new layout and the reader at the
-old one, which is the desync, isolated. It passes trivially while every gated
-field is framed, and fails the moment one is not.
+When you add a format, add a row.
 
 ## Guard
 
-`SaveGameFileTest.cpp` (`SaveGameHeaderTest.OlderSupportedFormatVersionIsValid`
-/ `FormatVersionBelowMinSupportedIsInvalid` / `FormatVersionAboveCurrentIsInvalid`)
-pins the header range check. `SaveGameVersionMigrationTest.cpp` exercises the
-per-field gate directly for `TerrainComponent`/`IKTargetComponent` and, in
-`FullSaveWithPreV3TerrainRestoresThroughRestoreSceneState`, proves the version
-threads all the way from `RestoreSceneState` through the per-component reader
-with no desync. `AssetPackTest.cpp`
-(`LoadSucceedsWithOlderSupportedVersion` / `LoadFailsWithVersionBelowMinSupported`)
-pins the equivalent range check for asset packs.
+Each format has a wrong-version test that writes a current file, patches its version field, and
+asserts the load fails with the fix message. `SaveGameFileTest.cpp`, `AssetPackTest.cpp` and
+`MeshBinarySerializerTest.cpp` hold the pattern.

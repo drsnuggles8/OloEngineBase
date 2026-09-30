@@ -30,12 +30,12 @@
 // what makes the material identical across them rather than three shaders that
 // agree by inspection.
 //
-// WHAT IT STILL DOES NOT DO. It does not participate in the G-Buffer, so a
-// strand casts no shadow and receives none — including from itself. Inter-fibre
-// occlusion and density transport are #1248's, and they are named in the docs
-// rather than approximated here, because a half-shadowed coat is the kind of
-// thing that gets mistaken for a finished tier — which criterion 4 explicitly
-// forbids.
+// WHAT IT STILL DOES NOT DO. It does not participate in the G-Buffer, and it
+// neither casts into nor samples the scene shadow maps: ShadowRenderPass has no
+// groom caster family. Occlusion between fibres comes from the coat's
+// optical-depth volume (#1248, GroomStrand.glsl), not from the shadow map.
+// Scene-shadow casting and receiving landed once (#1323, PR #1380) and was
+// removed by the #1382 merge; #1323 is reopened to restore it.
 //
 // IT DOES NOT REPLACE GroomPreview. The debug preview draws the same asset as
 // debug lines and stays, because it answers a different question (did this

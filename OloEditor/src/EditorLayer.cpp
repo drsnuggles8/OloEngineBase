@@ -1043,7 +1043,7 @@ namespace OloEngine
                     if (Env::IsTruthy("OLO_MCP_ALLOW_WRITES"))
                     {
                         OLO_CORE_INFO("OLO_MCP_ALLOW_WRITES set - MCP write consent = AllowSession");
-                        m_McpServer->SetAllowWrites(true);
+                        m_McpServer->SetWriteConsentMode(MCP::WriteConsentMode::AllowSession);
                     }
                 }
             }

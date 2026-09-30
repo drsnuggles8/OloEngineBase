@@ -1,4 +1,5 @@
 Scene: LightmapTest.olo
+Version: 1
 # ─────────────────────────────────────────────────────────────────────────────
 # Baked GI / lightmaps (issue #439) — the acceptance-criteria room: a matte
 # corridor between a RED (-X) and a GREEN (+X) wall with a pillar occluder,

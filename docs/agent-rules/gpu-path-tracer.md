@@ -9,6 +9,10 @@ Issue #1055 (#979 Phase 2). Code: `Renderer/Passes/GpuPathTracerPass.{h,cpp}`,
 Read this before touching the tracer, the CPU reference it mirrors, or anything that consumes its
 output as ground truth.
 
+It is a reference mode, not a shipping tier: off by default (`PostProcessSettings::GpuPathTracer`),
+Vulkan with hardware ray queries only, and the full raster graph still runs underneath it; its colour
+replaces the raster colour at the pre-Bloom alias. Skipping the unconsumed raster work is #1346.
+
 ---
 
 ## 1. It mirrors the CPU tracer term by term, or it is not a reference

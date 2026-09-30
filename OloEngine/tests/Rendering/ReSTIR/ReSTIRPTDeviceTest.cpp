@@ -227,7 +227,7 @@ namespace OloEngine::Tests
             begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
             ASSERT_EQ(vkResetCommandBuffer(m_Cmd, 0), VK_SUCCESS);
             ASSERT_EQ(vkBeginCommandBuffer(m_Cmd, &begin), VK_SUCCESS);
-            api.BeginRecording(m_Cmd);
+            auto queryCompletion = api.BeginRecording(m_Cmd);
 
             record(api);
 
@@ -243,7 +243,9 @@ namespace OloEngine::Tests
             submit.pCommandBufferInfos = &cmdInfo;
             ASSERT_EQ(vkResetFences(m_Device->GetDevice(), 1, &m_Fence), VK_SUCCESS);
             ASSERT_EQ(vkQueueSubmit2(m_Device->GetQueue(), 1, &submit, m_Fence), VK_SUCCESS);
+            queryCompletion->SubmittedFence = m_Fence;
             ASSERT_EQ(vkWaitForFences(m_Device->GetDevice(), 1, &m_Fence, VK_TRUE, 10'000'000'000ull), VK_SUCCESS);
+            queryCompletion->Completed = true;
             VulkanDeferredReclaim::Get().NotifyFrameCompleted();
         }
 
@@ -380,7 +382,7 @@ namespace OloEngine::Tests
                 gpuMaterial.MetallicFactor = sourceMaterial.Metallic;
                 gpuMaterial.NormalScale = 1.0f;
                 gpuMaterial.ClosureVersion = static_cast<u32>(sourceMaterial.Model);
-                gpuMaterial.Flags = GPUSceneMaterialFlagActive | GPUSceneMaterialFlagPBR;
+                gpuMaterial.Flags = GPUSceneMaterialFlagActive;
                 gpuMaterial.StableIndex = static_cast<u32>(gpuMaterials.size());
                 gpuMaterial.Generation = 1u;
                 gpuMaterials.push_back(gpuMaterial);
@@ -660,7 +662,7 @@ namespace OloEngine::Tests
             GPUSceneMaterialInput material{};
             material.m_ClosureVersion = static_cast<u32>(PBRModel::ClosureV2);
             material.m_RoughnessFactor = 0.5f;
-            material.m_Flags = GPUSceneMaterialFlagPBR | (transmission ? GPUSceneMaterialFlagTransmission : 0u);
+            material.m_Flags = transmission ? GPUSceneMaterialFlagTransmission : 0u;
             scene.ExtractMaterial(materialKey, material);
             GPUSceneInstanceInput instance{};
             instance.m_Material = materialKey;

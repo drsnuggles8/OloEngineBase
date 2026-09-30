@@ -9,9 +9,9 @@ Introduced with issue #1149. Read it before adding a shadow technique, or before
 adding a caster family that is not a `MeshComponent`.
 
 The engine has **two directional shadow techniques** (CSM cascades and the
-Virtual Shadow Map) and **five caster families** (mesh, skinned, terrain, voxel,
-foliage, virtual geometry). A family reaches a technique only if somebody wired
-it there. Nothing detects the gap: the frame renders, every other caster keeps
+Virtual Shadow Map) and **six caster families** (mesh, skinned, terrain, voxel,
+foliage, virtual geometry); groom is wired into neither (#1323, reopened). A family reaches
+a technique only if somebody wired it there. Nothing detects the gap: the frame renders, every other caster keeps
 its shadow, and the missing one reads as a lighting or bias problem.
 
 That is how virtual geometry stood from #702 to #1149. Turning VSM on removed

@@ -413,7 +413,7 @@ TEST(FrameDataBuffer, MaterialDataTableDeduplicatesIdenticalData)
 
     PODMaterialData mat{};
     mat.shaderRendererID = TestHandle(42u);
-    mat.ambient = glm::vec3(0.1f);
+    mat.baseColorFactor = glm::vec4(0.1f);
     u16 first = buffer.AllocateMaterialData(mat);
     u16 second = buffer.AllocateMaterialData(mat);
 
@@ -428,12 +428,10 @@ TEST(FrameDataBuffer, MaterialDataTableDifferentDataGetDifferentIndices)
 
     PODMaterialData matA{};
     matA.shaderRendererID = TestHandle(1u);
-    matA.enablePBR = false;
-    matA.ambient = glm::vec3(0.1f);
+    matA.baseColorFactor = glm::vec4(0.1f);
 
     PODMaterialData matB{};
     matB.shaderRendererID = TestHandle(2u);
-    matB.enablePBR = true;
     matB.baseColorFactor = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
 
     u16 idxA = buffer.AllocateMaterialData(matA);
@@ -455,7 +453,6 @@ TEST(FrameDataBuffer, MaterialDataTableSeparatesPbrModels)
     // first.
     PODMaterialData legacy{};
     legacy.shaderRendererID = TestHandle(7u);
-    legacy.enablePBR = true;
     legacy.pbrModel = 0;
 
     PODMaterialData closureV2 = legacy;
@@ -475,7 +472,6 @@ TEST(FrameDataBuffer, MaterialDataTableRoundTrip)
 
     PODMaterialData mat{};
     mat.shaderRendererID = TestHandle(99u);
-    mat.enablePBR = true;
     mat.baseColorFactor = glm::vec4(0.5f, 0.6f, 0.7f, 1.0f);
     mat.metallicFactor = 0.3f;
     mat.roughnessFactor = 0.8f;
@@ -548,7 +544,6 @@ TEST(FrameDataBuffer, PBRMaterialAllTextureFieldsRoundTrip)
 
     PODMaterialData mat{};
     mat.shaderRendererID = TestHandle(50u);
-    mat.enablePBR = true;
     mat.baseColorFactor = glm::vec4(0.8f, 0.2f, 0.3f, 1.0f);
     mat.emissiveFactor = glm::vec4(0.1f, 0.2f, 0.3f, 0.0f);
     mat.metallicFactor = 0.9f;
@@ -571,7 +566,6 @@ TEST(FrameDataBuffer, PBRMaterialAllTextureFieldsRoundTrip)
     const PODMaterialData& ret = buffer.GetMaterialData(index);
 
     EXPECT_EQ(ret.shaderRendererID, TestHandle(50u));
-    EXPECT_TRUE(ret.enablePBR);
     EXPECT_FLOAT_EQ(ret.metallicFactor, 0.9f);
     EXPECT_FLOAT_EQ(ret.roughnessFactor, 0.4f);
     EXPECT_FLOAT_EQ(ret.normalScale, 1.5f);
@@ -592,32 +586,32 @@ TEST(FrameDataBuffer, PBRMaterialAllTextureFieldsRoundTrip)
         << "Full PBR material must survive round-trip byte-identical";
 }
 
-TEST(FrameDataBuffer, PBRAndLegacyMaterialsDedupIndependently)
+TEST(FrameDataBuffer, MaterialsDifferingOnlyInATextureDedupIndependently)
 {
     FrameDataBuffer buffer(16, 16);
     buffer.Reset();
 
-    PODMaterialData pbrMat{};
-    pbrMat.shaderRendererID = TestHandle(1u);
-    pbrMat.enablePBR = true;
-    pbrMat.baseColorFactor = glm::vec4(1.0f);
-    pbrMat.albedoMapID = TestHandle(10u);
+    // Identical except the albedo map. The table index is the material-UBO
+    // cache key, so if a texture identity ever dropped out of
+    // PODMaterialData::operator== these two would share one index and the
+    // second draw would sample the first one's texture.
+    PODMaterialData first{};
+    first.shaderRendererID = TestHandle(1u);
+    first.baseColorFactor = glm::vec4(1.0f);
+    first.albedoMapID = TestHandle(10u);
 
-    PODMaterialData legacyMat{};
-    legacyMat.shaderRendererID = TestHandle(2u);
-    legacyMat.enablePBR = false;
-    legacyMat.ambient = glm::vec3(0.5f);
-    legacyMat.diffuseMapID = TestHandle(20u);
+    PODMaterialData second = first;
+    second.albedoMapID = TestHandle(20u);
 
-    u16 pbrIdx = buffer.AllocateMaterialData(pbrMat);
-    u16 legacyIdx = buffer.AllocateMaterialData(legacyMat);
+    u16 firstIdx = buffer.AllocateMaterialData(first);
+    u16 secondIdx = buffer.AllocateMaterialData(second);
 
-    EXPECT_NE(pbrIdx, legacyIdx) << "PBR and legacy materials must get different indices";
+    EXPECT_NE(firstIdx, secondIdx) << "materials with different albedo maps must get different indices";
     EXPECT_EQ(buffer.GetMaterialDataCount(), 2u);
 
     // Re-add both — should dedup to same indices
-    EXPECT_EQ(buffer.AllocateMaterialData(pbrMat), pbrIdx);
-    EXPECT_EQ(buffer.AllocateMaterialData(legacyMat), legacyIdx);
+    EXPECT_EQ(buffer.AllocateMaterialData(first), firstIdx);
+    EXPECT_EQ(buffer.AllocateMaterialData(second), secondIdx);
     EXPECT_EQ(buffer.GetMaterialDataCount(), 2u);
 }
 

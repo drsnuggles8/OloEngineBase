@@ -33,12 +33,15 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [substituted-seams-compound.md](substituted-seams-compound.md): every substitution a test makes is a seam it stops testing, and they compound — including building the same object a different way.
 - [no-silent-fallbacks.md](no-silent-fallbacks.md): a path that cannot do what it was asked says so loudly and countably; rank a fallback by whether the substituted value can be INDEXED, and lower every entry point a caller falls back to.
 - [measurement-validity-and-sentinels.md](measurement-validity-and-sentinels.md): a measured number travels with a status saying whether it IS a measurement, because zero is a legal timing and a legal counter; classify in a pure function, make the backend report its refusals, and audit for fields that have a consumer and no producer.
+- [vulkan-query-generations.md](vulkan-query-generations.md): prove completion of the submission that reset and wrote a reused query before trusting its availability or value.
+- [planar-reflection-ao-restoration.md](planar-reflection-ao-restoration.md): republish main-view AO/depth bindings after mirror replay; restoring the camera does not restore textures.
 - [reference-path-tracer.md](reference-path-tracer.md): the ground-truth oracle for "is it correct", where a golden can only say "did it change".
 - [visual-quality-criteria.md](visual-quality-criteria.md): a criterion containing a judgement word — *convincing*, *natural*, *stable to the eye* — is settled by the frame, not by a proxy; enlarge before judging, measure the asset and not only the renderer, and require that a richness feature does not REDUCE measured fine detail.
 - [resampled-estimator-measure-convention.md](resampled-estimator-measure-convention.md): write a resampled estimator's measure convention into the header that owns the sample, pin its Jacobian by an identity rather than an expected value, and add a negative control that fails if the term is removed.
 - [vendor-golden-baseline-crosscheck.md](vendor-golden-baseline-crosscheck.md): measure the noise floor and audit a recording before baking a per-vendor baseline.
 - [single-mesh-visual-test-lighting.md](single-mesh-visual-test-lighting.md): give a visual-test scene a ground plane, then look at the PNG.
 - [live-verification-noise-floor.md](live-verification-noise-floor.md): measure frame-to-frame noise before attributing a pixel change, and confirm the editor is drawing at all.
+- [verification-workload-attribution.md](verification-workload-attribution.md): use Release with symbols for live verification, preserve the full workload, and separate CPU overhead from GPU shadow cost.
 - [procedural-generator-golden-coupling.md](procedural-generator-golden-coupling.md): a generator fix and its golden rebake ship in the same PR.
 - [timed-wait-test-assertions.md](timed-wait-test-assertions.md): measure timed waits in microseconds and assert one-sided.
 - [thread-local-lifetime-at-exit.md](thread-local-lifetime-at-exit.md): keep the "is it still alive?" signal in a trivially destructible `thread_local`; a destroyed one is not readable.
@@ -53,6 +56,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 
 - [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md): never build msvc and clangcl trees together; caches, link bounds, memory, the local ASan recipe.
 - [build-memory-per-tu.md](build-memory-per-tu.md): set `--parallel` and every memory cap from the published per-TU peak-RSS ranking, not from a remembered number.
+- [windows-codeview-links.md](windows-codeview-links.md): retain `/Z7`, bound lld workers as well as processes, and compare full-input link measurements before enabling GHASH.
 - [ci-oom-read-the-kernel-report.md](ci-oom-read-the-kernel-report.md): for a CI OOM kill, read the kernel's OOM report, which names the full cgroup and every resident process, before blaming a neighbour.
 - [concurrent-cmake-configure.md](concurrent-cmake-configure.md): one configure at a time per build tree; the error blames your CMakeLists.txt and LTO instead.
 - [static-archive-4gib-ceiling.md](static-archive-4gib-ceiling.md): a .lib cannot exceed 4 GiB, and `LNK1248` under-reports the overshoot.
@@ -108,6 +112,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [vulkan-parallel-recording.md](vulkan-parallel-recording.md): a pass forks with `RenderCommand::RecordParallel` and gives every item its own resource objects; per-command-buffer state is per recording context.
 - [command-packet-lifecycle.md](command-packet-lifecycle.md): write a command packet, bucket or `FrameDataBuffer` range only before its first replay; to vary a frozen packet, clone it and edit the clone.
 - [vulkan-parallel-graph-recording.md](vulkan-parallel-graph-recording.md): schedule ready prepared passes before compiling resource lifetimes, and publish shared state only after joining.
+- [vulkan-parallel-pass-audit.md](vulkan-parallel-pass-audit.md): prepare resources and freeze shared inputs before a pass records in parallel, and treat preparation as a claim until the reported item names and secondary counts show parallel work ran.
 - [vulkan-async-compute-queue.md](vulkan-async-compute-queue.md): a resource crossing between the graphics and async compute queues needs a matched release/acquire ownership pair, not just a semaphore; a compute-only queue rejects every graphics stage mask, and the no-async-queue degrade path is the one CI runs.
 - [vulkan-ray-tracing-acceleration-structures.md](vulkan-ray-tracing-acceleration-structures.md): a BLAS is per geometry and opacity is per instance; acceleration structures reach a shader as a device address, builds ride the frame command buffer, and compaction is a multi-frame handshake because idling is banned.
 - [deformed-surfaces-in-acceleration-structures.md](deformed-surfaces-in-acceleration-structures.md): a ray tracer can only trace geometry that is in memory, and skinning happens in the vertex stage, so animated surfaces need a producer that writes the pose to a buffer before a BLAS can hold it.
@@ -189,7 +194,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 
 - [component-serializer-codegen.md](component-serializer-codegen.md): when a component round-trips for free, when to annotate a field, and every generated touch-point's exclusion set.
 - [scene-binary-sidecar.md](scene-binary-sidecar.md): the `.scenebin` fast path: generated, hybrid-covered, and how it is invalidated — reordering a covered component's fields is a version bump like adding one.
-- [binary-format-versioning.md](binary-format-versioning.md): gate each new field of a fixed-order archive; the header check does not exclude old data.
+- [binary-format-versioning.md](binary-format-versioning.md): every on-disk format reads exactly its current version and rejects any other with a fix message; a bump migrates the repo's content in the same PR, and a fixed-order archive is framed and length-checked.
 - [cache-stored-unresolvable-reference.md](cache-stored-unresolvable-reference.md): a cache must refuse to store a name nothing can resolve; the failure shows on the second load only.
 - [scene-copy-must-carry-scene-level-settings.md](scene-copy-must-carry-scene-level-settings.md): `Scene::Copy()` must carry every scene-level settings struct into Play.
 - [floating-origin-rebase-subsystems.md](floating-origin-rebase-subsystems.md): four subsystems hold world-space state outside the rebased set, each needing a different fix.
@@ -228,6 +233,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [spinlock-payload-cache-line-separation.md](spinlock-payload-cache-line-separation.md): keep a lock off its payload's cache line.
 - [per-frame-scratch-reuse.md](per-frame-scratch-reuse.md): three checks before promoting a per-tick scratch vector to persistent state.
 - [bump-allocator-rollover-padding.md](bump-allocator-rollover-padding.md): a rollover must not reserve padding computed for the block it is leaving; over-align the blocks instead.
+- [cancel-a-load-by-removing-its-record.md](cancel-a-load-by-removing-its-record.md): a cancelled async load is dropped by removing its pending record, abandoned tasks are waited out at shutdown, and a re-request of the same key is the test that proves it.
 
 ## Subsystem notes (`notes-*.md`)
 
@@ -279,6 +285,9 @@ The dominant archetype here. If your change is in one of these areas, a passing 
 | [light-path-photometric-parity.md](light-path-photometric-parity.md) | Two lighting bugs survived 4300 green tests. |
 | [lighting-signal-contract.md](lighting-signal-contract.md) | DDGI and lightmaps lit surfaces pi times too bright, AO darkened emission and direct light, and SSGI and ReSTIR GI each counted light a second time — every one a plausible-looking frame, because each estimator was right about its own output and wrong about what it was added to. |
 | [measurement-validity-and-sentinels.md](measurement-validity-and-sentinels.md) | Four unrelated failures — a dropped query ring, a timestamp the backend refused on a recording worker, a backwards cross-queue pair, and a device with no timestamp queries at all — all published `0.0 ms`, which every panel, MCP tool and persisted benchmark export reported as a pass that cost nothing. A checked-in study measured a 26% recording-time win and could claim no GPU number to go with it. |
+| [binary-format-versioning.md](binary-format-versioning.md) | The save game carried 38 versions and 47 per-field gates because the guide required compat, parallel branches collided on the version number, and `AtEnd()` probes could not tell an older archive from a truncated one. |
+| [vulkan-query-generations.md](vulkan-query-generations.md) | Dense Vulkan frames produced backward whole-frame timestamps and plausible stale pass timings because query availability still described the previous reset/write generation. |
+| [planar-reflection-ao-restoration.md](planar-reflection-ao-restoration.md) | Reflection replay left white AO/depth fallbacks bound after clearing the suspension flag; the GL core-state guard did not restore texture bindings. |
 | [engine-owned-containers.md](engine-owned-containers.md) | A `TArray` holding a type that cannot survive a bitwise relocation. libstdc++'s `std::string` keeps an SSO self-pointer and MSVC's does not, so the heap corruption is invisible on this box and aborts only on Linux CI. |
 | [shader-tuning-constants-need-a-unit.md](shader-tuning-constants-need-a-unit.md) | Every directional shadow in the project sat metres away from its caster, and the tests pinned the constant's VALUE, which had not changed. |
 | [framebuffer-bind-owns-the-viewport.md](framebuffer-bind-owns-the-viewport.md) | Vulkan's `Bind()` kept the previous pass's viewport, so every upscaled frame presented a magnified corner. OpenGL was correct, so every headless test was green, and the one pass that set its viewport correctly (grooms) looked like the broken one. |
@@ -387,6 +396,7 @@ The same fact written in more than one place, with nothing enforcing agreement.
 | [runtime-scene-switching.md](runtime-scene-switching.md) | The build pipeline and the runtime must agree on an asset layout. |
 | [audio-voice-budget.md](audio-voice-budget.md) | One config field costs four edits, one of them silent. |
 | [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) | Two build trees writing the same generated files. |
+| [windows-codeview-links.md](windows-codeview-links.md) | A process-count limit leaves lld worker pools unbounded; `/INCREMENTAL` can make CMake invoke lld twice. |
 | [build-memory-per-tu.md](build-memory-per-tu.md) | A build-memory number nobody re-measures: five sources disagreed by 3x while `--parallel` and two cgroup caps rested on it. An absolute records path silently zeroes the compiler cache's cross-tree hit rate; a relative one yields one file per subdirectory under Makefiles, and reading only the top-level file ranks the wrong fraction of the build. |
 | [build-trees-and-windows-asan.md §4b](build-trees-and-windows-asan.md#4b-live-toolchain-bug-a-throw-from-inside-a-catch-handler-avs-clang-cl--asan) | A throw executed inside a `catch` handler AVs under clang-cl ASan; the catch type and rethrow form are irrelevant. |
 | [thread-local-lifetime-at-exit.md](thread-local-lifetime-at-exit.md) | A static destructor reading a `thread_local` that `__dyn_tls_dtor` already destroyed; 219 failures, one bug. |
@@ -458,6 +468,7 @@ The check passes for a correct implementation and for a broken one.
 |---|---|
 | [editor-input-coordinates-and-imgui-viewports.md](editor-input-coordinates-and-imgui-viewports.md) | `olo_input_inject` refused the whole right-hand dock as "outside the editor window (1280x720)": the bound was a window size cached before `GLFW_SCALE_TO_MONITOR` resized the window to 1920x1080. |
 | [live-verification-noise-floor.md](live-verification-noise-floor.md) | A crop check that a mirrored, wrong position scored better on; read tools that answer 200 with a stale frame from an iconified window. |
+| [verification-workload-attribution.md](verification-workload-attribution.md) | Debug CPU overhead improved in Release, but the dense scene still spent hundreds of milliseconds in GPU shadows. |
 | [forward-deferred-parity-measurement.md](forward-deferred-parity-measurement.md) | A live Forward-vs-Deferred diff blamed the point-light evaluator for a gap that was screen-space AO, which Forward applies to the composed colour; the evaluators agreed to 1e-5. |
 | [gpu-readback-stats-channel.md](gpu-readback-stats-channel.md) | A GPU counter that stopped updating is byte-identical to one that is constant. |
 | [vulkan-parallel-cascade-recording-fault.md](vulkan-parallel-cascade-recording-fault.md) | A Vulkan device-fault checkpoint named `ScenePrepassPass` in every report, and inlining that pass's parallel region changed nothing: the region that set the fault up was the shadow cascades, recorded earlier in the frame. The issue's "opened directly: clean 3/3" control was a 1-in-2 fault that missed three times. |
@@ -500,6 +511,7 @@ The logic is right; when it runs, or how long it lives, is wrong.
 | [visual-script-vm.md](visual-script-vm.md) | A loop node that forgets to charge its own iteration hangs the frame, and one that keeps its index on the C++ stack across a `Trigger` restarts it. |
 | [runtime-scene-switching.md](runtime-scene-switching.md) | Five ordering rules for a swap that destroys the thing being iterated. |
 | [follow-camera-and-character-query-seams.md](follow-camera-and-character-query-seams.md) | Input before the physics kick, camera last. |
+| [cancel-a-load-by-removing-its-record.md](cancel-a-load-by-removing-its-record.md) | A cancelled load's result is dropped by removing its record; a state check hid the missing removal until the same region was requested again. |
 | [two-phase-occlusion-culling.md](two-phase-occlusion-culling.md) | Pass order decides who still sees previous-frame depth. |
 | [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) | Clearing the LRU bit one step early evicts the whole cache every frame; a perspective face cannot be culled like an ortho level (§8). |
 | [ccache-pch-result-key-collision.md](ccache-pch-result-key-collision.md) | Two runner slots write their `.pch` to one ccache result key, and whichever wrote last is what the other slot's next direct-mode hit gets: a redefinition only when a consumer also misses, gone on re-run. |
@@ -525,6 +537,7 @@ The logic is right; when it runs, or how long it lives, is wrong.
 | [vulkan-parallel-recording.md](vulkan-parallel-recording.md) | Two parallel items wrote one UBO object, or transitioned one subresource; the merge reports the second, the first renders the wrong cascade. |
 | [command-packet-lifecycle.md](command-packet-lifecycle.md) | A pass edited the packets of a bucket it had already replayed. The write was sequential, so the frame was right; the same edit on a bucket replayed by workers is a data race nothing reported. |
 | [vulkan-parallel-graph-recording.md](vulkan-parallel-graph-recording.md) | Prepared passes never form a production group, or disabled members make a valid group decline. |
+| [vulkan-parallel-pass-audit.md](vulkan-parallel-pass-audit.md) | A pass that prepared for parallel recording published frontend state before the join, or counted preparation as proof that it ran in parallel. |
 | [vulkan-ray-tracing-acceleration-structures.md](vulkan-ray-tracing-acceleration-structures.md) | A per-instance BLAS loop builds one structure twice; a saturated GPU Scene generation makes a dead record look live. |
 | [deformed-surfaces-in-acceleration-structures.md](deformed-surfaces-in-acceleration-structures.md) | An animated mesh whose records became stageable is built into a rest-pose BLAS and traced T-posed: well-formed record, successful build, legal API usage, healthy counters, and the only evidence is the picture. A pose change also moves no field of the geometry record, so a fingerprint-driven refit policy either refits every frame or never. |
 | [gpu-scan-compaction.md](gpu-scan-compaction.md) | A `barrier()` only some invocations reach. |

@@ -100,32 +100,9 @@ TEST(AssetPackFileTest, DefaultHeaderHasCorrectMagicAndVersion)
 {
     AssetPackFile::FileHeader header;
     EXPECT_EQ(header.MagicNumber, 0x504C4F4F);
-    // v4 (#629) appended the MeshSource virtualized-geometry blob;
-    // v5 (#629) appended the MeshSource imported-material table.
-    EXPECT_EQ(header.Version, 5u);
+    // v6 (#1496): the embedded ImportedMaterialCodec blob changed layout (#1499).
+    EXPECT_EQ(header.Version, 6u);
     EXPECT_EQ(header.Version, AssetPackFile::Version);
-}
-
-// The imported-material table is the second trailing, version-gated MeshSource field.
-// Same contract as the virtual-mesh blob: a pre-v5 pack never wrote it, so the reader
-// must not consume those bytes. Pin the constant so a future bump can't move the gate
-// out from under the read site in MeshSourceSerializer::DeserializeFromAssetPack.
-TEST(AssetPackFileTest, ImportedMaterialsAreGatedAtVersionFive)
-{
-    EXPECT_EQ(AssetPackFile::ImportedMaterialsPackVersion, 5u);
-    EXPECT_LE(AssetPackFile::ImportedMaterialsPackVersion, AssetPackFile::Version);
-    EXPECT_GT(AssetPackFile::ImportedMaterialsPackVersion, AssetPackFile::VirtualMeshPackVersion);
-}
-
-// The virtual-mesh blob is a trailing, version-gated field: a pack written before v4
-// simply has no blob bytes, and the reader must not try to consume them. Pin the
-// constant so a future bump can't silently move the gate out from under the read site
-// in MeshSourceSerializer::DeserializeFromAssetPack.
-TEST(AssetPackFileTest, VirtualMeshBlobIsGatedAtVersionFour)
-{
-    EXPECT_EQ(AssetPackFile::VirtualMeshPackVersion, 4u);
-    EXPECT_LE(AssetPackFile::VirtualMeshPackVersion, AssetPackFile::Version);
-    EXPECT_GE(AssetPackFile::VirtualMeshPackVersion, AssetPackFile::MinSupportedVersion);
 }
 
 TEST(AssetPackFileTest, IndexOffsetMustBeAtLeastHeaderSize)
@@ -211,61 +188,28 @@ TEST_F(AssetPackTest, LoadSucceedsWithZeroSceneCount)
     EXPECT_EQ(pack->GetAllSceneInfos().size(), 0u);
 }
 
-TEST_F(AssetPackTest, LoadFailsWithWrongVersion)
+TEST_F(AssetPackTest, LoadRejectsAnyVersionButCurrent)
 {
-    // A version newer than this build understands must still be rejected outright —
-    // there's no way to safely guess a future/unknown layout (issue #454).
-    AssetPackFile::FileHeader header;
-    header.Version = 999;
-    header.IndexOffset = sizeof(AssetPackFile::FileHeader);
-    WriteMinimalPack(header, 1, 0);
+    // One pack version is read (docs/agent-rules/binary-format-versioning.md): an older
+    // pack is rejected like a newer one, never migrated or half-read, and the error
+    // names the fix.
+    static_assert(AssetPackFile::Version > 0, "CurrentVersion - 1 must not wrap");
 
-    auto pack = Ref<AssetPack>::Create();
-    auto result = pack->Load(m_TempPath);
+    for (u32 const version : { AssetPackFile::Version - 1, AssetPackFile::Version + 1 })
+    {
+        AssetPackFile::FileHeader header;
+        header.Version = version;
+        header.IndexOffset = sizeof(AssetPackFile::FileHeader);
+        WriteMinimalPack(header, 1, 0);
 
-    EXPECT_FALSE(result.Success);
-    EXPECT_EQ(result.ErrorCode, AssetPackLoadError::UnsupportedVersion);
-}
+        auto pack = Ref<AssetPack>::Create();
+        auto result = pack->Load(m_TempPath);
 
-TEST_F(AssetPackTest, LoadFailsWithVersionBelowMinSupported)
-{
-    // Guard against underflow: if MinSupportedVersion were ever 0, "- 1" would wrap
-    // to UINT32_MAX and this test would accidentally exercise the "too new" branch
-    // instead of the "too old" branch it's meant to cover.
-    static_assert(AssetPackFile::MinSupportedVersion > 0,
-                  "Test requires a positive MinSupportedVersion to subtract 1 without underflow");
-
-    AssetPackFile::FileHeader header;
-    header.Version = AssetPackFile::MinSupportedVersion - 1;
-    header.IndexOffset = sizeof(AssetPackFile::FileHeader);
-    WriteMinimalPack(header, 1, 0);
-
-    auto pack = Ref<AssetPack>::Create();
-    auto result = pack->Load(m_TempPath);
-
-    EXPECT_FALSE(result.Success);
-    EXPECT_EQ(result.ErrorCode, AssetPackLoadError::UnsupportedVersion);
-}
-
-TEST_F(AssetPackTest, LoadSucceedsWithOlderSupportedVersion)
-{
-    // A pack in [MinSupportedVersion, Version) is accepted and migrated in place
-    // instead of being rejected outright (issue #454) — locks in the forward-compat
-    // policy for the next real AssetPackFile::Version bump.
-    static_assert(AssetPackFile::Version > AssetPackFile::MinSupportedVersion,
-                  "Test requires at least one version below current to be supported");
-
-    AssetPackFile::FileHeader header;
-    header.Version = AssetPackFile::Version - 1;
-    header.IndexOffset = sizeof(AssetPackFile::FileHeader);
-    WriteMinimalPack(header, 1, 0);
-
-    auto pack = Ref<AssetPack>::Create();
-    auto result = pack->Load(m_TempPath);
-
-    EXPECT_TRUE(result.Success) << "Error: " << result.ErrorMessage;
-    EXPECT_TRUE(pack->IsLoaded());
-    EXPECT_EQ(pack->GetAllAssetInfos().size(), 1u);
+        EXPECT_FALSE(result.Success) << "version " << version;
+        EXPECT_EQ(result.ErrorCode, AssetPackLoadError::UnsupportedVersion) << "version " << version;
+        EXPECT_NE(result.ErrorMessage.find("Rebuild the pack"), std::string::npos) << result.ErrorMessage;
+        EXPECT_FALSE(pack->IsLoaded());
+    }
 }
 
 TEST_F(AssetPackTest, LoadFailsWithIndexOffsetBeyondFileSize)

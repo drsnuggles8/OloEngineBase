@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 
 #include <cstring>
+#include <utility>
 #include "OloEngine/Containers/String.h"
 #include "OloEngine/Containers/Array.h"
 
@@ -194,7 +195,7 @@ namespace OloEngine
         // Check if this is a bind/resource command
         bool IsBindCommand() const
         {
-            return m_CommandType == CommandType::BindTexture || m_CommandType == CommandType::BindDefaultFramebuffer || m_CommandType == CommandType::SetShaderResource;
+            return m_CommandType == CommandType::BindTexture || m_CommandType == CommandType::BindDefaultFramebuffer;
         }
 
         friend struct TIsTriviallyRelocatable<CapturedCommandData>;
@@ -238,11 +239,11 @@ namespace OloEngine
     // ForwardOverlayPass), so olo_render_frame_breakdown can list every pass's
     // commands rather than only the scene pass's (issue #463 / #316).
     //
-    // PassName is the graph node's GetName(); the three stage lists mirror
-    // CapturedFrameData's own top-level lists (which remain the *source* / scene
-    // pass for backward compatibility). The Has* flags distinguish "stage
-    // captured, zero commands" from "stage not captured" — an empty PostBatch can
-    // mean either, and the stats derivation at commit needs to tell them apart.
+    // PassName is the graph node's GetName(), empty for the implicit pass a
+    // direct-API capture (no BeginPass) creates. The Has* flags distinguish
+    // "stage captured, zero commands" from "stage not captured" — an empty
+    // PostBatch can mean either, and the stats derivation at commit needs to
+    // tell them apart.
     // Stats carries this pass's own sort/batch/execute timings (zero when the
     // pass did not record them — only the scene pass does today).
     struct CapturedPassData
@@ -280,27 +281,48 @@ namespace OloEngine
         u32 FrameNumber = 0;
         f64 TimestampSeconds = 0.0;
 
-        // Name of the render-graph pass that drove this capture — i.e. the pass
-        // whose command bucket the top-level PreSort/PostSort/PostBatch lists were
-        // copied from (SceneRenderPass today; recorded rather than hard-coded so the
-        // olo_render_frame_breakdown MCP tool can attribute every captured command
-        // to a real graph pass). Empty when the capture was produced outside a named
-        // pass (e.g. a synthetic test frame). The top-level lists describe THIS
-        // (source) pass; `Passes` below holds every captured pass including this one.
+        // Name of the render-graph pass that drove this capture — the SOURCE pass
+        // whose bucket feeds Stats, the per-draw GPU times, olo_perf_capture_frame
+        // and the Command Bucket Inspector (SceneRenderPass today; recorded rather
+        // than hard-coded so olo_render_frame_breakdown can attribute every
+        // captured command to a real graph pass). Empty when the capture was
+        // produced outside a named pass (e.g. a synthetic test frame).
         FString SourcePassName;
 
-        // Commands at different pipeline stages (the SOURCE / scene pass — kept as
-        // the top-level view for backward compatibility with olo_perf_capture_frame,
-        // the Command Bucket Inspector markdown report, and the single-pass tests).
-        TArray<CapturedCommandData> PreSortCommands;   // Submission order
-        TArray<CapturedCommandData> PostSortCommands;  // After radix sort
-        TArray<CapturedCommandData> PostBatchCommands; // After batching
-
         // Per-pass captured command buckets for the whole render graph (issue
-        // #463 / #316). One entry per command-bucket pass that executed
-        // this frame, in execution order. Empty for a legacy single-pass capture
-        // (the top-level lists above are then the only view).
+        // #463 / #316). One entry per command-bucket pass that executed this
+        // frame, in execution order. SourcePass() picks the source among them.
         TArray<CapturedPassData> Passes;
+
+        // The source pass's entry: the pass named SourcePassName, else the first
+        // captured pass (the implicit entry a direct-API capture creates). Null
+        // when nothing was captured.
+        [[nodiscard]] const CapturedPassData* FindSourcePass() const
+        {
+            if (!SourcePassName.IsEmpty())
+            {
+                for (const auto& pass : Passes)
+                {
+                    if (pass.PassName == SourcePassName)
+                        return &pass;
+                }
+            }
+            return Passes.IsEmpty() ? nullptr : &Passes[0];
+        }
+
+        [[nodiscard]] CapturedPassData* FindSourcePass()
+        {
+            return const_cast<CapturedPassData*>(std::as_const(*this).FindSourcePass());
+        }
+
+        // The source pass's bucket, or an empty bucket when nothing was captured,
+        // for readers that only list or count its commands.
+        [[nodiscard]] const CapturedPassData& SourcePass() const
+        {
+            static const CapturedPassData s_NoPass;
+            const CapturedPassData* source = FindSourcePass();
+            return source ? *source : s_NoPass;
+        }
 
         // Deep-copied snapshots of per-frame render state and material data tables.
         // These are captured at frame-end so that the debugger can inspect the exact
@@ -330,9 +352,6 @@ namespace OloEngine
         static constexpr bool Value = TIsTriviallyRelocatable<decltype(CapturedFrameData::FrameNumber)>::Value &&
                                       TIsTriviallyRelocatable<decltype(CapturedFrameData::TimestampSeconds)>::Value &&
                                       TIsTriviallyRelocatable<decltype(CapturedFrameData::SourcePassName)>::Value &&
-                                      TIsTriviallyRelocatable<decltype(CapturedFrameData::PreSortCommands)>::Value &&
-                                      TIsTriviallyRelocatable<decltype(CapturedFrameData::PostSortCommands)>::Value &&
-                                      TIsTriviallyRelocatable<decltype(CapturedFrameData::PostBatchCommands)>::Value &&
                                       TIsTriviallyRelocatable<decltype(CapturedFrameData::Passes)>::Value &&
                                       TIsTriviallyRelocatable<decltype(CapturedFrameData::RenderStateSnapshot)>::Value &&
                                       TIsTriviallyRelocatable<decltype(CapturedFrameData::MaterialDataSnapshot)>::Value &&

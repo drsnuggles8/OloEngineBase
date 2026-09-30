@@ -52,24 +52,6 @@ namespace OloEngine
     std::unordered_map<u32, SaveGameSerializeFn> SaveGameComponentSerializer::s_Registry;
 
     // ========================================================================
-    // Helper: per-field format-version gating (issue #454)
-    // ========================================================================
-    //
-    // Save-game archives are fixed-order binary: every field is read/written
-    // unconditionally in sequence, so a field appended after the component's
-    // format was first shipped must be gated behind the version it was
-    // introduced in, or an older save desyncs every read that follows it.
-    // Saving always writes the current (full) layout -- IsSaving() short-
-    // circuits the check -- only loading gates on the archive's recorded
-    // FormatVersion (SaveGameSerializer::RestoreSceneState plumbs the save's
-    // header FormatVersion into FArchive::ArArchiveVersion before any
-    // component is deserialized).
-    static bool HasFieldsSince(const FArchive& ar, u32 introducedInVersion)
-    {
-        return ar.IsSaving() || ar.GetArchiveVersion() >= introducedInVersion;
-    }
-
-    // ========================================================================
     // Helper: ColliderMaterial
     // ========================================================================
 
@@ -147,15 +129,8 @@ namespace OloEngine
         ar << c.Spread << c.Focus;
         ar << c.LowPassCutoff << c.HighPassCutoff << c.ReverbSend;
 
-        // v14: voice-budget priority (issue #730). Appended last and version-gated —
-        // the archive is fixed-order, so an ungated read would consume the next
-        // component's bytes out of every v13-and-older save. Older saves keep the
-        // constructor default (0.5, neutral), which reproduces pre-#730 behavior exactly
-        // since an all-equal-priority mix ranks purely on gain and distance.
-        if (HasFieldsSince(ar, 14))
-        {
-            ar << c.Priority;
-        }
+        // Voice-budget priority (issue #730).
+        ar << c.Priority;
 
         if (ar.IsLoading())
         {
@@ -557,272 +532,188 @@ namespace OloEngine
         ar << l.BaseColor;
         ar << l.Roughness << l.AlphaCutoff;
         ar << l.Enabled;
-        // Octahedral impostor fields appended in save-format v11 (issue #433).
-        // Gated so v10-and-older saves keep the exact pre-v11 field order (Enabled
-        // was the last field) and read back with the constructor defaults.
-        if (HasFieldsSince(ar, 11))
-        {
-            ar << l.UseImpostor;
-            ar << l.ImpostorStartDistance << l.ImpostorTransitionBand;
-            ar << l.ImpostorFramesPerAxis << l.ImpostorAtlasResolution;
-            ar << l.ImpostorHemiOctahedral;
+        // Octahedral impostor fields (issue #433).
+        ar << l.UseImpostor;
+        ar << l.ImpostorStartDistance << l.ImpostorTransitionBand;
+        ar << l.ImpostorFramesPerAxis << l.ImpostorAtlasResolution;
+        ar << l.ImpostorHemiOctahedral;
 
-            if (ar.IsLoading())
-            {
-                // Guard a corrupt/hostile save from feeding NaN / a negative band
-                // into Impostor::ImpostorFade (mirrors the scene deserializer).
-                if (!std::isfinite(l.ImpostorStartDistance))
-                    l.ImpostorStartDistance = 40.0f;
-                l.ImpostorStartDistance = std::max(l.ImpostorStartDistance, 0.0f);
-                if (!std::isfinite(l.ImpostorTransitionBand))
-                    l.ImpostorTransitionBand = 15.0f;
-                l.ImpostorTransitionBand = std::max(l.ImpostorTransitionBand, 0.0f);
-            }
-        }
-        // Authored plant mesh near field appended in save-format v32 (issue
-        // #1233). MeshPath itself has round-tripped since v11 — only the near
-        // field's switch and hand-over band are new.
-        if (HasFieldsSince(ar, 32))
+        if (ar.IsLoading())
         {
-            ar << l.UseAuthoredMesh;
-            ar << l.MeshViewDistance << l.MeshFadeStartDistance;
+            // Guard a corrupt/hostile save from feeding NaN / a negative band
+            // into Impostor::ImpostorFade (mirrors the scene deserializer).
+            if (!std::isfinite(l.ImpostorStartDistance))
+                l.ImpostorStartDistance = 40.0f;
+            l.ImpostorStartDistance = std::max(l.ImpostorStartDistance, 0.0f);
+            if (!std::isfinite(l.ImpostorTransitionBand))
+                l.ImpostorTransitionBand = 15.0f;
+            l.ImpostorTransitionBand = std::max(l.ImpostorTransitionBand, 0.0f);
+        }
+        // Authored plant mesh near field (issue #1233): the switch and hand-over band.
+        ar << l.UseAuthoredMesh;
+        ar << l.MeshViewDistance << l.MeshFadeStartDistance;
 
-            if (ar.IsLoading())
-            {
-                // Same guard as the impostor band above: these reach a
-                // smoothstep in the vertex and fragment stages, where a NaN or
-                // an inverted band silently drops the layer's geometry.
-                if (!std::isfinite(l.MeshViewDistance))
-                    l.MeshViewDistance = 30.0f;
-                l.MeshViewDistance = std::max(l.MeshViewDistance, 0.0f);
-                if (!std::isfinite(l.MeshFadeStartDistance))
-                    l.MeshFadeStartDistance = 22.0f;
-                l.MeshFadeStartDistance = std::clamp(l.MeshFadeStartDistance, 0.0f, l.MeshViewDistance);
-            }
-        }
-        // Leaf material appended in save-format v33 (issue #1234). v32 and
-        // older saves stop before it and keep the constructor defaults, whose
-        // TransmissionStrength is 0 — so an older save loads with the material
-        // OFF and the layer renders exactly as that save's build rendered it,
-        // rather than acquiring a glow nobody authored.
-        if (HasFieldsSince(ar, 33))
+        if (ar.IsLoading())
         {
-            ar << l.NormalMapPath << l.RoughnessMapPath << l.ThicknessMapPath;
-            ar << l.NormalStrength;
-            ar << l.TransmissionStrength << l.TransmissionColor;
-            ar << l.Thickness;
-            ar << l.TransmissionDistortion << l.TransmissionPower;
-            ar << l.TransmissionWrap << l.TransmissionAmbient;
+            // Same guard as the impostor band above: these reach a
+            // smoothstep in the vertex and fragment stages, where a NaN or
+            // an inverted band silently drops the layer's geometry.
+            if (!std::isfinite(l.MeshViewDistance))
+                l.MeshViewDistance = 30.0f;
+            l.MeshViewDistance = std::max(l.MeshViewDistance, 0.0f);
+            if (!std::isfinite(l.MeshFadeStartDistance))
+                l.MeshFadeStartDistance = 22.0f;
+            l.MeshFadeStartDistance = std::clamp(l.MeshFadeStartDistance, 0.0f, l.MeshViewDistance);
+        }
+        // Leaf material (issue #1234).
+        ar << l.NormalMapPath << l.RoughnessMapPath << l.ThicknessMapPath;
+        ar << l.NormalStrength;
+        ar << l.TransmissionStrength << l.TransmissionColor;
+        ar << l.Thickness;
+        ar << l.TransmissionDistortion << l.TransmissionPower;
+        ar << l.TransmissionWrap << l.TransmissionAmbient;
 
-            if (ar.IsLoading())
-            {
-                // The same bounds the scene deserializer applies, for the same
-                // reason: every one of these reaches a shader (a pow exponent,
-                // a normalize, a clamp bound), and a save file is no more
-                // trusted than a .olo. Kept textually parallel to
-                // DeserializeFoliageComponent so a future edit to one is
-                // visibly missing from the other.
-                if (!std::isfinite(l.NormalStrength))
-                    l.NormalStrength = 1.0f;
-                l.NormalStrength = std::clamp(l.NormalStrength, 0.0f, 4.0f);
-                if (!std::isfinite(l.TransmissionStrength))
-                    l.TransmissionStrength = 0.0f;
-                l.TransmissionStrength = std::clamp(l.TransmissionStrength, 0.0f, 8.0f);
-                if (!std::isfinite(l.TransmissionColor.x) || !std::isfinite(l.TransmissionColor.y) ||
-                    !std::isfinite(l.TransmissionColor.z))
-                    l.TransmissionColor = glm::vec3(0.42f, 0.62f, 0.18f);
-                l.TransmissionColor = glm::clamp(l.TransmissionColor, glm::vec3(0.0f), glm::vec3(1.0f));
-                if (!std::isfinite(l.Thickness))
-                    l.Thickness = 0.5f;
-                l.Thickness = std::clamp(l.Thickness, 0.0f, 1.0f);
-                if (!std::isfinite(l.TransmissionDistortion))
-                    l.TransmissionDistortion = 0.35f;
-                l.TransmissionDistortion = std::clamp(l.TransmissionDistortion, 0.0f, 1.0f);
-                if (!std::isfinite(l.TransmissionPower))
-                    l.TransmissionPower = 4.0f;
-                l.TransmissionPower = std::clamp(l.TransmissionPower, 1.0f, 64.0f);
-                if (!std::isfinite(l.TransmissionWrap))
-                    l.TransmissionWrap = 0.5f;
-                l.TransmissionWrap = std::clamp(l.TransmissionWrap, 0.0f, 1.0f);
-                if (!std::isfinite(l.TransmissionAmbient))
-                    l.TransmissionAmbient = 0.35f;
-                l.TransmissionAmbient = std::clamp(l.TransmissionAmbient, 0.0f, 4.0f);
-            }
-        }
-        // LOD transitions and coverage-preserving density appended in
-        // save-format v38 (issue #1237). v37 and older saves stop before them
-        // and keep the constructor defaults, every one of which is the
-        // IDENTITY — so an older save's plants hand over at exactly the
-        // distances that save's build handed over at, and none of them thins.
-        //
-        // Appended AFTER the v35 block below it in FIELD ORDER as well as in
-        // version order: this is a positional archive, so the two must agree
-        // or a v38 reader walks a v35 save's bytes into the wrong fields. The
-        // block therefore sits at the very END of this function, not here —
-        // this comment marks only that it exists, because the v35 block below
-        // is where a reader would otherwise expect the newest fields to be.
-        //
-        // Species habitat rules, clumping and ground contact appended in
-        // save-format v35 (issue #1254). v34 and older saves stop before them
-        // and keep the constructor defaults, every one of which is OFF — so an
-        // older save scatters its plants in exactly the positions the build
-        // that wrote it scattered them. DecorrelatedVariation is the one to
-        // watch: it changes the cell -> XZ mapping, so a default the other way
-        // would MOVE every plant in every save that predates this band.
-        if (HasFieldsSince(ar, 35))
+        if (ar.IsLoading())
         {
-            ar << l.SlopeFeather;
-            ar << l.UseAltitudeBand << l.MinAltitude << l.MaxAltitude << l.AltitudeFeather;
-            ar << l.UseMoisture << l.MinMoisture << l.MaxMoisture << l.MoistureFeather;
-            ar << l.ExclusionSplatmapChannel << l.ExclusionThreshold;
-            ar << l.ClumpStrength << l.ClumpScale << l.ClumpFalloff << l.ClumpScaleInfluence;
-            ar << l.ClumpGroup;
-            ar << l.GroundOffset << l.SlopeSinkFactor;
-            ar << l.DecorrelatedVariation;
+            // The same bounds the scene deserializer applies, for the same
+            // reason: every one of these reaches a shader (a pow exponent,
+            // a normalize, a clamp bound), and a save file is no more
+            // trusted than a .olo. Kept textually parallel to
+            // DeserializeFoliageComponent so a future edit to one is
+            // visibly missing from the other.
+            if (!std::isfinite(l.NormalStrength))
+                l.NormalStrength = 1.0f;
+            l.NormalStrength = std::clamp(l.NormalStrength, 0.0f, 4.0f);
+            if (!std::isfinite(l.TransmissionStrength))
+                l.TransmissionStrength = 0.0f;
+            l.TransmissionStrength = std::clamp(l.TransmissionStrength, 0.0f, 8.0f);
+            if (!std::isfinite(l.TransmissionColor.x) || !std::isfinite(l.TransmissionColor.y) ||
+                !std::isfinite(l.TransmissionColor.z))
+                l.TransmissionColor = glm::vec3(0.42f, 0.62f, 0.18f);
+            l.TransmissionColor = glm::clamp(l.TransmissionColor, glm::vec3(0.0f), glm::vec3(1.0f));
+            if (!std::isfinite(l.Thickness))
+                l.Thickness = 0.5f;
+            l.Thickness = std::clamp(l.Thickness, 0.0f, 1.0f);
+            if (!std::isfinite(l.TransmissionDistortion))
+                l.TransmissionDistortion = 0.35f;
+            l.TransmissionDistortion = std::clamp(l.TransmissionDistortion, 0.0f, 1.0f);
+            if (!std::isfinite(l.TransmissionPower))
+                l.TransmissionPower = 4.0f;
+            l.TransmissionPower = std::clamp(l.TransmissionPower, 1.0f, 64.0f);
+            if (!std::isfinite(l.TransmissionWrap))
+                l.TransmissionWrap = 0.5f;
+            l.TransmissionWrap = std::clamp(l.TransmissionWrap, 0.0f, 1.0f);
+            if (!std::isfinite(l.TransmissionAmbient))
+                l.TransmissionAmbient = 0.35f;
+            l.TransmissionAmbient = std::clamp(l.TransmissionAmbient, 0.0f, 4.0f);
+        }
+        // Species habitat rules, clumping and ground contact (issue #1254).
+        ar << l.SlopeFeather;
+        ar << l.UseAltitudeBand << l.MinAltitude << l.MaxAltitude << l.AltitudeFeather;
+        ar << l.UseMoisture << l.MinMoisture << l.MaxMoisture << l.MoistureFeather;
+        ar << l.ExclusionSplatmapChannel << l.ExclusionThreshold;
+        ar << l.ClumpStrength << l.ClumpScale << l.ClumpFalloff << l.ClumpScaleInfluence;
+        ar << l.ClumpGroup;
+        ar << l.GroundOffset << l.SlopeSinkFactor;
+        ar << l.DecorrelatedVariation;
 
-            if (ar.IsLoading())
-            {
-                // The same bounds DeserializeFoliageComponent applies, for the
-                // same reason: every one of these reaches the placement
-                // generator, where a NaN band silently empties the layer and a
-                // zero clump scale is a division by zero. A save file is no
-                // more trusted than a .olo. Kept textually parallel to that
-                // deserializer so a future edit to one is visibly missing from
-                // the other.
-                if (!std::isfinite(l.SlopeFeather))
-                    l.SlopeFeather = 0.0f;
-                l.SlopeFeather = std::clamp(l.SlopeFeather, 0.0f, 90.0f);
-                if (!std::isfinite(l.MinAltitude))
-                    l.MinAltitude = 0.0f;
-                if (!std::isfinite(l.MaxAltitude))
-                    l.MaxAltitude = 1000.0f;
-                if (!std::isfinite(l.AltitudeFeather))
-                    l.AltitudeFeather = 0.0f;
-                l.AltitudeFeather = std::max(l.AltitudeFeather, 0.0f);
-                if (!std::isfinite(l.MinMoisture))
-                    l.MinMoisture = 0.0f;
-                l.MinMoisture = std::clamp(l.MinMoisture, 0.0f, 1.0f);
-                if (!std::isfinite(l.MaxMoisture))
-                    l.MaxMoisture = 1.0f;
-                l.MaxMoisture = std::clamp(l.MaxMoisture, 0.0f, 1.0f);
-                if (!std::isfinite(l.MoistureFeather))
-                    l.MoistureFeather = 0.0f;
-                l.MoistureFeather = std::clamp(l.MoistureFeather, 0.0f, 1.0f);
-                if (!std::isfinite(l.ExclusionThreshold))
-                    l.ExclusionThreshold = 0.5f;
-                l.ExclusionThreshold = std::clamp(l.ExclusionThreshold, 0.0f, 1.0f);
-                if (!std::isfinite(l.ClumpStrength))
-                    l.ClumpStrength = 0.0f;
-                l.ClumpStrength = std::clamp(l.ClumpStrength, 0.0f, 1.0f);
-                if (!std::isfinite(l.ClumpScale))
-                    l.ClumpScale = 12.0f;
-                l.ClumpScale = std::max(l.ClumpScale, 0.01f);
-                if (!std::isfinite(l.ClumpFalloff))
-                    l.ClumpFalloff = 1.0f;
-                l.ClumpFalloff = std::clamp(l.ClumpFalloff, 0.05f, 16.0f);
-                if (!std::isfinite(l.ClumpScaleInfluence))
-                    l.ClumpScaleInfluence = 0.0f;
-                l.ClumpScaleInfluence = std::clamp(l.ClumpScaleInfluence, 0.0f, 1.0f);
-                if (!std::isfinite(l.GroundOffset))
-                    l.GroundOffset = 0.0f;
-                if (!std::isfinite(l.SlopeSinkFactor))
-                    l.SlopeSinkFactor = 0.0f;
-                l.SlopeSinkFactor = std::clamp(l.SlopeSinkFactor, 0.0f, 4.0f);
-            }
-        }
-        // Hierarchical wind appended at v36 after the v35 habitat block. Keep after every older field.
-        if (HasFieldsSince(ar, 36))
+        if (ar.IsLoading())
         {
-            ar << l.WindStiffness << l.WindBranchWeight << l.WindLeafWeight << l.WindDebugDisplacement;
-            if (ar.IsLoading())
-            {
-                for (f32* weight : { &l.WindStiffness, &l.WindBranchWeight, &l.WindLeafWeight })
-                    *weight = std::isfinite(*weight) ? std::clamp(*weight, 0.0f, 1.0f) : 0.0f;
-            }
+            // The same bounds DeserializeFoliageComponent applies, for the
+            // same reason: every one of these reaches the placement
+            // generator, where a NaN band silently empties the layer and a
+            // zero clump scale is a division by zero. A save file is no
+            // more trusted than a .olo. Kept textually parallel to that
+            // deserializer so a future edit to one is visibly missing from
+            // the other.
+            if (!std::isfinite(l.SlopeFeather))
+                l.SlopeFeather = 0.0f;
+            l.SlopeFeather = std::clamp(l.SlopeFeather, 0.0f, 90.0f);
+            if (!std::isfinite(l.MinAltitude))
+                l.MinAltitude = 0.0f;
+            if (!std::isfinite(l.MaxAltitude))
+                l.MaxAltitude = 1000.0f;
+            if (!std::isfinite(l.AltitudeFeather))
+                l.AltitudeFeather = 0.0f;
+            l.AltitudeFeather = std::max(l.AltitudeFeather, 0.0f);
+            if (!std::isfinite(l.MinMoisture))
+                l.MinMoisture = 0.0f;
+            l.MinMoisture = std::clamp(l.MinMoisture, 0.0f, 1.0f);
+            if (!std::isfinite(l.MaxMoisture))
+                l.MaxMoisture = 1.0f;
+            l.MaxMoisture = std::clamp(l.MaxMoisture, 0.0f, 1.0f);
+            if (!std::isfinite(l.MoistureFeather))
+                l.MoistureFeather = 0.0f;
+            l.MoistureFeather = std::clamp(l.MoistureFeather, 0.0f, 1.0f);
+            if (!std::isfinite(l.ExclusionThreshold))
+                l.ExclusionThreshold = 0.5f;
+            l.ExclusionThreshold = std::clamp(l.ExclusionThreshold, 0.0f, 1.0f);
+            if (!std::isfinite(l.ClumpStrength))
+                l.ClumpStrength = 0.0f;
+            l.ClumpStrength = std::clamp(l.ClumpStrength, 0.0f, 1.0f);
+            if (!std::isfinite(l.ClumpScale))
+                l.ClumpScale = 12.0f;
+            l.ClumpScale = std::max(l.ClumpScale, 0.01f);
+            if (!std::isfinite(l.ClumpFalloff))
+                l.ClumpFalloff = 1.0f;
+            l.ClumpFalloff = std::clamp(l.ClumpFalloff, 0.05f, 16.0f);
+            if (!std::isfinite(l.ClumpScaleInfluence))
+                l.ClumpScaleInfluence = 0.0f;
+            l.ClumpScaleInfluence = std::clamp(l.ClumpScaleInfluence, 0.0f, 1.0f);
+            if (!std::isfinite(l.GroundOffset))
+                l.GroundOffset = 0.0f;
+            if (!std::isfinite(l.SlopeSinkFactor))
+                l.SlopeSinkFactor = 0.0f;
+            l.SlopeSinkFactor = std::clamp(l.SlopeSinkFactor, 0.0f, 4.0f);
         }
-        else if (ar.IsLoading())
+        // Hierarchical wind.
+        ar << l.WindStiffness << l.WindBranchWeight << l.WindLeafWeight << l.WindDebugDisplacement;
+        if (ar.IsLoading())
         {
-            l.WindStiffness = l.WindBranchWeight = l.WindLeafWeight = 0.0f;
-            l.WindDebugDisplacement = false;
+            for (f32* weight : { &l.WindStiffness, &l.WindBranchWeight, &l.WindLeafWeight })
+                *weight = std::isfinite(*weight) ? std::clamp(*weight, 0.0f, 1.0f) : 0.0f;
         }
-        // Interaction response appended at v37 (issue #1238). Unlike every
-        // older band above, a save that stops before it keeps a default of 1
-        // rather than 0 — and that is still exactly what that save rendered,
-        // because a v36 world has no FoliageInteractionComponent, so its
-        // influence set is empty and the response multiplies nothing.
-        if (HasFieldsSince(ar, 37))
-        {
-            ar << l.InteractionResponse;
-            if (ar.IsLoading())
-                l.InteractionResponse =
-                    std::isfinite(l.InteractionResponse) ? std::clamp(l.InteractionResponse, 0.0f, 8.0f) : 1.0f;
-        }
-        else if (ar.IsLoading())
-        {
-            l.InteractionResponse = 1.0f;
-        }
-        // LOD transitions + coverage-preserving density appended at v38
-        // (issue #1237), after every older field. A v37-or-older save stops
-        // before this block and keeps the constructor defaults, each of which
-        // is the identity: no spread, no hysteresis, no stochastic coverage,
-        // no thinning — so that save's ladder is the ladder it was written
-        // with, not one that acquired a look nobody authored.
-        if (HasFieldsSince(ar, 38))
-        {
-            ar << l.LodTransitionSpread << l.LodHysteresis << l.LodStochasticCoverage;
-            ar << l.UseDensityLod;
-            ar << l.DensityLodStartDistance << l.DensityLodEndDistance;
-            ar << l.DensityLodMinFraction << l.DensityLodFadeFraction << l.DensityLodMaxScale;
+        // Interaction response (issue #1238).
+        ar << l.InteractionResponse;
+        if (ar.IsLoading())
+            l.InteractionResponse =
+                std::isfinite(l.InteractionResponse) ? std::clamp(l.InteractionResponse, 0.0f, 8.0f) : 1.0f;
+        // LOD transitions + coverage-preserving density (issue #1237).
+        ar << l.LodTransitionSpread << l.LodHysteresis << l.LodStochasticCoverage;
+        ar << l.UseDensityLod;
+        ar << l.DensityLodStartDistance << l.DensityLodEndDistance;
+        ar << l.DensityLodMinFraction << l.DensityLodFadeFraction << l.DensityLodMaxScale;
 
-            if (ar.IsLoading())
-            {
-                // The same bounds DeserializeFoliageComponent applies, for the
-                // same reason: every one of these reaches a smoothstep and a
-                // reciprocal square root in four shader stages AND the cull
-                // kernel's drop test, and a save file is no more trusted than
-                // a .olo. Kept textually parallel to that deserializer so a
-                // future edit to one is visibly missing from the other.
-                if (!std::isfinite(l.LodTransitionSpread))
-                    l.LodTransitionSpread = 0.0f;
-                l.LodTransitionSpread = std::clamp(l.LodTransitionSpread, 0.0f, 500.0f);
-                if (!std::isfinite(l.LodHysteresis))
-                    l.LodHysteresis = 0.0f;
-                l.LodHysteresis = std::clamp(l.LodHysteresis, 0.0f, 0.5f);
-                if (!std::isfinite(l.DensityLodStartDistance))
-                    l.DensityLodStartDistance = 30.0f;
-                l.DensityLodStartDistance = std::max(l.DensityLodStartDistance, 0.0f);
-                if (!std::isfinite(l.DensityLodEndDistance))
-                    l.DensityLodEndDistance = 80.0f;
-                l.DensityLodEndDistance = std::max(l.DensityLodEndDistance, l.DensityLodStartDistance);
-                if (!std::isfinite(l.DensityLodMinFraction))
-                    l.DensityLodMinFraction = 0.25f;
-                l.DensityLodMinFraction =
-                    std::clamp(l.DensityLodMinFraction, FoliageLod::kMinKeepFraction, 1.0f);
-                if (!std::isfinite(l.DensityLodFadeFraction))
-                    l.DensityLodFadeFraction = 0.15f;
-                l.DensityLodFadeFraction = std::clamp(l.DensityLodFadeFraction, 0.0f, 1.0f);
-                if (!std::isfinite(l.DensityLodMaxScale))
-                    l.DensityLodMaxScale = 2.0f;
-                l.DensityLodMaxScale = std::clamp(l.DensityLodMaxScale, 1.0f, 8.0f);
-            }
-        }
-        else if (ar.IsLoading())
+        if (ar.IsLoading())
         {
-            // Reset, not merely "left at the default" — the same shape the v36
-            // and v37 bands above take, and for the same reason: the restore
-            // path RESIZES FoliageComponent::m_Layers rather than clearing it,
-            // so a layer object is reused across loads. Without this, loading a
-            // v37 save after a v38 one leaves the v38 save's thinning on a
-            // layer that never authored any.
-            l.LodTransitionSpread = 0.0f;
-            l.LodHysteresis = 0.0f;
-            l.LodStochasticCoverage = false;
-            l.UseDensityLod = false;
-            l.DensityLodStartDistance = 30.0f;
-            l.DensityLodEndDistance = 80.0f;
-            l.DensityLodMinFraction = 0.25f;
-            l.DensityLodFadeFraction = 0.15f;
-            l.DensityLodMaxScale = 2.0f;
+            // The same bounds DeserializeFoliageComponent applies, for the
+            // same reason: every one of these reaches a smoothstep and a
+            // reciprocal square root in four shader stages AND the cull
+            // kernel's drop test, and a save file is no more trusted than
+            // a .olo. Kept textually parallel to that deserializer so a
+            // future edit to one is visibly missing from the other.
+            if (!std::isfinite(l.LodTransitionSpread))
+                l.LodTransitionSpread = 0.0f;
+            l.LodTransitionSpread = std::clamp(l.LodTransitionSpread, 0.0f, 500.0f);
+            if (!std::isfinite(l.LodHysteresis))
+                l.LodHysteresis = 0.0f;
+            l.LodHysteresis = std::clamp(l.LodHysteresis, 0.0f, 0.5f);
+            if (!std::isfinite(l.DensityLodStartDistance))
+                l.DensityLodStartDistance = 30.0f;
+            l.DensityLodStartDistance = std::max(l.DensityLodStartDistance, 0.0f);
+            if (!std::isfinite(l.DensityLodEndDistance))
+                l.DensityLodEndDistance = 80.0f;
+            l.DensityLodEndDistance = std::max(l.DensityLodEndDistance, l.DensityLodStartDistance);
+            if (!std::isfinite(l.DensityLodMinFraction))
+                l.DensityLodMinFraction = 0.25f;
+            l.DensityLodMinFraction =
+                std::clamp(l.DensityLodMinFraction, FoliageLod::kMinKeepFraction, 1.0f);
+            if (!std::isfinite(l.DensityLodFadeFraction))
+                l.DensityLodFadeFraction = 0.15f;
+            l.DensityLodFadeFraction = std::clamp(l.DensityLodFadeFraction, 0.0f, 1.0f);
+            if (!std::isfinite(l.DensityLodMaxScale))
+                l.DensityLodMaxScale = 2.0f;
+            l.DensityLodMaxScale = std::clamp(l.DensityLodMaxScale, 1.0f, 8.0f);
         }
         // AlbedoTexture and the leaf maps beside it (Ref<Texture2D>) are
         // runtime — the PATHS above are what round-trips.
@@ -855,16 +746,8 @@ namespace OloEngine
     static void SerializeLODLevel(FArchive& ar, LODLevel& l)
     {
         ar << l.MeshHandle << l.MaxDistance << l.TriangleCount;
-        // Error was added in v21 (issue #711). This runs once PER LEVEL inside a
-        // variable-length array, so the AtEnd() probe DecalComponent uses cannot
-        // work here — only the last element of the last component would be at the
-        // end. Gate on the recorded FormatVersion instead; a v19 save leaves Error
-        // at the constructor default 0, which reads as "no generated error data"
-        // and keeps that group on the authored-distance path.
-        if (HasFieldsSince(ar, 21))
-        {
-            ar << l.Error;
-        }
+        // Generated screen-space error (issue #711); 0 means "no generated error data".
+        ar << l.Error;
     }
 
     // ========================================================================
@@ -1071,23 +954,11 @@ namespace OloEngine
         ar << c.m_SliderMinLimit << c.m_SliderMaxLimit;
         ar << c.m_ConeHalfAngleDeg;
 
-        // Three tails were appended over time, each after a once-final field, so
-        // probe AtEnd() before reading each on load and default to "disabled":
-        //   1. Break thresholds  (after m_ConeHalfAngleDeg — legacy archives end here)
-        //   2. Motor + friction  (after the break thresholds — pre-motor archives end here)
-        //   3. Limit springs     (after the motor block — pre-spring archives end here)
-        // Mirrors EnvironmentMapComponent above.
+        // Loading reads each block and sanitizes it before the next; saving writes
+        // the same blocks in the same order (the else branch below).
         if (ar.IsLoading())
         {
-            if (ar.AtEnd())
-            {
-                c.m_BreakForce = 0.0f;
-                c.m_BreakTorque = 0.0f;
-            }
-            else
-            {
-                ar << c.m_BreakForce << c.m_BreakTorque;
-            }
+            ar << c.m_BreakForce << c.m_BreakTorque;
 
             // Sanitize untrusted on-disk values; 0 means unbreakable.
             if (!std::isfinite(c.m_BreakForce))
@@ -1097,28 +968,11 @@ namespace OloEngine
                 c.m_BreakTorque = 0.0f;
             c.m_BreakTorque = std::clamp(c.m_BreakTorque, 0.0f, 1.0e9f);
 
-            // Motor + friction tail. Archives written before motors existed end
-            // after the break thresholds, so default to "motor off, no friction".
-            if (ar.AtEnd())
-            {
-                c.m_HingeMotorMode = JointMotorMode::Off;
-                c.m_HingeMotorTargetVelocityDeg = 0.0f;
-                c.m_HingeMotorTargetAngleDeg = 0.0f;
-                c.m_HingeMaxMotorTorque = 0.0f;
-                c.m_HingeMaxFrictionTorque = 0.0f;
-                c.m_SliderMotorMode = JointMotorMode::Off;
-                c.m_SliderMotorTargetVelocity = 0.0f;
-                c.m_SliderMotorTargetPosition = 0.0f;
-                c.m_SliderMaxMotorForce = 0.0f;
-                c.m_SliderMaxFrictionForce = 0.0f;
-            }
-            else
-            {
-                ar << c.m_HingeMotorMode << c.m_HingeMotorTargetVelocityDeg << c.m_HingeMotorTargetAngleDeg
-                   << c.m_HingeMaxMotorTorque << c.m_HingeMaxFrictionTorque;
-                ar << c.m_SliderMotorMode << c.m_SliderMotorTargetVelocity << c.m_SliderMotorTargetPosition
-                   << c.m_SliderMaxMotorForce << c.m_SliderMaxFrictionForce;
-            }
+            // Motor + friction.
+            ar << c.m_HingeMotorMode << c.m_HingeMotorTargetVelocityDeg << c.m_HingeMotorTargetAngleDeg
+               << c.m_HingeMaxMotorTorque << c.m_HingeMaxFrictionTorque;
+            ar << c.m_SliderMotorMode << c.m_SliderMotorTargetVelocity << c.m_SliderMotorTargetPosition
+               << c.m_SliderMaxMotorForce << c.m_SliderMaxFrictionForce;
 
             // Sanitize untrusted motor data. Mode is an int enum on disk; clamp an
             // out-of-range value to Off. Max torque/force/friction are magnitudes
@@ -1151,20 +1005,9 @@ namespace OloEngine
             clampMagnitude(c.m_SliderMaxMotorForce);
             clampMagnitude(c.m_SliderMaxFrictionForce);
 
-            // Limit-spring tail. Archives written before soft limits existed end
-            // after the motor block, so default to "hard limits" (frequency 0).
-            if (ar.AtEnd())
-            {
-                c.m_HingeLimitSpringFrequency = 0.0f;
-                c.m_HingeLimitSpringDamping = 0.0f;
-                c.m_SliderLimitSpringFrequency = 0.0f;
-                c.m_SliderLimitSpringDamping = 0.0f;
-            }
-            else
-            {
-                ar << c.m_HingeLimitSpringFrequency << c.m_HingeLimitSpringDamping;
-                ar << c.m_SliderLimitSpringFrequency << c.m_SliderLimitSpringDamping;
-            }
+            // Limit springs (frequency 0 = hard limit).
+            ar << c.m_HingeLimitSpringFrequency << c.m_HingeLimitSpringDamping;
+            ar << c.m_SliderLimitSpringFrequency << c.m_SliderLimitSpringDamping;
 
             // Frequency (Hz) and damping ratio are magnitudes; 0 = hard limit /
             // no damping.
@@ -1173,35 +1016,13 @@ namespace OloEngine
             clampMagnitude(c.m_SliderLimitSpringFrequency);
             clampMagnitude(c.m_SliderLimitSpringDamping);
 
-            // SwingTwist + SixDOF tail. Archives written before these joint types
-            // existed end after the limit-spring block, so default to the field
-            // defaults (a 45° ragdoll cone / twist and an all-Locked rigid SixDOF).
-            if (ar.AtEnd())
-            {
-                c.m_SwingNormalHalfAngleDeg = 45.0f;
-                c.m_SwingPlaneHalfAngleDeg = 45.0f;
-                c.m_TwistMinAngleDeg = -45.0f;
-                c.m_TwistMaxAngleDeg = 45.0f;
-                c.m_SixDOFTransXMode = JointAxisMode::Locked;
-                c.m_SixDOFTransYMode = JointAxisMode::Locked;
-                c.m_SixDOFTransZMode = JointAxisMode::Locked;
-                c.m_SixDOFRotXMode = JointAxisMode::Locked;
-                c.m_SixDOFRotYMode = JointAxisMode::Locked;
-                c.m_SixDOFRotZMode = JointAxisMode::Locked;
-                c.m_SixDOFTranslationMin = glm::vec3(-0.5f);
-                c.m_SixDOFTranslationMax = glm::vec3(0.5f);
-                c.m_SixDOFRotationMinDeg = glm::vec3(-45.0f);
-                c.m_SixDOFRotationMaxDeg = glm::vec3(45.0f);
-            }
-            else
-            {
-                ar << c.m_SwingNormalHalfAngleDeg << c.m_SwingPlaneHalfAngleDeg
-                   << c.m_TwistMinAngleDeg << c.m_TwistMaxAngleDeg;
-                ar << c.m_SixDOFTransXMode << c.m_SixDOFTransYMode << c.m_SixDOFTransZMode
-                   << c.m_SixDOFRotXMode << c.m_SixDOFRotYMode << c.m_SixDOFRotZMode;
-                ar << c.m_SixDOFTranslationMin << c.m_SixDOFTranslationMax
-                   << c.m_SixDOFRotationMinDeg << c.m_SixDOFRotationMaxDeg;
-            }
+            // SwingTwist + SixDOF.
+            ar << c.m_SwingNormalHalfAngleDeg << c.m_SwingPlaneHalfAngleDeg
+               << c.m_TwistMinAngleDeg << c.m_TwistMaxAngleDeg;
+            ar << c.m_SixDOFTransXMode << c.m_SixDOFTransYMode << c.m_SixDOFTransZMode
+               << c.m_SixDOFRotXMode << c.m_SixDOFRotYMode << c.m_SixDOFRotZMode;
+            ar << c.m_SixDOFTranslationMin << c.m_SixDOFTranslationMax
+               << c.m_SixDOFRotationMinDeg << c.m_SixDOFRotationMaxDeg;
 
             // Sanitize untrusted SwingTwist/SixDOF data. Modes are int enums on
             // disk (clamp out-of-range to Locked); swing/twist angles and the
@@ -1242,35 +1063,14 @@ namespace OloEngine
             clampVec3(c.m_SixDOFRotationMinDeg, -180.0f, 180.0f, -45.0f);
             clampVec3(c.m_SixDOFRotationMaxDeg, -180.0f, 180.0f, 45.0f);
 
-            // CollideConnected tail (issue #308). Archives written before
-            // this flag existed end after the SwingTwist/SixDOF block, so default
-            // to true — the long-standing behavior where jointed bodies collide.
-            // A bool has no non-finite states, so no sanitization is needed.
-            if (ar.AtEnd())
-                c.m_CollideConnected = true;
-            else
-                ar << c.m_CollideConnected;
+            // CollideConnected (issue #308). A bool has no non-finite states, so
+            // no sanitization is needed.
+            ar << c.m_CollideConnected;
 
-            // Pulley + Gear/RackAndPinion tail (issue #308). Archives
-            // written before these constraint types existed end after the
-            // CollideConnected flag, so default to the field defaults (a 1:1
-            // rope that can contract but not extend, and a +Y connected axis).
-            if (ar.AtEnd())
-            {
-                c.m_PulleyFixedPointA = glm::vec3(0.0f);
-                c.m_PulleyFixedPointB = glm::vec3(0.0f);
-                c.m_PulleyRatio = 1.0f;
-                c.m_PulleyMinLength = 0.0f;
-                c.m_PulleyMaxLength = -1.0f;
-                c.m_ConnectedAxis = glm::vec3(0.0f, 1.0f, 0.0f);
-                c.m_GearRatio = 1.0f;
-            }
-            else
-            {
-                ar << c.m_PulleyFixedPointA << c.m_PulleyFixedPointB
-                   << c.m_PulleyRatio << c.m_PulleyMinLength << c.m_PulleyMaxLength;
-                ar << c.m_ConnectedAxis << c.m_GearRatio;
-            }
+            // Pulley + Gear/RackAndPinion (issue #308).
+            ar << c.m_PulleyFixedPointA << c.m_PulleyFixedPointB
+               << c.m_PulleyRatio << c.m_PulleyMinLength << c.m_PulleyMaxLength;
+            ar << c.m_ConnectedAxis << c.m_GearRatio;
 
             // Sanitize untrusted on-disk values. Fixed points / connected axis are
             // world-space vec3 (reject non-finite, clamp absurd magnitudes). The
@@ -1285,29 +1085,13 @@ namespace OloEngine
             clampAngle(c.m_PulleyMaxLength, -1.0f, 1.0e9f, -1.0f);
             clampAngle(c.m_GearRatio, -1.0e9f, 1.0e9f, 1.0f);
 
-            // Path joint tail (issue #308). Archives written before the Path
-            // constraint existed end after the Gear ratio, so default to "no
-            // path" (empty points, motor off, hard Free rotation).
-            if (ar.AtEnd())
-            {
-                c.m_PathPoints.Reset();
-                c.m_PathIsLooping = false;
-                c.m_PathRotationMode = JointPathRotationMode::Free;
-                c.m_PathMotorMode = JointMotorMode::Off;
-                c.m_PathMotorTargetVelocity = 0.0f;
-                c.m_PathMotorTargetFraction = 0.0f;
-                c.m_PathMaxMotorForce = 0.0f;
-                c.m_PathMaxFrictionForce = 0.0f;
-            }
-            else
-            {
-                SerializeOwnedArray(ar, c.m_PathPoints);
-                ar << c.m_PathIsLooping;
-                ar << c.m_PathRotationMode;
-                ar << c.m_PathMotorMode;
-                ar << c.m_PathMotorTargetVelocity << c.m_PathMotorTargetFraction
-                   << c.m_PathMaxMotorForce << c.m_PathMaxFrictionForce;
-            }
+            // Path joint (issue #308).
+            SerializeOwnedArray(ar, c.m_PathPoints);
+            ar << c.m_PathIsLooping;
+            ar << c.m_PathRotationMode;
+            ar << c.m_PathMotorMode;
+            ar << c.m_PathMotorTargetVelocity << c.m_PathMotorTargetFraction
+               << c.m_PathMaxMotorForce << c.m_PathMaxFrictionForce;
 
             // Sanitize untrusted path data: drop non-finite control points; clamp
             // the rotation/motor modes to valid enum ranges; target velocity is
@@ -1359,17 +1143,10 @@ namespace OloEngine
         ar << c.m_MaxEngineTorque << c.m_MaxSteerAngleDeg << c.m_MaxBrakeTorque;
         ar << c.m_ThrottleInput << c.m_SteerInput << c.m_BrakeInput;
 
-        // Appended when kSaveGameFormatVersion was bumped 11→12 (issue #438's
-        // FWD/AWD differential slice). A v11-or-older save omits these bytes, so
-        // gate the read: the fields then keep their constructor defaults, which
-        // are exactly the pre-#438 rear-wheel-drive jeep — an old save reloads
-        // with unchanged handling.
-        if (HasFieldsSince(ar, 12))
-        {
-            ar << c.m_DriveMode;
-            ar << c.m_FrontTorqueSplit << c.m_LeftRightSplit;
-            ar << c.m_LimitedSlipRatio << c.m_CenterLimitedSlipRatio << c.m_DifferentialRatio;
-        }
+        // FWD/AWD differential (issue #438).
+        ar << c.m_DriveMode;
+        ar << c.m_FrontTorqueSplit << c.m_LeftRightSplit;
+        ar << c.m_LimitedSlipRatio << c.m_CenterLimitedSlipRatio << c.m_DifferentialRatio;
 
         // Sanitize untrusted on-disk values (mirrors SceneSerializer): dimensions
         // are strictly positive, the attachment height is signed, damping is a
@@ -1404,10 +1181,9 @@ namespace OloEngine
             c.m_SteerInput = std::isfinite(c.m_SteerInput) ? std::clamp(c.m_SteerInput, -1.0f, 1.0f) : 0.0f;
             c.m_BrakeInput = std::isfinite(c.m_BrakeInput) ? std::clamp(c.m_BrakeInput, 0.0f, 1.0f) : 0.0f;
 
-            // Differential config (v12+). An out-of-range drive mode falls back to
+            // Differential config. An out-of-range drive mode falls back to
             // rear-wheel drive; the limited-slip ratios must be >= 1 or Jolt
-            // asserts. Values from a v11 save were never read and are already at
-            // their constructor defaults, so this is a no-op for them.
+            // asserts.
             if (c.m_DriveMode != VehicleDriveMode::FrontWheelDrive && c.m_DriveMode != VehicleDriveMode::AllWheelDrive)
                 c.m_DriveMode = VehicleDriveMode::RearWheelDrive;
             c.m_FrontTorqueSplit = std::isfinite(c.m_FrontTorqueSplit) ? std::clamp(c.m_FrontTorqueSplit, 0.0f, 1.0f) : 0.5f;
@@ -1513,17 +1289,11 @@ namespace OloEngine
         ar << c.m_PitchDamping << c.m_RollDamping << c.m_YawDamping << c.m_WeathervaneStrength;
         ar << c.m_ThrottleInput << c.m_PitchInput << c.m_RollInput << c.m_YawInput;
 
-        // Appended when kSaveGameFormatVersion was bumped 12->13 (the landing-gear
-        // slice). A v12-or-older save omits these bytes, so gate the read: the gear
-        // fields then keep their constructor defaults, which means gear OFF — the
-        // exact behaviour those saves were written with.
-        if (HasFieldsSince(ar, 13))
-        {
-            ar << c.m_HasLandingGear;
-            ar << c.m_MainGearOffsetZ << c.m_MainGearHalfTrack << c.m_NoseGearOffsetZ;
-            ar << c.m_GearLength << c.m_GearStiffness << c.m_GearDamping;
-            ar << c.m_GearRollingResistance << c.m_GearLateralGrip;
-        }
+        // Landing gear.
+        ar << c.m_HasLandingGear;
+        ar << c.m_MainGearOffsetZ << c.m_MainGearHalfTrack << c.m_NoseGearOffsetZ;
+        ar << c.m_GearLength << c.m_GearStiffness << c.m_GearDamping;
+        ar << c.m_GearRollingResistance << c.m_GearLateralGrip;
 
         // Sanitize untrusted on-disk values (mirrors the OLO_SERIALIZE(Clamp)
         // ranges the scene serializer generates). A non-finite aerodynamic
@@ -1600,23 +1370,11 @@ namespace OloEngine
         ar << c.m_Attachment;
         ar << c.m_Enabled;
 
-        // ── Format v7: wind-coupling influence scalar (issue #460) ──
-        // Appended at the end when kSaveGameFormatVersion was bumped 6→7. A save written
-        // before v7 has none of these bytes, so loading one leaves m_WindInfluence at its
-        // constructor default (1.0 — full wind).
-        if (HasFieldsSince(ar, 7))
-        {
-            ar << c.m_WindInfluence;
-        }
+        // Wind-coupling influence scalar (issue #460).
+        ar << c.m_WindInfluence;
 
-        // ── Format v8: skeleton attachment (issue #460 cape slice) ──
-        // Appended when kSaveGameFormatVersion was bumped 7→8. A save written before v8
-        // has none of these bytes, so loading one leaves m_AttachmentEntity 0 (no
-        // skeleton attachment) and m_AttachmentBone empty.
-        if (HasFieldsSince(ar, 8))
-        {
-            ar << c.m_AttachmentEntity << c.m_AttachmentBone;
-        }
+        // Skeleton attachment (issue #460 cape slice).
+        ar << c.m_AttachmentEntity << c.m_AttachmentBone;
 
         // Sanitize untrusted on-disk values (mirrors SceneSerializer / the clamps in
         // JoltShapes::CreateClothSharedSettings) so a corrupt archive can't blow up the
@@ -1659,18 +1417,9 @@ namespace OloEngine
     {
         SerializeAudioSourceConfig(ar, c.GetConfig());
 
-        // SoundConfig (.olosoundc) preset link — appended after the config block, so
-        // probe AtEnd() on load and default to "no preset" for legacy archives written
-        // before this field existed (the per-component buffer ends after the config).
+        // SoundConfig (.olosoundc) preset link.
         AssetHandle soundConfigHandle = c.GetSoundConfigHandle();
-        if (ar.IsLoading() && ar.AtEnd())
-        {
-            soundConfigHandle = 0;
-        }
-        else
-        {
-            ar << soundConfigHandle;
-        }
+        ar << soundConfigHandle;
         c.SetSoundConfigHandle(soundConfigHandle);
         // Ref<AudioSource> is runtime — not serialized
     }
@@ -1707,24 +1456,14 @@ namespace OloEngine
         // loads ON TOP of the scene load, which already restored the maps,
         // and no script/gameplay API mutates them — the same stance as
         // DecalComponent's textures. If a map-mutating API ever appears,
-        // the paths must be appended here behind a format-version gate.
+        // the paths must be added here (and kSaveGameFormatVersion bumped).
         auto& mat = c.m_Material;
         if (ar.IsSaving())
         {
-            auto type = mat.GetType();
-            ar << type;
             auto name = mat.GetName().ToStdString();
             ar << name;
             auto flags = mat.GetFlags();
             ar << flags;
-
-            // Legacy
-            auto ambient = mat.GetAmbient();
-            auto diffuse = mat.GetDiffuse();
-            auto specular = mat.GetSpecular();
-            auto shininess = mat.GetShininess();
-            auto useTexMaps = mat.IsUsingTextureMaps();
-            ar << ambient << diffuse << specular << shininess << useTexMaps;
 
             // PBR
             auto baseColor = mat.GetBaseColorFactor();
@@ -1739,26 +1478,12 @@ namespace OloEngine
         }
         else
         {
-            MaterialType type{};
-            ar << type;
-            mat.SetType(type);
             std::string name;
             ar << name;
             mat.SetName(name);
             u32 flags{};
             ar << flags;
             mat.SetFlags(flags);
-
-            // Legacy
-            glm::vec3 ambient{}, diffuse{}, specular{};
-            f32 shininess{};
-            bool useTexMaps{};
-            ar << ambient << diffuse << specular << shininess << useTexMaps;
-            mat.SetAmbient(ambient);
-            mat.SetDiffuse(diffuse);
-            mat.SetSpecular(specular);
-            mat.SetShininess(shininess);
-            mat.SetUseTextureMaps(useTexMaps);
 
             // PBR
             glm::vec4 baseColor{}, emissive{};
@@ -1775,68 +1500,51 @@ namespace OloEngine
             mat.SetEnableIBL(enableIBL);
         }
 
-        // Appended at the end when kSaveGameFormatVersion was bumped 24->25
-        // (issue #975's versioned PBR closure). A save written before v25 stops
-        // here and the model keeps its constructor default (Legacy). On load a
-        // corrupt/out-of-range index REJECTS to Legacy — a discriminated value
-        // must never saturate to a different valid model.
-        if (HasFieldsSince(ar, 25))
-        {
-            auto model = mat.GetPBRModel();
-            ar << model;
-            if (ar.IsLoading())
-                mat.SetPBRModel(std::to_underlying(model) < kPBRModelCount ? model : PBRModel::Legacy);
-        }
-        // Physical glTF material extensions (issue #970), appended when
-        // kSaveGameFormatVersion went 28 -> 29. A pre-v29 save stops here and
-        // every field keeps its neutral constructor default, so an older save
-        // loads into a material that shades exactly as it used to.
+        // PBR closure model (issue #975). On load a corrupt/out-of-range index
+        // REJECTS to Legacy — a discriminated value must never saturate to a
+        // different valid model.
+        auto model = mat.GetPBRModel();
+        ar << model;
+        if (ar.IsLoading())
+            mat.SetPBRModel(std::to_underlying(model) < kPBRModelCount ? model : PBRModel::Legacy);
+        // Physical glTF material extensions (issue #970).
         //
         // ATTENUATION DISTANCE IS WRITTEN RAW, INFINITY INCLUDED: unlike YAML,
         // FArchive carries the f32 bit pattern, and +inf is a MEANINGFUL value
         // here ("no absorption"). The load side therefore rejects only NaN and
         // non-positive distances -- which is exactly what the setter does, so
         // it is simply routed through the setter like every other field.
-        if (HasFieldsSince(ar, 29))
+        auto transmission = mat.GetTransmissionFactor();
+        auto ior = mat.GetIOR();
+        auto thickness = mat.GetThicknessFactor();
+        auto attenuationColor = mat.GetAttenuationColor();
+        auto attenuationDistance = mat.GetAttenuationDistance();
+        ar << transmission << ior << thickness << attenuationColor << attenuationDistance;
+        if (ar.IsLoading())
         {
-            auto transmission = mat.GetTransmissionFactor();
-            auto ior = mat.GetIOR();
-            auto thickness = mat.GetThicknessFactor();
-            auto attenuationColor = mat.GetAttenuationColor();
-            auto attenuationDistance = mat.GetAttenuationDistance();
-            ar << transmission << ior << thickness << attenuationColor << attenuationDistance;
-            if (ar.IsLoading())
-            {
-                // Through the setters, never straight onto the members: they
-                // are the one place the isfinite/clamp rules live, so a corrupt
-                // save cannot put a NaN transmission into the material UBO.
-                mat.SetTransmissionFactor(transmission);
-                mat.SetIOR(ior);
-                mat.SetThicknessFactor(thickness);
-                mat.SetAttenuationColor(attenuationColor);
-                mat.SetAttenuationDistance(attenuationDistance);
-            }
+            // Through the setters, never straight onto the members: they
+            // are the one place the isfinite/clamp rules live, so a corrupt
+            // save cannot put a NaN transmission into the material UBO.
+            mat.SetTransmissionFactor(transmission);
+            mat.SetIOR(ior);
+            mat.SetThicknessFactor(thickness);
+            mat.SetAttenuationColor(attenuationColor);
+            mat.SetAttenuationDistance(attenuationDistance);
         }
-        // Material kind + skin profile (issue #1231), appended when
-        // kSaveGameFormatVersion went 30 -> 31. A pre-v31 save stops here and
-        // keeps Generic / no profile, so it loads into a material that shades
-        // exactly as it used to.
+        // Material kind + skin profile (issue #1231).
         //
         // The kind is a DISCRIMINATED value like PBRModel above: a corrupt or
         // future index REJECTS to Generic rather than saturating onto a valid
         // neighbour, because indexing the shader's kind switch with a number it
         // has no branch for is not a rounding error.
-        if (HasFieldsSince(ar, 31))
+        auto kind = mat.GetMaterialKind();
+        u64 skinProfile = static_cast<u64>(mat.GetSkinProfileHandle());
+        ar << kind << skinProfile;
+        if (ar.IsLoading())
         {
-            auto kind = mat.GetMaterialKind();
-            u64 skinProfile = static_cast<u64>(mat.GetSkinProfileHandle());
-            ar << kind << skinProfile;
-            if (ar.IsLoading())
-            {
-                mat.SetMaterialKind(IsValidMaterialKind(static_cast<i32>(std::to_underlying(kind))) ? kind
-                                                                                                    : MaterialKind::Generic);
-                mat.SetSkinProfileHandle(skinProfile);
-            }
+            mat.SetMaterialKind(IsValidMaterialKind(static_cast<i32>(std::to_underlying(kind))) ? kind
+                                                                                                : MaterialKind::Generic);
+            mat.SetSkinProfileHandle(skinProfile);
         }
         // Texture maps: restored by the scene load, see the function header.
     }
@@ -1845,30 +1553,11 @@ namespace OloEngine
     {
         ar << c.m_Direction << c.m_Color << c.m_Intensity;
         ar << c.m_CastShadows;
-        // v28 (#1119): the slot is the same float in the same place, but its
-        // UNIT changed - a normalized-cascade-depth number became a count of
-        // shadow-map texels. A pre-v28 save therefore holds a value that is
-        // meaningless here (0.005 texels is no bias at all), so it is read to
-        // keep the stream in step and then discarded for the component's
-        // default. Nothing is silently reinterpreted.
-        if (HasFieldsSince(ar, 28))
-        {
-            ar << c.m_ShadowDepthBiasTexels;
-        }
-        else
-        {
-            f32 legacyNormalizedDepthBias = 0.0f;
-            ar << legacyNormalizedDepthBias;
-        }
+        // Depth bias in shadow-map texels (#1119).
+        ar << c.m_ShadowDepthBiasTexels;
         ar << c.m_ShadowNormalBias;
         ar << c.m_MaxShadowDistance << c.m_CascadeSplitLambda << c.m_CascadeDebugVisualization;
-        // #1056, save v27. v26 and older have no byte here; reading one
-        // unconditionally would consume the next component's first byte and
-        // cascade corruption through the rest of the entity.
-        if (HasFieldsSince(ar, 27))
-        {
-            ar << c.m_RayTracedShadows;
-        }
+        ar << c.m_RayTracedShadows; // #1056
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, DestructibleComponent& c)
@@ -1956,13 +1645,7 @@ namespace OloEngine
     {
         ar << c.m_Color << c.m_Intensity << c.m_Range << c.m_Attenuation;
         ar << c.m_CastShadows << c.m_ShadowBias << c.m_ShadowNormalBias;
-        // #1056, save v27. v26 and older have no byte here; reading one
-        // unconditionally would consume the next component's first byte and
-        // cascade corruption through the rest of the entity.
-        if (HasFieldsSince(ar, 27))
-        {
-            ar << c.m_RayTracedShadows;
-        }
+        ar << c.m_RayTracedShadows; // #1056
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, SpotLightComponent& c)
@@ -1970,25 +1653,13 @@ namespace OloEngine
         ar << c.m_Direction << c.m_Color << c.m_Intensity;
         ar << c.m_Range << c.m_InnerCutoff << c.m_OuterCutoff << c.m_Attenuation;
         ar << c.m_CastShadows << c.m_ShadowBias << c.m_ShadowNormalBias;
-        // #1056, save v27. v26 and older have no byte here; reading one
-        // unconditionally would consume the next component's first byte and
-        // cascade corruption through the rest of the entity.
-        if (HasFieldsSince(ar, 27))
-        {
-            ar << c.m_RayTracedShadows;
-        }
+        ar << c.m_RayTracedShadows; // #1056
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, SphereAreaLightComponent& c)
     {
         ar << c.m_Color << c.m_Intensity << c.m_Radius << c.m_Range << c.m_CastShadows;
-        // #1056, save v27. v26 and older have no byte here; reading one
-        // unconditionally would consume the next component's first byte and
-        // cascade corruption through the rest of the entity.
-        if (HasFieldsSince(ar, 27))
-        {
-            ar << c.m_RayTracedShadows;
-        }
+        ar << c.m_RayTracedShadows; // #1056
 
         if (ar.IsLoading())
         {
@@ -2014,15 +1685,6 @@ namespace OloEngine
     {
         ar << c.m_SunDirection << c.m_Turbidity << c.m_Exposure;
         ar << c.m_SunIntensity << c.m_SunDiskSize << c.m_ShowSunDisk;
-        // v10 retired m_LinkSunToDirectionalLight (issue #633 — the
-        // TimeOfDayComponent is now the sun driver; v9 was taken by #632's
-        // DDGI fields in the same release window). Saves v9 and older carry
-        // the bool at this stream position; read and discard it.
-        if (ar.IsLoading() && ar.GetArchiveVersion() < 10)
-        {
-            bool legacyLinkSun = false;
-            ar << legacyLinkSun;
-        }
         ar << c.m_EnableSkybox << c.m_EnableIBL << c.m_IBLIntensity;
         ar << c.m_CubemapResolution;
 
@@ -2093,7 +1755,7 @@ namespace OloEngine
     namespace
     {
         // Streams one WeatherPreset (nested struct of WeatherStateComponent).
-        // Field order is the save-format contract — append-only.
+        // Field order is the save-format contract.
         void SerializeWeatherPreset(FArchive& ar, WeatherPreset& p)
         {
             ar << p.CloudCoverage << p.CloudDensity << p.CloudTypeBlend << p.CloudWetness;
@@ -2210,14 +1872,9 @@ namespace OloEngine
         ar << c.m_PhaseG << c.m_PowderStrength;
         ar << c.m_CastCloudShadows << c.m_ShadowStrength << c.m_ShadowMapWorldSize;
         ar << c.m_TemporalBlend << c.m_AffectIBL;
-        // Appended in v16 (issue #723 — v15 went to #727's voxel mesher, which
-        // landed on master while this was in flight). Gated, or every field a
-        // future slice appends after it desyncs when a v15 save is read.
-        if (HasFieldsSince(ar, 16))
-        {
-            ar << c.m_VolumetricSelfShadow << c.m_VolumetricSelfShadowStrength;
-            ar << c.m_VolumetricSelfShadowExtent;
-        }
+        // Volumetric self-shadow (issue #723).
+        ar << c.m_VolumetricSelfShadow << c.m_VolumetricSelfShadowStrength;
+        ar << c.m_VolumetricSelfShadowExtent;
 
         if (ar.IsLoading())
         {
@@ -2254,22 +1911,7 @@ namespace OloEngine
         ar << c.m_IsCubemapFolder << c.m_EnableSkybox;
         ar << c.m_Rotation << c.m_Exposure << c.m_BlurAmount;
         ar << c.m_EnableIBL << c.m_IBLIntensity << c.m_Tint;
-        // m_UseSphericalHarmonics was added in the SH-IBL irradiance feature.
-        // It is appended *after* m_Tint (which legacy archives ended with) so
-        // older save files round-trip cleanly — we probe AtEnd() on load and
-        // default to false when the field is absent. Mirrors the same pattern
-        // used for DecalComponent::m_Transparent above.
-        if (ar.IsLoading())
-        {
-            if (ar.AtEnd())
-                c.m_UseSphericalHarmonics = false;
-            else
-                ar << c.m_UseSphericalHarmonics;
-        }
-        else
-        {
-            ar << c.m_UseSphericalHarmonics;
-        }
+        ar << c.m_UseSphericalHarmonics;
         // Ref<EnvironmentMap> is runtime — not serialized
     }
 
@@ -2286,17 +1928,11 @@ namespace OloEngine
         ar << c.m_Active << c.m_Dirty << c.m_ShowDebugProbes;
         ar << c.m_BakedDataAsset;
 
-        // ── Format v9: realtime DDGI fields (issue #632) ──
-        // Appended at the end when kSaveGameFormatVersion was bumped 8→9. A save
-        // written before v9 has none of these bytes, so loading one leaves every
-        // field at its constructor default (Mode::Baked — the pre-#632 behavior).
-        if (HasFieldsSince(ar, 9))
-        {
-            ar << c.m_Mode; // enum class : u8 — FArchive serializes the underlying type
-            ar << c.m_RaysPerProbe << c.m_Hysteresis;
-            ar << c.m_ProbeCaptureBudget << c.m_RelightBudget;
-            ar << c.m_SelfShadowBias;
-        }
+        // Realtime DDGI fields (issue #632).
+        ar << c.m_Mode; // enum class : u8 — FArchive serializes the underlying type
+        ar << c.m_RaysPerProbe << c.m_Hysteresis;
+        ar << c.m_ProbeCaptureBudget << c.m_RelightBudget;
+        ar << c.m_SelfShadowBias;
 
         // Sanitize untrusted on-disk values (mirrors the SceneSerializer clamps).
         if (ar.IsLoading())
@@ -2561,102 +2197,64 @@ namespace OloEngine
         ar << c.m_StreamingLoadRadius << c.m_StreamingMaxTiles;
         ar << c.m_VoxelEnabled << c.m_VoxelSize;
 
-        // ── Format v3: procedural height-field shaping + auto-material rules ──
-        // Appended at the end when kSaveGameFormatVersion was bumped 2→3. A save
-        // written before v3 has none of these bytes, so loading one leaves the
-        // fields at their constructor defaults (empty m_LayerRules included).
-        if (HasFieldsSince(ar, 3))
-        {
-            ar << c.m_HeightShaping.RidgeBlend << c.m_HeightShaping.WarpStrength << c.m_HeightShaping.WarpFrequency;
-            ar << c.m_HeightShaping.TerraceSteps << c.m_HeightShaping.TerraceSharpness << c.m_HeightShaping.HeightExponent;
-            ar << c.m_AutoMaterial << c.m_SplatmapGenResolution;
+        // Procedural height-field shaping + auto-material rules.
+        ar << c.m_HeightShaping.RidgeBlend << c.m_HeightShaping.WarpStrength << c.m_HeightShaping.WarpFrequency;
+        ar << c.m_HeightShaping.TerraceSteps << c.m_HeightShaping.TerraceSharpness << c.m_HeightShaping.HeightExponent;
+        ar << c.m_AutoMaterial << c.m_SplatmapGenResolution;
 
-            u32 ruleCount = static_cast<u32>(c.m_LayerRules.Num());
-            ar << ruleCount;
-            if (ar.IsLoading())
+        u32 ruleCount = static_cast<u32>(c.m_LayerRules.Num());
+        ar << ruleCount;
+        if (ar.IsLoading())
+        {
+            u32 clampedRules = std::min(ruleCount, 256u);
+            c.m_LayerRules.SetNum(clampedRules, EAllowShrinking::No);
+            for (u32 i = 0; i < clampedRules; ++i)
             {
-                u32 clampedRules = std::min(ruleCount, 256u);
-                c.m_LayerRules.SetNum(clampedRules, EAllowShrinking::No);
-                for (u32 i = 0; i < clampedRules; ++i)
+                SerializeTerrainLayerRule(ar, c.m_LayerRules[i]);
+                if (ar.IsError())
                 {
-                    SerializeTerrainLayerRule(ar, c.m_LayerRules[i]);
-                    if (ar.IsError())
-                    {
-                        return;
-                    }
-                }
-                // Drain any excess entries to keep the stream aligned.
-                for (u32 i = clampedRules; i < ruleCount; ++i)
-                {
-                    TerrainLayerRule discard{};
-                    SerializeTerrainLayerRule(ar, discard);
-                    if (ar.IsError())
-                    {
-                        return;
-                    }
+                    return;
                 }
             }
-            else
+            // Drain any excess entries to keep the stream aligned.
+            for (u32 i = clampedRules; i < ruleCount; ++i)
             {
-                for (u32 i = 0; i < ruleCount; ++i)
+                TerrainLayerRule discard{};
+                SerializeTerrainLayerRule(ar, discard);
+                if (ar.IsError())
                 {
-                    SerializeTerrainLayerRule(ar, c.m_LayerRules[i]);
+                    return;
                 }
             }
         }
-
-        // ── Format v5: hydraulic-erosion generation post-pass iteration count ──
-        // Appended at the end when kSaveGameFormatVersion was bumped 4→5.
-        if (HasFieldsSince(ar, 5))
+        else
         {
-            ar << c.m_ProceduralErosionIterations;
+            for (u32 i = 0; i < ruleCount; ++i)
+            {
+                SerializeTerrainLayerRule(ar, c.m_LayerRules[i]);
+            }
         }
 
-        // ── Format v6: static height-field collision toggle (issue #428) ──
-        // Appended at the end when kSaveGameFormatVersion was bumped 5→6.
-        if (HasFieldsSince(ar, 6))
-        {
-            ar << c.m_CollisionEnabled;
-        }
+        // Hydraulic-erosion generation post-pass iteration count.
+        ar << c.m_ProceduralErosionIterations;
 
-        // ── Format v15: voxel mesher selector (issue #727) ──
-        // Appended at the end when kSaveGameFormatVersion was bumped 14→15. A
-        // save written before v15 omits it and keeps the MarchingCubes default,
-        // which reproduces the pre-#727 behaviour exactly.
-        if (HasFieldsSince(ar, 15))
-        {
-            ar << c.m_VoxelMesher;
-        }
+        // Static height-field collision toggle (issue #428).
+        ar << c.m_CollisionEnabled;
 
-        // ── Format v17: adaptive virtual texturing (issue #715) ──
-        // Appended at the end when kSaveGameFormatVersion was bumped 16->17. A
-        // save written before v17 omits the block and keeps VT off, which is the
-        // pre-#715 splat path exactly.
-        if (HasFieldsSince(ar, 17))
-        {
-            ar << c.m_VirtualTextureEnabled;
-            ar << c.m_VTVirtualPagesWide << c.m_VTPageTexels << c.m_VTBorderTexels;
-            ar << c.m_VTCacheTilesWide << c.m_VTMaxTileBakesPerFrame;
-        }
+        // Voxel mesher selector (issue #727).
+        ar << c.m_VoxelMesher;
 
-        // ── Format v19: adaptive images + compressed tiles (issue #715) ──
-        // Appended at the end when kSaveGameFormatVersion was bumped 18->19. A
-        // save written before v19 omits the block and keeps the constructor
-        // defaults (adaptive path on), the same config a fresh scene gets.
-        if (HasFieldsSince(ar, 19))
-        {
-            ar << c.m_VTAdaptiveEnabled << c.m_VTSectorsWide << c.m_VTMaxImagePagesWide;
-            ar << c.m_VTTrilinearEnabled << c.m_VTCompressedCache;
-        }
+        // Adaptive virtual texturing (issue #715).
+        ar << c.m_VirtualTextureEnabled;
+        ar << c.m_VTVirtualPagesWide << c.m_VTPageTexels << c.m_VTBorderTexels;
+        ar << c.m_VTCacheTilesWide << c.m_VTMaxTileBakesPerFrame;
 
-        // ── Format v22: radial island falloff (issue #880) ──
-        // Appended at the end when kSaveGameFormatVersion was bumped 21->22. A
-        // save written before v22 omits the block and keeps IslandFalloff at 0,
-        // i.e. the mask off — which reproduces the pre-#880 height field exactly.
-        if (HasFieldsSince(ar, 22))
-        {
-            ar << c.m_HeightShaping.IslandFalloff << c.m_HeightShaping.IslandFalloffRadius;
-        }
+        // Adaptive images + compressed tiles (issue #715).
+        ar << c.m_VTAdaptiveEnabled << c.m_VTSectorsWide << c.m_VTMaxImagePagesWide;
+        ar << c.m_VTTrilinearEnabled << c.m_VTCompressedCache;
+
+        // Radial island falloff (issue #880).
+        ar << c.m_HeightShaping.IslandFalloff << c.m_HeightShaping.IslandFalloffRadius;
 
         if (ar.IsLoading())
         {
@@ -2681,8 +2279,7 @@ namespace OloEngine
             // Discriminated mode: an out-of-range value falls back to the
             // default mesher rather than saturating to the other valid one —
             // the same reasoning that made VehicleComponent::m_DriveMode need
-            // Reject over Clamp. A pre-v15 save never read the field, so this
-            // is a no-op for it.
+            // Reject over Clamp.
             if (c.m_VoxelMesher != VoxelMesherKind::GreedyCubic)
                 c.m_VoxelMesher = VoxelMesherKind::MarchingCubes;
             // Virtual-texture sizing (issue #715): continuous quantities, so
@@ -2777,306 +2374,82 @@ namespace OloEngine
         ar << c.m_FoamTexture;
         ar << c.m_FoamHeightStart << c.m_FoamFadeDistance << c.m_FoamTiling << c.m_FoamBrightness;
         ar << c.m_FoamAngleExponent << c.m_ShorelineFoamPower;
-        // Added in v23 (#943). This is a fixed-ORDER archive, so the field has to
-        // be gated rather than appended: a v22 save has no bytes here, and reading
-        // some anyway would consume the next field's and desync everything after
-        // it. An older save simply keeps the constructor default, which is the
-        // value that reproduces the previously-hardcoded foam gate.
-        if (HasFieldsSince(ar, 23))
-        {
-            ar << c.m_FoamCoverage;
-        }
+        // Foam coverage (#943).
+        ar << c.m_FoamCoverage;
         ar << c.m_SSSColor << c.m_SSSIntensity;
         ar << c.m_SSRMaxSteps << c.m_SSRStepSize << c.m_SSRMaxDistance << c.m_SSRThickness;
         ar << c.m_SSREnabled;
         ar << c.m_TessellationEnabled << c.m_TessellationFactor << c.m_TessMinDistance << c.m_TessMaxDistance;
-        // Projected grid (issue #1035, v30). Version-gated rather than probed
-        // with AtEnd() like the trailing blocks below, because it is NOT
-        // trailing: the fog block follows it, so a v29 archive has to skip this
-        // field and keep reading, which AtEnd() cannot express.
-        if (HasFieldsSince(ar, 30))
-        {
-            ar << c.m_ProjectedGridEnabled;
-        }
-        // m_UnderwaterFogColor / m_UnderwaterFogDensity / m_RenderFromBelow were
-        // added with the §7.2 underwater work. Per-component payloads aren't
-        // size-prefixed at this trailing point, so older archives end here —
-        // probe AtEnd() and fall back to the component defaults rather than
-        // reading past the end (same pattern as m_Transparent below).
+        // Projected grid (issue #1035).
+        ar << c.m_ProjectedGridEnabled;
+        // Underwater fog (§7.2).
+        ar << c.m_UnderwaterFogColor << c.m_UnderwaterFogDensity << c.m_RenderFromBelow;
+
+        // Refraction distortion (§7.2) + caustics (§7.1).
+        ar << c.m_UnderwaterRefractionStrength << c.m_UnderwaterRefractionScale
+           << c.m_UnderwaterRefractionSpeed << c.m_UnderwaterChromaticStrength;
+        ar << c.m_CausticsIntensity << c.m_CausticsScale << c.m_CausticsSpeed << c.m_CausticsMaxDepth;
+        ar << c.m_CausticsColor;
+
+        // God rays (§3.3).
+        ar << c.m_GodRayIntensity << c.m_GodRayDecay << c.m_GodRayDensity << c.m_GodRayWeight;
+        ar << c.m_GodRayColor;
+        ar << c.m_GodRaySamples;
+        ar << c.m_GodRayDappleFloor << c.m_GodRaySunFalloff;
+
+        // FFT ocean (water-ocean.md §1).
+        ar << c.m_UseFFT << c.m_FFTResolution << c.m_FFTPatchSize << c.m_FFTWindSpeed;
+        ar << c.m_FFTWindDirection << c.m_FFTAmplitude << c.m_FFTChoppiness << c.m_FFTHeightScale;
+        ar << c.m_FFTSeed;
+
+        // GPU-compute FFT toggle (§1.2).
+        ar << c.m_FFTUseGpuCompute;
+
+        // Spectrum selection (§1.4). The enum rides the archive as its underlying u32.
+        u32 spectrumType = static_cast<u32>(c.m_FFTSpectrumType);
+        ar << spectrumType;
         if (ar.IsLoading())
-        {
-            if (ar.AtEnd())
-            {
-                c.m_UnderwaterFogColor = glm::vec3(0.05f, 0.15f, 0.25f);
-                c.m_UnderwaterFogDensity = 0.08f;
-                c.m_RenderFromBelow = true;
-            }
-            else
-            {
-                ar << c.m_UnderwaterFogColor << c.m_UnderwaterFogDensity << c.m_RenderFromBelow;
-            }
-        }
-        else
-        {
-            ar << c.m_UnderwaterFogColor << c.m_UnderwaterFogDensity << c.m_RenderFromBelow;
-        }
+            c.m_FFTSpectrumType = static_cast<Ocean::SpectrumType>(spectrumType);
+        ar << c.m_FFTJonswapGamma << c.m_FFTJonswapFetch;
 
-        // Refraction distortion (§7.2) + caustics (§7.1) were appended after the
-        // fog block. Same trailing-AtEnd() probe: an archive written before this
-        // addition ends after m_RenderFromBelow, so fall back to the component
-        // defaults rather than reading past the end of the component blob.
-        auto loadUnderwaterFxDefaults = [](WaterComponent& w)
-        {
-            w.m_UnderwaterRefractionStrength = 0.006f;
-            w.m_UnderwaterRefractionScale = 18.0f;
-            w.m_UnderwaterRefractionSpeed = 1.2f;
-            w.m_UnderwaterChromaticStrength = 0.4f;
-            w.m_CausticsIntensity = 0.5f;
-            w.m_CausticsScale = 0.35f;
-            w.m_CausticsSpeed = 0.6f;
-            w.m_CausticsMaxDepth = 25.0f;
-            w.m_CausticsColor = glm::vec3(0.7f, 0.85f, 1.0f);
-        };
-        if (ar.IsLoading() && ar.AtEnd())
-        {
-            loadUnderwaterFxDefaults(c);
-        }
-        else
-        {
-            ar << c.m_UnderwaterRefractionStrength << c.m_UnderwaterRefractionScale
-               << c.m_UnderwaterRefractionSpeed << c.m_UnderwaterChromaticStrength;
-            ar << c.m_CausticsIntensity << c.m_CausticsScale << c.m_CausticsSpeed << c.m_CausticsMaxDepth;
-            ar << c.m_CausticsColor;
-        }
-
-        // God rays (§3.3) were appended after the caustics block — a separate
-        // trailing-AtEnd() probe so a save written before god rays existed (but
-        // after caustics) still falls back to defaults instead of reading past the
-        // end of the component blob.
-        auto loadGodRayDefaults = [](WaterComponent& w)
-        {
-            w.m_GodRayIntensity = 0.5f;
-            w.m_GodRayDecay = 0.97f;
-            w.m_GodRayDensity = 0.85f;
-            w.m_GodRayWeight = 1.0f;
-            w.m_GodRayColor = glm::vec3(1.0f, 0.95f, 0.8f);
-            w.m_GodRaySamples = 48u;
-            w.m_GodRayDappleFloor = 0.35f;
-            w.m_GodRaySunFalloff = 16.0f;
-        };
-        if (ar.IsLoading() && ar.AtEnd())
-        {
-            loadGodRayDefaults(c);
-        }
-        else
-        {
-            ar << c.m_GodRayIntensity << c.m_GodRayDecay << c.m_GodRayDensity << c.m_GodRayWeight;
-            ar << c.m_GodRayColor;
-            ar << c.m_GodRaySamples;
-            ar << c.m_GodRayDappleFloor << c.m_GodRaySunFalloff;
-        }
-
-        // FFT ocean (water-ocean.md §1) was appended last (after the
-        // god-ray block). Same trailing-AtEnd() probe: archives written before this
-        // addition end after god rays (or caustics), so fall back to defaults.
-        auto loadFFTDefaults = [](WaterComponent& w)
-        {
-            w.m_UseFFT = false;
-            w.m_FFTResolution = 128u;
-            w.m_FFTPatchSize = 80.0f;
-            w.m_FFTWindSpeed = 18.0f;
-            w.m_FFTWindDirection = glm::vec2(1.0f, 0.0f);
-            w.m_FFTAmplitude = 2.0f;
-            w.m_FFTChoppiness = 1.2f;
-            w.m_FFTHeightScale = 1.0f;
-            w.m_FFTSeed = 1337u;
-        };
-        if (ar.IsLoading() && ar.AtEnd())
-        {
-            loadFFTDefaults(c);
-        }
-        else
-        {
-            ar << c.m_UseFFT << c.m_FFTResolution << c.m_FFTPatchSize << c.m_FFTWindSpeed;
-            ar << c.m_FFTWindDirection << c.m_FFTAmplitude << c.m_FFTChoppiness << c.m_FFTHeightScale;
-            ar << c.m_FFTSeed;
-        }
-
-        // GPU-compute FFT toggle (§1.2) appended after the FFT block — same
-        // trailing-AtEnd() probe so archives written before it load fine.
-        if (ar.IsLoading() && ar.AtEnd())
-        {
-            c.m_FFTUseGpuCompute = true;
-        }
-        else
-        {
-            ar << c.m_FFTUseGpuCompute;
-        }
-
-        // Spectrum selection (§1.4) appended after the GPU-compute toggle — same
-        // trailing-AtEnd() probe so archives written before it fall back to the
-        // Phillips default. The enum rides the archive as its underlying u32.
-        if (ar.IsLoading() && ar.AtEnd())
-        {
-            c.m_FFTSpectrumType = Ocean::SpectrumType::Phillips;
-            c.m_FFTJonswapGamma = 3.3f;
-            c.m_FFTJonswapFetch = 100000.0f;
-        }
-        else
-        {
-            u32 spectrumType = static_cast<u32>(c.m_FFTSpectrumType);
-            ar << spectrumType;
-            if (ar.IsLoading())
-                c.m_FFTSpectrumType = static_cast<Ocean::SpectrumType>(spectrumType);
-            ar << c.m_FFTJonswapGamma << c.m_FFTJonswapFetch;
-        }
-
-        // Band-limited cascade preset (§1.3, issue #969). VERSION-GATED, and
-        // deliberately NOT the trailing-AtEnd() probe every addition above it
-        // uses: this field sits in the MIDDLE of the block, ahead of the
-        // planar-reflection and wake additions, and AtEnd() is only a valid
-        // "was this ever written?" test at the TRAILING position. A v23-or-older
-        // archive still has planar and wake bytes pending here, so the probe
-        // reads false, the cascade count is decoded out of the first
-        // planar-reflection bytes, and every field after it desyncs. (The wake
-        // block below states the same rule for its own position — that is the
-        // rule this insertion originally broke.)
-        if (HasFieldsSince(ar, 24))
-        {
-            ar << c.m_FFTCascades;
-            if (ar.IsLoading() && c.m_FFTCascades != Ocean::kSingleCascadeCount &&
-                c.m_FFTCascades != Ocean::kThreeBandCascadeCount)
-                c.m_FFTCascades = Ocean::kSingleCascadeCount;
-        }
-        else
-        {
+        // Band-limited cascade preset (§1.3, issue #969).
+        ar << c.m_FFTCascades;
+        if (ar.IsLoading() && c.m_FFTCascades != Ocean::kSingleCascadeCount &&
+            c.m_FFTCascades != Ocean::kThreeBandCascadeCount)
             c.m_FFTCascades = Ocean::kSingleCascadeCount;
-        }
 
-        // Planar (mirror) reflections appended after the cascade field
-        // — same trailing-AtEnd() probe so archives written before it fall back to
-        // the component defaults (planar reflections off).
-        if (ar.IsLoading() && ar.AtEnd())
-        {
-            c.m_PlanarReflectionsEnabled = false;
-            c.m_PlanarReflectionIntensity = 1.0f;
-            c.m_PlanarReflectionDistortion = 0.02f;
-        }
-        else
-        {
-            ar << c.m_PlanarReflectionsEnabled;
-            ar << c.m_PlanarReflectionIntensity << c.m_PlanarReflectionDistortion;
-        }
+        // Planar (mirror) reflections.
+        ar << c.m_PlanarReflectionsEnabled;
+        ar << c.m_PlanarReflectionIntensity << c.m_PlanarReflectionDistortion;
 
-        // Boat / actor wake foam (issue #967), appended after the planar block —
-        // same trailing-AtEnd() probe as every addition above it, so an archive
-        // written before this feature ends here and falls back to the component
-        // defaults (wake off). Deliberately the AtEnd() form rather than a
-        // HasFieldsSince() version gate: this is the TRAILING position, where
-        // the surrounding additions all use the probe, and mixing the two idioms
-        // in one function is how a reader ends up trusting the wrong one.
-        if (ar.IsLoading() && ar.AtEnd())
-        {
-            c.m_WakeFoamEnabled = false;
-            c.m_WakeFoamIntensity = 1.0f;
-            c.m_WakeFoamHalfLife = 6.0f;
-            c.m_WakeFoamFadeStart = 60.0f;
-            c.m_WakeFoamFadeEnd = 220.0f;
-        }
-        else
-        {
-            ar << c.m_WakeFoamEnabled;
-            ar << c.m_WakeFoamIntensity << c.m_WakeFoamHalfLife;
-            ar << c.m_WakeFoamFadeStart << c.m_WakeFoamFadeEnd;
-        }
+        // Boat / actor wake foam (issue #967).
+        ar << c.m_WakeFoamEnabled;
+        ar << c.m_WakeFoamIntensity << c.m_WakeFoamHalfLife;
+        ar << c.m_WakeFoamFadeStart << c.m_WakeFoamFadeEnd;
 
-        // Boat / actor wake SHAPE (issue #968), appended after the foam block —
-        // the same trailing-AtEnd() probe, which stays the right idiom here for
-        // the reason the comment above gives: this is now the trailing position.
-        if (ar.IsLoading() && ar.AtEnd())
-        {
-            c.m_WakeShapeEnabled = false;
-            c.m_WakeShapeAffectsPhysics = false;
-            c.m_WakeShapeHeightScale = 1.0f;
-            c.m_WakeShapeFlattenStrength = 0.9f;
-        }
-        else
-        {
-            ar << c.m_WakeShapeEnabled << c.m_WakeShapeAffectsPhysics;
-            ar << c.m_WakeShapeHeightScale << c.m_WakeShapeFlattenStrength;
-        }
+        // Boat / actor wake SHAPE (issue #968).
+        ar << c.m_WakeShapeEnabled << c.m_WakeShapeAffectsPhysics;
+        ar << c.m_WakeShapeHeightScale << c.m_WakeShapeFlattenStrength;
 
-        // Shore wave deformation (issue #1033), appended after the wake-shape
-        // block — the same trailing-AtEnd() probe, which is now in the trailing
-        // position for the reason the two comments above give.
-        if (ar.IsLoading() && ar.AtEnd())
-        {
-            c.m_ShoreWavesEnabled = false;
-            c.m_ShoreBreakerIndex = 0.39f;
-            c.m_ShoreFoamGain = 1.0f;
-            c.m_ShoreFoamFadeStart = 120.0f;
-            c.m_ShoreFoamFadeEnd = 400.0f;
-        }
-        else
-        {
-            ar << c.m_ShoreWavesEnabled;
-            ar << c.m_ShoreBreakerIndex << c.m_ShoreFoamGain;
-            ar << c.m_ShoreFoamFadeStart << c.m_ShoreFoamFadeEnd;
-        }
+        // Shore wave deformation (issue #1033).
+        ar << c.m_ShoreWavesEnabled;
+        ar << c.m_ShoreBreakerIndex << c.m_ShoreFoamGain;
+        ar << c.m_ShoreFoamFadeStart << c.m_ShoreFoamFadeEnd;
 
-        // Advected open-ocean foam (issue #1034, §2.2), appended after the
-        // shore block — the same trailing-AtEnd() probe, which is now in the
-        // trailing position for the reason the three comments above give.
-        if (ar.IsLoading() && ar.AtEnd())
-        {
-            c.m_FoamAdvectionEnabled = false;
-            c.m_FoamAdvectionIntensity = 1.0f;
-            c.m_FoamAdvectionHalfLife = 3.5f;
-            c.m_FoamAdvectionThreshold = 0.10f;
-            c.m_FoamAdvectionDrift = 0.03f;
-        }
-        else
-        {
-            ar << c.m_FoamAdvectionEnabled;
-            ar << c.m_FoamAdvectionIntensity << c.m_FoamAdvectionHalfLife;
-            ar << c.m_FoamAdvectionThreshold << c.m_FoamAdvectionDrift;
-        }
+        // Advected open-ocean foam (issue #1034, §2.2).
+        ar << c.m_FoamAdvectionEnabled;
+        ar << c.m_FoamAdvectionIntensity << c.m_FoamAdvectionHalfLife;
+        ar << c.m_FoamAdvectionThreshold << c.m_FoamAdvectionDrift;
 
-        // Bubble / spray particles (issue #1034, §2.3), appended after the
-        // foam-advection block — the same trailing-AtEnd() probe.
-        if (ar.IsLoading() && ar.AtEnd())
-        {
-            c.m_SprayEnabled = false;
-            c.m_SprayThreshold = 0.22f;
-            c.m_SprayRate = 6.0f;
-            c.m_SprayRadius = 38.0f;
-            c.m_SprayLaunchSpeed = 2.6f;
-            c.m_SprayLifetime = 0.9f;
-            c.m_SprayParticleSize = 0.25f;
-        }
-        else
-        {
-            ar << c.m_SprayEnabled;
-            ar << c.m_SprayThreshold << c.m_SprayRate << c.m_SprayRadius;
-            ar << c.m_SprayLaunchSpeed << c.m_SprayLifetime << c.m_SprayParticleSize;
-        }
+        // Bubble / spray particles (issue #1034, §2.3).
+        ar << c.m_SprayEnabled;
+        ar << c.m_SprayThreshold << c.m_SprayRate << c.m_SprayRadius;
+        ar << c.m_SprayLaunchSpeed << c.m_SprayLifetime << c.m_SprayParticleSize;
 
-        // Rain-impact ripples (issue #1034, §7.3), appended after the shore
-        // block — the same trailing-AtEnd() probe, which is now in the
-        // trailing position for the reason the three comments above give.
-        if (ar.IsLoading() && ar.AtEnd())
-        {
-            c.m_RainRipplesEnabled = false;
-            c.m_RainRippleStrength = 1.0f;
-            c.m_RainRippleFadeStart = 18.0f;
-            c.m_RainRippleFadeEnd = 45.0f;
-        }
-        else
-        {
-            ar << c.m_RainRipplesEnabled;
-            ar << c.m_RainRippleStrength;
-            ar << c.m_RainRippleFadeStart << c.m_RainRippleFadeEnd;
-        }
+        // Rain-impact ripples (issue #1034, §7.3).
+        ar << c.m_RainRipplesEnabled;
+        ar << c.m_RainRippleStrength;
+        ar << c.m_RainRippleFadeStart << c.m_RainRippleFadeEnd;
 
         if (ar.IsLoading())
         {
@@ -3172,9 +2545,8 @@ namespace OloEngine
             sanitize(c.m_SSRMaxDistance, 1.0f, 200.0f, 50.0f);
             sanitize(c.m_SSRThickness, 0.01f, 5.0f, 0.5f);
             // Planar reflections — match the scene-YAML clamp ranges/defaults
-            // (Scene.cpp water submission). The AtEnd() fallback above only
-            // covers missing data; sanitize here also rejects NaN/Inf and
-            // out-of-range values from a corrupt or hand-edited archive.
+            // (Scene.cpp water submission): rejects NaN/Inf and out-of-range
+            // values from a corrupt or hand-edited archive.
             sanitize(c.m_PlanarReflectionIntensity, 0.0f, 1.0f, 1.0f);
             sanitize(c.m_PlanarReflectionDistortion, 0.0f, 0.25f, 0.02f);
             sanitize(c.m_TessellationFactor, 1.0f, 64.0f, 8.0f);
@@ -3272,9 +2644,6 @@ namespace OloEngine
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, FoliageInteractionComponent& c)
     {
-        // Introduced whole at v37, so no HasFieldsSince band: an older save
-        // cannot contain this component at all, and the generated capture list
-        // simply never names it.
         ar << c.m_Radius << c.m_Height << c.m_Strength;
         ar << c.m_Falloff << c.m_RecoverySeconds << c.m_TrailSpacing;
         ar << c.m_Enabled;
@@ -3319,10 +2688,7 @@ namespace OloEngine
     {
         ar << c.m_Enabled << c.m_MeshSource;
         ar << c.m_ErrorThresholdPixels << c.m_CastShadows;
-        if (HasFieldsSince(ar, 26))
-        {
-            ar << c.m_LightmapStatic; // v26+ (issue #867); older saves keep the default false
-        }
+        ar << c.m_LightmapStatic; // issue #867
 
         if (ar.IsLoading())
         {
@@ -3336,16 +2702,6 @@ namespace OloEngine
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, GroomBindingComponent& c)
     {
-        // NO VERSION GATE, and none is possible: the component itself is new in
-        // #1249, and a save's components are keyed by an FNV hash of the type
-        // name (see RegisterSaveComponent). A save written before this component
-        // existed simply does not contain the key, so the load never reaches
-        // this function — there is no older layout of these bytes to be
-        // compatible with. That is also why this band did NOT take a
-        // kSaveGameFormatVersion number: spending one would have collided with
-        // whatever another branch is appending to an EXISTING component, for no
-        // benefit here.
-        //
         // The binding ASSET is referenced by handle and never inlined: it is a
         // cooked artifact on disk, and a save that carried a copy of 40 000 root
         // records would be both enormous and a second source of truth for them.
@@ -3372,14 +2728,6 @@ namespace OloEngine
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, GroomFibreComponent& c)
     {
-        // NO VERSION GATE, and none is possible: the component is new in #1247
-        // and a save's components are keyed by an FNV hash of the type name, so
-        // a save written before it existed does not contain the key and the
-        // load never reaches this function. That is also why this band did NOT
-        // take a kSaveGameFormatVersion number — spending one would have
-        // collided with whatever another branch is appending to an EXISTING
-        // component, for no benefit here. Same reasoning as
-        // GroomBindingComponent above.
         ar << c.m_BaseColor << c.m_Absorption;
         ar << c.m_Eumelanin << c.m_Pheomelanin;
         ar << c.m_LongitudinalRoughness << c.m_AzimuthalRoughness;
@@ -3425,14 +2773,6 @@ namespace OloEngine
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, GroomCoatShadowComponent& c)
     {
-        // NO VERSION GATE, and none is possible: the component is new in #1248
-        // and a save's components are keyed by an FNV hash of the type name, so
-        // a save written before it existed does not contain the key and the
-        // load never reaches this function. That is also why this band did NOT
-        // take a kSaveGameFormatVersion number -- spending one would have
-        // collided with whatever another branch is appending to an EXISTING
-        // component, for no benefit here. Same reasoning as
-        // GroomFibreComponent above.
         ar << c.m_Kappa << c.m_Resolution << c.m_StepVoxels;
         ar << c.m_MaxLodSteps << c.m_PixelSizeForLod0 << c.m_MinResolution;
         ar << c.m_Mode << c.m_Enabled;
@@ -3490,12 +2830,6 @@ namespace OloEngine
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, GroomCoatComponent& c)
     {
-        // NO VERSION GATE, and none is possible: the component is new in #1251
-        // and a save's components are keyed by an FNV hash of the type name, so
-        // a save written before it existed does not contain the key and the
-        // load never reaches this function. Same reasoning as
-        // GroomCoatShadowComponent above, and the same reason this band did not
-        // take a kSaveGameFormatVersion number.
         ar << c.m_RegionMap << c.m_ColorMap;
         ar << c.m_UndercoatDensity << c.m_UndercoatLength << c.m_UndercoatWidth << c.m_UndercoatClump;
         ar << c.m_GuardDensity << c.m_GuardLength << c.m_GuardWidth << c.m_GuardClump;
@@ -3550,14 +2884,6 @@ namespace OloEngine
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, GroomLodComponent& c)
     {
-        // NO VERSION GATE, and none is possible: the component is new in #1252
-        // and a save's components are keyed by an FNV hash of the type name, so
-        // a save written before it existed does not contain the key and the
-        // load never reaches this function. That is also why this band did NOT
-        // take a kSaveGameFormatVersion number -- spending one would have
-        // collided with whatever another branch is appending to an EXISTING
-        // component, for no benefit here. Same reasoning as
-        // GroomCoatShadowComponent above.
         ar << c.m_CardPixelSize << c.m_MeshPixelSize << c.m_Hysteresis << c.m_MaxWidthCompensation;
         ar << c.m_VisibilityFullPixelSize << c.m_SimulationFullPixelSize << c.m_ShadowFullPixelSize;
         ar << c.m_HoldFrames << c.m_VisibilitySteps << c.m_SimulationSteps << c.m_ShadowSteps;
@@ -3622,13 +2948,6 @@ namespace OloEngine
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, AnimalBudgetComponent& c)
     {
-        // NO VERSION GATE, and none is possible: the component is new in #1258
-        // and a save's components are keyed by an FNV hash of the type name, so
-        // a save written before it existed does not contain the key and the load
-        // never reaches this function. That is also why this band did NOT take a
-        // kSaveGameFormatVersion number — spending one would have collided with
-        // whatever another branch is appending to an EXISTING component, for no
-        // benefit here. Same reasoning as GroomLodComponent above.
         ar << c.m_FullRateMotionMetres;
         ar << c.m_MaxDeformationSteps << c.m_MaxSimulationSteps << c.m_MaxVisibilitySteps << c.m_MaxShadowSteps;
         ar << c.m_Role << c.m_Enabled;
@@ -3711,13 +3030,6 @@ namespace OloEngine
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, GroomSimulationComponent& c)
     {
-        // NO VERSION GATE, and none is possible: the component is new in #1250
-        // and a save's components are keyed by an FNV hash of the type name, so
-        // a save written before it existed does not contain the key and the load
-        // never reaches this function. Same reasoning as GroomCoatComponent
-        // above, and the same reason this band did not take a
-        // kSaveGameFormatVersion number -- which also means it cannot collide
-        // with a parallel branch over the next free version integer.
         ar << c.m_Gravity.x << c.m_Gravity.y << c.m_Gravity.z;
         ar << c.m_Stiffness << c.m_Damping << c.m_VelocityCorrection << c.m_FixedHz;
         ar << c.m_StretchTolerance << c.m_TeleportDistance;
@@ -3805,24 +3117,9 @@ namespace OloEngine
         ar << c.m_Groom << c.m_RootMarkerSize << c.m_MaxPreviewStrands;
         ar << c.m_ShowPreview << c.m_ShowStrands << c.m_ShowRoots;
         ar << c.m_ShowDirection << c.m_ColorByGroup << c.m_GuidesOnly;
-        // Production strand rendering appended in save-format v34 (issue
-        // #1246). VERSION-GATED, not merely appended: a v33-or-older save that
-        // contains a GroomComponent was written without these 22 bytes, and
-        // reading them anyway does not just mis-fill this component — it
-        // desynchronises the stream for every component after it.
-        // kMinSupportedSaveGameFormatVersion is 1, so the header check accepts
-        // those files and the gate is the only thing standing between them and
-        // a corrupt load.
-        //
-        // v34, not the v33 this was authored as: #1234 took v33 on master while
-        // this branch was open. Sharing a version would have made a v33 save
-        // from either branch satisfy the other's gate and be read with the
-        // wrong fields at the wrong offsets.
-        if (HasFieldsSince(ar, 34))
-        {
-            ar << c.m_MaxRenderStrands << c.m_WidthScale << c.m_StrandColor;
-            ar << c.m_RenderStrands << c.m_CompositionMode;
-        }
+        // Production strand rendering (issue #1246).
+        ar << c.m_MaxRenderStrands << c.m_WidthScale << c.m_StrandColor;
+        ar << c.m_RenderStrands << c.m_CompositionMode;
 
         if (ar.IsLoading())
         {
@@ -3840,12 +3137,6 @@ namespace OloEngine
             // The strand budget sizes a GPU BUFFER rather than a command
             // stream, so an unbounded value here is an allocation, not a
             // stall. GroomLimits::MaxCurveCount is the format's own ceiling.
-            //
-            // Sanitised unconditionally, including on a pre-v33 save where the
-            // fields were not read at all: the component was default-
-            // constructed, so this is a no-op there, and gating the clamp on
-            // the version would be one more place for the two conditions to
-            // drift apart.
             c.m_MaxRenderStrands = std::clamp(c.m_MaxRenderStrands, 1u, GroomLimits::MaxCurveCount);
 
             if (!std::isfinite(c.m_WidthScale))
@@ -3937,44 +3228,14 @@ namespace OloEngine
         ar << c.m_Density << c.m_FalloffDistance;
         ar << c.m_Priority << c.m_BlendWeight;
         ar << c.m_Enabled << c.m_AffectTransparent;
-        // m_DensityVolume (#724, FogVolumeShape::Texture3D) was added after
-        // this component's original save layout. Per-component payloads are
-        // size-prefixed, so an older archive has no trailing bytes here;
-        // probe AtEnd() rather than bumping the whole archive format for a
-        // one-field addition (same pattern as DecalComponent::m_Transparent
-        // above).
-        if (ar.IsLoading())
-        {
-            if (ar.AtEnd())
-                c.m_DensityVolume = 0;
-            else
-                ar << c.m_DensityVolume;
-        }
-        else
-        {
-            ar << c.m_DensityVolume;
-        }
+        ar << c.m_DensityVolume; // #724, FogVolumeShape::Texture3D
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, DecalComponent& c)
     {
         ar << c.m_Color << c.m_Size;
         ar << c.m_FadeDistance << c.m_NormalAngleThreshold;
-        // m_Transparent was added in v2. Per-component payloads are
-        // size-prefixed, so v1 archives have no trailing byte at this point;
-        // probe AtEnd() to stay compatible instead of bumping the entire
-        // archive format for a one-field addition.
-        if (ar.IsLoading())
-        {
-            if (ar.AtEnd())
-                c.m_Transparent = false;
-            else
-                ar << c.m_Transparent;
-        }
-        else
-        {
-            ar << c.m_Transparent;
-        }
+        ar << c.m_Transparent;
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, LODGroupComponent& c)
@@ -4021,25 +3282,17 @@ namespace OloEngine
         }
         ar << c.m_LODGroup.Bias;
         ar << c.m_Enabled;
-        // v21 (issue #711): whether the chain is generated rather than authored.
-        // Read AFTER the levels because that is where a v20 layout leaves off — the
-        // levels have to be parked in `loadedLevels` until this is known.
+        // Whether the chain is generated rather than authored (issue #711). Read
+        // AFTER the levels, so they have to be parked in `loadedLevels` until this
+        // is known.
         bool autoGenerated = c.m_AutoGenerated;
-        if (HasFieldsSince(ar, 21))
-        {
-            ar << autoGenerated;
-        }
-        else if (ar.IsLoading())
-        {
-            autoGenerated = false; // nothing generated a chain in a pre-v21 build
-        }
+        ar << autoGenerated;
 
         if (ar.IsLoading())
         {
             c.m_AutoGenerated = autoGenerated;
-            // Keep the live (regenerated) levels for a derived group; a v19 save of
-            // one carries authored-looking levels with handles that are dead now, so
-            // the flag is what decides, not the count.
+            // Keep the live (regenerated) levels for a derived group: the flag is
+            // what decides, not the count.
             if (!autoGenerated)
             {
                 c.m_LODGroup.Levels = std::move(loadedLevels);
@@ -4088,19 +3341,13 @@ namespace OloEngine
     void SaveGameComponentSerializer::Serialize(FArchive& ar, MeshComponent& c)
     {
         ar << c.m_Primitive;
-        if (HasFieldsSince(ar, 18))
-        {
-            ar << c.m_LightmapStatic; // v18+ (issue #439); older saves keep the default false
-        }
+        ar << c.m_LightmapStatic; // issue #439
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, ModelComponent& c)
     {
         ar << c.m_FilePath << c.m_Visible;
-        if (HasFieldsSince(ar, 26))
-        {
-            ar << c.m_LightmapStatic; // v26+ (issue #867); older saves keep the default false
-        }
+        ar << c.m_LightmapStatic; // issue #867
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, AnimationStateComponent& c)
@@ -4177,36 +3424,30 @@ namespace OloEngine
                 c.Materials[i].SetEmissiveFactor(emissive);
             }
 
-            // Appended when kSaveGameFormatVersion was bumped 24->25 (issue
-            // #975) — the SECOND full-Material save site; missing it here made
+            // PBR closure model (issue #975) — the SECOND full-Material save
+            // site; missing it here made
             // a ClosureV2 tile material silently revert to Legacy through
             // save/load while MaterialComponent round-tripped fine. Same
             // reject-to-Legacy rule as the MaterialComponent block.
-            if (HasFieldsSince(ar, 25))
-            {
-                auto model = c.Materials[i].GetPBRModel();
-                ar << model;
-                if (ar.IsLoading())
-                    c.Materials[i].SetPBRModel(std::to_underlying(model) < kPBRModelCount ? model
-                                                                                          : PBRModel::Legacy);
-            }
+            auto model = c.Materials[i].GetPBRModel();
+            ar << model;
+            if (ar.IsLoading())
+                c.Materials[i].SetPBRModel(std::to_underlying(model) < kPBRModelCount ? model
+                                                                                      : PBRModel::Legacy);
 
-            // Material kind + skin profile (issue #1231), v31. The SECOND full-
+            // Material kind + skin profile (issue #1231). The SECOND full-
             // Material save site, for the same reason the block above exists:
             // a tile material that kept its kind through the scene file and
             // lost it through a save/load would be exactly the #975 defect
             // again.
-            if (HasFieldsSince(ar, 31))
+            auto kind = c.Materials[i].GetMaterialKind();
+            u64 skinProfile = static_cast<u64>(c.Materials[i].GetSkinProfileHandle());
+            ar << kind << skinProfile;
+            if (ar.IsLoading())
             {
-                auto kind = c.Materials[i].GetMaterialKind();
-                u64 skinProfile = static_cast<u64>(c.Materials[i].GetSkinProfileHandle());
-                ar << kind << skinProfile;
-                if (ar.IsLoading())
-                {
-                    c.Materials[i].SetMaterialKind(
-                        IsValidMaterialKind(static_cast<i32>(std::to_underlying(kind))) ? kind : MaterialKind::Generic);
-                    c.Materials[i].SetSkinProfileHandle(skinProfile);
-                }
+                c.Materials[i].SetMaterialKind(
+                    IsValidMaterialKind(static_cast<i32>(std::to_underlying(kind))) ? kind : MaterialKind::Generic);
+                c.Materials[i].SetSkinProfileHandle(skinProfile);
             }
         }
     }
@@ -4432,19 +3673,13 @@ namespace OloEngine
         ar << c.LimbChainLength << c.LimbWeight;
         ar << c.LimbTargetEntity;
 
-        // ── Format v4: Chain IK (FABRIK full-chain) section ──
-        // Appended at the end when kSaveGameFormatVersion was bumped 3→4. A
-        // save written before v4 has none of these bytes; loading one leaves
-        // the Chain* fields at their constructor defaults, sanitized below.
-        if (HasFieldsSince(ar, 4))
-        {
-            ar << c.ChainIKEnabled << c.ChainBoneIndex;
-            ar << c.ChainTarget.x << c.ChainTarget.y << c.ChainTarget.z;
-            ar << c.ChainPoleVector.x << c.ChainPoleVector.y << c.ChainPoleVector.z;
-            ar << c.ChainLength << c.ChainIterations;
-            ar << c.ChainTolerance << c.ChainWeight;
-            ar << c.ChainTargetEntity;
-        }
+        // Chain IK (FABRIK full-chain) section, sanitized below.
+        ar << c.ChainIKEnabled << c.ChainBoneIndex;
+        ar << c.ChainTarget.x << c.ChainTarget.y << c.ChainTarget.z;
+        ar << c.ChainPoleVector.x << c.ChainPoleVector.y << c.ChainPoleVector.z;
+        ar << c.ChainLength << c.ChainIterations;
+        ar << c.ChainTolerance << c.ChainWeight;
+        ar << c.ChainTargetEntity;
 
         if (!ar.IsSaving())
         {
@@ -5368,10 +4603,7 @@ namespace OloEngine
         ar << c.PlacementAssetHandle;
         ar << c.FrustumCullPerInstance << c.CastShadows;
         ar << c.CullDistance;
-        if (HasFieldsSince(ar, 26))
-        {
-            ar << c.LightmapStatic; // v26+ (issue #867); older saves keep the default false
-        }
+        ar << c.LightmapStatic; // issue #867
 
         // Inline placement list — round-trip the per-instance transforms.
         u64 instanceCount = static_cast<u64>(c.Instances.Num());
@@ -5389,14 +4621,11 @@ namespace OloEngine
             for (int row = 0; row < 4; ++row)
                 for (int col = 0; col < 4; ++col)
                     ar << inst.Transform[row][col];
-            // StableID from v26 (issue #867): it is the sub-key the bake wrote
+            // StableID (issue #867): it is the sub-key the bake wrote
             // this instance's atlas region under, so letting EnsureStableIDs
             // re-derive it on load would stale the bake for any list with a gap
             // — and silently, since a stale bake just falls back to probes.
-            if (HasFieldsSince(ar, 26))
-            {
-                ar << inst.StableID;
-            }
+            ar << inst.StableID;
         }
     }
 
@@ -5764,14 +4993,8 @@ namespace OloEngine
         ar << c.m_PositionSmoothTime;
         ar << c.m_HeadBobAmplitude << c.m_HeadBobFrequency;
         ar << c.m_FallbackPitchDeg;
-        // Appended when kSaveGameFormatVersion was bumped 19->20 (issue #897's
-        // forward-convention fix). A v19-or-older save omits this byte, so gate
-        // the read: the field then keeps its Auto default, which derives the
-        // convention from the target's components — the pre-#897 behaviour for
-        // every target that was working before, and the fix for the ones that
-        // weren't.
-        if (HasFieldsSince(ar, 20))
-            ar << c.m_TargetForward;
+        // Target forward convention (issue #897).
+        ar << c.m_TargetForward;
         // m_CurrentBoomLength / m_SmoothedPosition / m_BobPhase /
         // m_PrevTargetPosition / m_Initialized are excluded: the rig re-derives
         // them on its first tick after the load, which is also what makes the

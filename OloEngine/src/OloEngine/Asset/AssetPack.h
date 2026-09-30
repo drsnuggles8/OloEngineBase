@@ -127,20 +127,11 @@ namespace OloEngine
          * - AssetPackLoadError::FileOpenFailed: File exists but cannot be opened
          * - AssetPackLoadError::CorruptHeader: File header is damaged or incomplete
          * - AssetPackLoadError::InvalidMagicNumber: Not a valid asset pack file
-         * - AssetPackLoadError::UnsupportedVersion: Pack version not supported by this engine version
+         * - AssetPackLoadError::UnsupportedVersion: Pack version is not AssetPackFile::Version (rebuild the pack)
          * - AssetPackLoadError::CorruptIndex: Asset index table is damaged
          * - AssetPackLoadError::IOError: General I/O error during reading
          */
         [[nodiscard]] AssetPackLoadResult Load(const std::filesystem::path& path);
-
-        /**
-         * @brief Legacy overload for backward compatibility
-         * @deprecated Use the AssetPackLoadResult version for better error handling
-         * @param path Path to the asset pack file
-         * @return True if loading was successful
-         */
-        [[deprecated("Use Load() returning AssetPackLoadResult for better error handling")]]
-        bool LoadLegacy(const std::filesystem::path& path);
 
         /**
          * @brief Unload the asset pack and free all resources

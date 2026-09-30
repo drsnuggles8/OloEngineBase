@@ -48,9 +48,9 @@ void main()
     vec3 a_Normal = vec3(b_Vertices.v[vertBase + 3], b_Vertices.v[vertBase + 4], b_Vertices.v[vertBase + 5]);
 #endif
     OLO_INSTANCE_FORWARD();
-    vec4 worldPos = u_Model * vec4(a_Position, 1.0);
+    vec4 worldPos = instances[gl_InstanceIndex].Transform * vec4(a_Position, 1.0);
     v_WorldPos = worldPos.xyz;
-    v_Normal = normalize(mat3(u_Normal) * a_Normal);
+    v_Normal = normalize(mat3(instances[gl_InstanceIndex].Normal) * a_Normal);
     gl_Position = u_ViewProjection * worldPos;
 }
 
@@ -377,7 +377,7 @@ void main()
     vec3 color = ambient * (ao * oloForwardScreenSpaceAO(gl_FragCoord.xy)) + Lo;
 
     o_Color = vec4(color, 1.0);
-    o_EntityID = u_EntityID;
+    o_EntityID = instances[v_InstanceIndex].EntityID;
 
     vec3 viewNormal = normalize(mat3(u_View) * N);
     o_ViewNormal = octEncode(viewNormal);

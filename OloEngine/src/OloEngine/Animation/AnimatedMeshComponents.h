@@ -4,6 +4,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Core/Assert.h"
+#include "OloEngine/Project/ContentPath.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Model.h"
@@ -124,7 +125,10 @@ namespace OloEngine
     struct ModelComponent
     {
         Ref<Model> m_Model;
-        std::string m_FilePath; // Original file path for serialization/reload
+        // Original file path for serialization/reload. Project-relative for project
+        // content ("Assets/Models/x.glb"), working-directory-relative for engine
+        // content ("assets/models/x.gltf"); resolved by ResolveContentPath (#1496).
+        std::string m_FilePath;
         bool m_Visible = true;
         // Baked-GI receiver flag (issue #867), the ModelComponent twin of
         // MeshComponent::m_LightmapStatic. A model fans one entity out over
@@ -137,21 +141,23 @@ namespace OloEngine
         explicit ModelComponent(const std::string& filePath)
             : m_FilePath(filePath)
         {
-            if (!filePath.empty())
-            {
-                m_Model = Ref<Model>::Create(filePath);
-            }
+            Reload();
         }
         explicit ModelComponent(const Ref<Model>& model, const std::string& filePath = "")
             : m_Model(model), m_FilePath(filePath) {}
 
-        // Reload the model from the stored file path
+        // Reload the model from the stored file path. A path that resolves to no
+        // file (ResolveContentPath logs which) leaves no model, so IsLoaded() is
+        // false — never a load attempted against the working directory anyway.
         void Reload()
         {
-            if (!m_FilePath.empty())
-            {
-                m_Model = Ref<Model>::Create(m_FilePath);
-            }
+            if (m_FilePath.empty())
+                return;
+            const std::filesystem::path resolved = ResolveContentPath(m_FilePath);
+            if (resolved.empty())
+                m_Model.Reset();
+            else
+                m_Model = Ref<Model>::Create(resolved.generic_string());
         }
 
         [[nodiscard("load state must be checked before rendering")]] bool IsLoaded() const

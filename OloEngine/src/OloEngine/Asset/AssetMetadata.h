@@ -4,6 +4,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Asset/Asset.h"
+#include "OloEngine/Asset/AssetByteSize.h"
 #include "OloEngine/Asset/AssetTypes.h"
 #include <string>
 #include <filesystem>
@@ -109,10 +110,13 @@ namespace OloEngine
     {
         AssetHandle SceneHandle = 0;
         AssetHandle Handle = 0;
+        // What the caller predicts the asset costs once resident, known before the
+        // load starts (issue #1365). Unknown unless the caller supplies a figure.
+        FAssetByteSize EstimatedSize;
 
         RuntimeAssetLoadRequest() = default;
-        RuntimeAssetLoadRequest(AssetHandle sceneHandle, AssetHandle handle)
-            : SceneHandle(sceneHandle), Handle(handle) {}
+        RuntimeAssetLoadRequest(AssetHandle sceneHandle, AssetHandle handle, FAssetByteSize estimatedSize = FAssetByteSize::Unknown())
+            : SceneHandle(sceneHandle), Handle(handle), EstimatedSize(estimatedSize) {}
     };
 
     /**

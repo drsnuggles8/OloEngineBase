@@ -807,7 +807,6 @@ TEST(ShaderBindingLayoutTest, ShadowBindingsDoNotConflict)
 {
     // Shadow bindings should not overlap with other bindings
     EXPECT_NE(ShaderBindingLayout::UBO_SHADOW, ShaderBindingLayout::UBO_CAMERA);
-    EXPECT_NE(ShaderBindingLayout::UBO_SHADOW, ShaderBindingLayout::UBO_MODEL);
     EXPECT_NE(ShaderBindingLayout::UBO_SHADOW, ShaderBindingLayout::UBO_MULTI_LIGHTS);
 
     EXPECT_NE(ShaderBindingLayout::TEX_SHADOW, ShaderBindingLayout::TEX_DIFFUSE);

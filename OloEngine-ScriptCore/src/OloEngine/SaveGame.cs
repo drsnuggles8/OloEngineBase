@@ -11,7 +11,8 @@ namespace OloEngine
 		NoActiveScene,
 		IOError,
 		InvalidInput,
-		Pending
+		Pending,
+		UnsupportedVersion
 	}
 
 	public static class SaveGame

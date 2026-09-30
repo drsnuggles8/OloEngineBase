@@ -88,15 +88,9 @@ namespace OloEngine
         // Drop every assignment. Called on scene load and renderer shutdown.
         void Reset();
 
-        // Count and log a fallback the CALLER detected, for the cases that are
-        // decided before a handle is worth resolving at all. Same contract as
-        // the reasons Resolve() raises itself: counted every time, logged once
-        // per handle.
-        void ReportFallback(SkinProfileFallbackReason reason, AssetHandle handle);
-
         // Count and log a TRANSMISSION fallback (issue #1242) — a skin material
         // that asked for the thin-region term and did not get it, or not all of
-        // it. Same contract as ReportFallback above: counted every time, logged
+        // it. Same contract as the reasons Resolve() raises: counted every time, logged
         // once per (reason, handle) pair.
         //
         // HERE RATHER THAN IN A SECOND COUNTER SET, because this class is
@@ -106,7 +100,7 @@ namespace OloEngine
         // per-handle log dedupe, without which a missing thickness on a
         // 40 000-submission frame would produce 40 000 lines.
         //
-        // KEYED ON (REASON, HANDLE), not on the handle alone like ReportFallback
+        // KEYED ON (REASON, HANDLE), not on the handle alone like Resolve()'s reasons
         // is. A material can legitimately raise two different transmission
         // reasons at once — no thickness AND a refractive conflict — and a
         // handle-only key would log the first and silently swallow the second,

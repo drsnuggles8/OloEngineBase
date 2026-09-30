@@ -533,27 +533,26 @@ namespace OloEngine
             }
         }
 
-        // Validate checksum first
+        // Header before checksum: a save of another FormatVersion is rejected as such, with
+        // the message naming the fix (SaveGameFile::ProbeHeader), not reported as corruption.
+        SaveGameHeader header;
+        switch (SaveGameFile::ProbeHeader(path, header))
+        {
+            case SaveGameFile::HeaderStatus::Ok:
+                break;
+            case SaveGameFile::HeaderStatus::UnsupportedVersion:
+                OLO_CORE_ERROR("[SaveGameManager] Save '{}' is format v{}, this build loads only v{}: {}",
+                               slotName, header.FormatVersion, kSaveGameFormatVersion, path.string());
+                return SaveLoadResult::UnsupportedVersion;
+            case SaveGameFile::HeaderStatus::Unreadable:
+                OLO_CORE_ERROR("[SaveGameManager] Failed to read header: {}", path.string());
+                return SaveLoadResult::CorruptedFile;
+        }
+
         if (!SaveGameFile::ValidateChecksum(path))
         {
             OLO_CORE_ERROR("[SaveGameManager] Checksum validation failed: {}", path.string());
             return SaveLoadResult::ChecksumMismatch;
-        }
-
-        // Read header to learn the save's FormatVersion (may be older than
-        // kSaveGameFormatVersion — see SaveGameTypes.h/SaveGameSerializer.h,
-        // issue #454) so the component deserializer can gate fields correctly.
-        SaveGameHeader header;
-        if (!SaveGameFile::ReadHeader(path, header))
-        {
-            OLO_CORE_ERROR("[SaveGameManager] Failed to read header: {}", path.string());
-            return SaveLoadResult::IOError;
-        }
-
-        if (header.FormatVersion < kSaveGameFormatVersion)
-        {
-            OLO_CORE_INFO("[SaveGameManager] Migrating save '{}' from format v{} to v{}",
-                          slotName, header.FormatVersion, kSaveGameFormatVersion);
         }
 
         // Read payload
@@ -565,7 +564,7 @@ namespace OloEngine
         }
 
         // Restore scene state
-        if (!SaveGameSerializer::RestoreSceneState(scene, payload, header.FormatVersion))
+        if (!SaveGameSerializer::RestoreSceneState(scene, payload))
         {
             OLO_CORE_ERROR("[SaveGameManager] Failed to restore scene state from: {}", path.string());
             return SaveLoadResult::SerializationFailed;

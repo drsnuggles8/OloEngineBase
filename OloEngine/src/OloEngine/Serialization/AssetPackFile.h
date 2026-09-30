@@ -12,40 +12,13 @@ namespace OloEngine
     {
         static constexpr u32 MagicNumber = 0x504C4F4F; // "OLOO" in little endian
 
-        // v4 (issue #629): MeshSource records carry a trailing virtualized-geometry
-        // (cluster LOD DAG) blob. Appended at the END of the MeshSource payload and
-        // gated on `stream.GetArchiveVersion() >= kVirtualMeshPackVersion` at the read
-        // site, so a v1-v3 pack — which never wrote those bytes — still reads cleanly.
-        //
-        // v5 (issue #629): MeshSource records also carry the materials the mesh was
-        // IMPORTED with (an ImportedMaterialCodec blob: factors, alpha mode/cutoff,
-        // flags, and per-slot texture asset handles). Before v5 the pack shipped only
-        // the `TMap<u32, AssetHandle> m_Materials` map — which the import path never
-        // populates — so a packed game had no materials at all and every mesh rendered
-        // with the flat engine-default material. Same discipline as v4: appended at the
-        // END of the payload, gated on `GetArchiveVersion() >= kImportedMaterialsPackVersion`.
-        static constexpr u32 Version = 5;
-
-        // The pack version that introduced the MeshSource virtual-mesh blob. Read sites
-        // gate on this rather than on `Version` so the constant stays meaningful after
-        // the next bump.
-        static constexpr u32 VirtualMeshPackVersion = 4;
-
-        // The pack version that introduced the MeshSource imported-material table.
-        static constexpr u32 ImportedMaterialsPackVersion = 5;
-
-        // Oldest FileHeader::Version this build will still load (issue #454). A pack
-        // built by a newer engine (Header.Version > Version) is rejected outright --
-        // this build doesn't know its layout and guessing would corrupt asset data.
-        // A pack in [MinSupportedVersion, Version) is accepted; AssetPack::Load runs it
-        // through MigrateAssetPackIndex (a no-op today, same shape as
-        // SceneSerializer's MigrateSceneYAML / SaveGame's per-field HasFieldsSince gate)
-        // so the next version bump has a place to add real migration instead of quietly
-        // misreading old field layouts. If a future version adds/removes a fixed-layout
-        // field in AssetInfo/SceneInfo/IndexTable, gate that read behind
-        // `Header.Version >= <version it was introduced in>` at the read site in
-        // AssetPack::Load, mirroring SaveGameComponentSerializer's HasFieldsSince pattern.
-        static constexpr u32 MinSupportedVersion = 1;
+        // The one pack layout this build reads (docs/agent-rules/binary-format-versioning.md).
+        // AssetPack::Load rejects any other Header.Version -- older or newer -- with a
+        // "rebuild the pack" error; there is no migration and no per-field version gate.
+        // Bump it whenever a record layout changes. v6: the embedded ImportedMaterialCodec
+        // blob in MeshSource records changed layout (#1499), so older packs must be
+        // rebuilt, not half-read.
+        static constexpr u32 Version = 6;
 
         struct AssetInfo
         {

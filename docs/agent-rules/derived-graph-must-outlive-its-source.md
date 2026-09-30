@@ -66,8 +66,8 @@ Three decisions in it are worth reusing:
   moment a component gains a field, and the failure is a missed referrer, i.e. silent data loss. An
   over-collected candidate costs one line in the unresolved count; resolution is the filter.
 - **Mirror the engine's own resolver rather than writing a better one.** `EditorAssetManager::ImportAsset`
-  resolves a relative asset path in a documented order (project-relative, then the legacy
-  project-prefixed spelling, then cwd-relative; issues #887 and #1098). The index copies it step for
+  resolves a relative asset path in a documented order (project-relative, then
+  cwd-relative; issues #887 and #1496). The index copies it step for
   step, because the point of the answer is to predict what the engine will *load*. A smarter
   resolver would make the index disagree with reality. Concretely: `Checkerboard.png` exists under
   both `OloEditor/assets/textures/` and the project's own `Assets/Textures/`, so a filename or

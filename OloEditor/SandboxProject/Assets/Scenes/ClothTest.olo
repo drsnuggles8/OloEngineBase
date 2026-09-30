@@ -1,4 +1,5 @@
 Scene: ClothTest
+Version: 1
 Entities:
   - Entity: 946000000000001
     TagComponent:

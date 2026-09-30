@@ -317,7 +317,7 @@ namespace OloEngine::Automation
                 { "handleKeyFiltered", true },
                 { "note",
                   "Path references are found by value (any scalar ending in a known asset extension) and resolved "
-                  "against the project root, the asset directory, the legacy project-prefixed spelling and the "
+                  "against the project root, the asset directory and the "
                   "working directory, in that order -- the same anchors the engine itself uses. A value with no "
                   "directory separator counts only when it resolves, because a bare filename is ambiguous with a "
                   "name that happens to end in an asset extension. Handle references are found only under "
@@ -1083,8 +1083,7 @@ namespace OloEngine::Automation
         bool ShaderLibraryHasAMaterialShader()
         {
             const ShaderLibrary& library = Renderer3D::GetShaderLibrary();
-            return library.Exists("DefaultPBR") || library.Exists("DefaultPBR_Transparent") ||
-                   library.Exists("Basic3D");
+            return library.Exists("PBR_MultiLight");
         }
 
         template<typename T>
@@ -1105,7 +1104,7 @@ namespace OloEngine::Automation
         {
             static const std::vector<AssetFactoryEntry> factories = {
                 { AssetType::Material, &MakeDefault<MaterialAsset>, &ShaderLibraryHasAMaterialShader,
-                  "creating a Material needs the renderer's shader library (DefaultPBR or Basic3D), and this host "
+                  "creating a Material needs PBR_MultiLight in the renderer's shader library, and this host "
                   "has none loaded -- run it against the editor" },
                 { AssetType::InstancePlacement, &MakeDefault<InstancePlacementAsset>, nullptr, nullptr },
             };

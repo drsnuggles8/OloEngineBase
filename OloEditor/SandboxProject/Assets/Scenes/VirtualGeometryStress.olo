@@ -1,4 +1,5 @@
 Scene: VirtualGeometryStress.olo
+Version: 1
 # ---------------------------------------------------------------------------
 # THE NANITE STRESS SCENE (issue #629) - the "can it actually do the thing" scene.
 #

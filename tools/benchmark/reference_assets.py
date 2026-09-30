@@ -16,6 +16,10 @@
 #   python tools/benchmark/reference_assets.py --write-hashes
 #   python tools/benchmark/reference_assets.py --fetch
 #
+# A pinned Sha256 is the hash of the bytes git stores: text assets are hashed
+# with CRLF folded to LF (see sha256_of), so a Windows checkout and a Linux one
+# verify against the same pin.
+#
 # --write-hashes fills the Sha256 fields in from the files on disk. Run it when
 # you deliberately change an asset, and review the resulting diff: a hash that
 # moved without an intended asset change is the bug this whole mechanism is
@@ -41,6 +45,7 @@ import argparse
 import hashlib
 import pathlib
 import re
+import subprocess
 import sys
 
 import yaml
@@ -58,12 +63,53 @@ NOT_FETCHED = "not-fetched"
 LOCAL_GAP = "local-gap"
 
 
+_GIT_TEXT_PATHS = None
+
+
+def _git_text_paths():
+    """Repo-relative paths git stores as LF text (`git ls-files --eol`: `i/lf`).
+
+    Git's own classification, not a guess: a heuristic like "no NUL byte" calls
+    a Radiance .hdr text, and folding its line endings corrupts it.
+    """
+    global _GIT_TEXT_PATHS
+    if _GIT_TEXT_PATHS is None:
+        _GIT_TEXT_PATHS = set()
+        try:
+            out = subprocess.run(["git", "ls-files", "--eol", "-z", "--", str(ASSET_ROOT)], cwd=REPO_ROOT,
+                                 capture_output=True, check=True).stdout.decode("utf-8", "replace")
+        except (OSError, subprocess.CalledProcessError) as exc:
+            print(f"ERROR: git ls-files failed ({exc}); cannot tell text assets from binary ones",
+                  file=sys.stderr)
+            sys.exit(2)
+        for entry in out.split("\0"):
+            # "i/lf    w/crlf  attr/text=auto  \tpath"
+            info, _, rel = entry.partition("\t")
+            if rel and info.split()[:1] == ["i/lf"]:
+                _GIT_TEXT_PATHS.add(rel)
+    return _GIT_TEXT_PATHS
+
+
 def sha256_of(path):
-    h = hashlib.sha256()
-    with open(path, "rb") as fh:
-        for chunk in iter(lambda: fh.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
+    """SHA-256 of the asset as git stores it, so a pin is the same on every OS.
+
+    The repo checks text files out with the platform's line endings
+    (`* text=auto`, and CRLF on Windows under core.autocrlf), while the blob in
+    git is LF. A file git stores as text is therefore hashed with CRLF folded to
+    LF; a binary or untracked file (e.g. a fetched asset) byte for byte. Hashing
+    the raw on-disk bytes made every text asset (.olo, .gltf, .obj, .mtl) fail
+    verification on a Windows checkout, and let pins be taken from CRLF bytes
+    that no other checkout reproduces (#1521).
+    """
+    path = pathlib.Path(path)
+    data = path.read_bytes()
+    try:
+        rel = path.resolve().relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        rel = None
+    if rel in _git_text_paths():
+        data = data.replace(b"\r\n", b"\n")
+    return hashlib.sha256(data).hexdigest()
 
 
 def resolve_in_asset_root(rel):
@@ -111,9 +157,14 @@ def fetch_url_error(url):
     return None
 
 
+CURRENT_MANIFEST_VERSION = 2
+
+
 def load_manifests():
-    """Every v2 manifest, as (path, parsed dict). v1 manifests carry no
-    provenance contract and are skipped rather than warned about."""
+    """Every manifest, as (path, parsed dict). The engine reads only
+    ManifestVersion 2, so a manifest at any other version is reported as an
+    error (data None) rather than skipped: skipping it would leave its assets
+    unverified without anyone noticing."""
     out = []
     for path in sorted(MANIFEST_DIR.glob("*.yaml")):
         try:
@@ -124,7 +175,12 @@ def load_manifests():
             continue
         if not isinstance(data, dict):
             continue
-        if data.get("ManifestVersion") != 2:
+        if data.get("ManifestVersion") != CURRENT_MANIFEST_VERSION:
+            print(f"ERROR: {path.name}: ManifestVersion {data.get('ManifestVersion')!r} — only "
+                  f"{CURRENT_MANIFEST_VERSION} is read. Set 'ManifestVersion: {CURRENT_MANIFEST_VERSION}' and give "
+                  f"every Assets entry the full provenance block "
+                  f"(docs/guides/benchmark-reference-fixtures.md).", file=sys.stderr)
+            out.append((path, None))
             continue
         out.append((path, data))
     return out
@@ -183,7 +239,7 @@ def cmd_verify(args):
     if any(data is None for _, data in manifests):
         return 2
     if not manifests:
-        print("no ManifestVersion 2 manifests found")
+        print("no manifests found")
         return 0
 
     records = collect_records(manifests)
@@ -193,7 +249,7 @@ def cmd_verify(args):
 
     failures = 0
     gaps = 0
-    print(f"verifying {len(records)} asset record(s) from {len(manifests)} v2 manifest(s)\n")
+    print(f"verifying {len(records)} asset record(s) from {len(manifests)} manifest(s)\n")
     for (rel, digest), (record, users) in sorted(records.items()):
         status, detail = check_asset(record)
         mark = {OK: "  ok  ", MISSING: " MISS ", MISMATCH: " DIFF ",
@@ -231,7 +287,7 @@ def cmd_verify(args):
 
 
 def cmd_write_hashes(args):
-    """Rewrite each v2 manifest's Sha256 lines from the files on disk.
+    """Rewrite each manifest's Sha256 lines from the files on disk.
 
     Line-oriented rather than a YAML round-trip on purpose: PyYAML's dumper
     would reflow every comment out of these manifests, and the comments carry

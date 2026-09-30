@@ -150,7 +150,7 @@ namespace
 // a JSON-RPC error and NOTHING is mutated / pushed onto the undo stack.
 TEST_F(McpGenericFieldWriteTest, GateOffRejectsWriteAndMutatesNothing)
 {
-    ASSERT_FALSE(m_Server.AllowWrites()); // off by default
+    ASSERT_EQ(m_Server.GetWriteConsentMode(), OloEngine::MCP::WriteConsentMode::Disabled); // off by default
 
     const Json resp = m_Server.HandleMessage(MakeCallRequest(
         1, Json{ { "entity", std::to_string(m_EntityUuid) }, { "component", "TransformComponent" }, { "field", "Translation" }, { "value", Json::array({ 1.0, 2.0, 3.0 }) } }));
@@ -167,7 +167,7 @@ TEST_F(McpGenericFieldWriteTest, GateOffRejectsWriteAndMutatesNothing)
 // single undoable command — an undo reverts it, a redo re-applies it.
 TEST_F(McpGenericFieldWriteTest, GateOnAppliesUndoableWrite)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
 
     const Json resp = m_Server.HandleMessage(MakeCallRequest(
         2, Json{ { "entity", std::to_string(m_EntityUuid) }, { "component", "TransformComponent" }, { "field", "Translation" }, { "value", Json::array({ 1.0, 2.0, 3.0 }) } }));
@@ -192,7 +192,7 @@ TEST_F(McpGenericFieldWriteTest, GateOnAppliesUndoableWrite)
 
 TEST_F(McpGenericFieldWriteTest, SchemaRejectsMissingEntity)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     const Json resp = m_Server.HandleMessage(MakeCallRequest(
         3, Json{ { "component", "TransformComponent" }, { "field", "Translation" }, { "value", Json::array({ 1.0, 2.0, 3.0 }) } }));
     ASSERT_TRUE(resp.contains("result")); // SEP-1303: schema failures are tool errors
@@ -201,7 +201,7 @@ TEST_F(McpGenericFieldWriteTest, SchemaRejectsMissingEntity)
 
 TEST_F(McpGenericFieldWriteTest, SchemaRejectsMissingComponentFieldOrValue)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     const Json base = Json{ { "entity", std::to_string(m_EntityUuid) }, { "component", "TransformComponent" }, { "field", "Translation" }, { "value", Json::array({ 1.0, 2.0, 3.0 }) } };
     for (const char* missing : { "component", "field", "value" })
     {
@@ -217,7 +217,7 @@ TEST_F(McpGenericFieldWriteTest, SchemaRejectsMissingComponentFieldOrValue)
 // at the schema layer before the handler runs.
 TEST_F(McpGenericFieldWriteTest, SchemaRejectsObjectValue)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     const Json resp = m_Server.HandleMessage(MakeCallRequest(
         5, Json{ { "entity", std::to_string(m_EntityUuid) }, { "component", "TransformComponent" }, { "field", "Translation" }, { "value", Json::object({ { "x", 1 } }) } }));
     ASSERT_TRUE(resp.contains("result")); // SEP-1303: schema failures are tool errors
@@ -226,7 +226,7 @@ TEST_F(McpGenericFieldWriteTest, SchemaRejectsObjectValue)
 
 TEST_F(McpGenericFieldWriteTest, SchemaRejectsUnknownProperty)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     const Json resp = m_Server.HandleMessage(MakeCallRequest(
         6, Json{ { "entity", std::to_string(m_EntityUuid) }, { "component", "TransformComponent" }, { "field", "Translation" }, { "value", Json::array({ 1.0, 2.0, 3.0 }) }, { "extra", true } }));
     ASSERT_TRUE(resp.contains("result")); // SEP-1303: schema failures are tool errors
@@ -239,7 +239,7 @@ TEST_F(McpGenericFieldWriteTest, SchemaRejectsUnknownProperty)
 // not a JSON-RPC protocol error — the call reached the handler, the handler failed.
 TEST_F(McpGenericFieldWriteTest, UnknownEntityIsToolError)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     const Json resp = m_Server.HandleMessage(MakeCallRequest(
         7, Json{ { "entity", "99999999" }, { "component", "TransformComponent" }, { "field", "Translation" }, { "value", Json::array({ 1.0, 2.0, 3.0 }) } }));
     ASSERT_TRUE(resp.contains("result"));
@@ -251,7 +251,7 @@ TEST_F(McpGenericFieldWriteTest, UnknownEntityIsToolError)
 // allows a string) and is a tool-level coercion error.
 TEST_F(McpGenericFieldWriteTest, WrongValueTypeIsToolError)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     const Json resp = m_Server.HandleMessage(MakeCallRequest(
         8, Json{ { "entity", std::to_string(m_EntityUuid) }, { "component", "TransformComponent" }, { "field", "Translation" }, { "value", "not-a-vector" } }));
     ASSERT_TRUE(resp.contains("result"));
@@ -620,7 +620,7 @@ class McpGenericFieldWritePlayModeTest : public ::testing::Test
 
 TEST_F(McpGenericFieldWritePlayModeTest, WritesLiveComponentWithoutCommandHistory)
 {
-    m_Server.SetAllowWrites(true);
+    m_Server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
 
     const Json resp = m_Server.HandleMessage(MakeCallRequest(
         1, Json{ { "entity", std::to_string(m_EntityUuid) }, { "component", "DirectionalLightComponent" }, { "field", "Intensity" }, { "value", Json(3.0) } }));

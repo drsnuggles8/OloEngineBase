@@ -370,7 +370,13 @@ namespace OloEngine
                                                                                  { return s.DefaultUnloadRadius; }, [](StreamingSettings& s, f32 v)
                                                                                  { if (std::isfinite(v) && v >= 0.0f) s.DefaultUnloadRadius = v; }),
                                             "maxLoadedRegions", &StreamingSettings::MaxLoadedRegions,
-                                            "regionDirectory", &StreamingSettings::RegionDirectory);
+                                            "regionDirectory", &StreamingSettings::RegionDirectory,
+                                            "maxResidentMegabytes", sol::property([](const StreamingSettings& s)
+                                                                                  { return s.MaxResidentMegabytes; }, [](StreamingSettings& s, f32 v)
+                                                                                  { s.MaxResidentMegabytes = SanitizeStreamingBudgetMegabytes(v); }),
+                                            "maxAdmittedMegabytesPerFrame", sol::property([](const StreamingSettings& s)
+                                                                                          { return s.MaxAdmittedMegabytesPerFrame; }, [](StreamingSettings& s, f32 v)
+                                                                                          { s.MaxAdmittedMegabytesPerFrame = SanitizeStreamingBudgetMegabytes(v); }));
 
         // --- NetworkIdentityComponent ---
         lua.new_usertype<NetworkIdentityComponent>("NetworkIdentityComponent",

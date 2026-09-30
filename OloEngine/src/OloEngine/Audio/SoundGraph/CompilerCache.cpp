@@ -735,7 +735,7 @@ namespace OloEngine::Audio::SoundGraph
             auto write_u32 = [&file](u32 value)
             {
                 // Convert to little-endian byte order
-                u8 bytes[4];
+                u8 bytes[4]{};
                 bytes[0] = static_cast<u8>(value & 0xFF);
                 bytes[1] = static_cast<u8>((value >> 8) & 0xFF);
                 bytes[2] = static_cast<u8>((value >> 16) & 0xFF);
@@ -746,7 +746,7 @@ namespace OloEngine::Audio::SoundGraph
             auto write_u64 = [&file](u64 value)
             {
                 // Convert to little-endian byte order
-                u8 bytes[8];
+                u8 bytes[8]{};
                 bytes[0] = static_cast<u8>(value & 0xFF);
                 bytes[1] = static_cast<u8>((value >> 8) & 0xFF);
                 bytes[2] = static_cast<u8>((value >> 16) & 0xFF);
@@ -773,15 +773,12 @@ namespace OloEngine::Audio::SoundGraph
                 file.write(reinterpret_cast<const char*>(&byte), 1);
             };
 
-            // Write magic header and format version for future compatibility
-            // Magic: "OLCC" (OloEngine Compiler Cache) - 4 bytes
-            // Version: 2 (u32) - Current format version (bumped from 1 for little-endian format)
-            // Increment version when fields are added/reordered for backward/forward compatibility
+            // Magic "OLCC" (OloEngine Compiler Cache) + FormatVersion (u32, little-endian).
+            // Bump FormatVersion when the layout changes; the reader accepts only the current one.
             const char magic[4] = { 'O', 'L', 'C', 'C' };
-            const u32 formatVersion = 2;
 
             file.write(magic, sizeof(magic));
-            write_u32(formatVersion);
+            write_u32(FormatVersion);
 
             // Platform-independent string writer using little-endian length
             auto writeString = [&file, &write_u32](const std::string& str)
@@ -831,10 +828,23 @@ namespace OloEngine::Audio::SoundGraph
             if (!file.is_open())
                 return false;
 
+            // Every length read from the file is bounded by the bytes left in it, so a corrupt
+            // length is a cache miss instead of an allocation of up to 4 GiB.
+            file.seekg(0, std::ios::end);
+            const std::streamoff fileSize = file.tellg();
+            file.seekg(0, std::ios::beg);
+            if (fileSize < 0 || !file)
+                return false;
+            auto bytesRemaining = [&file, fileSize]() -> u64
+            {
+                const std::streamoff pos = file.tellg();
+                return (pos < 0 || pos > fileSize) ? 0 : static_cast<u64>(fileSize - pos);
+            };
+
             // Platform-independent binary deserialization helpers (little-endian byte order)
             auto read_u32 = [&file]() -> u32
             {
-                u8 bytes[4];
+                u8 bytes[4]{};
                 file.read(reinterpret_cast<char*>(bytes), 4);
                 // Convert from little-endian to native byte order
                 return static_cast<u32>(bytes[0]) |
@@ -845,7 +855,7 @@ namespace OloEngine::Audio::SoundGraph
 
             auto read_u64 = [&file]() -> u64
             {
-                u8 bytes[8];
+                u8 bytes[8]{};
                 file.read(reinterpret_cast<char*>(bytes), 8);
                 // Convert from little-endian to native byte order
                 return static_cast<u64>(bytes[0]) |
@@ -869,7 +879,7 @@ namespace OloEngine::Audio::SoundGraph
 
             auto read_bool = [&file]() -> bool
             {
-                u8 byte;
+                u8 byte = 0;
                 file.read(reinterpret_cast<char*>(&byte), 1);
                 return byte != 0;
             };
@@ -884,85 +894,74 @@ namespace OloEngine::Audio::SoundGraph
             }
 
             // Read format version using little-endian reader (matches write_u32 in SerializeResult)
-            u32 formatVersion = read_u32();
-            if (formatVersion > 2) // Current supported version is 2
+            if (const u32 formatVersion = read_u32(); !file || formatVersion != FormatVersion)
             {
-                OLO_CORE_WARN("CompilerCache: Unsupported format version {} in cache file '{}' (expected <= 2)", formatVersion, filePath);
-                return false;
-            }
-            if (formatVersion < 1) // Minimum supported version is 1
-            {
-                OLO_CORE_WARN("CompilerCache: Outdated format version {} in cache file '{}' (expected >= 1)", formatVersion, filePath);
+                OLO_CORE_WARN("CompilerCache: '{}': format v{} is not supported (this build reads v{} only); "
+                              "treated as a cache miss, the graph is recompiled and the file rewritten",
+                              filePath, formatVersion, FormatVersion);
                 return false;
             }
 
-            // Platform-independent string reader using little-endian length
-            auto readString = [&file, &read_u32, formatVersion]() -> std::string
+            // Platform-independent string reader using little-endian length. A length past the
+            // end of the file sets `lengthOverrun` and reads nothing.
+            bool lengthOverrun = false;
+            auto readString = [&file, &read_u32, &bytesRemaining, &lengthOverrun]() -> std::string
             {
-                u32 length;
-                if (formatVersion == 1)
+                const u32 length = read_u32();
+                if (!file || lengthOverrun)
                 {
-                    // Old format: read platform-dependent length
-                    file.read(reinterpret_cast<char*>(&length), sizeof(length));
+                    return {};
                 }
-                else
+                if (length > bytesRemaining())
                 {
-                    // New format (v2+): read little-endian length
-                    length = read_u32();
+                    lengthOverrun = true;
+                    return {};
                 }
                 std::string str(length, '\0');
-                file.read(&str[0], length);
+                file.read(str.data(), length);
                 return str;
             };
 
             result.m_SourcePath = readString();
             result.m_CompiledPath = readString();
 
-            u32 dataSize;
-            if (formatVersion == 1)
+            const u32 dataSize = read_u32();
+            if (!file || lengthOverrun)
             {
-                file.read(reinterpret_cast<char*>(&dataSize), sizeof(dataSize));
+                OLO_CORE_ERROR("CompilerCache: cache file '{}' is truncated or declares a string longer than the file",
+                               filePath);
+                return false;
             }
-            else
+            if (dataSize > bytesRemaining())
             {
-                dataSize = read_u32();
+                OLO_CORE_ERROR("CompilerCache: cache file '{}' declares {} bytes of compiled data, more than the file holds",
+                               filePath, dataSize);
+                return false;
             }
             result.m_CompiledData.resize(dataSize);
             file.read(reinterpret_cast<char*>(result.m_CompiledData.data()), dataSize);
 
-            if (formatVersion == 1)
+            result.m_SourceHash = read_u64();
+
+            const u64 timePoint = read_u64();
+            result.m_CompilationTime = std::chrono::system_clock::time_point(
+                std::chrono::system_clock::duration(timePoint));
+
+            result.m_CompilerVersion = readString();
+            result.m_ErrorMessage = readString();
+
+            result.m_IsValid = read_bool();
+            result.m_CompilationTimeMs = static_cast<f32>(read_f64());
+            result.m_SourceSizeBytes = read_u64();
+            result.m_CompiledSizeBytes = read_u64();
+
+            // The stream has no exceptions enabled, so a short file would otherwise
+            // hand back a result assembled from uninitialised bytes.
+            if (!file || lengthOverrun)
             {
-                // Old format: platform-dependent reads
-                file.read(reinterpret_cast<char*>(&result.m_SourceHash), sizeof(result.m_SourceHash));
-
-                decltype(result.m_CompilationTime.time_since_epoch().count()) timePoint;
-                file.read(reinterpret_cast<char*>(&timePoint), sizeof(timePoint));
-                result.m_CompilationTime = std::chrono::system_clock::time_point(std::chrono::system_clock::duration(timePoint));
-
-                result.m_CompilerVersion = readString();
-                result.m_ErrorMessage = readString();
-
-                file.read(reinterpret_cast<char*>(&result.m_IsValid), sizeof(result.m_IsValid));
-                file.read(reinterpret_cast<char*>(&result.m_CompilationTimeMs), sizeof(result.m_CompilationTimeMs));
-                file.read(reinterpret_cast<char*>(&result.m_SourceSizeBytes), sizeof(result.m_SourceSizeBytes));
-                file.read(reinterpret_cast<char*>(&result.m_CompiledSizeBytes), sizeof(result.m_CompiledSizeBytes));
-            }
-            else // formatVersion >= 2
-            {
-                // New format: platform-independent little-endian reads
-                result.m_SourceHash = read_u64();
-
-                u64 timePoint = read_u64();
-                result.m_CompilationTime = std::chrono::system_clock::time_point(
-                    std::chrono::system_clock::duration(timePoint));
-
-                result.m_CompilerVersion = readString();
-                result.m_ErrorMessage = readString();
-
-                result.m_IsValid = read_bool();
-                result.m_CompilationTimeMs = static_cast<f32>(read_f64());
-                result.m_SourceSizeBytes = read_u64();
-                result.m_CompiledSizeBytes = read_u64();
+                OLO_CORE_ERROR("CompilerCache: cache file '{}' is truncated or declares a string longer than the file",
+                               filePath);
+                return false;
             }
 
             return true;

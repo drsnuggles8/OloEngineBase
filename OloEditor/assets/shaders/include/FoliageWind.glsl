@@ -73,10 +73,14 @@ float foliageAnimationClock()
     return legacyField ? u_WindClock.x : u_Time;
 }
 
-FoliageDeformation foliageDeform(vec3 rest, vec3 vertex, vec3 pivot, float phase)
+// `model` / `prevModel` place the pivot in (render-relative) world space for
+// this frame and the previous one: the draw's instance transform in a raster
+// stage, the dispatch's own matrix in the ray-traced vegetation snapshot.
+FoliageDeformation foliageDeform(vec3 rest, vec3 vertex, vec3 pivot, float phase,
+                                 mat4 model, mat4 prevModel)
 {
-    vec3 root = (u_Model * vec4(pivot, 1.0)).xyz + u_WindFlags.xyz;
-    vec3 prevRoot = (u_PrevModel * vec4(pivot, 1.0)).xyz + u_WindFlags.xyz;
+    vec3 root = (model * vec4(pivot, 1.0)).xyz + u_WindFlags.xyz;
+    vec3 prevRoot = (prevModel * vec4(pivot, 1.0)).xyz + u_WindFlags.xyz;
     FoliageDeformation result;
     bool legacyField = dot(u_WindWeights.xyz, vec3(1.0)) <= 0.0 && u_WindFlags.w > 0.5 && u_ImpostorParams1.x <= 0.5;
     float currentTime = foliageAnimationClock();
@@ -92,7 +96,7 @@ FoliageDeformation foliageDeform(vec3 rest, vec3 vertex, vec3 pivot, float phase
 // The cofactor Jacobian transports authored mesh normals with the same bend.
 // Legacy layers retain their original normal exactly. Shadows need no normals.
 vec3 foliageWindNormal(vec3 normal, vec3 vertex, vec3 pivot, float phase,
-                       mat3 restJacobian, vec3 offset)
+                       mat3 restJacobian, vec3 offset, mat4 model)
 {
     // Legacy layers (no hierarchical weights) still transport their authored
     // normal unchanged, EXCEPT where an interaction is bending them — a plant
@@ -102,7 +106,7 @@ vec3 foliageWindNormal(vec3 normal, vec3 vertex, vec3 pivot, float phase,
     bool interacting = u_InteractionParams.x >= 0.5 && u_InteractionParams.y > 0.0;
     if (dot(u_WindWeights.xyz, vec3(1.0)) <= 0.0 && !interacting)
         return normalize(restJacobian * normal);
-    vec3 root = (u_Model * vec4(pivot, 1.0)).xyz + u_WindFlags.xyz;
+    vec3 root = (model * vec4(pivot, 1.0)).xyz + u_WindFlags.xyz;
     const float epsilon = 0.001;
     mat3 jacobian = restJacobian;
     // Hoisted: the influence loop depends on the ROOT, which is the same for all

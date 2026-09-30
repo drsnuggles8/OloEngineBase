@@ -14,6 +14,7 @@
 #include "OloEngine/Animation/MorphTargets/MorphTarget.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetSet.h"
 
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -276,41 +277,39 @@ TEST_F(MeshBinarySerializerTest, ImportedMaterialsRoundTripThroughV4Section)
     std::filesystem::remove(path);
 }
 
-// Version-range back-compat (docs/agent-rules/binary-format-versioning.md):
-// a version-1 file — 7-entry section directory, no VirtualMesh section — must
-// still load in the v2 reader. Simulated by patching the header version of a
-// blob-less v2 file: the version word lives in the (unchecksummed) FileHeader,
-// and the v1 read path then sizes the directory read to 7 entries.
-TEST_F(MeshBinarySerializerTest, VersionOneFileStillLoadsWithoutVirtualMeshSection)
+// One version is read (docs/agent-rules/binary-format-versioning.md): a cache
+// stamped with any version other than CurrentVersion -- older or newer -- is
+// rejected so it is re-imported, and so is a file without the compressed flag
+// (Write always sets it). The version and flags words live in the unchecksummed
+// FileHeader, so patching them isolates the header check.
+TEST_F(MeshBinarySerializerTest, WrongVersionOrUncompressedFileIsRejected)
 {
     auto original = MakeSimpleMesh();
-    auto path = GetTestCachePath("v1_compat.omesh");
+    auto path = GetTestCachePath("wrong_version.omesh");
     ASSERT_TRUE(MeshBinarySerializer::Write(path, *original, 777));
+    ASSERT_NE(MeshBinarySerializer::Read(path), nullptr) << "control: the unpatched file must load";
 
-    // Patch FileHeader::Version (u32 at byte offset 4) from 2 to 1.
+    auto const patchU32 = [&path](std::streamoff offset, u32 value)
     {
         std::fstream file(path, std::ios::binary | std::ios::in | std::ios::out);
         ASSERT_TRUE(file.is_open());
-        file.seekp(4);
-        u32 const v1 = 1;
-        file.write(reinterpret_cast<const char*>(&v1), sizeof(v1));
-    }
+        file.seekp(offset);
+        file.write(reinterpret_cast<const char*>(&value), sizeof(value));
+    };
+    constexpr std::streamoff kVersionOffset = offsetof(OMeshFormat::FileHeader, Version);
+    constexpr std::streamoff kFlagsOffset = offsetof(OMeshFormat::FileHeader, Flags);
 
-    auto loaded = MeshBinarySerializer::Read(path);
-    ASSERT_NE(loaded, nullptr) << "the v2 reader must accept a v1 file (range check + version-sized directory)";
-    EXPECT_EQ(loaded->GetVertices().Num(), original->GetVertices().Num());
-    EXPECT_EQ(loaded->GetIndices().Num(), original->GetIndices().Num());
-    EXPECT_FALSE(loaded->HasVirtualMeshBlob());
+    patchU32(kVersionOffset, OMeshFormat::CurrentVersion - 1);
+    EXPECT_EQ(MeshBinarySerializer::Read(path), nullptr) << "an older cache must be rejected, not half-read";
 
-    // A version NEWER than this build must be rejected, not misparsed.
-    {
-        std::fstream file(path, std::ios::binary | std::ios::in | std::ios::out);
-        ASSERT_TRUE(file.is_open());
-        file.seekp(4);
-        u32 const vFuture = OMeshFormat::CurrentVersion + 1;
-        file.write(reinterpret_cast<const char*>(&vFuture), sizeof(vFuture));
-    }
-    EXPECT_EQ(MeshBinarySerializer::Read(path), nullptr);
+    patchU32(kVersionOffset, OMeshFormat::CurrentVersion + 1);
+    EXPECT_EQ(MeshBinarySerializer::Read(path), nullptr) << "a newer cache must be rejected, not misparsed";
+
+    patchU32(kVersionOffset, OMeshFormat::CurrentVersion);
+    ASSERT_NE(MeshBinarySerializer::Read(path), nullptr) << "control: restoring the version must load again";
+
+    patchU32(kFlagsOffset, 0u);
+    EXPECT_EQ(MeshBinarySerializer::Read(path), nullptr) << "a file without FlagCompressed must be rejected";
 
     std::filesystem::remove(path);
 }

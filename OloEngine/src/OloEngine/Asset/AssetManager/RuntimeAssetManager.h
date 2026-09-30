@@ -8,11 +8,28 @@
 #include "OloEngine/Asset/AssetPack.h"
 #include "OloEngine/Threading/SharedMutex.h"
 
+#include <atomic>
 #include <unordered_map>
 #include <unordered_set>
 
 namespace OloEngine
 {
+    /**
+     * @brief The asset-streaming side of the runtime byte accounting (issue #1365).
+     *
+     * Loads covers the async queue: pending requests with their estimated bytes,
+     * and what cancellation did. Resident covers pack-backed assets in the loaded
+     * cache (memory-only assets are not streamed and are not counted): each one
+     * contributes its measured size, else its pack estimate, else counts as unknown.
+     * Placeholders standing in for an asset that failed to load count as unknown:
+     * they are shared, so their bytes are not this asset's.
+     */
+    struct FRuntimeAssetStreamingReport
+    {
+        FRuntimeAssetLoadStats Loads;
+        FAssetByteTotal Resident;
+    };
+
     /**
      * @brief Runtime asset manager optimized for shipping builds
      *
@@ -110,6 +127,40 @@ namespace OloEngine
          */
         void UpdateDependencies(AssetHandle handle);
 
+        // ── Async load cancellation and byte accounting (issue #1365) ─────────
+
+        /**
+         * @brief Cancel a pending async load. See RuntimeAssetSystem's cancellation
+         *        contract.
+         *
+         * Ordered against SyncWithAssetThread(): both hold m_AssetsMutex across the
+         * system call, so a result is either integrated before this returns
+         * NotPending, or it is never integrated. A caller that wants the asset gone
+         * either way calls RemoveAsset() after a NotPending.
+         */
+        EAssetLoadCancelResult CancelAssetLoad(AssetHandle handle);
+
+        /**
+         * @brief The byte size of an asset, available before its load completes.
+         *
+         * Resident: measured (Actual) when the asset type measures itself, else the
+         * pack estimate. Pending: the estimate the request was queued with. Neither:
+         * the pack estimate, so a caller can budget before it requests. Unknown when
+         * no figure exists — never zero.
+         */
+        [[nodiscard]] FAssetByteSize GetAssetByteSize(AssetHandle handle) const;
+
+        /**
+         * @brief The pack's packed size of an asset, as an Estimate of its resident
+         *        size; Unknown when no loaded pack records a non-zero size for it.
+         */
+        [[nodiscard]] FAssetByteSize EstimateAssetByteSizeFromPacks(AssetHandle handle) const;
+
+        [[nodiscard]] FRuntimeAssetStreamingReport GetStreamingReport() const;
+
+        /// Test seam forwarded to the async system; a no-op without OLO_ASYNC_ASSETS.
+        void SetAsyncLoadTestHooks(FRuntimeAssetLoadTestHooks hooks);
+
       private:
         /**
          * @brief Load an asset from the asset pack system
@@ -131,6 +182,9 @@ namespace OloEngine
          * @return Asset type or AssetType::None if not found
          */
         AssetType GetAssetTypeFromPacks(AssetHandle handle) const;
+
+        // The size of a cached asset. Caller holds m_AssetsMutex (either mode).
+        [[nodiscard]] FAssetByteSize ResidentByteSizeOf(AssetHandle handle, const Ref<Asset>& asset) const;
 
         /**
          * @brief Index an asset pack's contents into the metadata table
@@ -168,6 +222,11 @@ namespace OloEngine
 
         // Async asset loading system
         Ref<RuntimeAssetSystem> m_AssetThread;
+
+        // Shutdown() runs once: an explicit call followed by the destructor's would
+        // release this manager's placeholder reference twice and tear the shared
+        // placeholder set down under another live manager.
+        std::atomic<bool> m_IsShutDown{ false };
 
         // Thread synchronization
         mutable FSharedMutex m_AssetsMutex;

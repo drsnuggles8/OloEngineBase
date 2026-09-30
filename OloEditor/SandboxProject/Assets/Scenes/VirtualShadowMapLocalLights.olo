@@ -1,4 +1,5 @@
 Scene: VirtualShadowMapLocalLights.olo
+Version: 1
 # ─────────────────────────────────────────────────────────────────────────────
 # Virtual shadow pages for POINT and SPOT lights (issue #703).
 #

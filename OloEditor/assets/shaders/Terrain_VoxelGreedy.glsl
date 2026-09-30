@@ -74,13 +74,13 @@ void main()
     OLO_INSTANCE_FORWARD();
 
     OloVoxelQuad quad = oloUnpackVoxelQuad(geometryWord, materialWord);
-    // Chunk-local VOXEL units — the chunk origin and voxel size ride u_Model,
+    // Chunk-local VOXEL units — the chunk origin and voxel size ride the instance Transform,
     // which is what keeps the per-quad record down to 32 bits.
     vec3 localPos = oloVoxelQuadCorner(quad, a_Corner);
 
-    vec4 worldPos = u_Model * vec4(localPos, 1.0);
+    vec4 worldPos = instances[0].Transform * vec4(localPos, 1.0);
     v_WorldPos = worldPos.xyz;
-    v_Normal = normalize(mat3(u_Normal) * quad.Normal);
+    v_Normal = normalize(mat3(instances[0].Normal) * quad.Normal);
     v_Material = quad.Material;
     gl_Position = u_ViewProjection * worldPos;
 }
@@ -392,7 +392,7 @@ void main()
     vec3 color = ambient * (ao * oloForwardScreenSpaceAO(gl_FragCoord.xy)) + Lo;
 
     o_Color = vec4(color, 1.0);
-    o_EntityID = u_EntityID;
+    o_EntityID = instances[v_InstanceIndex].EntityID;
 
     vec3 viewNormal = normalize(mat3(u_View) * N);
     o_ViewNormal = octEncode(viewNormal);

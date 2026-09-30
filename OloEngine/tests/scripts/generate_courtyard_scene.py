@@ -58,7 +58,7 @@ PALETTE = [
 # grass tuft passing 17.9% of its texels at the authored cutoff. AlbedoPath is
 # now the per-species BILLBOARD baked from the plant itself; the near field
 # draws the plant. See tools/vegetation-import/.
-VEG = "SandboxProject/Assets/Models/Vegetation"
+VEG = "Assets/Models/Vegetation"
 PINE = f"{VEG}/pine/pine.obj"
 PINE_TEX = f"{VEG}/pine/Textures/pine_card.png"
 BROADLEAF = f"{VEG}/broadleaf/broadleaf.obj"
@@ -78,6 +78,7 @@ def vec(v):
 
 HEADER = """\
 Scene: Courtyard.olo
+Version: 1
 # ─────────────────────────────────────────────────────────────────────────────
 # DENSE ARCHITECTURAL / FOLIAGE benchmark scene (issue #974).
 #
@@ -636,7 +637,7 @@ def build():
     w.entity("Sun", components=dir_light(),
              comment="── Low sun down the atrium: long shadows + fog shafts ──")
 
-    w.entity("Sponza", components=model("SandboxProject/Assets/Models/Sponza/Sponza.gltf"),
+    w.entity("Sponza", components=model("Assets/Models/Sponza/Sponza.gltf"),
              comment="── Sponza: opaque + alpha-masked architecture ──")
 
     w.entity("DDGI Probe Volume", components=light_probe_volume(),

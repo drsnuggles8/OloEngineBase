@@ -253,7 +253,7 @@ class VulkanDrawPath : public ::testing::Test
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         ASSERT_EQ(vkBeginCommandBuffer(m_Cmd, &beginInfo), VK_SUCCESS);
 
-        api.BeginRecording(m_Cmd);
+        auto queryCompletion = api.BeginRecording(m_Cmd);
         work();
         api.EndRecording();
 
@@ -265,7 +265,9 @@ class VulkanDrawPath : public ::testing::Test
         submit.pCommandBuffers = &m_Cmd;
         ASSERT_EQ(vkResetFences(m_Device->GetDevice(), 1, &m_Fence), VK_SUCCESS);
         ASSERT_EQ(vkQueueSubmit(m_Device->GetQueue(), 1, &submit, m_Fence), VK_SUCCESS);
+        queryCompletion->SubmittedFence = m_Fence;
         ASSERT_EQ(vkWaitForFences(m_Device->GetDevice(), 1, &m_Fence, VK_TRUE, UINT64_MAX), VK_SUCCESS);
+        queryCompletion->Completed = true;
         VulkanDeferredReclaim::Get().NotifyFrameCompleted();
     }
 
@@ -951,7 +953,6 @@ void main()
 
     PODMaterialData material{};
     material.shaderRendererID = drawShader->GetRHIHandle();
-    material.enablePBR = false;
     const u16 materialIndex = frameData.AllocateMaterialData(material);
     PODRenderState renderState{};
     renderState.depthTestEnabled = false;
@@ -2164,7 +2165,6 @@ TEST_F(VulkanDrawPath, GBufferGpuSelectsTexturesInSingleIndirectDraw)
         GPUSceneMaterialInput material;
         material.m_MetallicFactor = 1.0f;
         material.m_EmissiveFactor = glm::vec4(1.0f);
-        material.m_Flags = GPUSceneMaterialFlagPBR;
         material.m_Albedo.m_Handle = textures[i * 5u]->GetRHIHandle();
         material.m_MetallicRoughness.m_Handle = textures[i * 5u + 1u]->GetRHIHandle();
         material.m_Normal.m_Handle = textures[i * 5u + 2u]->GetRHIHandle();

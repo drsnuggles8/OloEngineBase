@@ -10,7 +10,7 @@
 //     x/z from tile coordinates starting at 0, and y from
 //     `GetHeightAt() * heightScale` with no base offset), and become world
 //     positions only through the owning terrain's transform, which
-//     CommandDispatch::DrawFoliageLayer uploads as the single `u_Model` entry.
+//     CommandDispatch::DrawFoliageLayer uploads as the single instance entry.
 //     Foliage_Instance.glsl multiplied through it; Foliage_Impostor.glsl
 //     subtracted the render origin directly instead, on the belief that the
 //     positions were already absolute world. No island in Drift sits at the
@@ -97,7 +97,7 @@ namespace
     }
 
     /// The vertex stage only — `#type fragment` onward is a different program
-    /// and has its own `u_Model`-free coordinate conventions. Shared-stage
+    /// and has its own instance-transform-free coordinate conventions. Shared-stage
     /// includes are spliced in, so both impostor programs are pinned by the
     /// same assertions.
     [[nodiscard]] std::string VertexStageOf(const std::string& source)
@@ -187,13 +187,13 @@ TEST(FoliageImpostorPlacementTest, BothFoliageStagesPlaceInstancesThroughTheTerr
         const std::string vertex = StripComments(VertexStageOf(source));
         ASSERT_FALSE(vertex.empty()) << shader << " has no #type vertex stage";
 
-        const bool transformsStreamPosition = vertex.find("u_Model * vec4(a_PositionScale.xyz") != std::string::npos;
+        const bool transformsStreamPosition = vertex.find("instances[0].Transform * vec4(a_PositionScale.xyz") != std::string::npos;
         const bool transformsNamedPosition = vertex.find("instancePos = a_PositionScale.xyz") != std::string::npos &&
-                                             vertex.find("u_Model * vec4(instancePos") != std::string::npos;
+                                             vertex.find("instances[0].Transform * vec4(instancePos") != std::string::npos;
         EXPECT_TRUE(transformsStreamPosition || transformsNamedPosition)
             << shader
             << ": the vertex stage must turn the TERRAIN-LOCAL instance position into a world "
-               "position through u_Model (the owning terrain's transform, uploaded by "
+               "position through instances[0].Transform (the owning terrain's transform, uploaded by "
                "CommandDispatch::DrawFoliageLayer and already made render-relative by "
                "UploadModelInstance). Without it the plants render at their island's local "
                "coordinates — see issue #953.";
@@ -216,7 +216,7 @@ TEST(FoliageImpostorPlacementTest, ImpostorDoesNotTreatInstancePositionsAsAbsolu
         EXPECT_EQ(vertex.find("a_PositionScale.xyz - u_RenderOrigin"), std::string::npos)
             << "Foliage_Impostor.glsl is subtracting the render origin from the instance position "
                "again. That treats a TERRAIN-LOCAL position as absolute world (issue #953). Reading "
-               "u_Model here is safe: OLO_INSTANCE_SINGLE pins it to instances[0] rather than "
+               "instances[0].Transform here is safe: foliage uploads one entry (OLO_INSTANCE_SINGLE) and reads it at 0 rather than "
                "indexing by gl_InstanceIndex, which is the out-of-bounds hazard from issue #433 that "
                "the original comment conflated this with.";
     }

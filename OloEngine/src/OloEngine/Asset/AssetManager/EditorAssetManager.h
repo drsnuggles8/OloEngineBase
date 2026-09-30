@@ -99,13 +99,6 @@ namespace OloEngine
         std::unordered_map<AssetHandle, Ref<Asset>> GetLoadedAssets() const override;
         void ForEachLoadedAsset(const std::function<bool(AssetHandle, const Ref<Asset>&)>& callback) const override;
 
-        /**
-         * @brief Get a copy of loaded assets for safe iteration in multithreaded contexts
-         * @return Copy of the loaded assets map
-         * @deprecated Use GetLoadedAssets() instead, which now returns a safe copy
-         */
-        std::unordered_map<AssetHandle, Ref<Asset>> GetLoadedAssetsCopy() const;
-
         // Editor-specific methods
 
         /**
@@ -417,6 +410,10 @@ namespace OloEngine
         // Asset registry for metadata management
         AssetRegistry m_AssetRegistry;
 
+        // Set when Initialize rejected the on-disk registry and could not move it aside:
+        // SerializeAssetRegistry then refuses to write, so the rejected file is never overwritten.
+        std::atomic<bool> m_RegistryWritesBlocked{ false };
+
         // Loaded assets cache
         std::unordered_map<AssetHandle, Ref<Asset>> m_LoadedAssets;
 
@@ -429,6 +426,11 @@ namespace OloEngine
 
         // Async asset loading system
         Ref<EditorAssetSystem> m_AssetThread;
+
+        // Shutdown() runs once: an explicit call followed by the destructor's would
+        // release this manager's placeholder reference twice and tear the shared
+        // placeholder set down under another live manager.
+        std::atomic<bool> m_IsShutDown{ false };
 
         // Thread synchronization
         mutable FSharedMutex m_AssetsMutex;

@@ -1,4 +1,5 @@
 Scene: IntegratedRendererNoAnimals
+Version: 1
 Entities:
 - Entity: 1258000000000001
   TagComponent:

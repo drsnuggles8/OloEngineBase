@@ -380,6 +380,7 @@ namespace OloEngine::Tests
         // scene renders exactly as the build that wrote it rendered instead of
         // acquiring a glow nobody authored.
         const std::string priorVersionYaml = R"(Scene: PriorVersion
+Version: 1
 Entities:
   - Entity: 12345678901234567890
     TagComponent:
@@ -446,6 +447,7 @@ Entities:
         // turns inside out and is brightest AWAY from the light, which is not a
         // look anyone authors on purpose.
         const std::string hostileYaml = R"(Scene: Hostile
+Version: 1
 Entities:
   - Entity: 12345678901234567891
     TagComponent:

@@ -250,11 +250,6 @@ namespace OloEngine
         {
             return m_Materials;
         }
-        [[deprecated("Direct mutable access to materials bypasses validation. Use SetMaterial() instead.")]]
-        TMap<u32, AssetHandle>& GetMaterials()
-        {
-            return m_Materials;
-        }
         void SetMaterial(u32 index, AssetHandle material)
         {
             // Validate material handle (UUID 0 is invalid)

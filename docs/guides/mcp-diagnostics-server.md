@@ -31,7 +31,7 @@ or a model. It exposes data over a standard protocol; you bring your own agent. 
   mutate **serialized components of the loaded scene in memory** — undoable in the
   editor, discarded on reload, and reaching disk only if you save the scene yourself;
   no tool ever writes a file. The gate is off by default and never persisted (see
-  [Write consent](#write-consent--disabled--prompt--allow-all-issue-306-item-c)).
+  [Write consent](#write-consent--disabled--prompt--allow-all-issue-306)).
 - Optional **path redaction** scrubs absolute filesystem paths from text output (toggle in
   the panel) for when you don't want project layout / usernames leaving the process.
 
@@ -46,7 +46,7 @@ before launching OloEditor; the server starts during editor init. Add
 `OLO_MCP_ALLOW_WRITES=1` if the session needs the **write** tools (`olo_scene_open`,
 `olo_renderer_settings_set`, …) — without it they are refused, because the write
 consent control is an ImGui toggle nobody is there to click. See
-[Write consent](#write-consent--disabled--prompt--allow-all-issue-306-item-c).
+[Write consent](#write-consent--disabled--prompt--allow-all-issue-306).
 
 `OLO_MCP_TOOL_PROFILE=full` (or `=toolset` with `OLO_MCP_TOOLSETS=render,physics`)
 widens what `tools/list` advertises; the default lists a core set plus the discovery
@@ -60,10 +60,9 @@ server stops. The path is resolved in this order:
 1. **`OLO_MCP_DISCOVERY_FILE`** (verbatim, when set & non-empty) — the launching tool picks
    the exact path it will read back, so **parallel worktree editors never collide** even
    when several run at once.
-2. Otherwise the OS temp dir: the **default port (7345)** keeps the legacy single name
-   `%TEMP%/oloengine-mcp.json` (`$TMPDIR` on POSIX); **any other port** namespaces the file
-   as `oloengine-mcp-<port>.json` so two editors on distinct ports don't overwrite each
-   other's host/token.
+2. Otherwise `oloengine-mcp-<port>.json` in the OS temp dir (`%TEMP%`, `$TMPDIR` on
+   POSIX) — every port, the **default port (7345)** included, so two editors on distinct
+   ports don't overwrite each other's host/token.
 
 The `run-oloengine` skill's `attach` action automates this end-to-end: it picks a stable
 per-worktree port + `OLO_MCP_DISCOVERY_FILE`, launches the editor with the server
@@ -188,14 +187,14 @@ constrain), and the `format:"markdown"`/`"mermaid"` paths of the dual-format too
 text-only (their schemas describe the json format).
 
 Fourteen table-shaped tools additionally return **audience-tagged content blocks** — see
-[Audience-tagged content blocks](#audience-tagged-content-blocks-673-tier-2) for the list
+[Audience-tagged content blocks](#audience-tagged-content-blocks-673) for the list
 and for what to do when adding a tool.
 
 | Tool | What it returns |
 |---|---|
 | `olo_log_tail` | recent engine log lines, filterable by `minLevel` and `tag` |
 | `olo_debug_levers` | the engine's debug/diagnostic levers and their current values (`activeOnly` to see just the non-default ones). **Call this first when a session renders or performs unlike a clean one** — a lever left set is otherwise invisible, and explains a whole class of "it only misbehaves on this machine". Each seeds from an environment variable of the same name; `source` says whether the environment or code set it |
-| `olo_cvar_set` | **(consented write)** set any of those levers BY NAME against the running editor — the generalisation of `olo_render_debug_set`'s two special cases (issue #821). `name` + `value`, both strings; booleans take `on`/`off` (also `1/0`, `true/false`, `yes/no`), a tristate additionally takes `unset` (= "leave the hardware-derived default alone", **not** off), an int/float also takes `unset` to clear it. Out-of-range and non-finite values are refused with the reason rather than clamped; the read-only text levers are refused explicitly (they are consumed once at init). Subsystems that cached the value are re-notified at the **top of the next frame**, so re-capture with `olo_screenshot { forceFrame: true }` rather than trusting the frame you already have. `restoreWith` puts it back. Gated behind **Agent writes** |
+| `olo_cvar_set` | **(consented write)** set any of those levers BY NAME against the running editor — the generalisation of `olo_render_debug_set`'s two special cases (issue #821). `name` + `value`, both strings; booleans take `on`/`off` (also `1/0`, `true/false`, `yes/no`), a tristate additionally takes `unset` (= "leave the hardware-derived default alone", **not** off), an int/float also takes `unset` to clear it. Out-of-range and non-finite values are refused with the reason rather than clamped; the read-only text levers are refused explicitly (they are consumed once at init). Subsystems that cached the value are re-notified at the **top of the next frame**, so re-capture with `olo_screenshot { forceFrame: true }` rather than trusting the frame you already have. Calling again with the reply's `previous` puts it back. Gated behind **Agent writes** |
 | `olo_events_tail` | unified "what just happened?" timeline — scene load/save/dirty, play/stop, entity spawn/destroy, asset import/reload, script error, compile finished, automation command completed — newest last with a monotonic `id`; incremental polling via `sinceId`, a `categories` filter, and `dropped` (how many records above your cursor were evicted before you read them) |
 | `olo_events_wait` | **the subscription** of the automation event bus (issue #1131): block until the next event matching `categories` with `id` above `sinceId`, or until `waitMs`; returns the matches, the `lastId` cursor for the next call, `dropped`, `timedOut` and `cancelled`. Read-only, never stalls the editor, cancellable. See [The automation event bus](#the-automation-event-bus-olo_events_wait) |
 | `olo_scene_summary` | active scene name, play state, entity count |
@@ -207,7 +206,7 @@ and for what to do when adding a tool.
 | `olo_editor_pause` / `olo_editor_step` | the toolbar Pause/Resume and Step buttons: pause or resume the running Play/Simulate session (idempotent, `changed:false` when already there; an error in Edit mode) and advance a **paused** session by `frames` (1..60, default 1), after which it stays paused. Ephemeral runtime control of the session, like `olo_viewport_set_size`, so neither needs write consent. Both report `mode` and `sceneName` |
 | `olo_editor_gizmo_set` | select the viewport gizmo — `none` / `translate` / `rotate` / `scale`, the Q/W/E/R shortcuts in order. Session UI state, not project data, so no write consent; refused while a gizmo drag is in progress |
 | `olo_editor_build_shader_pack` | **(consented write)** the Build > Build Shader Pack menu item: write `assets/ShaderPack.osp` from the live 2D and 3D shader libraries and report `ok` + `outputPath`. Synchronous; overwrites the previous pack; not undoable. Gated behind **Agent writes** |
-| `olo_accessibility_get` / `olo_accessibility_set` | read or set all nine process-global subtitle, text-scale, and color-vision settings. `olo_accessibility_set` is a **(consented write)**; writes return `restoreWith`, and color-blind mode changes rebuild the render graph. Setter gated behind **Agent writes** |
+| `olo_accessibility_get` / `olo_accessibility_set` | read or set all nine process-global subtitle, text-scale, and color-vision settings. `olo_accessibility_set` is a **(consented write)**; writes return `previousValue` (set it back to restore), and color-blind mode changes rebuild the render graph. Setter gated behind **Agent writes** |
 | `olo_lightmap_bake` | **(consented write)** start/poll or block on the editor's actual baked-GI lightmap pipeline, with stable operation id, progress, counts, errors, and optional scene save after attachment |
 | `olo_editor_debug_draw_set` | **(consented write)** toggle eight editor overlay categories (`grid`, `component_gizmos`, `world_axis`, `camera_frustums`, `light_gizmos`, `physics_colliders`, `bounding_boxes`, `selection_outline`) or the non-destructive `all` master across Edit/Play/Simulate; `all:false` produces a clean viewport capture. The reply's `state` is read back from `RendererSettings`, which `EditorLayer` pushes into the scene every frame, so a toggle holds across frames |
 | `olo_asset_open` | **(consented write)** open a file in the panel that edits it, through the same `EditorLayer::OpenAssetInEditor` dispatch as a Content Browser double-click: Sound Graph, Skill Tree, Visual Script (`.olovs`), Shader Graph, Dialogue, Cinematic, Shader, or a scene. `handle` or `path` (asset-relative; anything resolving outside the project's asset directory is refused, since the panels save back to the file they loaded). A type the Content Browser does not open (`.olomaterial`, `.olomat`) is refused with its type named. Unsaved changes in the target refuse unless `discardUnsaved:true` (the Content Browser asks with a native modal instead). `ok` is the panel's own readback: open AND reporting the requested file as loaded, after its deferred load had frames to run. See [Opening assets](#opening-assets-olo_asset_open) |
@@ -234,11 +233,12 @@ and for what to do when adding a tool.
 | `olo_entity_set_field` | **(consented write)** set one component field by (`component`, `field`, `value`) — undoable (a single Ctrl-Z), UUID-keyed. The registry is **generated from every component definition** (issue #607), so it spans the whole ECS surface (meshes/materials/VirtualMesh, lights, fog/probes, physics bodies + colliders, text/UI, nav, water, terrain, …), not a curated handful. Out-of-range values are **clamped** to the serializer's own range (`clamped:true` + `requestedValue`); the result echoes `value` **read back from the component** plus `changed:true/false`. Gated behind **Agent writes**. See [Component field writes](#component-field-writes-olo_entity_set_field) |
 | `olo_material_set` | **(consented write)** set `baseColorFactor` (RGBA), `alphaMode`, `blend` (`MaterialFlag::Blend`) and `twoSided` on an entity's MaterialComponent: the fields scene YAML and `olo_entity_set_field` cannot author, so this is the only live route to a conventional alpha-blended material. An `alphaMode` implies the matching `blend` flag unless `blend` is given. Edits the loaded scene in memory and is not undoable. A scene save keeps `baseColorFactor` RGB only: alpha reloads as 1.0, and `alphaMode`, `blend` and `twoSided` are not serialized. Read back with `olo_material_get`, which reports `blend` |
 | `olo_scheduler_graph` | the gameplay `SystemScheduler`'s **derived** dependency DAG as JSON / Mermaid / DOT: execution order, the full derived edge set (including the read/write hazard edges no source file shows), every named channel with its readers and writers, and — per `Parallelizable` system — `mayOverlapWith`, the other marked systems it can genuinely race. Sibling of `olo_render_graph_topology_export`. See [Looking at the two DAGs](#looking-at-the-two-dags-olo_scheduler_graph--olo_render_graph_topology_export) |
+| `olo_streaming_stats` | scene streaming's byte accounting and admission (#1365): resident and pending **bytes** (each total carries `unknownCount` — an unknown size is never counted as zero), the byte budgets (`null` = none), deferred / rejected regions and requests, cancellations, and evictions for count vs bytes; per region, its estimated size and the last admission outcome with its reason. `runtimeAssets` covers a `RuntimeAssetManager`'s async queue and is unavailable in the editor |
 | `olo_perf_snapshot` | fps, frame/CPU/GPU time (real whole-frame GPU timer; since #1337 `gpuMs` is `null` with a `gpuStatus` when no measurement exists — never 0 for an unmeasured frame), `gpuWaitMs` = `fenceWaitMs` (CPU blocked on the GPU fence — the direct GPU-bound signal) + `presentWaitMs` (the SwapBuffers span: a vsync wait on OpenGL, but on Vulkan the frame renders inside SwapBuffers so it is not a pacing signal there), `displayWidth`/`displayHeight`/`renderScale`, draw calls, instancing, triangles, plus `renderWidth`/`renderHeight` — the ACTUAL SceneColor render resolution; cross-check it against any `olo_viewport_set_size` override before trusting timings. **Also the liveness probe**: the `liveness` block (`ticking`, `frameIndex`, `msSinceLastFrame`, `iconified`, `focused`) answers "is the editor actually running frames?" in one call — see [Editor liveness](#editor-liveness--is-it-actually-running-frames) |
 | `olo_perf_bottlenecks` | CPU/GPU/Memory/IO bottleneck + confidence + recommendations (uses real cpu/gpu/gpuWait numbers) |
 | `olo_perf_frame_history` | downsampled recent-frame time series |
 | `olo_perf_capture_frame` | triggers a real frame capture: stats + top-K draw commands by GPU time (per-draw times resolve via a deferred commit one-plus frames after the capture; draws carry their submesh debug names) |
-| `olo_perf_pass_timings` | whole-frame GPU time split by render-graph pass (Shadow vs Scene vs GTAO vs Bloom vs ToneMap…): per-pass GPU (always-on timestamp queries) + CPU dispatch ms, frame totals incl. `gpuWaitMs` (split into `fenceWaitMs`/`presentWaitMs`), and `unattributedGpuMs`. Since #1337 every `gpuMs` is a number or `null` with a `gpuStatus` beside it (`valid|pending|dropped|notStamped|outOfOrder|notTimed|unavailable`); `passGpuTotalMs` sums measured top-level passes only, so read `passGpuTotalIsComplete`/`unmeasuredPasses` first; `unattributedGpuMs` is `null` unless the frame span and every pass were measured; `gpuMeasurementFrameId`/`currentFrameId` say which frame each half describes; `gpuDroppedSlots`/`gpuUnstampedFrames` count frames the ring lost and frames the backend refused to stamp; `recordingBreakdown` labels each frame measurement ELAPSED or SUM. `ScenePass` carries `subPasses` splitting its GPU time into `DepthPrepass` vs `Color` (no DepthPrepass entry = prepass off; sub times are inside the parent's `gpuMs`, not additional). Since issue #806 the response also carries a `parallelRecording` block for the same frame: `regions` (`RecordParallel` calls that forked onto task workers), `inlineRegions` (calls that ran on the render thread), `secondariesExecuted` (secondary command buffers executed into the primary at the join), `mergeConflicts`, `workerRecordMs` (summed per-item worker recording time) and `regionWallMs` (summed fork-to-join wall time); all zero on OpenGL, whose facade default reports nothing, while on Vulkan with `OLO_VK_PARALLEL_RECORDING` off only `inlineRegions` counts. `mergeConflicts` > 0 means two `RecordParallel` items transitioned the same subresource differently (ADR 0011 amendment (92) rule 5); that is a bug in the pass that forked, never a driver condition |
+| `olo_perf_pass_timings` | whole-frame GPU time split by render-graph pass (Shadow vs Scene vs GTAO vs Bloom vs ToneMap…): per-pass GPU (always-on timestamp queries) + CPU dispatch ms, frame totals incl. `gpuWaitMs` (split into `fenceWaitMs`/`presentWaitMs`), and `unattributedGpuMs`. Since #1337 every `gpuMs` is a number or `null` with a `gpuStatus` beside it (`valid|pending|dropped|notStamped|outOfOrder|notTimed|unavailable`); `passGpuTotalMs` sums measured top-level passes only, so read `passGpuTotalIsComplete`/`unmeasuredPasses` first; `unattributedGpuMs` is `null` unless the frame span and every pass were measured; `gpuMeasurementFrameId`/`currentFrameId` say which frame each half describes; `gpuDroppedSlots`/`gpuUnstampedFrames` count frames the ring lost and frames the backend refused to stamp; `recordingBreakdown` labels each frame measurement ELAPSED or SUM. `ScenePass` carries `subPasses` splitting its GPU time into `DepthPrepass` vs `Color` (no DepthPrepass entry = prepass off; sub times are inside the parent's `gpuMs`, not additional). Since issue #806 the response also carries a `parallelRecording` block for the same frame: `regions` (`RecordParallel` calls that forked onto task workers), `inlineRegions` (calls that ran on the render thread), `secondariesExecuted` (secondary command buffers executed into the primary at the join), and `mergeConflicts`; the frame's recording times are in `recordingBreakdown` (`summedWorkerCpuMs` = summed per-item worker recording time, a SUM; `elapsedRecordingWallMs` = summed fork-to-join wall time; `joinWaitMs`; `summedCpuPrepareMs`), each published once. All zero on OpenGL, whose facade default reports nothing, while on Vulkan with `OLO_VK_PARALLEL_RECORDING` off only `inlineRegions` counts. `mergeConflicts` > 0 means two `RecordParallel` items transitioned the same subresource differently (ADR 0011 amendment (92) rule 5); that is a bug in the pass that forked, never a driver condition |
 | `olo_perf_cpu_scopes` | per-scope CPU time from `PerformanceProfiler` (every system in `Scene.cpp` wrapped in `OLO_PERF_SCOPE`/`OLO_PERF_SCOPE_AUTO`), sorted descending by time — mirrors the editor's PerformanceLayer CPU Scopes table. `OLO_PERF_SCOPE` is compiled out entirely in Distribution builds, so `status` reports `"unavailable"` there instead of a misleadingly empty list (`"ok_no_data"` = build supports it but nothing ran last frame; `"ok"` = real data). Optional `limit` truncates the returned list; `totalTimeMs`/`scopeCount` always reflect the full set |
 | `olo_render_frame_breakdown` | triggers a real frame capture and returns its **per-command / per-pipeline-stage** structural breakdown (the granularity `olo_perf_capture_frame` omits): pipeline stats + the ordered command list (type, debug-name pass label, draw key shader/material/depth, group, execution order, static flag, GPU time) + a command-type histogram, at the chosen `viewMode` (`presort`/`postsort`/`postbatch`); `format:"markdown"` returns the Command Bucket Inspector's LLM-analysis report (sort/state-change/batching analysis + optimization hints) |
 | `olo_memory_report` | GPU/CPU memory total + per-type breakdown + suspected leaks |
@@ -281,7 +281,7 @@ and for what to do when adding a tool.
 | `olo_rt_vegetation_diagnostic` | **(consented write)** force every wind-aware vegetation group to a detailed update instead of its distance-selected temporal snapshot, so a detailed-versus-proxy A/B is measurable on one running editor (#1240). Omit `forceDetailed` to read the current state; `false` restores automatic distance selection. It changes UPDATE FREQUENCY ONLY — not plants, wind, camera, raster LOD or budgets — and is render-thread state that no scene, save-game or asset owns, so it is never persisted. Restore it when the benchmark ends; a session left forced keeps paying for refreshes it does not need. Read the result against `olo_rt_scene_stats.vegetation`, whose `detailedGroups`/`proxyGroups` split is what the override moves. Gated behind **Agent writes** |
 | `olo_pathtracer_stats` | The GPU reference path tracer's counters for the last completed frame (#1055): `status` (`unavailable` / `disabled` / `fallback` with the reason / `active`), the accumulation state (samples per pixel, samples added, `consecutiveRestarts` — a climbing count means the image can never converge), the scene as the tracer saw it (emissive triangles and area, punctual and sphere-area lights, lights past the shader's slot bound, Legacy-closure materials), the texture path (`texturesAvailable`, and the counted limits `hitsShadedUntextured` / `maskedGeometryTracedAsSolid` / `materialTexturesUnresolved` where it is not), and the settings the frame ran with. Read it before trusting a traced frame as ground truth: every `true` limit names a term the frame is missing |
 | `olo_restir_stats` | The ReSTIR DI tier's verdict and counters for the last completed frame (#1140): `status` (`unavailable` / `disabled` / `fallback` with the reason named / `active`), the MEASURED engagement criterion's own inputs (emitter count, the per-pixel candidate budget it must exceed, the hysteresis margin), the light census, and what the estimator actually did — which normalisation ran, the reservoir layout version, `historyPlanesAvailable` against `historyPlanesRequired`, and whether temporal and visibility reuse ran at all. Read it before trusting a resampled frame: `visibilityReuseRan` false means light leaks through occluders, `temporalReuseRan` false means every pixel restarted this frame, `lightsBeyondShaderBound` and `emittersBeyondEncodableIndex` name emitters the tier cannot reach, and `settingsClamped` means the frame did LESS than was asked. This is the tool that turns "the frame is black" into a named cause; it found `TargetUnavailable` and an unbound GPU Scene during bring-up. Directional lights are deliberately absent from every count — the clustered loop keeps them so they keep their cascades, their ray-traced shadow mask channel and their cloud shadow |
-| `olo_restir_gi_stats` | The ReSTIR GI tier's verdict and counters for the last completed frame (#1169): `status` (`unavailable` / `disabled` / `fallback` with the reason named / `active`), and the four blocks that answer a different question each. READ `indirectDiffuse` FIRST when a room looks twice as bright or has lost its indirect light: it names which mechanism added the term at the primary vertex, at which vertex the probe cache was read, and whether SSGI was stood down (`ssgiStoodDown`, which is what makes "my SSGI slider does nothing" answerable). The cache is read at exactly ONE vertex per path and enabling this tier MOVES which one - never both, which is what keeps this tier and DDGI from double-counting. `engagement` carries the measured criterion's inputs, and unlike the DI tier's it is not a count comparison: this tier stands down only when the scene has no light, no emissive triangle and no environment, because DDGI is a coarser CACHE of the same integral rather than an enumeration of it. `estimator` says what the frame actually did - `reconnectionVisibilityRan` false means reuse is lighting surfaces through walls, `temporalReuseRan` false means every pixel restarted this frame, `historyPlanesAvailable` against `historyPlanesRequired` says why, and `settingsClamped` means the frame did LESS than was asked. Sibling of `olo_restir_stats` above; the two tiers are independent and either can stand down without the other |
+| `olo_restir_gi_stats` | The ReSTIR GI tier's verdict and counters for the last completed frame (#1169): `status` (`unavailable` / `disabled` / `fallback` with the reason named / `active`), and the four blocks that answer a different question each. READ `indirectDiffuse` FIRST when a room looks twice as bright or has lost its indirect light: it names which mechanism added the term at the primary vertex, at which vertex the probe cache was read, and whether SSGI was stood down (`ssgiStoodDown`, which is what makes "my SSGI slider does nothing" answerable). The cache is read at exactly ONE vertex per path and enabling this tier MOVES which one - never both, which is what keeps this tier and DDGI from double-counting. `engagement` carries the measured criterion's inputs, and unlike the DI tier's it is not a count comparison: this tier stands down only when the scene has no light, no emissive triangle and no environment, because DDGI is a coarser CACHE of the same integral rather than an enumeration of it. `estimator` says what the frame actually did - `reconnectionVisibilityRan` false means reuse is lighting surfaces through walls, `temporalReuseRan` false means every pixel restarted this frame, `historyPlanesAvailable` against `historyPlanesRequired` says why, `settingsClamped` means the frame did LESS than was asked, and `maskedGeometryTracedAsSolid` true (with `texturesAvailable` false) means hits shade from material factors and cutouts block as solid. Sibling of `olo_restir_stats` above; the two tiers are independent and either can stand down without the other |
 | `olo_restir_pt_stats` | Restricted ReSTIR PT availability, stand-down reason, initial-only history state, allocation bytes, and measured GPU ray/acceptance/rejection counters (#1211). Read `countersValid` and `counterFrame` before interpreting counts. Enable through `olo_postprocess_settings_set` with `ReSTIRPTEnabled`; `ReSTIRPTMappingMask` selects reconnection (1), replay (2), hybrid (4), or their bitwise union. This deferred Vulkan tier owns both indirect diffuse and specular, suppressing GI, SSGI, SSR and RT reflections while active. `ReSTIRPTDebugView` selects radiance (0), raw initial (1), selected temporal ancestry (2), raw candidate variance (3), lineage (4), conditioning (5), or clamp (6). The variance is not the final estimator's variance. `ReSTIRPTRadiance` and its attachments can be captured with the generic target tools. Radiance clamp defaults to zero; enabling it is biased. |
 | `olo_ddgi_probe_stats` | one synchronous DDGI diagnostics readback: live/active/relit/captured/blended probe counters, active-probe bounce coverage, and each active cascade's origin/spacing/lattice bounds. `bounceCoverage:null` means no active probe had a measurable bounce hit; numeric zero remains valid data |
 | `olo_perf_pass_timings` SSGI row | SSGI is independently GPU-timed as top-level `SSGIPass`; its cost is not folded into `DeferredLightingPass` |
@@ -289,7 +289,7 @@ and for what to do when adding a tool.
 | render-setting topology writes | `olo_renderer_settings_set` now includes deferred MSAA, per-sample lighting, and all seven VSM debug views. Both renderer and post-process setters explicitly invalidate render-graph caches for topology gates |
 | decal visibility facts | `olo_render_why_not_visible` recognizes `DecalComponent`, its rendering route/mode/required texture, and distinguishes not-submitted, draw-not-issued, and zero-fragment results using a targeted, double-buffered any-samples-passed query around the real draw |
 | `olo_render_transient_plan` | the render graph's **transient plan + pool state** — the layer under `olo_render_graph_topology_export` where aliasing is decided. Per entry: alias group/slot, `willAllocate` + the planner's `skipReason`, `firstPass`→`lastPass` lifetime, resolved `identity` + `nativeTexture`, `versionAliasOf` (what a `WriteNewVersion` rename aliases), and its poison hue. Per pool: bucket descriptors with free counts, byte totals, and this frame's unsorted `acquireOrder` (two entries sharing an `identity` shared one GPU object). See [Transient plan & pool introspection](#transient-plan--pool-introspection-olo_render_transient_plan) |
-| `olo_render_debug_set` | **(consented write)** flip the two transient-corruption instruments LIVE instead of via env var + editor restart: `poisonTransients` (clear every pool-acquired transient to a per-resource hue at materialize time — turns a stochastic stale-read artifact into a deterministic per-resource-coloured one; the reply carries the whole resource→colour map up front) and `disableAliasing` (every transient gets its own backing; the pool is evicted on the flip so the A/B isn't mixed). Omitting a flag leaves it unchanged; `restoreWith` puts both back. Gated behind **Agent writes** |
+| `olo_render_debug_set` | **(consented write)** flip the two transient-corruption instruments LIVE instead of via env var + editor restart: `poisonTransients` (clear every pool-acquired transient to a per-resource hue at materialize time — turns a stochastic stale-read artifact into a deterministic per-resource-coloured one; the reply carries the whole resource→colour map up front) and `disableAliasing` (every transient gets its own backing; the pool is evicted on the flip so the A/B isn't mixed). Omitting a flag leaves it unchanged; calling again with the reply's `previous` puts both back. Gated behind **Agent writes** |
 | `olo_shader_debug_draw` | **(consented write)** drive the GPU-pushable shader debug-draw channels (issue #725) — the instrument for GPU-driven passes, whose cull decisions and bounds are computed on the GPU and otherwise never come back. Any shader that includes `include/DebugDrawCommon.glsl` can atomic-append a line / circle / rectangle / AABB / box / cone / sphere; this draws every channel with one indirect call at the end of the SceneColor chain, depth-tested against the real scene. `enabled` is the master switch — off means no uploads, no readback and no draw, and every push site collapses to a single scalar guard read (the header-only channel buffers stay allocated and bound, because reading an unbound SSBO is undefined in GL), `lineWidth` the screen-space quad width, `clusterBounds` a bit field turning on the shipped virtual-geometry consumer (1 drawn / 2 frustum-culled / 4 cone-culled / 8 Hi-Z occluded, Deferred path only) and `clusterStride` its sub-sampling. The per-channel counters in the reply ARE the overflow flag: `requested` is unclamped and `drawn` is capped at `capacity`, so `overflowed`/`dropped` distinguish "I pushed nothing" from "I pushed too much and the rest was thrown away". Counters are one frame behind by design (DeviceToHost staging copy, no stall) |
 | `olo_render_probe_pixel` | the exact NUMBERS under one pixel: every decoded G-Buffer channel (albedo, metallic, decoded world normal, roughness, AO, emissive, baked-GI irradiance/coverage, velocity, integer entityID, raw + linearized depth) plus the final presented colour — or, with `target`, the raw channels of ONE named resource. Every reply echoes `mappedCoord` (the exact texel read); `space`:"texel" + `mip` address an exact texel of a padded resource (the HZB pyramid), `layer` picks an array slice, `afterPass` probes mid-frame state . **Both backends since #810** — the readback goes through the facade spine (`RenderCommand::ReadTextureSubImage`) rather than raw GL, `afterPass` included: the mid-frame clone allocates through `CreateMatchingTextureHandle` and copies into the current frame's command buffer |
 | `olo_render_target_stats` | exact float min/max/mean + a **bit-exact unique-value histogram** over a `rect` of one target at a `mip` — the 1-ULP instrument an 8-bit PNG cannot be (1.0 and 0.99999994 both encode as 255). Per channel: finite/NaN/Inf counts, distinct-bit-pattern count, most frequent values with exact counts. Supports `layer` and `afterPass`. **Both backends since #810**, same facade readback as `olo_render_probe_pixel` |
@@ -303,7 +303,7 @@ and for what to do when adding a tool.
 | `olo_renderer_settings_set` | **(consented write)** set any of the multi-valued, session-global renderer settings, including render path, deferred MSAA/per-sample lighting, depth/culling, shadow/VSM debug, DDGI, HZB, upscale, `technique` (`spatial`/`temporal`: FSR1 vs FSR2; the reply's `upscaler` block reports the **resolved** technique and why a temporal request fell back), tonemap and `scenetemporalresolve` (`honour`/`ignore`: whether a scene holding a stochastic groom gets the TAA it requests, #1429; `ignore` reproduces the bald fallback) and `groomdeformation` (`gpu`/`cpu`: where a bound coat is deformed, #1427; `cpu` is the per-frame rebuild kept as the A/B reference) and `oit` (`on`/`off`: weighted-blended OIT for transparent decals and particles, #1417; the only way a detached session reaches the OIT path). The enum-valued sibling of `olo_render_toggle_pass`; topology-affecting writes rebuild the graph and every write reports `previousValue` for restore-prior-value (no undo stack). No args lists every setting + current value + allowed values. Gated behind **Agent writes** (Disabled/Prompt/Allow all) |
 | `olo_postprocess_settings_get` | read the live post-process / AO / fog parameters — the whole Post Processing panel as JSON, which nothing else exposes. No args lists every field with value, type, range and description; `group` narrows to one block (ao, bloom, ssr, ssgi, contactshadow, fog, exposure, dof, …); `field` returns one. Read-only, so it is **not** behind the write gate — parameter values no longer have to be read off a screenshot of the panel. See [Post-process / AO / fog parameters](#post-process--ao--fog-parameters-olo_postprocess_settings_get--_set) |
 | `olo_postprocess_settings_set` | **(consented write)** write one post-process / AO / fog parameter — the part of the renderer `olo_renderer_settings_set` never reached. `ActiveAOTechnique` (none/ssao/gtao) makes the same-scene same-pose GTAO-vs-SSAO A/B one call; it is **not** scene-serialised, so before this it could not be driven at all. Also every GTAO/SSAO parameter, the `*DebugView` flags, bloom, DOF, TAA, SSR, SSGI, contact shadows, exposure and the whole fog block. Numerics **clamp** to the serializer's own range (`clamped:true` + `range`); reports `previousValue` for restore-prior-value. Gated behind **Agent writes** |
-| `olo_scene_set_time_of_day` | **(consented write)** set the scene's time-of-day clock — writes the **serialized `TimeOfDayComponent`** (the single authoritative sun source since issue #633; the old ephemeral override is retired): `hours` [0,24) and/or `dayOfYear`, `latitudeDegrees`, `timeScale`, `paused`, `enabled`. TimeOfDaySystem drives the sun/sky from it next frame, edit and play alike; returns the component state + derived sun elevation / isNight / sun+moon directions. In-memory edit (persisted on scene save); errors with guidance when the scene has no `TimeOfDayComponent`. `clear`:true is a legacy no-op (note only). Gated behind **Agent writes** |
+| `olo_scene_set_time_of_day` | **(consented write)** set the scene's time-of-day clock — writes the **serialized `TimeOfDayComponent`** (the single authoritative sun source since issue #633; the old ephemeral override is retired): `hours` [0,24) and/or `dayOfYear`, `latitudeDegrees`, `timeScale`, `paused`, `enabled`. TimeOfDaySystem drives the sun/sky from it next frame, edit and play alike; returns the component state + derived sun elevation / isNight / sun+moon directions. In-memory edit (persisted on scene save); errors with guidance when the scene has no `TimeOfDayComponent`. Gated behind **Agent writes** |
 | `olo_scene_set_sun_angle` | **(consented write)** aim the sun from a `yaw` (azimuth) / `pitch` (elevation) pair — SOLVES for the time of day whose ephemeris sun best matches and writes the solved hours into the `TimeOfDayComponent`. Pitch is matched exactly when the day/latitude can reach it (else clamped, reported via `clamped` + note); yaw is honoured for its east/west side only (east = morning, west = afternoon). Returns the component state + `achievedElevationDeg`/`clamped`. Gated behind **Agent writes** |
 | `olo_scene_set_weather` | **(consented write)** drive the weather director — writes the `WeatherStateComponent`'s target `state` (Clear \| Overcast \| Rain \| Storm \| Snow \| FogBank, case-sensitive) with optional `transitionSeconds` (0–600) and `immediate`:true snap; applies the blend to the scene + renderer immediately (edit-mode preview). Returns currentState/targetState/transitionDuration/transitionProgress/wetness; errors with guidance when the scene has no `WeatherStateComponent`. Gated behind **Agent writes** |
 | `olo_scene_get_atmosphere` | read the scene's atmosphere in one call — `timeOfDay` block (hours, dayOfYear, latitude, paused, derived sun elevation / isNight / sun+moon directions), `weather` block (current/target state, transitionProgress, wetness, blended cloud coverage), `cloudscape` block (enabled, coverage, layer bottom/top, castCloudShadows). Blocks for absent components are omitted; the note lists which components were found |
@@ -399,8 +399,7 @@ scene's references, and an edge only appears once an asset has been deserialized
 `olo_asset_references` **derives** the answer by scanning the project's text asset files
 (`.olo`, `.olomaterial`, `.oloprefab`, the rest of the YAML-shaped set, plus `.lua`/`.cs`)
 and resolving each candidate against the same anchors the engine itself uses -- project
-root, asset directory (`Project::GetAssetFileSystemPath`), the legacy project-prefixed
-spelling, then the working directory.
+root, asset directory (`Project::GetAssetFileSystemPath`), then the working directory.
 
 **Always read `coverage`.** It names what was *not* searched: formats skipped because
 nothing here can read them, unreadable files, references that resolve to nothing, and
@@ -438,8 +437,8 @@ A safe sequence is:
 
 1. `olo_asset_references` on the asset. Read `count` **and** `coverage`.
 2. To relocate it, `olo_asset_move`. Every reference is re-spelled in the style its own
-   file already used, so a project-relative path stays project-relative and a legacy
-   project-prefixed one keeps its prefix. It is all-or-nothing: if any reference cannot
+   file already used, so a project-relative path stays project-relative and an
+   asset-directory-relative one stays asset-directory-relative. It is all-or-nothing: if any reference cannot
    be rewritten, nothing is written. The asset keeps its handle, so handle-shaped
    references need no change and are reported separately as
    `handleReferencesUnchanged`.
@@ -735,7 +734,7 @@ appear under the `script` toolset — see "Script-defined tools" below):
 | Toolset | Tools |
 |---|---|
 | `diagnostics` | `olo_log_tail`, `olo_events_tail`, `olo_events_wait`, `olo_debug_levers`, `olo_cvar_set`, `olo_crash_list`, `olo_crash_get` |
-| `scene` | `olo_scene_summary`, `olo_scene_list_entities`, `olo_scene_get_entity`, `olo_entity_list_fields`, `olo_entity_set_field`, `olo_scene_open`, `olo_scene_play`, `olo_scene_simulate`, `olo_scene_stop`, `olo_reflection_probe_bake`, `olo_editor_select_entity`, `olo_scheduler_graph`, `olo_prefab_instantiate`, `olo_prefab_unpack`, `olo_prefab_overrides`, `olo_prefab_apply`, `olo_prefab_revert`, `olo_prefab_create`, `olo_groom_bind` |
+| `scene` | `olo_scene_summary`, `olo_scene_list_entities`, `olo_scene_get_entity`, `olo_entity_list_fields`, `olo_entity_set_field`, `olo_scene_open`, `olo_scene_play`, `olo_scene_simulate`, `olo_scene_stop`, `olo_reflection_probe_bake`, `olo_editor_select_entity`, `olo_scheduler_graph`, `olo_streaming_stats`, `olo_prefab_instantiate`, `olo_prefab_unpack`, `olo_prefab_overrides`, `olo_prefab_apply`, `olo_prefab_revert`, `olo_prefab_create`, `olo_groom_bind` |
 | `perf` | `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_bottlenecks`, `olo_perf_frame_history`, `olo_perf_capture_frame`, `olo_perf_pass_timings`, `olo_perf_cpu_scopes` |
 | `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_graph_topology_export`, `olo_render_capture_target`, `olo_render_probe_pixel`, `olo_render_target_stats`, `olo_render_validate`, `olo_render_toggle_pass`, `olo_postprocess_settings_get`, `olo_postprocess_settings_set`, `olo_render_transient_plan`, `olo_render_debug_set`, `olo_render_set_debug_view`, `olo_renderer_settings_set`, `olo_renderer_support`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_scene_set_weather`, `olo_scene_get_atmosphere`, `olo_render_compare_golden`, `olo_render_why_not_visible`, `olo_froxel_fog_probe`, `olo_cluster_grid_stats`, `olo_virtual_shadow_map_stats`, `olo_render_lod_stats`, `olo_groom_budget_stats`, `olo_skeletal_deformation_stats`, `olo_rt_scene_stats`, `olo_rt_trace_ray`, `olo_rt_vegetation_diagnostic`, `olo_pathtracer_stats`, `olo_restir_stats`, `olo_restir_gi_stats`, `olo_restir_pt_stats`, `olo_ddgi_probe_stats`, `olo_shadow_atlas_layout`, `olo_virtual_geometry_set`, `olo_virtual_geometry_stats`, `olo_particle_stats`, `olo_material_get`, `olo_material_set`, `olo_shader_debug_draw`, `olo_terrain_virtual_texture_stats`, `olo_gpu_readback_stats`, `olo_gpu_resources` |
 | `shader` | `olo_shader_list`, `olo_shader_errors`, `olo_shader_get`, `olo_shader_reload` |
@@ -930,24 +929,20 @@ read from the shader debugger and is richest in debug builds. A worked loop:
 A clean recompile returns `status: "ready"` with an empty `log`; on failure you get
 `status: "failed"` and the compiler diagnostics in `log`.
 
-**Which shaders are reloadable.** `olo_shader_list` reports *every* GL program the shader
-debugger knows about, but only shaders owned by the Renderer3D / Renderer2D shader libraries
-(the main scene shaders — `PBR_MultiLight`, `Water`, `Terrain_PBR`, `InfiniteGrid`, `Decal`,
-`LightCube`, the `Renderer2D_*` shaders, …) can be hot-reloaded by name. Post-process and
-compute shaders (`GTAO`, `SSAO`, `SSR`, bloom, …) are owned by their render pass and the
-engine keeps no name-to-shader registry for them, so they are **not** reloadable; asking for
-one returns an error that lists the names that *are* reloadable. To inspect a shader's
-*existing* errors without recompiling, use `olo_shader_errors` / `olo_shader_get` instead.
+**Which shaders are reloadable.** `olo_shader_list` reports a `reloadable` flag per shader.
+Every file-backed shader reloads by name, whether a shader library or a render pass owns it,
+compute included (`GTAO`, `SSAO`, `SSR`, `VirtualCluster*`, …): pass-owned names resolve
+through the engine's `ShaderRegistry`. Only source-string shaders (boot, fallback,
+shader-graph) have no file to reload from; asking for one returns an error that lists the
+reloadable names. To inspect a shader's *existing* errors without recompiling, use
+`olo_shader_errors` / `olo_shader_get` instead.
 
-**Debug-build caveat (verified).** In a Debug build, recompiling a shader that contains a
-GLSL *syntax* error trips an engine debug assert (`OLO_CORE_VERIFY` → `__debugbreak`) on the
-render/main thread — the same behaviour as the editor's own *Shader ▸ Recompile* button. The
-reload then doesn't return a clean `status: "failed"`; instead the main-thread marshal times
-out (~5 s) and the tool returns *"Timed out waiting for the editor main thread"*, and the
-editor can crash. So reserve `olo_shader_reload` for applying an edit you **expect to
-compile** (the normal inner-loop case — confirm the result `status` is `ready`, then
-screenshot); to inspect a shader that you know is broken, read `olo_shader_errors` /
-`olo_shader_get` rather than recompiling it.
+**Compile failures (corrected 2026-09-29, #1357).** This section used to warn that a GLSL
+syntax error trips `OLO_CORE_VERIFY` in a Debug build and times the reload out. Since #568
+(PR #583) a compile or link failure logs and returns, so the reload answers
+`status: "failed"` with the compiler log (`ShaderCompileFailureRecoveryTest`). A malformed
+`#type` directive still trips an `OLO_CORE_ASSERT` in `OpenGLShader::PreProcess`. The
+correction is from the code and that test; it was not re-run live.
 
 ### The scripting inner loop (`olo_reload_script`)
 
@@ -969,7 +964,7 @@ component bindings.
 - **It is a consented WRITE tool** (issue #306): like the other writes it is
   refused while **Agent writes** is *Disabled* in the editor's MCP panel (the default),
   prompts for per-action consent in *Prompt* mode, and applies directly in *Allow all*
-  — see [Write consent](#write-consent--disabled--prompt--allow-all-issue-306-item-c).
+  — see [Write consent](#write-consent--disabled--prompt--allow-all-issue-306).
   Reloading runs the user's freshly-built assembly code, so it deliberately crosses the
   read-only line — hence the gate.
 - **Whole-assembly, no arguments.** C# reload has no per-script granularity (the editor
@@ -1725,8 +1720,7 @@ isn't a mystery:
 
 `olo_render_set_debug_view { mode }` switches the viewport to a single raw intermediate
 buffer for AO / reflection / GI debugging. `mode` is one of **none, ssao, gtao, ssr,
-ssgi, overdraw** (exactly one is shown at a time; `none`, or `enabled:false`, clears them
-all). It reports the `*DebugView` flag states and **`passEnabled`** — whether the pass
+ssgi, overdraw** (exactly one is shown at a time; `none` clears them all). It reports the `*DebugView` flag states and **`passEnabled`** — whether the pass
 that produces the chosen buffer is actually running this frame — with an actionable
 `note` when it is not:
 
@@ -1794,7 +1788,7 @@ cascade:
 // olo_render_capture_target { "name": "ShadowCSMRaw", "layer": 2 }
 ```
 
-`layer` (alias: the original `face`) selects the array layer or cube face. It is
+`layer` selects the array layer or cube face. It is
 **validated**, not clamped: asking for cascade 7 of a 4-cascade array is an error, because
 silently returning cascade 0 is the confidently-wrong answer this whole tool family exists
 to remove. Two related rules the capture path now honours:
@@ -2116,7 +2110,7 @@ seed the initial value, so every existing launch recipe keeps working). It is a
   share one GPU object. Flipping it **evicts the transient pool**, so the A/B isn't
   comparing a mixed state of objects acquired under the old policy.
 
-Omitting a flag leaves it unchanged, and the reply's `restoreWith` puts both back. Both
+Omitting a flag leaves it unchanged, and calling again with the reply's `previous` puts both back. Both
 take effect at the next `MaterializeTransientResources`, so the call settles two frames
 before returning — otherwise the screenshot taken straight afterwards shows the pre-poison
 frame and "proves" the instrument does nothing.
@@ -2245,13 +2239,13 @@ The settings:
 writes (`olo_set_collision_layer` / `olo_entity_set_field`), which push an undoable
 `ComponentChangeCommand` onto the editor's undo stack, these are **global renderer
 settings, not scene/ECS data** — an undo-stack entry would be wrong. So the response
-reports `previousValue` (and a convenience `restoreWith`) and you revert by calling
+reports `previousValue` and you revert by calling
 again with that token. The A/B loop:
 
 ```jsonc
 // 1) olo_renderer_settings_set { "setting": "upscale", "value": "performance" }
 { "setting": "upscale", "previousValue": "off", "value": "performance",
-  "changed": true, "restoreWith": "off" }
+  "changed": true }
 // 2) olo_screenshot { … }                          -> the upscaled frame
 // 3) olo_renderer_settings_set { "setting": "upscale", "value": "off" }
 { "setting": "upscale", "previousValue": "performance", "value": "off", … }
@@ -2297,7 +2291,7 @@ token comes back with suggestions rather than a bare "unknown".
 // 2) switch, 3) screenshot, 4) restore with previousValue
 // olo_postprocess_settings_set { "field": "ActiveAOTechnique", "value": "ssao" }
 { "field": "ActiveAOTechnique", "previousValue": "gtao", "value": "ssao",
-  "changed": true, "clamped": false, "restoreWith": "gtao" }
+  "changed": true, "clamped": false }
 ```
 
 Notes:
@@ -2354,8 +2348,7 @@ elevation is unreachable on that day, it clamps to the closest achievable one an
 says so in `note` (with `clamped: true`).
 
 Both validate every numeric input with `std::isfinite` and report the resulting
-component state plus the derived sun elevation / is-night flags. `clear: true` is
-accepted for backward compatibility and reports that there is nothing to clear.
+component state plus the derived sun elevation / is-night flags.
 
 Weather has the same pair of controls: `olo_scene_set_weather { state,
 transitionSeconds?, immediate? }` retargets the scene's `WeatherStateComponent`
@@ -2864,7 +2857,7 @@ What that changes — and nothing else:
 - it goes through the **same write-consent gate as a native write tool**:
   refused outright while "Agent writes" is **Disabled** (the default), a modal
   in **Prompt**, straight through in **Allow all** (see
-  [Write consent](#write-consent--disabled--prompt--allow-all-issue-306-item-c));
+  [Write consent](#write-consent--disabled--prompt--allow-all-issue-306));
 - **only then** may its handler call project-mutating tools through
   `olo.call_tool` — and each such inner call re-checks the *current* consent
   mode, so flipping writes back to Disabled stops the rest of the macro.

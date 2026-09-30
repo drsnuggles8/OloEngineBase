@@ -43,26 +43,13 @@ namespace OloEngine
     // Helper to generate material ID hash for sort key.
     inline auto ComputeMaterialID(const Material& material) -> u32
     {
-        u64 hash = 0;
+        const u64 albedoID = material.GetAlbedoMap() ? RHI::HashKey(material.GetAlbedoMap()->GetRHIHandle()) : 0ULL;
+        const u64 metallicID = material.GetMetallicRoughnessMap() ? RHI::HashKey(material.GetMetallicRoughnessMap()->GetRHIHandle()) : 0ULL;
+        const u64 normalID = material.GetNormalMap() ? RHI::HashKey(material.GetNormalMap()->GetRHIHandle()) : 0ULL;
 
-        if (material.GetType() == MaterialType::PBR)
-        {
-            const u64 albedoID = material.GetAlbedoMap() ? RHI::HashKey(material.GetAlbedoMap()->GetRHIHandle()) : 0ULL;
-            const u64 metallicID = material.GetMetallicRoughnessMap() ? RHI::HashKey(material.GetMetallicRoughnessMap()->GetRHIHandle()) : 0ULL;
-            const u64 normalID = material.GetNormalMap() ? RHI::HashKey(material.GetNormalMap()->GetRHIHandle()) : 0ULL;
-
-            hash = albedoID;
-            hash ^= metallicID + 0x9e3779b9ULL + (hash << 6) + (hash >> 2);
-            hash ^= normalID + 0x9e3779b9ULL + (hash << 6) + (hash >> 2);
-        }
-        else
-        {
-            const u64 diffuseID = material.GetDiffuseMap() ? RHI::HashKey(material.GetDiffuseMap()->GetRHIHandle()) : 0ULL;
-            const u64 specularID = material.GetSpecularMap() ? RHI::HashKey(material.GetSpecularMap()->GetRHIHandle()) : 0ULL;
-
-            hash = diffuseID;
-            hash ^= specularID + 0x9e3779b9ULL + (hash << 6) + (hash >> 2);
-        }
+        u64 hash = albedoID;
+        hash ^= metallicID + 0x9e3779b9ULL + (hash << 6) + (hash >> 2);
+        hash ^= normalID + 0x9e3779b9ULL + (hash << 6) + (hash >> 2);
 
         // Fold 64-bit hash to 16-bit material ID (as defined in DrawKey).
         return static_cast<u32>((hash ^ (hash >> 32)) & 0xFFFF);

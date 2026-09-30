@@ -1,4 +1,5 @@
 Scene: PinkCube.olo
+Version: 1
 Entities:
   - Entity: 13837192831273
     TagComponent:

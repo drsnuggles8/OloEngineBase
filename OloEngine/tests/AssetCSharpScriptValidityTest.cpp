@@ -28,8 +28,10 @@
 #include <yaml-cpp/yaml.h>
 
 #include <algorithm>
+#include <array>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -233,61 +235,92 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
-    // EveryCSharpFileIsListedInBuild
+    // CSharpProjectsCompileEverySourceFile
     //
-    // Catches the case where a `.cs` file sits in `Source/` but the
-    // CMakeLists.txt `SOURCES` list never references it. Result: the
-    // class isn't compiled into Sandbox-Scripting.dll, and any scene's
-    // `ScriptComponent.ClassName = Sandbox.<MissingClass>` silently
-    // no-ops — same silent-failure class as the scene-reference check,
-    // but caused by an oversight in CMakeLists.txt rather than the .cs
-    // file itself going missing.
+    // Catches a `.cs` file that sits in a script project's source tree but is
+    // not compiled. The class is then missing from the assembly, and any
+    // scene's `ScriptComponent.ClassName = Sandbox.<MissingClass>` silently
+    // no-ops. This happened three times while the build used hand-kept CMake
+    // SOURCES lists: `SaveLoadTestPlayer.cs` was missing from
+    // Sandbox-Scripting.dll, and `Video.cs` and `Rendering/ShaderLibrary.cs`
+    // were missing from OloEngine-ScriptCore.dll (#1405).
     //
-    // Concretely: this would have caught `SaveLoadTestPlayer.cs` missing
-    // from the build before the discovery via the orphan check —
-    // SaveLoadTest.olo binds to it but the DLL didn't contain the class.
+    // Both assemblies are now SDK-style projects built by `dotnet build`
+    // (cmake/CSharpAssembly.cmake). Each compiles exactly one recursive glob
+    // over its source tree, the same tree the CMake target globs for its
+    // dependencies. This pins that shape, and forbids every MSBuild way of
+    // dropping files from it: a `Remove`, `DefaultItemExcludes`, turning the
+    // default items back on or off wholesale, and a `Directory.Build.*` file
+    // above the project, which MSBuild imports implicitly.
     // -------------------------------------------------------------------------
-    TEST(AssetCSharpScriptValidity, EveryCSharpFileIsListedInCMakeSources)
+    TEST(AssetCSharpScriptValidity, CSharpProjectsCompileEverySourceFile)
     {
-        const fs::path sourceDir = fs::path{ OLO_TEST_EDITOR_ROOT } /
-                                   "SandboxProject" / "Assets" / "Scripts" / "Source";
-        const fs::path cmakeFile = sourceDir / "CMakeLists.txt";
-        ASSERT_TRUE(fs::exists(cmakeFile))
-            << "Missing CMakeLists.txt at " << cmakeFile.string();
-
-        std::ifstream cmakeIn(cmakeFile, std::ios::binary);
-        std::ostringstream cmakeBuf;
-        cmakeBuf << cmakeIn.rdbuf();
-        const std::string cmakeContent = cmakeBuf.str();
-
-        const auto files = EnumerateCSharpFiles(sourceDir);
-        ASSERT_FALSE(files.empty());
-
-        std::vector<Failure> missing;
-        for (const auto& path : files)
+        const auto readText = [](const fs::path& path)
         {
-            // The SOURCES list quotes each entry as `"<FileName>.cs"`.
-            // A simple substring match for the quoted filename is robust
-            // here — CMakeLists.txt edits don't reuse this token outside
-            // the SOURCES set.
-            const std::string token = '"' + path.filename().generic_string() + '"';
-            if (cmakeContent.find(token) == std::string::npos)
+            std::ifstream in(path, std::ios::binary);
+            std::ostringstream buf;
+            buf << in.rdbuf();
+            return buf.str();
+        };
+        const auto countMatches = [](const std::string& text, const std::regex& pattern)
+        {
+            return static_cast<sizet>(std::distance(std::sregex_iterator(text.begin(), text.end(), pattern),
+                                                    std::sregex_iterator()));
+        };
+
+        const fs::path editorRoot{ OLO_TEST_EDITOR_ROOT };
+        const fs::path repoRoot = editorRoot.parent_path();
+        const fs::path props = repoRoot / "OloEngine-ScriptCore" / "OloEngine.CSharp.props";
+
+        struct ProjectCase
+        {
+            fs::path Project;
+            std::string Glob;    // the one Compile Include the project may have
+            fs::path SourceTree; // the directory that glob covers
+        };
+        const std::array projects{
+            ProjectCase{ repoRoot / "OloEngine-ScriptCore" / "OloEngine-ScriptCore.csproj", "src/**/*.cs",
+                         repoRoot / "OloEngine-ScriptCore" / "src" },
+            ProjectCase{ editorRoot / "SandboxProject" / "Assets" / "Scripts" / "Sandbox-Scripting.csproj", "Source/**/*.cs",
+                         editorRoot / "SandboxProject" / "Assets" / "Scripts" / "Source" },
+        };
+
+        const std::regex compileElement(R"(<\s*Compile\b)");
+        const std::regex removeAttribute(R"(\bRemove\s*=)");
+        const std::regex dropsItems(R"(DefaultItemExcludes|EnableDefaultItems\b)");
+        const std::regex defaultCompileItemsOff(R"(<\s*EnableDefaultCompileItems\s*>\s*false\s*<)");
+
+        ASSERT_TRUE(fs::exists(props)) << "Missing " << props.string();
+        const std::string propsText = readText(props);
+        EXPECT_EQ(countMatches(propsText, compileElement), 0u) << "OloEngine.CSharp.props must not add compile items.";
+        EXPECT_EQ(countMatches(propsText, removeAttribute), 0u) << "OloEngine.CSharp.props removes items.";
+        EXPECT_EQ(countMatches(propsText, dropsItems), 0u) << "OloEngine.CSharp.props changes which items are compiled.";
+
+        for (const ProjectCase& project : projects)
+        {
+            SCOPED_TRACE(project.Project.filename().string());
+            ASSERT_TRUE(fs::exists(project.Project)) << "Missing " << project.Project.string();
+            ASSERT_FALSE(EnumerateCSharpFiles(project.SourceTree).empty()) << project.SourceTree.string();
+            const std::string text = readText(project.Project);
+
+            EXPECT_EQ(countMatches(text, compileElement), 1u)
+                << "The project must compile exactly one item, the glob " << project.Glob << "; a hand-kept list is how Video.cs went missing.";
+            const std::regex expectedInclude(R"(<\s*Compile\s+Include\s*=\s*")" + std::regex_replace(project.Glob, std::regex(R"([.*])"), R"(\$&)") +
+                                             R"("\s*/>)");
+            EXPECT_EQ(countMatches(text, expectedInclude), 1u) << "The project must compile every .cs by <Compile Include=\"" << project.Glob << "\" />.";
+            EXPECT_EQ(countMatches(text, defaultCompileItemsOff), 1u)
+                << "The SDK's whole-directory default must stay off, or an in-source obj/ from an IDE build is compiled too.";
+            EXPECT_EQ(countMatches(text, removeAttribute), 0u) << "The project removes items; their classes would be missing from the assembly.";
+            EXPECT_EQ(countMatches(text, dropsItems), 0u) << "The project changes which items are compiled.";
+
+            for (fs::path dir = project.Project.parent_path(); !dir.empty(); dir = dir.parent_path())
             {
-                missing.push_back({ path.generic_string(),
-                                    "no `\"" + path.filename().generic_string() +
-                                        "\"` entry found in CMakeLists.txt — Sandbox-Scripting.dll "
-                                        "will not contain the class declared in this file." });
+                for (const char* implicitImport : { "Directory.Build.props", "Directory.Build.targets" })
+                    EXPECT_FALSE(fs::exists(dir / implicitImport))
+                        << (dir / implicitImport).string() << " is imported into the project implicitly and can change what it compiles.";
+                if (dir == repoRoot || dir == dir.parent_path())
+                    break;
             }
-        }
-
-        if (!missing.empty())
-        {
-            std::ostringstream oss;
-            oss << missing.size() << " C# file(s) missing from CMakeLists.txt SOURCES:\n";
-            for (const auto& f : missing)
-                oss << "----\n"
-                    << f.Path << "\n    " << f.Reason << "\n";
-            FAIL() << oss.str();
         }
     }
 

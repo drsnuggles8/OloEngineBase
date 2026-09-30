@@ -197,7 +197,7 @@ Assets:
     Redistribution: committed
     LicenseVerified: in-repo-file
     Version: generated
-    Sha256: 64d67aee6715e00f8c1d9f688f1b119ef97ccbc4c28228348cf2796b7a60c503
+    Sha256: 0c52441266ff7359b8a27128112e819ac6a9ce6eaa906df4d0ecbd5fb1ec086f
     Units: metres
     UpAxis: +Y
     ColorSpace: n/a
@@ -208,7 +208,7 @@ Assets:
     Redistribution: committed
     LicenseVerified: in-repo-file
     Version: generated
-    Sha256: 6625c253547eb8ec14d44ea99e6de8c52043d0da66127c2f23ec693401c7e3ee
+    Sha256: 554f423f54b76378edd54ce94f4aa49199d76b0cff1a73886bb408d28f431d13
     Units: metres
     UpAxis: +Y
     ColorSpace: n/a
@@ -219,7 +219,7 @@ Assets:
     Redistribution: committed
     LicenseVerified: upstream-declared
     Version: glTF-Sample-Assets Models/Fox (in-repo copy; upstream revision not recorded)
-    Sha256: 681ae12c7eba99a68a1f8071889cadea95d01ade3b62816c3134bd63eead06c3
+    Sha256: 6ddcabf511c0257b87dedf6ac51f1bdb6f21e570eee5fa7c4fa6162d055cb002
     Units: centimetres
     UpAxis: +Y
     ColorSpace: srgb

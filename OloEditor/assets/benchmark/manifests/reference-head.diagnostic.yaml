@@ -177,7 +177,7 @@ Assets:
     Redistribution: committed
     LicenseVerified: in-repo-file
     Version: glTF-Sample-Assets Models/Suzanne (in-repo copy; metadata.json version 2)
-    Sha256: 34d5fbc23fd081101f26d8b0df1394533ffd9c9b53d8fd550b027b17595636ba
+    Sha256: 7e8ae013010aff530162ef2795cec74c2646019e224af17bcfb691664f0f0aec
     Units: metres
     UpAxis: +Y
     ColorSpace: srgb
@@ -188,7 +188,7 @@ Assets:
     Redistribution: committed
     LicenseVerified: in-repo-file
     Version: glTF-Sample-Assets Models/DamagedHelmet (in-repo copy)
-    Sha256: 30dcaef780c6233a235ccadba761a7e0b50d8a98705a1d8b80f2b3b52e0fe57a
+    Sha256: efe99dfac198094a30c71dc02a4d3421f0eef6bf335aeb695daa4d62134cd93f
     Units: metres
     UpAxis: +Y
     ColorSpace: srgb

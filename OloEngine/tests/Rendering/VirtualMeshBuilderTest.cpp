@@ -1158,22 +1158,22 @@ TEST(VirtualMeshSerializer, SetBlobRoundTripsEveryPart)
     EXPECT_EQ(restored.Parts[1].MaterialIndex, 7u);
 }
 
-TEST(VirtualMeshSerializer, SetReaderAcceptsALegacySingleDagBlob)
+TEST(VirtualMeshSerializer, SetReaderRejectsABareSingleDagBlob)
 {
-    // Cooks written before multi-submesh support are bare "OVGM" blobs. They must load as a
-    // one-part set rather than forcing a re-cook of every cached asset.
+    // A cook is always an "OVGS" set. A bare single-DAG "OVGM" blob is a part, not a cook:
+    // the set reader rejects it (the caller re-cooks) and leaves the output untouched.
     auto mesh = MakeGridMesh(8);
     VirtualMesh const single = VirtualMeshBuilder::Build(*mesh);
     ASSERT_TRUE(single.IsValid());
 
-    std::vector<u8> const legacyBlob = VirtualMeshSerializer::SerializeToBlob(single);
+    std::vector<u8> const bareBlob = VirtualMeshSerializer::SerializeToBlob(single);
+    VirtualMesh singleRoundTrip;
+    ASSERT_TRUE(VirtualMeshSerializer::DeserializeFromBlob(bareBlob, singleRoundTrip))
+        << "positive control: the blob is a valid OVGM DAG";
 
     VirtualMeshSet restored;
-    ASSERT_TRUE(VirtualMeshSerializer::DeserializeSetFromBlob(legacyBlob, restored));
-    ASSERT_EQ(static_cast<sizet>(restored.Parts.Num()), 1u);
-    EXPECT_EQ(restored.Parts[0].SubmeshIndex, 0u);
-    EXPECT_EQ(static_cast<sizet>(restored.Parts[0].Dag.Clusters.Num()), static_cast<sizet>(single.Clusters.Num()));
-    EXPECT_EQ(restored.Parts[0].Dag.SourceTriangleCount, single.SourceTriangleCount);
+    EXPECT_FALSE(VirtualMeshSerializer::DeserializeSetFromBlob(bareBlob, restored));
+    EXPECT_TRUE(restored.Parts.IsEmpty());
 }
 
 TEST(VirtualMeshSerializer, SetReaderRejectsCorruptBlobs)

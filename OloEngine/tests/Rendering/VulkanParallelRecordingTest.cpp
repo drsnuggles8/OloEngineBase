@@ -600,7 +600,7 @@ class VulkanParallelRecordingDevice : public ::testing::Test
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         ASSERT_EQ(vkBeginCommandBuffer(m_Cmd, &beginInfo), VK_SUCCESS);
 
-        api.BeginRecording(m_Cmd);
+        auto queryCompletion = api.BeginRecording(m_Cmd);
         work();
         api.EndRecording();
 
@@ -612,7 +612,9 @@ class VulkanParallelRecordingDevice : public ::testing::Test
         submit.pCommandBuffers = &m_Cmd;
         ASSERT_EQ(vkResetFences(m_Device->GetDevice(), 1, &m_Fence), VK_SUCCESS);
         ASSERT_EQ(vkQueueSubmit(m_Device->GetQueue(), 1, &submit, m_Fence), VK_SUCCESS);
+        queryCompletion->SubmittedFence = m_Fence;
         ASSERT_EQ(vkWaitForFences(m_Device->GetDevice(), 1, &m_Fence, VK_TRUE, UINT64_MAX), VK_SUCCESS);
+        queryCompletion->Completed = true;
         VulkanDeferredReclaim::Get().NotifyFrameCompleted();
     }
 
@@ -1218,7 +1220,6 @@ TEST_F(VulkanParallelRecordingDevice, BucketsReplayWithItemOwnedMaterialAndInsta
         targets.push_back(MakeTintedTarget(32, colors[item]));
         framebuffers.push_back(targets.back().Target);
         PODMaterialData material{};
-        material.enablePBR = true;
         material.shaderRendererID = kit.Shader->GetRHIHandle();
         material.albedoMapID = kit.White->GetRHIHandle();
         material.baseColorFactor = glm::vec4(colors[item][0], colors[item][1], colors[item][2], static_cast<f32>(item + 1u));

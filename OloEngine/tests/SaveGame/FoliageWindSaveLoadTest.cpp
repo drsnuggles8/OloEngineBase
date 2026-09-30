@@ -2,7 +2,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/SaveGame/SaveGameComponentSerializer.h"
 #include "OloEngine/SaveGame/SaveGameTypes.h"
-#include "OloEngine/SaveGame/SaveGameFile.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Serialization/Archive.h"
@@ -23,11 +22,11 @@ namespace OloEngine::Tests
 {
     namespace
     {
-        FoliageComponent Read(const std::vector<u8>& bytes, u32 version)
+        FoliageComponent Read(const std::vector<u8>& bytes)
         {
             FoliageComponent loaded;
             FMemoryReader reader(bytes);
-            reader.SetArchiveVersion(version);
+            reader.SetArchiveVersion(kSaveGameFormatVersion);
             SaveGameComponentSerializer::Serialize(reader, loaded);
             EXPECT_FALSE(reader.IsError());
             EXPECT_TRUE(reader.AtEnd());
@@ -40,46 +39,6 @@ namespace OloEngine::Tests
             FMemoryWriter writer(bytes);
             writer.SetArchiveVersion(kSaveGameFormatVersion);
             SaveGameComponentSerializer::Serialize(writer, component);
-            return bytes;
-        }
-
-        // Explicit old positional layout, independent of the production writer.
-        std::vector<u8> WritePrior(u32 version)
-        {
-            std::vector<u8> bytes;
-            FMemoryWriter ar(bytes);
-            FoliageLayer l;
-            u32 count = 1;
-            ar << count;
-            ar << l.Name << l.MeshPath << l.AlbedoPath;
-            ar << l.Density << l.SplatmapChannel << l.MinSlopeAngle << l.MaxSlopeAngle;
-            ar << l.MinScale << l.MaxScale << l.MinHeight << l.MaxHeight << l.RandomRotation;
-            ar << l.ViewDistance << l.FadeStartDistance << l.WindStrength << l.WindSpeed;
-            ar << l.BaseColor << l.Roughness << l.AlphaCutoff << l.Enabled;
-            ar << l.UseImpostor << l.ImpostorStartDistance << l.ImpostorTransitionBand;
-            ar << l.ImpostorFramesPerAxis << l.ImpostorAtlasResolution << l.ImpostorHemiOctahedral;
-            ar << l.UseAuthoredMesh << l.MeshViewDistance << l.MeshFadeStartDistance;
-            ar << l.NormalMapPath << l.RoughnessMapPath << l.ThicknessMapPath;
-            ar << l.NormalStrength << l.TransmissionStrength << l.TransmissionColor << l.Thickness;
-            ar << l.TransmissionDistortion << l.TransmissionPower << l.TransmissionWrap << l.TransmissionAmbient;
-            if (version == 35)
-            {
-                l.SlopeFeather = 7.5f;
-                l.UseMoisture = true;
-                l.ClumpStrength = 0.625f;
-                l.ClumpGroup = 3;
-                l.DecorrelatedVariation = true;
-                ar << l.SlopeFeather;
-                ar << l.UseAltitudeBand << l.MinAltitude << l.MaxAltitude << l.AltitudeFeather;
-                ar << l.UseMoisture << l.MinMoisture << l.MaxMoisture << l.MoistureFeather;
-                ar << l.ExclusionSplatmapChannel << l.ExclusionThreshold;
-                ar << l.ClumpStrength << l.ClumpScale << l.ClumpFalloff << l.ClumpScaleInfluence;
-                ar << l.ClumpGroup;
-                ar << l.GroundOffset << l.SlopeSinkFactor;
-                ar << l.DecorrelatedVariation;
-            }
-            bool enabled = true;
-            ar << enabled;
             return bytes;
         }
     } // namespace
@@ -96,59 +55,11 @@ namespace OloEngine::Tests
         layer.ClumpStrength = 0.5f;
         layer.DecorrelatedVariation = true;
         authored.m_Layers.Add(layer);
-        const auto loaded = Read(Write(authored), kSaveGameFormatVersion);
+        const auto loaded = Read(Write(authored));
         ASSERT_EQ(loaded.m_Layers.Num(), 1u);
         EXPECT_TRUE(loaded.m_Layers[0] == layer);
         layer.WindLeafWeight = 0.0f;
         EXPECT_FALSE(loaded.m_Layers[0] == layer);
-    }
-
-    TEST(FoliageWindSaveLoad, V34KeepsLegacyWindAndConsumesExactPayload)
-    {
-        const auto path = TempFile("prior-v34.olosave");
-        SaveGameHeader header;
-        header.FormatVersion = 34;
-        ASSERT_TRUE(SaveGameFile::Write(path, header, SaveGameMetadata{}, {}, WritePrior(34)));
-        SaveGameHeader loadedHeader;
-        ASSERT_TRUE(SaveGameFile::ReadHeader(path, loadedHeader));
-        ASSERT_EQ(loadedHeader.FormatVersion, 34u);
-        ASSERT_TRUE(SaveGameFile::ValidateChecksum(path));
-        std::vector<u8> payload;
-        ASSERT_TRUE(SaveGameFile::ReadPayload(path, payload));
-        const auto loaded = Read(payload, loadedHeader.FormatVersion);
-        ASSERT_EQ(loaded.m_Layers.Num(), 1u);
-        EXPECT_FLOAT_EQ(loaded.m_Layers[0].WindStiffness, 0.0f);
-        EXPECT_FLOAT_EQ(loaded.m_Layers[0].WindBranchWeight, 0.0f);
-        EXPECT_FLOAT_EQ(loaded.m_Layers[0].WindLeafWeight, 0.0f);
-        EXPECT_FALSE(loaded.m_Layers[0].WindDebugDisplacement);
-        EXPECT_FLOAT_EQ(loaded.m_Layers[0].WindStrength, 0.3f);
-    }
-
-    TEST(FoliageWindSaveLoad, V35PreservesHabitatAndDefaultsWindWithoutConsumingFollowingFields)
-    {
-        const auto path = TempFile("prior-v35.olosave");
-        SaveGameHeader header;
-        header.FormatVersion = 35;
-        ASSERT_TRUE(SaveGameFile::Write(path, header, SaveGameMetadata{}, {}, WritePrior(35)));
-        SaveGameHeader loadedHeader;
-        ASSERT_TRUE(SaveGameFile::ReadHeader(path, loadedHeader));
-        ASSERT_EQ(loadedHeader.FormatVersion, 35u);
-        ASSERT_TRUE(SaveGameFile::ValidateChecksum(path));
-        std::vector<u8> payload;
-        ASSERT_TRUE(SaveGameFile::ReadPayload(path, payload));
-        const auto loaded = Read(payload, loadedHeader.FormatVersion);
-        ASSERT_EQ(loaded.m_Layers.Num(), 1u);
-        const auto& layer = loaded.m_Layers[0];
-        EXPECT_FLOAT_EQ(layer.SlopeFeather, 7.5f);
-        EXPECT_TRUE(layer.UseMoisture);
-        EXPECT_FLOAT_EQ(layer.ClumpStrength, 0.625f);
-        EXPECT_EQ(layer.ClumpGroup, 3u);
-        EXPECT_TRUE(layer.DecorrelatedVariation);
-        EXPECT_FLOAT_EQ(layer.WindStiffness, 0.0f);
-        EXPECT_FLOAT_EQ(layer.WindBranchWeight, 0.0f);
-        EXPECT_FLOAT_EQ(layer.WindLeafWeight, 0.0f);
-        EXPECT_FALSE(layer.WindDebugDisplacement);
-        EXPECT_TRUE(loaded.m_Enabled);
     }
 
     TEST(FoliageWindSaveLoad, NonFiniteAndOutOfRangeWeightsAreSanitized)
@@ -159,7 +70,7 @@ namespace OloEngine::Tests
         layer.WindBranchWeight = -1.0f;
         layer.WindLeafWeight = 3.0f;
         authored.m_Layers.Add(layer);
-        const auto loaded = Read(Write(authored), kSaveGameFormatVersion);
+        const auto loaded = Read(Write(authored));
         ASSERT_EQ(loaded.m_Layers.Num(), 1u);
         EXPECT_FLOAT_EQ(loaded.m_Layers[0].WindStiffness, 0.0f);
         EXPECT_FLOAT_EQ(loaded.m_Layers[0].WindBranchWeight, 0.0f);
@@ -255,6 +166,7 @@ namespace OloEngine::Tests
     TEST(FoliageWindSaveLoad, PriorSceneLoadsLegacyDefaults)
     {
         const std::string yaml = R"(Scene: PriorWind
+Version: 1
 Entities:
   - Entity: 1236
     TagComponent:

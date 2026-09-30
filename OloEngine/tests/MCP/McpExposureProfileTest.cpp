@@ -537,14 +537,14 @@ TEST(McpExposureGateway, ExecuteHonoursTheWriteConsentGateOfItsTarget)
     writer.ProjectWrite = true;
     server.RegisterTool(std::move(writer));
     OloEngine::MCP::RegisterGatewayTools(server);
-    ASSERT_FALSE(server.AllowWrites()) << "writes are off by default";
+    ASSERT_EQ(server.GetWriteConsentMode(), OloEngine::MCP::WriteConsentMode::Disabled) << "writes are off by default";
 
     const Json refused = server.HandleMessage(MakeRequest(
         1, "tools/call",
         Json{ { "name", "olo_tool_execute" }, { "arguments", { { "tool", "olo_fake_write" } } } }));
     ASSERT_TRUE(refused.contains("error")) << refused.dump(2);
 
-    server.SetAllowWrites(true);
+    server.SetWriteConsentMode(OloEngine::MCP::WriteConsentMode::AllowSession);
     const Json allowed = server.HandleMessage(MakeRequest(
         2, "tools/call",
         Json{ { "name", "olo_tool_execute" }, { "arguments", { { "tool", "olo_fake_write" } } } }));

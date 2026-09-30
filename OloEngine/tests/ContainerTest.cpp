@@ -357,7 +357,7 @@ TEST(TMapRelocation, FStringKeysSurviveGrowth)
 }
 
 // Diagnostic: does the relocatability trait actually propagate through the
-// types TMap is built from? The guard in ~TCompactSet checks the set's element
+// types TMap is built from? The guard in TSparseArray checks the set's element
 // type, which for TMap is TPair<Key, Value>.
 TEST(TMapRelocation, TraitPropagatesThroughPair)
 {
@@ -365,7 +365,7 @@ TEST(TMapRelocation, TraitPropagatesThroughPair)
     EXPECT_FALSE(TIsTriviallyRelocatable_V<std::string>) << "std::string must be non-relocatable";
     EXPECT_FALSE((TIsTriviallyRelocatable_V<TPair<std::string, f32>>))
         << "TPair must inherit non-relocatability from its key -- if this is TRUE, "
-           "the ~TCompactSet guard can never catch TMap<std::string, T>";
+           "the TSparseArray guard can never catch TMap<std::string, T>";
     EXPECT_TRUE((TIsTriviallyRelocatable_V<TPair<FString, f32>>)) << "FString pair should be relocatable";
 }
 

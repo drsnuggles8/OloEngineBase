@@ -39,10 +39,12 @@ Expanding gives each tier's effective weight:
     w_t = c_t · Π_{u above t} (1 - c_u),      w_ibl = Π_{u ≠ ibl} (1 - c_u)
 
 **Σ w_t = 1 exactly, for every possible vector of confidences.** It telescopes, because the bottom
-tier is pinned at `c = 1`. That identity is the whole no-double-count guarantee: there is no
-confidence assignment, valid or absurd, that makes the tiers sum to more or less than one. It is
-also cheap to test on the CPU with no GPU at all, which is what `ReflectionTierContractTest` does —
-energy conservation as a ratchet, not as a comment.
+tier is pinned at `c = 1`. There is no confidence assignment, valid or absurd, that makes the
+tiers' weights sum to more or less than one, and it is cheap to test on the CPU with no GPU at all,
+which is what `ReflectionTierContractTest` does. The identity makes the tiers' estimates of `R` a
+convex combination. It is a no-double-count guarantee only together with §1a: each tier applies it
+to the indirect specular term `S = W · R` and hands `S` on. It is not an energy-conservation proof
+on its own (§9).
 
 ### 1a. The algebra is over R, and the frame is not R (issue #1325)
 
@@ -74,10 +76,11 @@ A ray-query tier that had to claim `1 - c_ssr` would need that value transported
 five-stage denoiser chain (#708) — whose only spare lane, the signal's alpha, already carries view
 depth on every path including the early-outs, deliberately.
 
-Evaluated bottom-up, **no tier needs to know anything about the tiers above it.** Each one lerps
-over whatever is already there. The ordering is expressed purely by *where a tier sits in the
-frame*, not by data it has to be handed. That is why the ray tier can be inserted below SSR without
-touching a single line of the denoiser chain.
+Evaluated bottom-up, **no tier needs to know anything about the tiers above it.** Each one replaces
+the specular term in whatever is already there (§1a). The ordering is expressed purely by *where a
+tier sits in the frame*, not by data it has to be handed. That is why the ray tier could be inserted
+below SSR without transporting a confidence through the denoiser chain. (#1325 later edited SSR's
+shaders to replace `S` instead of the colour; no confidence travels through the chain.)
 
 This is not a trick; it is the same reason back-to-front alpha compositing needs no per-layer
 bookkeeping.
@@ -102,7 +105,7 @@ statement, a tier between SSR and the probes, and a way to see which tier answer
 
 **Position: below SSR, above the probes.** It fills exactly the gap SSR cannot cover — off-screen
 and occluded hits — and it composites over the probe/IBL result that `DeferredLighting` produced.
-Because SSR then lerps over *its* output by `c_ssr`, a pixel where SSR is confident is unchanged,
+Because SSR then replaces the term this tier hands on, by `c_ssr`, a pixel where SSR is confident is unchanged,
 and a pixel where SSR fades out at the screen edge lands on a ray-traced answer instead of dropping
 to a low-frequency probe. That edge drop is the seam this issue exists to remove.
 
@@ -112,6 +115,9 @@ to a low-frequency probe. That edge drop is the seam this issue exists to remove
 enough for one sample to mean something, and rough surfaces stay on probes, where a ray budget buys
 nothing. On a miss `c_ray = 0` and the tier contributes exactly nothing — the same "a miss costs
 nothing" property SSR's early-outs already have.
+
+*The next three paragraphs record the boundary as it stood for #1057 (2026-09). They are historical:
+the current state is the note at the end of this section.*
 
 **What it may shade — the #805 boundary, stated plainly.** A reflection tier must *shade* its hit,
 where the shadow tier (#1063) needed only a visibility bit. Arbitrary material texture sampling at a
@@ -134,6 +140,13 @@ what removes it is having the right silhouette, at the right depth, in roughly t
 where there was previously a low-frequency probe smear. Flat-shaded hits deliver that. They do not
 deliver a correct mirror, and the contract above is what lets the textured version replace them
 later by raising `L_ray`'s quality without touching a single weight.
+
+> **State at `7c5aa1b98` (#1357).** The heap boundary above moved. Masked candidates are now
+> alpha-tested through the descriptor heap (`include/HybridRayTracingAlpha.glsl`, the helper the
+> shadow tier uses), and the tier stands down with `GPUSceneUnavailable` when the material heap is
+> unresolved. Hits are still shaded from untextured factors, counted as
+> `ReflectionTierStats::HitsShadedUntextured`; textured hit shading with a ray-footprint policy is
+> #1355, not #805.
 
 ## 5. Fallback is loud and countable
 
@@ -175,8 +188,9 @@ planar resolve, if one lands, is a tier like the others: it replaces `S` by §1a
 
 - The composite order is now load-bearing and belongs in the render graph, not in a shader's head:
   the ray tier must run after `RayTracingScenePass` (by-name dependency) and before `SSRRenderPass`.
-- A new tier is added by inserting one `mix` at the right depth and defining its confidence. It
-  cannot double-count, whatever it does, as long as the bottom tier stays pinned at 1.
+- A new tier is added by composing `C + c · (W · L − S)` at the right depth, defining its
+  confidence, and handing its `S'` to the next tier (§1a). It cannot double-count as long as the
+  bottom tier stays pinned at 1, it replaces only `S`, and Fresnel stays in `W`.
 - **The bottom tier must never report a confidence below 1.** That is the single invariant the whole
   guarantee rests on; a probe/IBL tier that "admits it doesn't know" would leave energy unclaimed
   and darken the frame. Uncertainty at the bottom is expressed by widening the lobe, never by
@@ -217,3 +231,30 @@ Three implementation notes worth stating because each one is a decision rather t
   what means no tier *has* to.
 - **`c_ray` reaches it in the alpha of the colour the tier hands downstream**, and only while the
   debug view is on, so no production frame carries a non-1.0 alpha down the chain.
+
+## 9. Review correction: convex weights are not an energy proof (2026-09-29, #1357)
+
+**Rule: a set of weights that sums to one proves a convex combination of its operands, and nothing
+about energy unless every operand is the same physical quantity.** §1 as first written called
+`Σ w_t = 1` "the whole no-double-count guarantee" and "energy conservation as a ratchet". The weights
+did telescope, but the shaders applied the "over" to the whole lit colour `C = D + E + S_direct + S`,
+not to `R`: the ray tier computed `mix(baseColor, reflTarget, c)` with Fresnel folded into `c`, and
+SSR added `(reflTarget − baseColor) · blend`. Diffuse, emission and direct light were therefore scaled
+by `1 − c`, and the operands were in different units, since `S` already carried the split-sum weight
+`W`. #1325 (commit `2012abe67`, PR #1517) measured the old SSR removing up to 1.12 × `S` on the band
+and up to 77 % of a pixel's colour beyond it.
+
+What holds at `7c5aa1b98` is three pieces together: the weight identity on `R`, the term replacement
+`C' = C + c · (W · L − S)` with Fresnel only in `W` (`include/ReflectionTierComposite.glsl`, CPU twin
+`ComposeSpecularTier`), and `S` handed from tier to tier (`RTReflectionSpecular` into SSR). That is a
+no-double-count and no-attenuation guarantee. It is still not an energy-conservation proof of the lobe
+itself, which depends on `W`, the BRDF split owned by the #1336 lighting-signal contract, and the
+`max(·, 0)` clamps.
+
+Pinned by `ReflectionTierContractTest.ABlackReflectedHitRemovesTheSpecularTermAndNothingElse` (with a
+whole-colour negative control), `…ConfidenceZeroIsACopyAndOneIsAFullReplacement`,
+`…ChainedTiersAreTheOverOnTheLobeRadianceTimesTheWeight`,
+`ScreenSpaceReflection.DeltaCompositeIsTheSpecularTierHandOff`,
+`ReflectionTierTermEvidenceTest.SSRReplacesTheSpecularTermAndLeavesTheRestOfTheColour` (GL deferred,
+SSR) and `LightingSignalContract.*`. **Unexecuted:** no automated test runs the ray tier's GPU
+composite in `RayTracedReflection.glsl`; PR #1517 checked it live on Vulkan only.

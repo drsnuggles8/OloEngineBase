@@ -250,14 +250,16 @@ namespace OloEngine
         // ("Assets/Textures/Foo.png"), deliberately, so saved scenes stay portable
         // across machines; but the editor's working directory is OloEditor/, one
         // level above the project, so re-reading that spelling verbatim resolves
-        // against the wrong base and can never find the file. Relative paths are
-        // therefore resolved against Project::GetProjectDirectory(), exactly as
-        // every AssetSerializer does.
+        // against the wrong base and can never find the file. ResolveContentPath
+        // (Project/ContentPath.h) picks the base from the spelling: "Assets/..."
+        // and "../..." (registry keys) against Project::GetProjectDirectory(),
+        // exactly as every AssetSerializer does; anything else against the
+        // working directory.
         //
         // Returns an empty path when the source cannot be resolved — no source
-        // path, or a relative one that exists neither under the active project nor
-        // relative to the working directory — having logged why. Callers refuse the
-        // reload rather than reading from a base that happens to be the CWD.
+        // path, or a relative one missing under the one base its spelling names —
+        // having logged why. Callers refuse the reload rather than reading from a
+        // base that happens to be the CWD.
         [[nodiscard("Store this!")]] static std::filesystem::path ResolveStoredSourcePath(std::string_view sourcePath);
 
         static Ref<Texture2D> Create(const TextureSpecification& specification);

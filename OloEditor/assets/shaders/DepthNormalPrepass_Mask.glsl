@@ -52,8 +52,8 @@ void main()
     OLO_INSTANCE_FORWARD();
     // The colour pass's exact association: world position first, then
     // view-projection — the colour pass re-tests this depth at GL_LEQUAL.
-    v_WorldPos = vec3(u_Model * vec4(a_Position, 1.0));
-    v_Normal = mat3(u_Normal) * a_Normal;
+    v_WorldPos = vec3(instances[gl_InstanceIndex].Transform * vec4(a_Position, 1.0));
+    v_Normal = mat3(instances[gl_InstanceIndex].Normal) * a_Normal;
     v_TexCoord = a_TexCoord;
     gl_Position = u_ViewProjection * vec4(v_WorldPos, 1.0);
 }

@@ -177,10 +177,6 @@ single-context win. If bake latency ever matters, the lever is the SH irradiance
   resource from `GetDepthAttachmentID()` (resolved single-sample), and issue `glTextureBarrier()`
   before sampling depth you just wrote through the fixed-function pipeline.
 
-> Pre-existing gap: instanced statics in Deferred still select `DefaultForwardShader` when the
-> material has no explicit shader — `SubmitGPUCulledInstanced`/`DrawMeshInstanced` don't route to
-> `PBRGBufferShader` like `DrawMesh` does — so instanced deferred geometry can shade oddly.
-
 ## 9. `RendererSettings` only reach the live graph through `ApplyRendererSettings()`
 
 Nothing derives live state from the config automatically. With default settings (Forward +

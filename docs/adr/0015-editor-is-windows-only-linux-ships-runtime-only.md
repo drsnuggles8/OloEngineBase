@@ -145,3 +145,18 @@ below, nobody is going to finish that walk, because there is no one who needs to
 ## Status
 
 Accepted.
+
+## Amendment (2026-09-29, #1405): the C# assembly builds under any generator
+
+Reason 3 above no longer holds. `OloEngine-ScriptCore` and `Sandbox-Scripting` are now tracked
+SDK-style `.csproj` files built by `dotnet build` from CMake custom targets
+(`cmake/CSharpAssembly.cmake`) under every generator, Ninja included, and the Windows CI job
+compiles them. The same projects build unchanged on Linux with the .NET SDK. The decision above
+stands on reasons 1, 2 and 4: C# scripting is still Windows-only at runtime, because the vendored
+Mono runtime library is Windows-only, not because of the build.
+
+CMake's own `CSharp` language, the Visual Studio generator path, was removed rather than kept as a
+second way to build the same assembly. The two ways had already diverged: the CMake source list
+omitted `Video.cs` and `Rendering/ShaderLibrary.cs`, and CMake's C# build wrote Windows PDBs,
+which Mono cannot read. Under the Visual Studio generator the custom targets appear as utility
+projects; to edit C# with IntelliSense, open the `.csproj` directly.

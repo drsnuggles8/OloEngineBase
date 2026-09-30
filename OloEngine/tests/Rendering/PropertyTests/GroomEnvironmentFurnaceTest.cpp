@@ -18,11 +18,10 @@
 // NORMALIZED irradiance E / pi (docs/agent-rules/lighting-signal-contract.md),
 // and the old comment took it for E.
 //
-// ALL THREE PRODUCERS: the importance-sampled convolution (the production
-// default), the L2 SH projection (EnvironmentMapComponent's
-// m_UseSphericalHarmonics) and the plain convolution (the fallback when the
-// advanced shader is missing). A groom samples whichever one the scene baked,
-// so each has to hand it the same quantity.
+// BOTH PRODUCERS: the importance-sampled convolution (the production
+// default) and the L2 SH projection (EnvironmentMapComponent's
+// m_UseSphericalHarmonics). A groom samples whichever one the scene baked, so
+// each has to hand it the same quantity.
 //
 // THE SKY'S IBL INTENSITY scales the coat's term as it scales the ladder's IBL
 // rung. The strand pass used to ignore it, so the sky slider brightened a body
@@ -80,10 +79,10 @@ namespace OloEngine::Tests
         constexpr f32 kRoughness = 0.5f;
         constexpr std::array<f32, kCoatColumns> kSinThetaO{ 0.0f, 0.3f, 0.6f, 0.85f };
 
-        // 3 %: the plain convolution integrates on a fixed 0.025 rad grid, and
-        // PbrIrradianceTest holds it to 2 % of unity for a white sky. The bug
-        // this pins is a factor of pi, so the band is two orders of magnitude
-        // tighter than the failure.
+        // 3 %: PbrIrradianceAdvancedTest holds the importance-sampled
+        // convolution to 3 % of unity for a white sky. The bug this pins is a
+        // factor of pi, so the band is two orders of magnitude tighter than the
+        // failure.
         constexpr f32 kRelativeTolerance = 3.0e-2f;
 
         // The brown fibre the probe hard-codes, from the authored side, as
@@ -119,7 +118,6 @@ namespace OloEngine::Tests
         {
             ImportanceSampled,
             SphericalHarmonics,
-            PlainConvolution,
         };
 
         [[nodiscard]] const char* ToString(Producer producer)
@@ -130,8 +128,6 @@ namespace OloEngine::Tests
                     return "importance-sampled convolution";
                 case Producer::SphericalHarmonics:
                     return "L2 SH projection";
-                case Producer::PlainConvolution:
-                    return "plain convolution";
             }
             return "?";
         }
@@ -198,10 +194,6 @@ namespace OloEngine::Tests
                     library.Load("IrradianceFromSH", "assets/shaders/IrradianceFromSH.glsl");
                     config.UseSphericalHarmonics = true;
                     (void)IBLPrecompute::GenerateIrradianceMapFromSH(sky, irradiance, library, config);
-                    break;
-                case Producer::PlainConvolution:
-                    library.Load("IrradianceConvolution", "assets/shaders/IrradianceConvolution.glsl");
-                    IBLPrecompute::GenerateIrradianceMap(sky, irradiance, library);
                     break;
             }
             return irradiance;
@@ -287,8 +279,7 @@ namespace OloEngine::Tests
         const GroomFibreParams params = ProbeParams();
         const glm::vec3 lambertian = LambertianReflectance();
 
-        for (const Producer producer :
-             { Producer::ImportanceSampled, Producer::SphericalHarmonics, Producer::PlainConvolution })
+        for (const Producer producer : { Producer::ImportanceSampled, Producer::SphericalHarmonics })
         {
             SCOPED_TRACE(ToString(producer));
             const Ref<TextureCubemap> irradiance = Bake(sky, producer);

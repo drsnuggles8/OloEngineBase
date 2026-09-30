@@ -42,6 +42,15 @@ namespace
                                    isStatic, /*dependsOnPrevious*/ false, name, originalIndex);
     }
 
+    // The frame's single captured bucket: the unnamed pass a direct-API capture
+    // (no BeginPass) records, which SourcePass() resolves to.
+    CapturedPassData& OnlyPass(CapturedFrameData& frame)
+    {
+        if (frame.Passes.IsEmpty())
+            frame.Passes.Emplace();
+        return frame.Passes[0];
+    }
+
     // A frame with three post-sort draws (two meshes + a state command) so the
     // command-list, histogram and field-mapping assertions have something to chew.
     CapturedFrameData MakeFrame()
@@ -60,14 +69,15 @@ namespace
         frame.Stats.ExecuteTimeMs = 0.678;
         frame.Stats.TotalFrameTimeMs = 1.234;
 
-        frame.PreSortCommands.Add(MakeCmd(CommandType::SetViewport, "viewport", 0, 0, 0, 0, 0, false, 0));
-        frame.PreSortCommands.Add(MakeCmd(CommandType::DrawMesh, "cube", 7, 11, 100, 1, 1, true, 1));
-        frame.PreSortCommands.Add(MakeCmd(CommandType::DrawMesh, "sphere", 7, 12, 200, 2, 2, false, 2));
+        CapturedPassData& pass = OnlyPass(frame);
+        pass.PreSortCommands.Add(MakeCmd(CommandType::SetViewport, "viewport", 0, 0, 0, 0, 0, false, 0));
+        pass.PreSortCommands.Add(MakeCmd(CommandType::DrawMesh, "cube", 7, 11, 100, 1, 1, true, 1));
+        pass.PreSortCommands.Add(MakeCmd(CommandType::DrawMesh, "sphere", 7, 12, 200, 2, 2, false, 2));
 
         // Post-sort: same commands but reordered (state first, draws sorted).
-        frame.PostSortCommands.Add(MakeCmd(CommandType::SetViewport, "viewport", 0, 0, 0, 0, 0, false, 0));
-        frame.PostSortCommands.Add(MakeCmd(CommandType::DrawMesh, "cube", 7, 11, 100, 1, 1, true, 1));
-        frame.PostSortCommands.Add(MakeCmd(CommandType::DrawMesh, "sphere", 7, 12, 200, 2, 2, false, 2));
+        pass.PostSortCommands.Add(MakeCmd(CommandType::SetViewport, "viewport", 0, 0, 0, 0, 0, false, 0));
+        pass.PostSortCommands.Add(MakeCmd(CommandType::DrawMesh, "cube", 7, 11, 100, 1, 1, true, 1));
+        pass.PostSortCommands.Add(MakeCmd(CommandType::DrawMesh, "sphere", 7, 12, 200, 2, 2, false, 2));
         return frame;
     }
 } // namespace
@@ -97,6 +107,8 @@ TEST(McpFrameBreakdown, EmptyFrameProducesValidShape)
     EXPECT_TRUE(j["commandTypeHistogram"].is_object());
     EXPECT_TRUE(j.contains("stats"));
     EXPECT_TRUE(j.contains("stageCounts"));
+    EXPECT_TRUE(j["passBreakdowns"].is_array());
+    EXPECT_TRUE(j["passBreakdowns"].empty());
 }
 
 TEST(McpFrameBreakdown, PostSortCommandsAreListedInStageOrder)
@@ -150,7 +162,7 @@ TEST(McpFrameBreakdown, GpuTimeIsReportedRounded)
     CapturedFrameData frame;
     CapturedCommandData cmd = MakeCmd(CommandType::DrawMesh, "timed", 1, 1, 0, 0, 0, false, 0);
     cmd.SetGpuTimeMs(0.123456);
-    frame.PostSortCommands.Add(std::move(cmd));
+    OnlyPass(frame).PostSortCommands.Add(std::move(cmd));
 
     const Json j = BuildBreakdown(frame, ViewMode::PostSort, 200);
     EXPECT_NEAR(0.1235, j["commands"][0]["gpuMs"].get<double>(), 1e-9);
@@ -159,9 +171,10 @@ TEST(McpFrameBreakdown, GpuTimeIsReportedRounded)
 TEST(McpFrameBreakdown, MaxCommandsTruncatesButReportsFullCountAndHistogram)
 {
     CapturedFrameData frame;
+    CapturedPassData& pass = OnlyPass(frame);
     for (u32 i = 0; i < 5; ++i)
-        frame.PostSortCommands.Add(MakeCmd(CommandType::DrawMesh, "m", 1, i, i, i, i, false, i));
-    frame.PostSortCommands.Add(MakeCmd(CommandType::SetViewport, "vp", 0, 0, 0, 5, 5, false, 5));
+        pass.PostSortCommands.Add(MakeCmd(CommandType::DrawMesh, "m", 1, i, i, i, i, false, i));
+    pass.PostSortCommands.Add(MakeCmd(CommandType::SetViewport, "vp", 0, 0, 0, 5, 5, false, 5));
 
     const Json j = BuildBreakdown(frame, ViewMode::PostSort, /*maxCommands*/ 2);
 
@@ -179,7 +192,7 @@ TEST(McpFrameBreakdown, MaxCommandsTruncatesButReportsFullCountAndHistogram)
 TEST(McpFrameBreakdown, ViewModeFallsBackToPreSortWhenLaterStagesEmpty)
 {
     CapturedFrameData frame;
-    frame.PreSortCommands.Add(MakeCmd(CommandType::DrawMesh, "only", 1, 1, 0, 0, 0, false, 0));
+    OnlyPass(frame).PreSortCommands.Add(MakeCmd(CommandType::DrawMesh, "only", 1, 1, 0, 0, 0, false, 0));
     // PostSort and PostBatch are empty.
 
     const Json jPostBatch = BuildBreakdown(frame, ViewMode::PostBatch, 200);
@@ -275,8 +288,7 @@ TEST(McpFrameBreakdown, GraphAttributionEnumeratesPassesAndFlagsCaptureSource)
     // culled. commandBucketPassCount counts only command-bucket passes that RAN
     // (non-culled) -> Scene + Water + ForwardOverlay = 3.
     EXPECT_EQ(3u, g["commandBucketPassCount"].get<u32>());
-    // This frame has no per-pass captures (legacy single-pass MakeFrame), so the
-    // captured count falls back to the source-pass-only count of 1.
+    // MakeFrame captured one (unnamed) pass.
     EXPECT_EQ(1u, g["capturedPassCount"].get<u32>());
 
     const Json& passes = g["passes"];
@@ -351,7 +363,7 @@ namespace
 
     // A multi-pass captured frame: the scene pass (also the source, with a batched
     // post-batch stage) plus the four secondary command-bucket passes, each with
-    // its own commands. The top-level lists mirror the scene/source pass.
+    // its own commands.
     CapturedFrameData MakeMultiPassFrame()
     {
         CapturedFrameData frame;
@@ -366,11 +378,6 @@ namespace
         frame.Passes.Add(MakePassEntry("WaterRenderPass", { "waterA", "waterB" }));
         frame.Passes.Add(MakePassEntry("DecalRenderPass", { "decal" }));
         frame.Passes.Add(MakePassEntry("ForwardOverlayPass", { "skybox", "grid" }));
-
-        // Top-level (legacy) view = the source/scene pass's lists.
-        frame.PreSortCommands = frame.Passes[0].PreSortCommands;
-        frame.PostSortCommands = frame.Passes[0].PostSortCommands;
-        frame.PostBatchCommands = frame.Passes[0].PostBatchCommands;
         return frame;
     }
 
@@ -432,6 +439,20 @@ TEST(McpFrameBreakdown, PerPassBreakdownListsEveryCapturedPassWithCommands)
     EXPECT_EQ(3u, j["commandCount"].get<sizet>());
 }
 
+TEST(McpFrameBreakdown, TopLevelViewIsTheNamedSourcePassNotTheFirstPass)
+{
+    // The top-level bucket is looked up by SourcePassName, not by position.
+    CapturedFrameData frame = MakeMultiPassFrame();
+    frame.SourcePassName = "WaterRenderPass";
+
+    const Json j = BuildBreakdown(frame, ViewMode::PostSort, 200);
+    EXPECT_EQ("WaterRenderPass", j["sourcePass"].get<std::string>());
+    EXPECT_EQ(2u, j["commandCount"].get<sizet>());
+    EXPECT_EQ("waterA", j["commands"][0]["debugName"].get<std::string>());
+    EXPECT_TRUE(j["passBreakdowns"][2]["isCaptureSource"].get<bool>());
+    EXPECT_FALSE(j["passBreakdowns"][0]["isCaptureSource"].get<bool>());
+}
+
 TEST(McpFrameBreakdown, CapturedPassCountEqualsCommandBucketPassCountForFullFrame)
 {
     const CapturedFrameData frame = MakeMultiPassFrame();
@@ -471,8 +492,6 @@ TEST(McpFrameBreakdown, CulledCommandBucketPassIsExcludedFromRunningCount)
     frame.SourcePassName = "SceneRenderPass";
     frame.Passes.Add(MakePassEntry("SceneRenderPass", { "cube" }));
     frame.Passes.Add(MakePassEntry("WaterRenderPass", { "waterA" }));
-    frame.PreSortCommands = frame.Passes[0].PreSortCommands;
-    frame.PostSortCommands = frame.Passes[0].PostSortCommands;
 
     GraphAttribution attr;
     attr.CaptureSourcePass = "SceneRenderPass";

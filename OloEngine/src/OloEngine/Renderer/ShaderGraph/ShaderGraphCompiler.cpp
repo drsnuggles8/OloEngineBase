@@ -434,25 +434,19 @@ layout(std140, binding = 0) uniform CameraMatrices
     vec4 u_CameraPosition;
 };
 
-layout(std140, binding = 3) uniform ModelMatrices
-{
-    mat4 u_Model;
-    mat4 u_Normal;
-    int u_EntityID;
-    float _pad0;
-    float _pad1;
-    float _pad2;
-};
-
+)" + std::string(ShaderBindingLayout::GetInstanceSSBOLayout()) +
+               R"(
 layout(location = 0) out vec3 v_WorldPosition;
 layout(location = 1) out vec3 v_Normal;
 layout(location = 2) out vec2 v_TexCoord;
+layout(location = 14) flat out int v_InstanceIndex;
 
 void main()
 {
-    vec4 worldPos = u_Model * vec4(a_Position, 1.0);
+    v_InstanceIndex = gl_InstanceIndex;
+    vec4 worldPos = instances[gl_InstanceIndex].Transform * vec4(a_Position, 1.0);
     v_WorldPosition = worldPos.xyz;
-    v_Normal = normalize(mat3(u_Normal) * a_Normal);
+    v_Normal = normalize(mat3(instances[gl_InstanceIndex].Normal) * a_Normal);
     v_TexCoord = a_TexCoord;
     gl_Position = u_ViewProjection * worldPos;
 }
@@ -493,16 +487,9 @@ void main()
         frag << "    vec4 u_CameraPosition;\n";
         frag << "};\n\n";
 
-        // Model UBO (for entity ID)
-        frag << "layout(std140, binding = 3) uniform ModelMatrices\n";
-        frag << "{\n";
-        frag << "    mat4 u_Model;\n";
-        frag << "    mat4 u_Normal;\n";
-        frag << "    int u_EntityID;\n";
-        frag << "    float _pad0;\n";
-        frag << "    float _pad1;\n";
-        frag << "    float _pad2;\n";
-        frag << "};\n\n";
+        // Per-draw instance data (for the entity ID), indexed by the vertex stage's instance
+        frag << ShaderBindingLayout::GetInstanceSSBOLayout() << "\n";
+        frag << "layout(location = 14) flat in int v_InstanceIndex;\n\n";
 
         // Collect and emit user parameter uniforms
         // Use a UBO for non-opaque uniforms, standalone binding for samplers
@@ -649,7 +636,7 @@ void main()
             frag << "\n";
             frag << "    // Output color (engine lighting pass will apply full PBR)\n";
             frag << "    o_Color = vec4(sg_albedo * sg_ao + sg_emissive, sg_alpha);\n";
-            frag << "    o_EntityID = u_EntityID;\n";
+            frag << "    o_EntityID = instances[v_InstanceIndex].EntityID;\n";
             frag << "    vec3 viewNormal = normalize(mat3(u_View) * sg_normal);\n";
             frag << "    o_ViewNormal = octEncode(viewNormal);\n";
         }

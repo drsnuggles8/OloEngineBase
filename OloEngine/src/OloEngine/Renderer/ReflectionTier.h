@@ -19,9 +19,13 @@ namespace OloEngine
     // bottom-up as an ordered "over", with the bottom tier pinned at confidence
     // 1, which makes the weights telescope to EXACTLY one.
     //
-    // That identity is the whole no-double-count guarantee, and it is what
-    // ReflectionTierContractTest asserts — for arbitrary confidence vectors, not
-    // for a hand-picked scene.
+    // That identity makes the tiers' estimates of the lobe radiance R a convex
+    // combination; ReflectionTierContractTest asserts it for arbitrary
+    // confidence vectors. It is a no-double-count guarantee only because each
+    // tier applies it to the indirect specular term S = W * R and hands S on
+    // (ComposeSpecularTier below, ADR 0020 §1a). Applied to the whole colour,
+    // as before #1325, the same identity held while diffuse, emission and
+    // direct light were scaled by 1 - c.
     // =========================================================================
 
     // The tiers, ordered best-informed first. The numbering is the ORDER: a
@@ -192,9 +196,9 @@ namespace OloEngine
     }
 
     // What the ray-query tier did this frame. Counted rather than commented,
-    // because both of the first slice's quality limits are invisible in a still
-    // frame and would otherwise be discovered by a reviewer instead of reported
-    // by the engine.
+    // because the tier's remaining quality limit is invisible in a still frame
+    // and would otherwise be discovered by a reviewer instead of reported by
+    // the engine.
     struct ReflectionTierStats
     {
         bool RayQueryTierActive = false;
@@ -206,9 +210,9 @@ namespace OloEngine
         // the shader has no way to report back how many did.
         u64 ReflectionRaysDispatchedUpperBound = 0;
 
-        // #805: hits are shaded from untextured material factors. Non-zero
-        // whenever the tier ran at all, because every hit in this slice is
-        // untextured — it is a standing limitation, not an occasional one.
+        // Hits are shaded from untextured material factors. True whenever the
+        // tier ran at all, because every hit is untextured — a standing
+        // limitation, not an occasional one. Textured hit shading is #1355.
         bool HitsShadedUntextured = false;
         // No MaskedGeometryReflectsAsSolid here (#1337). It was declared, never
         // written, and no longer true: the tier requires the material shader
