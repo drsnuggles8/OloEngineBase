@@ -466,7 +466,7 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view PathTracerNormal = "PathTracerNormal";
     inline constexpr std::string_view PathTracerVariance = "PathTracerVariance";
     inline constexpr std::string_view SSRSignal = "SSRSignal";                                       // Raw stochastic reflection delta, rgb = (reflection - base) * blend, a = view depth (SSR draw A output, issue #902)
-    inline constexpr std::string_view SSRGuide = "SSRGuide";                                         // Surface plane, rg = oct world normal, b = roughness, a = AO (SSRSignal attachment 1, issue #708)
+    inline constexpr std::string_view SSRGuide = "SSRGuide";                                         // Surface plane, rg = oct world normal, b = roughness, a = SSR confidence (#1057) or, under the ReflectionHitDistance tap, hit distance (#1526) (SSRSignal attachment 1, issue #708)
     inline constexpr std::string_view SSRPreBlurred = "SSRPreBlurred";                               // Roughness-scaled pre-blur of the raw reflection delta (issue #708 stage 2)
     inline constexpr std::string_view SSRResolved = "SSRResolved";                                   // Temporally-resolved SSR signal (SSR draw B output; the SSRHistory source)
     inline constexpr std::string_view SSRDenoised = "SSRDenoised";                                   // Roughness-scaled post-blur of the resolved delta (issue #708 stage 4)

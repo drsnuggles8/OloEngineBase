@@ -179,6 +179,32 @@ namespace OloEngine::Benchmark
             result.Error = "texture has no storage: " + spec.Source;
             return result;
         }
+        result.TextureWidth = width;
+        result.TextureHeight = height;
+
+        // A dynamic render scale keeps every display-sized target at display
+        // size and draws the frame into its [0, render) corner, on both backends
+        // (GL's bottom-left origin and Vulkan's top-left one are both texel
+        // (0, 0)). Reading the whole texture would capture the dead margin with
+        // the right buffer size and no error (notes-renderer.md section 1.4), so
+        // read the rendered rectangle. A target that is not display-sized (a
+        // shadow map, an upscaler's reduced scene band, a half-resolution
+        // buffer) is not in that contract and is read whole (#1526).
+        if (graph->GetRenderScale() < 1.0f && width == graph->GetPhysicalWidth() &&
+            height == graph->GetPhysicalHeight())
+        {
+            // The parser refuses a Deferred manifest that pins the path; this
+            // catches one that leaves the path to the scene or the host (#1537).
+            if (Renderer3D::GetRendererSettings().Path == RenderingPath::Deferred)
+            {
+                result.Error = "a dynamic render scale below 1.0 is not honoured on the Deferred path (#1537): " +
+                               spec.Source;
+                return result;
+            }
+            width = std::max(1u, graph->GetRenderWidth());
+            height = std::max(1u, graph->GetRenderHeight());
+            result.CroppedToRenderRegion = true;
+        }
 
         // A DEPTH source must name a DEPTH destination (GL: only depth
         // destinations lower to GL_DEPTH_COMPONENT; Vulkan: the identity fast
@@ -429,6 +455,7 @@ namespace OloEngine::Benchmark
         {
             postProcess.GpuPathTracer.SamplesPerFrame = *wanted.GpuPathTracerSamplesPerFrame;
         }
+        postProcess.LightingDebugTap = wanted.LightingDebugTap.value_or(LightingTap::None);
         postProcess.Upscale = wanted.Upscale.value_or(UpscaleMode::Off);
         postProcess.Technique = wanted.UpscaleTechnique.value_or(UpscalerTechnique::Spatial);
 
@@ -566,6 +593,7 @@ namespace OloEngine::Benchmark
         applied.Upscale = Renderer3D::GetPostProcessSettings().Upscale;
         applied.Technique = Renderer3D::GetPostProcessSettings().Technique;
         applied.RayTracedShadowsRequested = Renderer3D::GetShadowMap().GetSettings().Technique == ShadowTechnique::RayTraced;
+        applied.LightingDebugTap = Renderer3D::GetPostProcessSettings().LightingDebugTap;
         return applied;
     }
 
@@ -669,15 +697,39 @@ namespace OloEngine::Benchmark
         // The live graph is the only thing that knows the render scale actually
         // in force; the manifest carries the request, which is not the same
         // number once anything has touched the scale.
-        if (const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph())
+        const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
+        if (!graph)
         {
-            record.RenderWidth = graph->GetRenderWidth();
-            record.RenderHeight = graph->GetRenderHeight();
-            record.DisplayWidth = graph->GetPhysicalWidth();
-            record.DisplayHeight = graph->GetPhysicalHeight();
-            record.RenderScale = graph->GetRenderScale();
-            record.Measured = true;
+            return record;
         }
+        record.DisplayWidth = graph->GetPhysicalWidth();
+        record.DisplayHeight = graph->GetPhysicalHeight();
+        record.RenderScale = graph->GetRenderScale();
+        record.RenderWidth = graph->GetRenderWidth();
+        record.RenderHeight = graph->GetRenderHeight();
+
+        // An upscaler's reduction is an allocation, not a viewport: the scene
+        // band's colour target IS the internal size. Read it rather than
+        // recompute it from the preset, so a band that never resized reads as
+        // native instead of as the scale that was asked for.
+        const auto& upscale = Renderer3D::GetUpscaleResolution();
+        record.UpscalerLatched = upscale.Latched;
+        record.Upscaler = upscale.Result;
+        record.UpscalerRenderScale = UpscaleModeToRenderScale(upscale.Mode);
+        bool depthFromFramebuffer = false;
+        if (const RHI::ResourceHandle sceneColor = ResolveTargetHandle(ResourceNames::SceneColor, depthFromFramebuffer);
+            sceneColor.IsValid())
+        {
+            u32 bandWidth = 0;
+            u32 bandHeight = 0;
+            RenderCommand::GetTextureDimensions(sceneColor, 0, bandWidth, bandHeight);
+            if (bandWidth > 0u && bandHeight > 0u)
+            {
+                record.RenderWidth = std::min(record.RenderWidth, bandWidth);
+                record.RenderHeight = std::min(record.RenderHeight, bandHeight);
+            }
+        }
+        record.Measured = true;
         return record;
     }
 
@@ -778,11 +830,31 @@ namespace OloEngine::Benchmark
                            { "requested", { { "width", manifest.Width }, { "height", manifest.Height }, { "renderScale", manifest.RenderScale } } } };
         if (runInfo.Resolution.Measured)
         {
-            json["output"]["actual"] = { { "renderWidth", runInfo.Resolution.RenderWidth },
-                                         { "renderHeight", runInfo.Resolution.RenderHeight },
-                                         { "displayWidth", runInfo.Resolution.DisplayWidth },
-                                         { "displayHeight", runInfo.Resolution.DisplayHeight },
-                                         { "renderScale", runInfo.Resolution.RenderScale } };
+            const auto& resolution = runInfo.Resolution;
+            // Which mechanism made the internal size differ from the display
+            // size (#1526): the two need different readings of the AOVs.
+            const char* internalSource = resolution.RenderScale < 1.0f ? "dynamic-render-scale"
+                                         : resolution.Upscaler.Resolved != TemporalUpscalePolicy::ResolvedUpscaler::Native
+                                             ? "upscaler-scene-band"
+                                             : "native";
+            json["output"]["actual"] = { { "renderWidth", resolution.RenderWidth },
+                                         { "renderHeight", resolution.RenderHeight },
+                                         { "displayWidth", resolution.DisplayWidth },
+                                         { "displayHeight", resolution.DisplayHeight },
+                                         { "renderScale", resolution.RenderScale },
+                                         { "internalSource", internalSource },
+                                         { "upscalerRenderScale", resolution.UpscalerRenderScale } };
+            if (resolution.UpscalerLatched)
+            {
+                json["output"]["actual"]["upscaler"] = { { "resolved", TemporalUpscalePolicy::ToToken(resolution.Upscaler.Resolved) },
+                                                         { "fallback", TemporalUpscalePolicy::ToToken(resolution.Upscaler.Fallback) } };
+            }
+            else
+            {
+                // No frame resolved the upscaler: say so rather than write the
+                // default-constructed "native", which would read as a result.
+                json["output"]["actual"]["upscaler"] = nullptr;
+            }
         }
         else
         {
@@ -872,6 +944,9 @@ namespace OloEngine::Benchmark
                     a["file"] = (cameraSets.size() > 1 ? set.CameraId.ToStdString() + "/" : "") + attachment.FileName.ToStdString();
                     a["width"] = attachment.Width;
                     a["height"] = attachment.Height;
+                    a["textureWidth"] = attachment.TextureWidth;
+                    a["textureHeight"] = attachment.TextureHeight;
+                    a["croppedToRenderRegion"] = attachment.CroppedToRenderRegion;
                     a["sourceFormat"] = attachment.FormatName.ToStdString();
                     a["isDepth"] = attachment.IsDepth;
                     a["normalized"] = attachment.Normalized;
@@ -991,8 +1066,8 @@ namespace OloEngine::Benchmark
             return "Unknown";
         };
         json["configuration"] = {
-            { "requested", { { "path", manifest.RendererSettings.Path ? pathName(*manifest.RendererSettings.Path) : "unfixed" }, { "msaaSamples", manifest.RendererSettings.MSAASampleCount.value_or(1u) }, { "upscaleMode", static_cast<i32>(manifest.RendererSettings.Upscale.value_or(UpscaleMode::Off)) }, { "upscaleTechnique", static_cast<i32>(manifest.RendererSettings.UpscaleTechnique.value_or(UpscalerTechnique::Spatial)) }, { "rayTracedShadows", manifest.RendererSettings.RayTracedShadowsEnabled.value_or(false) } } },
-            { "selectedSettings", { { "path", pathName(runInfo.Configuration.Path) }, { "msaaSamples", runInfo.Configuration.MSAASampleCount }, { "upscaleMode", static_cast<i32>(runInfo.Configuration.Upscale) }, { "upscaleTechnique", static_cast<i32>(runInfo.Configuration.Technique) }, { "rayTracedShadowsRequested", runInfo.Configuration.RayTracedShadowsRequested } } },
+            { "requested", { { "path", manifest.RendererSettings.Path ? pathName(*manifest.RendererSettings.Path) : "unfixed" }, { "msaaSamples", manifest.RendererSettings.MSAASampleCount.value_or(1u) }, { "upscaleMode", static_cast<i32>(manifest.RendererSettings.Upscale.value_or(UpscaleMode::Off)) }, { "upscaleTechnique", static_cast<i32>(manifest.RendererSettings.UpscaleTechnique.value_or(UpscalerTechnique::Spatial)) }, { "rayTracedShadows", manifest.RendererSettings.RayTracedShadowsEnabled.value_or(false) }, { "lightingTap", ToToken(manifest.RendererSettings.LightingDebugTap.value_or(LightingTap::None)) } } },
+            { "selectedSettings", { { "path", pathName(runInfo.Configuration.Path) }, { "msaaSamples", runInfo.Configuration.MSAASampleCount }, { "upscaleMode", static_cast<i32>(runInfo.Configuration.Upscale) }, { "upscaleTechnique", static_cast<i32>(runInfo.Configuration.Technique) }, { "rayTracedShadowsRequested", runInfo.Configuration.RayTracedShadowsRequested }, { "lightingTap", ToToken(runInfo.Configuration.LightingDebugTap) } } },
             { "production", "unknown without pass and counter evidence" },
             { "consumption", "unknown without downstream evidence" }
         };

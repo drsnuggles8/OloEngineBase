@@ -22,7 +22,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
     // collision; the previous-frame VP is unused in the deferred lit pass.
     mat4 _camPrevViewProjectionPad;
     vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
-    float _padding1;
+    float u_LightingTap; // the selected lighting tap (issue #1526, include/CameraCommon.glsl)
 };
 
 layout(std140, binding = 5) uniform MultiLightBuffer {
@@ -245,7 +245,7 @@ void main()
         vec3 emissiveSum = vec3(0.0);
         for (int s = 0; s < sampleCount; ++s)
             emissiveSum += texelFetch(u_GBufferEmissive, pixel, s).rgb;
-        o_Color = vec4(emissiveSum / float(sampleCount), 1.0);
+        o_Color = vec4(oloLightingTapPassThrough(emissiveSum / float(sampleCount), u_LightingTap), 1.0);
         // All sky. No surface, so no subsurface transport -- but the target
         // still has to be WRITTEN: an MRT output left alone is undefined.
         o_SkinDiffuse = vec4(0.0);
@@ -300,7 +300,7 @@ void main()
         vec3 emissiveSample = texelFetch(u_GBufferEmissive, pixel, s).rgb;
         if (depth >= 0.999999)
         {
-            accum += emissiveSample;
+            accum += oloLightingTapPassThrough(emissiveSample, u_LightingTap);
             continue;
         }
 

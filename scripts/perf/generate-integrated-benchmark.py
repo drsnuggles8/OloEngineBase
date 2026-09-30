@@ -164,12 +164,26 @@ def main() -> None:
         if path == "Deferred" and not rt:
             variants.append(("msaa4", {"MSAASampleCount": 4}))
         variants.append(("upscale-quality", {"Upscale": "Quality", "UpscaleTechnique": "Spatial"}))
+        # The other two sub-scale techniques (#1526): FSR2 at the same preset
+        # (Vulkan resolves it to FSR1 and records the fallback), and a plain
+        # dynamic render scale with no upscaler, read back as its rendered
+        # corner. Raster paths only; the hybrid preset keeps its one variation,
+        # and Deferred has no render-scale variation because the Deferred chain
+        # does not honour a dynamic scale yet (#1537; the parser refuses it).
+        output_overrides = {}
+        if not rt:
+            variants.append(("upscale-quality-fsr2", {"Upscale": "Quality", "UpscaleTechnique": "Temporal"}))
+            if path != "Deferred":
+                variants.append(("renderscale-67", {}))
+                output_overrides["renderscale-67"] = {"RenderScale": 0.667}
         for suffix, settings in variants:
             variant = dict(manifest)
             variant["Id"] = manifest["Id"] + "-" + suffix
             variant["Description"] = (manifest["Description"] + " Diagnostic variation of the named native preset; "
                                       "the settings override is measured separately from production budgets.")
             variant["RendererSettings"] = {**manifest["RendererSettings"], **settings}
+            if suffix in output_overrides:
+                variant["Output"] = {**manifest["Output"], **output_overrides[suffix]}
             variant_path = manifests / f"{destination.stem}-{suffix}.yaml"
             variant_path.write_text(yaml.safe_dump(variant, sort_keys=False, allow_unicode=True),
                                     encoding="utf-8", newline="\n")

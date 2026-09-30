@@ -539,15 +539,16 @@ namespace OloEngine::Benchmark
         {
             errors.Add("Output.Resolution must be within [64, 8192] per axis");
         }
-        // The capture readback reads whole textures; a render scale below 1.0
-        // renders into a sub-viewport of those textures and would silently
-        // capture the dead margin (docs/agent-rules/notes-renderer.md §4).
-        // The isfinite check is load-bearing: NaN makes the epsilon compare
-        // FALSE, which would pass a corrupt manifest straight through the
-        // "must be 1.0" gate into Renderer3D::SetRenderScale.
-        if (!std::isfinite(manifest.RenderScale) || std::abs(manifest.RenderScale - 1.0f) > 1e-6f)
+        // Output.RenderScale is the DYNAMIC render scale: every target stays at
+        // display size and the frame is drawn into its [0, render) corner, which
+        // the capture reads back as that rectangle (#1526). The render graph
+        // clamps to [0.25, 1.0]; a value it would clamp is refused here instead,
+        // so the manifest cannot name a scale the capture did not run. The
+        // isfinite check is load-bearing: NaN fails both comparisons, which
+        // would pass a corrupt manifest through into Renderer3D::SetRenderScale.
+        if (!std::isfinite(manifest.RenderScale) || manifest.RenderScale < 0.25f || manifest.RenderScale > 1.0f)
         {
-            errors.Add("Output.RenderScale must be a finite 1.0 (sub-scale capture is not supported)");
+            errors.Add("Output.RenderScale must be a finite value in [0.25, 1.0]");
         }
 
         if (const auto rs = root["RendererSettings"]; rs)
@@ -556,7 +557,7 @@ namespace OloEngine::Benchmark
                              { "Path", "EnableDDGI", "DepthPrepassEnabled", "OcclusionCullingEnabled",
                                "HZBOcclusionCullingEnabled", "TAAEnabled", "GpuPathTracerEnabled",
                                "GpuPathTracerSamplesPerFrame", "RayTracedShadowsEnabled",
-                               "MSAASampleCount", "Upscale", "UpscaleTechnique" },
+                               "MSAASampleCount", "Upscale", "UpscaleTechnique", "LightingTap" },
                              "RendererSettings", errors);
             if (rs["Path"])
             {
@@ -637,6 +638,17 @@ namespace OloEngine::Benchmark
                 else
                     errors.Add("RendererSettings.UpscaleTechnique must be Spatial | Temporal");
             }
+            if (rs["LightingTap"])
+            {
+                const auto tap = rs["LightingTap"].as<std::string>("");
+                const std::optional<LightingTap> parsed = ParseLightingTapToken(tap);
+                if (parsed)
+                    manifest.RendererSettings.LightingDebugTap = *parsed;
+                else
+                    errors.Add("RendererSettings.LightingTap must be None | DirectDiffuse | DirectSpecular | "
+                               "IndirectDiffuse | IndirectSpecular | Remainder | ShadowVisibility | "
+                               "ReflectionHitDistance");
+            }
             if (rs["GpuPathTracerEnabled"])
             {
                 // Decoded explicitly: `as<bool>(false)` would turn a typo
@@ -666,6 +678,26 @@ namespace OloEngine::Benchmark
                     manifest.RendererSettings.GpuPathTracerSamplesPerFrame = static_cast<u32>(samples);
                 }
             }
+        }
+
+        // An UpscaleMode already renders the scene band at its preset's scale and
+        // reconstructs display resolution; a dynamic scale on top would shrink
+        // the band's viewport a second time into a corner the upscaler does not
+        // read as its input. Name the internal scale once: through Upscale for
+        // an upscaled capture, through Output.RenderScale for a plain one.
+        if (manifest.RenderScale < 1.0f &&
+            manifest.RendererSettings.Upscale.value_or(UpscaleMode::Off) != UpscaleMode::Off)
+        {
+            errors.Add("Output.RenderScale below 1.0 cannot be combined with RendererSettings.Upscale: the upscale "
+                       "preset sets the internal scale (leave RenderScale at 1.0)");
+        }
+        // The Deferred chain does not honour a dynamic scale yet (#1537): the
+        // G-Buffer is written full-size and the screen-space passes read [0, 1].
+        // A capture would record a full-size frame as a reduced one.
+        if (manifest.RenderScale < 1.0f && manifest.RendererSettings.Path == RenderingPath::Deferred)
+        {
+            errors.Add("Output.RenderScale below 1.0 is not supported on the Deferred path (#1537); use "
+                       "RendererSettings.Upscale for a sub-scale Deferred capture");
         }
 
         if (const auto exposure = root["Exposure"]; exposure)

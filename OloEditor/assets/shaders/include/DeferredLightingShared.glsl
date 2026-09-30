@@ -727,6 +727,9 @@ vec3 ComputeDeferredLitSplit(
                                                          snowWeight);
 #endif
 
+        // The primary sun's full visibility, for the lighting tap (#1526).
+        if (i == 0 && lightType == DIRECTIONAL_LIGHT)
+            oloRecordLightingTapShadow(lightVisibility);
         Lo = oloSurfaceLightingAdd(Lo, oloSurfaceLightingScale(lightContrib, vec3(lightVisibility)));
 
         // The TRANSMITTED lobe, gated by the SAME visibility the reflected lobe
@@ -1000,6 +1003,10 @@ vec3 ComputeDeferredLitSplit(
     // #1234's fourth criterion — inspect transmission separately — with nowhere
     // to look.
     vec3 color = oloComposeSurfaceRadiance(lighting, unsplitDirect + unsplitIndirect, transmitted, emissive);
+    // A debug lighting tap (issue #1526) replaces the composed radiance here,
+    // per sample on the MSAA path, before the debug tints below. The identity
+    // when none is selected.
+    color = oloLightingTapOutput(color, u_LightingTap);
 
     if (cascadeDebug && u_DirectionalShadowEnabled != 0)
         color = ApplyCascadeDebug(color, worldPos);

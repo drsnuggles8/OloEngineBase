@@ -874,34 +874,12 @@ namespace OloEngine::MCP::RendererSettings
 
     [[nodiscard]] inline std::string_view ResolvedToken(TemporalUpscalePolicy::ResolvedUpscaler resolved)
     {
-        switch (resolved)
-        {
-            case TemporalUpscalePolicy::ResolvedUpscaler::Native:
-                return "native";
-            case TemporalUpscalePolicy::ResolvedUpscaler::Spatial:
-                return "spatial";
-            case TemporalUpscalePolicy::ResolvedUpscaler::Temporal:
-                return "temporal";
-        }
-        return "unknown";
+        return TemporalUpscalePolicy::ToToken(resolved);
     }
 
     [[nodiscard]] inline std::string_view FallbackToken(TemporalUpscalePolicy::TemporalFallback fallback)
     {
-        switch (fallback)
-        {
-            case TemporalUpscalePolicy::TemporalFallback::None:
-                return "none";
-            case TemporalUpscalePolicy::TemporalFallback::MSAAResolved:
-                return "msaaResolved";
-            case TemporalUpscalePolicy::TemporalFallback::BackendNotOpenGL:
-                return "backendNotOpenGL";
-            case TemporalUpscalePolicy::TemporalFallback::UpscalerUnavailable:
-                return "upscalerUnavailable";
-            case TemporalUpscalePolicy::TemporalFallback::SceneNotSized:
-                return "sceneNotSized";
-        }
-        return "unknown";
+        return TemporalUpscalePolicy::ToToken(fallback);
     }
 
     // The 'upscaler' block. `requested` is the live setting pair; `resolved` is

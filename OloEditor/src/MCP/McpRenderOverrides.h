@@ -290,6 +290,16 @@ namespace OloEngine::MCP::RenderOverrides
         // The leaf transmission term alone (issue #1234) — the third of the
         // three separated outputs #1234's fourth criterion names.
         MaterialTransmission,
+        // The lighting taps (issue #1526): one split lighting term in place of
+        // the lit colour, on EVERY path. PostProcessSettings::LightingDebugTap,
+        // one enum for the same reason MaterialDebug is one.
+        LightDirectDiffuse,
+        LightDirectSpecular,
+        LightIndirectDiffuse,
+        LightIndirectSpecular,
+        LightRemainder,
+        ShadowVisibility,
+        ReflectionHitDistance,
     };
 
     struct DebugViewInfo
@@ -299,7 +309,7 @@ namespace OloEngine::MCP::RenderOverrides
         std::string_view Description;
     };
 
-    inline constexpr std::array<DebugViewInfo, 14> kDebugViews = { {
+    inline constexpr std::array<DebugViewInfo, 21> kDebugViews = { {
         { "none", DebugView::None, "Normal composite (clear all debug views)" },
         { "ssao", DebugView::SSAO, "Raw SSAO occlusion buffer" },
         { "gtao", DebugView::GTAO, "Raw GTAO occlusion buffer" },
@@ -322,6 +332,21 @@ namespace OloEngine::MCP::RenderOverrides
           "Per-pixel skin scattering mask, unitless 0..1 greyscale (Deferred path only)" },
         { "materialtransmission", DebugView::MaterialTransmission,
           "Leaf transmission term alone, linear HDR radiance Rec.709; black off foliage (Deferred path only)" },
+        { "lightdirectdiffuse", DebugView::LightDirectDiffuse,
+          "Lighting tap: direct diffuse radiance, linear HDR Rec.709 (every path; SceneColor holds it)" },
+        { "lightdirectspecular", DebugView::LightDirectSpecular,
+          "Lighting tap: direct specular radiance, linear HDR Rec.709 (every path)" },
+        { "lightindirectdiffuse", DebugView::LightIndirectDiffuse,
+          "Lighting tap: indirect diffuse radiance (ambient rung x visibility + traced GI), linear HDR (every path)" },
+        { "lightindirectspecular", DebugView::LightIndirectSpecular,
+          "Lighting tap: indirect specular radiance (ambient rung x visibility), linear HDR (every path)" },
+        { "lightremainder", DebugView::LightRemainder,
+          "Lighting tap: the terms outside the split (ReSTIR DI/PT, transmission, emission), linear HDR" },
+        { "shadowvisibility", DebugView::ShadowVisibility,
+          "Lighting tap: the primary directional light's full visibility, unitless 0..1 greyscale" },
+        { "reflectionhitdistance", DebugView::ReflectionHitDistance,
+          "SSR hit distance (view-space metres, 0 = no hit) in 'SSRGuide' alpha instead of SSR's confidence; the "
+          "viewport is unchanged (Deferred with SSR on)" },
     } };
 
     // The MaterialDebugView a DebugView token maps to. None for every other
@@ -355,9 +380,56 @@ namespace OloEngine::MCP::RenderOverrides
             case DebugView::VGClusterId:
             case DebugView::VGLod:
             case DebugView::VGOverdraw:
+            case DebugView::LightDirectDiffuse:
+            case DebugView::LightDirectSpecular:
+            case DebugView::LightIndirectDiffuse:
+            case DebugView::LightIndirectSpecular:
+            case DebugView::LightRemainder:
+            case DebugView::ShadowVisibility:
+            case DebugView::ReflectionHitDistance:
                 break;
         }
         return MaterialDebugView::None;
+    }
+
+    // The LightingTap a DebugView token maps to (issue #1526); None for every
+    // other view, so selecting any other view clears the tap. Exhaustive, with
+    // no `default:`, for the reason MaterialDebugForDebugView gives.
+    [[nodiscard]] inline constexpr LightingTap LightingTapForDebugView(DebugView view)
+    {
+        switch (view)
+        {
+            case DebugView::LightDirectDiffuse:
+                return LightingTap::DirectDiffuse;
+            case DebugView::LightDirectSpecular:
+                return LightingTap::DirectSpecular;
+            case DebugView::LightIndirectDiffuse:
+                return LightingTap::IndirectDiffuse;
+            case DebugView::LightIndirectSpecular:
+                return LightingTap::IndirectSpecular;
+            case DebugView::LightRemainder:
+                return LightingTap::Remainder;
+            case DebugView::ShadowVisibility:
+                return LightingTap::ShadowVisibility;
+            case DebugView::ReflectionHitDistance:
+                return LightingTap::ReflectionHitDistance;
+            case DebugView::None:
+            case DebugView::SSAO:
+            case DebugView::GTAO:
+            case DebugView::SSR:
+            case DebugView::SSGI:
+            case DebugView::Overdraw:
+            case DebugView::VGClusterId:
+            case DebugView::VGLod:
+            case DebugView::VGOverdraw:
+            case DebugView::MaterialDiffuse:
+            case DebugView::MaterialSpecular:
+            case DebugView::SkinProfileId:
+            case DebugView::SkinScatteringMask:
+            case DebugView::MaterialTransmission:
+                break;
+        }
+        return LightingTap::None;
     }
 
     // True for the three virtualized-geometry modes, whose state lives on the

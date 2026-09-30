@@ -267,9 +267,16 @@ void main()
 
     // Direct lighting with shadows
     vec3 Lo = vec3(0.0);
+    // The lighting tap (issue #1526). This loop sums each light COMBINED, so
+    // the tap derives the diffuse half from the split closure and the light's
+    // final visibility — only when a tap is selected; the shipping sum below is
+    // untouched either way.
+    bool lightingTapLive = int(u_LightingTap + 0.5) != OLO_LIGHTING_TAP_NONE;
+    vec3 LoDiffuse = vec3(0.0);
     for (int i = 0; i < min(u_LightCount, MAX_LIGHTS); ++i)
     {
         vec3 lightContrib = calculateLightContribution(u_Lights[i], N, V, albedo, metallic, roughness, v_WorldPos);
+        vec3 unshadowedContrib = lightContrib;
 
         int lightType = int(u_Lights[i].position.w);
         if (lightType == DIRECTIONAL_LIGHT)
@@ -351,6 +358,20 @@ void main()
             }
         }
 
+        if (lightingTapLive)
+        {
+            // Every visibility factor above scales the light uniformly, so the
+            // ratio of the shadowed sum to the unshadowed one is the visibility.
+            float unshadowed = unshadowedContrib.r + unshadowedContrib.g + unshadowedContrib.b;
+            float visibility =
+                unshadowed > 0.0 ? (lightContrib.r + lightContrib.g + lightContrib.b) / unshadowed : 1.0;
+            OloSurfaceLighting split = calculateLightContributionSplit(u_Lights[i], N, V, albedo, metallic,
+                                                                             roughness, v_WorldPos,
+                                                                             OLO_PBR_MODEL_LEGACY);
+            LoDiffuse += split.Diffuse * visibility;
+            if (i == 0 && lightType == DIRECTIONAL_LIGHT)
+                oloRecordLightingTapShadow(visibility);
+        }
         Lo += lightContrib;
     }
 
@@ -366,17 +387,22 @@ void main()
                                                        probeViewDepth);
         terrainPrefiltered = mix(terrainPrefiltered, probeSpecular.rgb, probeSpecular.a);
     }
-    vec3 ambient = oloSurfaceLightingSum(evaluateAmbientLadderSplitEx(
+    OloSurfaceLighting ambientSplit = evaluateAmbientLadderSplitEx(
         vec4(0.0), v_WorldPos, N, V, albedo, metallic, roughness, u_IrradianceMap, u_BRDFLutMap,
-        terrainPrefiltered, terrainEnableIBL, u_TerrainAmbientLadder.y > 0.5, u_TerrainAmbientLadder.z));
+        terrainPrefiltered, terrainEnableIBL, u_TerrainAmbientLadder.y > 0.5, u_TerrainAmbientLadder.z);
+    vec3 ambient = oloSurfaceLightingSum(ambientSplit);
     // AO is visibility for the AMBIENT term only (issue #1336) — see
     // Terrain_PBR.glsl, which composes the same way.
     // The material AO times the SCREEN-SPACE AO (issue #1452), on the ambient
     // term alone — the same product DeferredLighting multiplies its ambient
     // split by.
-    vec3 color = ambient * (ao * oloForwardScreenSpaceAO(gl_FragCoord.xy)) + Lo;
+    float ambientVisibility = ao * oloForwardScreenSpaceAO(gl_FragCoord.xy);
+    vec3 color = ambient * ambientVisibility + Lo;
+    if (lightingTapLive)
+        oloRecordLightingTapTerms(LoDiffuse, Lo - LoDiffuse, ambientSplit.Diffuse * ambientVisibility,
+                                  ambientSplit.Specular * ambientVisibility, vec3(0.0));
 
-    o_Color = vec4(color, 1.0);
+    o_Color = vec4(oloLightingTapOutput(color, u_LightingTap), 1.0);
     o_EntityID = instances[v_InstanceIndex].EntityID;
 
     vec3 viewNormal = normalize(mat3(u_View) * N);

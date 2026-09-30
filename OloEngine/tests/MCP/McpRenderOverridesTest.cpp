@@ -15,9 +15,11 @@
 
 #include "OloEngine/Atmosphere/Ephemeris.h"
 
+#include <array>
 #include <cmath>
 #include <limits>
 #include <string>
+#include <utility>
 
 namespace
 {
@@ -232,6 +234,31 @@ TEST(McpRenderOverrides, DebugViewModesCoversEveryModeAndDescribeMatches)
 }
 
 // ---- Misc helpers --------------------------------------------------------
+
+// #1526: every lighting tap is reachable by exactly one debug view, and every
+// other view clears it — the handler writes LightingTapForDebugView(view) into
+// the settings unconditionally, so a view mapped to the wrong tap (or two views
+// to one) would show the wrong term with nothing saying so.
+TEST(McpRenderOverrides, EveryLightingTapHasExactlyOneDebugView)
+{
+    std::array<int, std::to_underlying(OloEngine::LightingTap::Count)> reached{};
+    for (const auto& info : RO::kDebugViews)
+    {
+        const OloEngine::LightingTap tap = RO::LightingTapForDebugView(info.Id);
+        ++reached[std::to_underlying(tap)];
+        if (tap != OloEngine::LightingTap::None)
+        {
+            EXPECT_EQ(RO::MaterialDebugForDebugView(info.Id), OloEngine::MaterialDebugView::None)
+                << info.Token << " selects a lighting tap AND a material view";
+        }
+    }
+    for (u32 tap = 1; tap < std::to_underlying(OloEngine::LightingTap::Count); ++tap)
+    {
+        EXPECT_EQ(reached[tap], 1) << "lighting tap " << tap << " ("
+                                   << OloEngine::ToToken(static_cast<OloEngine::LightingTap>(tap))
+                                   << ") is reached by " << reached[tap] << " debug views";
+    }
+}
 
 TEST(McpRenderOverrides, JoinTokensProducesCommaSeparatedList)
 {

@@ -126,6 +126,41 @@ namespace OloEngine::TemporalUpscalePolicy
         return { ResolvedUpscaler::Spatial, TemporalFallback::UpscalerUnavailable };
     }
 
+    // The persisted spelling of a Resolution: the MCP 'upscaler' block and the
+    // benchmark result.json both write these, so a capture and a live readback
+    // name the same result the same way.
+    [[nodiscard]] constexpr const char* ToToken(ResolvedUpscaler resolved) noexcept
+    {
+        switch (resolved)
+        {
+            case ResolvedUpscaler::Native:
+                return "native";
+            case ResolvedUpscaler::Spatial:
+                return "spatial";
+            case ResolvedUpscaler::Temporal:
+                return "temporal";
+        }
+        return "unknown";
+    }
+
+    [[nodiscard]] constexpr const char* ToToken(TemporalFallback fallback) noexcept
+    {
+        switch (fallback)
+        {
+            case TemporalFallback::None:
+                return "none";
+            case TemporalFallback::MSAAResolved:
+                return "msaaResolved";
+            case TemporalFallback::BackendNotOpenGL:
+                return "backendNotOpenGL";
+            case TemporalFallback::UpscalerUnavailable:
+                return "upscalerUnavailable";
+            case TemporalFallback::SceneNotSized:
+                return "sceneNotSized";
+        }
+        return "unknown";
+    }
+
     // ---- What FSR2 SUPPRESSES, and why these are functions rather than two
     // ---- expressions written twice.
     //

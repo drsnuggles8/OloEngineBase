@@ -75,10 +75,16 @@ namespace OloEngine
         // Passes that MULTIPLY scene colour in place (AO apply) are not gated
         // here: a multiply cannot put signal into a view that should be black,
         // and an add can, which is how this one was found.
+        //
+        // A lighting tap (#1526) is the same case on EVERY path: the tapped
+        // scene colour holds one term, and the diffusion's add would put the
+        // skin's diffuse difference into it. This gate is also how the tap
+        // reaches the frame-graph fingerprint (SkinDiffusionEnabled is hashed).
         [[nodiscard]] bool SkinDiffusionRunsThisFrame(const SkinDiffusionSettings& settings, RenderingPath path,
-                                                      MaterialDebugView materialDebug, i32 deferredDebugChannel) noexcept
+                                                      MaterialDebugView materialDebug, i32 deferredDebugChannel,
+                                                      LightingTap lightingTap) noexcept
         {
-            if (!settings.Enabled)
+            if (!settings.Enabled || LightingTapReplacesSceneColor(lightingTap))
                 return false;
             const bool deferred = path == RenderingPath::Deferred;
             const bool isolatingAMaterialView = (materialDebug != MaterialDebugView::None) &&
@@ -1031,6 +1037,16 @@ namespace OloEngine
             // hold. ScenePass's colour half re-uploads the block once this
             // frame's AO buffer exists.
             cameraData.ScreenSpaceAOParams = glm::vec4(0.0f);
+            // The debug lighting tap (issue #1526), on the main view's block.
+            // The deferred lighting pass reads it from this upload; the forward
+            // colour passes from CommandDispatch's re-upload, which is fed the
+            // same value here.
+            const u32 lightingTap = std::to_underlying(data.PostProcess.LightingDebugTap) <
+                                            std::to_underlying(LightingTap::Count)
+                                        ? std::to_underlying(data.PostProcess.LightingDebugTap)
+                                        : 0u;
+            cameraData.LightingTap = static_cast<f32>(lightingTap);
+            CommandDispatch::SetLightingTap(lightingTap);
 
             constexpr auto expectedSize = ShaderBindingLayout::CameraUBO::GetSize();
             static_assert(sizeof(ShaderBindingLayout::CameraUBO) == expectedSize, "CameraUBO size mismatch");
@@ -1289,7 +1305,8 @@ namespace OloEngine
             SkinDiffusionSettings effective = data.SkinDiffusion;
             effective.Enabled = SkinDiffusionRunsThisFrame(data.SkinDiffusion, data.Settings.Path,
                                                            data.PostProcess.MaterialDebug,
-                                                           static_cast<i32>(data.Settings.Deferred.DebugChannel));
+                                                           static_cast<i32>(data.Settings.Deferred.DebugChannel),
+                                                           data.PostProcess.LightingDebugTap);
             PostProcessPasses.SkinDiffusion->SetSettings(effective);
             // P[1][1] and the clip planes, straight off the frame's projection.
             // Taken from the matrix rather than from a stored field of view so a
@@ -1837,7 +1854,11 @@ namespace OloEngine
                 };
                 const f32 ssrPreBlurRadius = finiteSSRRadius(data.PostProcess.SSRPreBlurRadius, 2.0f);
                 const f32 ssrPostBlurRadius = finiteSSRRadius(data.PostProcess.SSRPostBlurRadius, 3.0f);
-                ssr.DenoiseParams = glm::vec4(ssrPreBlurRadius, 0.0f, ssrPostBlurRadius, 0.0f);
+                // y: the reflection hit-distance tap (issue #1526), see SSRUBOData::Flags.
+                ssr.DenoiseParams =
+                    glm::vec4(ssrPreBlurRadius,
+                              data.PostProcess.LightingDebugTap == LightingTap::ReflectionHitDistance ? 1.0f : 0.0f,
+                              ssrPostBlurRadius, 0.0f);
                 ssr.DenoiseGuide = glm::vec4(kSSGIDenoisePlaneTolerance,
                                              kSSGIDenoiseNormalPower,
                                              kSSRDenoiseRoughnessKnee,
@@ -2982,7 +3003,8 @@ namespace OloEngine
         config.VignetteEnabled = post.VignetteEnabled;
         config.FXAAEnabled = post.FXAAEnabled;
         config.SkinDiffusionEnabled = SkinDiffusionRunsThisFrame(data.SkinDiffusion, data.Settings.Path, post.MaterialDebug,
-                                                                 static_cast<i32>(data.Settings.Deferred.DebugChannel));
+                                                                 static_cast<i32>(data.Settings.Deferred.DebugChannel),
+                                                                 post.LightingDebugTap);
         config.SelectionOutlineActive = data.EnableSelectionOutline && !data.SelectionOutlineEntityIDs.IsEmpty();
         config.OverdrawDebugView = post.OverdrawDebugView;
         config.ColorBlind = Accessibility::Get().ColorBlind;
