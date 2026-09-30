@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/ComputeShader.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -1868,8 +1869,10 @@ namespace OloEngine
         // The shadow pass usually acquires a coat first, which hid it: the coat
         // that vanished was the one that casts no shadow. Acquired here, the
         // loop's own acquire finds this frame's upload and only draws.
+        auto& gpuSubTimers = GPUPassTimerPool::GetInstance();
         if (m_GpuDeformation)
         {
+            gpuSubTimers.BeginSubPass("RootFrames");
             for (const auto& request : m_Requests)
             {
                 if (request.Groom && request.GpuRootFrames && request.BindingReject == GroomBindingRejectReason::None &&
@@ -1878,6 +1881,7 @@ namespace OloEngine
                     (void)AcquireGpuDeformedGeometry(request, CacheKey(request, true));
                 }
             }
+            gpuSubTimers.EndSubPass();
         }
 
         m_SceneFramebuffer->Bind();
@@ -2395,7 +2399,11 @@ namespace OloEngine
             RenderCommand::SetColorMask(false, false, false, false);
             RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
             context.SetDepthMask(true);
+            // Timed apart (olo_perf_pass_timings sub-passes): what the strands
+            // cost to rasterise, and what they cost to shade.
+            gpuSubTimers.BeginSubPass("StrandPrepass");
             context.DrawIndexed(entry->Array, entry->Stats.IndexCount);
+            gpuSubTimers.EndSubPass();
 
             params.ModeFrame.w = 0;
             m_ParamsUBO->SetData(&params, UBOStructures::GroomStrandParamsUBO::GetSize());
@@ -2403,7 +2411,9 @@ namespace OloEngine
             RenderCommand::SetColorMask(true, true, true, true);
             RenderCommand::SetDepthFunc(RHI::CompareOp::Equal);
             context.SetDepthMask(false);
+            gpuSubTimers.BeginSubPass("StrandShade");
             context.DrawIndexed(entry->Array, entry->Stats.IndexCount);
+            gpuSubTimers.EndSubPass();
 
             ++m_Stats.GroomsDrawn;
             m_Stats.StrandsDrawn += entry->Stats.StrandsSelected;
