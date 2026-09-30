@@ -309,7 +309,8 @@ namespace OloEngine::Tests
                 if (a != b)
                     out.push_back("layer '" + l.Name + "': " + what + " " + a + " loose vs " + b + " cooked");
             };
-            const auto yesNo = [](bool v) { return std::string(v ? "yes" : "no"); };
+            const auto yesNo = [](bool v)
+            { return std::string(v ? "yes" : "no"); };
             for (sizet i = 0; i < loose.size(); ++i)
             {
                 const LayerCensus& l = loose[i];
@@ -676,7 +677,7 @@ namespace OloEngine::Tests
                 CameraPose pose;
                 pose.Name = name;
                 pose.Eye = eye;
-                pose.Yaw = std::atan2(-toTarget.x, -toTarget.z); // EditorCamera: yaw 0 looks along -Z
+                pose.Yaw = std::atan2(-toTarget.x, -toTarget.z);  // EditorCamera: yaw 0 looks along -Z
                 pose.Pitch = std::atan2(-toTarget.y, horizontal); // positive pitch looks DOWN
                 return pose;
             };
@@ -739,9 +740,11 @@ namespace OloEngine::Tests
         // with the same broken MeshPath agree perfectly.
         const auto looseGaps = AuthoredButNotDelivered(looseCensus);
         ASSERT_TRUE(looseGaps.empty()) << "the LOOSE scene is itself downgraded:" << Join(looseGaps);
-        ASSERT_TRUE(std::ranges::any_of(looseCensus, [](const LayerCensus& c) { return c.WantsMesh; }))
+        ASSERT_TRUE(std::ranges::any_of(looseCensus, [](const LayerCensus& c)
+                                        { return c.WantsMesh; }))
             << "no layer asks for an authored mesh — item 2 would pass vacuously";
-        ASSERT_TRUE(std::ranges::any_of(looseCensus, [](const LayerCensus& c) { return c.WantsImpostor; }))
+        ASSERT_TRUE(std::ranges::any_of(looseCensus, [](const LayerCensus& c)
+                                        { return c.WantsImpostor; }))
             << "no layer asks for an impostor — item 3 would pass vacuously";
         ASSERT_TRUE(std::ranges::any_of(looseCensus, [](const LayerCensus& c)
                                         { return c.WantsLeafMap[0] && c.WantsLeafMap[1] && c.WantsLeafMap[2]; }))
@@ -881,17 +884,30 @@ namespace OloEngine::Tests
             {
                 return found.size() == 1u && found.front().find(needle) != std::string::npos;
             };
-            EXPECT_TRUE(reportsOnly(flipOne([](LayerCensus& c) { c.Placed += 1; }), "plants placed"));
-            EXPECT_TRUE(reportsOnly(flipOne([](LayerCensus& c) { c.DrawEntries += 1; }), "draw entries"));
-            EXPECT_TRUE(reportsOnly(flipOne([](LayerCensus& c) { c.Instances += 1; }), "instances submitted"));
-            EXPECT_TRUE(reportsOnly(flipOne([](LayerCensus& c) { c.DrawsMesh = !c.DrawsMesh; }), "authored mesh"));
-            EXPECT_TRUE(reportsOnly(flipOne([](LayerCensus& c) { c.DrawsWithoutAlbedo += 1; }), "without albedo"));
-            EXPECT_TRUE(reportsOnly(flipOne([](LayerCensus& c) { c.ImpostorBound = !c.ImpostorBound; }),
+            EXPECT_TRUE(reportsOnly(flipOne([](LayerCensus& c)
+                                            { c.Placed += 1; }),
+                                    "plants placed"));
+            EXPECT_TRUE(reportsOnly(flipOne([](LayerCensus& c)
+                                            { c.DrawEntries += 1; }),
+                                    "draw entries"));
+            EXPECT_TRUE(reportsOnly(flipOne([](LayerCensus& c)
+                                            { c.Instances += 1; }),
+                                    "instances submitted"));
+            EXPECT_TRUE(reportsOnly(flipOne([](LayerCensus& c)
+                                            { c.DrawsMesh = !c.DrawsMesh; }),
+                                    "authored mesh"));
+            EXPECT_TRUE(reportsOnly(flipOne([](LayerCensus& c)
+                                            { c.DrawsWithoutAlbedo += 1; }),
+                                    "without albedo"));
+            EXPECT_TRUE(reportsOnly(flipOne([](LayerCensus& c)
+                                            { c.ImpostorBound = !c.ImpostorBound; }),
                                     "impostor atlas"));
             for (sizet m = 0; m < kLeafMapNames.size(); ++m)
-                EXPECT_TRUE(reportsOnly(flipOne([m](LayerCensus& c) { c.LeafMapBound[m] = !c.LeafMapBound[m]; }),
+                EXPECT_TRUE(reportsOnly(flipOne([m](LayerCensus& c)
+                                                { c.LeafMapBound[m] = !c.LeafMapBound[m]; }),
                                         std::string(kLeafMapNames[m]) + " map"));
-            EXPECT_TRUE(reportsOnly(flipOne([](LayerCensus& c) { c.Surfaces.emplace_back("x <- y.png"); }),
+            EXPECT_TRUE(reportsOnly(flipOne([](LayerCensus& c)
+                                            { c.Surfaces.emplace_back("x <- y.png"); }),
                                     "surfaces sampled"));
         }
 
@@ -951,8 +967,8 @@ namespace OloEngine::Tests
                     GTEST_LOG_(INFO) << "no pine mesh, " << pose.Name << ": loose-vs-cooked " << drift * 100.0 << "%";
                     // Twice the pixel test's allowance: a missing mesh must be
                     // outside anything that test accepts.
-                    EXPECT_GT(drift, 2.0 * kPixelAllowance) <<"a cooked game with no pine mesh draws like the loose one at "
-                                           << pose.Name << " — the pixel check cannot see this downgrade";
+                    EXPECT_GT(drift, 2.0 * kPixelAllowance) << "a cooked game with no pine mesh draws like the loose one at "
+                                                            << pose.Name << " — the pixel check cannot see this downgrade";
                 }
             }
             m_Arms.pop_back(); // the damaged arm; `loose` stays loaded
