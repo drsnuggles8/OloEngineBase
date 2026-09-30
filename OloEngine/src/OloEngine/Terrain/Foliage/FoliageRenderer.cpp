@@ -762,6 +762,7 @@ namespace OloEngine
                 std::isfinite(layer.InteractionResponse) ? std::clamp(layer.InteractionResponse, 0.0f, 8.0f) : 1.0f;
             renderData.BaseColor = layer.BaseColor;
             renderData.AlphaCutoff = layer.AlphaCutoff;
+            renderData.CastShadows = layer.CastShadows;
 
             // LOD transitions + coverage-preserving density (issue #1237).
             // Sanitised HERE, once, for the same reason InteractionResponse
@@ -1269,7 +1270,9 @@ namespace OloEngine
         TArray<LayerDraw> draws;
         for (auto& layer : m_Layers)
         {
-            if (layer.InstanceCount == 0)
+            // A layer authored out of the shadow maps (FoliageLayer::CastShadows,
+            // #1533) still receives; it only skips this pass.
+            if (layer.InstanceCount == 0 || !layer.CastShadows)
                 continue;
 
             EnumerateLayerDraws(layer, draws);

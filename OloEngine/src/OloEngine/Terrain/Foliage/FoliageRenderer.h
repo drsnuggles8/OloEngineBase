@@ -217,6 +217,7 @@ namespace OloEngine
         f32 InteractionResponse = 1.0f;
         glm::vec3 BaseColor{ 1.0f };
         f32 AlphaCutoff = 0.5f;
+        bool CastShadows = true; // FoliageLayer::CastShadows (#1533); RenderShadows skips a layer without it
         Ref<Texture2D> AlbedoTexture;
         FString LoadedAlbedoPath; // What AlbedoTexture was opened from
 

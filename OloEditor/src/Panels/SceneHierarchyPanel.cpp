@@ -7129,6 +7129,13 @@ namespace OloEngine
                             layer.Name = nameBuf;
                         }
                         ImGui::Checkbox("Layer Enabled", &layer.Enabled);
+                        ImGui::Checkbox("Cast Shadows", &layer.CastShadows);
+                        if (ImGui::IsItemHovered())
+                        {
+                            ImGui::SetTooltip("Draw this layer into the shadow maps. It receives shadows either way,\n"
+                                              "so off only drops the plants' shadows on each other and the ground --\n"
+                                              "on a dense lawn, most of the shadow pass (#1533).");
+                        }
 
                         // Paths
                         char meshBuf[256];

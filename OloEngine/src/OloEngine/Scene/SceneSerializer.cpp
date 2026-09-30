@@ -1695,6 +1695,7 @@ namespace OloEngine
                 layer.ImpostorAtlasResolution = layerNode["ImpostorAtlasResolution"].as<u32>(layer.ImpostorAtlasResolution);
                 layer.ImpostorHemiOctahedral = layerNode["ImpostorHemiOctahedral"].as<bool>(layer.ImpostorHemiOctahedral);
                 layer.Enabled = layerNode["Enabled"].as<bool>(layer.Enabled);
+                layer.CastShadows = layerNode["CastShadows"].as<bool>(layer.CastShadows);
                 foliage.m_Layers.Add(layer);
             }
         }
@@ -5991,6 +5992,7 @@ namespace OloEngine
                     out << YAML::Key << "ImpostorAtlasResolution" << YAML::Value << layer.ImpostorAtlasResolution;
                     out << YAML::Key << "ImpostorHemiOctahedral" << YAML::Value << layer.ImpostorHemiOctahedral;
                     out << YAML::Key << "Enabled" << YAML::Value << layer.Enabled;
+                    out << YAML::Key << "CastShadows" << YAML::Value << layer.CastShadows;
                     out << YAML::EndMap;
                 }
                 out << YAML::EndSeq;

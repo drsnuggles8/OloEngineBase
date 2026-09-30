@@ -824,6 +824,17 @@ namespace OloEngine
             l.DensityLodFadeFraction = 0.15f;
             l.DensityLodMaxScale = 2.0f;
         }
+        // The shadow-caster switch (#1533), appended in save-format v40. An
+        // older save stops before it and the layer casts, as every layer did;
+        // reset rather than left alone for the reused-layer reason above.
+        if (HasFieldsSince(ar, 40))
+        {
+            ar << l.CastShadows;
+        }
+        else if (ar.IsLoading())
+        {
+            l.CastShadows = true;
+        }
         // AlbedoTexture and the leaf maps beside it (Ref<Texture2D>) are
         // runtime — the PATHS above are what round-trips.
     }

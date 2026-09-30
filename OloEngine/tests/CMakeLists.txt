@@ -1039,6 +1039,8 @@ add_executable(OloEngine-Tests
 		SaveGame/AnimationClipRequestSaveLoadTest.cpp
 		SaveGame/BoneAttachmentSaveLoadTest.cpp
 		SaveGame/FoliageInteractionSaveLoadTest.cpp
+		# #1533: FoliageLayer::CastShadows round-trips, and an older file casts.
+		SaveGame/FoliageShadowCasterSaveLoadTest.cpp
 		SaveGame/FoliageLodTransitionSaveLoadTest.cpp
 		SaveGame/DestructibleComponentSaveLoadSanitizeTest.cpp
 		SaveGame/SaveFileWorldDatabaseTest.cpp
