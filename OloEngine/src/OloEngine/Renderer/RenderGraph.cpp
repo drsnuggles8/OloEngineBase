@@ -3520,6 +3520,13 @@ namespace OloEngine
         // which a pass that only reads persistent views would otherwise never do.
         RHI::DescriptorHeap::Get().Flush();
 
+        // Out-of-band ledger (#1331): accesses from here to the end of the
+        // plan belong to the pass the executor names; a no-op when no frame
+        // is open on this graph's ledger.
+        m_FrameEpilogueFramebuffers.clear();
+        m_FrameEpilogueTextures.clear();
+        m_OutOfBandLedger.BeginGraph();
+
         m_LastExecutionTimings = RenderGraphPlanExecutor::ExecutePlan({
             .SubmissionPlan = std::span<const SubmissionCommand>(m_CachedSubmissionPlan.GetData(), static_cast<sizet>(m_CachedSubmissionPlan.Num())),
             .Context = commandContext,
@@ -3535,6 +3542,25 @@ namespace OloEngine
 
         // Third pass: fire extraction callbacks queued by passes during Execute().
         FlushExtractions();
+
+        // Resolve every declared frame-epilogue read while its backing still
+        // belongs to this frame: after ReleaseAll a pooled object is the pool's.
+        for (const FrameEpilogueRead& read : m_FrameEpilogueReads)
+        {
+            const std::string_view name = read.Resource.ToView();
+            if (const auto framebufferHandle = GetFramebufferHandle(name); framebufferHandle.IsValid())
+            {
+                if (Ref<Framebuffer> framebuffer = ResolveFramebuffer(framebufferHandle))
+                    m_FrameEpilogueFramebuffers[std::string(name)] = std::move(framebuffer);
+            }
+            else if (const auto textureHandle = GetTextureHandle(name); textureHandle.IsValid())
+            {
+                if (const RHI::ResourceHandle texture = ResolveTextureHandle(textureHandle); texture.IsValid())
+                    m_FrameEpilogueTextures[std::string(name)] = texture;
+            }
+        }
+        m_OutOfBandLedger.BeginEpilogue();
+
         m_TransientPool.ReleaseAll();
         m_TransientPool.Trim(m_TransientPoolMaxBucketSize);
 
@@ -4192,7 +4218,11 @@ namespace OloEngine
         std::vector<Frame> stack;
         stack.reserve(m_InsertionOrder.Num());
 
-        const auto visit = [this, &visited, &inProgress, &stack](std::string_view root) -> bool
+        // Read before the visitor: it also walks each node's dependencies in
+        // reverse, so a dependency subtree is not emitted in registration
+        // order either.
+        const bool reverseTieBreak = Levers::RenderGraphReverseTieBreak();
+        const auto visit = [this, &visited, &inProgress, &stack, reverseTieBreak](std::string_view root) -> bool
         {
             if (visited.contains(root))
                 return true;
@@ -4211,7 +4241,9 @@ namespace OloEngine
 
                 if (deps && frame.NextDepIdx < deps->Num())
                 {
-                    const auto& dep = (*deps)[frame.NextDepIdx++];
+                    const auto depIndex = reverseTieBreak ? deps->Num() - 1 - static_cast<i64>(frame.NextDepIdx) : static_cast<i64>(frame.NextDepIdx);
+                    ++frame.NextDepIdx;
+                    const auto& dep = (*deps)[depIndex];
                     if (inProgress.contains(dep))
                     {
                         OLO_CORE_ERROR("RenderGraph::UpdateDependencyGraph: Cycle detected in graph!");
@@ -4238,18 +4270,36 @@ namespace OloEngine
 
         // Visit all nodes in insertion order so ties are broken
         // deterministically (independent of std::unordered_map hashing).
-        for (const auto& name : m_InsertionOrder)
+        //
+        // Levers::RenderGraphReverseTieBreak visits them in REVERSE instead
+        // (#1331): still a valid topological order, but every pair of passes
+        // no edge orders now runs the other way round. A frame that changes
+        // under it depended on registration order somewhere, which is an
+        // undeclared edge.
+        const auto visitRoot = [&](const FString& name) -> bool
         {
-            if (!ContainsGraphEntry(name.ToView()))
-                continue;
-            if (!visited.contains(name))
+            if (!ContainsGraphEntry(name.ToView()) || visited.contains(name))
+                return true;
+            if (visit(name.ToView()))
+                return true;
+            OLO_CORE_ERROR("RenderGraph::UpdateDependencyGraph: Failed to build execution order!");
+            m_ExecutionOrder.Reset();
+            return false;
+        };
+        if (reverseTieBreak)
+        {
+            for (auto it = m_InsertionOrder.rbegin(); it != m_InsertionOrder.rend(); ++it)
             {
-                if (!visit(name.ToView()))
-                {
-                    OLO_CORE_ERROR("RenderGraph::UpdateDependencyGraph: Failed to build execution order!");
-                    m_ExecutionOrder.Reset();
+                if (!visitRoot(*it))
                     return false;
-                }
+            }
+        }
+        else
+        {
+            for (const auto& name : m_InsertionOrder)
+            {
+                if (!visitRoot(name))
+                    return false;
             }
         }
 
@@ -4988,6 +5038,10 @@ namespace OloEngine
             if (!contract.SourceResource.IsEmpty())
                 extractedResourceNames.Add(contract.SourceResource);
         }
+        // Frame-epilogue reads (#1331): read after Execute, so their writers
+        // are roots exactly like an extraction's.
+        for (const auto& epilogueRead : m_FrameEpilogueReads)
+            extractedResourceNames.Add(epilogueRead.Resource);
 
         TArray64<FString> sideEffectingPasses;
         for (const auto& passName : m_InsertionOrder)
@@ -5250,8 +5304,13 @@ namespace OloEngine
 
         const auto matches = [resourceName, &canonical](const auto& contract)
         { return canonical(contract.SourceResource.ToView()) == resourceName; };
+        // A frame-epilogue read (#1331) is the same case: declared before the
+        // plan, read after the last pass.
+        const auto epilogueMatches = [resourceName, &canonical](const FrameEpilogueRead& read)
+        { return canonical(read.Resource.ToView()) == resourceName; };
         return std::ranges::any_of(m_TemporalHistoryContracts, matches) ||
-               std::ranges::any_of(m_ExternalTextureSinkContracts, matches);
+               std::ranges::any_of(m_ExternalTextureSinkContracts, matches) ||
+               std::ranges::any_of(m_FrameEpilogueReads, epilogueMatches);
     }
 
     bool RenderGraph::IsResourceReachableForExtraction(std::string_view resourceName) const
@@ -5345,7 +5404,7 @@ namespace OloEngine
         }
 
         // Delegate to the extracted hazard-validator module.
-        return RenderGraphHazardValidator::Validate({
+        auto hazards = RenderGraphHazardValidator::Validate({
             .IsPassReachable = [this](std::string_view passName)
             { return IsPassReachable(passName); },
             .ResolveTexture = [this](RGTextureHandle handle)
@@ -5366,6 +5425,10 @@ namespace OloEngine
             .RegistryDiagnostics = { m_ResourceRegistryDiagnostics.GetData(), static_cast<sizet>(m_ResourceRegistryDiagnostics.Num()) },
             .RegisteredResources = { m_RegisteredResources.GetData(), static_cast<sizet>(m_RegisteredResources.Num()) },
         });
+        // Out-of-band declarations (#1331) are validated against the same
+        // order, from their own map: no physical planner sees them.
+        AppendOutOfBandDeclarationHazards(hazards);
+        return hazards;
     }
 
     void RenderGraph::EnsureResourceRegistryBuilt() const
@@ -6275,7 +6338,8 @@ namespace OloEngine
         };
 
         out << "{\n";
-        out << "  \"schemaVersion\": 17,\n";
+        // 18: the out-of-band schedule section (#1331).
+        out << "  \"schemaVersion\": 18,\n";
         out << "  \"timingVersion\": 4,\n";
         out << "  \"finalPass\": \"" << jsonEscape(m_FinalPassName.ToView()) << "\",\n";
         out << "  \"hasExplicitFinalPass\": " << (m_HasExplicitFinalPass ? "true" : "false") << ",\n";
@@ -7095,7 +7159,10 @@ namespace OloEngine
                 out << ",";
             out << "\n";
         }
-        out << "  ]\n";
+        out << "  ],\n";
+        // The out-of-band schedule (#1331), the same document
+        // olo_render_graph_schedule returns.
+        out << "  \"outOfBandSchedule\": " << ExportOutOfBandScheduleJson() << "\n";
         out << "}\n";
         out.close();
 
@@ -7123,10 +7190,14 @@ namespace OloEngine
         // / barrier plan / transient plan / submission plan from the previous
         // frame are still valid. Execute() will walk the cached submission
         // plan unchanged.
+        // The tie-break lever changes the execution order without changing a
+        // single declaration, so it is part of what a cached build means.
+        const bool reverseTieBreak = Levers::RenderGraphReverseTieBreak();
         if (cacheFingerprint != 0u &&
             !m_DependencyGraphDirty &&
             m_HasValidBuildFrameGraphCache &&
-            cacheFingerprint == m_LastBuildFrameGraphFingerprint)
+            cacheFingerprint == m_LastBuildFrameGraphFingerprint &&
+            reverseTieBreak == m_LastBuildReverseTieBreak)
         {
             ++m_BuildCacheCounters.CacheHits;
             return;
@@ -7149,7 +7220,9 @@ namespace OloEngine
         m_PassAccessDeclarations.clear();
         m_PassFeedbackDeclarations.clear();
         m_PassLifetimeExtensions.clear();
+        m_PassOutOfBandDeclarations.clear();
         m_OrderingOnlyEdges.clear();
+        m_LastBuildReverseTieBreak = reverseTieBreak;
         m_PassBarrierFlags.clear();
         m_PlannedBarriers.Reset();
         m_BuildDiagnostics.Reset();
@@ -7546,6 +7619,8 @@ namespace OloEngine
             m_PassFeedbackDeclarations[nodeName] = expandTextureViewFeedbacks(feedbacks);
 
             m_PassLifetimeExtensions[nodeName] = builder.GetDeclaredLifetimeExtensions();
+            if (const auto& outOfBand = builder.GetDeclaredOutOfBandAccesses(); !outOfBand.IsEmpty())
+                m_PassOutOfBandDeclarations[nodeName] = outOfBand;
 
             const auto& passDependencies = builder.GetDeclaredPassDependencies();
             declaredPassDependenciesByPass[nodeName] = passDependencies;
@@ -7730,6 +7805,76 @@ namespace OloEngine
                 const auto nodeIt = m_NodeLookup.find(passName);
                 if (nodeIt != m_NodeLookup.end() && nodeIt->second)
                     processGraphNode(*nodeIt->second);
+            }
+        }
+
+        // Out-of-band edges (#1331). Unlike resource edges these do not depend
+        // on registration order: a boundary names ONE datum per frame, so
+        // every writer precedes every current-frame reader and every
+        // previous-frame reader precedes every writer, wherever each pass was
+        // registered. Writers are chained in registration order.
+        {
+            OLO_PERF_SCOPE_AUTO("RG::BuildFrameGraph/OutOfBandEdges");
+            struct BoundaryUse
+            {
+                std::vector<std::string> Writers;
+                std::vector<std::string> Readers;
+                std::vector<std::string> PreviousFrameReaders;
+            };
+            RGTransparentStringMap<BoundaryUse> uses;
+            for (const auto& passName : m_InsertionOrder)
+            {
+                const auto declarationsIt = m_PassOutOfBandDeclarations.find(passName.ToView());
+                if (declarationsIt == m_PassOutOfBandDeclarations.end())
+                    continue;
+                for (const RGOutOfBandDeclaration& declaration : declarationsIt->second)
+                {
+                    BoundaryUse& use = uses[declaration.Boundary.ToStdString()];
+                    switch (declaration.Access)
+                    {
+                        case RGOutOfBandAccess::Write:
+                            use.Writers.push_back(passName.ToStdString());
+                            break;
+                        case RGOutOfBandAccess::Read:
+                            use.Readers.push_back(passName.ToStdString());
+                            break;
+                        case RGOutOfBandAccess::ReadPreviousFrame:
+                            use.PreviousFrameReaders.push_back(passName.ToStdString());
+                            break;
+                    }
+                }
+            }
+
+            for (const auto& [boundary, use] : uses)
+            {
+                for (sizet i = 1; i < use.Writers.size(); ++i)
+                {
+                    // Ordering only, unless the later writer also reads the
+                    // current value (read-modify-write), which consumes it.
+                    const bool consumes = std::ranges::find(use.Readers, use.Writers[i]) != use.Readers.end();
+                    if (tryAddDerivedDependency(use.Writers[i - 1], use.Writers[i], !consumes))
+                        ++m_LastBuildStats.DerivedEdges;
+                }
+                for (const std::string& reader : use.Readers)
+                {
+                    // A pass that reads what it writes is ordered by the
+                    // writer chain, not after itself.
+                    if (std::ranges::find(use.Writers, reader) != use.Writers.end())
+                        continue;
+                    for (const std::string& writer : use.Writers)
+                    {
+                        if (tryAddDerivedDependency(writer, reader))
+                            ++m_LastBuildStats.DerivedEdges;
+                    }
+                }
+                for (const std::string& reader : use.PreviousFrameReaders)
+                {
+                    for (const std::string& writer : use.Writers)
+                    {
+                        if (writer != reader && tryAddDerivedDependency(reader, writer, true))
+                            ++m_LastBuildStats.DerivedEdges;
+                    }
+                }
             }
         }
 
@@ -8274,6 +8419,19 @@ namespace OloEngine
                 for (const std::string_view dependency : dependencies)
                     key.Add(dependency);
             }
+            if (const auto outOfBandIt = m_PassOutOfBandDeclarations.find(name); outOfBandIt != m_PassOutOfBandDeclarations.end())
+            {
+                std::vector<std::pair<std::string_view, RGOutOfBandAccess>> declarations;
+                for (const RGOutOfBandDeclaration& declaration : outOfBandIt->second)
+                    declarations.emplace_back(declaration.Boundary.ToView(), declaration.Access);
+                std::ranges::sort(declarations);
+                key.Add(static_cast<u64>(declarations.size()));
+                for (const auto& [boundary, access] : declarations)
+                {
+                    key.Add(boundary);
+                    key.Add(access);
+                }
+            }
             out.push_back({ std::string("pass:").append(name), key.Get() });
         }
 
@@ -8405,6 +8563,18 @@ namespace OloEngine
                 key.Add(contract->SourceReachable);
             }
             out.push_back({ "history-contracts", key.Get() });
+        }
+
+        {
+            std::vector<std::string_view> epilogueReads;
+            for (const FrameEpilogueRead& read : m_FrameEpilogueReads)
+                epilogueReads.push_back(read.Resource.ToView());
+            std::ranges::sort(epilogueReads);
+            RGDeclarationKey key;
+            key.Add(static_cast<u64>(epilogueReads.size()));
+            for (const std::string_view read : epilogueReads)
+                key.Add(read);
+            out.push_back({ "frame-epilogue-reads", key.Get() });
         }
 
         std::ranges::sort(out, {}, &PlanDigestEntry::Label);

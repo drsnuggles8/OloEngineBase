@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/RenderGraphPlanExecutor.h"
+#include "OloEngine/Renderer/RenderGraphOutOfBand.h"
 
 #include "OloEngine/Debug/Profiler.h"
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
@@ -138,7 +139,13 @@ namespace OloEngine::RenderGraphPlanExecutor
                 // caller. Each worker receives an independent active-pass label.
                 auto context = input.Context.CreateRecordingLane(pass->RecordingLane);
                 context.BeginPass(pass->NodeName.ToView());
-                auto recording = pass->NodePointer->PrepareParallelRecording(context);
+                // Preparation runs on the caller and may touch out-of-band
+                // state; attribute it to this member (#1331).
+                auto recording = [&]
+                {
+                    const RGOutOfBand::ScopedActivePass activePass(pass->NodeName.ToView());
+                    return pass->NodePointer->PrepareParallelRecording(context);
+                }();
                 if (!recording.Record)
                     return decline("pass prepared no recording body", pass->NodeName.ToView());
                 for (const auto& previous : prepared)
@@ -186,7 +193,10 @@ namespace OloEngine::RenderGraphPlanExecutor
                                       {
                     GPUPassTimerPool::GetInstance().EndPass();
                     if (prepared[lane].Publish)
-                        prepared[lane].Publish(); }, instanceCapacity, passNames);
+                    {
+                        const RGOutOfBand::ScopedActivePass activePass(passes[lane]->NodeName.ToView());
+                        prepared[lane].Publish();
+                    } }, instanceCapacity, passNames);
             for (u32 lane = 0; lane < passes.size(); ++lane)
                 timings.Add({ .NodeName = passes[lane]->NodeName, .CpuMs = recordMs[lane] });
             return true;
@@ -402,6 +412,7 @@ namespace OloEngine::RenderGraphPlanExecutor
                     std::chrono::steady_clock::time_point executeEnd{};
                     {
                         const DebugGroupScope debugGroup{ cmd.NodeName.ToView() };
+                        const RGOutOfBand::ScopedActivePass activePass(cmd.NodeName.ToView());
                         executeStart = std::chrono::steady_clock::now();
                         cmd.NodePointer->Execute(input.Context);
                         executeEnd = std::chrono::steady_clock::now();

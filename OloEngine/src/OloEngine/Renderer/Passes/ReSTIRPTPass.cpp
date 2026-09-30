@@ -275,7 +275,8 @@ namespace OloEngine
                 StandDown("G-buffer unavailable");
                 return;
             }
-        builder.DependsOnPass("RayTracingScenePass");
+        // The TLAS it traces against (#1331); see RayTracedShadowPass::Setup.
+        builder.ReadOutOfBand(RGOutOfBandBoundaries::SceneTLAS);
         for (const auto input : m_Inputs)
             if (input.IsValid())
             {
@@ -385,7 +386,7 @@ namespace OloEngine
         params.InvProjection = RHI::AdjustedInverseForShaderReconstruction(m_Projection);
         const auto address = [](u64 value)
         { return glm::uvec2(static_cast<u32>(value), static_cast<u32>(value >> 32u)); };
-        params.TlasAddressAndFrame = glm::uvec4(address(m_RayTracingScene->GetTlasDeviceAddress()),
+        params.TlasAddressAndFrame = glm::uvec4(address(m_RayTracingScene->GetTlasDeviceAddressForTrace()),
                                                 RayTracing::kInstanceMaskAll, m_FrameIndex);
         params.SlotCounts = { m_GPUScene->GetInstanceSlotCount(), m_GPUScene->GetGeometrySlotCount(),
                               m_GPUScene->GetMaterialSlotCount(), m_GPUScene->GetLightSlotCount() };

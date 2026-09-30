@@ -15,7 +15,54 @@ namespace OloEngine
         m_DeclaredFeedbacks.Reset();
         m_DeclaredPassDependencies.Reset();
         m_DeclaredLifetimeExtensions.Reset();
+        m_DeclaredOutOfBandAccesses.Reset();
         m_NextVersionOrdinalByResource.clear();
+    }
+
+    void RGBuilder::ReadOutOfBand(std::string_view boundary, const RGOutOfBandEpoch epoch)
+    {
+        RecordOutOfBand(boundary, RGOutOfBandKind::GpuResource,
+                        epoch == RGOutOfBandEpoch::PreviousFrame ? RGOutOfBandAccess::ReadPreviousFrame : RGOutOfBandAccess::Read);
+    }
+
+    void RGBuilder::WriteOutOfBand(std::string_view boundary)
+    {
+        RecordOutOfBand(boundary, RGOutOfBandKind::GpuResource, RGOutOfBandAccess::Write);
+    }
+
+    void RGBuilder::Publish(std::string_view publication)
+    {
+        RecordOutOfBand(publication, RGOutOfBandKind::CpuPublication, RGOutOfBandAccess::Write);
+    }
+
+    void RGBuilder::ConsumePublication(std::string_view publication)
+    {
+        RecordOutOfBand(publication, RGOutOfBandKind::CpuPublication, RGOutOfBandAccess::Read);
+    }
+
+    void RGBuilder::RecordOutOfBand(std::string_view boundary, const RGOutOfBandKind kind, const RGOutOfBandAccess access)
+    {
+        if (boundary.empty())
+            return;
+
+        // Negative control (#1331): drop this declaration as if the pass had
+        // never made it. "Boundary" drops it for every pass, "Pass/Boundary"
+        // for one. The access site still runs, so the ledger and the
+        // reordering pair have something to catch.
+        if (RGOutOfBand::IsDeclarationOmittedByFault(m_CurrentPassName.ToView(), boundary))
+            return;
+
+        if (std::ranges::any_of(m_DeclaredOutOfBandAccesses, [&](const RGOutOfBandDeclaration& declaration)
+                                { return declaration.Boundary.ToView() == boundary && declaration.Access == access; }))
+        {
+            return;
+        }
+
+        m_DeclaredOutOfBandAccesses.Add(RGOutOfBandDeclaration{
+            .Boundary = FString(boundary),
+            .Kind = kind,
+            .Access = access,
+        });
     }
 
     std::string RGBuilder::BuildVersionedResourceName(std::string_view resourceName,

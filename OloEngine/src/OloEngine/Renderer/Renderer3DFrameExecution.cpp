@@ -85,16 +85,18 @@ namespace OloEngine
         // Forward path-switch bug. Mirror SceneRenderPass's `deferredActive &&
         // m_GBuffer` gate so the HZB always samples the depth the ACTIVE path
         // actually wrote this frame.
+        //
+        // The depth is taken from the graph's frame-epilogue read (#1331), not
+        // from the pass object. EndScene declares it before the graph compiles
+        // (before CompileFrameGraph), which roots the writers, keeps a
+        // pooled SceneColor backing alive to the end of the frame, and resolves
+        // it before the pool releases it. Reading scenePass->GetTarget() here
+        // read a transient the pool had already taken back.
         const bool deferredActive = (s_Data.Settings.Path == RenderingPath::Deferred);
+        const std::string_view depthSource = deferredActive ? ResourceNames::GBufferResolved : ResourceNames::SceneColor;
         RHI::ResourceHandle depthTex{};
-        if (const Ref<GBuffer>& gbuffer = scenePass->GetGBuffer(); deferredActive && gbuffer)
-        {
-            depthTex = gbuffer->GetDepthAttachmentHandle();
-        }
-        else if (Ref<Framebuffer> target = scenePass->GetTarget())
-        {
-            depthTex = target->GetDepthAttachmentHandle();
-        }
+        if (const Ref<Framebuffer> source = s_Data.RGraph ? s_Data.RGraph->GetFrameEpilogueFramebuffer(depthSource) : nullptr)
+            depthTex = source->GetDepthAttachmentHandle();
 
         const auto& spec = scenePass->GetFramebufferSpecification();
         if (!depthTex.IsValid() || spec.Width == 0 || spec.Height == 0)
@@ -114,6 +116,7 @@ namespace OloEngine
         }
 
         s_Data.OcclusionHZB.Generate(depthTex);
+        RGOutOfBand::Note(RGOutOfBandBoundaries::OcclusionHZB, RGOutOfBandAccess::Write);
         // Valid from here on — next frame's instance cull may sample it.
         s_Data.OcclusionHZBValid = true;
     }
@@ -144,6 +147,7 @@ namespace OloEngine
         if (!s_Data.OcclusionHZB.IsValid())
             return inputs;
         s_Data.OcclusionHZB.Generate(depthTexture);
+        RGOutOfBand::Note(RGOutOfBandBoundaries::OcclusionHZB, RGOutOfBandAccess::Write);
 
         inputs.Enabled = true;
         inputs.HZBTexture = s_Data.OcclusionHZB.GetHZBTexture();
@@ -168,6 +172,7 @@ namespace OloEngine
         if (!IsHZBOcclusionCullingEnabled() || !s_Data.OcclusionHZBValid || !s_Data.OcclusionHZB.IsValid())
             return inputs;
 
+        RGOutOfBand::Note(RGOutOfBandBoundaries::OcclusionHZB, RGOutOfBandAccess::ReadPreviousFrame);
         inputs.Enabled = true;
         inputs.HZBTexture = s_Data.OcclusionHZB.GetHZBTexture();
         inputs.MipCount = s_Data.OcclusionHZB.GetMipCount();
@@ -308,6 +313,23 @@ namespace OloEngine
         // One immutable configuration keys both the blackboard populate and
         // every pass's Setup() (issue #1333); while its key holds, both are
         // served from the cache.
+        // The final occlusion-pyramid rebuild reads the scene depth after the
+        // graph (#1331): declared before the compile, because it is part of
+        // the plan. Both names are managed so a path switch drops the stale
+        // one; Declare/Remove invalidate the compiled plan only when the set
+        // of epilogue reads actually changes.
+        {
+            constexpr std::string_view consumer = "Renderer3D::GenerateOcclusionHZB";
+            const bool deferredActive = (s_Data.Settings.Path == RenderingPath::Deferred);
+            const std::string_view wanted = deferredActive ? ResourceNames::GBufferResolved : ResourceNames::SceneColor;
+            const std::string_view other = deferredActive ? ResourceNames::SceneColor : ResourceNames::GBufferResolved;
+            s_Data.RGraph->RemoveFrameEpilogueRead(other);
+            if (s_Data.HZBOcclusionCullingEnabled)
+                s_Data.RGraph->DeclareFrameEpilogueRead(wanted, consumer);
+            else
+                s_Data.RGraph->RemoveFrameEpilogueRead(wanted);
+        }
+
         {
             OLO_PERF_SCOPE_AUTO("Renderer3D::CompileFrameGraph");
             pipeline.CompileFrameGraph(s_Data);
@@ -427,6 +449,13 @@ namespace OloEngine
 
         // End frame for double-buffered resources (inserts GPU fence)
         FrameResourceManager::Get().EndFrame();
+
+        // Check every out-of-band access this frame made against what the
+        // compiled graph declared (#1331). Logged once per distinct result and
+        // kept for olo_render_graph_schedule; not an assert, because the
+        // negative controls provoke exactly these hazards on purpose.
+        (void)s_Data.RGraph->ValidateOutOfBandLedger();
+        s_Data.RGraph->GetOutOfBandLedger().EndFrame();
     }
 
     FrameGraphDeclarationStats Renderer3D::GetFrameGraphDeclarationStats()

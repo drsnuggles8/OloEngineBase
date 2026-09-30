@@ -45,6 +45,12 @@ namespace OloEngine
         if (!m_GBuffer)
             return;
 
+        // Phase 2 rebuilds the retained occlusion pyramid IN PLACE from this
+        // frame's G-Buffer depth (Renderer3D::BuildCurrentOcclusionHZB). A
+        // pass that reads the RETAINED pyramid declares a previous-frame read
+        // and is ordered before this one (#1331).
+        builder.WriteOutOfBand(RGOutOfBandBoundaries::OcclusionHZB);
+
         // Re-publish the G-Buffer after our phase-2 draws so the AO / lighting /
         // SSR consumers (which sample the exported textures, not the FBO) see the
         // disoccluded geometry. Declared as TransferDest — the graph orders us

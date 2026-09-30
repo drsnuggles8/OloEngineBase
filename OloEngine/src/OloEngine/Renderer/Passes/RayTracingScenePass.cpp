@@ -46,20 +46,17 @@ namespace OloEngine
         // ran first would hold whatever that memory contained, with no error
         // and no validation message, because every API call involved is legal.
         //
-        // By NAME, and declared here rather than left to registration order,
-        // for the reason this node's own header gives for existing at all: an
-        // ordering that holds because two AddNode calls happen to be adjacent
-        // is invisible to the graph and silently wrong the first time someone
-        // reorders the pipeline.
-        builder.DependsOnPass("SkeletalDeformPass");
-        // Nothing is declared as a graph read or write: the acceleration
-        // structure is not a graph resource, and the vertex/index streams the
-        // build consumes are reached by device address rather than through the
-        // graph. The ORDERING that matters is expressed by NeverCull, by the
-        // edge above, and by the node's position near the front of the frame;
-        // the memory hazard by the explicit AS-build -> AS-read barrier Execute
-        // emits. Every ray-query consumer declares an execution dependency on
-        // this node by name, the same way this one declares its producer.
+        // Declared as named out-of-band boundaries (#1331) rather than left
+        // to registration order: an ordering that holds because two AddNode
+        // calls happen to be adjacent is invisible to the graph and silently
+        // wrong the first time someone reorders the pipeline. The deformed
+        // buffers and the TLAS are reached by device address, so neither is a
+        // graph resource; the boundary orders the passes, keeps SkeletalDeform
+        // reachable, and lets the ledger report an access nobody declared. The
+        // memory hazards are still the explicit deform -> build and
+        // build -> read barriers Execute emits.
+        builder.ReadOutOfBand(RGOutOfBandBoundaries::DeformedVertices);
+        builder.WriteOutOfBand(RGOutOfBandBoundaries::SceneTLAS);
     }
 
     void RayTracingScenePass::Execute(RGCommandContext& context)

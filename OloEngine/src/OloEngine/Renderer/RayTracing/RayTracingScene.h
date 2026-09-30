@@ -288,6 +288,11 @@ namespace OloEngine::RayTracing
         void RecordDeformToBuildBarrier();
 
         [[nodiscard]] u64 GetTlasDeviceAddress() const;
+        // The same address, for a pass about to trace against the TLAS: it
+        // records the read on the out-of-band ledger (issue #1331), which then
+        // checks the tracing pass declared ReadOutOfBand(SceneTLAS). Readiness
+        // checks ("is there a TLAS at all?") use the plain accessor.
+        [[nodiscard]] u64 GetTlasDeviceAddressForTrace() const;
         void SetVegetationReady(bool ready)
         {
             m_VegetationProducerReady = ready;

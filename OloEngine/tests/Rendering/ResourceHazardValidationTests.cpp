@@ -26,6 +26,7 @@
 
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
+#include "OloEngine/Core/DebugLevers.h"
 
 #include "TestDeclarativeNode.h"
 #include "OloEngine/Renderer/RenderGraph.h"
@@ -258,26 +259,32 @@ TEST(RenderGraphResourceHazards, Slice27_DeclarationChainTransitivityIsHazardFre
 // direction and nothing is left to flag.
 TEST(RenderGraphResourceHazards, WriteAfterReadIsOrderedByADerivedEdge)
 {
-    RenderGraph graph;
-    auto w1 = AddDeclStub(graph, "Writer1");
-    auto r = AddDeclStub(graph, "Reader");
-    auto rw = AddDeclStub(graph, "Rewriter");
+    for (const bool reversed : { false, true })
+    {
+        const bool previous = Levers::RenderGraphReverseTieBreak();
+        Levers::SetRenderGraphReverseTieBreak(reversed);
+        RenderGraph graph;
+        auto w1 = AddDeclStub(graph, "Writer1");
+        auto r = AddDeclStub(graph, "Reader");
+        auto rw = AddDeclStub(graph, "Rewriter");
 
-    w1->TestDeclareWrite("R");
-    r->TestDeclareRead("R");
-    rw->TestDeclareWrite("R");
+        w1->TestDeclareWrite("R");
+        r->TestDeclareRead("R");
+        rw->TestDeclareWrite("R");
 
-    graph.ConnectPass("Writer1", "Reader");
-    graph.ConnectPass("Writer1", "Rewriter");
+        graph.ConnectPass("Writer1", "Reader");
+        graph.ConnectPass("Writer1", "Rewriter");
 
-    const auto hazards = graph.ValidateResourceHazards();
-    EXPECT_TRUE(hazards.IsEmpty()) << HazardsToString(hazards);
-    const auto order = graph.GetExecutionOrder();
-    const auto at = [&order](std::string_view name)
-    { return std::ranges::find_if(order, [name](const FString& n)
-                                  { return n.ToView() == name; }) -
-             order.begin(); };
-    EXPECT_LT(at("Reader"), at("Rewriter"));
+        const auto hazards = graph.ValidateResourceHazards();
+        EXPECT_TRUE(hazards.IsEmpty()) << "reversed=" << reversed << " " << HazardsToString(hazards);
+        const auto order = graph.GetExecutionOrder();
+        const auto at = [&order](std::string_view name)
+        { return std::ranges::find_if(order, [name](const FString& n)
+                                      { return n.ToView() == name; }) -
+                 order.begin(); };
+        EXPECT_LT(at("Reader"), at("Rewriter")) << "reversed=" << reversed;
+        Levers::SetRenderGraphReverseTieBreak(previous);
+    }
 }
 
 // =============================================================================

@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RenderGraphOutOfBand.h"
 #include "OloEngine/Renderer/Passes/FluidCompositePass.h"
 
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
@@ -89,8 +90,9 @@ namespace OloEngine
             builder.Read(board.Scratch.FluidRefraction, RGReadUsage::ShaderSample);
 
         // The smoothed-depth / thickness inputs are raw texture ids outside
-        // graph tracking — pin the producer explicitly.
-        builder.DependsOnPass("FluidIntermediatesPass");
+        // graph tracking: the FluidIntermediates boundary (#1331) orders the
+        // producer first and keeps it reachable.
+        builder.ReadOutOfBand(RGOutOfBandBoundaries::FluidIntermediates);
     }
 
     void FluidCompositePass::Execute(RGCommandContext& context)
@@ -102,6 +104,7 @@ namespace OloEngine
         {
             return;
         }
+        RGOutOfBand::Note(RGOutOfBandBoundaries::FluidIntermediates, RGOutOfBandAccess::Read);
 
         const RHI::ResourceHandle fluidDepthID = m_IntermediatesPass->GetSmoothedDepthTextureID();
         const RHI::ResourceHandle fluidThicknessID = m_IntermediatesPass->GetThicknessTextureID();

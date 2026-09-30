@@ -34,6 +34,10 @@ namespace OloEngine
         // Its forward PBR shaders apply screen-space AO to their ambient term (issue #1452).
         [[maybe_unused]] const bool readsForwardAO = ReadForwardScreenSpaceAOInputs(builder, board);
 
+        // Phase 2 rebuilds the retained occlusion pyramid IN PLACE from this
+        // frame's partial depth (Renderer3D::BuildCurrentOcclusionHZB), #1331.
+        builder.WriteOutOfBand(RGOutOfBandBoundaries::OcclusionHZB);
+
         // Re-export SceneDepth / SceneNormals after our draws so the AO / SSR
         // passes (which sample the exported textures) include this pass's
         // instanced geometry. Declared as TransferDest (we update them via
@@ -277,6 +281,10 @@ namespace OloEngine
         m_PrepassSceneDepth = exports.SceneDepth;
         m_PrepassSceneNormals = exports.SceneNormals;
         m_PrepassForwardAODepth = exports.ForwardAODepth;
+        // The prepass draws both phases, so it rebuilds the occlusion pyramid
+        // in place exactly like the colour pass (#1331).
+        if (m_PrepassForwardAODepth.IsValid())
+            builder.WriteOutOfBand(RGOutOfBandBoundaries::OcclusionHZB);
     }
 
     void GPUDrivenOcclusionPass::ExecuteForwardPrepass(RGCommandContext& context, const Ref<Framebuffer>& sceneTarget)

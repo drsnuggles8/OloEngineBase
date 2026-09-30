@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/RenderGraphOutOfBand.h"
 #include "OloEngine/Containers/Array.h"
 
 #include "OloEngine/Renderer/RHI/RHITypes.h"
@@ -125,9 +126,12 @@ namespace OloEngine
 
         // True when Execute reached the splat/smooth dispatches this frame.
         // FluidCompositePass gates its Execute on this.
+        // Stamped with the scene frame that set it (#1331): this pass is culled
+        // whenever FluidCompositePass does not read it, and a culled Execute
+        // never clears the flag.
         [[nodiscard]] bool RanThisFrame() const noexcept
         {
-            return m_RanThisFrame;
+            return m_RanThisFrame && m_RanFrameSerial == RGOutOfBand::GetFrameSerial();
         }
 
         // Appearance parameters of the first drawn fluid this frame (tint,
@@ -154,6 +158,7 @@ namespace OloEngine
 
         bool m_Enabled = true;
         bool m_RanThisFrame = false;
+        u64 m_RanFrameSerial = 0;
 
         TArray64<FluidRenderData> m_FrameDraws;
         FluidRenderData m_LastAppearance{};

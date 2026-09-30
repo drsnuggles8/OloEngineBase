@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RenderGraphOutOfBand.h"
 #include "OloEngine/Renderer/RayTracing/DeformedSurfaceCache.h"
 
 #include "OloEngine/Renderer/ComputeShader.h"
@@ -570,6 +571,9 @@ namespace OloEngine::RayTracing
         }
 
         m_Shader->Bind();
+        // Out-of-band ledger (#1331): this rewrites the DeformedVertices the
+        // BLAS builds read.
+        RGOutOfBand::Note(RGOutOfBandBoundaries::DeformedVertices, RGOutOfBandAccess::Write);
 
         u32 recorded = 0;
         for (const QueuedDispatch& item : m_Queue)

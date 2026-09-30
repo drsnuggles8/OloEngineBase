@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RenderGraphOutOfBand.h"
 #include "OloEngine/Renderer/LightCulling/TiledForwardPlus.h"
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/Debug/GPUReadbackStats.h"
@@ -118,6 +119,8 @@ namespace OloEngine
         {
             return;
         }
+        // The cluster lists later passes bind or capture (#1331).
+        RGOutOfBand::Note(RGOutOfBandBoundaries::ForwardPlusLightClusters, RGOutOfBandAccess::Write);
 
         // The camera clip planes drive the exponential depth-slice mapping;
         // capture them for BindForShading's UBO upload (and the froxel-fog
@@ -143,6 +146,7 @@ namespace OloEngine
     void TiledForwardPlus::BindForShading()
     {
         OLO_PROFILE_FUNCTION();
+        RGOutOfBand::Note(RGOutOfBandBoundaries::ForwardPlusLightClusters, RGOutOfBandAccess::Read);
 
         if (!m_Initialized)
         {
@@ -205,6 +209,7 @@ namespace OloEngine
 
     TiledForwardPlus::ShadingSnapshot TiledForwardPlus::CaptureShadingBindings() const
     {
+        RGOutOfBand::Note(RGOutOfBandBoundaries::ForwardPlusLightClusters, RGOutOfBandAccess::Read);
         ShadingSnapshot snapshot;
         // Parameters say Enabled = 0 when inactive (GetShadingParameters
         // returns {}); the BUFFERS are listed whenever initialised, for the
