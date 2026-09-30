@@ -469,6 +469,34 @@ namespace OloEngine
             return true;
         }
 
+        // THE NEIGHBOURS' LENGTH, NOT THEIR AVERAGE'S (#1533). A linear blend of
+        // displacements that point different ways averages away the part of
+        // each that points its own way, so a stand-in between guides sagging in
+        // different directions sagged LESS than any of them. Most of a coat is
+        // stand-ins -- 86% of the long-coat horse's slots at a full budget, 91%
+        // of the showcase dog's -- so the drawn coat draped less than its
+        // simulation, and halving the budget at range widened the gap: the long
+        // coat's strand tier read 14% less shadowed at 14 m than the full coat.
+        //
+        // So the blend keeps its direction and takes the neighbours' mean
+        // length where they agree. Where they cancel -- a part, a whorl -- no
+        // direction is right and the short linear blend stays, faded in by how
+        // coherent the neighbours are: the blend's length over their mean
+        // length, cos(angle / 2) for two equal guides. Restored in full up to
+        // ~106 degrees apart, not at all past ~150.
+        constexpr f32 kStandInIncoherent = 0.25f;
+        constexpr f32 kStandInCoherent = 0.6f;
+
+        [[nodiscard]] glm::vec3 KeepNeighbourLength(const glm::vec3& linear, f32 meanLength) noexcept
+        {
+            const f32 length = glm::length(linear);
+            if (!(length > 0.0f) || !(meanLength > length) || !std::isfinite(meanLength))
+            {
+                return linear;
+            }
+            const f32 restore = glm::smoothstep(kStandInIncoherent, kStandInCoherent, length / meanLength);
+            return linear * (glm::mix(length, meanLength, restore) / length);
+        }
     } // namespace
 
     bool ExpandGroomGuideDisplacements(std::span<const GroomGuideWeights> standIns,
@@ -547,6 +575,7 @@ namespace OloEngine
                         {
                             const f32 t = static_cast<f32>(i) * invSpan;
                             glm::vec3 blended{ 0.0f };
+                            f32 lengths = 0.0f;
                             f32 applied = 0.0f;
                             for (u32 k = 0; k < GroomGuideInfluenceCount; ++k)
                             {
@@ -557,9 +586,11 @@ namespace OloEngine
                                     continue;
                                 }
                                 blended += sample * standIn.Weights[k];
+                                lengths += glm::length(sample) * standIn.Weights[k];
                                 applied += standIn.Weights[k];
                             }
-                            written[base + i] = applied > 0.0f ? blended / applied : glm::vec3(0.0f);
+                            written[base + i] = applied > 0.0f ? KeepNeighbourLength(blended / applied, lengths / applied)
+                                                               : glm::vec3(0.0f);
                         }
                     });
         return true;
