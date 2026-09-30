@@ -63,5 +63,9 @@ namespace OloEngine
         RGTextureHandle m_PrepassSceneDepth;
         RGTextureHandle m_PrepassSceneNormals;
         RGTextureHandle m_PrepassForwardAODepth;
+        // Whether this frame's forward prepass put every foliage draw's depth
+        // in the scene target. Then the colour draws test against it without
+        // writing, as ScenePass's do after its own prepass (see Execute).
+        bool m_ColourAfterPrepass = false;
     };
 } // namespace OloEngine
