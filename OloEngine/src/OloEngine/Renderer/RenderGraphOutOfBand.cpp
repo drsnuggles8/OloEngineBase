@@ -381,18 +381,6 @@ namespace OloEngine
             return ledger ? ledger->GetFrameSerial() : 0u;
         }
 
-        void SetActivePass(const std::string_view passName)
-        {
-            if (RGOutOfBandLedger* ledger = GetActiveLedger())
-                ledger->SetActivePass(passName);
-        }
-
-        void ClearActivePass()
-        {
-            if (RGOutOfBandLedger* ledger = GetActiveLedger())
-                ledger->ClearActivePass();
-        }
-
         void SetOmittedDeclarationFault(std::optional<std::string> spec)
         {
             OmitFaultState& state = GetOmitFaultState();

@@ -13348,11 +13348,14 @@ TEST(RenderGraphReachability, SideEffectingPassKeepsWhatItReadsAlive)
     EXPECT_LT(ExecutionPositionOf(graph, "StatsProducer"), ExecutionPositionOf(graph, "Readback"));
 }
 
-// W is reachable only through the read -> writer expansion: it is registered
-// after Final, so no read derives an edge to it. It depends on D by name. The
-// old two-stage scan walked edges first and reads second, so W survived and
-// D, the producer W declared it needs, was culled.
-TEST(RenderGraphReachability, APassReachedThroughAReadKeepsItsOwnDependencies)
+// A reachable pass never runs while a producer it declared is culled. W is
+// registered after Final and overwrites what Final reads, so only the
+// read -> writer expansion reaches it. The old two-stage scan walked edges
+// first and reads second: it kept W and culled D, the producer W
+// DependsOnPass. W and D now live or die together -- and since W is ordered
+// after Final (write after read) and produces nothing Final consumes, both are
+// culled.
+TEST(RenderGraphReachability, AReachablePassNeverLosesItsDeclaredProducer)
 {
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
@@ -13368,6 +13371,7 @@ TEST(RenderGraphReachability, APassReachedThroughAReadKeepsItsOwnDependencies)
     graph.SetFinalPass("Final");
     graph.BuildFrameGraph();
 
-    ASSERT_FALSE(IsCulledPass(graph, "W")) << "the read -> writer expansion keeps W";
-    EXPECT_FALSE(IsCulledPass(graph, "D")) << "W runs, so the producer it depends on must too";
+    EXPECT_FALSE(!IsCulledPass(graph, "W") && IsCulledPass(graph, "D"))
+        << "W runs while D, the producer it depends on, was culled";
+    EXPECT_TRUE(IsCulledPass(graph, "W")) << "W overwrites what Final read after it; nothing consumes it";
 }

@@ -301,6 +301,53 @@ namespace OloEngine::Tests
         EXPECT_TRUE(graph.ValidateCompiledResourceHazards().IsEmpty());
     }
 
+    // VirtualGeometryPass's shape: it reads the retained pyramid AND rebuilds
+    // it, and here it is registered after another rebuilder. Chaining the
+    // writers in registration order would put the other rebuild first and
+    // drop the retained read's edge as a cycle.
+    TEST(RenderGraphOutOfBand, ARetainedReaderThatAlsoRebuildsRunsBeforeEveryOtherRebuild)
+    {
+        RenderGraph graph;
+        RegisterTestBoundaries(graph);
+        AddNode(graph, "OtherRebuilder", [](RGBuilder& builder)
+                {
+                    builder.WriteOutOfBand(kBoundary);
+                    builder.Write(builder.ImportTexture("OtherOut", 14u, RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "OtherOut")),
+                                  RGWriteUsage::RenderTarget); });
+        AddNode(graph, "ReadThenRebuild", [](RGBuilder& builder)
+                {
+                    builder.ReadOutOfBand(kBoundary, RGOutOfBandEpoch::PreviousFrame);
+                    builder.WriteOutOfBand(kBoundary);
+                    builder.Write(builder.ImportTexture("VgOut", 15u, RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "VgOut")),
+                                  RGWriteUsage::RenderTarget); });
+        AddFinal(graph, [](RGBuilder& builder)
+                 {
+                     const std::pair<const char*, u32> inputs[] = { { "OtherOut", 14u }, { "VgOut", 15u } };
+                     for (const auto& [name, id] : inputs)
+                     {
+                         [[maybe_unused]] const auto read = builder.Read(
+                             builder.ImportTexture(name, id, RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, name)),
+                             RGReadUsage::ShaderSample);
+                     } });
+        graph.SetFinalPass("Final");
+        graph.BuildFrameGraph();
+
+        EXPECT_LT(PositionOf(graph, "ReadThenRebuild"), PositionOf(graph, "OtherRebuilder"));
+        const auto hazards = graph.ValidateCompiledResourceHazards();
+        EXPECT_TRUE(hazards.IsEmpty()) << Describe(hazards);
+    }
+
+    TEST(RenderGraphOutOfBand, DestroyingTheActiveGraphDetachesItsLedger)
+    {
+        {
+            RenderGraph graph;
+            RGOutOfBand::SetActiveLedger(&graph.GetOutOfBandLedger());
+            ASSERT_EQ(RGOutOfBand::GetActiveLedger(), &graph.GetOutOfBandLedger());
+        }
+        EXPECT_EQ(RGOutOfBand::GetActiveLedger(), nullptr) << "an access site would record into a freed ledger";
+        RGOutOfBand::Note(kBoundary, RGOutOfBandAccess::Read); // must be a no-op, not a use-after-free
+    }
+
     TEST(RenderGraphOutOfBand, AnOrderingOnlyEdgeKeepsNothingAlive)
     {
         // The final pass rebuilds the boundary in place, so it depends on the

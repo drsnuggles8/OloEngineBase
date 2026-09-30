@@ -143,7 +143,7 @@ namespace OloEngine::RenderGraphPlanExecutor
                 // state; attribute it to this member (#1331).
                 auto recording = [&]
                 {
-                    const RGOutOfBand::ScopedActivePass activePass(pass->NodeName.ToView());
+                    const RGOutOfBand::ScopedActivePass activePass(input.OutOfBandLedger, pass->NodeName.ToView());
                     return pass->NodePointer->PrepareParallelRecording(context);
                 }();
                 if (!recording.Record)
@@ -194,7 +194,7 @@ namespace OloEngine::RenderGraphPlanExecutor
                     GPUPassTimerPool::GetInstance().EndPass();
                     if (prepared[lane].Publish)
                     {
-                        const RGOutOfBand::ScopedActivePass activePass(passes[lane]->NodeName.ToView());
+                        const RGOutOfBand::ScopedActivePass activePass(input.OutOfBandLedger, passes[lane]->NodeName.ToView());
                         prepared[lane].Publish();
                     } }, instanceCapacity, passNames);
             for (u32 lane = 0; lane < passes.size(); ++lane)
@@ -412,7 +412,7 @@ namespace OloEngine::RenderGraphPlanExecutor
                     std::chrono::steady_clock::time_point executeEnd{};
                     {
                         const DebugGroupScope debugGroup{ cmd.NodeName.ToView() };
-                        const RGOutOfBand::ScopedActivePass activePass(cmd.NodeName.ToView());
+                        const RGOutOfBand::ScopedActivePass activePass(input.OutOfBandLedger, cmd.NodeName.ToView());
                         executeStart = std::chrono::steady_clock::now();
                         cmd.NodePointer->Execute(input.Context);
                         executeEnd = std::chrono::steady_clock::now();

@@ -49,6 +49,12 @@ namespace OloEngine
         }
     } // namespace
 
+    RenderGraph::~RenderGraph()
+    {
+        if (RGOutOfBand::GetActiveLedger() == &m_OutOfBandLedger)
+            RGOutOfBand::SetActiveLedger(nullptr);
+    }
+
     // ------------------------------------------------------------------------
     // Registry
     // ------------------------------------------------------------------------
@@ -358,11 +364,11 @@ namespace OloEngine
         std::string digest;
         for (const Hazard& hazard : hazards)
             digest.append(hazard.Message.ToView()).push_back(';');
-        if (digest != m_LastLoggedOutOfBandLedgerDigest)
+        if (std::string_view(digest) != m_LastLoggedOutOfBandLedgerDigest.ToView())
         {
             for (const Hazard& hazard : hazards)
                 OLO_CORE_ERROR("RenderGraph out-of-band hazard: {}", hazard.Message.ToView());
-            m_LastLoggedOutOfBandLedgerDigest = std::move(digest);
+            m_LastLoggedOutOfBandLedgerDigest = FString(digest);
         }
         m_LastOutOfBandLedgerHazards = hazards;
         return hazards;

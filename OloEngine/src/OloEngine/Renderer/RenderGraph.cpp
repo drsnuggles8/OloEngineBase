@@ -3400,6 +3400,10 @@ namespace OloEngine
         m_LastExecutionTimings.Reset();
         m_LastExecutionTimings.Reserve(m_ExecutionOrder.Num());
         m_ResolveFailures.Reset();
+        // Last frame's epilogue objects belong to the pool now; a frame that
+        // aborts below must not hand them to the epilogue again (#1331).
+        m_FrameEpilogueFramebuffers.clear();
+        m_FrameEpilogueTextures.clear();
 
         for (auto& slot : m_TextureHandleSlots)
             slot.PlaceholderWarnedThisFrame = false;
@@ -3418,6 +3422,8 @@ namespace OloEngine
                 // subset of passes in the wrong order. Keep the dirty flag
                 // set so a corrected graph can retry.
                 OLO_CORE_ERROR("RenderGraph::Execute: aborting because dependency graph rebuild failed");
+                // The graph is over for this frame: what follows is epilogue.
+                m_OutOfBandLedger.BeginEpilogue();
                 m_TransientPool.ReleaseAll();
                 m_TransientPool.Trim(m_TransientPoolMaxBucketSize);
                 return;
@@ -3523,8 +3529,6 @@ namespace OloEngine
         // Out-of-band ledger (#1331): accesses from here to the end of the
         // plan belong to the pass the executor names; a no-op when no frame
         // is open on this graph's ledger.
-        m_FrameEpilogueFramebuffers.clear();
-        m_FrameEpilogueTextures.clear();
         m_OutOfBandLedger.BeginGraph();
 
         m_LastExecutionTimings = RenderGraphPlanExecutor::ExecutePlan({
@@ -3537,6 +3541,7 @@ namespace OloEngine
             .PostPassHook = composedPostPassHook,
             .GraphForPostPassHook = this,
             .GraphForBarrierResolution = this,
+            .OutOfBandLedger = &m_OutOfBandLedger,
         });
         commandContext.SetRenderGraph(nullptr);
 
@@ -7812,14 +7817,20 @@ namespace OloEngine
         // on registration order: a boundary names ONE datum per frame, so
         // every writer precedes every current-frame reader and every
         // previous-frame reader precedes every writer, wherever each pass was
-        // registered. Writers are chained in registration order.
+        // registered. Writers are chained in registration order, except that
+        // a writer which also reads the previous frame's value (a retained-
+        // pyramid consumer that rebuilds it) leads the chain: its read has to
+        // come before every other rebuild. The previous-frame edges go in
+        // first, so a chain edge that contradicts one is the edge dropped.
+        // Every edge is also recorded for the order-sensitivity simulation.
+        std::vector<std::pair<FString, FString>> outOfBandEdges;
         {
             OLO_PERF_SCOPE_AUTO("RG::BuildFrameGraph/OutOfBandEdges");
             struct BoundaryUse
             {
-                std::vector<std::string> Writers;
-                std::vector<std::string> Readers;
-                std::vector<std::string> PreviousFrameReaders;
+                TArray64<FString> Writers;
+                TArray64<FString> Readers;
+                TArray64<FString> PreviousFrameReaders;
             };
             RGTransparentStringMap<BoundaryUse> uses;
             for (const auto& passName : m_InsertionOrder)
@@ -7833,56 +7844,71 @@ namespace OloEngine
                     switch (declaration.Access)
                     {
                         case RGOutOfBandAccess::Write:
-                            use.Writers.push_back(passName.ToStdString());
+                            use.Writers.Add(passName);
                             break;
                         case RGOutOfBandAccess::Read:
-                            use.Readers.push_back(passName.ToStdString());
+                            use.Readers.Add(passName);
                             break;
                         case RGOutOfBandAccess::ReadPreviousFrame:
-                            use.PreviousFrameReaders.push_back(passName.ToStdString());
+                            use.PreviousFrameReaders.Add(passName);
                             break;
                     }
                 }
             }
 
-            for (const auto& [boundary, use] : uses)
+            const auto addEdge = [&](const FString& before, const FString& after, const bool orderingOnly)
             {
-                for (sizet i = 1; i < use.Writers.size(); ++i)
+                outOfBandEdges.emplace_back(before, after);
+                if (tryAddDerivedDependency(before.ToView(), after.ToView(), orderingOnly))
+                    ++m_LastBuildStats.DerivedEdges;
+            };
+
+            for (auto& [boundary, use] : uses)
+            {
+                for (const FString& reader : use.PreviousFrameReaders)
+                {
+                    for (const FString& writer : use.Writers)
+                    {
+                        if (writer != reader)
+                            addEdge(reader, writer, true);
+                    }
+                }
+
+                std::stable_partition(use.Writers.begin(), use.Writers.end(), [&use](const FString& writer)
+                                      { return std::ranges::find(use.PreviousFrameReaders, writer) != use.PreviousFrameReaders.end(); });
+                for (i64 i = 1; i < use.Writers.Num(); ++i)
                 {
                     // Ordering only, unless the later writer also reads the
                     // current value (read-modify-write), which consumes it.
                     const bool consumes = std::ranges::find(use.Readers, use.Writers[i]) != use.Readers.end();
-                    if (tryAddDerivedDependency(use.Writers[i - 1], use.Writers[i], !consumes))
-                        ++m_LastBuildStats.DerivedEdges;
+                    addEdge(use.Writers[i - 1], use.Writers[i], !consumes);
                 }
-                for (const std::string& reader : use.Readers)
+
+                for (const FString& reader : use.Readers)
                 {
                     // A pass that reads what it writes is ordered by the
                     // writer chain, not after itself.
                     if (std::ranges::find(use.Writers, reader) != use.Writers.end())
                         continue;
-                    for (const std::string& writer : use.Writers)
-                    {
-                        if (tryAddDerivedDependency(writer, reader))
-                            ++m_LastBuildStats.DerivedEdges;
-                    }
-                }
-                for (const std::string& reader : use.PreviousFrameReaders)
-                {
-                    for (const std::string& writer : use.Writers)
-                    {
-                        if (writer != reader && tryAddDerivedDependency(reader, writer, true))
-                            ++m_LastBuildStats.DerivedEdges;
-                    }
+                    for (const FString& writer : use.Writers)
+                        addEdge(writer, reader, false);
                 }
             }
         }
 
         auto simulateDerivedDependencies =
-            [this, &declaredPassDependenciesByPass, &depSubresourceRangesOverlap](const std::vector<std::string>& visitOrder) -> SimulatedDependencyResult
+            [this, &declaredPassDependenciesByPass, &depSubresourceRangesOverlap, &outOfBandEdges](const std::vector<std::string>& visitOrder) -> SimulatedDependencyResult
         {
             SimulatedDependencyResult result{};
             result.Dependencies = m_ExplicitDependencies;
+            // Out-of-band edges do not depend on visit order, so both
+            // simulations carry them identically (#1331).
+            for (const auto& [before, after] : outOfBandEdges)
+            {
+                auto& deps = result.Dependencies[after.ToStdString()];
+                if (std::ranges::find(deps, before) == deps.end())
+                    deps.Add(before);
+            }
             RGTransparentStringMap<std::vector<DepWriterSlot>> simulatedLastWriterByResource;
             RGTransparentStringMap<std::vector<DepWriterSlot>> simulatedLiveReadersByResource;
             simulatedLastWriterByResource.reserve(visitOrder.size() * 4u);

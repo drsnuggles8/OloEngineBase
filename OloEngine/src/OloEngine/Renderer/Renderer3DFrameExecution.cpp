@@ -453,8 +453,11 @@ namespace OloEngine
         // Check every out-of-band access this frame made against what the
         // compiled graph declared (#1331). Logged once per distinct result and
         // kept for olo_render_graph_schedule; not an assert, because the
-        // negative controls provoke exactly these hazards on purpose.
+        // negative controls provoke exactly these hazards on purpose. Stripped
+        // in Dist like the compiled-hazard validation above.
+#if !defined(OLO_DIST)
         (void)s_Data.RGraph->ValidateOutOfBandLedger();
+#endif
         s_Data.RGraph->GetOutOfBandLedger().EndFrame();
     }
 

@@ -108,7 +108,9 @@ namespace OloEngine
     {
       public:
         RenderGraph() = default;
-        ~RenderGraph() = default;
+        // Detaches its out-of-band ledger from RGOutOfBand if it is the
+        // active one, so no access site records into a freed ledger.
+        ~RenderGraph();
 
         friend class RGBuilder;
 
@@ -1610,7 +1612,7 @@ namespace OloEngine
         // Levers::RenderGraphReverseTieBreak at the last build; a flip forces
         // a rebuild because it changes the execution order.
         bool m_LastBuildReverseTieBreak = false;
-        std::string m_LastLoggedOutOfBandLedgerDigest;
+        FString m_LastLoggedOutOfBandLedgerDigest;
         TArray64<Hazard> m_LastOutOfBandLedgerHazards;
         RGTransparentStringMap<MemoryBarrierFlags> m_PassBarrierFlags;
         TArray64<PlannedBarrier> m_PlannedBarriers;

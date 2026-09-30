@@ -240,11 +240,6 @@ namespace OloEngine
         // Execute never gets to clear the flag.
         [[nodiscard]] u64 GetFrameSerial();
 
-        // Attribution for the executor: the pass whose Prepare / Execute /
-        // Publish is running on the caller.
-        void SetActivePass(std::string_view passName);
-        void ClearActivePass();
-
         // FAULT (#1331 negative control): drop matching out-of-band declarations
         // in RGBuilder as if the pass had never made them, while the access
         // site still runs. "Boundary" drops every pass's declaration of it,
@@ -255,20 +250,28 @@ namespace OloEngine
         void SetOmittedDeclarationFault(std::optional<std::string> spec);
         [[nodiscard]] bool IsDeclarationOmittedByFault(std::string_view passName, std::string_view boundary);
 
-        // RAII form for a scope that runs one pass body.
+        // Attribution for the executor: names the pass whose Prepare /
+        // Execute / Publish runs on the caller, on the EXECUTING graph's
+        // ledger (never the process-wide one, which may belong to another
+        // graph). A null ledger does nothing.
         class ScopedActivePass
         {
           public:
-            explicit ScopedActivePass(std::string_view passName)
+            ScopedActivePass(RGOutOfBandLedger* ledger, std::string_view passName) : m_Ledger(ledger)
             {
-                SetActivePass(passName);
+                if (m_Ledger)
+                    m_Ledger->SetActivePass(passName);
             }
             ~ScopedActivePass()
             {
-                ClearActivePass();
+                if (m_Ledger)
+                    m_Ledger->ClearActivePass();
             }
             ScopedActivePass(const ScopedActivePass&) = delete;
             ScopedActivePass& operator=(const ScopedActivePass&) = delete;
+
+          private:
+            RGOutOfBandLedger* m_Ledger;
         };
     } // namespace RGOutOfBand
 

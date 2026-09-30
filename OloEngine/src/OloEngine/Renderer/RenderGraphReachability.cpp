@@ -109,8 +109,23 @@ namespace OloEngine::RenderGraphReachability
                 continue;
             for (const auto& access : accessIt->second)
             {
-                if (!access.IsWrite)
-                    enqueueWritersForResource(access.ResourceName.ToView());
+                if (access.IsWrite)
+                    continue;
+                const auto writerIt = resourceWriters.find(access.ResourceName.ToView());
+                if (writerIt == resourceWriters.end())
+                    continue;
+                for (const auto& writerName : writerIt->second)
+                {
+                    // A writer an ordering-only edge places AFTER this reader
+                    // overwrites what it read; it produces nothing the reader
+                    // consumes, so the read does not keep it alive.
+                    if (input.OrderingOnlyEdges &&
+                        input.OrderingOnlyEdges->contains({ current, writerName.ToStdString() }))
+                    {
+                        continue;
+                    }
+                    enqueueReachablePass(writerName.ToView());
+                }
             }
         }
 
