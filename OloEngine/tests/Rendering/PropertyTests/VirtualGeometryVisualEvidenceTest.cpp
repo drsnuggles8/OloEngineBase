@@ -544,7 +544,6 @@ namespace OloEngine::Tests
                 << "' — the GPU cull/MDI/vertex-pulling path drew nothing (or the wrong thing)";
         }
 
-        // TEMP-DIAG: dump the CSM cascade-0 depth as a min-max-normalized PNG.
         // Very coarse threshold: the DAG cut collapses toward the root
         // clusters, but terminal groups guarantee SOMETHING always renders.
         u32 const coarsePixels = CaptureAngle("CoarseCut", { 0.0f, 0.5f, 5.0f }, 0.0f, 0.05f, 64.0f);
