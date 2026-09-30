@@ -24,7 +24,9 @@ member has prepared. Ordinary execution then prepares that earlier pass again. K
 to resolution, idempotent allocation, private snapshots and upload priming; advance counters and
 publish shared settings only when the prepared body executes or publishes. A shared CPU datum
 consumed after another pass changes it needs a graph dependency just as a GPU resource does;
-physical GPU identity checks cannot infer that dependency.
+physical GPU identity checks cannot infer that dependency. Declare it with `builder.Publish` /
+`builder.ConsumePublication` and note the access, as
+[render-graph-out-of-band-work.md](render-graph-out-of-band-work.md) describes.
 
 Each item owns an `RGCommandContext` with its own active-pass name. Workers cannot resolve
 graph resources: const resolver signatures can still mutate registry caches and diagnostics.
@@ -60,7 +62,9 @@ candidates; compiled reachability also excludes culled submission-plan members.
 This scheduling runs before reachability, barriers and transient lifetime/alias
 planning. Never reorder only the final submission commands: their resource
 lifetimes were compiled against an earlier order. CPU-only publication dependencies
-must be declared explicitly, just like GPU dependencies. GPU draw order within
+must be declared explicitly, just like GPU dependencies: an out-of-band publication, not a
+`DependsOnPass` string. Out-of-band edges enter before the topological sort, so they are
+scheduled before reachability, barriers and lifetime/alias planning like every other edge. GPU draw order within
 blended packet ranges remains unchanged.
 
 Live Vulkan evidence includes DepthVelocityUpscale/EASU, SSAO/DepthVelocityUpscale,

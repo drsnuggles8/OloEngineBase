@@ -47,12 +47,14 @@ exactly the hole the scheme must not have.
 
 `Renderer3D::BuildCurrentOcclusionHZB` regenerates `s_Data.OcclusionHZB` **in
 place** — it overwrites the very texture phase 1 reads. So any consumer of the
-retained pyramid must read it *before* anything rebuilds it that frame. In the
-Deferred graph that is why `VirtualGeometryPass` is registered before
-`DeferredGPUOcclusionPass` (`RenderPipelineBuilderScene.cpp`), and why
-`Renderer3D::GetRetainedOcclusionHZB()` carries an ordering warning in its
-declaration. A new pass that wants previous-frame depth has to be placed with
-this in mind; there is no second pyramid to fall back on.
+retained pyramid must read it *before* anything rebuilds it that frame. That is
+declared, not placed (#1331): a retained reader declares
+`ReadOutOfBand(OcclusionHZB, RGOutOfBandEpoch::PreviousFrame)` and every in-place
+rebuilder `WriteOutOfBand(OcclusionHZB)`, so `VirtualGeometryPass` runs before
+`DeferredGPUOcclusionPass` wherever either is registered, and the out-of-band
+ledger reports a retained read that ran after a rebuild. There is no second
+pyramid to fall back on. See
+[render-graph-out-of-band-work.md](render-graph-out-of-band-work.md).
 
 ## Phase 2 needs its own command region, not an append
 
