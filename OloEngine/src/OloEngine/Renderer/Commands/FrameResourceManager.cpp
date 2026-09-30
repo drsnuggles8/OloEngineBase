@@ -116,11 +116,17 @@ namespace OloEngine
 
         // Execute deferred deletions queued during the frame that last used this slot.
         // Safe: the GPU fence for that frame has been waited on above.
+        // Taken out under the lock and run outside it, so a deletion that
+        // releases another GPU object can queue that one without deadlocking.
         {
-            auto& deletionQueue = m_FrameResources[currentIndex].DeletionQueue;
-            for (const auto& fn : deletionQueue)
+            TArray<TFunction<void()>> pending;
+            {
+                std::scoped_lock lock(m_DeletionMutex);
+                pending = std::move(m_FrameResources[currentIndex].DeletionQueue);
+                m_FrameResources[currentIndex].DeletionQueue.Reset();
+            }
+            for (const auto& fn : pending)
                 fn();
-            deletionQueue.Reset();
         }
 
         return currentIndex;
@@ -269,6 +275,7 @@ namespace OloEngine
             deletionFunc();
             return;
         }
+        std::scoped_lock lock(m_DeletionMutex);
         u32 currentIndex = m_CurrentFrameIndex.load(std::memory_order_acquire);
         m_FrameResources[currentIndex].DeletionQueue.Add(std::move(deletionFunc));
     }
@@ -277,10 +284,14 @@ namespace OloEngine
     {
         for (u32 i = 0; i < NUM_BUFFERED_FRAMES; ++i)
         {
-            auto& deletionQueue = m_FrameResources[i].DeletionQueue;
-            for (const auto& fn : deletionQueue)
+            TArray<TFunction<void()>> pending;
+            {
+                std::scoped_lock lock(m_DeletionMutex);
+                pending = std::move(m_FrameResources[i].DeletionQueue);
+                m_FrameResources[i].DeletionQueue.Reset();
+            }
+            for (const auto& fn : pending)
                 fn();
-            deletionQueue.Reset();
         }
     }
 

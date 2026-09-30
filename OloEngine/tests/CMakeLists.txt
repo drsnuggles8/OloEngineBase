@@ -896,6 +896,7 @@ add_executable(OloEngine-Tests
 		Rendering/MaterialTransmissionTest.cpp
 		Rendering/GltfPhysicalMaterialImportTest.cpp
 		Rendering/RendererShutdownTest.cpp
+		Rendering/FrameResourceDeletionQueueThreadTest.cpp
 		Rendering/RenderPathDriftTest.cpp
 		Rendering/VirtualMeshRegistryRejectionTest.cpp
 		Rendering/VirtualGeometrySceneCoverageTest.cpp
