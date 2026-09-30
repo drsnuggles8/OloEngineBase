@@ -44,6 +44,8 @@ namespace OloEngine::Tests
                 "                                 `auto` is the default and may also be given explicitly\n"
                 "  --olo-require-gpu              fail, rather than skip, a GPU-gated test when no GL 4.6\n"
                 "                                 context could be created (a GPU job's own guard)\n"
+                "  --olo-vulkan-capability-report[=<path>] print (or write) the Vulkan capability report\n"
+                "                                 and exit; runs no tests (issue #1358)\n"
                 "  --olo-require-renderer-preset=<name> fail if a required support-matrix row is unsupported\n"
                 "  --olo-renderer-no-ray-queries  force that capability off for the preset negative control\n"
                 "  --olo-keep-temp                leave per-test temp directories on disk\n"
@@ -214,6 +216,15 @@ namespace OloEngine::Tests
             else if (arg == "--olo-require-vulkan")
             {
                 s_Options.RequireVulkan = true;
+            }
+            else if (arg == "--olo-vulkan-capability-report")
+            {
+                s_Options.VulkanCapabilityReport = true;
+            }
+            else if (const auto v = ValueOf(arg, "--olo-vulkan-capability-report"))
+            {
+                s_Options.VulkanCapabilityReport = true;
+                s_Options.VulkanCapabilityReportPath = std::string(*v);
             }
             else if (const auto v = ValueOf(arg, "--olo-require-renderer-preset"))
             {

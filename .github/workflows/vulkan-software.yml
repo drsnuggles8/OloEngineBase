@@ -37,6 +37,14 @@ name: Vulkan Software Conformance
 
 on:
   workflow_dispatch:
+    inputs:
+      gtest_filter:
+        # Diagnostic only (#1358/#1294): lets a dispatch measure a population the
+        # nightly filter does not select, e.g. whether lavapipe serves the L7
+        # ray-query suites. Empty keeps the nightly filter exactly as it was.
+        description: 'gtest filter override (empty = the nightly Vulkan filter)'
+        type: string
+        default: ''
   schedule:
     # Nightly at 04:23 UTC — after cross-vendor.yml's 03:47 so the two software
     # jobs do not contend for hosted concurrency, and on an odd minute to avoid
@@ -194,6 +202,24 @@ jobs:
           Get-Content $env:VK_DRIVER_FILES
           & "$env:VULKAN_SDK\Bin\vulkaninfoSDK.exe" --summary
 
+      - name: Vulkan capability report (lavapipe)
+        # Report-only: a failure here must never stop the suite step below.
+        continue-on-error: true
+        working-directory: OloEditor
+        shell: pwsh
+        # #1358: the engine's own reader, on this driver, published in the job
+        # summary. Report-only; the suite step below is the gate. It is the
+        # measured answer to "does this software driver satisfy ADR 0010, and
+        # does the real gate enable ray query on it" for docs/agent-rules/
+        # vulkan-support-matrix.md, from a log anyone can open.
+        env:
+          VK_DRIVER_FILES: ${{ env.OLO_LAVAPIPE_ICD }}
+          VK_ICD_FILENAMES: ${{ env.OLO_LAVAPIPE_ICD }}
+        run: |
+          New-Item -ItemType Directory -Force ..\test_results | Out-Null
+          ..\build\OloEngine\tests\${{env.BUILD_TYPE}}\OloEngine-Tests.exe --olo-vulkan-capability-report=..\test_results\vulkan_capability_report.md
+          Get-Content ..\test_results\vulkan_capability_report.md | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
       - name: Run the Vulkan suites under lavapipe
         working-directory: OloEditor
         # See docs/agent-rules/vulkan-software-driver-ci.md for the measured
@@ -214,6 +240,8 @@ jobs:
           LIBGL_ALWAYS_SOFTWARE: '1'
           MESA_GL_VERSION_OVERRIDE: '4.6'
           MESA_GLSL_VERSION_OVERRIDE: '460'
+          # Read as data, never interpolated into the script (see the AMD workflow).
+          OLO_GTEST_FILTER: ${{ inputs.gtest_filter }}
         # THE FLAG THAT MAKES THIS JOB WORTH HAVING IS `--olo-require-vulkan`
         # (issue #1300). Every device-gated Vulkan test skips cleanly when no
         # usable device is present, so without it this job would report GREEN on
@@ -232,8 +260,11 @@ jobs:
         #
         # The filter is the Vulkan-named suites. It deliberately does NOT cover
         # the L7 ray-query suites — that gap is issue #1294, a separately scored
-        # piece of work, and widening this filter is the one-line change it
-        # needs once someone confirms lavapipe can serve ray queries.
+        # piece of work. Measured (#1358, run 36621566529): lavapipe 26.2.0 does
+        # serve ray queries; RayTracingDevice.* and GpuPathTracerDevice.* pass,
+        # while 8 ReSTIRPTDevice tests hit the 10 s fence wait. Dispatch this
+        # workflow with gtest_filter to reproduce; widening the nightly is #1294's
+        # decision.
         #
         # ONE TEST IS EXCLUDED, AND IT IS A DRIVER DEFECT, NOT AN ENGINE ONE.
         # FramebufferBlitPreservesUnrequestedDepthStencilAspects asserts that a
@@ -249,7 +280,8 @@ jobs:
         # when it passes — docs/agent-rules/vulkan-software-driver-ci.md has
         # the measurement.
         run: |
-          ..\build\OloEngine\tests\${{env.BUILD_TYPE}}\OloEngine-Tests.exe "--gtest_filter=Vulkan*:VirtualShadowMapVulkanShaders*-VulkanDrawPath.FramebufferBlitPreservesUnrequestedDepthStencilAspects" --olo-require-vulkan --olo-golden-vendor=lavapipe --olo-perf-machine=ci-lavapipe-windows --gtest_catch_exceptions=1 --gtest_output=xml:..\test_results\vulkan_software.xml
+          $filter = if ($env:OLO_GTEST_FILTER) { $env:OLO_GTEST_FILTER } else { 'Vulkan*:VirtualShadowMapVulkanShaders*-VulkanDrawPath.FramebufferBlitPreservesUnrequestedDepthStencilAspects' }
+          ..\build\OloEngine\tests\${{env.BUILD_TYPE}}\OloEngine-Tests.exe "--gtest_filter=$filter" --olo-require-vulkan --olo-golden-vendor=lavapipe --olo-perf-machine=ci-lavapipe-windows --gtest_catch_exceptions=1 --gtest_output=xml:..\test_results\vulkan_software.xml
 
       - name: Upload Vulkan software test results
         if: always()

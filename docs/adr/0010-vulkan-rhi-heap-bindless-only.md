@@ -351,6 +351,35 @@ This note does not change any decision in this ADR or in
 [ADR 0011](0011-rhi-neutral-resource-and-binding-model.md); it records a
 tooling date the driver-floor picture above is meant to track.
 
+### #1358 amendment (2026-09-29) — the narrow floor is intentional, and its cost is measured
+
+**Decision: the floor stays as written. No compatibility branch, no descriptor-set fallback and no
+contract row is added or removed by this amendment.** What #1358 changes is that the contract now has
+one table in code (`VulkanCapabilities.cpp`) that device selection, the logical-device enables, the
+refuse-to-init message, the bring-up tests and a reproducible capability report all read, so the
+list this ADR pins cannot drift from what the gate does.
+
+The evidence, all from runs or CI logs, is in
+[vulkan-support-matrix.md](../agent-rules/vulkan-support-matrix.md):
+
+- The contract is satisfied on the developer's RTX 4090 (driver 617.14, Vulkan 1.4.351) and on
+  Mesa lavapipe 26.2.0, the software driver the nightly `vulkan-software.yml` runs (122 of 122
+  device-gated tests executed on 2026-09-29).
+- It is refused on the self-hosted AMD Navi 10 runner (RADV, Mesa 25.2.7: all three extensions
+  absent, measured by the report in CI run 36621553072). The hosted lavapipe runner
+  satisfies it, but only the nightly job and the PRs that touch `vulkan-software.yml` or
+  `VulkanCapabilities.*` run the device-gated suites there; ordinary PRs do not exercise them.
+- The cost of the floor, then, is verification reach rather than only hardware reach: the machines
+  that can verify the backend are one developer box and one software driver. Nothing measured shows
+  the floor to be wrong; it shows it to be expensive to verify on hardware. That is a runner
+  decision for #1294 (hardware ray-query runner, or a scheduled developer-box run), which this
+  amendment does not authorise or make.
+- Software implementations are evidence about spec compliance, not about a vendor, and the report
+  labels them so.
+
+Reopening the floor still requires amending this ADR with a measured device that is refused and
+should not be, not a code fallback.
+
 ## Consequences
 
 - OpenGL 4.6 remains the only backend that runs on every supported

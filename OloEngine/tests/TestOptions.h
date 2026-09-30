@@ -118,6 +118,14 @@ namespace OloEngine::Tests
         // together with `--olo-gl-backend=none`, which pins "this run tests no
         // GPU" and which the Vulkan gate honours.
         bool RequireVulkan = false;
+        // --olo-vulkan-capability-report[=<path>] : a TOOL RUN (issue #1358).
+        // Print (or write to <path>) the Markdown capability report -- every
+        // Vulkan device evaluated against the ADR 0010 contract by the same
+        // reader the device pick uses, plus what the real gate did -- and exit
+        // without running any test. Evidence for the support matrix in
+        // docs/agent-rules/vulkan-support-matrix.md.
+        bool VulkanCapabilityReport = false;
+        std::string VulkanCapabilityReportPath;
         // --olo-require-renderer-preset=<name> checks the executable support
         // matrix independently of GPU availability. CI uses this for its
         // required-preset gate and for the forced-refusal negative control.

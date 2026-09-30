@@ -1967,6 +1967,8 @@
 		"Platform/Vulkan/VulkanBufferResources.h"
 		"Platform/Vulkan/VulkanCapabilities.cpp"
 		"Platform/Vulkan/VulkanCapabilities.h"
+		"Platform/Vulkan/VulkanCapabilityReportText.cpp"
+		"Platform/Vulkan/VulkanCapabilityReportText.h"
 		"Platform/Vulkan/VulkanComputeShader.cpp"
 		"Platform/Vulkan/VulkanComputeShader.h"
 		"Platform/Vulkan/VulkanContext.cpp"
