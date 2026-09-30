@@ -4989,6 +4989,13 @@ namespace OloEngine
                 extractedResourceNames.Add(contract.SourceResource);
         }
 
+        TArray64<FString> sideEffectingPasses;
+        for (const auto& passName : m_InsertionOrder)
+        {
+            if (IsGraphEntrySideEffecting(passName.ToView()))
+                sideEffectingPasses.Add(passName);
+        }
+
         // Delegate the BFS / iterative read→writer expansion to the
         // RenderGraphReachability module.
         m_ReachablePasses = RenderGraphReachability::ComputeReachableSet({
@@ -4998,6 +5005,7 @@ namespace OloEngine
             .PassAccessDeclarations = m_PassAccessDeclarations,
             .Dependencies = m_Dependencies,
             .ExtractedResourceNames = std::span<const FString>(extractedResourceNames.GetData(), static_cast<sizet>(extractedResourceNames.Num())),
+            .SeedPasses = std::span<const FString>(sideEffectingPasses.GetData(), static_cast<sizet>(sideEffectingPasses.Num())),
         });
 
         // Refresh contract metadata (depends on m_ReachablePasses) before the

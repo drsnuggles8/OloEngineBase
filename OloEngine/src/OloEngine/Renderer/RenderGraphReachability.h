@@ -45,6 +45,11 @@ namespace OloEngine::RenderGraphReachability
         // history / external-sink contracts. Each entry is a resource name
         // whose writers must remain reachable. Empty entries are ignored.
         std::span<const FString> ExtractedResourceNames;
+        // Passes that are roots in their own right: side-effecting passes
+        // (Present, NeverCull, readback). Seeding them, rather than folding
+        // them back in after the scan, keeps what THEY read alive too — a
+        // kept readback whose producer was culled reads a stale resource.
+        std::span<const FString> SeedPasses;
     };
 
     [[nodiscard]] auto ComputeReachableSet(const ScanInput& input) -> RGTransparentStringSet;

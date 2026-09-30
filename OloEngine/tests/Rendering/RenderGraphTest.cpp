@@ -13292,3 +13292,74 @@ TEST(RenderGraphStringInterner, OwnedNamesSurviveGrowthAndClear)
     EXPECT_EQ(snapshot, "short");
     EXPECT_TRUE(names.NameOf(original).IsEmpty());
 }
+
+// =============================================================================
+// Reachability roots and the single fixpoint (found while working on #1331).
+// =============================================================================
+namespace
+{
+    [[nodiscard]] bool IsCulledPass(const RenderGraph& graph, std::string_view pass)
+    {
+        const auto culled = graph.GetCulledPasses();
+        return std::ranges::any_of(culled, [pass](const FString& name)
+                                   { return name.ToView() == pass; });
+    }
+
+    [[nodiscard]] i64 ExecutionPositionOf(const RenderGraph& graph, std::string_view pass)
+    {
+        const auto order = graph.GetExecutionOrder();
+        const auto it = std::ranges::find_if(order, [pass](const FString& name)
+                                             { return name.ToView() == pass; });
+        return it == order.end() ? -1 : static_cast<i64>(it - order.begin());
+    }
+
+    [[nodiscard]] RGResourceDesc ReachabilityDesc(std::string_view name)
+    {
+        return RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, name);
+    }
+} // namespace
+
+// A side-effecting pass is kept even when nothing reaches it, and it used to be
+// folded back in AFTER the reachability scan, so what it reads was never
+// walked: a kept readback whose producer was culled reads a stale resource.
+TEST(RenderGraphReachability, SideEffectingPassKeepsWhatItReadsAlive)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+    AddSetupNode(graph, "StatsProducer", [](RGBuilder& builder)
+                 { builder.Write(builder.ImportTexture("Stats", 31u, ReachabilityDesc("Stats")), RGWriteUsage::RenderTarget); });
+    AddSetupNode(graph, "Readback", RenderGraphNodeFlags::Graphics | RenderGraphNodeFlags::Readback, [](RGBuilder& builder)
+                 { [[maybe_unused]] const auto read = builder.Read(builder.ImportTexture("Stats", 31u, ReachabilityDesc("Stats")), RGReadUsage::TransferSource); });
+    AddSetupNode(graph, "Final", [](RGBuilder& builder)
+                 { builder.Write(builder.ImportTexture("FinalTarget", 7u, ReachabilityDesc("FinalTarget")), RGWriteUsage::RenderTarget); });
+    graph.SetFinalPass("Final");
+    graph.BuildFrameGraph();
+
+    EXPECT_FALSE(IsCulledPass(graph, "Readback"));
+    EXPECT_FALSE(IsCulledPass(graph, "StatsProducer")) << "the readback's producer was culled: it would read a stale resource";
+    EXPECT_LT(ExecutionPositionOf(graph, "StatsProducer"), ExecutionPositionOf(graph, "Readback"));
+}
+
+// W is reachable only through the read -> writer expansion: it is registered
+// after Final, so no read derives an edge to it. It depends on D by name. The
+// old two-stage scan walked edges first and reads second, so W survived and
+// D, the producer W declared it needs, was culled.
+TEST(RenderGraphReachability, APassReachedThroughAReadKeepsItsOwnDependencies)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+    AddSetupNode(graph, "D", [](RGBuilder&) {});
+    AddSetupNode(graph, "Final", [](RGBuilder& builder)
+                 {
+                     [[maybe_unused]] const auto read = builder.Read(builder.ImportTexture("X", 41u, ReachabilityDesc("X")), RGReadUsage::ShaderSample);
+                     builder.Write(builder.ImportTexture("FinalTarget", 7u, ReachabilityDesc("FinalTarget")), RGWriteUsage::RenderTarget); });
+    AddSetupNode(graph, "W", [](RGBuilder& builder)
+                 {
+                     builder.DependsOnPass("D");
+                     builder.Write(builder.ImportTexture("X", 41u, ReachabilityDesc("X")), RGWriteUsage::RenderTarget); });
+    graph.SetFinalPass("Final");
+    graph.BuildFrameGraph();
+
+    ASSERT_FALSE(IsCulledPass(graph, "W")) << "the read -> writer expansion keeps W";
+    EXPECT_FALSE(IsCulledPass(graph, "D")) << "W runs, so the producer it depends on must too";
+}
