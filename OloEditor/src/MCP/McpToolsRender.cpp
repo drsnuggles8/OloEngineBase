@@ -639,6 +639,26 @@ namespace OloEngine::MCP
             return ToolResult::Structured(result);
         }
 
+        // ---- olo_render_graph_schedule (main-marshaled) --------------------------
+        // The out-of-band schedule (issue #1331): every pass in execution order
+        // with its side effects and out-of-band declarations, every boundary
+        // with its producers / consumers / frame-phase uses, the frame prologue
+        // and epilogue work, and the last frame's ledger with any hazard. The
+        // shaping lives in RenderGraph::ExportOutOfBandScheduleJson, which the
+        // unit tests drive without an editor.
+        ToolResult Handle_RenderGraphSchedule(IAutomationHost& host, const Json& /*args*/)
+        {
+            Json result = host.MarshalRead([]() -> Json
+                                           {
+                const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
+                if (!graph)
+                    return Json{ { "__error", "No active render graph (the editor is not in 3D mode, or no frame has been rendered yet)." } };
+                return Json::parse(graph->ExportOutOfBandScheduleJson()); });
+            if (result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Structured(result);
+        }
+
         // ---- olo_render_graph_topology_export (main-marshaled) -----------------
         // Read-only structured export of the live RenderGraph topology — passes,
         // execution order, pass-dependency edges, and resources with their
@@ -7951,6 +7971,31 @@ namespace OloEngine::MCP
                     .Required({ "enabled", "valid", "anyOverflow", "overflows", "counters" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_GpuReadbackStats;
+            registry.Register(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_render_graph_schedule";
+            tool.Toolset = "render";
+            tool.Title = "Render graph out-of-band schedule";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "The render graph's out-of-band schedule (issue #1331): what the frame does that the resource graph "
+                "alone does not show. 'passes' lists every pass in execution order (culled passes last, marked "
+                "culled) with its side effects and why it has them, its out-of-band declarations (GPU state the "
+                "graph cannot back, such as the TLAS or the retained occlusion pyramid, and CPU publications such "
+                "as a command bucket or a texture id) and its incoming edges, each flagged orderingOnly when it "
+                "orders without carrying data. 'boundaries' lists every registered out-of-band boundary with its "
+                "in-graph producers, consumers and previous-frame consumers, what the frame prologue / epilogue "
+                "may do with it, its owner and why it is not a graph resource. 'framePhaseWork' names the GPU and "
+                "CPU work that runs wholly before or after RenderGraph::Execute; 'frameEpilogueReads' the graph "
+                "resources read after it. 'ledger' is the last frame's recorded out-of-band accesses, and "
+                "'ledgerHazards' every access nobody declared or that ran on the wrong side of a write. Read-only; "
+                "requires the editor to be rendering in 3D mode.";
+            tool.InputSchema = Schema::Object().NoAdditional();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_RenderGraphSchedule;
             registry.Register(std::move(tool));
         }
 
