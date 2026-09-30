@@ -34,12 +34,17 @@
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/SceneSerializer.h"
+#include "OloEngine/Scene/ModelImporter.h"
+#include "OloEngine/Renderer/AnimatedModel.h"
+#include "OloEngine/Renderer/MeshSource.h"
 
 #include "Rendering/PropertyTests/RenderPropertyTest.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <vector>
 
 #ifndef OLO_TEST_EDITOR_ROOT
 #error "OLO_TEST_EDITOR_ROOT must be defined by the test target's CMake — see OloEngine/tests/CMakeLists.txt"
@@ -183,5 +188,61 @@ namespace OloEngine::Tests
         EXPECT_NEAR(restoredB.GetComponent<AnimationStateComponent>().m_CurrentTime, 0.75f, 1e-5f)
             << "Entity B's playback state was corrupted by mutating entity A — "
                "the dedup cache must not alias per-entity AnimationStateComponents.";
+    }
+
+    // A glTF mesh with several primitives arrives as one Assimp mesh per
+    // material. The entity must draw ALL of them, each with its own material
+    // (issue #1533): before, it got the first mesh alone, so the horse walked
+    // without its eyes and the showcase dog's nose, mouth and paw pads vanished.
+    TEST(AnimatedModelDedup, AMultiMaterialModelDrawsEveryMeshAsOneSharedSource)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        if (!Renderer3D::IsInitialized())
+        {
+            Renderer::Init(RendererType::Renderer3D, /*loadingWindow=*/nullptr);
+        }
+        GLStateGuard glGuard("AnimatedModelDedup.MultiMaterial", GLStateGuard::Policy::Restore);
+
+        const fs::path horsePath = fs::path{ OLO_TEST_EDITOR_ROOT } / "SandboxProject/Assets/Models/Horse/Horse.gltf";
+        ASSERT_TRUE(fs::exists(horsePath)) << horsePath.string();
+        const auto horse = Ref<AnimatedModel>::Create(horsePath.string());
+        ASSERT_TRUE(horse);
+        ASSERT_EQ(horse->GetMeshes().size(), 2u) << "Horse.gltf has two primitives: HorseSkin and HorseEye";
+
+        auto scene = Scene::Create();
+        Entity a = scene->CreateEntity("HorseA");
+        Entity b = scene->CreateEntity("HorseB");
+        (void)ModelImporter::PopulateAnimatedEntity(a, horse, horsePath.string());
+        (void)ModelImporter::PopulateAnimatedEntity(b, horse, horsePath.string());
+
+        ASSERT_TRUE(a.HasComponent<MeshComponent>());
+        const Ref<MeshSource> source = a.GetComponent<MeshComponent>().m_MeshSource;
+        ASSERT_TRUE(source);
+        ASSERT_EQ(source->GetSubmeshes().Num(), 2);
+        std::vector<std::string> names;
+        for (u32 i = 0; i < 2u; ++i)
+        {
+            const Material* material = source->GetImportedMaterialPtrForSubmesh(i);
+            ASSERT_NE(material, nullptr) << "submesh " << i << " resolves no imported material";
+            names.push_back(material->GetName().ToStdString());
+        }
+        EXPECT_NE(std::ranges::find(names, "HorseSkin"), names.end());
+        EXPECT_NE(std::ranges::find(names, "HorseEye"), names.end());
+        const i32 expectedVertices = horse->GetMeshes()[0]->GetVertices().Num() + horse->GetMeshes()[1]->GetVertices().Num();
+        EXPECT_EQ(source->GetVertices().Num(), expectedVertices) << "every mesh's vertices, once each";
+        EXPECT_FALSE(a.HasComponent<MaterialComponent>())
+            << "a MaterialComponent replaces every submesh's material; a multi-material model must not get one";
+        EXPECT_EQ(b.GetComponent<MeshComponent>().m_MeshSource, source)
+            << "entities on one model must share one combined source (one set of GPU buffers per herd)";
+
+        // One mesh: unchanged, the mesh itself and its material on the entity.
+        const fs::path simplePath = fs::path{ OLO_TEST_EDITOR_ROOT } / "assets/models/RiggedSimple/RiggedSimple.gltf";
+        const auto simple = Ref<AnimatedModel>::Create(simplePath.string());
+        ASSERT_TRUE(simple);
+        ASSERT_EQ(simple->GetMeshes().size(), 1u);
+        Entity c = scene->CreateEntity("Simple");
+        (void)ModelImporter::PopulateAnimatedEntity(c, simple, simplePath.string());
+        EXPECT_EQ(c.GetComponent<MeshComponent>().m_MeshSource, simple->GetMeshes()[0]);
+        EXPECT_TRUE(c.HasComponent<MaterialComponent>());
     }
 } // namespace OloEngine::Tests

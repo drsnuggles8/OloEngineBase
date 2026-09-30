@@ -2988,12 +2988,10 @@ namespace OloEngine
                         {
                             bool wired = false;
                             auto animatedModel = Ref<AnimatedModel>::Create(filepath);
-                            // The FIRST mesh, because that is the one PopulateAnimatedEntity
-                            // wires; asking about any mesh would take the animated route for a
-                            // model whose morph targets sit on a mesh the importer never uses.
-                            const bool hasMorphTargets = animatedModel && !animatedModel->GetMeshes().empty() &&
-                                                         animatedModel->GetMeshes().front() &&
-                                                         animatedModel->GetMeshes().front()->HasMorphTargets();
+                            // The mesh PopulateAnimatedEntity wires: every mesh, combined
+                            // (issue #1533), so a morph target on any of them counts.
+                            const Ref<MeshSource> entityMesh = animatedModel ? animatedModel->GetEntityMeshSource() : nullptr;
+                            const bool hasMorphTargets = entityMesh && entityMesh->HasMorphTargets();
                             if (animatedModel && !animatedModel->GetMeshes().empty() &&
                                 (animatedModel->HasSkeleton() || animatedModel->HasAnimations() || hasMorphTargets))
                             {

@@ -807,6 +807,25 @@ namespace OloEngine
         return combined;
     }
 
+    Ref<MeshSource> AnimatedModel::GetEntityMeshSource() const
+    {
+        if (m_Meshes.Num() <= 1)
+        {
+            return m_Meshes.IsEmpty() ? nullptr : m_Meshes[0];
+        }
+        if (!m_EntityMeshSource)
+        {
+            m_EntityMeshSource = CreateCombinedMeshSource();
+            if (m_EntityMeshSource)
+            {
+                // Pre-optimized, so this uploads without reordering a vertex: the
+                // topology a groom binding was cooked against is the one it draws.
+                m_EntityMeshSource->Build();
+            }
+        }
+        return m_EntityMeshSource;
+    }
+
     void AnimatedModel::ProcessNode(const aiNode* node, const aiScene* scene, const glm::mat4& parentTransform)
     {
         OLO_PROFILE_FUNCTION();

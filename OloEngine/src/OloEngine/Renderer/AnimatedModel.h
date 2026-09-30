@@ -54,6 +54,19 @@ namespace OloEngine
         // through OptimizeMesh.
         [[nodiscard]] Ref<MeshSource> CreateCombinedMeshSource() const;
 
+        // The mesh an ENTITY draws (issue #1533). A model with one mesh draws that
+        // mesh. A model with several -- one per material, which is how Assimp
+        // splits a glTF mesh with several primitives -- draws ALL of them, as the
+        // submeshes of CreateCombinedMeshSource() with the imported material
+        // table, so each submesh shades with its own material. Before this the
+        // entity got the first mesh alone: the horse walked without its eyes and
+        // a body with a separate nose, mouth and paw pads lost all of them.
+        //
+        // Built once, on first use, and shared: every entity on this model (a
+        // herd deserialized through SceneSerializer's model cache) draws one set
+        // of GPU buffers. Not thread-safe; entities are populated on one thread.
+        [[nodiscard]] Ref<MeshSource> GetEntityMeshSource() const;
+
         // Accessors
         [[nodiscard]] std::span<const Ref<MeshSource>> GetMeshes() const
         {
@@ -158,6 +171,9 @@ namespace OloEngine
 
         BoundingBox m_BoundingBox;
         BoundingSphere m_BoundingSphere;
+
+        // GetEntityMeshSource()'s combined source, built on first use.
+        mutable Ref<MeshSource> m_EntityMeshSource;
 
         // Global transform of the first mesh node encountered during ProcessNode.
         // Used to correct axis orientation: mesh vertices are in mesh-local space,

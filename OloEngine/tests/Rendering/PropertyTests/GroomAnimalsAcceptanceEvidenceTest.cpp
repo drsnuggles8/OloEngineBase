@@ -278,6 +278,25 @@ namespace OloEngine::Tests
             return (y > hairline && facesOut) ? Region::Scalp : Region::Bare;
         }
 
+        // Whether triangle `t` of `surface` belongs to a submesh a coat may grow
+        // on. The entity draws EVERY mesh of its model since #1533, so the
+        // horse's surface carries its eyes too, and a coat grown on them would
+        // put fur on the eyeballs.
+        [[nodiscard]] bool GrowsFur(const MeshSource& surface, u32 t)
+        {
+            const auto& submeshes = surface.GetSubmeshes();
+            for (i32 i = 0; i < submeshes.Num(); ++i)
+            {
+                const Submesh& sm = submeshes[i];
+                if (t * 3u >= sm.m_BaseIndex && t * 3u < sm.m_BaseIndex + sm.m_IndexCount)
+                {
+                    const Material* material = surface.GetImportedMaterialPtrForSubmesh(static_cast<u32>(i));
+                    return material == nullptr || !material->GetName().Contains("Eye");
+                }
+            }
+            return true;
+        }
+
         [[nodiscard]] std::vector<SurfaceTriangle> CollectSurface(const MeshSource& surface, const Skeleton& skeleton,
                                                                   const glm::mat4& surfaceToGroom, BodyFrame& frame,
                                                                   Subject subject = Subject::Horse)
@@ -316,6 +335,10 @@ namespace OloEngine::Tests
 
             for (u32 t = 0; t < triangles; ++t)
             {
+                if (!GrowsFur(surface, t))
+                {
+                    continue;
+                }
                 SurfaceTriangle tri;
                 glm::vec3 shading(0.0f);
                 for (u32 c = 0; c < 3; ++c)
@@ -2971,7 +2994,7 @@ namespace OloEngine::Tests
                 const Ref<AnimatedModel> reloaded = Ref<AnimatedModel>::Create(modelPath.string());
                 ASSERT_TRUE(reloaded);
                 ASSERT_FALSE(reloaded->GetMeshes().empty());
-                const MeshSource& body = *reloaded->GetMeshes().front();
+                const MeshSource& body = *reloaded->GetEntityMeshSource();
                 const GroomSurfaceView view = MakeSurfaceView(body, reloaded->GetSkeleton().Raw());
                 EXPECT_EQ(subject->Binding->CheckCompatibility(GroomBindingBuilder::SignGroom(*subject->Grown.Groom),
                                                                GroomBindingBuilder::SignTarget(view)),
