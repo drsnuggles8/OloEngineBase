@@ -47,7 +47,10 @@ budget leaves the other side still, which reads as a broken binding.
 capsule that contains every last vertex of a hand is a sphere around the whole hand, and it pushes
 the coat off the arm. The fit is a pure function of the surface and is cached against the same
 identity keys the binding's compatibility verdict uses — re-fitting per frame is a full pass over
-the body's vertices.
+the body's vertices. **And it never pushes a particle further out than its groom put it** (#1533):
+wherever the body is slimmer than its capsule — a dog's crown, the base of an ear — the groom's own
+short fur lies inside the proxy, and pushing it to the shell lifted it off the skin and bared it. A
+particle is held out only as far as its *target* is.
 
 **Collision is resolved BEFORE the length projection, and that is a declared trade.** Length is then
 exact and a particle may end a step a fraction of a *segment* inside the proxy;
@@ -66,10 +69,17 @@ stored copy. A bool would make the reset a mutation of a component the tick is m
 would be lost on a save/load between the set and the consume, and two systems asking for a reset on
 one frame would race to clear it.
 
-**The simulation does not advance in edit mode.** `m_GroomSimulationDeltaSeconds` is zeroed at every
-frame entry point and accumulated only inside `SimulateRuntimeStep`, which the pause gate wraps. A
-scene must not change just from being open, and a paused frame must hold the pose it paused on. If
-you need motion for a capture, drive it through `RunFrames` (runtime), not `RunEditorFrames`.
+**The simulation does not advance in edit mode — but the coat still follows the body there.**
+`m_GroomSimulationDeltaSeconds` is zeroed at every frame entry point and accumulated only inside
+`SimulateRuntimeStep`, which the pause gate wraps. A scene must not change just from being open, and
+a paused frame must hold the pose it paused on. The skeleton, though, *does* animate in edit mode (an
+animation preview), so a solver call that runs no step carries every particle by its own target's
+motion (#1533). Left in world space, the dog's plume hung where its wagging tail had been, root and
+all. A still body under a stopped clock is held exactly.
+
+**A short coat needs a stiff solver.** The default `m_Stiffness` (90) sags a free particle g/k ≈
+11 cm — right for a mane, wet rope on a dog's face. The dog showcase runs 1200 against a softened
+gravity (−4), about 3 mm, with its long hair's groups scaling the stiffness to ~0.5 so it still swings.
 
 **The `.ologroom` format was deliberately NOT bumped.** Its `MinSupportedVersion` equals its
 `CurrentVersion` by design (`GroomBinaryFormat.h`), so a new cooked section would refuse every groom
@@ -104,6 +114,8 @@ comment for why, and say so rather than leaving it as an omission.
 | The coat is rubbery through a frame spike | `PositionBasedDistance` selected, or an iteration count taken as a length guarantee |
 | The coat hangs off the body like wet rope | `m_Stiffness` at or near zero: that term is the only one that knows the coat was authored |
 | The coat is pushed off the arm | The fitted proxy inflated by a stray vertex — check `AxisHighPercentile`, not `MaxColliders` |
+| Short fur stands off a slim part (crown, ear base) and bares it | The proxy pushed the groom's own fur out to its shell; hold each particle only as far out as its target |
+| The coat is left behind a body animating in edit mode | A call that runs no step left the particles in world space; carry them by their targets' motion |
 | Fingers poke through | `GroomColliderBuildStats::Truncated`: the cap dropped the smallest capsules |
 | Nothing moves at all, no errors | `GroomGuideInfluenceTable::GetUnguidedStrands()` — the groom was exported with no guide flags, or a group has none |
 | Two viewports disagree about where the fur is | Something stepped the solver per camera. It is stepped once per frame, in `DeformGroomAgainstSurface` |

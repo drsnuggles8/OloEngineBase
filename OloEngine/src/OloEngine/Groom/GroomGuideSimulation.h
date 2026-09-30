@@ -400,6 +400,11 @@ namespace OloEngine
         std::vector<glm::vec3> Curr;
         std::vector<glm::vec3> Prev;
 
+        /// The targets the previous call was handed, parallel to `Curr`: what a
+        /// call that runs no step carries the particles by (#1533). See
+        /// StepGroomGuideSimulation.
+        std::vector<glm::vec3> LastTargets;
+
         /// Seconds of un-simulated time carried into the next frame.
         f32 Accumulator = 0.0f;
 
@@ -421,6 +426,7 @@ namespace OloEngine
             GuideCurves.clear();
             Curr.clear();
             Prev.clear();
+            LastTargets.clear();
             Accumulator = 0.0f;
             Initialized = false;
         }

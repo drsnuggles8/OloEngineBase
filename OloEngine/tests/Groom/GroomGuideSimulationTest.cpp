@@ -322,6 +322,60 @@ TEST(GroomGuideSimulation, PauseHoldsTheStateAndResumeContinuesFromIt)
 // cut draws the groomed coat and emits zero motion, rather than a coat whose
 // tips are still at the old level and whose length constraint is now resolving
 // a hundred-metre segment.
+// A FRAME THAT RUNS NO STEP CARRIES THE COAT WITH THE BODY (#1533). Edit mode
+// animates the skeleton with the simulation's clock at zero; a solver that left
+// its particles in world space then left the coat behind the animal, and on the
+// dog showcase a wagging tail's whole plume, root included, hung where the tail
+// had been.
+TEST(GroomGuideSimulation, AFrameThatRunsNoStepCarriesTheCoatWithTheBody)
+{
+    // Laid across gravity, so the coat has a real drape to carry.
+    TestGuides guides = TestGuides::Make(2, 8, 0.05f, glm::vec3(1.0f, 0.0f, 0.0f));
+    GroomSimulationParams params;
+    params.Stiffness = 60.0f;
+
+    GroomGuideSimulationState state;
+    (void)StepGroomGuideSimulation(guides.Inputs(params, 1.0f / 60.0f, false), state);
+    for (u32 frame = 0; frame < 120; ++frame)
+    {
+        (void)StepGroomGuideSimulation(guides.Inputs(params, 1.0f / 60.0f, true), state);
+    }
+    std::vector<glm::vec3> drape(state.Curr.size());
+    for (sizet i = 0; i < drape.size(); ++i)
+    {
+        drape[i] = state.Curr[i] - guides.Targets[i];
+    }
+    f32 sag = 0.0f;
+    for (const glm::vec3& d : drape)
+    {
+        sag = std::max(sag, glm::length(d));
+    }
+    ASSERT_GT(sag, 0.005f) << "the coat needs a drape for this to carry anything";
+
+    // The body moves with the clock stopped: every frame hands a zero delta.
+    for (u32 frame = 1; frame <= 10; ++frame)
+    {
+        guides.Translate(glm::vec3(0.0f, 0.02f, 0.03f));
+        const GroomSimulationStats stats = StepGroomGuideSimulation(guides.Inputs(params, 0.0f, true), state);
+        ASSERT_FALSE(stats.Reseeded) << "a stopped clock is not a reset";
+    }
+    f32 worst = 0.0f;
+    for (sizet i = 0; i < drape.size(); ++i)
+    {
+        worst = std::max(worst, glm::length((state.Curr[i] - guides.Targets[i]) - drape[i]));
+    }
+    // Carried exactly: the drape relative to the body is what it was.
+    EXPECT_LT(worst, 1.0e-5f) << "the coat stayed behind a body that moved while the clock was stopped";
+    // And a still body under a stopped clock is held exactly, which is the
+    // pause half of criterion 1 (PauseHoldsTheStateAndResumeContinuesFromIt).
+    const std::vector<glm::vec3> held = state.Curr;
+    (void)StepGroomGuideSimulation(guides.Inputs(params, 0.0f, true), state);
+    for (sizet i = 0; i < held.size(); ++i)
+    {
+        EXPECT_EQ(state.Curr[i], held[i]);
+    }
+}
+
 TEST(GroomGuideSimulation, TeleportReseedsRatherThanStretching)
 {
     TestGuides guides = TestGuides::Make(2, 10);
@@ -487,6 +541,74 @@ TEST(GroomGuideSimulation, CollisionKeepsGuidesOutOfTheBody)
     // And length still holds while colliding, which is the trade being asserted
     // rather than assumed.
     EXPECT_LE(std::abs(stats.MaxStretchRatio - 1.0f), params.StretchTolerance);
+}
+
+// THE COLLIDER NEVER PUSHES A STRAND PAST WHERE THE GROOM PUT IT (#1533). A
+// fitted proxy is fatter than the body wherever the body is slim, so the groom's
+// own short fur can lie inside it. Pushed out to the shell, that fur stood off
+// the skin and bared it: on the dog showcase the collider alone took the pelt
+// that showed through the coat from 6.5k pixels to 11k with gravity OFF.
+TEST(GroomGuideSimulation, TheColliderNeverPushesAStrandPastWhereTheGroomPutIt)
+{
+    // A horizontal guide whose rest shape runs THROUGH the capsule's shell: its
+    // middle particles sit 5 cm inside a 20 cm capsule.
+    TestGuides guides = TestGuides::Make(1, 14, 0.08f, glm::vec3(1.0f, 0.0f, 0.0f));
+    GroomCollider capsule;
+    capsule.PointA = glm::vec3(0.52f, -0.15f, -1.0f);
+    capsule.PointB = glm::vec3(0.52f, -0.15f, 1.0f);
+    capsule.Radius = 0.2f;
+    const std::vector<GroomCollider> colliders{ capsule };
+
+    GroomSimulationParams params;
+    params.CollisionEnabled = true;
+    params.Gravity = glm::vec3(0.0f);
+    params.Stiffness = 20.0f;
+
+    u32 inside = 0;
+    for (const glm::vec3& p : guides.Targets)
+    {
+        inside += glm::length(p - ClosestPointOnGroomCollider(capsule, p)) < capsule.Radius ? 1u : 0u;
+    }
+    ASSERT_GE(inside, 3u) << "the rest shape must actually lie inside the proxy, or this measures nothing";
+
+    GroomGuideSimulationState state;
+    {
+        GroomSimulationInputs seed = guides.Inputs(params, 1.0f / 60.0f, false);
+        seed.Colliders = colliders;
+        (void)StepGroomGuideSimulation(seed, state);
+    }
+    GroomSimulationStats stats;
+    for (u32 frame = 0; frame < 240; ++frame)
+    {
+        GroomSimulationInputs inputs = guides.Inputs(params, 1.0f / 60.0f, true);
+        inputs.Colliders = colliders;
+        stats = StepGroomGuideSimulation(inputs, state);
+    }
+    ASSERT_FALSE(stats.Refused);
+    // With no gravity and no motion, the groom IS the equilibrium: the collider
+    // has nothing to correct, so the guide stays exactly where it was groomed.
+    EXPECT_LT(stats.MaxRestDeviation, 1.0e-5f) << "the collider moved a guide the groom placed inside it";
+
+    // And it still does its job: under gravity the guide cannot sink deeper into
+    // the proxy than the groom put it, by more than the length projection's
+    // one-segment slack the solver declares for every contact.
+    params.Gravity = glm::vec3(0.0f, -9.81f, 0.0f);
+    for (u32 frame = 0; frame < 240; ++frame)
+    {
+        GroomSimulationInputs inputs = guides.Inputs(params, 1.0f / 60.0f, true);
+        inputs.Colliders = colliders;
+        stats = StepGroomGuideSimulation(inputs, state);
+    }
+    f32 worstExtraDepth = 0.0f;
+    for (sizet i = 0; i < state.Curr.size(); ++i)
+    {
+        const f32 restDistance =
+            glm::length(guides.Targets[i] - ClosestPointOnGroomCollider(capsule, guides.Targets[i]));
+        const f32 distance = glm::length(state.Curr[i] - ClosestPointOnGroomCollider(capsule, state.Curr[i]));
+        const f32 allowed = std::min(capsule.Radius, restDistance);
+        worstExtraDepth = std::max(worstExtraDepth, allowed - distance);
+    }
+    EXPECT_LT(worstExtraDepth, 0.08f) << "gravity sank a guide deeper than its groom";
 }
 
 TEST(GroomGuideSimulation, CollisionDisabledLetsGuidesPassThroughAndIsCountedAsZero)

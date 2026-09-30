@@ -221,6 +221,7 @@ namespace OloEngine
             state.GuideCurves.assign(inputs.GuideCurves.begin(), inputs.GuideCurves.end());
             state.Curr.assign(start.begin(), start.end());
             state.Prev = state.Curr;
+            state.LastTargets.assign(inputs.TargetPoints.begin(), inputs.TargetPoints.end());
             stats.SeededFromCoat = seedFromCoat;
             state.Accumulator = 0.0f;
             state.Initialized = true;
@@ -232,6 +233,65 @@ namespace OloEngine
             // one-frame sag a reset exists to prevent.
             return stats;
         }
+
+        // ── A call that runs no step carries the coat with the body (#1533) ──
+        //
+        // The clock can be zero while the body still moves. Edit mode is the
+        // case: an animation preview plays the skeleton there, and the
+        // simulation deliberately does not advance (Scene's
+        // m_GroomSimulationDeltaSeconds). Left where they were in WORLD space,
+        // the particles then stayed behind their own animal: a wagging tail's
+        // plume hung where the tail had been, root and all, since a root is
+        // only snapped to the body inside a step -- and a crown and a cheek went
+        // bald as the head turned out from under their fur. So a call that will
+        // run no step moves every particle by its own target's motion instead.
+        // The drape is held in the body's frame, a still body is held exactly
+        // (a paused frame's targets have not moved), and the first step after
+        // it continues from a coat that is where the animal is.
+        //
+        // Each particle moves by its OWN target's motion, which is not a rigid
+        // motion of the strand once the coat hangs far from its groom and the
+        // body turns under it -- so the length projection follows, root to tip,
+        // or a swinging coat seen at 144 Hz (a stepless frame every other frame)
+        // stretched to twice its length. Length is the invariant; the drape is
+        // carried as closely as keeping it allows.
+        //
+        // A still body is not touched at all -- not even re-projected, which
+        // would move a paused coat by the projection's rounding -- so a paused
+        // frame holds the state bit for bit.
+        bool bodyMoved = false;
+        if (state.Accumulator + inputs.DeltaTime < step && state.LastTargets.size() == pointCount)
+        {
+            for (sizet i = 0; i < pointCount; ++i)
+            {
+                const glm::vec3 moved = inputs.TargetPoints[i] - state.LastTargets[i];
+                bodyMoved = bodyMoved || glm::length2(moved) > 0.0f;
+                state.Curr[i] += moved;
+                state.Prev[i] += moved;
+            }
+        }
+        if (bodyMoved)
+        {
+            for (u32 g = 0; g < guideCount; ++g)
+            {
+                const u32 first = inputs.GuideOffsets[g];
+                const u32 last = inputs.GuideOffsets[g + 1u];
+                for (u32 i = first + 1u; i < last; ++i)
+                {
+                    const f32 rest = glm::length(inputs.TargetPoints[i] - inputs.TargetPoints[i - 1u]);
+                    const glm::vec3 delta = state.Curr[i] - state.Curr[i - 1u];
+                    const f32 length2 = glm::length2(delta);
+                    if (!(length2 > kSegmentEpsilon2))
+                    {
+                        continue;
+                    }
+                    const glm::vec3 placed = state.Curr[i - 1u] + (delta * (rest * glm::inversesqrt(length2)));
+                    state.Prev[i] += placed - state.Curr[i];
+                    state.Curr[i] = placed;
+                }
+            }
+        }
+        state.LastTargets.assign(inputs.TargetPoints.begin(), inputs.TargetPoints.end());
 
         // ── The fixed step, with a bounded catch-up ─────────────────────────
         state.Accumulator += inputs.DeltaTime;
@@ -323,13 +383,29 @@ namespace OloEngine
                 // failure criterion 1 names, while a strand whose tip grazes a
                 // capsule by a tenth of a millimetre is not visible at all. The
                 // shell (ColliderPadding) is what buys back the difference.
+                //
+                // THE GROOM'S OWN DEPTH IS ALLOWED (#1533). A fitted proxy is a
+                // capsule round a bone, and wherever the body is slimmer than it
+                // -- a dog's crown, the base of an ear -- the groom's own short
+                // fur lies INSIDE it. Pushing every particle out to the shell lifted
+                // that fur off the skin and bared it. So a particle is held out
+                // only as far as its TARGET is: the shell for a particle the groom
+                // put outside it, the rest depth for one it put inside. Gravity
+                // still cannot sink it deeper than the groom did, which is the
+                // whole job; it just stops being pushed further out than that.
                 if (collide)
                 {
                     for (u32 i = first + 1u; i < last; ++i)
                     {
                         for (const GroomCollider& collider : inputs.Colliders)
                         {
-                            const f32 radius = collider.Radius + params.ColliderPadding;
+                            const f32 shell = collider.Radius + params.ColliderPadding;
+                            if (!(shell > 0.0f))
+                            {
+                                continue;
+                            }
+                            const glm::vec3 restNearest = ClosestPointOnGroomCollider(collider, inputs.TargetPoints[i]);
+                            const f32 radius = std::min(shell, glm::length(inputs.TargetPoints[i] - restNearest));
                             if (!(radius > 0.0f))
                             {
                                 continue;
