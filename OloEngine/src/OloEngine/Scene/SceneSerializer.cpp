@@ -5038,7 +5038,11 @@ namespace OloEngine
             out << YAML::Key << "Metallic" << YAML::Value << matComponent.m_Material.GetMetallicFactor();
             out << YAML::Key << "Roughness" << YAML::Value << matComponent.m_Material.GetRoughnessFactor();
             // Emissive + texture maps (issue #974): omitted at their defaults
-            // so pre-existing scenes stay byte-identical. Emissive is written
+            // so pre-existing scenes stay byte-identical. The map paths go
+            // through MakePortableSceneResourcePath: an asset-imported texture
+            // reports its project-relative path in the platform's spelling,
+            // and "Assets\Models\..." written on Windows names no file on
+            // Linux (#1533). Emissive is written
             // as the FULL vec4 — the save-game serializer and the C# binding
             // carry all four components, and scene YAML must not silently
             // truncate what they preserve.
@@ -5050,24 +5054,24 @@ namespace OloEngine
             }
             if (auto albedoMap = matComponent.m_Material.GetAlbedoMap(); albedoMap && !albedoMap->GetPath().empty())
             {
-                out << YAML::Key << "AlbedoMapPath" << YAML::Value << std::string(albedoMap->GetPath());
+                out << YAML::Key << "AlbedoMapPath" << YAML::Value << MakePortableSceneResourcePath(albedoMap->GetPath());
             }
             if (auto normalMap = matComponent.m_Material.GetNormalMap(); normalMap && !normalMap->GetPath().empty())
             {
-                out << YAML::Key << "NormalMapPath" << YAML::Value << std::string(normalMap->GetPath());
+                out << YAML::Key << "NormalMapPath" << YAML::Value << MakePortableSceneResourcePath(normalMap->GetPath());
             }
             if (auto mrMap = matComponent.m_Material.GetMetallicRoughnessMap(); mrMap && !mrMap->GetPath().empty())
             {
-                out << YAML::Key << "MetallicRoughnessMapPath" << YAML::Value << std::string(mrMap->GetPath());
+                out << YAML::Key << "MetallicRoughnessMapPath" << YAML::Value << MakePortableSceneResourcePath(mrMap->GetPath());
             }
             if (auto aoMap = matComponent.m_Material.GetAOMap(); aoMap && !aoMap->GetPath().empty())
             {
-                out << YAML::Key << "AOMapPath" << YAML::Value << std::string(aoMap->GetPath());
+                out << YAML::Key << "AOMapPath" << YAML::Value << MakePortableSceneResourcePath(aoMap->GetPath());
             }
             if (auto emissiveMap = matComponent.m_Material.GetEmissiveMap();
                 emissiveMap && !emissiveMap->GetPath().empty())
             {
-                out << YAML::Key << "EmissiveMapPath" << YAML::Value << std::string(emissiveMap->GetPath());
+                out << YAML::Key << "EmissiveMapPath" << YAML::Value << MakePortableSceneResourcePath(emissiveMap->GetPath());
             }
             // The thickness map (issue #1242) — KHR_materials_volume's thickness
             // texture, a per-pixel modulation of ThicknessFactor. Written only
@@ -5076,7 +5080,7 @@ namespace OloEngine
             if (auto thicknessMap = matComponent.m_Material.GetThicknessMap();
                 thicknessMap && !thicknessMap->GetPath().empty())
             {
-                out << YAML::Key << "ThicknessMapPath" << YAML::Value << std::string(thicknessMap->GetPath());
+                out << YAML::Key << "ThicknessMapPath" << YAML::Value << MakePortableSceneResourcePath(thicknessMap->GetPath());
             }
             if (const f32 normalScale = matComponent.m_Material.GetNormalScale(); std::abs(normalScale - 1.0f) > 1e-6f)
             {
@@ -6122,11 +6126,11 @@ namespace OloEngine
 
             if (dc.m_AlbedoTexture)
             {
-                out << YAML::Key << "AlbedoTexturePath" << YAML::Value << std::string(dc.m_AlbedoTexture->GetPath());
+                out << YAML::Key << "AlbedoTexturePath" << YAML::Value << MakePortableSceneResourcePath(dc.m_AlbedoTexture->GetPath());
             }
             if (dc.m_NormalTexture)
             {
-                out << YAML::Key << "NormalTexturePath" << YAML::Value << std::string(dc.m_NormalTexture->GetPath());
+                out << YAML::Key << "NormalTexturePath" << YAML::Value << MakePortableSceneResourcePath(dc.m_NormalTexture->GetPath());
             }
             if (dc.m_RMATexture)
             {
