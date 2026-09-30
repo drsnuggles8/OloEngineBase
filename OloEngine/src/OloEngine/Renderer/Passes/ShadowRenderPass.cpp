@@ -15,6 +15,7 @@
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualGeometryShadow.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
+#include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
 #include "OloEngine/Groom/GroomShadowWidening.h"
@@ -1034,8 +1035,17 @@ namespace OloEngine
                                                 ? groomShadowMap.GetResolution()
                                                 : groomShadowMap.GetAtlasEntryRect(layerOrLight).Size;
             shaders.Groom->Bind();
+            // Its own GPU bracket (#1533 E4): a coat's share of the shadow
+            // pass is the scene-shadow cost of fur, and it is otherwise folded
+            // into every other caster's. Not inside a parallel item: the timer
+            // pool is not thread-safe (the GTAO sub-passes skip it the same way).
+            auto* groomTimers = RenderCommand::IsRecordingParallelItem() ? nullptr : &GPUPassTimerPool::GetInstance();
+            if (groomTimers)
+                groomTimers->BeginSubPass("GroomCasters");
             RenderGroomCasters(cullFrustum, renderOrigin, static_cast<f32>(groomViewResolution), 0,
                                *resources.Groom);
+            if (groomTimers)
+                groomTimers->EndSubPass();
         }
 
         // ── Terrain patches ──
@@ -1079,6 +1089,13 @@ namespace OloEngine
         }
 
         // ── Foliage ──
+        // Its own GPU bracket, like the grooms' (#1533 E4): a lawn's share of
+        // the shadow pass is otherwise folded into every other caster's.
+        auto* foliageTimers = (!m_FoliageCasters.IsEmpty() && !RenderCommand::IsRecordingParallelItem())
+                                  ? &GPUPassTimerPool::GetInstance()
+                                  : nullptr;
+        if (foliageTimers)
+            foliageTimers->BeginSubPass("FoliageCasters");
         for (const auto& caster : m_FoliageCasters)
         {
             if (caster.renderer && caster.depthShader)
@@ -1089,6 +1106,8 @@ namespace OloEngine
                 caster.renderer->RenderShadows(caster.depthShader, caster.time, shadowViewIndex);
             }
         }
+        if (foliageTimers)
+            foliageTimers->EndSubPass();
 
         // ── Virtualized geometry (#629): GPU-driven cluster casters ──
         // CSM cascades AND local-light atlas entries (spot tiles / point-light

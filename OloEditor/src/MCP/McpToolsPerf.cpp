@@ -18,6 +18,7 @@
 #include "OloEngine/Renderer/ResourceHandle.h"
 
 #include <algorithm>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -227,9 +228,41 @@ namespace OloEngine::MCP
                                                { "drawCalls", f.m_DrawCalls } });
                     }
                 }
+                // The percentiles over EVERY frame in the ring, never over the
+                // downsampled series: a stride hides exactly the spikes a p95 is
+                // for (#1533 E1). Frames with no time yet (a ring still filling)
+                // are left out rather than counted as free.
+                std::vector<f64> times;
+                times.reserve(n);
+                for (std::size_t i = 0; i < n; ++i)
+                {
+                    if (hist[i].m_FrameTime > 0.0)
+                        times.push_back(hist[i].m_FrameTime);
+                }
+                Json stats = Json::object();
+                stats["frames"] = static_cast<u64>(times.size());
+                if (!times.empty())
+                {
+                    std::sort(times.begin(), times.end());
+                    const auto at = [&times](f64 q)
+                    {
+                        // Nearest rank: the smallest time with at least q of the frames at or below it.
+                        const auto rank = static_cast<std::size_t>(std::ceil(q * static_cast<f64>(times.size())));
+                        return times[std::clamp<std::size_t>(rank, 1, times.size()) - 1];
+                    };
+                    f64 sum = 0.0;
+                    for (const f64 t : times)
+                        sum += t;
+                    stats["meanMs"] = Round2(sum / static_cast<f64>(times.size()));
+                    stats["p50Ms"] = Round2(at(0.50));
+                    stats["p95Ms"] = Round2(at(0.95));
+                    stats["p99Ms"] = Round2(at(0.99));
+                    stats["maxMs"] = Round2(times.back());
+                }
                 return Json{ { "totalFrames", static_cast<u64>(n) },
                              { "returned", static_cast<int>(series.size()) },
-                             { "series", std::move(series) } }; });
+                             { "series", std::move(series) },
+                             { "stats", std::move(stats) } }; });
             return ToolResult::Structured(j);
         }
 
@@ -530,7 +563,9 @@ namespace OloEngine::MCP
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "A downsampled time series of recent frames (frameTimeMs, fps, drawCalls) from the profiler's "
-                "ring buffer, for spotting spikes/trends. The server downsamples to 'points' samples.";
+                "ring buffer, for spotting spikes/trends. The server downsamples to 'points' samples. 'stats' "
+                "holds the frame-time mean and p50/p95/p99/max over EVERY frame in the ring (up to 1024), not the "
+                "downsampled series.";
             tool.InputSchema = Schema::Object()
                                    .Prop("points", Schema::Int().Min(1).Max(300).Desc("Number of downsampled points to return (default 60)."))
                                    .NoAdditional();
@@ -542,7 +577,15 @@ namespace OloEngine::MCP
                                                                       .Prop("fps", Schema::Number())
                                                                       .Prop("drawCalls", Schema::Int().Min(0)))
                                                         .Desc("Downsampled samples, oldest first; empty when no frame history exists yet."))
-                                    .Required({ "totalFrames", "returned", "series" });
+                                    .Prop("stats", Schema::Object()
+                                                       .Prop("frames", Schema::Int().Min(0).Desc("Frames with a recorded time."))
+                                                       .Prop("meanMs", Schema::Number())
+                                                       .Prop("p50Ms", Schema::Number())
+                                                       .Prop("p95Ms", Schema::Number())
+                                                       .Prop("p99Ms", Schema::Number())
+                                                       .Prop("maxMs", Schema::Number())
+                                                       .Desc("Frame-time statistics over every frame in the ring (nearest-rank percentiles)."))
+                                    .Required({ "totalFrames", "returned", "series", "stats" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PerfFrameHistory;
             registry.Register(std::move(tool));
