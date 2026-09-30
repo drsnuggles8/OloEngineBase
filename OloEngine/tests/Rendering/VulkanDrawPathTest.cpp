@@ -44,6 +44,8 @@ TEST(VulkanDrawPath, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Instancing/InstanceData.h"
 #include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Shadow/ShadowMap.h"
+#include "OloEngine/Renderer/Shadow/VirtualShadowMap.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
@@ -232,6 +234,16 @@ class VulkanDrawPath : public ::testing::Test
         if (!m_Device)
             return;
         vkDeviceWaitIdle(m_Device->GetDevice());
+        // The production mesh path binds the virtual shadow map, which lazily
+        // creates INERT sampling buffers on whichever device is current when it
+        // never initialised. Here that is this fixture's device, so they must be
+        // released before it goes: left alive they trip the allocator's leak
+        // check at teardown (a Debug abort) or dangle into the next Vulkan
+        // fixture (an access violation in a Release run; #1358, found running
+        // the lavapipe job in filter order). Same guard as VulkanPassSuite:
+        // never strip the statics from a live GL renderer.
+        if (!Renderer3D::HasInitialized())
+            Renderer3D::GetShadowMap().GetVirtualShadowMap().Shutdown();
         VulkanPipelineBuilder::Get().ReleaseAll();
         VulkanPipelineCache::Get().SaveAndDestroy();
         VulkanFrameArena::Get().ReleaseBuffers();
