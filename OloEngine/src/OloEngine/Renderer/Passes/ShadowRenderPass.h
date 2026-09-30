@@ -25,6 +25,18 @@ namespace OloEngine
     class StorageBuffer;
     class Shader;
 
+    // Which caster families a shadow region draws (#1533). A region with a
+    // groom caster renders in two halves -- its opaque casters, then its grooms
+    // -- with the map copied between them into ShadowMap's opaque copy, so a
+    // groom can be shadowed by the body it grows on without its own strands
+    // counting twice. Everywhere else a region draws everything.
+    enum class ShadowCasterFilter : u8
+    {
+        All,
+        NoGrooms,
+        GroomsOnly,
+    };
+
     // Indicates which shadow target is being rendered in the current invocation
     enum class ShadowPassType : u8
     {
@@ -400,7 +412,7 @@ namespace OloEngine
         void RecordShadowRegion(ShadowPassType type, const ShadowCasterShaders& shaders, bool recordingInstancedDraws,
                                 u32 instanceCapacity,
                                 const std::function<void(const ActiveShadowView&)>& selectTarget,
-                                bool clearPerItem);
+                                bool clearPerItem, ShadowCasterFilter filter = ShadowCasterFilter::All);
 
         // Hand the items' tallies to RendererProfiler in item order, then clear
         // them. Render thread, after the join.
@@ -418,6 +430,10 @@ namespace OloEngine
         // Rebuilt every frame from the published groom requests (#1323), not
         // submitted into. Reset with the other five at the end of Execute.
         TArray64<ShadowGroomCaster> m_GroomCasters;
+        // The families the region being recorded draws (#1533). Set on the
+        // render thread before a region forks and read-only while its items
+        // record; All outside RecordShadowRegion.
+        ShadowCasterFilter m_CasterFilter = ShadowCasterFilter::All;
         // The groom pass owns the strand geometry (its cache, its GPU
         // deformation buffer); the caster family borrows it through
         // GroomRenderPass::AcquireShadowCaster. Wired by CreateFramePasses.

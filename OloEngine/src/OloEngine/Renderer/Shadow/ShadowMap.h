@@ -244,6 +244,40 @@ namespace OloEngine
         {
             return m_AtlasTexture;
         }
+
+        // THE OPAQUE COPIES (#1533): the cascades and the local-light atlas as
+        // they stand before any groom casts into them. A groom's strands sample
+        // THESE for the scene's occlusion AT THEIR OWN POSITION -- the body they
+        // grow on and every other opaque caster -- while the coat's own
+        // extinction stays the density volume's, so nothing is counted twice.
+        // Every other receiver samples the full maps, fur and all. Created on
+        // the first frame a groom casts into that map (each is a second copy of
+        // it in memory), written by ShadowRenderPass after the opaque casters and
+        // before the grooms, and valid only for the frame that wrote it. See
+        // groom-into-the-shadow-techniques.md rule 8.
+        enum class OpaqueCopy : u8
+        {
+            Cascades,
+            Atlas,
+        };
+        bool EnsureOpaqueCopy(OpaqueCopy which);
+        void SetOpaqueCopyWritten(OpaqueCopy which, bool written)
+        {
+            m_OpaqueCopies[static_cast<sizet>(which)].Written = written;
+        }
+        [[nodiscard]] bool IsOpaqueCopyWritten(OpaqueCopy which) const
+        {
+            const OpaqueShadowCopy& copy = m_OpaqueCopies[static_cast<sizet>(which)];
+            return copy.Written && copy.Texture;
+        }
+        [[nodiscard]] const Ref<Texture2DArray>& GetOpaqueCopyTexture(OpaqueCopy which) const
+        {
+            return m_OpaqueCopies[static_cast<sizet>(which)].Texture;
+        }
+        [[nodiscard]] RHI::ResourceHandle GetOpaqueCopyRawHandle(OpaqueCopy which) const
+        {
+            return m_OpaqueCopies[static_cast<sizet>(which)].RawView;
+        }
         [[nodiscard]] u32 GetCSMRendererID() const;
         [[nodiscard]] u32 GetAtlasRendererID() const;
 
@@ -452,6 +486,15 @@ namespace OloEngine
         // Shadow map textures
         Ref<Texture2DArray> m_CSMTextureArray; // 4 layers for CSM cascades
         Ref<Texture2DArray> m_AtlasTexture;    // 1-layer local-light shadow atlas (issue #435)
+        // The cascades and the atlas before the grooms cast (#1533), indexed by
+        // OpaqueCopy and created lazily.
+        struct OpaqueShadowCopy
+        {
+            Ref<Texture2DArray> Texture;
+            RHI::ResourceHandle RawView{};
+            bool Written = false;
+        };
+        std::array<OpaqueShadowCopy, 2> m_OpaqueCopies{};
 
         // Comparison-OFF raw-depth views of the two depth textures above (for
         // PCSS blocker search). Owned GL texture-view objects; deleted in Shutdown().

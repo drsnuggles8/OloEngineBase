@@ -1615,7 +1615,11 @@ namespace OloEngine
             // it against integer constants, and a float lane would make an exact
             // comparison a rounding question.
             //
-            // y = this groom samples the SCENE shadow (#1323).
+            // y = how this groom samples the SCENE shadow (#1323), a bitfield
+            //     since #1533: 1 = receives at all, 2 = the cascades bound for
+            //     this draw are ShadowMap's OPAQUE copy, 4 = the atlas bound is.
+            //     A map with its bit set is sampled at the strand itself; one
+            //     without it at the coat's light-exit point.
             // z = the object-space box in CoatBoundsMin / CoatInvExtent is
             //     valid for the receiver OFFSET. Separate from x because the
             //     offset is gated on this groom being a CASTER while the march

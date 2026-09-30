@@ -644,8 +644,9 @@ float oloGroomCoatExitDistance(vec3 worldDir)
 	                                     v_WorldPos, worldDir, u_GroomCoatModes.z);
 }
 
-// THE RECEIVER IS THE COAT'S LIGHT-EXIT POINT, NOT THE FRAGMENT, and that one
-// substitution is the whole double-count fix. Once grooms are shadow CASTERS
+// WITHOUT AN OPAQUE COPY THE RECEIVER IS THE COAT'S LIGHT-EXIT POINT, NOT THE
+// FRAGMENT (#1323), and that substitution is the double-count fix for a map
+// that holds the fur (see the opaque copies below). Once grooms are shadow CASTERS
 // their own strands are in the shadow map, so a strand sampling that map at its
 // own position is occluded by its own coat TWICE: once by the density volume in
 // oloGroomShadeFibre and once by the map. Moving the sample to where the light
@@ -669,10 +670,27 @@ float oloGroomCoatExitDistance(vec3 worldDir)
 // index 0 only, so a second directional light reads 1 here rather than the
 // first one's map — the same rule every lit surface shader applies.
 //
-// `known` says whether a map ANSWERED — whether the body's occlusion of this
-// light is accounted for at all. 1.0 with known == false is "nothing here can
-// say", not "lit", and dual scattering needs the difference (see
-// oloGroomShadeFibre).
+// THE OPAQUE COPIES ARE SAMPLED AT THE STRAND WHERE THEY EXIST (#1533;
+// u_GroomCoatModes.y is a bitfield: 1 receives, 2 the cascades bound are the
+// opaque copy, 4 the atlas bound is). The exit point sits OUTSIDE the groom's
+// box, so the map answered only for what lies beyond it: the body the coat grows
+// on never shadowed its own fur, and a chin over a chest, a leg against a belly
+// or a coat lit from behind took the light through the animal. ShadowRenderPass
+// now copies the cascades and the atlas after their opaque casters and before
+// their grooms, and GroomRenderPass binds the copies for these draws, so the
+// strand samples the light WHERE IT IS against maps with no fur in them: the
+// body and every other opaque caster shadow it, and the coat's own extinction
+// stays the density volume's alone. What a copy cannot hold is ANOTHER groom's
+// fur: a second coat does not shadow this one (groom-into-the-shadow-techniques.md
+// rule 8). The VSM keeps the exit point: its cached pages still hold the fur.
+//
+// `known` says whether the BODY's occlusion of this light is in the answer,
+// which is not the same as a map having answered: a lookup at the exit point
+// answers for what lies beyond the coat and knows nothing of the body inside
+// it. So it is true only where the lookup ran at the strand itself -- an opaque
+// copy, or a coat that does not cast and so has no exit offset. 1.0 with
+// known == false is "nothing here can say", not "lit", and dual scattering
+// needs the difference (see oloGroomShadeFibre).
 float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L, out bool known)
 {
 	known = false;
@@ -683,6 +701,11 @@ float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L
 
 	float exitDistance = oloGroomCoatExitDistance(L);
 	vec3 shadowPos = v_WorldPos + L * exitDistance;
+	// A receiver with no exit offset IS the strand, so a map sampled there sees
+	// the body (a coat that does not cast; NaN also lands here, unshifted).
+	bool atStrand = !(exitDistance > 0.0);
+	bool opaqueCascades = (u_GroomCoatModes.y & 2) != 0;
+	bool opaqueAtlas = (u_GroomCoatModes.y & 4) != 0;
 
 	if (lightType == DIRECTIONAL_LIGHT)
 	{
@@ -694,13 +717,18 @@ float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L
 		// are not rendered at all in that case, so this is an either/or rather
 		// than a blend. Read at runtime rather than through a shader variant,
 		// as the lit shaders do.
-		known = true;
 		if (VSM_ENABLED != 0)
 		{
+			known = atStrand;
 			return vsmShadowFactor(shadowPos, L);
 		}
-		vec4 viewSpacePos = u_View * vec4(shadowPos, 1.0);
-		return calculateCascadedShadowFactorCSM(u_ShadowMapCSM, u_ShadowMapCSMRaw, shadowPos, L, viewSpacePos.z,
+		// The opaque cascades are sampled at the strand itself: the body's
+		// shadow. The fibre has no surface, so the receiver bias runs toward
+		// the light either way.
+		vec3 receiver = opaqueCascades ? v_WorldPos : shadowPos;
+		known = opaqueCascades || atStrand;
+		vec4 viewSpacePos = u_View * vec4(receiver, 1.0);
+		return calculateCascadedShadowFactorCSM(u_ShadowMapCSM, u_ShadowMapCSMRaw, receiver, L, viewSpacePos.z,
 		                                        u_DirectionalLightSpaceMatrices, u_CascadePlaneDistances,
 		                                        u_ShadowParams, u_ShadowMapResolution, u_SoftShadowMode);
 	}
@@ -711,13 +739,14 @@ float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L
 		float localShadow;
 		if (vsmLocalShadow(shadowPos, L, atlasEntry, false, localShadow))
 		{
-			known = true;
+			known = atStrand;
 			return localShadow;
 		}
 		if (atlasEntry >= 0 && atlasEntry < u_AtlasEntryCount)
 		{
-			known = true;
-			return calculateAtlasEntryShadow(shadowPos, u_AtlasEntryMatrices[atlasEntry],
+			vec3 receiver = opaqueAtlas ? v_WorldPos : shadowPos;
+			known = opaqueAtlas || atStrand;
+			return calculateAtlasEntryShadow(receiver, u_AtlasEntryMatrices[atlasEntry],
 			                                 u_AtlasEntryScaleOffset[atlasEntry], u_ShadowAtlas, u_ShadowAtlasRaw,
 			                                 u_AtlasDepthBias, u_AtlasResolution, u_SoftShadowMode,
 			                                 u_ShadowParams.z);
@@ -734,14 +763,15 @@ float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L
 		float localShadow;
 		if (vsmLocalShadow(shadowPos, L, baseEntry, true, localShadow))
 		{
-			known = true;
+			known = atStrand;
 			return localShadow;
 		}
 		if (baseEntry >= 0 && baseEntry + 5 < u_AtlasEntryCount)
 		{
-			known = true;
-			int entry = baseEntry + atlasCubeFace(shadowPos - light.position.xyz);
-			return calculateAtlasEntryShadow(shadowPos, u_AtlasEntryMatrices[entry],
+			vec3 receiver = opaqueAtlas ? v_WorldPos : shadowPos;
+			known = opaqueAtlas || atStrand;
+			int entry = baseEntry + atlasCubeFace(receiver - light.position.xyz);
+			return calculateAtlasEntryShadow(receiver, u_AtlasEntryMatrices[entry],
 			                                 u_AtlasEntryScaleOffset[entry], u_ShadowAtlas, u_ShadowAtlasRaw,
 			                                 u_AtlasDepthBias, u_AtlasResolution,
 			                                 0, // PCF only on cube faces, matching the surface path
@@ -772,7 +802,8 @@ float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L
 //
 // OCCLUSION BY THE REST OF THE SCENE is the shadow map's job, not this
 // volume's, and it multiplies the same incoming radiance through
-// oloGroomSceneShadow above (#1323) — sampled at the coat's light-exit point so
+// oloGroomSceneShadow above (#1323) — sampled at the strand against the opaque
+// copies (#1533), or at the coat's light-exit point where there is no copy, so
 // the two terms never count the coat's own strands twice. The volume
 // deliberately contains the groom's own strands and nothing else. With the coat
 // term active the geometric root-to-tip ramp is bypassed — see main() —
@@ -896,22 +927,32 @@ OloGroomShading oloGroomShadeFibre()
 			continue;
 		}
 
+		// The scene's occlusion of this light (#1323): 1 unless this coat
+		// receives scene shadows. FIRST, because a strand the scene shadows
+		// completely -- the far side of the body, since #1533 -- receives none
+		// of this light: the direct, forwarded and back-scattered terms below
+		// all scale with the radiance, so its coat march is skipped. `<=`, not
+		// `!(> 0)`, so a NaN still reaches the colour and shows.
+		bool occlusionKnown = false;
+		float sceneShadow = oloGroomSceneShadow(light, i, lightType, L, occlusionKnown);
+		if (sceneShadow <= 0.0)
+		{
+			continue;
+		}
 		// How much of this coat is between the fragment and this light. Zero
 		// crossings (or an inactive mode) gives transmittance 1, so a coat with
 		// no volume built renders exactly as it did before this existed.
 		float coatTau = oloGroomCoatTau(L);
 		float coatShadow = oloGroomCoatTransmittance(coatTau, u_GroomCoatBoundsMin.w);
-		// The scene's occlusion of this light (#1323): 1 unless this coat
-		// receives scene shadows.
-		bool occlusionKnown = false;
-		float sceneShadow = oloGroomSceneShadow(light, i, lightType, L, occlusionKnown);
 		// What the other fibres forwarded on top of it (dual scattering) —
-		// ONLY where a shadow map accounts for the body. The volume holds
-		// strands, not the body, so a light nothing shadows would forward
-		// straight through the animal: a rim light behind the head lit the front
-		// of the face through it, as a frost of backlit strands. Unscattered,
-		// such a light is still stopped by the coat's two root layers, which is
-		// the #1248 behaviour; that part stays.
+		// ONLY where a shadow map accounts for the body, which is a map sampled
+		// AT THE STRAND (see the scene-shadow receive above): one sampled at the
+		// coat's exit point answers for what lies beyond the coat and not for
+		// the body inside it. The volume holds strands, not the body, so a light nothing
+		// shadows would forward straight through the animal: a rim light behind
+		// the head lit the front of the face through it, as a frost of backlit
+		// strands. Unscattered, such a light is still stopped by the coat's two
+		// root layers, which is the #1248 behaviour; that part stays.
 		vec3 forwarded = vec3(0.0);
 		if (dualScattering && occlusionKnown)
 		{

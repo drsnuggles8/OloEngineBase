@@ -105,6 +105,45 @@ namespace OloEngine
                       m_Settings.AtlasResolution, m_Settings.AtlasResolution, MAX_SHADOW_ATLAS_ENTRIES);
     }
 
+    bool ShadowMap::EnsureOpaqueCopy(const OpaqueCopy which)
+    {
+        OLO_PROFILE_FUNCTION();
+        OpaqueShadowCopy& copy = m_OpaqueCopies[static_cast<sizet>(which)];
+        if (copy.Texture)
+        {
+            return true;
+        }
+        const bool cascades = which == OpaqueCopy::Cascades;
+        if (!(cascades ? m_CSMTextureArray : m_AtlasTexture))
+        {
+            return false;
+        }
+        // The map's own shape, so a layer copies onto a layer, and the same
+        // comparison sampler state, so the strands sample it exactly as every
+        // other receiver samples the full map.
+        const u32 resolution = cascades ? m_Settings.Resolution : m_Settings.AtlasResolution;
+        const u32 layers = cascades ? MAX_CSM_CASCADES : 1u;
+        Texture2DArraySpecification spec;
+        spec.Width = resolution;
+        spec.Height = resolution;
+        spec.Layers = layers;
+        spec.Format = Texture2DArrayFormat::DEPTH_COMPONENT32F;
+        spec.DepthComparisonMode = true;
+        copy.Texture = Texture2DArray::Create(spec);
+        const char* const what = cascades ? "cascade" : "local-light atlas";
+        if (!copy.Texture)
+        {
+            OLO_CORE_ERROR("ShadowMap: could not create the opaque {} copy ({}x{}, {} layers); grooms keep the "
+                           "light-exit receiver for it and the body does not shadow its own fur",
+                           what, resolution, resolution, layers);
+            return false;
+        }
+        copy.RawView = RenderCommand::CreateDepthArrayCompareOffViewHandle(copy.Texture->GetRHIHandle(), layers);
+        OLO_CORE_INFO("ShadowMap: opaque {} copy created for groom receivers ({}x{}, {} layers)", what, resolution,
+                      resolution, layers);
+        return true;
+    }
+
     void ShadowMap::Shutdown()
     {
         OLO_PROFILE_FUNCTION();
@@ -122,6 +161,14 @@ namespace OloEngine
         {
             RenderCommand::DeleteTexture(m_AtlasRawViewHandle);
             m_AtlasRawViewHandle = {};
+        }
+        for (OpaqueShadowCopy& copy : m_OpaqueCopies)
+        {
+            if (copy.RawView.IsValid())
+            {
+                RenderCommand::DeleteTexture(copy.RawView);
+            }
+            copy = {};
         }
 
         m_VirtualShadowMap.Shutdown();

@@ -86,6 +86,11 @@ OLO_LEVER_EXACT(FaultSkipGroomVsmInvalidation, "OLO_FAULT_SKIP_GROOM_VSM_INVALID
                 "FAULT (#1523 negative control): submit no Virtual Shadow Map page invalidation for groom casters, "
                 "so a moving coat leaves its old silhouette in the cached pages. Re-creates the gap #1380 shipped "
                 "with; GroomSceneShadowVisualEvidenceTest proves its stale-page check sees it.")
+OLO_LEVER_EXACT(FaultGroomShadowAtCoatExit, "OLO_FAULT_GROOM_SHADOW_AT_COAT_EXIT",
+                "FAULT (#1533 negative control): make no opaque shadow copies for groom receivers, so every groom "
+                "samples the sun's cascades and the local-light atlas at its coat's light-exit point -- outside the "
+                "body -- and the body it grows on shadows none of its fur. Re-creates the receiver #1323 shipped "
+                "with; GroomSceneShadowVisualEvidenceTest proves its body-shadow check sees it.")
 
 // --- RHI --------------------------------------------------------------------
 OLO_LEVER_TOGGLE(BindlessDescriptorHeap, "OLO_RHI_BINDLESS",

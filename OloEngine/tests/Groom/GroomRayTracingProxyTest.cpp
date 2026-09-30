@@ -582,6 +582,28 @@ namespace OloEngine
         EXPECT_EQ(count("calculateAtlasEntryShadow"), 2u)
             << "two atlas lookups (spot, point face), both in oloGroomSceneShadow";
 
+        // THE FRAGMENT REACHES A LOOKUP ONLY AGAINST AN OPAQUE COPY (#1533).
+        // The cascades and the atlas each have a copy made before any groom
+        // cast into them, with no fur in it; sampled at the strand, it lets the
+        // body shadow its own fur and counts none of the coat. A lookup at the
+        // fragment against a map WITH the fur is the black-coat failure above,
+        // so each receiver is chosen by the one selection on its copy's bit:
+        // one for the cascades, two for the atlas (spot, point face).
+        EXPECT_EQ(count("opaqueCascades ? v_WorldPos : shadowPos"), 1u)
+            << "the CSM receiver is the strand only when the opaque cascades are bound";
+        EXPECT_EQ(count("opaqueAtlas ? v_WorldPos : shadowPos"), 2u)
+            << "each atlas receiver is the strand only when the opaque atlas is bound";
+        EXPECT_EQ(count("(u_GroomCoatModes.y & 2) != 0"), 1u) << "one gate on the opaque cascades' bit";
+        EXPECT_EQ(count("(u_GroomCoatModes.y & 4) != 0"), 1u) << "one gate on the opaque atlas' bit";
+
+        // `known` gates forwarded scattering on the BODY being in the answer,
+        // and a lookup at the exit point answers for nothing inside the coat.
+        // So it is never simply set: it is the opaque bit or a receiver that is
+        // the strand, once per lookup -- three VSM and three raster.
+        EXPECT_EQ(count("known = true"), 0u) << "known asserted without the lookup having run at the strand";
+        EXPECT_EQ(count("known = atStrand;"), 3u) << "the three VSM lookups";
+        EXPECT_EQ(count("|| atStrand;"), 3u) << "the CSM and the two atlas lookups";
+
         // And the absences: no screen-space or ray-traced shadow term reaches a
         // strand.
         for (const std::string_view token : { "u_RayTracedShadowMask", "oloRayTracedShadowFactor",

@@ -48,14 +48,24 @@ the groom half of `Renderer/Passes/ShadowRenderPass.cpp`, `GroomStrandDepth.glsl
    A widened strand casts an opaque shadow; a coat too sparse to fill a texel is over-occluded by at
    most the widening factor. A dense coat is opaque there in reality too.
 
-8. **The receiver is the coat's LIGHT-EXIT POINT, gated on CASTING, not on the density volume.** A
-   caster's strands are in the map, so a strand sampling it at its own position is occluded by its own
-   coat on top of the volume's charge. Tied to the volume, a coat without one fell from **44.98 mean luma
-   to 0.22** (#1380, measured): a shadow map is binary and a coat is not. `CoatModes.z` gates the
-   offset, `.x` the march, `.y` the receive; a whole-vector assign to `u_GroomCoatModes` in the coat
-   block clears the other two. The exit distance stays in world metres because the direction is not
-   normalised. Nothing inside the coat's own box can shadow it, the body included; an occluder outside
-   the box is unaffected.
+8. **A strand samples the OPAQUE copies at itself; without a copy its receiver is the coat's
+   LIGHT-EXIT POINT, gated on CASTING, not on the density volume.** A caster's strands are in the map,
+   so a strand sampling the full map at its own position is occluded by its own coat on top of the
+   volume's charge. Tied to the volume, a coat without one fell from **44.98 mean luma to 0.22** (#1380,
+   measured): a shadow map is binary and a coat is not. The exit point cures that, but it lies outside
+   the coat's box, so nothing inside the box -- the body included -- could shadow the fur. So the
+   cascades and the local-light atlas, when a groom casts, render their opaque casters, are copied into
+   `ShadowMap`'s opaque copies, and then take their grooms, uncleared (#1533). `GroomRenderPass` binds
+   the copies over the four shadow slots for its own draws and invalidates them after. `CoatModes.y` is
+   a bitfield (1 receives, 2 opaque cascades, 4 opaque atlas); a set bit samples that map at the strand:
+   the body shadows its fur, and fur is counted only by the volume. A copy cannot hold another groom's
+   fur, so one coat does not shadow a second. The VSM keeps the exit point: its cached pages hold the
+   fur. `GroomsShadowedByOpaqueCascades` / `...Atlas` say which coats got the opaque lookup, and
+   `OLO_FAULT_GROOM_SHADOW_AT_COAT_EXIT` brings the exit point back for a negative control. `known`,
+   the gate on forwarded dual scattering, is true only where the lookup ran at the strand: an exit-point
+   answer says nothing about the body. `CoatModes.z` gates the offset, `.x` the march, `.y` the
+   receive; a whole-vector assign to `u_GroomCoatModes` in the coat block clears the other two. The exit
+   distance stays in world metres because the direction is not normalised.
 
 9. **A strand has no surface normal, so the receiver bias is spent along `L`.** A ribbon's
    `v_ViewNormal` faces the camera. A zero vector is not an option: the CSM helper normalises it.

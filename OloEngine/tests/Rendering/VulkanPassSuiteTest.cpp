@@ -10611,6 +10611,148 @@ TEST_F(VulkanPassSuite, ShadowCascadesRenderIntoTheirOwnDepthArrayLayers)
            "would leave the quad here";
 }
 
+// THE GROOM SPLIT OF A CASCADE (#1533), the sequence ShadowRenderPass records
+// when a groom casts: the layer's opaque casters, a copy of the layer into the
+// opaque cascades, then the grooms on top of the SAME layer, UNCLEARED. A
+// strand samples the copy at itself so the body shadows it and its own fur
+// does not; every other receiver samples the full layer. Three things must
+// hold on Vulkan, and each failure lands somewhere the samples below read:
+//
+//   * the copy must take the DEPTH aspect of the right LAYER (layer 1 here,
+//     so a copy that ignores the z offset reads layer 0's clear);
+//   * the copy must land BEFORE the second half -- a copy recorded after it,
+//     or one that reads the image mid-scope, carries the "fur" into the copy;
+//   * the second half must LOAD the layer, not clear it: the opaque quad has
+//     to survive in the full map where the fur quad does not cover it.
+TEST_F(VulkanPassSuite, AGroomSplitCascadeCopiesItsOpaqueHalfAndLoadsItUnderTheGrooms)
+{
+    constexpr u32 kSize = 64;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const u64 stubsBefore = api.GetUnimplementedStubHitCount();
+
+    auto shadowShader = Shader::Create("assets/shaders/ShadowDepth.glsl");
+    ASSERT_TRUE(shadowShader);
+    ASSERT_EQ(shadowShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    ShaderBindingLayout::CameraUBO cameraData{};
+    cameraData.ViewProjection = glm::mat4(1.0f);
+    cameraData.View = glm::mat4(1.0f);
+    cameraData.Projection = glm::mat4(1.0f);
+    cameraData.PrevViewProjection = glm::mat4(1.0f);
+    auto cameraUbo = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+    cameraUbo->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
+    const InstanceData identityInstance{};
+    auto instanceSSBO = StorageBuffer::Create(sizeof(InstanceData), ShaderBindingLayout::SSBO_INSTANCE_DATA);
+    instanceSSBO->SetData(&identityInstance, sizeof(identityInstance));
+    instanceSSBO->Bind();
+
+    // The OPAQUE caster covers the left half at 0.5; the "fur" covers the
+    // middle half, NEARER, at 0.25 -- over part of the opaque quad and part of
+    // the cleared right half.
+    constexpr f32 kOpaqueDepth = 0.5f;
+    constexpr f32 kFurDepth = 0.25f;
+    auto opaqueQuad = MakeV1Quad(-1.0f, 0.0f, -1.0f, 1.0f, kOpaqueDepth);
+    auto furQuad = MakeV1Quad(-0.5f, 0.5f, -1.0f, 1.0f, kFurDepth);
+    ASSERT_TRUE(opaqueQuad && furQuad);
+
+    Texture2DArraySpecification arraySpec;
+    arraySpec.Width = kSize;
+    arraySpec.Height = kSize;
+    arraySpec.Layers = 2;
+    arraySpec.Format = Texture2DArrayFormat::DEPTH_COMPONENT32F;
+    arraySpec.DepthComparisonMode = true;
+    auto cascades = Texture2DArray::Create(arraySpec);
+    auto opaqueCopy = Texture2DArray::Create(arraySpec);
+    ASSERT_TRUE(cascades && opaqueCopy);
+
+    FramebufferSpecification shadowSpec;
+    shadowSpec.Width = kSize;
+    shadowSpec.Height = kSize;
+    shadowSpec.Attachments = { FramebufferTextureFormat::ShadowDepth };
+    Ref<Framebuffer> shadowFramebuffer = Framebuffer::Create(shadowSpec);
+    ASSERT_TRUE(shadowFramebuffer);
+
+    constexpr u32 kLayer = 1u;
+    SubmitFrame(
+        [&]()
+        {
+            shadowFramebuffer->Bind();
+            RenderCommand::SetViewport(0, 0, kSize, kSize);
+            RenderCommand::SetBlendState(false);
+            RenderCommand::DisableCulling();
+            RenderCommand::SetDepthTest(true);
+            RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+            RenderCommand::SetDepthMask(true);
+            shadowShader->Bind();
+
+            // The opaque half.
+            shadowFramebuffer->AttachDepthTextureArrayLayer(cascades->GetRHIHandle(), kLayer);
+            RenderCommand::ClearDepthOnly();
+            opaqueQuad->Bind();
+            RenderCommand::DrawIndexed(opaqueQuad, 6);
+
+            // The copy, between the halves.
+            RenderCommand::CopyImageSubDataFull(cascades->GetRHIHandle(), RendererAPI::TextureTargetType::Texture2DArray,
+                                                0, static_cast<i32>(kLayer), opaqueCopy->GetRHIHandle(),
+                                                RendererAPI::TextureTargetType::Texture2DArray, 0,
+                                                static_cast<i32>(kLayer), kSize, kSize);
+
+            // The groom half: the same layer, uncleared.
+            shadowFramebuffer->AttachDepthTextureArrayLayer(cascades->GetRHIHandle(), kLayer);
+            furQuad->Bind();
+            RenderCommand::DrawIndexed(furQuad, 6);
+
+            std::array<RHI::Barrier, 2> toSampled{};
+            for (u32 i = 0; i < 2u; ++i)
+            {
+                toSampled[i].Resource = i == 0 ? cascades->GetRHIHandle() : opaqueCopy->GetRHIHandle();
+                toSampled[i].Range.BaseMip = 0u;
+                toSampled[i].Range.MipCount = 1u;
+                toSampled[i].Range.BaseLayer = kLayer;
+                toSampled[i].Range.LayerCount = 1u;
+                toSampled[i].Before = i == 0 ? RHI::Access::DepthStencilAttachmentWrite : RHI::Access::TransferWrite;
+                toSampled[i].After = RHI::Access::ShaderSampleRead;
+            }
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span<const RHI::Barrier>{ toSampled });
+        });
+
+    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 2u) << "one draw per half";
+    EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u) << "a half's draw dropped silently";
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore) << "the copy or the attach hit a stub";
+
+    std::vector<f32> full;
+    std::vector<f32> opaque;
+    ASSERT_TRUE(ReadDepthArrayLayer(cascades, kLayer, full)) << "full-layer readback failed";
+    ASSERT_TRUE(ReadDepthArrayLayer(opaqueCopy, kLayer, opaque)) << "opaque-copy readback failed";
+    ASSERT_EQ(full.size(), static_cast<sizet>(kSize) * kSize);
+    ASSERT_EQ(opaque.size(), static_cast<sizet>(kSize) * kSize);
+
+    const auto sample = [&](const std::vector<f32>& layer, u32 x)
+    { return layer[static_cast<sizet>(kSize / 2u) * kSize + x]; };
+    constexpr u32 kOpaqueOnlyX = kSize / 8;     // NDC -0.75: opaque, no fur
+    constexpr u32 kBothX = 3 * kSize / 8;       // NDC -0.25: fur over opaque
+    constexpr u32 kFurOnlyX = 5 * kSize / 8;    // NDC +0.25: fur, nothing under it
+    constexpr u32 kNeitherX = 7 * kSize / 8;    // NDC +0.75: cleared
+
+    // The FULL layer holds both halves: the opaque quad survived the groom
+    // half, so it was loaded, not cleared.
+    EXPECT_NEAR(sample(full, kOpaqueOnlyX), kOpaqueDepth, 1e-4f)
+        << "the opaque quad is gone from the full layer: the groom half CLEARED the layer instead of loading it";
+    EXPECT_NEAR(sample(full, kBothX), kFurDepth, 1e-4f) << "the fur did not draw over the opaque caster";
+    EXPECT_NEAR(sample(full, kFurOnlyX), kFurDepth, 1e-4f) << "the fur is missing from the full layer";
+    EXPECT_NEAR(sample(full, kNeitherX), 1.0f, 1e-4f) << "the full layer's uncovered quarter is not the clear value";
+
+    // The COPY holds the opaque half and nothing of the fur.
+    EXPECT_NEAR(sample(opaque, kOpaqueOnlyX), kOpaqueDepth, 1e-4f)
+        << "the opaque copy does not hold the opaque caster: the copy missed the layer or its depth aspect";
+    EXPECT_NEAR(sample(opaque, kBothX), kOpaqueDepth, 1e-4f)
+        << "the fur reached the opaque copy: the copy landed after the groom half";
+    EXPECT_NEAR(sample(opaque, kFurOnlyX), 1.0f, 1e-4f)
+        << "the fur reached the opaque copy where nothing opaque is: the copy landed after the groom half";
+}
+
 // =============================================================================
 // The INSTANCED skinned draw (#1031).
 //

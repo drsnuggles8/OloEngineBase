@@ -227,6 +227,15 @@ namespace OloEngine
         /// RendererSettings::GroomGpuDeformation lever, or a binding the rest
         /// stream could not be built against.
         u32 GroomsGpuDeformed = 0;
+        /// Grooms whose strands sampled the OPAQUE cascades at their own
+        /// position this frame (#1533): the body they grow on shadows them in
+        /// the sun. Zero with a coat receiving the sun's shadow means it fell
+        /// back to the light-exit receiver (VSM owns the sun, or the copy could
+        /// not be made) and its own body does not shadow it.
+        u32 GroomsShadowedByOpaqueCascades = 0;
+        /// The same for the local-light atlas: grooms drawn with its opaque
+        /// copy bound, so a shadowed spot or point light is stopped by the body.
+        u32 GroomsShadowedByOpaqueAtlas = 0;
         /// Of those, the grooms whose drawn roots the GPU evaluated (#1533 E1;
         /// compute/GroomRootFrames.comp), and how many roots that was. The rest
         /// packed CPU-evaluated roots.

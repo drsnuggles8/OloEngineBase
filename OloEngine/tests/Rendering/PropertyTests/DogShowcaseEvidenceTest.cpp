@@ -35,6 +35,7 @@
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/AssetSerializer.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomBinding.h"
 #include "OloEngine/Groom/GroomBindingBuilder.h"
@@ -2154,6 +2155,172 @@ namespace OloEngine::Tests
             std::printf("[dog] look arm %s: %u px changed (repeat floor %u)\n", arm.Name, changed, floor);
             std::fflush(stdout);
             EXPECT_GT(changed, std::max(4u * floor, 1500u)) << arm.Name << " must change the frame";
+        }
+        anim.m_IsPlaying = true;
+    }
+
+    // =========================================================================
+    // #1533 review: the body shadows its own coat, on the real animal. The
+    // strands sample the OPAQUE cascades at themselves (groom-into-the-shadow-
+    // techniques.md rule 8); the fault lever brings back the light-exit
+    // receiver, which no part of the body could shadow. A skinned body missing
+    // from the opaque cascades would leave the two frames alike, and the sphere
+    // of GroomSceneShadowVisualEvidenceTest case 8 would not notice: its body
+    // is a static mesh. Three places the review named: the chin over the chest,
+    // the flank the body stands in front of, the tail over the rump.
+    //
+    // WITH THE COAT'S OWN VOLUME OFF, because two things hide the body with it
+    // on (measured: every view's darkened count fell under the repeat floor).
+    // A strand on the body's far side marches through the body -- empty in the
+    // volume -- and out through the whole coat on the near side, which already
+    // charges most of the light the body stops: on a fully furred animal the
+    // old receiver's error was largely masked. And dual scattering, which the
+    // fix allows only where a map sees the body, brightened the fixed frames
+    // over two thirds of the coat. Without the volume neither is in play, so
+    // the two frames differ by the body alone.
+    //
+    // MEANS, NOT PIXEL COUNTS. The coat is on the stochastic tier -- the
+    // opaque one alpha-tests coverage and drops every sub-pixel strand, which
+    // on this dog is most of the head, the legs and the tail -- and its dither
+    // makes two identical captures differ in 5 to 8 thousand pixels. Over the
+    // coat's hundreds of thousands the MEAN barely moves between repeats, so
+    // the claim is on the mean, against the repeat's own mean difference.
+    // =========================================================================
+    TEST_F(DogShowcaseEvidenceTest, TheBodyShadowsItsOwnCoat)
+    {
+        SetPath(RenderingPath::Forward);
+        (void)PlayClip("Idle", true, 40);
+        auto& anim = m_Dog.Body.GetComponent<AnimationStateComponent>();
+        anim.m_IsPlaying = false; // one pose for every arm
+        auto& coatShadow = m_Dog.Coat.GetComponent<GroomCoatShadowComponent>();
+        struct Restore
+        {
+            GroomCoatShadowComponent& Coat;
+            ~Restore()
+            {
+                Levers::SetFaultGroomShadowAtCoatExit(false);
+                Coat.m_Enabled = true;
+                Coat.m_MultipleScattering = true;
+            }
+        } restore{ coatShadow };
+        coatShadow.m_Enabled = false;
+
+        // The sun comes from the dog's left, in front and above (BuildStage),
+        // so these look at fur with the body between it and the sun: the chin's
+        // shadow falls back onto the right of the chest, the right flank is the
+        // body's far side, and the tail lies over the right of the rump.
+        const std::array<View, 3> views{ {
+            { "ChinOverChest", { -0.45f, 0.30f, 0.85f }, { 0.0f, 0.40f, 0.25f }, 30.0f },
+            { "ShadowFlank", { -1.55f, 0.42f, 0.25f }, { 0.0f, 0.34f, 0.0f }, 35.0f },
+            { "TailOverRump", { -0.95f, 0.70f, -1.35f }, { 0.0f, 0.40f, -0.25f }, 35.0f },
+        } };
+        const auto luma = [](const std::vector<u8>& f, sizet i)
+        { return (0.2126 * f[i]) + (0.7152 * f[i + 1]) + (0.0722 * f[i + 2]); };
+        for (const View& view : views)
+        {
+            SCOPED_TRACE(view.Name);
+            std::vector<u8> fixed;
+            const u32 coatCount = CoatPixels(view, std::string("DogBodyShadow_GL_Forward_") + view.Name, "", &fixed);
+            std::vector<u8> bald;
+            m_Dog.Coat.GetComponent<GroomComponent>().m_RenderStrands = false;
+            ColdHistory();
+            Capture("", view, bald);
+            m_Dog.Coat.GetComponent<GroomComponent>().m_RenderStrands = true;
+            std::vector<u8> repeat;
+            ColdHistory();
+            Capture("", view, repeat);
+            Levers::SetFaultGroomShadowAtCoatExit(true);
+            std::vector<u8> atExit;
+            ColdHistory();
+            Capture(std::string("DogBodyShadow_GL_Forward_") + view.Name + "AtCoatExit", view, atExit);
+            Levers::SetFaultGroomShadowAtCoatExit(false);
+            ASSERT_FALSE(HasFatalFailure());
+
+            u32 darkened = 0;
+            u32 brightened = 0;
+            u32 coat = 0;
+            f64 fixedSum = 0.0;
+            f64 exitSum = 0.0;
+            f64 repeatSum = 0.0;
+            for (sizet i = 0; i + 3 < fixed.size(); i += 4)
+            {
+                if (std::abs(luma(fixed, i) - luma(bald, i)) <= kDiffThreshold)
+                {
+                    continue; // not the coat
+                }
+                ++coat;
+                fixedSum += luma(fixed, i);
+                exitSum += luma(atExit, i);
+                repeatSum += luma(repeat, i);
+                const f64 change = luma(fixed, i) - luma(atExit, i);
+                darkened += change < -kDiffThreshold ? 1u : 0u;
+                brightened += change > kDiffThreshold ? 1u : 0u;
+            }
+            const f64 n = std::max<f64>(1.0, static_cast<f64>(coat));
+            const f64 bodyShadow = (exitSum - fixedSum) / n; // mean coat luma the body takes away
+            const f64 repeatFloor = std::abs(repeatSum - fixedSum) / n;
+            std::printf("[dog] body shadow %-13s coat %u px | mean coat luma %.2f at the coat exit -> %.2f at the "
+                        "strand: the body takes %.3f (repeat floor %.3f) | %u px darkened, %u brightened\n",
+                        view.Name, coatCount, exitSum / n, fixedSum / n, bodyShadow, repeatFloor, darkened,
+                        brightened);
+            std::fflush(stdout);
+            EXPECT_GT(bodyShadow, std::max(4.0 * repeatFloor, 0.25))
+                << "the body darkens none of its coat where it stands between the fur and the sun: the skinned body "
+                   "is not in the opaque cascades, or the strands do not sample them";
+            EXPECT_GT(darkened, brightened) << "an occluder can only remove light";
+        }
+
+        // THE RIM, which nothing shadows: the cascades go to the brightest directional light that
+        // casts, and the scene's rim does not cast. So the body cannot stop it, and what it sends
+        // THROUGH the body onto the face is measured here by making it, for one arm, the light
+        // that casts -- the sun casting in neither, so its share is the same in both. The
+        // difference is the rim's light on fur the head stands in front of. A record, not a
+        // contract: the gap is documented (groom-into-the-shadow-techniques.md rule 8). The
+        // volume is ON, as shipped -- its march charges most of that light to the coat on the far
+        // side of the head -- and multiple scattering OFF, which only the casting arm would get.
+        coatShadow.m_Enabled = true;
+        coatShadow.m_MultipleScattering = false;
+        {
+            const View& face = views[0];
+            auto& sun = m_Sun.GetComponent<DirectionalLightComponent>();
+            auto& rim = m_Rim.GetComponent<DirectionalLightComponent>();
+            const bool sunCasts = sun.m_CastShadows;
+            sun.m_CastShadows = false;
+            std::vector<u8> rimOpen;
+            std::vector<u8> bald;
+            m_Dog.Coat.GetComponent<GroomComponent>().m_RenderStrands = false;
+            ColdHistory();
+            Capture("", face, bald);
+            m_Dog.Coat.GetComponent<GroomComponent>().m_RenderStrands = true;
+            ColdHistory();
+            Capture("DogBodyShadow_GL_Forward_RimUnshadowed", face, rimOpen);
+            rim.m_CastShadows = true;
+            std::vector<u8> rimShadowed;
+            ColdHistory();
+            Capture("DogBodyShadow_GL_Forward_RimShadowed", face, rimShadowed);
+            rim.m_CastShadows = false;
+            sun.m_CastShadows = sunCasts;
+            ASSERT_FALSE(HasFatalFailure());
+            u32 coat = 0;
+            u32 throughBody = 0;
+            f64 openSum = 0.0;
+            f64 shadowedSum = 0.0;
+            for (sizet i = 0; i + 3 < rimOpen.size(); i += 4)
+            {
+                if (std::abs(luma(rimOpen, i) - luma(bald, i)) <= kDiffThreshold)
+                {
+                    continue;
+                }
+                ++coat;
+                openSum += luma(rimOpen, i);
+                shadowedSum += luma(rimShadowed, i);
+                throughBody += (luma(rimOpen, i) - luma(rimShadowed, i)) > kDiffThreshold ? 1u : 0u;
+            }
+            std::printf("[dog] rim through the body %s: %u of %u coat px lit by the rim through the head, coat mean "
+                        "luma %.2f unshadowed -> %.2f shadowed\n",
+                        face.Name, throughBody, coat, coat > 0u ? openSum / coat : 0.0,
+                        coat > 0u ? shadowedSum / coat : 0.0);
+            std::fflush(stdout);
         }
         anim.m_IsPlaying = true;
     }
