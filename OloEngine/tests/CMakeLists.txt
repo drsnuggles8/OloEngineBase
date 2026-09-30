@@ -731,6 +731,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/ReflectionTierTermEvidenceTest.cpp
 		Rendering/PropertyTests/MeshVisibilityEvidenceTest.cpp
 		Rendering/PropertyTests/VisualEvidenceGuards.cpp
+		Rendering/PropertyTests/FineDetailDensityTest.cpp
 		Rendering/PropertyTests/BloomVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ObserverCameraVisualEvidenceTest.cpp
 		Rendering/PropertyTests/FogVisualEvidenceTest.cpp

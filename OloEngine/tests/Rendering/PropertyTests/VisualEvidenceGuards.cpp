@@ -178,4 +178,94 @@ namespace OloEngine::Tests::VisualEvidence
         return static_cast<f32>(ssimSum / static_cast<f64>(ssimCount));
     }
 
+    namespace
+    {
+        [[nodiscard]] f32 Rec601Luma(const std::vector<u8>& rgba, sizet pixelIndex)
+        {
+            const sizet i = pixelIndex * 4u;
+            return 0.299f * static_cast<f32>(rgba[i + 0]) + 0.587f * static_cast<f32>(rgba[i + 1]) +
+                   0.114f * static_cast<f32>(rgba[i + 2]);
+        }
+    } // namespace
+
+    f64 FineDetailDensity(const std::vector<u8>& rgba, u32 width, u32 height, const PixelRect& crop, f32 threshold)
+    {
+        constexpr f64 kInvalid = std::numeric_limits<f64>::quiet_NaN();
+        if (width == 0u || height == 0u || crop.Width == 0u || crop.Height == 0u)
+            return kInvalid;
+        if (rgba.size() != static_cast<sizet>(width) * height * 4u)
+            return kInvalid;
+        if (!std::isfinite(threshold) || threshold < 0.0f)
+            return kInvalid;
+        // 64-bit sums so a hostile crop cannot wrap into range.
+        if (static_cast<u64>(crop.X) + crop.Width > width || static_cast<u64>(crop.Y) + crop.Height > height)
+            return kInvalid;
+
+        const auto lumaAt = [&](u32 x, u32 y)
+        { return Rec601Luma(rgba, static_cast<sizet>(y) * width + x); };
+
+        sizet above = 0;
+        for (u32 y = crop.Y; y < crop.Y + crop.Height; ++y)
+        {
+            const u32 yNext = y + 1u < height ? y + 1u : y;
+            for (u32 x = crop.X; x < crop.X + crop.Width; ++x)
+            {
+                const u32 xNext = x + 1u < width ? x + 1u : x;
+                const f32 gx = lumaAt(xNext, y) - lumaAt(x, y);
+                const f32 gy = lumaAt(x, yNext) - lumaAt(x, y);
+                if (std::sqrt(gx * gx + gy * gy) > threshold)
+                    ++above;
+            }
+        }
+        return static_cast<f64>(above) / (static_cast<f64>(crop.Width) * static_cast<f64>(crop.Height));
+    }
+
+    f64 FineDetailDensity(const std::vector<u8>& rgba, u32 width, u32 height, f32 threshold)
+    {
+        return FineDetailDensity(rgba, width, height, PixelRect{ 0u, 0u, width, height }, threshold);
+    }
+
+    f64 ExpectFineDetailNotReduced(const std::vector<u8>& featureOn, const std::vector<u8>& featureOff, u32 width,
+                                   u32 height, const PixelRect& crop, const std::string& label, f64 slack)
+    {
+        const f64 on = FineDetailDensity(featureOn, width, height, crop);
+        const f64 off = FineDetailDensity(featureOff, width, height, crop);
+        if (!std::isfinite(on) || !std::isfinite(off))
+        {
+            ADD_FAILURE() << label << ": fine-detail density is not measurable (on=" << on << ", off=" << off
+                          << "); a buffer is not " << width << "x" << height
+                          << " RGBA8, or the crop leaves the frame. The A/B measured nothing.";
+            return std::numeric_limits<f64>::quiet_NaN();
+        }
+
+        EXPECT_GE(on + slack, off)
+            << label << ": turning the feature ON REDUCED fine-detail density from " << off * 100.0 << "% to "
+            << on * 100.0 << "% of pixels above the gradient threshold (slack " << slack * 100.0
+            << "%). A feature that claims to add geometric richness must not remove detail. Enlarge the two captures "
+               "3x and describe what is on screen before touching this bound (issue #1401).";
+
+        return off > 0.0 ? on / off : std::numeric_limits<f64>::quiet_NaN();
+    }
+
+    f64 ExpectFineDetailFloorAgainstReference(const std::vector<u8>& frame, u32 width, u32 height, const PixelRect& crop,
+                                              const std::vector<u8>& reference, u32 referenceWidth,
+                                              u32 referenceHeight, f64 minFraction, const std::string& label)
+    {
+        const f64 measured = FineDetailDensity(frame, width, height, crop);
+        const f64 ref = FineDetailDensity(reference, referenceWidth, referenceHeight);
+        if (!std::isfinite(measured) || !std::isfinite(ref) || ref <= 0.0 || !std::isfinite(minFraction))
+        {
+            ADD_FAILURE() << label << ": the reference floor is not measurable (frame=" << measured
+                          << ", reference=" << ref << ", minFraction=" << minFraction
+                          << "). The floor measured nothing.";
+            return std::numeric_limits<f64>::quiet_NaN();
+        }
+
+        EXPECT_GE(measured, ref * minFraction)
+            << label << ": fine-detail density " << measured * 100.0 << "% of pixels is below " << minFraction
+            << "x the reference photograph's " << ref * 100.0
+            << "%. The subject is far flatter than real foliage (issue #1401). This is the WEAKER check: look at "
+               "the frame, enlarged 3x, before adjusting anything.";
+        return measured / ref;
+    }
 } // namespace OloEngine::Tests::VisualEvidence
