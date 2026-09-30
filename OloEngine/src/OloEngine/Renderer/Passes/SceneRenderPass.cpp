@@ -224,6 +224,19 @@ namespace OloEngine
             builder.Write(board.Scene.SceneColor, RGWriteUsage::RenderTarget);
     }
 
+    void SceneRenderPass::AdoptTarget(const Ref<Framebuffer>& target)
+    {
+        // The graph can hand this pass a DIFFERENT framebuffer object than the
+        // one ApplyRenderViewport last configured: a scene-band resize evicts the
+        // pooled targets and re-materialises them with no render viewport. The
+        // dynamic render scale is the node's request, so it follows the node onto
+        // whatever object backs it this frame; without this the scene drew
+        // full-size into a target every later pass read as a reduced corner
+        // (found by #1526's sub-scale capture test, Upscale -> Off at scale 0.5).
+        m_Target = target;
+        m_Target->SetRenderViewportSize(m_RenderViewportWidth, m_RenderViewportHeight);
+    }
+
     void SceneRenderPass::ExecuteForwardPrepass(RGCommandContext& context, const Ref<Framebuffer>& sceneTarget)
     {
         OLO_PROFILE_FUNCTION();
@@ -231,7 +244,7 @@ namespace OloEngine
         m_ForwardPrepassRan = false;
         m_ForwardPrepassDrew = false;
         if (sceneTarget)
-            m_Target = sceneTarget;
+            AdoptTarget(sceneTarget);
         if (!m_Target)
         {
             OLO_CORE_ERROR("SceneRenderPass::ExecuteForwardPrepass: No target framebuffer!");
@@ -476,7 +489,7 @@ namespace OloEngine
         if (const auto sceneHandle = GetPrimaryInputFramebufferHandle(); sceneHandle.IsValid())
         {
             if (auto resolvedSceneFB = context.ResolveFramebuffer(sceneHandle))
-                m_Target = resolvedSceneFB;
+                AdoptTarget(resolvedSceneFB);
         }
 
         if (!m_Target)

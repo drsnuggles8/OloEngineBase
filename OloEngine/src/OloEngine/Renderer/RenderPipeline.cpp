@@ -3088,6 +3088,16 @@ namespace OloEngine
                     // black (issue #563). Route through the graph's node-resize
                     // eviction chokepoint, as RenderGraph::Resize does.
                     graph.NotifyNodeFramebufferResized();
+
+                    // A physical resize also clears each resized framebuffer's
+                    // render viewport, which is where a dynamic render scale
+                    // lives. RenderGraph::Resize re-applies it; this path did
+                    // not, so an Upscale -> Off switch under a scale below 1.0
+                    // drew the scene full-size while every other pass kept the
+                    // reduced corner (found by #1526's sub-scale capture test).
+                    // Re-applying an unchanged scale invalidates no history.
+                    if (graph.GetRenderScale() < 1.0f)
+                        graph.SetRenderScale(graph.GetRenderScale());
                 }
             }
         }
