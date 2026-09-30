@@ -1,0 +1,37 @@
+SkinProfile:
+  Name: Dog Nose
+  # The showcase dog's nose leather (issue #1533). TRANSPORT VERSION 4: the wet
+  # coat of #1245 over heavily pigmented tissue. A dog's nose is the other wet
+  # surface of the face, and "wet" in this engine is a thin dielectric film in
+  # front of the tissue, not a low roughness on the tissue itself: the film takes
+  # its highlight from what is underneath, which is why a dry dark nose and a wet
+  # one differ by a small bright highlight rather than by overall shine.
+  EvaluationModel: 4
+  Units: "colours: linear Rec.709 (unitless 0..1); lengths: millimetres"
+  # PIGMENTED: the leather scatters little and absorbs most of what enters it.
+  ScatterColor: [0.32, 0.22, 0.2]
+  ScatterRadiusMM: [0.8, 0.4, 0.3]
+  ThicknessScale: 1000
+  SpecularTint: [1.0, 0.98, 0.97]
+  # Thick tissue: almost nothing crosses it.
+  Transmission:
+    Strength: 0.1
+    Anisotropy: 0.7
+    Power: 4
+  # The cobblestone surface breaks the underlying lobe up; the broad lobe carries it.
+  Specular:
+    LobeMix: 0.45
+    LobeRoughnessScale: 2.4
+    NormalVarianceStrength: 0.0
+    DetailStrength: 0
+    ExpressionDetailGain: 0
+  Oral:
+    # A moist film, not pooled saliva: strong enough to read as wet at a close-up,
+    # rough enough that the cobblestones scatter it into many small highlights.
+    # Sharper than this, each nostril's rim caught a pinpoint highlight and the
+    # pair read as a second, tiny pair of eyes.
+    CoatStrength: 0.4
+    CoatRoughness: 0.22
+    CoatIor: 1.33
+    # The nose is outside the mouth: nothing occludes its transmission.
+    CavityOcclusion: 0

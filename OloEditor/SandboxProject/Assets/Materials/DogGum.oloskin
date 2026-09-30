@@ -1,0 +1,28 @@
+SkinProfile:
+  Name: Dog Gum
+  # The showcase dog's gums and mouth interior (issue #1533). TRANSPORT VERSION 4.
+  # Darker and greyer than OralGum.oloskin: a golden mutt's gums are often mottled
+  # with black pigment, which is also what keeps an open mouth from reading as a
+  # bright hole in a close-up.
+  EvaluationModel: 4
+  Units: "colours: linear Rec.709 (unitless 0..1); lengths: millimetres"
+  ScatterColor: [0.62, 0.34, 0.33]
+  ScatterRadiusMM: [1.4, 0.7, 0.5]
+  ThicknessScale: 1000
+  SpecularTint: [0.98, 0.95, 0.94]
+  Transmission:
+    Strength: 1
+    Anisotropy: 0.7
+    Power: 4
+  Specular:
+    LobeMix: 0.3
+    LobeRoughnessScale: 2.0
+    NormalVarianceStrength: 0.0
+    DetailStrength: 0
+    ExpressionDetailGain: 0
+  Oral:
+    CoatStrength: 0.5
+    CoatRoughness: 0.1
+    CoatIor: 1.33
+    # Deep in the cavity: fully spent, so a closed mouth does not glow.
+    CavityOcclusion: 1.0

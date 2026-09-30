@@ -763,6 +763,9 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/GroomBindingVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomSimulationVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomAnimalsAcceptanceEvidenceTest.cpp
+		# The furred dog showcase (#1533): the coat grown region by region on
+		# the generated body, bound, lit and judged from every hero angle.
+		Rendering/PropertyTests/DogShowcaseEvidenceTest.cpp
 		# Criterion 4's pictures: both reference animals under front/side/backlight,
 		# on all three rendering paths, plus the silhouette-under-budget and
 		# layer-separability measurements a screenshot cannot make (#1251).

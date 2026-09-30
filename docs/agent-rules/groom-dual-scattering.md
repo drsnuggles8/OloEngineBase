@@ -45,9 +45,12 @@ flat or plush.
 5. **A pale coat is authored with PALE fibres.** `BaseColor` still inverts against the single
    fibre's albedo ([groom-fibre-scattering.md](groom-fibre-scattering.md) rule 12). Dual scattering
    then compounds that colour with every crossing, so the coat renders more saturated than the fibre.
-   That is right: a golden coat is made of nearly clear fibres. The dog uses `(1.0, 0.94, 0.84)` at
-   intensity 1. Authoring the coat's final gold as the fibre colour renders orange. An intensity
-   above 1 was compensation for the missing transport; do not bring it back.
+   That is right: a golden coat is made of nearly clear fibres. The dog uses `(1.0, 0.93, 0.80)` at
+   intensity 1. Authoring the coat's final gold as the fibre colour renders orange. Nearly clear is
+   not clear, though: at `(1.0, 0.97, 0.90)` the forwarded light came back almost white, the lit side
+   washed out to beige in the tonemapper's shoulder, and the only gold left was in the self-shadowed
+   depths, which read as brown blotches. An intensity above 1 was compensation for the missing
+   transport; do not bring it back.
 
 6. **The coat tint is pigment and never colours R.** `oloGroomComposite` tints TT, TRT, the
    residual and the multiple back-scatter, and leaves R white. R is the cuticle's surface
