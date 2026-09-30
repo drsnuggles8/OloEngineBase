@@ -34,6 +34,15 @@ in [groom-representation-lod.md](groom-representation-lod.md).
    moves; the screen position and the velocity stay the axis's. Strand roots also leave a depth tie
    with the skin (+2% on the strand tier).
 
+4a. **A ribbon's coat-shadow march starts on its tube's LIT side, one radius from the axis
+   (#1533).** This is rule 4's reasoning applied to light, in `oloGroomCoatTau`. A card sits on its
+   lock's centreline, the densest line in the volume, so a march from the axis shadowed every card
+   fragment by its own lock. A viewer sees a lock's outer strands, not its centre, and under a
+   converged volume the long coat's cards read 0.74-0.80 of the strands. From the lit side they
+   read 1.05-1.06. A strand's radius is far below a voxel, so the strand tier is unchanged. The
+   offset answers for the lit outer strands. A backlit card, whose viewer sees the lock's shaded
+   side, therefore reads too bright.
+
 5. **The strand budget's width compensation is PER ROLE, in the build.** One groom-wide `1 / achieved`
    widened unthinned guard hair 2.2x beside an undercoat at stride 7.
 
@@ -56,26 +65,29 @@ in [groom-representation-lod.md](groom-representation-lod.md).
 
 ## Measured
 
-`TheCoatKeepsItsCoverageFromNearToFar`, GL, frozen pose, ladder on / off. The four columns are the
-four quantities of rule 6.
+`TheCoatKeepsItsCoverageFromNearToFar`, GL, frozen pose, ladder on / off, after #1533 (rule 4a,
+and stand-ins that keep their guides' drape length). The first four columns are rule 6's quantities.
+The last is seen energy (#1509): both frames over the union of the coats' pixels, backdrop
+included. The contract holds on seen energy wherever the coat is a real share of the region.
 
-| | coverage | radiance | shadow | energy |
-|---|---|---|---|---|
-| long coat, 19 m, converged volume | 0.98 | 0.98 | 0.96 | **0.92** |
-| long coat, 32 m, converged volume | 0.98 | 1.00 | 0.95 | **0.94** |
-| short coat, 19 m, converged volume | 1.13 | 0.88 | 1.07 | **1.07** |
-| short coat, 32 m, converged volume | 1.10 | 0.87 | 0.99 | **0.95** |
-| long coat, 19 m, shipped shadow LOD | 0.98 | 0.98 | 1.24 | 1.19 |
-| long coat, 32 m, shipped shadow LOD | 0.99 | 0.99 | 1.33 | 1.30 |
-| long coat, 19 m, Deferred / Forward+ / Deferred MSAA 4 | | | | 1.20 / 1.20 / 1.26 |
+| | coverage | radiance | shadow | energy | seen |
+|---|---|---|---|---|---|
+| long coat, 19 m, converged volume | 1.03 | 0.97 | 1.15 | 1.15 | **1.05** |
+| long coat, 32 m, converged volume | 1.02 | 0.96 | 1.14 | 1.11 | **1.06** |
+| short coat, 19 m, converged volume | 1.17 | 0.92 | 0.96 | **1.03** | |
+| short coat, 32 m, converged volume | 1.14 | 0.86 | 0.95 | **0.94** | |
+| long coat, 19 m, shipped shadow LOD | 1.03 | 0.99 | 1.16 | 1.18 | 1.09 |
+| long coat, 32 m, shipped shadow LOD | 1.02 | 0.96 | 1.46 | 1.42 | 1.37 |
+| long coat, 19 m, Deferred / Forward+ / Deferred MSAA 4 | | | | 1.21 / 1.20 / 1.21 | 1.12 / 1.12 / 1.14 |
 
 On a converged volume the card tier keeps every coat within 10%, and the evidence test asserts that.
-At the shipped shadow LOD the hand-over bakes the strands at 16^3 and the cards at 8^3, and there the
-long coat's cards read 1.2-1.3x the strands' energy. Holding 64^3 through the hand-over removes it
-(0.98 / 0.99) but costs 3-4 ms of bake CPU per frame for three walking animals. That is filed as #1508,
-and the shipped cells hold a gross guard.
+The short coat's seen energy is ill-conditioned (a coat share of 0.05), so it falls back to
+per-pixel energy. At the shipped shadow LOD the hand-over bakes the strands at 16^3 and the cards at
+8^3, and the long coat's cards read up to 1.4x the strands' energy there. Holding 64^3 through the
+hand-over removes it but costs 3-4 ms of bake CPU per frame for three walking animals. That is filed
+as #1508, and the shipped cells hold a gross guard (0.75-1.40). The 32 m cell sits near its ceiling.
 
-The short coat's cards cover 1.10-1.13 of its strands. At range this coat is mostly mane and tail,
+The short coat's cards cover 1.14-1.17 of its strands. At range this coat is mostly mane and tail,
 flat fans seen face-on, and a card's width is the members' coverage averaged over every direction.
 
 ## What does not help

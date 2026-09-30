@@ -155,6 +155,9 @@ layout(location = 9) out vec3 v_CoatTint;
 // the posed point and the identity, which the fragment stage never reads.
 layout(location = 10) out vec3 v_CoatRestPos;
 layout(location = 11) flat out vec4 v_CoatRestFrame;
+// The ribbon's half-width in world metres: the radius of the tube it stands
+// for, which the coat-shadow march starts outside of (see oloGroomCoatTau).
+layout(location = 12) out float v_TubeRadius;
 
 void main()
 {
@@ -251,6 +254,7 @@ void main()
 		v_CoatTint = vec3(1.0);
 		v_CoatRestPos = vec3(0.0);
 		v_CoatRestFrame = vec4(0.0, 0.0, 0.0, 1.0);
+		v_TubeRadius = 0.0;
 		return;
 	}
 
@@ -362,6 +366,7 @@ void main()
 	v_CoatTint = oloGroomUnpackTint(a_Tint);
 	v_CoatRestPos = coatRestPos;
 	v_CoatRestFrame = coatRestFrame;
+	v_TubeRadius = radiusWorld;
 }
 
 #type fragment
@@ -497,6 +502,7 @@ layout(location = 8) in vec3 v_WorldView;
 layout(location = 9) in vec3 v_CoatTint;
 layout(location = 10) in vec3 v_CoatRestPos;
 layout(location = 11) flat in vec4 v_CoatRestFrame;
+layout(location = 12) in float v_TubeRadius;
 
 // ONE block, on the shared PASS-LOCAL slot, declared IDENTICALLY in both
 // stages.
@@ -601,17 +607,29 @@ void oloGroomAccumulate(inout OloGroomFibreLobes total, OloGroomFibreLobes add, 
 // groomed in, seen from the side the light now comes from, wherever the body
 // has carried it. The rotation keeps the direction's length, which the exit
 // distance relies on (see oloGroomCoatLightExitDistance).
+//
+// FROM THE TUBE'S LIT SIDE, NOT ITS AXIS (#1533; the #1428 rule, for light).
+// A ribbon stands for a tube and the light enters it through the side that
+// faces the light, one radius from the axis. A strand's radius is a fraction of
+// a millimetre, far under a voxel, so its march is unchanged. A CARD's is its
+// lock's half-width: marched from the axis, every card fragment was shadowed by
+// the densest part of its own lock -- the centreline -- and the long coat's card
+// tier read 17-27% darker than the strands it stands for under a converged
+// volume. The strands a viewer sees of a lock are its outer ones; the offset
+// makes the card answer for them.
 float oloGroomCoatTau(vec3 worldDir)
 {
+	float tube = max(v_TubeRadius, 0.0);
 	if (u_GroomCoatModes.w != 0)
 	{
 		vec3 dirObject = normalize(oloGroomQuatRotate(v_CoatRestFrame, mat3(u_GroomCoatWorldToObject) * worldDir));
 		return oloGroomCoatOpticalDepthObject(u_GroomCoatVolume, u_GroomCoatBoundsMin.xyz, u_GroomCoatInvExtent.xyz,
-		                                      v_CoatRestPos, dirObject, u_GroomCoatInvExtent.w, u_GroomCoatModes.x);
+		                                      v_CoatRestPos + dirObject * tube, dirObject, u_GroomCoatInvExtent.w,
+		                                      u_GroomCoatModes.x);
 	}
 	return oloGroomCoatOpticalDepth(u_GroomCoatVolume, u_GroomCoatWorldToObject, u_GroomCoatBoundsMin.xyz,
-	                                u_GroomCoatInvExtent.xyz, v_WorldPos, worldDir, u_GroomCoatInvExtent.w,
-	                                u_GroomCoatModes.x);
+	                                u_GroomCoatInvExtent.xyz, v_WorldPos + worldDir * tube, worldDir,
+	                                u_GroomCoatInvExtent.w, u_GroomCoatModes.x);
 }
 
 float oloGroomCoatExitDistance(vec3 worldDir)
