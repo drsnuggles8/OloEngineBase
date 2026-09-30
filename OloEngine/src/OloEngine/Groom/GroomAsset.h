@@ -516,6 +516,12 @@ namespace OloEngine
         // the issue's memory measurement.
         [[nodiscard]] u64 GetCpuMemoryBytes() const noexcept;
 
+        // The streaming byte accounting's measured figure (issue #1365) is the same readout.
+        [[nodiscard]] std::optional<u64> GetResidentCpuBytes() const override
+        {
+            return GetCpuMemoryBytes();
+        }
+
         // Recomputes m_BoundsMin/Max, m_GuideCount and m_GroupRanges from the
         // curve arrays. Cheap and idempotent; the cook calls it last.
         void RecomputeDerivedData();

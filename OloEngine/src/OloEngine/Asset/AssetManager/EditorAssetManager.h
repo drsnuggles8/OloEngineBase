@@ -427,6 +427,11 @@ namespace OloEngine
         // Async asset loading system
         Ref<EditorAssetSystem> m_AssetThread;
 
+        // Shutdown() runs once: an explicit call followed by the destructor's would
+        // release this manager's placeholder reference twice and tear the shared
+        // placeholder set down under another live manager.
+        std::atomic<bool> m_IsShutDown{ false };
+
         // Thread synchronization
         mutable FSharedMutex m_AssetsMutex;
         mutable FSharedMutex m_RegistryMutex;

@@ -7170,6 +7170,8 @@ namespace OloEngine
             out << YAML::Key << "DefaultUnloadRadius" << YAML::Value << ss.DefaultUnloadRadius;
             out << YAML::Key << "MaxLoadedRegions" << YAML::Value << ss.MaxLoadedRegions;
             out << YAML::Key << "RegionDirectory" << YAML::Value << ss.RegionDirectory;
+            out << YAML::Key << "MaxResidentMegabytes" << YAML::Value << ss.MaxResidentMegabytes;
+            out << YAML::Key << "MaxAdmittedMegabytesPerFrame" << YAML::Value << ss.MaxAdmittedMegabytesPerFrame;
             out << YAML::EndMap;
         }
 
@@ -7538,6 +7540,9 @@ namespace OloEngine
             TrySet(ss.DefaultUnloadRadius, ssNode["DefaultUnloadRadius"]);
             TrySet(ss.MaxLoadedRegions, ssNode["MaxLoadedRegions"]);
             TrySet(ss.RegionDirectory, ssNode["RegionDirectory"]);
+            // Absent in scenes saved before issue #1365: the defaults (no byte budget) stand.
+            TrySet(ss.MaxResidentMegabytes, ssNode["MaxResidentMegabytes"]);
+            TrySet(ss.MaxAdmittedMegabytesPerFrame, ssNode["MaxAdmittedMegabytesPerFrame"]);
 
             SanitizeStreamingSettings(ss);
         }
@@ -7840,6 +7845,8 @@ namespace OloEngine
             out << YAML::Key << "DefaultUnloadRadius" << YAML::Value << ss.DefaultUnloadRadius;
             out << YAML::Key << "MaxLoadedRegions" << YAML::Value << ss.MaxLoadedRegions;
             out << YAML::Key << "RegionDirectory" << YAML::Value << ss.RegionDirectory;
+            out << YAML::Key << "MaxResidentMegabytes" << YAML::Value << ss.MaxResidentMegabytes;
+            out << YAML::Key << "MaxAdmittedMegabytesPerFrame" << YAML::Value << ss.MaxAdmittedMegabytesPerFrame;
             out << YAML::EndMap;
         }
 

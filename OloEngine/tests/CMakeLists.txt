@@ -93,6 +93,11 @@ add_executable(OloEngine-Tests
 		AssetRegistryInvariantsTest.cpp
 		AssetDependencyDirectionTest.cpp
 		RuntimeAssetManagerTest.cpp
+		# Issue #1365, cooked path: async-load cancellation under the real race and
+		# estimate/actual/unknown byte accounting.
+		RuntimeAssetLoadCancelTest.cpp
+		# Shutdown() then the destructor must release the shared placeholder set once.
+		AssetManagerShutdownTest.cpp
 		AssetLoadedEventTest.cpp
 		${_olo_component_round_trip_src}
 		TilemapTest.cpp
@@ -927,6 +932,9 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/RHIHandleNativeIdentityTest.cpp
 		Rendering/PropertyTests/TextureInPlaceReloadTest.cpp
 		Streaming/SceneStreamingTest.cpp
+		# Issue #1365, loose path: region-load cancellation, byte-budget admission and
+		# eviction, and the StreamingSettings budget fields in scene YAML.
+		Streaming/SceneStreamerBudgetTest.cpp
 		InputActionTest.cpp
 		# The synthetic-input overlay behind olo_input_inject, and specifically the
 		# absolute-vs-relative distinction (#607): an ABSOLUTE override integrates to
@@ -1239,6 +1247,9 @@ add_executable(OloEngine-Tests
 		# the sequential order and only becomes a race under the parallel executor).
 		# Header-only (MCP/McpSchedulerGraph.h), no extra editor TU pulled in.
 		MCP/McpSchedulerGraphTest.cpp
+		# Pure JSON shaping behind olo_streaming_stats (#1365): unknown sizes are null,
+		# not zero. Header-only (MCP/McpStreamingStats.h).
+		MCP/McpStreamingStatsTest.cpp
 		# Pure reasoning behind olo_physics_why_no_collision (#306 item A). Header-
 		# only (MCP/McpPhysicsExplain.h), so no extra editor TU is pulled in.
 		MCP/McpPhysicsExplainTest.cpp
