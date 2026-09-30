@@ -156,22 +156,16 @@ namespace OloEngine::Tests
             glm::vec3 Direction;
             f32 Intensity;
             bool CastShadows;
-            // Does this rig put a meaningful DIFFUSE irradiance on the subject?
-            // The scattering-ladder assertion below is a claim about what the
-            // diffusion pass does to the diffuse half, and under a pure
-            // backlight that half is almost absent — see the comment on that
-            // assertion for the measured numbers.
-            bool LightsTheDiffuseHalf;
         };
 
         const LightingRig kRigs[] = {
             // Soft: a broad front-top wrap, shadows off — the "beauty" case.
-            { "Soft", glm::normalize(glm::vec3(-0.18f, -0.42f, -0.89f)), 2.2f, false, true },
+            { "Soft", glm::normalize(glm::vec3(-0.18f, -0.42f, -0.89f)), 2.2f, false },
             // Hard side: 80 degrees off the view axis with shadows on, which is
             // where the layered specular of #1243 and the terminator live.
-            { "HardSide", glm::normalize(glm::vec3(-0.97f, -0.16f, -0.18f)), 5.5f, true, true },
+            { "HardSide", glm::normalize(glm::vec3(-0.97f, -0.16f, -0.18f)), 5.5f, true },
             // Backlight: behind the subject, pointing at the camera.
-            { "Backlight", glm::normalize(glm::vec3(0.06f, -0.10f, 0.99f)), 6.0f, true, false },
+            { "Backlight", glm::normalize(glm::vec3(0.06f, -0.10f, 0.99f)), 6.0f, true },
         };
 
         // The camera poses the subject is captured from. THREEQUARTER and
@@ -1617,6 +1611,39 @@ namespace OloEngine::Tests
     class SkinDigitalHumanToneGrid : public SkinDigitalHumanScene
     {
       protected:
+        // Takes the eyes, lips and teeth out of the frame for its lifetime and
+        // puts them back on destruction, so an ASSERT that returns early from
+        // the grid still leaves the next capture with the whole face. Removing
+        // the MeshComponent rather than moving the entity means the parts
+        // neither draw nor cast a shadow onto the cranium.
+        class FacePartsHidden
+        {
+          public:
+            explicit FacePartsHidden(SkinDigitalHumanToneGrid& fixture)
+            {
+                std::vector<Entity> parts = fixture.m_Eyes;
+                parts.push_back(fixture.m_Lips);
+                parts.push_back(fixture.m_Teeth);
+                for (Entity part : parts)
+                {
+                    m_Hidden.emplace_back(part, part.GetComponent<MeshComponent>());
+                    part.RemoveComponent<MeshComponent>();
+                }
+            }
+
+            ~FacePartsHidden()
+            {
+                for (auto& [part, mesh] : m_Hidden)
+                    part.AddComponent<MeshComponent>(mesh);
+            }
+
+            FacePartsHidden(const FacePartsHidden&) = delete;
+            FacePartsHidden& operator=(const FacePartsHidden&) = delete;
+
+          private:
+            std::vector<std::pair<Entity, MeshComponent>> m_Hidden;
+        };
+
         void RunToneGrid(RenderingPath path)
         {
             SetAngle(kAngles[1]); // ThreeQuarter: both a lit and a shadowed cheek
@@ -1660,15 +1687,27 @@ namespace OloEngine::Tests
                         << name << ": fewer than 5% of the subject disc is above the black floor — this "
                                    "capture is an empty frame and every number derived from it is noise";
 
-                    // The SAME tone with the diffusion pass switched off. Not
-                    // written out as evidence — it is a measurement arm, and a
-                    // PNG per tone per rig per path of a frame nobody looks at
-                    // is noise in the diff.
-                    Capture undiffused;
-                    ASSERT_TRUE(CaptureFrame(path, std::string(), undiffused, MaterialDebugView::None,
-                                             /*frames=*/4, /*outMilliseconds=*/nullptr,
-                                             /*diffusionEnabled=*/false))
-                        << name << ": the undiffused control readback failed";
+                    // THE DIFFUSION ARM IS THE CRANIUM ALONE. The eyes, lips
+                    // and teeth carry their own profiles, which are the SAME for
+                    // every tone, and the oral one diffuses over 7.5 mm of red —
+                    // so on the whole face their share of the on/off delta is a
+                    // constant that the per-tone normalisation below divides by
+                    // a SMALLER luma for Deep. See the ladder assertion for the
+                    // measured cost. Neither frame is written out as evidence:
+                    // they are a measurement arm, and a PNG per tone per rig per
+                    // path of a frame nobody looks at is noise in the diff.
+                    Capture craniumDiffused;
+                    Capture craniumUndiffused;
+                    {
+                        const FacePartsHidden hidden(*this);
+                        ASSERT_TRUE(CaptureFrame(path, std::string(), craniumDiffused, MaterialDebugView::None,
+                                                 /*frames=*/4))
+                            << name << ": the cranium-only readback failed";
+                        ASSERT_TRUE(CaptureFrame(path, std::string(), craniumUndiffused, MaterialDebugView::None,
+                                                 /*frames=*/4, /*outMilliseconds=*/nullptr,
+                                                 /*diffusionEnabled=*/false))
+                            << name << ": the undiffused cranium-only control readback failed";
+                    }
 
                     // HOW MUCH THE DIFFUSION PASS CHANGES THIS TONE'S FRAME,
                     // RELATIVE TO HOW BRIGHT THAT FRAME IS. The normalisation
@@ -1677,9 +1716,10 @@ namespace OloEngine::Tests
                     // reasons that have nothing to do with the mean free path,
                     // and dividing by the tone's own mean luma removes exactly
                     // that.
-                    const Difference diffusionEffect = Diff(capture, undiffused);
+                    const Difference diffusionEffect = Diff(craniumDiffused, craniumUndiffused);
+                    const FrameStats craniumStats = MeasureSubject(craniumDiffused);
                     diffusionInfluence.push_back(static_cast<f32>(diffusionEffect.MeanAbsDelta) /
-                                                 std::max(stats.MeanLuma * 255.0f, 1.0f));
+                                                 std::max(craniumStats.MeanLuma * 255.0f, 1.0f));
 
                     meanLuma.push_back(stats.MeanLuma);
                     captures.push_back(std::move(capture));
@@ -1729,37 +1769,46 @@ namespace OloEngine::Tests
                 // each tone's own mean luma is what keeps that a statement
                 // about the mean free path instead of about how dark the
                 // albedo is.
-                // ...AND ONLY UNDER A RIG THAT LIGHTS THE DIFFUSE HALF. The
-                // diffusion pass redistributes the DIFFUSE irradiance, so under
-                // a pure backlight — where that half is almost absent and the
-                // frame is nearly all transmission — there is next to nothing
-                // for a wider kernel to move, and normalising a tiny residual
-                // by a tiny mean luma amplifies noise rather than measuring a
-                // radius. Measured: the ladder holds under Soft and HardSide on
-                // all three paths and inverts under Backlight (Fair 0.0065
-                // against Deep 0.0076), which is the mechanism being absent,
-                // not the radii failing to arrive.
                 //
-                // This is the same correction the AOV test above makes for the
-                // specular view, applied for the same reason: asserting a term
-                // under a rig that does not excite it measures the rig. The
-                // backlight rig keeps its OTHER two assertions — the tones are
-                // still required to be tellable apart and still required not to
-                // reorder — so it is not an unchecked cell.
+                // It is NOT measured on the whole face (#1484). The eyes and
+                // lips diffuse under their own profiles, identically for every
+                // tone, and that constant share of the delta, divided by each
+                // tone's luma, grows as the tone darkens. On the whole face the
+                // ladder read Fair 0.000923 against Deep 0.000914 on NVIDIA and
+                // inverted on AMD radeonsi (0.000974 against 0.000976), with
+                // Medium the LOWEST of the three on both: the kernel width was
+                // not deciding the number. An earlier Backlight exemption
+                // rested on the same contaminated reading. On the cranium alone
+                // the ladder is monotonic under every rig, Backlight included:
+                // Fair / Deep is 3.3x Soft, 3.7x HardSide and 1.9x Backlight on
+                // NVIDIA GL, the same on all three paths.
+                //
+                // THE RATIO FLOOR IS 1.5, from the kernel, not from the data.
+                // Toggling a blur moves a smooth region by about r^2 times its
+                // curvature and an edge by about r, so a 2.6x wider kernel
+                // moves the frame by between 2.6x and 7x as much; transmission,
+                // which the pass does not blur, dilutes that toward 1. 1.5 is
+                // under the linear bound with room for that dilution, and far
+                // above the 1.01 the contaminated metric produced.
+                constexpr f32 kMinFairOverDeepInfluence = 1.5f;
                 std::printf("[skin-tone-grid] %s %s: diffusion influence Fair %.6f Medium %.6f Deep %.6f\n",
                             PathName(path), rig.Name, diffusionInfluence[0], diffusionInfluence[1],
                             diffusionInfluence[2]);
                 std::fflush(stdout);
-                if (!rig.LightsTheDiffuseHalf)
-                    continue;
 
-                EXPECT_GT(diffusionInfluence[0], diffusionInfluence[2])
+                EXPECT_GT(diffusionInfluence[0], diffusionInfluence[2] * kMinFairOverDeepInfluence)
                     << rig.Name << ": toggling the diffusion pass moves the Fair tone's frame by "
                     << diffusionInfluence[0] << " of its own mean luma and the Deep tone's by "
-                    << diffusionInfluence[2]
-                    << ". Fair's red mean free path is 2.6x Deep's, so the wider kernel must be the one that "
-                       "changes its frame more — otherwise the authored radii are not reaching the pass and "
-                       "these are three albedos rather than three skins.";
+                    << diffusionInfluence[2] << ". Fair's red mean free path is 2.6x Deep's, so the wider kernel "
+                    << "must change its frame at least " << kMinFairOverDeepInfluence
+                    << "x as much — otherwise the authored radii are not reaching the pass and these are three "
+                       "albedos rather than three skins.";
+                EXPECT_GT(diffusionInfluence[0], diffusionInfluence[1])
+                    << rig.Name << ": Fair's diffusion influence " << diffusionInfluence[0]
+                    << " is not above Medium's " << diffusionInfluence[1] << ", against 9.0 mm and 6.2 mm of red.";
+                EXPECT_GT(diffusionInfluence[1], diffusionInfluence[2])
+                    << rig.Name << ": Medium's diffusion influence " << diffusionInfluence[1]
+                    << " is not above Deep's " << diffusionInfluence[2] << ", against 6.2 mm and 3.4 mm of red.";
             }
         }
     };

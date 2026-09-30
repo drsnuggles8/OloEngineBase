@@ -99,11 +99,11 @@ forward is not.
   all three including backlight.
 - **The wider scattering kernel changes its frame more** — measured by toggling the diffusion pass
   per tone and normalising by that tone's own mean luma, which is what makes it a claim about the
-  **mean free path** rather than about the albedo. Asserted under the soft and hard-side rigs only:
-  the diffusion pass redistributes the *diffuse* half, and under a pure backlight that half is
-  almost absent, so the measurement degenerates into noise (it inverts there, 0.0065 against
-  0.0076). Two earlier formulations of this claim were wrong and both are recorded in the test —
-  raw red fraction reads the albedo, and the red *shift* has an unstable sign.
+  **mean free path** rather than about the albedo. Measured on the **cranium alone**: the eyes and
+  lips diffuse identically for every tone, and on the whole face that constant, divided by a darker
+  tone's luma, cancelled the ladder (#1484). Fair > Medium > Deep under all three rigs, Fair at
+  least 1.5x Deep. Three earlier formulations were wrong and are recorded in the test: raw red
+  fraction reads the albedo, the red *shift* has an unstable sign, and the whole face reads the eyes.
 - **Each view responds to its own control and not the others'.** The obvious test of a
   decomposition is that the parts sum to the whole, and it cannot be written here: the composite is
   tone-mapped, so any tolerance loose enough for the curve also accommodates a wrong decomposition.
