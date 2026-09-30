@@ -32,13 +32,13 @@ Every row is a run or a CI log line. A row that is not measured says so.
 
 | Machine | Driver | ADR 0010 contract | Device-gated Vulkan suites | L7 ray-query suites | Evidence |
 |---|---|---|---|---|---|
-| Developer box, RTX 4090 | NVIDIA 617.14, Vulkan 1.4.351 | satisfied | **run** (Debug) | **run**: ray query enabled | this PR, `vulkan-capability-report.rtx4090.md` |
+| Developer box, RTX 4090 | NVIDIA 617.14, Vulkan 1.4.351 | satisfied | **run** (Debug) | **run**: ray query enabled | this PR, [vulkan-capability-report.rtx4090.md](vulkan-capability-report.rtx4090.md) |
 | Hosted `windows-2025`, no GPU | none | no device | skip (`NOT EXERCISED - none of the 19 device-gated tests ran`) | skip | Windows.yml run 36510914603, shard 1 |
-| Self-hosted Linux, AMD Navi 10 (RX 5600 XT), RADV, Mesa 25.2.7 | radv 25.2.7, API 1.4.318 | **refused**: no `VK_EXT_descriptor_heap`, `VK_KHR_shader_untyped_pointers` or `VK_KHR_device_address_commands`; the box also exposes llvmpipe 25.2.7, refused for the same three | skip (149 device-gated tests skip in the nightly) | skip: RADV lists no ray-query extensions | gpu-conformance-amd run 36621553072, `vulkan-capability-report.amd-navi10-radv-25.2.7.md`; nightly skips: run 36507240680 |
+| Self-hosted Linux, AMD Navi 10 (RX 5600 XT), RADV, Mesa 25.2.7 | radv 25.2.7, API 1.4.318 | **refused**: no `VK_EXT_descriptor_heap`, `VK_KHR_shader_untyped_pointers` or `VK_KHR_device_address_commands`; the box also exposes llvmpipe 25.2.7, refused for the same three | skip (149 device-gated tests skip in the nightly) | skip: RADV lists no ray-query extensions | gpu-conformance-amd run 36621553072, [vulkan-capability-report.amd-navi10-radv-25.2.7.md](vulkan-capability-report.amd-navi10-radv-25.2.7.md); nightly skips: run 36507240680 |
 | Hosted Windows, Mesa lavapipe 26.2.0 (software) | llvmpipe, API 1.4.354 | satisfied | **run nightly**, `EXERCISED - 122/122 device-gated tests ran` | **partly run, on demand**: the real gate enables ray query; 17 of 25 L7 tests pass, the 8 heavy `ReSTIRPTDevice` tests time out (below) | vulkan-software.yml runs 36522457757 (nightly) and 36621566529 (L7 filter dispatch) |
 | Developer box, live editor `--rhi vulkan` | same RTX 4090 | satisfied | n/a | ray query enabled (log: `Ray tracing: ray query enabled + ray-tracing pipeline`) | the editor picked the same device the report names; frame rendered, "Backend: Vulkan", zero errors or VUIDs in `OloEngine.log` |
-| Mesa lavapipe 24.3.4 (software) | llvmpipe, API 1.3.296 | **refused**: API 1.4, descriptor heap, untyped pointers, device address commands | skip | skip | `vulkan-capability-report.lavapipe-24.3.4.md` |
-| Mesa lavapipe 26.1.8 (software) | llvmpipe, API 1.4.354 | **refused**: descriptor heap, untyped pointers, device address commands | skip | skip | `vulkan-capability-report.lavapipe-26.1.8.md` |
+| Mesa lavapipe 24.3.4 (software) | llvmpipe, API 1.3.296 | **refused**: API 1.4, descriptor heap, untyped pointers, device address commands | skip | skip | [vulkan-capability-report.lavapipe-24.3.4.md](vulkan-capability-report.lavapipe-24.3.4.md) |
+| Mesa lavapipe 26.1.8 (software) | llvmpipe, API 1.4.354 | **refused**: descriptor heap, untyped pointers, device address commands | skip | skip | [vulkan-capability-report.lavapipe-26.1.8.md](vulkan-capability-report.lavapipe-26.1.8.md) |
 | NVIDIA other than the 4090, AMD on Windows (any generation), Intel, Linux RADV 26.1+ | | **out of fleet** | | | no such machine exists in this repo's CI or on the developer box, so no claim is made about them (below) |
 
 **Out of fleet.** The supported configurations are the ones a row above measured; the ADR 0010
@@ -50,6 +50,8 @@ support claims.
 Two rules for reading it. A green `Windows.yml` says nothing about Vulkan: the banner in the log is
 the evidence. And lavapipe is a software implementation; it finds spec drift and stale assertions,
 not driver divergence, so it never counts as a second vendor.
+
+Raw reports: [RTX 4090](vulkan-capability-report.rtx4090.md), [lavapipe 26.2.0](vulkan-capability-report.lavapipe-26.2.0.md), [AMD Navi 10 RADV](vulkan-capability-report.amd-navi10-radv-25.2.7.md).
 
 ## Who owns "a designated job must not silently skip"
 
