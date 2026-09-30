@@ -83,6 +83,7 @@
 #include "OloEngine/Core/InputActionSerializer.h"
 #include "OloEngine/Physics3D/Physics3DSystem.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Scene/SelectionOutlineSet.h"
 #include "OloEngine/Task/Task.h"
 #include "OloEngine/SaveGame/SaveGameManager.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
@@ -2057,17 +2058,11 @@ namespace OloEngine
         if (m_Is3DMode && m_SceneState == SceneState::Edit &&
             editorDebug.EditorDebugDrawsEnabled && editorDebug.ShowSelectionOutline)
         {
-            auto& selectedEntities = m_SceneHierarchyPanel.GetSelectedEntities();
-            std::vector<i32> ids;
-            ids.reserve(selectedEntities.size());
-            for (auto& entity : selectedEntities)
-            {
-                if (entity)
-                {
-                    ids.push_back(static_cast<i32>(static_cast<u32>(entity)));
-                }
-            }
-
+            // The selection as it looks: its children and the coats bound to
+            // it too, or a furred animal's outline breaks up into a band round
+            // every gap in its fur (see CollectSelectionOutlineIds).
+            const std::vector<i32> ids =
+                CollectSelectionOutlineIds(*m_ActiveScene, m_SceneHierarchyPanel.GetSelectedEntities());
             Renderer3D::SetSelectionOutlineEntityIDs(ids);
         }
         else

@@ -1109,6 +1109,8 @@ add_executable(OloEngine-Tests
 		# System scheduler dependency-graph derivation (issue #453)
 		Scene/SceneLightmapGatherTest.cpp
 		Scene/SceneLightmapStalenessTest.cpp
+		# What the editor's selection outline covers (#1533)
+		Scene/SelectionOutlineSetTest.cpp
 		Scene/AnimalSchedulerContractTest.cpp
 		Scene/AnimalSchedulingCensusTest.cpp
 		Scene/SystemSchedulerTest.cpp
