@@ -51,7 +51,8 @@ retained pyramid must read it *before* anything rebuilds it that frame. That is
 declared, not placed (#1331): a retained reader declares
 `ReadOutOfBand(OcclusionHZB, RGOutOfBandEpoch::PreviousFrame)` and every in-place
 rebuilder `WriteOutOfBand(OcclusionHZB)`, so `VirtualGeometryPass` runs before
-`DeferredGPUOcclusionPass` wherever either is registered, and the out-of-band
+`DeferredGPUOcclusionPass` without relying on registration order (a resource edge that says
+otherwise is reported as `OutOfBandOrdering`), and the out-of-band
 ledger reports a retained read that ran after a rebuild. There is no second
 pyramid to fall back on. See
 [render-graph-out-of-band-work.md](render-graph-out-of-band-work.md).

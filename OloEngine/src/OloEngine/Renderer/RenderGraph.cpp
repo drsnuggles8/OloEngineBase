@@ -7813,29 +7813,42 @@ namespace OloEngine
             }
         }
 
-        // Out-of-band edges (#1331). Unlike resource edges these do not depend
-        // on registration order: a boundary names ONE datum per frame, so
+        // Out-of-band edges (#1331). A boundary names ONE datum per frame, so
         // every writer precedes every current-frame reader and every
         // previous-frame reader precedes every writer, wherever each pass was
-        // registered. Writers are chained in registration order, except that
-        // a writer which also reads the previous frame's value (a retained-
-        // pyramid consumer that rebuilds it) leads the chain: its read has to
-        // come before every other rebuild. The previous-frame edges go in
-        // first, so a chain edge that contradicts one is the edge dropped.
-        // Every edge is also recorded for the order-sensitivity simulation.
-        std::vector<std::pair<FString, FString>> outOfBandEdges;
+        // registered. Writers are chained in visit order, except that a writer
+        // which also reads the previous frame's value (a retained-pyramid
+        // consumer that rebuilds it) leads the chain: its read has to come
+        // before every other rebuild. Within a boundary the previous-frame
+        // edges go in first, so a chain edge that contradicts one is the edge
+        // dropped.
+        //
+        // They go in AFTER the resource edges. A resource edge derived in
+        // registration order that contradicts one (two passes writing the
+        // same export, registered rebuilder-first) wins the cycle check; the
+        // out-of-band rule in ValidateCompiledResourceHazards then reports
+        // the contradiction and the ledger reports the stale read at run time.
+        // Order the registration, or the resource accesses, to resolve it.
+        struct OutOfBandEdge
         {
-            OLO_PERF_SCOPE_AUTO("RG::BuildFrameGraph/OutOfBandEdges");
+            FString Before;
+            FString After;
+            bool OrderingOnly = false;
+            FString Boundary;
+        };
+        const auto collectOutOfBandEdges = [this](const auto& visitOrder)
+        {
             struct BoundaryUse
             {
                 TArray64<FString> Writers;
                 TArray64<FString> Readers;
                 TArray64<FString> PreviousFrameReaders;
             };
-            RGTransparentStringMap<BoundaryUse> uses;
-            for (const auto& passName : m_InsertionOrder)
+            std::map<std::string, BoundaryUse, std::less<>> uses; // sorted: the edge order is deterministic
+            for (const auto& visited : visitOrder)
             {
-                const auto declarationsIt = m_PassOutOfBandDeclarations.find(passName.ToView());
+                const std::string_view passName = RGStringKey::AsView(visited);
+                const auto declarationsIt = m_PassOutOfBandDeclarations.find(passName);
                 if (declarationsIt == m_PassOutOfBandDeclarations.end())
                     continue;
                 for (const RGOutOfBandDeclaration& declaration : declarationsIt->second)
@@ -7844,33 +7857,28 @@ namespace OloEngine
                     switch (declaration.Access)
                     {
                         case RGOutOfBandAccess::Write:
-                            use.Writers.Add(passName);
+                            use.Writers.Emplace(passName);
                             break;
                         case RGOutOfBandAccess::Read:
-                            use.Readers.Add(passName);
+                            use.Readers.Emplace(passName);
                             break;
                         case RGOutOfBandAccess::ReadPreviousFrame:
-                            use.PreviousFrameReaders.Add(passName);
+                            use.PreviousFrameReaders.Emplace(passName);
                             break;
                     }
                 }
             }
 
-            const auto addEdge = [&](const FString& before, const FString& after, const bool orderingOnly)
-            {
-                outOfBandEdges.emplace_back(before, after);
-                if (tryAddDerivedDependency(before.ToView(), after.ToView(), orderingOnly))
-                    ++m_LastBuildStats.DerivedEdges;
-            };
-
+            std::vector<OutOfBandEdge> edges;
             for (auto& [boundary, use] : uses)
             {
+                const FString boundaryName(boundary);
                 for (const FString& reader : use.PreviousFrameReaders)
                 {
                     for (const FString& writer : use.Writers)
                     {
                         if (writer != reader)
-                            addEdge(reader, writer, true);
+                            edges.push_back({ reader, writer, true, boundaryName });
                     }
                 }
 
@@ -7881,7 +7889,7 @@ namespace OloEngine
                     // Ordering only, unless the later writer also reads the
                     // current value (read-modify-write), which consumes it.
                     const bool consumes = std::ranges::find(use.Readers, use.Writers[i]) != use.Readers.end();
-                    addEdge(use.Writers[i - 1], use.Writers[i], !consumes);
+                    edges.push_back({ use.Writers[i - 1], use.Writers[i], !consumes, boundaryName });
                 }
 
                 for (const FString& reader : use.Readers)
@@ -7891,24 +7899,26 @@ namespace OloEngine
                     if (std::ranges::find(use.Writers, reader) != use.Writers.end())
                         continue;
                     for (const FString& writer : use.Writers)
-                        addEdge(writer, reader, false);
+                        edges.push_back({ writer, reader, false, boundaryName });
                 }
+            }
+            return edges;
+        };
+
+        {
+            OLO_PERF_SCOPE_AUTO("RG::BuildFrameGraph/OutOfBandEdges");
+            for (const OutOfBandEdge& edge : collectOutOfBandEdges(m_InsertionOrder))
+            {
+                if (tryAddDerivedDependency(edge.Before.ToView(), edge.After.ToView(), edge.OrderingOnly))
+                    ++m_LastBuildStats.DerivedEdges;
             }
         }
 
         auto simulateDerivedDependencies =
-            [this, &declaredPassDependenciesByPass, &depSubresourceRangesOverlap, &outOfBandEdges](const std::vector<std::string>& visitOrder) -> SimulatedDependencyResult
+            [this, &declaredPassDependenciesByPass, &depSubresourceRangesOverlap, &collectOutOfBandEdges](const std::vector<std::string>& visitOrder) -> SimulatedDependencyResult
         {
             SimulatedDependencyResult result{};
             result.Dependencies = m_ExplicitDependencies;
-            // Out-of-band edges do not depend on visit order, so both
-            // simulations carry them identically (#1331).
-            for (const auto& [before, after] : outOfBandEdges)
-            {
-                auto& deps = result.Dependencies[after.ToStdString()];
-                if (std::ranges::find(deps, before) == deps.end())
-                    deps.Add(before);
-            }
             RGTransparentStringMap<std::vector<DepWriterSlot>> simulatedLastWriterByResource;
             RGTransparentStringMap<std::vector<DepWriterSlot>> simulatedLiveReadersByResource;
             simulatedLastWriterByResource.reserve(visitOrder.size() * 4u);
@@ -8060,6 +8070,14 @@ namespace OloEngine
                             writerVec.emplace_back(nodeName, access.Range);
                     }
                 }
+            }
+
+            // Out-of-band edges after the resource edges, in THIS visit
+            // order, exactly as the real build adds them (#1331).
+            for (const OutOfBandEdge& edge : collectOutOfBandEdges(visitOrder))
+            {
+                tryAddSimulatedDerivedDependency(edge.Before.ToView(), edge.After.ToView(),
+                                                 DerivedEdgeOrigin{ "out-of-band:" + edge.Boundary.ToStdString(), false });
             }
 
             return result;

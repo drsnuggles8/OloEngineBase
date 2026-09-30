@@ -390,8 +390,10 @@ namespace OloEngine
         // Declare an access to a registered out-of-band boundary: GPU state the
         // graph cannot back (a TLAS, a retained pyramid). The graph orders
         // every writer before a CurrentFrame reader and every PreviousFrame
-        // reader before a writer, independent of registration order, and keeps
-        // a CurrentFrame reader's writers reachable. Nothing reaches the
+        // reader before a writer, independent of registration order unless a
+        // resource edge contradicts it (then ValidateCompiledResourceHazards
+        // reports OutOfBandOrdering), and keeps a CurrentFrame reader's
+        // writers reachable. Nothing reaches the
         // barrier or transient planners: the owner records its own barriers.
         void ReadOutOfBand(std::string_view boundary, RGOutOfBandEpoch epoch = RGOutOfBandEpoch::CurrentFrame);
         void WriteOutOfBand(std::string_view boundary);

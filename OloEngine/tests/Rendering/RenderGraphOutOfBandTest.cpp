@@ -337,6 +337,36 @@ namespace OloEngine::Tests
         EXPECT_TRUE(hazards.IsEmpty()) << Describe(hazards);
     }
 
+    // A resource edge derived in registration order can contradict a
+    // previous-frame read: both passes write the same export, and the
+    // rebuilder is registered first. The resource edge wins the cycle check,
+    // so the retained read would see this frame's rebuild. That must be LOUD,
+    // not a silently dropped edge.
+    TEST(RenderGraphOutOfBand, AResourceEdgeContradictingARetainedReadIsReported)
+    {
+        RenderGraph graph;
+        RegisterTestBoundaries(graph);
+        const auto exportDesc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "DepthExport");
+        AddNode(graph, "Rebuilder", [exportDesc](RGBuilder& builder)
+                {
+                    builder.WriteOutOfBand(kBoundary);
+                    builder.Write(builder.ImportTexture("DepthExport", 16u, exportDesc), RGWriteUsage::TransferDest); });
+        AddNode(graph, "RetainedReader", [exportDesc](RGBuilder& builder)
+                {
+                    builder.ReadOutOfBand(kBoundary, RGOutOfBandEpoch::PreviousFrame);
+                    builder.Write(builder.ImportTexture("DepthExport", 16u, exportDesc), RGWriteUsage::TransferDest); });
+        AddFinal(graph, [exportDesc](RGBuilder& builder)
+                 { [[maybe_unused]] const auto read = builder.Read(builder.ImportTexture("DepthExport", 16u, exportDesc), RGReadUsage::ShaderSample); });
+        graph.SetFinalPass("Final");
+        graph.BuildFrameGraph();
+
+        ASSERT_LT(PositionOf(graph, "Rebuilder"), PositionOf(graph, "RetainedReader")) << "the resource edge ordered them";
+        const auto hazards = graph.ValidateCompiledResourceHazards();
+        EXPECT_TRUE(HasHazard(hazards, RenderGraph::HazardKind::OutOfBandOrdering, kBoundary))
+            << "a retained read ordered after its rebuild went unreported:\n"
+            << Describe(hazards);
+    }
+
     TEST(RenderGraphOutOfBand, DestroyingTheActiveGraphDetachesItsLedger)
     {
         {

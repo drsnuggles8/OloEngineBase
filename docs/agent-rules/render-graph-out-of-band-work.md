@@ -25,7 +25,10 @@ its owner, the reason it is not a graph resource, and what the frame prologue an
 with it. What the edges do:
 
 - **Order.** Every writer runs before a current-frame reader, and a previous-frame reader runs
-  before every writer, whatever the registration order. Writers are chained in registration order.
+  before every writer, whatever the registration order. Writers are chained in registration order,
+  retained readers first. A resource edge derived in registration order that contradicts one (two
+  passes writing the same export) wins, and `ValidateCompiledResourceHazards` reports
+  `OutOfBandOrdering`: fix the registration or the accesses.
 - **Reachability.** A current-frame reader keeps its writers alive. A previous-frame read, a
   writer chain and a write after read are *ordering-only*: they never keep the earlier pass
   alive. So a boundary can replace `NeverCull` when its consumers are declared.
