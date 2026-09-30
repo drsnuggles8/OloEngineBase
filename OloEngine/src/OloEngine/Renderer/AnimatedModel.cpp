@@ -1144,9 +1144,19 @@ namespace OloEngine
                 // Malformed imported weights must never reach Normalize(): a NaN
                 // poisons the whole vertex, and a negative weight can cancel a
                 // valid influence before the palette is uploaded.
-                if (!std::isfinite(weight) || weight <= 0.0f)
+                //
+                // A ZERO weight is skipped quietly: it is how Assimp keeps a
+                // joint that weights nothing -- one zero weight on vertex 0 --
+                // once the importer stops dropping those joints (#1533, the eye
+                // bones and sockets above). Reporting it named every such joint
+                // as a malformed weight on every load of a rigged model.
+                if (!std::isfinite(weight) || weight < 0.0f)
                 {
                     OLO_CORE_WARN("AnimatedModel::ProcessBones: Invalid weight for vertex {}", vertexId);
+                    continue;
+                }
+                if (weight == 0.0f)
+                {
                     continue;
                 }
 
