@@ -616,6 +616,10 @@ namespace OloEngine
             /// The width scale the bake was made at. It multiplies the cooked
             /// diameters and therefore the density stored, so it invalidates.
             f32 CoatWidthScale = 0.0f;
+            /// The coat authoring (GroomCoatDigest) an un-posed bake was made
+            /// with (#1533): a rest or static volume is built from the drawn walk,
+            /// which the coat shapes, so re-authoring the coat rebuilds it.
+            u64 CoatBakedCoatDigest = 0;
             /// GPU bytes the volume occupies.
             u64 CoatBytes = 0;
             /// The LOD step the resident bake was made at, the step the policy
@@ -883,6 +887,7 @@ namespace OloEngine
         /// frame does not allocate its segments, its volume and its packed
         /// texels every frame (#1445).
         std::vector<GroomCoatShadow::CoatSegment> m_CoatSegments;
+        std::vector<GroomRestCentreline> m_RestCentrelines;
         GroomCoatShadow::DensityVolume m_CoatVolumeScratch;
         std::vector<u16> m_CoatPackHalf;
         std::vector<f32> m_CoatPackFloat;

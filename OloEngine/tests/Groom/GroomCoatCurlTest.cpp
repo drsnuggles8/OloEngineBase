@@ -685,3 +685,55 @@ TEST(GroomCoatCurl, AnUnauthoredTipLeavesEveryCornerAtTheStrandsTint)
     }
     EXPECT_EQ(corner, vertices.size());
 }
+
+TEST(GroomCoatCurl, TheRestBakeSeesTheStrandsTheDrawDraws)
+{
+    // #1533. A coat baked at rest is looked up at each drawn point's rest
+    // position, so the volume must be built from the drawn strands -- the coat's
+    // length jitter, curl and wave included -- and not from the asset's raw
+    // curves, which a waved strand is millimetres away from. The rest walk is the
+    // draw's own walk: the same points, bit for bit, as the mesh's centrelines.
+    StraightGroup curled;
+    curled.Name = "curled";
+    curled.Desc.CurlRadius = 0.003f;
+    curled.Desc.CurlFrequency = 60.0f;
+    curled.Desc.WaveAmplitude = 0.004f;
+    curled.Desc.WaveFrequency = 30.0f;
+    curled.Strands = 8;
+    curled.Points = 32;
+    StraightGroup plain;
+    plain.Name = "plain";
+    plain.Desc.Length = 0.8f;
+    plain.Strands = 6;
+    plain.Points = 10;
+    const std::vector<StraightGroup> groups{ curled, plain };
+    const Ref<GroomAsset> groom = MakeStraightGroom(groups);
+    ASSERT_TRUE(groom);
+    GroomCoatSettings settings = Active();
+    settings.LengthJitter = 0.2f;
+    const GroomCoatContext coat{ &settings, groom->GetGroupCoats() };
+
+    GroomStrandBuildSettings build;
+    build.MaxStrands = groom->GetCurveCount();
+    build.CoatDigest = GroomCoatDigest(settings);
+    std::vector<GroomRestCentreline> lines;
+    (void)BuildGroomRestCentrelines(*groom, build, &coat, lines);
+    const std::vector<GroomStrandVertex> vertices = Build(*groom, coat);
+    ASSERT_EQ(lines.size() * 4u, vertices.size()) << "one centreline per drawn segment";
+
+    const std::vector<std::vector<glm::vec3>> drawn = EmittedPoints(*groom, vertices);
+    sizet line = 0;
+    f32 furthestFromRaw = 0.0f;
+    for (u32 curve = 0; curve < groom->GetCurveCount(); ++curve)
+    {
+        const u32 first = groom->GetCurveFirstPoint(curve);
+        for (sizet i = 0; i + 1u < drawn[curve].size(); ++i, ++line)
+        {
+            EXPECT_TRUE(SameBits(lines[line].P0, drawn[curve][i])) << "curve " << curve << " segment " << i;
+            EXPECT_TRUE(SameBits(lines[line].P1, drawn[curve][i + 1u])) << "curve " << curve << " segment " << i;
+            furthestFromRaw = std::max(furthestFromRaw,
+                                       glm::distance(lines[line].P0, groom->GetPoints()[first + static_cast<u32>(i)]));
+        }
+    }
+    EXPECT_GT(furthestFromRaw, 0.002f) << "the shaped coat must be where the draw puts it, not on the raw curves";
+}

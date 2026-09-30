@@ -44,16 +44,26 @@ Read before touching `GroomCoatShadowComponent::m_BakeAtRest`, the `bakeAtRest` 
    `BindBase = RootCount * 2` from the root count; `GroomDeformBufferLayout::Make` writes the same
    number. Change one and the other in the same commit.
 
-7. **The depth prepass skips the rest lookup.** The prepass draw writes depth only, so its vertex
+7. **Bake the rest volume from the DRAWN strands at rest, not the asset's curves.** The lookup
+   starts at each drawn point's rest position, and a drawn strand is the asset's curve through the
+   coat's shape: length and width jitter, clump, curl and wave. Baked from the raw curves, the
+   volume described another coat, and on the dog's fine, flat face coat the rest bake read paler
+   than the pose bake at the bind pose with nothing moving (3.06 mean |ΔL| against an 8.26
+   self-shadow). `BuildGroomRestCentrelines` is the draw's own walk, segments only; an un-posed
+   bake with coat authoring uses it, and `CoatBakedCoatDigest` rebuilds the volume when the coat is
+   re-authored. `TheRestBakeSeesTheStrandsTheDrawDraws` pins the walk to the drawn mesh bit for bit.
+
+8. **The depth prepass skips the rest lookup.** The prepass draw writes depth only, so its vertex
    stage leaves the bind point and the rotation out, along with last frame's deformation. None of
    them feed `gl_Position`, which is what keeps the two draws equal at depth EQUAL.
 
 ## Measured
 
 **The dog, two seconds into Idle, face close-up** (`TheRestBakeShadowsTheMovingCoatAsThePoseBakeDoes`,
-GL Forward, 1280×720): the rest bake differs from the pose bake by 28 961 px (mean |ΔL| 1.63 of
-255) against a repeat floor of 15 978 px. The self-shadow itself changes the same frame by
-396 369 px (mean |ΔL| 13.0).
+GL Forward, 1280×720): the rest bake differs from the pose bake by 40 912 px (mean |ΔL| 1.84 of
+255) against a repeat floor of 17 214 px. The self-shadow itself changes the same frame by
+385 294 px (mean |ΔL| 8.06). That is the Blender coat of #1533 with its fine face; baked from the
+raw curves (rule 7) the same frame differed by 141 393 px (mean 3.52).
 
 **The dog's frame** (`CostOfTheThreeFramings`, 1920×1080, RTX 4090): the pose bake spent 74 ms
 posing segments and 123 ms baking (82 of them binning) on the CPU on every frame, so the frame was

@@ -175,6 +175,17 @@ namespace OloEngine
         f32 Radius1 = 0.0f;
     };
 
+    /// One segment of the drawn strands at REST, in the groom's own space
+    /// (#1533): the centreline a coat baked at rest is built from. Radii, not
+    /// diameters -- halved where every strand is, in the shared walk.
+    struct GroomRestCentreline
+    {
+        glm::vec3 P0{ 0.0f };
+        glm::vec3 P1{ 0.0f };
+        f32 Radius0 = 0.0f;
+        f32 Radius1 = 0.0f;
+    };
+
     static_assert(sizeof(GroomStrandVertex) == 64,
                   "GroomStrandVertex must be exactly sixteen floats: GroomStrand.glsl's Vulkan vertex pull "
                   "indexes it as a flat float array with a stride of 16");
@@ -424,6 +435,21 @@ namespace OloEngine
                                                   std::vector<u32>& outIndices, std::vector<u32>& outRootCurves,
                                                   const GroomCoatContext* coat = nullptr,
                                                   std::vector<GroomRestPoseSegment>* outPoseSegments = nullptr);
+
+    /**
+     * @brief The strands BuildGroomStrandMesh draws, as a coat baked at rest sees
+     *        them (#1533).
+     *
+     * The same walk -- the same selection, the same coat shape (length, clump,
+     * curl, wave, width) and the same budget -- in the groom's own space, as
+     * centreline segments with no ribbon vertices. A coat baked at rest is looked
+     * up at each drawn point's REST position, so its volume has to be built from
+     * these: built from the asset's raw curves it describes a different coat,
+     * and a waved or curled strand samples it millimetres off its own fibre.
+     */
+    GroomStrandMeshStats BuildGroomRestCentrelines(const GroomAsset& groom, const GroomStrandBuildSettings& settings,
+                                                   const GroomCoatContext* coat,
+                                                   std::vector<GroomRestCentreline>& outCentrelines);
 
     /// The BASE groom. Every call site that predates #1252 takes this overload
     /// and gets the identity source map, so the LOD change is invisible to the

@@ -1601,9 +1601,13 @@ namespace OloEngine
         // areal density the volume stores. Without it, dragging Width Scale in
         // the inspector changes every ribbon on screen and leaves the shadow
         // describing the coat's previous thickness.
+        // And an un-posed bake is the drawn walk at rest, which the coat
+        // authoring shapes: re-authoring the coat is a different volume.
+        const bool coatChanged = !deformed && entry.CoatBakedCoatDigest != request.Build.CoatDigest;
         const bool needsRebuild = !entry.CoatVolume || !bakeSourceMatches || entry.CoatResolution != resolution ||
                                   entry.CoatLodStep != lodStep ||
-                                  !Math::BitwiseEqual(entry.CoatWidthScale, request.WidthScale) || poseMoved;
+                                  !Math::BitwiseEqual(entry.CoatWidthScale, request.WidthScale) || poseMoved ||
+                                  coatChanged;
 
         if (needsRebuild && inputs.GrantedSlot != kNoGroomCoatShadowSlot &&
             resolution >= request.CoatLod.MinResolution)
@@ -1626,6 +1630,31 @@ namespace OloEngine
                 // the drawn pose carries each card at its GROUP's fibre area
                 // already (CardFibreScales, applied where the pose is formed).
                 emitted = GroomCoatShadow::BuildCoatSegmentsFromPose(drawnPose, request.WidthScale, segments);
+            }
+            else if (const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() }; coat.IsActive())
+            {
+                // THE DRAWN COAT, AT REST (#1533). The strands on screen are the
+                // asset's curves through the coat's shape -- length and width
+                // jitter, clump, curl and wave -- and a coat baked at rest is looked
+                // up at each drawn point's REST position (GroomStrand.glsl). Baked
+                // from the raw curves, the volume described a different coat: a
+                // waved strand sampled it millimetres off its own fibre, and on the
+                // dog's fine, flat face coat the rest bake read paler than the pose
+                // bake at the bind pose itself, with nothing moving. So a coat with
+                // authoring bakes the same walk the draw takes, at the same budget;
+                // one without has nothing to shape and keeps the uniform sample.
+                (void)BuildGroomRestCentrelines(*request.Groom, request.Build, &coat, m_RestCentrelines);
+                segments.clear();
+                segments.reserve(m_RestCentrelines.size());
+                for (const GroomRestCentreline& line : m_RestCentrelines)
+                {
+                    // The walk's radii already carry the coat's width and each
+                    // role's stride compensation; the request's scale is the
+                    // per-groom unit lever, applied once, as the pose bake does.
+                    segments.push_back(GroomCoatShadow::CoatSegment{ line.P0, line.P1, line.Radius0 * request.WidthScale,
+                                                                     line.Radius1 * request.WidthScale });
+                }
+                emitted = static_cast<u32>(segments.size());
             }
             else
             {
@@ -1662,6 +1691,7 @@ namespace OloEngine
             {
                 entry.CoatLodStep = lodStep;
                 entry.CoatWidthScale = request.WidthScale;
+                entry.CoatBakedCoatDigest = deformed ? 0u : request.Build.CoatDigest;
                 entry.CoatMode = request.CoatShadow;
                 if (deformed)
                 {

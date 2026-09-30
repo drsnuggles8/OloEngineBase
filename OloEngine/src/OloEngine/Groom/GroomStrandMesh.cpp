@@ -1220,6 +1220,26 @@ namespace OloEngine
                                     coat, simulation);
     }
 
+    GroomStrandMeshStats BuildGroomRestCentrelines(const GroomAsset& groom, const GroomStrandBuildSettings& settings,
+                                                   const GroomCoatContext* coat,
+                                                   std::vector<GroomRestCentreline>& outCentrelines)
+    {
+        outCentrelines.clear();
+        const GroomBuildSource source = GroomBuildSource::FromAsset(groom);
+        const GroomStrandMeshStats plan = PlanGroomStrandMesh(source, settings, coat);
+        outCentrelines.reserve(plan.SegmentCount);
+        GroomStrandMeshStats stats;
+        WalkStrandSegments(
+            source, settings, coat, stats, [](u32 /*curve*/, u32 /*sourceCurve*/) {},
+            [&](const RestSegment& segment)
+            {
+                outCentrelines.push_back(
+                    GroomRestCentreline{ segment.Rest0, segment.Rest1, segment.Radius0, segment.Radius1 });
+            });
+        stats.SegmentCount = static_cast<u32>(outCentrelines.size());
+        return stats;
+    }
+
     f32 GroomRoleWidthCompensation(u32 available, u32 stride, f32 maxCompensation, bool* outCapped) noexcept
     {
         if (outCapped != nullptr)
