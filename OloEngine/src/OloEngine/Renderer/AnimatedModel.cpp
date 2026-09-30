@@ -2076,7 +2076,16 @@ namespace OloEngine
             material.SetNormalMap(normalMaps[0]);
         }
 
-        if (auto aoMaps = LoadMaterialTextures(mat, aiTextureType_AMBIENT_OCCLUSION); !aoMaps.IsEmpty())
+        // Assimp's glTF2 importer files a glTF occlusionTexture under
+        // aiTextureType_LIGHTMAP, not AMBIENT_OCCLUSION, so without the second
+        // lookup every glTF occlusion map was dropped here while the static
+        // Model route (which already falls back the same way) kept it.
+        auto aoMaps = LoadMaterialTextures(mat, aiTextureType_AMBIENT_OCCLUSION);
+        if (aoMaps.IsEmpty())
+        {
+            aoMaps = LoadMaterialTextures(mat, aiTextureType_LIGHTMAP);
+        }
+        if (!aoMaps.IsEmpty())
         {
             material.SetAOMap(aoMaps[0]);
         }
