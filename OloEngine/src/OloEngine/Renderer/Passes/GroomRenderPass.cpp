@@ -641,7 +641,7 @@ namespace OloEngine
                                                               static_cast<sizet>(request.RootTransforms.Num()) }
                        : GroomCpuRootTransforms(request, m_CpuRootScratch);
         const GroomDeformFrameStats packed = entry.DeformCpu.PackFrame(rootCurves, *request.Binding, transforms,
-                                                                        simulated ? &simulation : nullptr, baseCurveCount);
+                                                                       simulated ? &simulation : nullptr, baseCurveCount);
         // THE DRAWN ROOTS' COUNTERS, for a coat whose producer left its roots to
         // the pass (#1533 E1): the producer evaluated only its guides, so its
         // counts describe the simulation, not the coat. On the kernel they are

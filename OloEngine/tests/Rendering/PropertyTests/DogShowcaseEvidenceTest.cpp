@@ -1484,7 +1484,8 @@ namespace OloEngine::Tests
         // Attribution switches (the committed file is measured with neither):
         // OLO_DOG_COST_LAWN=0 keeps the evidence slab, =grassless keeps the
         // lawn's terrain and drops its grass.
-        const std::string lawn = [] { const char* v = std::getenv("OLO_DOG_COST_LAWN"); return std::string(v ? v : "1"); }();
+        const std::string lawn = []
+        { const char* v = std::getenv("OLO_DOG_COST_LAWN"); return std::string(v ? v : "1"); }();
         if (lawn != "0")
         {
             BuildLawn(std::string(OLO_TEST_EDITOR_ROOT) + "/");
@@ -1643,7 +1644,8 @@ namespace OloEngine::Tests
             m.DeformMs = static_cast<f64>(deformUs) / 1000.0 / kFrames;
             m.GeometryMiB = static_cast<f64>(st.CachedBytes) / (1024.0 * 1024.0);
             m.CoatVolumeMiB = static_cast<f64>(st.CoatShadow.ResidentBytes) / (1024.0 * 1024.0);
-            const auto perFrame = [](u64 us) { return static_cast<f64>(us) / 1000.0 / kFrames; };
+            const auto perFrame = [](u64 us)
+            { return static_cast<f64>(us) / 1000.0 / kFrames; };
             m.BakeSegmentMs = perFrame(segmentUs);
             m.BakeBinMs = perFrame(binUs);
             m.BakePackMs = perFrame(packUs);
@@ -1941,7 +1943,8 @@ namespace OloEngine::Tests
             { "TailTop", { 0.30f, 1.05f, -0.80f }, { 0.0f, 0.48f, -0.40f }, 30.0f },
         } };
         // OLO_DOG_LOOKDEV_ONLY=wag skips the stills for the wag flip-book alone.
-        const bool wagOnly = [] { const char* v = std::getenv("OLO_DOG_LOOKDEV_ONLY"); return v != nullptr && std::string(v) == "wag"; }();
+        const bool wagOnly = []
+        { const char* v = std::getenv("OLO_DOG_LOOKDEV_ONLY"); return v != nullptr && std::string(v) == "wag"; }();
         std::vector<std::vector<u8>> frames;
         for (const View& view : views)
         {

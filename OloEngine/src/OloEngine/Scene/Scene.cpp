@@ -10567,10 +10567,10 @@ namespace OloEngine
         // A coat whose roots the GPU evaluates selects nothing here: the pass
         // draws its own selection, and the guides are added below.
         const bool selectionCurrent = gpuRootFrames ||
-            (state.m_DrawnSelectionValid && state.m_DrawnSelectionGroom == request.Groom.Raw() &&
-             state.m_DrawnSelectionLevel == static_cast<const void*>(request.LodLevel) &&
-             state.m_DrawnSelectionHandle == request.Handle && state.m_DrawnSelectionCurveCount == groom.GetCurveCount() &&
-             state.m_DrawnSelectionSettings == request.Build);
+                                      (state.m_DrawnSelectionValid && state.m_DrawnSelectionGroom == request.Groom.Raw() &&
+                                       state.m_DrawnSelectionLevel == static_cast<const void*>(request.LodLevel) &&
+                                       state.m_DrawnSelectionHandle == request.Handle && state.m_DrawnSelectionCurveCount == groom.GetCurveCount() &&
+                                       state.m_DrawnSelectionSettings == request.Build);
         if (!selectionCurrent)
         {
             SelectGroomStrandCurves(buildSource, request.Build, state.m_DrawnSelection, &coat);
