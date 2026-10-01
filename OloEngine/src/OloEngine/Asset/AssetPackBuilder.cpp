@@ -16,12 +16,10 @@
 #include "OloEngine/Serialization/ImportedMaterialCodec.h"
 #include "OloEngine/Serialization/AssetPackFile.h"
 #include "OloEngine/Serialization/FileStream.h"
-#include "OloEngine/Task/Task.h"
 
 #include <unordered_set>
 #include <fstream>
 #include <filesystem>
-#include <chrono>
 #include <mutex>
 
 namespace OloEngine
@@ -153,40 +151,18 @@ namespace OloEngine
                 return { false, "Build cancelled by user", 0, 0, {} };
             }
 
-            // Use the existing BuildImpl with the temporary asset manager
-            // The progress will start from 0.3 (30% for loading) and go to 1.0
-
-            // Create a wrapper to update our main progress from BuildImpl's progress
-            std::atomic<f32> internalProgress = 0.0f;
-            std::atomic<bool> progressUpdateActive = true;
-
-            // Launch progress forwarding task using Task System
-            Tasks::Launch(
-                "AssetPackBuilder_ProgressForward",
-                [&progressUpdateActive, &progress, &internalProgress]()
-                {
-                    while (progressUpdateActive.load(std::memory_order_acquire))
-                    {
-                        float internal = internalProgress.load(std::memory_order_relaxed);
-                        progress.store(0.3f + (internal * 0.7f), std::memory_order_relaxed);
-                        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                    }
-                },
-                Tasks::ETaskPriority::BackgroundNormal);
-
-            // Call the existing implementation with the populated temporary manager
-            result = BuildImpl(tempAssetManager, settings, internalProgress, cancelToken);
+            // The build reports its own 0..1 into the last 70% of the caller's progress
+            // directly (#1533): no forwarding task, which ran inline and forever on this
+            // thread whenever no task worker was free to take it.
+            result = BuildImpl(tempAssetManager, settings, ProgressRange{ progress, 0.3f, 0.7f }, cancelToken);
             result.m_FailedAssetCount = failedCount;
-
-            // Stop progress forwarding and wait briefly for task to notice
-            progressUpdateActive.store(false, std::memory_order_release);
-            std::this_thread::sleep_for(std::chrono::milliseconds(20)); // Give task time to exit
 
             // Clean up the temporary asset manager
             tempAssetManager->Shutdown();
 
-            // Update final progress
-            progress = result.m_Success ? 1.0f : internalProgress.load();
+            // Update final progress; a failed build keeps the value it stopped at.
+            if (result.m_Success)
+                progress = 1.0f;
 
             return result;
         }
@@ -262,7 +238,7 @@ namespace OloEngine
         return intents;
     }
 
-    AssetPackBuilder::BuildResult AssetPackBuilder::BuildImpl(Ref<AssetManagerBase> assetManager, const BuildSettings& settings, std::atomic<f32>& progress, const std::atomic<bool>* cancelToken)
+    AssetPackBuilder::BuildResult AssetPackBuilder::BuildImpl(Ref<AssetManagerBase> assetManager, const BuildSettings& settings, ProgressRange progress, const std::atomic<bool>* cancelToken)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -608,7 +584,7 @@ namespace OloEngine
         }
     }
 
-    [[nodiscard]] bool AssetPackBuilder::SerializeAllAssets(Ref<AssetManagerBase> assetManager, AssetPackFile& assetPackFile, std::atomic<f32>& progress, const std::atomic<bool>* cancelToken)
+    [[nodiscard]] bool AssetPackBuilder::SerializeAllAssets(Ref<AssetManagerBase> assetManager, AssetPackFile& assetPackFile, ProgressRange progress, const std::atomic<bool>* cancelToken)
     {
         OLO_PROFILE_FUNCTION();
 

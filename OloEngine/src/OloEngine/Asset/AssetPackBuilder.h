@@ -93,14 +93,33 @@ namespace OloEngine
 
       private:
         /**
+         * @brief One stage's share of the caller's progress: a stage writes 0..1 of its
+         *        own work and the caller's atomic receives Base + Scale * value. It
+         *        replaced a forwarding task that ran forever when no task worker was
+         *        free to take it, because it then ran inline on this thread (#1533).
+         */
+        struct ProgressRange
+        {
+            std::atomic<f32>& Out;
+            f32 Base = 0.0f;
+            f32 Scale = 1.0f;
+
+            ProgressRange& operator=(f32 value)
+            {
+                Out.store(Base + (Scale * value), std::memory_order_relaxed);
+                return *this;
+            }
+        };
+
+        /**
          * @brief Build asset pack implementation
          * @param assetManager Asset manager to use
          * @param settings Build settings
-         * @param progress Progress tracker
+         * @param progress The build's share of the caller's progress
          * @param cancelToken Optional cancellation token for cooperative cancellation
          * @return Build result
          */
-        static BuildResult BuildImpl(Ref<AssetManagerBase> assetManager, const BuildSettings& settings, std::atomic<f32>& progress, const std::atomic<bool>* cancelToken = nullptr);
+        static BuildResult BuildImpl(Ref<AssetManagerBase> assetManager, const BuildSettings& settings, ProgressRange progress, const std::atomic<bool>* cancelToken = nullptr);
 
         /**
          * @brief Serialize all assets from asset manager to pack
@@ -110,7 +129,7 @@ namespace OloEngine
          * @param cancelToken Optional cancellation token for cooperative cancellation
          * @return Success status
          */
-        [[nodiscard]] static bool SerializeAllAssets(Ref<AssetManagerBase> assetManager, AssetPackFile& assetPackFile, std::atomic<f32>& progress, const std::atomic<bool>* cancelToken = nullptr);
+        [[nodiscard]] static bool SerializeAllAssets(Ref<AssetManagerBase> assetManager, AssetPackFile& assetPackFile, ProgressRange progress, const std::atomic<bool>* cancelToken = nullptr);
 
         /**
          * @brief Validate that all assets can be serialized
