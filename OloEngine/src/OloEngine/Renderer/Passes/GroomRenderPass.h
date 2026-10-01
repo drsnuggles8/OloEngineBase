@@ -376,7 +376,7 @@ namespace OloEngine
         // Setup() declares nothing without a strand request (#1246).
         void AppendDeclarationInputs(RGDeclarationKey& key) const override
         {
-            key.Add(m_Requests.Num() != 0);
+            key.Add(!m_Requests.empty());
         }
         void Execute(RGCommandContext& context) override;
 
@@ -385,16 +385,20 @@ namespace OloEngine
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
 
-        /// Set once per frame by RenderPipeline, before Setup.
-        void SetRequests(std::span<const GroomStrandRequest> requests)
-        {
-            m_Requests.Empty(static_cast<i64>(requests.size()));
-            for (const auto& request : requests)
-                m_Requests.Add(request);
-        }
-        void SetRequests(const TArray64<GroomStrandRequest>& requests)
+        /// Set once per frame by RenderPipeline, before Setup. READ IN PLACE,
+        /// not copied (#1533 E1): the caller's storage must outlive this frame's
+        /// Execute, which drops the view at its end. Renderer3D's published list
+        /// does (it is recycled at the next BeginScene), and so do a test's
+        /// locals. The copy it replaces deep-copied every request each frame,
+        /// root transforms and all -- 26 MB a frame for the dog's 410k curves,
+        /// undoing the pool Renderer3D keeps so the producer need not allocate.
+        void SetRequests(std::span<const GroomStrandRequest> requests) noexcept
         {
             m_Requests = requests;
+        }
+        void SetRequests(const TArray64<GroomStrandRequest>& requests) noexcept
+        {
+            m_Requests = std::span<const GroomStrandRequest>(requests.GetData(), static_cast<sizet>(requests.Num()));
         }
         void SetFrameState(const GroomFrameState& state) noexcept
         {
@@ -815,8 +819,8 @@ namespace OloEngine
         void StartFrame();
         void EvictToBudget();
 
-        // Root-transform ownership is not bitwise relocatable; stable nodes preserve it.
-        TArray64<GroomStrandRequest> m_Requests;
+        // A view of the frame's requests, never an owner: see SetRequests.
+        std::span<const GroomStrandRequest> m_Requests;
         GroomFrameState m_FrameState;
         GroomRenderStats m_Stats;
 

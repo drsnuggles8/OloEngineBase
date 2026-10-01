@@ -201,7 +201,7 @@ namespace OloEngine
     {
         RenderGraphNode::Setup(builder, board);
 
-        if ((m_Requests.Num() == 0))
+        if (m_Requests.empty())
         {
             return;
         }
@@ -1851,9 +1851,9 @@ namespace OloEngine
             }
         }
 
-        if ((m_Requests.Num() == 0) || !m_SceneFramebuffer || !m_Shader || !m_ParamsUBO)
+        if (m_Requests.empty() || !m_SceneFramebuffer || !m_Shader || !m_ParamsUBO)
         {
-            m_Requests.Empty();
+            m_Requests = {};
             m_Stats.CachedBytes = m_CacheBytes;
             m_Stats.CacheBudgetBytes = m_CacheBudgetBytes;
             // The cache can still be over budget on a frame that draws nothing.
@@ -1881,7 +1881,7 @@ namespace OloEngine
             OLO_CORE_ERROR_TAG("Groom",
                                "GroomRenderPass has no coat-shadow placeholder volume or no deformation "
                                "placeholder buffer; skipping the strand draws rather than binding a null resource.");
-            m_Requests.Empty();
+            m_Requests = {};
             m_Stats.CachedBytes = m_CacheBytes;
             m_Stats.CacheBudgetBytes = m_CacheBudgetBytes;
             // The cache can still be over budget on a frame that draws nothing.
@@ -2619,7 +2619,7 @@ namespace OloEngine
 
         // Requests are per-frame; holding them would draw last frame's grooms
         // on a frame that published none.
-        m_Requests.Empty();
+        m_Requests = {};
     }
 
     void GroomRenderPass::BeginFrame()
@@ -2630,7 +2630,7 @@ namespace OloEngine
         // that drew grooms (the inspector's readout) and entries do not age.
         // Resetting unconditionally would blank every groom readout whenever a
         // second camera (a thumbnail, a game view) renders without grooms.
-        if (m_Requests.Num() == 0)
+        if (m_Requests.empty())
         {
             return;
         }
@@ -2640,7 +2640,7 @@ namespace OloEngine
     void GroomRenderPass::StartFrame()
     {
         m_Stats.Reset();
-        m_Stats.GroomsSubmitted = static_cast<u32>(m_Requests.Num());
+        m_Stats.GroomsSubmitted = static_cast<u32>(m_Requests.size());
         // One tick per frame, 64-bit and owned by this pass. See m_CacheTick
         // for why GroomFrameState::FrameIndex cannot serve.
         ++m_CacheTick;
@@ -2791,7 +2791,7 @@ namespace OloEngine
         std::vector<GroomCoatShadow::CoatSegment>().swap(m_DrawnPose);
         m_CacheTick = 0;
         m_FrameBegun = false;
-        m_Requests.Empty();
+        m_Requests = {};
         m_SceneFramebuffer = nullptr;
         m_LastReportedReason = GroomCompositionFallbackReason::None;
         m_LastReportedShadowStats.Reset();
