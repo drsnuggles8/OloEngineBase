@@ -61,6 +61,7 @@
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/QualityTiering.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/SkinProfile.h"
 #include "OloEngine/Renderer/Texture.h"
@@ -383,6 +384,22 @@ namespace OloEngine::Tests
             }
 
             EnableRendering(kWidth, kHeight);
+            // THE EDITOR'S QUALITY TIER. OloEditor reapplies the project's tier
+            // over every scene it opens (EditorLayer's scene-load finalizer), so
+            // the live dog renders with the tier's shadow resolution, AO, bloom
+            // and FXAA rather than the scene's own toggles. The Sandbox project
+            // authors no tier, so the editor applies the default one, and so does
+            // this fixture. Without it the evidence rendered 1024^2 cascades
+            // against the editor's 4096^2, with no AO, no bloom and no FXAA, and
+            // the caster share tuned here cast 88% of the coat live.
+            {
+                const QualityTieringSettings tier{};
+                ShadowSettings shadow = Renderer3D::GetShadowMap().GetSettings();
+                ApplyTieringToSettings(tier, Renderer3D::GetPostProcessSettings(), shadow);
+                Renderer3D::GetShadowMap().SetSettings(shadow);
+                ApplyTieringToRendererSettings(tier, Renderer3D::GetRendererSettings());
+                Renderer3D::ApplyRendererSettings();
+            }
             Scene& scene = GetScene();
             auto& rs = Renderer3D::GetRendererSettings();
             rs.EditorDebugDrawsEnabled = false;
