@@ -12,6 +12,7 @@
 #include "OloEngine/Localization/LocalizedTextComponent.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Core/UUID.h"
+#include "OloEngine/Project/ContentPath.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
@@ -3617,17 +3618,26 @@ namespace OloEngine
             anim.m_CurrentClipIndex = animComponent["CurrentClipIndex"].as<int>(anim.m_CurrentClipIndex);
             anim.m_IsPlaying = animComponent["IsPlaying"].as<bool>(anim.m_IsPlaying);
 
-            // Load source file path (stored as relative, convert to absolute) and reload animated model if available
+            // Stored like every other content path (#1496): "Assets/..." for project
+            // content, "assets/..." for engine content, resolved by ResolveContentPath.
+            // It used to be relative to the ASSET directory, so an engine model was
+            // "../../assets/models/Fox/Fox.gltf": fine in the editor, and outside the
+            // game directory in a packaged game, where it never loaded (#1539).
             if (animComponent["SourceFilePath"])
             {
-                auto relativePathStr = animComponent["SourceFilePath"].as<std::string>();
-                if (!relativePathStr.empty())
+                const auto storedPath = animComponent["SourceFilePath"].as<std::string>();
+                const std::filesystem::path resolvedPath =
+                    storedPath.empty() ? std::filesystem::path{} : ResolveContentPath(storedPath);
+                // Unresolved, the authored spelling is kept so a save writes it back
+                // unchanged; ResolveContentPath has already said which file is missing.
+                anim.m_SourceFilePath = resolvedPath.empty() ? storedPath : resolvedPath.generic_string();
+                if (!storedPath.empty() && resolvedPath.empty())
                 {
-                    // Convert relative path back to absolute
-                    std::filesystem::path relativePath(relativePathStr);
-                    auto assetDirectory = Project::GetAssetDirectory();
-                    auto absolutePath = assetDirectory / relativePath;
-                    anim.m_SourceFilePath = absolutePath.string();
+                    OLO_CORE_ERROR("SceneSerializer: entity '{}' has no animated model: '{}' did not resolve",
+                                   deserializedEntity.GetComponent<TagComponent>().Tag, storedPath);
+                }
+                else if (!storedPath.empty())
+                {
 
                     // Dedup: many entities in a crowd scene share the same source
                     // path (issue #525 cheap-wins slice). Reuse the already-loaded
@@ -6160,10 +6170,11 @@ namespace OloEngine
             // Store source file path as relative path for portability
             if (!animComponent.m_SourceFilePath.empty())
             {
-                std::filesystem::path sourcePath(animComponent.m_SourceFilePath);
-                auto assetDirectory = Project::GetAssetDirectory();
-                auto relativePath = std::filesystem::relative(sourcePath, assetDirectory);
-                out << YAML::Key << "SourceFilePath" << YAML::Value << relativePath.generic_string();
+                // ResolveContentPath's spelling: relative to the project directory
+                // ("Assets/...") or to the working directory ("assets/..."), the
+                // two places a packaged game also has (#1539).
+                out << YAML::Key << "SourceFilePath" << YAML::Value
+                    << MakePortableSceneResourcePath(animComponent.m_SourceFilePath);
             }
             else
             {

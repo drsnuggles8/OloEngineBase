@@ -207,8 +207,8 @@ def material(albedo, metallic, roughness):
 def animated_model(source_path, clip_index=1, blend=0.3):
     """Skinned model + skeleton + playback state, AnimalShortCoat.olo's shape.
 
-    SourceFilePath is relative to Project::GetAssetDirectory(), which is why
-    the editor-tree models reach out through `../../assets/`. SceneSerializer's
+    SourceFilePath is a content path (#1539): `assets/...` names the editor's
+    engine-content models, resolved by ResolveContentPath. SceneSerializer's
     animated branch calls ModelImporter::PopulateAnimatedEntity, so the empty
     maps below are placeholders the loader overwrites.
     """
@@ -383,7 +383,7 @@ def build():
     w.entity(
         "Hero",
         (0.0, 0.0, 5.6), (0, math.pi, 0), (0.014, 0.014, 0.014),
-        animated_model("../../assets/models/Fox/Fox.gltf", clip_index=1)
+        animated_model("assets/models/Fox/Fox.gltf", clip_index=1)
         + groom(GROOM_LONGCOAT, 60000, 1.0, (0.58, 0.44, 0.31))
         + groom_lod(card_px=220.0)
         + animal_budget(ROLE_HERO, motion_metres=0.06, deform=3, sim=4, vis=4, shadow=3),
@@ -398,7 +398,7 @@ def build():
         w.entity(
             f"Featured {i}",
             (x, 0.0, z), (0, rng.range(0.0, math.tau), 0), (0.012, 0.012, 0.012),
-            animated_model("../../assets/models/Fox/Fox.gltf", clip_index=1)
+            animated_model("assets/models/Fox/Fox.gltf", clip_index=1)
             + groom(GROOM_LONGCOAT, 24000, 1.0, (0.54, 0.41, 0.29))
             + groom_lod()
             + animal_budget(ROLE_FEATURED, motion_metres=rng.range(0.04, 0.09))
@@ -423,7 +423,7 @@ def build():
         w.entity(
             f"Herd {i}",
             (lateral, 0.0, depth), (0, rng.range(0.0, math.tau), 0), (0.011, 0.011, 0.011),
-            animated_model("../../assets/models/Fox/Fox.gltf", clip_index=1)
+            animated_model("assets/models/Fox/Fox.gltf", clip_index=1)
             + groom(
                 GROOM_LONGCOAT if long_coat else GROOM_SHORTCOAT,
                 24000 if long_coat else 4000,

@@ -43,12 +43,14 @@
 #include "OloEngine/Core/YAMLConverters.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Font.h"
+#include "TestTempDir.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <yaml-cpp/yaml.h>
 
 #include <cmath>
+#include <filesystem>
 #include <regex>
 #include <sstream>
 #include <string>
@@ -3958,6 +3960,58 @@ Entities:
         const auto& anim = restored.GetComponent<AnimationStateComponent>();
         EXPECT_TRUE(std::isfinite(anim.m_CurrentTime)) << "NaN CurrentTime must not propagate into forward kinematics";
         EXPECT_TRUE(std::isfinite(anim.m_BlendDuration)) << "Inf BlendDuration should be sanitized to a finite value";
+    }
+
+    // #1539: SourceFilePath is written the way ResolveContentPath reads every
+    // content path, "Assets/..." for project content and "assets/..." for engine
+    // content. It used to be relative to the asset directory, so an engine model
+    // was "../../assets/...", which a packaged game resolves outside its own
+    // directory and never loaded.
+    TEST(ComponentRoundTrip, AnimationStateSourceFilePathIsAContentPath)
+    {
+        namespace fs = std::filesystem;
+        const Ref<Project> previous = Project::GetActive();
+        const fs::path root = TempDir("anim-source-path");
+        ProjectConfig config;
+        config.AssetDirectory = "Assets";
+        Project::NewInMemory(root, config);
+        std::error_code ec;
+        const fs::path cwd = fs::current_path(ec);
+
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            scene->CreateEntity("ProjectModel").AddComponent<AnimationStateComponent>().m_SourceFilePath =
+                (root / "Assets" / "Models" / "Horse.gltf").string();
+            scene->CreateEntity("EngineModel").AddComponent<AnimationStateComponent>().m_SourceFilePath =
+                (cwd / "assets" / "models" / "Fox" / "Fox.gltf").string();
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+        EXPECT_NE(yaml.find("SourceFilePath: Assets/Models/Horse.gltf"), std::string::npos) << yaml;
+        EXPECT_NE(yaml.find("SourceFilePath: assets/models/Fox/Fox.gltf"), std::string::npos) << yaml;
+        EXPECT_EQ(yaml.find("SourceFilePath: ../"), std::string::npos) << "a path a packaged game cannot resolve";
+
+        // A path that resolves to nothing loads nothing and keeps the authored
+        // spelling, so saving the scene again does not rewrite it.
+        // (The engine model above does exist, and loading it needs a GPU, so this
+        // half writes a scene holding only the missing project model.)
+        std::string unresolved;
+        {
+            auto scene = Scene::Create();
+            scene->CreateEntity("Missing").AddComponent<AnimationStateComponent>().m_SourceFilePath =
+                (root / "Assets" / "Models" / "Missing.gltf").string();
+            unresolved = SceneSerializer(scene).SerializeToYAML();
+        }
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(unresolved));
+        Entity missing = FindByTag(*reloaded, "Missing");
+        ASSERT_TRUE(static_cast<bool>(missing));
+        EXPECT_EQ(missing.GetComponent<AnimationStateComponent>().m_SourceFilePath, "Assets/Models/Missing.gltf");
+
+        if (previous)
+            Project::NewInMemory(previous->GetDirectory(), previous->GetConfig());
+        else
+            Project::Unload();
     }
 
     // -------------------------------------------------------------------------

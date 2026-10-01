@@ -248,9 +248,10 @@ node graph and resource manager exist, no hardware opened.
   `olo_camera_set_pose`. Physics, scripts and animation do **not** tick in Edit mode, and
   **world-space `SpriteRendererComponent`s render only on the runtime path**. Any such scene must run
   in Play mode.
-- **`AnimationStateComponent::SourceFilePath` is relative to the project Assets dir**
-  (`../../assets/models/Fox/Fox.gltf` reaches `OloEditor/assets`). Deserialize does a full
-  `Ref<AnimatedModel>::Create` **per entity** — no sharing.
+- **`AnimationStateComponent::SourceFilePath` is a content path** (#1539): `assets/models/Fox/Fox.gltf`
+  for engine content, `Assets/...` for project content, resolved by `ResolveContentPath`. It used to
+  be relative to the Assets dir, and `../../assets/...` resolved outside a packaged game's directory.
+  Deserialize shares one `AnimatedModel` per path within a scene load (#525).
 - **Verify the workload actually runs.** A swarm scene that silently fails reads as a great fps
   number; probe a designated entity's Translation twice.
 - **Asset-orphan CI checks bite generator-only scripts.** A `.cs`/`.lua` referenced only by

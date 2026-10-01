@@ -133,7 +133,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 0
       IsPlaying: true
-      SourceFilePath: Models/CesiumMan/CesiumMan.gltf
+      SourceFilePath: Assets/Models/CesiumMan/CesiumMan.gltf
       CurrentClipName: ""
     SkeletonComponent:
       {}
@@ -158,7 +158,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 0
       IsPlaying: true
-      SourceFilePath: Models/CesiumMan/CesiumMan.gltf
+      SourceFilePath: Assets/Models/CesiumMan/CesiumMan.gltf
       CurrentClipName: ""
     SkeletonComponent:
       {}
@@ -186,7 +186,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 0
       IsPlaying: true
-      SourceFilePath: Models/CesiumMan/CesiumMan.gltf
+      SourceFilePath: Assets/Models/CesiumMan/CesiumMan.gltf
       CurrentClipName: ""
     SkeletonComponent:
       {}

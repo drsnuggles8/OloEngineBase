@@ -267,9 +267,9 @@ def skin_material(albedo, roughness=0.42, metallic=0.0):
 def animated_model(source_path, clip_index=0, playing=True, blend=0.3):
     """Skinned model + skeleton + playback state.
 
-    SourceFilePath is relative to Project::GetAssetDirectory()
-    (OloEditor/SandboxProject/Assets), which is why the editor-tree models
-    reach out through `../../assets/` — the shape fox.olo uses.
+    SourceFilePath is a content path (#1539): `assets/...` names the editor's
+    engine-content models, resolved by ResolveContentPath — the shape fox.olo
+    uses.
     SceneSerializer's animated branch calls ModelImporter::PopulateAnimatedEntity,
     which fills in MeshComponent / SkeletonComponent / MaterialComponent from
     the file, so the empty maps below are placeholders the loader overwrites.
@@ -773,7 +773,7 @@ def build_animal_short_coat():
     ] + ANIMAL_NOTE_COMMON
     return build_animal(
         "AnimalShortCoat", note,
-        animated_model("../../assets/models/Fox/Fox.gltf", clip_index=1, playing=True),
+        animated_model("assets/models/Fox/Fox.gltf", clip_index=1, playing=True),
         # Fox.gltf is authored head-toward +Z (verified from the first capture of
         # this fixture, which showed its back and tail), so +90 degrees about Y
         # puts the head on +X where the frontal camera is looking.

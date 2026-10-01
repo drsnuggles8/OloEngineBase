@@ -326,8 +326,8 @@ namespace OloEngine
                 enqueue({ stored, &engineRoot, &engineRootName, sceneName });
             else
             {
-                // Asset-directory-relative ("Models/Horse/Horse.gltf"): how an
-                // animated model's SourceFilePath is stored, read back as
+                // Asset-directory-relative ("Audio/Wind.ogg"): how an audio
+                // source's Filepath is stored, read back as
                 // <AssetDirectory>/<value>, which is <game>/Assets/<value> in a
                 // packaged game. Only a value naming a file that is there counts,
                 // so ordinary text is never taken for a path.
