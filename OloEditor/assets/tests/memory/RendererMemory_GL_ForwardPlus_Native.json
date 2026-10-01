@@ -55,7 +55,7 @@
     {
       "activeDemandBytes": 80,
       "aliasSavingsBytes": null,
-      "capacityBytes": 621824,
+      "capacityBytes": 27904,
       "category": "Instance, geometry, material, light and environment tables",
       "domain": "gpu",
       "lifetime": "persistent",
@@ -209,8 +209,8 @@
     {
       "activeDemandBytes": 0,
       "aliasSavingsBytes": null,
-      "capacityBytes": 14417920,
-      "category": "G-buffer (MSAA + resolve target)",
+      "capacityBytes": 0,
+      "category": "G-buffer",
       "domain": "gpu",
       "lifetime": "persistent",
       "owner": "SceneRenderPass",
@@ -231,41 +231,43 @@
   ],
   "cpu": {
     "committedBytes": 0,
-    "estimatedBytes": 7087537,
-    "liveBytes": 7087537,
-    "liveCount": 195,
-    "peakBytes": 7088229,
-    "residentBytes": 7087537,
+    "estimatedBytes": 6955100,
+    "liveBytes": 6955100,
+    "liveCount": 191,
+    "peakBytes": 6955100,
+    "residentBytes": 6955100,
     "retiringBytes": 0,
     "retiringCount": 0,
-    "windowPeakBytes": 7088229
+    "windowPeakBytes": 6955100
   },
   "gpu": {
     "committedBytes": 0,
-    "estimatedBytes": 258691472,
-    "liveBytes": 258691472,
-    "liveCount": 241,
-    "peakBytes": 292852851,
-    "residentBytes": 258691472,
+    "estimatedBytes": 241773420,
+    "liveBytes": 241773420,
+    "liveCount": 208,
+    "peakBytes": 286283216,
+    "residentBytes": 241773420,
     "retiringBytes": 0,
     "retiringCount": 0,
-    "windowPeakBytes": 263033232
+    "windowPeakBytes": 286283216
   },
   "owners": [
     {
       "committedBytes": 0,
-      "count": 366,
-      "cpuLiveBytes": 7083229,
-      "estimatedBytes": 161095101,
-      "gpuLiveBytes": 154011872,
+      "count": 348,
+      "cpuLiveBytes": 6955100,
+      "cpuRetiringBytes": 0,
+      "estimatedBytes": 158267480,
+      "gpuLiveBytes": 151312380,
       "gpuRetiringBytes": 0,
-      "lifetime": "unattributed",
-      "owner": "Unattributed"
+      "lifetime": "persistent",
+      "owner": "RendererInit"
     },
     {
       "committedBytes": 0,
       "count": 9,
       "cpuLiveBytes": 0,
+      "cpuRetiringBytes": 0,
       "estimatedBytes": 83899828,
       "gpuLiveBytes": 83899828,
       "gpuRetiringBytes": 0,
@@ -274,18 +276,9 @@
     },
     {
       "committedBytes": 0,
-      "count": 2,
-      "cpuLiveBytes": 0,
-      "estimatedBytes": 14417920,
-      "gpuLiveBytes": 14417920,
-      "gpuRetiringBytes": 0,
-      "lifetime": "persistent",
-      "owner": "GBuffer"
-    },
-    {
-      "committedBytes": 0,
       "count": 6,
       "cpuLiveBytes": 0,
+      "cpuRetiringBytes": 0,
       "estimatedBytes": 4718592,
       "gpuLiveBytes": 4718592,
       "gpuRetiringBytes": 0,
@@ -294,18 +287,20 @@
     },
     {
       "committedBytes": 0,
-      "count": 5,
+      "count": 4,
       "cpuLiveBytes": 0,
-      "estimatedBytes": 621824,
-      "gpuLiveBytes": 621824,
+      "cpuRetiringBytes": 0,
+      "estimatedBytes": 1267028,
+      "gpuLiveBytes": 1267028,
       "gpuRetiringBytes": 0,
-      "lifetime": "persistent",
-      "owner": "GPUScene"
+      "lifetime": "unattributed",
+      "owner": "Unattributed"
     },
     {
       "committedBytes": 0,
       "count": 1,
       "cpuLiveBytes": 0,
+      "cpuRetiringBytes": 0,
       "estimatedBytes": 524288,
       "gpuLiveBytes": 524288,
       "gpuRetiringBytes": 0,
@@ -314,28 +309,20 @@
     },
     {
       "committedBytes": 0,
-      "count": 1,
+      "count": 5,
       "cpuLiveBytes": 0,
-      "estimatedBytes": 349524,
-      "gpuLiveBytes": 349524,
+      "cpuRetiringBytes": 0,
+      "estimatedBytes": 27904,
+      "gpuLiveBytes": 27904,
       "gpuRetiringBytes": 0,
-      "lifetime": "passOwned",
-      "owner": "GPUDrivenOcclusionPrepassPass"
-    },
-    {
-      "committedBytes": 0,
-      "count": 12,
-      "cpuLiveBytes": 0,
-      "estimatedBytes": 121280,
-      "gpuLiveBytes": 121280,
-      "gpuRetiringBytes": 0,
-      "lifetime": "passOwned",
-      "owner": "ShadowPass"
+      "lifetime": "persistent",
+      "owner": "GPUScene"
     },
     {
       "committedBytes": 0,
       "count": 24,
       "cpuLiveBytes": 0,
+      "cpuRetiringBytes": 0,
       "estimatedBytes": 23328,
       "gpuLiveBytes": 23328,
       "gpuRetiringBytes": 0,
@@ -344,58 +331,9 @@
     },
     {
       "committedBytes": 0,
-      "count": 1,
-      "cpuLiveBytes": 0,
-      "estimatedBytes": 2048,
-      "gpuLiveBytes": 2048,
-      "gpuRetiringBytes": 0,
-      "lifetime": "passOwned",
-      "owner": "ScenePrepassPass"
-    },
-    {
-      "committedBytes": 0,
       "count": 2,
       "cpuLiveBytes": 0,
-      "estimatedBytes": 288,
-      "gpuLiveBytes": 288,
-      "gpuRetiringBytes": 0,
-      "lifetime": "passOwned",
-      "owner": "VolumetricFogPass"
-    },
-    {
-      "committedBytes": 0,
-      "count": 1,
-      "cpuLiveBytes": 0,
-      "estimatedBytes": 224,
-      "gpuLiveBytes": 224,
-      "gpuRetiringBytes": 0,
-      "lifetime": "passOwned",
-      "owner": "SSAOPass"
-    },
-    {
-      "committedBytes": 0,
-      "count": 2,
-      "cpuLiveBytes": 0,
-      "estimatedBytes": 192,
-      "gpuLiveBytes": 192,
-      "gpuRetiringBytes": 0,
-      "lifetime": "passOwned",
-      "owner": "GTAOPass"
-    },
-    {
-      "committedBytes": 0,
-      "count": 2,
-      "cpuLiveBytes": 4308,
-      "estimatedBytes": 4500,
-      "gpuLiveBytes": 192,
-      "gpuRetiringBytes": 0,
-      "lifetime": "passOwned",
-      "owner": "ScenePass"
-    },
-    {
-      "committedBytes": 0,
-      "count": 2,
-      "cpuLiveBytes": 0,
+      "cpuRetiringBytes": 0,
       "estimatedBytes": 72,
       "gpuLiveBytes": 72,
       "gpuRetiringBytes": 0,
