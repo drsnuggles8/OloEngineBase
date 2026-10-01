@@ -1397,7 +1397,7 @@ namespace OloEngine
     }
 
     TArray<RendererMemoryTracker::AllocationInfo> RendererMemoryTracker::GetLargestAllocations(const std::string_view owner,
-                                                                                                const u32 limit) const
+                                                                                               const u32 limit) const
     {
         TUniqueLock<FMutex> lock(m_Mutex);
         TArray<AllocationInfo> result;
