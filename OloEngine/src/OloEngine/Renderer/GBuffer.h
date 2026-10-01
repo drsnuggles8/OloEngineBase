@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Shader.h"
 
 #include <array>
+#include <optional>
 
 namespace OloEngine
 {
@@ -100,6 +101,11 @@ namespace OloEngine
 
         // Resize the backing framebuffer. Triggers attachment reallocation.
         void Resize(u32 width, u32 height);
+
+        // Format-estimate bytes of the G-Buffer's storage: the (MSAA) framebuffer plus the
+        // single-sample resolve target when there is one (#1342). nullopt when an
+        // attachment format has no known size.
+        [[nodiscard]] std::optional<u64> EstimateBytes() const;
 
         // Current dimensions.
         [[nodiscard]] u32 GetWidth() const noexcept

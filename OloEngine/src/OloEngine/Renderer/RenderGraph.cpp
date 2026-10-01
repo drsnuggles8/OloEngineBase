@@ -421,6 +421,9 @@ namespace OloEngine
         m_PhysicalWidth = width;
         m_PhysicalHeight = height;
         m_RenderScale = 1.0f;
+        // Re-registering on a second Init replaces the first registration (#1342).
+        m_MemoryReporter = RendererMemoryReporterHandle([this](TArray<MemoryCapacityRow>& rows)
+                                                        { AppendMemoryCapacityRows(rows); });
 
         for (auto& [name, node] : m_NodeLookup)
         {
@@ -436,6 +439,7 @@ namespace OloEngine
         if (Levers::RenderGraphDiagnostics())
             OLO_CORE_TRACE("Shutting down RenderGraph");
 
+        m_MemoryReporter.Reset();
         m_TransientPool.Clear();
         m_TemporalHistoryRegistry.Clear();
 
@@ -2283,7 +2287,10 @@ namespace OloEngine
             specification.GenerateMips = descriptor.MipLevels > 1;
             specification.MipLevels = descriptor.MipLevels;
             specification.Samples = descriptor.Samples;
-            texture = Texture2D::Create(specification);
+            {
+                const RendererMemoryOwnerScope memoryOwner("TemporalHistory", MemoryLifetime::History);
+                texture = Texture2D::Create(specification);
+            }
             if (texture)
                 m_TemporalHistoryRegistry.SetTexture(acquired.Token, texture);
         }

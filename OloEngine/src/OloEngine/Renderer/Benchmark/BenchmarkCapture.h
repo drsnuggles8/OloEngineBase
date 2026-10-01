@@ -22,6 +22,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Benchmark/BenchmarkManifest.h"
 #include "OloEngine/Renderer/Debug/GPUTimingStatus.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
 
 #include <filesystem>
 #include <optional>
@@ -138,7 +139,13 @@ namespace OloEngine::Benchmark
         u32 DrawCalls = 0;
         u32 TrianglesRendered = 0;
         u32 InstancesRendered = 0;
-        u64 GpuMemoryTotalBytes = 0;
+        // Renderer memory (#1342), GPU and CPU never summed. GpuResidentBytes is physical
+        // GPU backing held now (live + retiring, views excluded); CpuTrackedBytes the CPU
+        // bookings. This replaced GpuMemoryTotalBytes, which despite its name was the
+        // tracker's CPU+GPU total. The full report, with owners, capacity rows and the
+        // backend reconciliation, is RunInfo::MemoryReport.
+        u64 GpuResidentBytes = 0;
+        u64 CpuTrackedBytes = 0;
     };
 
     // The resolution the frame was actually rendered and presented at (#1337
@@ -192,7 +199,8 @@ namespace OloEngine::Benchmark
         u64 GpuFrameId = 0; // may lag this row; never infer same-frame attribution
         GpuTimingSample Gpu{};
         TArray<PassTimingRecord> GpuPasses; // same resolved frame as GpuFrameId
-        u64 TrackedRendererBytes = 0;       // tracker combines CPU and GPU allocations
+        u64 GpuResidentBytes = 0;           // physical GPU backing, live + retiring (#1342)
+        u64 CpuTrackedBytes = 0;            // CPU-side bookings, never added to the GPU figure
         u32 DrawCalls = 0;
     };
 
@@ -216,7 +224,8 @@ namespace OloEngine
                                       TIsTriviallyRelocatable_V<decltype(Record::GpuFrameId)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::Gpu)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::GpuPasses)> &&
-                                      TIsTriviallyRelocatable_V<decltype(Record::TrackedRendererBytes)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::GpuResidentBytes)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::CpuTrackedBytes)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::DrawCalls)>;
     };
 } // namespace OloEngine
@@ -279,7 +288,12 @@ namespace OloEngine::Benchmark
         ResolutionRecord Resolution;
         RendererCounters Counters;
         MeasurementRecord Measurement;
-        std::optional<u64> TrackedRendererBytesAfterSceneRelease;
+        // Physical GPU bytes still resident once the scene is released (asset and renderer
+        // caches, pools and histories remain). nullopt when the host did not measure it.
+        std::optional<u64> GpuResidentBytesAfterSceneRelease;
+        // The whole physical report at the end of measurement (#1342), written to
+        // result.json as "memory". nullopt when the host took none.
+        std::optional<RendererMemoryReport> MemoryReport;
         AppliedConfiguration Configuration;
     };
 

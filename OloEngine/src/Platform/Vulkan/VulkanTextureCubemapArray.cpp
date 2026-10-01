@@ -3,6 +3,7 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanTextureCubemapArray.h"
+#include "Platform/Vulkan/VulkanTrackedAllocation.h"
 
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -69,7 +70,7 @@ namespace OloEngine
         imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         VmaAllocationCreateInfo allocInfo{};
         allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-        if (vmaCreateImage(device->GetAllocator(), &imageInfo, &allocInfo, &m_Image, &m_Allocation, nullptr) !=
+        if (TrackedVmaCreateImage(device->GetAllocator(), &imageInfo, &allocInfo, &m_Image, &m_Allocation, nullptr) !=
             VK_SUCCESS)
         {
             OLO_CORE_ERROR("VulkanTextureCubemapArray: image creation failed ({}x{}, {} layers, {} mips)", resolution,
@@ -78,7 +79,7 @@ namespace OloEngine
             m_Allocation = VK_NULL_HANDLE;
             return;
         }
-        vmaSetAllocationName(device->GetAllocator(), m_Allocation, "VulkanTextureCubemapArray");
+        TrackedVmaSetAllocationName(device->GetAllocator(), m_Allocation, "VulkanTextureCubemapArray");
 
         VulkanImageInfo registryInfo{};
         registryInfo.Format = format;

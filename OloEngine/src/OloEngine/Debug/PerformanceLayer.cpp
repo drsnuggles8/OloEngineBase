@@ -256,14 +256,16 @@ namespace OloEngine
 
 #ifdef OLO_DEBUG
         auto& tracker = RendererMemoryTracker::GetInstance();
-        auto const totalMem = tracker.GetTotalMemoryUsage();
-        if (totalMem == 0)
+        // GPU resident bytes only: GetTotalMemoryUsage() also holds CPU-side bookings, and this
+        // block is labelled GPU (#1342).
+        auto const gpuResident = tracker.GetGpuResidentBytes();
+        if (gpuResident == 0)
         {
             return;
         }
 
         ImGui::Text("GPU Memory:");
-        ImGui::Text("  Total: %s", DebugUtils::FormatMemorySize(totalMem).c_str());
+        ImGui::Text("  Resident: %s", DebugUtils::FormatMemorySize(static_cast<sizet>(gpuResident)).c_str());
 
         using RT = RendererMemoryTracker::ResourceType;
         struct MemCategory

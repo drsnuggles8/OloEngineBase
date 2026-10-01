@@ -3,6 +3,7 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanAddressCommands.h"
+#include "Platform/Vulkan/VulkanTrackedAllocation.h"
 #include "Platform/Vulkan/VulkanTexture.h"
 
 #include "OloEngine/Math/Math.h"
@@ -466,9 +467,9 @@ namespace OloEngine
         VmaAllocationCreateInfo allocInfo{};
         allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
 
-        VulkanUpload::VkCheck(vmaCreateImage(device->GetAllocator(), &imageInfo, &allocInfo, &m_Image, &m_Allocation, nullptr),
+        VulkanUpload::VkCheck(TrackedVmaCreateImage(device->GetAllocator(), &imageInfo, &allocInfo, &m_Image, &m_Allocation, nullptr),
                               "vmaCreateImage (VulkanTexture2D)");
-        vmaSetAllocationName(device->GetAllocator(), m_Allocation, "VulkanTexture2D");
+        TrackedVmaSetAllocationName(device->GetAllocator(), m_Allocation, "VulkanTexture2D");
 
         // HasStencil follows the RESOLVED VkFormat: the engine's combined
         // depth format lowers to D32_SFLOAT_S8_UINT, which carries a stencil
@@ -950,8 +951,8 @@ namespace OloEngine
         VkBuffer staging = VK_NULL_HANDLE;
         VmaAllocation stagingAllocation = VK_NULL_HANDLE;
         VmaAllocationInfo stagingOut{};
-        if (vmaCreateBuffer(device->GetAllocator(), &stagingInfo, &stagingAlloc, &staging, &stagingAllocation,
-                            &stagingOut) != VK_SUCCESS)
+        if (TrackedVmaCreateBuffer(device->GetAllocator(), &stagingInfo, &stagingAlloc, &staging, &stagingAllocation,
+                                   &stagingOut) != VK_SUCCESS)
         {
             OLO_CORE_ERROR("VulkanTexture2D::UploadPixels: staging allocation failed ({} bytes)", uploadSize + chainBytes);
             return false;
@@ -1033,7 +1034,7 @@ namespace OloEngine
                 }
             });
 
-        vmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
+        TrackedVmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
 
         if (ok)
         {
@@ -1080,8 +1081,8 @@ namespace OloEngine
         VkBuffer staging = VK_NULL_HANDLE;
         VmaAllocation stagingAllocation = VK_NULL_HANDLE;
         VmaAllocationInfo stagingOut{};
-        if (vmaCreateBuffer(device->GetAllocator(), &stagingInfo, &stagingAlloc, &staging, &stagingAllocation,
-                            &stagingOut) != VK_SUCCESS)
+        if (TrackedVmaCreateBuffer(device->GetAllocator(), &stagingInfo, &stagingAlloc, &staging, &stagingAllocation,
+                                   &stagingOut) != VK_SUCCESS)
         {
             OLO_CORE_ERROR("VulkanTexture2D::UploadCompressedLevels: staging allocation failed ({} bytes)", totalBytes);
             return false;
@@ -1128,7 +1129,7 @@ namespace OloEngine
                                                  VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels);
             });
 
-        vmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
+        TrackedVmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
         if (ok)
         {
             // Seed the layout tracker's first sight of the image, as UploadPixels does.
@@ -1424,8 +1425,8 @@ namespace OloEngine
         VkBuffer staging = VK_NULL_HANDLE;
         VmaAllocation stagingAllocation = VK_NULL_HANDLE;
         VmaAllocationInfo stagingOut{};
-        if (vmaCreateBuffer(device->GetAllocator(), &stagingInfo, &stagingAlloc, &staging, &stagingAllocation,
-                            &stagingOut) != VK_SUCCESS)
+        if (TrackedVmaCreateBuffer(device->GetAllocator(), &stagingInfo, &stagingAlloc, &staging, &stagingAllocation,
+                                   &stagingOut) != VK_SUCCESS)
         {
             OLO_CORE_ERROR("VulkanTexture2D::SubImage: staging allocation failed ({} bytes)", uploadSize);
             return;
@@ -1469,7 +1470,7 @@ namespace OloEngine
                                                                                    0u, 1u);
                                               });
 
-        vmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
+        TrackedVmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
         if (ok)
         {
             // Only on success: recording a layout the image never reached is
@@ -1582,8 +1583,8 @@ namespace OloEngine
         VkBuffer readback = VK_NULL_HANDLE;
         VmaAllocation readbackAllocation = VK_NULL_HANDLE;
         VmaAllocationInfo readbackOut{};
-        if (vmaCreateBuffer(device->GetAllocator(), &readbackInfo, &readbackAlloc, &readback, &readbackAllocation,
-                            &readbackOut) != VK_SUCCESS)
+        if (TrackedVmaCreateBuffer(device->GetAllocator(), &readbackInfo, &readbackAlloc, &readback, &readbackAllocation,
+                                   &readbackOut) != VK_SUCCESS)
         {
             return false;
         }
@@ -1674,7 +1675,7 @@ namespace OloEngine
             outData.SetNum(sizeBytes, EAllowShrinking::No);
             std::memcpy(outData.GetData(), readbackOut.pMappedData, sizeBytes);
         }
-        vmaDestroyBuffer(device->GetAllocator(), readback, readbackAllocation);
+        TrackedVmaDestroyBuffer(device->GetAllocator(), readback, readbackAllocation);
         return ok;
     }
 } // namespace OloEngine

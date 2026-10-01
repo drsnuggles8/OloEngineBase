@@ -335,6 +335,11 @@ namespace OloEngine
         // is a per-frame signal, distinct from the global IsEnabled() toggle.
         // Used to skip the entire ShadowRenderPass (and its ×N cascade/entry
         // re-submission) when no light casts shadows — see issue #522.
+        // Whether the directional CSM was requested THIS frame (#1342 memory report).
+        [[nodiscard]] bool IsDirectionalShadowRequested() const
+        {
+            return m_UBOData.DirectionalShadowEnabled != 0;
+        }
         [[nodiscard]] bool AnyShadowsRequested() const
         {
             // The VSM local-light count is the THIRD source (issue #703), and it

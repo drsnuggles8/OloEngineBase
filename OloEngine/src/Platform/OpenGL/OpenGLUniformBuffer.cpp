@@ -49,15 +49,18 @@ namespace OloEngine
 
     OpenGLUniformBuffer::~OpenGLUniformBuffer()
     {
-        // Track GPU memory deallocation
-        OLO_TRACK_DEALLOC(this);
+        // The GL object is deleted two frames from now; until then its storage is still
+        // resident and the memory report counts it as retiring (#1342).
+        const u64 retireTicket = OLO_TRACK_RETIRE(this);
 
         // Unregister from GPU Resource Inspector
         GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
 
         u32 id = m_RendererID;
-        FrameResourceManager::Get().SubmitForDeletion([id]()
-                                                      { glDeleteBuffers(1, &id); });
+        FrameResourceManager::Get().SubmitForDeletion([id, retireTicket]()
+                                                      {
+                                                          glDeleteBuffers(1, &id);
+                                                          OLO_TRACK_RELEASE_RETIRED(retireTicket); });
     }
 
     void OpenGLUniformBuffer::SetData(const UniformData& data)

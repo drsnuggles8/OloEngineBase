@@ -192,6 +192,12 @@ namespace OloEngine
         {
             return { m_Bytes.GetData(), static_cast<sizet>(m_Bytes.Num()) };
         }
+        /// CPU bytes this mirror holds, allocated capacity included (#1342 memory report).
+        [[nodiscard]] sizet GetCpuBytes() const noexcept
+        {
+            return m_Weights.GetAllocatedSize() + m_Roots.GetAllocatedSize() + m_Slots.GetAllocatedSize() +
+                   m_Displacements.GetAllocatedSize() + m_Bytes.GetAllocatedSize();
+        }
         /// The per-frame region only — what a frame uploads.
         [[nodiscard]] std::span<const u8> GetDynamicBytes() const noexcept
         {

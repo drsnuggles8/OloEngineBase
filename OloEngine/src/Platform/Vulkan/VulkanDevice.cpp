@@ -719,6 +719,7 @@ namespace OloEngine
         bool hasRayQueryExtension = false;
         bool hasRayPipelineExtension = false;
         bool hasCheckpointsExtension = false;
+        bool hasMemoryBudgetExtension = false;
         bool hasAddressBindingExtension = false;
         bool hasDiagnosticsConfigExtension = false;
         {
@@ -734,6 +735,7 @@ namespace OloEngine
             hasEds3Extension = listed(VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME);
             hasDeviceFaultExtension = listed(VK_EXT_DEVICE_FAULT_EXTENSION_NAME);
             hasCheckpointsExtension = listed(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
+            hasMemoryBudgetExtension = listed(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
             hasAddressBindingExtension = listed(VK_EXT_DEVICE_ADDRESS_BINDING_REPORT_EXTENSION_NAME);
             hasDiagnosticsConfigExtension = listed(VK_NV_DEVICE_DIAGNOSTICS_CONFIG_EXTENSION_NAME);
             hasMeshShaderExtension = listed(VK_EXT_MESH_SHADER_EXTENSION_NAME);
@@ -961,6 +963,14 @@ namespace OloEngine
         {
             deviceExtensions.push_back(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
         }
+        // Memory budget (issue #1342): without it VMA's per-heap "usage" is only its own
+        // blocks and "budget" is a fixed 80% of the heap size — a guess the memory report
+        // would otherwise have to label as such. No feature struct; free when unused.
+        if (hasMemoryBudgetExtension)
+        {
+            deviceExtensions.push_back(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
+        }
+        m_MemoryBudgetEnabled = hasMemoryBudgetExtension;
 
         // Aftermath is armed BEFORE vkCreateDevice on purpose: the driver reads
         // its state at device creation, so arming later yields a dump with no
@@ -1412,6 +1422,12 @@ namespace OloEngine
             // through to its pooled allocations and vkGetBufferDeviceAddress
             // on a VMA buffer is undefined.
             allocatorInfo.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+            // With VK_EXT_memory_budget enabled, vmaGetHeapBudgets reports the OS's usage
+            // and budget per heap instead of VMA's own estimate (#1342).
+            if (m_MemoryBudgetEnabled)
+            {
+                allocatorInfo.flags |= VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT;
+            }
             VkCheck(vmaImportVulkanFunctionsFromVolk(&allocatorInfo, &vulkanFunctions),
                     "vmaImportVulkanFunctionsFromVolk");
             allocatorInfo.pVulkanFunctions = &vulkanFunctions;

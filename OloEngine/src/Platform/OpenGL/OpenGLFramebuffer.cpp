@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ShaderLibrary.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryFormat.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 
 #include <glm/gtc/type_ptr.hpp>
@@ -49,8 +50,10 @@ namespace OloEngine
         Invalidate();
     }
     OpenGLFramebuffer::~OpenGLFramebuffer()
-    { // Track GPU memory deallocation
-        OLO_TRACK_DEALLOC(this);
+    {
+        // The attachments stay resident until the deferred delete below runs: counted as
+        // retiring until then (#1342).
+        const u64 retireTicket = OLO_TRACK_RETIRE(this);
 
         // Unregister from GPU Resource Inspector
         GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
@@ -90,12 +93,13 @@ namespace OloEngine
         u32 fboId = m_RendererID;
         TArray<u32> colorIds(m_ColorAttachments);
         u32 depthId = m_DepthAttachment;
-        FrameResourceManager::Get().SubmitForDeletion([fboId, colorIds = std::move(colorIds), depthId]()
+        FrameResourceManager::Get().SubmitForDeletion([fboId, colorIds = std::move(colorIds), depthId, retireTicket]()
                                                       {
             glDeleteFramebuffers(1, &fboId);
             if (!colorIds.IsEmpty())
                 glDeleteTextures(static_cast<GLsizei>(colorIds.Num()), colorIds.GetData());
-            glDeleteTextures(1, &depthId); });
+            glDeleteTextures(1, &depthId);
+            OLO_TRACK_RELEASE_RETIRED(retireTicket); });
     }
 
     void OpenGLFramebuffer::Invalidate()
@@ -103,8 +107,10 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         if (m_RendererID)
-        { // Track GPU memory deallocation for existing framebuffer
-            OLO_TRACK_DEALLOC(this);
+        {
+            // The old attachments and the new ones coexist until the deferred delete runs;
+            // the old set is counted as retiring, so a resize reports its true peak (#1342).
+            const u64 retireTicket = OLO_TRACK_RETIRE(this);
 
             // Unregister from GPU Resource Inspector for existing framebuffer
             GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
@@ -112,12 +118,13 @@ namespace OloEngine
             u32 oldFboId = m_RendererID;
             TArray<u32> oldColorIds(m_ColorAttachments);
             u32 oldDepthId = m_DepthAttachment;
-            FrameResourceManager::Get().SubmitForDeletion([oldFboId, oldColorIds = std::move(oldColorIds), oldDepthId]()
+            FrameResourceManager::Get().SubmitForDeletion([oldFboId, oldColorIds = std::move(oldColorIds), oldDepthId, retireTicket]()
                                                           {
                 glDeleteFramebuffers(1, &oldFboId);
                 if (!oldColorIds.IsEmpty())
                     glDeleteTextures(static_cast<GLsizei>(oldColorIds.Num()), oldColorIds.GetData());
-                glDeleteTextures(1, &oldDepthId); });
+                glDeleteTextures(1, &oldDepthId);
+                OLO_TRACK_RELEASE_RETIRED(retireTicket); });
 
             m_ColorAttachments.Reset();
             m_DepthAttachment = 0;
@@ -225,24 +232,10 @@ namespace OloEngine
         }
         OLO_CORE_ASSERT(glCheckNamedFramebufferStatus(m_RendererID, GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE, "Framebuffer is incomplete!");
 
-        // Calculate framebuffer memory usage
-        sizet framebufferMemory = 0;
-
-        // Color attachments
-        for (sizet i = 0; i < m_ColorAttachments.Num(); ++i)
-        {
-            // Estimate color attachment memory
-            u32 bytesPerPixel = 4; // Default RGBA8
-            // TODO(olbu): Could improve this by checking actual format
-            framebufferMemory += static_cast<sizet>(m_Specification.Width) * m_Specification.Height * bytesPerPixel;
-        }
-
-        // Depth attachment
-        if (m_DepthAttachment != 0)
-        {
-            u32 depthBytesPerPixel = 4; // DEPTH24_STENCIL8
-            framebufferMemory += static_cast<sizet>(m_Specification.Width) * m_Specification.Height * depthBytesPerPixel;
-        }
+        // Every attachment at its real format and the framebuffer's sample count (#1342).
+        // This used to book 4 bytes per attachment at one sample: an RGBA32F MRT read a
+        // quarter light and a 4x MSAA target a quarter again.
+        const auto framebufferMemory = static_cast<sizet>(RendererMemoryFormat::FramebufferBytes(m_Specification).value_or(0));
         // Track GPU memory allocation
         OLO_TRACK_GPU_ALLOC(this,
                             framebufferMemory,

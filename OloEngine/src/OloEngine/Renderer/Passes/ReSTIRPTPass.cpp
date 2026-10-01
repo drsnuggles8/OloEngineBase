@@ -25,6 +25,22 @@ namespace OloEngine
     ReSTIRPTPass::ReSTIRPTPass()
     {
         SetName("ReSTIRPTPass");
+        // The reservoir pools stay allocated when the technique stands down; this row is
+        // where that shows (#1342). Counters included, unlike ReSTIRPTStats::ReservoirBytes.
+        m_MemoryReporter = RendererMemoryReporterHandle([this](TArray<MemoryCapacityRow>& rows)
+                                                        {
+            u64 capacity = 0;
+            for (const auto& pool : m_Pools)
+                capacity += pool ? pool->GetSize() : 0u;
+            capacity += m_Counters ? m_Counters->GetSize() : 0u;
+            MemoryCapacityRow row;
+            row.Owner = "ReSTIRPTPass";
+            row.Category = "ReSTIR PT path-reservoir pools";
+            row.Lifetime = MemoryLifetime::Persistent;
+            row.Source = MemorySizeSource::FormatEstimate;
+            row.CapacityBytes = capacity;
+            row.ActiveDemandBytes = m_Stats.Active ? capacity : 0u;
+            rows.Add(std::move(row)); });
     }
 
     bool ReSTIRPTPass::IsReadyForExecution() const noexcept

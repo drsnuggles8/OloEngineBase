@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/GPUScene/GPUScene.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
 
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
@@ -316,6 +317,7 @@ namespace OloEngine
 
             void InitializeGPU(u32 capacity)
             {
+                const RendererMemoryOwnerScope memoryOwner("GPUScene", MemoryLifetime::Persistent); // #1342
                 m_BufferCapacity = std::max(capacity, 1u);
                 m_Buffer = StorageBuffer::Create(BytesForRecords<Record>(m_BufferCapacity), m_Binding,
                                                  StorageBufferUsage::DynamicDraw);
@@ -336,6 +338,8 @@ namespace OloEngine
             // version on any edit. Both paths require consumers to bind per pass.
             [[nodiscard]] u64 Upload(const TArray<GPUSceneDirtyRange>& ranges, u32& growthEvents)
             {
+                // Growth and Vulkan's per-edit replacement allocate here (#1342).
+                const RendererMemoryOwnerScope memoryOwner("GPUScene", MemoryLifetime::Persistent);
                 // Vulkan compute and ray-query consumers resolve persistent
                 // device addresses, not draw snapshots. Never write a table
                 // that an earlier submitted frame can still read. Publish a

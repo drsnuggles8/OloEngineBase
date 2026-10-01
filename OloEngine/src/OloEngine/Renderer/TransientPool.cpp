@@ -2,48 +2,13 @@
 #include "TransientPool.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryFormat.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 
 #include <algorithm>
 
 namespace OloEngine
 {
-    namespace
-    {
-        [[nodiscard]] u64 BytesPerPixel(const ImageFormat format)
-        {
-            switch (format)
-            {
-                case ImageFormat::R8:
-                case ImageFormat::R8UI:
-                    return 1;
-                case ImageFormat::R16UI:
-                    return 2;
-                case ImageFormat::RG16UI:
-                    return 4;
-                case ImageFormat::RG16F:
-                    return 4;
-                case ImageFormat::RGB8:
-                    return 3;
-                case ImageFormat::RGBA8:
-                case ImageFormat::R32F:
-                case ImageFormat::R32I:
-                case ImageFormat::R32UI:
-                case ImageFormat::DEPTH24STENCIL8:
-                    return 4;
-                case ImageFormat::RGBA16F:
-                case ImageFormat::RG32F:
-                    return 8;
-                case ImageFormat::RGBA32F:
-                    return 16;
-                case ImageFormat::RGB32F:
-                    return 12;
-                case ImageFormat::None:
-                default:
-                    return 0;
-            }
-        }
-    } // namespace
-
     TransientPool::TransientPool()
     {
         // Initialize empty pool state
@@ -70,6 +35,7 @@ namespace OloEngine
         else
         {
             // Create new texture if pool is empty
+            const RendererMemoryOwnerScope memoryOwner("TransientPool", MemoryLifetime::Pooled);
             result = Texture2D::Create(spec);
         }
 
@@ -91,8 +57,10 @@ namespace OloEngine
         }
         else
         {
+            const RendererMemoryOwnerScope memoryOwner("TransientPool", MemoryLifetime::Pooled);
             result = Framebuffer::Create(spec);
         }
+        m_FramebufferBucketBytes.try_emplace(key, EstimateFramebufferBytes(spec));
 
         m_AcquiredFramebuffers.Add(result);
         return result;
@@ -111,6 +79,7 @@ namespace OloEngine
         else
         {
             // TODO(olbu): use appropriate binding point for transient buffers
+            const RendererMemoryOwnerScope memoryOwner("TransientPool", MemoryLifetime::Pooled);
             result = StorageBuffer::Create(sizeBytes, 15, StorageBufferUsage::DynamicDraw);
         }
 
@@ -236,10 +205,26 @@ namespace OloEngine
         return key;
     }
 
-    u64 TransientPool::EstimateTextureBytes(const TextureSpecification& spec)
+    std::optional<u64> TransientPool::EstimateTextureBytes(const TextureSpecification& spec)
     {
-        return static_cast<u64>(spec.Width) * static_cast<u64>(spec.Height) *
-               BytesPerPixel(spec.Format) * static_cast<u64>(std::max(spec.Samples, 1u));
+        // The mip count the texture ACTUALLY allocates (OpenGLTexture2D's rule): an MSAA
+        // texture has one level, an explicit count wins, GenerateMips means the full chain.
+        u32 mipLevels = 1u;
+        if (std::max(spec.Samples, 1u) == 1u)
+        {
+            if (spec.MipLevels > 0u)
+                mipLevels = spec.MipLevels;
+            else if (spec.GenerateMips)
+                mipLevels = RendererMemoryFormat::FullMipCount(spec.Width, spec.Height);
+        }
+        return RendererMemoryFormat::ImageBytes(spec.Format, spec.Width, spec.Height, mipLevels, 1u, spec.Samples);
+    }
+
+    std::optional<u64> TransientPool::EstimateFramebufferBytes(const FramebufferSpecification& spec)
+    {
+        // Every attachment, not the first one only: the SceneColor MRT is six attachments
+        // and a ReSTIR reservoir framebuffer five RGBA32F ones.
+        return RendererMemoryFormat::FramebufferBytes(spec);
     }
 
     void TransientPool::Clear()
@@ -257,6 +242,7 @@ namespace OloEngine
         m_LastFrameTextureDemand.clear();
         m_LastFrameFramebufferDemand.clear();
         m_LastFrameBufferDemand.clear();
+        m_FramebufferBucketBytes.clear();
     }
 
     TransientPool::PoolStats TransientPool::GetStats() const
@@ -389,7 +375,7 @@ namespace OloEngine
     void TransientPool::LogStats() const
     {
         const auto stats = GetStats();
-        const auto aliasReport = ComputeAliasReport();
+        const auto memory = GetMemoryUsage();
 
         OLO_CORE_INFO("=== TransientPool Statistics ===");
         OLO_CORE_INFO("  Texture pool: {} objects in {} groups",
@@ -400,22 +386,28 @@ namespace OloEngine
                       stats.BufferPoolSize, stats.BufferAliasGroups);
         OLO_CORE_INFO("  In flight: {} textures, {} framebuffers, {} buffers",
                       static_cast<sizet>(m_AcquiredTextures.Num()), static_cast<sizet>(m_AcquiredFramebuffers.Num()), static_cast<sizet>(m_AcquiredBuffers.Num()));
-        OLO_CORE_INFO("  Total pooled objects: {}",
-                      stats.TexturePoolSize + stats.FramebufferPoolSize + stats.BufferPoolSize);
-
-        OLO_CORE_INFO("=== Transient Lifetime & Aliasing Analysis ===");
-        OLO_CORE_INFO("  Currently acquired: {} bytes", aliasReport.TotalAcquiredBytes);
-        OLO_CORE_INFO("  Potential aliasing savings: {} bytes", aliasReport.PotentialAliasingBytes);
-        OLO_CORE_INFO("  Texture groups with alias potential: {}", aliasReport.TextureGroupsWithAliasPotential);
-        OLO_CORE_INFO("  Framebuffer groups with alias potential: {}", aliasReport.FramebufferGroupsWithAliasPotential);
-        OLO_CORE_INFO("  Buffer groups with alias potential: {}", aliasReport.BufferGroupsWithAliasPotential);
+        OLO_CORE_INFO("  Capacity: {} bytes, acquired now: {} bytes, last frame's demand: {} bytes{}",
+                      memory.CapacityBytes, memory.AcquiredBytes, memory.LastFrameDemandBytes,
+                      memory.Complete ? "" : " (INCOMPLETE: an object's format has no known size)");
     }
 
     u64 TransientPool::EstimateMemoryUsage() const
     {
-        u64 totalBytes = 0;
+        return GetMemoryUsage().CapacityBytes;
+    }
 
-        for (const auto& [key, pool] : m_TexturePool)
+    TransientPool::MemoryUsage TransientPool::GetMemoryUsage() const
+    {
+        MemoryUsage usage;
+        const auto add = [&usage](u64& total, const std::optional<u64>& bytes, const u64 count)
+        {
+            if (bytes)
+                total += *bytes * count;
+            else if (count > 0)
+                usage.Complete = false;
+        };
+
+        const auto textureKeyBytes = [](const TextureDescriptorKey& key)
         {
             TextureSpecification spec;
             spec.Width = key.Width;
@@ -424,149 +416,48 @@ namespace OloEngine
             spec.MipLevels = key.MipLevels;
             spec.Samples = key.Samples;
             spec.GenerateMips = (key.Flags & 1u) != 0u;
-            totalBytes += EstimateTextureBytes(spec) * static_cast<sizet>(pool.Num());
-        }
-
-        for (const auto& tex : m_AcquiredTextures)
+            return EstimateTextureBytes(spec);
+        };
+        const auto framebufferKeyBytes = [this](const u64 key) -> std::optional<u64>
         {
-            if (tex)
-                totalBytes += EstimateTextureBytes(tex->GetSpecification());
-        }
+            const auto it = m_FramebufferBucketBytes.find(key);
+            return it != m_FramebufferBucketBytes.end() ? it->second : std::nullopt;
+        };
 
+        // Capacity: free objects in the buckets, plus whatever is acquired right now.
+        for (const auto& [key, pool] : m_TexturePool)
+            add(usage.CapacityBytes, textureKeyBytes(key), static_cast<u64>(pool.Num()));
+        for (const auto& [key, pool] : m_FramebufferPool)
+            add(usage.CapacityBytes, framebufferKeyBytes(key), static_cast<u64>(pool.Num()));
         for (const auto& [sizeBytes, pool] : m_BufferPool)
-        {
-            totalBytes += static_cast<u64>(sizeBytes) * static_cast<sizet>(pool.Num());
-        }
+            add(usage.CapacityBytes, std::optional<u64>(sizeBytes), static_cast<u64>(pool.Num()));
 
-        for (const auto& buf : m_AcquiredBuffers)
-        {
-            if (buf)
-                totalBytes += buf->GetSize();
-        }
-
-        return totalBytes;
-    }
-
-    TransientPool::AliasReport TransientPool::ComputeAliasReport() const
-    {
-        AliasReport report{};
-
-        // Compute total currently-acquired bytes
         for (const auto& tex : m_AcquiredTextures)
         {
             if (tex)
-                report.TotalAcquiredBytes += EstimateTextureBytes(tex->GetSpecification());
+                add(usage.AcquiredBytes, EstimateTextureBytes(tex->GetSpecification()), 1u);
         }
-
         for (const auto& fb : m_AcquiredFramebuffers)
         {
             if (fb)
-            {
-                const auto& spec = fb->GetSpecification();
-                const auto& attachSpec = spec.Attachments.Attachments;
-                if (!attachSpec.IsEmpty())
-                {
-                    // Estimate framebuffer size from first attachment format
-                    const auto& firstAttach = attachSpec[0];
-                    if (firstAttach.TextureFormat != FramebufferTextureFormat::None)
-                    {
-                        // Map FramebufferTextureFormat to ImageFormat for byte calculation
-                        ImageFormat imgFormat = ImageFormat::RGBA8; // default
-                        if (firstAttach.TextureFormat == FramebufferTextureFormat::RGBA8)
-                            imgFormat = ImageFormat::RGBA8;
-                        else if (firstAttach.TextureFormat == FramebufferTextureFormat::RED_INTEGER)
-                            imgFormat = ImageFormat::R32I;
-                        else if (firstAttach.TextureFormat == FramebufferTextureFormat::RGBA16F)
-                            imgFormat = ImageFormat::RGBA16F;
-                        else if (firstAttach.TextureFormat == FramebufferTextureFormat::RGBA32F)
-                            imgFormat = ImageFormat::RGBA32F;
-                        else
-                        {
-                            // No additional handling required.
-                        }
-
-                        u64 bytesPerPixel = BytesPerPixel(imgFormat);
-                        report.TotalAcquiredBytes += spec.Width * spec.Height * bytesPerPixel;
-                    }
-                }
-            }
+                add(usage.AcquiredBytes, EstimateFramebufferBytes(fb->GetSpecification()), 1u);
         }
-
         for (const auto& buf : m_AcquiredBuffers)
         {
             if (buf)
-                report.TotalAcquiredBytes += buf->GetSize();
+                usage.AcquiredBytes += buf->GetSize();
         }
+        usage.CapacityBytes += usage.AcquiredBytes;
 
-        // Analyze alias potential: groups with 2+ items can theoretically share memory
-        // assuming sequential use (first pool item released before second acquired)
-        for (const auto& [key, pool] : m_TexturePool)
-        {
-            if (static_cast<sizet>(pool.Num()) > 1)
-            {
-                ++report.TextureGroupsWithAliasPotential;
-                // Estimate savings as (count-1) * sizeof(one item)
-                TextureSpecification spec;
-                spec.Width = key.Width;
-                spec.Height = key.Height;
-                spec.Format = static_cast<ImageFormat>(key.Format);
-                spec.MipLevels = key.MipLevels;
-                spec.Samples = key.Samples;
-                spec.GenerateMips = (key.Flags & 1u) != 0u;
-                u64 itemBytes = EstimateTextureBytes(spec);
-                report.PotentialAliasingBytes += itemBytes * (static_cast<sizet>(pool.Num()) - 1);
-            }
-        }
+        // Demand: what the last completed frame acquired, bucket by bucket.
+        for (const auto& [key, count] : m_LastFrameTextureDemand)
+            add(usage.LastFrameDemandBytes, textureKeyBytes(key), count);
+        for (const auto& [key, count] : m_LastFrameFramebufferDemand)
+            add(usage.LastFrameDemandBytes, framebufferKeyBytes(key), count);
+        for (const auto& [sizeBytes, count] : m_LastFrameBufferDemand)
+            add(usage.LastFrameDemandBytes, std::optional<u64>(sizeBytes), count);
 
-        for (const auto& [key, pool] : m_FramebufferPool)
-        {
-            if (static_cast<sizet>(pool.Num()) > 1)
-            {
-                ++report.FramebufferGroupsWithAliasPotential;
-                // Estimate based on first framebuffer in pool
-                if (pool[0])
-                {
-                    const auto& spec = pool[0]->GetSpecification();
-                    const auto& attachSpec = spec.Attachments.Attachments;
-                    if (!attachSpec.IsEmpty())
-                    {
-                        const auto& firstAttach = attachSpec[0];
-                        if (firstAttach.TextureFormat != FramebufferTextureFormat::None)
-                        {
-                            ImageFormat imgFormat = ImageFormat::RGBA8; // default
-                            if (firstAttach.TextureFormat == FramebufferTextureFormat::RGBA8)
-                                imgFormat = ImageFormat::RGBA8;
-                            else if (firstAttach.TextureFormat == FramebufferTextureFormat::RED_INTEGER)
-                                imgFormat = ImageFormat::R32I;
-                            else if (firstAttach.TextureFormat == FramebufferTextureFormat::RGBA16F)
-                                imgFormat = ImageFormat::RGBA16F;
-                            else if (firstAttach.TextureFormat == FramebufferTextureFormat::RGBA32F)
-                                imgFormat = ImageFormat::RGBA32F;
-                            else
-                            {
-                                // No additional handling required.
-                            }
-
-                            u64 bytesPerPixel = BytesPerPixel(imgFormat);
-                            u64 itemBytes = spec.Width * spec.Height * bytesPerPixel;
-                            report.PotentialAliasingBytes += itemBytes * (static_cast<sizet>(pool.Num()) - 1);
-                        }
-                    }
-                }
-            }
-        }
-
-        for (const auto& [sizeBytes, pool] : m_BufferPool)
-        {
-            if (static_cast<sizet>(pool.Num()) > 1)
-            {
-                ++report.BufferGroupsWithAliasPotential;
-                u64 itemBytes = static_cast<u64>(sizeBytes);
-                report.PotentialAliasingBytes += itemBytes * (static_cast<sizet>(pool.Num()) - 1);
-            }
-        }
-
-        return report;
+        return usage;
     }
 
 } // namespace OloEngine

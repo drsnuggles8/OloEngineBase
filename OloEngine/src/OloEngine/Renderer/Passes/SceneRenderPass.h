@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/GBuffer.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 
 namespace OloEngine
@@ -169,6 +170,9 @@ namespace OloEngine
         u32 m_FrameCounter = 0;
         Ref<GBuffer> m_GBuffer;
         u32 m_GBufferSampleCount = 1;
+        // Whether the last BeginSceneFrame rendered through the G-Buffer: its demand in the
+        // memory report (#1342).
+        bool m_DeferredRanLastFrame = false;
         // Fullscreen shader that gathers RT0.a (metallic), RT1.z (roughness),
         // RT1.w (AO) into one RGB image for DebugChannel == 3. The other
         // debug channels are cheap single-attachment blits.
@@ -193,5 +197,8 @@ namespace OloEngine
         // What the colour half reads for the forward shaders' ambient AO.
         RGTextureHandle m_ForwardAOBuffer{};
         RGTextureHandle m_ForwardAODepth{};
+
+        // LAST member: destroyed first, so the reporter is gone before m_GBuffer (#1342).
+        RendererMemoryReporterHandle m_MemoryReporter;
     };
 } // namespace OloEngine

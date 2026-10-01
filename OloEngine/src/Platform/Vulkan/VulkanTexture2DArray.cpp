@@ -3,10 +3,12 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanAddressCommands.h"
+#include "Platform/Vulkan/VulkanTrackedAllocation.h"
 #include "Platform/Vulkan/VulkanTexture2DArray.h"
 
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
 #include "Platform/Vulkan/VulkanDeferredReclaim.h"
 #include "Platform/Vulkan/VulkanImageInfoRegistry.h"
 #include "Platform/Vulkan/VulkanImageLayoutTracker.h"
@@ -129,7 +131,7 @@ namespace OloEngine
         imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         VmaAllocationCreateInfo allocInfo{};
         allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-        if (vmaCreateImage(device->GetAllocator(), &imageInfo, &allocInfo, &m_Image, &m_Allocation, nullptr) !=
+        if (TrackedVmaCreateImage(device->GetAllocator(), &imageInfo, &allocInfo, &m_Image, &m_Allocation, nullptr) !=
             VK_SUCCESS)
         {
             OLO_CORE_ERROR("VulkanTexture2DArray: image creation failed ({}x{}x{} layers)", spec.Width, spec.Height,
@@ -138,7 +140,7 @@ namespace OloEngine
             m_Allocation = VK_NULL_HANDLE;
             return;
         }
-        vmaSetAllocationName(device->GetAllocator(), m_Allocation, "VulkanTexture2DArray");
+        TrackedVmaSetAllocationName(device->GetAllocator(), m_Allocation, "VulkanTexture2DArray");
 
         VulkanImageInfo registryInfo{};
         registryInfo.Format = imageInfo.format;
@@ -167,6 +169,9 @@ namespace OloEngine
         VulkanImageInfoRegistry::Get().Register(m_Image, registryInfo);
 
         m_RHIHandle.Adopt(RHI::ResourceKind::Texture, reinterpret_cast<u64>(m_Image), RHI::Backend::Vulkan);
+        // Views made from this handle (RenderCommand::CreateDepthArrayCompareOffViewHandle)
+        // find their backing through it (#1342).
+        RendererMemory::BindBackingResourceHandle(m_Allocation, RHI::HashKey(m_RHIHandle.Get()));
     }
 
     VulkanTexture2DArray::~VulkanTexture2DArray()
@@ -281,8 +286,8 @@ namespace OloEngine
         VkBuffer staging = VK_NULL_HANDLE;
         VmaAllocation stagingAllocation = VK_NULL_HANDLE;
         VmaAllocationInfo stagingOut{};
-        if (vmaCreateBuffer(device->GetAllocator(), &stagingInfo, &stagingAlloc, &staging, &stagingAllocation,
-                            &stagingOut) != VK_SUCCESS)
+        if (TrackedVmaCreateBuffer(device->GetAllocator(), &stagingInfo, &stagingAlloc, &staging, &stagingAllocation,
+                                   &stagingOut) != VK_SUCCESS)
         {
             OLO_CORE_ERROR("VulkanTexture2DArray::SetLayerData: staging allocation failed ({} bytes)", uploadSize);
             return;
@@ -319,7 +324,7 @@ namespace OloEngine
                                                  VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
                                                  VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels, 0u, layerCount);
             });
-        vmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
+        TrackedVmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
         if (ok)
         {
             VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VulkanDevice::Get()->GetSampledImageLayout());

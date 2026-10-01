@@ -11,6 +11,7 @@
 #include <memory>
 #include "OloEngine/Threading/Mutex.h"
 #include "OloEngine/Threading/UniqueLock.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
 
 namespace OloEngine
 {
@@ -167,6 +168,8 @@ namespace OloEngine
             serializer = it->second.get();
         }
 
+        // Whatever GPU storage the load creates is attributed to its asset type (#1342).
+        const RendererMemoryOwnerScope memoryOwner(AssetUtils::AssetTypeToString(metadata.Type), MemoryLifetime::Asset);
         return serializer->TryLoadData(metadata, asset);
     }
 
@@ -227,6 +230,7 @@ namespace OloEngine
             return false;
         }
 
+        const RendererMemoryOwnerScope memoryOwner(AssetUtils::AssetTypeToString(metadata.Type), MemoryLifetime::Asset);
         if (!it->second->FinalizeFromRawData(rawData, outAsset))
         {
             OLO_CORE_ERROR("Failed to finalize asset from raw data: {}", metadata.FilePath.string());
@@ -295,6 +299,7 @@ namespace OloEngine
             return nullptr;
         }
 
+        const RendererMemoryOwnerScope memoryOwner(AssetUtils::AssetTypeToString(assetInfo.Type), MemoryLifetime::Asset);
         return it->second->DeserializeFromAssetPack(stream, assetInfo);
     }
 

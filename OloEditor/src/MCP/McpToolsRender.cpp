@@ -3390,7 +3390,7 @@ namespace OloEngine::MCP
                     Ref<RenderGraph> mutableGraph = graph;
                     TransientPool& pool = mutableGraph->GetTransientPool();
                     const auto stats = pool.GetStats();
-                    const auto aliasReport = pool.ComputeAliasReport();
+                    const auto memory = pool.GetMemoryUsage();
 
                     Json buckets = Json::array();
                     for (const auto& bucket : pool.GetBucketReport())
@@ -3418,9 +3418,13 @@ namespace OloEngine::MCP
                         { "framebufferBuckets", stats.FramebufferAliasGroups },
                         { "bufferPoolSize", stats.BufferPoolSize },
                         { "bufferBuckets", stats.BufferAliasGroups },
-                        { "estimatedBytes", pool.EstimateMemoryUsage() },
-                        { "totalAcquiredBytes", aliasReport.TotalAcquiredBytes },
-                        { "potentialAliasingBytes", aliasReport.PotentialAliasingBytes },
+                        // Format estimates (#1342). "potentialAliasingBytes" is gone: it was
+                        // (free objects per bucket - 1) x size, not an aliasing saving. The
+                        // planner's real saving is olo_memory_report's TransientPool row.
+                        { "capacityBytes", memory.CapacityBytes },
+                        { "acquiredBytes", memory.AcquiredBytes },
+                        { "lastFrameDemandBytes", memory.LastFrameDemandBytes },
+                        { "bytesComplete", memory.Complete },
                         { "buckets", std::move(buckets) },
                     };
 

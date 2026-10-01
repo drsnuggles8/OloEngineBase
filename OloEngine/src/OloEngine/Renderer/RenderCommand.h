@@ -530,7 +530,12 @@ namespace OloEngine
         [[nodiscard]] static RHI::ResourceHandle CreateDepthArrayCompareOffViewHandle(RHI::ResourceHandle srcTexture,
                                                                                       u32 numLayers)
         {
-            return s_RendererAPI->CreateDepthArrayCompareOffViewHandle(srcTexture, numLayers);
+            const RHI::ResourceHandle view = s_RendererAPI->CreateDepthArrayCompareOffViewHandle(srcTexture, numLayers);
+            // A view onto the source's storage: an alias in the memory report, never a
+            // second backing allocation (#1342). Booked here so both backends share it.
+            if (view.IsValid())
+                RendererMemory::TrackResourceView(RHI::HashKey(view), RHI::HashKey(srcTexture), "Depth compare-off view");
+            return view;
         }
 
         static void SetTextureFilter(RHI::ResourceHandle texture, RHI::Filter minFilter, RHI::Filter magFilter)
@@ -797,6 +802,7 @@ namespace OloEngine
         }
         static void DeleteTexture(RHI::ResourceHandle texture)
         {
+            RendererMemory::UntrackResourceView(RHI::HashKey(texture));
             s_RendererAPI->DeleteTexture(texture);
         }
         static void DeleteFramebuffer(RHI::ResourceHandle framebuffer)
@@ -995,6 +1001,13 @@ namespace OloEngine
         static RendererAPI& GetRendererAPI()
         {
             return *s_RendererAPI;
+        }
+
+        // Null only outside the static-init..static-destruction window. For diagnostics
+        // that may be asked from teardown (RendererMemoryTracker's backend observer).
+        static RendererAPI* TryGetRendererAPI()
+        {
+            return s_RendererAPI.get();
         }
 
       private:

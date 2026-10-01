@@ -9,6 +9,7 @@
 #include "OloEngine/Renderer/ShaderWarmup.h"
 #include "OloEngine/Renderer/ShaderLibrary.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
+#include "OloEngine/Renderer/RendererMemoryOwners.h"
 #include "Platform/OpenGL/OpenGLFramebuffer.h"
 
 namespace OloEngine
@@ -39,6 +40,9 @@ namespace OloEngine
         // project reload both do exactly that). Needed here because Shutdown() now
         // REPORTS what is still tracked (#839) rather than silently clearing it.
         RendererMemoryTracker::GetInstance().Initialize();
+        // The process-wide owners' capacity rows (#1342): shadows, GPU Scene, ray tracing,
+        // groom. Registered here because this runs on every backend.
+        RendererMemoryOwners::Register();
 
         // Initialize boot + fallback shaders BEFORE any renderer loads shaders.
         // This ensures the warmup progress bar is available during all shader
@@ -148,6 +152,7 @@ namespace OloEngine
         RenderCommand::ShutdownGpuResources();
 
         // Shutdown memory tracker after all renderers are shut down
+        RendererMemoryOwners::Unregister();
         RendererMemoryTracker::GetInstance().Shutdown();
     }
 

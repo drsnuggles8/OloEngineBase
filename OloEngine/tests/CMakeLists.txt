@@ -891,6 +891,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/AssetPreviewRendererTest.cpp
 		Rendering/PropertyTests/RendererAttachedTest.cpp
 		Rendering/RendererMemoryTrackerTest.cpp
+		Rendering/RendererMemoryReportTest.cpp
 		Rendering/MaterialCopyTest.cpp
 		Rendering/MaterialTransmissionTest.cpp
 		Rendering/GltfPhysicalMaterialImportTest.cpp
@@ -1294,6 +1295,7 @@ add_executable(OloEngine-Tests
 		Rendering/GpuTimingValidityTest.cpp
 		Rendering/BenchmarkExportValidityTest.cpp
 		Rendering/PropertyTests/GpuTimingPoolEvidenceTest.cpp
+		Rendering/PropertyTests/RendererMemoryAccountingEvidenceTest.cpp
 		# Pure per-scope CPU timings shaping behind olo_perf_cpu_scopes (#519,
 		# first slice: expose PerformanceProfiler's per-scope CPU timings, incl.
 		# the Distribution-build "unavailable" degradation). Header-only

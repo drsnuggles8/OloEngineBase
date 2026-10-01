@@ -27,6 +27,7 @@
 #include <gtest/gtest.h>
 
 #include "OloEngine/Renderer/ComputeShader.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/GPUScene/GPUSceneTypes.h"
 #include "OloEngine/Renderer/GPUScene/GPUScene.h"
@@ -450,6 +451,156 @@ namespace OloEngine::Tests
         EXPECT_LE(afterCompaction.Resident.CompactionSavedBytes, stats.Resident.AccelerationStructureBytes);
         EXPECT_TRUE(m_Backend->IsBlasResident(key)) << "compaction must not lose the structure";
         EXPECT_NE(m_Backend->GetTlasDeviceAddress(), 0u);
+    }
+
+    // #1342: acceleration-structure memory through a build, a compaction, a rebuild and a
+    // retirement. The headless loop never calls VulkanDeferredReclaim::NotifyFrameCompleted
+    // by itself, so this test IS the frame fence: until it notifies, every replaced structure
+    // must stay resident as RETIRING (a delayed fence), and once it does they must be gone.
+    // At every step the tracker's committed bytes reconcile with VMA's own count.
+    TEST_F(RayTracingDevice, AccelerationStructureMemoryCoexistsThroughCompactionAndRebuildThenReclaims)
+    {
+        ScopedVulkanRenderCommandSelection vulkanBackend;
+        m_Backend = RT::CreateVulkanRayTracingBackend();
+        ASSERT_NE(m_Backend, nullptr);
+        ASSERT_TRUE(m_Backend->GetCapabilities().Supported);
+
+        std::array<Vertex, 3> vertices{};
+        for (sizet i = 0; i < 3; ++i)
+        {
+            vertices[i].Position = kTrianglePositions[i];
+            vertices[i].Normal = glm::vec3(0.0f, 0.0f, 1.0f);
+            vertices[i].TexCoord = kTriangleUVs[i];
+        }
+        const std::array<u32, 3> indices{ 0u, 1u, 2u };
+        auto vertexBuffer = VertexBuffer::Create(vertices.data(), static_cast<u32>(sizeof(vertices)));
+        auto indexBuffer = IndexBuffer::Create(const_cast<u32*>(indices.data()), 3u);
+        ASSERT_TRUE(vertexBuffer && indexBuffer);
+
+        const RT::GeometryKey key{ 0u, 1342u };
+        RT::BlasBuildRequest build{};
+        build.Key = key;
+        build.Class = RT::GeometryClass::Static;
+        build.Reason = RT::BuildReason::FirstBuild;
+        build.VertexAddress = vertexBuffer->GetDeviceAddress();
+        build.IndexAddress = indexBuffer->GetDeviceAddress();
+        build.VertexStride = static_cast<u32>(sizeof(Vertex));
+        build.VertexCount = 3;
+        build.IndexCount = 3;
+        RT::InstanceRecord instance{};
+        instance.Mask = RT::kInstanceMaskAll;
+        instance.ForceOpaque = true;
+        instance.Geometry = key;
+        const std::array<RT::BlasBuildRequest, 1> builds{ build };
+        const std::array<RT::InstanceRecord, 1> instances{ instance };
+
+        auto& tracker = RendererMemoryTracker::GetInstance();
+        struct RtBytes
+        {
+            u64 Live = 0;
+            u64 Retiring = 0;
+        };
+        const auto rtBytes = [](const RendererMemoryReport& report)
+        {
+            RtBytes bytes;
+            for (const auto& row : report.Owners)
+            {
+                if (row.Owner.ToView() == "RayTracing")
+                {
+                    bytes.Live += row.GpuLiveBytes;
+                    bytes.Retiring += row.GpuRetiringBytes;
+                }
+            }
+            return bytes;
+        };
+        const auto expectReconciled = [](const RendererMemoryReport& report, const char* step)
+        {
+            EXPECT_EQ(report.Reconciliation.Status, MemoryReconciliationStatus::Reconciled)
+                << step << ": tracker vs VMA " << ToString(report.Reconciliation.Status) << ", difference "
+                << report.Reconciliation.DifferenceBytes.value_or(0) << " bytes";
+        };
+        const auto completeFrames = []
+        {
+            for (u64 i = 0; i < VulkanDeferredReclaim::kFramesInFlight; ++i)
+                VulkanDeferredReclaim::Get().NotifyFrameCompleted();
+        };
+
+        const RendererMemoryReport before = tracker.BuildReport();
+        ASSERT_EQ(before.Observation.Backend, MemoryBackend::Vulkan);
+        EXPECT_EQ(before.Observation.Residency,
+                  m_Device->IsMemoryBudgetEnabled() ? MemoryResidencyStatus::OsReported : MemoryResidencyStatus::AllocatorHeuristic);
+        expectReconciled(before, "before any build");
+
+        // --- first build -------------------------------------------------------------
+        RecordAndSubmit([&]
+                        {
+            EXPECT_EQ(m_Backend->RecordBlasBuilds(builds), 1u);
+            static_cast<void>(m_Backend->RecordTlasBuild(instances, RT::TlasBuildReason::FirstBuild));
+            m_Backend->RecordBuildToReadBarrier(); });
+        const RendererMemoryReport built = tracker.BuildReport();
+        expectReconciled(built, "after the first build");
+        RT::SceneStats stats{};
+        m_Backend->PublishStats(stats);
+        ASSERT_GT(stats.Resident.AccelerationStructureBytes, 0u);
+        // The stats count requested sizes; the tracker counts what VMA committed (>=).
+        EXPECT_GE(rtBytes(built).Live, stats.Resident.AccelerationStructureBytes + stats.Resident.ScratchBytes)
+            << "the RT backend's buffers are not all attributed to the RayTracing owner";
+
+        // --- compaction, fence held back ----------------------------------------------
+        tracker.BeginPeakWindow();
+        for (int frame = 0; frame < 4; ++frame)
+        {
+            RecordAndSubmit([&]
+                            { static_cast<void>(m_Backend->RecordBlasBuilds({})); });
+        }
+        RT::SceneStats compacted{};
+        m_Backend->PublishStats(compacted);
+        const RendererMemoryReport compacting = tracker.BuildReport();
+        expectReconciled(compacting, "after compaction, before the fence");
+        if (compacted.Resident.CompactionSavedBytes > 0u)
+        {
+            EXPECT_GT(rtBytes(compacting).Retiring, rtBytes(before).Retiring)
+                << "the pre-compaction structure was released from the books while no frame had completed";
+        }
+        else
+        {
+            std::cout << "[ memory ] this driver saved nothing compacting a one-triangle BLAS; the coexistence half of "
+                         "the compaction step is not exercised\n";
+        }
+
+        completeFrames();
+        const RendererMemoryReport compactedDrained = tracker.BuildReport();
+        expectReconciled(compactedDrained, "after the fence");
+        EXPECT_EQ(rtBytes(compactedDrained).Retiring, rtBytes(before).Retiring) << "the compaction source was never reclaimed";
+
+        // --- rebuild of the same geometry -------------------------------------------------
+        RecordAndSubmit([&]
+                        {
+            EXPECT_EQ(m_Backend->RecordBlasBuilds(builds), 1u);
+            m_Backend->RecordBuildToReadBarrier(); });
+        const RendererMemoryReport rebuilt = tracker.BuildReport();
+        expectReconciled(rebuilt, "after the rebuild, before the fence");
+        EXPECT_GT(rtBytes(rebuilt).Retiring, rtBytes(before).Retiring) << "the replaced BLAS is not retiring";
+        EXPECT_GE(rebuilt.Gpu.WindowPeakBytes, rebuilt.Gpu.ResidentBytes());
+
+        completeFrames();
+        expectReconciled(tracker.BuildReport(), "after the rebuild's fence");
+
+        // --- retirement ---------------------------------------------------------------
+        m_Backend->RetireBlas(key);
+        RT::SceneStats retired{};
+        m_Backend->PublishStats(retired);
+        const RendererMemoryReport retiring = tracker.BuildReport();
+        EXPECT_GT(rtBytes(retiring).Retiring, rtBytes(before).Retiring) << "the retired BLAS left the books before its fence";
+        completeFrames();
+        const RendererMemoryReport end = tracker.BuildReport();
+        expectReconciled(end, "after retirement");
+        EXPECT_EQ(rtBytes(end).Retiring, rtBytes(before).Retiring);
+        EXPECT_LT(rtBytes(end).Live, rtBytes(rebuilt).Live);
+
+        std::cout << "[ memory ] RT: built live " << rtBytes(built).Live << ", compaction saved "
+                  << compacted.Resident.CompactionSavedBytes << ", rebuild retiring " << rtBytes(rebuilt).Retiring
+                  << ", end live " << rtBytes(end).Live << ", window peak " << rebuilt.Gpu.WindowPeakBytes << "\n";
     }
 
     TEST_F(RayTracingDevice, RetiringAGeometryRemovesItFromEveryLaterTrace)

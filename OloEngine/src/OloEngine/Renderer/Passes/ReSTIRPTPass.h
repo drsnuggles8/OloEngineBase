@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
 #include <glm/glm.hpp>
 #include <array>
 
@@ -121,5 +122,8 @@ namespace OloEngine
         bool m_CubeBound = false;
         std::array<RGTextureHandle, 6> m_Inputs{}; // depth, albedo, normal, emissive, velocity, cube
         std::array<RGFramebufferHandle, 3> m_Targets{};
+
+        // LAST member: unregistered before the pools it reads are destroyed (#1342).
+        RendererMemoryReporterHandle m_MemoryReporter;
     };
 } // namespace OloEngine

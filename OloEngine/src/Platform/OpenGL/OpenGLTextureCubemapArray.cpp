@@ -139,7 +139,8 @@ namespace OloEngine
             return;
         }
 
-        OLO_TRACK_DEALLOC(this);
+        // Resident until the deferred delete runs: counted as retiring (#1342).
+        const u64 retireTicket = OLO_TRACK_RETIRE(this);
         GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
 
         // Same skip-bind / dangling-descriptor hazard as every other texture
@@ -147,8 +148,10 @@ namespace OloEngine
         Utils::RetireTextureViews(m_RHIHandle.Get());
 
         u32 const id = m_RendererID;
-        FrameResourceManager::Get().SubmitForDeletion([id]()
-                                                      { glDeleteTextures(1, &id); });
+        FrameResourceManager::Get().SubmitForDeletion([id, retireTicket]()
+                                                      {
+                                                          glDeleteTextures(1, &id);
+                                                          OLO_TRACK_RELEASE_RETIRED(retireTicket); });
     }
 
     void OpenGLTextureCubemapArray::SetData(void* /*data*/, u32 /*size*/)

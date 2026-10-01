@@ -9,6 +9,9 @@
 #include "Platform/Vulkan/VulkanFramebuffer.h"
 #include "Platform/Vulkan/VulkanImageInfoRegistry.h"
 #include "Platform/Vulkan/VulkanImageLayoutTracker.h"
+#include "Platform/Vulkan/VulkanTrackedAllocation.h"
+
+#include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 
 #include <exception>
 #include <vector>
@@ -25,7 +28,11 @@ namespace OloEngine
     {
         try
         {
-            m_Entries.push_back(entry);
+            // The owner is done with the allocation, the GPU may not be: the memory report
+            // counts it as RETIRING until DestroyEntry frees it (#1342).
+            Entry queued = entry;
+            queued.RetireTicket = RetireTrackedVmaAllocation(entry.Allocation);
+            m_Entries.push_back(queued);
         }
         catch (const std::exception& e)
         {
@@ -138,16 +145,18 @@ namespace OloEngine
             // is already gone. Dropping the entry leaks at process exit, which
             // beats calling into a destroyed allocator.
             OLO_CORE_WARN("VulkanDeferredReclaim: dropping a reclaim entry — VulkanDevice already shut down");
+            // The device took the memory with it; nothing is retiring any more.
+            OLO_TRACK_RELEASE_RETIRED(entry.RetireTicket);
             return;
         }
 
         if (entry.Image != VK_NULL_HANDLE)
         {
-            vmaDestroyImage(device->GetAllocator(), entry.Image, entry.Allocation);
+            TrackedVmaDestroyRetiredImage(device->GetAllocator(), entry.Image, entry.Allocation, entry.RetireTicket);
         }
         else if (entry.Buffer != VK_NULL_HANDLE)
         {
-            vmaDestroyBuffer(device->GetAllocator(), entry.Buffer, entry.Allocation);
+            TrackedVmaDestroyRetiredBuffer(device->GetAllocator(), entry.Buffer, entry.Allocation, entry.RetireTicket);
         }
         else if (entry.Semaphore != VK_NULL_HANDLE)
         {
@@ -178,6 +187,7 @@ namespace OloEngine
         }
         else if (entry.Allocation != VK_NULL_HANDLE)
         {
+            OLO_TRACK_RELEASE_RETIRED(entry.RetireTicket);
             vmaFreeMemory(device->GetAllocator(), entry.Allocation);
         }
     }

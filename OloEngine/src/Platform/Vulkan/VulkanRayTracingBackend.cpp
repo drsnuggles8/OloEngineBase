@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "Platform/Vulkan/VulkanAddressCommands.h"
+#include "Platform/Vulkan/VulkanTrackedAllocation.h"
 #include "Platform/Vulkan/VulkanRayTracingBackend.h"
 #include "Platform/Vulkan/VulkanQueueSelection.h"
 
@@ -70,14 +71,16 @@ namespace OloEngine::RayTracing
             allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
             allocInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 
+            // Every AS storage, scratch and instance buffer is the ray-tracing scene's (#1342).
+            const RendererMemoryOwnerScope memoryOwner("RayTracing", MemoryLifetime::Persistent);
             DeviceBuffer created{};
-            if (vmaCreateBufferWithAlignment(device.GetAllocator(), &bufferInfo, &allocInfo, alignment, &created.Buffer,
-                                             &created.Allocation, nullptr) != VK_SUCCESS)
+            if (TrackedVmaCreateBufferWithAlignment(device.GetAllocator(), &bufferInfo, &allocInfo, alignment, &created.Buffer,
+                                                    &created.Allocation, nullptr) != VK_SUCCESS)
             {
                 OLO_CORE_ERROR("[RayTracing/Vulkan] {} allocation failed ({} bytes)", what, size);
                 return false;
             }
-            vmaSetAllocationName(device.GetAllocator(), created.Allocation, what);
+            TrackedVmaSetAllocationName(device.GetAllocator(), created.Allocation, what);
 
             VkBufferDeviceAddressInfo addressInfo{};
             addressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;

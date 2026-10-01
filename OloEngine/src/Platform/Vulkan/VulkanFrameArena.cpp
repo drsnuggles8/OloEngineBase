@@ -3,6 +3,7 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanFrameArena.h"
+#include "Platform/Vulkan/VulkanTrackedAllocation.h"
 #include "Platform/Vulkan/VulkanQueueSelection.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanRecordingContext.h"
@@ -50,6 +51,7 @@ namespace OloEngine
             return false;
         }
 
+        const RendererMemoryOwnerScope memoryOwner("VulkanFrameArena", MemoryLifetime::PerFrame); // #1342
         for (Slot& slot : m_Slots)
         {
             VkBufferCreateInfo bufferInfo{};
@@ -81,8 +83,8 @@ namespace OloEngine
             allocInfo.preferredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 
             VmaAllocationInfo resultInfo{};
-            const VkResult result = vmaCreateBuffer(device->GetAllocator(), &bufferInfo, &allocInfo,
-                                                    &slot.Buffer, &slot.Allocation, &resultInfo);
+            const VkResult result = TrackedVmaCreateBuffer(device->GetAllocator(), &bufferInfo, &allocInfo,
+                                                           &slot.Buffer, &slot.Allocation, &resultInfo);
             if (result != VK_SUCCESS)
             {
                 OLO_CORE_ERROR("VulkanFrameArena: vmaCreateBuffer failed (VkResult {}) — releasing partial slots",
@@ -116,6 +118,18 @@ namespace OloEngine
             vmaGetAllocationMemoryProperties(device->GetAllocator(), slot.Allocation, &memoryFlags);
             slot.NeedsFlush = (memoryFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) == 0;
         }
+        // Capacity: every slot (one per frame in flight). Demand: what the current slot
+        // has claimed — between frames, the last frame's high-water mark.
+        m_MemoryReporter = RendererMemoryReporterHandle([this](TArray<MemoryCapacityRow>& rows)
+                                                        {
+            MemoryCapacityRow row;
+            row.Owner = "VulkanFrameArena";
+            row.Category = "Per-frame root-data arena (one slot per frame in flight)";
+            row.Lifetime = MemoryLifetime::PerFrame;
+            row.Source = MemorySizeSource::Committed;
+            row.CapacityBytes = static_cast<u64>(kFramesInFlight) * kSlotCapacityBytes;
+            row.ActiveDemandBytes = GetCurrentSlotUsedBytes();
+            rows.Add(std::move(row)); });
         return true;
     }
 
@@ -150,14 +164,14 @@ namespace OloEngine
         allocInfo.preferredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 
         VmaAllocationInfo resultInfo{};
-        if (vmaCreateBuffer(device->GetAllocator(), &bufferInfo, &allocInfo, &m_NullBlockBuffer,
-                            &m_NullBlockAllocation, &resultInfo) != VK_SUCCESS ||
+        if (TrackedVmaCreateBuffer(device->GetAllocator(), &bufferInfo, &allocInfo, &m_NullBlockBuffer,
+                                   &m_NullBlockAllocation, &resultInfo) != VK_SUCCESS ||
             resultInfo.pMappedData == nullptr)
         {
             OLO_CORE_ERROR("VulkanFrameArena: null-block creation failed — unfed bindings stay at address 0");
             if (m_NullBlockBuffer != VK_NULL_HANDLE || m_NullBlockAllocation != VK_NULL_HANDLE)
             {
-                vmaDestroyBuffer(device->GetAllocator(), m_NullBlockBuffer, m_NullBlockAllocation);
+                TrackedVmaDestroyBuffer(device->GetAllocator(), m_NullBlockBuffer, m_NullBlockAllocation);
                 m_NullBlockBuffer = VK_NULL_HANDLE;
                 m_NullBlockAllocation = VK_NULL_HANDLE;
             }
@@ -176,7 +190,7 @@ namespace OloEngine
             // release the orphaned buffer so a later call can retry cleanly.
             OLO_CORE_ERROR("VulkanFrameArena: null-block device address is 0 — releasing and leaving unfed "
                            "bindings at address 0");
-            vmaDestroyBuffer(device->GetAllocator(), m_NullBlockBuffer, m_NullBlockAllocation);
+            TrackedVmaDestroyBuffer(device->GetAllocator(), m_NullBlockBuffer, m_NullBlockAllocation);
             m_NullBlockBuffer = VK_NULL_HANDLE;
             m_NullBlockAllocation = VK_NULL_HANDLE;
             return false;
@@ -410,6 +424,7 @@ namespace OloEngine
 
     void VulkanFrameArena::ReleaseBuffers()
     {
+        m_MemoryReporter.Reset();
         for (Slot& slot : m_Slots)
         {
             if (slot.Buffer != VK_NULL_HANDLE || slot.Allocation != VK_NULL_HANDLE)

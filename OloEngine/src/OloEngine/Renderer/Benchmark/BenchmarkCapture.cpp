@@ -4,6 +4,7 @@
 #include "OloEngine/Core/Environment.h"
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryReportJson.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -548,7 +549,10 @@ namespace OloEngine::Benchmark
                                                    gpu.IsStale() ? GpuTimingSample::Absent(GpuTimingStatus::Unavailable) : timing.Sample,
                                                    timing.IsSubPass, timing.ParentName });
         }
-        sample.TrackedRendererBytes = static_cast<u64>(RendererMemoryTracker::GetInstance().GetTotalMemoryUsage());
+        // Two cheap per-frame reads; the full report is taken once, at the end of the run.
+        const auto& tracker = RendererMemoryTracker::GetInstance();
+        sample.GpuResidentBytes = tracker.GetGpuResidentBytes();
+        sample.CpuTrackedBytes = tracker.GetCpuResidentBytes();
         return sample;
     }
 
@@ -688,7 +692,8 @@ namespace OloEngine::Benchmark
         counters.DrawCalls = frame.m_DrawCalls;
         counters.TrianglesRendered = frame.m_TrianglesRendered;
         counters.InstancesRendered = frame.m_InstancesRendered;
-        counters.GpuMemoryTotalBytes = static_cast<u64>(RendererMemoryTracker::GetInstance().GetTotalMemoryUsage());
+        counters.GpuResidentBytes = RendererMemoryTracker::GetInstance().GetGpuResidentBytes();
+        counters.CpuTrackedBytes = RendererMemoryTracker::GetInstance().GetCpuResidentBytes();
         return counters;
     }
 
@@ -976,7 +981,11 @@ namespace OloEngine::Benchmark
         json["rendererCounters"] = { { "drawCalls", runInfo.Counters.DrawCalls },
                                      { "trianglesRendered", runInfo.Counters.TrianglesRendered },
                                      { "instancesRendered", runInfo.Counters.InstancesRendered },
-                                     { "gpuMemoryTotalBytes", runInfo.Counters.GpuMemoryTotalBytes } };
+                                     { "gpuResidentBytes", runInfo.Counters.GpuResidentBytes },
+                                     { "cpuTrackedBytes", runInfo.Counters.CpuTrackedBytes } };
+        // The physical report (#1342): owners, capacity versus demand, reconciliation and
+        // residency validity. Absent rather than empty when the host took none.
+        json["memory"] = runInfo.MemoryReport ? RendererMemoryReportToJson(*runInfo.MemoryReport) : nlohmann::json(nullptr);
         const auto pathName = [](RenderingPath path) -> const char*
         {
             switch (path)
@@ -1004,14 +1013,15 @@ namespace OloEngine::Benchmark
             // timestamp being accidentally interpreted as a fast frame.
             std::ofstream raw(outDir / "measurement.csv", std::ios::binary | std::ios::trunc);
             std::ofstream passes(outDir / "measurement-passes.jsonl", std::ios::binary | std::ios::trunc);
-            raw << "camera,index,renderCallMs,cpuMs,fenceWaitMs,presentWaitMs,gpuFrameId,gpuMs,gpuStatus,trackedRendererBytes,drawCalls,recordingWallMs,recordingJoinWaitMs,cpuFrameId\n";
+            raw << "camera,index,renderCallMs,cpuMs,fenceWaitMs,presentWaitMs,gpuFrameId,gpuMs,gpuStatus,gpuResidentBytes,cpuTrackedBytes,drawCalls,recordingWallMs,recordingJoinWaitMs,cpuFrameId\n";
             std::vector<f64> wall;
             wall.reserve(runInfo.Measurement.Frames.Num());
             std::map<std::string, std::vector<f64>> byCamera;
             std::map<std::string, std::pair<u64, u64>> cpuRanges;
             std::set<u64> validGpuFrames;
             u32 missed = 0;
-            u64 peakTrackedBytes = 0;
+            u64 peakGpuResidentBytes = 0;
+            u64 peakCpuTrackedBytes = 0;
             for (const auto& frame : runInfo.Measurement.Frames)
             {
                 wall.push_back(frame.RenderCallMs);
@@ -1019,7 +1029,8 @@ namespace OloEngine::Benchmark
                 const auto range = cpuRanges.try_emplace(frame.CameraId.ToStdString(), frame.CpuFrameId, frame.CpuFrameId).first;
                 range->second.second = frame.CpuFrameId;
                 missed += frame.RenderCallMs > runInfo.Measurement.DeadlineMs ? 1u : 0u;
-                peakTrackedBytes = std::max(peakTrackedBytes, frame.TrackedRendererBytes);
+                peakGpuResidentBytes = std::max(peakGpuResidentBytes, frame.GpuResidentBytes);
+                peakCpuTrackedBytes = std::max(peakCpuTrackedBytes, frame.CpuTrackedBytes);
                 raw << frame.CameraId.ToView() << ',' << frame.Index << ',' << frame.RenderCallMs << ','
                     << frame.CpuMs << ',' << frame.FenceWaitMs << ',' << frame.PresentWaitMs << ','
                     << frame.GpuFrameId << ',';
@@ -1028,7 +1039,7 @@ namespace OloEngine::Benchmark
                 if (uniqueGpu)
                     raw << frame.Gpu.GpuMs;
                 raw << ',' << (frame.Gpu.IsValid() && !uniqueGpu ? "duplicate" : ToString(frame.Gpu.Status))
-                    << ',' << frame.TrackedRendererBytes << ',' << frame.DrawCalls
+                    << ',' << frame.GpuResidentBytes << ',' << frame.CpuTrackedBytes << ',' << frame.DrawCalls
                     << ',' << frame.RecordingWallMs << ',' << frame.RecordingJoinWaitMs << ',' << frame.CpuFrameId << '\n';
                 nlohmann::json passFrame{ { "camera", frame.CameraId.ToStdString() }, { "index", frame.Index }, { "gpuFrameId", frame.GpuFrameId }, { "passes", nlohmann::json::array() } };
                 for (const auto& timing : frame.GpuPasses)
@@ -1070,12 +1081,13 @@ namespace OloEngine::Benchmark
                                     { "p99Ms", percentile(0.99) },
                                     { "maxMs", wall.back() },
                                     { "distinctValidGpuFrames", validGpuFrames.size() },
-                                    { "peakTrackedRendererBytes", peakTrackedBytes },
-                                    { "liveTrackedRendererBytes", runInfo.Counters.GpuMemoryTotalBytes },
-                                    { "trackedRendererBytesAfterSceneRelease", runInfo.TrackedRendererBytesAfterSceneRelease
-                                                                                   ? nlohmann::json(*runInfo.TrackedRendererBytesAfterSceneRelease)
-                                                                                   : nlohmann::json(nullptr) },
-                                    { "memoryScope", "renderer tracker total mixes CPU and GPU allocations; post-scene-release value includes asset and renderer caches; retained pools, histories and AS bytes not isolated" } };
+                                    { "peakGpuResidentBytes", peakGpuResidentBytes },
+                                    { "peakCpuTrackedBytes", peakCpuTrackedBytes },
+                                    { "liveGpuResidentBytes", runInfo.Counters.GpuResidentBytes },
+                                    { "gpuResidentBytesAfterSceneRelease", runInfo.GpuResidentBytesAfterSceneRelease
+                                                                               ? nlohmann::json(*runInfo.GpuResidentBytesAfterSceneRelease)
+                                                                               : nlohmann::json(nullptr) },
+                                    { "memoryScope", "GPU figures are physical backing (live + retiring, views excluded; OpenGL: format estimates, Vulkan: VMA-committed); CPU figures are separate. Per-owner attribution, capacity versus demand and the backend reconciliation are in \"memory\"; the post-scene-release value still holds asset and renderer caches" } };
             json["measurement"]["scenarios"] = nlohmann::json::array();
             for (auto& [camera, values] : byCamera)
             {

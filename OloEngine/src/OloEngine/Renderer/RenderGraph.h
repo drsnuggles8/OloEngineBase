@@ -12,6 +12,7 @@
 #include "OloEngine/Renderer/RenderGraphOutOfBand.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/TemporalHistoryRegistry.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
 #include "OloEngine/Renderer/TransientPool.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
 #include <functional>
@@ -612,6 +613,22 @@ namespace OloEngine
         {
             return m_TemporalHistoryRegistry;
         }
+
+        // Memory report (issue #1342), all format estimates. The transient plan's LOGICAL
+        // bytes (every allocating entry at its own size) against the PHYSICAL bytes of its
+        // alias slots (one object per slot): the difference is what aliasing saves.
+        struct TransientAliasBytes
+        {
+            u64 LogicalBytes = 0;
+            u64 PhysicalBytes = 0;
+            u32 Entries = 0;
+            u32 Slots = 0;
+            bool AliasingDisabled = false;
+        };
+        [[nodiscard]] TransientAliasBytes ComputeTransientAliasBytes() const;
+        // This graph's capacity-versus-demand rows: the transient pool, and the temporal
+        // histories per effect. Registered with RendererMemoryTracker by Init().
+        void AppendMemoryCapacityRows(TArray<MemoryCapacityRow>& rows) const;
 
         // Queue a texture extraction that explicitly writes back into a named
         // imported history resource for the next frame. The callback receives
@@ -1956,6 +1973,11 @@ namespace OloEngine
         // every modifier needing a typed pass-pointer setter wired by the
         // pipeline builder. Cleared at the start of every BuildFrameGraph.
         RGTransparentStringMap<FString> m_LastWriterPassNameByResource;
+
+
+        // LAST member on purpose: destroyed first, so the reporter is unregistered
+        // before anything it reads is torn down (#1342).
+        RendererMemoryReporterHandle m_MemoryReporter;
     };
     // The framebuffer record owns only an audited Ref, with no self-relative state.
     template<>

@@ -25,6 +25,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/DebugLevers.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 
 #include <gtest/gtest.h>
 
@@ -13199,6 +13200,98 @@ TEST_F(VulkanPassSuite, VirtualShadowMapRunsAFullFrameOnVulkan)
     // No facade call fell through to an unimplemented stub. A stub returns quietly, so
     // without this the pass could "succeed" having done nothing at all.
     EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore) << "VSM hit an unimplemented Vulkan facade path";
+}
+
+// =============================================================================
+// #1342 — the renderer memory report on a real Vulkan device.
+//
+// Tracked committed bytes must reconcile with VMA's own per-heap totals TO THE BYTE; a
+// compare-off view of a real texture array is an alias (no physical bytes); a released
+// texture stays RETIRING until its reclaim generation completes (the delayed-fence case)
+// and is then gone. The negative control books the view as backing and must turn the
+// reconciliation to overCounted by exactly the backing's committed size: an allocator did
+// not allocate twice, so a report that says it did is caught by the allocator itself.
+// =============================================================================
+TEST_F(VulkanPassSuite, MemoryReportReconcilesWithVmaAndCatchesAViewCountedAsBacking)
+{
+    auto& tracker = RendererMemoryTracker::GetInstance();
+    const auto expectReconciled = [](const RendererMemoryReport& report, const char* step)
+    {
+        EXPECT_EQ(report.Reconciliation.Status, MemoryReconciliationStatus::Reconciled)
+            << step << ": " << ToString(report.Reconciliation.Status) << ", VMA " << report.Reconciliation.ObservedAllocationBytes.value_or(0)
+            << " vs tracked " << report.Reconciliation.TrackedCommittedBytes.value_or(0) << " (difference "
+            << report.Reconciliation.DifferenceBytes.value_or(0) << ")";
+    };
+
+    const RendererMemoryReport before = tracker.BuildReport();
+    ASSERT_EQ(before.Observation.Backend, MemoryBackend::Vulkan);
+    ASSERT_TRUE(before.Observation.HasAllocatorTotals);
+    expectReconciled(before, "fresh device");
+    EXPECT_EQ(before.Observation.Residency,
+              m_Device->IsMemoryBudgetEnabled() ? MemoryResidencyStatus::OsReported : MemoryResidencyStatus::AllocatorHeuristic)
+        << "residency validity must say where the budget figure comes from";
+    ASSERT_FALSE(before.Observation.Heaps.IsEmpty());
+    for (const auto& heap : before.Observation.Heaps)
+    {
+        EXPECT_GT(heap.HeapSizeBytes, 0u);
+        EXPECT_GE(heap.AllocatorBlockBytes, heap.AllocatorAllocationBytes);
+    }
+
+    Texture2DArraySpecification spec;
+    spec.Width = 128;
+    spec.Height = 128;
+    spec.Layers = 4;
+    spec.Format = Texture2DArrayFormat::DEPTH_COMPONENT32F;
+    spec.DepthComparisonMode = true;
+
+    Ref<Texture2DArray> backing = Texture2DArray::Create(spec);
+    ASSERT_TRUE(backing);
+    const RendererMemoryReport withBacking = tracker.BuildReport();
+    expectReconciled(withBacking, "with the texture array");
+    const u64 committed = withBacking.Gpu.CommittedBytes - before.Gpu.CommittedBytes;
+    EXPECT_GE(committed, 128ull * 128ull * 4ull * 4ull) << "VMA committed less than the format needs";
+
+    // The view: an alias, reconciled.
+    const RHI::ResourceHandle view = RenderCommand::CreateDepthArrayCompareOffViewHandle(backing->GetRHIHandle(), spec.Layers);
+    ASSERT_TRUE(view.IsValid());
+    const RendererMemoryReport withView = tracker.BuildReport();
+    expectReconciled(withView, "with the view");
+    EXPECT_EQ(withView.Gpu.ResidentBytes(), withBacking.Gpu.ResidentBytes()) << "the view added physical bytes";
+    EXPECT_EQ(withView.AliasCount - withBacking.AliasCount, 1u);
+    EXPECT_EQ(withView.OrphanAliasCount, withBacking.OrphanAliasCount) << "the view did not find its backing by handle";
+    RenderCommand::DeleteTexture(view);
+
+    // Negative control: the same view booked as backing. The allocator catches it.
+    {
+        const bool previous = Levers::FaultCountAliasAsBacking();
+        Levers::SetFaultCountAliasAsBacking(true);
+        const RHI::ResourceHandle faultView = RenderCommand::CreateDepthArrayCompareOffViewHandle(backing->GetRHIHandle(), spec.Layers);
+        const RendererMemoryReport faulted = tracker.BuildReport();
+        Levers::SetFaultCountAliasAsBacking(previous);
+        EXPECT_EQ(faulted.Reconciliation.Status, MemoryReconciliationStatus::OverCounted)
+            << "a view booked as backing reconciled clean: the check cannot see a double count";
+        EXPECT_EQ(faulted.Reconciliation.DifferenceBytes, -static_cast<i64>(committed));
+        RenderCommand::DeleteTexture(faultView);
+        expectReconciled(tracker.BuildReport(), "after removing the planted double count");
+    }
+
+    // Release: retiring until its generation completes, then gone.
+    tracker.BeginPeakWindow();
+    backing = nullptr;
+    const RendererMemoryReport released = tracker.BuildReport();
+    expectReconciled(released, "released, fence pending");
+    EXPECT_EQ(released.Gpu.RetiringBytes - before.Gpu.RetiringBytes, committed)
+        << "the released array left the books while its frames could still read it";
+    for (u64 i = 0; i < VulkanDeferredReclaim::kFramesInFlight; ++i)
+        VulkanDeferredReclaim::Get().NotifyFrameCompleted();
+    const RendererMemoryReport reclaimed = tracker.BuildReport();
+    expectReconciled(reclaimed, "reclaimed");
+    EXPECT_EQ(reclaimed.Gpu.RetiringBytes, before.Gpu.RetiringBytes);
+    EXPECT_EQ(reclaimed.Gpu.CommittedBytes, before.Gpu.CommittedBytes);
+
+    GTEST_LOG_(INFO) << "Vulkan memory: array committed " << committed << " bytes; residency "
+                     << ToString(before.Observation.Residency) << "; VMA allocation bytes "
+                     << before.Observation.AllocationBytes << " in " << before.Observation.Heaps.Num() << " heaps";
 }
 
 #endif // OLO_WITH_VULKAN
