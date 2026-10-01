@@ -42,6 +42,10 @@ OLO_LEVER_TOGGLE(VerifyDeclarationCache, "OLO_RG_VERIFY_DECLARATION_CACHE",
                  "that differ and counts a stale-cache detection. Costs a full rebuild per frame.")
 OLO_LEVER_TOGGLE(BlackSquareHunt, "OLO_RG_BLACKSQUARE_HUNT",
                  "Extra per-pass logging for the transient black-square artifact hunt.")
+OLO_LEVER_TOGGLE(RenderGraphCopyLedger, "OLO_RG_COPY_LEDGER",
+                 "Record every GPU image copy a render-graph frame issues -- executing pass, source and destination "
+                 "graph resources, bytes, and whether the pass declared the destination write -- and log a summary "
+                 "every 120 frames (issue #1332). The measurement behind the attachment-export reports.")
 OLO_LEVER_EXACT(RenderGraphSequential, "OLO_RENDERGRAPH_SEQUENTIAL",
                 "Keep render-graph work in one submission and suppress split-barrier fence scheduling. "
                 "The normal per-pass barriers remain, making this the A/B for a queue-scheduling race.")

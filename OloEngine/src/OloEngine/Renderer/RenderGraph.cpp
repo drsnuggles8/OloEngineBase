@@ -5,6 +5,8 @@
 
 #include "OloEngine/Core/PerformanceProfiler.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryFormat.h"
+#include "OloEngine/Renderer/Debug/RenderTargetCopyLedger.h"
 #include "OloEngine/Renderer/RenderGraphBarrierPlanner.h"
 #include "OloEngine/Renderer/RenderGraphHandleAllocator.h"
 #include "OloEngine/Renderer/RenderGraphHazardValidator.h"
@@ -3321,6 +3323,153 @@ namespace OloEngine
         return it->second.ParentResource;
     }
 
+    RenderGraph::CopyOperandDescription RenderGraph::DescribeCopyOperand(const RHI::ResourceHandle texture,
+                                                                         const std::string_view passName,
+                                                                         const bool asDestination) const
+    {
+        if (!texture.IsValid())
+            return { .Name = FString("<null>") };
+
+        const auto texelBytesOf = [this](std::string_view name) -> std::optional<u32>
+        {
+            RGResourceFormat format = RGResourceFormat::Unknown;
+            if (const auto* info = FindRegisteredResource(name))
+                format = info->Desc.Format;
+            if (format == RGResourceFormat::Unknown)
+            {
+                if (const auto viewIt = m_TextureViewResourceDescs.find(name); viewIt != m_TextureViewResourceDescs.end())
+                    format = viewIt->second.Format;
+            }
+            if (format == RGResourceFormat::Unknown)
+                return std::nullopt;
+            return RendererMemoryFormat::BytesPerTexel(ToImageFormat(format));
+        };
+        const auto resolvesHere = [this, texture](std::string_view name)
+        {
+            const auto it = m_TextureHandlesByName.find(name);
+            return it != m_TextureHandlesByName.end() && ResolveTextureHandle(it->second) == texture;
+        };
+
+        // The pass's own declarations: the expanded list, so a framebuffer
+        // write names each of its attachment views.
+        if (const auto accessIt = m_PassAccessDeclarations.find(passName); !passName.empty() && accessIt != m_PassAccessDeclarations.end())
+        {
+            for (const bool wantWrite : { asDestination, !asDestination })
+            {
+                for (const auto& access : accessIt->second)
+                {
+                    if (access.IsWrite != wantWrite || !resolvesHere(access.ResourceName.ToView()))
+                        continue;
+                    return { .Name = access.ResourceName,
+                             .DeclaredByPass = asDestination && access.IsWrite,
+                             .BytesPerTexel = texelBytesOf(access.ResourceName.ToView()) };
+                }
+            }
+        }
+
+        for (const auto& [name, handle] : m_TextureHandlesByName)
+        {
+            if (ResolveTextureHandle(handle) == texture)
+                return { .Name = FString(std::string_view(name)), .BytesPerTexel = texelBytesOf(name) };
+        }
+
+        for (const auto& [name, handle] : m_FramebufferHandlesByName)
+        {
+            // A placeholder resolves with a warning, and is never real storage.
+            if (handle.Index >= static_cast<u32>(m_FramebufferHandleSlots.Num()) || m_FramebufferHandleSlots[handle.Index].IsPlaceholder)
+                continue;
+            const Ref<Framebuffer> framebuffer = IsFramebufferHandleCurrent(handle) ? ResolveFramebuffer(handle) : nullptr;
+            if (!framebuffer)
+                continue;
+            u32 colorIndex = 0;
+            for (const auto& attachment : framebuffer->GetSpecification().Attachments.Attachments)
+            {
+                const bool isDepth = attachment.TextureFormat == FramebufferTextureFormat::DEPTH24STENCIL8 ||
+                                     attachment.TextureFormat == FramebufferTextureFormat::DEPTH_COMPONENT32F;
+                const RHI::ResourceHandle candidate = isDepth ? framebuffer->GetDepthAttachmentHandle()
+                                                              : framebuffer->GetColorAttachmentHandle(colorIndex);
+                if (candidate == texture)
+                {
+                    return { .Name = FString(std::string(name) + (isDepth ? "[depth]" : "[" + std::to_string(colorIndex) + "]")),
+                             .BytesPerTexel = RendererMemoryFormat::BytesPerTexel(attachment.TextureFormat),
+                             .Samples = std::max(framebuffer->GetSpecification().Samples, 1u) };
+                }
+                if (!isDepth)
+                    ++colorIndex;
+            }
+        }
+        return { .Name = FString("<external>") };
+    }
+
+    RenderGraph::CopyOperandDescription RenderGraph::DescribeBlitOperand(const RHI::ResourceHandle framebuffer,
+                                                                         const std::optional<u32> colorAttachment,
+                                                                         const std::string_view passName,
+                                                                         const bool asDestination) const
+    {
+        if (!framebuffer.IsValid())
+            return { .Name = FString("<default framebuffer>") };
+
+        const auto describe = [&](std::string_view name, const Ref<Framebuffer>& fb) -> CopyOperandDescription
+        {
+            const auto& spec = fb->GetSpecification();
+            std::optional<u32> texelBytes;
+            u32 colorIndex = 0;
+            for (const auto& attachment : spec.Attachments.Attachments)
+            {
+                const bool isDepth = attachment.TextureFormat == FramebufferTextureFormat::DEPTH24STENCIL8 ||
+                                     attachment.TextureFormat == FramebufferTextureFormat::DEPTH_COMPONENT32F;
+                if (isDepth ? !colorAttachment : colorAttachment && *colorAttachment == colorIndex)
+                    texelBytes = RendererMemoryFormat::BytesPerTexel(attachment.TextureFormat);
+                if (!isDepth)
+                    ++colorIndex;
+            }
+            bool declared = false;
+            if (const auto accessIt = m_PassAccessDeclarations.find(passName); asDestination && accessIt != m_PassAccessDeclarations.end())
+            {
+                const FString parent(name);
+                for (const auto& access : accessIt->second)
+                {
+                    if (!access.IsWrite)
+                        continue;
+                    const auto base = GetVersionLookupBaseName(access.ResourceName.ToView());
+                    if (access.ResourceName == parent || base == name || FindAttachmentViewParent(access.ResourceName.ToView()) == parent ||
+                        FindAttachmentViewParent(base) == parent)
+                    {
+                        declared = true;
+                        break;
+                    }
+                }
+            }
+            return { .Name = FString(std::string(name) + (colorAttachment ? "[" + std::to_string(*colorAttachment) + "]" : "[depth]")),
+                     .DeclaredByPass = declared,
+                     .BytesPerTexel = texelBytes,
+                     .Samples = std::max(spec.Samples, 1u) };
+        };
+
+        // Unversioned names first, so a framebuffer reads as "SceneColor" rather
+        // than as whichever rename of it the map happens to list first.
+        for (const bool unversionedOnly : { true, false })
+        {
+            for (const auto& [name, handle] : m_FramebufferHandlesByName)
+            {
+                if (unversionedOnly && GetVersionLookupBaseName(name) != std::string_view(name))
+                    continue;
+                if (handle.Index >= static_cast<u32>(m_FramebufferHandleSlots.Num()) || m_FramebufferHandleSlots[handle.Index].IsPlaceholder ||
+                    !IsFramebufferHandleCurrent(handle))
+                    continue;
+                if (const Ref<Framebuffer> fb = ResolveFramebuffer(handle); fb && fb->GetRHIHandle() == framebuffer)
+                    return describe(name, fb);
+            }
+        }
+        return { .Name = FString(colorAttachment ? "<external>[" + std::to_string(*colorAttachment) + "]" : "<external>[depth]") };
+    }
+
+    const TArray64<RGAccessDeclaration>* RenderGraph::GetDeclaredPassAccesses(const std::string_view passName) const
+    {
+        const auto it = m_PassAccessDeclarations.find(passName);
+        return it == m_PassAccessDeclarations.end() ? nullptr : &it->second;
+    }
+
     auto RenderGraph::GetLastWriterPassName(std::string_view resourceName) const -> const FString&
     {
         static const FString emptyName;
@@ -3526,6 +3675,7 @@ namespace OloEngine
         }
 
         MaterializeTransientResources();
+        RenderTargetCopyLedger::BeginGraphFrame(*this);
 
         // Run the pre-built submission-plan IR through the extracted plan
         // executor module. The executor is a thin loop
@@ -3624,6 +3774,8 @@ namespace OloEngine
             }
         }
         m_OutOfBandLedger.BeginEpilogue();
+        // Named while this frame's physical resources are still its own.
+        RenderTargetCopyLedger::EndGraphFrame(*this);
 
         // Before the pool takes this frame's objects back: every pass reference to a pooled
         // framebuffer this frame did not acquire is stale, and dropping it is what lets the

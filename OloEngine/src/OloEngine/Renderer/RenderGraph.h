@@ -371,6 +371,37 @@ namespace OloEngine
         // with a downstream pass that's still reading one of its attachments.
         [[nodiscard]] FString FindAttachmentViewParent(std::string_view name) const;
 
+        // What a physical texture IS in this frame's graph, for the copy ledger
+        // (issue #1332). Several names can answer to one object -- attachment
+        // views of one attachment, transients sharing an alias slot -- so the
+        // issuing pass's own declarations are searched first: a destination
+        // matches a declared write, a source a declared read and then any
+        // declared access. Failing those, any texture name, then any
+        // framebuffer attachment ("SceneColor[3]", "SceneColor[depth]"); a
+        // texture the graph does not know is "<external>". Debug-only: walks
+        // every registered name.
+        struct CopyOperandDescription
+        {
+            FString Name;
+            bool DeclaredByPass = false;
+            std::optional<u32> BytesPerTexel;
+            u32 Samples = 1;
+        };
+        [[nodiscard]] CopyOperandDescription DescribeCopyOperand(RHI::ResourceHandle texture, std::string_view passName,
+                                                                 bool asDestination) const;
+        // The same for one attachment of a framebuffer a blit names by its RHI
+        // handle: `colorAttachment` empty means the depth attachment. Declared
+        // when the pass wrote the framebuffer or any attachment view of it.
+        [[nodiscard]] CopyOperandDescription DescribeBlitOperand(RHI::ResourceHandle framebuffer,
+                                                                 std::optional<u32> colorAttachment,
+                                                                 std::string_view passName, bool asDestination) const;
+
+        // The access declarations a pass made in the last BuildFrameGraph, with
+        // attachment views spelled out (a framebuffer write lists a write of
+        // each of its views), or null for a pass that declared nothing. Debug
+        // and test introspection: the export-freshness check of #1332 walks it.
+        [[nodiscard]] const TArray64<RGAccessDeclaration>* GetDeclaredPassAccesses(std::string_view passName) const;
+
         // Returns the most recent pass that wrote the named resource during
         // BuildFrameGraph's Setup loop, or an empty string if none. Updated
         // incrementally as each pass's Setup runs, so a downstream RMW pass
