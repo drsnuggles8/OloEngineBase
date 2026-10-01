@@ -220,6 +220,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [script-structural-command-safe-point.md](script-structural-command-safe-point.md): a script binding that changes the registry structurally queues a command, never acts inline.
 - [visual-script-vm.md](visual-script-vm.md): `Trigger` queues a branch, it does not run one (§1), so a loop node charges its own iteration and keeps it in `NodeState`; memoization is per exec step, and `PinType` numbering is on disk.
 - [runtime-scene-switching.md](runtime-scene-switching.md): the host applies a scene swap after the tick; five ordering rules and the `Project` mount.
+- [packaged-game-content-by-path.md](packaged-game-content-by-path.md): a file a scene opens by path ships only if Build Game stages it; store such paths in `ResolveContentPath`'s spelling, and prove cooked parity against a staged game with an empty pack. Also: a pixel A/B control needs every arm to see the same camera history.
 - [server-authoritative-networking-loop.md](server-authoritative-networking-loop.md): grep for callers of the entry point, not for tests.
 - [mcp-setter-based-field-registry.md](mcp-setter-based-field-registry.md): copy-then-swap MCP writes are unsound when `operator=` cannot reproduce a setter's side effects.
 - [editor-input-coordinates-and-imgui-viewports.md](editor-input-coordinates-and-imgui-viewports.md): editor window coordinates are physical pixels on Windows, synthetic input has to name the ImGui viewport it hovers, docked windows carry the child-window flag, and per-pass frame capture is OpenGL-only.
@@ -432,6 +433,7 @@ No crash, no error, no log line; work or data disappears and the system keeps ru
 | [reference-path-tracer.md](reference-path-tracer.md) §5 | DDGI's whole infinite-bounce term for any probe volume fitted to a room. |
 | [floating-origin-rebase-subsystems.md](floating-origin-rebase-subsystems.md) | World position, gradually. |
 | [runtime-scene-switching.md](runtime-scene-switching.md) | Every script, in shipped games only. |
+| [packaged-game-content-by-path.md](packaged-game-content-by-path.md) | Every authored plant and impostor in a shipped game, which drew flat cards because no `.obj` was ever packaged; and 91 animated models stored as `../../assets/...`. |
 | [crowd-manager-follower-parity.md](crowd-manager-follower-parity.md) | A component's teardown, when `m_Registry.destroy()` skips `OnComponentRemoved`. |
 | [vcpkg-dependency-management.md](vcpkg-dependency-management.md) | Three of five traps are silent, including a port option that never applied and one that switched on and killed TSan. |
 | [asset-import-usd-alembic.md](asset-import-usd-alembic.md) | Winding, up-axis, unit scale, UV origin. |
