@@ -457,6 +457,43 @@ TEST_F(RendererMemoryAccountingEvidence, RepeatedSceneLoadAndUnloadReturnsToTheS
 }
 
 // ---------------------------------------------------------------------------------------
+// Found and fixed (#1342): an environment map booked an aggregate "rough estimate" of its
+// textures on top of the cubemaps that book themselves — one extra TextureCubemap booking
+// per environment map, a double count of its storage. Building one from an existing sky
+// must add exactly the cubemaps it creates (irradiance and prefilter), and no more.
+// ---------------------------------------------------------------------------------------
+TEST_F(RendererMemoryAccountingEvidence, AnEnvironmentMapBooksOnlyTheCubemapsItCreates)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+
+    CubemapSpecification skySpec;
+    skySpec.Width = 32;
+    skySpec.Height = 32;
+    skySpec.Format = ImageFormat::RGBA32F; // the format GL cubemaps and CreateFromCubemap use
+    Ref<TextureCubemap> sky = TextureCubemap::Create(skySpec);
+    ASSERT_TRUE(sky);
+
+    auto& tracker = RendererMemoryTracker::GetInstance();
+    const u32 cubemapsBefore = tracker.GetAllocationCount(RendererMemoryTracker::ResourceType::TextureCubemap);
+    Ref<EnvironmentMap> environment = EnvironmentMap::CreateFromCubemap(sky);
+    ASSERT_TRUE(environment);
+
+    u32 created = 0;
+    for (const Ref<TextureCubemap>* map : { &environment->GetIrradianceMap(), &environment->GetPrefilterMap() })
+    {
+        if (*map && map->Raw() != sky.Raw())
+            ++created;
+    }
+    EXPECT_GT(created, 0u) << "the environment map generated no IBL cubemaps; nothing was measured";
+    EXPECT_EQ(tracker.GetAllocationCount(RendererMemoryTracker::ResourceType::TextureCubemap) - cubemapsBefore, created)
+        << "an environment map booked more cubemaps than it holds: its storage is counted twice";
+
+    environment = nullptr;
+    sky = nullptr;
+    RunFrames(kDrainFrames);
+}
+
+// ---------------------------------------------------------------------------------------
 // Found and fixed (#1342): a path switch left the old path's scene framebuffer resident.
 // Two holders, found by this report's capacity-versus-physical cross-check: a pass that
 // stops re-resolving its target (GPUDrivenOcclusionPass on Deferred) and a pass the new
