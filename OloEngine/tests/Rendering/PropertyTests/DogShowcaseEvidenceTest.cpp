@@ -1535,13 +1535,13 @@ namespace OloEngine::Tests
             {
                 switch (static_cast<CoatRegion>(region))
                 {
-                case CoatRegion::Face:
-                case CoatRegion::EyeSockets:
-                    return 0u;
-                case CoatRegion::Tail:
-                    return 2u;
-                default:
-                    return 1u;
+                    case CoatRegion::Face:
+                    case CoatRegion::EyeSockets:
+                        return 0u;
+                    case CoatRegion::Tail:
+                        return 2u;
+                    default:
+                        return 1u;
                 }
             };
             constexpr u32 kTile = 16u;

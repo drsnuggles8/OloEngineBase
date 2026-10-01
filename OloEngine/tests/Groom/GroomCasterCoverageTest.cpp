@@ -362,16 +362,16 @@ namespace OloEngine::Tests
         // One region's numbers: a group alone, or every group together.
         struct Region
         {
-            u64 Covered = 0;           // texels the whole cast covers
-            f64 ActualLayers = 0.0;    // mean whole ribbon count over them
-            f64 KeptLayers = 0.0;      // mean subset ribbon count over them
-            f64 Leak = 0.0;            // mean max(0, truth - subset), filtered
-            f64 Truth = 0.0;           // mean real-coat opacity, filtered
-            f64 Subset = 0.0;          // mean subset occupancy, filtered
-            f64 Whole = 0.0;           // mean whole-cast occupancy, filtered
+            u64 Covered = 0;             // texels the whole cast covers
+            f64 ActualLayers = 0.0;      // mean whole ribbon count over them
+            f64 KeptLayers = 0.0;        // mean subset ribbon count over them
+            f64 Leak = 0.0;              // mean max(0, truth - subset), filtered
+            f64 Truth = 0.0;             // mean real-coat opacity, filtered
+            f64 Subset = 0.0;            // mean subset occupancy, filtered
+            f64 Whole = 0.0;             // mean whole-cast occupancy, filtered
             f64 DifferenceVsWhole = 0.0; // mean |subset - whole|, filtered
-            u64 Interior = 0;          // texels whose 3x3 the whole cast fills
-            u64 InteriorOpen = 0;      // of those, the ones the subset leaves open
+            u64 Interior = 0;            // texels whose 3x3 the whole cast fills
+            u64 InteriorOpen = 0;        // of those, the ones the subset leaves open
             [[nodiscard]] f64 InteriorHoles() const
             {
                 return Interior > 0u ? static_cast<f64>(InteriorOpen) / static_cast<f64>(Interior) : 0.0;
@@ -420,9 +420,12 @@ namespace OloEngine::Tests
                 }
                 return out;
             };
-            const std::vector<f32> wholeF = filtered([&](sizet k) { return wholeCount[k] > 0u ? 1.0f : 0.0f; });
-            const std::vector<f32> subsetF = filtered([&](sizet k) { return subsetCount[k] > 0u ? 1.0f : 0.0f; });
-            const std::vector<f32> truthF = filtered([&](sizet k) { return 1.0f - std::exp(-truth[k]); });
+            const std::vector<f32> wholeF = filtered([&](sizet k)
+                                                     { return wholeCount[k] > 0u ? 1.0f : 0.0f; });
+            const std::vector<f32> subsetF = filtered([&](sizet k)
+                                                      { return subsetCount[k] > 0u ? 1.0f : 0.0f; });
+            const std::vector<f32> truthF = filtered([&](sizet k)
+                                                     { return 1.0f - std::exp(-truth[k]); });
 
             Region region;
             for (sizet k = 0; k < texels; ++k)

@@ -1432,9 +1432,9 @@ namespace OloEngine::Tests
         m_OccluderEntity = {};
         scene.DestroyEntity(m_BodyEntity);
 
-        constexpr f32 kSkin = 2.0f;   // the slab's top
-        constexpr f32 kFur = 0.004f;  // short fur
-        constexpr f32 kGap = 0.005f;  // from the fur tips to the strip's underside
+        constexpr f32 kSkin = 2.0f;  // the slab's top
+        constexpr f32 kFur = 0.004f; // short fur
+        constexpr f32 kGap = 0.005f; // from the fur tips to the strip's underside
         const auto cube = [&](const char* name, const glm::vec3& centre, const glm::vec3& size, const glm::vec4& colour)
         {
             Entity entity = scene.CreateEntity(name);

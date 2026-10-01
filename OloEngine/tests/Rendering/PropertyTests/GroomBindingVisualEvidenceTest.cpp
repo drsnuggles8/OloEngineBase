@@ -1009,7 +1009,8 @@ namespace OloEngine::Tests
         EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 1000.0f);
         camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
         camera.SetPose({ 0.0f, 0.9f, 4.6f }, 0.0f, 0.10f);
-        const auto run = [&](u32 frames) { RunEditorFrames(camera, frames); };
+        const auto run = [&](u32 frames)
+        { RunEditorFrames(camera, frames); };
 
         EvictUnused(run);
         const GroomRenderStats single = PassStats();
@@ -1061,7 +1062,8 @@ namespace OloEngine::Tests
         EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 1000.0f);
         camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
         camera.SetPose({ 0.0f, 0.9f, 4.6f }, 0.0f, 0.10f);
-        const auto run = [&](u32 frames) { RunEditorFrames(camera, frames); };
+        const auto run = [&](u32 frames)
+        { RunEditorFrames(camera, frames); };
 
         EvictUnused(run);
         const GroomRenderStats before = PassStats();
@@ -1121,7 +1123,8 @@ namespace OloEngine::Tests
             coat.m_BakeAtRest = atRest;
             return &coat;
         };
-        EvictUnused([&](u32 frames) { RunEditorFrames(camera, frames); });
+        EvictUnused([&](u32 frames)
+                    { RunEditorFrames(camera, frames); });
 
         // Baked at rest: the CPU pose is never built, however long it draws.
         GroomCoatShadowComponent* coat = addCoatShadow(m_GroomEntity, true);
@@ -1156,7 +1159,8 @@ namespace OloEngine::Tests
         // The old budget's entries -- and the stream whose pose they built -- stay
         // cached until the budget presses; evict them, and what is left is the new
         // stream, which every wearer bakes at rest.
-        EvictUnused([&](u32 frames) { EXPECT_EQ(builds(frames), 0u); });
+        EvictUnused([&](u32 frames)
+                    { EXPECT_EQ(builds(frames), 0u); });
         EXPECT_EQ(PassStats().Memory.CpuPoseSegmentBytes, 0u)
             << "a stream every wearer bakes at rest holds the CPU pose anyway";
         twin.GetComponent<GroomCoatShadowComponent>().m_BakeAtRest = false;

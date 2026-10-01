@@ -1310,7 +1310,8 @@ namespace OloEngine
                 record = &binding.GetRoot(sourceCurve);
                 rootSlot = curves++;
             },
-            [&](const RestSegment& segment) { outPoseSegments.push_back(MakeRestPoseSegment(*record, rootSlot, segment)); });
+            [&](const RestSegment& segment)
+            { outPoseSegments.push_back(MakeRestPoseSegment(*record, rootSlot, segment)); });
         return stats;
     }
 

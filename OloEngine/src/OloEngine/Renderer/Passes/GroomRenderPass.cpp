@@ -2679,7 +2679,8 @@ namespace OloEngine
         // the bake scratch, once it has idled kScratchIdleFrames frames (#1533):
         // a coat baked once, at rest, otherwise kept its bake's peak (the
         // walk's centrelines, the binned volume, its packed texels) for good.
-        const auto idle = [this](u64 lastUsed) { return m_CacheTick > lastUsed + kScratchIdleFrames; };
+        const auto idle = [this](u64 lastUsed)
+        { return m_CacheTick > lastUsed + kScratchIdleFrames; };
         if (noDeformedGroom || idle(m_PoseScratchUsedTick))
         {
             std::vector<GroomStrandVertex>().swap(m_DeformedVertices);
