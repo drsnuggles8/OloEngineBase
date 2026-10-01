@@ -59,6 +59,8 @@ namespace OloEngine
         {
             const RendererMemoryOwnerScope memoryOwner("TransientPool", MemoryLifetime::Pooled);
             result = Framebuffer::Create(spec);
+            if (result)
+                result->MarkTransientPoolOwned();
         }
         m_FramebufferBucketBytes.try_emplace(key, EstimateFramebufferBytes(spec));
 
@@ -85,6 +87,18 @@ namespace OloEngine
 
         m_AcquiredBuffers.Add(result);
         return result;
+    }
+
+    bool TransientPool::IsStalePooledFramebuffer(const Framebuffer* framebuffer) const
+    {
+        if (!framebuffer || !framebuffer->IsTransientPoolOwned())
+            return false;
+        for (const auto& acquired : m_AcquiredFramebuffers)
+        {
+            if (acquired.Raw() == framebuffer)
+                return false;
+        }
+        return true;
     }
 
     void TransientPool::ReleaseAll()

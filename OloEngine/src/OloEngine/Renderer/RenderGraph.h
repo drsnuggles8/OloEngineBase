@@ -1974,6 +1974,10 @@ namespace OloEngine
         // pipeline builder. Cleared at the start of every BuildFrameGraph.
         RGTransparentStringMap<FString> m_LastWriterPassNameByResource;
 
+        // Nodes a ResetTopology removed, held until the next Execute releases the pooled
+        // references of the ones the new topology did not re-register (#1342).
+        TArray<Ref<RenderGraphNode>> m_DepartedNodes;
+        void ReleaseDepartedNodeFramebuffers(const std::function<bool(const Framebuffer*)>& isStale);
 
         // LAST member on purpose: destroyed first, so the reporter is unregistered
         // before anything it reads is torn down (#1342).

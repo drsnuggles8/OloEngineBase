@@ -55,6 +55,10 @@ namespace OloEngine
         // Acquire a reusable storage buffer of the given byte size.
         [[nodiscard]] Ref<StorageBuffer> AcquireBuffer(u32 sizeBytes);
 
+        // True for a framebuffer this pool created that the frame now executing has NOT
+        // acquired: a reference to it from a pass is stale (#1342).
+        [[nodiscard]] bool IsStalePooledFramebuffer(const Framebuffer* framebuffer) const;
+
         // Release all acquired objects back to the pool.
         // Called each frame after rendering completes.
         void ReleaseAll();

@@ -207,6 +207,9 @@ TEST_F(RendererMemoryAccountingEvidence, EveryPathMsaaAndScaleCellPublishesCapac
         ASSERT_TRUE(pool->CapacityBytes && pool->ActiveDemandBytes);
         EXPECT_GT(*pool->ActiveDemandBytes, 0u);
         EXPECT_GE(*pool->CapacityBytes, *pool->ActiveDemandBytes);
+        // Every live RenderGraph has its own pool and row; the physical table has one owner.
+        EXPECT_EQ(CapacityTotal(report, "TransientPool"), OwnerLiveGpuBytes(report, "TransientPool"))
+            << "the pools' capacity rows and the bytes their own allocations booked disagree";
 
         // G-buffer: demanded exactly when the Deferred path renders through it.
         const MemoryCapacityRow* gbuffer = FindCapacity(report, "SceneRenderPass", "G-buffer");
@@ -451,4 +454,30 @@ TEST_F(RendererMemoryAccountingEvidence, RepeatedSceneLoadAndUnloadReturnsToTheS
     }
     // The first cycle may warm caches the renderer keeps; every later one must not grow.
     EXPECT_EQ(settled[2], settled[1]) << "each scene load/unload cycle left bytes behind";
+}
+
+// ---------------------------------------------------------------------------------------
+// Found and fixed (#1342): a path switch left the old path's scene framebuffer resident.
+// Two holders, found by this report's capacity-versus-physical cross-check: a pass that
+// stops re-resolving its target (GPUDrivenOcclusionPass on Deferred) and a pass the new
+// topology no longer registers (DeferredLightingPass on Forward) each kept a Ref to a pooled
+// framebuffer after the pool had evicted it — a full-resolution MRT, ~300 MB at 4K. After a
+// switch in EITHER direction the pools must hold every pool-created object still alive.
+// ---------------------------------------------------------------------------------------
+TEST_F(RendererMemoryAccountingEvidence, APathSwitchLeavesNoPooledFramebufferBehind)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+
+    for (const RenderingPath path : { RenderingPath::Deferred, RenderingPath::Forward, RenderingPath::Deferred,
+                                      RenderingPath::ForwardPlus })
+    {
+        Renderer3D::GetRendererSettings().Path = path;
+        Renderer3D::ApplyRendererSettings();
+        RunFrames(kDrainFrames + 2);
+        const RendererMemoryReport report = Report();
+        EXPECT_EQ(CapacityTotal(report, "TransientPool"), OwnerLiveGpuBytes(report, "TransientPool"))
+            << "after switching to path " << static_cast<int>(path) << ", "
+            << static_cast<i64>(OwnerLiveGpuBytes(report, "TransientPool")) - static_cast<i64>(CapacityTotal(report, "TransientPool"))
+            << " bytes of pool-created framebuffers are alive outside every pool";
+    }
 }

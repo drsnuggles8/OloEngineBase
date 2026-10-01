@@ -141,5 +141,19 @@ namespace OloEngine
         virtual void AttachDepthTextureArrayLayer(RHI::ResourceHandle textureArray, u32 layer) = 0;
 
         static Ref<Framebuffer> Create(const FramebufferSpecification& spec);
+
+        // Set by TransientPool on every framebuffer it creates (#1342). A flag on the
+        // object, not a pointer set, so a recycled address can never be mistaken for one.
+        void MarkTransientPoolOwned()
+        {
+            m_TransientPoolOwned = true;
+        }
+        [[nodiscard]] bool IsTransientPoolOwned() const
+        {
+            return m_TransientPoolOwned;
+        }
+
+      private:
+        bool m_TransientPoolOwned = false;
     };
 } // namespace OloEngine
