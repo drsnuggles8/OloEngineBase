@@ -151,6 +151,13 @@ TEST_F(AssetCreationTest, ScriptFileAsset_LoadsFromCSharpSourceAndNeverOverwrite
     ASSERT_TRUE(serializer.TryLoadData(metadata, asset));
     EXPECT_EQ(asset.As<ScriptFileAsset>()->GetFullyQualifiedClassName(), "PlayerController");
 
+    // "class" as a generic constraint opens no declaration and still lets its
+    // brace open a scope.
+    std::ofstream(script, std::ios::binary) << "namespace Sandbox { class Pool<T> where T : class { }\n"
+                                               "    public class PlayerController : Entity { } }\n";
+    ASSERT_TRUE(serializer.TryLoadData(metadata, asset));
+    EXPECT_EQ(asset.As<ScriptFileAsset>()->GetFullyQualifiedClassName(), "Sandbox.PlayerController");
+
     // ...and nested blocks join, outermost first.
     std::ofstream(script, std::ios::binary) << "namespace Sandbox{namespace Gameplay{\n"
                                                "public class PlayerController:Entity{}\n}}\n";

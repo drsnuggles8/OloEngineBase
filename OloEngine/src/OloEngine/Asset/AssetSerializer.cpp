@@ -2651,7 +2651,10 @@ namespace OloEngine
                         open.pop_back();
                     --depth;
                 }
-                else if (token == "class" && i + 1 < tokens.size())
+                // A declaration only when a name follows: in a generic constraint
+                // ("where T : class {") the next token is the brace, which must
+                // still open its scope.
+                else if (token == "class" && i + 1 < tokens.size() && !identifier(tokens[i + 1]).empty())
                 {
                     const std::string name = identifier(tokens[i + 1]);
                     if (firstClass.empty())
