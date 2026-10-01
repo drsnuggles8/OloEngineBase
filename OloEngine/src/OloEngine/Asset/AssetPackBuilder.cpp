@@ -17,7 +17,10 @@
 #include "OloEngine/Serialization/AssetPackFile.h"
 #include "OloEngine/Serialization/FileStream.h"
 
+#include <algorithm>
+#include <unordered_map>
 #include <unordered_set>
+#include <format>
 #include <fstream>
 #include <filesystem>
 #include <mutex>
@@ -289,7 +292,16 @@ namespace OloEngine
             AssetPackFile assetPackFile;
 
             // The index table starts immediately after the header
-            assetPackFile.Header.IndexOffset = sizeof(AssetPackFile::FileHeader);
+            assetPackFile.Header.IndexOffset = AssetPackFile::FileHeaderRecordSize;
+
+            // The script module, read ONCE: the data is placed after it, so the layout
+            // must be planned around the module the writer writes, and a pack built
+            // without it must not leave room for it.
+            const ScopedBuffer scriptModuleBinary(settings.m_IncludeScriptModule ? GetScriptModuleBinary() : Buffer{});
+            if (settings.m_IncludeScriptModule)
+            {
+                OLO_CORE_INFO("AssetPackBuilder: Script module binary size: {} bytes", scriptModuleBinary.Size());
+            }
 
             // Serialize all assets. Enable the texture cook policy (#440) for the duration
             // of serialization so uncompressed source textures get BC-compressed into
@@ -335,7 +347,7 @@ namespace OloEngine
                 ColorSpaceIntentScope& operator=(const ColorSpaceIntentScope&) = delete;
             } colorSpaceScope(CollectTextureColorSpaceIntents(assetManager->GetLoadedAssets()));
 
-            if (!SerializeAllAssets(assetManager, assetPackFile, progress, cancelToken))
+            if (!SerializeAllAssets(assetManager, assetPackFile, scriptModuleBinary.Size(), progress, cancelToken))
             {
                 result.m_ErrorMessage = "Failed to serialize assets or build was cancelled";
                 return result;
@@ -348,14 +360,6 @@ namespace OloEngine
             {
                 OLO_CORE_INFO("AssetPackBuilder: Build cancelled after asset serialization");
                 return { false, "Build cancelled by user", 0, 0, {} };
-            }
-
-            // Get script module binary if requested
-            Buffer scriptModuleBinary;
-            if (settings.m_IncludeScriptModule)
-            {
-                scriptModuleBinary = GetScriptModuleBinary();
-                OLO_CORE_INFO("AssetPackBuilder: Script module binary size: {} bytes", scriptModuleBinary.Size);
             }
 
             progress = 0.9f;
@@ -415,15 +419,55 @@ namespace OloEngine
             }
 
             // Write script module binary
-            writer.WriteRaw(static_cast<u32>(scriptModuleBinary.Size));
-            if (scriptModuleBinary.Size > 0)
+            writer.WriteRaw(static_cast<u32>(scriptModuleBinary.Size()));
+            if (scriptModuleBinary.Size() > 0)
             {
-                writer.WriteData(reinterpret_cast<const char*>(scriptModuleBinary.Data), scriptModuleBinary.Size);
+                writer.WriteData(reinterpret_cast<const char*>(scriptModuleBinary.Data()), scriptModuleBinary.Size());
+            }
+
+            // THE PLAN AGAINST THE STREAM (#1533). Every offset in the index was
+            // planned before a byte was written, so the writer must stand exactly
+            // where the plan put the first asset, and at each asset's recorded offset
+            // as its bytes are copied in. A pack whose index names the wrong bytes
+            // loads as garbage asset by asset -- the shipped dog lost its coat, eyes
+            // and skin profiles -- so a mismatch fails the build instead.
+            std::unordered_map<u64, u64> plannedOffsets;
+            u64 plannedEnd = assetPackFile.TempDataStartOffset;
+            for (const auto& assetInfo : assetPackFile.AssetInfos)
+            {
+                if (assetInfo.Type == AssetType::Scene)
+                    continue;
+                plannedOffsets.emplace(static_cast<u64>(assetInfo.Handle), assetInfo.PackedOffset);
+                plannedEnd = std::max(plannedEnd, assetInfo.PackedOffset + assetInfo.PackedSize);
+            }
+            for (const auto& sceneInfo : assetPackFile.SceneInfos)
+            {
+                plannedOffsets.insert_or_assign(static_cast<u64>(sceneInfo.Handle), sceneInfo.PackedOffset);
+                plannedEnd = std::max(plannedEnd, sceneInfo.PackedOffset + sceneInfo.PackedSize);
+            }
+            if (const u64 position = writer.GetStreamPosition(); position != assetPackFile.TempDataStartOffset)
+            {
+                result.m_ErrorMessage = std::format("Asset pack layout mismatch: the index places the first asset at byte {}, "
+                                                    "but the header, index and script module end at byte {}",
+                                                    assetPackFile.TempDataStartOffset, position);
+                OLO_CORE_ERROR("AssetPackBuilder: {}", result.m_ErrorMessage);
+                return result;
             }
 
             // Write actual asset data from temporary files
             for (const auto& [handle, tempFilePath] : assetPackFile.TempAssetFiles)
             {
+                if (const auto planned = plannedOffsets.find(static_cast<u64>(handle));
+                    planned == plannedOffsets.end() || planned->second != writer.GetStreamPosition())
+                {
+                    result.m_ErrorMessage = std::format("Asset pack layout mismatch: asset {} is recorded at byte {} but "
+                                                        "would be written at byte {}",
+                                                        static_cast<u64>(handle),
+                                                        planned == plannedOffsets.end() ? u64{ 0 } : planned->second,
+                                                        writer.GetStreamPosition());
+                    OLO_CORE_ERROR("AssetPackBuilder: {}", result.m_ErrorMessage);
+                    return result;
+                }
                 if (std::filesystem::exists(tempFilePath))
                 {
                     // Read the temporary file and write its contents to the main pack file
@@ -487,6 +531,16 @@ namespace OloEngine
 
             // Clear temporary file list
             assetPackFile.TempAssetFiles.clear();
+
+            // ...and the last asset's bytes end where its record says they do.
+            if (const u64 position = writer.GetStreamPosition(); position != plannedEnd)
+            {
+                result.m_ErrorMessage = std::format("Asset pack layout mismatch: the index ends the data at byte {}, but {} "
+                                                    "bytes were written",
+                                                    plannedEnd, position);
+                OLO_CORE_ERROR("AssetPackBuilder: {}", result.m_ErrorMessage);
+                return result;
+            }
 
             if (!writer.IsStreamGood())
             {
@@ -584,7 +638,7 @@ namespace OloEngine
         }
     }
 
-    [[nodiscard]] bool AssetPackBuilder::SerializeAllAssets(Ref<AssetManagerBase> assetManager, AssetPackFile& assetPackFile, ProgressRange progress, const std::atomic<bool>* cancelToken)
+    [[nodiscard]] bool AssetPackBuilder::SerializeAllAssets(Ref<AssetManagerBase> assetManager, AssetPackFile& assetPackFile, u64 scriptModuleSize, ProgressRange progress, const std::atomic<bool>* cancelToken)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -642,22 +696,22 @@ namespace OloEngine
         }
 
         // Second pass: Actually serialize assets and calculate offsets/sizes
-        // We calculate the data layout first, then write everything in order
-        u64 headerSize = sizeof(AssetPackFile::FileHeader);
-        u64 indexSize = sizeof(AssetPackFile::IndexTable);
-        u64 assetInfosSize = assetPackFile.AssetInfos.size() * sizeof(AssetPackFile::AssetInfo);
+        // We calculate the data layout first, then write everything in order. The
+        // sizes are the ON-DISK record sizes, never sizeof() of the structs (#1533).
+        const u64 headerSize = AssetPackFile::FileHeaderRecordSize;
+        const u64 indexSize = AssetPackFile::IndexTableRecordSize;
+        const u64 assetInfosSize = assetPackFile.AssetInfos.size() * AssetPackFile::AssetInfoRecordSize;
         u64 sceneInfosSize = 0;
         for (const auto& sceneInfo : assetPackFile.SceneInfos)
         {
-            sceneInfosSize += sizeof(AssetHandle) + sizeof(u64) + sizeof(u64) + sizeof(u16); // Basic scene info
-            sceneInfosSize += sizeof(u32);                                                   // Scene asset count
-            sceneInfosSize += sceneInfo.Assets.size() * sizeof(AssetPackFile::AssetInfo);    // Scene assets
+            sceneInfosSize += AssetPackFile::SceneInfoRecordSize;
+            sceneInfosSize += sceneInfo.Assets.size() * AssetPackFile::SceneAssetRecordSize;
         }
 
-        Buffer scriptModuleBinary = GetScriptModuleBinary();
-        u64 scriptBinarySize = sizeof(u32) + scriptModuleBinary.Size; // Size field + data
+        const u64 scriptBinarySize = sizeof(u32) + scriptModuleSize; // Size field + data
 
-        u64 assetDataStartOffset = headerSize + indexSize + assetInfosSize + sceneInfosSize + scriptBinarySize;
+        const u64 assetDataStartOffset = headerSize + indexSize + assetInfosSize + sceneInfosSize + scriptBinarySize;
+        assetPackFile.TempDataStartOffset = assetDataStartOffset;
         u64 currentOffset = assetDataStartOffset;
 
         // Create temporary files for each asset and calculate sizes

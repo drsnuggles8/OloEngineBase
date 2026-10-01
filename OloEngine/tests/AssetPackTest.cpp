@@ -3,11 +3,22 @@
 #include "TestTempDir.h"
 
 #include "OloEngine/Asset/AssetPack.h"
+#include "OloEngine/Asset/AssetPackBuilder.h"
+#include "OloEngine/Asset/AssetRegistry.h"
+#include "OloEngine/Asset/PlaceholderAsset.h"
+#include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
+#include "OloEngine/Asset/AssetManager/RuntimeAssetManager.h"
+#include "OloEngine/Project/Project.h"
+#include "OloEngine/Renderer/SkinProfile.h"
 #include "OloEngine/Serialization/AssetPackFile.h"
 #include "OloEngine/Serialization/FileStream.h"
 
+#include <algorithm>
+#include <array>
+#include <atomic>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 
 using namespace OloEngine;
 
@@ -100,9 +111,23 @@ TEST(AssetPackFileTest, DefaultHeaderHasCorrectMagicAndVersion)
 {
     AssetPackFile::FileHeader header;
     EXPECT_EQ(header.MagicNumber, 0x504C4F4F);
-    // v6 (#1496): the embedded ImportedMaterialCodec blob changed layout (#1499).
-    EXPECT_EQ(header.Version, 6u);
+    // v7 (#1533): v6 packs recorded every offset 4 bytes per index entry late.
+    EXPECT_EQ(header.Version, 7u);
     EXPECT_EQ(header.Version, AssetPackFile::Version);
+}
+
+TEST(AssetPackFileTest, RecordSizesAreTheBytesEachFieldWrites)
+{
+    // The builder writes every field with WriteRaw and plans its offsets from these
+    // sizes, so they must be the sums of the fields. AssetInfo is the one that pads:
+    // 28 bytes on disk, 32 in memory (#1533).
+    EXPECT_EQ(AssetPackFile::FileHeaderRecordSize, 24u);
+    EXPECT_EQ(AssetPackFile::IndexTableRecordSize, 24u);
+    EXPECT_EQ(AssetPackFile::AssetInfoRecordSize, 28u);
+    EXPECT_EQ(AssetPackFile::SceneInfoRecordSize, 30u);
+    EXPECT_EQ(AssetPackFile::SceneAssetRecordSize, 36u);
+    EXPECT_GT(sizeof(AssetPackFile::AssetInfo), AssetPackFile::AssetInfoRecordSize)
+        << "AssetInfo no longer pads; the record size still has to be the sum of the fields";
 }
 
 TEST(AssetPackFileTest, IndexOffsetMustBeAtLeastHeaderSize)
@@ -390,4 +415,105 @@ TEST_F(AssetPackTest, WrongFieldOrderProducesGarbledData)
     // The loader interprets the fields in its own order, producing garbage
     EXPECT_NE(info.PackedOffset, correctOffset) << "Wrong field order should NOT produce correct offset";
     EXPECT_NE(info.Type, correctType) << "Wrong field order should NOT produce correct type";
+}
+
+// ============================================================================
+// AssetPackBuilder, end to end (#1533)
+// ============================================================================
+
+// A pack the REAL builder writes, read back by the runtime's asset manager asset by
+// asset. Every other test here writes its pack by hand, and so did the dog's packed
+// path, so none of them saw the builder plan its offsets with sizeof(AssetInfo) --
+// 32 bytes in memory against the 28 it writes. Every recorded offset ran 4 bytes per
+// index entry past its data, and the shipped dog loaded without its coat, its eyes
+// and these skin profiles.
+TEST(AssetPackBuilderTest, EveryAssetLoadsBackFromTheOffsetTheBuilderRecorded)
+{
+    namespace fs = std::filesystem;
+    const fs::path dir = OloEngine::Tests::TempDir() / "PackBuilderRoundTrip";
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+    fs::create_directories(dir / "Assets", ec);
+    ASSERT_FALSE(ec) << ec.message();
+    {
+        std::ofstream project(dir / "Test.oloproj");
+        project << "Project:\n"
+                   "  Name: PackBuilderRoundTrip\n"
+                   "  StartScene: \"\"\n"
+                   "  AssetDirectory: \"Assets\"\n"
+                   "  ScriptModulePath: \"\"\n";
+    }
+    ASSERT_TRUE(Project::Load(dir / "Test.oloproj"));
+    auto editorAssets = Ref<EditorAssetManager>::Create();
+    editorAssets->Initialize(/*startFileWatcher=*/false);
+    Project::SetAssetManager(editorAssets);
+
+    // The dog's own profiles: the records the shipped game could not read. Under the
+    // old plan each would be read 16 bytes (4 per entry) into its own text, which
+    // the YAML reader rejects; the name check catches a record served from the
+    // wrong offset that still parses.
+    const fs::path materials = fs::path{ OLO_TEST_EDITOR_ROOT } / "SandboxProject" / "Assets" / "Materials";
+    constexpr std::array<std::pair<const char*, const char*>, 4> profiles = { {
+        { "DogGum.oloskin", "Dog Gum" },
+        { "DogLip.oloskin", "Dog Lip" },
+        { "DogNose.oloskin", "Dog Nose" },
+        { "DogTongue.oloskin", "Dog Tongue" },
+    } };
+    // Imported through the project's manager and its registry WRITTEN: the builder's
+    // own manager starts from that file, as it does for a shipped project, and a
+    // file it found unregistered it would import under a handle of its own.
+    AssetRegistry registry;
+    std::array<AssetHandle, profiles.size()> handles{};
+    for (u64 i = 0; i < profiles.size(); ++i)
+    {
+        fs::copy_file(materials / profiles[i].first, dir / "Assets" / profiles[i].first, fs::copy_options::overwrite_existing, ec);
+        ASSERT_FALSE(ec) << profiles[i].first << ": " << ec.message();
+        handles[i] = editorAssets->ImportAsset(dir / "Assets" / profiles[i].first);
+        ASSERT_NE(static_cast<u64>(handles[i]), 0u) << profiles[i].first;
+        registry.AddAsset(editorAssets->GetMetadata(handles[i]));
+    }
+
+    ASSERT_TRUE(editorAssets->SerializeAssetRegistry());
+
+    AssetPackBuilder::BuildSettings settings;
+    settings.m_OutputPath = dir / "Builder.olopack";
+    settings.m_CompressAssets = false;
+    settings.m_IncludeScriptModule = false;
+    std::atomic<f32> progress = 0.0f;
+    const auto built = AssetPackBuilder::BuildFromRegistry(registry, settings, progress);
+    ASSERT_TRUE(built.m_Success) << built.m_ErrorMessage;
+    EXPECT_EQ(built.m_FailedAssetCount, 0u);
+
+    // The layout: the first record's bytes begin right after the header, the
+    // index and the (empty) script module, and the records tile the rest.
+    auto pack = Ref<AssetPack>::Create();
+    const auto loaded = pack->Load(settings.m_OutputPath);
+    ASSERT_TRUE(loaded.Success) << loaded.ErrorMessage;
+    std::vector<AssetPackFile::AssetInfo> infos = pack->GetAllAssetInfos();
+    ASSERT_EQ(infos.size(), profiles.size());
+    std::ranges::sort(infos, {}, &AssetPackFile::AssetInfo::PackedOffset);
+    u64 expected = AssetPackFile::FileHeaderRecordSize + AssetPackFile::IndexTableRecordSize +
+                   infos.size() * AssetPackFile::AssetInfoRecordSize + sizeof(u32);
+    for (const auto& info : infos)
+    {
+        EXPECT_EQ(info.PackedOffset, expected) << "asset " << static_cast<u64>(info.Handle);
+        expected = info.PackedOffset + info.PackedSize;
+    }
+    EXPECT_EQ(fs::file_size(settings.m_OutputPath), expected);
+
+    // The reader: each handle comes back as its own profile, not a placeholder.
+    RuntimeAssetManager runtime(/*autoLoadDefaultPack=*/false);
+    ASSERT_TRUE(runtime.LoadAssetPack(settings.m_OutputPath));
+    for (u64 i = 0; i < profiles.size(); ++i)
+    {
+        SCOPED_TRACE(profiles[i].first);
+        const Ref<Asset> asset = runtime.GetAsset(handles[i]);
+        ASSERT_TRUE(asset);
+        ASSERT_FALSE(PlaceholderAssetManager::IsPlaceholderAsset(asset)) << "the pack's record did not load";
+        ASSERT_EQ(asset->GetAssetType(), AssetType::SkinProfile);
+        EXPECT_EQ(asset.As<SkinProfile>()->GetName(), profiles[i].second);
+    }
+
+    editorAssets.Reset();
+    fs::remove_all(dir, ec);
 }

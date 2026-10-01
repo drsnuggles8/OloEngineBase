@@ -125,11 +125,13 @@ namespace OloEngine
          * @brief Serialize all assets from asset manager to pack
          * @param assetManager Asset manager to read from
          * @param assetPackFile Pack file to write to
+         * @param scriptModuleSize Bytes of the script module the pack will carry (0 for none):
+         *        the data is placed after it, so it must be the module the writer writes
          * @param progress Progress tracker
          * @param cancelToken Optional cancellation token for cooperative cancellation
          * @return Success status
          */
-        [[nodiscard]] static bool SerializeAllAssets(Ref<AssetManagerBase> assetManager, AssetPackFile& assetPackFile, ProgressRange progress, const std::atomic<bool>* cancelToken = nullptr);
+        [[nodiscard]] static bool SerializeAllAssets(Ref<AssetManagerBase> assetManager, AssetPackFile& assetPackFile, u64 scriptModuleSize, ProgressRange progress, const std::atomic<bool>* cancelToken = nullptr);
 
         /**
          * @brief Validate that all assets can be serialized
