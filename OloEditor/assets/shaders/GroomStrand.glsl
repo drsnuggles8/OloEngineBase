@@ -100,7 +100,7 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	vec4 u_GroomFibreLobe;     // x = V[0], y = azimuthal scale, z = intensity, w = IBL intensity
 	vec4 u_GroomFibreSinAlpha; // xyz = sin(2^k alpha)
 	vec4 u_GroomFibreCosAlpha; // xyz = cos(2^k alpha)
-	ivec4 u_GroomFibreModes;   // x = lit, y = h-quadrature order, z = debug mode, w unused
+	ivec4 u_GroomFibreModes;   // x = lit, y = h-quadrature order, z = debug mode, w = diagnostic substitutions
 	// Coat self-shadowing (#1248). Mirrored lane for lane from
 	// UBOStructures::GroomStrandParamsUBO. These go up INACTIVE
 	// (u_GroomCoatModes.x == 0) and only a draw with a built, bound volume
@@ -537,7 +537,7 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	vec4 u_GroomFibreLobe;     // x = V[0], y = azimuthal scale, z = intensity, w = IBL intensity
 	vec4 u_GroomFibreSinAlpha; // xyz = sin(2^k alpha)
 	vec4 u_GroomFibreCosAlpha; // xyz = cos(2^k alpha)
-	ivec4 u_GroomFibreModes;   // x = lit, y = h-quadrature order, z = debug mode, w unused
+	ivec4 u_GroomFibreModes;   // x = lit, y = h-quadrature order, z = debug mode, w = diagnostic substitutions
 	// Coat self-shadowing (#1248). Mirrored lane for lane from
 	// UBOStructures::GroomStrandParamsUBO. These go up INACTIVE
 	// (u_GroomCoatModes.x == 0) and only a draw with a built, bound volume
@@ -589,6 +589,19 @@ OloGroomFibre oloGroomFibreFromUniforms()
 	return fibre;
 }
 
+// The stand-in for the fibre scattering under OLO_GROOM_SUBSTITUTE_CONSTANT_FIBRE:
+// a grey of the right order, so the frame still exposes and nothing downstream
+// is optimised away.
+OloGroomFibreLobes oloGroomFibreConstantLobes()
+{
+	OloGroomFibreLobes lobes;
+	lobes.R = vec3(0.05);
+	lobes.TT = vec3(0.05);
+	lobes.TRT = vec3(0.05);
+	lobes.Residual = vec3(0.05);
+	return lobes;
+}
+
 void oloGroomAccumulate(inout OloGroomFibreLobes total, OloGroomFibreLobes add, vec3 weight)
 {
 	total.R += add.R * weight;
@@ -617,8 +630,21 @@ void oloGroomAccumulate(inout OloGroomFibreLobes total, OloGroomFibreLobes add, 
 // tier read 17-27% darker than the strands it stands for under a converged
 // volume. The strands a viewer sees of a lock are its outer ones; the offset
 // makes the card answer for them.
+// u_GroomFibreModes.w: the cost matrix's DIAGNOSTIC substitutions (#1533),
+// zero in every shipped frame. Bit 0 skips the coat march (no coat between a
+// strand and anything); bit 1 replaces the fibre scattering with a constant
+// lobe. Each removes one cost and keeps the rest, so a matrix can attribute the
+// shading's time by difference (OLO_GROOM_NO_COAT_MARCH,
+// OLO_GROOM_CONSTANT_FIBRE).
+const int OLO_GROOM_SUBSTITUTE_NO_MARCH = 1;
+const int OLO_GROOM_SUBSTITUTE_CONSTANT_FIBRE = 2;
+
 float oloGroomCoatTau(vec3 worldDir)
 {
+	if ((u_GroomFibreModes.w & OLO_GROOM_SUBSTITUTE_NO_MARCH) != 0)
+	{
+		return 0.0;
+	}
 	float tube = max(v_TubeRadius, 0.0);
 	if (u_GroomCoatModes.w != 0)
 	{
@@ -998,7 +1024,12 @@ OloGroomShading oloGroomShadeFibre()
 		}
 
 		vec3 arriving = radiance * (vec3(coatShadow) + (forwarded * densityForward));
-		oloGroomAccumulate(total, oloGroomFibreEvaluateDirections(fibre, T, V, L), arriving * cosWeight);
+		OloGroomFibreLobes lobes = oloGroomFibreConstantLobes();
+		if ((u_GroomFibreModes.w & OLO_GROOM_SUBSTITUTE_CONSTANT_FIBRE) == 0)
+		{
+			lobes = oloGroomFibreEvaluateDirections(fibre, T, V, L);
+		}
+		oloGroomAccumulate(total, lobes, arriving * cosWeight);
 
 		if (dualScattering)
 		{
@@ -1043,7 +1074,11 @@ OloGroomShading oloGroomShadeFibre()
 		// through the coat; one on the surface sees it directly.
 		float envTau = oloGroomCoatTau(envDir);
 		float envShadow = oloGroomCoatTransmittance(envTau, u_GroomCoatBoundsMin.w);
-		OloGroomFibreLobes ambient = oloGroomFibreAmbientResponse(fibre, sinThetaO);
+		OloGroomFibreLobes ambient = oloGroomFibreConstantLobes();
+		if ((u_GroomFibreModes.w & OLO_GROOM_SUBSTITUTE_CONSTANT_FIBRE) == 0)
+		{
+			ambient = oloGroomFibreAmbientResponse(fibre, sinThetaO);
+		}
 		if (!dualScattering)
 		{
 			oloGroomAccumulate(total, ambient, averageRadiance * envShadow);

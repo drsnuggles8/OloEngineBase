@@ -74,6 +74,16 @@ OLO_LEVER_NUMBER(GroomShadowCasterFraction, "OLO_GROOM_SHADOW_CASTER_FRACTION", 
                  "each view's width floor allows (GroomShadowCasterFraction, #1533 E1). 1 casts the whole coat -- the "
                  "A/B against the subset, for the shadow pass's GroomCasters time and for the look. Rounded up to a "
                  "sixty-fourth. Unset keeps the per-view rule. Read per frame.")
+OLO_LEVER_EXACT(GroomNoCoatMarch, "OLO_GROOM_NO_COAT_MARCH",
+                "DIAGNOSTIC SUBSTITUTION (#1533 cost matrix): every groom's coat-volume march answers 'no coat in "
+                "the way' -- transmittance 1 -- while the volume is still baked and bound and its dual scattering "
+                "still evaluated. NOT the shipped look: the A/B that separates the march's cost from the rest of "
+                "the coat's shading (OLO_DOG_COST_SUB=nomarch). Read per frame.")
+OLO_LEVER_EXACT(GroomConstantFibre, "OLO_GROOM_CONSTANT_FIBRE",
+                "DIAGNOSTIC SUBSTITUTION (#1533 cost matrix): every groom's fibre scattering -- the BCSDF per light "
+                "and its ambient response -- replaced by a constant lobe, with every attenuation (scene shadow, coat "
+                "march, dual scattering) still evaluated. NOT the shipped look: the A/B that separates the fibre "
+                "evaluation's cost from the volume traversal's (OLO_DOG_COST_SUB=nofibre). Read per frame.")
 
 // --- Fault injection ----------------------------------------------------------
 // Deliberately WRONG behaviour, for the negative controls of the renderer

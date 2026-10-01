@@ -1530,6 +1530,10 @@ namespace OloEngine::Tests
         //   nosim        the guide simulation off; the skeleton still animates
         //   nocast       the coat casts no scene shadow (noreceive: receives none)
         //   noprepass    the groom depth prepass off (OLO_GROOM_NO_DEPTH_PREPASS)
+        //   nomarch      the coat march skipped, the volume still baked, bound and
+        //                dual-scattering (OLO_GROOM_NO_COAT_MARCH)
+        //   nofibre      the fibre scattering a constant lobe, every attenuation
+        //                still evaluated (OLO_GROOM_CONSTANT_FIBRE)
         //   res720       1280x720 instead of 1920x1080 (res1440: 2560x1440)
         const std::string subs = []
         { const char* v = std::getenv("OLO_DOG_COST_SUB"); return std::string(v ? v : ""); }();
@@ -1583,9 +1587,13 @@ namespace OloEngine::Tests
             ~LeverRestore()
             {
                 Levers::SetGroomNoDepthPrepass(false);
+                Levers::SetGroomNoCoatMarch(false);
+                Levers::SetGroomConstantFibre(false);
             }
         } leverRestore;
         Levers::SetGroomNoDepthPrepass(sub("noprepass"));
+        Levers::SetGroomNoCoatMarch(sub("nomarch"));
+        Levers::SetGroomConstantFibre(sub("nofibre"));
         const u32 costWidth = sub("res720") ? 1280u : (sub("res1440") ? 2560u : 1920u);
         const u32 costHeight = sub("res720") ? 720u : (sub("res1440") ? 1440u : 1080u);
         ResizeRenderTarget(costWidth, costHeight);

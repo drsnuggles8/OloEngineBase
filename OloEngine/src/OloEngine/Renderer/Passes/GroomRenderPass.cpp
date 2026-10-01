@@ -2305,8 +2305,11 @@ namespace OloEngine
                                              request.Fibre.Sin2kAlpha[2], 0.0f);
             params.FibreCosAlpha = glm::vec4(request.Fibre.Cos2kAlpha[0], request.Fibre.Cos2kAlpha[1],
                                              request.Fibre.Cos2kAlpha[2], 0.0f);
+            // .w: the cost matrix's DIAGNOSTIC substitutions (#1533), zero in
+            // every shipped frame -- 1 skips the coat march, 2 a constant fibre.
+            const i32 substitutions = (Levers::GroomNoCoatMarch() ? 1 : 0) | (Levers::GroomConstantFibre() ? 2 : 0);
             params.FibreModes = glm::ivec4(request.Lit ? 1 : 0, static_cast<i32>(request.Fibre.HSamples),
-                                           static_cast<i32>(request.FibreDebug), 0);
+                                           static_cast<i32>(request.FibreDebug), substitutions);
 
             // THE RECEIVE LANE GOES UP ON EVERY DRAW (#1323), outside the block
             // below: whether this coat samples the scene's shadow is a different

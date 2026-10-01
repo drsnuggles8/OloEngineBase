@@ -1571,9 +1571,11 @@ namespace OloEngine
             glm::vec4 FibreSinAlpha{ 0.0f };                    // xyz = sin(2^k alpha), w unused
             glm::vec4 FibreCosAlpha{ 1.0f, 1.0f, 1.0f, 0.0f };  // xyz = cos(2^k alpha), w unused
             // x = lit at all (0 renders #1246's neutral ramp), y = h-quadrature
-            // order, z = GroomFibreDebugMode, w unused. Int lanes because all
-            // three are compared against integer constants; a float lane would
-            // make an exact comparison a rounding question.
+            // order, z = GroomFibreDebugMode, w = the cost matrix's diagnostic
+            // substitutions (#1533; 1 no coat march, 2 a constant fibre; zero in
+            // every shipped frame). Int lanes because all four are compared
+            // against integer constants; a float lane would make an exact
+            // comparison a rounding question.
             glm::ivec4 FibreModes{ 0, 4, 0, 0 };
 
             // ── Coat self-shadowing (#1248) ──────────────────────────
