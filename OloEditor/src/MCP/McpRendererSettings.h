@@ -872,7 +872,6 @@ namespace OloEngine::MCP::RendererSettings
         std::string UpscalerStatus; // ToString(TemporalUpscalerStatus)
     };
 
-
     // The 'upscaler' block. `requested` is the live setting pair; `resolved` is
     // what the last prepared frame ran. When the latch answers an OLDER request
     // (no frame has been prepared since the write), `resolved` is null and
