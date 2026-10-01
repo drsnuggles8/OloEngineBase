@@ -60,7 +60,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -87,7 +87,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -127,7 +127,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -167,7 +167,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -207,7 +207,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -248,7 +248,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -288,7 +288,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -328,7 +328,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -368,7 +368,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -408,7 +408,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -448,7 +448,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -488,7 +488,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -528,7 +528,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -568,7 +568,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -608,7 +608,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -648,7 +648,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -688,7 +688,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -728,7 +728,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -768,7 +768,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -808,7 +808,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -848,7 +848,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -888,7 +888,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -928,7 +928,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -968,7 +968,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -1008,7 +1008,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -1048,7 +1048,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -1088,7 +1088,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -1128,7 +1128,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -1168,7 +1168,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -1208,7 +1208,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -1248,7 +1248,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -1288,7 +1288,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -1328,7 +1328,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -1368,7 +1368,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -1408,7 +1408,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -1448,7 +1448,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -1488,7 +1488,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -1528,7 +1528,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -1568,7 +1568,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -1608,7 +1608,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:
@@ -1648,7 +1648,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 1
       IsPlaying: true
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
     AnimalBudgetComponent:

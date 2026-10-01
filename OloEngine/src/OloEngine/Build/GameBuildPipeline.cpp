@@ -14,10 +14,26 @@
 #include <cctype>
 #include <chrono>
 #include <fstream>
+#include <iterator>
+#include <unordered_map>
+#include <sstream>
+#include <unordered_set>
+#include <nlohmann/json.hpp>
 #include <yaml-cpp/yaml.h>
 
 namespace OloEngine
 {
+    namespace
+    {
+        [[nodiscard]] std::string LowerExtension(const std::filesystem::path& path)
+        {
+            auto extension = path.extension().string();
+            std::ranges::transform(extension, extension.begin(), [](unsigned char c)
+                                   { return static_cast<char>(std::tolower(c)); });
+            return extension;
+        }
+    } // namespace
+
     bool StageRuntimeDependencyLibraries(
         BuildTargetPlatform targetPlatform,
         const std::filesystem::path& runtimeBinDir,
@@ -45,9 +61,7 @@ namespace OloEngine
                 continue;
             }
 
-            auto extension = it->path().extension().string();
-            std::ranges::transform(extension, extension.begin(), [](unsigned char c)
-                                   { return static_cast<char>(std::tolower(c)); });
+            const auto extension = LowerExtension(it->path());
             if (extension == ".dll")
             {
                 dependencies.push_back(it->path());
@@ -102,9 +116,7 @@ namespace OloEngine
                 continue;
             }
 
-            auto extension = it->path().extension().string();
-            std::ranges::transform(extension, extension.begin(), [](unsigned char c)
-                                   { return static_cast<char>(std::tolower(c)); });
+            const auto extension = LowerExtension(it->path());
             if (textureExtensions.contains(extension))
             {
                 textures.push_back(it->path());
@@ -142,6 +154,480 @@ namespace OloEngine
                 return false;
             }
             ++copiedCount;
+        }
+
+        return true;
+    }
+
+    namespace
+    {
+        // "%20" -> ' '. glTF URIs are URI-encoded; anything malformed is left as typed.
+        [[nodiscard]] std::string DecodeUriPath(const std::string& uri)
+        {
+            std::string decoded;
+            decoded.reserve(uri.size());
+            for (sizet i = 0; i < uri.size(); ++i)
+            {
+                if (uri[i] == '%' && i + 2 < uri.size() && std::isxdigit(static_cast<unsigned char>(uri[i + 1])) &&
+                    std::isxdigit(static_cast<unsigned char>(uri[i + 2])))
+                {
+                    decoded += static_cast<char>(std::stoi(uri.substr(i + 1, 2), nullptr, 16));
+                    i += 2;
+                }
+                else
+                {
+                    decoded += uri[i];
+                }
+            }
+            return decoded;
+        }
+
+        [[nodiscard]] std::string Trim(const std::string& text)
+        {
+            const auto begin = text.find_first_not_of(" \t\r");
+            if (begin == std::string::npos)
+                return {};
+            const auto end = text.find_last_not_of(" \t\r");
+            return text.substr(begin, end - begin + 1);
+        }
+
+        struct Token
+        {
+            std::string Text;
+            sizet At = 0;
+        };
+
+        [[nodiscard]] std::vector<Token> Tokenise(const std::string& text)
+        {
+            std::vector<Token> tokens;
+            sizet at = 0;
+            while ((at = text.find_first_not_of(" \t", at)) != std::string::npos)
+            {
+                sizet end = text.find_first_of(" \t", at);
+                if (end == std::string::npos)
+                    end = text.size();
+                tokens.push_back({ text.substr(at, end - at), at });
+                at = end;
+            }
+            return tokens;
+        }
+
+        [[nodiscard]] bool IsNumber(const std::string& token)
+        {
+            return !token.empty() && token.find_first_not_of("0123456789+-.eE") == std::string::npos &&
+                   token.find_first_of("0123456789") != std::string::npos;
+        }
+
+        // The file an .mtl map statement names, once its options are skipped.
+        // Options and their argument counts are the MTL spec's. A filename may
+        // contain spaces, so the name is the rest of the line; when that names
+        // nothing on disk and the last token does, the last token wins, since
+        // the directory is the only arbiter of an ambiguous line.
+        [[nodiscard]] std::string MapStatementFile(const std::string& rest, const std::filesystem::path& directory)
+        {
+            static const std::unordered_map<std::string, std::pair<int, int>> kOptionArgs = {
+                { "-blendu", { 1, 1 } },
+                { "-blendv", { 1, 1 } },
+                { "-bm", { 1, 1 } },
+                { "-boost", { 1, 1 } },
+                { "-cc", { 1, 1 } },
+                { "-clamp", { 1, 1 } },
+                { "-imfchan", { 1, 1 } },
+                { "-mm", { 2, 2 } },
+                { "-o", { 1, 3 } },
+                { "-s", { 1, 3 } },
+                { "-t", { 1, 3 } },
+                { "-texres", { 1, 1 } },
+                { "-type", { 1, 1 } },
+            };
+            const std::vector<Token> tokens = Tokenise(rest);
+            sizet i = 0;
+            while (i < tokens.size() && tokens[i].Text.size() > 1 && tokens[i].Text[0] == '-' && !IsNumber(tokens[i].Text))
+            {
+                std::string option = tokens[i].Text;
+                std::ranges::transform(option, option.begin(), [](unsigned char c)
+                                       { return static_cast<char>(std::tolower(c)); });
+                ++i;
+                if (const auto known = kOptionArgs.find(option); known != kOptionArgs.end())
+                {
+                    int taken = 0;
+                    for (; taken < known->second.first && i < tokens.size(); ++taken)
+                        ++i;
+                    for (; taken < known->second.second && i < tokens.size() && IsNumber(tokens[i].Text); ++taken)
+                        ++i;
+                }
+                else
+                {
+                    while (i < tokens.size() && IsNumber(tokens[i].Text))
+                        ++i;
+                }
+            }
+            if (i >= tokens.size())
+                return {};
+            const std::string whole = Trim(rest.substr(tokens[i].At));
+            std::error_code ec;
+            if (!std::filesystem::exists(directory / whole, ec) && std::filesystem::exists(directory / tokens.back().Text, ec))
+                return tokens.back().Text;
+            return whole;
+        }
+
+        // The files `file` opens by itself, as paths relative to its own directory.
+        [[nodiscard]] std::vector<std::string> ReadContentDependencies(const std::filesystem::path& file)
+        {
+            std::vector<std::string> dependencies;
+            const std::string extension = LowerExtension(file);
+            const std::filesystem::path directory = file.parent_path();
+            if (extension == ".obj" || extension == ".mtl")
+            {
+                // An .obj names its material libraries with `mtllib`; an .mtl names
+                // each texture in a map statement, after its options.
+                static const std::unordered_set<std::string> mapStatements = {
+                    "map_ka", "map_kd", "map_ks", "map_ke", "map_ns", "map_d", "map_bump", "bump", "norm",
+                    "disp", "decal", "refl", "map_pr", "map_pm", "map_ps", "map_rma", "map_orm"
+                };
+                std::ifstream input(file);
+                std::string line;
+                while (std::getline(input, line))
+                {
+                    const std::string trimmed = Trim(line);
+                    const auto split = trimmed.find_first_of(" \t");
+                    if (split == std::string::npos)
+                        continue;
+                    std::string statement = trimmed.substr(0, split);
+                    std::ranges::transform(statement, statement.begin(), [](unsigned char c)
+                                           { return static_cast<char>(std::tolower(c)); });
+                    const std::string rest = Trim(trimmed.substr(split + 1));
+                    if (extension == ".obj" && statement == "mtllib")
+                    {
+                        // One library whose name has spaces, or several on one
+                        // line (the OBJ spec allows both); the directory decides.
+                        std::error_code ec;
+                        if (std::filesystem::exists(directory / rest, ec))
+                            dependencies.push_back(rest);
+                        else
+                            for (const auto& token : Tokenise(rest))
+                                dependencies.push_back(token.Text);
+                    }
+                    else if (extension == ".mtl" && mapStatements.contains(statement))
+                    {
+                        if (std::string named = MapStatementFile(rest, directory); !named.empty())
+                            dependencies.push_back(std::move(named));
+                    }
+                }
+            }
+            else if (extension == ".gltf")
+            {
+                std::ifstream input(file);
+                const nlohmann::json document = nlohmann::json::parse(input, nullptr, /*allow_exceptions=*/false);
+                if (document.is_object())
+                {
+                    for (const char* array : { "buffers", "images" })
+                    {
+                        const auto it = document.find(array);
+                        if (it == document.end() || !it->is_array())
+                            continue;
+                        for (const auto& entry : *it)
+                        {
+                            if (!entry.is_object() || !entry.contains("uri") || !entry["uri"].is_string())
+                                continue;
+                            const auto& uri = entry["uri"].get_ref<const std::string&>();
+                            if (!uri.starts_with("data:"))
+                                dependencies.push_back(DecodeUriPath(uri));
+                        }
+                    }
+                }
+            }
+            return dependencies;
+        }
+
+        // True when `path` begins with every component of `prefix`, compared exactly
+        // (case-sensitively): ResolveContentPath's own test for "<AssetDirectory>/...",
+        // which may be more than one component ("Content/Assets").
+        [[nodiscard]] bool StartsWithComponents(const std::filesystem::path& path, const std::filesystem::path& prefix)
+        {
+            auto it = path.begin();
+            bool any = false;
+            for (const auto& component : prefix)
+            {
+                if (component.empty() || component == ".")
+                    continue;
+                if (it == path.end() || it->generic_string() != component.generic_string())
+                    return false;
+                ++it;
+                any = true;
+            }
+            return any;
+        }
+
+        // True when `path` is relative, starts with `root` (an empty root is the
+        // base directory itself) and has no `..` left after folding, i.e. it
+        // cannot leave the directory it is staged into.
+        [[nodiscard]] bool IsRootedUnder(const std::filesystem::path& path, const std::filesystem::path& root)
+        {
+            if (path.empty() || path.is_absolute() || (!root.empty() && !StartsWithComponents(path, root)))
+                return false;
+            return std::ranges::none_of(path, [](const std::filesystem::path& component)
+                                        { return component == ".."; });
+        }
+
+        // Could this scalar name a file at all? Cheap, and it spares a stat for
+        // each of the tens of thousands of numbers, flags and tags in a scene.
+        [[nodiscard]] bool LooksLikeAPath(const std::string& value)
+        {
+            if (value.find_first_of("/.\\") == std::string::npos)
+                return false;
+            return value.find_first_not_of("0123456789+-.eE ") != std::string::npos;
+        }
+
+        [[nodiscard]] bool SameBytes(const std::filesystem::path& a, const std::filesystem::path& b)
+        {
+            std::error_code ec;
+            if (std::filesystem::file_size(a, ec) != std::filesystem::file_size(b, ec) || ec)
+                return false;
+            std::ifstream fa(a, std::ios::binary);
+            std::ifstream fb(b, std::ios::binary);
+            return std::equal(std::istreambuf_iterator<char>(fa), std::istreambuf_iterator<char>(),
+                              std::istreambuf_iterator<char>(fb));
+        }
+    } // namespace
+
+    bool StageSceneReferencedContent(
+        const std::vector<std::filesystem::path>& sceneFiles,
+        const std::filesystem::path& projectDir,
+        const std::filesystem::path& assetDirectoryName,
+        const std::filesystem::path& engineRoot,
+        const std::filesystem::path& outputDir,
+        sizet& copiedCount,
+        std::vector<std::string>& unresolved,
+        std::string& errorMessage)
+    {
+        copiedCount = 0;
+
+        // One stored path to stage: relative to `Base`, rooted at `Root`.
+        struct Reference
+        {
+            std::filesystem::path Stored;
+            std::filesystem::path Base;
+            std::filesystem::path Root;
+            std::string Referrer;
+        };
+
+        std::vector<Reference> pending;
+        std::unordered_set<std::string> seen;
+        const auto enqueue = [&](Reference reference)
+        {
+            if (seen.insert(reference.Stored.generic_string()).second)
+                pending.push_back(std::move(reference));
+        };
+        // Once per line: a crowd scene names the same model in every entity.
+        std::unordered_set<std::string> reported;
+        const auto report = [&](std::string line)
+        {
+            if (reported.insert(line).second)
+                unresolved.push_back(std::move(line));
+        };
+
+        // ResolveContentPath's spelling rule, applied to one scene scalar, plus
+        // the asset-relative spelling some fields use instead.
+        const auto consider = [&](const std::string& value, const std::string& sceneName)
+        {
+            if (value.empty() || value.size() > 1024 || value.find_first_of("\r\n") != std::string::npos)
+                return;
+            const std::filesystem::path stored = std::filesystem::path(value).lexically_normal();
+            if (stored.empty() || stored == ".")
+                return;
+            const std::string first = stored.begin()->generic_string();
+            if (stored.is_absolute())
+            {
+                std::error_code ec;
+                if (std::filesystem::is_regular_file(stored, ec))
+                    report(sceneName + ": " + value + " (an absolute path; a packaged game cannot carry it)");
+                return;
+            }
+            if (first == "..")
+            {
+                // Present or not, a package has nowhere to put it: the runtime
+                // would read it from beside the game directory.
+                report(sceneName + ": " + value +
+                       " (outside the project; a relocatable package has nowhere to put it)");
+                return;
+            }
+            if (StartsWithComponents(stored, assetDirectoryName))
+            {
+                enqueue({ stored, projectDir, assetDirectoryName, sceneName });
+                return;
+            }
+            if (first == "assets")
+            {
+                enqueue({ stored, engineRoot, "assets", sceneName });
+                return;
+            }
+            if (!LooksLikeAPath(value))
+                return;
+
+            // Two more spellings resolve, and only a value naming a file that is
+            // really there counts, so ordinary text is never taken for a path:
+            //  - asset-directory-relative ("Audio/Wind.ogg"), how an audio source's
+            //    Filepath is stored and read back as <AssetDirectory>/<value>,
+            //    which is <game>/Assets/<value> in a packaged game;
+            //  - any other relative spelling, which ResolveContentPath reads
+            //    against the working directory ("Resources/..."), which is the
+            //    game directory in a packaged game.
+            std::error_code ec;
+            const std::filesystem::path assetRelative = assetDirectoryName / stored;
+            if (std::filesystem::exists(projectDir / assetRelative, ec))
+                enqueue({ assetRelative, projectDir, assetDirectoryName, sceneName });
+            if (std::filesystem::exists(engineRoot / stored, ec))
+                enqueue({ stored, engineRoot, {}, sceneName }); // rooted at the working directory itself
+        };
+
+        for (const auto& sceneFile : sceneFiles)
+        {
+            const std::string sceneName = sceneFile.filename().string();
+            YAML::Node document;
+            try
+            {
+                document = YAML::LoadFile(sceneFile.string());
+            }
+            catch (const std::exception& e)
+            {
+                report(sceneName + ": the scene did not parse, so its references were not staged (" +
+                       e.what() + ")");
+                continue;
+            }
+
+            std::vector<YAML::Node> stack{ document };
+            while (!stack.empty())
+            {
+                const YAML::Node node = stack.back();
+                stack.pop_back();
+                if (node.IsScalar())
+                {
+                    consider(node.Scalar(), sceneName);
+                }
+                else if (node.IsSequence())
+                {
+                    for (const auto& child : node)
+                        stack.push_back(child);
+                }
+                else if (node.IsMap())
+                {
+                    for (const auto& entry : node)
+                        stack.push_back(entry.second);
+                }
+            }
+        }
+
+        // Where each destination came from, keyed case-insensitively: "Assets/x"
+        // and "assets/x" are ONE file in a Windows package, so two different
+        // files staged there would overwrite each other without a word.
+        std::unordered_map<std::string, std::filesystem::path> stagedFrom;
+        const auto copyOne = [&](const std::filesystem::path& source, const std::filesystem::path& stored,
+                                 const std::string& referrer) -> bool
+        {
+            std::string key = stored.generic_string();
+            std::ranges::transform(key, key.begin(), [](unsigned char c)
+                                   { return static_cast<char>(std::tolower(c)); });
+            if (const auto earlier = stagedFrom.find(key); earlier != stagedFrom.end())
+            {
+                if (!SameBytes(earlier->second, source))
+                {
+                    report(referrer + ": " + stored.generic_string() + " (collides with " +
+                           earlier->second.generic_string() +
+                           ", a different file at the same path once Assets/ and assets/ share a directory)");
+                }
+                return true;
+            }
+            stagedFrom.emplace(std::move(key), source);
+
+            const auto destination = outputDir / stored;
+            std::error_code ec;
+            std::filesystem::create_directories(destination.parent_path(), ec);
+            if (ec)
+            {
+                errorMessage = "Failed to create the directory for scene-referenced content " + stored.generic_string() +
+                               ": " + ec.message();
+                return false;
+            }
+            std::filesystem::copy_file(source, destination, std::filesystem::copy_options::overwrite_existing, ec);
+            if (ec)
+            {
+                errorMessage = "Failed to copy scene-referenced content " + stored.generic_string() + ": " + ec.message();
+                return false;
+            }
+            ++copiedCount;
+            return true;
+        };
+
+        while (!pending.empty())
+        {
+            const Reference reference = std::move(pending.back());
+            pending.pop_back();
+
+            if (!IsRootedUnder(reference.Stored, reference.Root))
+            {
+                report(reference.Referrer + ": " + reference.Stored.generic_string() + " (leaves " +
+                       reference.Root.generic_string() + "/)");
+                continue;
+            }
+
+            const auto source = reference.Base / reference.Stored;
+            std::error_code ec;
+            if (std::filesystem::is_directory(source, ec))
+            {
+                // A folder reference (a cubemap's six faces). Never the root itself,
+                // which would copy the whole content tree.
+                const auto depth = std::distance(reference.Stored.begin(), reference.Stored.end());
+                const auto rootDepth = std::distance(reference.Root.begin(), reference.Root.end());
+                if (depth <= std::max<decltype(rootDepth)>(rootDepth, 1))
+                    continue;
+                std::vector<std::filesystem::path> files;
+                for (std::filesystem::directory_iterator it(source, ec), end; it != end && !ec; it.increment(ec))
+                {
+                    // Its own error code: one unreadable entry must not end the
+                    // enumeration or be reported as an iterator failure.
+                    std::error_code entryEc;
+                    if (it->is_regular_file(entryEc) && !entryEc)
+                        files.push_back(it->path().filename());
+                }
+                if (ec)
+                {
+                    errorMessage = "Failed to enumerate scene-referenced folder " + reference.Stored.generic_string() +
+                                   ": " + ec.message();
+                    return false;
+                }
+                std::ranges::sort(files);
+                for (const auto& name : files)
+                {
+                    if (!copyOne(source / name, reference.Stored / name, reference.Referrer))
+                        return false;
+                }
+                continue;
+            }
+            if (!std::filesystem::is_regular_file(source, ec))
+            {
+                report(reference.Referrer + ": " + reference.Stored.generic_string() + " (no such file under " +
+                       reference.Base.string() + ")");
+                continue;
+            }
+
+            if (!copyOne(source, reference.Stored, reference.Referrer))
+                return false;
+
+            const std::string referrer = reference.Stored.generic_string();
+            const auto enqueueSibling = [&](const std::filesystem::path& stored)
+            {
+                enqueue({ stored.lexically_normal(), reference.Base, reference.Root, referrer });
+            };
+            for (const auto& dependency : ReadContentDependencies(source))
+                enqueueSibling(reference.Stored.parent_path() / std::filesystem::path(dependency));
+
+            // Import settings travel with the file they configure. Optional, so
+            // only a sidecar that exists is staged.
+            std::filesystem::path importSettings = reference.Stored;
+            importSettings += ".oloimport";
+            if (std::filesystem::is_regular_file(reference.Base / importSettings, ec))
+                enqueueSibling(importSettings);
         }
 
         return true;
@@ -363,9 +849,11 @@ namespace OloEngine
         }
         progress = 0.68f;
 
-        // Step 5: Copy engine resources — shaders, fonts (68% -> 80%)
-        OLO_CORE_INFO("[GameBuild] Step 5/9: Copying engine resources...");
-        if (!CopyEngineResources(outputDir, result.ErrorMessage))
+        // Step 5: Stage every loose file the runtime reads — engine resources,
+        // scenes, Lua scripts, loose textures, input actions and the files the
+        // scenes reference by path (68% -> 80%)
+        OLO_CORE_INFO("[GameBuild] Step 5/9: Staging runtime content...");
+        if (!StageRuntimeContent(outputDir, result.ErrorMessage))
         {
             return result;
         }
@@ -387,34 +875,9 @@ namespace OloEngine
             OLO_CORE_WARN("[GameBuild] ScriptCore copy failed (non-fatal): {}", result.ErrorMessage);
             result.ErrorMessage.clear();
         }
-        progress = 0.90f;
-
-        // Step 8: Copy scene files (90% -> 95%)
-        OLO_CORE_INFO("[GameBuild] Step 8/9: Copying scene files...");
-        if (!CopySceneFiles(outputDir, result.ErrorMessage))
-        {
-            return result;
-        }
         progress = 0.95f;
 
-        // Step 8b: Copy loose Lua script files. Non-fatal — a game with no Lua
-        // scripts is perfectly normal, and a failure here shouldn't sink an
-        // otherwise-complete build.
-        {
-            std::string scriptError;
-            if (!CopyScriptFiles(outputDir, scriptError))
-            {
-                OLO_CORE_WARN("[GameBuild] Lua script copy failed (non-fatal): {}", scriptError);
-            }
-        }
-
-        // Step 8c: Copy writable project runtime configuration. Input actions
-        // stay loose (rather than inside the immutable asset pack) because the
-        // in-game rebind panel persists back to this same path.
-        if (!StageProjectRuntimeFiles(outputDir, result.ErrorMessage))
-        {
-            return result;
-        }
+        // Step 8 (scenes, scripts, runtime config) is part of step 5's staging.
 
         // Step 9: Write game manifest (95% -> 100%)
         OLO_CORE_INFO("[GameBuild] Step 9/9: Writing game manifest...");
@@ -437,6 +900,43 @@ namespace OloEngine
         OLO_CORE_INFO("[GameBuild]   Total size: {:.1f} MB", static_cast<f64>(result.TotalSizeBytes) / (1024.0 * 1024.0));
 
         return result;
+    }
+
+    bool GameBuildPipeline::StageRuntimeContent(
+        const std::filesystem::path& outputDir,
+        std::string& errorMessage)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!CopyEngineResources(outputDir, errorMessage))
+        {
+            return false;
+        }
+
+        if (!CopySceneFiles(outputDir, errorMessage))
+        {
+            return false;
+        }
+
+        // Non-fatal — a game with no Lua scripts is perfectly normal, and a
+        // failure here shouldn't sink an otherwise-complete build.
+        {
+            std::string scriptError;
+            if (!CopyScriptFiles(outputDir, scriptError))
+            {
+                OLO_CORE_WARN("[GameBuild] Lua script copy failed (non-fatal): {}", scriptError);
+            }
+        }
+
+        // Writable project runtime configuration and loose textures. Input
+        // actions stay loose (rather than inside the immutable asset pack)
+        // because the in-game rebind panel persists back to this same path.
+        if (!StageProjectRuntimeFiles(outputDir, errorMessage))
+        {
+            return false;
+        }
+
+        return StageProjectSceneReferences(outputDir, errorMessage);
     }
 
     bool GameBuildPipeline::ValidateProject(std::string& errorMessage)
@@ -493,6 +993,12 @@ namespace OloEngine
 
         OLO_CORE_INFO("[GameBuild] Asset pack created: {} assets, {} scenes",
                       assetCount, sceneCount);
+        if (buildResult.m_FailedAssetCount > 0)
+        {
+            OLO_CORE_WARN("[GameBuild] {} registered asset(s) did not load and are NOT in the pack — the "
+                          "AssetPackBuilder warnings above name each one",
+                          buildResult.m_FailedAssetCount);
+        }
         return true;
     }
 
@@ -1051,6 +1557,78 @@ namespace OloEngine
         }
 
         OLO_CORE_INFO("[GameBuild] Copied writable input actions to {}", inputActionsDst.string());
+        return true;
+    }
+
+    bool GameBuildPipeline::StageProjectSceneReferences(
+        const std::filesystem::path& outputDir,
+        std::string& errorMessage)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        const auto project = Project::GetActive();
+        if (!project)
+        {
+            errorMessage = "No active project";
+            return false;
+        }
+
+        // The asset directory as scenes spell it ("Assets"): ProjectSerializer
+        // stores it canonicalised to an absolute path. Same derivation as
+        // ResolveContentPath, so the two agree on what counts as project content.
+        std::filesystem::path assetDirectoryName = project->GetConfig().AssetDirectory;
+        if (assetDirectoryName.is_absolute())
+        {
+            std::error_code relativeError;
+            assetDirectoryName = std::filesystem::relative(assetDirectoryName, project->GetDirectory(), relativeError);
+            if (relativeError || assetDirectoryName.empty())
+            {
+                errorMessage = "Cannot spell the asset directory relative to the project directory '" +
+                               project->GetDirectory().string() + "'";
+                return false;
+            }
+        }
+
+        std::vector<std::filesystem::path> scenes;
+        std::error_code ec;
+        for (std::filesystem::recursive_directory_iterator it(Project::GetAssetDirectory(), ec), end;
+             it != end && !ec; it.increment(ec))
+        {
+            std::error_code entryEc; // per entry, apart from the iterator's
+            if (it->is_regular_file(entryEc) && !entryEc && it->path().extension() == ".olo")
+            {
+                scenes.push_back(it->path());
+            }
+        }
+        if (ec)
+        {
+            errorMessage = "Failed to enumerate the project's scenes: " + ec.message();
+            return false;
+        }
+        std::ranges::sort(scenes);
+
+        const std::filesystem::path engineRoot = std::filesystem::current_path(ec);
+        if (ec)
+        {
+            errorMessage = "Failed to read the editor working directory: " + ec.message();
+            return false;
+        }
+
+        sizet copiedCount = 0;
+        std::vector<std::string> unresolved;
+        if (!StageSceneReferencedContent(scenes, project->GetDirectory(), assetDirectoryName, engineRoot, outputDir,
+                                         copiedCount, unresolved, errorMessage))
+        {
+            return false;
+        }
+
+        for (const auto& reference : unresolved)
+        {
+            OLO_CORE_WARN("[GameBuild] The packaged game will not find {}", reference);
+        }
+        OLO_CORE_INFO("[GameBuild] Staged {} scene-referenced file(s) from {} scene(s); {} reference(s) could not be "
+                      "staged",
+                      copiedCount, scenes.size(), unresolved.size());
         return true;
     }
 

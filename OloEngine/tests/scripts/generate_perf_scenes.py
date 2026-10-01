@@ -240,9 +240,8 @@ def csharp_script(class_name):
 
 
 def anim_fox(clip_index, time_offset):
-    # SourceFilePath is relative to the project asset directory
-    # (SandboxProject/Assets), so ../../assets/... reaches the editor's own
-    # asset tree — same path fox.olo uses.
+    # SourceFilePath is a content path (#1539): "assets/..." is engine content
+    # under the working directory — same path fox.olo uses.
     return (
         "    MeshComponent:\n      {}\n"
         + material([1, 1, 1], 0.0, 0.6)
@@ -252,7 +251,7 @@ def anim_fox(clip_index, time_offset):
         "      BlendDuration: 0.3\n"
         f"      CurrentClipIndex: {clip_index}\n"
         "      IsPlaying: true\n"
-        "      SourceFilePath: ../../assets/models/Fox/Fox.gltf\n"
+        "      SourceFilePath: assets/models/Fox/Fox.gltf\n"
         "    SkeletonComponent:\n      {}\n"
     )
 

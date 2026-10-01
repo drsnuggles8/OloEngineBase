@@ -36,7 +36,7 @@ Entities:
       BlendDuration: 0.3
       CurrentClipIndex: 0
       IsPlaying: false
-      SourceFilePath: ../../assets/models/Fox/Fox.gltf
+      SourceFilePath: assets/models/Fox/Fox.gltf
       CurrentClipName: Survey
     SkeletonComponent:
       {}

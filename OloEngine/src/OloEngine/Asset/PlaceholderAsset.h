@@ -171,13 +171,19 @@ namespace OloEngine
          */
         static sizet GetPlaceholderCount()
         {
-            TUniqueLock<FMutex> lock(s_PlaceholderMutex);
-            return s_PlaceholderAssets.size();
+            TUniqueLock<FMutex> lock(Mutex());
+            return Placeholders().size();
         }
 
       private:
-        static std::unordered_map<AssetType, Ref<Asset>> s_PlaceholderAssets;
-        static FMutex s_PlaceholderMutex;
+        // Immortal: deliberately leaked, never destroyed. An asset manager held by
+        // a process static (Project's) is destroyed during static destruction and
+        // calls Shutdown() from there; as ordinary statics of this TU the map and
+        // its mutex could already be gone, and clearing the dead map was a
+        // heap-use-after-free under ASan (#1547). See
+        // docs/agent-rules/lazy-static-release-ownership.md.
+        static std::unordered_map<AssetType, Ref<Asset>>& Placeholders();
+        static FMutex& Mutex();
         static bool s_Initialized;
 
         static Ref<Asset> CreatePlaceholderAsset(AssetType type);

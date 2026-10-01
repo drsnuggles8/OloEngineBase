@@ -52,6 +52,46 @@ namespace OloEngine
         std::string& errorMessage);
 
     /**
+     * @brief Stage the loose files shipped scenes read by PATH rather than through the asset pack.
+     *
+     * A foliage layer's MeshPath, AlbedoPath and leaf maps, an animated mesh's
+     * FilePath and a terrain layer's textures are stored in the scene as content
+     * paths and opened through ResolveContentPath, never through the asset pack
+     * (issue #1392). A packaged game that lacks one of those files loads its
+     * scene and draws the designed fallback: every authored plant becomes a flat
+     * card and its impostor is never baked, with only a log line to say so.
+     *
+     * Every scalar in every scene is read with ResolveContentPath's spelling rule:
+     * `<assetDirectoryName>/...` is project content under `projectDir`, `assets/...`
+     * is engine content under `engineRoot` (the editor working directory), and any
+     * other value naming a file under the asset directory is the asset-relative
+     * spelling an audio source's Filepath uses and stages as
+     * `<assetDirectoryName>/<value>`. A value
+     * naming an existing file is copied to `outputDir / <value>`, which is where the
+     * runtime resolves it: the runtime mounts its project at the game directory and
+     * runs with that directory as its working directory. A value naming a directory
+     * stages the files directly inside it (a cubemap face folder).
+     *
+     * The files a staged file opens by itself come along: an .obj's `mtllib`, an
+     * .mtl's texture maps, a .gltf's buffer and image URIs, and a `<file>.oloimport`
+     * import-settings sidecar.
+     *
+     * A reference that cannot ship — missing, absolute, or spelled `../` out of the
+     * project — is appended to `unresolved` as "<scene>: <reference> (<why>)" and
+     * does not fail the step; the editor cannot open it either. A copy that fails
+     * does fail it.
+     */
+    bool StageSceneReferencedContent(
+        const std::vector<std::filesystem::path>& sceneFiles,
+        const std::filesystem::path& projectDir,
+        const std::filesystem::path& assetDirectoryName,
+        const std::filesystem::path& engineRoot,
+        const std::filesystem::path& outputDir,
+        sizet& copiedCount,
+        std::vector<std::string>& unresolved,
+        std::string& errorMessage);
+
+    /**
      * @brief Stage the CI-baked shader pack (.osp), if one was built (issue #908).
      *
      * A shader pack is a portable, content-hash-validated cache of
@@ -82,12 +122,14 @@ namespace OloEngine
      *    GetHostExecutableFileName), then embed a custom icon (Windows) or write
      *    a .desktop launcher entry (Linux)
      * 4. **Copy Dependencies** — Copy runtime-adjacent DLLs — Windows only
-     * 5. **Copy Engine Resources** — Copy shaders and fonts
+     * 5. **Stage Runtime Content** — StageRuntimeContent: engine shaders,
+     *    textures and fonts, the .olo scenes, loose Lua scripts, loose project
+     *    textures, writable project runtime configuration, and every file a
+     *    scene references by path (StageSceneReferencedContent)
      * 6. **Copy Mono Runtime** — Copy mono/lib and mono/etc for C# scripting
      *    (skipped when IsScriptingAvailableOnPlatform is false for the target)
      * 7. **Copy ScriptCore** — Copy the C# ScriptCore assembly (same skip)
-     * 8. **Copy Scenes** — Copy .olo scene files from the project
-     *    plus loose Lua scripts and writable project runtime configuration
+     * 8. (folded into step 5)
      * 9. **Write Manifest** — Write game.manifest with game name, start scene,
      *    target platform and C# scripting availability, etc.
      *
@@ -100,7 +142,8 @@ namespace OloEngine
      * ├── *.dll                   (runtime-adjacent dynamic libraries)
      * ├── game.manifest           (YAML config: game name, start scene)
      * ├── Assets/
-     * │   └── AssetPack.olopack   (textures, meshes, etc.)
+     * │   ├── AssetPack.olopack   (textures, meshes, etc.)
+     * │   └── ...                 (loose textures, .lua, files scenes reference by path)
      * ├── Config/
      * │   └── InputActions.yaml   (writable persisted control bindings)
      * ├── Scenes/
@@ -138,6 +181,20 @@ namespace OloEngine
             const GameBuildSettings& settings,
             std::atomic<f32>& progress,
             const std::atomic<bool>* cancelToken = nullptr);
+
+        /**
+         * @brief Lay out every loose file the packaged runtime reads, around the asset pack
+         *
+         * Engine resources (shaders, textures, fonts), the scenes, the Lua scripts,
+         * the loose project textures, the input-action config and the files the
+         * scenes reference by path (StageSceneReferencedContent). Build() runs
+         * exactly this; it is public so a test can stage the same layout without an
+         * asset pack, a runtime binary or a Mono runtime. Needs an active project
+         * and the editor working directory, like Build().
+         */
+        static bool StageRuntimeContent(
+            const std::filesystem::path& outputDir,
+            std::string& errorMessage);
 
       private:
         /**
@@ -238,6 +295,15 @@ namespace OloEngine
          * back to the same file so bindings survive a process restart.
          */
         static bool StageProjectRuntimeFiles(
+            const std::filesystem::path& outputDir,
+            std::string& errorMessage);
+
+        /**
+         * @brief StageSceneReferencedContent over every scene the build ships
+         *
+         * Logs each unresolved reference as a warning; they do not fail the build.
+         */
+        static bool StageProjectSceneReferences(
             const std::filesystem::path& outputDir,
             std::string& errorMessage);
 

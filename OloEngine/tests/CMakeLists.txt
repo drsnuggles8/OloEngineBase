@@ -820,6 +820,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/FoliageLodCoverageEvidenceTest.cpp
 		Rendering/PropertyTests/CookedCutoutCoverageEvidenceTest.cpp
 		Rendering/PropertyTests/FloraTraversalEvidenceTest.cpp
+		Rendering/PropertyTests/FloraLooseCookedParityEvidenceTest.cpp
         Rendering/PropertyTests/FoliageGPUCullEvidenceTest.cpp
         Rendering/PropertyTests/FoliageWindEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageLeafMaterialTest.cpp
@@ -898,6 +899,7 @@ add_executable(OloEngine-Tests
 		Rendering/MaterialTransmissionTest.cpp
 		Rendering/GltfPhysicalMaterialImportTest.cpp
 		Rendering/RendererShutdownTest.cpp
+		Rendering/FrameResourceDeletionQueueThreadTest.cpp
 		Rendering/RenderPathDriftTest.cpp
 		Rendering/VirtualMeshRegistryRejectionTest.cpp
 		Rendering/VirtualGeometrySceneCoverageTest.cpp

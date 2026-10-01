@@ -2498,17 +2498,196 @@ namespace OloEngine
     // ScriptFileSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    void ScriptFileSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    namespace
     {
-        OLO_PROFILE_FUNCTION();
+        // C# source with comments, preprocessor lines, string and character
+        // literals blanked out, so a "class" inside any of them is not read as a
+        // declaration, and an apostrophe in "#region Player's state" does not
+        // open a character literal that swallows the rest of the file.
+        [[nodiscard]] std::string StripCSharpCommentsAndLiterals(const std::string& source)
+        {
+            std::string out;
+            out.reserve(source.size());
+            bool lineStart = true;
+            for (sizet i = 0; i < source.size(); ++i)
+            {
+                const char c = source[i];
+                const char next = i + 1 < source.size() ? source[i + 1] : ' ';
+                if (lineStart && c == '#')
+                {
+                    while (i < source.size() && source[i] != '\n')
+                        ++i;
+                    out += '\n';
+                    continue;
+                }
+                if (c == '\n')
+                    lineStart = true;
+                else if (c != ' ' && c != '\t' && c != '\r')
+                    lineStart = false;
 
-        Ref<ScriptFileAsset> scriptAsset = asset.As<ScriptFileAsset>();
-        std::string yamlString = SerializeToYAML(scriptAsset);
+                if (c == '/' && next == '/')
+                {
+                    while (i < source.size() && source[i] != '\n')
+                        ++i;
+                    out += '\n';
+                    lineStart = true;
+                }
+                else if (c == '/' && next == '*')
+                {
+                    i += 2;
+                    while (i + 1 < source.size() && !(source[i] == '*' && source[i + 1] == '/'))
+                        ++i;
+                    ++i;
+                    out += ' ';
+                }
+                else if (c == '"' || c == '\'')
+                {
+                    // @"...", $@"..." and @$"..." are verbatim: no escapes, "" is a quote.
+                    const auto prefixed = [&](sizet back)
+                    { return i >= back && source[i - back] == '@'; };
+                    const bool verbatim = c == '"' && (prefixed(1) || (prefixed(2) && source[i - 1] == '$'));
+                    for (++i; i < source.size(); ++i)
+                    {
+                        if (!verbatim && source[i] == '\\')
+                            ++i;
+                        else if (source[i] == c && verbatim && i + 1 < source.size() && source[i + 1] == '"')
+                            ++i;
+                        else if (source[i] == c)
+                            break;
+                    }
+                    out += ' ';
+                }
+                else
+                {
+                    out += c;
+                }
+            }
+            return out;
+        }
 
-        std::ofstream fout(Project::GetProjectDirectory() / metadata.FilePath);
-        fout << yamlString;
+        // The namespace (block or file-scoped) and the class a C# file declares:
+        // the one named like the file when there is one, the script convention,
+        // else the first. Empty when the file declares no class.
+        void ReadCSharpScriptIdentity(const std::string& source, const std::string& fileStem, std::string& outNamespace,
+                                      std::string& outClass)
+        {
+            const std::string code = StripCSharpCommentsAndLiterals(source);
 
-        OLO_CORE_TRACE("ScriptFileSerializer: Serialized ScriptFile to YAML - Handle: {0}", metadata.Handle);
+            // Words, with each brace, semicolon and colon a token of its own, so
+            // "Sandbox{" and "Entity{}" still show their scopes.
+            std::vector<std::string> tokens;
+            std::string word;
+            const auto flush = [&]
+            {
+                if (!word.empty())
+                    tokens.push_back(std::move(word));
+                word.clear();
+            };
+            for (const char c : code)
+            {
+                if (std::isspace(static_cast<unsigned char>(c)))
+                {
+                    flush();
+                }
+                else if (c == '{' || c == '}' || c == ';' || c == ':')
+                {
+                    flush();
+                    tokens.emplace_back(1, c);
+                }
+                else
+                {
+                    word += c;
+                }
+            }
+            flush();
+
+            const auto identifier = [](const std::string& value)
+            {
+                const auto end = value.find_first_not_of(
+                    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.");
+                return end == std::string::npos ? value : value.substr(0, end);
+            };
+
+            // The namespace that goes with a class is every block namespace open
+            // around it, outermost first, after a file-scoped one, so a class
+            // after a closed helper namespace is not given that helper's name.
+            std::string fileScoped;
+            std::vector<std::pair<std::string, i32>> open; // name, brace depth it opened at
+            std::string pending;
+            i32 depth = 0;
+            const auto currentNamespace = [&]
+            {
+                std::string joined = fileScoped;
+                for (const auto& scope : open)
+                    joined += (joined.empty() ? "" : ".") + scope.first;
+                return joined;
+            };
+
+            std::string firstClass;
+            std::string firstClassNamespace;
+            for (sizet i = 0; i < tokens.size(); ++i)
+            {
+                const std::string& token = tokens[i];
+                if (token == "namespace" && i + 1 < tokens.size())
+                {
+                    const std::string name = identifier(tokens[i + 1]);
+                    if (i + 2 < tokens.size() && tokens[i + 2] == ";")
+                        fileScoped = name;
+                    else
+                        pending = name;
+                    ++i;
+                }
+                else if (token == "{")
+                {
+                    ++depth;
+                    if (!pending.empty())
+                    {
+                        open.emplace_back(std::move(pending), depth);
+                        pending.clear();
+                    }
+                }
+                else if (token == "}")
+                {
+                    if (!open.empty() && open.back().second == depth)
+                        open.pop_back();
+                    --depth;
+                }
+                // A declaration only when a name follows and no colon precedes:
+                // "class" right after a colon is a generic constraint ("where T :
+                // class { ...", "where T : class where U : new()"), and its brace
+                // must still open a scope.
+                else if (token == "class" && i + 1 < tokens.size() && !identifier(tokens[i + 1]).empty() &&
+                         (i == 0 || tokens[i - 1] != ":"))
+                {
+                    const std::string name = identifier(tokens[i + 1]);
+                    if (firstClass.empty())
+                    {
+                        firstClass = name;
+                        firstClassNamespace = currentNamespace();
+                    }
+                    if (name == fileStem)
+                    {
+                        outClass = name;
+                        outNamespace = currentNamespace();
+                        return;
+                    }
+                    ++i;
+                }
+            }
+            outClass = firstClass;
+            outNamespace = firstClassNamespace;
+        }
+    } // namespace
+
+    void ScriptFileSerializer::Serialize(const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const
+    {
+        // The asset IS the .cs file: its namespace and class are read from the
+        // source, so there is nothing to write back. This used to write YAML to
+        // metadata.FilePath, which is the C# source itself, and would have
+        // replaced the script with three lines of YAML.
+        OLO_CORE_WARN("ScriptFileSerializer: not writing '{}' — a script asset is derived from its C# source, "
+                      "which is never overwritten",
+                      metadata.FilePath.string());
     }
 
     bool ScriptFileSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
@@ -2533,13 +2712,20 @@ namespace OloEngine
         std::stringstream strStream;
         strStream << file.rdbuf();
 
-        Ref<ScriptFileAsset> scriptAsset = Ref<ScriptFileAsset>::Create();
-        if (bool success = DeserializeFromYAML(strStream.str(), scriptAsset); !success)
+        // A registered script is C# source (".cs" is the only extension that
+        // maps to ScriptFile). It used to be parsed as YAML, which failed for
+        // every script, so a pack build logged an error per script and shipped
+        // none of them.
+        std::string classNamespace;
+        std::string className;
+        ReadCSharpScriptIdentity(strStream.str(), path.stem().string(), classNamespace, className);
+        if (className.empty())
         {
-            OLO_CORE_ERROR("ScriptFileSerializer::TryLoadData - Failed to deserialize from YAML");
+            OLO_CORE_ERROR("ScriptFileSerializer::TryLoadData - '{}' declares no class", path.string());
             return false;
         }
 
+        Ref<ScriptFileAsset> scriptAsset = Ref<ScriptFileAsset>::Create(std::move(classNamespace), std::move(className));
         scriptAsset->SetHandle(metadata.Handle);
         asset = scriptAsset;
 

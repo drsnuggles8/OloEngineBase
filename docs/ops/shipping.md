@@ -32,7 +32,7 @@ OutputDirectory/GameName/
 ├── config/renderer.yaml
 ├── Assets/
 │   ├── AssetPack.olopack
-│   └── <loose .lua scripts, loose runtime textures>
+│   └── <loose .lua scripts, loose runtime textures, files scenes reference by path>
 ├── Config/
 │   └── InputActions.yaml
 ├── Scenes/
@@ -41,7 +41,8 @@ OutputDirectory/GameName/
 │   ├── shaders/
 │   ├── ShaderPack.osp        (optional, issue #908)
 │   ├── fonts/                (optional)
-│   └── textures/             (optional)
+│   ├── textures/             (optional)
+│   └── <engine files scenes reference by path>
 ├── mono/
 │   ├── lib/
 │   └── etc/
@@ -63,6 +64,7 @@ folder" approach would drag in that the pipeline does **not** write:
 | `config/renderer.yaml` | **Ship** | Read before the window opens; a missing file falls back to OpenGL, but shipping it makes the default explicit rather than accidental. |
 | `Assets/AssetPack.olopack` | **Ship** | The packed asset content. |
 | `Assets/<loose .lua / textures>` | **Ship** | Resolved by asset-relative path at runtime (`Project::GetAssetFileSystemPath`) — see `CopyScriptFiles`'s doc comment. Not optional; the game breaks without them. |
+| `Assets/…`, `assets/…` files a scene names by path | **Ship** | A foliage layer's `MeshPath` (and the `.mtl` and textures it opens), leaf maps, an animated mesh's `FilePath`: opened through `ResolveContentPath`, never through the pack. `StageSceneReferencedContent` copies each to the same relative path; a missing one draws its fallback (a flat card, no impostor) and says so only in the log (#1392). The build logs every reference it could not stage. |
 | `Config/InputActions.yaml` | **Ship** | Default bindings. Deliberately **writable** — `RuntimeInputRebindMenu` overwrites this exact file when the player rebinds a control, so it must live inside the installed depot tree, not in a read-only resource pack. |
 | `Scenes/*.olo` | **Ship** | Loaded from disk at runtime; the asset registry doesn't track `.olo` files. |
 | `assets/shaders/` | **Ship** | Fallback source the runtime compiles from when no shader pack is staged. |
