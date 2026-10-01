@@ -191,6 +191,38 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
+    // GroomFibreComponent::m_DebugMode (issue #1533)
+    //
+    // A Reject range is a hand-written copy of the enum's last value, and the
+    // generated loaders enforce the copy, not the enum. Dual scattering added
+    // MultipleScattering (6) while the annotation still said Max = 5, so a scene
+    // saved in that view loaded back in Full. Every mode the enum names must
+    // survive the round trip.
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, GroomFibreComponentKeepsEveryDebugMode)
+    {
+        for (u32 mode = 0; mode < static_cast<u32>(GroomFibreDebugMode::Count); ++mode)
+        {
+            SCOPED_TRACE("debug mode " + std::to_string(mode));
+            std::string yaml;
+            {
+                auto scene = Scene::Create();
+                Entity entity = scene->CreateEntity(kTestTag);
+                entity.AddComponent<GroomFibreComponent>().m_DebugMode = static_cast<u8>(mode);
+                yaml = SceneSerializer(scene).SerializeToYAML();
+            }
+            ASSERT_FALSE(yaml.empty());
+
+            auto reloaded = Scene::Create();
+            ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+            Entity restored = FindByTag(*reloaded, kTestTag);
+            ASSERT_TRUE(static_cast<bool>(restored));
+            ASSERT_TRUE(restored.HasComponent<GroomFibreComponent>());
+            EXPECT_EQ(static_cast<u32>(restored.GetComponent<GroomFibreComponent>().m_DebugMode), mode);
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // DestructibleComponent (issue #459)
     //
     // All-trivial, so its scene (de)serialize is fully OloHeaderTool-generated —

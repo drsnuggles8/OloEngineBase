@@ -508,7 +508,7 @@ registry.push_back(OLO_VSF_FIELD_RANGE(GroomFibreComponent, "IndexOfRefraction",
 registry.push_back(OLO_VSF_FIELD_RANGE(GroomFibreComponent, "Intensity", m_Intensity, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(64.0f)));
 registry.push_back(OLO_VSF_FIELD_RANGE(GroomFibreComponent, "HSamples", m_HSamples, Int, OLO_VSF_BOUND(1), OLO_VSF_BOUND(32)));
 registry.push_back(OLO_VSF_FIELD_RANGE(GroomFibreComponent, "PigmentMode", m_PigmentMode, Int, OLO_VSF_BOUND(0), OLO_VSF_BOUND(2)));
-registry.push_back(OLO_VSF_FIELD_RANGE(GroomFibreComponent, "DebugMode", m_DebugMode, Int, OLO_VSF_BOUND(0), OLO_VSF_BOUND(5)));
+registry.push_back(OLO_VSF_FIELD_RANGE(GroomFibreComponent, "DebugMode", m_DebugMode, Int, OLO_VSF_BOUND(0), OLO_VSF_BOUND(6)));
 registry.push_back(OLO_VSF_FIELD(GroomFibreComponent, "Enabled", m_Enabled, Bool));
 
 }

@@ -679,7 +679,7 @@ if (auto node = entity["GroomFibreComponent"]; node)
     comp.m_HSamples = std::clamp(node["HSamples"].as<u32>(comp.m_HSamples), static_cast<u32>(1), static_cast<u32>(32));
     if (const decltype(comp.m_PigmentMode) v = node["PigmentMode"].as<decltype(comp.m_PigmentMode)>(comp.m_PigmentMode); v >= static_cast<decltype(comp.m_PigmentMode)>(0) && v <= static_cast<decltype(comp.m_PigmentMode)>(2))
         comp.m_PigmentMode = v;
-    if (const decltype(comp.m_DebugMode) v = node["DebugMode"].as<decltype(comp.m_DebugMode)>(comp.m_DebugMode); v >= static_cast<decltype(comp.m_DebugMode)>(0) && v <= static_cast<decltype(comp.m_DebugMode)>(5))
+    if (const decltype(comp.m_DebugMode) v = node["DebugMode"].as<decltype(comp.m_DebugMode)>(comp.m_DebugMode); v >= static_cast<decltype(comp.m_DebugMode)>(0) && v <= static_cast<decltype(comp.m_DebugMode)>(6))
         comp.m_DebugMode = v;
     comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
 }

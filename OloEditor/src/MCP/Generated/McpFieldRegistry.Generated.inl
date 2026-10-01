@@ -502,7 +502,7 @@ registry.push_back(OLO_GFW_FIELD_RANGE(GroomFibreComponent, "IndexOfRefraction",
 registry.push_back(OLO_GFW_FIELD_RANGE(GroomFibreComponent, "Intensity", m_Intensity, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(64.0f)));
 registry.push_back(OLO_GFW_FIELD_RANGE(GroomFibreComponent, "HSamples", m_HSamples, OLO_GFW_BOUND(1), OLO_GFW_BOUND(32)));
 registry.push_back(OLO_GFW_FIELD_RANGE(GroomFibreComponent, "PigmentMode", m_PigmentMode, OLO_GFW_BOUND(0), OLO_GFW_BOUND(2)));
-registry.push_back(OLO_GFW_FIELD_RANGE(GroomFibreComponent, "DebugMode", m_DebugMode, OLO_GFW_BOUND(0), OLO_GFW_BOUND(5)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomFibreComponent, "DebugMode", m_DebugMode, OLO_GFW_BOUND(0), OLO_GFW_BOUND(6)));
 registry.push_back(OLO_GFW_FIELD(GroomFibreComponent, "Enabled", m_Enabled));
 
 }

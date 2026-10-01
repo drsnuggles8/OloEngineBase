@@ -689,7 +689,7 @@ case 2500729774u: // GroomFibreComponent
     {
         decltype(comp.m_DebugMode) v{};
         if (!SceneBinIO::Read(reader, v)) return false;
-        if (v >= static_cast<decltype(comp.m_DebugMode)>(0) && v <= static_cast<decltype(comp.m_DebugMode)>(5))
+        if (v >= static_cast<decltype(comp.m_DebugMode)>(0) && v <= static_cast<decltype(comp.m_DebugMode)>(6))
             comp.m_DebugMode = v;
     }
     if (!SceneBinIO::Read(reader, comp.m_Enabled)) return false;

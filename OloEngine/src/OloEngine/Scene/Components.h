@@ -6116,8 +6116,10 @@ namespace OloEngine
         /// GroomFibreDebugMode — which contribution the pass renders. The
         /// separated lobes are acceptance criterion 3's diagnostic output, and
         /// they are the only way to tell a too-dim TT from a too-bright TRT.
-        /// Reject for the same reason as above.
-        OLO_SERIALIZE(Reject, Min = 0, Max = 5)
+        /// Reject for the same reason as above. Max is the last enumerator,
+        /// MultipleScattering (6); ComponentRoundTrip's
+        /// GroomFibreComponentKeepsEveryDebugMode pins the two together.
+        OLO_SERIALIZE(Reject, Min = 0, Max = 6)
         u8 m_DebugMode = static_cast<u8>(GroomFibreDebugMode::Full);
 
         /// Light the coat at all. Off renders #1246's neutral ramp, which is
