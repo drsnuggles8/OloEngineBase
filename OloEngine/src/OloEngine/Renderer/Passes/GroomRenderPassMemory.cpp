@@ -11,12 +11,13 @@
 // workstream, and every row here is a READ of state the pass already keeps. Nothing
 // here allocates, frees or changes a cache decision.
 //
-// The rows separate what the pass's single `CachedBytes` counter lumps together, and add
-// what it never counted:
+// The rows split what the pass's single `CachedBytes` counter lumps together into capacity
+// and this frame's demand, and add what it never counted:
 //   * shared rest streams, ONCE each however many entities draw them — and the bytes a
 //     per-entity charge would have added, as alias savings;
 //   * per-entity geometry and deformation state;
-//   * every slot of every coat-volume ring, resident or not;
+//   * every slot of every coat-volume ring as capacity (the pass counts them too), with
+//     only the slots bound this frame as demand;
 //   * the CPU pose and shadow storage (CPU bytes, reported separately from GPU bytes).
 // Old buffers a rebuild or a ring-slot resize replaced are NOT here: they are retiring
 // allocations in the physical totals, which is where in-flight bytes belong.
@@ -69,10 +70,12 @@ namespace OloEngine
                 if (!stream)
                     continue;
                 capacity += stream->Bytes;
-                // The map holds one reference; every other is an entity entry drawing it.
-                const u64 holders = stream->GetRefCount() > 1 ? stream->GetRefCount() - 1 : 0;
-                if (holders > 0)
+                // Demanded when a draw this tick read it: an entry the cache retains for an
+                // entity that stopped drawing still HOLDS the stream, but does not demand it.
+                if (stream->BytesCountedTick == m_CacheTick)
                     demand += stream->Bytes;
+                // The map holds one reference; every other is an entity entry wearing it.
+                const u64 holders = stream->GetRefCount() > 1 ? stream->GetRefCount() - 1 : 0;
                 if (holders > 1)
                     perEntityChargeAvoided += (holders - 1) * stream->Bytes;
             }

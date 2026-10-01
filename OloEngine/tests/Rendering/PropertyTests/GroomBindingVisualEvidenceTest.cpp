@@ -78,12 +78,15 @@
 #include "OloEngine/Groom/GroomBindingBuilder.h"
 #include "OloEngine/Groom/GroomBindingCooker.h"
 #include "OloEngine/Groom/GroomBuilder.h"
+#include "OloEngine/Groom/GroomCoatShadow.h"
 #include "OloEngine/Groom/GroomCooker.h"
 #include "OloEngine/Groom/GroomDeformation.h"
 #include "OloEngine/Groom/GroomSurfaceFrame.h"
 #include "OloEngine/Groom/GroomVisibility.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
@@ -1069,5 +1072,157 @@ namespace OloEngine::Tests
         EXPECT_EQ(stats.GroomsDrawn, 1u) << "the coat must still draw; a vanished groom reads as a broken asset";
 
         m_GroomEntity.GetComponent<GroomBindingComponent>().m_Binding = m_BindingHandle;
+    }
+
+    // ── #1342: the memory report's groom rows ──────────────────────────────
+    //
+    // Two entities wearing one bound coat, each with a coat shadow, on a body
+    // that keeps bending. The report must count the shared rest stream ONCE
+    // (the second wearer's charge as alias savings), keep every coat-ring slot
+    // as capacity and only the bound ones as demand, drop
+    // demand — not capacity — when a wearer is unloaded, and not grow when the
+    // budget flips back and forth. Each demand figure is checked against the
+    // pass's own per-frame stats, an independent route to the same bytes.
+    TEST_F(GroomBindingVisualEvidenceTest, TheMemoryReportCountsTheSharedRestStreamOnceAndEveryCoatRingSlot)
+    {
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        SetBindingEnabled(true);
+        auto& coat = m_GroomEntity.AddOrReplaceComponent<GroomCoatShadowComponent>();
+        coat.m_Enabled = true;
+        coat.m_Mode = static_cast<u8>(GroomCoatShadow::CoatShadowMode::AnisotropicDensityVolume);
+        coat.m_Resolution = 32;
+
+        // Copied out first: emplacing into the pool the source lives in may move it.
+        const GroomComponent groomCopy = m_GroomEntity.GetComponent<GroomComponent>();
+        const GroomBindingComponent bindingCopy = m_GroomEntity.GetComponent<GroomBindingComponent>();
+        const GroomCoatShadowComponent coatCopy = coat;
+        Entity twin = GetScene().CreateEntity("GroomTwin");
+        twin.AddComponent<GroomComponent>(groomCopy);
+        twin.AddComponent<GroomBindingComponent>(bindingCopy);
+        twin.AddComponent<GroomCoatShadowComponent>(coatCopy);
+
+        const glm::vec3 eye{ 0.0f, 0.9f, 4.6f };
+        std::vector<u8> pixels;
+        const auto captureAt = [&](const f32 degrees)
+        {
+            SetBodyPose(degrees);
+            Capture("", eye, 0.0f, 0.10f, pixels);
+        };
+        const auto row = [](const RendererMemoryReport& report, std::string_view prefix) -> MemoryCapacityRow
+        {
+            for (const MemoryCapacityRow& candidate : report.Capacity)
+            {
+                if (candidate.Owner.ToView() == "GroomRenderPass" && candidate.Category.ToView().starts_with(prefix))
+                {
+                    return candidate;
+                }
+            }
+            ADD_FAILURE() << "no GroomRenderPass row '" << prefix << "'";
+            return {};
+        };
+        const auto drawnBytes = [](const GroomRenderStats& stats)
+        {
+            u64 sum = 0;
+            for (const u64 bytes : stats.Lod.BytesByRepresentation)
+            {
+                sum += bytes;
+            }
+            return sum;
+        };
+
+        // A moving body: each pose rebakes the deformed coats, so the ring turns.
+        for (const f32 degrees : { 0.0f, 25.0f, 50.0f, 75.0f })
+        {
+            captureAt(degrees);
+            ASSERT_FALSE(::testing::Test::HasFatalFailure());
+        }
+        const GroomRenderStats both = PassStats();
+        ASSERT_EQ(both.GroomsGpuDeformed, 2u) << "both wearers must be drawn deformed, or nothing is shared";
+        ASSERT_EQ(both.CoatShadow.ShadowedGrooms, 2u) << "both coats must be shadowed, or no ring exists";
+
+        const RendererMemoryReport report = RendererMemoryTracker::GetInstance().BuildReport();
+        const MemoryCapacityRow rest = row(report, "Groom shared rest streams");
+        const MemoryCapacityRow entities = row(report, "Groom per-entity");
+        const MemoryCapacityRow ring = row(report, "Groom coat-volume rings");
+        const MemoryCapacityRow cpu = row(report, "Groom CPU");
+        ASSERT_FALSE(::testing::Test::HasFatalFailure());
+        ASSERT_TRUE(rest.CapacityBytes && rest.ActiveDemandBytes && entities.ActiveDemandBytes && ring.CapacityBytes &&
+                    ring.ActiveDemandBytes);
+
+        std::printf("[groom-memory] rest %llu (demand %llu, saved %llu) | per-entity demand %llu | ring %llu "
+                    "(bound %llu, pass counts %llu) | cpu %llu\n",
+                    static_cast<unsigned long long>(*rest.CapacityBytes),
+                    static_cast<unsigned long long>(*rest.ActiveDemandBytes),
+                    static_cast<unsigned long long>(rest.AliasSavingsBytes.value_or(0)),
+                    static_cast<unsigned long long>(*entities.ActiveDemandBytes),
+                    static_cast<unsigned long long>(*ring.CapacityBytes),
+                    static_cast<unsigned long long>(*ring.ActiveDemandBytes),
+                    static_cast<unsigned long long>(both.CoatShadow.ResidentBytes),
+                    static_cast<unsigned long long>(cpu.CapacityBytes.value_or(0)));
+
+        // Drawn this frame, by two routes: the rows' demand and the pass's own
+        // once-per-entry, once-per-stream byte count.
+        EXPECT_EQ(*rest.ActiveDemandBytes + *entities.ActiveDemandBytes, drawnBytes(both))
+            << "the rows' demand disagrees with the bytes the pass says it drew";
+        // One coat, two wearers: the stream is counted once and the second
+        // wearer's copy is the saving. Earlier cases may have left streams of
+        // their own in the cache, so this is a lower bound on the savings.
+        EXPECT_GT(*rest.ActiveDemandBytes, 0u);
+        EXPECT_GE(rest.AliasSavingsBytes.value_or(0), *rest.ActiveDemandBytes)
+            << "the second wearer of one coat was not reported as a saving: the stream is counted per entity";
+        // The ring: the pass counts every slot of every drawn coat, and the row
+        // holds at least those (coats cached by earlier cases add to it). Only
+        // the slots bound this frame are demand; the slot a recording may still
+        // read is capacity on top of that.
+        EXPECT_GE(*ring.CapacityBytes, both.CoatShadow.ResidentBytes)
+            << "the ring row misses slots the pass itself counts as resident";
+        EXPECT_GT(*ring.ActiveDemandBytes, 0u);
+        EXPECT_GT(*ring.CapacityBytes, *ring.ActiveDemandBytes)
+            << "a rebaking coat kept only its bound slot, or every slot was reported as demanded";
+        EXPECT_FALSE(cpu.IsGpu);
+        EXPECT_GT(cpu.CapacityBytes.value_or(0), 0u) << "the CPU pose and deformation storage is missing";
+
+        // Unload one wearer: its entry stays cached (capacity) but is no longer
+        // drawn (demand). Same coat, same pose, so its share is exactly half.
+        GetScene().DestroyEntity(twin);
+        captureAt(75.0f);
+        ASSERT_FALSE(::testing::Test::HasFatalFailure());
+        const GroomRenderStats one = PassStats();
+        ASSERT_EQ(one.GroomsGpuDeformed, 1u);
+        const RendererMemoryReport unloaded = RendererMemoryTracker::GetInstance().BuildReport();
+        const MemoryCapacityRow entitiesAfter = row(unloaded, "Groom per-entity");
+        const MemoryCapacityRow ringAfter = row(unloaded, "Groom coat-volume rings");
+        const MemoryCapacityRow restAfter = row(unloaded, "Groom shared rest streams");
+        ASSERT_FALSE(::testing::Test::HasFatalFailure());
+        EXPECT_EQ(entitiesAfter.CapacityBytes, entities.CapacityBytes)
+            << "unloading a wearer freed its entry at once; the cache retains it";
+        EXPECT_EQ(entitiesAfter.ActiveDemandBytes.value_or(0) * 2u, *entities.ActiveDemandBytes)
+            << "the unloaded wearer's geometry is still reported as demanded";
+        EXPECT_EQ(ringAfter.ActiveDemandBytes.value_or(0) * 2u, *ring.ActiveDemandBytes)
+            << "the unloaded wearer's coat volume is still reported as demanded";
+        EXPECT_EQ(restAfter.ActiveDemandBytes, rest.ActiveDemandBytes) << "the remaining wearer still draws the stream";
+        EXPECT_EQ(restAfter.ActiveDemandBytes.value_or(0) + entitiesAfter.ActiveDemandBytes.value_or(0), drawnBytes(one));
+
+        // Rapid budget flips: a revisited budget is served from the cache, so
+        // the second round adds nothing.
+        auto& groom = m_GroomEntity.GetComponent<GroomComponent>();
+        const u32 fullBudget = groom.m_MaxRenderStrands;
+        std::array<u64, 2> capacityAfterRound{};
+        for (u64& capacity : capacityAfterRound)
+        {
+            for (const u32 budget : { fullBudget / 2u, fullBudget })
+            {
+                groom.m_MaxRenderStrands = budget;
+                captureAt(75.0f);
+                ASSERT_FALSE(::testing::Test::HasFatalFailure());
+            }
+            const RendererMemoryReport flipped = RendererMemoryTracker::GetInstance().BuildReport();
+            capacity = row(flipped, "Groom per-entity").CapacityBytes.value_or(0) +
+                       row(flipped, "Groom shared rest streams").CapacityBytes.value_or(0);
+        }
+        EXPECT_EQ(capacityAfterRound[1], capacityAfterRound[0]) << "flipping between two budgets keeps adding geometry";
+        groom.m_MaxRenderStrands = fullBudget;
+        m_GroomEntity.RemoveComponent<GroomCoatShadowComponent>();
     }
 } // namespace OloEngine::Tests
