@@ -236,6 +236,20 @@ namespace OloEngine
                                                                       const Options& options = {},
                                                                       const std::filesystem::path& outputPath = {});
 
+        // What an archive holds, from its object headers alone. One extension
+        // carries two kinds of content: an archive with polygons is a
+        // MeshSource, and one holding only curves is a groom SOURCE, which this
+        // importer cooks into the .ologroom the asset registry holds
+        // (EditorAssetManager::GetRegistrationType, #1542). An archive that
+        // cannot be opened or traversed comes back with every flag false.
+        struct ArchiveContent
+        {
+            bool Readable = false;
+            bool Curves = false;   // at least one ICurves prim
+            bool Polygons = false; // at least one IPolyMesh or ISubD prim
+        };
+        [[nodiscard]] static ArchiveContent InspectArchive(const std::filesystem::path& path);
+
         // True when the archive at `path` contains at least one ICurves prim.
         // The editor uses it to route an .abc to this importer rather than to
         // AlembicMeshImporter — one extension, two schemas.

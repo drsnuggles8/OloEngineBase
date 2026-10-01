@@ -925,27 +925,29 @@ namespace OloEngine
         }
 
         // Same depth bound as Visit, for the same reason. This one answers a
-        // yes/no routing question, so hitting the bound answers "no" rather than
+        // routing question, so hitting the bound stops looking rather than
         // failing — an archive that deep is not one this build will import
-        // anyway, and Import's own Visit reports the depth by name.
-        [[nodiscard]] bool AnyCurvesUnder(const Abc::IObject& obj, u32 depth = 0)
+        // anyway, and Import's own Visit reports the depth by name. Reads object
+        // headers only, never a sample, and stops once both schemas are seen.
+        void ScanSchemas(const Abc::IObject& obj, AlembicGroomImporter::ArchiveContent& content, u32 depth = 0)
         {
-            if (depth > kMaxTraversalDepth)
+            if (depth > kMaxTraversalDepth || (content.Curves && content.Polygons))
             {
-                return false;
+                return;
             }
-            if (AbcG::ICurves::matches(obj.getHeader()))
+            const Abc::ObjectHeader& header = obj.getHeader();
+            if (AbcG::ICurves::matches(header))
             {
-                return true;
+                content.Curves = true;
+            }
+            else if (AbcG::IPolyMesh::matches(header) || AbcG::ISubD::matches(header))
+            {
+                content.Polygons = true;
             }
             for (sizet i = 0; i < obj.getNumChildren(); ++i)
             {
-                if (AnyCurvesUnder(obj.getChild(i), depth + 1u))
-                {
-                    return true;
-                }
+                ScanSchemas(obj.getChild(i), content, depth + 1u);
             }
-            return false;
         }
 
         [[nodiscard]] bool OpenArchive(const std::filesystem::path& path, Abc::IArchive& outArchive, std::string& outReason)
@@ -977,24 +979,32 @@ namespace OloEngine
         }
     } // anonymous namespace
 
-    bool AlembicGroomImporter::ArchiveContainsCurves(const std::filesystem::path& path)
+    AlembicGroomImporter::ArchiveContent AlembicGroomImporter::InspectArchive(const std::filesystem::path& path)
     {
+        ArchiveContent content;
         Abc::IArchive archive;
         std::string reason;
         if (!OpenArchive(path, archive, reason))
         {
-            OLO_CORE_TRACE("AlembicGroomImporter::ArchiveContainsCurves: {}", reason);
-            return false;
+            OLO_CORE_TRACE("AlembicGroomImporter::InspectArchive: {}", reason);
+            return content;
         }
         try
         {
-            return AnyCurvesUnder(archive.getTop());
+            ScanSchemas(archive.getTop(), content);
+            content.Readable = true;
         }
         catch (const std::exception& e)
         {
-            OLO_CORE_WARN("AlembicGroomImporter::ArchiveContainsCurves: traversal of '{}' threw: {}", path.string(), e.what());
-            return false;
+            OLO_CORE_WARN("AlembicGroomImporter::InspectArchive: traversal of '{}' threw: {}", path.string(), e.what());
+            content = {};
         }
+        return content;
+    }
+
+    bool AlembicGroomImporter::ArchiveContainsCurves(const std::filesystem::path& path)
+    {
+        return InspectArchive(path).Curves;
     }
 
     AlembicGroomImporter::SidecarCookResult AlembicGroomImporter::ImportAndCookToSidecar(
