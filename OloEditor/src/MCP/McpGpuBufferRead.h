@@ -52,7 +52,11 @@ namespace OloEngine::MCP::GpuBufferRead
 
     // Values come from ShaderBindingLayout, so only coverage can drift, and
     // McpGpuBufferReadTest.EveryStorageBindingHasAName pins that.
-#define OLO_SSBO_ENTRY(name) NamedBinding{ #name, ShaderBindingLayout::name }
+#define OLO_SSBO_ENTRY(name)             \
+    NamedBinding                         \
+    {                                    \
+        #name, ShaderBindingLayout::name \
+    }
     inline constexpr std::array kStorageBindings{
         OLO_SSBO_ENTRY(SSBO_GPU_PARTICLES),
         OLO_SSBO_ENTRY(SSBO_ALIVE_INDICES),
