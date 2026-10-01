@@ -5,6 +5,7 @@
 #include "OloEngine/Asset/AssetImporter.h"
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
+#include "OloEngine/Asset/PlaceholderAsset.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Core/Log.h"
@@ -102,7 +103,18 @@ namespace OloEngine
 
                     // Load the asset data
                     auto asset = tempAssetManager->GetAsset(metadata.Handle);
-                    if (asset)
+                    // A load that fails comes back as the type's PLACEHOLDER, not
+                    // null, and is not cached, so it never reaches the pack. It
+                    // used to be counted as loaded: a build that dropped every
+                    // groom .abc reported "0 failed".
+                    if (asset && PlaceholderAssetManager::IsPlaceholderAsset(asset))
+                    {
+                        ++failedCount;
+                        OLO_CORE_WARN("AssetPackBuilder: asset {} ({}) did not load and is NOT in the pack; the editor "
+                                      "draws a placeholder for it",
+                                      metadata.Handle, metadata.FilePath.string());
+                    }
+                    else if (asset)
                     {
                         ++loadedCount;
                         OLO_CORE_TRACE("AssetPackBuilder: Loaded asset {} ({})", metadata.Handle, metadata.FilePath.string());
@@ -164,6 +176,7 @@ namespace OloEngine
 
             // Call the existing implementation with the populated temporary manager
             result = BuildImpl(tempAssetManager, settings, internalProgress, cancelToken);
+            result.m_FailedAssetCount = failedCount;
 
             // Stop progress forwarding and wait briefly for task to notice
             progressUpdateActive.store(false, std::memory_order_release);

@@ -32,6 +32,8 @@ namespace OloEngine
             sizet m_AssetCount = 0;
             sizet m_SceneCount = 0;
             std::filesystem::path m_OutputPath;
+            // Registered assets that did not load and are therefore NOT in the pack.
+            sizet m_FailedAssetCount = 0;
         };
 
         /**

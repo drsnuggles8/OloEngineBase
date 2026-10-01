@@ -825,6 +825,12 @@ namespace OloEngine
 
         OLO_CORE_INFO("[GameBuild] Asset pack created: {} assets, {} scenes",
                       assetCount, sceneCount);
+        if (buildResult.m_FailedAssetCount > 0)
+        {
+            OLO_CORE_WARN("[GameBuild] {} registered asset(s) did not load and are NOT in the pack — the "
+                          "AssetPackBuilder warnings above name each one",
+                          buildResult.m_FailedAssetCount);
+        }
         return true;
     }
 
