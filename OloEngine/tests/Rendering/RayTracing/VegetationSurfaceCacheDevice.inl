@@ -116,6 +116,54 @@ TEST_F(RayTracingDevice, VegetationSharesPartStreamsAndRecoversAfterUnsubmittedO
     cache.Shutdown();
 }
 
+// #1533: a group from a layer that casts no raster shadow is staged OUT of the
+// shadow-caster mask lane, so ray-traced shadow rays pass through it as the
+// shadow maps do while every other ray still hits it. Read off the GPU Scene
+// instances the TLAS is built from, folded the way the TLAS folds them.
+TEST_F(RayTracingDevice, ANonCastingVegetationGroupIsStagedOutOfTheShadowCasterLane)
+{
+    ScopedVulkanRenderCommandSelection selection;
+    const std::array<Vertex, 4> vertices{
+        Vertex({ -0.5f, 0, 0 }, { 0, 1, 0 }, { 0, 0 }), Vertex({ 0.5f, 0, 0 }, { 0, 1, 0 }, { 1, 0 }),
+        Vertex({ 0.5f, 1, 0 }, { 0, 1, 0 }, { 1, 1 }), Vertex({ -0.5f, 1, 0 }, { 0, 1, 0 }, { 0, 1 })
+    };
+    RT::VegetationSurfaceInput input;
+    input.Owner = 23u;
+    input.FirstPlantId = 1533u;
+    input.Rest = VertexBuffer::Create(vertices.data(), sizeof(vertices));
+    input.VertexCount = 4u;
+    input.Rows.Add({ glm::vec4(0, 0, 0, 1), glm::vec4(0, 1, 1, FoliageWindPhase(1533u)), glm::vec4(1) });
+    input.Parts.Add({ 0u, { 0u, 1u, 2u, 2u, 3u, 0u }, {} });
+    input.DetailedDistance = 12.0f;
+    GPUScene scene;
+    RT::VegetationSurfaceCache cache;
+    cache.SetEnabled(true);
+    const auto stagedMasks = [&](const bool castShadows)
+    {
+        input.CastShadows = castShadows;
+        cache.BeginFrame();
+        scene.BeginExtraction(23u, glm::vec3(0));
+        cache.Queue(input);
+        cache.FinishExtraction(scene);
+        static_cast<void>(scene.EndExtraction());
+        std::vector<u32> masks;
+        for (u32 slot = 0u; slot < scene.GetInstanceSlotCount(); ++slot)
+            if (const auto* instance = scene.GetLiveInstanceRecordBySlot(slot))
+                masks.push_back(RT::PackInstanceMask(instance->VisibilityMask));
+        return masks;
+    };
+
+    const std::vector<u32> casting = stagedMasks(true);
+    ASSERT_EQ(casting.size(), 1u);
+    EXPECT_EQ(casting[0], RT::kInstanceMaskAll) << "a casting layer occludes every ray, shadow rays included";
+
+    const std::vector<u32> nonCasting = stagedMasks(false);
+    ASSERT_EQ(nonCasting.size(), 1u);
+    EXPECT_EQ(nonCasting[0] & RT::kInstanceMaskShadowCaster, 0u) << "shadow rays would hit a layer the shadow maps skip";
+    EXPECT_EQ(nonCasting[0], RT::kVisibilityMaskNoShadowCast) << "every ray but a shadow ray must still see it";
+    cache.Shutdown();
+}
+
 TEST_F(RayTracingDevice, HybridConsumersUseTextureAlphaFactorCutoffAndHeapGeneration)
 {
     ScopedVulkanRenderCommandSelection selection;

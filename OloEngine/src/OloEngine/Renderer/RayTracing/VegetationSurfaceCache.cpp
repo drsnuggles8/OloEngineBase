@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/RayTracing/VegetationSurfaceCache.h"
+#include "OloEngine/Renderer/RayTracing/RayTracingTypes.h"
 #include "OloEngine/Renderer/RayTracing/VegetationDiagnostics.h"
 
 #include "OloEngine/Renderer/CameraRelative.h"
@@ -390,12 +391,15 @@ namespace OloEngine::RayTracing
                                                        .m_VertexCount = static_cast<u32>(vertices),
                                                        .m_Flags = GPUSceneGeometryFlagDeformed | GPUSceneGeometryFlagVegetation,
                                                    });
-                scene.ExtractInstance({ input.Owner, geometryKey, input.FirstPlantId }, {
-                                                                                            .m_WorldTransform = input.WorldTransform,
-                                                                                            .m_Material = materialKey,
-                                                                                            .m_Flags = GPUSceneInstanceFlagAnimated,
-                                                                                            .m_DeformedContentRevision = entry.Revision,
-                                                                                        });
+                scene.ExtractInstance({ input.Owner, geometryKey, input.FirstPlantId },
+                                      {
+                                          .m_WorldTransform = input.WorldTransform,
+                                          .m_Material = materialKey,
+                                          .m_VisibilityMask = input.CastShadows ? GPUSceneInstanceInput{}.m_VisibilityMask
+                                                                                : kVisibilityMaskNoShadowCast,
+                                          .m_Flags = GPUSceneInstanceFlagAnimated,
+                                          .m_DeformedContentRevision = entry.Revision,
+                                      });
                 firstIndex += partIndices;
             }
             m_Stats.PlantsRepresented += static_cast<u32>(input.Rows.Num());

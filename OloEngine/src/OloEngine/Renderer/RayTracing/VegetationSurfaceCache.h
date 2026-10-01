@@ -59,6 +59,10 @@ namespace OloEngine::RayTracing
         f32 DetailedDistance = 0.0f;
         f32 VelocityBound = 0.0f;
         bool HistoryContinuous = false;
+        /// The layer's CastShadows (#1533). False stages the group's instances
+        /// out of the shadow-caster mask lane, so shadow rays pass through what
+        /// the raster tier does not cast while reflections still see it.
+        bool CastShadows = true;
     };
 
 } // namespace OloEngine::RayTracing
@@ -79,7 +83,8 @@ namespace OloEngine
                                       TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::DistanceToView)>::Value &&
                                       TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::DetailedDistance)>::Value &&
                                       TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::VelocityBound)>::Value &&
-                                      TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::HistoryContinuous)>::Value;
+                                      TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::HistoryContinuous)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::CastShadows)>::Value;
     };
 } // namespace OloEngine
 

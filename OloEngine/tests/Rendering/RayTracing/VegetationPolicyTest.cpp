@@ -61,4 +61,15 @@ namespace OloEngine::Tests
         EXPECT_TRUE(std::isinf(VegetationPolicy::WindVelocityBound(1.0f, 1.0f, 2.0f, 0.0f,
                                                                    true, true, 8.0f, 0.0f, 1.0f, 1.0f)));
     }
+
+    // #1533: a layer that casts no raster shadow is masked out of shadow rays, so
+    // only a reflection ray can read it. Traced for shadows alone, the showcase
+    // dog's non-casting lawn overran the budget and withheld the whole TLAS.
+    TEST(VegetationPolicy, ALayerThatCastsNoShadowIsTracedOnlyForReflections)
+    {
+        EXPECT_FALSE(VegetationPolicy::TracesLayer(/*castsShadows*/ false, /*reflectionsReadVegetation*/ false));
+        EXPECT_TRUE(VegetationPolicy::TracesLayer(false, true));
+        EXPECT_TRUE(VegetationPolicy::TracesLayer(true, false));
+        EXPECT_TRUE(VegetationPolicy::TracesLayer(true, true));
+    }
 } // namespace OloEngine::Tests

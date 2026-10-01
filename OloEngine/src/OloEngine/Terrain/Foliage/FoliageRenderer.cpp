@@ -65,11 +65,14 @@ namespace OloEngine
             maxRow = std::max(maxRow, row);
         }
         const f32 transformNorm = std::sqrt(maxColumn * maxRow);
+        const bool reflectionsReadVegetation = Renderer3D::GetPostProcessSettings().RayTracedReflection.Enabled;
         for (const auto& group : m_Registry.GetGroups())
         {
             if (group.m_LayerIndex >= m_Layers.Num())
                 continue;
             const auto& layer = m_Layers[group.m_LayerIndex];
+            if (!RayTracing::VegetationPolicy::TracesLayer(layer.CastShadows, reflectionsReadVegetation))
+                continue; // no ray this frame reads a layer that casts no shadow
             if (layer.UseImpostor && layer.Impostor.IsValid() && !layer.MeshVBO)
             {
                 // An atlas without its source mesh cannot produce a ray-space
@@ -196,6 +199,7 @@ namespace OloEngine
                     // keeps that cadence honest.
                     ApplyFoliageInteraction(wind, layer.InteractionResponse);
                     input.HistoryContinuous = WindSystem::HasStableParameters() && m_Time >= m_PrevTime;
+                    input.CastShadows = layer.CastShadows;
                     const bool hierarchy = layer.WindWeights.x + layer.WindWeights.y + layer.WindWeights.z > 0.0f;
                     input.VelocityBound = RayTracing::VegetationPolicy::WindVelocityBound(
                         layer.WindStrength, layer.WindSpeed, layer.WindWeights.y, layer.WindWeights.z,

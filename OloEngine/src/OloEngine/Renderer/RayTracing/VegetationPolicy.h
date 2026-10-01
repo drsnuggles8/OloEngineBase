@@ -77,6 +77,18 @@ namespace OloEngine::RayTracing
                        : MaximumProxyAge;
         }
 
+        // Whether a foliage layer enters the ray-traced scene (#1533). Shadow
+        // rays and reflection rays are vegetation's only readers, and a layer
+        // that casts no raster shadow is masked out of shadow rays to match
+        // the raster tier. Without reflections nothing would read it: building
+        // it costs geometry and acceleration structures for no ray, and past
+        // the budget its refusals withhold the whole TLAS -- the showcase
+        // dog's non-casting lawn switched off every ray-traced shadow that way.
+        [[nodiscard]] static constexpr bool TracesLayer(bool castsShadows, bool reflectionsReadVegetation)
+        {
+            return castsShadows || reflectionsReadVegetation;
+        }
+
         [[nodiscard]] static bool CanReuseSnapshot(f32 currentTime, f32 snapshotTime,
                                                    f32 velocityBound, bool historyContinuous)
         {
