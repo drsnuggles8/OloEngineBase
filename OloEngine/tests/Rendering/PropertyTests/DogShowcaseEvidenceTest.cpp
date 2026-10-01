@@ -101,6 +101,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <limits>
 #include <map>
 #include <numeric>
 #include <sstream>
@@ -1231,6 +1232,396 @@ namespace OloEngine::Tests
                 }
             }
             WritePng(name, strip, kTileW * columns, kTileH * rows);
+        }
+
+        // ── Linear frames and the dog's regions (#1533 review, sections 6 and 7) ──
+
+        // A frame BEFORE tone mapping: scene colour's linear luminance, the
+        // entity id and the world point under each pixel, top row first. A
+        // ratio of two of these is a ratio of radiance; a difference of LDR luma
+        // is a difference after a curve, and says how much a change SHOWS, not
+        // how much light moved.
+        struct LinearFrame
+        {
+            u32 Width = 0;
+            u32 Height = 0;
+            std::vector<f32> Luminance;
+            std::vector<i32> Ids;
+            std::vector<glm::vec3> World; // NaN where only the clear is
+        };
+
+        // Settles `settleFrames` editor frames at `view`, then averages the
+        // linear luminance of the next `averageFrames` (the resolve's jitter
+        // and the stochastic strands, averaged rather than sampled once). The
+        // ids and the world points are the last frame's.
+        void CaptureLinear(const View& view, LinearFrame& out, u32 settleFrames = 24, u32 averageFrames = 8)
+        {
+            const glm::vec3 d = glm::normalize(view.Target - view.Eye);
+            EditorCamera camera(view.Fov, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.02f, 400.0f);
+            camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+            camera.SetPose(view.Eye, std::atan2(d.x, -d.z), std::asin(std::clamp(-d.y, -1.0f, 1.0f)));
+            RunEditorFrames(camera, settleFrames);
+            out = LinearFrame{};
+            std::vector<f32> colour;
+            std::vector<i32> ids;
+            std::vector<f32> depth;
+            for (u32 frame = 0; frame < std::max(averageFrames, 1u); ++frame)
+            {
+                RunEditorFrames(camera, 1);
+                auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
+                ASSERT_TRUE(fb);
+                const u32 width = fb->GetSpecification().Width;
+                const u32 height = fb->GetSpecification().Height;
+                const u32 activeWidth = std::min(fb->GetActiveViewportWidth(), width);
+                const u32 activeHeight = std::min(fb->GetActiveViewportHeight(), height);
+                colour.resize(static_cast<sizet>(width) * height * 4u);
+                ReadbackRgbaFloat(fb->GetColorAttachmentRendererID(0), width, height, colour);
+                if (out.Luminance.empty())
+                {
+                    out.Width = activeWidth;
+                    out.Height = activeHeight;
+                    out.Luminance.assign(static_cast<sizet>(activeWidth) * activeHeight, 0.0f);
+                }
+                ASSERT_EQ(out.Width, activeWidth);
+                for (u32 y = 0; y < activeHeight; ++y)
+                {
+                    for (u32 x = 0; x < activeWidth; ++x)
+                    {
+                        const sizet src = (static_cast<sizet>(y) * width) + x;
+                        const sizet dst = (static_cast<sizet>(activeHeight - 1u - y) * activeWidth) + x;
+                        out.Luminance[dst] += ((0.2126f * colour[src * 4u]) + (0.7152f * colour[(src * 4u) + 1u]) +
+                                               (0.0722f * colour[(src * 4u) + 2u])) /
+                                              static_cast<f32>(std::max(averageFrames, 1u));
+                    }
+                }
+                if (frame + 1u < std::max(averageFrames, 1u))
+                {
+                    continue;
+                }
+                ids.resize(static_cast<sizet>(width) * height);
+                ::glGetTextureImage(fb->GetColorAttachmentRendererID(1), 0, GL_RED_INTEGER, GL_INT,
+                                    static_cast<GLsizei>(ids.size() * sizeof(i32)), ids.data());
+                depth.resize(static_cast<sizet>(width) * height);
+                ::glGetTextureImage(fb->GetDepthAttachmentRendererID(), 0, GL_DEPTH_COMPONENT, GL_FLOAT,
+                                    static_cast<GLsizei>(depth.size() * sizeof(f32)), depth.data());
+                const glm::mat4 inverseViewProjection = glm::inverse(camera.GetViewProjection());
+                out.Ids.assign(out.Luminance.size(), -1);
+                out.World.assign(out.Luminance.size(), glm::vec3(std::numeric_limits<f32>::quiet_NaN()));
+                for (u32 y = 0; y < activeHeight; ++y)
+                {
+                    for (u32 x = 0; x < activeWidth; ++x)
+                    {
+                        const sizet src = (static_cast<sizet>(y) * width) + x;
+                        const sizet dst = (static_cast<sizet>(activeHeight - 1u - y) * activeWidth) + x;
+                        out.Ids[dst] = ids[src];
+                        if (!(depth[src] < 1.0f))
+                        {
+                            continue;
+                        }
+                        // glm::perspective is RH_NO: depth [0, 1] is NDC z [-1, 1].
+                        const glm::vec4 ndc{ ((static_cast<f32>(x) + 0.5f) / static_cast<f32>(activeWidth)) * 2.0f - 1.0f,
+                                             ((static_cast<f32>(y) + 0.5f) / static_cast<f32>(activeHeight)) * 2.0f - 1.0f,
+                                             (depth[src] * 2.0f) - 1.0f, 1.0f };
+                        const glm::vec4 world = inverseViewProjection * ndc;
+                        out.World[dst] = glm::vec3(world) / world.w;
+                    }
+                }
+            }
+        }
+
+        // The parts of the dog the review names. Boxes in the dog's own frame --
+        // standing at the origin facing +Z, 0.70 m to the ear tips, 1.08 m nose to
+        // tail tip (Dog.gltf), the eyes where Dog.rig.json puts them -- applied to
+        // a PAUSED pose, so each coat pixel lands in the part of the dog its world
+        // point is in. Not a segmentation; a stable partition for a record.
+        enum class CoatRegion : u8
+        {
+            Face,
+            EyeSockets,
+            ChinChest,
+            Torso,
+            Underside,
+            TailBase,
+            Tail,
+            Legs,
+            Count
+        };
+        static constexpr sizet kCoatRegions = static_cast<sizet>(CoatRegion::Count);
+        static constexpr std::array<const char*, kCoatRegions> kCoatRegionNames{
+            "face", "eye sockets", "chin/chest", "torso", "underside", "tail base", "tail", "legs"
+        };
+
+        [[nodiscard]] CoatRegion ClassifyCoat(const glm::vec3& p) const
+        {
+            const f32 socket = 1.8f * m_Dog.Rig.SocketRadius; // the fur round each eye, lids included
+            for (const auto& eye : m_Dog.Rig.Eyes)
+            {
+                if (glm::distance(p, eye.Centre) < socket)
+                {
+                    return CoatRegion::EyeSockets;
+                }
+            }
+            if (p.z > 0.36f && p.y > 0.48f)
+            {
+                return CoatRegion::Face;
+            }
+            if (p.z > 0.20f && p.y > 0.22f)
+            {
+                return CoatRegion::ChinChest; // under the jaw, the throat and the chest ruff
+            }
+            if (p.z < -0.36f && p.y > 0.22f)
+            {
+                return CoatRegion::Tail;
+            }
+            if (p.z < -0.22f && p.y > 0.30f)
+            {
+                return CoatRegion::TailBase; // where the tail lies against the rump
+            }
+            if (p.y <= 0.18f)
+            {
+                return CoatRegion::Legs;
+            }
+            if (p.y <= 0.32f)
+            {
+                return CoatRegion::Underside;
+            }
+            return CoatRegion::Torso;
+        }
+
+        // Each coat pixel's region (Count where the pixel is not coat), and the
+        // coat's SPARSE FRINGE: coat pixels with something that is not the dog
+        // within two pixels, where the coat thins out against the background.
+        struct CoatMask
+        {
+            std::vector<u8> Region;
+            std::vector<u8> Fringe;
+        };
+
+        [[nodiscard]] CoatMask MaskCoat(const LinearFrame& frame) const
+        {
+            const i32 coatId = static_cast<i32>(static_cast<u32>(m_Dog.Coat));
+            const auto isDog = [&](i32 id)
+            {
+                if (id == coatId || id == static_cast<i32>(static_cast<u32>(m_Dog.Body)))
+                {
+                    return true;
+                }
+                for (const Entity& eye : m_Dog.Eyes)
+                {
+                    if (eye && id == static_cast<i32>(static_cast<u32>(eye)))
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            };
+            CoatMask mask;
+            mask.Region.assign(frame.Ids.size(), static_cast<u8>(CoatRegion::Count));
+            mask.Fringe.assign(frame.Ids.size(), 0u);
+            for (u32 y = 0; y < frame.Height; ++y)
+            {
+                for (u32 x = 0; x < frame.Width; ++x)
+                {
+                    const sizet i = (static_cast<sizet>(y) * frame.Width) + x;
+                    if (frame.Ids[i] != coatId || std::isnan(frame.World[i].x))
+                    {
+                        continue;
+                    }
+                    mask.Region[i] = static_cast<u8>(ClassifyCoat(frame.World[i]));
+                    for (i32 dy = -2; dy <= 2 && mask.Fringe[i] == 0u; ++dy)
+                    {
+                        for (i32 dx = -2; dx <= 2; ++dx)
+                        {
+                            const i32 nx = static_cast<i32>(x) + dx;
+                            const i32 ny = static_cast<i32>(y) + dy;
+                            if (nx >= 0 && ny >= 0 && nx < static_cast<i32>(frame.Width) &&
+                                ny < static_cast<i32>(frame.Height) &&
+                                !isDog(frame.Ids[(static_cast<sizet>(ny) * frame.Width) + static_cast<sizet>(nx)]))
+                            {
+                                mask.Fringe[i] = 1u;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            return mask;
+        }
+
+        // ── The rest bake against the pose bake (#1533 review, section 7) ──
+        //
+        // The per-frame POSE bake is the reference the rest bake is regressed
+        // against, NOT ground truth: it is a voxel grid of the drawn strands too,
+        // at the same cell size, through the same transmittance model, with no
+        // path tracing behind it. So the ratios below are a regression metric --
+        // how far the cheap bake strays from the expensive one, as a share of the
+        // self-shadow's own effect -- and not an error against the real coat.
+        struct BakeRegion
+        {
+            f64 Pixels = 0.0;
+            f64 Effect = 0.0; // mean |POSE - OFF|: what the self-shadow does here
+            f64 Diff = 0.0;   // mean |POSE - REST|
+            f64 Floor = 0.0;  // mean |POSE - POSE again|: this comparison's own noise
+            // The difference past its noise, as a share of the effect.
+            [[nodiscard]] f64 Ratio() const
+            {
+                return Effect > 0.0 ? std::max(0.0, Diff - Floor) / Effect : 0.0;
+            }
+            [[nodiscard]] bool Measurable() const
+            {
+                return Pixels >= 400.0 && Effect > 4.0 * Floor;
+            }
+        };
+
+        static constexpr std::array<const char*, 4> kBakeRegionNames{ "face", "torso", "tail", "all coat" };
+
+        struct BakeComparison
+        {
+            std::array<BakeRegion, 4> Regions{}; // kBakeRegionNames
+            // LOCAL error, in units of the coat's own mean effect: over the
+            // 16x16 tiles with enough coat in them, each tile's difference past
+            // its noise divided by the COAT-WIDE effect -- its 95th percentile
+            // and its worst. A regional mean can hide one bad patch; these
+            // cannot, and a tile the self-shadow barely touches cannot inflate
+            // them through a small denominator of its own.
+            f64 TileP95 = 0.0;
+            f64 TileWorst = 0.0;
+            u32 Tiles = 0;
+        };
+
+        // Four arms in ONE IDENTICAL STATE each: the clip replayed from its start
+        // with the solver reset (PlayClip), paused at `frames`, the frame
+        // sequences reset and the history cold -- so the bake is the only thing
+        // that differs. POSE, POSE again (the noise), REST, and OFF (no
+        // self-shadow). Linear scene colour throughout.
+        BakeComparison CompareRestBake(const char* clip, u32 frames, const View& where, const std::string& pngStem,
+                                       bool writeOff)
+        {
+            auto& shadow = m_Dog.Coat.GetComponent<GroomCoatShadowComponent>();
+            auto& anim = m_Dog.Body.GetComponent<AnimationStateComponent>();
+            const auto arm = [&](bool atRest, bool enabled, LinearFrame& out, const std::string& png)
+            {
+                shadow.m_BakeAtRest = atRest;
+                shadow.m_Enabled = enabled;
+                (void)PlayClip(clip, true, frames);
+                anim.m_IsPlaying = false;
+                Renderer3D::ResetFrameSequences();
+                ColdHistory();
+                CaptureLinear(where, out);
+                if (!png.empty())
+                {
+                    std::vector<u8> ldr;
+                    ReadbackFrame(ldr);
+                    WritePng(png, ldr, kWidth, kHeight);
+                }
+            };
+            LinearFrame pose;
+            LinearFrame poseAgain;
+            LinearFrame rest;
+            LinearFrame off;
+            arm(false, true, pose, pngStem.empty() ? std::string() : pngStem + "Pose");
+            arm(false, true, poseAgain, std::string());
+            arm(true, true, rest, pngStem.empty() ? std::string() : pngStem + "Rest");
+            arm(true, false, off, (pngStem.empty() || !writeOff) ? std::string() : pngStem + "Off");
+            shadow.m_BakeAtRest = true;
+            shadow.m_Enabled = true;
+            BakeComparison result;
+            if (HasFatalFailure() || pose.Luminance.empty() || pose.Luminance.size() != off.Luminance.size())
+            {
+                return result;
+            }
+            const CoatMask mask = MaskCoat(pose);
+            const auto regionOf = [](u8 region) -> sizet
+            {
+                switch (static_cast<CoatRegion>(region))
+                {
+                case CoatRegion::Face:
+                case CoatRegion::EyeSockets:
+                    return 0u;
+                case CoatRegion::Tail:
+                    return 2u;
+                default:
+                    return 1u;
+                }
+            };
+            constexpr u32 kTile = 16u;
+            const u32 tilesX = (pose.Width + kTile - 1u) / kTile;
+            const u32 tilesY = (pose.Height + kTile - 1u) / kTile;
+            std::vector<BakeRegion> tiles(static_cast<sizet>(tilesX) * tilesY);
+            for (u32 y = 0; y < pose.Height; ++y)
+            {
+                for (u32 x = 0; x < pose.Width; ++x)
+                {
+                    const sizet i = (static_cast<sizet>(y) * pose.Width) + x;
+                    if (mask.Region[i] == static_cast<u8>(CoatRegion::Count))
+                    {
+                        continue;
+                    }
+                    const f64 effect = std::abs(static_cast<f64>(pose.Luminance[i]) - off.Luminance[i]);
+                    const f64 diff = std::abs(static_cast<f64>(pose.Luminance[i]) - rest.Luminance[i]);
+                    const f64 noise = std::abs(static_cast<f64>(pose.Luminance[i]) - poseAgain.Luminance[i]);
+                    for (BakeRegion* region : { &result.Regions[regionOf(mask.Region[i])], &result.Regions[3],
+                                                &tiles[(static_cast<sizet>(y / kTile) * tilesX) + (x / kTile)] })
+                    {
+                        region->Pixels += 1.0;
+                        region->Effect += effect;
+                        region->Diff += diff;
+                        region->Floor += noise;
+                    }
+                }
+            }
+            const auto normalise = [](BakeRegion& region)
+            {
+                if (region.Pixels > 0.0)
+                {
+                    region.Effect /= region.Pixels;
+                    region.Diff /= region.Pixels;
+                    region.Floor /= region.Pixels;
+                }
+            };
+            for (BakeRegion& region : result.Regions)
+            {
+                normalise(region);
+            }
+            std::vector<f64> ratios;
+            const f64 coatEffect = result.Regions[3].Effect;
+            for (BakeRegion& tile : tiles)
+            {
+                normalise(tile);
+                if (tile.Pixels >= 64.0 && coatEffect > 0.0)
+                {
+                    ratios.push_back(std::max(0.0, tile.Diff - tile.Floor) / coatEffect);
+                }
+            }
+            std::ranges::sort(ratios);
+            result.Tiles = static_cast<u32>(ratios.size());
+            if (!ratios.empty())
+            {
+                result.TileP95 = ratios[static_cast<sizet>(std::ceil(0.95 * static_cast<f64>(ratios.size()))) - 1u];
+                result.TileWorst = ratios.back();
+            }
+            return result;
+        }
+
+        static void ReportRestBake(const char* name, u32 frames, const BakeComparison& c)
+        {
+            std::printf("[dog] rest bake %-9s frame %3u |", name, frames);
+            for (sizet r = 0; r < c.Regions.size(); ++r)
+            {
+                const BakeRegion& region = c.Regions[r];
+                if (region.Measurable())
+                {
+                    std::printf(" %s %.3f (effect %.4f, floor %.4f, %.0f px) |", kBakeRegionNames[r], region.Ratio(),
+                                region.Effect, region.Floor, region.Pixels);
+                }
+                else
+                {
+                    std::printf(" %s below its floor (%.0f px) |", kBakeRegionNames[r], region.Pixels);
+                }
+            }
+            std::printf(" local, tile difference over the coat's effect: p95 %.3f, worst %.3f of %u tiles\n", c.TileP95,
+                        c.TileWorst, c.Tiles);
+            std::fflush(stdout);
         }
     };
 
@@ -2503,6 +2894,285 @@ namespace OloEngine::Tests
     }
 
     // =========================================================================
+    // #1533 review, section 6: the light the body cannot stop, region by region.
+    //
+    // A strand's receive knows about the body only where a shadow map answers
+    // AT the strand -- the opaque cascades and the opaque atlas
+    // (groom-into-the-shadow-techniques.md rule 8). Everywhere else the coat's
+    // own volume is all that stands between a strand and its light, and the
+    // body the coat grows on stops none of it:
+    //   - a light that does not cast (the scene's rim, CastShadows: false);
+    //   - the environment (the irradiance cube, along the fibre's eye-facing
+    //     normal and behind it);
+    //   - the VSM, which answers at the coat's light-exit point.
+    // Each is set against a BODY-AWARE reference built from the engine's own
+    // shadowed direct light, in LINEAR scene colour, region by region:
+    //   KEY       the sun alone, casting, as shipped: the scale of the rest;
+    //   RIM       the rim alone, as shipped (not casting); twice, for the floor;
+    //   RIM+BODY  the rim alone, made the light that owns the cascades;
+    //   VSM       the sun alone under the Virtual Shadow Map;
+    //   ENV       the sky's irradiance alone, as shipped;
+    //   DOME      a UNIFORM sky as 24 equal-area directional lights, each alone
+    //             in its own frames, summed: not casting, then casting. Their
+    //             ratio is the share of a sky the body lets reach that region's
+    //             fur; the shipped environment's is 1 everywhere by
+    //             construction. It is not path traced: it is the cascades' own
+    //             verdict on the body, from 24 directions.
+    // Multiple scattering is OFF in every arm: only a casting light gets its
+    // forwarded term, so leaving it on would credit each reference with light
+    // the arm it is compared against cannot receive.
+    //
+    // A RECORD: the gaps are documented (rule 8), CastShadows keeps its meaning,
+    // and nothing is held to a bound but that each comparison rises above its
+    // own repeat noise. OLO_DOG_LIGHTING=1 runs it (about 4,000 frames);
+    // OLO_DOG_LIGHTING_EXPORT=1 also rewrites assets/tests/visual/Dog_Lighting.txt.
+    // =========================================================================
+    TEST_F(DogShowcaseEvidenceTest, TheLightTheBodyCannotStopIsMeasuredRegionByRegion)
+    {
+        const char* run = std::getenv("OLO_DOG_LIGHTING");
+        const char* exportFlag = std::getenv("OLO_DOG_LIGHTING_EXPORT");
+        const bool exporting = exportFlag != nullptr && exportFlag[0] == '1';
+        if (!exporting && (run == nullptr || run[0] != '1'))
+        {
+            GTEST_SKIP() << "set OLO_DOG_LIGHTING=1 to measure (OLO_DOG_LIGHTING_EXPORT=1 also rewrites "
+                            "Dog_Lighting.txt)";
+        }
+        SetPath(RenderingPath::Forward);
+        (void)PlayClip("Idle", true, 40);
+        auto& anim = m_Dog.Body.GetComponent<AnimationStateComponent>();
+        anim.m_IsPlaying = false; // one pose, one coat, for every arm
+        auto& simulation = m_Dog.Coat.GetComponent<GroomSimulationComponent>();
+        simulation.m_Enabled = false;
+        auto& coatShadow = m_Dog.Coat.GetComponent<GroomCoatShadowComponent>();
+        auto& sun = m_Sun.GetComponent<DirectionalLightComponent>();
+        auto& rim = m_Rim.GetComponent<DirectionalLightComponent>();
+        ProceduralSkyComponent* sky = nullptr;
+        for (auto e : GetScene().GetAllEntitiesWith<ProceduralSkyComponent>())
+        {
+            sky = &Entity{ e, &GetScene() }.GetComponent<ProceduralSkyComponent>();
+        }
+        ASSERT_NE(sky, nullptr);
+        const auto setVsm = [](bool enabled)
+        {
+            auto& shadowMap = Renderer3D::GetShadowMap();
+            ShadowSettings settings = shadowMap.GetSettings();
+            settings.VSM.Enabled = enabled;
+            shadowMap.SetSettings(settings);
+            return shadowMap.IsVirtualShadowMapActive() == enabled;
+        };
+        const DirectionalLightComponent shippedSun = sun;
+        const DirectionalLightComponent shippedRim = rim;
+        const f32 shippedIbl = sky->m_IBLIntensity;
+        const bool shippedMultiple = coatShadow.m_MultipleScattering;
+        struct Restore
+        {
+            std::function<void()> Undo;
+            ~Restore()
+            {
+                Undo();
+            }
+        } restore{ [&]
+                   {
+                       sun = shippedSun;
+                       rim = shippedRim;
+                       sky->m_IBLIntensity = shippedIbl;
+                       coatShadow.m_MultipleScattering = shippedMultiple;
+                       (void)setVsm(false);
+                       anim.m_IsPlaying = true;
+                       simulation.m_Enabled = true;
+                   } };
+        coatShadow.m_MultipleScattering = false;
+
+        // One light setup per arm, everything else as shipped. A light at zero
+        // intensity still exists; the cascades go to the brightest light that
+        // CASTS (Scene.cpp), so an arm that wants the rim to own them stops the
+        // sun casting.
+        const auto lights = [&](f32 sunIntensity, bool sunCasts, f32 rimIntensity, bool rimCasts, f32 ibl)
+        {
+            sun = shippedSun;
+            rim = shippedRim;
+            sun.m_Intensity = sunIntensity;
+            sun.m_CastShadows = sunCasts;
+            rim.m_Intensity = rimIntensity;
+            rim.m_CastShadows = rimCasts;
+            sky->m_IBLIntensity = ibl;
+        };
+        const auto capture = [&](const View& view, LinearFrame& out, u32 settle = 24, u32 average = 8)
+        {
+            Renderer3D::ResetFrameSequences();
+            ColdHistory();
+            CaptureLinear(view, out, settle, average);
+        };
+
+        // The dome: equal-area directions over the upper hemisphere (a
+        // Fibonacci spiral, uniform in height), each carrying 1/24 of the sky.
+        constexpr u32 kDome = 24;
+        constexpr f32 kDomeIntensity = 4.0f;
+        std::array<glm::vec3, kDome> dome{};
+        for (u32 k = 0; k < kDome; ++k)
+        {
+            const f32 up = 1.0f - ((static_cast<f32>(k) + 0.5f) / static_cast<f32>(kDome));
+            const f32 across = std::sqrt(std::max(0.0f, 1.0f - (up * up)));
+            const f32 phi = static_cast<f32>(k) * 2.39996323f; // the golden angle
+            dome[k] = { across * std::cos(phi), up, across * std::sin(phi) };
+        }
+
+        const std::array<View, 4> views{ { HeroViews()[0], HeroViews()[4], HeroViews()[3], HeroViews()[1] } };
+        constexpr sizet kFringe = kCoatRegions;
+        constexpr sizet kAll = kCoatRegions + 1u;
+        std::string report;
+        report += "# DogShowcaseEvidenceTest.TheLightTheBodyCannotStopIsMeasuredRegionByRegion (#1533 review, section 6)\n";
+        report += "# Linear scene colour (Rec.709 luminance, before tone mapping), GL Forward, the editor's quality tier,\n";
+        report += "# Idle frame 40, simulation off, multiple scattering off in every arm; 24 settle + 8 averaged frames\n";
+        report += "# per arm (dome: 12 + 4 per direction). Means over each region's coat pixels.\n";
+        report += "#   rimLeak    (RIM - RIM+BODY) / RIM: the share of the rim's light on this fur the body would stop\n";
+        report += "#   floor      |RIM - RIM again| / RIM: the same arm against itself\n";
+        report += "#   leak/key   (RIM - RIM+BODY) / KEY: that light against the key's on the same fur\n";
+        report += "#   skyVis     DOME casting / DOME not casting: the share of a uniform sky the body lets reach it\n";
+        report += "#              (the shipped environment's is 1 by construction)\n";
+        report += "#   env/dome   (ENV / DOME not casting) over its coat-wide value: where the shipped environment puts\n";
+        report += "#              its light, against an unoccluded uniform sky evaluated through the fibre's lobes\n";
+        report += "#   vsm/key    VSM / KEY: the sun on this fur under the VSM's exit point against the opaque cascades\n";
+        bool measurable = false;
+        for (const View& view : views)
+        {
+            SCOPED_TRACE(view.Name);
+            LinearFrame key, rimOpen, rimAgain, rimBody, vsm, env, domeFrame;
+            lights(shippedSun.m_Intensity, true, 0.0f, false, 0.0f);
+            capture(view, key);
+            ASSERT_FALSE(HasFatalFailure());
+            lights(0.0f, false, shippedRim.m_Intensity, false, 0.0f);
+            capture(view, rimOpen);
+            capture(view, rimAgain);
+            lights(0.0f, false, shippedRim.m_Intensity, true, 0.0f);
+            capture(view, rimBody);
+            lights(shippedSun.m_Intensity, true, 0.0f, false, 0.0f);
+            ASSERT_TRUE(setVsm(true)) << "the VSM did not come up";
+            capture(view, vsm);
+            ASSERT_TRUE(setVsm(false));
+            lights(0.0f, false, 0.0f, false, shippedIbl);
+            capture(view, env);
+            std::vector<f64> domeOpen(key.Luminance.size(), 0.0);
+            std::vector<f64> domeBody(key.Luminance.size(), 0.0);
+            for (u32 k = 0; k < kDome; ++k)
+            {
+                for (const bool casts : { false, true })
+                {
+                    lights(kDomeIntensity / static_cast<f32>(kDome), casts, 0.0f, false, 0.0f);
+                    sun.m_Direction = -dome[k];
+                    capture(view, domeFrame, 12, 4);
+                    ASSERT_FALSE(HasFatalFailure());
+                    std::vector<f64>& sum = casts ? domeBody : domeOpen;
+                    for (sizet i = 0; i < sum.size(); ++i)
+                    {
+                        sum[i] += domeFrame.Luminance[i];
+                    }
+                }
+            }
+
+            const CoatMask mask = MaskCoat(key);
+            struct Sums
+            {
+                f64 Pixels = 0.0;
+                f64 Key = 0.0;
+                f64 Rim = 0.0;
+                f64 RimAgain = 0.0;
+                f64 RimBody = 0.0;
+                f64 Vsm = 0.0;
+                f64 Env = 0.0;
+                f64 DomeOpen = 0.0;
+                f64 DomeBody = 0.0;
+            };
+            std::array<Sums, kCoatRegions + 2u> sums{};
+            std::vector<u8> leakMap(static_cast<sizet>(key.Width) * key.Height * 4u, 0u);
+            std::vector<u8> skyMap = leakMap;
+            for (sizet i = 0; i < key.Luminance.size(); ++i)
+            {
+                const f64 grey = std::clamp(std::pow(key.Luminance[i] / (1.0 + key.Luminance[i]), 1.0 / 2.2), 0.0, 1.0);
+                for (std::vector<u8>* map : { &leakMap, &skyMap })
+                {
+                    (*map)[i * 4u] = (*map)[(i * 4u) + 1u] = (*map)[(i * 4u) + 2u] = static_cast<u8>(64.0 * grey);
+                    (*map)[(i * 4u) + 3u] = 255u;
+                }
+                if (mask.Region[i] == static_cast<u8>(CoatRegion::Count))
+                {
+                    continue;
+                }
+                const auto add = [&](Sums& s)
+                {
+                    s.Pixels += 1.0;
+                    s.Key += key.Luminance[i];
+                    s.Rim += rimOpen.Luminance[i];
+                    s.RimAgain += rimAgain.Luminance[i];
+                    s.RimBody += rimBody.Luminance[i];
+                    s.Vsm += vsm.Luminance[i];
+                    s.Env += env.Luminance[i];
+                    s.DomeOpen += domeOpen[i];
+                    s.DomeBody += domeBody[i];
+                };
+                add(sums[mask.Region[i]]);
+                add(sums[kAll]);
+                if (mask.Fringe[i] != 0u)
+                {
+                    add(sums[kFringe]);
+                }
+                // The leak, per pixel: red where the body would stop the rim.
+                const f64 leak = rimOpen.Luminance[i] > 1.0e-6f
+                                     ? std::clamp((rimOpen.Luminance[i] - rimBody.Luminance[i]) / rimOpen.Luminance[i], 0.0f, 1.0f)
+                                     : 0.0;
+                leakMap[i * 4u] = static_cast<u8>(255.0 * leak);
+                leakMap[(i * 4u) + 1u] = static_cast<u8>(255.0 * (1.0 - leak) * 0.6);
+                leakMap[(i * 4u) + 2u] = 0u;
+                const f64 visible = domeOpen[i] > 1.0e-6 ? std::clamp(domeBody[i] / domeOpen[i], 0.0, 1.0) : 1.0;
+                skyMap[i * 4u] = static_cast<u8>(255.0 * (1.0 - visible));
+                skyMap[(i * 4u) + 1u] = 0u;
+                skyMap[(i * 4u) + 2u] = static_cast<u8>(255.0 * visible);
+            }
+            WritePng(std::string("DogLighting_GL_Forward_") + view.Name + "RimLeak", leakMap, key.Width, key.Height);
+            WritePng(std::string("DogLighting_GL_Forward_") + view.Name + "SkyVisibility", skyMap, key.Width, key.Height);
+
+            const Sums& all = sums[kAll];
+            const f64 envDomeAll = all.DomeOpen > 0.0 ? all.Env / all.DomeOpen : 0.0;
+            char row[512];
+            std::snprintf(row, sizeof(row), "\n%s\nregion        pixels      key      rim  rimLeak  floor  leak/key   skyVis  env/dome  vsm/key\n",
+                          view.Name);
+            report += row;
+            for (sizet r = 0; r < sums.size(); ++r)
+            {
+                const Sums& s = sums[r];
+                if (s.Pixels < 200.0)
+                {
+                    continue; // too few of this region's pixels in this view to say anything
+                }
+                const char* name = r < kCoatRegions ? kCoatRegionNames[r] : (r == kFringe ? "sparse fringe" : "all coat");
+                const f64 n = s.Pixels;
+                const f64 rimLeak = s.Rim > 0.0 ? (s.Rim - s.RimBody) / s.Rim : 0.0;
+                const f64 floor = s.Rim > 0.0 ? std::abs(s.Rim - s.RimAgain) / s.Rim : 0.0;
+                const f64 leakVsKey = s.Key > 0.0 ? (s.Rim - s.RimBody) / s.Key : 0.0;
+                const f64 skyVisibility = s.DomeOpen > 0.0 ? s.DomeBody / s.DomeOpen : 0.0;
+                const f64 envVsDome = (s.DomeOpen > 0.0 && envDomeAll > 0.0) ? (s.Env / s.DomeOpen) / envDomeAll : 0.0;
+                const f64 vsmVsKey = s.Key > 0.0 ? s.Vsm / s.Key : 0.0;
+                std::snprintf(row, sizeof(row), "%-12s %7.0f  %7.4f  %7.4f  %7.3f  %5.3f  %8.3f  %7.3f  %8.3f  %7.3f\n", name,
+                              n, s.Key / n, s.Rim / n, rimLeak, floor, leakVsKey, skyVisibility, envVsDome, vsmVsKey);
+                report += row;
+            }
+            // Measurable: the rim's light on the coat and the body's share of it
+            // both rise above the arm's own repeat noise.
+            const f64 allFloor = all.Rim > 0.0 ? std::abs(all.Rim - all.RimAgain) / all.Rim : 1.0;
+            const f64 allLeak = all.Rim > 0.0 ? (all.Rim - all.RimBody) / all.Rim : 0.0;
+            EXPECT_GT(all.Rim / std::max(all.Pixels, 1.0), 0.0) << "the rim does not reach the coat in this view";
+            EXPECT_LT(all.DomeBody, all.DomeOpen) << "a casting dome let as much light through the body as a non-casting one";
+            measurable = measurable || allLeak > 4.0 * allFloor;
+        }
+        EXPECT_TRUE(measurable) << "in no view did the body's share of the rim rise above the rim's own repeat noise";
+        std::printf("%s", report.c_str());
+        std::fflush(stdout);
+        const fs::path reportPath = exporting ? fs::path{ OLO_TEST_EDITOR_ROOT } / "assets" / "tests" / "visual" / "Dog_Lighting.txt"
+                                              : TempDir("lighting-report") / "Dog_Lighting.txt";
+        std::ofstream(reportPath) << report;
+    }
+
+    // =========================================================================
     // #1533 E1: each shadow view casts the share of the coat its width floor
     // allows (GroomShadowCasterFraction) -- a prefix of a hashed strand order --
     // instead of all 280k strands into every cascade. Pinned on the real dog: the
@@ -2632,87 +3302,51 @@ namespace OloEngine::Tests
     }
 
     // =========================================================================
-    // #1533 E1: the coat baked at rest shadows the moving dog as the exact pose
-    // bake does. Idle is motion the body carries -- breathing, a head drift, a
-    // wag -- where looking the rest volume up at each strand's bind point is
-    // exact but for the grid, so the two frames must differ far less than the
-    // self-shadow itself changes them. Two seconds into the clip, where the
-    // head has drifted from its rest: a lookup that ignored the turn, or read
-    // the rest volume at the posed point (#1248's refusal), fails here.
+    // #1533 E1: the coat baked at rest shadows the moving dog as the per-frame
+    // pose bake does. Idle is motion the body carries -- breathing, a head
+    // drift, a wag -- where looking the rest volume up at each strand's bind
+    // point is exact but for the grid, so the two must differ far less than the
+    // self-shadow itself changes the coat. Two seconds into the clip, where the
+    // head has drifted from its rest: a lookup that ignored the turn, or read the
+    // rest volume at the posed point (#1248's refusal), fails here. Measured as
+    // CompareRestBake measures: linear, by region, past its own noise, locally.
     // =========================================================================
     TEST_F(DogShowcaseEvidenceTest, TheRestBakeShadowsTheMovingCoatAsThePoseBakeDoes)
     {
         SetPath(RenderingPath::Forward);
-        auto& shadow = m_Dog.Coat.GetComponent<GroomCoatShadowComponent>();
-        auto& anim = m_Dog.Body.GetComponent<AnimationStateComponent>();
-        const View view = HeroViews()[2]; // the face close-up: the head moves most in Idle
-        const auto at = [&](bool atRest, bool enabled, const std::string& name, std::vector<u8>& out)
-        {
-            shadow.m_BakeAtRest = atRest;
-            shadow.m_Enabled = enabled;
-            (void)PlayClip("Idle", true, 120); // replayed from the clip's start: one pose for every arm
-            anim.m_IsPlaying = false;
-            ColdHistory();
-            Capture(name, view, out);
-        };
-        std::vector<u8> pose;
-        std::vector<u8> poseAgain;
-        std::vector<u8> rest;
-        std::vector<u8> off;
-        at(false, true, "DogShowcaseCoatBake_GL_Forward_Pose", pose);
+        const BakeComparison c =
+            CompareRestBake("Idle", 120, HeroViews()[2], "DogShowcaseCoatBake_GL_Forward_", true); // the face close-up
         ASSERT_FALSE(HasFatalFailure());
-        at(false, true, "", poseAgain);
-        at(true, true, "DogShowcaseCoatBake_GL_Forward_Rest", rest);
-        at(true, false, "DogShowcaseCoatBake_GL_Forward_Off", off);
-        shadow.m_BakeAtRest = true;
-        shadow.m_Enabled = true;
-        anim.m_IsPlaying = true;
-        ASSERT_FALSE(HasFatalFailure());
-
-        const auto meanLumaDelta = [](const std::vector<u8>& a, const std::vector<u8>& b)
+        m_Dog.Body.GetComponent<AnimationStateComponent>().m_IsPlaying = true;
+        ReportRestBake("IdleHead", 120, c);
+        const BakeRegion& all = c.Regions[3];
+        const BakeRegion& face = c.Regions[0];
+        ASSERT_TRUE(all.Measurable()) << "the self-shadow must rise above the arms' own noise to measure anything";
+        EXPECT_LT(all.Ratio(), 0.25) << "the rest bake shadows the moving coat unlike the pose bake";
+        if (face.Measurable())
         {
-            f64 sum = 0.0;
-            for (sizet i = 0; i + 3 < a.size(); i += 4)
-            {
-                const f64 la = (0.2126 * a[i]) + (0.7152 * a[i + 1]) + (0.0722 * a[i + 2]);
-                const f64 lb = (0.2126 * b[i]) + (0.7152 * b[i + 1]) + (0.0722 * b[i + 2]);
-                sum += std::abs(la - lb);
-            }
-            return sum / std::max<f64>(1.0, static_cast<f64>(a.size() / 4u));
-        };
-        const u32 floor = CountDiffering(pose, poseAgain);
-        const u32 restVsPose = CountDiffering(pose, rest);
-        const u32 effect = CountDiffering(pose, off);
-        const f64 restLuma = meanLumaDelta(pose, rest);
-        const f64 effectLuma = meanLumaDelta(pose, off);
-        std::printf("[dog] coat bake: rest vs pose %u px (mean |dL| %.3f), self-shadow %u px (mean |dL| %.3f), repeat "
-                    "floor %u px\n",
-                    restVsPose, restLuma, effect, effectLuma, floor);
-        std::fflush(stdout);
-        EXPECT_GT(effect, 4u * std::max(floor, 1500u)) << "the self-shadow must be visible here to measure anything";
-        EXPECT_LT(restVsPose, effect / 4u) << "the rest bake shadows the moving coat unlike the pose bake";
-        EXPECT_LT(restLuma, 0.25 * effectLuma) << "the rest bake changes the coat's brightness unlike the pose bake";
+            EXPECT_LT(face.Ratio(), 0.25) << "the face, which moves most in Idle, strays from the pose bake";
+        }
+        EXPECT_LT(c.TileP95, 1.0) << "one tile in twenty strays from the pose bake by more than the coat's mean self-shadow";
     }
 
     // =========================================================================
-    // #1533 review: the rest bake's limits, measured motion by motion. The
-    // volume is baked once at rest and each strand looks its neighbourhood up
-    // there through its root's turn -- exact for what the root carries rigidly,
-    // approximate wherever neighbours move relative to one another. (Motion of
-    // the whole entity needs no case: both bakes live in groom object space,
-    // so it moves neither.) Against the exact per-frame pose bake, from the
-    // views where each motion shows: Idle's head drift (the contract above),
+    // #1533 review: the rest bake's limits, motion by motion and through time.
+    // The volume is baked once at rest and each strand looks its neighbourhood
+    // up there through its root's turn -- exact for what the root carries
+    // rigidly, approximate wherever neighbours move relative to one another.
+    // (Motion of the whole entity needs no case: both bakes live in groom
+    // object space.) From the views where each motion shows: Idle's head drift,
     // Idle's wag (the plume's secondary motion), the Walk's legs (articulated)
-    // and the Sit's folded hind legs against the belly (contact). The ratio of
-    // the rest/pose difference to the self-shadow's own effect is the record;
-    // each case must stay under half the effect, so a rest bake that stopped
-    // tracking a motion at all -- a difference as large as the shadow -- fails.
+    // and the Sit's folded hind legs against the belly (contact) -- each at
+    // THREE instants of its clip, 20 frames apart, so a motion is followed
+    // rather than sampled once. A regression record (see CompareRestBake); each
+    // instant's coat-wide ratio must stay under half the effect, so a rest bake
+    // that stopped tracking a motion at all fails.
     // =========================================================================
     TEST_F(DogShowcaseEvidenceTest, TheRestBakeIsMeasuredMotionByMotion)
     {
         SetPath(RenderingPath::Forward);
-        auto& shadow = m_Dog.Coat.GetComponent<GroomCoatShadowComponent>();
-        auto& anim = m_Dog.Body.GetComponent<AnimationStateComponent>();
         struct Case
         {
             const char* Name;
@@ -2726,55 +3360,38 @@ namespace OloEngine::Tests
             { "WalkLegs", "Walk", 45, { "WalkLegs", { 1.45f, 0.30f, 0.20f }, { 0.0f, 0.26f, 0.0f }, 35.0f } },
             { "SitFolded", "Sit", 150, { "SitFolded", { 1.30f, 0.30f, -0.35f }, { 0.0f, 0.22f, -0.10f }, 35.0f } },
         } };
-        const auto meanLumaDelta = [](const std::vector<u8>& a, const std::vector<u8>& b)
-        {
-            f64 sum = 0.0;
-            for (sizet i = 0; i + 3 < a.size(); i += 4)
-            {
-                const f64 la = (0.2126 * a[i]) + (0.7152 * a[i + 1]) + (0.0722 * a[i + 2]);
-                const f64 lb = (0.2126 * b[i]) + (0.7152 * b[i + 1]) + (0.0722 * b[i + 2]);
-                sum += std::abs(la - lb);
-            }
-            return sum / std::max<f64>(1.0, static_cast<f64>(a.size() / 4u));
-        };
         for (const Case& c : cases)
         {
             SCOPED_TRACE(c.Name);
-            const auto at = [&](bool atRest, bool enabled, const std::string& name, std::vector<u8>& out)
+            std::array<f64, 4> worst{};
+            f64 worstTile = 0.0;
+            for (u32 instant = 0; instant < 3u; ++instant)
             {
-                shadow.m_BakeAtRest = atRest;
-                shadow.m_Enabled = enabled;
-                (void)PlayClip(c.Clip, true, c.Frames); // replayed from the clip's start: one pose per arm
-                anim.m_IsPlaying = false;
-                ColdHistory();
-                Capture(name, c.Where, out);
-            };
-            std::vector<u8> pose;
-            std::vector<u8> poseAgain;
-            std::vector<u8> rest;
-            std::vector<u8> off;
-            at(false, true, std::string("DogCoatBakeLimits_GL_Forward_") + c.Name + "Pose", pose);
-            at(false, true, "", poseAgain);
-            at(true, true, std::string("DogCoatBakeLimits_GL_Forward_") + c.Name + "Rest", rest);
-            at(true, false, "", off);
-            ASSERT_FALSE(HasFatalFailure());
-            const u32 floor = CountDiffering(pose, poseAgain);
-            const u32 restVsPose = CountDiffering(pose, rest);
-            const u32 effect = CountDiffering(pose, off);
-            const f64 restLuma = meanLumaDelta(pose, rest);
-            const f64 effectLuma = meanLumaDelta(pose, off);
-            std::printf("[dog] rest bake %-9s rest vs pose %6u px (mean |dL| %.3f) | self-shadow %6u px (mean |dL| "
-                        "%.3f) | ratio %.3f px, %.3f luma | repeat floor %u px\n",
-                        c.Name, restVsPose, restLuma, effect, effectLuma,
-                        effect > 0u ? static_cast<f64>(restVsPose) / static_cast<f64>(effect) : 0.0,
-                        effectLuma > 0.0 ? restLuma / effectLuma : 0.0, floor);
+                const u32 frames = c.Frames + (20u * instant);
+                const BakeComparison comparison =
+                    CompareRestBake(c.Clip, frames, c.Where,
+                                    instant == 0u ? std::string("DogCoatBakeLimits_GL_Forward_") + c.Name : std::string(),
+                                    false);
+                ASSERT_FALSE(HasFatalFailure());
+                ReportRestBake(c.Name, frames, comparison);
+                const BakeRegion& all = comparison.Regions[3];
+                EXPECT_TRUE(all.Measurable()) << "frame " << frames << ": the self-shadow is lost in the noise here";
+                EXPECT_LT(all.Ratio(), 0.5) << "frame " << frames << ": the rest bake stopped tracking this motion";
+                for (sizet r = 0; r < worst.size(); ++r)
+                {
+                    if (comparison.Regions[r].Measurable())
+                    {
+                        worst[r] = std::max(worst[r], comparison.Regions[r].Ratio());
+                    }
+                }
+                worstTile = std::max(worstTile, comparison.TileWorst);
+            }
+            std::printf("[dog] rest bake %-9s over three instants: worst face %.3f, torso %.3f, tail %.3f, all %.3f; worst "
+                        "local tile %.3f of the coat's effect\n",
+                        c.Name, worst[0], worst[1], worst[2], worst[3], worstTile);
             std::fflush(stdout);
-            EXPECT_GT(effect, 4u * std::max(floor, 1500u)) << "the self-shadow must be visible here to measure anything";
-            EXPECT_LT(restLuma, 0.5 * effectLuma) << "the rest bake stopped tracking this motion";
         }
-        shadow.m_BakeAtRest = true;
-        shadow.m_Enabled = true;
-        anim.m_IsPlaying = true;
+        m_Dog.Body.GetComponent<AnimationStateComponent>().m_IsPlaying = true;
     }
 
     // =========================================================================
