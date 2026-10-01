@@ -43,6 +43,7 @@
 #include "OloEngine/Core/YAMLConverters.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Font.h"
+#include "OloEngine/Terrain/TerrainMaterial.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -4632,6 +4633,51 @@ Entities:
         EXPECT_EQ(terrain.m_VTMaxImagePagesWide, 32u);
         EXPECT_FALSE(terrain.m_VTTrilinearEnabled);
         EXPECT_FALSE(terrain.m_VTCompressedCache);
+    }
+
+    // The terrain's material is AUTHORED -- what the scene file's Layers block
+    // loads -- and nothing rebuilds it once it is gone. The copy constructor and
+    // the assignment used to drop it as runtime state, so every textured terrain
+    // drew its untextured fallback in Play (Scene::Copy), and an undone terrain
+    // edit (ComponentChangeCommand assigns the snapshot back) lost its material
+    // in edit mode. Found on the dog showcase's lawn (#1533).
+    TEST(ComponentRoundTrip, TerrainMaterialSurvivesSceneCopyAndAssignment)
+    {
+        auto scene = Scene::Create();
+        Ref<TerrainMaterial> material = Ref<TerrainMaterial>::Create();
+        {
+            TerrainLayer turf;
+            turf.Name = "Turf";
+            turf.BaseColor = glm::vec3(0.07f, 0.10f, 0.035f);
+            ASSERT_EQ(material->AddLayer(turf), 0);
+        }
+        {
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& terrain = entity.AddComponent<TerrainComponent>();
+            terrain.m_Material = material;
+            terrain.m_MaterialNeedsRebuild = false; // as it is after its first build
+        }
+
+        // The exact call Scene::OnRuntimeStart makes.
+        Ref<Scene> copy = Scene::Copy(scene);
+        ASSERT_TRUE(static_cast<bool>(copy));
+        Entity copied = FindByTag(*copy, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(copied));
+        const auto& terrain = copied.GetComponent<TerrainComponent>();
+        ASSERT_TRUE(terrain.m_Material) << "the Play copy dropped the terrain's material";
+        EXPECT_EQ(terrain.m_Material.get(), material.get()) << "shared like an asset";
+        ASSERT_EQ(terrain.m_Material->GetLayerCount(), 1u);
+        EXPECT_EQ(terrain.m_Material->GetLayer(0).Name.ToStdString(), "Turf");
+        EXPECT_FALSE(terrain.m_MaterialNeedsRebuild) << "a built material is not rebuilt for the copy";
+
+        // The undo path: an edit, then the snapshot assigned back.
+        TerrainComponent live = terrain;
+        const TerrainComponent snapshot = live;
+        live.m_HeightScale = snapshot.m_HeightScale * 2.0f;
+        live = snapshot;
+        EXPECT_EQ(live.m_Material.get(), material.get()) << "an undone terrain edit dropped the material";
+        EXPECT_FALSE(live.m_MaterialNeedsRebuild);
+        EXPECT_TRUE(live.m_NeedsRebuild) << "the height field is still rebuilt after an assignment";
     }
 
     TEST(ComponentRoundTrip, TerrainVirtualTextureFieldsAreVisibleToUndoEquality)

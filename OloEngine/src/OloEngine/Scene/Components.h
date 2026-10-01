@@ -4786,9 +4786,16 @@ namespace OloEngine
 
         TerrainComponent() = default;
         TerrainComponent(const TerrainComponent& other)
-            : m_HeightmapPath(other.m_HeightmapPath), m_WorldSizeX(other.m_WorldSizeX), m_WorldSizeZ(other.m_WorldSizeZ), m_HeightScale(other.m_HeightScale), m_CollisionEnabled(other.m_CollisionEnabled), m_ProceduralEnabled(other.m_ProceduralEnabled), m_ProceduralSeed(other.m_ProceduralSeed), m_ProceduralResolution(other.m_ProceduralResolution), m_ProceduralOctaves(other.m_ProceduralOctaves), m_ProceduralFrequency(other.m_ProceduralFrequency), m_ProceduralLacunarity(other.m_ProceduralLacunarity), m_ProceduralPersistence(other.m_ProceduralPersistence), m_ProceduralErosionIterations(other.m_ProceduralErosionIterations), m_HeightShaping(other.m_HeightShaping), m_AutoMaterial(other.m_AutoMaterial), m_LayerRules(other.m_LayerRules), m_SplatmapGenResolution(other.m_SplatmapGenResolution), m_TessellationEnabled(other.m_TessellationEnabled), m_TargetTriangleSize(other.m_TargetTriangleSize), m_MorphRegion(other.m_MorphRegion), m_StreamingEnabled(other.m_StreamingEnabled), m_TileDirectory(other.m_TileDirectory), m_TileFilePattern(other.m_TileFilePattern), m_TileWorldSize(other.m_TileWorldSize), m_TileResolution(other.m_TileResolution), m_StreamingLoadRadius(other.m_StreamingLoadRadius), m_StreamingMaxTiles(other.m_StreamingMaxTiles), m_VirtualTextureEnabled(other.m_VirtualTextureEnabled), m_VTVirtualPagesWide(other.m_VTVirtualPagesWide), m_VTPageTexels(other.m_VTPageTexels), m_VTBorderTexels(other.m_VTBorderTexels), m_VTCacheTilesWide(other.m_VTCacheTilesWide), m_VTMaxTileBakesPerFrame(other.m_VTMaxTileBakesPerFrame), m_VTAdaptiveEnabled(other.m_VTAdaptiveEnabled), m_VTSectorsWide(other.m_VTSectorsWide), m_VTMaxImagePagesWide(other.m_VTMaxImagePagesWide), m_VTTrilinearEnabled(other.m_VTTrilinearEnabled), m_VTCompressedCache(other.m_VTCompressedCache), m_VoxelEnabled(other.m_VoxelEnabled), m_VoxelSize(other.m_VoxelSize), m_VoxelMesher(other.m_VoxelMesher)
+            : m_HeightmapPath(other.m_HeightmapPath), m_WorldSizeX(other.m_WorldSizeX), m_WorldSizeZ(other.m_WorldSizeZ), m_HeightScale(other.m_HeightScale), m_CollisionEnabled(other.m_CollisionEnabled), m_ProceduralEnabled(other.m_ProceduralEnabled), m_ProceduralSeed(other.m_ProceduralSeed), m_ProceduralResolution(other.m_ProceduralResolution), m_ProceduralOctaves(other.m_ProceduralOctaves), m_ProceduralFrequency(other.m_ProceduralFrequency), m_ProceduralLacunarity(other.m_ProceduralLacunarity), m_ProceduralPersistence(other.m_ProceduralPersistence), m_ProceduralErosionIterations(other.m_ProceduralErosionIterations), m_HeightShaping(other.m_HeightShaping), m_AutoMaterial(other.m_AutoMaterial), m_LayerRules(other.m_LayerRules), m_SplatmapGenResolution(other.m_SplatmapGenResolution), m_TessellationEnabled(other.m_TessellationEnabled), m_TargetTriangleSize(other.m_TargetTriangleSize), m_MorphRegion(other.m_MorphRegion), m_StreamingEnabled(other.m_StreamingEnabled), m_TileDirectory(other.m_TileDirectory), m_TileFilePattern(other.m_TileFilePattern), m_TileWorldSize(other.m_TileWorldSize), m_TileResolution(other.m_TileResolution), m_StreamingLoadRadius(other.m_StreamingLoadRadius), m_StreamingMaxTiles(other.m_StreamingMaxTiles), m_VirtualTextureEnabled(other.m_VirtualTextureEnabled), m_VTVirtualPagesWide(other.m_VTVirtualPagesWide), m_VTPageTexels(other.m_VTPageTexels), m_VTBorderTexels(other.m_VTBorderTexels), m_VTCacheTilesWide(other.m_VTCacheTilesWide), m_VTMaxTileBakesPerFrame(other.m_VTMaxTileBakesPerFrame), m_VTAdaptiveEnabled(other.m_VTAdaptiveEnabled), m_VTSectorsWide(other.m_VTSectorsWide), m_VTMaxImagePagesWide(other.m_VTMaxImagePagesWide), m_VTTrilinearEnabled(other.m_VTTrilinearEnabled), m_VTCompressedCache(other.m_VTCompressedCache), m_VoxelEnabled(other.m_VoxelEnabled), m_VoxelSize(other.m_VoxelSize), m_VoxelMesher(other.m_VoxelMesher), m_Material(other.m_Material), m_MaterialNeedsRebuild(other.m_MaterialNeedsRebuild)
         {
-            // Runtime state intentionally NOT copied — force rebuild
+            // THE MATERIAL IS AUTHORED, not runtime state: its layers are what the
+            // scene file's Layers block loads, and nothing rebuilds them. It is
+            // shared like an asset (Regenerate keeps it for the same reason), with
+            // its build state, so a built one is not rebuilt -- and so the Play
+            // copy (Scene::Copy) and an undo assignment keep the turf they had.
+            // Dropping it drew every textured terrain in Play with the untextured
+            // fallback, and an undone terrain edit lost its material in edit mode.
+            // The rest of the runtime state is not copied: it is rebuilt.
         }
         TerrainComponent& operator=(const TerrainComponent& other)
         {
@@ -4835,10 +4842,12 @@ namespace OloEngine
                 m_VoxelEnabled = other.m_VoxelEnabled;
                 m_VoxelSize = other.m_VoxelSize;
                 m_VoxelMesher = other.m_VoxelMesher;
-                // Runtime state reset — force rebuild
+                // The authored material is shared, with its build state (see the
+                // copy constructor); the runtime state is reset and rebuilt.
+                m_Material = other.m_Material;
+                m_MaterialNeedsRebuild = other.m_MaterialNeedsRebuild;
                 m_TerrainData = nullptr;
                 m_ChunkManager = nullptr;
-                m_Material = nullptr;
                 m_Streamer = nullptr;
                 m_VoxelOverride = nullptr;
                 m_VirtualTexture = nullptr;
@@ -4846,7 +4855,6 @@ namespace OloEngine
                 m_VoxelQuadMeshes = nullptr;
                 m_VoxelAutoSeeded = false;
                 m_NeedsRebuild = true;
-                m_MaterialNeedsRebuild = true;
                 m_AutoSplatNeedsRebuild = true;
                 m_RuntimeCollisionBodyToken = 0;
             }
