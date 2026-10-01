@@ -158,6 +158,14 @@ namespace OloEngine
         // recognisable as "a cleared backbuffer", and nothing the GL editor draws).
         static constexpr f32 kClearColor[4] = { 0.392f, 0.584f, 0.929f, 1.0f };
 
+        // Present pacing (#1533): FIFO with vsync on; with it off, MAILBOX
+        // where the surface offers it (unthrottled, never tearing), else
+        // IMMEDIATE, else FIFO. Recorded here and applied by recreating the
+        // swapchain at the top of the next SwapBuffers, never mid-frame: the
+        // editor's panels -- the vsync checkbox among them -- draw INSIDE the
+        // frame recording SwapBuffers owns.
+        void SetVSync(bool enabled) override;
+
       private:
         void CreateSwapchain();
         void DestroySwapchain();
@@ -168,6 +176,10 @@ namespace OloEngine
         FrameRenderCallback m_FrameRenderCallback;
         /// Re-entrancy latch — see the nested-present guard in SwapBuffers.
         bool m_InSwapBuffers = false;
+        /// The vsync the window asked for, and whether the swapchain was made
+        /// with another (SetVSync).
+        bool m_VSync = true;
+        bool m_PresentModeDirty = false;
         u32 m_RenderGraphFenceSegmentSubmitCountThisFrame = 0;
         u32 m_RenderGraphTimelineSignalCountThisFrame = 0;
         u32 m_RenderGraphTimelineWaitCountThisFrame = 0;
