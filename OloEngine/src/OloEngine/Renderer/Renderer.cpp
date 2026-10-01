@@ -43,6 +43,8 @@ namespace OloEngine
         // The process-wide owners' capacity rows (#1342): shadows, GPU Scene, ray tracing,
         // groom. Registered here because this runs on every backend.
         RendererMemoryOwners::Register();
+        // Everything the renderers create while starting up, unless a narrower owner claims it.
+        const RendererMemoryOwnerScope memoryOwner("RendererInit", MemoryLifetime::Persistent);
 
         // Initialize boot + fallback shaders BEFORE any renderer loads shaders.
         // This ensures the warmup progress bar is available during all shader

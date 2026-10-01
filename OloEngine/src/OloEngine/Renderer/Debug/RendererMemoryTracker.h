@@ -194,6 +194,10 @@ namespace OloEngine
             return m_LeakDetectionThreshold;
         }
 
+        // @brief The largest live entries attributed to `owner` (backing and alias), biggest
+        // first, at most `limit`: the drill-down behind an owner row.
+        [[nodiscard]] TArray<AllocationInfo> GetLargestAllocations(std::string_view owner, u32 limit) const;
+
         // @brief Export memory report to file
         bool ExportReport(const std::string& filePath) const;
 

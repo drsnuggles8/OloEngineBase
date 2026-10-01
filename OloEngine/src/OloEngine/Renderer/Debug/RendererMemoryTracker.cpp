@@ -1396,6 +1396,26 @@ namespace OloEngine
         return leaks;
     }
 
+    TArray<RendererMemoryTracker::AllocationInfo> RendererMemoryTracker::GetLargestAllocations(const std::string_view owner,
+                                                                                                const u32 limit) const
+    {
+        TUniqueLock<FMutex> lock(m_Mutex);
+        TArray<AllocationInfo> result;
+        const auto ownerIt = m_OwnerIds.find(std::string(owner));
+        if (ownerIt == m_OwnerIds.end() || limit == 0)
+            return result;
+        for (const auto& [address, info] : m_Allocations)
+        {
+            if (info.m_OwnerId == ownerIt->second)
+                result.Add(info);
+        }
+        std::ranges::sort(result, [](const AllocationInfo& a, const AllocationInfo& b)
+                          { return a.m_Size > b.m_Size; });
+        if (result.Num() > static_cast<i32>(limit))
+            result.SetNum(static_cast<i32>(limit));
+        return result;
+    }
+
     std::string RendererMemoryTracker::GetResourceTypeName(ResourceType type) const
     {
         switch (type)

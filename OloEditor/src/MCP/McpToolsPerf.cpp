@@ -35,9 +35,17 @@ namespace OloEngine::MCP
         // the capacity reporters read render-thread state (the transient pool, the
         // G-buffer, the groom pass), which the tracker's own mutex does not guard.
         // Server computes everything; raw allocations never leave the process.
-        ToolResult Handle_MemoryReport(IAutomationHost& host, const Json& /*args*/)
+        ToolResult Handle_MemoryReport(IAutomationHost& host, const Json& args)
         {
-            Json j = host.MarshalRead([]() -> Json
+            // Optional drill-down: the largest live allocations of one owner row.
+            std::string drillOwner;
+            if (args.contains("owner") && args["owner"].is_string())
+                drillOwner = args["owner"].get<std::string>();
+            u32 drillLimit = 20;
+            if (args.contains("limit") && args["limit"].is_number_integer())
+                drillLimit = static_cast<u32>(std::clamp<long long>(args["limit"].get<long long>(), 1, 200));
+
+            Json j = host.MarshalRead([drillOwner, drillLimit]() -> Json
                                       {
                 using RT = RendererMemoryTracker::ResourceType;
                 static constexpr std::array<std::pair<RT, const char*>, 12> kTypes = { {
@@ -75,6 +83,20 @@ namespace OloEngine::MCP
                 // The leak signal is the [Teardown] survivor line at renderer shutdown (#1342).
                 out["longLivedAllocations"] = Json{ { "thresholdSeconds", tracker.GetLeakDetectionThresholdSeconds() },
                                                     { "count", static_cast<int>(tracker.DetectLeaks().Num()) } };
+                if (!drillOwner.empty())
+                {
+                    Json largest = Json::array();
+                    for (const auto& info : tracker.GetLargestAllocations(drillOwner, drillLimit))
+                    {
+                        largest.push_back(Json{ { "name", info.m_Name.ToStdString() },
+                                                { "bytes", static_cast<u64>(info.m_Size) },
+                                                { "domain", info.m_IsGPU ? "gpu" : "cpu" },
+                                                { "kind", info.IsAlias() ? "alias" : ToString(info.m_SizeSource) },
+                                                { "lifetime", ToString(info.m_Lifetime) },
+                                                { "source", info.m_File.ToStdString() + ":" + std::to_string(info.m_Line) } });
+                    }
+                    out["ownerDetail"] = Json{ { "owner", drillOwner }, { "largest", std::move(largest) } };
+                }
                 return out; });
             return ToolResult::Structured(j);
         }
@@ -437,8 +459,12 @@ namespace OloEngine::MCP
                 "Scene, ray tracing, groom) with alias savings. 'backend.reconciliation' compares tracked committed "
                 "bytes with the allocator's own total (Vulkan/VMA: reconciled / untracked / overCounted; OpenGL: "
                 "notObservable). 'backend.residency.status' is osReported, allocatorHeuristic or unknown. Any byte "
-                "value that cannot be measured is null with an unknownReason, never 0.";
-            tool.InputSchema = Schema::EmptyObject();
+                "value that cannot be measured is null with an unknownReason, never 0. Pass 'owner' (an owners[] "
+                "name, e.g. \"Unattributed\") to get that owner's largest allocations in 'ownerDetail'.";
+            tool.InputSchema = Schema::Object()
+                                   .Prop("owner", Schema::String().Desc("Owner row to drill into; its largest live allocations are listed in ownerDetail."))
+                                   .Prop("limit", Schema::Int().Min(1).Max(200).Desc("How many allocations ownerDetail lists (default 20)."))
+                                   .NoAdditional();
             auto totals = Schema::Object()
                               .Prop("liveBytes", Schema::Int().Min(0))
                               .Prop("retiringBytes", Schema::Int().Min(0))
