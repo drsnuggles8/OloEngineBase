@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/ComputeShader.h"
@@ -2463,24 +2464,32 @@ namespace OloEngine
             // the shader), so the two depths are the same numbers. Upload,
             // then bind, before EACH draw: the lane differs and the Vulkan
             // UBO is arena-versioned (see above).
-            params.ModeFrame.w = 1;
-            m_ParamsUBO->SetData(&params, UBOStructures::GroomStrandParamsUBO::GetSize());
-            m_ParamsUBO->Bind();
-            RenderCommand::SetColorMask(false, false, false, false);
-            RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
-            context.SetDepthMask(true);
-            // Timed apart (olo_perf_pass_timings sub-passes): what the strands
-            // cost to rasterise, and what they cost to shade.
-            gpuSubTimers.BeginSubPass("StrandPrepass");
-            context.DrawIndexed(entry->Array, entry->Stats.IndexCount);
-            gpuSubTimers.EndSubPass();
+            //
+            // OLO_GROOM_NO_DEPTH_PREPASS draws the shading pass alone at LESS
+            // with depth writes on: the same fragments win, so it is the A/B
+            // for whether the prepass pays for its second raster.
+            const bool depthPrepass = !Levers::GroomNoDepthPrepass();
+            if (depthPrepass)
+            {
+                params.ModeFrame.w = 1;
+                m_ParamsUBO->SetData(&params, UBOStructures::GroomStrandParamsUBO::GetSize());
+                m_ParamsUBO->Bind();
+                RenderCommand::SetColorMask(false, false, false, false);
+                RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+                context.SetDepthMask(true);
+                // Timed apart (olo_perf_pass_timings sub-passes): what the
+                // strands cost to rasterise, and what they cost to shade.
+                gpuSubTimers.BeginSubPass("StrandPrepass");
+                context.DrawIndexed(entry->Array, entry->Stats.IndexCount);
+                gpuSubTimers.EndSubPass();
+            }
 
             params.ModeFrame.w = 0;
             m_ParamsUBO->SetData(&params, UBOStructures::GroomStrandParamsUBO::GetSize());
             m_ParamsUBO->Bind();
             RenderCommand::SetColorMask(true, true, true, true);
-            RenderCommand::SetDepthFunc(RHI::CompareOp::Equal);
-            context.SetDepthMask(false);
+            RenderCommand::SetDepthFunc(depthPrepass ? RHI::CompareOp::Equal : RHI::CompareOp::Less);
+            context.SetDepthMask(!depthPrepass);
             gpuSubTimers.BeginSubPass("StrandShade");
             context.DrawIndexed(entry->Array, entry->Stats.IndexCount);
             gpuSubTimers.EndSubPass();

@@ -1498,7 +1498,76 @@ namespace OloEngine::Tests
                 }
             }
         }
-        ResizeRenderTarget(1920u, 1080u);
+        // DIAGNOSTIC SUBSTITUTIONS (#1533 review): OLO_DOG_COST_SUB="a,b,..."
+        // changes what the coat does so a cost can be attributed by
+        // difference. They are bottleneck experiments, NOT quality-equivalent
+        // settings, and the committed file is measured with none of them.
+        //   unlit        the fibre evaluation replaced by its tangent diagnostic
+        //   novolume     no coat-density volume: no bake, no march
+        //   hsamples1    one cross-section sample in the fibre evaluator (4 ship)
+        //   strands50    half the strands drawn (strands25: a quarter)
+        //   nosim        the guide simulation off; the skeleton still animates
+        //   nocast       the coat casts no scene shadow (noreceive: receives none)
+        //   noprepass    the groom depth prepass off (OLO_GROOM_NO_DEPTH_PREPASS)
+        //   res720       1280x720 instead of 1920x1080 (res1440: 2560x1440)
+        const std::string subs = []
+        { const char* v = std::getenv("OLO_DOG_COST_SUB"); return std::string(v ? v : ""); }();
+        const auto sub = [&subs](std::string_view name)
+        {
+            for (sizet at = 0; at <= subs.size();)
+            {
+                const sizet end = std::min(subs.find(',', at), subs.size());
+                if (std::string_view(subs).substr(at, end - at) == name)
+                {
+                    return true;
+                }
+                at = end + 1;
+            }
+            return false;
+        };
+        {
+            Entity coat = m_Dog.Coat;
+            auto& fibre = coat.GetComponent<GroomFibreComponent>();
+            if (sub("unlit"))
+            {
+                fibre.m_DebugMode = static_cast<u8>(GroomFibreDebugMode::Tangent);
+            }
+            if (sub("hsamples1"))
+            {
+                fibre.m_HSamples = 1;
+            }
+            if (sub("novolume"))
+            {
+                coat.GetComponent<GroomCoatShadowComponent>().m_Enabled = false;
+            }
+            auto& gc = coat.GetComponent<GroomComponent>();
+            if (sub("strands50"))
+            {
+                gc.m_MaxRenderStrands = std::max(1u, gc.m_MaxRenderStrands / 2u);
+            }
+            if (sub("strands25"))
+            {
+                gc.m_MaxRenderStrands = std::max(1u, gc.m_MaxRenderStrands / 4u);
+            }
+            if (sub("nosim"))
+            {
+                coat.GetComponent<GroomSimulationComponent>().m_Enabled = false;
+            }
+            auto& sceneShadow = coat.GetComponent<GroomSceneShadowComponent>();
+            sceneShadow.m_CastShadows = sceneShadow.m_CastShadows && !sub("nocast");
+            sceneShadow.m_ReceiveShadows = sceneShadow.m_ReceiveShadows && !sub("noreceive");
+        }
+        struct LeverRestore
+        {
+            ~LeverRestore()
+            {
+                Levers::SetGroomNoDepthPrepass(false);
+            }
+        } leverRestore;
+        Levers::SetGroomNoDepthPrepass(sub("noprepass"));
+        const u32 costWidth = sub("res720") ? 1280u : (sub("res1440") ? 2560u : 1920u);
+        const u32 costHeight = sub("res720") ? 720u : (sub("res1440") ? 1440u : 1080u);
+        ResizeRenderTarget(costWidth, costHeight);
         Entity camera;
         for (auto e : GetScene().GetAllEntitiesWith<CameraComponent>())
         {
@@ -1526,6 +1595,8 @@ namespace OloEngine::Tests
             f64 WallP50 = 0.0;
             f64 WallP95 = 0.0;
             f64 FrameGpuMs = -1.0;
+            f64 GpuP50 = -1.0;
+            f64 GpuP95 = -1.0;
             u32 Strands = 0;
             u32 Triangles = 0;
             f64 SolverMs = 0.0;
@@ -1568,6 +1639,8 @@ namespace OloEngine::Tests
             std::unordered_map<std::string, std::pair<f64, u32>> passTotals; // sum per frame, frames timed
             f64 frameGpu = 0.0;
             u32 frameGpuValid = 0;
+            std::vector<f64> gpuFrames; // the spread, not only the mean
+            gpuFrames.reserve(kFrames);
             u64 solveUs = 0;
             u64 bakeUs = 0;
             u64 deformUs = 0;
@@ -1590,6 +1663,7 @@ namespace OloEngine::Tests
                 {
                     frameGpu += timings.Frame.GpuMs;
                     ++frameGpuValid;
+                    gpuFrames.push_back(timings.Frame.GpuMs);
                 }
                 // A sub-pass can be stamped more than once a frame (one per
                 // cascade): sum within the frame first.
@@ -1637,6 +1711,12 @@ namespace OloEngine::Tests
             m.WallP50 = wall[wall.size() / 2];
             m.WallP95 = wall[static_cast<sizet>(std::ceil(0.95 * static_cast<f64>(wall.size()))) - 1];
             m.FrameGpuMs = frameGpuValid > 0 ? frameGpu / frameGpuValid : -1.0;
+            if (!gpuFrames.empty())
+            {
+                std::ranges::sort(gpuFrames);
+                m.GpuP50 = gpuFrames[gpuFrames.size() / 2];
+                m.GpuP95 = gpuFrames[static_cast<sizet>(std::ceil(0.95 * static_cast<f64>(gpuFrames.size()))) - 1];
+            }
             const GroomRenderStats& st = PassStats();
             m.Strands = st.StrandsDrawn;
             m.Triangles = st.TrianglesDrawn;
@@ -1662,10 +1742,11 @@ namespace OloEngine::Tests
             {
                 m.PassMs[name] = total.first / total.second;
             }
-            std::printf("[dog] cost %s: wall p50 %.2f p95 %.2f ms, GPU frame %.2f ms, strands %u, solver %.2f ms, "
-                        "bake %.2f ms (%u rebakes), deform %.2f ms, geometry %.1f MiB, coat volumes %.1f MiB\n",
-                        framing.Name, m.WallP50, m.WallP95, m.FrameGpuMs, m.Strands, m.SolverMs, m.BakeMs, m.Rebakes,
-                        m.DeformMs, m.GeometryMiB, m.CoatVolumeMiB);
+            std::printf("[dog] cost %s: wall p50 %.2f p95 %.2f ms, GPU frame %.2f ms (p50 %.2f p95 %.2f), strands %u, "
+                        "solver %.2f ms, bake %.2f ms (%u rebakes), deform %.2f ms, geometry %.1f MiB, coat volumes "
+                        "%.1f MiB\n",
+                        framing.Name, m.WallP50, m.WallP95, m.FrameGpuMs, m.GpuP50, m.GpuP95, m.Strands, m.SolverMs,
+                        m.BakeMs, m.Rebakes, m.DeformMs, m.GeometryMiB, m.CoatVolumeMiB);
             std::printf("[dog] cost %s CPU: bake segments %.2f bin %.2f pack %.2f upload %.2f; pose %.2f, deform build %.2f "
                         "upload %.2f; curve select %.2f, root evaluate %.2f; GPU-deformed grooms %u, roots evaluated on "
                         "the GPU %u\n",
@@ -1682,19 +1763,30 @@ namespace OloEngine::Tests
         const auto* renderer = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
         report += "# DogShowcaseEvidenceTest.CostOfTheThreeFramings (#1533 E4)\n";
         report += std::string("# GPU: ") + (renderer != nullptr ? renderer : "unknown") + "\n";
-        report += "# Release test binary, 1920x1080, GL Forward, the scene's TAA, the live scene's lawn, 240 runtime\n";
+        report += "# Release test binary, " + std::to_string(costWidth) + "x" + std::to_string(costHeight) +
+                  ", GL Forward, the scene's TAA, the live scene's lawn, 240 runtime\n";
         report += "# frames (animated and simulated) per framing after a 90-frame warm-up. Wall ms is per RunFrames(1).\n";
         report += "# GPU ms are means of VALID GPUPassTimerPool samples; a sub-pass (Parent/Child) is INSIDE its parent.\n";
         report += "# CPU ms per frame: solver (guide simulation), bake (coat-shadow volume), deform (strand build + upload).\n";
         report += "# Headless: the live editor's p50/p95 are the E1/E2 gate; this file is the regression record.\n";
+        if (!subs.empty())
+        {
+            report += "# SUBSTITUTED (OLO_DOG_COST_SUB=" + subs + "): a bottleneck experiment, not the shipped look.\n";
+        }
+        if (lawn != "1")
+        {
+            report += "# LAWN: OLO_DOG_COST_LAWN=" + lawn + ".\n";
+        }
         char row[512];
-        report += "framing      wallP50  wallP95  gpuFrame  strands  triangles  solverMs  bakeMs  rebakes  deformMs  geomMiB  coatMiB\n";
+        report += "framing      wallP50  wallP95  gpuFrame  gpuP50  gpuP95  strands  triangles  solverMs  bakeMs  rebakes  "
+                  "deformMs  geomMiB  coatMiB\n";
         for (sizet i = 0; i < framings.size(); ++i)
         {
             const Measured& m = results[i];
-            std::snprintf(row, sizeof(row), "%-11s  %7.2f  %7.2f  %8.2f  %7u  %9u  %8.2f  %6.2f  %7u  %8.2f  %7.1f  %7.1f\n",
-                          framings[i].Name, m.WallP50, m.WallP95, m.FrameGpuMs, m.Strands, m.Triangles, m.SolverMs,
-                          m.BakeMs, m.Rebakes, m.DeformMs, m.GeometryMiB, m.CoatVolumeMiB);
+            std::snprintf(row, sizeof(row),
+                          "%-11s  %7.2f  %7.2f  %8.2f  %6.2f  %6.2f  %7u  %9u  %8.2f  %6.2f  %7u  %8.2f  %7.1f  %7.1f\n",
+                          framings[i].Name, m.WallP50, m.WallP95, m.FrameGpuMs, m.GpuP50, m.GpuP95, m.Strands,
+                          m.Triangles, m.SolverMs, m.BakeMs, m.Rebakes, m.DeformMs, m.GeometryMiB, m.CoatVolumeMiB);
             report += row;
         }
         report += "\npass GPU ms per frame                      FaceCloseUp     FullBody  WalkMidShot\n";
@@ -2386,6 +2478,89 @@ namespace OloEngine::Tests
         EXPECT_GT(effect, 4u * std::max(floor, 1500u)) << "the self-shadow must be visible here to measure anything";
         EXPECT_LT(restVsPose, effect / 4u) << "the rest bake shadows the moving coat unlike the pose bake";
         EXPECT_LT(restLuma, 0.25 * effectLuma) << "the rest bake changes the coat's brightness unlike the pose bake";
+    }
+
+    // =========================================================================
+    // #1533 review: the rest bake's limits, measured motion by motion. The
+    // volume is baked once at rest and each strand looks its neighbourhood up
+    // there through its root's turn -- exact for what the root carries rigidly,
+    // approximate wherever neighbours move relative to one another. (Motion of
+    // the whole entity needs no case: both bakes live in groom object space,
+    // so it moves neither.) Against the exact per-frame pose bake, from the
+    // views where each motion shows: Idle's head drift (the contract above),
+    // Idle's wag (the plume's secondary motion), the Walk's legs (articulated)
+    // and the Sit's folded hind legs against the belly (contact). The ratio of
+    // the rest/pose difference to the self-shadow's own effect is the record;
+    // each case must stay under half the effect, so a rest bake that stopped
+    // tracking a motion at all -- a difference as large as the shadow -- fails.
+    // =========================================================================
+    TEST_F(DogShowcaseEvidenceTest, TheRestBakeIsMeasuredMotionByMotion)
+    {
+        SetPath(RenderingPath::Forward);
+        auto& shadow = m_Dog.Coat.GetComponent<GroomCoatShadowComponent>();
+        auto& anim = m_Dog.Body.GetComponent<AnimationStateComponent>();
+        struct Case
+        {
+            const char* Name;
+            const char* Clip;
+            u32 Frames;
+            View Where;
+        };
+        const std::array<Case, 4> cases{ {
+            { "IdleHead", "Idle", 120, HeroViews()[2] },
+            { "IdleWag", "Idle", 150, HeroViews()[3] },
+            { "WalkLegs", "Walk", 45, { "WalkLegs", { 1.45f, 0.30f, 0.20f }, { 0.0f, 0.26f, 0.0f }, 35.0f } },
+            { "SitFolded", "Sit", 150, { "SitFolded", { 1.30f, 0.30f, -0.35f }, { 0.0f, 0.22f, -0.10f }, 35.0f } },
+        } };
+        const auto meanLumaDelta = [](const std::vector<u8>& a, const std::vector<u8>& b)
+        {
+            f64 sum = 0.0;
+            for (sizet i = 0; i + 3 < a.size(); i += 4)
+            {
+                const f64 la = (0.2126 * a[i]) + (0.7152 * a[i + 1]) + (0.0722 * a[i + 2]);
+                const f64 lb = (0.2126 * b[i]) + (0.7152 * b[i + 1]) + (0.0722 * b[i + 2]);
+                sum += std::abs(la - lb);
+            }
+            return sum / std::max<f64>(1.0, static_cast<f64>(a.size() / 4u));
+        };
+        for (const Case& c : cases)
+        {
+            SCOPED_TRACE(c.Name);
+            const auto at = [&](bool atRest, bool enabled, const std::string& name, std::vector<u8>& out)
+            {
+                shadow.m_BakeAtRest = atRest;
+                shadow.m_Enabled = enabled;
+                (void)PlayClip(c.Clip, true, c.Frames); // replayed from the clip's start: one pose per arm
+                anim.m_IsPlaying = false;
+                ColdHistory();
+                Capture(name, c.Where, out);
+            };
+            std::vector<u8> pose;
+            std::vector<u8> poseAgain;
+            std::vector<u8> rest;
+            std::vector<u8> off;
+            at(false, true, std::string("DogCoatBakeLimits_GL_Forward_") + c.Name + "Pose", pose);
+            at(false, true, "", poseAgain);
+            at(true, true, std::string("DogCoatBakeLimits_GL_Forward_") + c.Name + "Rest", rest);
+            at(true, false, "", off);
+            ASSERT_FALSE(HasFatalFailure());
+            const u32 floor = CountDiffering(pose, poseAgain);
+            const u32 restVsPose = CountDiffering(pose, rest);
+            const u32 effect = CountDiffering(pose, off);
+            const f64 restLuma = meanLumaDelta(pose, rest);
+            const f64 effectLuma = meanLumaDelta(pose, off);
+            std::printf("[dog] rest bake %-9s rest vs pose %6u px (mean |dL| %.3f) | self-shadow %6u px (mean |dL| "
+                        "%.3f) | ratio %.3f px, %.3f luma | repeat floor %u px\n",
+                        c.Name, restVsPose, restLuma, effect, effectLuma,
+                        effect > 0u ? static_cast<f64>(restVsPose) / static_cast<f64>(effect) : 0.0,
+                        effectLuma > 0.0 ? restLuma / effectLuma : 0.0, floor);
+            std::fflush(stdout);
+            EXPECT_GT(effect, 4u * std::max(floor, 1500u)) << "the self-shadow must be visible here to measure anything";
+            EXPECT_LT(restLuma, 0.5 * effectLuma) << "the rest bake stopped tracking this motion";
+        }
+        shadow.m_BakeAtRest = true;
+        shadow.m_Enabled = true;
+        anim.m_IsPlaying = true;
     }
 
     // =========================================================================

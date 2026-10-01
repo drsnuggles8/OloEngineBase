@@ -63,6 +63,13 @@ OLO_LEVER_EXACT(SerialMeshSubmission, "OLO_RENDERER_SERIAL_MESH_SUBMISSION",
                 "(#1349). The two branches must produce the same packets; this is the A/B that says whether they "
                 "do. Read per call, so it applies to the next submitted batch.")
 
+// --- Grooms -----------------------------------------------------------------
+OLO_LEVER_EXACT(GroomNoDepthPrepass, "OLO_GROOM_NO_DEPTH_PREPASS",
+                "Draw each groom in ONE pass -- depth LESS with depth writes on, every passing fragment shaded -- "
+                "instead of the depth prepass and the shading draw at EQUAL (#1533 E1). The same fragments win "
+                "either way, so this is the A/B for whether the prepass pays for its second raster: compare the "
+                "GroomPass GPU time with it on and off. Read per frame.")
+
 // --- Fault injection ----------------------------------------------------------
 // Deliberately WRONG behaviour, for the negative controls of the renderer
 // state-machine harness (#1349): each one re-creates a known class of renderer
