@@ -73,55 +73,58 @@ namespace OloEngine::RenderGraphReachability
             }
         };
 
-        // Seed: final pass + every named extract / contract root.
+        // Seed: final pass, side-effecting roots and every named extract /
+        // contract root.
         enqueueReachablePass(std::string(input.FinalPassName));
+        for (const auto& passName : input.SeedPasses)
+            enqueueReachablePass(passName.ToView());
         for (const auto& resourceName : input.ExtractedResourceNames)
             enqueueWritersForResource(resourceName.ToView());
 
-        // Walk explicit dependency edges (BFS).
-        RGTransparentStringSet visited;
+        // One fixpoint over both expansions: each newly reachable pass pulls
+        // in its dependency edges AND the writers of everything it reads. A
+        // pass reached through a read keeps its own dependencies (a
+        // DependsOnPass, an out-of-band consumer's producers), which a
+        // two-stage scan -- edges first, reads after -- used to drop.
         while (!stack.empty())
         {
             const auto current = std::move(stack.back());
             stack.pop_back();
 
-            if (!visited.insert(current).second)
-                continue;
-
             if (const auto dependencyIt = input.Dependencies.find(current); dependencyIt != input.Dependencies.end())
             {
                 for (const auto& dependency : dependencyIt->second)
-                    enqueueReachablePass(dependency.ToView());
-            }
-        }
-
-        // Iterative Read→Writer expansion. For each already-reachable
-        // pass, add the writer of any resource it reads. Repeat until stable —
-        // this handles wrapped passes whose ordering edges are derivation-only.
-        bool anyNew = true;
-        while (anyNew)
-        {
-            anyNew = false;
-            const std::vector<std::string> snapshot(reachable.begin(), reachable.end());
-            for (const auto& passName : snapshot)
-            {
-                const auto accessIt = input.PassAccessDeclarations.find(passName);
-                if (accessIt == input.PassAccessDeclarations.end())
-                    continue;
-
-                for (const auto& access : accessIt->second)
                 {
-                    if (access.IsWrite)
-                        continue;
-
-                    auto writerIt = resourceWriters.find(access.ResourceName.ToView());
-                    if (writerIt == resourceWriters.end())
-                        continue;
-                    for (const auto& writerName : writerIt->second)
+                    if (input.OrderingOnlyEdges &&
+                        input.OrderingOnlyEdges->contains({ dependency.ToStdString(), current }))
                     {
-                        if (reachable.insert(writerName.ToStdString()).second)
-                            anyNew = true;
+                        continue;
                     }
+                    enqueueReachablePass(dependency.ToView());
+                }
+            }
+
+            const auto accessIt = input.PassAccessDeclarations.find(current);
+            if (accessIt == input.PassAccessDeclarations.end())
+                continue;
+            for (const auto& access : accessIt->second)
+            {
+                if (access.IsWrite)
+                    continue;
+                const auto writerIt = resourceWriters.find(access.ResourceName.ToView());
+                if (writerIt == resourceWriters.end())
+                    continue;
+                for (const auto& writerName : writerIt->second)
+                {
+                    // A writer an ordering-only edge places AFTER this reader
+                    // overwrites what it read; it produces nothing the reader
+                    // consumes, so the read does not keep it alive.
+                    if (input.OrderingOnlyEdges &&
+                        input.OrderingOnlyEdges->contains({ current, writerName.ToStdString() }))
+                    {
+                        continue;
+                    }
+                    enqueueReachablePass(writerName.ToView());
                 }
             }
         }

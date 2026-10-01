@@ -401,14 +401,17 @@ TEST_F(GpuTimingPoolEvidence, EveryExportedRendererCounterHasALiveProducer)
 
     EXPECT_GT(counters.DrawCalls, 0u) << "DrawCalls has no live producer reaching the benchmark export";
     EXPECT_GT(counters.TrianglesRendered, 0u) << "TrianglesRendered has no live producer reaching the export";
-    EXPECT_GT(counters.GpuMemoryTotalBytes, 0u) << "GpuMemoryTotalBytes has no live producer reaching the export";
+    EXPECT_GT(counters.GpuResidentBytes, 0u) << "GpuResidentBytes has no live producer reaching the export";
+    // Shader programs are booked as CPU-side estimates (#1342), and this fixture compiles several.
+    EXPECT_GT(counters.CpuTrackedBytes, 0u) << "CpuTrackedBytes has no live producer reaching the export";
     // InstancesRendered counts INSTANCED submissions specifically, and this
     // fixture draws one non-instanced cube, so it is legitimately 0 here.
     // Its producer is covered by the instancing fixtures; named rather than
     // asserted so the omission is a decision and not an oversight.
 
     std::cout << "[ gpu-timing ] counters: draws=" << counters.DrawCalls << " tris=" << counters.TrianglesRendered
-              << " instances=" << counters.InstancesRendered << " gpuBytes=" << counters.GpuMemoryTotalBytes << "\n";
+              << " instances=" << counters.InstancesRendered << " gpuResidentBytes=" << counters.GpuResidentBytes
+              << " cpuTrackedBytes=" << counters.CpuTrackedBytes << "\n";
 }
 
 TEST_F(GpuTimingPoolEvidence, MsaaChangesThePassSetWithoutChangingTheValidityContract)

@@ -3,6 +3,7 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanAddressCommands.h"
+#include "Platform/Vulkan/VulkanTrackedAllocation.h"
 #include "Platform/Vulkan/VulkanOneShot.h"
 
 #include "Platform/Vulkan/VulkanImageLayoutTracker.h"
@@ -224,8 +225,8 @@ namespace OloEngine
             VkBuffer staging = VK_NULL_HANDLE;
             VmaAllocation stagingAllocation = VK_NULL_HANDLE;
             VmaAllocationInfo stagingOut{};
-            if (vmaCreateBuffer(device->GetAllocator(), &stagingInfo, &stagingAlloc, &staging, &stagingAllocation,
-                                &stagingOut) != VK_SUCCESS)
+            if (TrackedVmaCreateBuffer(device->GetAllocator(), &stagingInfo, &stagingAlloc, &staging, &stagingAllocation,
+                                       &stagingOut) != VK_SUCCESS)
             {
                 OLO_CORE_ERROR("{}: staging buffer allocation failed ({} bytes)", what, sizeBytes);
                 return false;
@@ -246,7 +247,7 @@ namespace OloEngine
                 OLO_CORE_ERROR("{}: destination buffer has no device address "
                                "(missing VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) — upload dropped",
                                what);
-                vmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
+                TrackedVmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
                 return false;
             }
 
@@ -283,7 +284,7 @@ namespace OloEngine
                                        vkCmdPipelineBarrier2(cmd, &dep);
                                    });
 
-            vmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
+            TrackedVmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
             return ok;
         }
     } // namespace VulkanOneShot

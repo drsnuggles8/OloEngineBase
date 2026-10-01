@@ -39,7 +39,11 @@
 // spatial upscaler, the FSR2 technique at Quality/Performance on each path,
 // FSR2 requested under Deferred MSAA 4 (which falls back to spatial), a second
 // viewport size (16:9 against the issue's 1024x683), and a dynamic-resolution
-// arm for the groom pass's own viewport.
+// arm for the groom pass's own viewport. #1526 adds the benchmark capture core's
+// readback at those scales: SubScaleCapture_GL_<Path>_<FSR1Quality|FSR2Quality>.png
+// and, on Forward, SubScaleCapture_GL_Forward_RenderScale50[AfterUpscale].png, with
+// SubScaleCapture_GL_<Path>_Native.png as the control. Deferred refuses a dynamic
+// scale (#1537), and the test requires the refusal.
 //
 // Classification: L8 (full GL pipeline + RGBA8 readback + PNG evidence).
 // =============================================================================
@@ -54,6 +58,7 @@
 #include "OloEngine/Groom/GroomCooker.h"
 #include "OloEngine/Groom/GroomVisibility.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Renderer/Benchmark/BenchmarkCapture.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
@@ -65,6 +70,7 @@
 #include "OloEngine/Utils/PlatformUtils.h"
 
 #include <gtest/gtest.h>
+#include <stb_image/stb_image.h>
 #include <stb_image/stb_image_write.h>
 
 #include <algorithm>
@@ -819,5 +825,236 @@ namespace OloEngine::Tests
                                << scaled.Coat.Y << ") vs body (" << scaled.Body.X << ", " << scaled.Body.Y
                                << "); at native coat (" << native.Coat.X << ", " << native.Coat.Y << ") vs body ("
                                << native.Body.X << ", " << native.Body.Y << ")";
+    }
+
+    // #1526: the BENCHMARK CAPTURE CORE at every internal scale. The tests above
+    // pin what the pipeline presents; this one pins what a capture READS and
+    // what it RECORDS, which is what the #1338 upscale cells lacked: before it,
+    // Output.RenderScale was refused, and result.json reported an upscaler's
+    // 0.667 scene band as a native render.
+    //
+    // Per path and mode, through Benchmark::CaptureAttachment and
+    // SnapshotResolution (the same calls both capture hosts make):
+    //   - an upscaler (FSR1, FSR2) reads Beauty at display size with native
+    //     framing, and SceneColor at the scene band's size;
+    //   - a dynamic render scale reads Beauty and SceneColor as the rendered
+    //     corner, where every subject sits at native * scale;
+    //   - the resolution record names the internal size and the upscaler that
+    //     actually ran.
+    // NEGATIVE CONTROL: the whole-texture read the capture did before the crop
+    // (ReadbackComposite, under the same render scale) must FAIL the corner
+    // check, or the check could not see the dead margin it exists for.
+    TEST_F(UpscaleFramingEvidenceTest, BenchmarkCaptureReadsTheRenderedFrameAtEveryInternalScale)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        const ScopedMockTime mockTime(kCaptureTime);
+
+        const bool temporalUsable = TemporalUpscalerUsable();
+        auto& settings = Renderer3D::GetRendererSettings();
+        auto& pp = Renderer3D::GetPostProcessSettings();
+
+        const auto decode = [](const Benchmark::CapturedAttachment& captured, Frame& out) -> bool
+        {
+            int w = 0;
+            int h = 0;
+            int comp = 0;
+            u8* pixels = ::stbi_load_from_memory(captured.FileBytes.GetData(), static_cast<int>(captured.FileBytes.Num()),
+                                                 &w, &h, &comp, 4);
+            if (pixels == nullptr)
+            {
+                return false;
+            }
+            out.Width = static_cast<u32>(w);
+            out.Height = static_cast<u32>(h);
+            out.Rgba.assign(pixels, pixels + (static_cast<sizet>(w) * static_cast<sizet>(h) * 4u));
+            ::stbi_image_free(pixels);
+            return true;
+        };
+        const auto capture = [](std::string_view name, std::string_view source, Benchmark::AttachmentFormat format)
+        {
+            Benchmark::ManifestAttachment spec;
+            spec.Name = FString(name);
+            spec.Source = FString(source);
+            spec.Format = format;
+            return Benchmark::CaptureAttachment(spec);
+        };
+        // A subject at native * scale: near the scaled centroid and inside a band
+        // around the scaled area. Returned as a report so the negative control
+        // can assert that it is NOT empty.
+        const auto compareScaled = [](const char* name, const Blob& native, const Blob& got, f64 scale)
+        {
+            std::ostringstream failures;
+            const f64 expectedCount = static_cast<f64>(native.Count) * scale * scale;
+            const f64 ratio = static_cast<f64>(got.Count) / std::max(expectedCount, 1.0);
+            if (got.Count == 0u || ratio < 0.70 || ratio > 1.35)
+            {
+                failures << name << ": " << got.Count << " px, expected about " << expectedCount << "\n";
+            }
+            const f64 expectedX = ((native.X + 0.5) * scale) - 0.5;
+            const f64 expectedY = ((native.Y + 0.5) * scale) - 0.5;
+            const f64 moved = std::hypot(got.X - expectedX, got.Y - expectedY);
+            if (moved > 1.5 + (1.0 / scale))
+            {
+                failures << name << ": centroid (" << got.X << ", " << got.Y << ") vs expected (" << expectedX << ", "
+                         << expectedY << "), off by " << moved << " px\n";
+            }
+            return failures.str();
+        };
+        const auto savePng = [](const std::string& cell, const Benchmark::CapturedAttachment& captured)
+        {
+            const fs::path dir = fs::path("assets") / "tests" / "visual";
+            std::error_code ec;
+            fs::create_directories(dir, ec);
+            std::ofstream file(dir / (cell + ".png"), std::ios::binary | std::ios::trunc);
+            file.write(reinterpret_cast<const char*>(captured.FileBytes.GetData()),
+                       static_cast<std::streamsize>(captured.FileBytes.Num()));
+            EXPECT_TRUE(file.good()) << "failed to write " << cell << ".png";
+        };
+
+        struct Arm
+        {
+            const char* Name;
+            UpscaleMode Mode;
+            UpscalerTechnique Technique;
+            f32 RenderScale;
+            u32 Frames;
+        };
+        const std::array<Arm, 4> arms = { {
+            { "RenderScale50", UpscaleMode::Off, UpscalerTechnique::Spatial, 0.5f, kSpatialFrames },
+            { "FSR1Quality", UpscaleMode::Quality, UpscalerTechnique::Spatial, 1.0f, kSpatialFrames },
+            { "FSR2Quality", UpscaleMode::Quality, UpscalerTechnique::Temporal, 1.0f, kTemporalFrames },
+            // The same scale again, straight after an upscaler switched off,
+            // which resizes the scene band back to display size.
+            { "RenderScale50AfterUpscale", UpscaleMode::Off, UpscalerTechnique::Spatial, 0.5f, kSpatialFrames },
+        } };
+
+        for (const RenderingPath path : { RenderingPath::Forward, RenderingPath::Deferred })
+        {
+            settings.Path = path;
+            Renderer3D::ApplyRendererSettings();
+            const std::string cellBase = std::string("SubScaleCapture_GL_") + PathName(path);
+
+            pp.Upscale = UpscaleMode::Off;
+            pp.Technique = UpscalerTechnique::Spatial;
+            Frame scratch;
+            Capture(kWidth, kHeight, kSpatialFrames, "", scratch);
+            if (HasFatalFailure())
+            {
+                return;
+            }
+            const auto nativeBeauty = capture("Beauty", "UIComposite", Benchmark::AttachmentFormat::Png);
+            ASSERT_TRUE(nativeBeauty.Error.IsEmpty()) << nativeBeauty.Error.ToView();
+            Frame native;
+            ASSERT_TRUE(decode(nativeBeauty, native));
+            ASSERT_EQ(native.Width, kWidth);
+            ASSERT_EQ(native.Height, kHeight);
+            savePng(cellBase + "_Native", nativeBeauty);
+            const Blob nativeRed = Measure(native, IsRed);
+            const Blob nativeBlue = Measure(native, IsBlue);
+            ASSERT_GE(nativeRed.Count, kSolidPixelFloor) << cellBase << " native red cube";
+            ASSERT_GE(nativeBlue.Count, kSolidPixelFloor) << cellBase << " native blue cube";
+            const auto nativeResolution = Benchmark::SnapshotResolution();
+            ASSERT_TRUE(nativeResolution.Measured);
+            EXPECT_EQ(nativeResolution.RenderWidth, kWidth);
+            EXPECT_EQ(nativeResolution.RenderHeight, kHeight);
+            EXPECT_EQ(nativeResolution.Upscaler.Resolved, TemporalUpscalePolicy::ResolvedUpscaler::Native);
+
+            for (const Arm& arm : arms)
+            {
+                const std::string cell = cellBase + "_" + arm.Name;
+                SCOPED_TRACE(cell);
+                pp.Upscale = arm.Mode;
+                pp.Technique = arm.Technique;
+                const ScopedRenderScale renderScale(arm.RenderScale);
+                Frame wholeTexture;
+                Capture(kWidth, kHeight, arm.Frames, "", wholeTexture);
+                if (HasFatalFailure())
+                {
+                    return;
+                }
+
+                const auto beauty = capture("Beauty", "UIComposite", Benchmark::AttachmentFormat::Png);
+                const auto sceneColor = capture("SceneColorHDR", "SceneColor", Benchmark::AttachmentFormat::Hdr);
+                if (arm.RenderScale < 1.0f && path == RenderingPath::Deferred)
+                {
+                    // Not honoured on Deferred yet (#1537): the capture must
+                    // refuse rather than record a full-size frame as a corner.
+                    EXPECT_NE(beauty.Error.ToStdString().find("#1537"), std::string::npos) << beauty.Error.ToView();
+                    EXPECT_NE(sceneColor.Error.ToStdString().find("#1537"), std::string::npos);
+                    continue;
+                }
+                ASSERT_TRUE(beauty.Error.IsEmpty()) << beauty.Error.ToView();
+                ASSERT_TRUE(sceneColor.Error.IsEmpty()) << sceneColor.Error.ToView();
+                const auto resolution = Benchmark::SnapshotResolution();
+                ASSERT_TRUE(resolution.Measured);
+                ASSERT_TRUE(resolution.UpscalerLatched);
+                savePng(cell, beauty);
+
+                const f32 scale = arm.Mode != UpscaleMode::Off ? UpscaleModeToRenderScale(arm.Mode) : arm.RenderScale;
+                const auto internalWidth = static_cast<u32>(std::floor(static_cast<f32>(kWidth) * scale));
+                const auto internalHeight = static_cast<u32>(std::floor(static_cast<f32>(kHeight) * scale));
+                EXPECT_EQ(resolution.DisplayWidth, kWidth);
+                EXPECT_EQ(resolution.DisplayHeight, kHeight);
+                EXPECT_EQ(resolution.RenderWidth, internalWidth);
+                EXPECT_EQ(resolution.RenderHeight, internalHeight);
+                // SceneColor is the internal-resolution image under both
+                // mechanisms: allocated at the band's size under an upscaler,
+                // cropped to the rendered corner under a dynamic scale.
+                EXPECT_EQ(sceneColor.Width, internalWidth);
+                EXPECT_EQ(sceneColor.Height, internalHeight);
+                EXPECT_EQ(sceneColor.CroppedToRenderRegion, arm.RenderScale < 1.0f);
+
+                Frame got;
+                ASSERT_TRUE(decode(beauty, got));
+                const Blob red = Measure(got, IsRed);
+                const Blob blue = Measure(got, IsBlue);
+                std::cout << "[SubScaleCapture] " << cell << ": beauty " << got.Width << "x" << got.Height
+                          << ", scene colour " << sceneColor.Width << "x" << sceneColor.Height << ", internal "
+                          << resolution.RenderWidth << "x" << resolution.RenderHeight << ", upscaler "
+                          << TemporalUpscalePolicy::ToToken(resolution.Upscaler.Resolved) << " (fallback "
+                          << TemporalUpscalePolicy::ToToken(resolution.Upscaler.Fallback) << "); red " << red.Count
+                          << "px@(" << red.X << "," << red.Y << "), blue " << blue.Count << "px@(" << blue.X << ","
+                          << blue.Y << ")\n";
+
+                if (arm.Mode != UpscaleMode::Off)
+                {
+                    const auto expected = arm.Technique == UpscalerTechnique::Temporal && temporalUsable
+                                              ? TemporalUpscalePolicy::ResolvedUpscaler::Temporal
+                                              : TemporalUpscalePolicy::ResolvedUpscaler::Spatial;
+                    EXPECT_EQ(resolution.Upscaler.Resolved, expected);
+                    EXPECT_FALSE(beauty.CroppedToRenderRegion);
+                    ASSERT_EQ(got.Width, kWidth) << "an upscaled Beauty is the reconstructed display-size frame";
+                    ASSERT_EQ(got.Height, kHeight);
+                    // The reconstructed frame keeps native framing. The cubes
+                    // are the subjects: the coat covers the body differently
+                    // at a lower internal resolution.
+                    const std::string report = compareScaled("red cube", nativeRed, red, 1.0) +
+                                               compareScaled("blue cube", nativeBlue, blue, 1.0);
+                    EXPECT_EQ(report, "") << cell;
+                }
+                else
+                {
+                    EXPECT_EQ(resolution.Upscaler.Resolved, TemporalUpscalePolicy::ResolvedUpscaler::Native);
+                    EXPECT_TRUE(beauty.CroppedToRenderRegion);
+                    ASSERT_EQ(got.Width, internalWidth) << "a dynamic-scale Beauty is the rendered corner";
+                    ASSERT_EQ(got.Height, internalHeight);
+                    const std::string report = compareScaled("red cube", nativeRed, red, scale) +
+                                               compareScaled("blue cube", nativeBlue, blue, scale);
+                    EXPECT_EQ(report, "") << cell;
+
+                    // NEGATIVE CONTROL: the pre-#1526 whole-texture read of the
+                    // same frame. Its subjects sit in the corner of a display-
+                    // sized canvas, so the scaled-corner check must reject it.
+                    ASSERT_EQ(wholeTexture.Width, kWidth);
+                    const std::string control =
+                        compareScaled("red cube", nativeRed, Measure(wholeTexture, IsRed), scale) +
+                        compareScaled("blue cube", nativeBlue, Measure(wholeTexture, IsBlue), scale);
+                    EXPECT_NE(control, "") << "the corner check ACCEPTED a whole-texture read under a 0.5 render "
+                                              "scale - it cannot tell the crop from the dead margin";
+                }
+            }
+        }
+        pp.Upscale = UpscaleMode::Off;
+        pp.Technique = UpscalerTechnique::Spatial;
     }
 } // namespace OloEngine::Tests

@@ -3,6 +3,7 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanAddressCommands.h"
+#include "Platform/Vulkan/VulkanTrackedAllocation.h"
 #include "Platform/Vulkan/VulkanStorageBuffer.h"
 #include "Platform/Vulkan/VulkanQueueSelection.h"
 #include "Platform/Vulkan/VulkanRecordingContext.h"
@@ -126,7 +127,7 @@ namespace OloEngine
         }
 
         VmaAllocationInfo outInfo{};
-        VulkanUpload::VkCheck(vmaCreateBuffer(device->GetAllocator(), &bufferInfo, &allocInfo, &m_Buffer, &m_Allocation, &outInfo),
+        VulkanUpload::VkCheck(TrackedVmaCreateBuffer(device->GetAllocator(), &bufferInfo, &allocInfo, &m_Buffer, &m_Allocation, &outInfo),
                               "vmaCreateBuffer (VulkanStorageBuffer)");
         // Owner tag for the teardown leak dump (VulkanDevice::Shutdown). The
         // class name alone does not identify anything -- every storage buffer in
@@ -136,7 +137,7 @@ namespace OloEngine
                                 (m_Binding == StorageBuffer::kNoBinding ? std::string("none")
                                                                         : std::to_string(m_Binding)) +
                                 ", " + std::to_string(m_Size) + "B)";
-        vmaSetAllocationName(device->GetAllocator(), m_Allocation, m_DebugAllocationName.c_str());
+        TrackedVmaSetAllocationName(device->GetAllocator(), m_Allocation, m_DebugAllocationName.c_str());
 
         m_Mapped = nullptr;
         m_NeedsFlush = false;
@@ -569,8 +570,8 @@ namespace OloEngine
         VkBuffer readback = VK_NULL_HANDLE;
         VmaAllocation readbackAllocation = VK_NULL_HANDLE;
         VmaAllocationInfo readbackOut{};
-        if (vmaCreateBuffer(device->GetAllocator(), &readbackInfo, &readbackAlloc, &readback, &readbackAllocation,
-                            &readbackOut) != VK_SUCCESS)
+        if (TrackedVmaCreateBuffer(device->GetAllocator(), &readbackInfo, &readbackAlloc, &readback, &readbackAllocation,
+                                   &readbackOut) != VK_SUCCESS)
         {
             std::memset(outData, 0, size);
             return;
@@ -617,7 +618,7 @@ namespace OloEngine
         {
             std::memset(outData, 0, size);
         }
-        vmaDestroyBuffer(device->GetAllocator(), readback, readbackAllocation);
+        TrackedVmaDestroyBuffer(device->GetAllocator(), readback, readbackAllocation);
     }
 
     void VulkanStorageBuffer::ClearData()

@@ -250,6 +250,11 @@ namespace OloEngine::Benchmark
         std::optional<u32> MSAASampleCount;
         std::optional<UpscaleMode> Upscale;
         std::optional<UpscalerTechnique> UpscaleTechnique;
+        // A debug lighting tap (issue #1526): the whole run renders one split
+        // lighting term in place of the lit colour, so SceneColor captures it.
+        // Captures are deterministic, so a tapped run's frames align with the
+        // untapped run of the same manifest frame for frame.
+        std::optional<LightingTap> LightingDebugTap;
         // The GPU reference path tracer (#1055), stored in PostProcessSettings
         // like TAA but pinned here because a capture of its AOVs is only
         // meaningful with the tracer on and a stated sample budget: the warm-up

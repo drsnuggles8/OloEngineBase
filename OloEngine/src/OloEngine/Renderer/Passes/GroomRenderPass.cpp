@@ -2744,7 +2744,7 @@ namespace OloEngine
             }
             memory.DeformBufferBytes += entry.DeformGpu ? static_cast<u64>(entry.DeformGpu->GetSize()) : 0u;
             memory.CoatVolumeBytes += entry.CoatBytes;
-            memory.CpuDeformMirrorBytes += entry.DeformCpu.HostCapacityBytes();
+            memory.CpuDeformMirrorBytes += entry.DeformCpu.GetCpuBytes();
             memory.CpuPoseSegmentBytes += capacityBytes(entry.CoatPoseSubset);
             memory.CpuBakeInputBytes += capacityBytes(entry.CoatBakedPose) + capacityBytes(entry.CoatFibreScales);
         }

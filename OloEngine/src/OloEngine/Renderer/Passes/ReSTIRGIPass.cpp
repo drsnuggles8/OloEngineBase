@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RenderGraphOutOfBand.h"
 #include "OloEngine/Renderer/Passes/ReSTIRGIPass.h"
 
 #include "OloEngine/Renderer/CameraRelative.h"
@@ -67,13 +68,14 @@ namespace OloEngine
             return;
         }
 
-        // The by-name execution dependency RayTracingScenePass::Setup reserved for
-        // ray-query consumers. The acceleration structure is not a graph resource
-        // — there is no handle to Read — so this edge is the only thing that stops
-        // a reordering from putting the AS build after the pass that traces
-        // against it. The symptom would be a frame with no ReSTIR GI and nothing
-        // in the log.
-        builder.DependsOnPass("RayTracingScenePass");
+        // The acceleration structure this pass traces against (#1331). Not a
+        // graph resource, so it is a named out-of-band boundary: every writer
+        // (RayTracingScenePass) runs first wherever it was registered, and the
+        // ledger reports a trace nobody declared. The symptom of a missing
+        // edge would be a frame traced against last frame's TLAS, or none.
+        builder.ReadOutOfBand(RGOutOfBandBoundaries::SceneTLAS);
+        // Its bounce falls back to the DDGI probe volume.
+        builder.ReadOutOfBand(RGOutOfBandBoundaries::DDGIProbeVolume);
 
         m_SelectedSceneDepth = blackboard.Scene.SceneDepth;
         m_SelectedGBufferAlbedo = blackboard.GBuffer.GBufferAlbedo;
@@ -462,7 +464,7 @@ namespace OloEngine
         params.PrevOriginDelta =
             glm::vec4(m_HavePrevFrame ? (m_PrevRenderOrigin - m_RenderOrigin) : glm::vec3(0.0f), 0.0f);
 
-        const u64 tlasAddress = m_RayTracingScene != nullptr ? m_RayTracingScene->GetTlasDeviceAddress() : 0u;
+        const u64 tlasAddress = m_RayTracingScene != nullptr ? m_RayTracingScene->GetTlasDeviceAddressForTrace() : 0u;
         params.TlasAddressAndFrame = glm::uvec4(static_cast<u32>(tlasAddress & 0xFFFFFFFFull),
                                                 static_cast<u32>(tlasAddress >> 32u),
                                                 // The bounce ray and the NEE shadow ray at its vertex both

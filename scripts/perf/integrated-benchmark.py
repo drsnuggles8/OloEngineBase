@@ -177,15 +177,23 @@ def analyze(paths: list[Path], output: Path, environment_json: Path | None = Non
                "uncertaintyMethod": "min/max of independent run-level statistics; frames within a run are correlated",
                "gpuStatusCountsByRun": [statuses for _, _, statuses in runs],
                "memoryScope": first["measurement"].get("memoryScope", "unknown")}
-    memory_keys = ("peakTrackedRendererBytes", "liveTrackedRendererBytes",
-                   "trackedRendererBytesAfterSceneRelease")
-    summary["trackedMemoryBytes"] = {}
+    # GPU and CPU are separate quantities since #1342; the old "tracked" keys summed both.
+    memory_keys = ("peakGpuResidentBytes", "liveGpuResidentBytes", "gpuResidentBytesAfterSceneRelease",
+                   "peakCpuTrackedBytes")
+    summary["memoryBytes"] = {}
     for memory_key in memory_keys:
         values = [result["measurement"].get(memory_key) for result, _, _ in runs]
-        summary["trackedMemoryBytes"][memory_key] = (
+        summary["memoryBytes"][memory_key] = (
             {"perRun": values, "runLevelRange": [min(values), max(values)]}
             if all(value is not None for value in values) else None
         )
+    # Whether each run's GPU figure reconciled with the allocator, and where its
+    # residency figure came from: a range over unreconciled runs is not a budget.
+    summary["memoryValidityByRun"] = [
+        {"reconciliation": ((result.get("memory") or {}).get("backend") or {}).get("reconciliation", {}).get("status"),
+         "residency": ((result.get("memory") or {}).get("backend") or {}).get("residency", {}).get("status")}
+        for result, _, _ in runs
+    ]
     summary["environment"] = ({"presentation": "offscreen", "vsync": "not-applicable"}
                               if first["provenance"]["host"] == "test-binary"
                               else {"presentation": "unknown", "vsync": "unknown"})

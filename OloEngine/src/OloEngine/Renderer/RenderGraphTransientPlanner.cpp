@@ -4,6 +4,7 @@
 #include "OloEngine/Core/DebugLevers.h"
 
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryFormat.h"
 #include "OloEngine/Renderer/Texture.h"
 
 #include <algorithm>
@@ -97,8 +98,11 @@ namespace OloEngine::RenderGraphTransientPlanner
             return 0;
 
         const auto layerCount = std::max(desc.DepthOrLayers, 1u);
-        const auto mipCount = std::max(desc.MipLevels, 1u);
         const auto sampleCount = std::max(desc.Samples, 1u);
+        // The texels of the whole mip chain — a level is a quarter of the one above it. This
+        // used to multiply the base level by the level COUNT, which billed a 10-level
+        // 1024x1024 texture as ten base levels, 7.5x what the chain holds (#1342).
+        const u64 chainTexels = RendererMemoryFormat::MipChainTexels(desc.Width, desc.Height, desc.MipLevels);
 
         // MRT: sum bytes across all attachment layers.
         if (!desc.Attachments.IsEmpty())
@@ -107,8 +111,7 @@ namespace OloEngine::RenderGraphTransientPlanner
             for (const auto fmt : desc.Attachments)
             {
                 const auto bpp = bytesPerPixelForFormat(fmt);
-                total += bpp * static_cast<u64>(desc.Width) * static_cast<u64>(desc.Height) *
-                         static_cast<u64>(layerCount) * static_cast<u64>(mipCount) * static_cast<u64>(sampleCount);
+                total += bpp * chainTexels * static_cast<u64>(layerCount) * static_cast<u64>(sampleCount);
             }
             return total;
         }
@@ -117,8 +120,7 @@ namespace OloEngine::RenderGraphTransientPlanner
         if (bpp == 0)
             return 0;
 
-        return bpp * static_cast<u64>(desc.Width) * static_cast<u64>(desc.Height) *
-               static_cast<u64>(layerCount) * static_cast<u64>(mipCount) * static_cast<u64>(sampleCount);
+        return bpp * chainTexels * static_cast<u64>(layerCount) * static_cast<u64>(sampleCount);
     }
 
     auto IsAllocatable(const RGResourceDesc& desc) -> bool

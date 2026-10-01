@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RenderGraphOutOfBand.h"
 #include "OloEngine/Renderer/PreparedFullscreenPass.h"
 #include "OloEngine/Renderer/Passes/AOApplyRenderPass.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
@@ -38,6 +39,11 @@ namespace OloEngine
 
         [[maybe_unused]] const auto aoBufferRead = builder.Read(blackboard.AO.AOBuffer, RGReadUsage::ShaderSample);
         [[maybe_unused]] const auto sceneDepthRead = builder.Read(blackboard.Scene.SceneDepth, RGReadUsage::ShaderSample);
+        // The SSAO parameter block it binds (#1331): published by SSAOPass, or
+        // uploaded in the frame prologue when GTAO produced the AO buffer.
+        // Before this the order held only because AOBuffer happened to carry
+        // it.
+        builder.ConsumePublication(RGOutOfBandBoundaries::SSAOParameters);
         m_SelectedAOTexture = blackboard.AO.AOBuffer;
         m_SelectedSceneDepthTexture = blackboard.Scene.SceneDepth;
 
@@ -142,6 +148,7 @@ namespace OloEngine
         }
 
         m_Target = outputFramebuffer;
+        RGOutOfBand::Note(RGOutOfBandBoundaries::SSAOParameters, RGOutOfBandAccess::Read);
         return PrepareFullscreenPass(outputFramebuffer, m_SSAOApplyShader,
                                      { { 0, inputColorTextureID, {} }, { ShaderBindingLayout::TEX_SSAO, aoTextureID, {} }, { ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthID, {} } },
                                      { m_PostProcessUBO, m_SSAOUBO });

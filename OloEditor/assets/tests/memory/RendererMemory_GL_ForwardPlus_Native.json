@@ -1,0 +1,345 @@
+{
+  "aliases": {
+    "count": 2,
+    "logicalBytes": 83886080,
+    "orphanCount": 0
+  },
+  "backend": {
+    "allocatorBlockBytes": null,
+    "name": "OpenGL",
+    "reconciliation": {
+      "differenceBytes": null,
+      "observedAllocationBytes": null,
+      "status": "notObservable",
+      "trackedCommittedBytes": 0
+    },
+    "residency": {
+      "heaps": [],
+      "status": "unknown"
+    }
+  },
+  "capacity": [
+    {
+      "activeDemandBytes": 16777216,
+      "aliasSavingsBytes": null,
+      "capacityBytes": 16777216,
+      "category": "Directional CSM cascades",
+      "domain": "gpu",
+      "lifetime": "persistent",
+      "owner": "ShadowMap",
+      "source": "formatEstimate",
+      "unknownReason": null
+    },
+    {
+      "activeDemandBytes": 0,
+      "aliasSavingsBytes": null,
+      "capacityBytes": 67108864,
+      "category": "Local-light shadow atlas (demand = occupied tiles)",
+      "domain": "gpu",
+      "lifetime": "persistent",
+      "owner": "ShadowMap",
+      "source": "formatEstimate",
+      "unknownReason": null
+    },
+    {
+      "activeDemandBytes": 0,
+      "aliasSavingsBytes": null,
+      "capacityBytes": 0,
+      "category": "Virtual shadow map pool and page tables",
+      "domain": "gpu",
+      "lifetime": "persistent",
+      "owner": "ShadowMap",
+      "source": "formatEstimate",
+      "unknownReason": null
+    },
+    {
+      "activeDemandBytes": 80,
+      "aliasSavingsBytes": null,
+      "capacityBytes": 27904,
+      "category": "Instance, geometry, material, light and environment tables",
+      "domain": "gpu",
+      "lifetime": "persistent",
+      "owner": "GPUScene",
+      "source": "formatEstimate",
+      "unknownReason": null
+    },
+    {
+      "activeDemandBytes": 0,
+      "aliasSavingsBytes": 0,
+      "capacityBytes": 0,
+      "category": "Acceleration structures (BLAS, TLAS, instance ring)",
+      "domain": "gpu",
+      "lifetime": "persistent",
+      "owner": "RayTracingScene",
+      "source": "committed",
+      "unknownReason": "OpenGL has no ray-tracing backend: no acceleration structure exists"
+    },
+    {
+      "activeDemandBytes": null,
+      "aliasSavingsBytes": null,
+      "capacityBytes": 0,
+      "category": "Acceleration-structure build scratch (grow-only)",
+      "domain": "gpu",
+      "lifetime": "persistent",
+      "owner": "RayTracingScene",
+      "source": "committed",
+      "unknownReason": "OpenGL has no ray-tracing backend"
+    },
+    {
+      "activeDemandBytes": 0,
+      "aliasSavingsBytes": null,
+      "capacityBytes": 0,
+      "category": "Deformed-surface RT geometry (skinned/morphed)",
+      "domain": "gpu",
+      "lifetime": "persistent",
+      "owner": "RayTracingScene",
+      "source": "formatEstimate",
+      "unknownReason": null
+    },
+    {
+      "activeDemandBytes": 0,
+      "aliasSavingsBytes": null,
+      "capacityBytes": 0,
+      "category": "Groom RT proxies (independent of the strand cache)",
+      "domain": "gpu",
+      "lifetime": "persistent",
+      "owner": "RayTracingScene",
+      "source": "formatEstimate",
+      "unknownReason": null
+    },
+    {
+      "activeDemandBytes": 0,
+      "aliasSavingsBytes": null,
+      "capacityBytes": 0,
+      "category": "Vegetation RT proxies",
+      "domain": "gpu",
+      "lifetime": "persistent",
+      "owner": "RayTracingScene",
+      "source": "formatEstimate",
+      "unknownReason": null
+    },
+    {
+      "activeDemandBytes": 0,
+      "aliasSavingsBytes": 0,
+      "capacityBytes": 0,
+      "category": "Groom shared rest streams (once per stream)",
+      "domain": "gpu",
+      "lifetime": "persistent",
+      "owner": "GroomRenderPass",
+      "source": "formatEstimate",
+      "unknownReason": null
+    },
+    {
+      "activeDemandBytes": 0,
+      "aliasSavingsBytes": null,
+      "capacityBytes": 0,
+      "category": "Groom per-entity strand geometry and deformation",
+      "domain": "gpu",
+      "lifetime": "persistent",
+      "owner": "GroomRenderPass",
+      "source": "formatEstimate",
+      "unknownReason": null
+    },
+    {
+      "activeDemandBytes": 0,
+      "aliasSavingsBytes": null,
+      "capacityBytes": 0,
+      "category": "Groom coat-volume rings (every slot)",
+      "domain": "gpu",
+      "lifetime": "persistent",
+      "owner": "GroomRenderPass",
+      "source": "formatEstimate",
+      "unknownReason": null
+    },
+    {
+      "activeDemandBytes": null,
+      "aliasSavingsBytes": null,
+      "capacityBytes": 0,
+      "category": "Groom CPU pose, deformation mirror and coat-bake storage",
+      "domain": "cpu",
+      "lifetime": "persistent",
+      "owner": "GroomRenderPass",
+      "source": "formatEstimate",
+      "unknownReason": "active demand: reused scratch and retained poses have no per-frame demand figure"
+    },
+    {
+      "activeDemandBytes": 4718592,
+      "aliasSavingsBytes": 524288,
+      "capacityBytes": 4718592,
+      "category": "Render-graph transients",
+      "domain": "gpu",
+      "lifetime": "pooled",
+      "owner": "TransientPool",
+      "source": "formatEstimate",
+      "unknownReason": null
+    },
+    {
+      "activeDemandBytes": 524288,
+      "aliasSavingsBytes": 524288,
+      "capacityBytes": 524288,
+      "category": "Skin hand-off (SceneColor attachment 4; bytes inside the TransientPool row)",
+      "domain": "gpu",
+      "lifetime": "pooled",
+      "owner": "RenderGraph",
+      "source": "formatEstimate",
+      "unknownReason": null
+    },
+    {
+      "activeDemandBytes": 20709376,
+      "aliasSavingsBytes": 24379392,
+      "capacityBytes": 0,
+      "category": "Attachment views (no backing of their own)",
+      "domain": "gpu",
+      "lifetime": "pooled",
+      "owner": "RenderGraph",
+      "source": "formatEstimate",
+      "unknownReason": null
+    },
+    {
+      "activeDemandBytes": 524288,
+      "aliasSavingsBytes": null,
+      "capacityBytes": 524288,
+      "category": "TAA history",
+      "domain": "gpu",
+      "lifetime": "history",
+      "owner": "TemporalHistory",
+      "source": "formatEstimate",
+      "unknownReason": null
+    },
+    {
+      "activeDemandBytes": 0,
+      "aliasSavingsBytes": null,
+      "capacityBytes": 0,
+      "category": "G-buffer",
+      "domain": "gpu",
+      "lifetime": "persistent",
+      "owner": "SceneRenderPass",
+      "source": "formatEstimate",
+      "unknownReason": null
+    },
+    {
+      "activeDemandBytes": 0,
+      "aliasSavingsBytes": null,
+      "capacityBytes": 0,
+      "category": "ReSTIR PT path-reservoir pools",
+      "domain": "gpu",
+      "lifetime": "persistent",
+      "owner": "ReSTIRPTPass",
+      "source": "formatEstimate",
+      "unknownReason": null
+    }
+  ],
+  "cpu": {
+    "committedBytes": 0,
+    "estimatedBytes": 6955100,
+    "liveBytes": 6955100,
+    "liveCount": 191,
+    "peakBytes": 6955100,
+    "residentBytes": 6955100,
+    "retiringBytes": 0,
+    "retiringCount": 0,
+    "windowPeakBytes": 6955100
+  },
+  "gpu": {
+    "committedBytes": 0,
+    "estimatedBytes": 241773420,
+    "liveBytes": 241773420,
+    "liveCount": 208,
+    "peakBytes": 286283216,
+    "residentBytes": 241773420,
+    "retiringBytes": 0,
+    "retiringCount": 0,
+    "windowPeakBytes": 286283216
+  },
+  "owners": [
+    {
+      "committedBytes": 0,
+      "count": 348,
+      "cpuLiveBytes": 6955100,
+      "cpuRetiringBytes": 0,
+      "estimatedBytes": 158267480,
+      "gpuLiveBytes": 151312380,
+      "gpuRetiringBytes": 0,
+      "lifetime": "persistent",
+      "owner": "RendererInit"
+    },
+    {
+      "committedBytes": 0,
+      "count": 9,
+      "cpuLiveBytes": 0,
+      "cpuRetiringBytes": 0,
+      "estimatedBytes": 83899828,
+      "gpuLiveBytes": 83899828,
+      "gpuRetiringBytes": 0,
+      "lifetime": "persistent",
+      "owner": "ShadowMap"
+    },
+    {
+      "committedBytes": 0,
+      "count": 6,
+      "cpuLiveBytes": 0,
+      "cpuRetiringBytes": 0,
+      "estimatedBytes": 4718592,
+      "gpuLiveBytes": 4718592,
+      "gpuRetiringBytes": 0,
+      "lifetime": "pooled",
+      "owner": "TransientPool"
+    },
+    {
+      "committedBytes": 0,
+      "count": 4,
+      "cpuLiveBytes": 0,
+      "cpuRetiringBytes": 0,
+      "estimatedBytes": 1267028,
+      "gpuLiveBytes": 1267028,
+      "gpuRetiringBytes": 0,
+      "lifetime": "unattributed",
+      "owner": "Unattributed"
+    },
+    {
+      "committedBytes": 0,
+      "count": 1,
+      "cpuLiveBytes": 0,
+      "cpuRetiringBytes": 0,
+      "estimatedBytes": 524288,
+      "gpuLiveBytes": 524288,
+      "gpuRetiringBytes": 0,
+      "lifetime": "history",
+      "owner": "TemporalHistory"
+    },
+    {
+      "committedBytes": 0,
+      "count": 5,
+      "cpuLiveBytes": 0,
+      "cpuRetiringBytes": 0,
+      "estimatedBytes": 27904,
+      "gpuLiveBytes": 27904,
+      "gpuRetiringBytes": 0,
+      "lifetime": "persistent",
+      "owner": "GPUScene"
+    },
+    {
+      "committedBytes": 0,
+      "count": 24,
+      "cpuLiveBytes": 0,
+      "cpuRetiringBytes": 0,
+      "estimatedBytes": 23328,
+      "gpuLiveBytes": 23328,
+      "gpuRetiringBytes": 0,
+      "lifetime": "asset",
+      "owner": "MeshSource"
+    },
+    {
+      "committedBytes": 0,
+      "count": 2,
+      "cpuLiveBytes": 0,
+      "cpuRetiringBytes": 0,
+      "estimatedBytes": 72,
+      "gpuLiveBytes": 72,
+      "gpuRetiringBytes": 0,
+      "lifetime": "passOwned",
+      "owner": "ToneMapPass"
+    }
+  ],
+  "units": "bytes"
+}

@@ -639,6 +639,26 @@ namespace OloEngine::MCP
             return ToolResult::Structured(result);
         }
 
+        // ---- olo_render_graph_schedule (main-marshaled) --------------------------
+        // The out-of-band schedule (issue #1331): every pass in execution order
+        // with its side effects and out-of-band declarations, every boundary
+        // with its producers / consumers / frame-phase uses, the frame prologue
+        // and epilogue work, and the last frame's ledger with any hazard. The
+        // shaping lives in RenderGraph::ExportOutOfBandScheduleJson, which the
+        // unit tests drive without an editor.
+        ToolResult Handle_RenderGraphSchedule(IAutomationHost& host, const Json& /*args*/)
+        {
+            Json result = host.MarshalRead([]() -> Json
+                                           {
+                const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
+                if (!graph)
+                    return Json{ { "__error", "No active render graph (the editor is not in 3D mode, or no frame has been rendered yet)." } };
+                return Json::parse(graph->ExportOutOfBandScheduleJson()); });
+            if (result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Structured(result);
+        }
+
         // ---- olo_render_graph_topology_export (main-marshaled) -----------------
         // Read-only structured export of the live RenderGraph topology — passes,
         // execution order, pass-dependency edges, and resources with their
@@ -1958,6 +1978,16 @@ namespace OloEngine::MCP
                 case MaterialDebugView::Count:
                     break;
             }
+            // The inverse of LightingTapForDebugView, derived from it so the two
+            // cannot disagree about a tap appended later.
+            if (pp.LightingDebugTap != LightingTap::None)
+            {
+                for (const auto& info : RenderOverrides::kDebugViews)
+                {
+                    if (RenderOverrides::LightingTapForDebugView(info.Id) == pp.LightingDebugTap)
+                        return info.Id;
+                }
+            }
             switch (VirtualMeshRegistry::Get().GetDebugMode())
             {
                 case VirtualDebugMode::ClusterId:
@@ -2056,6 +2086,28 @@ namespace OloEngine::MCP
                         r.Note = "The material debug views are produced by the deferred lighting pass; "
                                  "switch the rendering path to Deferred.";
                     break;
+                case DebugView::LightDirectDiffuse:
+                case DebugView::LightDirectSpecular:
+                case DebugView::LightIndirectDiffuse:
+                case DebugView::LightIndirectSpecular:
+                case DebugView::LightRemainder:
+                case DebugView::ShadowVisibility:
+                    // The lit shaders substitute the tap for their colour on
+                    // every path, so nothing backs it and nothing gates it.
+                    r.PassEnabled = true;
+                    r.Note = "SceneColor holds the tapped term (linear HDR); capture it for values. The viewport "
+                             "shows it after the post chain, including the SSR / SSGI composites, which add to it "
+                             "and are in no tap. Surfaces with their own shading (forward sky, particles, water, "
+                             "grooms) keep their colour.";
+                    break;
+                case DebugView::ReflectionHitDistance:
+                    r.PassEnabled = pp.SSREnabled && deferred;
+                    r.CaptureTarget = "SSRGuide";
+                    r.Note = r.PassEnabled ? "Capture 'SSRGuide' and read its alpha (Derive: channel-a): view-space metres "
+                                             "to the reflection hit, 0 where SSR found none. The viewport is unchanged."
+                                           : "SSR is not active; enable it with olo_render_toggle_pass { name: 'ssr' } "
+                                             "(Deferred path only).";
+                    break;
                 case DebugView::VGClusterId:
                 case DebugView::VGLod:
                 case DebugView::VGOverdraw:
@@ -2108,6 +2160,7 @@ namespace OloEngine::MCP
                 // None for every non-material view, so selecting any other view
                 // clears this one by the same rule the bools above follow.
                 pp.MaterialDebug = MaterialDebugForDebugView(view);
+                pp.LightingDebugTap = LightingTapForDebugView(view);
 
                 VirtualDebugMode virtualMode = VirtualDebugMode::Off;
                 (void)VirtualModeForDebugView(view, virtualMode);
@@ -3370,7 +3423,7 @@ namespace OloEngine::MCP
                     Ref<RenderGraph> mutableGraph = graph;
                     TransientPool& pool = mutableGraph->GetTransientPool();
                     const auto stats = pool.GetStats();
-                    const auto aliasReport = pool.ComputeAliasReport();
+                    const auto memory = pool.GetMemoryUsage();
 
                     Json buckets = Json::array();
                     for (const auto& bucket : pool.GetBucketReport())
@@ -3398,9 +3451,13 @@ namespace OloEngine::MCP
                         { "framebufferBuckets", stats.FramebufferAliasGroups },
                         { "bufferPoolSize", stats.BufferPoolSize },
                         { "bufferBuckets", stats.BufferAliasGroups },
-                        { "estimatedBytes", pool.EstimateMemoryUsage() },
-                        { "totalAcquiredBytes", aliasReport.TotalAcquiredBytes },
-                        { "potentialAliasingBytes", aliasReport.PotentialAliasingBytes },
+                        // Format estimates (#1342). "potentialAliasingBytes" is gone: it was
+                        // (free objects per bucket - 1) x size, not an aliasing saving. The
+                        // planner's real saving is olo_memory_report's TransientPool row.
+                        { "capacityBytes", memory.CapacityBytes },
+                        { "acquiredBytes", memory.AcquiredBytes },
+                        { "lastFrameDemandBytes", memory.LastFrameDemandBytes },
+                        { "bytesComplete", memory.Complete },
                         { "buckets", std::move(buckets) },
                     };
 
@@ -7991,6 +8048,73 @@ namespace OloEngine::MCP
 
         {
             ToolDef tool;
+            tool.Name = "olo_render_graph_schedule";
+            tool.Toolset = "render";
+            tool.Title = "Render graph out-of-band schedule";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "The render graph's out-of-band schedule (issue #1331): what the frame does that the resource graph "
+                "alone does not show. 'passes' lists every pass in execution order (culled passes last, marked "
+                "culled) with its side effects and why it has them, its out-of-band declarations (GPU state the "
+                "graph cannot back, such as the TLAS or the retained occlusion pyramid, and CPU publications such "
+                "as a command bucket or a texture id) and its incoming edges, each flagged orderingOnly when it "
+                "orders without carrying data. 'boundaries' lists every registered out-of-band boundary with its "
+                "in-graph producers, consumers and previous-frame consumers, what the frame prologue / epilogue "
+                "may do with it, its owner and why it is not a graph resource. 'framePhaseWork' names the GPU and "
+                "CPU work that runs wholly before or after RenderGraph::Execute; 'frameEpilogueReads' the graph "
+                "resources read after it. 'ledger' is the last frame's recorded out-of-band accesses, and "
+                "'ledgerHazards' every access nobody declared or that ran on the wrong side of a write. Read-only; "
+                "requires the editor to be rendering in 3D mode.";
+            tool.InputSchema = Schema::Object().NoAdditional();
+            tool.OutputSchema =
+                Schema::Object()
+                    .Prop("schema", Schema::String().Desc("Always 'olo-render-graph-out-of-band-schedule'."))
+                    .Prop("version", Schema::Int().Min(1))
+                    .Prop("finalPass", Schema::String())
+                    .Prop("passes", Schema::Array(Schema::Object()
+                                                      .Prop("name", Schema::String())
+                                                      .Prop("position", Schema::Int().Desc("Index in the execution order; -1 for a pass that was not scheduled."))
+                                                      .Prop("culled", Schema::Bool())
+                                                      .Prop("sideEffects", Schema::Array(Schema::String()))
+                                                      .Prop("sideEffectReason", Schema::String().Desc("Present only with side effects; 'UNDOCUMENTED' when RenderGraphOutOfBand.cpp gives none."))
+                                                      .Prop("outOfBand", Schema::Array(Schema::Object()
+                                                                                           .Prop("boundary", Schema::String())
+                                                                                           .Prop("kind", Schema::String().Enum({ "gpu-resource", "cpu-publication" }))
+                                                                                           .Prop("access", Schema::String().Enum({ "read", "read-previous-frame", "write" }))))
+                                                      .Prop("dependsOn", Schema::Array(Schema::Object()
+                                                                                           .Prop("pass", Schema::String())
+                                                                                           .Prop("orderingOnly", Schema::Bool())))))
+                    .Prop("boundaries", Schema::Array(Schema::Object()
+                                                          .Prop("name", Schema::String())
+                                                          .Prop("kind", Schema::String())
+                                                          .Prop("producers", Schema::Array(Schema::String()))
+                                                          .Prop("consumers", Schema::Array(Schema::String()))
+                                                          .Prop("previousFrameConsumers", Schema::Array(Schema::String()))
+                                                          .Prop("prologue", Schema::String())
+                                                          .Prop("epilogue", Schema::String())
+                                                          .Prop("owner", Schema::String())
+                                                          .Prop("reason", Schema::String())))
+                    .Prop("frameEpilogueReads", Schema::Array(Schema::Object().Prop("resource", Schema::String()).Prop("consumer", Schema::String())))
+                    .Prop("framePhaseWork", Schema::Array(Schema::Object()
+                                                              .Prop("name", Schema::String())
+                                                              .Prop("phase", Schema::String().Enum({ "prologue", "epilogue" }))
+                                                              .Prop("owner", Schema::String())
+                                                              .Prop("consumers", Schema::String())
+                                                              .Prop("reason", Schema::String())))
+                    .Prop("ledger", Schema::Array(Schema::Object()
+                                                      .Prop("boundary", Schema::String())
+                                                      .Prop("pass", Schema::String())
+                                                      .Prop("phase", Schema::String())
+                                                      .Prop("access", Schema::String())))
+                    .Prop("ledgerHazards", Schema::Array(Schema::String()))
+                    .Required({ "schema", "version", "passes", "boundaries", "framePhaseWork", "ledger", "ledgerHazards" });
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_RenderGraphSchedule;
+            registry.Register(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
             tool.Name = "olo_render_graph_topology_export";
             tool.Toolset = "render";
             tool.Title = "Export render graph topology";
@@ -8410,7 +8534,8 @@ namespace OloEngine::MCP
                 "Switch the viewport to a raw intermediate buffer for AO/reflection/GI/overdraw/virtual-geometry "
                 "debugging. 'mode' is one of none (the normal composite), ssao, gtao, ssr, ssgi, overdraw, "
                 "vgclusterid, vglod, vgoverdraw, materialdiffuse, materialspecular, skinprofileid, skinmask, "
-                "materialtransmission "
+                "materialtransmission, lightdirectdiffuse, lightdirectspecular, lightindirectdiffuse, "
+                "lightindirectspecular, lightremainder, shadowvisibility, reflectionhitdistance "
                 "— exactly one is shown at a time; mode 'none' (or "
                 "'enabled':false) clears them all. 'overdraw' heat-maps per-pixel fragment count (how many "
                 "layers deep the frame is: black=none, blue/green/yellow/red=increasing overlap) by re-drawing "
@@ -8420,6 +8545,9 @@ namespace OloEngine::MCP
                 "'VirtualGeometryDebug' target (Deferred path only): set the mode, then capture it with "
                 "olo_render_capture_target; the response's 'captureTarget' says so. They are the SAME knob as "
                 "olo_virtual_geometry_set { debugMode }, so the two tools always agree on the current state. "
+                "The six light*/shadowvisibility modes (issue #1526) are the lighting taps: one term of the "
+                "lit colour replaces it on EVERY path, and in 'SceneColor' the five radiance taps sum to the lit "
+                "colour; the viewport adds the post-lighting tiers (SSR, SSGI) on top. "
                 "The four material modes (issue #1231) substitute one of a skin surface's separated outputs "
                 "for the composite — the diffuse half, the specular half, the per-pixel skin-profile identity "
                 "as a hue (black where a pixel names no profile), or the scattering mask as unitless 0..1 "

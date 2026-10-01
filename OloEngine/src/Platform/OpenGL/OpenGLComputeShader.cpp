@@ -231,9 +231,10 @@ namespace OloEngine
             RegisterGLProgramLabel(m_RendererID, GetName());
         }
 
-        // Estimate GPU memory: source size + driver overhead for compiled program
+        // Source size plus a guessed kilobyte: a CPU-side estimate, not device memory, so it
+        // is booked in the CPU column where it cannot inflate the GPU total (#1342).
         const sizet estimatedMemory = source.size() + 1024;
-        OLO_TRACK_GPU_ALLOC(this, estimatedMemory, RendererMemoryTracker::ResourceType::Shader, "OpenGL Compute Shader");
+        OLO_TRACK_CPU_ALLOC(this, estimatedMemory, RendererMemoryTracker::ResourceType::Shader, "OpenGL Compute Shader");
 
         OLO_SHADER_REGISTER_MANUAL(m_RendererID, GetName(), GetFilePath());
         m_IsValid = true;

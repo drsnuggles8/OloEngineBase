@@ -20,6 +20,7 @@
 #include "OloEngine/Build/GameBuildSettings.h"
 #include "OloEngine/Build/LinuxDesktopLauncher.h"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstdlib>
@@ -27,6 +28,7 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <vector>
 
 using namespace OloEngine;
 
@@ -305,6 +307,147 @@ TEST(GameBuildPipelineTest, LooseRuntimeTexturesPreserveTheirProjectRelativePath
         EXPECT_TRUE(std::filesystem::exists(outputAssets / path)) << path;
     }
     EXPECT_FALSE(std::filesystem::exists(outputAssets / "Textures/Menu/readme.txt"));
+}
+
+// Issue #1392: a foliage layer opens its MeshPath from disk, not from the pack,
+// so a packaged game without the .obj (and the .mtl and textures it pulls in)
+// drew every authored plant as a flat card. The staging follows a scene's path
+// scalars and each staged file's own references, and nothing else.
+TEST(GameBuildPipelineTest, SceneReferencedContentStagesEveryFileAScenePathOpens)
+{
+    namespace fs = std::filesystem;
+    // The project sits one level down so its "../" reference lands in this
+    // case's own scratch directory.
+    const auto project = OloEngine::Tests::TempDir("scene-refs") / "project";
+    const auto engine = OloEngine::Tests::TempDir("scene-refs-engine");
+    const auto output = OloEngine::Tests::TempDir("scene-refs-output");
+    fs::create_directories(project / "Assets/Scenes");
+    fs::create_directories(project / "Assets/Models/Plant/Textures");
+    fs::create_directories(project / "Assets/Models/Rock");
+    fs::create_directories(project / "Assets/Models/Unused");
+    fs::create_directories(project / "Assets/Skies/Day");
+    fs::create_directories(engine / "assets/textures");
+
+    std::ofstream(project / "Assets/Models/Plant/plant.obj") << "# plant\nmtllib plant.mtl bark.mtl\nv 0 0 0\n";
+    std::ofstream(project / "Assets/Models/Plant/bark.mtl") << "newmtl bark\nrefl -type sphere -mm 0 1 Textures/chrome.png\n";
+    WritePngSignature(project / "Assets/Models/Plant/Textures/chrome.png");
+    // A one-part working-directory value and the library beside it.
+    std::ofstream(engine / "tree.obj") << "mtllib tree.mtl\nv 0 0 0\n";
+    std::ofstream(engine / "tree.mtl") << "newmtl tree\n";
+    std::ofstream(project / "Assets/Models/Plant/plant.mtl")
+        << "newmtl leaves\nmap_Kd -s 1 1 1 Textures/leaves big.png\nmap_Bump -bm 0.5 Textures/leaves_n.png\n";
+    WritePngSignature(project / "Assets/Models/Plant/Textures/leaves big.png");
+    // Resolved against the working directory, like ResolveContentPath does.
+    fs::create_directories(engine / "Resources/Icons");
+    WritePngSignature(engine / "Resources/Icons/marker.png");
+    // One path, two files: "Assets/" and "assets/" are one directory in a
+    // Windows package.
+    fs::create_directories(project / "Assets/Shared");
+    fs::create_directories(engine / "assets/shared");
+    std::ofstream(project / "Assets/Shared/Tex.png") << "project";
+    std::ofstream(engine / "assets/shared/tex.png") << "engine";
+    WritePngSignature(project / "Assets/Models/Plant/Textures/leaves_n.png");
+    std::ofstream(project / "Assets/Models/Plant/plant.obj.oloimport") << "FlipUV: false\n";
+    std::ofstream(project / "Assets/Models/Rock/rock.gltf")
+        << R"({"buffers":[{"uri":"rock%20data.bin"},{"uri":"data:application/octet-stream;base64,AAAA"}],)"
+        << R"("images":[{"uri":"rock_albedo.png"}]})";
+    std::ofstream(project / "Assets/Models/Rock/rock data.bin") << "bytes";
+    WritePngSignature(project / "Assets/Models/Rock/rock_albedo.png");
+    std::ofstream(project / "Assets/Models/Unused/unused.obj") << "v 0 0 0\n";
+    fs::create_directories(project / "Assets/Audio");
+    std::ofstream(project / "Assets/Audio/Wind.ogg") << "ogg";
+    WritePngSignature(project / "Assets/Skies/Day/right.png");
+    WritePngSignature(project / "Assets/Skies/Day/left.png");
+    WritePngSignature(engine / "assets/textures/leaf_normal.png");
+
+    const fs::path scene = project / "Assets/Scenes/Meadow.olo";
+    std::ofstream(scene) << "Scene: Meadow.olo\n"
+                            "Entities:\n"
+                            "  - Entity: 1\n"
+                            "    TagComponent:\n"
+                            "      Tag: Assets is not a path\n"
+                            "    FoliageComponent:\n"
+                            "      Layers:\n"
+                            "        - Name: Grass\n"
+                            "          MeshPath: Assets/Models/Plant/plant.obj\n"
+                            "          NormalMapPath: assets/textures/leaf_normal.png\n"
+                            "          RoughnessMapPath: assets/textures/missing.png\n"
+                            "        - Name: Rocks\n"
+                            "          MeshPath: Assets/Models/Rock/rock.gltf\n"
+                            "          AlbedoPath: ../outside/texture.png\n"
+                            "          ThicknessMapPath: Assets/../../escape.png\n"
+                            "    EnvironmentMapComponent:\n"
+                            "      FilePath: Assets/Skies/Day\n"
+                            "  - Entity: 2\n"
+                            "    AudioSourceComponent:\n"
+                            "      Filepath: Audio/Wind.ogg\n"
+                            "  - Entity: 3\n"
+                            "    FoliageComponent:\n"
+                            "      Layers:\n"
+                            "        - AlbedoPath: ../outside/texture.png\n"
+                            "    SpriteRendererComponent:\n"
+                            "      TexturePath: Resources/Icons/marker.png\n"
+                            "  - Entity: 4\n"
+                            "    MaterialA: Assets/Shared/Tex.png\n"
+                            "    MaterialB: assets/shared/tex.png\n"
+                            "    LooseModel: tree.obj\n";
+    fs::create_directories(project.parent_path() / "outside");
+    WritePngSignature(project.parent_path() / "outside/texture.png");
+
+    sizet copiedCount = 0;
+    std::vector<std::string> unresolved;
+    std::string errorMessage;
+    ASSERT_TRUE(StageSceneReferencedContent({ scene }, project, "Assets", engine, output, copiedCount, unresolved,
+                                            errorMessage))
+        << errorMessage;
+
+    const std::array staged{
+        fs::path{ "Assets/Models/Plant/plant.obj" },
+        fs::path{ "Assets/Models/Plant/plant.mtl" },
+        fs::path{ "Assets/Models/Plant/bark.mtl" },                // the second name on the mtllib line
+        fs::path{ "Assets/Models/Plant/Textures/chrome.png" },     // after "-type sphere -mm 0 1"
+        fs::path{ "Assets/Models/Plant/Textures/leaves big.png" }, // after "-s 1 1 1", spaces and all
+        fs::path{ "Assets/Models/Plant/Textures/leaves_n.png" },
+        fs::path{ "Assets/Models/Plant/plant.obj.oloimport" },
+        fs::path{ "Assets/Models/Rock/rock.gltf" },
+        fs::path{ "Assets/Models/Rock/rock data.bin" },
+        fs::path{ "Assets/Models/Rock/rock_albedo.png" },
+        fs::path{ "Assets/Skies/Day/left.png" },
+        fs::path{ "Assets/Skies/Day/right.png" },
+        fs::path{ "assets/textures/leaf_normal.png" },
+        // Asset-relative: an audio source's Filepath is read back as
+        // <AssetDirectory>/<value>.
+        fs::path{ "Assets/Audio/Wind.ogg" },
+        fs::path{ "Resources/Icons/marker.png" },
+        fs::path{ "tree.obj" },
+        fs::path{ "tree.mtl" },
+    };
+    for (const auto& path : staged)
+    {
+        EXPECT_TRUE(fs::is_regular_file(output / path)) << path.generic_string() << " was not staged";
+    }
+    // ...plus exactly one of the two colliding files.
+    EXPECT_EQ(copiedCount, staged.size() + 1u);
+    EXPECT_TRUE(fs::is_regular_file(output / "Assets/Shared/Tex.png"));
+    EXPECT_FALSE(fs::exists(output / "Assets/Models/Unused/unused.obj")) << "an unreferenced model was staged";
+    EXPECT_FALSE(fs::exists(output / "Assets/Scenes")) << "the scenes ship through CopySceneFiles, not here";
+
+    // Missing, outside the project, escaping the asset root, and colliding:
+    // each named once (the ../ reference appears twice), none a build failure.
+    ASSERT_EQ(unresolved.size(), 4u);
+    const auto mentions = [&](const std::string& needle)
+    {
+        return std::ranges::any_of(unresolved, [&](const std::string& line)
+                                   { return line.find(needle) != std::string::npos; });
+    };
+    EXPECT_TRUE(mentions("assets/textures/missing.png"));
+    EXPECT_TRUE(mentions("../outside/texture.png"));
+    EXPECT_TRUE(mentions("escape.png"));
+    EXPECT_TRUE(mentions("collides with"));
+    for (const auto& line : unresolved)
+    {
+        EXPECT_EQ(line.rfind("Meadow.olo: ", 0), 0u) << "an unresolved reference must name its scene: " << line;
+    }
 }
 
 TEST(GameBuildPipelineTest, ShaderPackIsStagedWhenPresent)

@@ -421,6 +421,9 @@ namespace OloEngine
         m_PhysicalWidth = width;
         m_PhysicalHeight = height;
         m_RenderScale = 1.0f;
+        // Re-registering on a second Init replaces the first registration (#1342).
+        m_MemoryReporter = RendererMemoryReporterHandle([this](TArray<MemoryCapacityRow>& rows)
+                                                        { AppendMemoryCapacityRows(rows); });
 
         for (auto& [name, node] : m_NodeLookup)
         {
@@ -436,6 +439,8 @@ namespace OloEngine
         if (Levers::RenderGraphDiagnostics())
             OLO_CORE_TRACE("Shutting down RenderGraph");
 
+        m_MemoryReporter.Reset();
+        m_DepartedNodes.Reset(); // the graph is going away; nothing is left to sweep
         m_TransientPool.Clear();
         m_TemporalHistoryRegistry.Clear();
 
@@ -452,6 +457,14 @@ namespace OloEngine
         m_PassAccessDeclarations.clear();
         m_PassFeedbackDeclarations.clear();
         m_PassLifetimeExtensions.clear();
+        // Out-of-band state (#1331): the epilogue objects are pooled
+        // framebuffers that must not outlive the pool, and stale declarations
+        // must not reach the schedule export or the validator.
+        m_PassOutOfBandDeclarations.clear();
+        m_OrderingOnlyEdges.clear();
+        m_FrameEpilogueFramebuffers.clear();
+        m_FrameEpilogueTextures.clear();
+        m_FrameEpilogueReads.Reset();
         m_PassBarrierFlags.clear();
         m_PlannedBarriers.Reset();
         m_BuildDiagnostics.Reset();
@@ -508,10 +521,31 @@ namespace OloEngine
         m_ResourceRegistryDirty = true;
     }
 
+    void RenderGraph::ReleaseDepartedNodeFramebuffers(const std::function<bool(const Framebuffer*)>& isStale)
+    {
+        for (Ref<RenderGraphNode>& node : m_DepartedNodes)
+        {
+            // A node the current topology re-registered is released by the per-frame sweep.
+            if (node && !m_NodeLookup.contains(node->GetName()))
+                node->ReleaseStaleFramebuffers(isStale);
+        }
+        m_DepartedNodes.Reset();
+    }
+
     void RenderGraph::ResetTopology()
     {
         OLO_PROFILE_FUNCTION();
 
+        // Remember the nodes leaving the graph (#1342). One the new topology does not
+        // re-register (a Deferred-only pass after a switch to Forward) never gets another
+        // per-frame release, so the next Execute releases its pooled references. Not here:
+        // a node that IS re-registered may still read its previous target while the new
+        // topology is populated (SceneRenderPass sizes the G-buffer from it).
+        for (const auto& [name, node] : m_NodeLookup)
+        {
+            if (node && !m_DepartedNodes.Contains(node))
+                m_DepartedNodes.Add(node);
+        }
         m_TransientPool.Clear();
 
         // Wipe topology bookkeeping but leave graph-entry framebuffers /
@@ -530,6 +564,13 @@ namespace OloEngine
         m_PassAccessDeclarations.clear();
         m_PassFeedbackDeclarations.clear();
         m_PassLifetimeExtensions.clear();
+        // Out-of-band state (#1331): the epilogue objects are pooled
+        // framebuffers that must not outlive the pool, and stale declarations
+        // must not reach the schedule export or the validator.
+        m_PassOutOfBandDeclarations.clear();
+        m_OrderingOnlyEdges.clear();
+        m_FrameEpilogueFramebuffers.clear();
+        m_FrameEpilogueTextures.clear();
         m_PassBarrierFlags.clear();
         m_PlannedBarriers.Reset();
         m_BuildDiagnostics.Reset();
@@ -1999,7 +2040,22 @@ namespace OloEngine
             return nullptr;
         }
 
-        return m_PhysicalFramebuffers[handle.Index].FB;
+        // A dynamic render scale is a property of every display-sized target
+        // (its frame occupies the [0, render) corner), not only of the node
+        // targets ApplyRenderViewport configured. A target the pool re-creates
+        // after a resize starts with no render viewport, and every node that
+        // adopts it from here would draw full-size into what its readers treat
+        // as the corner (#1526). So the resolve hands it the viewport in force.
+        // Targets of any other size (shadow maps, half-resolution buffers, an
+        // upscaler's band) are outside that contract and untouched.
+        Ref<Framebuffer> framebuffer = m_PhysicalFramebuffers[handle.Index].FB;
+        if (framebuffer && m_RenderScale < 1.0f && framebuffer->GetRenderViewportWidth() == 0u)
+        {
+            const auto& spec = framebuffer->GetSpecification();
+            if (spec.Width == m_PhysicalWidth && spec.Height == m_PhysicalHeight)
+                framebuffer->SetRenderViewportSize(GetRenderWidth(), GetRenderHeight());
+        }
+        return framebuffer;
     }
 
     u32 RenderGraph::ResolveBuffer(RGBufferHandle handle) const
@@ -2268,7 +2324,10 @@ namespace OloEngine
             specification.GenerateMips = descriptor.MipLevels > 1;
             specification.MipLevels = descriptor.MipLevels;
             specification.Samples = descriptor.Samples;
-            texture = Texture2D::Create(specification);
+            {
+                const RendererMemoryOwnerScope memoryOwner("TemporalHistory", MemoryLifetime::History);
+                texture = Texture2D::Create(specification);
+            }
             if (texture)
                 m_TemporalHistoryRegistry.SetTexture(acquired.Token, texture);
         }
@@ -3400,6 +3459,10 @@ namespace OloEngine
         m_LastExecutionTimings.Reset();
         m_LastExecutionTimings.Reserve(m_ExecutionOrder.Num());
         m_ResolveFailures.Reset();
+        // Last frame's epilogue objects belong to the pool now; a frame that
+        // aborts below must not hand them to the epilogue again (#1331).
+        m_FrameEpilogueFramebuffers.clear();
+        m_FrameEpilogueTextures.clear();
 
         for (auto& slot : m_TextureHandleSlots)
             slot.PlaceholderWarnedThisFrame = false;
@@ -3418,6 +3481,8 @@ namespace OloEngine
                 // subset of passes in the wrong order. Keep the dirty flag
                 // set so a corrected graph can retry.
                 OLO_CORE_ERROR("RenderGraph::Execute: aborting because dependency graph rebuild failed");
+                // The graph is over for this frame: what follows is epilogue.
+                m_OutOfBandLedger.BeginEpilogue();
                 m_TransientPool.ReleaseAll();
                 m_TransientPool.Trim(m_TransientPoolMaxBucketSize);
                 return;
@@ -3520,6 +3585,11 @@ namespace OloEngine
         // which a pass that only reads persistent views would otherwise never do.
         RHI::DescriptorHeap::Get().Flush();
 
+        // Out-of-band ledger (#1331): accesses from here to the end of the
+        // plan belong to the pass the executor names; a no-op when no frame
+        // is open on this graph's ledger.
+        m_OutOfBandLedger.BeginGraph();
+
         m_LastExecutionTimings = RenderGraphPlanExecutor::ExecutePlan({
             .SubmissionPlan = std::span<const SubmissionCommand>(m_CachedSubmissionPlan.GetData(), static_cast<sizet>(m_CachedSubmissionPlan.Num())),
             .Context = commandContext,
@@ -3530,11 +3600,52 @@ namespace OloEngine
             .PostPassHook = composedPostPassHook,
             .GraphForPostPassHook = this,
             .GraphForBarrierResolution = this,
+            .OutOfBandLedger = &m_OutOfBandLedger,
         });
         commandContext.SetRenderGraph(nullptr);
 
         // Third pass: fire extraction callbacks queued by passes during Execute().
         FlushExtractions();
+
+        // Resolve every declared frame-epilogue read while its backing still
+        // belongs to this frame: after ReleaseAll a pooled object is the pool's.
+        for (const FrameEpilogueRead& read : m_FrameEpilogueReads)
+        {
+            const std::string_view name = read.Resource.ToView();
+            if (const auto framebufferHandle = GetFramebufferHandle(name); framebufferHandle.IsValid())
+            {
+                if (Ref<Framebuffer> framebuffer = ResolveFramebuffer(framebufferHandle))
+                    m_FrameEpilogueFramebuffers[std::string(name)] = std::move(framebuffer);
+            }
+            else if (const auto textureHandle = GetTextureHandle(name); textureHandle.IsValid())
+            {
+                if (const RHI::ResourceHandle texture = ResolveTextureHandle(textureHandle); texture.IsValid())
+                    m_FrameEpilogueTextures[std::string(name)] = texture;
+            }
+        }
+        m_OutOfBandLedger.BeginEpilogue();
+
+        // Before the pool takes this frame's objects back: every pass reference to a pooled
+        // framebuffer this frame did not acquire is stale, and dropping it is what lets the
+        // Trim below actually free what it evicts (#1342). The frame-epilogue references
+        // above are the graph's own and are released by the next Execute.
+        const auto isStale = [this](const Framebuffer* framebuffer)
+        { return m_TransientPool.IsStalePooledFramebuffer(framebuffer); };
+        for (auto& [name, node] : m_NodeLookup)
+        {
+            if (node)
+                node->ReleaseStaleFramebuffers(isStale);
+        }
+        ReleaseDepartedNodeFramebuffers(isStale);
+        // The graph's own handle slots too: materialization overwrites only the slots it
+        // allocates, so a slot whose handle this topology no longer materializes would keep
+        // the last object it was given.
+        for (auto& physical : m_PhysicalFramebuffers)
+        {
+            if (physical.FB && isStale(physical.FB.Raw()))
+                physical.FB.Reset();
+        }
+
         m_TransientPool.ReleaseAll();
         m_TransientPool.Trim(m_TransientPoolMaxBucketSize);
 
@@ -4192,7 +4303,11 @@ namespace OloEngine
         std::vector<Frame> stack;
         stack.reserve(m_InsertionOrder.Num());
 
-        const auto visit = [this, &visited, &inProgress, &stack](std::string_view root) -> bool
+        // Read before the visitor: it also walks each node's dependencies in
+        // reverse, so a dependency subtree is not emitted in registration
+        // order either.
+        const bool reverseTieBreak = Levers::RenderGraphReverseTieBreak();
+        const auto visit = [this, &visited, &inProgress, &stack, reverseTieBreak](std::string_view root) -> bool
         {
             if (visited.contains(root))
                 return true;
@@ -4211,7 +4326,9 @@ namespace OloEngine
 
                 if (deps && frame.NextDepIdx < deps->Num())
                 {
-                    const auto& dep = (*deps)[frame.NextDepIdx++];
+                    const auto depIndex = reverseTieBreak ? deps->Num() - 1 - static_cast<i64>(frame.NextDepIdx) : static_cast<i64>(frame.NextDepIdx);
+                    ++frame.NextDepIdx;
+                    const auto& dep = (*deps)[depIndex];
                     if (inProgress.contains(dep))
                     {
                         OLO_CORE_ERROR("RenderGraph::UpdateDependencyGraph: Cycle detected in graph!");
@@ -4238,18 +4355,36 @@ namespace OloEngine
 
         // Visit all nodes in insertion order so ties are broken
         // deterministically (independent of std::unordered_map hashing).
-        for (const auto& name : m_InsertionOrder)
+        //
+        // Levers::RenderGraphReverseTieBreak visits them in REVERSE instead
+        // (#1331): still a valid topological order, but every pair of passes
+        // no edge orders now runs the other way round. A frame that changes
+        // under it depended on registration order somewhere, which is an
+        // undeclared edge.
+        const auto visitRoot = [&](const FString& name) -> bool
         {
-            if (!ContainsGraphEntry(name.ToView()))
-                continue;
-            if (!visited.contains(name))
+            if (!ContainsGraphEntry(name.ToView()) || visited.contains(name))
+                return true;
+            if (visit(name.ToView()))
+                return true;
+            OLO_CORE_ERROR("RenderGraph::UpdateDependencyGraph: Failed to build execution order!");
+            m_ExecutionOrder.Reset();
+            return false;
+        };
+        if (reverseTieBreak)
+        {
+            for (auto it = m_InsertionOrder.rbegin(); it != m_InsertionOrder.rend(); ++it)
             {
-                if (!visit(name.ToView()))
-                {
-                    OLO_CORE_ERROR("RenderGraph::UpdateDependencyGraph: Failed to build execution order!");
-                    m_ExecutionOrder.Reset();
+                if (!visitRoot(*it))
                     return false;
-                }
+            }
+        }
+        else
+        {
+            for (const auto& name : m_InsertionOrder)
+            {
+                if (!visitRoot(name))
+                    return false;
             }
         }
 
@@ -4988,6 +5123,17 @@ namespace OloEngine
             if (!contract.SourceResource.IsEmpty())
                 extractedResourceNames.Add(contract.SourceResource);
         }
+        // Frame-epilogue reads (#1331): read after Execute, so their writers
+        // are roots exactly like an extraction's.
+        for (const auto& epilogueRead : m_FrameEpilogueReads)
+            extractedResourceNames.Add(epilogueRead.Resource);
+
+        TArray64<FString> sideEffectingPasses;
+        for (const auto& passName : m_InsertionOrder)
+        {
+            if (IsGraphEntrySideEffecting(passName.ToView()))
+                sideEffectingPasses.Add(passName);
+        }
 
         // Delegate the BFS / iterative read→writer expansion to the
         // RenderGraphReachability module.
@@ -4998,6 +5144,8 @@ namespace OloEngine
             .PassAccessDeclarations = m_PassAccessDeclarations,
             .Dependencies = m_Dependencies,
             .ExtractedResourceNames = std::span<const FString>(extractedResourceNames.GetData(), static_cast<sizet>(extractedResourceNames.Num())),
+            .SeedPasses = std::span<const FString>(sideEffectingPasses.GetData(), static_cast<sizet>(sideEffectingPasses.Num())),
+            .OrderingOnlyEdges = &m_OrderingOnlyEdges,
         });
 
         // Refresh contract metadata (depends on m_ReachablePasses) before the
@@ -5241,8 +5389,13 @@ namespace OloEngine
 
         const auto matches = [resourceName, &canonical](const auto& contract)
         { return canonical(contract.SourceResource.ToView()) == resourceName; };
+        // A frame-epilogue read (#1331) is the same case: declared before the
+        // plan, read after the last pass.
+        const auto epilogueMatches = [resourceName, &canonical](const FrameEpilogueRead& read)
+        { return canonical(read.Resource.ToView()) == resourceName; };
         return std::ranges::any_of(m_TemporalHistoryContracts, matches) ||
-               std::ranges::any_of(m_ExternalTextureSinkContracts, matches);
+               std::ranges::any_of(m_ExternalTextureSinkContracts, matches) ||
+               std::ranges::any_of(m_FrameEpilogueReads, epilogueMatches);
     }
 
     bool RenderGraph::IsResourceReachableForExtraction(std::string_view resourceName) const
@@ -5336,7 +5489,7 @@ namespace OloEngine
         }
 
         // Delegate to the extracted hazard-validator module.
-        return RenderGraphHazardValidator::Validate({
+        auto hazards = RenderGraphHazardValidator::Validate({
             .IsPassReachable = [this](std::string_view passName)
             { return IsPassReachable(passName); },
             .ResolveTexture = [this](RGTextureHandle handle)
@@ -5357,6 +5510,10 @@ namespace OloEngine
             .RegistryDiagnostics = { m_ResourceRegistryDiagnostics.GetData(), static_cast<sizet>(m_ResourceRegistryDiagnostics.Num()) },
             .RegisteredResources = { m_RegisteredResources.GetData(), static_cast<sizet>(m_RegisteredResources.Num()) },
         });
+        // Out-of-band declarations (#1331) are validated against the same
+        // order, from their own map: no physical planner sees them.
+        AppendOutOfBandDeclarationHazards(hazards);
+        return hazards;
     }
 
     void RenderGraph::EnsureResourceRegistryBuilt() const
@@ -6266,7 +6423,8 @@ namespace OloEngine
         };
 
         out << "{\n";
-        out << "  \"schemaVersion\": 17,\n";
+        // 18: the out-of-band schedule section (#1331).
+        out << "  \"schemaVersion\": 18,\n";
         out << "  \"timingVersion\": 4,\n";
         out << "  \"finalPass\": \"" << jsonEscape(m_FinalPassName.ToView()) << "\",\n";
         out << "  \"hasExplicitFinalPass\": " << (m_HasExplicitFinalPass ? "true" : "false") << ",\n";
@@ -7086,7 +7244,10 @@ namespace OloEngine
                 out << ",";
             out << "\n";
         }
-        out << "  ]\n";
+        out << "  ],\n";
+        // The out-of-band schedule (#1331), the same document
+        // olo_render_graph_schedule returns.
+        out << "  \"outOfBandSchedule\": " << ExportOutOfBandScheduleJson() << "\n";
         out << "}\n";
         out.close();
 
@@ -7114,10 +7275,14 @@ namespace OloEngine
         // / barrier plan / transient plan / submission plan from the previous
         // frame are still valid. Execute() will walk the cached submission
         // plan unchanged.
+        // The tie-break lever changes the execution order without changing a
+        // single declaration, so it is part of what a cached build means.
+        const bool reverseTieBreak = Levers::RenderGraphReverseTieBreak();
         if (cacheFingerprint != 0u &&
             !m_DependencyGraphDirty &&
             m_HasValidBuildFrameGraphCache &&
-            cacheFingerprint == m_LastBuildFrameGraphFingerprint)
+            cacheFingerprint == m_LastBuildFrameGraphFingerprint &&
+            reverseTieBreak == m_LastBuildReverseTieBreak)
         {
             ++m_BuildCacheCounters.CacheHits;
             return;
@@ -7140,6 +7305,9 @@ namespace OloEngine
         m_PassAccessDeclarations.clear();
         m_PassFeedbackDeclarations.clear();
         m_PassLifetimeExtensions.clear();
+        m_PassOutOfBandDeclarations.clear();
+        m_OrderingOnlyEdges.clear();
+        m_LastBuildReverseTieBreak = reverseTieBreak;
         m_PassBarrierFlags.clear();
         m_PlannedBarriers.Reset();
         m_BuildDiagnostics.Reset();
@@ -7162,8 +7330,14 @@ namespace OloEngine
             RGSubresourceRange Range;
         };
         RGTransparentStringMap<std::vector<DepWriterSlot>> lastWriterByResource;
+        // Readers of each resource since its last overlapping write, so the
+        // next writer is ordered after them (write-after-read). Without this a
+        // pass that overwrites a resource in place was ordered after an
+        // earlier reader by registration order alone.
+        RGTransparentStringMap<std::vector<DepWriterSlot>> liveReadersByResource;
         const auto graphEntryCount = m_InsertionOrder.Num();
         lastWriterByResource.reserve(graphEntryCount * 4u);
+        liveReadersByResource.reserve(graphEntryCount * 4u);
 
         struct EdgeKey
         {
@@ -7413,7 +7587,12 @@ namespace OloEngine
             return expandedFeedbacks;
         };
 
-        auto tryAddDerivedDependency = [this](std::string_view beforePass, std::string_view afterPass) -> bool
+        // `orderingOnly`: the edge orders the two passes but carries no data
+        // from `beforePass` to `afterPass` (a write after a read, a
+        // previous-frame read before an in-place rebuild). Reachability skips
+        // such edges, so the later pass cannot keep the earlier one alive.
+        auto tryAddDerivedDependency = [this](std::string_view beforePass, std::string_view afterPass,
+                                              const bool orderingOnly = false) -> bool
         {
             if (beforePass == afterPass)
                 return false;
@@ -7434,7 +7613,13 @@ namespace OloEngine
             }
 
             if (auto& deps = m_Dependencies[std::string(afterPass)]; std::ranges::find(deps, beforePass) != deps.end())
+            {
+                // An edge first derived for ordering and later for data is a
+                // data edge.
+                if (!orderingOnly)
+                    m_OrderingOnlyEdges.erase({ std::string(beforePass), std::string(afterPass) });
                 return false;
+            }
 
             // Avoid introducing a derived edge that would close a cycle.
             // m_Dependencies stores incoming edges (consumer -> producers),
@@ -7470,12 +7655,14 @@ namespace OloEngine
             }
 
             AddExecutionDependency(std::string(beforePass), std::string(afterPass), false);
+            if (orderingOnly)
+                m_OrderingOnlyEdges.emplace(std::string(beforePass), std::string(afterPass));
             return true;
         };
 
         auto processGraphNode = [this, &builder, &expandTextureViewAccesses, &expandTextureViewFeedbacks,
                                  &declaredPassDependenciesByPass, &tryAddDerivedDependency, &lastWriterByResource,
-                                 &depSubresourceRangesOverlap, &processedNodeNames](RenderGraphNode& node)
+                                 &liveReadersByResource, &depSubresourceRangesOverlap, &processedNodeNames](RenderGraphNode& node)
         {
             const std::string nodeName(node.GetName());
             if (nodeName.empty())
@@ -7517,6 +7704,8 @@ namespace OloEngine
             m_PassFeedbackDeclarations[nodeName] = expandTextureViewFeedbacks(feedbacks);
 
             m_PassLifetimeExtensions[nodeName] = builder.GetDeclaredLifetimeExtensions();
+            if (const auto& outOfBand = builder.GetDeclaredOutOfBandAccesses(); !outOfBand.IsEmpty())
+                m_PassOutOfBandDeclarations[nodeName] = outOfBand;
 
             const auto& passDependencies = builder.GetDeclaredPassDependencies();
             declaredPassDependenciesByPass[nodeName] = passDependencies;
@@ -7547,6 +7736,16 @@ namespace OloEngine
                         continue;
                     }
 
+                    // Recorded before the writer lookup: a read of a resource
+                    // no earlier pass wrote (an import, last frame's content)
+                    // still has to finish before a later pass overwrites it.
+                    auto& readers = liveReadersByResource[access.ResourceName.ToStdString()];
+                    if (std::ranges::none_of(readers, [&](const DepWriterSlot& reader)
+                                             { return reader.PassName == nodeName && reader.Range == access.Range; }))
+                    {
+                        readers.emplace_back(nodeName, access.Range);
+                    }
+
                     const auto writerIt = lastWriterByResource.find(access.ResourceName);
                     if (writerIt == lastWriterByResource.end())
                         continue;
@@ -7562,6 +7761,24 @@ namespace OloEngine
                 }
                 else
                 {
+                    // Write after read: every earlier reader of an overlapping
+                    // range runs first. Ordering only — this writer does not
+                    // consume what the reader produced.
+                    if (const auto readersIt = liveReadersByResource.find(access.ResourceName);
+                        readersIt != liveReadersByResource.end())
+                    {
+                        auto& readers = readersIt->second;
+                        for (const auto& reader : readers)
+                        {
+                            if (reader.PassName == nodeName || !depSubresourceRangesOverlap(reader.Range, access.Range))
+                                continue;
+                            if (tryAddDerivedDependency(reader.PassName, nodeName, true))
+                                ++m_LastBuildStats.DerivedEdges;
+                        }
+                        std::erase_if(readers, [&](const DepWriterSlot& reader)
+                                      { return reader.PassName != nodeName && depSubresourceRangesOverlap(reader.Range, access.Range); });
+                    }
+
                     auto& writerVec = lastWriterByResource[access.ResourceName.ToStdString()];
                     for (const auto& slot : writerVec)
                     {
@@ -7676,13 +7893,116 @@ namespace OloEngine
             }
         }
 
+        // Out-of-band edges (#1331). A boundary names ONE datum per frame, so
+        // every writer precedes every current-frame reader and every
+        // previous-frame reader precedes every writer, wherever each pass was
+        // registered. Writers are chained in visit order, except that a writer
+        // which also reads the previous frame's value (a retained-pyramid
+        // consumer that rebuilds it) leads the chain: its read has to come
+        // before every other rebuild. Within a boundary the previous-frame
+        // edges go in first, so a chain edge that contradicts one is the edge
+        // dropped.
+        //
+        // They go in AFTER the resource edges. A resource edge derived in
+        // registration order that contradicts one (two passes writing the
+        // same export, registered rebuilder-first) wins the cycle check; the
+        // out-of-band rule in ValidateCompiledResourceHazards then reports
+        // the contradiction and the ledger reports the stale read at run time.
+        // Order the registration, or the resource accesses, to resolve it.
+        struct OutOfBandEdge
+        {
+            FString Before;
+            FString After;
+            bool OrderingOnly = false;
+            FString Boundary;
+        };
+        const auto collectOutOfBandEdges = [this](const auto& visitOrder)
+        {
+            struct BoundaryUse
+            {
+                TArray64<FString> Writers;
+                TArray64<FString> Readers;
+                TArray64<FString> PreviousFrameReaders;
+            };
+            std::map<std::string, BoundaryUse, std::less<>> uses; // sorted: the edge order is deterministic
+            for (const auto& visited : visitOrder)
+            {
+                const std::string_view passName = RGStringKey::AsView(visited);
+                const auto declarationsIt = m_PassOutOfBandDeclarations.find(passName);
+                if (declarationsIt == m_PassOutOfBandDeclarations.end())
+                    continue;
+                for (const RGOutOfBandDeclaration& declaration : declarationsIt->second)
+                {
+                    BoundaryUse& use = uses[declaration.Boundary.ToStdString()];
+                    switch (declaration.Access)
+                    {
+                        case RGOutOfBandAccess::Write:
+                            use.Writers.Emplace(passName);
+                            break;
+                        case RGOutOfBandAccess::Read:
+                            use.Readers.Emplace(passName);
+                            break;
+                        case RGOutOfBandAccess::ReadPreviousFrame:
+                            use.PreviousFrameReaders.Emplace(passName);
+                            break;
+                    }
+                }
+            }
+
+            std::vector<OutOfBandEdge> edges;
+            for (auto& [boundary, use] : uses)
+            {
+                const FString boundaryName(boundary);
+                for (const FString& reader : use.PreviousFrameReaders)
+                {
+                    for (const FString& writer : use.Writers)
+                    {
+                        if (writer != reader)
+                            edges.push_back({ reader, writer, true, boundaryName });
+                    }
+                }
+
+                std::stable_partition(use.Writers.begin(), use.Writers.end(), [&use](const FString& writer)
+                                      { return std::ranges::find(use.PreviousFrameReaders, writer) != use.PreviousFrameReaders.end(); });
+                for (i64 i = 1; i < use.Writers.Num(); ++i)
+                {
+                    // Ordering only, unless the later writer also reads the
+                    // current value (read-modify-write), which consumes it.
+                    const bool consumes = std::ranges::find(use.Readers, use.Writers[i]) != use.Readers.end();
+                    edges.push_back({ use.Writers[i - 1], use.Writers[i], !consumes, boundaryName });
+                }
+
+                for (const FString& reader : use.Readers)
+                {
+                    // A pass that reads what it writes is ordered by the
+                    // writer chain, not after itself.
+                    if (std::ranges::find(use.Writers, reader) != use.Writers.end())
+                        continue;
+                    for (const FString& writer : use.Writers)
+                        edges.push_back({ writer, reader, false, boundaryName });
+                }
+            }
+            return edges;
+        };
+
+        {
+            OLO_PERF_SCOPE_AUTO("RG::BuildFrameGraph/OutOfBandEdges");
+            for (const OutOfBandEdge& edge : collectOutOfBandEdges(m_InsertionOrder))
+            {
+                if (tryAddDerivedDependency(edge.Before.ToView(), edge.After.ToView(), edge.OrderingOnly))
+                    ++m_LastBuildStats.DerivedEdges;
+            }
+        }
+
         auto simulateDerivedDependencies =
-            [this, &declaredPassDependenciesByPass, &depSubresourceRangesOverlap](const std::vector<std::string>& visitOrder) -> SimulatedDependencyResult
+            [this, &declaredPassDependenciesByPass, &depSubresourceRangesOverlap, &collectOutOfBandEdges](const std::vector<std::string>& visitOrder) -> SimulatedDependencyResult
         {
             SimulatedDependencyResult result{};
             result.Dependencies = m_ExplicitDependencies;
             RGTransparentStringMap<std::vector<DepWriterSlot>> simulatedLastWriterByResource;
+            RGTransparentStringMap<std::vector<DepWriterSlot>> simulatedLiveReadersByResource;
             simulatedLastWriterByResource.reserve(visitOrder.size() * 4u);
+            simulatedLiveReadersByResource.reserve(visitOrder.size() * 4u);
 
             result.DerivedEdges.reserve(visitOrder.size() * 4u);
 
@@ -7766,6 +8086,10 @@ namespace OloEngine
                             continue;
                         }
 
+                        // Mirrors the real derivation: a read is a live
+                        // reader the next overlapping writer waits for.
+                        simulatedLiveReadersByResource[access.ResourceName.ToStdString()].emplace_back(nodeName, access.Range);
+
                         const auto writerIt = simulatedLastWriterByResource.find(access.ResourceName);
                         if (writerIt == simulatedLastWriterByResource.end())
                             continue;
@@ -7784,6 +8108,20 @@ namespace OloEngine
                     }
                     else
                     {
+                        if (const auto readersIt = simulatedLiveReadersByResource.find(access.ResourceName);
+                            readersIt != simulatedLiveReadersByResource.end())
+                        {
+                            for (const auto& reader : readersIt->second)
+                            {
+                                if (reader.PassName == nodeName || !depSubresourceRangesOverlap(reader.Range, access.Range))
+                                    continue;
+                                tryAddSimulatedDerivedDependency(reader.PassName, nodeName,
+                                                                 DerivedEdgeOrigin{ access.ResourceName.ToStdString(), false });
+                            }
+                            std::erase_if(readersIt->second, [&](const DepWriterSlot& reader)
+                                          { return reader.PassName != nodeName && depSubresourceRangesOverlap(reader.Range, access.Range); });
+                        }
+
                         auto& writerVec = simulatedLastWriterByResource[access.ResourceName.ToStdString()];
                         for (const auto& slot : writerVec)
                         {
@@ -7812,6 +8150,14 @@ namespace OloEngine
                             writerVec.emplace_back(nodeName, access.Range);
                     }
                 }
+            }
+
+            // Out-of-band edges after the resource edges, in THIS visit
+            // order, exactly as the real build adds them (#1331).
+            for (const OutOfBandEdge& edge : collectOutOfBandEdges(visitOrder))
+            {
+                tryAddSimulatedDerivedDependency(edge.Before.ToView(), edge.After.ToView(),
+                                                 DerivedEdgeOrigin{ "out-of-band:" + edge.Boundary.ToStdString(), false });
             }
 
             return result;
@@ -8197,6 +8543,19 @@ namespace OloEngine
                 for (const std::string_view dependency : dependencies)
                     key.Add(dependency);
             }
+            if (const auto outOfBandIt = m_PassOutOfBandDeclarations.find(name); outOfBandIt != m_PassOutOfBandDeclarations.end())
+            {
+                std::vector<std::pair<std::string_view, RGOutOfBandAccess>> declarations;
+                for (const RGOutOfBandDeclaration& declaration : outOfBandIt->second)
+                    declarations.emplace_back(declaration.Boundary.ToView(), declaration.Access);
+                std::ranges::sort(declarations);
+                key.Add(static_cast<u64>(declarations.size()));
+                for (const auto& [boundary, access] : declarations)
+                {
+                    key.Add(boundary);
+                    key.Add(access);
+                }
+            }
             out.push_back({ std::string("pass:").append(name), key.Get() });
         }
 
@@ -8328,6 +8687,18 @@ namespace OloEngine
                 key.Add(contract->SourceReachable);
             }
             out.push_back({ "history-contracts", key.Get() });
+        }
+
+        {
+            std::vector<std::string_view> epilogueReads;
+            for (const FrameEpilogueRead& read : m_FrameEpilogueReads)
+                epilogueReads.push_back(read.Resource.ToView());
+            std::ranges::sort(epilogueReads);
+            RGDeclarationKey key;
+            key.Add(static_cast<u64>(epilogueReads.size()));
+            for (const std::string_view read : epilogueReads)
+                key.Add(read);
+            out.push_back({ "frame-epilogue-reads", key.Get() });
         }
 
         std::ranges::sort(out, {}, &PlanDigestEntry::Label);

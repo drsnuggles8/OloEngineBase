@@ -135,12 +135,12 @@ namespace OloEngine
         if (!m_Enabled || !blackboard.Post.PathTracerColor.IsValid())
             return;
 
-        // The by-name execution dependency RayTracingScenePass::Setup reserved
-        // for ray-query consumers. The acceleration structure is not a graph
-        // resource — there is no handle to Read — so this edge is the only
-        // thing stopping a reorder from putting the AS build after the pass
-        // that traces against it.
-        builder.DependsOnPass("RayTracingScenePass");
+        // The acceleration structure this pass traces against (#1331). Not a
+        // graph resource, so it is a named out-of-band boundary: every writer
+        // (RayTracingScenePass) runs first wherever it was registered, and the
+        // ledger reports a trace nobody declared. The symptom of a missing
+        // edge would be a frame traced against last frame's TLAS, or none.
+        builder.ReadOutOfBand(RGOutOfBandBoundaries::SceneTLAS);
 
         if (blackboard.Temporal.PathTracerHistory.IsValid())
         {
@@ -475,7 +475,7 @@ namespace OloEngine
         // A ZERO TLAS ADDRESS IS THE OFF SWITCH, uploaded deliberately: it is
         // the value the shader's first guard tests, so an inactive tracer
         // reaches the GPU as "pass through" instead of as a stale address.
-        const u64 tlasAddress = active ? m_RayTracingScene->GetTlasDeviceAddress() : 0u;
+        const u64 tlasAddress = active ? m_RayTracingScene->GetTlasDeviceAddressForTrace() : 0u;
         params.TlasAddress = glm::uvec4(static_cast<u32>(tlasAddress & 0xFFFFFFFFull),
                                         static_cast<u32>(tlasAddress >> 32u), RayTracing::kInstanceMaskAll,
                                         settings.Seed);

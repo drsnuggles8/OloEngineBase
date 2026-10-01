@@ -7,6 +7,7 @@
 #include <atomic>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include "OloEngine/Containers/Array.h"
 #include "OloEngine/Templates/Function.h"
 
@@ -32,6 +33,11 @@ namespace OloEngine
      * Thread Safety:
      *   - BeginFrame()/EndFrame() must be called from the main thread only
      *   - Each allocator must only be used by its owning thread
+     *   - SubmitForDeletion() may be called from ANY thread: a GPU object whose
+     *     last reference drops on a worker (a texture loaded by the asset-pack
+     *     build's thread, say) queues its deletion there. The queues are
+     *     guarded by m_DeletionMutex; the deletions themselves always run on
+     *     the main thread, in BeginFrame.
      */
     class FrameResourceManager
     {
@@ -120,12 +126,16 @@ namespace OloEngine
 
         // Defer a GPU resource deletion until the GPU has finished using it.
         // The lambda should capture resource IDs by value and call glDelete*.
+        // Callable from any thread; the lambda runs on the main thread.
         void SubmitForDeletion(TFunction<void()>&& deletionFunc);
 
         // Execute all pending deletion queues immediately (used during shutdown).
         void FlushAllDeletionQueues();
 
       private:
+        // Run one slot's queue on the calling (main) thread.
+        void RunDeletionQueue(u32 frameIndex);
+
         FrameResourceManager() = default;
         ~FrameResourceManager() = default;
 
@@ -154,6 +164,12 @@ namespace OloEngine
         f64 m_LastBeginFrameWaitMs = 0.0;
         bool m_DoubleBufferingEnabled = true;
         bool m_Initialized = false;
+        // Guards every FrameResources::DeletionQueue and m_Initialized. An
+        // unguarded Add from the Build Game worker racing BeginFrame's drain
+        // corrupted the heap.
+        std::mutex m_DeletionMutex;
+        // Main thread only: the queue being run, swapped out of its slot.
+        TArray<TFunction<void()>> m_DeletionScratch;
     };
 
 } // namespace OloEngine

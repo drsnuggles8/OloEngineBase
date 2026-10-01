@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RenderGraphOutOfBand.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
@@ -59,6 +60,22 @@ namespace OloEngine
     {
         SetName("SceneRenderPass");
         OLO_CORE_INFO("Creating SceneRenderPass.");
+        // The G-Buffer's capacity versus demand (#1342): it stays allocated after the
+        // path leaves Deferred, and this row is where that shows.
+        m_MemoryReporter = RendererMemoryReporterHandle([this](TArray<MemoryCapacityRow>& rows)
+                                                        {
+            MemoryCapacityRow row;
+            row.Owner = "SceneRenderPass";
+            row.Category = m_GBuffer && m_GBuffer->GetSampleCount() > 1 ? "G-buffer (MSAA + resolve target)" : "G-buffer";
+            row.Lifetime = MemoryLifetime::Persistent;
+            row.Source = MemorySizeSource::FormatEstimate;
+            const std::optional<u64> capacity = m_GBuffer ? m_GBuffer->EstimateBytes() : std::optional<u64>(0);
+            row.CapacityBytes = capacity;
+            if (capacity)
+                row.ActiveDemandBytes = m_DeferredRanLastFrame ? *capacity : 0;
+            else
+                row.UnknownReason = "a G-buffer attachment format has no known size";
+            rows.Add(std::move(row)); });
     }
 
     void SceneRenderPass::Setup(RGBuilder& builder, FrameBlackboard& board)
@@ -72,6 +89,15 @@ namespace OloEngine
             SetPrimaryInputFramebufferHandle(board.Scene.SceneColor);
 
         builder.DependsOnPass("ShadowPass");
+
+        // CPU state this pass prepares for later passes (#1331): the sorted,
+        // batched opaque bucket PlanarReflection and Overdraw replay, and the
+        // Forward+ cluster lists it culls and leaves bound for
+        // DeferredLightingPass and VolumetricFogPass.
+        builder.Publish(RGOutOfBandBoundaries::SceneOpaqueCommandBucket);
+        builder.Publish(RGOutOfBandBoundaries::ForwardPlusLightClusters);
+        // It samples the DDGI probe volume through the engine slots.
+        builder.ReadOutOfBand(RGOutOfBandBoundaries::DDGIProbeVolume);
 
         if (board.Shadows.ShadowMapCSM.IsValid())
         {
@@ -168,6 +194,10 @@ namespace OloEngine
         // bucket, and terrain / voxel draws keep their own full program in it
         // (colour masked), which samples the shadow maps and the IBL set.
         builder.DependsOnPass("ShadowPass");
+        // The prepass is the pass that sorts and batches the bucket when it
+        // runs (BeginSceneFrame), so it publishes it too (#1331).
+        builder.Publish(RGOutOfBandBoundaries::SceneOpaqueCommandBucket);
+        builder.ReadOutOfBand(RGOutOfBandBoundaries::DDGIProbeVolume);
         if (board.Shadows.ShadowMapCSM.IsValid())
         {
             [[maybe_unused]] const auto shadowCSMRead = builder.Read(board.Shadows.ShadowMapCSM, RGReadUsage::ShaderSample);
@@ -263,6 +293,7 @@ namespace OloEngine
     Ref<Framebuffer> SceneRenderPass::BeginSceneFrame(bool deferredActive)
     {
         auto const& rendererSettings = Renderer3D::GetRendererSettings();
+        m_DeferredRanLastFrame = deferredActive;
         if (deferredActive)
         {
             PrepareDeferredResources(rendererSettings.Deferred.MSAASampleCount);
@@ -362,6 +393,8 @@ namespace OloEngine
 
         if (capturing)
             captureManager.OnPostSort(m_CommandBucket);
+        // The bucket other passes replay is now in its final order (#1331).
+        RGOutOfBand::Note(RGOutOfBandBoundaries::SceneOpaqueCommandBucket, RGOutOfBandAccess::Write);
 
         // Invoke post-batch capture step when capturing is active
         if (capturing)

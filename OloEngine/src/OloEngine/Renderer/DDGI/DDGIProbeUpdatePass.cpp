@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RenderGraphOutOfBand.h"
 #include "OloEngine/Renderer/DDGI/DDGIProbeUpdatePass.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 
@@ -277,6 +278,12 @@ namespace OloEngine
         // shadow pass (registered as "ShadowPass" by the pipeline builder) and
         // declare the reads so the graph keeps the maps alive for us.
         builder.DependsOnPass("ShadowPass");
+
+        // The atlases and UBO every lit shader samples at engine slots
+        // (#1331). Consumers that bind or sample it first declare the read, so
+        // this pass runs before them wherever it is registered; before this it
+        // held only because the pipeline builder added it before ScenePass.
+        builder.WriteOutOfBand(RGOutOfBandBoundaries::DDGIProbeVolume);
 
         if (blackboard.Shadows.ShadowMapCSM.IsValid())
         {
@@ -1683,6 +1690,8 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         m_RanThisFrame = false;
+        // Every path below republishes the volume, live or disabled (#1331).
+        RGOutOfBand::Note(RGOutOfBandBoundaries::DDGIProbeVolume, RGOutOfBandAccess::Write);
 
         if (!m_VolumeSubmitted)
         {

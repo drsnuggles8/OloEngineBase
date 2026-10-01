@@ -7,26 +7,24 @@
 # are authoritative for regression detection on the same hardware; numbers
 # will differ (sometimes by an order of magnitude) on other GPUs.
 #
-# To rebase (after confirming the change is expected):
-#   pass --olo-perf-rebase
-#   run-tests-debug
-# The test harness will rewrite this file with fresh numbers from the
-# current run and pass unconditionally while the env var is set.
+# To rebase (after confirming the change is expected), run the test
+# binary with --olo-perf-rebase. The harness will rewrite this file with
+# fresh numbers from that run and pass unconditionally.
 #
 # Regression policy (see PerfRegressionTests.cpp). Enforcement is
 # OPT-IN: by default both WARN- and FAIL-level regressions are RECORDED
 # (gtest property + perf_history TSV) and logged via GTEST_LOG_(WARNING),
 # but do NOT fail the test — these low-microsecond GPU microbenchmarks
-# flake under machine/GPU contention (issue #324). Set
-# --olo-perf-strict to turn a regression into an ADD_FAILURE
-# failure on a quiet machine.
+# flake under machine/GPU contention (issue #324). Pass
+# --olo-perf-strict to turn a regression into an ADD_FAILURE on a
+# quiet machine.
 #   - Measured >= 2.5x baseline  -> FAIL-level (fails only when STRICT)
 #   - Measured >= 1.5x baseline  -> WARN-level (fails only when STRICT)
 #   - Faster than baseline       -> PASS, never fail on improvements
 #
 # Metric: minimum of 20 samples after 5 warmups. Fullscreen passes use
-# GL_TIME_ELAPSED; CPU/submission benches use steady_clock and state their
-# unit in the test log. The fastest run is the cleanest signal.
+# GL_TIME_ELAPSED; CPU/submission benches use steady_clock and state
+# their unit in the test log. The fastest run is the cleanest signal.
 
 bloom_downsample_512x512 15360
 bloom_threshold_512x512 5120
@@ -37,6 +35,10 @@ foliage_wind_960x540_hierarchical_FoliagePass 181248
 foliage_wind_960x540_hierarchical_ShadowPass 247808
 foliage_wind_960x540_legacy_FoliagePass 272384
 foliage_wind_960x540_legacy_ShadowPass 336896
+gl_fluid_emit_staging_32 200
+gl_fluid_step_4_proxies 12800
+gl_fluid_step_no_proxies 16300
+gl_particle_emit_staging_64 1600
 gpu_frustum_cull_safe_root_bindings_1024 132700
 gpu_scene_extract_1024 1535700
 render_graph_fence_execute_32_edges 34926
@@ -45,4 +47,8 @@ tone_map_512x512 9216
 virtual_geometry_frame_1280x720 4628480
 virtual_hwraster_frame_1280x720 1782784
 virtual_swraster_frame_1280x720 2304000
+vk_fluid_emit_staging_32 3164900
+vk_fluid_step_4_proxies 305900
+vk_fluid_step_no_proxies 62900
+vk_particle_emit_staging_64 250500
 whole_frame_postprocess_512x512 22528

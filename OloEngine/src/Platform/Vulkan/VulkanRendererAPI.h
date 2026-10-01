@@ -632,6 +632,8 @@ namespace OloEngine
         [[nodiscard]] VkCommandBuffer BeginAccelerationStructureRecording();
 
         [[nodiscard]] bool SupportsWeightedBlendedOIT() const override;
+        // VMA's per-heap statistics and budgets (#1342); OS-reported with VK_EXT_memory_budget.
+        [[nodiscard]] bool ObserveDeviceMemory(BackendMemoryObservation& out) const override;
 
         // --- Parallel command recording (#806, amendment (92)) ---------------
         [[nodiscard]] bool SupportsParallelRecording() const override;

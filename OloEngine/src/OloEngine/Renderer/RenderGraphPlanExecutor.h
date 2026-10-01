@@ -48,6 +48,11 @@ namespace OloEngine::RenderGraphPlanExecutor
         // batch carries flags only, which is the complete GL behaviour.
         RenderGraph* GraphForBarrierResolution = nullptr;
 
+        // The executing graph's out-of-band ledger (#1331): each pass body
+        // run on the caller is attributed to its pass there. Null in
+        // headless plan-shape tests.
+        RGOutOfBandLedger* OutOfBandLedger = nullptr;
+
         // Optional owner-specific submission adapter. The live renderer uses
         // RGCommandContext; a headless/offscreen owner can supply the same two
         // operations for its own command-buffer chain without a platform

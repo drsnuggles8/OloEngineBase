@@ -297,14 +297,22 @@ void main()
     float cloudShadow = atmosphereCloudShadow(v_WorldPos);
 
     vec3 Lo = vec3(0.0);
+    // The lighting tap (issue #1526) needs the diffuse half of the direct sum,
+    // tracked beside it; `Lo` is the same expression it always was.
+    vec3 LoDiffuse = vec3(0.0);
     for (int i = 0; i < min(u_LightCount, MAX_LIGHTS); ++i)
     {
-        vec3 lightContrib = calculateLightContribution(u_Lights[i], N, V, albedo, metallic, roughness, v_WorldPos);
+        // calculateLightContribution is the sum of this split, evaluated once.
+        OloSurfaceLighting lightSplit = calculateLightContributionSplit(u_Lights[i], N, V, albedo, metallic,
+                                                                        roughness, v_WorldPos, OLO_PBR_MODEL_LEGACY);
+        vec3 lightContrib = oloSurfaceLightingSum(lightSplit);
+        float lightVisibility = 1.0;
 
         int lightType = int(u_Lights[i].position.w);
         if (lightType == DIRECTIONAL_LIGHT)
         {
             lightContrib *= cloudShadow;
+            lightVisibility *= cloudShadow;
         }
         // The cascades (and VSM's clip map) are the FIRST directional light's:
         // Scene.cpp builds them for UBO index 0 only. A second directional light
@@ -327,6 +335,7 @@ void main()
                 u_SoftShadowMode
             );
             lightContrib *= shadow;
+            lightVisibility *= shadow;
         }
         else if (lightType == SPOT_LIGHT)
         {
@@ -346,6 +355,7 @@ void main()
                     u_ShadowParams.z
                 );
                 lightContrib *= shadow;
+                lightVisibility *= shadow;
             }
         }
         else if (lightType == POINT_LIGHT || lightType == SPHERE_AREA_LIGHT)
@@ -368,9 +378,14 @@ void main()
                     u_ShadowParams.z
                 );
                 lightContrib *= shadow;
+                lightVisibility *= shadow;
             }
         }
 
+        // The primary sun's full visibility, for the lighting tap (#1526).
+        if (i == 0 && lightType == DIRECTIONAL_LIGHT)
+            oloRecordLightingTapShadow(lightVisibility);
+        LoDiffuse += lightSplit.Diffuse * lightVisibility;
         Lo += lightContrib;
     }
 
@@ -386,17 +401,21 @@ void main()
                                                        probeViewDepth);
         terrainPrefiltered = mix(terrainPrefiltered, probeSpecular.rgb, probeSpecular.a);
     }
-    vec3 ambient = oloSurfaceLightingSum(evaluateAmbientLadderSplitEx(
+    OloSurfaceLighting ambientSplit = evaluateAmbientLadderSplitEx(
         vec4(0.0), v_WorldPos, N, V, albedo, metallic, roughness, u_IrradianceMap, u_BRDFLutMap,
-        terrainPrefiltered, terrainEnableIBL, u_TerrainAmbientLadder.y > 0.5, u_TerrainAmbientLadder.z));
+        terrainPrefiltered, terrainEnableIBL, u_TerrainAmbientLadder.y > 0.5, u_TerrainAmbientLadder.z);
+    vec3 ambient = oloSurfaceLightingSum(ambientSplit);
     // AO is visibility for the AMBIENT term only (issue #1336) — the old
     // `mix(color, color * ao, 0.5)` also darkened every light's direct term.
     // The material AO times the SCREEN-SPACE AO (issue #1452), on the ambient
     // term alone — the same product DeferredLighting multiplies its ambient
     // split by.
-    vec3 color = ambient * (ao * oloForwardScreenSpaceAO(gl_FragCoord.xy)) + Lo;
+    float ambientVisibility = ao * oloForwardScreenSpaceAO(gl_FragCoord.xy);
+    vec3 color = ambient * ambientVisibility + Lo;
+    oloRecordLightingTapTerms(LoDiffuse, Lo - LoDiffuse, ambientSplit.Diffuse * ambientVisibility,
+                              ambientSplit.Specular * ambientVisibility, vec3(0.0));
 
-    o_Color = vec4(color, 1.0);
+    o_Color = vec4(oloLightingTapOutput(color, u_LightingTap), 1.0);
     o_EntityID = instances[v_InstanceIndex].EntityID;
 
     vec3 viewNormal = normalize(mat3(u_View) * N);

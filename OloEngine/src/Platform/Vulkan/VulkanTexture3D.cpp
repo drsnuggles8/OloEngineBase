@@ -3,6 +3,7 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanAddressCommands.h"
+#include "Platform/Vulkan/VulkanTrackedAllocation.h"
 #include "Platform/Vulkan/VulkanTexture3D.h"
 
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
@@ -79,7 +80,7 @@ namespace OloEngine
         imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         VmaAllocationCreateInfo allocInfo{};
         allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-        if (vmaCreateImage(device->GetAllocator(), &imageInfo, &allocInfo, &m_Image, &m_Allocation, nullptr) !=
+        if (TrackedVmaCreateImage(device->GetAllocator(), &imageInfo, &allocInfo, &m_Image, &m_Allocation, nullptr) !=
             VK_SUCCESS)
         {
             OLO_CORE_ERROR("VulkanTexture3D: image creation failed ({}x{}x{})", spec.Width, spec.Height,
@@ -88,7 +89,7 @@ namespace OloEngine
             m_Allocation = VK_NULL_HANDLE;
             return;
         }
-        vmaSetAllocationName(device->GetAllocator(), m_Allocation, "VulkanTexture3D");
+        TrackedVmaSetAllocationName(device->GetAllocator(), m_Allocation, "VulkanTexture3D");
 
         VulkanImageInfo registryInfo{};
         registryInfo.Format = imageInfo.format;
@@ -184,8 +185,8 @@ namespace OloEngine
         VkBuffer staging = VK_NULL_HANDLE;
         VmaAllocation stagingAllocation = VK_NULL_HANDLE;
         VmaAllocationInfo stagingOut{};
-        if (vmaCreateBuffer(device->GetAllocator(), &stagingInfo, &stagingAlloc, &staging, &stagingAllocation,
-                            &stagingOut) != VK_SUCCESS)
+        if (TrackedVmaCreateBuffer(device->GetAllocator(), &stagingInfo, &stagingAlloc, &staging, &stagingAllocation,
+                                   &stagingOut) != VK_SUCCESS)
         {
             OLO_CORE_ERROR("VulkanTexture3D::SetData: staging allocation failed ({} bytes)", size);
             return;
@@ -218,7 +219,7 @@ namespace OloEngine
                                                  VK_ACCESS_2_MEMORY_READ_BIT, 0u, 1u);
             });
 
-        vmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
+        TrackedVmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
 
         if (ok)
         {

@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "Platform/Vulkan/VulkanAddressCommands.h"
+#include "Platform/Vulkan/VulkanTrackedAllocation.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 
 #if OLO_WITH_VULKAN
@@ -452,8 +453,8 @@ namespace OloEngine
         VkBuffer staging = VK_NULL_HANDLE;
         VmaAllocation stagingAllocation = VK_NULL_HANDLE;
         VmaAllocationInfo stagingOut{};
-        if (vmaCreateBuffer(device->GetAllocator(), &stagingInfo, &stagingAlloc, &staging, &stagingAllocation,
-                            &stagingOut) != VK_SUCCESS)
+        if (TrackedVmaCreateBuffer(device->GetAllocator(), &stagingInfo, &stagingAlloc, &staging, &stagingAllocation,
+                                   &stagingOut) != VK_SUCCESS)
         {
             OLO_CORE_ERROR("[RHI/Vulkan] RecordStagedImageUpload: staging allocation failed ({} bytes)", sizeBytes);
             return false;
@@ -1526,6 +1527,16 @@ namespace OloEngine
     {
         const_cast<VulkanRendererAPI*>(this)->CacheDeviceLimits();
         return m_SupportsInt64Atomics;
+    }
+
+    bool VulkanRendererAPI::ObserveDeviceMemory(BackendMemoryObservation& out) const
+    {
+        const auto* device = VulkanDevice::Get();
+        if (device == nullptr)
+        {
+            return false;
+        }
+        return ObserveVmaMemory(device->GetAllocator(), device->IsMemoryBudgetEnabled(), out);
     }
 
     bool VulkanRendererAPI::SupportsWeightedBlendedOIT() const
@@ -5519,8 +5530,8 @@ namespace OloEngine
         VkBuffer staging = VK_NULL_HANDLE;
         VmaAllocation stagingAllocation = VK_NULL_HANDLE;
         VmaAllocationInfo stagingOut{};
-        if (vmaCreateBuffer(device->GetAllocator(), &stagingInfo, &stagingAlloc, &staging, &stagingAllocation,
-                            &stagingOut) != VK_SUCCESS)
+        if (TrackedVmaCreateBuffer(device->GetAllocator(), &stagingInfo, &stagingAlloc, &staging, &stagingAllocation,
+                                   &stagingOut) != VK_SUCCESS)
         {
             OLO_CORE_ERROR("[RHI/Vulkan] UploadBufferSubData: staging allocation failed ({} bytes)", sizeBytes);
             return false;
@@ -6383,8 +6394,8 @@ namespace OloEngine
         VkBuffer staging = VK_NULL_HANDLE;
         VmaAllocation stagingAllocation = VK_NULL_HANDLE;
         VmaAllocationInfo stagingOut{};
-        if (vmaCreateBuffer(device->GetAllocator(), &stagingInfo, &stagingAlloc, &staging, &stagingAllocation,
-                            &stagingOut) != VK_SUCCESS)
+        if (TrackedVmaCreateBuffer(device->GetAllocator(), &stagingInfo, &stagingAlloc, &staging, &stagingAllocation,
+                                   &stagingOut) != VK_SUCCESS)
         {
             OLO_CORE_ERROR("[RHI/Vulkan] UploadTextureSubImage2D: staging allocation failed ({} bytes)", uploadSize);
             return;
@@ -6446,7 +6457,7 @@ namespace OloEngine
                     oneShotDep.pImageMemoryBarriers = &toRead;
                     vkCmdPipelineBarrier2(cmd, &oneShotDep);
                 });
-            vmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
+            TrackedVmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
             if (ok)
             {
                 VulkanImageInfoRegistry::Get().SetInitialLayout(image, VulkanDevice::Get()->GetSampledImageLayout());
@@ -6825,8 +6836,8 @@ namespace OloEngine
         VkBuffer readback = VK_NULL_HANDLE;
         VmaAllocation readbackAllocation = VK_NULL_HANDLE;
         VmaAllocationInfo readbackOut{};
-        if (vmaCreateBuffer(device->GetAllocator(), &readbackInfo, &readbackAlloc, &readback, &readbackAllocation,
-                            &readbackOut) != VK_SUCCESS)
+        if (TrackedVmaCreateBuffer(device->GetAllocator(), &readbackInfo, &readbackAlloc, &readback, &readbackAllocation,
+                                   &readbackOut) != VK_SUCCESS)
         {
             return false;
         }
@@ -6857,7 +6868,7 @@ namespace OloEngine
             borrowedLayout = ctx.Tracker.CurrentExecutedLayout(image, range);
             if (borrowedLayout == VK_IMAGE_LAYOUT_UNDEFINED)
             {
-                vmaDestroyBuffer(device->GetAllocator(), readback, readbackAllocation);
+                TrackedVmaDestroyBuffer(device->GetAllocator(), readback, readbackAllocation);
                 return false;
             }
         }
@@ -6962,7 +6973,7 @@ namespace OloEngine
                 }
             }
         }
-        vmaDestroyBuffer(device->GetAllocator(), readback, readbackAllocation);
+        TrackedVmaDestroyBuffer(device->GetAllocator(), readback, readbackAllocation);
         return ok && converted;
     }
 
@@ -7203,14 +7214,14 @@ namespace OloEngine
 
         VkImage clone = VK_NULL_HANDLE;
         VmaAllocation allocation = VK_NULL_HANDLE;
-        if (vmaCreateImage(device->GetAllocator(), &imageInfo, &allocInfo, &clone, &allocation, nullptr) !=
+        if (TrackedVmaCreateImage(device->GetAllocator(), &imageInfo, &allocInfo, &clone, &allocation, nullptr) !=
             VK_SUCCESS)
         {
             OLO_CORE_WARN("[RHI/Vulkan] CreateMatchingTextureHandle: vmaCreateImage failed ({}x{} format {})",
                           info->Width, info->Height, static_cast<u32>(info->Format));
             return {};
         }
-        vmaSetAllocationName(device->GetAllocator(), allocation, "SnapshotClone");
+        TrackedVmaSetAllocationName(device->GetAllocator(), allocation, "SnapshotClone");
 
         // Register the clone exactly like an object-backed texture: the barrier
         // translator derives aspect masks from this, the layout tracker seeds

@@ -58,6 +58,8 @@
 #include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 
+#include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
+
 #include <array>
 #include <unordered_map>
 #include <vector>
@@ -513,6 +515,11 @@ namespace OloEngine
         {
             return m_Stats.SceneShadow;
         }
+
+        /// Read-only memory-report rows (#1342): shared rest streams once each, per-entity
+        /// deformation state, coat-volume rings and the CPU pose/shadow storage. Defined in
+        /// GroomRenderPassMemory.cpp.
+        void AppendMemoryCapacityRows(TArray<MemoryCapacityRow>& rows) const;
 
         /// Upper bound on the strand-buffer cache, in bytes. Exceeding it
         /// evicts least-recently-used entries at the END of a frame, never

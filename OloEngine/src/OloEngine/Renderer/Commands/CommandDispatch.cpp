@@ -93,6 +93,9 @@ namespace OloEngine
         RHI::ResourceHandle ForwardScreenSpaceAOTexture{};
         RHI::ResourceHandle ForwardScreenSpaceAODepth{};
         bool ForwardScreenSpaceAOSuspended = false;
+        // The lighting tap (issue #1526), for the main view's camera lane. A
+        // mirrored replay suspends it with the AO lane: both are main-view data.
+        f32 LightingTap = 0.0f;
 
         // Depth prepass override: when true, ApplyPODRenderState forces depth-only state
         bool DepthPrepassActive = false;
@@ -1801,6 +1804,12 @@ namespace OloEngine
         s_FrameData.ForwardScreenSpaceAOSuspended = suspend;
     }
 
+    void CommandDispatch::SetLightingTap(u32 tap)
+    {
+        OLO_CORE_ASSERT(!s_RecordingData, "Frame state is frozen during recording");
+        s_FrameData.LightingTap = static_cast<f32>(tap);
+    }
+
     void CommandDispatch::UploadMaterialForDirectDraw(const PODMaterialData& mat, u16 materialDataIndex)
     {
         auto& api = RenderCommand::GetRendererAPI();
@@ -2063,6 +2072,7 @@ namespace OloEngine
         // belongs to the main view.
         cameraData.ScreenSpaceAOParams =
             s_FrameData.ForwardScreenSpaceAOSuspended ? glm::vec4(0.0f) : s_FrameData.ForwardScreenSpaceAOParams;
+        cameraData.LightingTap = s_FrameData.ForwardScreenSpaceAOSuspended ? 0.0f : s_FrameData.LightingTap;
         Data().CameraUBO->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
         BindUBOIfNeeded(api, ShaderBindingLayout::UBO_CAMERA, Data().CameraUBO->GetRHIHandle());
     }

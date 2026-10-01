@@ -62,6 +62,16 @@ namespace OloEngine
             RepublishCommandDispatchBindings();
         if (auto& passTimers = GPUPassTimerPool::GetInstance(); !passTimers.IsInitialized())
             passTimers.Initialize();
+
+        // Open the out-of-band ledger for this scene frame (issue #1331): from
+        // here to the end of EndScene, every RGOutOfBand::Note() is attributed
+        // to the prologue, a pass, or the epilogue and checked in EndScene.
+        // Re-pointed every frame for the same reason as the singletons above.
+        if (s_Data.RGraph)
+        {
+            RGOutOfBand::SetActiveLedger(&s_Data.RGraph->GetOutOfBandLedger());
+            s_Data.RGraph->GetOutOfBandLedger().BeginFrame();
+        }
     }
 
     void Renderer3D::BeginScene(const PerspectiveCamera& camera)

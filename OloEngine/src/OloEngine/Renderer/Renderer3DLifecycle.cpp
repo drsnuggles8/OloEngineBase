@@ -711,6 +711,7 @@ namespace OloEngine
         note("TerrainUBO", s_Data.TerrainUBO != nullptr);
         note("FoliageUBO", s_Data.FoliageUBO != nullptr);
         note("WaterUBO", s_Data.WaterUBO != nullptr);
+        note("LightmapUBO", s_Data.LightmapUBO != nullptr); // #1541
         note("DecalReceiverIntersectionQueries", s_Data.DecalReceiverIntersectionQueries[0].IsValid());
         note("DecalVisibilityQueries", s_Data.DecalVisibilityQueries[0].IsValid());
         // Reflection-probe cubemap arrays + UBO + cluster-mask SSBO (#705).
@@ -865,6 +866,12 @@ namespace OloEngine
         s_Data.SharedSceneUBOs.Reset();
         s_Data.MultiLightBuffer.Reset();
         s_Data.ModelInstanceBuffer.Reset();
+        // Made in Init and never released here, so it outlived the renderer and
+        // died with s_Data at static destruction, after the memory tracker had
+        // reported it: "1 GPU allocation(s) (16 bytes) survived the renderer"
+        // at the exit of every process that brought Renderer3D up (#1541).
+        s_Data.LightmapUBO.Reset();
+        s_Data.LightmapUBOUploaded = false;
         // The diagnostic probe BEFORE the scene it traces against (#607): its
         // ring holds raw GPU handles — a fence and a buffer per slot — and
         // those must be released while the context is still alive, which is the

@@ -92,7 +92,18 @@ namespace
         runInfo.Timing.CurrentFrameId = 102;
         runInfo.Timing.AgeFrames = 2;
         runInfo.Timing.FrameStatus = GpuTimingStatus::Valid;
-        runInfo.Resolution = Benchmark::ResolutionRecord{ 1280, 720, 1920, 1080, 0.6667f, true };
+        // Designated, not positional: a field added to the record would
+        // otherwise take a neighbour's value with no diagnostic.
+        runInfo.Resolution = Benchmark::ResolutionRecord{ .RenderWidth = 1280,
+                                                          .RenderHeight = 720,
+                                                          .DisplayWidth = 1920,
+                                                          .DisplayHeight = 1080,
+                                                          .RenderScale = 1.0f,
+                                                          .UpscalerRenderScale = 0.667f,
+                                                          .Upscaler = { TemporalUpscalePolicy::ResolvedUpscaler::Spatial,
+                                                                        TemporalUpscalePolicy::TemporalFallback::None },
+                                                          .UpscalerLatched = true,
+                                                          .Measured = true };
         runInfo.Counters = Benchmark::RendererCounters{ 42, 5000, 0, 1024 * 1024 };
         return runInfo;
     }
@@ -201,6 +212,44 @@ TEST(BenchmarkExportValidity, ActualRenderAndDisplayDimensionsAreRecordedSeparat
     EXPECT_EQ(output["actual"]["displayHeight"].get<u32>(), 1080u);
     EXPECT_NE(output["actual"]["renderWidth"].get<u32>(), output["requested"]["width"].get<u32>())
         << "this fixture exists precisely because the two can differ";
+}
+
+TEST(BenchmarkExportValidity, TheInternalSizeNamesTheMechanismAndTheUpscalerThatRan)
+{
+    // #1526. The #1338 upscale probes wrote renderWidth 1920 for a 1280-wide
+    // scene band, because the record read only the dynamic render scale. The
+    // export now says which mechanism set the internal size and which upscaler
+    // reconstructed the display: a spatial upscaler at scale 1.0 here.
+    const auto result = WriteAndRead(HealthyRunInfo(), "upscaled");
+    ASSERT_FALSE(result.Json.is_discarded());
+    const auto& actual = result.Json["output"]["actual"];
+    EXPECT_EQ(actual["internalSource"].get<std::string>(), "upscaler-scene-band");
+    EXPECT_NEAR(actual["upscalerRenderScale"].get<f64>(), 0.667, 1e-6);
+    EXPECT_EQ(actual["upscaler"]["resolved"].get<std::string>(), "spatial");
+    EXPECT_EQ(actual["upscaler"]["fallback"].get<std::string>(), "none");
+
+    // A dynamic scale is the other mechanism, and reads as such even with no
+    // upscaler in the frame.
+    Benchmark::RunInfo dynamic = HealthyRunInfo();
+    dynamic.Resolution.RenderScale = 0.5f;
+    dynamic.Resolution.UpscalerRenderScale = 1.0f;
+    dynamic.Resolution.Upscaler = {};
+    const auto dynamicResult = WriteAndRead(dynamic, "dynamic");
+    ASSERT_FALSE(dynamicResult.Json.is_discarded());
+    EXPECT_EQ(dynamicResult.Json["output"]["actual"]["internalSource"].get<std::string>(), "dynamic-render-scale");
+    EXPECT_EQ(dynamicResult.Json["output"]["actual"]["upscaler"]["resolved"].get<std::string>(), "native");
+}
+
+TEST(BenchmarkExportValidity, AnUnresolvedUpscalerIsNullRatherThanNative)
+{
+    // NEGATIVE CONTROL for the upscaler field. A record taken before any frame
+    // resolved the upscaler holds a default-constructed "native"; writing that
+    // would assert a result nothing produced.
+    Benchmark::RunInfo runInfo = HealthyRunInfo();
+    runInfo.Resolution.UpscalerLatched = false;
+    const auto result = WriteAndRead(runInfo, "unlatched");
+    ASSERT_FALSE(result.Json.is_discarded());
+    EXPECT_TRUE(result.Json["output"]["actual"]["upscaler"].is_null());
 }
 
 TEST(BenchmarkExportValidity, UnmeasuredDimensionsAreNullRatherThanAnEchoOfTheRequest)

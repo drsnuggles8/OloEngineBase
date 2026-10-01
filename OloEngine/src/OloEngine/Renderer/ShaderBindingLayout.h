@@ -59,7 +59,12 @@ namespace OloEngine
             // unaffected (std140 trailing-byte tolerance). Zero within the first
             // grid cell, so the add-back is a no-op near origin.
             glm::vec3 RenderOrigin = glm::vec3(0.0f);
-            f32 Pad1 = 0.0f;
+            // The selected lighting tap (issue #1526): LightingTap as a float,
+            // in what was this block's padding lane. CommandDispatch sets it on
+            // the main view's colour passes; every other writer leaves 0, so a
+            // probe, mirror or shadow view renders its ordinary frame. GLSL:
+            // u_LightingTap (include/CameraCommon.glsl).
+            f32 LightingTap = 0.0f;
             // The SHADER-RECONSTRUCTION flavour of Projection (#691).
             // `Projection` above carries the rasterizer flavour (full F: y flip
             // + z remap on Vulkan), which every `gl_Position` consumer needs —

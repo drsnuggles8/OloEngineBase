@@ -3,6 +3,7 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanDescriptorHeapBackend.h"
+#include "Platform/Vulkan/VulkanTrackedAllocation.h"
 
 #include <shared_mutex>
 
@@ -484,7 +485,7 @@ namespace OloEngine
         allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
 
         NullImage null;
-        if (vmaCreateImage(device->GetAllocator(), &imageInfo, &allocInfo, &null.Image, &null.Allocation, nullptr) !=
+        if (TrackedVmaCreateImage(device->GetAllocator(), &imageInfo, &allocInfo, &null.Image, &null.Allocation, nullptr) !=
             VK_SUCCESS)
         {
             OLO_CORE_ERROR("VulkanDescriptorHeapBackend: null image creation failed (format {})",
@@ -532,7 +533,7 @@ namespace OloEngine
             });
         if (!cleared)
         {
-            vmaDestroyImage(device->GetAllocator(), null.Image, null.Allocation);
+            TrackedVmaDestroyImage(device->GetAllocator(), null.Image, null.Allocation);
             return false;
         }
 

@@ -74,14 +74,9 @@ namespace OloEngine
       public:
         EnvironmentMap(const EnvironmentMapSpecification& spec);
 
-        // NOT `= default`. The constructor tracks `this` with the RendererMemoryTracker
-        // (EnvironmentMap.cpp), and the tracker is keyed on the CPU heap address — so a
-        // destructor that does not untrack leaves a corpse entry at that address. Every
-        // sky/IBL rebuild (scene load, sky-config change, procedural-sky or reflection-probe
-        // re-bake, the editor's `m_EnvironmentMap = nullptr; // Force reload`) drops the Ref,
-        // and the replacement lands on the block the allocator just freed — tripping the
-        // bogus "Double allocation detected at address ..." warning and permanently inflating
-        // the type totals. Pinned by RendererMemoryTrackerTest.
+        // Defined out of line. The environment map books nothing with the
+        // RendererMemoryTracker itself (#1342): its cubemap and IBL textures book their own
+        // bytes, and an aggregate booking on `this` counted them twice.
         ~EnvironmentMap();
 
         // Initialize IBL system with shader library (call once at engine startup)

@@ -289,12 +289,31 @@ namespace OloEngine::Tests
         [[nodiscard]] std::string ExtractFunctionBody(const std::string& source,
                                                       const std::string& signature)
         {
-            const sizet start = source.find(signature);
-            if (start == std::string::npos)
+            // The DEFINITION, not the first mention: a call such as `Foo::GetInstance().Bar()`
+            // earlier in the file also contains the signature, and taking it would read
+            // whatever braces follow the call as the accessor's body.
+            sizet open = std::string::npos;
+            for (sizet start = source.find(signature); start != std::string::npos; start = source.find(signature, start + 1))
             {
-                return {};
+                const sizet next = source.find_first_not_of(" \t\r\n", start + signature.size());
+                if (next == std::string::npos)
+                    break;
+                if (source[next] == '{')
+                {
+                    open = next;
+                    break;
+                }
+                // A trailing return type: `GetX() -> T& {`. A call is followed by `.` or `;`.
+                if (source.compare(next, 2, "->") == 0)
+                {
+                    const sizet stop = source.find_first_of(";{", next);
+                    if (stop != std::string::npos && source[stop] == '{')
+                    {
+                        open = stop;
+                        break;
+                    }
+                }
             }
-            const sizet open = source.find('{', start);
             if (open == std::string::npos)
             {
                 return {};

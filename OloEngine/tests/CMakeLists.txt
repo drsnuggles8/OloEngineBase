@@ -446,6 +446,8 @@ add_executable(OloEngine-Tests
 		Rendering/CommandLifecycleCheck.cpp
 		Rendering/CommandDispatchRecordingTest.cpp
 		Rendering/RenderGraphParallelRecordingTest.cpp
+		Rendering/RenderGraphOutOfBandTest.cpp
+		Rendering/RenderGraphOutOfBandScheduleTest.cpp
 		Rendering/PODRenderStateChannelMaskTest.cpp
 		#Rendering/CommandDispatchTest.cpp  # Requires full engine (calls CommandDispatch::Initialize which pulls in OpenGL statics)
 		# Listed directly since #1305 dropped it from the heavy-compile pool (0.94 GiB, #34);
@@ -799,6 +801,8 @@ add_executable(OloEngine-Tests
 		# Upscale keeps the native framing, and a groom coat stays on its body
 		# under it (#1397, #1430).
 		Rendering/PropertyTests/UpscaleFramingEvidenceTest.cpp
+		# The split lighting taps partition the lit colour on every path (#1526).
+		Rendering/PropertyTests/LightingTapEvidenceTest.cpp
 		Rendering/PropertyTests/SSAOVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GTAOVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SphereProxyAOVisualEvidenceTest.cpp
@@ -840,6 +844,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/FoliageLodCoverageEvidenceTest.cpp
 		Rendering/PropertyTests/CookedCutoutCoverageEvidenceTest.cpp
 		Rendering/PropertyTests/FloraTraversalEvidenceTest.cpp
+		Rendering/PropertyTests/FloraLooseCookedParityEvidenceTest.cpp
         Rendering/PropertyTests/FoliageGPUCullEvidenceTest.cpp
         Rendering/PropertyTests/FoliageWindEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageLeafMaterialTest.cpp
@@ -917,10 +922,12 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/AssetPreviewRendererTest.cpp
 		Rendering/PropertyTests/RendererAttachedTest.cpp
 		Rendering/RendererMemoryTrackerTest.cpp
+		Rendering/RendererMemoryReportTest.cpp
 		Rendering/MaterialCopyTest.cpp
 		Rendering/MaterialTransmissionTest.cpp
 		Rendering/GltfPhysicalMaterialImportTest.cpp
 		Rendering/RendererShutdownTest.cpp
+		Rendering/FrameResourceDeletionQueueThreadTest.cpp
 		Rendering/RenderPathDriftTest.cpp
 		Rendering/VirtualMeshRegistryRejectionTest.cpp
 		Rendering/VirtualGeometrySceneCoverageTest.cpp
@@ -1328,6 +1335,7 @@ add_executable(OloEngine-Tests
 		Rendering/GpuTimingValidityTest.cpp
 		Rendering/BenchmarkExportValidityTest.cpp
 		Rendering/PropertyTests/GpuTimingPoolEvidenceTest.cpp
+		Rendering/PropertyTests/RendererMemoryAccountingEvidenceTest.cpp
 		# Pure per-scope CPU timings shaping behind olo_perf_cpu_scopes (#519,
 		# first slice: expose PerformanceProfiler's per-scope CPU timings, incl.
 		# the Distribution-build "unavailable" degradation). Header-only

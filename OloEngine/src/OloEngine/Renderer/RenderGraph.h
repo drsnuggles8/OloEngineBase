@@ -9,14 +9,17 @@
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/RGBuilder.h"
+#include "OloEngine/Renderer/RenderGraphOutOfBand.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/TemporalHistoryRegistry.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
 #include "OloEngine/Renderer/TransientPool.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
 #include <functional>
 #include <limits>
 #include <map>
 #include <optional>
+#include <set>
 #include <span>
 #include <vector>
 #include <unordered_map>
@@ -106,7 +109,9 @@ namespace OloEngine
     {
       public:
         RenderGraph() = default;
-        ~RenderGraph() = default;
+        // Detaches its out-of-band ledger from RGOutOfBand if it is the
+        // active one, so no access site records into a freed ledger.
+        ~RenderGraph();
 
         friend class RGBuilder;
 
@@ -267,6 +272,10 @@ namespace OloEngine
             FeedbackWithoutDeclaration,     // same pass reads+writes overlapping subresource
             ImportedResourceLifetimeMisuse, // imported resource is used without valid backing
             Cycle,                          // dependency graph has a cycle; hazards could not be validated
+            // Out-of-band boundaries (issue #1331, RenderGraphOutOfBand.h):
+            OutOfBandOrdering,             // declared accesses ordered against their contract
+            UndeclaredOutOfBandAccess,     // the ledger saw an access no declaration covers
+            UnregisteredOutOfBandBoundary, // a declaration or access names no registered boundary
         };
         struct Hazard
         {
@@ -604,6 +613,22 @@ namespace OloEngine
         {
             return m_TemporalHistoryRegistry;
         }
+
+        // Memory report (issue #1342), all format estimates. The transient plan's LOGICAL
+        // bytes (every allocating entry at its own size) against the PHYSICAL bytes of its
+        // alias slots (one object per slot): the difference is what aliasing saves.
+        struct TransientAliasBytes
+        {
+            u64 LogicalBytes = 0;
+            u64 PhysicalBytes = 0;
+            u32 Entries = 0;
+            u32 Slots = 0;
+            bool AliasingDisabled = false;
+        };
+        [[nodiscard]] TransientAliasBytes ComputeTransientAliasBytes() const;
+        // This graph's capacity-versus-demand rows: the transient pool, and the temporal
+        // histories per effect. Registered with RendererMemoryTracker by Init().
+        void AppendMemoryCapacityRows(TArray<MemoryCapacityRow>& rows) const;
 
         // Queue a texture extraction that explicitly writes back into a named
         // imported history resource for the next frame. The callback receives
@@ -1046,6 +1071,66 @@ namespace OloEngine
         }
 
         // -------------------------------------------------------------------
+        // Out-of-band boundaries (issue #1331) — see RenderGraphOutOfBand.h
+        // -------------------------------------------------------------------
+        // Every production boundary is registered at construction. A test
+        // registers its own; the descriptor's strings must outlive the graph.
+        void RegisterOutOfBandBoundary(const RGOutOfBandBoundary& boundary);
+        [[nodiscard]] const RGOutOfBandBoundary* FindOutOfBandBoundary(std::string_view name) const;
+        [[nodiscard]] TArray64<RGOutOfBandBoundary> GetOutOfBandBoundaries() const;
+
+        // What `passName` declared in its last compiled Setup(). Empty for a
+        // pass that declared none.
+        [[nodiscard]] std::span<const RGOutOfBandDeclaration> GetPassOutOfBandDeclarations(std::string_view passName) const;
+
+        // The ledger RGOutOfBand::Note() records into while this graph is the
+        // active one (RGOutOfBand::SetActiveLedger).
+        [[nodiscard]] RGOutOfBandLedger& GetOutOfBandLedger()
+        {
+            return m_OutOfBandLedger;
+        }
+
+        // Compare the ledger's last frame against the compiled declarations
+        // and the boundary registry: an access nobody declared, an access
+        // from a frame phase the boundary does not allow, a current-frame
+        // read that ran before a writer, or a previous-frame read that ran
+        // after one. Logged once per distinct result.
+        [[nodiscard]] TArray64<Hazard> ValidateOutOfBandLedger();
+
+        // A graph resource read by frame work that runs AFTER Execute (the
+        // epilogue), such as the final occlusion-pyramid rebuild reading the
+        // scene depth. Declared before BuildFrameGraph and kept until cleared:
+        // it roots the resource's writers, keeps its transient backing alive
+        // to the end of the frame, and is resolved before the pool releases
+        // it. `consumer` names the epilogue work for the schedule.
+        void DeclareFrameEpilogueRead(std::string_view resourceName, std::string_view consumer);
+        void ClearFrameEpilogueReads();
+        void RemoveFrameEpilogueRead(std::string_view resourceName);
+        [[nodiscard]] bool HasFrameEpilogueRead(std::string_view resourceName) const;
+        // The physical object the declared resource resolved to this frame;
+        // null / invalid when it was not declared or did not resolve.
+        [[nodiscard]] Ref<Framebuffer> GetFrameEpilogueFramebuffer(std::string_view resourceName) const;
+        [[nodiscard]] RHI::ResourceHandle GetFrameEpilogueTexture(std::string_view resourceName) const;
+
+        struct FrameEpilogueRead
+        {
+            FString Resource;
+            FString Consumer;
+        };
+
+        [[nodiscard]] std::span<const FrameEpilogueRead> GetFrameEpilogueReads() const
+        {
+            return { m_FrameEpilogueReads.GetData(), static_cast<sizet>(m_FrameEpilogueReads.Num()) };
+        }
+
+        // The exposed out-of-band schedule: every pass in execution order with
+        // its side effects and out-of-band declarations, every boundary with
+        // its in-graph producers / consumers and frame-phase uses, the frame
+        // prologue / epilogue work, the epilogue reads, and the last ledger
+        // result. Culled passes are listed as culled.
+        [[nodiscard]] std::string ExportOutOfBandScheduleJson() const;
+
+        // -------------------------------------------------------------------
         // Debug — Post-pass execution hooks
         // -------------------------------------------------------------------
         // Fired after each pass->Execute() returns inside RenderGraph::Execute(),
@@ -1475,6 +1560,12 @@ namespace OloEngine
         [[nodiscard]] bool IsGraphEntrySideEffecting(std::string_view name) const;
         [[nodiscard]] RenderGraphPassWorkType GetGraphEntryWorkType(std::string_view name) const;
         [[nodiscard]] TArray64<Hazard> ValidateResourceHazardsInternal();
+        // Out-of-band declaration rules (#1331): registered boundary of the
+        // declared kind; writers ordered; every writer before a current-frame
+        // reader; every previous-frame reader before a writer.
+        void AppendOutOfBandDeclarationHazards(TArray64<Hazard>& hazards) const;
+        // Transitive "after depends on before" over m_Dependencies.
+        [[nodiscard]] bool DependsOnTransitively(std::string_view after, std::string_view before) const;
 
         // String interners — see `RGStringInterner` for rationale.
         // `m_ResourceNames` covers texture / framebuffer / buffer / view
@@ -1521,6 +1612,27 @@ namespace OloEngine
         // Consumed only by RenderGraphTransientPlanner — deliberately kept
         // out of m_PassAccessDeclarations; see the comment in RGBuilder::Write.
         RGTransparentStringMap<TArray64<FString>> m_PassLifetimeExtensions;
+        // Out-of-band declarations (#1331). Deliberately NOT folded into
+        // m_PassAccessDeclarations: they order and root passes and are
+        // validated, but no physical planner (barrier, transient, registry,
+        // submission) may see them.
+        RGTransparentStringMap<TArray64<RGOutOfBandDeclaration>> m_PassOutOfBandDeclarations;
+        RGTransparentStringMap<RGOutOfBandBoundary> m_OutOfBandBoundaries;
+        RGOutOfBandLedger m_OutOfBandLedger;
+        TArray64<FrameEpilogueRead> m_FrameEpilogueReads;
+        RGTransparentStringMap<Ref<Framebuffer>> m_FrameEpilogueFramebuffers;
+        RGTransparentStringMap<RHI::ResourceHandle> m_FrameEpilogueTextures;
+        // Derived edges that only ORDER two passes — a write after a read, a
+        // previous-frame read before an in-place rebuild. Reachability ignores
+        // them: a later writer must not keep an earlier reader alive.
+        std::set<std::pair<std::string, std::string>> m_OrderingOnlyEdges;
+        // Levers::RenderGraphReverseTieBreak at the last build; a flip forces
+        // a rebuild because it changes the execution order.
+        bool m_LastBuildReverseTieBreak = false;
+        FString m_LastLoggedOutOfBandLedgerDigest;
+        // AppendOutOfBandDeclarationHazards is const; its log-once state is not.
+        mutable FString m_LastLoggedOutOfBandDeclarationDigest;
+        TArray64<Hazard> m_LastOutOfBandLedgerHazards;
         RGTransparentStringMap<MemoryBarrierFlags> m_PassBarrierFlags;
         TArray64<PlannedBarrier> m_PlannedBarriers;
         TArray64<BuildDiagnostic> m_BuildDiagnostics;
@@ -1861,6 +1973,15 @@ namespace OloEngine
         // every modifier needing a typed pass-pointer setter wired by the
         // pipeline builder. Cleared at the start of every BuildFrameGraph.
         RGTransparentStringMap<FString> m_LastWriterPassNameByResource;
+
+        // Nodes a ResetTopology removed, held until the next Execute releases the pooled
+        // references of the ones the new topology did not re-register (#1342).
+        TArray<Ref<RenderGraphNode>> m_DepartedNodes;
+        void ReleaseDepartedNodeFramebuffers(const std::function<bool(const Framebuffer*)>& isStale);
+
+        // LAST member on purpose: destroyed first, so the reporter is unregistered
+        // before anything it reads is torn down (#1342).
+        RendererMemoryReporterHandle m_MemoryReporter;
     };
     // The framebuffer record owns only an audited Ref, with no self-relative state.
     template<>
@@ -2102,5 +2223,12 @@ namespace OloEngine
                                       TIsTriviallyRelocatable_V<decltype(Record::LastReadPass)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::FirstWriteUsage)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::LastReadUsage)>;
+    };
+    // Two owned names.
+    template<>
+    struct TIsTriviallyRelocatable<RenderGraph::FrameEpilogueRead>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(RenderGraph::FrameEpilogueRead::Resource)> &&
+                                      TIsTriviallyRelocatable_V<decltype(RenderGraph::FrameEpilogueRead::Consumer)>;
     };
 } // namespace OloEngine

@@ -97,14 +97,16 @@ Camera:                          # explicit editor-camera pose (not the scene ca
 
 Output:
   Resolution: [3840, 2160]
-  RenderScale: 1.0
+  RenderScale: 1.0               # the DYNAMIC render scale, [0.25, 1.0]; see "Sub-scale capture"
 
 RendererSettings:                # renderer-side state the scene CANNOT serialize
   Path: Deferred                 # Forward | ForwardPlus | Deferred
   EnableDDGI: true
   TAAEnabled: true               # lives in PostProcessSettings but is not
                                  # scene-serialized, so it is pinned here
-  # also: DepthPrepassEnabled, OcclusionCullingEnabled, HZBOcclusionCullingEnabled
+  # also: DepthPrepassEnabled, OcclusionCullingEnabled, HZBOcclusionCullingEnabled,
+  # MSAASampleCount, Upscale (Off | Quality | Balanced | Performance | UltraPerformance),
+  # UpscaleTechnique (Spatial | Temporal), LightingTap (see "Lighting taps")
   # (unknown keys are fatal — extend BenchmarkManifest.cpp to add one)
 
 Exposure:
@@ -188,6 +190,10 @@ applied renderer/post-process settings, warm-up frame count and capture frame in
 per-pass GPU/CPU timings (`GPUPassTimerPool`), renderer memory/stat counters, and per
 attachment: file name, source resource, format, dimensions, min/max values.
 
+A capture below native resolution (an upscaler, or a dynamic `Output.RenderScale`) records
+the internal size, the mechanism that set it and the upscaler that actually ran; see
+[benchmark-subscale-and-lighting-taps.md](benchmark-subscale-and-lighting-taps.md) (#1526).
+
 ### Schema v2 — a timing is a number **and** a status (issue #1337)
 
 `resultSchemaVersion` is `2`. A GPU timing that could not be measured is written as
@@ -232,7 +238,9 @@ frame index) hold identical values at the capture frame without new reset plumbi
 Sources that read `std::chrono::steady_clock` directly bypass the mock clock and are
 converted to `Time::GetTime()` by this work (wind — which drives foliage sway, snow and
 precipitation dt; fog noise time; auto-exposure adaptation dt). FSR2 deliberately keeps
-real time and stays out of benchmark manifests (`Upscale: Off`).
+real time: its lock decay reads the wall clock, so a `UpscaleTechnique: Temporal` capture is
+not run-twice deterministic and the parser refuses one whose `Tolerance.RepeatRmse` is 0. Every other upscaler
+setting keeps the mock-clock contract.
 
 Known GPU-order nondeterminism (documented, avoided by scene design rather than fixed):
 the PBF fluid solver, virtual-geometry software-raster depth ties, Forward+ light-cull
@@ -264,10 +272,10 @@ an image viewer — the bytes are faithful, use the `Derive:` extraction for a r
 image of that lane; and PNG clamps float sources to [0,1] unless normalized — real values
 live in the `.hdr` exports and the per-attachment min/max in `result.json`.
 
-**Declared unavailable** (their implementation lives inside `DeferredLightingShared.glsl` /
-`PBRCommon.glsl` — noted, not silently skipped): direct vs indirect diffuse/specular splits,
-per-pixel shadow visibility, reflection confidence/hit-distance. Adding them as debug-only
-taps, following the `OverdrawRenderPass` / `VolumetricShadowVolume` precedents (enable gates
-hashed into the frame-graph fingerprint), is owned by #1526. *(Updated 2026-09-29, #1357:
-this used to name the G-Buffer flags-lane branch #996 as owner; #996 closed on 2026-09-01
-without adding them.)*
+**The split lighting AOVs** (#1526) are available as debug-only **lighting taps**: direct and
+indirect diffuse/specular, the remainder outside the split, the primary sun's shadow
+visibility, and SSR's reflection confidence and hit distance. A tap is a
+`RendererSettings.LightingTap` for a whole capture run; captures are deterministic, so a
+tapped run's frames align with the untapped run's frame for frame. What each tap holds,
+which surfaces carry it, and the evidence:
+[benchmark-subscale-and-lighting-taps.md](benchmark-subscale-and-lighting-taps.md).

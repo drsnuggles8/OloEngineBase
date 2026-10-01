@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RenderGraphOutOfBand.h"
 #include "OloEngine/Renderer/Passes/OverdrawRenderPass.h"
 
 #include "OloEngine/Renderer/RGBuilder.h"
@@ -28,10 +29,10 @@ namespace OloEngine
         RenderGraphNode::Setup(builder, blackboard);
         m_Target = nullptr;
 
-        // Order after ScenePass so its opaque command bucket is already batched
-        // when we replay it (mirrors PlanarReflectionRenderPass). Declared
-        // unconditionally so the ordering holds even on a cached-graph frame.
-        builder.DependsOnPass("ScenePass");
+        // Replays ScenePass's opaque command bucket, so it runs after the bucket
+        // is sorted and batched (mirrors PlanarReflectionRenderPass, #1331).
+        // Declared unconditionally so the ordering holds on a cached-graph frame.
+        builder.ConsumePublication(RGOutOfBandBoundaries::SceneOpaqueCommandBucket);
 
         // OverdrawColor is only declared when the debug view is on (its enable is
         // hashed into the blackboard fingerprint, so the graph rebuilds when it
@@ -152,6 +153,7 @@ namespace OloEngine
         // shader swap + additive/depth-off state active.
         CommandDispatch::BindSceneResources();
         CommandDispatch::SetOverdrawActive(true);
+        RGOutOfBand::Note(RGOutOfBandBoundaries::SceneOpaqueCommandBucket, RGOutOfBandAccess::Read);
         m_ScenePass->GetCommandBucket().ExecuteParallel(rendererAPI);
         CommandDispatch::SetOverdrawActive(false);
         CommandDispatch::InvalidateRenderStateCache();

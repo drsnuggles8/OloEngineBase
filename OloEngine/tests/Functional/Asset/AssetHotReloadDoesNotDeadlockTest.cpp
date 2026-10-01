@@ -27,7 +27,7 @@
 // green. The probe asset below is authored by the test so both hold by
 // construction, and so the reload is observable rather than merely successful.
 //
-// A ScriptFile is used on purpose: ScriptFileSerializer is CPU-only (YAML text
+// A ScriptFile is used on purpose: ScriptFileSerializer is CPU-only (C# text
 // → ScriptFileAsset, no GPU resources), so the whole path runs with no GL
 // context and this is a normal CI citizen rather than one more workstation-only
 // SKIP.
@@ -65,15 +65,16 @@ namespace
     // below any CI job timeout. The failure it detects never completes at all.
     constexpr auto kReloadLivenessBudget = std::chrono::seconds(30);
 
-    // .cs maps to AssetType::ScriptFile; ScriptFileSerializer reads the file as
-    // YAML and wants a `ScriptFile` node, so the probe carries one. Authored by
-    // the test rather than staged from SandboxProject, so the reload's effect is
-    // something this test chose and can therefore assert on.
+    // .cs maps to AssetType::ScriptFile, and ScriptFileSerializer reads the class
+    // a script declares from its C# source (#1392; it used to want a YAML
+    // `ScriptFile` node inside the .cs). Authored by the test rather than staged
+    // from SandboxProject, so the reload's effect is something this test chose
+    // and can therefore assert on.
     constexpr const char* kProbeRelativePath = "Assets/Scripts/Source/HotReloadProbe.cs";
 
     std::string ProbeContents(const std::string& className)
     {
-        return "ScriptFile:\n  ClassNamespace: Sandbox\n  ClassName: " + className + "\n";
+        return "namespace Sandbox\n{\n    public class " + className + " : Entity { }\n}\n";
     }
 
     void WriteProbe(const std::filesystem::path& path, const std::string& className)

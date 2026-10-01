@@ -3,6 +3,7 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanAddressCommands.h"
+#include "Platform/Vulkan/VulkanTrackedAllocation.h"
 #include "Platform/Vulkan/VulkanTextureCubemap.h"
 
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
@@ -83,7 +84,7 @@ namespace OloEngine
         imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         VmaAllocationCreateInfo allocInfo{};
         allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-        if (vmaCreateImage(device->GetAllocator(), &imageInfo, &allocInfo, &m_Image, &m_Allocation, nullptr) !=
+        if (TrackedVmaCreateImage(device->GetAllocator(), &imageInfo, &allocInfo, &m_Image, &m_Allocation, nullptr) !=
             VK_SUCCESS)
         {
             OLO_CORE_ERROR("VulkanTextureCubemap: image creation failed ({}x{}, {} mips)", width, height, m_MipLevels);
@@ -91,7 +92,7 @@ namespace OloEngine
             m_Allocation = VK_NULL_HANDLE;
             return;
         }
-        vmaSetAllocationName(device->GetAllocator(), m_Allocation, "VulkanTextureCubemap");
+        TrackedVmaSetAllocationName(device->GetAllocator(), m_Allocation, "VulkanTextureCubemap");
 
         VulkanImageInfo registryInfo{};
         registryInfo.Format = format;
@@ -221,8 +222,8 @@ namespace OloEngine
         VkBuffer staging = VK_NULL_HANDLE;
         VmaAllocation stagingAllocation = VK_NULL_HANDLE;
         VmaAllocationInfo stagingOut{};
-        if (vmaCreateBuffer(device->GetAllocator(), &stagingInfo, &stagingAlloc, &staging, &stagingAllocation,
-                            &stagingOut) != VK_SUCCESS)
+        if (TrackedVmaCreateBuffer(device->GetAllocator(), &stagingInfo, &stagingAlloc, &staging, &stagingAllocation,
+                                   &stagingOut) != VK_SUCCESS)
         {
             OLO_CORE_ERROR("VulkanTextureCubemap::SetFaceDataMip: staging allocation failed ({} bytes)", uploadSize);
             return false;
@@ -256,7 +257,7 @@ namespace OloEngine
                                                  VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
                                                  VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels, 0u, 6u);
             });
-        vmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
+        TrackedVmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
         if (ok)
         {
             VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VulkanDevice::Get()->GetSampledImageLayout());
@@ -419,8 +420,8 @@ namespace OloEngine
         VkBuffer readback = VK_NULL_HANDLE;
         VmaAllocation readbackAllocation = VK_NULL_HANDLE;
         VmaAllocationInfo readbackOut{};
-        if (vmaCreateBuffer(device->GetAllocator(), &readbackInfo, &readbackAlloc, &readback, &readbackAllocation,
-                            &readbackOut) != VK_SUCCESS)
+        if (TrackedVmaCreateBuffer(device->GetAllocator(), &readbackInfo, &readbackAlloc, &readback, &readbackAllocation,
+                                   &readbackOut) != VK_SUCCESS)
         {
             OLO_CORE_ERROR("{}: readback buffer allocation failed ({} bytes)", what, storedSize);
             return false;
@@ -434,7 +435,7 @@ namespace OloEngine
             OLO_CORE_ERROR("{}: the image registry still reports VK_IMAGE_LAYOUT_UNDEFINED (info={}, image={}), so "
                            "nothing has written this cubemap through a path that publishes a resting layout",
                            what, info != nullptr, reinterpret_cast<u64>(m_Image));
-            vmaDestroyBuffer(device->GetAllocator(), readback, readbackAllocation);
+            TrackedVmaDestroyBuffer(device->GetAllocator(), readback, readbackAllocation);
             return false;
         }
         const bool ok = VulkanOneShot::Submit(
@@ -490,7 +491,7 @@ namespace OloEngine
             OLO_CORE_ERROR("{}: the readback one-shot never reached the queue (priorLayout={})", what,
                            static_cast<i32>(priorLayout));
         }
-        vmaDestroyBuffer(device->GetAllocator(), readback, readbackAllocation);
+        TrackedVmaDestroyBuffer(device->GetAllocator(), readback, readbackAllocation);
         return ok;
     }
 

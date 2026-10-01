@@ -47,6 +47,11 @@ namespace OloEngine
         }
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
+        void ReleaseStaleFramebuffers(const std::function<bool(const Framebuffer*)>& isStale) override
+        {
+            RenderGraphNode::ReleaseStaleFramebuffers(isStale);
+            ReleaseIfStale(m_SceneFramebuffer, isStale);
+        }
 
         [[nodiscard]] bool IsReadyForExecution() const noexcept override
         {

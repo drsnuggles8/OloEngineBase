@@ -10,13 +10,22 @@
 
 namespace OloEngine
 {
-    // Static member definitions
-    std::unordered_map<AssetType, Ref<Asset>> PlaceholderAssetManager::s_PlaceholderAssets;
-    FMutex PlaceholderAssetManager::s_PlaceholderMutex;
+    std::unordered_map<AssetType, Ref<Asset>>& PlaceholderAssetManager::Placeholders()
+    {
+        static auto* s_Placeholders = new std::unordered_map<AssetType, Ref<Asset>>();
+        return *s_Placeholders;
+    }
+
+    FMutex& PlaceholderAssetManager::Mutex()
+    {
+        static auto* s_Mutex = new FMutex();
+        return *s_Mutex;
+    }
+
     bool PlaceholderAssetManager::s_Initialized = false;
 
     // Reference count of live asset managers using the shared placeholder set
-    // (guarded by s_PlaceholderMutex). Like the AssetImporter serializer registry,
+    // (guarded by Mutex()). Like the AssetImporter serializer registry,
     // this process-global must stay alive while ANY manager references it — a plain
     // bool let an older manager's destructor tear it down under a live new manager.
     static i32 s_PlaceholderInitRefCount = 0;
@@ -216,7 +225,7 @@ namespace OloEngine
 
     void PlaceholderAssetManager::Initialize()
     {
-        TUniqueLock<FMutex> lock(s_PlaceholderMutex);
+        TUniqueLock<FMutex> lock(Mutex());
 
         // Reference-counted so overlapping manager lifetimes (editor project swap,
         // or back-to-back tests) keep the shared placeholder set alive. Only the
@@ -224,7 +233,7 @@ namespace OloEngine
         if (s_PlaceholderInitRefCount++ != 0)
             return;
 
-        s_PlaceholderAssets.clear();
+        Placeholders().clear();
         s_Initialized = true;
 
         OLO_CORE_INFO("PlaceholderAssetManager: Initialized");
@@ -232,7 +241,7 @@ namespace OloEngine
 
     void PlaceholderAssetManager::Shutdown()
     {
-        TUniqueLock<FMutex> lock(s_PlaceholderMutex);
+        TUniqueLock<FMutex> lock(Mutex());
 
         // Reference-counted: only the last live manager tears the placeholder set
         // down, so an older manager's destructor can't clear it under a live one.
@@ -241,13 +250,13 @@ namespace OloEngine
         if (--s_PlaceholderInitRefCount != 0)
             return; // other managers still using the placeholder set
 
-        s_PlaceholderAssets.clear();
+        Placeholders().clear();
         s_Initialized = false;
     }
 
     Ref<Asset> PlaceholderAssetManager::GetPlaceholderAsset(AssetType type)
     {
-        TUniqueLock<FMutex> lock(s_PlaceholderMutex);
+        TUniqueLock<FMutex> lock(Mutex());
 
         if (!s_Initialized)
         {
@@ -256,7 +265,7 @@ namespace OloEngine
         }
 
         // Check if we already have a placeholder for this type
-        if (auto it = s_PlaceholderAssets.find(type); it != s_PlaceholderAssets.end())
+        if (auto it = Placeholders().find(type); it != Placeholders().end())
         {
             return it->second;
         }
@@ -265,7 +274,7 @@ namespace OloEngine
         Ref<Asset> placeholder = CreatePlaceholderAsset(type);
         if (placeholder)
         {
-            s_PlaceholderAssets[type] = placeholder;
+            Placeholders()[type] = placeholder;
             OLO_CORE_TRACE("PlaceholderAssetManager: Created new placeholder for asset type {}",
                            AssetUtils::AssetTypeToString(type));
         }

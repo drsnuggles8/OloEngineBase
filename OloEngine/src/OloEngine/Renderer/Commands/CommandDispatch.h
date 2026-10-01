@@ -187,6 +187,10 @@ namespace OloEngine
         // main view's AO buffer: while suspended the camera lane uploads as
         // "not live" and the samplers get the white placeholder.
         static void SuspendForwardScreenSpaceAO(bool suspend);
+        // The lighting tap the main view's colour passes read from the camera
+        // lane (issue #1526, LightingTap). Set once per frame by the pipeline;
+        // a suspended (mirrored) replay uploads 0 like the AO lane.
+        static void SetLightingTap(u32 tap);
         // Publish just the two AO samplers (TEX_SSAO, TEX_POSTPROCESS_DEPTH).
         // BindSceneResources does this too; a forward geometry pass that does
         // not call that (foliage, groom, water) calls this before its draws.

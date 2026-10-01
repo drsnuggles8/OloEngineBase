@@ -12,6 +12,7 @@
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryReportJson.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/RenderGraph.h"
@@ -31,52 +32,83 @@ namespace OloEngine::MCP
 {
     namespace
     {
-        // ---- olo_memory_report (lock-safe) -------------------------------------
-        // RendererMemoryTracker is FMutex-guarded, so it reads directly from the
-        // handler thread. Server computes the per-type breakdown; raw allocations
-        // never leave the process.
-        ToolResult Handle_MemoryReport(IAutomationHost& /*host*/, const Json& /*args*/)
+        // ---- olo_memory_report (main-marshaled) -------------------------------
+        // The physical-allocation-aware report (#1342). Built on the main thread:
+        // the capacity reporters read render-thread state (the transient pool, the
+        // G-buffer, the groom pass), which the tracker's own mutex does not guard.
+        // Server computes everything; raw allocations never leave the process.
+        ToolResult Handle_MemoryReport(IAutomationHost& host, const Json& args)
         {
-            using RT = RendererMemoryTracker::ResourceType;
-            static constexpr std::array<std::pair<RT, const char*>, 11> kTypes = { {
-                { RT::VertexBuffer, "VertexBuffer" },
-                { RT::IndexBuffer, "IndexBuffer" },
-                { RT::UniformBuffer, "UniformBuffer" },
-                { RT::StorageBuffer, "StorageBuffer" },
-                { RT::Texture2D, "Texture2D" },
-                { RT::TextureCubemap, "TextureCubemap" },
-                { RT::Framebuffer, "Framebuffer" },
-                { RT::Shader, "Shader" },
-                { RT::RenderTarget, "RenderTarget" },
-                { RT::CommandBuffer, "CommandBuffer" },
-                { RT::Other, "Other" },
-            } };
+            // Optional drill-down: the largest live allocations of one owner row.
+            std::string drillOwner;
+            if (args.contains("owner") && args["owner"].is_string())
+                drillOwner = args["owner"].get<std::string>();
+            u32 drillLimit = 20;
+            if (args.contains("limit") && args["limit"].is_number_integer())
+                drillLimit = static_cast<u32>(std::clamp<long long>(args["limit"].get<long long>(), 1, 200));
 
-            const auto toMB = [](sizet bytes)
-            { return std::round(static_cast<f64>(bytes) / 1048576.0 * 100.0) / 100.0; };
+            Json j = host.MarshalRead([drillOwner, drillLimit]() -> Json
+                                      {
+                using RT = RendererMemoryTracker::ResourceType;
+                static constexpr std::array<std::pair<RT, const char*>, 12> kTypes = { {
+                    { RT::VertexBuffer, "VertexBuffer" },
+                    { RT::IndexBuffer, "IndexBuffer" },
+                    { RT::UniformBuffer, "UniformBuffer" },
+                    { RT::StorageBuffer, "StorageBuffer" },
+                    { RT::Texture2D, "Texture2D" },
+                    { RT::TextureCubemap, "TextureCubemap" },
+                    { RT::Framebuffer, "Framebuffer" },
+                    { RT::Shader, "Shader" },
+                    { RT::RenderTarget, "RenderTarget" },
+                    { RT::CommandBuffer, "CommandBuffer" },
+                    { RT::AccelerationStructure, "AccelerationStructure" },
+                    { RT::Other, "Other" },
+                } };
+                static_assert(kTypes.size() == static_cast<sizet>(RT::COUNT), "olo_memory_report must name every ResourceType");
 
-            auto& tracker = RendererMemoryTracker::GetInstance();
-            Json byType = Json::array();
-            for (const auto& [type, name] : kTypes)
-            {
-                const sizet bytes = tracker.GetMemoryUsage(type);
-                const u32 count = tracker.GetAllocationCount(type);
-                if (bytes == 0 && count == 0)
-                    continue;
-                byType.push_back(Json{ { "type", name },
-                                       { "bytes", static_cast<u64>(bytes) },
-                                       { "mb", toMB(bytes) },
-                                       { "count", count } });
-            }
+                auto& tracker = RendererMemoryTracker::GetInstance();
+                Json out = RendererMemoryReportToJson(tracker.BuildReport());
 
-            const sizet total = tracker.GetTotalMemoryUsage();
-            const auto leaks = tracker.DetectLeaks();
-
-            Json j;
-            j["totalBytes"] = static_cast<u64>(total);
-            j["totalMB"] = toMB(total);
-            j["byType"] = std::move(byType);
-            j["suspectedLeakCount"] = static_cast<int>(leaks.Num());
+                // Live physical bytes per resource type, CPU and GPU bookings together (the
+                // editor's table); the gpu/cpu objects above are the ones that keep them apart.
+                Json byType = Json::array();
+                for (const auto& [type, name] : kTypes)
+                {
+                    const sizet bytes = tracker.GetMemoryUsage(type);
+                    const u32 count = tracker.GetAllocationCount(type);
+                    if (bytes == 0 && count == 0)
+                        continue;
+                    byType.push_back(Json{ { "type", name }, { "bytes", static_cast<u64>(bytes) }, { "count", count } });
+                }
+                out["byType"] = std::move(byType);
+                // An AGE count, not a leak verdict: every persistent resource passes the threshold.
+                // The leak signal is the [Teardown] survivor line at renderer shutdown (#1342).
+                out["longLivedAllocations"] = Json{ { "thresholdSeconds", tracker.GetLeakDetectionThresholdSeconds() },
+                                                    { "count", static_cast<int>(tracker.DetectLeaks().Num()) } };
+                if (!drillOwner.empty())
+                {
+                    const auto allocations = tracker.GetLargestAllocations(drillOwner, drillLimit);
+                    if (!allocations)
+                    {
+                        // Said, not an empty list: a misspelt owner must not read as one with no bytes.
+                        out["ownerDetail"] = Json{ { "owner", drillOwner },
+                                                   { "known", false },
+                                                   { "error", "no owner by this name has booked an allocation; see owners[]" } };
+                        return out;
+                    }
+                    Json largest = Json::array();
+                    for (const auto& info : *allocations)
+                    {
+                        largest.push_back(Json{ { "name", info.m_Name.ToStdString() },
+                                                { "bytes", static_cast<u64>(info.m_Size) },
+                                                { "domain", info.m_IsGPU ? "gpu" : "cpu" },
+                                                { "kind", info.IsAlias() ? "alias" : ToString(info.m_SizeSource) },
+                                                { "lifetime", ToString(info.m_Lifetime) },
+                                                { "source", info.m_File.ToStdString() + ":" + std::to_string(info.m_Line) } });
+                    }
+                    out["ownerDetail"] = Json{ { "owner", drillOwner }, { "known", true }, { "largest", std::move(largest) } };
+                }
+                return out; });
             return ToolResult::Structured(j);
         }
 
@@ -486,26 +518,94 @@ namespace OloEngine::MCP
             tool.Name = "olo_memory_report";
             tool.Toolset = "perf";
             tool.Title = "Renderer memory report";
-            // The per-resource-type breakdown is the editor's own memory table —
-            // a human reads it as rows, not as JSON.
+            // The owner and capacity rows are the editor's own memory tables; a human
+            // reads them as rows, not as JSON.
             tool.DualAudienceContent = true;
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
-                "Renderer GPU/CPU memory usage: total bytes/MB, a per-resource-type breakdown (vertex/index/"
-                "uniform/storage buffers, textures, framebuffers, shaders, render targets), and the count of "
-                "suspected leaks. Read from the engine's mutex-guarded memory tracker.";
-            tool.InputSchema = Schema::EmptyObject();
-            tool.OutputSchema = Schema::Object()
-                                    .Prop("totalBytes", Schema::Int().Min(0).Desc("Total tracked renderer memory, bytes."))
-                                    .Prop("totalMB", Schema::Number().Desc("Total tracked renderer memory, MB."))
-                                    .Prop("byType", Schema::Array(Schema::Object()
-                                                                      .Prop("type", Schema::String())
-                                                                      .Prop("bytes", Schema::Int().Min(0))
-                                                                      .Prop("mb", Schema::Number())
-                                                                      .Prop("count", Schema::Int().Min(0)))
-                                                        .Desc("Per-resource-type breakdown; only non-empty types are listed."))
-                                    .Prop("suspectedLeakCount", Schema::Int().Min(0).Desc("Number of suspected leaks detected."))
-                                    .Required({ "totalBytes", "totalMB", "byType", "suspectedLeakCount" });
+                "Physical-allocation-aware renderer memory report (issue #1342). GPU and CPU are separate objects, "
+                "each with liveBytes (owner holds it), retiringBytes (released, backing not yet freed: in-flight "
+                "retirement after a resize, reload or rebuild), residentBytes, committedBytes vs estimatedBytes (an "
+                "allocator-reported size vs a format estimate), peakBytes and windowPeakBytes. Views and aliases add "
+                "logical bytes only ('aliases'), never physical bytes. 'owners' attributes physical bytes to the owner "
+                "scope that allocated them; 'capacity' is each owner's capacity versus last-frame active demand "
+                "(transient pool, temporal histories, G-buffer, skin hand-off, shadows, reservoirs, frame arena, GPU "
+                "Scene, ray tracing, groom) with alias savings. 'backend.reconciliation' compares tracked committed "
+                "bytes with the allocator's own total (Vulkan/VMA: reconciled / untracked / overCounted; OpenGL: "
+                "notObservable). 'backend.residency.status' is osReported, allocatorHeuristic or unknown. Any byte "
+                "value that cannot be measured is null with an unknownReason, never 0. Pass 'owner' (an owners[] "
+                "name, e.g. \"Unattributed\") to get that owner's largest allocations in 'ownerDetail'.";
+            tool.InputSchema = Schema::Object()
+                                   .Prop("owner", Schema::String().Desc("Owner row to drill into; its largest live allocations are listed in ownerDetail."))
+                                   .Prop("limit", Schema::Int().Min(1).Max(200).Desc("How many allocations ownerDetail lists (default 20)."))
+                                   .NoAdditional();
+            auto totals = Schema::Object()
+                              .Prop("liveBytes", Schema::Int().Min(0))
+                              .Prop("retiringBytes", Schema::Int().Min(0))
+                              .Prop("residentBytes", Schema::Int().Min(0))
+                              .Prop("committedBytes", Schema::Int().Min(0))
+                              .Prop("estimatedBytes", Schema::Int().Min(0))
+                              .Prop("liveCount", Schema::Int().Min(0))
+                              .Prop("retiringCount", Schema::Int().Min(0))
+                              .Prop("peakBytes", Schema::Int().Min(0))
+                              .Prop("windowPeakBytes", Schema::Int().Min(0));
+            tool.OutputSchema =
+                Schema::Object()
+                    .Prop("units", Schema::String().Desc("Always \"bytes\"."))
+                    .Prop("gpu", Schema::Node(totals).Desc("Physical GPU backing, aliases excluded."))
+                    .Prop("cpu", Schema::Node(totals).Desc("CPU-side bookings, never added to gpu."))
+                    .Prop("aliases", Schema::Object()
+                                         .Prop("count", Schema::Int().Min(0))
+                                         .Prop("logicalBytes", Schema::Int().Min(0))
+                                         .Prop("orphanCount", Schema::Int().Min(0).Desc("Views whose backing is untracked: a hole, not a saving.")))
+                    .Prop("backend", Schema::Object()
+                                         .Prop("name", Schema::String())
+                                         .Prop("reconciliation", Schema::Object()
+                                                                     .Prop("status", Schema::String())
+                                                                     .Prop("observedAllocationBytes", Schema::NullableNumber())
+                                                                     .Prop("trackedCommittedBytes", Schema::NullableNumber())
+                                                                     .Prop("differenceBytes", Schema::NullableNumber()))
+                                         .Prop("allocatorBlockBytes", Schema::NullableNumber())
+                                         .Prop("residency", Schema::Object()
+                                                                .Prop("status", Schema::String())
+                                                                .Prop("heaps", Schema::Array(Schema::Object()))))
+                    .Prop("owners", Schema::Array(Schema::Object()
+                                                      .Prop("owner", Schema::String())
+                                                      .Prop("lifetime", Schema::String())
+                                                      .Prop("gpuLiveBytes", Schema::Int().Min(0))
+                                                      .Prop("gpuRetiringBytes", Schema::Int().Min(0))
+                                                      .Prop("cpuLiveBytes", Schema::Int().Min(0))
+                                                      .Prop("cpuRetiringBytes", Schema::Int().Min(0))
+                                                      .Prop("committedBytes", Schema::Int().Min(0))
+                                                      .Prop("estimatedBytes", Schema::Int().Min(0))
+                                                      .Prop("count", Schema::Int().Min(0))))
+                    .Prop("capacity", Schema::Array(Schema::Object()
+                                                        .Prop("owner", Schema::String())
+                                                        .Prop("category", Schema::String())
+                                                        .Prop("lifetime", Schema::String())
+                                                        .Prop("source", Schema::String())
+                                                        .Prop("domain", Schema::String())
+                                                        .Prop("capacityBytes", Schema::NullableNumber())
+                                                        .Prop("activeDemandBytes", Schema::NullableNumber())
+                                                        .Prop("aliasSavingsBytes", Schema::NullableNumber())
+                                                        .Prop("unknownReason", Schema::Raw(Json{ { "type", Json::array({ "string", "null" }) } }))))
+                    .Prop("byType", Schema::Array(Schema::Object()
+                                                      .Prop("type", Schema::String())
+                                                      .Prop("bytes", Schema::Int().Min(0))
+                                                      .Prop("count", Schema::Int().Min(0)))
+                                        .Desc("Live physical bytes per resource type (CPU and GPU bookings); only non-empty types."))
+                    .Prop("longLivedAllocations", Schema::Object()
+                                                      .Prop("thresholdSeconds", Schema::Number())
+                                                      .Prop("count", Schema::Int().Min(0))
+                                                      .Desc("Backing allocations older than the threshold. Age only: persistent "
+                                                            "resources belong here; it is not a leak count."))
+                    .Prop("ownerDetail", Schema::Object()
+                                             .Prop("owner", Schema::String())
+                                             .Prop("known", Schema::Bool().Desc("False when no owner by that name ever booked an allocation."))
+                                             .Prop("error", Schema::String())
+                                             .Prop("largest", Schema::Array(Schema::Object()))
+                                             .Desc("Only when 'owner' was passed: that owner's largest live allocations."))
+                    .Required({ "units", "gpu", "cpu", "aliases", "backend", "owners", "capacity", "byType", "longLivedAllocations" });
             tool.MainMarshaled = false;
             tool.Handler = Handle_MemoryReport;
             registry.Register(std::move(tool));

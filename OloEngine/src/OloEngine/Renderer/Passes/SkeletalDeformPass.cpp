@@ -14,10 +14,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         SetName("SkeletalDeformPass");
-        // The output is a set of vertex buffers the graph's resource model has
-        // no kind for, so reachability from the final pass would prune this
-        // node. Same flag and same reason as RayTracingScenePass.
-        SetSideEffects(SideEffect::NeverCull);
+        // No NeverCull: the deformed buffers are the DeformedVertices
+        // boundary (#1331), and RayTracingScenePass, the one consumer, reads
+        // it, so reachability keeps this node exactly while that one lives.
         SetPassWorkType(RenderGraphPassWorkType::Compute);
     }
 
@@ -34,13 +33,12 @@ namespace OloEngine
     void SkeletalDeformPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
     {
         RenderGraphNode::Setup(builder, blackboard);
-        // Nothing is declared as a graph read or write. The rest vertex stream,
-        // the bone influences, the palette buffer and the deformed output are
-        // all reached by DEVICE ADDRESS rather than through the graph, so the
-        // graph has no handle to express the dependency with. What it does
-        // express is the execution edge: RayTracingScenePass declares
-        // DependsOnPass("SkeletalDeformPass"), and the memory hazard between
-        // them is the explicit barrier Execute emits below.
+        // The rest vertex stream, the bone influences, the palette buffer and
+        // the deformed output are all reached by DEVICE ADDRESS, so none is a
+        // graph resource. The output is declared as the DeformedVertices
+        // out-of-band boundary (#1331), which RayTracingScenePass reads; the
+        // memory hazard between them is the explicit barrier Execute emits.
+        builder.WriteOutOfBand(RGOutOfBandBoundaries::DeformedVertices);
     }
 
     void SkeletalDeformPass::Execute(RGCommandContext& context)

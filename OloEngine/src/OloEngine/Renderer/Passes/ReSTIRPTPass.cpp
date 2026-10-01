@@ -25,6 +25,22 @@ namespace OloEngine
     ReSTIRPTPass::ReSTIRPTPass()
     {
         SetName("ReSTIRPTPass");
+        // The reservoir pools stay allocated when the technique stands down; this row is
+        // where that shows (#1342). Counters included, unlike ReSTIRPTStats::ReservoirBytes.
+        m_MemoryReporter = RendererMemoryReporterHandle([this](TArray<MemoryCapacityRow>& rows)
+                                                        {
+            u64 capacity = 0;
+            for (const auto& pool : m_Pools)
+                capacity += pool ? pool->GetSize() : 0u;
+            capacity += m_Counters ? m_Counters->GetSize() : 0u;
+            MemoryCapacityRow row;
+            row.Owner = "ReSTIRPTPass";
+            row.Category = "ReSTIR PT path-reservoir pools";
+            row.Lifetime = MemoryLifetime::Persistent;
+            row.Source = MemorySizeSource::FormatEstimate;
+            row.CapacityBytes = capacity;
+            row.ActiveDemandBytes = m_Stats.Active ? capacity : 0u;
+            rows.Add(std::move(row)); });
     }
 
     bool ReSTIRPTPass::IsReadyForExecution() const noexcept
@@ -275,7 +291,8 @@ namespace OloEngine
                 StandDown("G-buffer unavailable");
                 return;
             }
-        builder.DependsOnPass("RayTracingScenePass");
+        // The TLAS it traces against (#1331); see RayTracedShadowPass::Setup.
+        builder.ReadOutOfBand(RGOutOfBandBoundaries::SceneTLAS);
         for (const auto input : m_Inputs)
             if (input.IsValid())
             {
@@ -385,7 +402,7 @@ namespace OloEngine
         params.InvProjection = RHI::AdjustedInverseForShaderReconstruction(m_Projection);
         const auto address = [](u64 value)
         { return glm::uvec2(static_cast<u32>(value), static_cast<u32>(value >> 32u)); };
-        params.TlasAddressAndFrame = glm::uvec4(address(m_RayTracingScene->GetTlasDeviceAddress()),
+        params.TlasAddressAndFrame = glm::uvec4(address(m_RayTracingScene->GetTlasDeviceAddressForTrace()),
                                                 RayTracing::kInstanceMaskAll, m_FrameIndex);
         params.SlotCounts = { m_GPUScene->GetInstanceSlotCount(), m_GPUScene->GetGeometrySlotCount(),
                               m_GPUScene->GetMaterialSlotCount(), m_GPUScene->GetLightSlotCount() };

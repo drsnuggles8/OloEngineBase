@@ -296,9 +296,10 @@ namespace OloEngine
         {
             return { m_Bytes.GetData(), static_cast<sizet>(m_Bytes.Num()) };
         }
-        /// Host bytes held by allocated CAPACITY -- the typed records, the byte
-        /// image and the count cache -- for the pass's memory breakdown (#1533).
-        [[nodiscard]] u64 HostCapacityBytes() const noexcept
+        /// CPU bytes this mirror holds by allocated CAPACITY -- the typed records,
+        /// the byte image and the count cache -- for the memory report (#1342)
+        /// and the pass's memory breakdown (#1533).
+        [[nodiscard]] u64 GetCpuBytes() const noexcept
         {
             return static_cast<u64>(m_Weights.GetAllocatedSize() + m_BindFrames.GetAllocatedSize() +
                                     m_Roots.GetAllocatedSize() + m_Slots.GetAllocatedSize() +

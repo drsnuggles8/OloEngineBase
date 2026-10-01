@@ -344,6 +344,76 @@ TEST(ReferenceFixtureManifest, RejectsEveryVersionButTheCurrentOne)
     }
 }
 
+// #1526: Output.RenderScale is the dynamic render scale, and a capture reads
+// its rendered corner. A scale the render graph would clamp, a non-finite one,
+// and one stacked on an upscale preset are refused; a plain one is accepted.
+TEST(ReferenceFixtureManifest, AcceptsADynamicRenderScaleAndRefusesUnrunnableOnes)
+{
+    std::string error;
+    const auto accepted = LoadBenchmarkManifest(
+        WriteManifest("render-scale-half", Replaced(ValidV2Manifest(), "RenderScale: 1.0", "RenderScale: 0.5")), error);
+    ASSERT_TRUE(accepted.has_value()) << error;
+    EXPECT_FLOAT_EQ(accepted->RenderScale, 0.5f);
+
+    for (const auto* bad : { "RenderScale: 0.1", "RenderScale: 1.5", "RenderScale: .nan", "RenderScale: -1.0" })
+    {
+        SCOPED_TRACE(bad);
+        const auto refused = ExpectParseFailure("render-scale-bad", Replaced(ValidV2Manifest(), "RenderScale: 1.0", bad));
+        EXPECT_NE(refused.find("Output.RenderScale"), std::string::npos) << refused;
+    }
+
+    const auto stacked = ExpectParseFailure(
+        "render-scale-with-upscale",
+        Replaced(Replaced(ValidV2Manifest(), "RenderScale: 1.0", "RenderScale: 0.67"), "Exposure:\n",
+                 "RendererSettings:\n  Upscale: Quality\nExposure:\n"));
+    EXPECT_NE(stacked.find("cannot be combined with RendererSettings.Upscale"), std::string::npos) << stacked;
+
+    // Not honoured on Deferred yet: refused with the owning issue named.
+    const auto deferred = ExpectParseFailure(
+        "render-scale-deferred",
+        Replaced(Replaced(ValidV2Manifest(), "RenderScale: 1.0", "RenderScale: 0.5"), "Exposure:\n",
+                 "RendererSettings:\n  Path: Deferred\nExposure:\n"));
+    EXPECT_NE(deferred.find("#1537"), std::string::npos) << deferred;
+
+    // FSR2 is not run-twice deterministic, so a Temporal capture must not claim
+    // a zero repeat tolerance; with a measured one it parses.
+    const std::string temporal = Replaced(ValidV2Manifest(), "Exposure:\n",
+                                          "RendererSettings:\n  Upscale: Quality\n  UpscaleTechnique: Temporal\nExposure:\n");
+    const auto exact = ExpectParseFailure("temporal-exact", temporal);
+    EXPECT_NE(exact.find("Tolerance.RepeatRmse must be above 0"), std::string::npos) << exact;
+    std::string temporalError;
+    EXPECT_TRUE(LoadBenchmarkManifest(WriteManifest("temporal-tolerant",
+                                                    Replaced(temporal, "RepeatRmse: 0.0", "RepeatRmse: 0.25")),
+                                      temporalError)
+                    .has_value())
+        << temporalError;
+}
+
+// #1526: RendererSettings.LightingTap names a tap by its token, and an unknown
+// token is refused rather than read as "no tap" (a tapped capture that silently
+// captured the lit colour would be filed as the term).
+TEST(ReferenceFixtureManifest, ParsesEveryLightingTapTokenAndRefusesUnknownOnes)
+{
+    for (u32 tap = 0; tap < std::to_underlying(LightingTap::Count); ++tap)
+    {
+        const char* token = ToToken(static_cast<LightingTap>(tap));
+        SCOPED_TRACE(token);
+        std::string error;
+        const auto parsed = LoadBenchmarkManifest(
+            WriteManifest("lighting-tap", Replaced(ValidV2Manifest(), "Exposure:\n",
+                                                   std::string("RendererSettings:\n  LightingTap: ") + token +
+                                                       "\nExposure:\n")),
+            error);
+        ASSERT_TRUE(parsed.has_value()) << error;
+        ASSERT_TRUE(parsed->RendererSettings.LightingDebugTap.has_value());
+        EXPECT_EQ(*parsed->RendererSettings.LightingDebugTap, static_cast<LightingTap>(tap));
+    }
+    const auto refused = ExpectParseFailure(
+        "lighting-tap-unknown",
+        Replaced(ValidV2Manifest(), "Exposure:\n", "RendererSettings:\n  LightingTap: DirectDiffuze\nExposure:\n"));
+    EXPECT_NE(refused.find("RendererSettings.LightingTap"), std::string::npos) << refused;
+}
+
 TEST(ReferenceFixtureManifest, RejectsAllZeroMotion)
 {
     // An all-zero Motion block advertises a moving sequence and produces a

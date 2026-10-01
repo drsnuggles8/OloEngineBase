@@ -315,6 +315,19 @@ namespace OloEngine
             return capabilities;
         }
 
+        // GL has no allocator to ask and no residency query (issue #1342). The vendor
+        // extensions (NVX_gpu_memory_info, ATI_meminfo) measure different things per vendor
+        // — the #810 decision — so this answers: no allocator totals, residency Unknown.
+        // The tracker's GL figures stay format estimates, and nothing reads that as zero.
+        [[nodiscard]] bool ObserveDeviceMemory(BackendMemoryObservation& out) const override
+        {
+            out = BackendMemoryObservation{};
+            out.Backend = MemoryBackend::OpenGL;
+            out.HasAllocatorTotals = false;
+            out.Residency = MemoryResidencyStatus::Unknown;
+            return true;
+        }
+
         [[nodiscard("Store this!")]] bool SupportsMeshShaders() const override
         {
             return false;

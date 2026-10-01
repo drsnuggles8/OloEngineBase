@@ -23,7 +23,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
     // collision; the previous-frame VP is unused in the deferred lit pass.
     mat4 _camPrevViewProjectionPad;
     vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
-    float _padding1;
+    float u_LightingTap; // the selected lighting tap (issue #1526, include/CameraCommon.glsl)
 };
 
 // MultiLight UBO (binding 5)
@@ -260,7 +260,7 @@ void main()
     float depth = texture(u_GBufferDepth, v_TexCoord).r;
     if (depth >= 0.999999)
     {
-        o_Color = vec4(texture(u_GBufferEmissive, v_TexCoord).rgb, 1.0);
+        o_Color = vec4(oloLightingTapPassThrough(texture(u_GBufferEmissive, v_TexCoord).rgb, u_LightingTap), 1.0);
         // Sky. No surface, so no subsurface transport -- but the target still
         // has to be WRITTEN, because an MRT output left alone is undefined.
         o_SkinDiffuse = vec4(0.0);

@@ -26,12 +26,15 @@ namespace OloEngine
 
     OpenGLStorageBuffer::~OpenGLStorageBuffer()
     {
-        OLO_TRACK_DEALLOC(this);
+        // Resident until the deferred delete runs: counted as retiring (#1342).
+        const u64 retireTicket = OLO_TRACK_RETIRE(this);
         GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
 
         u32 id = m_RendererID;
-        FrameResourceManager::Get().SubmitForDeletion([id]()
-                                                      { glDeleteBuffers(1, &id); });
+        FrameResourceManager::Get().SubmitForDeletion([id, retireTicket]()
+                                                      {
+                                                          glDeleteBuffers(1, &id);
+                                                          OLO_TRACK_RELEASE_RETIRED(retireTicket); });
     }
 
     void OpenGLStorageBuffer::Bind() const
@@ -76,12 +79,16 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        OLO_TRACK_DEALLOC(this);
+        // The old buffer and the new one coexist until the deferred delete runs: the old
+        // one is counted as retiring, so a resize shows its real transient peak (#1342).
+        const u64 retireTicket = OLO_TRACK_RETIRE(this);
         GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
 
         u32 oldId = m_RendererID;
-        FrameResourceManager::Get().SubmitForDeletion([oldId]()
-                                                      { glDeleteBuffers(1, &oldId); });
+        FrameResourceManager::Get().SubmitForDeletion([oldId, retireTicket]()
+                                                      {
+                                                          glDeleteBuffers(1, &oldId);
+                                                          OLO_TRACK_RELEASE_RETIRED(retireTicket); });
 
         m_Size = newSize;
 

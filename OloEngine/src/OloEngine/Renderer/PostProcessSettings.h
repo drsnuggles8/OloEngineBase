@@ -20,7 +20,9 @@
 
 #include <algorithm>
 #include <array>
+#include <optional>
 #include <cmath>
+#include <string_view>
 #include <utility>
 
 namespace OloEngine
@@ -61,6 +63,80 @@ namespace OloEngine
 
         Count
     };
+
+    // Debug lighting taps (issue #1526): one split lighting term shown IN PLACE
+    // of the lit colour, on every raster path (Forward, Forward+, Deferred) and
+    // both backends, so a capture can read the term as SceneColor. The terms
+    // partition the composed radiance — DirectDiffuse + DirectSpecular +
+    // IndirectDiffuse + IndirectSpecular + Remainder is the lit colour, to
+    // rounding — and each is linear HDR radiance, Rec.709; ShadowVisibility is
+    // the primary directional light's full visibility, unitless [0,1].
+    // See include/PBRCommon.glsl (LIGHTING TAPS) for what each term holds.
+    //
+    // Append, never renumber: MIRRORED in GLSL as OLO_LIGHTING_TAP_*, named by
+    // token in benchmark manifests (RendererSettings.LightingTap).
+    enum class LightingTap : u32
+    {
+        None = 0,
+        DirectDiffuse = 1,
+        DirectSpecular = 2,
+        IndirectDiffuse = 3,
+        IndirectSpecular = 4,
+        Remainder = 5,
+        ShadowVisibility = 6,
+        // Not a scene-colour tap: the screen-space reflection tier writes its
+        // hit distance (view-space metres along the reflected ray, 0 = no hit)
+        // into SSRGuide's alpha instead of its confidence, which that lane holds
+        // otherwise (#1057). The lit colour is untouched. Deferred only, since
+        // SSR runs on Deferred only.
+        ReflectionHitDistance = 7,
+
+        Count
+    };
+
+    // Whether the tap replaces the lit colour (the scene-colour taps), as
+    // opposed to changing what a reflection tier writes to its own target.
+    [[nodiscard]] constexpr bool LightingTapReplacesSceneColor(LightingTap tap) noexcept
+    {
+        return tap != LightingTap::None && tap != LightingTap::ReflectionHitDistance && tap != LightingTap::Count;
+    }
+
+    // The manifest / report spelling of a LightingTap. One table, both ways.
+    [[nodiscard]] constexpr const char* ToToken(LightingTap tap) noexcept
+    {
+        switch (tap)
+        {
+            case LightingTap::None:
+                return "None";
+            case LightingTap::DirectDiffuse:
+                return "DirectDiffuse";
+            case LightingTap::DirectSpecular:
+                return "DirectSpecular";
+            case LightingTap::IndirectDiffuse:
+                return "IndirectDiffuse";
+            case LightingTap::IndirectSpecular:
+                return "IndirectSpecular";
+            case LightingTap::Remainder:
+                return "Remainder";
+            case LightingTap::ShadowVisibility:
+                return "ShadowVisibility";
+            case LightingTap::ReflectionHitDistance:
+                return "ReflectionHitDistance";
+            case LightingTap::Count:
+                break;
+        }
+        return "Unknown";
+    }
+
+    [[nodiscard]] constexpr std::optional<LightingTap> ParseLightingTapToken(std::string_view token) noexcept
+    {
+        for (u32 i = 0; i < std::to_underlying(LightingTap::Count); ++i)
+        {
+            if (token == ToToken(static_cast<LightingTap>(i)))
+                return static_cast<LightingTap>(i);
+        }
+        return std::nullopt;
+    }
 
     // Tonemap operator constants (match PBRCommon.glsl defines)
     enum class TonemapOperator : i32
@@ -601,6 +677,12 @@ namespace OloEngine
         // *DebugView flags.
         MaterialDebugView MaterialDebug = MaterialDebugView::None;
 
+        // Debug lighting tap (issue #1526). None renders the shipping frame:
+        // the shaders' tap branch returns the lit colour untouched, so a
+        // tap-off frame is bit-identical to one without the feature. Not
+        // persisted — an ephemeral session render setting.
+        LightingTap LightingDebugTap = LightingTap::None;
+
         bool operator==(const PostProcessSettings&) const = default;
     };
 
@@ -1017,6 +1099,10 @@ namespace OloEngine
         glm::vec4 ScreenParams = glm::vec4(0.0f);
         // x = DebugView (0/1), y = StochasticFrameIndex,
         // z = TierDebugView (0/1), w = RayTierActive (0/1).
+        //
+        // (DenoiseParams.y below, otherwise unused, is the hit-distance tap:
+        // 1 makes the trace write its hit distance into the guide plane's
+        // alpha instead of its confidence, issue #1526.)
         //
         // The last two are the reflection-hierarchy tier debug view (#1057). It
         // is composited in SSR's composite draw because that draw is the only

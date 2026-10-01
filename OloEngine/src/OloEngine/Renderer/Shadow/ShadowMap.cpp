@@ -17,6 +17,7 @@ namespace OloEngine
     void ShadowMap::Init(const ShadowSettings& settings)
     {
         OLO_PROFILE_FUNCTION();
+        const RendererMemoryOwnerScope memoryOwner("ShadowMap", MemoryLifetime::Persistent); // #1342
 
         m_Settings = settings;
 

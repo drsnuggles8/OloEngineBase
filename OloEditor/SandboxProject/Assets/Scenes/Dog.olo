@@ -500,7 +500,7 @@ Entities:
       IsPlaying: true
       Loop: true
       PlaybackSpeed: 1
-      SourceFilePath: Models/Dog/Dog.gltf
+      SourceFilePath: Assets/Models/Dog/Dog.gltf
       CurrentClipName: Idle
     SkeletonComponent:
       {}

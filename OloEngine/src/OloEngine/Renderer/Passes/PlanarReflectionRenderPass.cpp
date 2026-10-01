@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RenderGraphOutOfBand.h"
 #include "OloEngine/Renderer/Passes/PlanarReflectionRenderPass.h"
 
 #include "OloEngine/Renderer/PlanarReflection.h"
@@ -17,9 +18,9 @@ namespace OloEngine
     PlanarReflectionRenderPass::PlanarReflectionRenderPass()
     {
         SetName("PlanarReflectionPass");
-        // Owned framebuffer is not a graph resource, so the scheduler can't see
-        // an observable output and would cull the pass — keep it alive.
-        SetSideEffects(SideEffect::NeverCull);
+        // No NeverCull (#1331): the reflection is the PlanarReflectionTexture
+        // publication, and WaterPass, its one reader, consumes it, so the pass
+        // runs exactly on the frames something draws water.
         OLO_CORE_INFO("Creating PlanarReflectionRenderPass.");
     }
 
@@ -75,8 +76,11 @@ namespace OloEngine
         // when the flag flips. Declaring the dependency every time guarantees that whenever the
         // pass DOES replay, ScenePass has already batched the opaque bucket and the
         // shadow maps exist (otherwise it could run before either).
-        builder.DependsOnPass("ScenePass");
+        builder.ConsumePublication(RGOutOfBandBoundaries::SceneOpaqueCommandBucket);
         builder.DependsOnPass("ShadowPass");
+        // Every Execute republishes the texture id and UBO 43, enabled or not,
+        // so WaterPass never samples a stale reflection (#1331).
+        builder.Publish(RGOutOfBandBoundaries::PlanarReflectionTexture);
 
         // The replayed bucket samples the shadow maps and IBL — declare the reads
         // UNCONDITIONALLY (not gated on m_Enabled). As above, the enable is not
@@ -108,6 +112,8 @@ namespace OloEngine
 
         // Refresh the UBO every frame so a stale enable flag can never reach the
         // water shader. Default = disabled; the enabled path overwrites it below.
+        // Either way this Execute republishes the reflection (#1331).
+        RGOutOfBand::Note(RGOutOfBandBoundaries::PlanarReflectionTexture, RGOutOfBandAccess::Write);
         UBOData ubo;
         ubo.Params = glm::vec4(0.0f);
 
@@ -219,6 +225,7 @@ namespace OloEngine
         // UBO binding, shadow maps, IBL) and replay the already-batched opaque
         // bucket (skybox + meshes + terrain + voxels) into the mirror target.
         CommandDispatch::BindSceneResources();
+        RGOutOfBand::Note(RGOutOfBandBoundaries::SceneOpaqueCommandBucket, RGOutOfBandAccess::Read);
         m_ScenePass->GetCommandBucket().ExecuteParallel(rendererAPI);
 
         RenderCommand::SetFrontFace(RHI::FrontFace::CounterClockwise);

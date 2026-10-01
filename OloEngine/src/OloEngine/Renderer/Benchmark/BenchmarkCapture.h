@@ -22,6 +22,8 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Benchmark/BenchmarkManifest.h"
 #include "OloEngine/Renderer/Debug/GPUTimingStatus.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
+#include "OloEngine/Renderer/Upscaling/TemporalUpscalePolicy.h"
 
 #include <filesystem>
 #include <optional>
@@ -47,6 +49,12 @@ namespace OloEngine::Benchmark
         bool Normalized = false;
         f32 MinValue = 0.0f;
         f32 MaxValue = 0.0f;
+        // The texture's full size and the rectangle actually read from it. They
+        // differ only under a dynamic render scale, where a display-sized target
+        // holds the frame in its [0, render) corner (#1526).
+        u32 TextureWidth = 0;
+        u32 TextureHeight = 0;
+        bool CroppedToRenderRegion = false;
         bool SkippedUnsupported = false; // skipped by declaration, not failure
         FString SkipReason;              // recorded when SkippedUnsupported (defaulted
                                          // to the backend declaration by the writer)
@@ -71,6 +79,9 @@ namespace OloEngine
                                       TIsTriviallyRelocatable_V<decltype(Record::Normalized)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::MinValue)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::MaxValue)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::TextureWidth)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::TextureHeight)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::CroppedToRenderRegion)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::SkippedUnsupported)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::SkipReason)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::Error)>;
@@ -138,28 +149,43 @@ namespace OloEngine::Benchmark
         u32 DrawCalls = 0;
         u32 TrianglesRendered = 0;
         u32 InstancesRendered = 0;
-        u64 GpuMemoryTotalBytes = 0;
+        // Renderer memory (#1342), GPU and CPU never summed. GpuResidentBytes is physical
+        // GPU backing held now (live + retiring, views excluded); CpuTrackedBytes the CPU
+        // bookings. This replaced GpuMemoryTotalBytes, which despite its name was the
+        // tracker's CPU+GPU total. The full report, with owners, capacity rows and the
+        // backend reconciliation, is RunInfo::MemoryReport.
+        u64 GpuResidentBytes = 0;
+        u64 CpuTrackedBytes = 0;
     };
 
     // The resolution the frame was actually rendered and presented at (#1337
     // criterion 4). The manifest's declared Width/Height is a REQUEST: the
-    // render graph applies its own render scale on top, so the scene can be
-    // rasterized at one size and displayed at another, and a benchmark record
-    // that carries only the request cannot be compared against one taken at a
-    // different scale.
+    // scene can be rasterized at one size and displayed at another, and a
+    // benchmark record that carries only the request cannot be compared against
+    // one taken at a different scale.
     //
-    // Known issue #1397: a non-native UpscaleMode crops the editor viewport
-    // instead of scaling it, so on the editor host these dimensions describe
-    // the buffers while the visible framing is a crop of them. Recorded as
-    // measured; the discrepancy belongs to #1397.
+    // Two mechanisms make the internal size differ from the display size, and
+    // the record says which one did (#1526):
+    //   - an UpscaleMode reallocates the scene band at the preset's scale and an
+    //     upscaler (FSR1 or FSR2, see ResolvedUpscaler) reconstructs display
+    //     resolution; RenderScale stays 1.0;
+    //   - a dynamic render scale (Renderer3D::SetRenderScale, the manifest's
+    //     Output.RenderScale) keeps every target at display size and draws into
+    //     its [0, render) corner, with no upscaler.
+    // RenderWidth/Height is the size the scene was really rasterized at under
+    // either one: before #1526 it read only the second, so an upscale capture
+    // reported its 0.667 scene band as native.
     struct ResolutionRecord
     {
-        u32 RenderWidth = 0; ///< Rasterization size (physical * render scale).
+        u32 RenderWidth = 0; ///< Scene rasterization size, whichever mechanism set it.
         u32 RenderHeight = 0;
         u32 DisplayWidth = 0; ///< Presented/physical framebuffer size.
         u32 DisplayHeight = 0;
-        f32 RenderScale = 1.0f;
-        bool Measured = false; ///< False when no live graph could be asked.
+        f32 RenderScale = 1.0f;                     ///< The dynamic render scale in force (1.0 under an upscaler).
+        f32 UpscalerRenderScale = 1.0f;             ///< The UpscaleMode preset's scale (1.0 when Off).
+        TemporalUpscalePolicy::Resolution Upscaler; ///< What reconstructed display resolution.
+        bool UpscalerLatched = false;               ///< False when no frame has resolved the upscaler yet.
+        bool Measured = false;                      ///< False when no live graph could be asked.
     };
 
     // How trustworthy this run's GPU timings are, recorded beside them (#1337
@@ -192,7 +218,8 @@ namespace OloEngine::Benchmark
         u64 GpuFrameId = 0; // may lag this row; never infer same-frame attribution
         GpuTimingSample Gpu{};
         TArray<PassTimingRecord> GpuPasses; // same resolved frame as GpuFrameId
-        u64 TrackedRendererBytes = 0;       // tracker combines CPU and GPU allocations
+        u64 GpuResidentBytes = 0;           // physical GPU backing, live + retiring (#1342)
+        u64 CpuTrackedBytes = 0;            // CPU-side bookings, never added to the GPU figure
         u32 DrawCalls = 0;
     };
 
@@ -216,7 +243,8 @@ namespace OloEngine
                                       TIsTriviallyRelocatable_V<decltype(Record::GpuFrameId)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::Gpu)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::GpuPasses)> &&
-                                      TIsTriviallyRelocatable_V<decltype(Record::TrackedRendererBytes)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::GpuResidentBytes)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::CpuTrackedBytes)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::DrawCalls)>;
     };
 } // namespace OloEngine
@@ -243,6 +271,7 @@ namespace OloEngine::Benchmark
         UpscaleMode Upscale = UpscaleMode::Off;
         UpscalerTechnique Technique = UpscalerTechnique::Spatial;
         bool RayTracedShadowsRequested = false;
+        LightingTap LightingDebugTap = LightingTap::None; ///< A tapped run's SceneColor is that term (#1526).
     };
     [[nodiscard]] AppliedConfiguration SnapshotAppliedConfiguration();
     [[nodiscard]] bool ApplyEntityMotion(Scene& scene, const BenchmarkManifest& manifest, u32 frameIndex,
@@ -279,7 +308,12 @@ namespace OloEngine::Benchmark
         ResolutionRecord Resolution;
         RendererCounters Counters;
         MeasurementRecord Measurement;
-        std::optional<u64> TrackedRendererBytesAfterSceneRelease;
+        // Physical GPU bytes still resident once the scene is released (asset and renderer
+        // caches, pools and histories remain). nullopt when the host did not measure it.
+        std::optional<u64> GpuResidentBytesAfterSceneRelease;
+        // The whole physical report at the end of measurement (#1342), written to
+        // result.json as "memory". nullopt when the host took none.
+        std::optional<RendererMemoryReport> MemoryReport;
         AppliedConfiguration Configuration;
     };
 
@@ -291,19 +325,21 @@ namespace OloEngine::Benchmark
         f32 CameraFarClip = 1000.0f;
     };
 
-    /// Capture one manifest attachment from the ACTIVE render graph at native
-    /// resolution. Must run on the render thread with a frame's results
-    /// resident (i.e. after the warm-up frames). Never downscales.
+    /// Capture one manifest attachment from the ACTIVE render graph at the
+    /// size it was rendered at. Must run on the render thread with a frame's
+    /// results resident (i.e. after the warm-up frames). Never resamples: a
+    /// display-sized target under a dynamic render scale is read as its
+    /// rendered corner, every other target whole.
     [[nodiscard]] CapturedAttachment CaptureAttachment(const ManifestAttachment& spec,
                                                        const CaptureContext& context = {});
 
     /// Apply the manifest's renderer-side state — the settings a scene cannot
     /// serialize (rendering path, DDGI, TAA, ...), the exposure mode, the
-    /// render scale, and the deliberate `Upscale = Off` pin (FSR2's temporal
-    /// locks decay on REAL time by contract, so an upscaler would make a
-    /// mock-clock capture nondeterministic). ONE implementation for both
-    /// front doors, so a new manifest knob cannot land in one host only.
-    /// Must run on the render thread.
+    /// upscaler (Off unless the manifest names one) and the dynamic render
+    /// scale. FSR2's temporal locks decay on REAL time by contract, so a
+    /// Temporal capture is not run-twice deterministic; its RepeatRmse must say
+    /// so. ONE implementation for both front doors, so a new manifest knob
+    /// cannot land in one host only. Must run on the render thread.
     void ApplyManifestRendererState(const BenchmarkManifest& manifest);
 
     /// Capture every manifest attachment for one camera, honouring the

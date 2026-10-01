@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RenderGraphOutOfBand.h"
 #include "OloEngine/Renderer/Passes/FluidIntermediatesPass.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 
@@ -28,10 +29,9 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         SetName("FluidIntermediatesPass");
         // Outputs are consumed by FluidCompositePass via raw texture ids
-        // (outside graph resource tracking), so reachability culling must
-        // never drop this pass. Note this means the pass culls nothing on its
-        // own — the "no draws this frame" Setup early-out is the actual gate.
-        SetSideEffects(SideEffect::NeverCull);
+        // (outside graph resource tracking). No NeverCull (#1331): they are the
+        // FluidIntermediates boundary the composite reads, so reachability
+        // keeps this pass exactly while the composite needs it.
         OLO_CORE_INFO("Creating FluidIntermediatesPass.");
     }
 
@@ -88,6 +88,8 @@ namespace OloEngine
         // pipeline fingerprint must hash this gate (issue #530 class).
         if (!m_Enabled || !HasPendingDraws())
             return;
+
+        builder.WriteOutOfBand(RGOutOfBandBoundaries::FluidIntermediates);
 
         if (blackboard.Scene.SceneDepthAttachment.IsValid())
         {
@@ -294,6 +296,8 @@ namespace OloEngine
 
         m_LastAppearance = draws[0];
         m_RanThisFrame = true;
+        m_RanFrameSerial = RGOutOfBand::GetFrameSerial();
+        RGOutOfBand::Note(RGOutOfBandBoundaries::FluidIntermediates, RGOutOfBandAccess::Write);
     }
 
     void FluidIntermediatesPass::UploadDrawUBO(const FluidRenderData& draw, f32 cameraNear, f32 cameraFar, UniformBuffer& upload) const

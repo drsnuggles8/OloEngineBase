@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RenderGraphOutOfBand.h"
 #include "OloEngine/Renderer/Passes/FogRenderPass.h"
 
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -26,9 +27,10 @@ namespace OloEngine
         m_SelectedShadowCSMTexture = {};
 
         // The froxel volumetric fog chain must have integrated its volume
-        // before the composite samples it (its output is engine-owned, not a
-        // graph resource, so the edge is declared explicitly).
-        builder.DependsOnPass("VolumetricFogPass");
+        // before the composite samples it. Its output is engine-owned, not a
+        // graph resource, so it is the FroxelFogVolume publication (#1331),
+        // which also keeps VolumetricFogPass alive exactly while this reads it.
+        builder.ConsumePublication(RGOutOfBandBoundaries::FroxelFogVolume);
 
         [[maybe_unused]] const auto input = RenderPipelineBuilderInternal::ReadFirstValidVersionedInputForPass(
             builder,
@@ -215,6 +217,7 @@ namespace OloEngine
         // chain did not run this frame, re-upload its disabled UBO so the
         // shader falls back to the analytic path instead of sampling a stale
         // volume.
+        RGOutOfBand::Note(RGOutOfBandBoundaries::FroxelFogVolume, RGOutOfBandAccess::Read);
         const bool froxelRan = m_VolumetricFogPass && m_VolumetricFogPass->RanThisFrame();
         if (froxelRan)
         {

@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RenderGraphOutOfBand.h"
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/Passes/AOTargetIdentity.h"
 #include "OloEngine/Renderer/Passes/SSAORenderPass.h"
@@ -30,6 +31,10 @@ namespace OloEngine
 
         if (!m_Settings.SSAOEnabled || m_Settings.ActiveAOTechnique != AOTechnique::SSAO)
             return;
+
+        // The shared SSAO parameter block AOApplyPass binds is published after
+        // this pass records (#1331).
+        builder.Publish(RGOutOfBandBoundaries::SSAOParameters);
 
         if (blackboard.Scene.SceneDepth.IsValid())
         {
@@ -341,6 +346,7 @@ namespace OloEngine
         };
         prepared.Publish = [this, parameters]
         {
+            RGOutOfBand::Note(RGOutOfBandBoundaries::SSAOParameters, RGOutOfBandAccess::Write);
             if (m_GPUData)
                 *m_GPUData = parameters;
             if (m_SSAOUBO)

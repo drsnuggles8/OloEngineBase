@@ -872,38 +872,6 @@ namespace OloEngine::MCP::RendererSettings
         std::string UpscalerStatus; // ToString(TemporalUpscalerStatus)
     };
 
-    [[nodiscard]] inline std::string_view ResolvedToken(TemporalUpscalePolicy::ResolvedUpscaler resolved)
-    {
-        switch (resolved)
-        {
-            case TemporalUpscalePolicy::ResolvedUpscaler::Native:
-                return "native";
-            case TemporalUpscalePolicy::ResolvedUpscaler::Spatial:
-                return "spatial";
-            case TemporalUpscalePolicy::ResolvedUpscaler::Temporal:
-                return "temporal";
-        }
-        return "unknown";
-    }
-
-    [[nodiscard]] inline std::string_view FallbackToken(TemporalUpscalePolicy::TemporalFallback fallback)
-    {
-        switch (fallback)
-        {
-            case TemporalUpscalePolicy::TemporalFallback::None:
-                return "none";
-            case TemporalUpscalePolicy::TemporalFallback::MSAAResolved:
-                return "msaaResolved";
-            case TemporalUpscalePolicy::TemporalFallback::BackendNotOpenGL:
-                return "backendNotOpenGL";
-            case TemporalUpscalePolicy::TemporalFallback::UpscalerUnavailable:
-                return "upscalerUnavailable";
-            case TemporalUpscalePolicy::TemporalFallback::SceneNotSized:
-                return "sceneNotSized";
-        }
-        return "unknown";
-    }
-
     // The 'upscaler' block. `requested` is the live setting pair; `resolved` is
     // what the last prepared frame ran. When the latch answers an OLDER request
     // (no frame has been prepared since the write), `resolved` is null and
@@ -941,14 +909,14 @@ namespace OloEngine::MCP::RendererSettings
             return block;
         }
 
-        block["resolved"] = std::string(ResolvedToken(readback.Result.Resolved));
+        block["resolved"] = std::string(TemporalUpscalePolicy::ToToken(readback.Result.Resolved));
         block["pending"] = false;
         block["sceneSampleCount"] = readback.SceneSampleCount;
         block["temporalUpscalerStatus"] = readback.UpscalerStatus;
         if (readback.Result.Fallback == TemporalUpscalePolicy::TemporalFallback::None)
             return block;
 
-        block["fallback"] = std::string(FallbackToken(readback.Result.Fallback));
+        block["fallback"] = std::string(TemporalUpscalePolicy::ToToken(readback.Result.Fallback));
         switch (readback.Result.Fallback)
         {
             case TemporalUpscalePolicy::TemporalFallback::MSAAResolved:

@@ -4,6 +4,7 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanBufferResources.h"
+#include "Platform/Vulkan/VulkanTrackedAllocation.h"
 #include "Platform/Vulkan/VulkanQueueSelection.h"
 #include "Platform/Vulkan/VulkanRecordingContext.h"
 
@@ -94,12 +95,12 @@ namespace OloEngine
 
             CreatedBuffer out;
             VmaAllocationInfo outInfo{};
-            VkCheck(vmaCreateBuffer(device->GetAllocator(), &bufferInfo, &allocInfo, &out.Buffer, &out.Allocation,
-                                    &outInfo),
+            VkCheck(TrackedVmaCreateBuffer(device->GetAllocator(), &bufferInfo, &allocInfo, &out.Buffer, &out.Allocation,
+                                           &outInfo),
                     what);
             // Owner tag for the teardown leak dump (VulkanDevice::Shutdown):
             // an allocation alive at vmaDestroyAllocator prints this name.
-            vmaSetAllocationName(device->GetAllocator(), out.Allocation, what);
+            TrackedVmaSetAllocationName(device->GetAllocator(), out.Allocation, what);
 
             VkMemoryPropertyFlags memProps = 0;
             vmaGetAllocationMemoryProperties(device->GetAllocator(), out.Allocation, &memProps);
@@ -399,10 +400,10 @@ namespace OloEngine
         VmaAllocationInfo outInfo{};
         VkBuffer buffer = VK_NULL_HANDLE;
         VmaAllocation allocation = VK_NULL_HANDLE;
-        if (vmaCreateBuffer(device->GetAllocator(), &bufferInfo, &allocInfo, &buffer, &allocation, &outInfo) !=
+        if (TrackedVmaCreateBuffer(device->GetAllocator(), &bufferInfo, &allocInfo, &buffer, &allocation, &outInfo) !=
             VK_SUCCESS)
         {
-            OLO_CORE_ERROR("[RHI/Vulkan] AllocateBufferStorage: vmaCreateBuffer({} bytes) failed", sizeBytes);
+            OLO_CORE_ERROR("[RHI/Vulkan] AllocateBufferStorage: TrackedVmaCreateBuffer({} bytes) failed", sizeBytes);
             // The orphan path above already retired the previous storage and
             // cleared the entry, so the identity registry is still naming a
             // buffer that no longer exists. Leaving it there makes the next
@@ -413,7 +414,7 @@ namespace OloEngine
             return;
         }
 
-        vmaSetAllocationName(device->GetAllocator(), allocation, "raw buffer (CreateBufferHandle)");
+        TrackedVmaSetAllocationName(device->GetAllocator(), allocation, "raw buffer (CreateBufferHandle)");
         entry->Buffer = buffer;
         entry->Allocation = allocation;
         entry->Size = sizeBytes;

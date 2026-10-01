@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RenderGraphOutOfBand.h"
 #include "OloEngine/Renderer/Passes/VolumetricFogPass.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 
@@ -25,10 +26,9 @@ namespace OloEngine
         SetName("VolumetricFogPass");
         SetPassWorkType(PassWorkType::Compute);
         SetAsyncComputeCandidate(true);
-        // The integrated volume is consumed OUTSIDE the graph's resource
-        // tracking (FogRenderPass binds it as a plain sampler3D), so the
-        // graph's reachability cull must never drop this pass while enabled.
-        SetSideEffects(SideEffect::NeverCull);
+        // No NeverCull (#1331): the integrated volume is the FroxelFogVolume
+        // publication FogRenderPass consumes, so reachability keeps this pass
+        // exactly while the fog composite reads it.
     }
 
     void VolumetricFogPass::Init(const FramebufferSpecification& spec)
@@ -88,9 +88,12 @@ namespace OloEngine
             return;
 
         // The clustered light lists are dispatched inline inside
-        // SceneRenderPass::Execute — order after it explicitly (the SSBOs are
-        // not graph resources).
-        builder.DependsOnPass("ScenePass");
+        // SceneRenderPass::Execute and captured here (the SSBOs are not graph
+        // resources); the scatter samples the DDGI volume; the integrated
+        // volume is published for FogRenderPass (#1331).
+        builder.ConsumePublication(RGOutOfBandBoundaries::ForwardPlusLightClusters);
+        builder.ReadOutOfBand(RGOutOfBandBoundaries::DDGIProbeVolume);
+        builder.Publish(RGOutOfBandBoundaries::FroxelFogVolume);
 
         // Shadow inputs: sun visibility (CSM) + local-light visibility (atlas)
         if (blackboard.Shadows.ShadowMapCSM.IsValid())
@@ -304,6 +307,7 @@ namespace OloEngine
         };
         prepared.Publish = [this, fogNear, fogFar, viewRelative, projection, renderOrigin, ubo, historyIndex, viewProjectionAbsolute]
         {
+            RGOutOfBand::Note(RGOutOfBandBoundaries::FroxelFogVolume, RGOutOfBandAccess::Write);
             m_FroxelUBO->SetData(&ubo, sizeof(ubo));
             m_FroxelUBO->Bind();
 
@@ -334,6 +338,7 @@ namespace OloEngine
             m_PrevViewProjectionValid = true;
             ++m_FrameIndex;
             m_RanThisFrame = true;
+            m_RanFrameSerial = RGOutOfBand::GetFrameSerial();
         };
         return prepared;
     }
