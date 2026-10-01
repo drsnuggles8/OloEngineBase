@@ -29,8 +29,19 @@
 #include <gtest/gtest.h>
 
 #include "RendererAttachedTest.h"
+#include "TestTempDir.h"
+#include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Core/DebugLevers.h"
+#include "OloEngine/Groom/GroomAsset.h"
+#include "OloEngine/Groom/GroomBuilder.h"
+#include "OloEngine/Groom/GroomCooker.h"
+#include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
+#include "OloEngine/Renderer/Passes/GroomRenderPass.h"
+#include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
+#include "OloEngine/Terrain/TerrainGenerator.h"
+#include "OloEngine/Terrain/TerrainMaterial.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryFormat.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryReportJson.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
@@ -96,6 +107,89 @@ namespace
         fs::create_directories(dir, ec);
         std::ofstream out(dir / ("RendererMemory_" + cellName + ".json"), std::ios::binary | std::ios::trunc);
         out << RendererMemoryReportToJson(report).dump(2) << '\n';
+    }
+
+    // The two passes that keep their own scene framebuffer (#1546) need content the cubes
+    // below never give them: a lawn for FoliageRenderPass and a groom for GroomRenderPass.
+    [[nodiscard]] Entity AddLawn(Scene& scene)
+    {
+        Entity lawn = scene.CreateEntity("Lawn");
+        lawn.GetComponent<TransformComponent>().Translation = { -8.0f, -0.6f, -8.0f }; // [0, size] local
+        auto& terrain = lawn.AddComponent<TerrainComponent>();
+        terrain.m_ProceduralEnabled = true;
+        terrain.m_ProceduralSeed = 1546;
+        terrain.m_ProceduralResolution = 32;
+        terrain.m_ProceduralOctaves = 1;
+        terrain.m_WorldSizeX = 16.0f;
+        terrain.m_WorldSizeZ = 16.0f;
+        terrain.m_HeightScale = 0.1f;
+        terrain.m_TessellationEnabled = false;
+        terrain.m_Material = Ref<TerrainMaterial>::Create();
+        for (const auto& layer : TerrainGenerator::MakeDefaultLayers())
+            terrain.m_Material->AddLayer(layer);
+
+        auto& foliage = lawn.AddComponent<FoliageComponent>();
+        foliage.m_Enabled = true;
+        FoliageLayer grass;
+        grass.Name = "Grass";
+        grass.AlbedoPath = "assets/textures/grass.png";
+        grass.UseAuthoredMesh = false; // cards: the foliage pass, without a mesh to load
+        grass.Density = 2.0f;
+        grass.SplatmapChannel = -1;
+        grass.MinHeight = 0.2f;
+        grass.MaxHeight = 0.4f;
+        grass.FadeStartDistance = 40.0f;
+        grass.ViewDistance = 50.0f;
+        foliage.m_Layers.Add(grass);
+        foliage.m_NeedsRebuild = true;
+        return lawn;
+    }
+
+    [[nodiscard]] Ref<GroomAsset> BuildTuft()
+    {
+        GroomBuilder builder;
+        std::string reason;
+        u16 group = 0;
+        EXPECT_TRUE(builder.AddGroup("tuft", group, reason)) << reason;
+        const std::vector<f32> widths = { 0.004f, 0.004f, 0.003f, 0.002f };
+        for (u32 s = 0; s < 400u; ++s)
+        {
+            const f32 x = (static_cast<f32>(s % 20u) - 9.5f) * 0.02f;
+            const f32 z = (static_cast<f32>(s / 20u) - 9.5f) * 0.02f;
+            const std::vector<glm::vec3> points = { { x, 0.0f, z }, { x, 0.1f, z }, { x, 0.2f, z }, { x, 0.3f, z } };
+            GroomCurveInput input;
+            input.Points = points;
+            input.Widths = widths;
+            input.RootUV = { 0.5f, 0.5f };
+            input.GroupId = group;
+            EXPECT_TRUE(builder.AddCurve(input, reason)) << reason;
+        }
+        builder.SetName("MemoryAccountingTuft");
+        Ref<GroomAsset> groom = builder.Build(reason);
+        EXPECT_TRUE(groom) << reason;
+        if (groom)
+            EXPECT_TRUE(GroomCooker::Canonicalize(*groom, reason)) << reason;
+        return groom;
+    }
+
+    // A groom is resolved through the asset manager, which a renderer fixture alone has not.
+    void EnsureAssetManager()
+    {
+        if (Project::GetActive() && Project::HasAssetManager())
+            return;
+        std::error_code ec;
+        const fs::path projectDir = TempDir("memory-accounting-project");
+        fs::create_directories(projectDir / "Assets", ec);
+        ASSERT_FALSE(ec) << ec.message();
+        std::ofstream(projectDir / "Evidence.oloproj") << "Project:\n"
+                                                          "  Name: MemoryAccountingEvidence\n"
+                                                          "  StartScene: \"\"\n"
+                                                          "  AssetDirectory: \"Assets\"\n"
+                                                          "  ScriptModulePath: \"\"\n";
+        ASSERT_TRUE(Project::Load(projectDir / "Evidence.oloproj"));
+        auto assetManager = Ref<EditorAssetManager>::Create();
+        assetManager->Initialize(false);
+        Project::SetAssetManager(assetManager);
     }
 
     class ScopedFaultCountAliasAsBacking
@@ -517,4 +611,63 @@ TEST_F(RendererMemoryAccountingEvidence, APathSwitchLeavesNoPooledFramebufferBeh
             << static_cast<i64>(OwnerLiveGpuBytes(report, "TransientPool")) - static_cast<i64>(CapacityTotal(report, "TransientPool"))
             << " bytes of pool-created framebuffers are alive outside every pool";
     }
+}
+
+// ---------------------------------------------------------------------------------------
+// #1546: GroomRenderPass and FoliageRenderPass keep the scene framebuffer they draw into in
+// a member of their own, which the scene above never reaches. Off the Forward path the
+// foliage pass stops re-resolving it, and a groom pass with nothing to draw is culled; each
+// then pinned a pooled framebuffer the pool had evicted, a full-resolution MRT for as long
+// as the pass stayed idle.
+// ---------------------------------------------------------------------------------------
+TEST_F(RendererMemoryAccountingEvidence, AGroomAndALawnLeaveNoPooledFramebufferBehind)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+    EnsureAssetManager();
+    ASSERT_FALSE(HasFatalFailure());
+
+    Entity lawn = AddLawn(GetScene());
+    const Ref<GroomAsset> tuft = BuildTuft();
+    ASSERT_TRUE(tuft);
+    Entity groom = GetScene().CreateEntity("Tuft");
+    groom.GetComponent<TransformComponent>().Translation = { 0.0f, -0.4f, 3.0f };
+    auto& groomComponent = groom.AddComponent<GroomComponent>();
+    groomComponent.m_Groom = AssetManager::AddMemoryOnlyAsset<GroomAsset>(tuft);
+    groomComponent.m_ShowPreview = false;
+    groomComponent.m_RenderStrands = true;
+
+    const auto usePath = [this](const RenderingPath path)
+    {
+        Renderer3D::GetRendererSettings().Path = path;
+        Renderer3D::ApplyRendererSettings();
+        RunFrames(kDrainFrames + 2);
+    };
+    const auto expectPoolsHoldEverything = [](const char* step)
+    {
+        const RendererMemoryReport report = Report();
+        EXPECT_EQ(CapacityTotal(report, "TransientPool"), OwnerLiveGpuBytes(report, "TransientPool"))
+            << step << ": "
+            << static_cast<i64>(OwnerLiveGpuBytes(report, "TransientPool")) - static_cast<i64>(CapacityTotal(report, "TransientPool"))
+            << " bytes of pool-created framebuffers are alive outside every pool";
+    };
+
+    usePath(RenderingPath::Forward);
+    const GroomRenderPass* groomPass = Renderer3D::GetGroomRenderPass();
+    ASSERT_NE(groomPass, nullptr);
+    ASSERT_GT(groomPass->GetStats().StrandsDrawn, 0u) << "the groom pass never drew, so this says nothing about it";
+    const auto& foliage = lawn.GetComponent<FoliageComponent>();
+    ASSERT_TRUE(foliage.m_Renderer && foliage.m_Renderer->GetActiveLayerDrawInfo().Num() > 0)
+        << "the lawn never drew, so this says nothing about the foliage pass";
+    expectPoolsHoldEverything("Forward");
+
+    // Deferred draws the lawn into the G-Buffer: the foliage pass's Forward target idles.
+    usePath(RenderingPath::Deferred);
+    expectPoolsHoldEverything("Deferred, after Forward");
+
+    // With the groom gone its pass is culled, holding the last target it drew into.
+    GetScene().DestroyEntity(groom);
+    usePath(RenderingPath::Forward);
+    expectPoolsHoldEverything("Forward, with the groom gone");
+    usePath(RenderingPath::Deferred);
+    expectPoolsHoldEverything("Deferred, with the groom gone");
 }

@@ -44,6 +44,11 @@ namespace OloEngine
         void ExecuteForwardPrepass(RGCommandContext& context, const Ref<Framebuffer>& sceneTarget);
 
         [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
+        void ReleaseStaleFramebuffers(const std::function<bool(const Framebuffer*)>& isStale) override
+        {
+            RenderGraphNode::ReleaseStaleFramebuffers(isStale);
+            ReleaseIfStale(m_SceneFramebuffer, isStale);
+        }
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
