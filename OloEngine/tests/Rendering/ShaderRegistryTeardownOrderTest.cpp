@@ -296,10 +296,22 @@ namespace OloEngine::Tests
             for (sizet start = source.find(signature); start != std::string::npos; start = source.find(signature, start + 1))
             {
                 const sizet next = source.find_first_not_of(" \t\r\n", start + signature.size());
-                if (next != std::string::npos && source[next] == '{')
+                if (next == std::string::npos)
+                    break;
+                if (source[next] == '{')
                 {
                     open = next;
                     break;
+                }
+                // A trailing return type: `GetX() -> T& {`. A call is followed by `.` or `;`.
+                if (source.compare(next, 2, "->") == 0)
+                {
+                    const sizet stop = source.find_first_of(";{", next);
+                    if (stop != std::string::npos && source[stop] == '{')
+                    {
+                        open = stop;
+                        break;
+                    }
                 }
             }
             if (open == std::string::npos)
