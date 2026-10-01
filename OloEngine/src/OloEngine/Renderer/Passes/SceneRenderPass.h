@@ -139,11 +139,6 @@ namespace OloEngine
         }
 
       private:
-        // Take the graph-resolved scene target and give it this node's render
-        // viewport (the dynamic render scale), which a re-materialised pooled
-        // framebuffer does not carry.
-        void AdoptTarget(const Ref<Framebuffer>& target);
-
         // The frame's start: resolve the target, clear every attachment, reset
         // the fixed-function state, batch and sort the bucket. Shared by both
         // the forward prepass node and the deferred Execute().

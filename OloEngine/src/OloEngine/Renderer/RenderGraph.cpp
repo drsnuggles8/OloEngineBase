@@ -2014,7 +2014,22 @@ namespace OloEngine
             return nullptr;
         }
 
-        return m_PhysicalFramebuffers[handle.Index].FB;
+        // A dynamic render scale is a property of every display-sized target
+        // (its frame occupies the [0, render) corner), not only of the node
+        // targets ApplyRenderViewport configured. A target the pool re-creates
+        // after a resize starts with no render viewport, and every node that
+        // adopts it from here would draw full-size into what its readers treat
+        // as the corner (#1526). So the resolve hands it the viewport in force.
+        // Targets of any other size (shadow maps, half-resolution buffers, an
+        // upscaler's band) are outside that contract and untouched.
+        Ref<Framebuffer> framebuffer = m_PhysicalFramebuffers[handle.Index].FB;
+        if (framebuffer && m_RenderScale < 1.0f && framebuffer->GetRenderViewportWidth() == 0u)
+        {
+            const auto& spec = framebuffer->GetSpecification();
+            if (spec.Width == m_PhysicalWidth && spec.Height == m_PhysicalHeight)
+                framebuffer->SetRenderViewportSize(GetRenderWidth(), GetRenderHeight());
+        }
+        return framebuffer;
     }
 
     u32 RenderGraph::ResolveBuffer(RGBufferHandle handle) const
