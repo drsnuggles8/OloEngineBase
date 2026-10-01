@@ -1,0 +1,41 @@
+# DogShowcaseEvidenceTest.CostOfTheThreeFramings (#1533 E4)
+# GPU: NVIDIA GeForce RTX 4090/PCIe/SSE2
+# Release test binary, 1920x1080, GL Forward, the scene's TAA, the live scene's lawn, 240 runtime
+# frames (animated and simulated) per framing after a 90-frame warm-up. Wall ms is per RunFrames(1).
+# GPU ms are means of VALID GPUPassTimerPool samples; a sub-pass (Parent/Child) is INSIDE its parent.
+# CPU ms per frame: solver (guide simulation), bake (coat-shadow volume), deform (strand build + upload).
+# Headless: the live editor's p50/p95 are the E1/E2 gate; this file is the regression record.
+framing      wallP50  wallP95  gpuFrame  gpuP50  gpuP95  strands  triangles  solverMs  bakeMs  rebakes  deformMs  geomMiB  coatMiB
+FaceCloseUp    19.49    20.83     19.51   19.47   20.12   280666    3886624      0.68    0.00        0      2.56    650.7     31.2
+FullBody       18.62    19.98     18.68   18.62   19.32   280666    3886624      0.68    0.00        0      2.55    650.7     31.2
+WalkMidShot    17.79    19.71     17.85   17.80   18.47   280666    3886624      0.69    0.00        0      2.52    650.7     31.2
+
+pass GPU ms per frame                      FaceCloseUp     FullBody  WalkMidShot
+SkeletalDeformPass                              0.001        0.001        0.001
+RayTracingScenePass                             0.001        0.001        0.001
+ShadowPass                                      3.420        3.301        3.339
+ShadowPass/FoliageCasters                       0.013        0.013        0.013
+ShadowPass/GroomCasters                         1.325        1.287        1.299
+DDGIProbeUpdatePass                             0.001        0.001        0.001
+ScenePrepassPass                                0.944        0.919        1.038
+ScenePrepassPass/DepthPrepass                   0.901        0.875        0.978
+SSAOPass                                        0.001        0.001        0.001
+SphereProxyAOPass                               0.001        0.001        0.001
+ScenePass                                       1.438        1.232        1.238
+ScenePass/Color                                 1.336        1.119        1.132
+GPUDrivenOcclusionPass                          0.001        0.001        0.001
+PlanarReflectionPass                            0.001        0.001        0.001
+VirtualShadowMapMarkPass                        0.001        0.001        0.001
+FoliagePass                                     5.857        7.649        8.008
+GroomPass                                       7.501        5.252        3.902
+GroomPass/RootFrames                            0.001        0.001        0.001
+GroomPass/StrandPrepass                         1.406        1.412        1.404
+GroomPass/StrandShade                           5.739        3.567        2.262
+FluidIntermediatesPass                          0.001        0.001        0.001
+SkinDiffusionPass                               0.068        0.039        0.039
+ParticlePass                                    0.004        0.004        0.004
+TAAPass                                         0.092        0.089        0.090
+VolumetricFogPass                               0.001        0.001        0.001
+ToneMapPass                                     0.015        0.015        0.015
+UICompositePass                                 0.010        0.010        0.010
+FinalPass                                       0.005        0.005        0.004
