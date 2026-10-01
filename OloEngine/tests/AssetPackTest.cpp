@@ -5,10 +5,12 @@
 #include "OloEngine/Asset/AssetPack.h"
 #include "OloEngine/Asset/AssetPackBuilder.h"
 #include "OloEngine/Asset/AssetRegistry.h"
+#include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Asset/PlaceholderAsset.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/AssetManager/RuntimeAssetManager.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Renderer/LightmapAsset.h"
 #include "OloEngine/Renderer/SkinProfile.h"
 #include "OloEngine/Serialization/AssetPackFile.h"
 #include "OloEngine/Serialization/FileStream.h"
@@ -473,6 +475,31 @@ TEST(AssetPackBuilderTest, EveryAssetLoadsBackFromTheOffsetTheBuilderRecorded)
         registry.AddAsset(editorAssets->GetMetadata(handles[i]));
     }
 
+    // And one record whose reader does not seek: a lightmap. Like the groom, its
+    // binding, static meshes, volumes and light-probe volumes, it reads from wherever
+    // the stream stands, and the dispatcher now puts it at the record; it is read
+    // FIRST below, on a fresh stream, where it used to meet the pack's header.
+    constexpr u64 kBakeKey = 0x5EED'1533'5EED'1533ull;
+    {
+        auto lightmap = Ref<LightmapAsset>::Create();
+        lightmap->SetDimensions(8, 8, 1);
+        lightmap->SetBakeKey(kBakeKey);
+        TArray<f32> texels(static_cast<sizet>(lightmap->GetExpectedTexelCount()));
+        for (sizet t = 0; t < static_cast<sizet>(texels.Num()); ++t)
+            texels[t] = (t % 4 == 3) ? 1.0f : static_cast<f32>(t % 97) / 97.0f;
+        lightmap->SetTexelData(std::move(texels));
+        TArray<LightmapEntityEntry> entries;
+        LightmapEntityEntry entry;
+        entry.EntityUUID = 0x1533;
+        entry.ScaleOffset = glm::vec4(1.0f, 1.0f, 0.0f, 0.0f);
+        entries.Add(entry);
+        lightmap->SetEntries(std::move(entries));
+        ASSERT_TRUE(lightmap->Validate());
+        ASSERT_TRUE(LightmapSerializer::SerializeToFile(dir / "Assets" / "Bake.olmap", lightmap));
+    }
+    const AssetHandle lightmapHandle = editorAssets->ImportAsset(dir / "Assets" / "Bake.olmap");
+    ASSERT_NE(static_cast<u64>(lightmapHandle), 0u) << "Bake.olmap";
+    registry.AddAsset(editorAssets->GetMetadata(lightmapHandle));
     ASSERT_TRUE(editorAssets->SerializeAssetRegistry());
 
     AssetPackBuilder::BuildSettings settings;
@@ -490,7 +517,7 @@ TEST(AssetPackBuilderTest, EveryAssetLoadsBackFromTheOffsetTheBuilderRecorded)
     const auto loaded = pack->Load(settings.m_OutputPath);
     ASSERT_TRUE(loaded.Success) << loaded.ErrorMessage;
     std::vector<AssetPackFile::AssetInfo> infos = pack->GetAllAssetInfos();
-    ASSERT_EQ(infos.size(), profiles.size());
+    ASSERT_EQ(infos.size(), profiles.size() + 1);
     std::ranges::sort(infos, {}, &AssetPackFile::AssetInfo::PackedOffset);
     u64 expected = AssetPackFile::FileHeaderRecordSize + AssetPackFile::IndexTableRecordSize +
                    infos.size() * AssetPackFile::AssetInfoRecordSize + sizeof(u32);
@@ -501,9 +528,16 @@ TEST(AssetPackBuilderTest, EveryAssetLoadsBackFromTheOffsetTheBuilderRecorded)
     }
     EXPECT_EQ(fs::file_size(settings.m_OutputPath), expected);
 
-    // The reader: each handle comes back as its own profile, not a placeholder.
+    // The reader: each handle comes back as its own asset, not a placeholder.
     RuntimeAssetManager runtime(/*autoLoadDefaultPack=*/false);
     ASSERT_TRUE(runtime.LoadAssetPack(settings.m_OutputPath));
+    {
+        const Ref<Asset> asset = runtime.GetAsset(lightmapHandle);
+        ASSERT_TRUE(asset);
+        ASSERT_FALSE(PlaceholderAssetManager::IsPlaceholderAsset(asset)) << "the lightmap's record did not load";
+        ASSERT_EQ(asset->GetAssetType(), AssetType::Lightmap);
+        EXPECT_EQ(asset.As<LightmapAsset>()->GetBakeKey(), kBakeKey);
+    }
     for (u64 i = 0; i < profiles.size(); ++i)
     {
         SCOPED_TRACE(profiles[i].first);
