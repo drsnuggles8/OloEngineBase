@@ -816,6 +816,71 @@ TEST(ShadowAtlasBias, EveryCubeFaceConvertsAsANinetyDegreeEntry)
 }
 
 // =============================================================================
+// A strand's offset at the opaque atlas: texels of its entry, toward the light (#1533)
+// =============================================================================
+//
+// GroomStrand.glsl hands the shared atlas lookup the light direction as its
+// offset direction, so a strand moves SHADOW_ATLAS_NORMAL_OFFSET_TEXELS texels of
+// its entry AT THE RECEIVER toward the light -- the unit every surface's normal
+// offset is in. It replaced a fixed centimetre, whose texel count ran from two at
+// a few metres to many close up, and which stepped past occluders the map could
+// resolve.
+
+namespace
+{
+    [[nodiscard]] f32 StrandAtlasOffset(const glm::mat4& entry, f32 tile, f32 clipW)
+    {
+        return ShaderConstants::SHADOW_ATLAS_NORMAL_OFFSET_TEXELS * AtlasEntryTexelWorld(entry, tile, clipW);
+    }
+} // namespace
+
+TEST(ShadowAtlasBias, AStrandsOffsetIsTexelsOfItsEntryAtEveryDistanceAndTile)
+{
+    constexpr f32 kOuterCutoff = 20.0f;
+    const glm::vec3 position{ 0.0f, 12.0f, 0.0f };
+    const glm::vec3 direction{ 0.0f, -1.0f, 0.0f };
+    const glm::mat4 entry = ShadowMap::BuildSpotLightMatrix(position, direction, kOuterCutoff, 20.0f);
+    for (const f32 tile : { 256.0f, 512.0f, 1024.0f, 2048.0f })
+    {
+        for (const f32 distance : { 0.75f, 1.5f, 3.0f, 6.0f, 12.0f })
+        {
+            const f32 texel = 2.0f * distance * std::tan(glm::radians(kOuterCutoff)) / tile;
+            EXPECT_NEAR(StrandAtlasOffset(entry, tile, distance),
+                        ShaderConstants::SHADOW_ATLAS_NORMAL_OFFSET_TEXELS * texel, texel * 1.0e-3f)
+                << distance << " m, a " << tile << "-texel tile";
+        }
+    }
+    // It takes the entry and the receiver's distance and nothing of the object:
+    // a character at a tenth of the size under the same light moves the same
+    // metres. The map's texel, not the fur, is what the offset answers to --
+    // fur thinner than a texel is fur the map cannot resolve at all.
+}
+
+TEST(ShadowAtlasBias, AStrandsOffsetStaysUnderAThinOccluderTheCentimetreSteppedPast)
+{
+    // An occluder 5 mm above short fur, along the light, under a 20-degree spot
+    // with a 512-texel tile. Where the map resolves the gap (a texel and a half
+    // under it), the texel offset stays beneath the occluder and the fur takes
+    // its shadow; the fixed centimetre stepped past it at every distance.
+    constexpr f32 kGap = 0.005f;
+    constexpr f32 kOldOffset = 0.01f;
+    const glm::mat4 entry =
+        ShadowMap::BuildSpotLightMatrix({ 0.0f, 12.0f, 0.0f }, { 0.0f, -1.0f, 0.0f }, 20.0f, 20.0f);
+    for (const f32 distance : { 0.75f, 1.0f, 1.5f, 2.0f })
+    {
+        const f32 offset = StrandAtlasOffset(entry, 512.0f, distance);
+        EXPECT_LT(offset, kGap) << distance << " m: the strand stepped past an occluder the map resolves";
+        EXPECT_GT(kOldOffset, kGap) << "the centimetre this replaced stepped past it";
+    }
+    // Beyond that the gap is under a texel and a half, and the map cannot tell
+    // the occluder from the body: there the offset is larger than the gap by
+    // design, and bounded by the texel instead.
+    const f32 distantOffset = StrandAtlasOffset(entry, 512.0f, 6.0f);
+    EXPECT_GT(distantOffset, kGap);
+    EXPECT_LE(distantOffset, ShaderConstants::SHADOW_ATLAS_NORMAL_OFFSET_TEXELS * AtlasEntryTexelWorld(entry, 512.0f, 6.0f));
+}
+
+// =============================================================================
 // UBO Structure Layout Tests
 // =============================================================================
 

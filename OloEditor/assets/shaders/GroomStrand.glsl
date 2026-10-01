@@ -691,17 +691,22 @@ float oloGroomCoatExitDistance(vec3 worldDir)
 // copy, or a coat that does not cast and so has no exit offset. 1.0 with
 // known == false is "nothing here can say", not "lit", and dual scattering
 // needs the difference (see oloGroomShadeFibre).
-// A STRAND AGAINST THE OPAQUE ATLAS MOVES TOWARD THE LIGHT, not along a normal it
-// does not have (#1533). Against a map with none of its own fur in it -- the
-// opaque copy, or the full map under a coat that does not cast -- a strand has
-// nothing of its own to self-shadow on, so it moves a centimetre toward the light
-// (about two texels of a tile a few metres away) and passes no normal; its depth
-// bias, in texels of the entry like every atlas lookup's (PBRCommon.glsl),
-// is a quarter of one. This is where the atlas's old constant [0,1] bias was first
-// measured spanning metres -- a spot 6 m away shadowed nothing within ~2 m behind
-// its occluder, the body the fur grows on included -- before the bias moved to
-// texels for every surface. The exit-point fallback keeps the surfaces' bias.
-const float OLO_GROOM_STRAND_ATLAS_OFFSET = 0.01;
+// A STRAND AGAINST THE OPAQUE ATLAS MOVES TOWARD THE LIGHT, BY TEXELS OF THE ENTRY
+// (#1533). Against a map with none of its own fur in it -- the opaque copy, or the
+// full map under a coat that does not cast -- a strand has nothing of its own to
+// self-shadow on; what it must clear is the body it grows from. It has no normal of
+// its own, so it hands the shared atlas lookup the light direction as the offset
+// direction, and the shared helper moves it ATLAS_NORMAL_OFFSET_TEXELS (1.5) texels
+// of the entry AT THE RECEIVER: the unit every surface's offset is in, so it grows
+// with the light's distance, shrinks with the tile's resolution and never depends
+// on the object. It is bounded by what the map can resolve: an occluder nearer than
+// a texel and a half along the light falls in the receiver's own texel or the next,
+// where the map cannot tell it from the body. The fixed centimetre it replaced was
+// two texels of a tile a few metres away and many times that close up, so under a
+// close spot it stepped past a thin occluder millimetres above the fur, which then
+// took none of its shadow (GroomSceneShadowVisualEvidenceTest, ShadowMapTest).
+// The depth bias, in texels of the entry like every atlas lookup's (PBRCommon.glsl),
+// is a quarter of one. The exit-point fallback keeps the surfaces' bias, no offset.
 const float OLO_GROOM_STRAND_ATLAS_BIAS = 0.25;
 
 float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L, out bool known)
@@ -758,10 +763,11 @@ float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L
 		if (atlasEntry >= 0 && atlasEntry < u_AtlasEntryCount)
 		{
 			bool atlasAtStrand = opaqueAtlas || atStrand;
-			vec3 receiver = atlasAtStrand ? v_WorldPos + L * OLO_GROOM_STRAND_ATLAS_OFFSET : shadowPos;
+			vec3 receiver = atlasAtStrand ? v_WorldPos : shadowPos;
+			vec3 offsetDirection = atlasAtStrand ? L : vec3(0.0);
 			float atlasBias = atlasAtStrand ? OLO_GROOM_STRAND_ATLAS_BIAS : u_AtlasDepthBiasTexels;
 			known = atlasAtStrand;
-			return calculateAtlasEntryShadow(receiver, vec3(0.0), u_AtlasEntryMatrices[atlasEntry],
+			return calculateAtlasEntryShadow(receiver, offsetDirection, u_AtlasEntryMatrices[atlasEntry],
 			                                 u_AtlasEntryScaleOffset[atlasEntry], u_ShadowAtlas, u_ShadowAtlasRaw,
 			                                 atlasBias, u_AtlasResolution, u_SoftShadowMode, u_ShadowParams.z);
 		}
@@ -783,11 +789,12 @@ float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L
 		if (baseEntry >= 0 && baseEntry + 5 < u_AtlasEntryCount)
 		{
 			bool atlasAtStrand = opaqueAtlas || atStrand;
-			vec3 receiver = atlasAtStrand ? v_WorldPos + L * OLO_GROOM_STRAND_ATLAS_OFFSET : shadowPos;
+			vec3 receiver = atlasAtStrand ? v_WorldPos : shadowPos;
+			vec3 offsetDirection = atlasAtStrand ? L : vec3(0.0);
 			float atlasBias = atlasAtStrand ? OLO_GROOM_STRAND_ATLAS_BIAS : u_AtlasDepthBiasTexels;
 			known = atlasAtStrand;
 			int entry = baseEntry + atlasCubeFace(receiver - light.position.xyz);
-			return calculateAtlasEntryShadow(receiver, vec3(0.0), u_AtlasEntryMatrices[entry],
+			return calculateAtlasEntryShadow(receiver, offsetDirection, u_AtlasEntryMatrices[entry],
 			                                 u_AtlasEntryScaleOffset[entry], u_ShadowAtlas, u_ShadowAtlasRaw,
 			                                 atlasBias, u_AtlasResolution,
 			                                 0, // PCF only on cube faces, matching the surface path

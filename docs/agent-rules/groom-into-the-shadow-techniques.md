@@ -70,8 +70,9 @@ the groom half of `Renderer/Passes/ShadowRenderPass.cpp`, `GroomStrandDepth.glsl
    fur, so one coat does not shadow a second. The VSM keeps the exit point: its cached pages hold the
    fur. A copy covers only the receiving coats' texels (their posed box projected through each view,
    padded 96 texels for the kernels): at the dog's 4096² cascades the whole-layer copy cost ~0.3 ms.
-   Against the atlas a strand at itself offsets 1 cm toward the light with a 1e-5 depth bias, because
-   the surfaces' constant 0.005 spans metres of a perspective map's non-linear depth. `GroomsShadowedByOpaqueCascades` / `...Atlas` say which coats got the opaque lookup, and
+   Against the atlas a strand at itself offsets 1.5 texels of the entry toward the light
+   (`ATLAS_NORMAL_OFFSET_TEXELS`, every surface's unit) with a quarter-texel depth bias; the fixed 1 cm
+   it replaced stepped past occluders millimetres above short fur under a close spot. `GroomsShadowedByOpaqueCascades` / `...Atlas` say which coats got the opaque lookup, and
    `OLO_FAULT_GROOM_SHADOW_AT_COAT_EXIT` brings the exit point back for a negative control. `known`,
    the gate on forwarded dual scattering, is true only where the lookup ran at the strand: an exit-point
    answer says nothing about the body. `CoatModes.z` gates the offset, `.x` the march, `.y` the

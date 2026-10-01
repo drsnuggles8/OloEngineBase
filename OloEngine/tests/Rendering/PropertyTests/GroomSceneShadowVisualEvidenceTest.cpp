@@ -1408,4 +1408,200 @@ namespace OloEngine::Tests
                                spot.m_CastShadows = true;
                            });
     }
+
+    // ── #1533 follow-up: a strand's atlas offset is texels of its entry ──────
+    //
+    // A thin occluder just above SHORT fur, under a close spot, and nothing else
+    // in the light. The strand moves toward the light by a texel and a half of
+    // its atlas entry -- about a millimetre or two here -- so fur 5 mm under a
+    // 1 mm strip takes the strip's shadow. The fixed centimetre it replaced put
+    // every lookup under the strip ABOVE the strip, and the strip shadowed none
+    // of the fur (ShadowMapTest's offset cases state the same geometry).
+    //
+    // The same frames hold the acne check: the slab the fur grows on, casting or
+    // not, must leave the lit fur alone -- under the spot overhead and at a
+    // grazing angle. Every pair is captured from ONE pose of this case's own: a
+    // camera just above the fur tips and below the strip, looking along it, so
+    // the band of fur under the strip is a stripe nothing hides.
+    TEST_F(GroomSceneShadowVisualEvidenceTest, AThinOccluderJustAboveShortFurShadowsItUnderACloseSpot)
+    {
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        Scene& scene = GetScene();
+        scene.DestroyEntity(m_OccluderEntity);
+        m_OccluderEntity = {};
+        scene.DestroyEntity(m_BodyEntity);
+
+        constexpr f32 kSkin = 2.0f;   // the slab's top
+        constexpr f32 kFur = 0.004f;  // short fur
+        constexpr f32 kGap = 0.005f;  // from the fur tips to the strip's underside
+        const auto cube = [&](const char* name, const glm::vec3& centre, const glm::vec3& size, const glm::vec4& colour)
+        {
+            Entity entity = scene.CreateEntity(name);
+            auto& tc = entity.GetComponent<TransformComponent>();
+            tc.Translation = centre;
+            tc.Scale = size;
+            auto& mc = entity.AddComponent<MeshComponent>();
+            mc.m_Primitive = MeshPrimitive::Cube;
+            if (Ref<Mesh> mesh = MeshPrimitives::CreateCube())
+            {
+                mc.m_MeshSource = mesh->GetMeshSource();
+            }
+            entity.AddComponent<MaterialComponent>().m_Material.SetBaseColorFactor(colour);
+            return entity;
+        };
+        // The slab is the BODY here, so SetBodyCasts switches it.
+        m_BodyEntity = cube("Slab", { 0.0f, kSkin - 0.01f, 0.0f }, { 0.6f, 0.02f, 0.6f }, { 0.06f, 0.055f, 0.05f, 1.0f });
+        // The strip: 1 mm thick, 2 cm wide, running along the view.
+        Entity strip = cube("Strip", { 0.0f, kSkin + kFur + kGap + 0.0005f, 0.0f }, { 0.02f, 0.001f, 0.5f },
+                            { 0.25f, 0.25f, 0.28f, 1.0f });
+
+        // Short fur, nearly upright, over a 30 cm square.
+        {
+            GroomBuilder builder;
+            std::string reason;
+            u16 group = 0;
+            ASSERT_TRUE(builder.AddGroup("patch_undercoat", group, reason)) << reason;
+            constexpr u32 kSide = 80;
+            for (u32 i = 0; i < kSide * kSide; ++i)
+            {
+                const f32 jx = static_cast<f32>((i * 2654435761u) % 1000u) / 1000.0f;
+                const f32 jz = static_cast<f32>((i * 40503u + 17u) % 1000u) / 1000.0f;
+                const glm::vec3 root{ -0.15f + 0.3f * (static_cast<f32>(i % kSide) + jx) / kSide, kSkin,
+                                      -0.15f + 0.3f * (static_cast<f32>(i / kSide) + jz) / kSide };
+                const glm::vec3 lean = glm::normalize(glm::vec3(0.2f * (jx - 0.5f), 1.0f, 0.2f * (jz - 0.5f)));
+                std::array<glm::vec3, 4> points{};
+                std::array<f32, 4> widths{};
+                for (u32 p = 0; p < 4u; ++p)
+                {
+                    points[p] = root + lean * (kFur * static_cast<f32>(p) / 3.0f);
+                    widths[p] = 3.0e-4f;
+                }
+                GroomCurveInput input;
+                input.Points = points;
+                input.Widths = widths;
+                input.GroupId = group;
+                ASSERT_TRUE(builder.AddCurve(input, reason)) << reason;
+            }
+            builder.SetName("ShortFurPatch");
+            Ref<GroomAsset> patch = builder.Build(reason);
+            ASSERT_TRUE(patch) << reason;
+            Groom().m_Groom = AssetManager::AddMemoryOnlyAsset<GroomAsset>(patch);
+            Groom().m_MaxRenderStrands = kSide * kSide;
+            m_GroomEntity.GetComponent<TransformComponent>().Translation = glm::vec3(0.0f);
+        }
+        // Receive at the strand against a map with no fur of its own in it.
+        Routing().m_CastShadows = false;
+        Routing().m_ReceiveShadows = true;
+
+        const auto placeSpot = [&](const glm::vec3& towardsLight)
+        {
+            scene.DestroyEntity(m_LightEntity);
+            m_LightEntity = scene.CreateEntity("Spot");
+            const glm::vec3 travels = -glm::normalize(towardsLight);
+            m_LightEntity.GetComponent<TransformComponent>().Translation = glm::vec3(0.0f, kSkin, 0.0f) - travels * 1.5f;
+            auto& spot = m_LightEntity.AddComponent<SpotLightComponent>();
+            spot.m_Direction = travels;
+            spot.m_Color = glm::vec3(1.0f);
+            spot.m_Intensity = 40.0f;
+            spot.m_Range = 5.0f;
+            spot.m_InnerCutoff = 9.0f;
+            spot.m_OuterCutoff = 12.0f;
+            spot.m_CastShadows = true;
+        };
+
+        // This case's pose: just above the fur tips, below the strip, along it.
+        const auto capture = [&](const std::string& saveAs, std::vector<u8>& out)
+        {
+            EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.01f, 100.0f);
+            camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+            camera.SetPose({ 0.0f, kSkin + kFur + 0.002f, 0.22f }, 0.0f, 0.06f);
+            RunEditorFrames(camera, 2);
+            auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite);
+            if (!fb)
+            {
+                fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ToneMapColor);
+            }
+            ASSERT_TRUE(fb);
+            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, out);
+            const sizet rowBytes = static_cast<sizet>(kWidth) * 4u;
+            std::vector<u8> row(rowBytes);
+            for (u32 y = 0; y < kHeight / 2u; ++y)
+            {
+                u8* top = out.data() + (static_cast<sizet>(y) * rowBytes);
+                u8* bottom = out.data() + (static_cast<sizet>(kHeight - 1u - y) * rowBytes);
+                std::memcpy(row.data(), top, rowBytes);
+                std::memcpy(top, bottom, rowBytes);
+                std::memcpy(bottom, row.data(), rowBytes);
+            }
+            if (!saveAs.empty())
+            {
+                WriteEvidenceAt(saveAs, kWidth, kHeight, out);
+            }
+        };
+        const auto stripCasts = [&](bool casts)
+        {
+            strip.GetComponent<MaterialComponent>().m_Material.SetFlag(MaterialFlag::DisableShadowCasting, !casts);
+        };
+
+        placeSpot({ 0.0f, 1.0f, 0.0f });
+        std::vector<u8> withFur;
+        std::vector<u8> without;
+        capture({}, withFur);
+        Groom().m_RenderStrands = false;
+        capture({}, without);
+        Groom().m_RenderStrands = true;
+        ASSERT_FALSE(HasFatalFailure());
+        const std::vector<u8> coatMask = DeriveMask(withFur, without);
+        const u32 coatPixels = CountMask(coatMask);
+        ASSERT_GT(coatPixels, 5000u) << "the short fur barely registers from this pose";
+
+        // THE STRIP, casting or not.
+        stripCasts(false);
+        std::vector<u8> noStrip;
+        capture("GroomSceneShadow_GL_Forward_ThinOccluderOff", noStrip);
+        stripCasts(true);
+        std::vector<u8> withStrip;
+        capture("GroomSceneShadow_GL_Forward_ThinOccluder", withStrip);
+        ASSERT_FALSE(HasFatalFailure());
+        u32 darkened = 0;
+        u32 brightened = 0;
+        for (sizet i = 0, p = 0; i + 3 < withStrip.size() && p < coatMask.size(); i += 4, ++p)
+        {
+            if (coatMask[p] == 0u)
+            {
+                continue;
+            }
+            const f64 delta = Luma(withStrip, i) - Luma(noStrip, i);
+            darkened += delta < -kMaskThreshold ? 1u : 0u;
+            brightened += delta > kMaskThreshold ? 1u : 0u;
+        }
+
+        // THE ACNE CHECK, overhead and grazing: the slab casting or not.
+        const auto slabMoves = [&](const char* name)
+        {
+            SetBodyCasts(false);
+            std::vector<u8> off;
+            capture({}, off);
+            SetBodyCasts(true);
+            std::vector<u8> on;
+            capture({}, on);
+            const u32 moved = CountDifferingIn(on, off, coatMask, /*inside=*/true);
+            std::printf("[groom-scene-shadow] thin occluder, %s: the slab moved %u of %u fur px\n", name, moved,
+                        coatPixels);
+            return moved;
+        };
+        const u32 overhead = slabMoves("spot overhead");
+        placeSpot(glm::vec3(0.0f, std::cos(glm::radians(75.0f)), std::sin(glm::radians(75.0f))));
+        const u32 grazing = slabMoves("spot at 75 degrees");
+        std::printf("[groom-scene-shadow] thin occluder: %u fur px, the strip darkened %u (%u brighter)\n", coatPixels,
+                    darkened, brightened);
+        std::fflush(stdout);
+
+        EXPECT_GT(darkened, coatPixels / 40u)
+            << "a strip 5 mm above the fur shadowed almost none of it: the strand looked the map up above the strip";
+        EXPECT_LT(brightened, coatPixels / 200u) << "an occluder can only remove light";
+        EXPECT_LT(overhead, coatPixels / 100u) << "the slab the fur grows on shadowed its own lit fur: acne";
+        EXPECT_LT(grazing, coatPixels / 100u) << "at a grazing light the slab shadowed its own lit fur: acne";
+    }
 } // namespace OloEngine::Tests
