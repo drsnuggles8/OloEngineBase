@@ -6933,6 +6933,15 @@ namespace OloEngine::MCP
             snapshot.CoatResolutionInForce = coat.ResolutionInForce;
             snapshot.CoatResidentBytes = coat.ResidentBytes;
 
+            const GroomShadowCasterStats& sceneShadow = groom.SceneShadow;
+            snapshot.GroomsAskedToCast = sceneShadow.GroomsAskedToCast;
+            snapshot.GroomsCasting = sceneShadow.GroomsCasting;
+            snapshot.CascadeDraws = sceneShadow.CascadeDraws;
+            snapshot.AtlasDraws = sceneShadow.AtlasDraws;
+            snapshot.VirtualShadowLevelDraws = sceneShadow.VirtualShadowLevelDraws;
+            snapshot.SegmentsCast = sceneShadow.SegmentsCast;
+            snapshot.SegmentsWhole = sceneShadow.SegmentsWhole;
+
             if (scene)
             {
                 const AnimalSchedulerStats& budget = scene->GetAnimalSchedulerStats();
@@ -9641,7 +9650,10 @@ namespace OloEngine::MCP
                 "that stays near groomsSubmitted IS thrashing). `coatShadow` is the #1248 coat self-shadow decision "
                 "(shadowed / fallback / by choice, and the dominant reason) plus, for coats bound to a moving body "
                 "(#1426), deformedRebakes, the drift in voxels the sampled volumes lag the pose by, and the CPU bake "
-                "time. `animalBudget` is the scheduler's own answer, and "
+                "time. `sceneShadow` is what the coats cast into the scene's shadow maps (#1323): draws per technique, "
+                "and segmentsCast against segmentsWhole -- each view casts the share of a coat its one-texel width "
+                "floor allows (#1533), so the ratio is that subset's saving and equal means whole coats were cast. "
+                "`animalBudget` is the scheduler's own answer, and "
                 "`enabled` is the first field to read: false means nothing below was decided by the population budget "
                 "at all and a thinned coat is its own distance ladder's doing, which has a completely different fix. "
                 "heroesCoarsened must be 0 while AnimalProtectHero is set -- that is the hero contract as a number "
@@ -9696,6 +9708,14 @@ namespace OloEngine::MCP
                                             .Prop("bakeMicroseconds", Schema::Int().Min(0))
                                             .Prop("resolutionInForce", Schema::Int().Min(0))
                                             .Prop("residentBytes", Schema::Int().Min(0)))
+                    .Prop("sceneShadow", Schema::Object()
+                                             .Prop("groomsAskedToCast", Schema::Int().Min(0))
+                                             .Prop("groomsCasting", Schema::Int().Min(0))
+                                             .Prop("cascadeDraws", Schema::Int().Min(0))
+                                             .Prop("atlasDraws", Schema::Int().Min(0))
+                                             .Prop("virtualShadowLevelDraws", Schema::Int().Min(0))
+                                             .Prop("segmentsCast", Schema::Int().Min(0))
+                                             .Prop("segmentsWhole", Schema::Int().Min(0)))
                     .Prop("animalBudget", Schema::Object()
                                               .Prop("enabled", Schema::Bool())
                                               .Prop("animalsConsidered", Schema::Int().Min(0))

@@ -85,6 +85,15 @@ namespace OloEngine::MCP::GroomBudgetStats
         u32 CoatResolutionInForce = 0;
         u64 CoatResidentBytes = 0;
 
+        // ── Scene-shadow casting (#1323, #1533 E1) ─────────────────────
+        u32 GroomsAskedToCast = 0;
+        u32 GroomsCasting = 0;
+        u32 CascadeDraws = 0;
+        u32 AtlasDraws = 0;
+        u32 VirtualShadowLevelDraws = 0;
+        u64 SegmentsCast = 0;
+        u64 SegmentsWhole = 0;
+
         // ── What the scheduler decided ────────────────────────────────
         bool BudgetEnabled = false;
         u32 AnimalsConsidered = 0;
@@ -177,6 +186,20 @@ namespace OloEngine::MCP::GroomBudgetStats
             { "bakeMicroseconds", snapshot.CoatBakeMicroseconds },
             { "resolutionInForce", snapshot.CoatResolutionInForce },
             { "residentBytes", snapshot.CoatResidentBytes },
+        };
+
+        // What the coats cast into the scene's shadow maps. segmentsCast over
+        // segmentsWhole is the caster subset's saving (#1533 E1): each view
+        // casts the share of a coat its width floor allows, and equal means
+        // every view cast whole coats.
+        out["sceneShadow"] = Json{
+            { "groomsAskedToCast", snapshot.GroomsAskedToCast },
+            { "groomsCasting", snapshot.GroomsCasting },
+            { "cascadeDraws", snapshot.CascadeDraws },
+            { "atlasDraws", snapshot.AtlasDraws },
+            { "virtualShadowLevelDraws", snapshot.VirtualShadowLevelDraws },
+            { "segmentsCast", snapshot.SegmentsCast },
+            { "segmentsWhole", snapshot.SegmentsWhole },
         };
 
         Json axes = Json::array();
