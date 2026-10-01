@@ -13280,8 +13280,22 @@ TEST_F(VulkanPassSuite, FluidBodyProxiesSurviveADelayedRead)
     ASSERT_TRUE(read.IsPending());
     // The same proxy count, so a reverted (reused) buffer would take the write.
     proxy.Position.x = -0.8f;
+    VkBuffer newBuffer = VK_NULL_HANDLE;
     SubmitFrame([&]()
-                { solver.Step(params, 1.0f / 60.0f, std::span(&proxy, 1), {}); });
+                {
+                    solver.Step(params, 1.0f / 60.0f, std::span(&proxy, 1), {});
+                    newBuffer = BoundStorageBuffer(ShaderBindingLayout::SSBO_FLUID_BODY_PROXIES); });
+    ASSERT_NE(newBuffer, VK_NULL_HANDLE);
+    {
+        // The next step really published the moved proxy, so the check below
+        // cannot pass because nothing was rewritten.
+        DelayedComputeRead current(*m_Device, newBuffer, 0, sizeof(FluidBodyProxy), ReadTiming::Immediate);
+        const std::vector<u8> now = current.Release();
+        ASSERT_EQ(now.size(), sizeof(FluidBodyProxy));
+        FluidBodyProxy published{};
+        std::memcpy(&published, now.data(), sizeof(published));
+        ASSERT_FLOAT_EQ(published.Position.x, -0.8f) << "the step did not publish the next proxies";
+    }
 
     const std::vector<u8> bytes = read.Release();
     ASSERT_EQ(bytes.size(), sizeof(FluidBodyProxy));
@@ -13342,9 +13356,21 @@ TEST_F(VulkanPassSuite, SkeletalPaletteSurvivesADelayedRead)
     DelayedComputeRead read(*m_Device, oldBuffer, 0, sizeof(glm::mat4));
     ASSERT_TRUE(read.IsPending());
     cache.BeginFrame();
-    (void)cache.Acquire(key, true, source, second, 0u);
+    ASSERT_TRUE(cache.Acquire(key, true, source, second, 0u).DeviceAddress != 0u);
     cache.EndFrame();
     EXPECT_EQ(cache.GetStats().PaletteBytes, paletteBytes) << "the fixture must exercise a STABLE capacity";
+    {
+        // The next pose really was published, so the check below cannot pass
+        // because nothing was rewritten.
+        const VkBuffer newBuffer = BoundStorageBuffer(0u);
+        ASSERT_NE(newBuffer, VK_NULL_HANDLE);
+        DelayedComputeRead current(*m_Device, newBuffer, 0, sizeof(glm::mat4), ReadTiming::Immediate);
+        const std::vector<u8> now = current.Release();
+        ASSERT_EQ(now.size(), sizeof(glm::mat4));
+        glm::mat4 published(0.0f);
+        std::memcpy(&published, now.data(), sizeof(published));
+        ASSERT_FLOAT_EQ(published[3].x, 0.75f) << "EndFrame did not publish the next palette";
+    }
 
     const std::vector<u8> bytes = read.Release();
     ASSERT_EQ(bytes.size(), sizeof(glm::mat4));
