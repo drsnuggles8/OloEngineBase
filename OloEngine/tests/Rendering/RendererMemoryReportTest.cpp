@@ -308,6 +308,35 @@ namespace OloEngine::Tests
         tracker.TrackDeallocation(objects.At(1), __FILE__, __LINE__);
     }
 
+    // The drill-down behind an owner row (olo_memory_report's `owner`): biggest first, capped,
+    // live entries only, and an owner nobody booked is "unknown" rather than an empty list.
+    TEST(RendererMemoryReport, AnOwnerDrillDownListsItsLargestLiveEntriesAndRejectsAnUnknownOwner)
+    {
+        Tracker& tracker = Tracker::GetInstance();
+        FakeObjects objects;
+        {
+            const RendererMemoryOwnerScope owner("MemReportTestDrill", MemoryLifetime::Persistent);
+            tracker.TrackAllocation(objects.At(0), 100, ResourceType::Other, "small", true, __FILE__, __LINE__);
+            tracker.TrackAllocation(objects.At(1), 300, ResourceType::Other, "large", true, __FILE__, __LINE__);
+            tracker.TrackAllocation(objects.At(2), 200, ResourceType::Other, "middle", true, __FILE__, __LINE__);
+        }
+        const u64 ticket = tracker.RetireAllocation(objects.At(1));
+
+        const auto largest = tracker.GetLargestAllocations("MemReportTestDrill", 1);
+        ASSERT_TRUE(largest.has_value());
+        ASSERT_EQ(largest->Num(), 1);
+        EXPECT_EQ((*largest)[0].m_Size, 200u) << "a retiring entry was listed as live, or the order is not biggest first";
+        const auto all = tracker.GetLargestAllocations("MemReportTestDrill", 10);
+        ASSERT_TRUE(all.has_value());
+        EXPECT_EQ(all->Num(), 2);
+        EXPECT_FALSE(tracker.GetLargestAllocations("MemReportTestNoSuchOwner", 10).has_value())
+            << "an owner nobody booked must be reported as unknown, not as an owner with no bytes";
+
+        tracker.ReleaseRetired(ticket);
+        tracker.TrackDeallocation(objects.At(0), __FILE__, __LINE__);
+        tracker.TrackDeallocation(objects.At(2), __FILE__, __LINE__);
+    }
+
     TEST(RendererMemoryReport, GpuAndCpuBytesNeverShareATotal)
     {
         Tracker& tracker = Tracker::GetInstance();

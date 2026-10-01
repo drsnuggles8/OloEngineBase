@@ -1396,13 +1396,15 @@ namespace OloEngine
         return leaks;
     }
 
-    TArray<RendererMemoryTracker::AllocationInfo> RendererMemoryTracker::GetLargestAllocations(const std::string_view owner,
-                                                                                               const u32 limit) const
+    std::optional<TArray<RendererMemoryTracker::AllocationInfo>>
+    RendererMemoryTracker::GetLargestAllocations(const std::string_view owner, const u32 limit) const
     {
         TUniqueLock<FMutex> lock(m_Mutex);
-        TArray<AllocationInfo> result;
         const auto ownerIt = m_OwnerIds.find(std::string(owner));
-        if (ownerIt == m_OwnerIds.end() || limit == 0)
+        if (ownerIt == m_OwnerIds.end())
+            return std::nullopt;
+        TArray<AllocationInfo> result;
+        if (limit == 0)
             return result;
         for (const auto& [address, info] : m_Allocations)
         {

@@ -85,8 +85,17 @@ namespace OloEngine::MCP
                                                     { "count", static_cast<int>(tracker.DetectLeaks().Num()) } };
                 if (!drillOwner.empty())
                 {
+                    const auto allocations = tracker.GetLargestAllocations(drillOwner, drillLimit);
+                    if (!allocations)
+                    {
+                        // Said, not an empty list: a misspelt owner must not read as one with no bytes.
+                        out["ownerDetail"] = Json{ { "owner", drillOwner },
+                                                   { "known", false },
+                                                   { "error", "no owner by this name has booked an allocation; see owners[]" } };
+                        return out;
+                    }
                     Json largest = Json::array();
-                    for (const auto& info : tracker.GetLargestAllocations(drillOwner, drillLimit))
+                    for (const auto& info : *allocations)
                     {
                         largest.push_back(Json{ { "name", info.m_Name.ToStdString() },
                                                 { "bytes", static_cast<u64>(info.m_Size) },
@@ -95,7 +104,7 @@ namespace OloEngine::MCP
                                                 { "lifetime", ToString(info.m_Lifetime) },
                                                 { "source", info.m_File.ToStdString() + ":" + std::to_string(info.m_Line) } });
                     }
-                    out["ownerDetail"] = Json{ { "owner", drillOwner }, { "largest", std::move(largest) } };
+                    out["ownerDetail"] = Json{ { "owner", drillOwner }, { "known", true }, { "largest", std::move(largest) } };
                 }
                 return out; });
             return ToolResult::Structured(j);
@@ -501,6 +510,7 @@ namespace OloEngine::MCP
                                                       .Prop("gpuLiveBytes", Schema::Int().Min(0))
                                                       .Prop("gpuRetiringBytes", Schema::Int().Min(0))
                                                       .Prop("cpuLiveBytes", Schema::Int().Min(0))
+                                                      .Prop("cpuRetiringBytes", Schema::Int().Min(0))
                                                       .Prop("committedBytes", Schema::Int().Min(0))
                                                       .Prop("estimatedBytes", Schema::Int().Min(0))
                                                       .Prop("count", Schema::Int().Min(0))))
@@ -512,7 +522,8 @@ namespace OloEngine::MCP
                                                         .Prop("domain", Schema::String())
                                                         .Prop("capacityBytes", Schema::NullableNumber())
                                                         .Prop("activeDemandBytes", Schema::NullableNumber())
-                                                        .Prop("aliasSavingsBytes", Schema::NullableNumber())))
+                                                        .Prop("aliasSavingsBytes", Schema::NullableNumber())
+                                                        .Prop("unknownReason", Schema::Raw(Json{ { "type", Json::array({ "string", "null" }) } }))))
                     .Prop("byType", Schema::Array(Schema::Object()
                                                       .Prop("type", Schema::String())
                                                       .Prop("bytes", Schema::Int().Min(0))
@@ -523,6 +534,12 @@ namespace OloEngine::MCP
                                                       .Prop("count", Schema::Int().Min(0))
                                                       .Desc("Backing allocations older than the threshold. Age only: persistent "
                                                             "resources belong here; it is not a leak count."))
+                    .Prop("ownerDetail", Schema::Object()
+                                             .Prop("owner", Schema::String())
+                                             .Prop("known", Schema::Bool().Desc("False when no owner by that name ever booked an allocation."))
+                                             .Prop("error", Schema::String())
+                                             .Prop("largest", Schema::Array(Schema::Object()))
+                                             .Desc("Only when 'owner' was passed: that owner's largest live allocations."))
                     .Required({ "units", "gpu", "cpu", "aliases", "backend", "owners", "capacity", "byType", "longLivedAllocations" });
             tool.MainMarshaled = false;
             tool.Handler = Handle_MemoryReport;

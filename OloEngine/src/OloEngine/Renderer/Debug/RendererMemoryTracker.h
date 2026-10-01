@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <map>
 #include <memory>
+#include <optional>
 #include <atomic>
 #include <array>
 #include <functional>
@@ -195,8 +196,9 @@ namespace OloEngine
         }
 
         // @brief The largest live entries attributed to `owner` (backing and alias), biggest
-        // first, at most `limit`: the drill-down behind an owner row.
-        [[nodiscard]] TArray<AllocationInfo> GetLargestAllocations(std::string_view owner, u32 limit) const;
+        // first, at most `limit`: the drill-down behind an owner row. nullopt when no owner by
+        // that name was ever booked, so a misspelt owner is not read as an empty one.
+        [[nodiscard]] std::optional<TArray<AllocationInfo>> GetLargestAllocations(std::string_view owner, u32 limit) const;
 
         // @brief Export memory report to file
         bool ExportReport(const std::string& filePath) const;
