@@ -590,6 +590,9 @@ namespace OloEngine::Tests
         m_Backend->RetireBlas(key);
         RT::SceneStats retired{};
         m_Backend->PublishStats(retired);
+        // The saving is derived from resident structures: a retired BLAS takes its saving
+        // with it. (It used to be a running sum that only grew.)
+        EXPECT_EQ(retired.Resident.CompactionSavedBytes, 0u) << "a retired BLAS kept its compaction saving on the books";
         const RendererMemoryReport retiring = tracker.BuildReport();
         EXPECT_GT(rtBytes(retiring).Retiring, rtBytes(before).Retiring) << "the retired BLAS left the books before its fence";
         completeFrames();
