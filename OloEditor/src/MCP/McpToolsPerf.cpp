@@ -4,6 +4,7 @@
 #include "MCP/McpFrameCaptureWait.h"
 #include "MCP/McpSchemaBuilder.h"
 #include "MCP/McpCpuScopes.h"
+#include "MCP/McpFrameHistory.h"
 #include "MCP/McpPassTimings.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Renderer/Debug/CapturedFrameData.h"
@@ -208,8 +209,11 @@ namespace OloEngine::MCP
             int points = 60;
             if (args.contains("points") && args["points"].is_number_integer())
                 points = static_cast<int>(std::clamp<long long>(args["points"].get<long long>(), 1, 300));
+            int worst = 0;
+            if (args.contains("worst") && args["worst"].is_number_integer())
+                worst = static_cast<int>(std::clamp<long long>(args["worst"].get<long long>(), 0, 64));
 
-            Json j = host.MarshalRead([points]() -> Json
+            Json j = host.MarshalRead([points, worst]() -> Json
                                       {
                 const TArray<RendererProfiler::FrameData> hist = RendererProfiler::GetInstance().GetFrameHistoryCopy();
                 Json series = Json::array();
@@ -259,10 +263,38 @@ namespace OloEngine::MCP
                     stats["p99Ms"] = Round2(at(0.99));
                     stats["maxMs"] = Round2(times.back());
                 }
-                return Json{ { "totalFrames", static_cast<u64>(n) },
-                             { "returned", static_cast<int>(series.size()) },
-                             { "series", std::move(series) },
-                             { "stats", std::move(stats) } }; });
+                // THE SLOWEST FRAMES, whole (#1533; MCP/McpFrameHistory.h): each with
+                // its ring position, oldest first, and its time split.
+                Json slowest = Json::array();
+                if (worst > 0 && n > 0)
+                {
+                    std::vector<FrameHistory::FrameSample> samples(n);
+                    for (std::size_t i = 0; i < n; ++i)
+                    {
+                        const auto& f = hist[i];
+                        samples[i] = { f.m_FrameTime, f.m_CPUTime, f.m_GPUTime, f.m_FenceWaitTime, f.m_PresentWaitTime,
+                                       f.m_GPUWaitTime, f.m_DrawCalls };
+                    }
+                    for (const std::size_t i : FrameHistory::SlowestFrames(samples, static_cast<std::size_t>(worst)))
+                    {
+                        const auto& f = samples[i];
+                        slowest.push_back(Json{ { "ringIndex", static_cast<u64>(i) },
+                                                { "frameTimeMs", Round2(f.FrameTimeMs) },
+                                                { "cpuMs", Round2(f.CpuMs) },
+                                                { "gpuMs", Round2(f.GpuMs) },
+                                                { "fenceWaitMs", Round2(f.FenceWaitMs) },
+                                                { "presentWaitMs", Round2(f.PresentWaitMs) },
+                                                { "gpuWaitMs", Round2(f.GpuWaitMs) },
+                                                { "drawCalls", f.DrawCalls } });
+                    }
+                }
+                Json out{ { "totalFrames", static_cast<u64>(n) },
+                          { "returned", static_cast<int>(series.size()) },
+                          { "series", std::move(series) },
+                          { "stats", std::move(stats) } };
+                if (worst > 0)
+                    out["worst"] = std::move(slowest);
+                return out; });
             return ToolResult::Structured(j);
         }
 
@@ -565,9 +597,12 @@ namespace OloEngine::MCP
                 "A downsampled time series of recent frames (frameTimeMs, fps, drawCalls) from the profiler's "
                 "ring buffer, for spotting spikes/trends. The server downsamples to 'points' samples. 'stats' "
                 "holds the frame-time mean and p50/p95/p99/max over EVERY frame in the ring (up to 1024), not the "
-                "downsampled series.";
+                "downsampled series. 'worst' (optional) lists that many of the slowest frames, oldest first, with "
+                "their ring position and their CPU / GPU / fence-wait / present-wait split -- what a hitch is and "
+                "how often it comes.";
             tool.InputSchema = Schema::Object()
                                    .Prop("points", Schema::Int().Min(1).Max(300).Desc("Number of downsampled points to return (default 60)."))
+                                   .Prop("worst", Schema::Int().Min(0).Max(64).Desc("How many of the slowest frames to list whole (default 0)."))
                                    .NoAdditional();
             tool.OutputSchema = Schema::Object()
                                     .Prop("totalFrames", Schema::Int().Min(0).Desc("Frames in the profiler ring buffer, before downsampling."))
@@ -585,6 +620,16 @@ namespace OloEngine::MCP
                                                        .Prop("p99Ms", Schema::Number())
                                                        .Prop("maxMs", Schema::Number())
                                                        .Desc("Frame-time statistics over every frame in the ring (nearest-rank percentiles)."))
+                                    .Prop("worst", Schema::Array(Schema::Object()
+                                                                     .Prop("ringIndex", Schema::Int().Min(0))
+                                                                     .Prop("frameTimeMs", Schema::Number())
+                                                                     .Prop("cpuMs", Schema::Number())
+                                                                     .Prop("gpuMs", Schema::Number())
+                                                                     .Prop("fenceWaitMs", Schema::Number())
+                                                                     .Prop("presentWaitMs", Schema::Number())
+                                                                     .Prop("gpuWaitMs", Schema::Number())
+                                                                     .Prop("drawCalls", Schema::Int().Min(0)))
+                                                       .Desc("The slowest frames, oldest first; present only when 'worst' was asked for."))
                                     .Required({ "totalFrames", "returned", "series", "stats" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PerfFrameHistory;
