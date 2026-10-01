@@ -11885,8 +11885,14 @@ TEST_F(VulkanPassSuite, WaterTessellatedPipelineBuildsAndRasterizesAPatchDraw)
 // the feedback block the only possible unfed binding. Three arms per shader:
 //   1. VT off: exactly one unfed binding, and it is not a required one;
 //   2. feedback buffer bound (VT on): nothing unfed — arm 1 was binding 79;
-//   3. negative control: drop the visible-node list as well, and the required
-//      counter moves — so arm 1's zero is not a counter that never counts.
+//   3. drop the visible-node list as well: the unfed counter moves to two, so
+//      arm 1's one is not a counter that never counts, and the required
+//      counter still does not -- since #1533 the list is a reviewed, gated
+//      absence too (every chunk draw runs without it; ClassifyMissingVulkanBuffer).
+//      The required counter increments in the same branch as the unfed one,
+//      gated only on that classification, whose Error cases
+//      VulkanBufferBindingDiagnosticsTest pins; these terrain shaders declare
+//      no other storage block for a draw to starve.
 // Nothing here checks shading; the tessellation factors are all zero, and the
 // draw only has to reach the root-data writer.
 // =============================================================================
@@ -12036,7 +12042,8 @@ TEST_F(VulkanPassSuite, TerrainDrawWithTheVirtualTextureOffLeavesNoRequiredStora
         }
         submitAndCount(unfed, required);
         EXPECT_EQ(unfed, 2u) << "negative control: feedback AND visible nodes unfed";
-        EXPECT_EQ(required, 1u) << "the unfed TerrainVisibleNodes must count as required";
+        EXPECT_EQ(required, 0u) << "TerrainVisibleNodes is a reviewed absence in the terrain vertex stages (#1533): "
+                                   "every chunk draw runs without the list";
 
         for (const auto& buffer : fed)
             buffer->Unbind();
