@@ -2498,17 +2498,91 @@ namespace OloEngine
     // ScriptFileSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    void ScriptFileSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    namespace
     {
-        OLO_PROFILE_FUNCTION();
+        // C# source with comments, string and character literals blanked out,
+        // so a "class" inside a comment or a string is not read as a declaration.
+        [[nodiscard]] std::string StripCSharpCommentsAndLiterals(const std::string& source)
+        {
+            std::string out;
+            out.reserve(source.size());
+            for (sizet i = 0; i < source.size(); ++i)
+            {
+                const char c = source[i];
+                const char next = i + 1 < source.size() ? source[i + 1] : ' ';
+                if (c == '/' && next == '/')
+                {
+                    while (i < source.size() && source[i] != '\n')
+                        ++i;
+                    out += '\n';
+                }
+                else if (c == '/' && next == '*')
+                {
+                    i += 2;
+                    while (i + 1 < source.size() && !(source[i] == '*' && source[i + 1] == '/'))
+                        ++i;
+                    ++i;
+                    out += ' ';
+                }
+                else if (c == '"' || c == '\'')
+                {
+                    const bool verbatim = c == '"' && i > 0 && source[i - 1] == '@';
+                    for (++i; i < source.size(); ++i)
+                    {
+                        if (!verbatim && source[i] == '\\')
+                            ++i;
+                        else if (source[i] == c && verbatim && i + 1 < source.size() && source[i + 1] == '"')
+                            ++i;
+                        else if (source[i] == c)
+                            break;
+                    }
+                    out += ' ';
+                }
+                else
+                {
+                    out += c;
+                }
+            }
+            return out;
+        }
 
-        Ref<ScriptFileAsset> scriptAsset = asset.As<ScriptFileAsset>();
-        std::string yamlString = SerializeToYAML(scriptAsset);
+        // The namespace (block or file-scoped) and the first class a C# file
+        // declares. Empty when the file declares no class.
+        void ReadCSharpScriptIdentity(const std::string& source, std::string& outNamespace, std::string& outClass)
+        {
+            const std::string code = StripCSharpCommentsAndLiterals(source);
+            std::istringstream tokens(code);
+            std::string previous;
+            std::string token;
+            const auto identifier = [](std::string value)
+            {
+                // "Sandbox;" / "Player:" / "Player{" -> the bare (dotted) name.
+                const auto end = value.find_first_not_of(
+                    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.");
+                return end == std::string::npos ? value : value.substr(0, end);
+            };
+            while (tokens >> token)
+            {
+                if (previous == "namespace" && outNamespace.empty())
+                    outNamespace = identifier(token);
+                else if (previous == "class" && outClass.empty())
+                    outClass = identifier(token);
+                if (!outClass.empty())
+                    return;
+                previous = token;
+            }
+        }
+    } // namespace
 
-        std::ofstream fout(Project::GetProjectDirectory() / metadata.FilePath);
-        fout << yamlString;
-
-        OLO_CORE_TRACE("ScriptFileSerializer: Serialized ScriptFile to YAML - Handle: {0}", metadata.Handle);
+    void ScriptFileSerializer::Serialize(const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const
+    {
+        // The asset IS the .cs file: its namespace and class are read from the
+        // source, so there is nothing to write back. This used to write YAML to
+        // metadata.FilePath, which is the C# source itself, and would have
+        // replaced the script with three lines of YAML.
+        OLO_CORE_WARN("ScriptFileSerializer: not writing '{}' — a script asset is derived from its C# source, "
+                      "which is never overwritten",
+                      metadata.FilePath.string());
     }
 
     bool ScriptFileSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
@@ -2533,13 +2607,20 @@ namespace OloEngine
         std::stringstream strStream;
         strStream << file.rdbuf();
 
-        Ref<ScriptFileAsset> scriptAsset = Ref<ScriptFileAsset>::Create();
-        if (bool success = DeserializeFromYAML(strStream.str(), scriptAsset); !success)
+        // A registered script is C# source (".cs" is the only extension that
+        // maps to ScriptFile). It used to be parsed as YAML, which failed for
+        // every script, so a pack build logged an error per script and shipped
+        // none of them.
+        std::string classNamespace;
+        std::string className;
+        ReadCSharpScriptIdentity(strStream.str(), classNamespace, className);
+        if (className.empty())
         {
-            OLO_CORE_ERROR("ScriptFileSerializer::TryLoadData - Failed to deserialize from YAML");
+            OLO_CORE_ERROR("ScriptFileSerializer::TryLoadData - '{}' declares no class", path.string());
             return false;
         }
 
+        Ref<ScriptFileAsset> scriptAsset = Ref<ScriptFileAsset>::Create(std::move(classNamespace), std::move(className));
         scriptAsset->SetHandle(metadata.Handle);
         asset = scriptAsset;
 
