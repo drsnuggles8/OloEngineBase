@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/AlphaCoverageMips.h"
+#include "OloEngine/Renderer/ColorTransfer.h"
 
 #include <algorithm>
 #include <array>
@@ -35,7 +36,7 @@ namespace OloEngine::AlphaCoverageMips
                 for (u32 i = 0; i < 256u; ++i)
                 {
                     const f32 c = static_cast<f32>(i) / 255.0f;
-                    table[i] = c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f);
+                    table[i] = ColorTransfer::SrgbToLinear(c);
                 }
                 return table;
             }();
@@ -45,7 +46,7 @@ namespace OloEngine::AlphaCoverageMips
         [[nodiscard]] u8 LinearToSrgbByte(f32 linear) noexcept
         {
             const f32 c = std::clamp(linear, 0.0f, 1.0f);
-            const f32 encoded = c <= 0.0031308f ? c * 12.92f : 1.055f * std::pow(c, 1.0f / 2.4f) - 0.055f;
+            const f32 encoded = ColorTransfer::LinearToSrgb(c);
             return static_cast<u8>(std::clamp(std::round(encoded * 255.0f), 0.0f, 255.0f));
         }
 
