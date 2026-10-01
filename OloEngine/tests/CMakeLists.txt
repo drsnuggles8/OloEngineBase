@@ -780,6 +780,8 @@ add_executable(OloEngine-Tests
 		# Upscale keeps the native framing, and a groom coat stays on its body
 		# under it (#1397, #1430).
 		Rendering/PropertyTests/UpscaleFramingEvidenceTest.cpp
+		# The split lighting taps partition the lit colour on every path (#1526).
+		Rendering/PropertyTests/LightingTapEvidenceTest.cpp
 		Rendering/PropertyTests/SSAOVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GTAOVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SphereProxyAOVisualEvidenceTest.cpp

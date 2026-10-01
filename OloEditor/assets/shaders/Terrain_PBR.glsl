@@ -775,6 +775,9 @@ void main()
             }
         }
 
+        // The primary sun's full visibility, for the lighting tap (#1526).
+        if (i == 0 && lightType == DIRECTIONAL_LIGHT)
+            oloRecordLightingTapShadow(lightVisibility);
         Lo += lightContrib;
         LoDiffuse += lightSplit.Diffuse * lightVisibility;
     }
@@ -809,6 +812,12 @@ void main()
     // split by.
     float ambientVisibility = ao * oloForwardScreenSpaceAO(gl_FragCoord.xy);
     vec3 color = ambient * ambientVisibility + Lo;
+    // The lighting tap's terms (issue #1526). This shader sums its own light
+    // rather than going through oloComposeReflectedLighting, so it records the
+    // same partition from its halves: the specular half of the direct light is
+    // what the combined sum holds beyond its diffuse twin.
+    oloRecordLightingTapTerms(LoDiffuse, Lo - LoDiffuse, ambientSplit.Diffuse * ambientVisibility,
+                              ambientSplit.Specular * ambientVisibility, vec3(0.0));
 
     // Brush preview overlay
     if (u_BrushParams.x > 0.5)
@@ -842,7 +851,7 @@ void main()
     }
 
     // Output. Alpha is 1: the snow mask rides the hand-off (issue #1451).
-    o_Color = vec4(color, 1.0);
+    o_Color = vec4(oloLightingTapOutput(color, u_LightingTap), 1.0);
     o_EntityID = instances[0].EntityID;
 
     // The snow-FILLED normal for AO (include/SnowLayer.glsl): snow fills the

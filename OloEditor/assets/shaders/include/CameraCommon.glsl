@@ -24,7 +24,10 @@ layout(std140, binding = 0) uniform CameraMatrices {
     // must add it back: absWorldPos = worldPos + u_RenderOrigin. Zero within the
     // first grid cell (near origin), so the add-back is a no-op there.
     vec3 u_RenderOrigin;
-    float _padding1;
+    // The selected lighting tap (issue #1526, OLO_LIGHTING_TAP_* in
+    // include/PBRCommon.glsl), as a float in what was this block's padding
+    // lane. Set on the main view's colour passes only; 0 everywhere else.
+    float u_LightingTap;
     // The SHADER-RECONSTRUCTION flavour of u_Projection (#691).
     // u_Projection carries the rasterizer flavour (Vulkan: y flip + z remap
     // into [0,1]) and is ONLY for gl_Position. Any math that re-applies the

@@ -152,6 +152,25 @@ namespace OloEngine
         f32 const savedRenderScale = Renderer3D::GetRenderScale();
         Renderer3D::SetRenderScale(1.0f);
 
+        // A lighting tap (#1526) is a debug view of the MAIN view; the probe
+        // renders through the main camera path, so without this a bake taken
+        // while one is selected stores that one term as the environment.
+        // Scoped, so every exit restores it.
+        struct ScopedNoLightingTap
+        {
+            LightingTap Saved = Renderer3D::GetPostProcessSettings().LightingDebugTap;
+            ScopedNoLightingTap()
+            {
+                Renderer3D::GetPostProcessSettings().LightingDebugTap = LightingTap::None;
+            }
+            ~ScopedNoLightingTap()
+            {
+                Renderer3D::GetPostProcessSettings().LightingDebugTap = Saved;
+            }
+            ScopedNoLightingTap(const ScopedNoLightingTap&) = delete;
+            ScopedNoLightingTap& operator=(const ScopedNoLightingTap&) = delete;
+        } const noLightingTap;
+
         // Square render targets so the 90° FOV per face covers the whole image.
         Renderer3D::OnWindowResize(clampedResolution, clampedResolution);
 

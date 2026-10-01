@@ -1978,6 +1978,16 @@ namespace OloEngine::MCP
                 case MaterialDebugView::Count:
                     break;
             }
+            // The inverse of LightingTapForDebugView, derived from it so the two
+            // cannot disagree about a tap appended later.
+            if (pp.LightingDebugTap != LightingTap::None)
+            {
+                for (const auto& info : RenderOverrides::kDebugViews)
+                {
+                    if (RenderOverrides::LightingTapForDebugView(info.Id) == pp.LightingDebugTap)
+                        return info.Id;
+                }
+            }
             switch (VirtualMeshRegistry::Get().GetDebugMode())
             {
                 case VirtualDebugMode::ClusterId:
@@ -2076,6 +2086,28 @@ namespace OloEngine::MCP
                         r.Note = "The material debug views are produced by the deferred lighting pass; "
                                  "switch the rendering path to Deferred.";
                     break;
+                case DebugView::LightDirectDiffuse:
+                case DebugView::LightDirectSpecular:
+                case DebugView::LightIndirectDiffuse:
+                case DebugView::LightIndirectSpecular:
+                case DebugView::LightRemainder:
+                case DebugView::ShadowVisibility:
+                    // The lit shaders substitute the tap for their colour on
+                    // every path, so nothing backs it and nothing gates it.
+                    r.PassEnabled = true;
+                    r.Note = "SceneColor holds the tapped term (linear HDR); capture it for values. The viewport "
+                             "shows it after the post chain, including the SSR / SSGI composites, which add to it "
+                             "and are in no tap. Surfaces with their own shading (forward sky, particles, water, "
+                             "grooms) keep their colour.";
+                    break;
+                case DebugView::ReflectionHitDistance:
+                    r.PassEnabled = pp.SSREnabled && deferred;
+                    r.CaptureTarget = "SSRGuide";
+                    r.Note = r.PassEnabled ? "Capture 'SSRGuide' and read its alpha (Derive: channel-a): view-space metres "
+                                             "to the reflection hit, 0 where SSR found none. The viewport is unchanged."
+                                           : "SSR is not active; enable it with olo_render_toggle_pass { name: 'ssr' } "
+                                             "(Deferred path only).";
+                    break;
                 case DebugView::VGClusterId:
                 case DebugView::VGLod:
                 case DebugView::VGOverdraw:
@@ -2128,6 +2160,7 @@ namespace OloEngine::MCP
                 // None for every non-material view, so selecting any other view
                 // clears this one by the same rule the bools above follow.
                 pp.MaterialDebug = MaterialDebugForDebugView(view);
+                pp.LightingDebugTap = LightingTapForDebugView(view);
 
                 VirtualDebugMode virtualMode = VirtualDebugMode::Off;
                 (void)VirtualModeForDebugView(view, virtualMode);
@@ -8462,7 +8495,8 @@ namespace OloEngine::MCP
                 "Switch the viewport to a raw intermediate buffer for AO/reflection/GI/overdraw/virtual-geometry "
                 "debugging. 'mode' is one of none (the normal composite), ssao, gtao, ssr, ssgi, overdraw, "
                 "vgclusterid, vglod, vgoverdraw, materialdiffuse, materialspecular, skinprofileid, skinmask, "
-                "materialtransmission "
+                "materialtransmission, lightdirectdiffuse, lightdirectspecular, lightindirectdiffuse, "
+                "lightindirectspecular, lightremainder, shadowvisibility, reflectionhitdistance "
                 "— exactly one is shown at a time; mode 'none' (or "
                 "'enabled':false) clears them all. 'overdraw' heat-maps per-pixel fragment count (how many "
                 "layers deep the frame is: black=none, blue/green/yellow/red=increasing overlap) by re-drawing "
@@ -8472,6 +8506,9 @@ namespace OloEngine::MCP
                 "'VirtualGeometryDebug' target (Deferred path only): set the mode, then capture it with "
                 "olo_render_capture_target; the response's 'captureTarget' says so. They are the SAME knob as "
                 "olo_virtual_geometry_set { debugMode }, so the two tools always agree on the current state. "
+                "The six light*/shadowvisibility modes (issue #1526) are the lighting taps: one term of the "
+                "lit colour replaces it on EVERY path, and in 'SceneColor' the five radiance taps sum to the lit "
+                "colour; the viewport adds the post-lighting tiers (SSR, SSGI) on top. "
                 "The four material modes (issue #1231) substitute one of a skin surface's separated outputs "
                 "for the composite — the diffuse half, the specular half, the per-pixel skin-profile identity "
                 "as a hue (black where a pixel names no profile), or the scattering mask as unitless 0..1 "

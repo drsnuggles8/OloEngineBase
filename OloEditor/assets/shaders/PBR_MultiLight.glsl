@@ -872,6 +872,9 @@ void main()
         if (lightType == DIRECTIONAL_LIGHT && lightHasDirection)
             lightContrib.Specular += oloSnowLayerSparkle(N, V, lightL, lightRadiance, snowWorldPos, snowWeight);
 
+        // The primary sun's full visibility, for the lighting tap (#1526).
+        if (i == 0 && lightType == DIRECTIONAL_LIGHT)
+            oloRecordLightingTapShadow(lightVisibility);
         Lo = oloSurfaceLightingAdd(Lo, oloSurfaceLightingScale(lightContrib, vec3(lightVisibility)));
 
         // THE TRANSMITTED LOBE, gated by the SAME visibility the reflected lobe
@@ -1045,7 +1048,10 @@ void main()
 
     // Alpha is the material's own: the snow mask no longer rides scene
     // alpha (issue #1451), it rides the hand-off below.
-    o_Color = vec4(color, u_BaseColorFactor.a);
+    // A debug lighting tap replaces the lit colour, after everything that
+    // modifies it, so the tap is the term alone (issue #1526; the identity
+    // when none is selected).
+    o_Color = vec4(oloLightingTapOutput(color, u_LightingTap), u_BaseColorFactor.a);
     o_EntityID = instances[v_InstanceIndex].EntityID;
 
     // The diffusion hand-off (issue #1241). `lighting` is the split from #1231
