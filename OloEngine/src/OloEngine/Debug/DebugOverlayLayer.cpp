@@ -133,10 +133,11 @@ namespace OloEngine
 
         // Memory usage
 #ifdef OLO_DEBUG
-        auto const totalMem = RendererMemoryTracker::GetInstance().GetTotalMemoryUsage();
-        if (totalMem > 0)
+        // The GPU figure only — the tracker's all-type total also holds CPU bookings (#1342).
+        auto const gpuResident = RendererMemoryTracker::GetInstance().GetGpuResidentBytes();
+        if (gpuResident > 0)
         {
-            ImGui::Text("GPU Mem: %s", DebugUtils::FormatMemorySize(totalMem).c_str());
+            ImGui::Text("GPU Mem: %s", DebugUtils::FormatMemorySize(static_cast<sizet>(gpuResident)).c_str());
         }
 #endif
     }

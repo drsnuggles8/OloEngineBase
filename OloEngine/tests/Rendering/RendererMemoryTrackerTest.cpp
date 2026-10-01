@@ -44,7 +44,11 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
+#include <cctype>
+#include <atomic>
 #include <filesystem>
+#include <thread>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -181,7 +185,13 @@ namespace OloEngine::Tests
             }
 
             ++scanned;
-            if (source.find("OLO_TRACK_DEALLOC") == std::string::npos)
+            // Untracking is either immediate (OLO_TRACK_DEALLOC) or deferred through a retire
+            // ticket (OLO_TRACK_RETIRE, #1342). A retire with no OLO_TRACK_RELEASE_RETIRED is the
+            // same corpse one step later: the bytes sit in "retiring" forever.
+            const bool deallocates = source.find("OLO_TRACK_DEALLOC") != std::string::npos;
+            const bool retires = source.find("OLO_TRACK_RETIRE(") != std::string::npos;
+            const bool releases = source.find("OLO_TRACK_RELEASE_RETIRED") != std::string::npos;
+            if ((!deallocates && !retires) || (retires && !releases))
             {
                 offenders.push_back(std::filesystem::relative(path, root).generic_string());
             }
@@ -206,7 +216,9 @@ namespace OloEngine::Tests
                "reports a 'Double allocation detected at address ...' that never happened, and inflates\n"
                "the per-type memory totals for the rest of the session.\n\n"
                "Add `OLO_TRACK_DEALLOC(this);` to the destructor (and make sure the destructor is not\n"
-               "`= default`). That is exactly how EnvironmentMap hid.";
+               "`= default`) — or, when a deferred-deletion lambda deletes the GL object,\n"
+               "`OLO_TRACK_RETIRE(this)` there and `OLO_TRACK_RELEASE_RETIRED(ticket)` inside the lambda.\n"
+               "That is exactly how EnvironmentMap hid.";
     }
 
     // A correct alloc → dealloc → alloc-at-the-same-address cycle must not drift the accounting.
@@ -244,6 +256,40 @@ namespace OloEngine::Tests
     // The old code clobbered the entry and added the new size on top, so the type total grew by
     // the old allocation's size on every single rebuild — this is why the Statistics panel's
     // memory numbers crept upward.
+    // A deallocation must never be dropped because another thread holds the tracker's mutex.
+    // TrackDeallocation used TryLock() and, on contention, logged a warning and RETURNED:
+    // the bytes stayed booked forever, a leak the tracker itself invented. Any reader — the
+    // Statistics panel, olo_memory_report, the benchmark sampler — was enough to trigger it.
+    // A reader thread hammers the mutex here while this thread cycles allocations; with the
+    // old code the totals drift up by every dropped deallocation.
+    TEST(RendererMemoryTracker, ConcurrentReadersDoNotCostADeallocation)
+    {
+        Tracker& tracker = Tracker::GetInstance();
+        constexpr ResourceType kType = ResourceType::Other;
+        const sizet usageBefore = tracker.GetMemoryUsage(kType);
+        const u32 countBefore = tracker.GetAllocationCount(kType);
+
+        std::atomic<bool> stop{ false };
+        std::thread reader([&tracker, &stop]
+                           {
+            while (!stop.load(std::memory_order_relaxed))
+                static_cast<void>(tracker.GetTotalMemoryUsage()); });
+
+        std::array<int, 16> objects{};
+        for (u32 cycle = 0; cycle < 2000; ++cycle)
+        {
+            for (int& object : objects)
+                tracker.TrackAllocation(&object, 256, kType, "contended", true, __FILE__, __LINE__);
+            for (int& object : objects)
+                tracker.TrackDeallocation(&object, __FILE__, __LINE__);
+        }
+        stop.store(true, std::memory_order_relaxed);
+        reader.join();
+
+        EXPECT_EQ(tracker.GetMemoryUsage(kType), usageBefore) << "deallocations were dropped under contention";
+        EXPECT_EQ(tracker.GetAllocationCount(kType), countBefore);
+    }
+
     TEST(RendererMemoryTracker, DoubleAllocationRetiresTheStaleEntryInsteadOfInflatingTotals)
     {
         Tracker& tracker = Tracker::GetInstance();
@@ -307,5 +353,57 @@ namespace OloEngine::Tests
         EXPECT_NE(resetBody.find("m_IsShutdown = false"), std::string::npos)
             << "RendererMemoryTracker::Reset() does not clear m_IsShutdown — a Reset() that leaves the\n"
                "tracker refusing every deallocation is worse than useless.";
+    }
+    // Every VMA allocation goes through VulkanTrackedAllocation (#1342). A raw vmaCreate*/
+    // vmaDestroy* anywhere else is an allocation the memory report cannot see: on Vulkan the
+    // tracker's committed bytes then disagree with vmaGetHeapBudgets, and the report can only
+    // say "untracked" without saying where. This scan says where.
+    TEST(RendererMemoryTracker, VulkanAllocationsGoThroughTheTrackedWrappers)
+    {
+        const std::filesystem::path root = RepoRoot();
+        const std::filesystem::path engineSrc = root / "OloEngine" / "src";
+        ASSERT_TRUE(std::filesystem::exists(engineSrc)) << "could not locate OloEngine/src from cwd " << s_StartCwd.string();
+
+        // No whitespace before the parenthesis: a call, not a log string naming the function.
+        static constexpr std::array<std::string_view, 5> kRawCalls = {
+            "vmaCreateBuffer(",
+            "vmaCreateBufferWithAlignment(",
+            "vmaCreateImage(",
+            "vmaDestroyBuffer(",
+            "vmaDestroyImage(",
+        };
+        std::vector<std::string> offenders;
+        u32 wrappedCalls = 0;
+        std::error_code ec;
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(engineSrc, ec))
+        {
+            if (!entry.is_regular_file() || (entry.path().extension() != ".cpp" && entry.path().extension() != ".h"))
+                continue;
+            const std::string name = entry.path().filename().string();
+            // The wrapper itself, and the one VMA_IMPLEMENTATION TU.
+            if (name == "VulkanTrackedAllocation.cpp" || name == "VulkanMemoryAllocator.cpp")
+                continue;
+            const std::string source = StripComments(ReadFile(entry.path()));
+            for (sizet at = source.find("TrackedVma"); at != std::string::npos; at = source.find("TrackedVma", at + 1))
+                ++wrappedCalls;
+            for (const std::string_view call : kRawCalls)
+            {
+                for (sizet at = source.find(call); at != std::string::npos; at = source.find(call, at + 1))
+                {
+                    const bool partOfLongerName = at > 0 && (std::isalnum(static_cast<unsigned char>(source[at - 1])) || source[at - 1] == '_');
+                    if (!partOfLongerName)
+                        offenders.push_back(std::filesystem::relative(entry.path(), root).generic_string() + ": " + std::string(call));
+                }
+            }
+        }
+
+        ASSERT_GT(wrappedCalls, 40u) << "found only " << wrappedCalls << " tracked VMA calls — the wrapper names drifted and this "
+                                                                         "scan is no longer checking anything";
+        std::string names;
+        for (const std::string& n : offenders)
+            names += "\n    " + n;
+        EXPECT_TRUE(offenders.empty())
+            << "raw VMA allocation calls outside VulkanTrackedAllocation:" << names
+            << "\n\nUse the TrackedVma* wrapper with the same arguments, or the memory report cannot see the allocation.";
     }
 } // namespace OloEngine::Tests

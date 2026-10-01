@@ -685,8 +685,26 @@ namespace OloEngine
 
         const auto& tracker = RendererMemoryTracker::GetInstance();
 
-        sizet const totalMemory = tracker.GetTotalMemoryUsage();
-        ImGui::Text("Total GPU/CPU Tracked: %s", DebugUtils::FormatMemorySize(totalMemory).c_str());
+        // GPU and CPU bytes are separate quantities and never share a total (#1342). The full
+        // physical report — owners, capacity rows, reconciliation — is the Renderer Memory
+        // Tracker window. Building it walks every allocation and runs every owner's capacity
+        // reporter, so this tab refreshes its copy once a second, not every frame.
+        static RendererMemoryReport s_Report;
+        static f64 s_ReportTime = -1.0;
+        if (const f64 now = DebugUtils::GetCurrentTimeSeconds(); s_ReportTime < 0.0 || now - s_ReportTime >= 1.0)
+        {
+            s_Report = tracker.BuildReport();
+            s_ReportTime = now;
+        }
+        RendererMemoryReport const& report = s_Report;
+        ImGui::Text("GPU resident: %s (live %s, retiring %s)",
+                    DebugUtils::FormatMemorySize(static_cast<sizet>(report.Gpu.ResidentBytes())).c_str(),
+                    DebugUtils::FormatMemorySize(static_cast<sizet>(report.Gpu.LiveBytes)).c_str(),
+                    DebugUtils::FormatMemorySize(static_cast<sizet>(report.Gpu.RetiringBytes)).c_str());
+        ImGui::Text("GPU peak: %s", DebugUtils::FormatMemorySize(static_cast<sizet>(report.Gpu.PeakBytes)).c_str());
+        ImGui::Text("CPU tracked: %s", DebugUtils::FormatMemorySize(static_cast<sizet>(report.Cpu.ResidentBytes())).c_str());
+        ImGui::Text("Reconciliation: %s   Residency: %s", ToString(report.Reconciliation.Status),
+                    ToString(report.Observation.Residency));
 
         // Mesh asset cache on disk
         {
@@ -724,7 +742,7 @@ namespace OloEngine
                 static constexpr const char* s_TypeNames[] = {
                     "Vertex Buffer", "Index Buffer", "Uniform Buffer", "Storage Buffer",
                     "Texture 2D", "Texture Cubemap", "Framebuffer", "Shader",
-                    "Render Target", "Command Buffer", "Other"
+                    "Render Target", "Command Buffer", "Acceleration Structure", "Other"
                 };
                 static_assert(std::size(s_TypeNames) == static_cast<size_t>(std::to_underlying(RendererMemoryTracker::ResourceType::COUNT)),
                               "s_TypeNames must match RendererMemoryTracker::ResourceType::COUNT");

@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Task/ParallelFor.h"
 #include "OloEngine/Debug/Instrumentor.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
 
 namespace OloEngine
 {
@@ -81,6 +82,8 @@ namespace OloEngine
 
         if (m_Built)
             return;
+        // Built lazily, often inside a pass: attribute the geometry to the mesh, not the pass.
+        const RendererMemoryOwnerScope memoryOwner("MeshSource", MemoryLifetime::Asset);
 
         // ADR 0011 amendment (86): with no graphics device (OloServer, headless
         // asset use) every Create/Bind below calls through null loader pointers.

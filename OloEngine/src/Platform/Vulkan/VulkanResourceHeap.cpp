@@ -3,6 +3,7 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanResourceHeap.h"
+#include "Platform/Vulkan/VulkanTrackedAllocation.h"
 #include "Platform/Vulkan/VulkanQueueSelection.h"
 #include "Platform/Vulkan/VulkanDescriptorHeapBackend.h"
 #include "Platform/Vulkan/VulkanDescriptorSlotCache.h"
@@ -96,8 +97,8 @@ namespace OloEngine
         const VkDeviceSize heapAlignment = std::max<VkDeviceSize>(heapProps.resourceHeapAlignment, 1);
 
         VmaAllocationInfo resultInfo{};
-        if (vmaCreateBufferWithAlignment(device->GetAllocator(), &bufferInfo, &allocInfo, heapAlignment, &m_Buffer,
-                                         &m_Allocation, &resultInfo) != VK_SUCCESS)
+        if (TrackedVmaCreateBufferWithAlignment(device->GetAllocator(), &bufferInfo, &allocInfo, heapAlignment, &m_Buffer,
+                                                &m_Allocation, &resultInfo) != VK_SUCCESS)
         {
             OLO_CORE_ERROR("VulkanResourceHeap: heap buffer creation failed ({} B)", m_TotalSize);
             m_Buffer = VK_NULL_HANDLE;
@@ -118,7 +119,7 @@ namespace OloEngine
         {
             OLO_CORE_ERROR("VulkanResourceHeap: heap came up unusable (mapped={}, address={:#x}) — releasing",
                            m_Mapped != nullptr, m_BaseAddress);
-            vmaDestroyBuffer(device->GetAllocator(), m_Buffer, m_Allocation);
+            TrackedVmaDestroyBuffer(device->GetAllocator(), m_Buffer, m_Allocation);
             m_Buffer = VK_NULL_HANDLE;
             m_Allocation = VK_NULL_HANDLE;
             m_Mapped = nullptr;

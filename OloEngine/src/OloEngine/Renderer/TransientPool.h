@@ -9,6 +9,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/Base.h"
 
+#include <optional>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -54,6 +55,10 @@ namespace OloEngine
         // Acquire a reusable storage buffer of the given byte size.
         [[nodiscard]] Ref<StorageBuffer> AcquireBuffer(u32 sizeBytes);
 
+        // True for a framebuffer this pool created that the frame now executing has NOT
+        // acquired: a reference to it from a pass is stale (#1342).
+        [[nodiscard]] bool IsStalePooledFramebuffer(const Framebuffer* framebuffer) const;
+
         // Release all acquired objects back to the pool.
         // Called each frame after rendering completes.
         void ReleaseAll();
@@ -82,8 +87,21 @@ namespace OloEngine
         // Dump pool statistics and current state to console.
         void LogStats() const;
 
-        // Get total memory usage of pooled + currently acquired objects (estimated).
+        // Bytes held by every object the pool owns — free in a bucket or acquired this
+        // frame — as a format estimate (RendererMemoryFormat), framebuffers included.
         [[nodiscard]] u64 EstimateMemoryUsage() const;
+
+        // Capacity versus demand for the memory report (issue #1342). Format estimates.
+        struct MemoryUsage
+        {
+            u64 CapacityBytes = 0;        // every pooled object, free or acquired
+            u64 AcquiredBytes = 0;        // acquired in the frame now executing (0 between frames)
+            u64 LastFrameDemandBytes = 0; // what the last completed frame acquired
+            // False when some object's format has no known size: the totals above then
+            // undercount, and the report must say so rather than present them as whole.
+            bool Complete = true;
+        };
+        [[nodiscard]] MemoryUsage GetMemoryUsage() const;
 
         // **Debug:** Get pool statistics (size, utilization, alias groups).
         struct PoolStats
@@ -97,19 +115,10 @@ namespace OloEngine
         };
         [[nodiscard]] PoolStats GetStats() const;
 
-        // Report potential aliasing opportunities.
-        // Returns estimated memory savings if lifetime-based aliasing were applied.
-        // For GL, aliasing is a forward-looking optimization; this reports the
-        // analysis for debugging and future transient allocation decisions.
-        struct AliasReport
-        {
-            u64 TotalAcquiredBytes;              // Sum of all currently-acquired transient sizes
-            u64 PotentialAliasingBytes;          // Estimated savings from sequential reuse
-            u32 TextureGroupsWithAliasPotential; // Descriptor buckets with multiple items
-            u32 FramebufferGroupsWithAliasPotential;
-            u32 BufferGroupsWithAliasPotential;
-        };
-        [[nodiscard]] AliasReport ComputeAliasReport() const;
+        // Per-object format-estimate sizes (RendererMemoryFormat). nullopt when a format
+        // has no known size — never a 0 that reads as "free".
+        [[nodiscard]] static std::optional<u64> EstimateTextureBytes(const TextureSpecification& spec);
+        [[nodiscard]] static std::optional<u64> EstimateFramebufferBytes(const FramebufferSpecification& spec);
 
         // **Debug:** per-bucket and per-acquisition detail behind the aggregate
         // PoolStats (issue #607). Root-causing the one-frame black-square artifact
@@ -207,7 +216,6 @@ namespace OloEngine
 
         [[nodiscard]] static TextureDescriptorKey BuildTextureKey(const TextureSpecification& spec);
         [[nodiscard]] static u64 BuildFramebufferKey(const FramebufferSpecification& spec);
-        [[nodiscard]] static u64 EstimateTextureBytes(const TextureSpecification& spec);
 
         // Pool entries for each resource type
         std::unordered_map<TextureDescriptorKey, TArray64<Ref<Texture>>, TextureDescriptorKeyHash>
@@ -233,6 +241,9 @@ namespace OloEngine
         std::unordered_map<TextureDescriptorKey, u32, TextureDescriptorKeyHash> m_LastFrameTextureDemand;
         std::unordered_map<u64, u32> m_LastFrameFramebufferDemand;
         std::unordered_map<u32, u32> m_LastFrameBufferDemand;
+        // A framebuffer bucket's per-object size, remembered from its specification at
+        // acquire time: Trim() can erase the bucket while its demand is still counted.
+        std::unordered_map<u64, std::optional<u64>> m_FramebufferBucketBytes;
     };
 
     // Owned heap string plus scalar/resource identity fields; no self-relative state.

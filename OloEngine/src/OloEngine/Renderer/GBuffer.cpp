@@ -5,6 +5,8 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/Instrumentor.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryFormat.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -105,6 +107,7 @@ namespace OloEngine
     void GBuffer::Recreate()
     {
         OLO_PROFILE_FUNCTION();
+        const RendererMemoryOwnerScope memoryOwner("GBuffer", MemoryLifetime::Persistent);
 
         m_Framebuffer = Framebuffer::Create(BuildSpec(m_Width, m_Height, m_SampleCount));
         // Single-sample resolve target mirrors the MSAA layout, used by
@@ -135,6 +138,8 @@ namespace OloEngine
 
         m_Width = width;
         m_Height = height;
+        // A resize reallocates every attachment; attribute the new storage (#1342).
+        const RendererMemoryOwnerScope memoryOwner("GBuffer", MemoryLifetime::Persistent);
         if (m_Framebuffer)
             m_Framebuffer->Resize(m_Width, m_Height);
         else
@@ -142,6 +147,21 @@ namespace OloEngine
 
         if (m_ResolvedFramebuffer)
             m_ResolvedFramebuffer->Resize(m_Width, m_Height);
+    }
+
+    std::optional<u64> GBuffer::EstimateBytes() const
+    {
+        u64 total = 0;
+        for (const Ref<Framebuffer>* framebuffer : { &m_Framebuffer, &m_ResolvedFramebuffer })
+        {
+            if (!*framebuffer)
+                continue;
+            const auto bytes = RendererMemoryFormat::FramebufferBytes((*framebuffer)->GetSpecification());
+            if (!bytes)
+                return std::nullopt;
+            total += *bytes;
+        }
+        return total;
     }
 
     void GBuffer::Resolve()

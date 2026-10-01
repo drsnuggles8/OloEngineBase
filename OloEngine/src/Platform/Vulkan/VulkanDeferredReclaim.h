@@ -128,6 +128,7 @@ namespace OloEngine
             VkAccelerationStructureKHR AccelerationStructure = VK_NULL_HANDLE;
             VmaAllocation Allocation = VK_NULL_HANDLE; // set only for Image/Buffer entries
             u64 EnqueuedAtGeneration = 0;
+            u64 RetireTicket = 0; // RendererMemoryTracker's retiring entry for Allocation (#1342)
         };
 
         // Destroys one entry through the live device's allocator. When the

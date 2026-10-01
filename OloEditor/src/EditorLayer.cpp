@@ -42,6 +42,7 @@
 #include "OloEngine/Networking/Core/NetworkManager.h"
 #include "OloEngine/Renderer/QualityTiering.h"
 #include "OloEngine/Renderer/Renderer2D.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Renderer/ShaderPack.h"
@@ -3605,8 +3606,12 @@ namespace OloEngine
         OLO_PROFILE_RENDERER_SCOPE("3DInit");
         OLO_CORE_INFO("Initializing Renderer3D for 3D mode...");
         Renderer3D::SetSelectionOutlineEnabled(true);
-        Renderer3D::Init(&Application::Get().GetWindow());
-        AssetPreviewRenderer::Initialize();
+        {
+            // The editor's lazy 3D bring-up; narrower owners still claim their own (#1342).
+            const RendererMemoryOwnerScope memoryOwner("RendererInit", MemoryLifetime::Persistent);
+            Renderer3D::Init(&Application::Get().GetWindow());
+            AssetPreviewRenderer::Initialize();
+        }
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
 
         // Resize to current viewport size

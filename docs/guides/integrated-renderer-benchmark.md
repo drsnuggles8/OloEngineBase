@@ -114,11 +114,17 @@ of each statistic across independent runs; it does not bootstrap adjacent
 frames as if they were independent. CPU, fence wait and present wait have their
 own distributions; the GPU distribution includes only valid unique frame IDs.
 
-The tracked memory total includes both CPU and GPU allocations. Observed peak
-and live totals are available. The GL host also records the tracked total after
-releasing its scene, with renderer and asset caches still alive. Isolated GPU
-memory and pooled/history/AS retention remain **unknown**; the retention
-breakdown in #1338 is not yet met. Likewise, the capture records requested and
+Memory is reported as separate GPU and CPU figures (#1342): physical GPU
+backing (live + retiring, views excluded; OpenGL format estimates, Vulkan
+VMA-committed bytes) and CPU-side bookings, each with a peak and a live value.
+The GL host also records the GPU figure after releasing its scene, with
+renderer and asset caches still alive. `result.json` carries the whole report
+under `memory`: per-owner attribution, capacity versus active demand for the
+pools, histories, G-buffer, shadows, reservoirs, frame arena, GPU Scene, ray
+tracing and groom, and the backend reconciliation and residency status. The
+summary lists both per run; see
+[renderer-memory-accounting.md](../agent-rules/renderer-memory-accounting.md)
+for what each backend can observe. Likewise, the capture records requested and
 selected settings but does not prove technique production or consumption;
 inspect pass counters, GPU Scene and RT fallback telemetry with the live
 capture. The live-editor crop under a non-native upscale mode (#1397) is fixed, so an

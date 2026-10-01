@@ -2067,8 +2067,10 @@ namespace OloEngine
             OLO_TRACK_DEALLOC(this);
         }
 
-        // Track GPU memory allocation
-        OLO_TRACK_GPU_ALLOC(this,
+        // Booked as CPU, not GPU (#1342): this is SPIR-V word count plus a guessed kilobyte,
+        // not a measurement of anything in device memory. The driver's program binary has
+        // no queryable GPU size, and a guess in the GPU column made the GPU total lie.
+        OLO_TRACK_CPU_ALLOC(this,
                             estimatedMemory,
                             RendererMemoryTracker::ResourceType::Shader,
                             GetName().empty() ? "OpenGL Shader" : GetName());

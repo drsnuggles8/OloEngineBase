@@ -157,6 +157,12 @@ namespace OloEngine
         {
             return m_GeometryShaderEnabled;
         }
+        // VK_EXT_memory_budget enabled, and VMA created with its budget flag: the per-heap
+        // usage/budget VMA reports is the OS's, not VMA's own estimate (#1342).
+        [[nodiscard]] bool IsMemoryBudgetEnabled() const
+        {
+            return m_MemoryBudgetEnabled;
+        }
         // ENABLED on the logical device (not merely supported by the physical
         // one) — the facade's SupportsInt64ShaderAtomics must report what a
         // shader can actually use.
@@ -411,6 +417,7 @@ namespace OloEngine
         f32 m_MaxSamplerAnisotropy = 1.0f;
         bool m_ShaderDrawParametersEnabled = false;
         bool m_DeviceFaultEnabled = false;
+        bool m_MemoryBudgetEnabled = false;
         /// VK_NV_device_diagnostic_checkpoints: every pass drops a checkpoint into
         /// its command buffer, and a device loss reports the last one each queue
         /// reached — the one thing VK_EXT_device_fault's address records do not

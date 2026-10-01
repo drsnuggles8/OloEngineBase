@@ -5,6 +5,7 @@
 #include "OloEngine/Containers/String.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingTypes.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 
 #include <glm/glm.hpp>
@@ -999,6 +1000,17 @@ namespace OloEngine
         [[nodiscard]] virtual bool SupportsWeightedBlendedOIT() const
         {
             return true;
+        }
+        // What this backend's own allocator says about device memory, independently of
+        // RendererMemoryTracker (issue #1342): the allocation total the tracker's committed
+        // bytes reconcile against, plus per-heap usage/budget and whether that residency
+        // figure comes from the OS. Vulkan answers from VMA. OpenGL answers with no
+        // allocator totals and Residency = Unknown — GL has no residency query, and
+        // "unknown" must never be reported as zero. Returns false when there is no device
+        // to ask (the default, and a mock).
+        [[nodiscard]] virtual bool ObserveDeviceMemory(BackendMemoryObservation& /*out*/) const
+        {
+            return false;
         }
         // The hardware ray-tracing capability, issue #978 — ONE owner for the
         // whole question (rhi-abstraction-boundary.md §13c). It deliberately

@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "Platform/Vulkan/VulkanAddressCommands.h"
+#include "Platform/Vulkan/VulkanTrackedAllocation.h"
 #include "Platform/Vulkan/VulkanRayTracingBackend.h"
 #include "Platform/Vulkan/VulkanQueueSelection.h"
 
@@ -70,14 +71,16 @@ namespace OloEngine::RayTracing
             allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
             allocInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 
+            // Every AS storage, scratch and instance buffer is the ray-tracing scene's (#1342).
+            const RendererMemoryOwnerScope memoryOwner("RayTracing", MemoryLifetime::Persistent);
             DeviceBuffer created{};
-            if (vmaCreateBufferWithAlignment(device.GetAllocator(), &bufferInfo, &allocInfo, alignment, &created.Buffer,
-                                             &created.Allocation, nullptr) != VK_SUCCESS)
+            if (TrackedVmaCreateBufferWithAlignment(device.GetAllocator(), &bufferInfo, &allocInfo, alignment, &created.Buffer,
+                                                    &created.Allocation, nullptr) != VK_SUCCESS)
             {
                 OLO_CORE_ERROR("[RayTracing/Vulkan] {} allocation failed ({} bytes)", what, size);
                 return false;
             }
-            vmaSetAllocationName(device.GetAllocator(), created.Allocation, what);
+            TrackedVmaSetAllocationName(device.GetAllocator(), created.Allocation, what);
 
             VkBufferDeviceAddressInfo addressInfo{};
             addressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
@@ -226,7 +229,6 @@ namespace OloEngine::RayTracing
         // forgets to ask.
         bool m_BuildsPendingBarrier = false;
 
-        u64 m_CompactionSavedBytes = 0;
         u32 m_FrameCompactions = 0;
         // Counted HERE, not by the caller. RecordBlasBuilds returns a bare
         // count while skipping arbitrary entries (a zero-size query, a failed
@@ -791,7 +793,6 @@ namespace OloEngine::RayTracing
             VulkanDeferredReclaim::Get().Enqueue(entry.Handle);
             RetireDeviceBuffer(entry.Storage);
 
-            m_CompactionSavedBytes += entry.BuiltSize - result.Size;
             entry.Handle = compacted;
             entry.Storage = compactedStorage;
             entry.CompactedSize = result.Size;
@@ -1224,13 +1225,20 @@ namespace OloEngine::RayTracing
         {
             asBytes += instances.Size;
         }
+        // Derived from the RESIDENT entries every time (#1342). This used to be a running
+        // sum incremented at each compaction and never decremented, so a BLAS retired,
+        // rebuilt or destroyed kept its saving on the books: the "currently resident"
+        // figure the stats document only ever grew.
+        u64 compactionSaved = 0;
         for (const auto& [key, entry] : m_Blas)
         {
             asBytes += entry.Storage.Size;
+            if (entry.CompactionState == BlasEntry::Compaction::Compacted && entry.BuiltSize > entry.CompactedSize)
+                compactionSaved += entry.BuiltSize - entry.CompactedSize;
         }
         stats.Resident.AccelerationStructureBytes = asBytes;
         stats.Resident.ScratchBytes = m_Scratch.Size;
-        stats.Resident.CompactionSavedBytes = m_CompactionSavedBytes;
+        stats.Resident.CompactionSavedBytes = compactionSaved;
         stats.Frame.BlasCompactions = m_FrameCompactions;
         stats.Frame.BlasBuilds = m_FrameBlasBuilds;
         stats.Frame.BlasRefits = m_FrameBlasRefits;

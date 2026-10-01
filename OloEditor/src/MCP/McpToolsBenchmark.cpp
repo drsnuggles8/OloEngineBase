@@ -31,6 +31,7 @@
 #include "OloEngine/Renderer/Benchmark/BenchmarkCapture.h"
 #include "OloEngine/Renderer/Benchmark/BenchmarkManifest.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Renderer/RendererAPI.h"
@@ -536,8 +537,9 @@ namespace OloEngine::MCP
             }
 
             auto counters = std::make_shared<Benchmark::RendererCounters>();
+            auto memoryReport = std::make_shared<std::optional<RendererMemoryReport>>();
             host.MarshalRead(
-                [&host, applied, passTimings, timingValidity, resolution, counters, configuration]() -> Json
+                [&host, applied, passTimings, timingValidity, resolution, counters, memoryReport, configuration]() -> Json
                 {
                     *passTimings = Benchmark::SnapshotPassTimings();
                     *timingValidity = Benchmark::SnapshotTimingValidity();
@@ -547,6 +549,9 @@ namespace OloEngine::MCP
                     // benchmark's.
                     *resolution = Benchmark::SnapshotResolution();
                     *counters = Benchmark::SnapshotRendererCounters();
+                    // The whole physical report, still under the benchmark's configuration
+                    // (#1342): owners, capacity versus demand, reconciliation, residency.
+                    *memoryReport = RendererMemoryTracker::GetInstance().BuildReport();
                     *configuration = Benchmark::SnapshotAppliedConfiguration();
                     // Put the user's editor session back: camera, renderer +
                     // post-process configuration, render scale, viewport
@@ -607,6 +612,7 @@ namespace OloEngine::MCP
             runInfo.Timing = *timingValidity;
             runInfo.Resolution = *resolution;
             runInfo.Counters = *counters;
+            runInfo.MemoryReport = std::move(*memoryReport);
             runInfo.Measurement = *measurement;
             runInfo.Configuration = *configuration;
 

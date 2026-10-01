@@ -91,6 +91,10 @@ OLO_LEVER_EXACT(FaultShortenTransientLifetimes, "OLO_FAULT_SHORTEN_TRANSIENT_LIF
                 "FAULT (#1349 negative control): end every transient's planned lifetime one pass before its last "
                 "access, so the alias-slot assigner can hand its backing to another transient while it is still "
                 "read. Re-creates an alias-lifetime error in the transient planner.")
+OLO_LEVER_EXACT(FaultCountAliasAsBacking, "OLO_FAULT_COUNT_ALIAS_AS_BACKING",
+                "FAULT (#1342 negative control): book every view/alias RendererMemoryTracker::TrackAlias receives "
+                "as its own BACKING allocation, so a view onto an existing image is counted twice in the physical "
+                "totals. Re-creates the logical-versus-physical double count the memory report must reject.")
 
 // --- RHI --------------------------------------------------------------------
 OLO_LEVER_TOGGLE(BindlessDescriptorHeap, "OLO_RHI_BINDLESS",

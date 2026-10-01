@@ -5892,8 +5892,13 @@ TEST(RenderGraphTransientPool, PhaseD_HZBDepthDeclaredAsTransientMipChainTexture
     EXPECT_EQ(it->SkipReason, FString("")) << "HZBDepth unexpected skip reason: " << it->SkipReason.ToView();
     EXPECT_NE(it->AliasGroup.ToView().find(":m12:"), std::string_view::npos)
         << "Alias group should encode mip count for HZBDepth mip chain";
-    EXPECT_EQ(it->EstimatedBytes, 2048ull * 1024ull * 4ull * 12ull)
-        << "HZBDepth (R32F, 12 mips) estimated bytes should include mip multiplier in current planner model";
+    // The whole 12-level chain, each level a quarter of the one above (#1342). This used to
+    // pin base x level COUNT (2048*1024*4*12 = 96 MiB), a 9x overestimate of what the chain holds.
+    u64 chainTexels = 0;
+    for (u32 level = 0, w = 2048u, h = 1024u; level < 12u; ++level, w = std::max(w / 2u, 1u), h = std::max(h / 2u, 1u))
+        chainTexels += static_cast<u64>(w) * h;
+    EXPECT_EQ(it->EstimatedBytes, chainTexels * 4ull)
+        << "HZBDepth (R32F, 12 mips) estimated bytes should be the texels of its whole mip chain";
 
     const auto handle = graph.GetTextureHandle("HZBDepth");
     EXPECT_TRUE(handle.IsValid()) << "stable handle for HZBDepth must be valid after BuildFrameGraph";

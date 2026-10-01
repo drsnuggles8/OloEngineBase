@@ -123,9 +123,11 @@ namespace OloEngine
     OpenGLTexture3D::~OpenGLTexture3D()
     {
         OLO_PROFILE_FUNCTION();
+        // Resident until the deferred delete runs: counted as retiring (#1342).
+        u64 retireTicket = 0;
         if (m_RendererID != 0)
         {
-            OLO_TRACK_DEALLOC(this);
+            retireTicket = OLO_TRACK_RETIRE(this);
         }
 
         // Every texture type that mints an RHI handle owes this — see
@@ -138,8 +140,10 @@ namespace OloEngine
         Utils::RetireTextureViews(m_RHIHandle.Get());
 
         u32 id = m_RendererID;
-        FrameResourceManager::Get().SubmitForDeletion([id]()
-                                                      { glDeleteTextures(1, &id); });
+        FrameResourceManager::Get().SubmitForDeletion([id, retireTicket]()
+                                                      {
+                                                          glDeleteTextures(1, &id);
+                                                          OLO_TRACK_RELEASE_RETIRED(retireTicket); });
     }
 
     void OpenGLTexture3D::Bind(u32 slot) const

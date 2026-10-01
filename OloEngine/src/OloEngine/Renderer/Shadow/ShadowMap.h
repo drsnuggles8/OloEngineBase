@@ -329,6 +329,11 @@ namespace OloEngine
         {
             return m_UBOData.CascadePlaneDistances;
         }
+        // Whether the directional CSM was requested THIS frame (#1342 memory report).
+        [[nodiscard]] bool IsDirectionalShadowRequested() const
+        {
+            return m_UBOData.DirectionalShadowEnabled != 0;
+        }
         // True when at least one light requested shadows THIS frame — the
         // directional CSM (set by ComputeCSMCascades) or any atlas entry.
         // Populated during Scene shadow setup and reset by BeginFrame(), so it

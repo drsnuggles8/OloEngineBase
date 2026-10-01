@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryFormat.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 
@@ -259,70 +260,11 @@ namespace OloEngine
 
         CreateStorage();
 
-        // Calculate memory usage based on format and dimensions
-        u32 bytesPerPixel = 4; // Default to RGBA
-        switch (m_Specification.Format)
-        {
-            case ImageFormat::R8:
-            case ImageFormat::R8UI:
-                bytesPerPixel = 1;
-                break;
-            case ImageFormat::R16UI:
-                bytesPerPixel = 2;
-                break;
-            case ImageFormat::RG8:
-                bytesPerPixel = 2;
-                break;
-            case ImageFormat::RG16UI:
-                bytesPerPixel = 4;
-                break;
-            case ImageFormat::RG16F:
-                bytesPerPixel = 4;
-                break;
-            case ImageFormat::RGB8:
-                bytesPerPixel = 3;
-                break;
-            case ImageFormat::RGBA8:
-                bytesPerPixel = 4;
-                break;
-            case ImageFormat::RGBA16F:
-                bytesPerPixel = 8;
-                break;
-            case ImageFormat::R32F:
-                bytesPerPixel = 4;
-                break;
-            case ImageFormat::R32I:
-            case ImageFormat::R32UI:
-                bytesPerPixel = 4;
-                break;
-            case ImageFormat::RG32F:
-                bytesPerPixel = 8;
-                break;
-            case ImageFormat::RGB32F:
-                bytesPerPixel = 12;
-                break;
-            case ImageFormat::RGBA32F:
-                bytesPerPixel = 16;
-                break;
-            case ImageFormat::DEPTH24STENCIL8:
-                bytesPerPixel = 4;
-                break;
-            case ImageFormat::RGBA32UI:
-                bytesPerPixel = 16;
-                break;
-            case ImageFormat::BC4:
-            case ImageFormat::BC7:
-            case ImageFormat::BC5:
-            case ImageFormat::BC6H:
-            case ImageFormat::BC6HS:
-                // Block-compressed textures are not created through the spec ctor (use
-                // the CompressedTextureImage ctor, which tracks block bytes exactly).
-                // ~1 byte/texel is a coarse placeholder purely for this tracking line.
-                bytesPerPixel = 1;
-                break;
-        }
-        auto textureMemory = static_cast<sizet>(m_Width) * static_cast<sizet>(m_Height) *
-                             static_cast<sizet>(bytesPerPixel) * static_cast<sizet>(m_Specification.Samples);
+        // Every allocated level, every sample (#1342): this used to count the base level
+        // only, so a mipped render target read a quarter light.
+        const sizet textureMemory = static_cast<sizet>(
+            RendererMemoryFormat::ImageBytes(m_Specification.Format, m_Width, m_Height, m_MipLevels, 1u, m_Specification.Samples)
+                .value_or(0));
         // Track GPU memory allocation
         OLO_TRACK_GPU_ALLOC(this,
                             textureMemory,
@@ -642,8 +584,8 @@ namespace OloEngine
     OpenGLTexture2D::~OpenGLTexture2D()
     {
         OLO_PROFILE_FUNCTION();
-        // Track GPU memory deallocation
-        OLO_TRACK_DEALLOC(this);
+        // Resident until the deferred delete runs: counted as retiring (#1342).
+        const u64 retireTicket = OLO_TRACK_RETIRE(this);
 
         // Unregister from GPU Resource Inspector
         GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
@@ -666,8 +608,10 @@ namespace OloEngine
         Utils::RetireTextureViews(m_RHIHandle.Get());
 
         u32 id = m_RendererID;
-        FrameResourceManager::Get().SubmitForDeletion([id]()
-                                                      { glDeleteTextures(1, &id); });
+        FrameResourceManager::Get().SubmitForDeletion([id, retireTicket]()
+                                                      {
+                                                          glDeleteTextures(1, &id);
+                                                          OLO_TRACK_RELEASE_RETIRED(retireTicket); });
 
         if (m_PBO[0] != 0u)
         {
@@ -696,8 +640,9 @@ namespace OloEngine
             return;
         }
 
-        // Dealloc old
-        OLO_TRACK_DEALLOC(this);
+        // Retire the old storage: it stays resident next to the new one until the
+        // deferred delete runs, and the report counts both (#1342).
+        const u64 retireTicket = OLO_TRACK_RETIRE(this);
         GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
         CommandDispatch::InvalidateTextureBinding(m_RHIHandle.Get());
         // Heap descriptors dangle across a storage recreate — see the note in the
@@ -705,8 +650,10 @@ namespace OloEngine
         RHI::DescriptorHeap::Get().RetireResource(m_RHIHandle.Get());
 
         u32 oldId = m_RendererID;
-        FrameResourceManager::Get().SubmitForDeletion([oldId]()
-                                                      { glDeleteTextures(1, &oldId); });
+        FrameResourceManager::Get().SubmitForDeletion([oldId, retireTicket]()
+                                                      {
+                                                          glDeleteTextures(1, &oldId);
+                                                          OLO_TRACK_RELEASE_RETIRED(retireTicket); });
 
         m_Width = width;
         m_Height = height;
@@ -739,55 +686,10 @@ namespace OloEngine
 
         CreateStorage();
 
-        // Re-track
-        u32 bytesPerPixel = 4;
-        switch (m_Specification.Format)
-        {
-            case ImageFormat::R8:
-            case ImageFormat::R8UI:
-                bytesPerPixel = 1;
-                break;
-            case ImageFormat::R16UI:
-                bytesPerPixel = 2;
-                break;
-            case ImageFormat::RG8:
-                bytesPerPixel = 2;
-                break;
-            case ImageFormat::RG16UI:
-                bytesPerPixel = 4;
-                break;
-            case ImageFormat::RG16F:
-                bytesPerPixel = 4;
-                break;
-            case ImageFormat::R32F:
-                bytesPerPixel = 4;
-                break;
-            case ImageFormat::RG32F:
-                bytesPerPixel = 8;
-                break;
-            case ImageFormat::RGB8:
-                bytesPerPixel = 3;
-                break;
-            case ImageFormat::RGBA8:
-                bytesPerPixel = 4;
-                break;
-            case ImageFormat::RGBA16F:
-                bytesPerPixel = 8;
-                break;
-            case ImageFormat::RGB32F:
-                bytesPerPixel = 12;
-                break;
-            case ImageFormat::RGBA32F:
-                bytesPerPixel = 16;
-                break;
-            case ImageFormat::DEPTH24STENCIL8:
-                bytesPerPixel = 4;
-                break;
-            default:
-                break;
-        }
-        auto textureMemory = static_cast<sizet>(m_Width) * static_cast<sizet>(m_Height) *
-                             static_cast<sizet>(bytesPerPixel) * static_cast<sizet>(m_Specification.Samples);
+        // Re-track: the new storage, every level and sample (#1342).
+        const sizet textureMemory = static_cast<sizet>(
+            RendererMemoryFormat::ImageBytes(m_Specification.Format, m_Width, m_Height, m_MipLevels, 1u, m_Specification.Samples)
+                .value_or(0));
         OLO_TRACK_GPU_ALLOC(this, textureMemory, RendererMemoryTracker::ResourceType::Texture2D, "OpenGL Texture2D (resized)");
         GPUResourceInspector::GetInstance().RegisterTexture(m_RendererID, "Texture2D (resized)", "Texture2D");
 
@@ -1234,15 +1136,18 @@ namespace OloEngine
         // Guarded on a non-zero id so the first-time path (m_RendererID == 0) is a no-op.
         if (m_RendererID != 0)
         {
-            OLO_TRACK_DEALLOC(this);
+            // A hot reload: old and new coexist until the deferred delete runs (#1342).
+            const u64 retireTicket = OLO_TRACK_RETIRE(this);
             GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
             CommandDispatch::InvalidateTextureBinding(m_RHIHandle.Get());
             // Heap descriptors dangle across a storage recreate — see the note in the
             // destructor above. Both calls, always, at every lifecycle site.
             RHI::DescriptorHeap::Get().RetireResource(m_RHIHandle.Get());
             u32 oldId = m_RendererID;
-            FrameResourceManager::Get().SubmitForDeletion([oldId]()
-                                                          { glDeleteTextures(1, &oldId); });
+            FrameResourceManager::Get().SubmitForDeletion([oldId, retireTicket]()
+                                                          {
+                                                              glDeleteTextures(1, &oldId);
+                                                              OLO_TRACK_RELEASE_RETIRED(retireTicket); });
             m_RendererID = 0;
             m_RHIHandle.Sync(RHI::ResourceKind::Texture, m_RendererID, RHI::Backend::OpenGL);
         }

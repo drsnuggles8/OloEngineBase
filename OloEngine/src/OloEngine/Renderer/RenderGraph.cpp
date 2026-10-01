@@ -421,6 +421,9 @@ namespace OloEngine
         m_PhysicalWidth = width;
         m_PhysicalHeight = height;
         m_RenderScale = 1.0f;
+        // Re-registering on a second Init replaces the first registration (#1342).
+        m_MemoryReporter = RendererMemoryReporterHandle([this](TArray<MemoryCapacityRow>& rows)
+                                                        { AppendMemoryCapacityRows(rows); });
 
         for (auto& [name, node] : m_NodeLookup)
         {
@@ -436,6 +439,8 @@ namespace OloEngine
         if (Levers::RenderGraphDiagnostics())
             OLO_CORE_TRACE("Shutting down RenderGraph");
 
+        m_MemoryReporter.Reset();
+        m_DepartedNodes.Reset(); // the graph is going away; nothing is left to sweep
         m_TransientPool.Clear();
         m_TemporalHistoryRegistry.Clear();
 
@@ -516,10 +521,31 @@ namespace OloEngine
         m_ResourceRegistryDirty = true;
     }
 
+    void RenderGraph::ReleaseDepartedNodeFramebuffers(const std::function<bool(const Framebuffer*)>& isStale)
+    {
+        for (Ref<RenderGraphNode>& node : m_DepartedNodes)
+        {
+            // A node the current topology re-registered is released by the per-frame sweep.
+            if (node && !m_NodeLookup.contains(node->GetName()))
+                node->ReleaseStaleFramebuffers(isStale);
+        }
+        m_DepartedNodes.Reset();
+    }
+
     void RenderGraph::ResetTopology()
     {
         OLO_PROFILE_FUNCTION();
 
+        // Remember the nodes leaving the graph (#1342). One the new topology does not
+        // re-register (a Deferred-only pass after a switch to Forward) never gets another
+        // per-frame release, so the next Execute releases its pooled references. Not here:
+        // a node that IS re-registered may still read its previous target while the new
+        // topology is populated (SceneRenderPass sizes the G-buffer from it).
+        for (const auto& [name, node] : m_NodeLookup)
+        {
+            if (node && !m_DepartedNodes.Contains(node))
+                m_DepartedNodes.Add(node);
+        }
         m_TransientPool.Clear();
 
         // Wipe topology bookkeeping but leave graph-entry framebuffers /
@@ -2298,7 +2324,10 @@ namespace OloEngine
             specification.GenerateMips = descriptor.MipLevels > 1;
             specification.MipLevels = descriptor.MipLevels;
             specification.Samples = descriptor.Samples;
-            texture = Texture2D::Create(specification);
+            {
+                const RendererMemoryOwnerScope memoryOwner("TemporalHistory", MemoryLifetime::History);
+                texture = Texture2D::Create(specification);
+            }
             if (texture)
                 m_TemporalHistoryRegistry.SetTexture(acquired.Token, texture);
         }
@@ -3595,6 +3624,27 @@ namespace OloEngine
             }
         }
         m_OutOfBandLedger.BeginEpilogue();
+
+        // Before the pool takes this frame's objects back: every pass reference to a pooled
+        // framebuffer this frame did not acquire is stale, and dropping it is what lets the
+        // Trim below actually free what it evicts (#1342). The frame-epilogue references
+        // above are the graph's own and are released by the next Execute.
+        const auto isStale = [this](const Framebuffer* framebuffer)
+        { return m_TransientPool.IsStalePooledFramebuffer(framebuffer); };
+        for (auto& [name, node] : m_NodeLookup)
+        {
+            if (node)
+                node->ReleaseStaleFramebuffers(isStale);
+        }
+        ReleaseDepartedNodeFramebuffers(isStale);
+        // The graph's own handle slots too: materialization overwrites only the slots it
+        // allocates, so a slot whose handle this topology no longer materializes would keep
+        // the last object it was given.
+        for (auto& physical : m_PhysicalFramebuffers)
+        {
+            if (physical.FB && isStale(physical.FB.Raw()))
+                physical.FB.Reset();
+        }
 
         m_TransientPool.ReleaseAll();
         m_TransientPool.Trim(m_TransientPoolMaxBucketSize);

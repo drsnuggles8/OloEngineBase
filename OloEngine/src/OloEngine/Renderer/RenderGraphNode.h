@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/RGPreparedPass.h"
 
+#include <functional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -149,6 +150,19 @@ namespace OloEngine
         [[nodiscard]] virtual Ref<Framebuffer> GetTarget() const
         {
             return m_Target;
+        }
+
+        // Called by the graph at the end of every Execute (#1342): drop each reference to a
+        // pooled framebuffer that `isStale` says this frame did not acquire. A pass that stops
+        // re-resolving its target — a Forward-only pass after the path switched to Deferred —
+        // otherwise pins the pooled scene framebuffer it last rendered into after the pool has
+        // evicted it (a full-resolution MRT: ~300 MB at 4K), or holds one the pool will hand
+        // to a different resource. The pass re-resolves its target from the graph whenever it
+        // next renders. A pass that keeps its target in a member of its own overrides this,
+        // calls the base, and releases that member too.
+        virtual void ReleaseStaleFramebuffers(const std::function<bool(const Framebuffer*)>& isStale)
+        {
+            ReleaseIfStale(m_Target, isStale);
         }
 
         [[nodiscard]] const FramebufferSpecification& GetFramebufferSpecification() const
@@ -350,6 +364,12 @@ namespace OloEngine
         }
 
       protected:
+        static void ReleaseIfStale(Ref<Framebuffer>& framebuffer, const std::function<bool(const Framebuffer*)>& isStale)
+        {
+            if (framebuffer && isStale(framebuffer.Raw()))
+                framebuffer.Reset();
+        }
+
         FString m_Name = "RenderGraphNode";
         Ref<Framebuffer> m_Target;
         FramebufferSpecification m_FramebufferSpec;

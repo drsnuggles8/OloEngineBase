@@ -44,6 +44,9 @@ namespace OloEngine
         : m_Specification(spec)
     {
         OLO_PROFILE_FUNCTION();
+        // The cubemap and IBL textures made below book their OWN bytes; this scope only
+        // attributes them to the environment map in the memory report.
+        const RendererMemoryOwnerScope memoryOwner("EnvironmentMap", MemoryLifetime::Asset);
 
         if (!spec.FilePath.IsEmpty())
         {
@@ -55,20 +58,13 @@ namespace OloEngine
         {
             GenerateIBLTextures();
         }
-
-        OLO_TRACK_GPU_ALLOC(this,
-                            spec.Resolution * spec.Resolution * 6 * 4 * sizeof(float), // Rough estimate
-                            RendererMemoryTracker::ResourceType::TextureCubemap,
-                            "Environment Map");
     }
 
-    EnvironmentMap::~EnvironmentMap()
-    {
-        // Pairs the constructor's OLO_TRACK_GPU_ALLOC(this, ...). See the header for why this
-        // destructor cannot be `= default`. The owned textures untrack themselves through
-        // their own Ref<> destructors; this only retires the aggregate estimate booked above.
-        OLO_TRACK_DEALLOC(this);
-    }
+    // No tracker booking of its own any more (#1342). The constructor used to book a "rough
+    // estimate" of Resolution^2 x 6 x RGBA32F for `this` ON TOP of the cubemap and IBL
+    // textures it owns — each of which books itself — so every environment map was counted
+    // twice in the physical totals.
+    EnvironmentMap::~EnvironmentMap() = default;
 
     Ref<EnvironmentMap> EnvironmentMap::Create(const EnvironmentMapSpecification& spec)
     {
@@ -120,6 +116,7 @@ namespace OloEngine
     void EnvironmentMap::GenerateIBLTextures()
     {
         OLO_PROFILE_FUNCTION();
+        const RendererMemoryOwnerScope memoryOwner("EnvironmentMap", MemoryLifetime::Asset);
 
         if (!m_EnvironmentMap)
         {

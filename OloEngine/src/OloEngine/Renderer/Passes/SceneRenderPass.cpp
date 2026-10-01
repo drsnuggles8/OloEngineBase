@@ -60,6 +60,22 @@ namespace OloEngine
     {
         SetName("SceneRenderPass");
         OLO_CORE_INFO("Creating SceneRenderPass.");
+        // The G-Buffer's capacity versus demand (#1342): it stays allocated after the
+        // path leaves Deferred, and this row is where that shows.
+        m_MemoryReporter = RendererMemoryReporterHandle([this](TArray<MemoryCapacityRow>& rows)
+                                                        {
+            MemoryCapacityRow row;
+            row.Owner = "SceneRenderPass";
+            row.Category = m_GBuffer && m_GBuffer->GetSampleCount() > 1 ? "G-buffer (MSAA + resolve target)" : "G-buffer";
+            row.Lifetime = MemoryLifetime::Persistent;
+            row.Source = MemorySizeSource::FormatEstimate;
+            const std::optional<u64> capacity = m_GBuffer ? m_GBuffer->EstimateBytes() : std::optional<u64>(0);
+            row.CapacityBytes = capacity;
+            if (capacity)
+                row.ActiveDemandBytes = m_DeferredRanLastFrame ? *capacity : 0;
+            else
+                row.UnknownReason = "a G-buffer attachment format has no known size";
+            rows.Add(std::move(row)); });
     }
 
     void SceneRenderPass::Setup(RGBuilder& builder, FrameBlackboard& board)
@@ -277,6 +293,7 @@ namespace OloEngine
     Ref<Framebuffer> SceneRenderPass::BeginSceneFrame(bool deferredActive)
     {
         auto const& rendererSettings = Renderer3D::GetRendererSettings();
+        m_DeferredRanLastFrame = deferredActive;
         if (deferredActive)
         {
             PrepareDeferredResources(rendererSettings.Deferred.MSAASampleCount);

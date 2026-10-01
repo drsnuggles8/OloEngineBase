@@ -3,6 +3,7 @@
 #include "Platform/OpenGL/OpenGLUtilities.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryFormat.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 
 #if OLO_WITH_VULKAN
@@ -127,17 +128,24 @@ namespace OloEngine
         {
             // No additional handling required.
         }
-        sizet textureMemory = static_cast<sizet>(m_Width) * m_Height * m_Layers * bytesPerPixel;
+        // Every level glTextureStorage3D allocated, not the base level only (#1342).
+        const sizet textureMemory = static_cast<sizet>(RendererMemoryFormat::MipChainTexels(m_Width, m_Height, static_cast<u32>(mipLevels))) *
+                                    m_Layers * bytesPerPixel;
         OLO_TRACK_GPU_ALLOC(this,
                             textureMemory,
                             RendererMemoryTracker::ResourceType::Texture2D,
                             "OpenGL Texture2DArray");
+        // Views made from this handle (RenderCommand::CreateDepthArrayCompareOffViewHandle)
+        // find their backing through it (#1342).
+        RendererMemory::BindBackingResourceHandle(this, RHI::HashKey(m_RHIHandle.Get()));
     }
 
     OpenGLTexture2DArray::~OpenGLTexture2DArray()
     {
         OLO_PROFILE_FUNCTION();
-        OLO_TRACK_DEALLOC(this);
+        // The GL object is deleted two frames from now; until then its storage is still
+        // resident and the memory report counts it as retiring (#1342).
+        const u64 retireTicket = OLO_TRACK_RETIRE(this);
 
         // Every texture type that mints an RHI handle owes this — see
         // Utils::RetireTextureViews. A Texture2DArray is the shadow-map array
@@ -148,8 +156,10 @@ namespace OloEngine
         Utils::RetireTextureViews(m_RHIHandle.Get());
 
         u32 id = m_RendererID;
-        FrameResourceManager::Get().SubmitForDeletion([id]()
-                                                      { glDeleteTextures(1, &id); });
+        FrameResourceManager::Get().SubmitForDeletion([id, retireTicket]()
+                                                      {
+                                                          glDeleteTextures(1, &id);
+                                                          OLO_TRACK_RELEASE_RETIRED(retireTicket); });
     }
 
     void OpenGLTexture2DArray::Bind(u32 slot) const

@@ -355,13 +355,13 @@ TEST(BenchmarkCapture, RunWhenRequested)
     runInfo.Timing = Benchmark::SnapshotTimingValidity();
     runInfo.Resolution = Benchmark::SnapshotResolution();
     runInfo.Counters = Benchmark::SnapshotRendererCounters();
+    runInfo.MemoryReport = RendererMemoryTracker::GetInstance().BuildReport();
     runInfo.Configuration = Benchmark::SnapshotAppliedConfiguration();
     runInfo.Measurement = std::move(runInfoMeasurement);
     // Keep the renderer and asset manager alive: this isolates the cost of
     // releasing the scene while exposing caches and pools that remain live.
     scene = nullptr;
-    runInfo.TrackedRendererBytesAfterSceneRelease =
-        static_cast<u64>(RendererMemoryTracker::GetInstance().GetTotalMemoryUsage());
+    runInfo.GpuResidentBytesAfterSceneRelease = RendererMemoryTracker::GetInstance().GetGpuResidentBytes();
 
     const fs::path outDir = !opts.CaptureOutDir.empty()
                                 ? fs::path(opts.CaptureOutDir)

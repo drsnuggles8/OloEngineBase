@@ -54,6 +54,7 @@
 // VulkanDevice.h provides <volk.h> and <vk_mem_alloc.h> in the one legal
 // order (volk first — see the comment there and ADR 0011 amendment 41a).
 #include "Platform/Vulkan/VulkanDevice.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
 
 #include <array>
 #include <atomic>
@@ -253,6 +254,9 @@ namespace OloEngine
         std::atomic<u64> m_OverflowCount{ 0 };
         std::atomic<bool> m_OverflowWarned{ false };
         std::array<std::atomic<u64>, static_cast<sizet>(VulkanFrameArenaConsumer::Count)> m_ConsumerBytes{};
+        // Capacity versus demand in the memory report (#1342), registered while the slot
+        // buffers exist.
+        RendererMemoryReporterHandle m_MemoryReporter;
     };
 } // namespace OloEngine
 
