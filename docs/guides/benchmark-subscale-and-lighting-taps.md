@@ -36,8 +36,10 @@ Before #1526, `renderWidth` read only the dynamic scale, so every upscale captur
 1280 × 720 `SceneColorHDR`), and a dynamic scale below 1.0 was refused because the whole-texture
 read would have captured the dead margin.
 
-**FSR2 is not run-twice deterministic.** Its lock decay reads the wall clock by contract, so a
-`Temporal` capture's `Tolerance.RepeatRmse` must allow for it. On Vulkan a Temporal request runs
+**FSR2 is not run-twice deterministic.** Its lock decay reads the wall clock by contract, so the
+parser refuses a `Temporal` capture whose `Tolerance.RepeatRmse` is 0. Two runs of
+`integrated-forward-upscale-quality-fsr2` differed by at most 0.044/255; the generated FSR2
+manifests declare 0.25. On Vulkan a Temporal request runs
 FSR1 and records `fallback: backendNotOpenGL`.
 
 ## Lighting taps
@@ -57,7 +59,8 @@ FSR1 and records `fallback: backendNotOpenGL`.
 | `ReflectionHitDistance` | not a colour tap: SSR writes its hit distance (view-space metres, 0 = no hit) into `SSRGuide`'s alpha in place of its confidence |
 
 **The five radiance taps partition the lit colour**: their sum is the tap-off `SceneColor` to
-fp16 rounding. Two exceptions, written down rather than hidden: on a skin pixel the specular taps
+fp16 rounding. `SceneColor` is the lighting output, so tiers that composite after it (SSR, SSGI)
+are in no tap; the viewport shows them added on top of the tapped term. Two exceptions, written down rather than hidden: on a skin pixel the specular taps
 are before the skin profile's specular tint, and a transmissive (glass) material blends its
 environment over the tap.
 
@@ -66,7 +69,8 @@ arbitration confidence, #1057). Both reflection AOVs exist on Deferred with SSR 
 the screen-space reflection tier runs there only.
 
 **Which surfaces carry a tap.** On Deferred, every G-Buffer surface: the tap is applied in the
-lighting pass (per sample under MSAA). On Forward and Forward+, every lit forward shader: meshes
+lighting pass (per sample under MSAA), and what that pass passes through unlit (the sky, unlit
+materials, editor billboards) is emission, so it is in the Remainder. On Forward and Forward+, every lit forward shader: meshes
 (`PBR_MultiLight`, `_Skinned`), heightfield and voxel terrain, foliage cards and impostors. The
 shaders that compose their own sum record the same five terms from their own halves; voxel terrain
 derives its diffuse half from the split closure only while a tap is selected. Surfaces with their
@@ -76,7 +80,8 @@ own shading (sky, water, particles, grooms) keep their colour, so mask by what y
 lane, set on the main view only (a mirror, probe or shadow view renders its ordinary frame). The
 shaders record the terms with plain stores and return the lit colour unchanged when no tap is
 selected. A selected tap also stops skin diffusion, which adds into scene colour; that gate is how
-the tap reaches the frame-graph fingerprint.
+the tap reaches the frame-graph fingerprint. A reflection-probe bake clears the tap for its duration,
+so a probe never stores one term as its environment.
 
 ## Evidence
 

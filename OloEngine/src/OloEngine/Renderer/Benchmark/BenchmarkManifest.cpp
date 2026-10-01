@@ -955,6 +955,16 @@ namespace OloEngine::Benchmark
         {
             errors.Add("Tolerance is required (RepeatRmse — the documented run-twice bound)");
         }
+        // FSR2's temporal locks decay on the wall clock by contract, so a
+        // Temporal capture is not run-twice deterministic. A manifest that
+        // claims it is would fail its own repeat check or, worse, be trusted.
+        if (manifest.RendererSettings.UpscaleTechnique == UpscalerTechnique::Temporal &&
+            manifest.RendererSettings.Upscale.value_or(UpscaleMode::Off) != UpscaleMode::Off &&
+            !(manifest.RepeatRmseTolerance > 0.0f))
+        {
+            errors.Add("Tolerance.RepeatRmse must be above 0 for an UpscaleTechnique: Temporal capture: FSR2 is not "
+                       "run-twice deterministic (its lock decay reads the wall clock)");
+        }
 
         // `assets && assets.IsSequence() && assets.size() > 0` on purpose: an
         // EMPTY `Assets: []` is a sequence, so guarding only on IsSequence let

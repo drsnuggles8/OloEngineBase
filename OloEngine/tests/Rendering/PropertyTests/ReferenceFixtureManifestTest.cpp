@@ -374,6 +374,19 @@ TEST(ReferenceFixtureManifest, AcceptsADynamicRenderScaleAndRefusesUnrunnableOne
         Replaced(Replaced(ValidV2Manifest(), "RenderScale: 1.0", "RenderScale: 0.5"), "Exposure:\n",
                  "RendererSettings:\n  Path: Deferred\nExposure:\n"));
     EXPECT_NE(deferred.find("#1537"), std::string::npos) << deferred;
+
+    // FSR2 is not run-twice deterministic, so a Temporal capture must not claim
+    // a zero repeat tolerance; with a measured one it parses.
+    const std::string temporal = Replaced(ValidV2Manifest(), "Exposure:\n",
+                                          "RendererSettings:\n  Upscale: Quality\n  UpscaleTechnique: Temporal\nExposure:\n");
+    const auto exact = ExpectParseFailure("temporal-exact", temporal);
+    EXPECT_NE(exact.find("Tolerance.RepeatRmse must be above 0"), std::string::npos) << exact;
+    std::string temporalError;
+    EXPECT_TRUE(LoadBenchmarkManifest(WriteManifest("temporal-tolerant",
+                                                    Replaced(temporal, "RepeatRmse: 0.0", "RepeatRmse: 0.25")),
+                                      temporalError)
+                    .has_value())
+        << temporalError;
 }
 
 // #1526: RendererSettings.LightingTap names a tap by its token, and an unknown

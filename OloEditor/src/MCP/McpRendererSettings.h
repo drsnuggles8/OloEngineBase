@@ -872,15 +872,6 @@ namespace OloEngine::MCP::RendererSettings
         std::string UpscalerStatus; // ToString(TemporalUpscalerStatus)
     };
 
-    [[nodiscard]] inline std::string_view ResolvedToken(TemporalUpscalePolicy::ResolvedUpscaler resolved)
-    {
-        return TemporalUpscalePolicy::ToToken(resolved);
-    }
-
-    [[nodiscard]] inline std::string_view FallbackToken(TemporalUpscalePolicy::TemporalFallback fallback)
-    {
-        return TemporalUpscalePolicy::ToToken(fallback);
-    }
 
     // The 'upscaler' block. `requested` is the live setting pair; `resolved` is
     // what the last prepared frame ran. When the latch answers an OLDER request
@@ -919,14 +910,14 @@ namespace OloEngine::MCP::RendererSettings
             return block;
         }
 
-        block["resolved"] = std::string(ResolvedToken(readback.Result.Resolved));
+        block["resolved"] = std::string(TemporalUpscalePolicy::ToToken(readback.Result.Resolved));
         block["pending"] = false;
         block["sceneSampleCount"] = readback.SceneSampleCount;
         block["temporalUpscalerStatus"] = readback.UpscalerStatus;
         if (readback.Result.Fallback == TemporalUpscalePolicy::TemporalFallback::None)
             return block;
 
-        block["fallback"] = std::string(FallbackToken(readback.Result.Fallback));
+        block["fallback"] = std::string(TemporalUpscalePolicy::ToToken(readback.Result.Fallback));
         switch (readback.Result.Fallback)
         {
             case TemporalUpscalePolicy::TemporalFallback::MSAAResolved:

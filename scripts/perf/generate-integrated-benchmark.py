@@ -184,6 +184,11 @@ def main() -> None:
             variant["RendererSettings"] = {**manifest["RendererSettings"], **settings}
             if suffix in output_overrides:
                 variant["Output"] = {**manifest["Output"], **output_overrides[suffix]}
+            if settings.get("UpscaleTechnique") == "Temporal":
+                # FSR2's lock decay reads the wall clock, so two runs differ.
+                # Measured on 2026-10-01 (#1526): worst attachment RMSE
+                # 0.044/255 between two Forward runs; 0.25 is ~5x that.
+                variant["Tolerance"] = {"RepeatRmse": 0.25}
             variant_path = manifests / f"{destination.stem}-{suffix}.yaml"
             variant_path.write_text(yaml.safe_dump(variant, sort_keys=False, allow_unicode=True),
                                     encoding="utf-8", newline="\n")

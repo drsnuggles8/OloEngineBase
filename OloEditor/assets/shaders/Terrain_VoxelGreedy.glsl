@@ -297,21 +297,22 @@ void main()
     float cloudShadow = atmosphereCloudShadow(v_WorldPos);
 
     vec3 Lo = vec3(0.0);
-    // The lighting tap (issue #1526). This loop sums each light COMBINED, so
-    // the tap derives the diffuse half from the split closure and the light's
-    // final visibility — only when a tap is selected; the shipping sum below is
-    // untouched either way.
-    bool lightingTapLive = int(u_LightingTap + 0.5) != OLO_LIGHTING_TAP_NONE;
+    // The lighting tap (issue #1526) needs the diffuse half of the direct sum,
+    // tracked beside it; `Lo` is the same expression it always was.
     vec3 LoDiffuse = vec3(0.0);
     for (int i = 0; i < min(u_LightCount, MAX_LIGHTS); ++i)
     {
-        vec3 lightContrib = calculateLightContribution(u_Lights[i], N, V, albedo, metallic, roughness, v_WorldPos);
-        vec3 unshadowedContrib = lightContrib;
+        // calculateLightContribution is the sum of this split, evaluated once.
+        OloSurfaceLighting lightSplit = calculateLightContributionSplit(u_Lights[i], N, V, albedo, metallic,
+                                                                        roughness, v_WorldPos, OLO_PBR_MODEL_LEGACY);
+        vec3 lightContrib = oloSurfaceLightingSum(lightSplit);
+        float lightVisibility = 1.0;
 
         int lightType = int(u_Lights[i].position.w);
         if (lightType == DIRECTIONAL_LIGHT)
         {
             lightContrib *= cloudShadow;
+            lightVisibility *= cloudShadow;
         }
         if (lightType == DIRECTIONAL_LIGHT && u_DirectionalShadowEnabled != 0)
         {
@@ -331,6 +332,7 @@ void main()
                 u_SoftShadowMode
             );
             lightContrib *= shadow;
+            lightVisibility *= shadow;
         }
         else if (lightType == SPOT_LIGHT)
         {
@@ -349,6 +351,7 @@ void main()
                     u_ShadowParams.z
                 );
                 lightContrib *= shadow;
+                lightVisibility *= shadow;
             }
         }
         else if (lightType == POINT_LIGHT || lightType == SPHERE_AREA_LIGHT)
@@ -370,23 +373,14 @@ void main()
                     u_ShadowParams.z
                 );
                 lightContrib *= shadow;
+                lightVisibility *= shadow;
             }
         }
 
-        if (lightingTapLive)
-        {
-            // Every visibility factor above scales the light uniformly, so the
-            // ratio of the shadowed sum to the unshadowed one is the visibility.
-            float unshadowed = unshadowedContrib.r + unshadowedContrib.g + unshadowedContrib.b;
-            float visibility =
-                unshadowed > 0.0 ? (lightContrib.r + lightContrib.g + lightContrib.b) / unshadowed : 1.0;
-            OloSurfaceLighting split = calculateLightContributionSplit(u_Lights[i], N, V, albedo, metallic,
-                                                                             roughness, v_WorldPos,
-                                                                             OLO_PBR_MODEL_LEGACY);
-            LoDiffuse += split.Diffuse * visibility;
-            if (i == 0 && lightType == DIRECTIONAL_LIGHT)
-                oloRecordLightingTapShadow(visibility);
-        }
+        // The primary sun's full visibility, for the lighting tap (#1526).
+        if (i == 0 && lightType == DIRECTIONAL_LIGHT)
+            oloRecordLightingTapShadow(lightVisibility);
+        LoDiffuse += lightSplit.Diffuse * lightVisibility;
         Lo += lightContrib;
     }
 
@@ -413,9 +407,8 @@ void main()
     // split by.
     float ambientVisibility = ao * oloForwardScreenSpaceAO(gl_FragCoord.xy);
     vec3 color = ambient * ambientVisibility + Lo;
-    if (lightingTapLive)
-        oloRecordLightingTapTerms(LoDiffuse, Lo - LoDiffuse, ambientSplit.Diffuse * ambientVisibility,
-                                  ambientSplit.Specular * ambientVisibility, vec3(0.0));
+    oloRecordLightingTapTerms(LoDiffuse, Lo - LoDiffuse, ambientSplit.Diffuse * ambientVisibility,
+                              ambientSplit.Specular * ambientVisibility, vec3(0.0));
 
     o_Color = vec4(oloLightingTapOutput(color, u_LightingTap), 1.0);
     o_EntityID = instances[v_InstanceIndex].EntityID;

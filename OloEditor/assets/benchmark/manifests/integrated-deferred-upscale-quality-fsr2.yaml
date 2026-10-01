@@ -106,7 +106,7 @@ Attachments:
   Source: SceneDepth
   Format: hdr
 Tolerance:
-  RepeatRmse: 0.0
+  RepeatRmse: 0.25
 Assets:
 - Path: SandboxProject/Assets/Grooms/reference-longcoat-animal.ologroom
   Origin: generated in-repo, cooked from reference-longcoat-animal.abc (issues

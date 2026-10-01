@@ -239,7 +239,7 @@ Sources that read `std::chrono::steady_clock` directly bypass the mock clock and
 converted to `Time::GetTime()` by this work (wind — which drives foliage sway, snow and
 precipitation dt; fog noise time; auto-exposure adaptation dt). FSR2 deliberately keeps
 real time: its lock decay reads the wall clock, so a `UpscaleTechnique: Temporal` capture is
-not run-twice deterministic and its `Tolerance.RepeatRmse` must say so. Every other upscaler
+not run-twice deterministic and the parser refuses one whose `Tolerance.RepeatRmse` is 0. Every other upscaler
 setting keeps the mock-clock contract.
 
 Known GPU-order nondeterminism (documented, avoided by scene design rather than fixed):

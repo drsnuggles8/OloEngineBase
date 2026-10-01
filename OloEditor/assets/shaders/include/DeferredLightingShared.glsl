@@ -316,7 +316,8 @@ vec3 ComputeDeferredLitSplit(
     {
         // Unlit pass-through — skybox, editor grid, light-cube billboards
         // etc. sit inside the G-Buffer but do not want PBR shading applied.
-        return emissive;
+        // Under a lighting tap it is emission, so it is the Remainder (#1526).
+        return oloLightingTapPassThrough(emissive, u_LightingTap);
     }
     // PBR closure model selector (issues #975, #996) — see the flag layout
     // above. No mask: the field is the whole rest of the lane, so a model

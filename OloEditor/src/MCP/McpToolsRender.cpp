@@ -1978,25 +1978,15 @@ namespace OloEngine::MCP
                 case MaterialDebugView::Count:
                     break;
             }
-            switch (pp.LightingDebugTap)
+            // The inverse of LightingTapForDebugView, derived from it so the two
+            // cannot disagree about a tap appended later.
+            if (pp.LightingDebugTap != LightingTap::None)
             {
-                case LightingTap::DirectDiffuse:
-                    return DebugView::LightDirectDiffuse;
-                case LightingTap::DirectSpecular:
-                    return DebugView::LightDirectSpecular;
-                case LightingTap::IndirectDiffuse:
-                    return DebugView::LightIndirectDiffuse;
-                case LightingTap::IndirectSpecular:
-                    return DebugView::LightIndirectSpecular;
-                case LightingTap::Remainder:
-                    return DebugView::LightRemainder;
-                case LightingTap::ShadowVisibility:
-                    return DebugView::ShadowVisibility;
-                case LightingTap::ReflectionHitDistance:
-                    return DebugView::ReflectionHitDistance;
-                case LightingTap::None:
-                case LightingTap::Count:
-                    break;
+                for (const auto& info : RenderOverrides::kDebugViews)
+                {
+                    if (RenderOverrides::LightingTapForDebugView(info.Id) == pp.LightingDebugTap)
+                        return info.Id;
+                }
             }
             switch (VirtualMeshRegistry::Get().GetDebugMode())
             {
@@ -2105,8 +2095,10 @@ namespace OloEngine::MCP
                     // The lit shaders substitute the tap for their colour on
                     // every path, so nothing backs it and nothing gates it.
                     r.PassEnabled = true;
-                    r.Note = "The viewport shows the tapped term tonemapped; capture 'SceneColor' for the linear "
-                             "HDR values. Unlit surfaces (sky, particles, water, grooms) keep their own colour.";
+                    r.Note = "SceneColor holds the tapped term (linear HDR); capture it for values. The viewport "
+                             "shows it after the post chain, including the SSR / SSGI composites, which add to it "
+                             "and are in no tap. Surfaces with their own shading (forward sky, particles, water, "
+                             "grooms) keep their colour.";
                     break;
                 case DebugView::ReflectionHitDistance:
                     r.PassEnabled = pp.SSREnabled && deferred;
@@ -8515,8 +8507,8 @@ namespace OloEngine::MCP
                 "olo_render_capture_target; the response's 'captureTarget' says so. They are the SAME knob as "
                 "olo_virtual_geometry_set { debugMode }, so the two tools always agree on the current state. "
                 "The six light*/shadowvisibility modes (issue #1526) are the lighting taps: one term of the "
-                "lit colour replaces it on EVERY path, and the five radiance taps sum to the lit colour; capture "
-                "'SceneColor' for linear HDR values. "
+                "lit colour replaces it on EVERY path, and in 'SceneColor' the five radiance taps sum to the lit "
+                "colour; the viewport adds the post-lighting tiers (SSR, SSGI) on top. "
                 "The four material modes (issue #1231) substitute one of a skin surface's separated outputs "
                 "for the composite — the diffuse half, the specular half, the per-pixel skin-profile identity "
                 "as a hue (black where a pixel names no profile), or the scattering mask as unitless 0..1 "

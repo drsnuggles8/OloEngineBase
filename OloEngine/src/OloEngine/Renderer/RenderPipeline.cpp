@@ -1041,8 +1041,9 @@ namespace OloEngine
             // The deferred lighting pass reads it from this upload; the forward
             // colour passes from CommandDispatch's re-upload, which is fed the
             // same value here.
-            const u32 lightingTap = std::to_underlying(data.PostProcess.LightingDebugTap) <
-                                            std::to_underlying(LightingTap::Count)
+            // Only a tap that replaces the lit colour: ReflectionHitDistance is
+            // the SSR pass's, and the lit shaders would only waste work on it.
+            const u32 lightingTap = LightingTapReplacesSceneColor(data.PostProcess.LightingDebugTap)
                                         ? std::to_underlying(data.PostProcess.LightingDebugTap)
                                         : 0u;
             cameraData.LightingTap = static_cast<f32>(lightingTap);
