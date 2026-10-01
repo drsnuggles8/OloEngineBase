@@ -575,7 +575,7 @@ namespace OloEngine::Tests
             std::vector<u8> noBodyCaster;
             Capture(tag + "NoBodyCaster", noBodyCaster);
             const GroomRenderPass* const groomPass = Renderer3D::GetGroomRenderPass();
-            const u32 opaqueGrooms = groomPass == nullptr                      ? 0u
+            const u32 opaqueGrooms = groomPass == nullptr                        ? 0u
                                      : opaqueMap == ShadowMap::OpaqueCopy::Atlas ? groomPass->GetStats().GroomsShadowedByOpaqueAtlas
                                                                                  : groomPass->GetStats().GroomsShadowedByOpaqueCascades;
 

@@ -10733,10 +10733,10 @@ TEST_F(VulkanPassSuite, AGroomSplitCascadeCopiesItsOpaqueHalfAndLoadsItUnderTheG
 
     const auto sample = [&](const std::vector<f32>& layer, u32 x)
     { return layer[static_cast<sizet>(kSize / 2u) * kSize + x]; };
-    constexpr u32 kOpaqueOnlyX = kSize / 8;     // NDC -0.75: opaque, no fur
-    constexpr u32 kBothX = 3 * kSize / 8;       // NDC -0.25: fur over opaque
-    constexpr u32 kFurOnlyX = 5 * kSize / 8;    // NDC +0.25: fur, nothing under it
-    constexpr u32 kNeitherX = 7 * kSize / 8;    // NDC +0.75: cleared
+    constexpr u32 kOpaqueOnlyX = kSize / 8;  // NDC -0.75: opaque, no fur
+    constexpr u32 kBothX = 3 * kSize / 8;    // NDC -0.25: fur over opaque
+    constexpr u32 kFurOnlyX = 5 * kSize / 8; // NDC +0.25: fur, nothing under it
+    constexpr u32 kNeitherX = 7 * kSize / 8; // NDC +0.75: cleared
 
     // The FULL layer holds both halves: the opaque quad survived the groom
     // half, so it was loaded, not cleared.
