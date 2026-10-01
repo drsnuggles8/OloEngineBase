@@ -229,6 +229,9 @@ void main()
 
         OloSurfaceLighting contrib = calculateLightContributionSplit(
             u_Lights[i], N, V, card.Albedo, metallic, roughness, v_CardWorld, OLO_PBR_MODEL_LEGACY);
+        // The primary sun's full visibility, for the lighting tap (#1526).
+        if (i == 0 && lightType == DIRECTIONAL_LIGHT)
+            oloRecordLightingTapShadow(shadow);
         Lo = oloSurfaceLightingAdd(Lo, oloSurfaceLightingScale(contrib, vec3(shadow)));
 
         if (isLeaf && hasDirection)
@@ -256,9 +259,10 @@ void main()
             oloSampleReflectionProbes(v_CardWorld, N, foliageR, roughness * MAX_REFLECTION_LOD, probeViewDepth);
         prefilteredColor = mix(prefilteredColor, probeSpecular.rgb, probeSpecular.a);
     }
-    vec3 ambient = oloSurfaceLightingSum(evaluateAmbientLadderSplitEx(
+    OloSurfaceLighting ambientSplit = evaluateAmbientLadderSplitEx(
         vec4(0.0), v_CardWorld, N, V, card.Albedo, metallic, roughness, u_IrradianceMap, u_BRDFLutMap, prefilteredColor,
-        foliageEnableIBL, u_LeafIds.w > 0.5, u_LeafIds.z));
+        foliageEnableIBL, u_LeafIds.w > 0.5, u_LeafIds.z);
+    vec3 ambient = oloSurfaceLightingSum(ambientSplit);
 
     if (isLeaf && u_LeafIds.y > 0.5)
     {
@@ -269,11 +273,18 @@ void main()
     // Screen-space AO on the ambient term only, as DeferredLighting applies it
     // to the G-Buffer twin: ambient * (ao * screenAO), with direct light and
     // both halves of the transmission untouched (issue #1474).
-    vec3 litColor = ambient * (ao * oloForwardScreenSpaceAO(gl_FragCoord.xy)) + oloSurfaceLightingSum(Lo) + transmitted;
+    float ambientVisibility = ao * oloForwardScreenSpaceAO(gl_FragCoord.xy);
+    vec3 litColor = ambient * ambientVisibility + oloSurfaceLightingSum(Lo) + transmitted;
+    // The lighting tap's terms (issue #1526): this shader composes its own sum,
+    // so it records the partition from its halves (transmission is the
+    // remainder) and swaps the tapped term in at the output below.
+    oloRecordLightingTapTerms(Lo.Diffuse, Lo.Specular, ambientSplit.Diffuse * ambientVisibility,
+                              ambientSplit.Specular * ambientVisibility, transmitted);
 
     // Foliage blends are OFF (opaque alpha-tested), so this alpha is never
     // seen; the visible fade is the discard SampleImpostorCard applies.
-    FragColor = vec4(u_WindWeights.w > 0.5 ? card.Albedo : litColor, card.Coverage * card.DistFade);
+    FragColor = vec4(u_WindWeights.w > 0.5 ? card.Albedo : oloLightingTapOutput(litColor, u_LightingTap),
+                     card.Coverage * card.DistFade);
 
     // Camera-motion velocity (impostor has no per-instance prev history).
     vec4 clipCurr = u_ViewProjection * vec4(v_CardWorld, 1.0);

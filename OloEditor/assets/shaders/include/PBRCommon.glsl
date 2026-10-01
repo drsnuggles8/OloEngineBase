@@ -591,17 +591,124 @@ vec3 oloSurfaceLightingSum(OloSurfaceLighting lighting)
 //   `unsplitDirect` — direct light a tier delivered pre-combined (ReSTIR DI).
 //   `transmitted`   — the third transport (leaf / skin), shadowed per light.
 //   `emissive`      — self-emission. Added exactly once, occluded by nothing.
+// -----------------------------------------------------------------------------
+// LIGHTING TAPS (issue #1526) — the split terms as debug outputs.
+//
+// The two compose functions below are the one place every raster lighting path
+// still holds direct and indirect light apart, so they record the terms as they
+// pass through, and oloLightingTapOutput swaps one of them in for the lit colour
+// at the shader's output. The recording is plain stores to private globals and
+// the swap is a uniform branch that returns its input when no tap is selected,
+// so the shipping expression is untouched: a tap-off frame is bit-identical.
+//
+// The taps PARTITION the composed radiance: the four split terms plus the
+// remainder sum to what oloComposeSurfaceRadiance returns (to rounding), with
+// one exception written down rather than hidden: a skin pixel's specular tint
+// (oloApplySkinProfile) is applied after these terms were recorded, so on skin
+// the two specular taps are the untinted lobes.
+//
+//   DIRECT_*    — f * L * cos * visibility over the lights the raster loop owns.
+//   INDIRECT_*  — the ambient rung times its visibility, plus a traced diffuse
+//                 tier (ReSTIR GI) in the diffuse half.
+//   REMAINDER   — everything delivered outside the split: a pre-combined tier
+//                 (ReSTIR DI direct, ReSTIR PT indirect), transmission, emission.
+//   SHADOW_VISIBILITY — the primary directional light's full visibility
+//                 (shadow map, VSM or traced, times cloud and contact shadow),
+//                 greyscale [0,1]; 1 where no directional light shades.
+//
+// Mirrored by LightingTap in Renderer/PostProcessSettings.h. Append, never
+// renumber.
+#define OLO_LIGHTING_TAP_NONE 0
+#define OLO_LIGHTING_TAP_DIRECT_DIFFUSE 1
+#define OLO_LIGHTING_TAP_DIRECT_SPECULAR 2
+#define OLO_LIGHTING_TAP_INDIRECT_DIFFUSE 3
+#define OLO_LIGHTING_TAP_INDIRECT_SPECULAR 4
+#define OLO_LIGHTING_TAP_REMAINDER 5
+#define OLO_LIGHTING_TAP_SHADOW_VISIBILITY 6
+// 7 = ReflectionHitDistance: an SSR-target tap (PostProcess_SSR.glsl), never a
+// lit-colour one, so oloLightingTapOutput passes the colour through for it.
+
+vec3 g_OloTapDirectDiffuse = vec3(0.0);
+vec3 g_OloTapDirectSpecular = vec3(0.0);
+vec3 g_OloTapIndirectDiffuse = vec3(0.0);
+vec3 g_OloTapIndirectSpecular = vec3(0.0);
+vec3 g_OloTapRemainder = vec3(0.0);
+float g_OloTapShadowVisibility = 1.0;
+
+// For a shader that composes its own sum instead of calling the two compose
+// functions below (forward terrain): record the same five terms from its own.
+void oloRecordLightingTapTerms(vec3 directDiffuse, vec3 directSpecular, vec3 indirectDiffuse,
+                               vec3 indirectSpecular, vec3 remainder)
+{
+    g_OloTapDirectDiffuse = directDiffuse;
+    g_OloTapDirectSpecular = directSpecular;
+    g_OloTapIndirectDiffuse = indirectDiffuse;
+    g_OloTapIndirectSpecular = indirectSpecular;
+    g_OloTapRemainder = remainder;
+}
+
+// Called by a lit shader's light loop with the PRIMARY directional light's
+// final visibility (light 0; directional lights lead the light array).
+void oloRecordLightingTapShadow(float visibility)
+{
+    g_OloTapShadowVisibility = visibility;
+}
+
+// `lane` is the camera block's u_LightingTap (include/CameraCommon.glsl), which
+// only the main view's colour passes set: a probe, reflection or shadow view
+// renders its ordinary frame.
+vec3 oloLightingTapOutput(vec3 color, float lane)
+{
+    int tap = int(lane + 0.5);
+    if (tap == OLO_LIGHTING_TAP_NONE)
+        return color;
+    if (tap == OLO_LIGHTING_TAP_DIRECT_DIFFUSE)
+        return g_OloTapDirectDiffuse;
+    if (tap == OLO_LIGHTING_TAP_DIRECT_SPECULAR)
+        return g_OloTapDirectSpecular;
+    if (tap == OLO_LIGHTING_TAP_INDIRECT_DIFFUSE)
+        return g_OloTapIndirectDiffuse;
+    if (tap == OLO_LIGHTING_TAP_INDIRECT_SPECULAR)
+        return g_OloTapIndirectSpecular;
+    if (tap == OLO_LIGHTING_TAP_REMAINDER)
+        return g_OloTapRemainder;
+    if (tap == OLO_LIGHTING_TAP_SHADOW_VISIBILITY)
+        return vec3(g_OloTapShadowVisibility);
+    return color;
+}
+
+// Radiance the deferred lighting pass passes through without lighting it —
+// the sky behind the G-Buffer, per sample on the MSAA path. Under a tap it
+// belongs to the Remainder (it is emission, as far as the split goes), and its
+// shadow visibility is 1; every other term is zero there. Without this an edge
+// pixel that is part sky carried that sky in all five taps, and the partition
+// counted it five times (#1526, found by the MSAA 4 cell).
+vec3 oloLightingTapPassThrough(vec3 radiance, float lane)
+{
+    int tap = int(lane + 0.5);
+    if (tap == OLO_LIGHTING_TAP_NONE || tap == OLO_LIGHTING_TAP_REMAINDER || tap > OLO_LIGHTING_TAP_SHADOW_VISIBILITY)
+        return radiance;
+    if (tap == OLO_LIGHTING_TAP_SHADOW_VISIBILITY)
+        return vec3(1.0);
+    return vec3(0.0);
+}
+
 OloSurfaceLighting oloComposeReflectedLighting(OloSurfaceLighting direct, OloSurfaceLighting ambient,
                                                float ambientVisibility, vec3 tracedIndirectDiffuse)
 {
     OloSurfaceLighting lighting = oloSurfaceLightingAdd(oloSurfaceLightingScale(ambient, vec3(ambientVisibility)),
                                                         direct);
     lighting.Diffuse += tracedIndirectDiffuse;
+    g_OloTapDirectDiffuse = direct.Diffuse;
+    g_OloTapDirectSpecular = direct.Specular;
+    g_OloTapIndirectDiffuse = ambient.Diffuse * ambientVisibility + tracedIndirectDiffuse;
+    g_OloTapIndirectSpecular = ambient.Specular * ambientVisibility;
     return lighting;
 }
 
 vec3 oloComposeSurfaceRadiance(OloSurfaceLighting lighting, vec3 unsplitDirect, vec3 transmitted, vec3 emissive)
 {
+    g_OloTapRemainder = unsplitDirect + transmitted + emissive;
     return oloSurfaceLightingSum(lighting) + unsplitDirect + transmitted + emissive;
 }
 

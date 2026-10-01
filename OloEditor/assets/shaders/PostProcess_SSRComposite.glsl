@@ -80,7 +80,7 @@ layout(std140, binding = 38) uniform SSRParams
     vec4 u_Flags;        // x = DebugView (0/1), y = FrameIndex, z = TierDebugView (0/1), w = RayTierActive (0/1)
     vec4 u_HZBParams;
     vec4 u_TemporalParams;
-    vec4 u_DenoiseParams; // #708: x = PreBlurRadius (px), y = unused, z = PostBlurMaxRadius, w = unused
+    vec4 u_DenoiseParams; // #708: x = PreBlurRadius (px), y = hit-distance tap (#1526), z = PostBlurMaxRadius, w = unused
     vec4 u_DenoiseGuide;  // #708: x = PlaneTolerance, y = NormalPower, z = RoughnessKnee, w = MaxRoughness
 };
 
@@ -161,7 +161,11 @@ void main()
         // chain writes alpha 1.0, so reading it unconditionally would paint the
         // whole frame as "the ray tier answered". u_Flags.w is that guard.
         float rayConfidence = (u_Flags.w > 0.5) ? clamp(sceneSample.a, 0.0, 1.0) : 0.0;
-        float ssrConfidence = clamp(texture(u_Guide, v_TexCoord).a, 0.0, 1.0);
+        // Under the reflection hit-distance tap (#1526) the guide's alpha is a
+        // distance, not SSR's confidence; what survives of the confidence is
+        // whether SSR hit at all (0 = no hit in both meanings).
+        float guideAlpha = texture(u_Guide, v_TexCoord).a;
+        float ssrConfidence = u_DenoiseParams.y > 0.5 ? step(1e-6, guideAlpha) : clamp(guideAlpha, 0.0, 1.0);
         o_Color = vec4(OloReflectionTierDebugColor(ssrConfidence, rayConfidence), 1.0);
         return;
     }

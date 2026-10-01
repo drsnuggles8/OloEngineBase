@@ -120,7 +120,7 @@ layout(std140, binding = 38) uniform SSRParams
     // #708 denoiser chain. Unlike SSGI there is no separate trace band: SSR
     // stays at full resolution, because a reflection carries the sharpest
     // detail in the frame and a half-resolution trace loses exactly that.
-    vec4 u_DenoiseParams;  // x = PreBlurRadius (px), y = unused, z = PostBlurMaxRadius, w = unused
+    vec4 u_DenoiseParams;  // x = PreBlurRadius (px), y = hit-distance tap (#1526), z = PostBlurMaxRadius, w = unused
     vec4 u_DenoiseGuide;   // x = PlaneTolerance (relative), y = NormalPower, z = RoughnessKnee, w = MaxRoughness (the trace's cutoff)
 };
 
@@ -485,4 +485,9 @@ void main()
     o_Color = vec4(oloSpecularTierDelta(baseSpecular, specularWeight, reflColor, blend), viewDepth);
     // The tier debug view's copy of c_ssr. See the o_Guide initialisation above.
     o_Guide.w = blend;
+    // The reflection hit-distance tap (issue #1526): the same lane carries the
+    // view-space distance travelled to the hit instead, for a capture. Every
+    // early-out above leaves 0, which reads as "no hit" in both meanings.
+    if (u_DenoiseParams.y > 0.5)
+        o_Guide.w = traveled;
 }

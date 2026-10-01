@@ -301,6 +301,9 @@ void main()
         OloSurfaceLighting contrib = calculateLightContributionSplit(
             u_Lights[i], leaf.Normal, V, leaf.Albedo, metallic, leaf.Roughness, v_WorldPos,
             OLO_PBR_MODEL_LEGACY);
+        // The primary sun's full visibility, for the lighting tap (#1526).
+        if (i == 0 && lightType == DIRECTIONAL_LIGHT)
+            oloRecordLightingTapShadow(shadow);
         Lo = oloSurfaceLightingAdd(Lo, oloSurfaceLightingScale(contrib, vec3(shadow)));
 
         // The TRANSMITTED lobe, gated by the SAME shadow factor — which is what
@@ -340,9 +343,10 @@ void main()
             oloSampleReflectionProbes(v_WorldPos, leaf.Normal, foliageR, leaf.Roughness * MAX_REFLECTION_LOD, probeViewDepth);
         prefilteredColor = mix(prefilteredColor, probeSpecular.rgb, probeSpecular.a);
     }
-    vec3 ambient = oloSurfaceLightingSum(evaluateAmbientLadderSplitEx(
+    OloSurfaceLighting ambientSplit = evaluateAmbientLadderSplitEx(
         vec4(0.0), v_WorldPos, leaf.Normal, V, leaf.Albedo, metallic, leaf.Roughness, u_IrradianceMap, u_BRDFLutMap, prefilteredColor,
-        foliageEnableIBL, u_LeafIds.w > 0.5, u_LeafIds.z));
+        foliageEnableIBL, u_LeafIds.w > 0.5, u_LeafIds.z);
+    vec3 ambient = oloSurfaceLightingSum(ambientSplit);
 
     // The environment half of the transmission, added ONCE rather than per
     // light — see oloFoliageTransmissionAmbient.
@@ -355,9 +359,15 @@ void main()
     // Screen-space AO on the ambient term only, as DeferredLighting applies it
     // to the G-Buffer twin: ambient * (ao * screenAO), with direct light and
     // both halves of the transmission untouched (issue #1474).
-    vec3 litColor = ambient * (ao * oloForwardScreenSpaceAO(gl_FragCoord.xy)) + oloSurfaceLightingSum(Lo) + transmitted;
+    float ambientVisibility = ao * oloForwardScreenSpaceAO(gl_FragCoord.xy);
+    vec3 litColor = ambient * ambientVisibility + oloSurfaceLightingSum(Lo) + transmitted;
+    // The lighting tap's terms (issue #1526): this shader composes its own sum,
+    // so it records the partition from its halves (transmission is the
+    // remainder) and swaps the tapped term in at the output below.
+    oloRecordLightingTapTerms(Lo.Diffuse, Lo.Specular, ambientSplit.Diffuse * ambientVisibility,
+                              ambientSplit.Specular * ambientVisibility, transmitted);
 
-    FragColor = vec4(u_WindWeights.w > 0.5 ? v_Color : litColor, color.a);
+    FragColor = vec4(u_WindWeights.w > 0.5 ? v_Color : oloLightingTapOutput(litColor, u_LightingTap), color.a);
 
     // Camera-motion + wind-reprojection velocity. v_PrevWorldPos already
     // includes the prev-frame wind displacement (re-evaluated at u_PrevTime).
