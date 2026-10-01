@@ -10209,6 +10209,17 @@ namespace OloEngine
                     }
                     ImGui::Text("Draws: %u cascade, %u virtual-shadow level, %u atlas", stats.CascadeDraws,
                                 stats.VirtualShadowLevelDraws, stats.AtlasDraws);
+                    // Each view casts the share of a coat its width floor allows
+                    // (#1533 E1); the whole count is what casting every strand
+                    // into every view would have drawn.
+                    if (stats.SegmentsWhole > 0u)
+                    {
+                        ImGui::Text("Segments cast: %llu of %llu (%.0f%%)",
+                                    static_cast<unsigned long long>(stats.SegmentsCast),
+                                    static_cast<unsigned long long>(stats.SegmentsWhole),
+                                    100.0 * static_cast<f64>(stats.SegmentsCast) /
+                                        static_cast<f64>(stats.SegmentsWhole));
+                    }
                     if (stats.VirtualShadowMapActive)
                     {
                         ImGui::Text("Virtual Shadow Map page invalidations: %u", stats.VirtualShadowInvalidations);

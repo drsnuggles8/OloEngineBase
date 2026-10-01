@@ -190,6 +190,122 @@ namespace OloEngine::Tests
     }
 
     // ── 8. The authoring boundary the save file and MCP bypass ──────────
+    // ── 8. The caster subset (#1533 E1) ─────────────────────────────────
+    //
+    // The floor over-occludes by the widening factor, so a uniform share of the
+    // coat 1/factor in size blocks what the whole coat really blocks. The share
+    // keeps a margin over that and never casts less than the true coverage.
+
+    TEST(GroomShadowWidening, TheCasterShareUndoesTheFloorsOverCoverageAndKeepsItsMargin)
+    {
+        // The dog's near cascade: about 4 m across at 4096 texels, a texel just
+        // under a millimetre, against a coat whose mean strand is 0.1 mm thick.
+        const glm::mat4 cascade = MakeCascadeViewProjection(4.0f);
+        const f32 ndcPerWorld = GroomShadowNdcPerWorld(cascade, 1.0f);
+        const f32 meanRadius = 0.5f * 1.0e-4f;
+        const f32 widening = GroomShadowWideningFactor(meanRadius, ndcPerWorld, 4096.0f, 1.0f);
+        ASSERT_GT(widening, 2.0f * kGroomCasterCoverageMargin) << "the case must sit where the floor dominates";
+
+        const f32 share = GroomShadowCasterFraction(meanRadius, ndcPerWorld, 4096.0f, 1.0f,
+                                                    kGroomCasterCoverageMargin, kGroomCasterMinFraction);
+        // PINNED: a texel of 4/4096 m over a 0.1 mm strand is a 9.77x widening,
+        // so twice the true coverage is 2/9.77 of the strands.
+        EXPECT_NEAR(widening, 9.766f, 0.01f);
+        EXPECT_NEAR(share, 0.2048f, 0.0005f);
+        // What the subset covers, in units of the whole coat's TRUE coverage: the
+        // margin, exactly.
+        EXPECT_NEAR(share * widening, kGroomCasterCoverageMargin, 1.0e-4f);
+    }
+
+    TEST(GroomShadowWidening, ACoatAlreadyAsThickAsATexelCastsWhole)
+    {
+        const glm::mat4 cascade = MakeCascadeViewProjection(4.0f);
+        const f32 ndcPerWorld = GroomShadowNdcPerWorld(cascade, 1.0f);
+        // A 2 mm "strand" is two texels wide: nothing widened, nothing to undo.
+        EXPECT_EQ(GroomShadowCasterFraction(1.0e-3f, ndcPerWorld, 4096.0f, 1.0f, kGroomCasterCoverageMargin,
+                                            kGroomCasterMinFraction),
+                  1.0f);
+        // And a coat whose widening is below the margin keeps every strand too.
+        const f32 texelHalfMetres = 1.0f / (ndcPerWorld * 4096.0f);
+        EXPECT_EQ(GroomShadowCasterFraction(0.7f * texelHalfMetres, ndcPerWorld, 4096.0f, 1.0f,
+                                            kGroomCasterCoverageMargin, kGroomCasterMinFraction),
+                  1.0f);
+    }
+
+    TEST(GroomShadowWidening, NoFloorNoRadiusOrNoProjectionCastsWhole)
+    {
+        const glm::mat4 cascade = MakeCascadeViewProjection(4.0f);
+        const f32 ndcPerWorld = GroomShadowNdcPerWorld(cascade, 1.0f);
+        EXPECT_EQ(GroomShadowCasterFraction(5.0e-5f, ndcPerWorld, 4096.0f, 0.0f, 2.0f, 0.0625f), 1.0f)
+            << "a zero floor widens nothing, so there is no over-coverage to trade";
+        EXPECT_EQ(GroomShadowCasterFraction(0.0f, ndcPerWorld, 4096.0f, 1.0f, 2.0f, 0.0625f), 1.0f)
+            << "an unmeasured radius is not an infinitely thin one";
+        EXPECT_EQ(GroomShadowCasterFraction(5.0e-5f, 0.0f, 4096.0f, 1.0f, 2.0f, 0.0625f), 1.0f);
+        EXPECT_EQ(GroomShadowCasterFraction(std::numeric_limits<f32>::quiet_NaN(), ndcPerWorld, 4096.0f, 1.0f, 2.0f,
+                                            0.0625f),
+                  1.0f);
+    }
+
+    TEST(GroomShadowWidening, TheShareNeverFallsBelowItsMinimumOrUnderTheTrueCoverage)
+    {
+        // A coarse cascade: 200 m across at 1024 texels, a 0.1 mm strand widened
+        // about two thousand-fold.
+        const glm::mat4 coarse = MakeCascadeViewProjection(200.0f);
+        const f32 ndcPerWorld = GroomShadowNdcPerWorld(coarse, 1.0f);
+        EXPECT_EQ(GroomShadowCasterFraction(5.0e-5f, ndcPerWorld, 1024.0f, 1.0f, kGroomCasterCoverageMargin,
+                                            kGroomCasterMinFraction),
+                  kGroomCasterMinFraction);
+
+        // A margin under 1 -- or not a number -- would cast less than the coat
+        // blocks; both are read as 1, which keeps the true coverage exactly.
+        const glm::mat4 nearCascade = MakeCascadeViewProjection(4.0f);
+        const f32 nearNdc = GroomShadowNdcPerWorld(nearCascade, 1.0f);
+        const f32 widening = GroomShadowWideningFactor(5.0e-5f, nearNdc, 4096.0f, 1.0f);
+        for (const f32 margin : { 0.25f, std::numeric_limits<f32>::quiet_NaN() })
+        {
+            const f32 share = GroomShadowCasterFraction(5.0e-5f, nearNdc, 4096.0f, 1.0f, margin, 0.0f);
+            EXPECT_NEAR(share * widening, 1.0f, 1.0e-4f) << "margin " << margin;
+        }
+    }
+
+    TEST(GroomShadowWidening, TheMeanRadiusMakesTheShareALowerBoundForAMixedCoat)
+    {
+        // A coat of two populations, by length: thin undercoat far below the
+        // floor and guard hair ABOVE it. The share computed from the
+        // length-weighted mean radius must still keep at least the margin times
+        // the true coverage once the thick strands keep their own width.
+        const glm::mat4 cascade = MakeCascadeViewProjection(4.0f);
+        const f32 ndcPerWorld = GroomShadowNdcPerWorld(cascade, 1.0f);
+        const f32 resolution = 4096.0f;
+        const f32 floorHalfNdc = 1.0f / resolution;
+        struct Population
+        {
+            f32 Radius;
+            f32 Length;
+        };
+        // 0.06 mm undercoat a sixteenth of a texel wide, and 1.2 mm guard hair
+        // a fifth wider than the texel.
+        const Population coat[] = { { 3.0e-5f, 90.0f }, { 6.0e-4f, 10.0f } };
+
+        f32 radiusLength = 0.0f;
+        f32 length = 0.0f;
+        f32 trueArea = 0.0f;
+        f32 flooredArea = 0.0f;
+        for (const Population& population : coat)
+        {
+            radiusLength += population.Radius * population.Length;
+            length += population.Length;
+            const f32 trueHalf = population.Radius * ndcPerWorld;
+            trueArea += trueHalf * population.Length;
+            flooredArea += std::max(trueHalf, floorHalfNdc) * population.Length;
+        }
+        const f32 share = GroomShadowCasterFraction(radiusLength / length, ndcPerWorld, resolution, 1.0f,
+                                                    kGroomCasterCoverageMargin, 0.0f);
+        EXPECT_LT(share, 1.0f) << "the case must actually thin the coat";
+        EXPECT_GE(share * flooredArea, kGroomCasterCoverageMargin * trueArea * 0.9999f)
+            << "the subset covers less than the margin promises once some strands are wider than the floor";
+    }
+
     TEST(GroomSceneShadowComponentSanitiser, ANonFiniteOrNegativeFloorIsReplacedRatherThanPassedThrough)
     {
         GroomSceneShadowComponent component;

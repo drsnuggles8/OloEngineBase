@@ -916,10 +916,15 @@ namespace OloEngine
                                               const GroomStrandBuildSettings& settings,
                                               std::vector<GroomStrandVertex>& outVertices, std::vector<u32>& outIndices,
                                               const GroomStrandDeformation* deformation, const GroomCoatContext* coat,
-                                              const GroomStrandSimulation* simulation)
+                                              const GroomStrandSimulation* simulation,
+                                              std::vector<u32>* outStrandFirstIndex)
     {
         outVertices.clear();
         outIndices.clear();
+        if (outStrandFirstIndex != nullptr)
+        {
+            outStrandFirstIndex->clear();
+        }
 
         // A deformation that does not span this groom is treated as ABSENT
         // rather than partially applied. Half a deformed coat is the plausible
@@ -958,6 +963,10 @@ namespace OloEngine
         GroomStrandMeshStats stats;
         const auto onCurve = [&](u32 /*curve*/, u32 sourceCurve)
         {
+            if (outStrandFirstIndex != nullptr)
+            {
+                outStrandFirstIndex->push_back(static_cast<u32>(outIndices.size()));
+            }
             record = nullptr;
             transform = nullptr;
             if (deformed)
@@ -1083,7 +1092,8 @@ namespace OloEngine
                                                   std::vector<GroomStrandVertex>& outVertices,
                                                   std::vector<u32>& outIndices, std::vector<u32>& outRootCurves,
                                                   const GroomCoatContext* coat,
-                                                  std::vector<GroomRestPoseSegment>* outPoseSegments)
+                                                  std::vector<GroomRestPoseSegment>* outPoseSegments,
+                                                  std::vector<u32>* outStrandFirstIndex)
     {
         outVertices.clear();
         outIndices.clear();
@@ -1091,6 +1101,10 @@ namespace OloEngine
         if (outPoseSegments != nullptr)
         {
             outPoseSegments->clear();
+        }
+        if (outStrandFirstIndex != nullptr)
+        {
+            outStrandFirstIndex->clear();
         }
 
         // The binding must span the BASE groom, for the reason
@@ -1122,6 +1136,10 @@ namespace OloEngine
         GroomStrandMeshStats stats;
         const auto onCurve = [&](u32 /*curve*/, u32 sourceCurve)
         {
+            if (outStrandFirstIndex != nullptr)
+            {
+                outStrandFirstIndex->push_back(static_cast<u32>(outIndices.size()));
+            }
             record = &binding.GetRoot(sourceCurve);
             // The slot is the index of this strand's per-frame record in the
             // deformation buffer. A FLOAT holding an integer rather than a
@@ -1190,6 +1208,104 @@ namespace OloEngine
         WalkStrandSegments(source, settings, coat, stats, onCurve, onSegment);
         FinishStreamStats(stats, outVertices, outIndices, boundsMin, boundsMax);
         return stats;
+    }
+
+    // ── The shadow caster's order (#1533 E1) ────────────────────────────────
+
+    namespace
+    {
+        // lowbias32 (Wellons' integer-hash search): every input bit reaches every
+        // output bit, so neighbouring strands land nowhere near each other in the
+        // order. A bijection on u32 -- xor-shifts and odd multiplies invert -- so
+        // two strands never tie and the sort below is a strict order.
+        [[nodiscard]] constexpr u32 CasterOrderHash(u32 x) noexcept
+        {
+            x ^= x >> 16u;
+            x *= 0x7feb352du;
+            x ^= x >> 15u;
+            x *= 0x846ca68bu;
+            x ^= x >> 16u;
+            return x;
+        }
+    } // namespace
+
+    GroomCasterOrder BuildGroomCasterOrder(std::span<const GroomStrandVertex> vertices, std::span<const u32> indices,
+                                           std::span<const u32> strandFirstIndex)
+    {
+        GroomCasterOrder order;
+        const sizet strands = strandFirstIndex.size();
+        if (strands == 0u || indices.empty())
+        {
+            return order;
+        }
+        const auto strandEnd = [&](sizet strand) -> u32
+        { return strand + 1u < strands ? strandFirstIndex[strand + 1u] : static_cast<u32>(indices.size()); };
+        // A table that does not describe this stream gives no order at all: the
+        // caller casts the stream whole rather than a subset of something else.
+        for (sizet strand = 0; strand < strands; ++strand)
+        {
+            if (strandFirstIndex[strand] > strandEnd(strand) || strandEnd(strand) > indices.size())
+            {
+                return order;
+            }
+        }
+
+        std::vector<std::pair<u32, u32>> keyed(strands);
+        for (sizet strand = 0; strand < strands; ++strand)
+        {
+            keyed[strand] = { CasterOrderHash(static_cast<u32>(strand)), static_cast<u32>(strand) };
+        }
+        std::ranges::sort(keyed);
+
+        order.Indices.reserve(indices.size());
+        sizet level = 1u;
+        for (sizet placed = 0; placed < strands; ++placed)
+        {
+            const u32 strand = keyed[placed].second;
+            order.Indices.insert(order.Indices.end(), indices.begin() + strandFirstIndex[strand],
+                                 indices.begin() + strandEnd(strand));
+            // Every level this strand completes: level j holds the first
+            // ceil(j * strands / levels) strands, which is `placed + 1` exactly
+            // when j * strands <= (placed + 1) * levels.
+            while (level <= kGroomCasterPrefixLevels &&
+                   static_cast<u64>(level) * strands <= static_cast<u64>(placed + 1u) * kGroomCasterPrefixLevels)
+            {
+                order.Prefix[level] = static_cast<u32>(order.Indices.size());
+                ++level;
+            }
+        }
+
+        // Each segment's four corners: two at P0 carrying Radius0 and two at P1
+        // carrying Radius1, every one with Other - Position = the segment, in both
+        // encodings (EmitSegmentQuad). In doubles: two million segments of
+        // sub-millimetre radii lose digits in a float sum.
+        f64 radiusLength = 0.0;
+        f64 length = 0.0;
+        for (sizet corner = 0; corner + 3u < vertices.size(); corner += 4u)
+        {
+            const f64 segmentLength = glm::length(vertices[corner].Other - vertices[corner].Position);
+            radiusLength += 0.5 * (vertices[corner].Radius + vertices[corner + 2u].Radius) * segmentLength;
+            length += segmentLength;
+        }
+        order.MeanRadius = length > 0.0 ? static_cast<f32>(radiusLength / length) : 0.0f;
+        return order;
+    }
+
+    u32 GroomCasterIndexCount(std::span<const u32> prefix, f32 fraction) noexcept
+    {
+        if (prefix.size() != kGroomCasterPrefixLevels + 1u)
+        {
+            return 0u;
+        }
+        // NaN and anything from 1 up cast the whole coat; a subset never rounds
+        // to nothing.
+        if (!(fraction < 1.0f))
+        {
+            return prefix[kGroomCasterPrefixLevels];
+        }
+        const f32 levels = std::ceil(std::max(fraction, 0.0f) * static_cast<f32>(kGroomCasterPrefixLevels));
+        const sizet level = std::clamp<sizet>(static_cast<sizet>(levels), 1u, kGroomCasterPrefixLevels);
+        return prefix[level];
     }
 
     // ── The GroomAsset overloads ────────────────────────────────────────────

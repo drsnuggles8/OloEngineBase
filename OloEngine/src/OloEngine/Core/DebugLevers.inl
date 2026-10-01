@@ -69,6 +69,11 @@ OLO_LEVER_EXACT(GroomNoDepthPrepass, "OLO_GROOM_NO_DEPTH_PREPASS",
                 "instead of the depth prepass and the shading draw at EQUAL (#1533 E1). The same fragments win "
                 "either way, so this is the A/B for whether the prepass pays for its second raster: compare the "
                 "GroomPass GPU time with it on and off. Read per frame.")
+OLO_LEVER_NUMBER(GroomShadowCasterFraction, "OLO_GROOM_SHADOW_CASTER_FRACTION", 0.015625f, 1.0f,
+                 "Cast every groom's scene shadow from this share of its strands in EVERY view, instead of the share "
+                 "each view's width floor allows (GroomShadowCasterFraction, #1533 E1). 1 casts the whole coat -- the "
+                 "A/B against the subset, for the shadow pass's GroomCasters time and for the look. Rounded up to a "
+                 "sixty-fourth. Unset keeps the per-view rule. Read per frame.")
 
 // --- Fault injection ----------------------------------------------------------
 // Deliberately WRONG behaviour, for the negative controls of the renderer

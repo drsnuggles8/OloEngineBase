@@ -203,17 +203,34 @@ namespace
 
         std::vector<GroomStrandVertex> cpu;
         std::vector<u32> cpuIndices;
-        const GroomStrandMeshStats cpuStats =
-            BuildGroomStrandMesh(source, settings, cpu, cpuIndices, &deformation, coat, simulation);
+        std::vector<u32> cpuStrandFirst;
+        const GroomStrandMeshStats cpuStats = BuildGroomStrandMesh(source, settings, cpu, cpuIndices, &deformation,
+                                                                   coat, simulation, &cpuStrandFirst);
 
         std::vector<GroomStrandVertex> rest;
         std::vector<u32> restIndices;
         std::vector<u32> rootCurves;
-        const GroomStrandMeshStats restStats =
-            BuildGroomStrandRestMesh(source, settings, binding, rest, restIndices, rootCurves, coat);
+        std::vector<u32> restStrandFirst;
+        const GroomStrandMeshStats restStats = BuildGroomStrandRestMesh(source, settings, binding, rest, restIndices,
+                                                                        rootCurves, coat, nullptr, &restStrandFirst);
 
         EXPECT_EQ(rest.size(), cpu.size()) << "the two paths must walk the same strands";
         EXPECT_EQ(restIndices, cpuIndices) << "and index them identically";
+        // The shadow caster's order (#1533 E1) is built from these: both paths
+        // must cast the same strands as the same subset.
+        EXPECT_EQ(restStrandFirst, cpuStrandFirst) << "and group them into the same strands";
+        EXPECT_EQ(restStrandFirst.size(), rootCurves.size()) << "one strand per root slot";
+        if (!rest.empty() && rest.size() == cpu.size())
+        {
+            const GroomCasterOrder restOrder = BuildGroomCasterOrder(rest, restIndices, restStrandFirst);
+            const GroomCasterOrder cpuOrder = BuildGroomCasterOrder(cpu, cpuIndices, cpuStrandFirst);
+            EXPECT_EQ(restOrder.Indices, cpuOrder.Indices);
+            EXPECT_EQ(restOrder.Prefix, cpuOrder.Prefix);
+            // Lengths in the bind frame against lengths in the pose: a rotation
+            // per root, so equal up to rounding -- and the simulation's
+            // displacement, which stretches a strand by a hair at most.
+            EXPECT_NEAR(restOrder.MeanRadius, cpuOrder.MeanRadius, 0.02f * cpuOrder.MeanRadius);
+        }
         EXPECT_EQ(restStats.SegmentCount, cpuStats.SegmentCount);
         EXPECT_EQ(restStats.StrandsSelected, cpuStats.StrandsSelected);
         if (rest.size() != cpu.size())

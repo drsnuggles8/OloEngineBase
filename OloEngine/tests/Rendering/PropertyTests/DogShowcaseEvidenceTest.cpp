@@ -2418,6 +2418,134 @@ namespace OloEngine::Tests
     }
 
     // =========================================================================
+    // #1533 E1: each shadow view casts the share of the coat its width floor
+    // allows (GroomShadowCasterFraction) -- a prefix of a hashed strand order --
+    // instead of all 280k strands into every cascade. Pinned on the real dog: the
+    // rule thins the coat at the hero framings, and a subset NEVER ADDS SHADOW --
+    // nothing in the frame darkens beyond the noise of an arm against itself. What
+    // it does change is the fur's shadow on the body, the ground and the eyes,
+    // which the whole cast over-occludes by the widening factor; that brightening
+    // is reported, and the two casts are written side by side with an amplified
+    // difference for the look review.
+    //
+    // ONE POSE, NO SOLVER. The guides keep settling after the clip stops, so
+    // captures in sequence see different coats; and the arms are INTERLEAVED --
+    // whole, rule, whole, rule -- so each arm's own repeat is its noise floor.
+    // =========================================================================
+    TEST_F(DogShowcaseEvidenceTest, TheCoatCastsTheShareItsTexelsNeedWithoutChangingTheDog)
+    {
+        SetPath(RenderingPath::Forward);
+        (void)PlayClip("Idle", true, 40);
+        auto& anim = m_Dog.Body.GetComponent<AnimationStateComponent>();
+        anim.m_IsPlaying = false; // one pose for every arm
+        auto& simulation = m_Dog.Coat.GetComponent<GroomSimulationComponent>();
+        simulation.m_Enabled = false;
+        struct Restore
+        {
+            AnimationStateComponent& Anim;
+            GroomSimulationComponent& Simulation;
+            ~Restore()
+            {
+                Levers::SetGroomShadowCasterFraction(std::nullopt);
+                Anim.m_IsPlaying = true;
+                Simulation.m_Enabled = true;
+            }
+        } restore{ anim, simulation };
+
+        const auto luma = [](const std::vector<u8>& f, sizet i)
+        { return (0.2126 * f[i]) + (0.7152 * f[i + 1]) + (0.0722 * f[i + 2]); };
+        const auto shadowStats = []
+        {
+            const GroomRenderPass* pass = Renderer3D::GetGroomRenderPass();
+            return pass != nullptr ? pass->GetStats().SceneShadow : GroomShadowCasterStats{};
+        };
+        const std::array<View, 6> heroes = HeroViews();
+        for (const View& view : { heroes[2], heroes[5], heroes[1] })
+        {
+            SCOPED_TRACE(view.Name);
+            const std::string stem = std::string("DogCasterSubset_GL_Forward_") + view.Name;
+            std::vector<u8> bald;
+            m_Dog.Coat.GetComponent<GroomComponent>().m_RenderStrands = false;
+            ColdHistory();
+            Capture("", view, bald);
+            m_Dog.Coat.GetComponent<GroomComponent>().m_RenderStrands = true;
+
+            std::array<std::vector<u8>, 2> whole;
+            std::array<std::vector<u8>, 2> rule;
+            GroomShadowCasterStats wholeStats{};
+            GroomShadowCasterStats ruleStats{};
+            for (u32 repeat = 0; repeat < 2u; ++repeat)
+            {
+                Levers::SetGroomShadowCasterFraction(1.0f);
+                ColdHistory();
+                Capture(repeat == 0u ? stem + "Whole" : std::string(), view, whole[repeat]);
+                wholeStats = shadowStats();
+                Levers::SetGroomShadowCasterFraction(std::nullopt);
+                ColdHistory();
+                Capture(repeat == 0u ? stem + "Rule" : std::string(), view, rule[repeat]);
+                ruleStats = shadowStats();
+            }
+            ASSERT_FALSE(HasFatalFailure());
+
+            // Signed means per region -- the coat (where hiding it moves the
+            // frame, which includes the fur's own shadow on the body and the
+            // ground) and the scene -- and per-pixel darkenings. Each arm against
+            // its own repeat is the floor both are read against.
+            struct Region
+            {
+                f64 Whole[2]{};
+                f64 Rule[2]{};
+                u32 Pixels = 0;
+                u32 DarkerUnderRule = 0;
+                u32 DarkerBetweenWholes = 0;
+            };
+            Region coat;
+            Region scene;
+            std::vector<u8> diff(whole[0].size(), 0u);
+            for (sizet i = 0; i + 3 < whole[0].size(); i += 4)
+            {
+                Region& region = std::abs(luma(whole[0], i) - luma(bald, i)) > kDiffThreshold ? coat : scene;
+                ++region.Pixels;
+                for (u32 r = 0; r < 2u; ++r)
+                {
+                    region.Whole[r] += luma(whole[r], i);
+                    region.Rule[r] += luma(rule[r], i);
+                }
+                const f64 change = luma(rule[0], i) - luma(whole[0], i);
+                region.DarkerUnderRule += change < -kDiffThreshold ? 1u : 0u;
+                region.DarkerBetweenWholes += (luma(whole[1], i) - luma(whole[0], i)) < -kDiffThreshold ? 1u : 0u;
+                // Brighter under the rule in green, darker in red, x8.
+                diff[i] = static_cast<u8>(std::clamp(-change * 8.0, 0.0, 255.0));
+                diff[i + 1] = static_cast<u8>(std::clamp(change * 8.0, 0.0, 255.0));
+                diff[i + 3] = 255u;
+            }
+            WritePng(stem + "Diff", diff, kWidth, kHeight);
+            const f64 share = ruleStats.SegmentsWhole > 0u ? static_cast<f64>(ruleStats.SegmentsCast) /
+                                                                  static_cast<f64>(ruleStats.SegmentsWhole)
+                                                            : 1.0;
+            for (const auto& [name, region] : { std::pair<const char*, const Region&>{ "coat", coat },
+                                                std::pair<const char*, const Region&>{ "scene", scene } })
+            {
+                const f64 n = std::max<f64>(1.0, static_cast<f64>(region.Pixels));
+                const f64 change = ((region.Rule[0] + region.Rule[1]) - (region.Whole[0] + region.Whole[1])) / (2.0 * n);
+                const f64 noise = std::max(std::abs(region.Whole[1] - region.Whole[0]),
+                                           std::abs(region.Rule[1] - region.Rule[0])) / n;
+                std::printf("[dog] caster subset %-12s cast %.1f%% of %llu segments | %-5s %6u px mean luma %+.3f "
+                            "(floor %.3f), %u px darker under the rule vs %u between the whole casts\n",
+                            view.Name, 100.0 * share, static_cast<unsigned long long>(ruleStats.SegmentsWhole), name,
+                            region.Pixels, change, noise, region.DarkerUnderRule, region.DarkerBetweenWholes);
+                EXPECT_GT(change, -std::max(3.0 * noise, 0.05)) << name << ": a subset of the fur added shadow";
+                EXPECT_LE(region.DarkerUnderRule, 2u * region.DarkerBetweenWholes + 200u)
+                    << name << ": more pixels darkened under the subset than the frame's own noise darkens";
+            }
+            std::fflush(stdout);
+
+            EXPECT_EQ(wholeStats.SegmentsCast, wholeStats.SegmentsWhole) << "the lever at 1 must cast every strand";
+            EXPECT_LT(ruleStats.SegmentsCast, ruleStats.SegmentsWhole) << "the rule cast the whole coat at a hero view";
+        }
+    }
+
+    // =========================================================================
     // #1533 E1: the coat baked at rest shadows the moving dog as the exact pose
     // bake does. Idle is motion the body carries -- breathing, a head drift, a
     // wag -- where looking the rest volume up at each strand's bind point is

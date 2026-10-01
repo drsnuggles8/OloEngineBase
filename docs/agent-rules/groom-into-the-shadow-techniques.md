@@ -43,10 +43,12 @@ the groom half of `Renderer/Passes/ShadowRenderPass.cpp`, `GroomStrandDepth.glsl
    against a 20 m cascade at 2048 texels is 0.0036 texels of half width; rasterised honestly it casts
    nothing. `GroomShadowWidening.AHairIsFarBelowACascadeTexelSoTheFloorIsWhatMakesItCast` pins it.
 
-7. **No compensating alpha on the shadow side.** A depth target has no alpha, and a hashed discard
-   would be a stochastic technique with nothing to converge it (`groom-strand-visibility.md` rule 6).
-   A widened strand casts an opaque shadow; a coat too sparse to fill a texel is over-occluded by at
-   most the widening factor. A dense coat is opaque there in reality too.
+7. **No compensating alpha on the shadow side; each view casts only the share its floor allows.** A
+   depth target has no alpha, and a hashed discard would be a stochastic technique with nothing to
+   converge it (`groom-strand-visibility.md` rule 6). A widened strand over-occludes by the widening
+   factor, so a view casts `GroomShadowCasterFraction` of the strands (2 / factor, at least 1/16): a
+   prefix of a hashed strand order (`GroomCasterOrder`) that keeps twice the true coverage. Strided
+   subsets alias with periodic cooks; a subset never adds shadow (#1533).
 
 8. **A strand samples the OPAQUE copies at itself; without a copy its receiver is the coat's
    LIGHT-EXIT POINT, gated on CASTING, not on the density volume.** A caster's strands are in the map,

@@ -80,4 +80,43 @@ namespace OloEngine
         }
         return GroomShadowHalfWidthNdc(radiusWorld, ndcPerWorld, resolutionTexels, minWidthTexels) / trueHalfNdc;
     }
+
+    /// How many times the true coverage a caster SUBSET keeps (#1533 E1): see
+    /// GroomShadowCasterFraction. Two, so the floored map still blocks more
+    /// than the real coat does wherever a fringe thins out.
+    inline constexpr f32 kGroomCasterCoverageMargin = 2.0f;
+
+    /// The smallest share of a coat any view casts with: past sixteen-fold
+    /// the saving is noise and the subset is a few strands per texel.
+    inline constexpr f32 kGroomCasterMinFraction = 1.0f / 16.0f;
+
+    /// The share of a coat's strands one shadow view needs (#1533 E1), given the
+    /// coat's LENGTH-WEIGHTED mean radius in world metres.
+    ///
+    /// THE FLOOR ALREADY OVER-OCCLUDES, by GroomShadowWideningFactor: a strand a
+    /// fifth of a texel wide is rasterised a full texel wide and blocks five
+    /// times the area it really does. So a uniform 1/F of the coat at the floor
+    /// blocks, in expectation, the area the whole coat blocks at its true widths
+    /// -- a depth map's texel occupancy, 1 - exp(-coverage), then matches the
+    /// real coat's opacity instead of exceeding it F-fold. The fraction keeps
+    /// `margin` times that, clamped to [minFraction, 1].
+    ///
+    /// The mean radius makes it a LOWER BOUND on what the subset covers: a
+    /// strand wider than the floor keeps its own width, so the floored draw
+    /// covers at least floor * length per strand and never less than the mean
+    /// says. Where the mean strand is already a texel wide nothing is widened,
+    /// nothing is over-covered, and the whole coat is cast.
+    [[nodiscard]] inline f32 GroomShadowCasterFraction(f32 meanRadiusWorld, f32 ndcPerWorld, f32 resolutionTexels,
+                                                       f32 minWidthTexels, f32 margin, f32 minFraction) noexcept
+    {
+        const f32 widening = GroomShadowWideningFactor(meanRadiusWorld, ndcPerWorld, resolutionTexels, minWidthTexels);
+        if (!(widening > 1.0f) || !std::isfinite(widening))
+        {
+            return 1.0f;
+        }
+        // A margin below 1 would cast less than the real coat blocks.
+        const f32 kept = std::max(std::isfinite(margin) ? margin : 1.0f, 1.0f) / widening;
+        const f32 lowest = std::isfinite(minFraction) ? std::clamp(minFraction, 0.0f, 1.0f) : 1.0f;
+        return std::clamp(kept, lowest, 1.0f);
+    }
 } // namespace OloEngine

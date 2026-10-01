@@ -373,6 +373,7 @@ namespace OloEngine
         const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
         std::vector<GroomStrandVertex> vertices;
         std::vector<u32> indices;
+        std::vector<u32> strandFirstIndex;
         auto stream = Ref<GroomRestStream>::Create();
         // The coat bake's centrelines come out of the same walk when the coat
         // already asks for a self-shadow; otherwise AcquireDrawnPose builds
@@ -380,7 +381,7 @@ namespace OloEngine
         const bool wantsPose = request.CoatShadow != GroomCoatShadowTechnique::None;
         const GroomStrandMeshStats stats =
             BuildGroomStrandRestMesh(source, request.Build, binding, vertices, indices, stream->RootCurves, &coat,
-                                     wantsPose ? &stream->PoseSegments : nullptr);
+                                     wantsPose ? &stream->PoseSegments : nullptr, &strandFirstIndex);
         if (wantsPose)
         {
             ScaleRestPoseToCardFibre(request, stream->PoseSegments);
@@ -421,14 +422,18 @@ namespace OloEngine
         stream->Array = VertexArray::Create();
         stream->Array->AddVertexBuffer(stream->Vertices);
         stream->Array->SetIndexBuffer(stream->Indices);
+        stream->Caster = BuildCasterStream(stream->Vertices, vertices, indices, strandFirstIndex);
+        stream->Bytes += stream->Caster.Bytes;
 
         m_CacheBytes += stream->Bytes;
         ++m_Stats.CacheBuilds;
 
         OLO_CORE_TRACE("GroomRenderPass: built REST strand geometry for bound groom {} — {} of {} strands (stride {}), "
-                       "{} segments, {:.2f} MiB, deformed on the GPU and shared by every entity wearing it",
+                       "{} segments, {:.2f} MiB, deformed on the GPU and shared by every entity wearing it; mean "
+                       "radius {:.1f} um",
                        static_cast<u64>(request.Handle), stats.StrandsSelected, stats.StrandsAvailable, stats.Stride,
-                       stats.SegmentCount, static_cast<f64>(stream->Bytes) / (1024.0 * 1024.0));
+                       stats.SegmentCount, static_cast<f64>(stream->Bytes) / (1024.0 * 1024.0),
+                       static_cast<f64>(stream->Caster.MeanRadius) * 1.0e6);
 
         m_RestStreams[key] = stream;
         return stream;
@@ -1025,6 +1030,7 @@ namespace OloEngine
         std::vector<GroomStrandVertex> restVertices;
         std::vector<GroomStrandVertex>& vertices = deformed ? outDeformedVertices : restVertices;
         std::vector<u32> indices;
+        std::vector<u32> strandFirstIndex;
         // The coat context is assembled HERE, at the point of use, because it is
         // the only place both halves are certainly alive: the settings come from
         // the request and the per-group table belongs to the asset the request
@@ -1051,7 +1057,8 @@ namespace OloEngine
         const GroomStrandMeshStats stats =
             BuildGroomStrandMesh(request.BuildSource(), request.Build, vertices, indices,
                                  deformed ? &deformation : nullptr, &coat,
-                                 simulation.IsUsable(request.Groom->GetCurveCount()) ? &simulation : nullptr);
+                                 simulation.IsUsable(request.Groom->GetCurveCount()) ? &simulation : nullptr,
+                                 &strandFirstIndex);
         if (deformed)
         {
             m_Stats.DeformedBuildMicroseconds += static_cast<u64>(
@@ -1123,6 +1130,10 @@ namespace OloEngine
         entry.Array = VertexArray::Create();
         entry.Array->AddVertexBuffer(entry.Vertices);
         entry.Array->SetIndexBuffer(entry.Indices);
+        // Built once with the buffers: the refill above moves the vertices and
+        // keeps every index, so the caster's order stays valid with them.
+        entry.Caster = BuildCasterStream(entry.Vertices, vertices, indices, strandFirstIndex);
+        entry.Bytes += entry.Caster.Bytes;
 
         m_CacheBytes += entry.Bytes;
         ++m_Stats.CacheBuilds;
@@ -2604,10 +2615,12 @@ namespace OloEngine
             if (shadowStats.GroomsAskedToCast > 0u)
             {
                 OLO_CORE_INFO("GroomRenderPass: {} of {} groom(s) casting ({} had no geometry) — draws: {} cascade, "
-                              "{} virtual-shadow level, {} atlas; the frame's directional technique is {}",
+                              "{} virtual-shadow level, {} atlas, casting {} of {} segments; the frame's directional "
+                              "technique is {}",
                               shadowStats.GroomsCasting, shadowStats.GroomsAskedToCast,
                               shadowStats.GroomsWithoutGeometry, shadowStats.CascadeDraws,
-                              shadowStats.VirtualShadowLevelDraws, shadowStats.AtlasDraws,
+                              shadowStats.VirtualShadowLevelDraws, shadowStats.AtlasDraws, shadowStats.SegmentsCast,
+                              shadowStats.SegmentsWhole,
                               shadowStats.VirtualShadowMapActive ? "the Virtual Shadow Map" : "the CSM cascades");
             }
         }
@@ -2714,6 +2727,27 @@ namespace OloEngine
         return true;
     }
 
+    GroomRenderPass::GroomCasterStream GroomRenderPass::BuildCasterStream(const Ref<VertexBuffer>& vertexBuffer,
+                                                                          std::span<const GroomStrandVertex> vertices,
+                                                                          std::span<const u32> indices,
+                                                                          std::span<const u32> strandFirstIndex)
+    {
+        GroomCasterStream caster;
+        GroomCasterOrder order = BuildGroomCasterOrder(vertices, indices, strandFirstIndex);
+        if (!vertexBuffer || order.Indices.size() != indices.size())
+        {
+            return caster;
+        }
+        caster.Indices = IndexBuffer::Create(order.Indices.data(), static_cast<u32>(order.Indices.size()));
+        caster.Array = VertexArray::Create();
+        caster.Array->AddVertexBuffer(vertexBuffer);
+        caster.Array->SetIndexBuffer(caster.Indices);
+        caster.Prefix = order.Prefix;
+        caster.MeanRadius = order.MeanRadius;
+        caster.Bytes = static_cast<u64>(order.Indices.size()) * sizeof(u32);
+        return caster;
+    }
+
     bool GroomRenderPass::AcquireShadowCaster(const GroomStrandRequest& request, ShadowCasterGeometry& out)
     {
         out = ShadowCasterGeometry{};
@@ -2735,7 +2769,21 @@ namespace OloEngine
             return false;
         }
 
-        out.Vao = entry->Array->GetRHIHandle();
+        // THE CASTER'S ORDER when the stream has one (#1533 E1) -- the same
+        // vertices and the same indices, regrouped so a view can cast a prefix.
+        // A GPU-deformed entry draws its shared rest stream, so it casts that
+        // stream's order.
+        const GroomCasterStream& caster = (entry->GpuDeformed && entry->Rest) ? entry->Rest->Caster : entry->Caster;
+        if (caster.Array && caster.Prefix[kGroomCasterPrefixLevels] == entry->Stats.IndexCount)
+        {
+            out.Vao = caster.Array->GetRHIHandle();
+            out.CasterPrefix = caster.Prefix;
+            out.MeanRadius = caster.MeanRadius;
+        }
+        else
+        {
+            out.Vao = entry->Array->GetRHIHandle();
+        }
         out.IndexCount = entry->Stats.IndexCount;
         out.BoundsValid = PosedObjectBounds(request, *entry, out.BoundsMin, out.BoundsMax);
 

@@ -15,6 +15,7 @@
 
 #include <functional>
 #include <glm/glm.hpp>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -128,6 +129,11 @@ namespace OloEngine
     {
         RHI::ResourceHandle vaoID{};
         u32 indexCount = 0;
+        // The caster order's prefix table and the stream's length-weighted mean
+        // object-space radius (#1533 E1; GroomRenderPass::ShadowCasterGeometry).
+        // Empty prefix = the stream has no caster order and is cast whole.
+        std::span<const u32> prefix{};
+        f32 meanRadius = 0.0f;
         glm::mat4 transform = glm::mat4(1.0f);
         BoundingBox WorldBounds = NoBounds; // World-space AABB of the POSED coat; NoBounds = always include
         // The width the coat is DRAWN at — the per-groom authoring scale (the
@@ -276,8 +282,21 @@ namespace OloEngine
         // to run between the program bind and the draws. A version of this that
         // bound the shader itself would leave the pool bind either before the
         // program (wrong fork) or nowhere it could be expressed.
-        void RenderGroomCasters(const Frustum* cullFrustum, const glm::vec3& renderOrigin,
-                                f32 resolutionTexels, i32 clipLevel, UniformBuffer& paramsUBO) const;
+        // `viewProjection` is the view's, RENDER-RELATIVE like the matrix the
+        // shader widens with: each caster casts the share of its strands this
+        // view's floor allows (GroomCasterViewIndexCount).
+        void RenderGroomCasters(const Frustum* cullFrustum, const glm::mat4& viewProjection,
+                                const glm::vec3& renderOrigin, f32 resolutionTexels, i32 clipLevel,
+                                UniformBuffer& paramsUBO) const;
+
+        // How many of `caster`'s indices one shadow view draws (#1533 E1): the
+        // whole coat, or -- when its stream has a caster order -- the prefix
+        // GroomShadowCasterFraction allows at the densest texels the coat's box
+        // meets in this view. `viewProjection` maps (world - origin) to clip.
+        // OLO_GROOM_SHADOW_CASTER_FRACTION overrides the rule in every view.
+        [[nodiscard]] static u32 GroomCasterViewIndexCount(const ShadowGroomCaster& caster,
+                                                           const glm::mat4& viewProjection, const glm::vec3& origin,
+                                                           f32 resolutionTexels);
 
         // The groom half of the Virtual Shadow Map route (#1323), invoked
         // INSIDE the VSM raster scope through the ExternalCasterRenderer seam

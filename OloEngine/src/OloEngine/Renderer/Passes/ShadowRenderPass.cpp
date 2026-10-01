@@ -746,18 +746,33 @@ namespace OloEngine
         if (m_GroomPass != nullptr && !m_GroomCasters.IsEmpty() && shaders.Groom && filter != ShadowCasterFilter::NoGrooms)
         {
             u32 groomDraws = 0;
+            u64 segmentsCast = 0;
+            u64 segmentsWhole = 0;
+            const ShadowMap& groomShadowMap = Renderer3D::GetShadowMap();
             for (u32 item = 0; item < activeCount; ++item)
             {
+                const ActiveShadowView& view = m_ActiveViews[item];
+                // The resolution RenderCascadeOrFace hands the widening.
+                const f32 resolution = static_cast<f32>(type == ShadowPassType::CSM
+                                                            ? groomShadowMap.GetResolution()
+                                                            : groomShadowMap.GetAtlasEntryRect(view.Index).Size);
                 for (const auto& caster : m_GroomCasters)
                 {
                     if (caster.vaoID.IsValid() && caster.indexCount > 0u &&
-                        !ShouldCull(caster.WorldBounds, m_ActiveViews[item].CullFrustum))
+                        !ShouldCull(caster.WorldBounds, view.CullFrustum))
                     {
                         ++groomDraws;
+                        // Six indices a segment. The world-space matrix with a
+                        // zero origin is the same map the draw makes with the
+                        // render-relative one.
+                        segmentsCast += GroomCasterViewIndexCount(caster, view.LightVP, glm::vec3(0.0f), resolution) / 6u;
+                        segmentsWhole += caster.indexCount / 6u;
                     }
                 }
             }
             GroomShadowCasterStats& groomStats = m_GroomPass->MutableSceneShadowStats();
+            groomStats.SegmentsCast += segmentsCast;
+            groomStats.SegmentsWhole += segmentsWhole;
             if (type == ShadowPassType::CSM)
             {
                 groomStats.CascadeDraws += groomDraws;
@@ -1155,7 +1170,7 @@ namespace OloEngine
             auto* groomTimers = RenderCommand::IsRecordingParallelItem() ? nullptr : &GPUPassTimerPool::GetInstance();
             if (groomTimers)
                 groomTimers->BeginSubPass("GroomCasters");
-            RenderGroomCasters(cullFrustum, renderOrigin, static_cast<f32>(groomViewResolution), 0,
+            RenderGroomCasters(cullFrustum, lightVPRel, renderOrigin, static_cast<f32>(groomViewResolution), 0,
                                *resources.Groom);
             if (groomTimers)
                 groomTimers->EndSubPass();
@@ -1404,6 +1419,8 @@ namespace OloEngine
             ShadowGroomCaster caster;
             caster.vaoID = geometry.Vao;
             caster.indexCount = geometry.IndexCount;
+            caster.prefix = geometry.CasterPrefix;
+            caster.meanRadius = geometry.MeanRadius;
             caster.transform = request.Transform;
             // THE WIDTH THE COAT IS DRAWN AT. Since #1428 the per-role coverage
             // compensation is baked into the stream's radii, so the only lever
@@ -1474,8 +1491,53 @@ namespace OloEngine
         }
     }
 
-    void ShadowRenderPass::RenderGroomCasters(const Frustum* cullFrustum, const glm::vec3& renderOrigin,
-                                              f32 resolutionTexels, i32 clipLevel,
+    u32 ShadowRenderPass::GroomCasterViewIndexCount(const ShadowGroomCaster& caster, const glm::mat4& viewProjection,
+                                                    const glm::vec3& origin, f32 resolutionTexels)
+    {
+        if (caster.prefix.size() != kGroomCasterPrefixLevels + 1u)
+        {
+            return caster.indexCount;
+        }
+        if (const std::optional<f32> forced = Levers::GroomShadowCasterFraction())
+        {
+            return GroomCasterIndexCount(caster.prefix, *forced);
+        }
+        // No box, no texel to measure the coat against: the whole coat.
+        if (caster.WorldBounds.Min.x >= std::numeric_limits<f32>::max())
+        {
+            return caster.indexCount;
+        }
+
+        // THE DENSEST TEXELS THE COAT MEETS in this view: the most NDC per metre
+        // over the box's corners -- the nearest corner, under a perspective map
+        // -- so every part of the coat gets at least the strands its own texels
+        // need. A box reaching the light's plane has texels down to nothing near
+        // the light, so it casts whole.
+        f32 ndcPerWorld = 0.0f;
+        for (u32 corner = 0; corner < 8u; ++corner)
+        {
+            const glm::vec3 point{ (corner & 1u) ? caster.WorldBounds.Max.x : caster.WorldBounds.Min.x,
+                                   (corner & 2u) ? caster.WorldBounds.Max.y : caster.WorldBounds.Min.y,
+                                   (corner & 4u) ? caster.WorldBounds.Max.z : caster.WorldBounds.Min.z };
+            const glm::vec4 clip = viewProjection * glm::vec4(point - origin, 1.0f);
+            if (!(clip.w > 1.0e-6f))
+            {
+                return caster.indexCount;
+            }
+            ndcPerWorld = std::max(ndcPerWorld, GroomShadowNdcPerWorld(viewProjection, clip.w));
+        }
+
+        // The width the strands are drawn at: the stream's radii under the
+        // per-groom scale and the transform's mean axis, as the shader has it.
+        const f32 meanRadiusWorld = caster.meanRadius * caster.widthScale * caster.objectScale;
+        const f32 fraction = GroomShadowCasterFraction(meanRadiusWorld, ndcPerWorld, resolutionTexels,
+                                                       caster.minWidthTexels, kGroomCasterCoverageMargin,
+                                                       kGroomCasterMinFraction);
+        return GroomCasterIndexCount(caster.prefix, fraction);
+    }
+
+    void ShadowRenderPass::RenderGroomCasters(const Frustum* cullFrustum, const glm::mat4& viewProjection,
+                                              const glm::vec3& renderOrigin, f32 resolutionTexels, i32 clipLevel,
                                               UniformBuffer& paramsUBO) const
     {
         if (m_GroomCasters.IsEmpty())
@@ -1528,7 +1590,11 @@ namespace OloEngine
             paramsUBO.SetData(&params, UBOStructures::GroomShadowParamsUBO::GetSize());
             paramsUBO.Bind();
 
-            RenderCommand::DrawIndexedRaw(caster.vaoID, caster.indexCount);
+            // The share of the coat this view needs (#1533 E1): a prefix of the
+            // caster order, which is a uniform random share of its strands.
+            RenderCommand::DrawIndexedRaw(caster.vaoID,
+                                          GroomCasterViewIndexCount(caster, viewProjection, renderOrigin,
+                                                                    resolutionTexels));
         }
 
         RenderCommand::EnableCulling();
@@ -1548,6 +1614,8 @@ namespace OloEngine
         const auto& clips = vsm.GetClipProjections();
 
         u32 levelDraws = 0;
+        u64 segmentsCast = 0;
+        u64 segmentsWhole = 0;
         for (u32 level = 0; level < VSM::kClipLevels; ++level)
         {
             // Only the levels a coat actually reaches. A level nothing touches
@@ -1592,15 +1660,29 @@ namespace OloEngine
             // by the reach test above, and the fragment stage discards any
             // page that is not allocated and dirty anyway. A second CPU cull
             // would only remove draws the raster already throws away.
-            RenderGroomCasters(/*cullFrustum=*/nullptr, renderOrigin,
+            RenderGroomCasters(/*cullFrustum=*/nullptr, clips[level].ViewProjection, renderOrigin,
                                static_cast<f32>(VSM::kVirtualResolution), static_cast<i32>(level),
                                *m_GroomVsmParamsUBO);
             ++levelDraws;
+            // One sequential region, so the tally is kept as it draws.
+            for (const auto& caster : m_GroomCasters)
+            {
+                if (caster.vaoID.IsValid() && caster.indexCount > 0u)
+                {
+                    segmentsCast += GroomCasterViewIndexCount(caster, clips[level].ViewProjection, renderOrigin,
+                                                              static_cast<f32>(VSM::kVirtualResolution)) /
+                                    6u;
+                    segmentsWhole += caster.indexCount / 6u;
+                }
+            }
         }
 
         if (levelDraws > 0 && m_GroomPass != nullptr)
         {
-            m_GroomPass->MutableSceneShadowStats().VirtualShadowLevelDraws += levelDraws;
+            GroomShadowCasterStats& stats = m_GroomPass->MutableSceneShadowStats();
+            stats.VirtualShadowLevelDraws += levelDraws;
+            stats.SegmentsCast += segmentsCast;
+            stats.SegmentsWhole += segmentsWhole;
         }
         return levelDraws;
     }

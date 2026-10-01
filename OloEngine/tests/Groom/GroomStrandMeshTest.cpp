@@ -29,10 +29,14 @@
 
 #include <glm/glm.hpp>
 
+#include <array>
 #include <bit>
 #include <cstddef>
 #include <cstring>
+#include <limits>
 #include <set>
+#include <span>
+#include <utility>
 #include <vector>
 
 using namespace OloEngine;
@@ -459,4 +463,280 @@ TEST(GroomStrandMesh, TheBuildIsPureSoACacheMayKeyOnTheGroomAndTheSettings)
                           firstVertices.size() * sizeof(GroomStrandVertex)),
               0)
         << "two builds of the same groom differed, so GroomRenderPass's cache key is unsound";
+}
+
+// ── The shadow caster's order (#1533 E1) ────────────────────────────────────
+//
+// A shadow view whose width floor draws every strand several times its true
+// width casts a PREFIX of a hashed strand order. Everything that makes that
+// sound is CPU-side: each strand whole, every strand once, a prefix that is a
+// uniform share of the coat and not a periodic one, and the mean radius the
+// fraction divides by weighted by length.
+
+namespace
+{
+    // Curve c has 2 + (c % 5) points, so strand boundaries are irregular and a
+    // boundary off by one segment shows.
+    Ref<GroomAsset> MakeRaggedGroom(u32 count)
+    {
+        GroomBuilder builder;
+        std::string reason;
+        u16 group = 0;
+        EXPECT_TRUE(builder.AddGroup("ragged", group, reason)) << reason;
+        for (u32 c = 0; c < count; ++c)
+        {
+            const u32 pointCount = 2u + (c % 5u);
+            std::vector<glm::vec3> points(pointCount);
+            std::vector<f32> widths(pointCount, 0.001f);
+            for (u32 p = 0; p < pointCount; ++p)
+            {
+                points[p] = { static_cast<f32>(c) * 0.01f, static_cast<f32>(p) * 0.1f, 0.0f };
+            }
+            GroomCurveInput input;
+            input.Points = points;
+            input.Widths = widths;
+            input.RootUV = { 0.0f, 0.0f };
+            input.GroupId = group;
+            EXPECT_TRUE(builder.AddCurve(input, reason)) << reason;
+        }
+        Ref<GroomAsset> groom = builder.Build(reason);
+        EXPECT_TRUE(groom) << reason;
+        return groom;
+    }
+
+    struct StreamWithStrands
+    {
+        std::vector<GroomStrandVertex> Vertices;
+        std::vector<u32> Indices;
+        std::vector<u32> StrandFirstIndex;
+    };
+
+    StreamWithStrands BuildWithStrands(const GroomAsset& groom)
+    {
+        StreamWithStrands stream;
+        (void)BuildGroomStrandMesh(GroomBuildSource::FromAsset(groom), GroomStrandBuildSettings{}, stream.Vertices,
+                                   stream.Indices, nullptr, nullptr, nullptr, &stream.StrandFirstIndex);
+        return stream;
+    }
+
+    // The strand each emitted segment belongs to, by segment ordinal.
+    std::vector<u32> SegmentStrands(const StreamWithStrands& stream)
+    {
+        std::vector<u32> strands(stream.Indices.size() / 6u, 0u);
+        for (sizet strand = 0; strand < stream.StrandFirstIndex.size(); ++strand)
+        {
+            const sizet end = strand + 1u < stream.StrandFirstIndex.size() ? stream.StrandFirstIndex[strand + 1u]
+                                                                            : stream.Indices.size();
+            for (sizet index = stream.StrandFirstIndex[strand]; index < end; index += 6u)
+            {
+                strands[index / 6u] = static_cast<u32>(strand);
+            }
+        }
+        return strands;
+    }
+
+    // The strands of a caster order, in the order it casts them.
+    std::vector<u32> CastStrandSequence(const GroomCasterOrder& order, const std::vector<u32>& segmentStrands)
+    {
+        std::vector<u32> sequence;
+        for (sizet index = 0; index < order.Indices.size(); index += 6u)
+        {
+            const u32 strand = segmentStrands[order.Indices[index] / 4u];
+            if (sequence.empty() || sequence.back() != strand)
+            {
+                sequence.push_back(strand);
+            }
+        }
+        return sequence;
+    }
+} // namespace
+
+TEST(GroomStrandMesh, EachStrandsIndicesStartWhereTheBuildSaysTheyDo)
+{
+    const auto groom = MakeRaggedGroom(40u);
+    ASSERT_TRUE(groom);
+    const StreamWithStrands stream = BuildWithStrands(*groom);
+
+    ASSERT_EQ(stream.StrandFirstIndex.size(), 40u);
+    u32 expected = 0;
+    for (u32 strand = 0; strand < 40u; ++strand)
+    {
+        EXPECT_EQ(stream.StrandFirstIndex[strand], expected) << "strand " << strand;
+        // The first index of a strand is its FIRST segment's first corner.
+        const GroomStrandVertex& corner = stream.Vertices[stream.Indices[expected]];
+        EXPECT_EQ(std::bit_cast<u32>(corner.SegmentId), GroomSegmentIdentity(strand, 0u)) << "strand " << strand;
+        expected += 6u * (1u + (strand % 5u));
+    }
+    EXPECT_EQ(expected, stream.Indices.size());
+}
+
+TEST(GroomStrandMesh, TheCasterOrderCastsEveryStrandWholeAndOnceInAHashedOrder)
+{
+    const auto groom = MakeRaggedGroom(300u);
+    ASSERT_TRUE(groom);
+    const StreamWithStrands stream = BuildWithStrands(*groom);
+    const GroomCasterOrder order = BuildGroomCasterOrder(stream.Vertices, stream.Indices, stream.StrandFirstIndex);
+    ASSERT_EQ(order.Indices.size(), stream.Indices.size());
+
+    // Each segment keeps its own six indices, and each strand's segments stay
+    // together, in their own order, complete.
+    const std::vector<u32> segmentStrands = SegmentStrands(stream);
+    std::vector<u32> castCount(300u, 0u);
+    u32 previousStrand = ~0u;
+    u32 nextSegment = 0u;
+    for (sizet index = 0; index < order.Indices.size(); index += 6u)
+    {
+        const u32 base = order.Indices[index];
+        ASSERT_EQ(base % 4u, 0u);
+        for (u32 k = 0; k < 6u; ++k)
+        {
+            ASSERT_EQ(order.Indices[index + k], stream.Indices[(base / 4u) * 6u + k]) << "a segment was re-cut";
+        }
+        const u32 strand = segmentStrands[base / 4u];
+        if (strand != previousStrand)
+        {
+            if (previousStrand != ~0u)
+            {
+                EXPECT_EQ(nextSegment, 1u + (previousStrand % 5u)) << "strand " << previousStrand << " was split";
+            }
+            ++castCount[strand];
+            previousStrand = strand;
+            nextSegment = 0u;
+        }
+        EXPECT_EQ(base / 4u, stream.StrandFirstIndex[strand] / 6u + nextSegment) << "out of order in a strand";
+        ++nextSegment;
+    }
+    EXPECT_EQ(nextSegment, 1u + (previousStrand % 5u)) << "the last strand was cut short";
+    for (u32 strand = 0; strand < 300u; ++strand)
+    {
+        EXPECT_EQ(castCount[strand], 1u) << "strand " << strand << " cast " << castCount[strand] << " times";
+    }
+
+    // Hashed: not the cooked order, and the same order every build.
+    const std::vector<u32> sequence = CastStrandSequence(order, segmentStrands);
+    std::vector<u32> identity(300u);
+    for (u32 strand = 0; strand < 300u; ++strand)
+    {
+        identity[strand] = strand;
+    }
+    EXPECT_NE(sequence, identity);
+    EXPECT_EQ(BuildGroomCasterOrder(stream.Vertices, stream.Indices, stream.StrandFirstIndex).Indices, order.Indices);
+
+    // Level j holds exactly the first ceil(j * 300 / 64) strands of that order.
+    EXPECT_EQ(order.Prefix[0], 0u);
+    EXPECT_EQ(order.Prefix[kGroomCasterPrefixLevels], order.Indices.size());
+    for (u32 level = 1; level <= kGroomCasterPrefixLevels; ++level)
+    {
+        const u32 strands = (level * 300u + kGroomCasterPrefixLevels - 1u) / kGroomCasterPrefixLevels;
+        u32 indexCount = 0;
+        for (u32 k = 0; k < strands; ++k)
+        {
+            indexCount += 6u * (1u + (sequence[k] % 5u));
+        }
+        EXPECT_EQ(order.Prefix[level], indexCount) << "level " << level;
+    }
+}
+
+TEST(GroomStrandMesh, APrefixOfTheCasterOrderIsAUniformShareAndNotAPeriodicOne)
+{
+    // 4096 strands, a quarter cast. A STRIDED order (every 4th strand) would put
+    // the whole quarter in four of the sixteen residues mod 16 -- the aliasing
+    // with "N children per guide" the hash exists to avoid -- and a PREFIX of
+    // the cooked order would put it all in the first quarter of the groom.
+    const auto groom = MakeStraightGroom(4096u);
+    ASSERT_TRUE(groom);
+    const StreamWithStrands stream = BuildWithStrands(*groom);
+    const GroomCasterOrder order = BuildGroomCasterOrder(stream.Vertices, stream.Indices, stream.StrandFirstIndex);
+    const u32 count = GroomCasterIndexCount(order.Prefix, 0.25f);
+    ASSERT_EQ(count, 1024u * 6u) << "a quarter of 4096 one-segment strands";
+
+    std::array<u32, 8> perBlock{};
+    std::array<u32, 16> perResidue{};
+    for (u32 index = 0; index < count; index += 6u)
+    {
+        const u32 strand = order.Indices[index] / 4u; // one segment a strand
+        ++perBlock[strand / 512u];
+        ++perResidue[strand % 16u];
+    }
+    // Binomial: 128 +/- 9.8 a block and 64 +/- 6.9 a residue; the bounds are
+    // over three and a half deviations wide, and the hash is fixed, so this is
+    // deterministic.
+    for (u32 block = 0; block < 8u; ++block)
+    {
+        EXPECT_GE(perBlock[block], 94u) << "block " << block;
+        EXPECT_LE(perBlock[block], 162u) << "block " << block;
+    }
+    for (u32 residue = 0; residue < 16u; ++residue)
+    {
+        EXPECT_GE(perResidue[residue], 40u) << "residue " << residue;
+        EXPECT_LE(perResidue[residue], 88u) << "residue " << residue;
+    }
+}
+
+TEST(GroomStrandMesh, TheCasterMeanRadiusIsWeightedByLength)
+{
+    // Two one-segment strands: 1 m at a radius of 1e-4, and 3 m running from
+    // 1e-4 to 3e-4 (2e-4 on average). Weighted by length: (1 * 1 + 3 * 2) / 4.
+    const auto quad = [](glm::vec3 p0, glm::vec3 p1, f32 radius0, f32 radius1)
+    {
+        std::array<GroomStrandVertex, 4> corners{};
+        for (u32 k = 0; k < 4u; ++k)
+        {
+            const bool atP0 = k < 2u;
+            corners[k].Position = atP0 ? p0 : p1;
+            corners[k].Other = (atP0 ? p0 : p1) + (p1 - p0);
+            corners[k].Radius = atP0 ? radius0 : radius1;
+        }
+        return corners;
+    };
+    std::vector<GroomStrandVertex> vertices;
+    for (const auto& corners :
+         { quad({ 0.0f, 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f }, 1.0e-4f, 1.0e-4f),
+           quad({ 0.0f, 0.0f, 0.0f }, { 0.0f, 3.0f, 0.0f }, 1.0e-4f, 3.0e-4f) })
+    {
+        vertices.insert(vertices.end(), corners.begin(), corners.end());
+    }
+    const std::vector<u32> indices{ 0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7 };
+    const std::vector<u32> firsts{ 0u, 6u };
+
+    const GroomCasterOrder order = BuildGroomCasterOrder(vertices, indices, firsts);
+    EXPECT_NEAR(order.MeanRadius, 1.75e-4f, 1.0e-9f)
+        << "an unweighted mean (1.5e-4) lets short strands speak for the area long ones cover";
+}
+
+TEST(GroomStrandMesh, ACasterCountRoundsUpToTheNextSixtyFourthAndNeverToNothing)
+{
+    std::array<u32, kGroomCasterPrefixLevels + 1> prefix{};
+    for (u32 level = 0; level <= kGroomCasterPrefixLevels; ++level)
+    {
+        prefix[level] = 6u * level;
+    }
+    EXPECT_EQ(GroomCasterIndexCount(prefix, 0.25f), 96u);
+    EXPECT_EQ(GroomCasterIndexCount(prefix, 0.26f), 102u) << "16.64 sixty-fourths round UP: never fewer strands";
+    EXPECT_EQ(GroomCasterIndexCount(prefix, 0.0f), 6u) << "a subset never rounds to nothing";
+    EXPECT_EQ(GroomCasterIndexCount(prefix, 1.0f), 384u);
+    EXPECT_EQ(GroomCasterIndexCount(prefix, 1.5f), 384u);
+    EXPECT_EQ(GroomCasterIndexCount(prefix, std::numeric_limits<f32>::quiet_NaN()), 384u)
+        << "NaN casts the whole coat rather than a garbage share of it";
+    EXPECT_EQ(GroomCasterIndexCount(std::span<const u32>(prefix.data(), 10u), 0.5f), 0u)
+        << "a table of the wrong size is not read";
+}
+
+TEST(GroomStrandMesh, AStrandTableThatDoesNotDescribeTheStreamGivesNoOrder)
+{
+    const auto groom = MakeRaggedGroom(10u);
+    ASSERT_TRUE(groom);
+    StreamWithStrands stream = BuildWithStrands(*groom);
+
+    EXPECT_TRUE(BuildGroomCasterOrder(stream.Vertices, stream.Indices, {}).Indices.empty());
+
+    std::vector<u32> pastTheEnd = stream.StrandFirstIndex;
+    pastTheEnd.back() = static_cast<u32>(stream.Indices.size()) + 6u;
+    const GroomCasterOrder broken = BuildGroomCasterOrder(stream.Vertices, stream.Indices, pastTheEnd);
+    EXPECT_TRUE(broken.Indices.empty()) << "a caster order of something else would cast the wrong coat";
+    EXPECT_EQ(broken.Prefix[kGroomCasterPrefixLevels], 0u);
+
+    std::vector<u32> descending = stream.StrandFirstIndex;
+    std::swap(descending[2], descending[3]);
+    EXPECT_TRUE(BuildGroomCasterOrder(stream.Vertices, stream.Indices, descending).Indices.empty());
 }

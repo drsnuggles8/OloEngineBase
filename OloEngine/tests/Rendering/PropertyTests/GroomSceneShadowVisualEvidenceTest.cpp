@@ -59,6 +59,10 @@
 //      darkens them; the light-exit receiver they replace, re-created by a
 //      fault lever, does not -- and with the body not casting, routing both
 //      directions leaves the coat as lit as no routing at all.
+//   9. A COAT CASTS THE SHARE ITS TEXELS NEED (#1533 E1). Thin enough for the
+//      floor to dominate, a coat casts a prefix of a hashed strand order; the
+//      prefix never adds shadow, still casts, and a sixty-fourth of the coat
+//      casts visibly less (the measurement can see the share).
 //
 // Classification: L8 / golden image (full GL pipeline + RGBA8 readback + PNG).
 // These are EVIDENCE, not SSIM goldens; the contracts are the assertions and
@@ -908,6 +912,111 @@ namespace OloEngine::Tests
         EXPECT_GT(widenedDarkening, honestDarkening * 1.5)
             << "widening the strands to a shadow texel bought less than half again the occlusion that "
                "rasterising them honestly did, so the floor is not reaching the raster";
+    }
+
+    // ── 9. The caster subset (#1533 E1) ──────────────────────────────────
+    //
+    // Where the floor draws every strand several times its true width, a view
+    // casts only the share GroomShadowCasterFraction allows -- a prefix of a
+    // hashed strand order. Pinned here on real pixels: the rule actually thins
+    // a coat thin enough for the floor to dominate, the lever casts whole, a
+    // subset NEVER ADDS SHADOW (its depth map holds a subset of the same
+    // occluders, so every texel is at least as far), it still casts, and the
+    // measurement is sensitive to the share (the 1/64 negative control).
+    TEST_F(GroomSceneShadowVisualEvidenceTest, ACoatCastsTheShareItsTexelsNeedAndASubsetNeverAddsShadow)
+    {
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+
+        struct FractionRestore
+        {
+            ~FractionRestore()
+            {
+                Levers::SetGroomShadowCasterFraction(std::nullopt);
+            }
+        } restore;
+
+        // A FIFTIETH of the fixture's 6 mm: 0.12 mm at the root, far under a
+        // cascade texel here, so the floor -- and the subset -- is in play. The
+        // body out of the map, so the ground's shadow is the coat's alone.
+        Groom().m_WidthScale = 0.02f;
+        SetBodyCasts(false);
+        Routing().m_CastShadows = false;
+        Routing().m_ReceiveShadows = false;
+        const std::vector<u8> coatMask = DeriveCoatMask();
+        if (::testing::Test::HasFatalFailure())
+        {
+            return;
+        }
+        std::vector<u8> control;
+        Capture({}, control);
+
+        Routing().m_CastShadows = true;
+        const auto shadowStats = []
+        {
+            const GroomRenderPass* pass = Renderer3D::GetGroomRenderPass();
+            return pass != nullptr ? pass->GetStats().SceneShadow : GroomShadowCasterStats{};
+        };
+
+        Levers::SetGroomShadowCasterFraction(1.0f);
+        std::vector<u8> whole;
+        Capture("GroomSceneShadow_GL_Forward_CasterWhole", whole);
+        const GroomShadowCasterStats wholeStats = shadowStats();
+
+        Levers::SetGroomShadowCasterFraction(std::nullopt);
+        std::vector<u8> subset;
+        Capture("GroomSceneShadow_GL_Forward_CasterSubset", subset);
+        const GroomShadowCasterStats subsetStats = shadowStats();
+
+        Levers::SetGroomShadowCasterFraction(1.0f / 64.0f);
+        std::vector<u8> sliver;
+        Capture("GroomSceneShadow_GL_Forward_CasterSixtyFourth", sliver);
+        if (::testing::Test::HasFatalFailure())
+        {
+            return;
+        }
+
+        std::printf("[groom-scene-shadow] caster segments: whole %llu of %llu, rule %llu of %llu\n",
+                    static_cast<unsigned long long>(wholeStats.SegmentsCast),
+                    static_cast<unsigned long long>(wholeStats.SegmentsWhole),
+                    static_cast<unsigned long long>(subsetStats.SegmentsCast),
+                    static_cast<unsigned long long>(subsetStats.SegmentsWhole));
+        ASSERT_GT(wholeStats.SegmentsWhole, 0u) << "the coat cast nothing, so nothing below means anything";
+        EXPECT_EQ(wholeStats.SegmentsCast, wholeStats.SegmentsWhole) << "the lever at 1 must cast every strand";
+        EXPECT_EQ(subsetStats.SegmentsWhole, wholeStats.SegmentsWhole);
+        EXPECT_LT(subsetStats.SegmentsCast, subsetStats.SegmentsWhole / 2u)
+            << "a coat a tenth of a texel thick was cast at more than half its strands: the rule is not thinning";
+        EXPECT_GT(subsetStats.SegmentsCast, 0u);
+
+        // Per pixel, on the scene (off the coat): the subset is never darker
+        // than the whole cast beyond the frame's own noise.
+        u32 darker = 0;
+        u32 scenePixels = 0;
+        f64 wholeDarkening = 0.0;
+        f64 subsetDarkening = 0.0;
+        f64 sliverDarkening = 0.0;
+        for (sizet i = 0, p = 0; i + 3 < control.size() && p < coatMask.size(); i += 4, ++p)
+        {
+            if (coatMask[p] != 0u)
+            {
+                continue;
+            }
+            ++scenePixels;
+            darker += Luma(subset, i) < Luma(whole, i) - 2.0 ? 1u : 0u;
+            wholeDarkening += std::max(0.0, Luma(control, i) - Luma(whole, i));
+            subsetDarkening += std::max(0.0, Luma(control, i) - Luma(subset, i));
+            sliverDarkening += std::max(0.0, Luma(control, i) - Luma(sliver, i));
+        }
+        std::printf("[groom-scene-shadow] ground darkening (luma sum): whole %.0f, rule %.0f, 1/64 %.0f; "
+                    "%u of %u scene pixels darker under the subset\n",
+                    wholeDarkening, subsetDarkening, sliverDarkening, darker, scenePixels);
+
+        EXPECT_LE(darker, scenePixels / 1000u) << "a subset of the occluders added shadow somewhere";
+        EXPECT_GT(wholeDarkening, 0.0);
+        EXPECT_GT(subsetDarkening, 0.25 * wholeDarkening) << "the subset's shadow is mostly gone";
+        EXPECT_LT(sliverDarkening, 0.75 * subsetDarkening)
+            << "a sixty-fourth of the coat shadowed as much as the rule's share, so this measurement cannot see "
+               "the share at all";
     }
 
     // ── 6. MSAA ────────────────────────────────────────────────────────────

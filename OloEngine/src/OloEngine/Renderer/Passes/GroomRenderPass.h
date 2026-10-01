@@ -163,6 +163,13 @@ namespace OloEngine
         u32 CascadeDraws = 0;
         u32 AtlasDraws = 0;
         u32 VirtualShadowLevelDraws = 0;
+        /// Strand segments those draws rasterised, summed over every view, and
+        /// what they would have rasterised casting every strand (#1533 E1). A
+        /// view casts the share of a coat its width floor allows
+        /// (GroomShadowCasterFraction), so the ratio is the saving; equal means
+        /// every view cast whole coats.
+        u64 SegmentsCast = 0;
+        u64 SegmentsWhole = 0;
         /// Virtual Shadow Map page footprints invalidated for a moving or
         /// deforming coat this frame. A coat that moves while this stays zero
         /// leaves its old silhouette in the cached pages.
@@ -435,6 +442,14 @@ namespace OloEngine
         {
             RHI::ResourceHandle Vao{};
             u32 IndexCount = 0;
+            /// The caster order's prefix table (GroomCasterOrder::Prefix, #1533
+            /// E1): `Vao` then draws the strands in a hashed order and a view may
+            /// cast the first GroomCasterIndexCount(CasterPrefix, f) indices.
+            /// EMPTY when the stream has no caster order -- `Vao` is then the
+            /// stream's own and is cast whole.
+            std::span<const u32> CasterPrefix{};
+            /// The drawn segments' length-weighted mean OBJECT-space radius.
+            f32 MeanRadius = 0.0f;
             /// The coat's box in GROOM OBJECT SPACE in THIS pose — the posed
             /// roots padded by the longest strand's reach for a GPU-deformed
             /// coat, whose stream bounds are bind-local and mean nothing here.
@@ -539,6 +554,28 @@ namespace OloEngine
         [[nodiscard]] static bool IsDeformed(const GroomStrandRequest& request) noexcept;
 
       private:
+        /// One stream's strands in the shadow caster's order (#1533 E1): the
+        /// stream's OWN vertex buffer under a second index buffer, so a shadow
+        /// view casting a subset draws fewer indices and touches no extra vertex
+        /// memory. Built with the stream, never refilled: a deformed coat moves
+        /// its vertices and never its topology.
+        struct GroomCasterStream
+        {
+            Ref<VertexArray> Array;
+            Ref<IndexBuffer> Indices;
+            std::array<u32, kGroomCasterPrefixLevels + 1> Prefix{};
+            f32 MeanRadius = 0.0f;
+            /// GPU bytes of the index buffer, counted with the stream's.
+            u64 Bytes = 0;
+        };
+
+        /// The caster order of a stream just built, or an empty one when the
+        /// stream gave none (the caster then casts the stream whole).
+        [[nodiscard]] static GroomCasterStream BuildCasterStream(const Ref<VertexBuffer>& vertexBuffer,
+                                                                 std::span<const GroomStrandVertex> vertices,
+                                                                 std::span<const u32> indices,
+                                                                 std::span<const u32> strandFirstIndex);
+
         /// A bound coat's REST stream (#1427), shared by every entity that wears
         /// the same groom at the same budget, coat and binding. Unlike the frame
         /// buffer, nothing in it depends on the entity's pose, so a herd of
@@ -552,7 +589,9 @@ namespace OloEngine
             Ref<IndexBuffer> Indices;
             GroomStrandBuildSettings Settings;
             GroomStrandMeshStats Stats;
-            /// GPU bytes of the two buffers, counted once against the cache.
+            /// The shadow caster's order over the same vertices (#1533 E1).
+            GroomCasterStream Caster;
+            /// GPU bytes of the three buffers, counted once against the cache.
             u64 Bytes = 0;
             /// The binding the bind frames came from, held so a binding RELOADED
             /// under the same handle (a re-bind writes the same file) is a
@@ -594,6 +633,9 @@ namespace OloEngine
             Ref<IndexBuffer> Indices;
             GroomStrandBuildSettings Settings;
             GroomStrandMeshStats Stats;
+            /// The shadow caster's order (#1533 E1) of an entry that owns its
+            /// stream. A GPU-deformed entry casts its rest stream's instead.
+            GroomCasterStream Caster;
             u64 Bytes = 0;
             u32 LastUsedFrame = 0;
 

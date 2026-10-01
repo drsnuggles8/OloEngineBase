@@ -48,6 +48,7 @@
 
 #include <glm/glm.hpp>
 
+#include <array>
 #include <span>
 #include <vector>
 
@@ -401,13 +402,19 @@ namespace OloEngine
     // AFTER the deformation and never instead of it: the displacement it
     // carries is measured from the deformed rest shape, so a groom whose guides
     // happen not to have moved emits exactly the bytes it emitted without it.
+    //
+    // `outStrandFirstIndex`, when not null, receives where each emitted strand's
+    // indices start in `outIndices`, in emission order (#1533): a strand's
+    // segments are emitted contiguously, so strand s spans [first[s], first[s+1])
+    // and the last one runs to the end. BuildGroomCasterOrder reads it.
     GroomStrandMeshStats BuildGroomStrandMesh(const GroomBuildSource& source,
                                               const GroomStrandBuildSettings& settings,
                                               std::vector<GroomStrandVertex>& outVertices,
                                               std::vector<u32>& outIndices,
                                               const GroomStrandDeformation* deformation = nullptr,
                                               const GroomCoatContext* coat = nullptr,
-                                              const GroomStrandSimulation* simulation = nullptr);
+                                              const GroomStrandSimulation* simulation = nullptr,
+                                              std::vector<u32>* outStrandFirstIndex = nullptr);
 
     /**
      * @brief The same strands as BuildGroomStrandMesh, in the GPU-deformed
@@ -422,7 +429,7 @@ namespace OloEngine
      * `outRootCurves[slot]` is the BASE curve of the strand whose vertices carry
      * root slot `slot`; the per-frame buffer is laid out in that order.
      * `outPoseSegments`, when not null, receives the stream's centrelines for
-     * the coat bake.
+     * the coat bake. `outStrandFirstIndex` is BuildGroomStrandMesh's.
      *
      * Returns empty stats and no geometry when `binding` does not span the base
      * groom — the caller then keeps the CPU-deformed path, which refuses the
@@ -434,7 +441,53 @@ namespace OloEngine
                                                   std::vector<GroomStrandVertex>& outVertices,
                                                   std::vector<u32>& outIndices, std::vector<u32>& outRootCurves,
                                                   const GroomCoatContext* coat = nullptr,
-                                                  std::vector<GroomRestPoseSegment>* outPoseSegments = nullptr);
+                                                  std::vector<GroomRestPoseSegment>* outPoseSegments = nullptr,
+                                                  std::vector<u32>* outStrandFirstIndex = nullptr);
+
+    /// Steps in GroomCasterOrder::Prefix: a shadow view draws its strands in
+    /// sixty-fourths of the coat.
+    inline constexpr u32 kGroomCasterPrefixLevels = 64;
+
+    /**
+     * @brief A built stream's strands in the order a SHADOW caster draws them
+     *        (#1533 E1).
+     *
+     * Every strand, whole, with its segments in their own order, and the
+     * strands in a HASHED order -- so the first k of them are a uniform random
+     * k of the coat, whatever k is. A shadow view whose width floor already
+     * draws each strand several times its true width needs only a fraction of
+     * them to cover the map as densely as the real coat covers the light (see
+     * GroomShadowCasterFraction); with this order that fraction is a shorter
+     * draw from the same buffer, with no second vertex buffer and no
+     * per-fraction index buffer.
+     *
+     * HASHED, NOT STRIDED. Every N-th strand of the cooked order aliases with
+     * anything periodic in it -- N children per guide puts every chosen strand at
+     * the same offset from its guide -- and a hash has no period to alias with.
+     */
+    struct GroomCasterOrder
+    {
+        /// The stream's indices, regrouped by strand into the hashed order.
+        std::vector<u32> Indices;
+        /// Prefix[j] is the index count of the first ceil(j * strands /
+        /// kGroomCasterPrefixLevels) strands of that order: Prefix[0] is 0 and
+        /// Prefix[kGroomCasterPrefixLevels] is every index.
+        std::array<u32, kGroomCasterPrefixLevels + 1> Prefix{};
+        /// The drawn segments' object-space radius, averaged over their LENGTH
+        /// -- the radius a coat's projected area divides by.
+        f32 MeanRadius = 0.0f;
+    };
+
+    /// Reorders `indices` (a stream BuildGroomStrandMesh or BuildGroomStrandRestMesh
+    /// emitted, with its `strandFirstIndex`) for the shadow caster. Pure: the
+    /// same stream always gives the same order. Empty when the stream is.
+    [[nodiscard]] GroomCasterOrder BuildGroomCasterOrder(std::span<const GroomStrandVertex> vertices,
+                                                         std::span<const u32> indices,
+                                                         std::span<const u32> strandFirstIndex);
+
+    /// The index count a caster draws to cast `fraction` of its strands: the
+    /// prefix at the next sixty-fourth up, so it never casts fewer.
+    [[nodiscard]] u32 GroomCasterIndexCount(std::span<const u32> prefix, f32 fraction) noexcept;
 
     /**
      * @brief The strands BuildGroomStrandMesh draws, as a coat baked at rest sees
