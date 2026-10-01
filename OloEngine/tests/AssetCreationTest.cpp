@@ -66,7 +66,19 @@ TEST_F(AssetCreationTest, ScriptFileAsset_Creation)
 TEST_F(AssetCreationTest, ScriptFileAsset_LoadsFromCSharpSourceAndNeverOverwritesIt)
 {
     namespace fs = std::filesystem;
-    const Ref<Project> previous = Project::GetActive();
+    // Restores the active project on every exit path, ASSERTs included, so a
+    // failure here cannot strand later tests on this temp project.
+    struct RestoreProject
+    {
+        Ref<Project> Previous = Project::GetActive();
+        ~RestoreProject()
+        {
+            if (Previous)
+                Project::NewInMemory(Previous->GetDirectory(), Previous->GetConfig());
+            else
+                Project::Unload();
+        }
+    } const restoreProject;
     const fs::path root = OloEngine::Tests::TempDir("script-asset");
     fs::create_directories(root / "Assets/Scripts");
     ProjectConfig config;
@@ -113,10 +125,19 @@ TEST_F(AssetCreationTest, ScriptFileAsset_LoadsFromCSharpSourceAndNeverOverwrite
     const std::string after{ std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>() };
     EXPECT_EQ(after, before) << "Serialize overwrote the C# source";
 
-    if (previous)
-        Project::NewInMemory(previous->GetDirectory(), previous->GetConfig());
-    else
-        Project::Unload();
+    // The class named like the file wins over a helper declared before it, and
+    // an apostrophe in a preprocessor line does not open a character literal.
+    std::ofstream(script, std::ios::binary) << "#region Player's tuning\n"
+                                               "namespace Sandbox\n{\n"
+                                               "    internal class Tuning { }\n"
+                                               "    public class PlayerController : Entity\n"
+                                               "    {\n"
+                                               "        string m_Path = @$\"C:\\{m_Name}\";\n"
+                                               "    }\n}\n"
+                                               "#endregion\n";
+    ASSERT_TRUE(serializer.TryLoadData(metadata, asset));
+    EXPECT_EQ(asset.As<ScriptFileAsset>()->GetClassName(), "PlayerController");
+    EXPECT_EQ(asset.As<ScriptFileAsset>()->GetClassNamespace(), "Sandbox");
 }
 
 // @brief Test ColliderMaterial structure

@@ -2500,21 +2500,37 @@ namespace OloEngine
 
     namespace
     {
-        // C# source with comments, string and character literals blanked out,
-        // so a "class" inside a comment or a string is not read as a declaration.
+        // C# source with comments, preprocessor lines, string and character
+        // literals blanked out, so a "class" inside any of them is not read as a
+        // declaration, and an apostrophe in "#region Player's state" does not
+        // open a character literal that swallows the rest of the file.
         [[nodiscard]] std::string StripCSharpCommentsAndLiterals(const std::string& source)
         {
             std::string out;
             out.reserve(source.size());
+            bool lineStart = true;
             for (sizet i = 0; i < source.size(); ++i)
             {
                 const char c = source[i];
                 const char next = i + 1 < source.size() ? source[i + 1] : ' ';
+                if (lineStart && c == '#')
+                {
+                    while (i < source.size() && source[i] != '\n')
+                        ++i;
+                    out += '\n';
+                    continue;
+                }
+                if (c == '\n')
+                    lineStart = true;
+                else if (c != ' ' && c != '\t' && c != '\r')
+                    lineStart = false;
+
                 if (c == '/' && next == '/')
                 {
                     while (i < source.size() && source[i] != '\n')
                         ++i;
                     out += '\n';
+                    lineStart = true;
                 }
                 else if (c == '/' && next == '*')
                 {
@@ -2526,7 +2542,9 @@ namespace OloEngine
                 }
                 else if (c == '"' || c == '\'')
                 {
-                    const bool verbatim = c == '"' && i > 0 && source[i - 1] == '@';
+                    // @"...", $@"..." and @$"..." are verbatim: no escapes, "" is a quote.
+                    const auto prefixed = [&](sizet back) { return i >= back && source[i - back] == '@'; };
+                    const bool verbatim = c == '"' && (prefixed(1) || (prefixed(2) && source[i - 1] == '$'));
                     for (++i; i < source.size(); ++i)
                     {
                         if (!verbatim && source[i] == '\\')
@@ -2546,9 +2564,11 @@ namespace OloEngine
             return out;
         }
 
-        // The namespace (block or file-scoped) and the first class a C# file
-        // declares. Empty when the file declares no class.
-        void ReadCSharpScriptIdentity(const std::string& source, std::string& outNamespace, std::string& outClass)
+        // The namespace (block or file-scoped) and the class a C# file declares:
+        // the one named like the file when there is one, the script convention,
+        // else the first. Empty when the file declares no class.
+        void ReadCSharpScriptIdentity(const std::string& source, const std::string& fileStem, std::string& outNamespace,
+                                      std::string& outClass)
         {
             const std::string code = StripCSharpCommentsAndLiterals(source);
             std::istringstream tokens(code);
@@ -2561,16 +2581,27 @@ namespace OloEngine
                     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.");
                 return end == std::string::npos ? value : value.substr(0, end);
             };
+            std::string firstClass;
             while (tokens >> token)
             {
                 if (previous == "namespace" && outNamespace.empty())
+                {
                     outNamespace = identifier(token);
-                else if (previous == "class" && outClass.empty())
-                    outClass = identifier(token);
-                if (!outClass.empty())
-                    return;
+                }
+                else if (previous == "class")
+                {
+                    const std::string name = identifier(token);
+                    if (firstClass.empty())
+                        firstClass = name;
+                    if (name == fileStem)
+                    {
+                        outClass = name;
+                        return;
+                    }
+                }
                 previous = token;
             }
+            outClass = firstClass;
         }
     } // namespace
 
@@ -2613,7 +2644,7 @@ namespace OloEngine
         // none of them.
         std::string classNamespace;
         std::string className;
-        ReadCSharpScriptIdentity(strStream.str(), classNamespace, className);
+        ReadCSharpScriptIdentity(strStream.str(), path.stem().string(), classNamespace, className);
         if (className.empty())
         {
             OLO_CORE_ERROR("ScriptFileSerializer::TryLoadData - '{}' declares no class", path.string());

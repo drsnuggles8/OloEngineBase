@@ -3970,7 +3970,7 @@ Entities:
     TEST(ComponentRoundTrip, AnimationStateSourceFilePathIsAContentPath)
     {
         namespace fs = std::filesystem;
-        const Ref<Project> previous = Project::GetActive();
+        const ActiveProjectRestorer restoreProject; // on every exit path, ASSERTs included
         const fs::path root = TempDir("anim-source-path");
         ProjectConfig config;
         config.AssetDirectory = "Assets";
@@ -4007,11 +4007,6 @@ Entities:
         Entity missing = FindByTag(*reloaded, "Missing");
         ASSERT_TRUE(static_cast<bool>(missing));
         EXPECT_EQ(missing.GetComponent<AnimationStateComponent>().m_SourceFilePath, "Assets/Models/Missing.gltf");
-
-        if (previous)
-            Project::NewInMemory(previous->GetDirectory(), previous->GetConfig());
-        else
-            Project::Unload();
     }
 
     // -------------------------------------------------------------------------
