@@ -325,7 +325,7 @@ namespace OloEngine::Tests
                 tc.Scale = scale;
                 auto& mc = entity.AddComponent<MeshComponent>();
                 mc.m_Primitive = primitive;
-                const Ref<Mesh> mesh = primitive == MeshPrimitive::Sphere ? MeshPrimitives::CreateSphere()
+                const Ref<Mesh> mesh = primitive == MeshPrimitive::Sphere  ? MeshPrimitives::CreateSphere()
                                        : primitive == MeshPrimitive::Plane ? MeshPrimitives::CreatePlane()
                                                                            : MeshPrimitives::CreateCube();
                 if (mesh)
@@ -366,7 +366,7 @@ namespace OloEngine::Tests
             Renderer3D::GetPostProcessSettings().LightingDebugTap = tap;
             RunEditorFrames(camera, kFrames);
             ASSERT_TRUE(ReadFloat(ResourceNames::SceneColor, false, out)) << "no SceneColor for tap "
-                                                                           << std::to_underlying(tap);
+                                                                          << std::to_underlying(tap);
         }
 
         // One cell: lit, the partition, shadow, the negative control, the sheet.
