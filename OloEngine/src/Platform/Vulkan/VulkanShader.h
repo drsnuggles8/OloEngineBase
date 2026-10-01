@@ -170,6 +170,8 @@ namespace OloEngine
         {
             return m_Status;
         }
+        // Reads VulkanPipelineBuilder's entries for this shader (issue #607).
+        [[nodiscard]] ShaderPipelineState GetPipelineState() const override;
         [[nodiscard]] bool IsDeferredCapable() const override
         {
             return m_IsDeferredCapable;
@@ -274,6 +276,8 @@ namespace OloEngine
         // heap (ADR 0011 amendment (96)), so CommandDispatch must not bind them.
         // Read off the source in BuildFromSources, republished on every Bind.
         bool m_ReadsMaterialHeapOffsets = false;
+        // What the last successful Reload() invalidated, for GetPipelineState.
+        u32 m_PipelinesInvalidatedByLastReload = 0;
     };
 } // namespace OloEngine
 

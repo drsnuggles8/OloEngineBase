@@ -19,10 +19,13 @@
 // Rather than teaching every pass to opt in to a registry (dozens of call sites,
 // easy to forget for the next pass), registration is hooked into the ONE
 // chokepoint every file-backed shader already goes through: the backend shader
-// constructor. `OpenGLShader(filepath)`, `OpenGLShader(PackDataTag, ...)` and
-// `OpenGLComputeShader(filepath)` register themselves; both destructors
-// unregister. A pass gets hot-reload for free just by creating its shader the
-// normal way.
+// constructor. `OpenGLShader(filepath)`, `OpenGLShader(PackDataTag, ...)`,
+// `OpenGLComputeShader(filepath)`, `VulkanShader(filepath)` and
+// `VulkanComputeShader(filepath)` register themselves; every one of their
+// destructors unregisters. A pass gets hot-reload for free just by creating its
+// shader the normal way. A new FILE-BACKED constructor on any backend must
+// register too, or that shader cannot be reloaded by name there (Vulkan
+// shaders did not until #607, and olo_shader_reload listed none).
 //
 // Source-string shaders (`Shader::Create(name, vertexSrc, fragmentSrc)` — the
 // boot / fallback / shader-graph shaders) are deliberately NOT registered: they

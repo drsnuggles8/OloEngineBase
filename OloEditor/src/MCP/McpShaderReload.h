@@ -71,6 +71,85 @@ namespace OloEngine::MCP::ShaderReload
         return kind == ShaderKind::Compute ? "compute" : "graphics";
     }
 
+    // Pipeline objects built from the reloaded copies, summed (issue #607). On a
+    // backend with a PSO cache (Vulkan) a module rebuild is not yet a visible
+    // change: every pipeline built from the old modules is invalidated and
+    // rebuilt lazily by the next draw that uses the shader. Before this the
+    // tool answered `ready` at the module rebuild, which said nothing about
+    // whether any pipeline had picked the change up.
+    struct Pipelines
+    {
+        bool Tracked = false; // a backend PSO cache answered (false on OpenGL)
+        u32 Invalidated = 0;  // pipelines the reload invalidated
+        u32 Live = 0;         // pipelines built since, from the new modules
+        bool CreationFailed = false;
+        std::string CreationFailure;
+        u32 SettleFrames = 0;      // frames waited for a draw to rebuild them
+        bool FrameRendered = true; // false when no frame rendered in that wait
+    };
+
+    // The status contract on a PSO backend, layered over the module status:
+    //   * a failed module rebuild, or a failed pipeline creation, is `failed`;
+    //   * pipelines rebuilt since the reload is `ready`;
+    //   * nothing to rebuild (no pipeline existed yet) is `ready`: the first
+    //     draw builds one from the new modules, so nothing stale can be used;
+    //   * invalidated but not rebuilt is `pending`, with the reason. That is a
+    //     shader no draw used in the settle window, typically one that belongs
+    //     to the other render path.
+    struct Resolution
+    {
+        ShaderCompilationStatus Status = ShaderCompilationStatus::Ready;
+        std::string Note;
+    };
+
+    [[nodiscard]] inline Resolution ResolveStatus(ShaderCompilationStatus moduleStatus, const Pipelines& pipelines)
+    {
+        Resolution r;
+        r.Status = moduleStatus;
+        if (moduleStatus != ShaderCompilationStatus::Ready || !pipelines.Tracked)
+            return r;
+        if (pipelines.CreationFailed)
+        {
+            r.Status = ShaderCompilationStatus::Failed;
+            r.Note = "The shader modules rebuilt, but creating a pipeline from them failed: " + pipelines.CreationFailure +
+                     ". Draws using this shader are skipped until it is fixed.";
+            return r;
+        }
+        if (pipelines.Live > 0)
+        {
+            r.Note = std::to_string(pipelines.Live) + " pipeline(s) rebuilt from the new modules (" +
+                     std::to_string(pipelines.Invalidated) + " invalidated).";
+            return r;
+        }
+        if (pipelines.Invalidated == 0)
+        {
+            r.Note = "No pipeline had been built from this shader yet, so none was stale; the first draw that uses it "
+                     "builds one from the new modules.";
+            return r;
+        }
+        r.Status = ShaderCompilationStatus::Pending;
+        if (pipelines.SettleFrames == 0)
+        {
+            r.Note = std::to_string(pipelines.Invalidated) +
+                     " pipeline(s) invalidated, but this host cannot render frames on request, so whether a draw "
+                     "rebuilt them was not observed.";
+        }
+        else if (!pipelines.FrameRendered)
+        {
+            r.Note = std::to_string(pipelines.Invalidated) +
+                     " pipeline(s) invalidated, but no frame rendered while waiting, so none has been rebuilt. The "
+                     "editor may be minimised or stalled; render a frame and reload again to confirm.";
+        }
+        else
+        {
+            r.Note = std::to_string(pipelines.Invalidated) + " pipeline(s) invalidated and none rebuilt within " +
+                     std::to_string(pipelines.SettleFrames) +
+                     " frame(s): no draw used this shader. It may belong to another render path; switch to it and "
+                     "reload again.";
+        }
+        return r;
+    }
+
     // Facts gathered by the handler on the main thread after the reload.
     struct Result
     {
@@ -82,6 +161,8 @@ namespace OloEngine::MCP::ShaderReload
         bool Ok = false;                                                 // every reloaded copy is Ready
         u32 RendererId = 0;                                              // current GL program id of the primary copy (0 if a link failed)
         std::string Log;                                                 // compile/link error log (empty on a clean reload; best-effort, debug builds)
+        Pipelines PipelineState;                                         // PSO-backend pipeline facts; Tracked = false on OpenGL
+        std::string Note;                                                // why the status is what it is, when the pipelines decided it
     };
 
     // Shape the tool's JSON response. Mirrors the { name, status, log } contract
@@ -99,6 +180,16 @@ namespace OloEngine::MCP::ShaderReload
         j["ok"] = r.Ok;
         j["rendererId"] = r.RendererId;
         j["log"] = r.Log;
+        if (r.PipelineState.Tracked)
+        {
+            j["pipelines"] = Json{ { "invalidated", r.PipelineState.Invalidated },
+                                   { "rebuilt", r.PipelineState.Live },
+                                   { "creationFailed", r.PipelineState.CreationFailed },
+                                   { "settleFrames", r.PipelineState.SettleFrames },
+                                   { "frameRendered", r.PipelineState.FrameRendered } };
+        }
+        if (!r.Note.empty())
+            j["note"] = r.Note;
         return j;
     }
 } // namespace OloEngine::MCP::ShaderReload

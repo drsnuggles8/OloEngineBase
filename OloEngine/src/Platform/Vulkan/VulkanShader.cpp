@@ -21,6 +21,7 @@
 #include "Platform/OpenGL/OpenGLShader.h"
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Renderer/ShaderCachePaths.h"
+#include "OloEngine/Renderer/ShaderRegistry.h"
 #include "OloEngine/Renderer/ShaderSourceScan.h"
 #include "OloEngine/Renderer/ShaderToolchainFloor.h"
 
@@ -268,6 +269,12 @@ namespace OloEngine
         const std::filesystem::path path(filepath);
         m_Name = path.stem().string();
 
+        // Reloadable by name, like OpenGLShader (issue #607). Before this a
+        // Vulkan session's olo_shader_reload could reach only library shaders,
+        // and listed no reloadable shader at all. Registered before the build
+        // so a shader that fails at boot can be fixed on disk and reloaded.
+        ShaderRegistry::Get().RegisterShader(GetName(), this);
+
         const std::string raw = ReadWholeFile(filepath);
         if (raw.empty())
         {
@@ -315,6 +322,8 @@ namespace OloEngine
 
     VulkanShader::~VulkanShader()
     {
+        // First, before this address can be recycled (ShaderRegistry.h).
+        ShaderRegistry::Get().UnregisterShader(this);
         if (s_CurrentlyBound == this)
         {
             s_CurrentlyBound = nullptr;
@@ -841,6 +850,7 @@ namespace OloEngine
         }
 
         const sizet invalidated = VulkanPipelineBuilder::Get().InvalidateShader(GetPipelineIndexKey());
+        m_PipelinesInvalidatedByLastReload = static_cast<u32>(invalidated);
         auto* device = VulkanDevice::Get();
         for (auto& [stage, module] : oldModules)
         {
@@ -854,6 +864,22 @@ namespace OloEngine
                       GetName(), invalidated);
         MarkReloadSucceeded();
         return true;
+    }
+
+    ShaderPipelineState VulkanShader::GetPipelineState() const
+    {
+        const auto pipelines = VulkanPipelineBuilder::Get().GetShaderPipelines(GetPipelineIndexKey());
+        ShaderPipelineState state;
+        state.Tracked = true;
+        state.InvalidatedByLastReload = m_PipelinesInvalidatedByLastReload;
+        state.Live = static_cast<u32>(pipelines.Live);
+        state.CreationFailed = pipelines.Failed;
+        if (pipelines.Failed)
+        {
+            state.CreationFailure = FString(std::format("vkCreateGraphicsPipelines returned VkResult {} for '{}'",
+                                                        static_cast<int>(pipelines.LastFailure), GetName()));
+        }
+        return state;
     }
 
     // Default-block uniforms do not exist on this backend (see header).

@@ -7,6 +7,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Asset/AssetTypes.h"
 #include "OloEngine/Renderer/RendererResource.h"
+#include "OloEngine/Renderer/ShaderPipelineState.h"
 #include <glm/glm.hpp>
 
 namespace OloEngine
@@ -54,7 +55,18 @@ namespace OloEngine
         [[nodiscard]] virtual std::string GetName() const = 0;
         [[nodiscard]] virtual std::string GetFilePath() const = 0;
 
-        virtual void Reload() = 0;
+        // Recompile from the source on disk. Returns true when the NEW program is
+        // live, false when the reload failed. Same contract as Shader::Reload:
+        // a backend may keep the previous program valid after a failed compile
+        // (Vulkan does), so IsValid() alone cannot tell a failed reload apart.
+        virtual bool Reload() = 0;
+
+        // The backend's pipeline objects built from this shader (issue #607);
+        // see ShaderPipelineState.h. OpenGL keeps the untracked default.
+        [[nodiscard]] virtual ShaderPipelineState GetPipelineState() const
+        {
+            return {};
+        }
 
         // Asset interface
         static AssetType GetStaticType()
