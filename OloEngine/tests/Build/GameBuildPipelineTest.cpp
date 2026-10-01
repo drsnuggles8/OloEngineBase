@@ -330,8 +330,17 @@ TEST(GameBuildPipelineTest, SceneReferencedContentStagesEveryFileAScenePathOpens
 
     std::ofstream(project / "Assets/Models/Plant/plant.obj") << "# plant\nmtllib plant.mtl\nv 0 0 0\n";
     std::ofstream(project / "Assets/Models/Plant/plant.mtl")
-        << "newmtl leaves\nmap_Kd Textures/leaves.png\nmap_Bump -bm 0.5 Textures/leaves_n.png\n";
-    WritePngSignature(project / "Assets/Models/Plant/Textures/leaves.png");
+        << "newmtl leaves\nmap_Kd -s 1 1 1 Textures/leaves big.png\nmap_Bump -bm 0.5 Textures/leaves_n.png\n";
+    WritePngSignature(project / "Assets/Models/Plant/Textures/leaves big.png");
+    // Resolved against the working directory, like ResolveContentPath does.
+    fs::create_directories(engine / "Resources/Icons");
+    WritePngSignature(engine / "Resources/Icons/marker.png");
+    // One path, two files: "Assets/" and "assets/" are one directory in a
+    // Windows package.
+    fs::create_directories(project / "Assets/Shared");
+    fs::create_directories(engine / "assets/shared");
+    std::ofstream(project / "Assets/Shared/Tex.png") << "project";
+    std::ofstream(engine / "assets/shared/tex.png") << "engine";
     WritePngSignature(project / "Assets/Models/Plant/Textures/leaves_n.png");
     std::ofstream(project / "Assets/Models/Plant/plant.obj.oloimport") << "FlipUV: false\n";
     std::ofstream(project / "Assets/Models/Rock/rock.gltf")
@@ -370,7 +379,12 @@ TEST(GameBuildPipelineTest, SceneReferencedContentStagesEveryFileAScenePathOpens
                             "  - Entity: 3\n"
                             "    FoliageComponent:\n"
                             "      Layers:\n"
-                            "        - AlbedoPath: ../outside/texture.png\n";
+                            "        - AlbedoPath: ../outside/texture.png\n"
+                            "    SpriteRendererComponent:\n"
+                            "      TexturePath: Resources/Icons/marker.png\n"
+                            "  - Entity: 4\n"
+                            "    MaterialA: Assets/Shared/Tex.png\n"
+                            "    MaterialB: assets/shared/tex.png\n";
     fs::create_directories(project.parent_path() / "outside");
     WritePngSignature(project.parent_path() / "outside/texture.png");
 
@@ -384,7 +398,7 @@ TEST(GameBuildPipelineTest, SceneReferencedContentStagesEveryFileAScenePathOpens
     const std::array staged{
         fs::path{ "Assets/Models/Plant/plant.obj" },
         fs::path{ "Assets/Models/Plant/plant.mtl" },
-        fs::path{ "Assets/Models/Plant/Textures/leaves.png" },
+        fs::path{ "Assets/Models/Plant/Textures/leaves big.png" }, // after "-s 1 1 1", spaces and all
         fs::path{ "Assets/Models/Plant/Textures/leaves_n.png" },
         fs::path{ "Assets/Models/Plant/plant.obj.oloimport" },
         fs::path{ "Assets/Models/Rock/rock.gltf" },
@@ -396,18 +410,21 @@ TEST(GameBuildPipelineTest, SceneReferencedContentStagesEveryFileAScenePathOpens
         // Asset-relative: an audio source's Filepath is read back as
         // <AssetDirectory>/<value>.
         fs::path{ "Assets/Audio/Wind.ogg" },
+        fs::path{ "Resources/Icons/marker.png" },
     };
     for (const auto& path : staged)
     {
         EXPECT_TRUE(fs::is_regular_file(output / path)) << path.generic_string() << " was not staged";
     }
-    EXPECT_EQ(copiedCount, staged.size());
+    // ...plus exactly one of the two colliding files.
+    EXPECT_EQ(copiedCount, staged.size() + 1u);
+    EXPECT_TRUE(fs::is_regular_file(output / "Assets/Shared/Tex.png"));
     EXPECT_FALSE(fs::exists(output / "Assets/Models/Unused/unused.obj")) << "an unreferenced model was staged";
     EXPECT_FALSE(fs::exists(output / "Assets/Scenes")) << "the scenes ship through CopySceneFiles, not here";
 
-    // Missing, outside the project, and escaping the asset root: each named
-    // once (the ../ reference appears twice), none staged, none a build failure.
-    ASSERT_EQ(unresolved.size(), 3u);
+    // Missing, outside the project, escaping the asset root, and colliding:
+    // each named once (the ../ reference appears twice), none a build failure.
+    ASSERT_EQ(unresolved.size(), 4u);
     const auto mentions = [&](const std::string& needle)
     {
         return std::ranges::any_of(unresolved, [&](const std::string& line)
@@ -416,6 +433,7 @@ TEST(GameBuildPipelineTest, SceneReferencedContentStagesEveryFileAScenePathOpens
     EXPECT_TRUE(mentions("assets/textures/missing.png"));
     EXPECT_TRUE(mentions("../outside/texture.png"));
     EXPECT_TRUE(mentions("escape.png"));
+    EXPECT_TRUE(mentions("collides with"));
     for (const auto& line : unresolved)
     {
         EXPECT_EQ(line.rfind("Meadow.olo: ", 0), 0u) << "an unresolved reference must name its scene: " << line;

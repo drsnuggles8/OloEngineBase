@@ -15,6 +15,7 @@
 #include <chrono>
 #include <fstream>
 #include <iterator>
+#include <unordered_map>
 #include <sstream>
 #include <unordered_set>
 #include <nlohmann/json.hpp>
@@ -22,6 +23,17 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        [[nodiscard]] std::string LowerExtension(const std::filesystem::path& path)
+        {
+            auto extension = path.extension().string();
+            std::ranges::transform(extension, extension.begin(), [](unsigned char c)
+                                   { return static_cast<char>(std::tolower(c)); });
+            return extension;
+        }
+    } // namespace
+
     bool StageRuntimeDependencyLibraries(
         BuildTargetPlatform targetPlatform,
         const std::filesystem::path& runtimeBinDir,
@@ -49,9 +61,7 @@ namespace OloEngine
                 continue;
             }
 
-            auto extension = it->path().extension().string();
-            std::ranges::transform(extension, extension.begin(), [](unsigned char c)
-                                   { return static_cast<char>(std::tolower(c)); });
+            const auto extension = LowerExtension(it->path());
             if (extension == ".dll")
             {
                 dependencies.push_back(it->path());
@@ -106,9 +116,7 @@ namespace OloEngine
                 continue;
             }
 
-            auto extension = it->path().extension().string();
-            std::ranges::transform(extension, extension.begin(), [](unsigned char c)
-                                   { return static_cast<char>(std::tolower(c)); });
+            const auto extension = LowerExtension(it->path());
             if (textureExtensions.contains(extension))
             {
                 textures.push_back(it->path());
@@ -153,14 +161,6 @@ namespace OloEngine
 
     namespace
     {
-        [[nodiscard]] std::string LowerExtension(const std::filesystem::path& path)
-        {
-            auto extension = path.extension().string();
-            std::ranges::transform(extension, extension.begin(), [](unsigned char c)
-                                   { return static_cast<char>(std::tolower(c)); });
-            return extension;
-        }
-
         // "%20" -> ' '. glTF URIs are URI-encoded; anything malformed is left as typed.
         [[nodiscard]] std::string DecodeUriPath(const std::string& uri)
         {
@@ -182,6 +182,53 @@ namespace OloEngine
             return decoded;
         }
 
+        [[nodiscard]] std::string Trim(const std::string& text)
+        {
+            const auto begin = text.find_first_not_of(" \t\r");
+            if (begin == std::string::npos)
+                return {};
+            const auto end = text.find_last_not_of(" \t\r");
+            return text.substr(begin, end - begin + 1);
+        }
+
+        // The file an .mtl map statement names: the rest of the line once its
+        // options are skipped. A filename may contain spaces, so it is never just
+        // the last token. An option is "-name" followed by its arguments, which
+        // are numbers, "on"/"off", or a one-letter channel.
+        [[nodiscard]] std::string MapStatementFile(const std::string& rest)
+        {
+            sizet at = 0;
+            const auto nextToken = [&](sizet from, sizet& end) -> std::string
+            {
+                const auto begin = rest.find_first_not_of(" \t", from);
+                if (begin == std::string::npos)
+                {
+                    end = rest.size();
+                    return {};
+                }
+                end = rest.find_first_of(" \t", begin);
+                if (end == std::string::npos)
+                    end = rest.size();
+                at = begin;
+                return rest.substr(begin, end - begin);
+            };
+            const auto isArgument = [](const std::string& token)
+            {
+                if (token == "on" || token == "off" || (token.size() == 1 && std::isalpha(static_cast<unsigned char>(token[0]))))
+                    return true;
+                return !token.empty() && token.find_first_not_of("0123456789+-.eE") == std::string::npos;
+            };
+            sizet end = 0;
+            std::string token = nextToken(0, end);
+            while (!token.empty() && token[0] == '-')
+            {
+                token = nextToken(end, end);
+                while (!token.empty() && token[0] != '-' && isArgument(token))
+                    token = nextToken(end, end);
+            }
+            return token.empty() ? std::string{} : Trim(rest.substr(at));
+        }
+
         // The files `file` opens by itself, as paths relative to its own directory.
         [[nodiscard]] std::vector<std::string> ReadContentDependencies(const std::filesystem::path& file)
         {
@@ -189,8 +236,8 @@ namespace OloEngine
             const std::string extension = LowerExtension(file);
             if (extension == ".obj" || extension == ".mtl")
             {
-                // An .obj names its materials with `mtllib`; an .mtl names each texture as
-                // the LAST token of a map statement (options such as `-bm 1.0` come first).
+                // An .obj names its materials with `mtllib` (the rest of the line);
+                // an .mtl names each texture in a map statement, after its options.
                 static const std::unordered_set<std::string> mapStatements = {
                     "map_ka", "map_kd", "map_ks", "map_ke", "map_ns", "map_d", "map_bump", "bump", "norm",
                     "disp", "decal", "refl", "map_pr", "map_pm", "map_ps", "map_rma", "map_orm"
@@ -199,20 +246,21 @@ namespace OloEngine
                 std::string line;
                 while (std::getline(input, line))
                 {
-                    std::istringstream tokens(line);
-                    std::string statement;
-                    tokens >> statement;
+                    const std::string trimmed = Trim(line);
+                    const auto split = trimmed.find_first_of(" \t");
+                    if (split == std::string::npos)
+                        continue;
+                    std::string statement = trimmed.substr(0, split);
                     std::ranges::transform(statement, statement.begin(), [](unsigned char c)
                                            { return static_cast<char>(std::tolower(c)); });
-                    const bool wanted = extension == ".obj" ? statement == "mtllib" : mapStatements.contains(statement);
-                    if (!wanted)
-                        continue;
-                    std::string token;
-                    std::string last;
-                    while (tokens >> token)
-                        last = token;
-                    if (!last.empty())
-                        dependencies.push_back(last);
+                    const std::string rest = trimmed.substr(split + 1);
+                    std::string named;
+                    if (extension == ".obj" && statement == "mtllib")
+                        named = Trim(rest);
+                    else if (extension == ".mtl" && mapStatements.contains(statement))
+                        named = MapStatementFile(rest);
+                    if (!named.empty())
+                        dependencies.push_back(named);
                 }
             }
             else if (extension == ".gltf")
@@ -240,21 +288,53 @@ namespace OloEngine
             return dependencies;
         }
 
-        // True when `path` is non-empty, relative, stays inside its first component
-        // after `..` folding, and that first component is exactly `root`.
+        // True when `path` begins with every component of `prefix`, compared exactly
+        // (case-sensitively): ResolveContentPath's own test for "<AssetDirectory>/...",
+        // which may be more than one component ("Content/Assets").
+        [[nodiscard]] bool StartsWithComponents(const std::filesystem::path& path, const std::filesystem::path& prefix)
+        {
+            auto it = path.begin();
+            bool any = false;
+            for (const auto& component : prefix)
+            {
+                if (component.empty() || component == ".")
+                    continue;
+                if (it == path.end() || it->generic_string() != component.generic_string())
+                    return false;
+                ++it;
+                any = true;
+            }
+            return any;
+        }
+
+        // True when `path` is relative, starts with `root` and has no `..` left
+        // after folding, i.e. it cannot leave the directory it is staged into.
         [[nodiscard]] bool IsRootedUnder(const std::filesystem::path& path, const std::filesystem::path& root)
         {
-            if (path.empty() || path.is_absolute() || root.empty())
+            if (path.empty() || path.is_absolute() || !StartsWithComponents(path, root))
                 return false;
-            const auto first = path.begin();
-            if (first == path.end() || first->generic_string() != root.generic_string())
+            return std::ranges::none_of(path, [](const std::filesystem::path& component)
+                                        { return component == ".."; });
+        }
+
+        // Could this scalar name a file at all? Cheap, and it spares a stat for
+        // each of the tens of thousands of numbers, flags and tags in a scene.
+        [[nodiscard]] bool LooksLikeAPath(const std::string& value)
+        {
+            if (value.find_first_of("/.\\") == std::string::npos)
                 return false;
-            for (const auto& component : path)
-            {
-                if (component == "..")
-                    return false;
-            }
-            return true;
+            return value.find_first_not_of("0123456789+-.eE ") != std::string::npos;
+        }
+
+        [[nodiscard]] bool SameBytes(const std::filesystem::path& a, const std::filesystem::path& b)
+        {
+            std::error_code ec;
+            if (std::filesystem::file_size(a, ec) != std::filesystem::file_size(b, ec) || ec)
+                return false;
+            std::ifstream fa(a, std::ios::binary);
+            std::ifstream fb(b, std::ios::binary);
+            return std::equal(std::istreambuf_iterator<char>(fa), std::istreambuf_iterator<char>(),
+                              std::istreambuf_iterator<char>(fb));
         }
     } // namespace
 
@@ -274,11 +354,10 @@ namespace OloEngine
         struct Reference
         {
             std::filesystem::path Stored;
-            const std::filesystem::path* Base = nullptr;
-            const std::filesystem::path* Root = nullptr;
+            std::filesystem::path Base;
+            std::filesystem::path Root;
             std::string Referrer;
         };
-        const std::filesystem::path engineRootName = "assets";
 
         std::vector<Reference> pending;
         std::unordered_set<std::string> seen;
@@ -302,7 +381,7 @@ namespace OloEngine
             if (value.empty() || value.size() > 1024 || value.find_first_of("\r\n") != std::string::npos)
                 return;
             const std::filesystem::path stored = std::filesystem::path(value).lexically_normal();
-            if (stored.empty())
+            if (stored.empty() || stored == ".")
                 return;
             const std::string first = stored.begin()->generic_string();
             if (stored.is_absolute())
@@ -320,22 +399,33 @@ namespace OloEngine
                        " (outside the project; a relocatable package has nowhere to put it)");
                 return;
             }
-            if (first == assetDirectoryName.generic_string())
-                enqueue({ stored, &projectDir, &assetDirectoryName, sceneName });
-            else if (first == engineRootName.generic_string())
-                enqueue({ stored, &engineRoot, &engineRootName, sceneName });
-            else
+            if (StartsWithComponents(stored, assetDirectoryName))
             {
-                // Asset-directory-relative ("Audio/Wind.ogg"): how an audio
-                // source's Filepath is stored, read back as
-                // <AssetDirectory>/<value>, which is <game>/Assets/<value> in a
-                // packaged game. Only a value naming a file that is there counts,
-                // so ordinary text is never taken for a path.
-                const std::filesystem::path assetRelative = assetDirectoryName / stored;
-                std::error_code ec;
-                if (std::filesystem::is_regular_file(projectDir / assetRelative, ec))
-                    enqueue({ assetRelative, &projectDir, &assetDirectoryName, sceneName });
+                enqueue({ stored, projectDir, assetDirectoryName, sceneName });
+                return;
             }
+            if (first == "assets")
+            {
+                enqueue({ stored, engineRoot, "assets", sceneName });
+                return;
+            }
+            if (!LooksLikeAPath(value))
+                return;
+
+            // Two more spellings resolve, and only a value naming a file that is
+            // really there counts, so ordinary text is never taken for a path:
+            //  - asset-directory-relative ("Audio/Wind.ogg"), how an audio source's
+            //    Filepath is stored and read back as <AssetDirectory>/<value>,
+            //    which is <game>/Assets/<value> in a packaged game;
+            //  - any other relative spelling, which ResolveContentPath reads
+            //    against the working directory ("Resources/..."), which is the
+            //    game directory in a packaged game.
+            std::error_code ec;
+            const std::filesystem::path assetRelative = assetDirectoryName / stored;
+            if (std::filesystem::exists(projectDir / assetRelative, ec))
+                enqueue({ assetRelative, projectDir, assetDirectoryName, sceneName });
+            if (std::filesystem::exists(engineRoot / stored, ec))
+                enqueue({ stored, engineRoot, first, sceneName });
         };
 
         for (const auto& sceneFile : sceneFiles)
@@ -375,8 +465,28 @@ namespace OloEngine
             }
         }
 
-        const auto copyOne = [&](const std::filesystem::path& source, const std::filesystem::path& stored) -> bool
+        // Where each destination came from, keyed case-insensitively: "Assets/x"
+        // and "assets/x" are ONE file in a Windows package, so two different
+        // files staged there would overwrite each other without a word.
+        std::unordered_map<std::string, std::filesystem::path> stagedFrom;
+        const auto copyOne = [&](const std::filesystem::path& source, const std::filesystem::path& stored,
+                                 const std::string& referrer) -> bool
         {
+            std::string key = stored.generic_string();
+            std::ranges::transform(key, key.begin(), [](unsigned char c)
+                                   { return static_cast<char>(std::tolower(c)); });
+            if (const auto earlier = stagedFrom.find(key); earlier != stagedFrom.end())
+            {
+                if (!SameBytes(earlier->second, source))
+                {
+                    report(referrer + ": " + stored.generic_string() + " (collides with " +
+                           earlier->second.generic_string() +
+                           ", a different file at the same path once Assets/ and assets/ share a directory)");
+                }
+                return true;
+            }
+            stagedFrom.emplace(std::move(key), source);
+
             const auto destination = outputDir / stored;
             std::error_code ec;
             std::filesystem::create_directories(destination.parent_path(), ec);
@@ -401,20 +511,22 @@ namespace OloEngine
             const Reference reference = std::move(pending.back());
             pending.pop_back();
 
-            if (!IsRootedUnder(reference.Stored, *reference.Root))
+            if (!IsRootedUnder(reference.Stored, reference.Root))
             {
                 report(reference.Referrer + ": " + reference.Stored.generic_string() + " (leaves " +
-                       reference.Root->generic_string() + "/)");
+                       reference.Root.generic_string() + "/)");
                 continue;
             }
 
-            const auto source = *reference.Base / reference.Stored;
+            const auto source = reference.Base / reference.Stored;
             std::error_code ec;
             if (std::filesystem::is_directory(source, ec))
             {
                 // A folder reference (a cubemap's six faces). Never the root itself,
                 // which would copy the whole content tree.
-                if (std::distance(reference.Stored.begin(), reference.Stored.end()) < 2)
+                const auto depth = std::distance(reference.Stored.begin(), reference.Stored.end());
+                const auto rootDepth = std::distance(reference.Root.begin(), reference.Root.end());
+                if (depth <= rootDepth)
                     continue;
                 std::vector<std::filesystem::path> files;
                 for (std::filesystem::directory_iterator it(source, ec), end; it != end && !ec; it.increment(ec))
@@ -431,7 +543,7 @@ namespace OloEngine
                 std::ranges::sort(files);
                 for (const auto& name : files)
                 {
-                    if (!copyOne(source / name, reference.Stored / name))
+                    if (!copyOne(source / name, reference.Stored / name, reference.Referrer))
                         return false;
                 }
                 continue;
@@ -439,11 +551,11 @@ namespace OloEngine
             if (!std::filesystem::is_regular_file(source, ec))
             {
                 report(reference.Referrer + ": " + reference.Stored.generic_string() + " (no such file under " +
-                       reference.Base->string() + ")");
+                       reference.Base.string() + ")");
                 continue;
             }
 
-            if (!copyOne(source, reference.Stored))
+            if (!copyOne(source, reference.Stored, reference.Referrer))
                 return false;
 
             const std::string referrer = reference.Stored.generic_string();
@@ -458,7 +570,7 @@ namespace OloEngine
             // only a sidecar that exists is staged.
             std::filesystem::path importSettings = reference.Stored;
             importSettings += ".oloimport";
-            if (std::filesystem::is_regular_file(*reference.Base / importSettings, ec))
+            if (std::filesystem::is_regular_file(reference.Base / importSettings, ec))
                 enqueueSibling(importSettings);
         }
 
