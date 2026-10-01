@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Groom/GroomGpuDeformation.h"
+#include "OloEngine/Core/PerformanceProfiler.h"
 #include "OloEngine/Task/ParallelFor.h"
 
 #include "OloEngine/Groom/GroomAsset.h"
@@ -204,6 +205,7 @@ namespace OloEngine
         m_Slots.Init(GroomDeformSlotRecord{}, static_cast<i32>(layout.SlotCount));
         m_Displacements.Init(GroomDeformDisplacementRecord{}, static_cast<i32>(layout.DisplacementCapacity));
         m_Bytes.Init(u8{ 0 }, static_cast<i64>(layout.TotalBytes()));
+        m_CountsValid = false;
 
         // The STATIC region: each drawn strand's guide weights, in root-slot
         // order. A strand with no table, or a table that does not span the
@@ -229,6 +231,8 @@ namespace OloEngine
                                                        std::span<const GroomRootTransform> rootTransforms,
                                                        const GroomStrandSimulation* simulation, u32 baseCurveCount)
     {
+        OLO_PROFILE_FUNCTION();
+        OLO_PERF_SCOPE_AUTO("Groom::PackFrame");
         m_Frame = {};
         if (m_Bytes.Num() == 0)
         {
@@ -334,18 +338,33 @@ namespace OloEngine
         m_Frame.DisplacementCount = displacementCount;
 
         // The strands a guide actually moved this frame, counted the way the
-        // CPU build counted them: HasGroomGuideInfluence, per drawn strand.
-        for (u32 slot = 0; slot < rootCount; ++slot)
+        // CPU build counted them: HasGroomGuideInfluence, per drawn strand --
+        // and only when the guides it moved are not the ones last counted.
+        const bool countsCurrent =
+            m_CountsValid && m_CountedTable == simulation->Influence &&
+            std::ranges::equal(std::span<const u32>(m_CountedGuideOfSlot), simulation->GuideOfSlot);
+        if (!countsCurrent)
         {
-            if (HasGroomGuideInfluence(*simulation, rootCurves[slot]))
+            OLO_PERF_SCOPE_AUTO("Groom::CountStrands");
+            m_CountedSimulated = 0;
+            m_CountedUnguided = 0;
+            for (u32 slot = 0; slot < rootCount; ++slot)
             {
-                ++m_Frame.StrandsSimulated;
+                if (HasGroomGuideInfluence(*simulation, rootCurves[slot]))
+                {
+                    ++m_CountedSimulated;
+                }
+                else
+                {
+                    ++m_CountedUnguided;
+                }
             }
-            else
-            {
-                ++m_Frame.StrandsUnguided;
-            }
+            m_CountedGuideOfSlot.assign(simulation->GuideOfSlot.begin(), simulation->GuideOfSlot.end());
+            m_CountedTable = simulation->Influence;
+            m_CountsValid = true;
         }
+        m_Frame.StrandsSimulated = m_CountedSimulated;
+        m_Frame.StrandsUnguided = m_CountedUnguided;
         return m_Frame;
     }
 

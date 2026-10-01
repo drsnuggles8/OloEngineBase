@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/GroomRenderPass.h"
+#include "OloEngine/Core/PerformanceProfiler.h"
 
 #include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Groom/GroomAsset.h"
@@ -573,6 +574,8 @@ namespace OloEngine
 
     void GroomRenderPass::UploadDeformation(const GroomStrandRequest& request, CacheEntry& entry)
     {
+        OLO_PROFILE_FUNCTION();
+        OLO_PERF_SCOPE_AUTO("Groom::UploadDeformation");
         const auto packStart = std::chrono::steady_clock::now();
 
         const u32 baseCurveCount = request.Groom->GetCurveCount();

@@ -335,6 +335,18 @@ namespace OloEngine
         TArray<GroomDeformSlotRecord> m_Slots;
         TArray<GroomDeformDisplacementRecord> m_Displacements;
         TArray64<u8> m_Bytes;
+
+        // THE STRAND COUNTS, cached against what they were counted from (#1533
+        // E1). Counting is a lookup per drawn strand -- a quarter of a million a
+        // frame on the showcase dog -- for a number that moves only when the
+        // simulation budget changes which guides it moved. So PackFrame counts
+        // when the table or the slot-to-guide map differs from the last count,
+        // and Reset (a new root set) forgets it.
+        std::vector<u32> m_CountedGuideOfSlot;
+        const GroomGuideInfluenceTable* m_CountedTable = nullptr;
+        u32 m_CountedSimulated = 0;
+        u32 m_CountedUnguided = 0;
+        bool m_CountsValid = false;
     };
 
     /**

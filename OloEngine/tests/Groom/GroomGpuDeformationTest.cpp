@@ -567,6 +567,59 @@ TEST(GroomGpuDeformation, TheCoatBakeSeesThePoseTheGpuDraws)
     EXPECT_EQ(std::bit_cast<u32>(drift), 0u) << "drift " << drift;
 }
 
+// #1533 E1: the simulated and unguided strand counts are a lookup per drawn
+// strand, so PackFrame keeps its last count until the guides it counted change
+// -- and a frame whose budget drops guides is recounted, not served stale.
+TEST(GroomGpuDeformation, TheSimulatedStrandCountIsRecountedOnlyWhenTheGuidesChange)
+{
+    const BoundScene scene = MakeBoundScene(40u, 12u);
+    const Simulation simulation = MakeSimulation(*scene.Groom);
+    std::vector<GroomStrandVertex> rest;
+    std::vector<u32> indices;
+    std::vector<u32> rootCurves;
+    (void)BuildGroomStrandRestMesh(GroomBuildSource::FromAsset(*scene.Groom), GroomStrandBuildSettings{},
+                                   *scene.Binding, rest, indices, rootCurves);
+    const GroomDeformBufferLayout layout =
+        GroomDeformBufferLayout::Make(static_cast<u32>(rootCurves.size()), simulation.Table->GetGuideCount(),
+                                      static_cast<u32>(simulation.Displacements.size()));
+    GroomDeformBuffer buffer;
+    buffer.Reset(layout, rootCurves, simulation.Table.Raw());
+    const std::span<const GroomRootTransform> transforms{ scene.Transforms.GetData(),
+                                                          static_cast<sizet>(scene.Transforms.Num()) };
+    const u32 baseCurves = scene.Groom->GetCurveCount();
+    const auto direct = [&](const GroomStrandSimulation& view)
+    {
+        u32 simulated = 0;
+        for (const u32 curve : rootCurves)
+        {
+            simulated += HasGroomGuideInfluence(view, curve) ? 1u : 0u;
+        }
+        return simulated;
+    };
+
+    const GroomStrandSimulation all = simulation.View();
+    const GroomDeformFrameStats first = buffer.PackFrame(rootCurves, *scene.Binding, transforms, &all, baseCurves);
+    const GroomDeformFrameStats again = buffer.PackFrame(rootCurves, *scene.Binding, transforms, &all, baseCurves);
+    EXPECT_EQ(first.StrandsSimulated, direct(all));
+    EXPECT_EQ(first.StrandsSimulated + first.StrandsUnguided, rootCurves.size());
+    EXPECT_EQ(again.StrandsSimulated, first.StrandsSimulated);
+    EXPECT_EQ(again.StrandsUnguided, first.StrandsUnguided);
+
+    // The budget keeps only the first guide this frame: the same table, a
+    // different slot-to-guide map. (A strand stays simulated while ANY of its
+    // guides moved, so dropping a few could leave every count where it was.)
+    Simulation thinned = simulation;
+    for (sizet slot = 1; slot < thinned.GuideOfSlot.size(); ++slot)
+    {
+        thinned.GuideOfSlot[slot] = GroomNoGuide;
+    }
+    const GroomStrandSimulation fewer = thinned.View();
+    const GroomDeformFrameStats dropped = buffer.PackFrame(rootCurves, *scene.Binding, transforms, &fewer, baseCurves);
+    EXPECT_EQ(dropped.StrandsSimulated, direct(fewer)) << "a frame with fewer guides was served the last count";
+    EXPECT_EQ(dropped.StrandsSimulated + dropped.StrandsUnguided, rootCurves.size());
+    EXPECT_LT(dropped.StrandsSimulated, first.StrandsSimulated) << "the fixture's dropped guides moved no strand";
+}
+
 TEST(GroomGpuDeformation, AFrameSendsSixtyFourBytesAStrandNotAWholeStream)
 {
     // The point of the issue, as a number: what a bound coat sends per frame
