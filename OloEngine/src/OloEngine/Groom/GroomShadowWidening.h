@@ -18,6 +18,7 @@
 #include "OloEngine/Core/Base.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <glm/glm.hpp>
 
@@ -90,40 +91,90 @@ namespace OloEngine
     /// the saving is noise and the subset is a few strands per texel.
     inline constexpr f32 kGroomCasterMinFraction = 1.0f / 16.0f;
 
-    /// The strand LAYERS a subset must still lay over every texel of the coat's
-    /// footprint (#1533 E1). The coverage margin is an expectation, and a sparse
-    /// coat meets it with strands far apart: each one a texel wide, gaps between
-    /// them, and the shadow turns to streaks and blocks where the whole cast was
-    /// solid (GroomSceneShadow case 9, measured). Poisson holes fall as exp(-n):
-    /// four layers leave about two per cent of texels open, which the 3x3 kernel
-    /// averages away.
+    /// The strand LAYERS a run's subset should still lay over its footprint
+    /// (#1533 E1). The coverage margin is an expectation, and a sparse coat meets
+    /// it with strands far apart: each one a texel wide, gaps between them, and
+    /// the shadow turns to streaks and blocks where the whole cast was solid
+    /// (GroomSceneShadow case 9, measured). IF strands landed on texels as a
+    /// Poisson process, four layers would leave exp(-4), about two per cent, of
+    /// texels open. That is a MODEL, not a guarantee: the layers are a run-wide
+    /// average over a box, strands are lines rather than points, and a fringe
+    /// where the run thins out keeps fewer layers than its average
+    /// (GroomCasterCoverageTest measures where the model holds).
     inline constexpr f32 kGroomCasterMinLayers = 4.0f;
 
-    /// The share of a strand's length its shadow keeps on average: strands lie
-    /// along the skin, and toward the silhouette the skin turns along the light.
-    /// A half undercounts the layers, which only keeps more strands.
+    /// The share of a strand's length its shadow is ASSUMED to keep when the
+    /// run's direction moments are not known (an order built without strand
+    /// summaries; DecideGroomCasterRun). An assumption, not a bound: a strand
+    /// along the light projects to a dot, and this half credits it with a line
+    /// (#1533 follow-up review). Runs with moments use
+    /// GroomShadowProjectedLengthLowerBound instead.
     inline constexpr f32 kGroomCasterProjectedLengthShare = 0.5f;
 
-    /// The strand layers a coat cast WHOLE lays over each texel of its footprint
-    /// in one view (#1533 E1): its drawn length times the width each strand is
-    /// rasterised at, over the area it falls on, all in that view's NDC.
-    /// `footprintNdcArea` is the coat's box projected and bounded in NDC. The
-    /// box overstates the footprint and the mean width understates the floored
-    /// one, so this errs low, toward keeping strands. Zero for anything that
-    /// cannot be measured, which casts the coat whole.
-    [[nodiscard]] inline f32 GroomShadowCasterLayers(f32 totalLengthWorld, f32 meanRadiusWorld, f32 ndcPerWorld,
-                                                     f32 resolutionTexels, f32 minWidthTexels,
-                                                     f32 footprintNdcArea) noexcept
+    /// The direction a view projects along at `point` (#1533): the one along
+    /// which the point's NDC position does not change, so a strand lying along
+    /// it lands on one spot of the map. The cross product of the gradients of
+    /// x/w and y/w: rows 0 and 1 for an orthographic view, the ray from the
+    /// light for a perspective one. `point` is in the space `viewProjection`
+    /// maps (render-relative for the shadow pass's matrices). The sign is
+    /// arbitrary; zero when the matrix is degenerate there.
+    [[nodiscard]] inline glm::vec3 GroomShadowProjectionDirection(const glm::mat4& viewProjection,
+                                                                  const glm::vec3& point) noexcept
     {
-        if (!(footprintNdcArea > 0.0f) || !(ndcPerWorld > 0.0f) || !(totalLengthWorld > 0.0f) ||
-            !std::isfinite(footprintNdcArea) || !std::isfinite(ndcPerWorld) || !std::isfinite(totalLengthWorld))
+        const glm::vec4 clip = viewProjection * glm::vec4(point, 1.0f);
+        const glm::vec3 row0{ viewProjection[0][0], viewProjection[1][0], viewProjection[2][0] };
+        const glm::vec3 row1{ viewProjection[0][1], viewProjection[1][1], viewProjection[2][1] };
+        const glm::vec3 row3{ viewProjection[0][3], viewProjection[1][3], viewProjection[2][3] };
+        const glm::vec3 direction = glm::cross(row0 * clip.w - row3 * clip.x, row1 * clip.w - row3 * clip.y);
+        const f32 length = glm::length(direction);
+        return (length > 0.0f && std::isfinite(length)) ? direction / length : glm::vec3(0.0f);
+    }
+
+    /// A LOWER BOUND on the length a run of strands projects to across a unit
+    /// direction `d` (in the same space as its moments): a segment of length l at
+    /// angle theta to d projects to l sin(theta), and sin(theta) >= sin^2(theta)
+    /// = 1 - cos^2(theta), so the sum is at least L - d^T M d with M the summed
+    /// l * outer(t, t) (GroomCasterStrand::Moments). Exact for strands lying
+    /// across the light, zero for strands along it -- the case the half share
+    /// overstates -- and, with only second moments known, the tightest bound
+    /// there is: a run split between strands exactly along and exactly across d
+    /// meets it. Never negative.
+    [[nodiscard]] inline f32 GroomShadowProjectedLengthLowerBound(f32 totalLength, const std::array<f32, 6>& moments,
+                                                                  const glm::vec3& direction) noexcept
+    {
+        const f32 dmd = moments[0] * direction.x * direction.x + moments[1] * direction.y * direction.y +
+                        moments[2] * direction.z * direction.z +
+                        2.0f * (moments[3] * direction.x * direction.y + moments[4] * direction.x * direction.z +
+                                moments[5] * direction.y * direction.z);
+        const f32 bound = totalLength - dmd;
+        return std::isfinite(bound) ? std::max(bound, 0.0f) : 0.0f;
+    }
+
+    /// The strand layers a run cast WHOLE lays over its footprint in one view, as
+    /// an ESTIMATE (#1533): the area its floored ribbons cover -- their projected
+    /// length times the floored width -- over the NDC area of its box. The
+    /// ribbon has NO END CAPS (GroomShadowWidening.glsl widens sideways only),
+    /// so a strand along the light covers nothing beyond its projected length,
+    /// and there is no dot term to add.
+    ///
+    /// A run-wide MEAN, not a per-texel count: the box is at least the area the
+    /// strands cover, which keeps the mean low, but a fringe where the run
+    /// thins out lays fewer layers than the mean says. `projectedLengthWorld`
+    /// should be GroomShadowProjectedLengthLowerBound's when the run's moments
+    /// are known. Zero for anything that cannot be measured, which casts the run
+    /// whole.
+    [[nodiscard]] inline f32 GroomShadowCasterLayersFromProjection(f32 projectedLengthWorld, f32 meanRadiusWorld,
+                                                                   f32 ndcPerWorld, f32 resolutionTexels,
+                                                                   f32 minWidthTexels, f32 footprintNdcArea) noexcept
+    {
+        if (!(footprintNdcArea > 0.0f) || !(ndcPerWorld > 0.0f) || !(projectedLengthWorld > 0.0f) ||
+            !std::isfinite(footprintNdcArea) || !std::isfinite(ndcPerWorld) || !std::isfinite(projectedLengthWorld))
         {
             return 0.0f;
         }
         const f32 widthNdc =
             2.0f * GroomShadowHalfWidthNdc(std::max(meanRadiusWorld, 0.0f), ndcPerWorld, resolutionTexels, minWidthTexels);
-        const f32 lengthNdc = kGroomCasterProjectedLengthShare * totalLengthWorld * ndcPerWorld;
-        const f32 layers = lengthNdc * widthNdc / footprintNdcArea;
+        const f32 layers = projectedLengthWorld * ndcPerWorld * widthNdc / footprintNdcArea;
         return std::isfinite(layers) ? layers : 0.0f;
     }
 
@@ -138,16 +189,19 @@ namespace OloEngine
     /// real coat's opacity instead of exceeding it F-fold. The fraction keeps
     /// `margin` times that, clamped to [minFraction, 1].
     ///
-    /// The mean radius makes it a LOWER BOUND on what the subset covers: a
-    /// strand wider than the floor keeps its own width, so the floored draw
-    /// covers at least floor * length per strand and never less than the mean
-    /// says. Where the mean strand is already a texel wide nothing is widened,
-    /// nothing is over-covered, and the whole coat is cast.
+    /// In EXPECTATION only, and with the mean radius standing for every strand:
+    /// a strand wider than the floor keeps its own width and is not widened, so
+    /// a run of mixed widths is over-thinned where its thin strands are -- which
+    /// is why runs are per coat role (GroomCasterRun) rather than coat-wide.
+    /// Where the mean strand is already a texel wide nothing is widened, nothing
+    /// is over-covered, and the whole run is cast.
     ///
-    /// AND NO THINNER THAN `minLayers` OVER `layersWhole` (GroomShadowCasterLayers):
+    /// AND NO THINNER THAN `minLayers` OVER `layersWhole` (the layer estimate):
     /// the expectation above says nothing about how far apart the kept strands
-    /// are, and a sparse coat thinned to it shows them one by one. A coat whose
-    /// whole cast lays too few layers to spare any is cast whole.
+    /// are, and a sparse run thinned to it shows them one by one. A run whose
+    /// whole cast lays too few layers to spare any is cast whole. The layers are
+    /// an estimate (see kGroomCasterMinLayers), so this is a heuristic floor, not
+    /// a per-texel bound.
     [[nodiscard]] inline f32 GroomShadowCasterFraction(f32 meanRadiusWorld, f32 ndcPerWorld, f32 resolutionTexels,
                                                        f32 minWidthTexels, f32 margin, f32 minFraction,
                                                        f32 layersWhole, f32 minLayers) noexcept

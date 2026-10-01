@@ -24,10 +24,12 @@
 
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomBuilder.h"
+#include "OloEngine/Groom/GroomShadowWidening.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
 #include "OloEngine/Groom/GroomVisibility.h"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <array>
 #include <bit>
@@ -36,6 +38,7 @@
 #include <limits>
 #include <set>
 #include <span>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -511,11 +514,11 @@ namespace
         std::vector<u32> StrandFirstIndex;
     };
 
-    StreamWithStrands BuildWithStrands(const GroomAsset& groom)
+    StreamWithStrands BuildWithStrands(const GroomAsset& groom, std::vector<GroomCasterStrand>* casterStrands = nullptr)
     {
         StreamWithStrands stream;
         (void)BuildGroomStrandMesh(GroomBuildSource::FromAsset(groom), GroomStrandBuildSettings{}, stream.Vertices,
-                                   stream.Indices, nullptr, nullptr, nullptr, &stream.StrandFirstIndex);
+                                   stream.Indices, nullptr, nullptr, nullptr, &stream.StrandFirstIndex, casterStrands);
         return stream;
     }
 
@@ -533,6 +536,43 @@ namespace
             }
         }
         return strands;
+    }
+
+    // `count` straight strands in `groups` groups: curve c is in group c % groups,
+    // points along axis (group % 3) with 1 + (c % 3) segments, and is
+    // 1 mm * (1 + group) across -- so each group has its own direction and width.
+    Ref<GroomAsset> MakeGroupedGroom(u32 count, u32 groups)
+    {
+        GroomBuilder builder;
+        std::string reason;
+        std::vector<u16> ids(groups, 0u);
+        for (u32 g = 0; g < groups; ++g)
+        {
+            EXPECT_TRUE(builder.AddGroup("group" + std::to_string(g), ids[g], reason)) << reason;
+        }
+        for (u32 c = 0; c < count; ++c)
+        {
+            const u32 g = c % groups;
+            glm::vec3 axis(0.0f);
+            axis[static_cast<glm::length_t>(g % 3u)] = 1.0f;
+            const u32 pointCount = 2u + (c % 3u);
+            std::vector<glm::vec3> points(pointCount);
+            std::vector<f32> widths(pointCount, 0.001f * static_cast<f32>(1u + g));
+            const glm::vec3 root{ 0.01f * static_cast<f32>(c), 0.0f, 0.02f * static_cast<f32>(g) };
+            for (u32 p = 0; p < pointCount; ++p)
+            {
+                points[p] = root + axis * (0.05f * static_cast<f32>(p));
+            }
+            GroomCurveInput input;
+            input.Points = points;
+            input.Widths = widths;
+            input.RootUV = { 0.0f, 0.0f };
+            input.GroupId = ids[g];
+            EXPECT_TRUE(builder.AddCurve(input, reason)) << reason;
+        }
+        Ref<GroomAsset> groom = builder.Build(reason);
+        EXPECT_TRUE(groom) << reason;
+        return groom;
     }
 
     // The strands of a caster order, in the order it casts them.
@@ -577,6 +617,10 @@ TEST(GroomStrandMesh, TheCasterOrderCastsEveryStrandWholeAndOnceInAHashedOrder)
     const StreamWithStrands stream = BuildWithStrands(*groom);
     const GroomCasterOrder order = BuildGroomCasterOrder(stream.Vertices, stream.Indices, stream.StrandFirstIndex);
     ASSERT_EQ(order.Indices.size(), stream.Indices.size());
+    // Without strand summaries: the whole stream, one run.
+    ASSERT_EQ(order.Runs.size(), 1u);
+    EXPECT_FALSE(order.Runs[0].MomentsKnown) << "no summaries, no moments: the share is assumed, not bounded";
+    const auto& prefix = order.Runs[0].Prefix;
 
     // Each segment keeps its own six indices, and each strand's segments stay
     // together, in their own order, complete.
@@ -623,8 +667,8 @@ TEST(GroomStrandMesh, TheCasterOrderCastsEveryStrandWholeAndOnceInAHashedOrder)
     EXPECT_EQ(BuildGroomCasterOrder(stream.Vertices, stream.Indices, stream.StrandFirstIndex).Indices, order.Indices);
 
     // Level j holds exactly the first ceil(j * 300 / 64) strands of that order.
-    EXPECT_EQ(order.Prefix[0], 0u);
-    EXPECT_EQ(order.Prefix[kGroomCasterPrefixLevels], order.Indices.size());
+    EXPECT_EQ(prefix[0], 0u);
+    EXPECT_EQ(prefix[kGroomCasterPrefixLevels], order.Indices.size());
     for (u32 level = 1; level <= kGroomCasterPrefixLevels; ++level)
     {
         const u32 strands = (level * 300u + kGroomCasterPrefixLevels - 1u) / kGroomCasterPrefixLevels;
@@ -633,8 +677,196 @@ TEST(GroomStrandMesh, TheCasterOrderCastsEveryStrandWholeAndOnceInAHashedOrder)
         {
             indexCount += 6u * (1u + (sequence[k] % 5u));
         }
-        EXPECT_EQ(order.Prefix[level], indexCount) << "level " << level;
+        EXPECT_EQ(prefix[level], indexCount) << "level " << level;
     }
+}
+
+// With the build's strand summaries the order is one RUN per group (#1533):
+// each run holds exactly its group's strands, in a hashed order of its own, with
+// a prefix table of its own -- so a view can cast a share of each group from
+// that group's own density, width and direction.
+TEST(GroomStrandMesh, TheCasterRunsAreOnePerGroupEachAHashedShareOfItsOwnStrands)
+{
+    const auto groom = MakeGroupedGroom(300u, 3u);
+    ASSERT_TRUE(groom);
+    std::vector<GroomCasterStrand> summaries;
+    const StreamWithStrands stream = BuildWithStrands(*groom, &summaries);
+    ASSERT_EQ(stream.StrandFirstIndex.size(), 300u);
+    ASSERT_EQ(summaries.size(), 300u) << "one summary per emitted strand";
+    const GroomCasterOrder order =
+        BuildGroomCasterOrder(stream.Vertices, stream.Indices, stream.StrandFirstIndex, summaries);
+    ASSERT_EQ(order.Indices.size(), stream.Indices.size());
+    ASSERT_EQ(order.Runs.size(), 3u);
+
+    const std::vector<u32> segmentStrands = SegmentStrands(stream);
+    u32 expectedFirst = 0;
+    for (u32 r = 0; r < 3u; ++r)
+    {
+        const GroomCasterRun& run = order.Runs[r];
+        EXPECT_EQ(run.FirstIndex, expectedFirst) << "run " << r << ": the runs cover the order end to end";
+        EXPECT_EQ(run.Strands, 100u) << "run " << r;
+        EXPECT_TRUE(run.MomentsKnown) << "run " << r;
+
+        // The run's strands, in its order: each of its group's strands, once.
+        std::vector<u32> sequence;
+        for (u32 index = run.FirstIndex; index < run.FirstIndex + run.Prefix[kGroomCasterPrefixLevels]; index += 6u)
+        {
+            const u32 strand = segmentStrands[order.Indices[index] / 4u];
+            if (sequence.empty() || sequence.back() != strand)
+            {
+                sequence.push_back(strand);
+            }
+        }
+        ASSERT_EQ(sequence.size(), 100u) << "run " << r;
+        const u32 group = sequence.front() % 3u;
+        EXPECT_EQ(run.Group, summaries[sequence.front()].Group) << "run " << r;
+        for (const u32 strand : sequence)
+        {
+            EXPECT_EQ(strand % 3u, group) << "run " << r << " holds strand " << strand << " of another group";
+        }
+        EXPECT_FALSE(std::ranges::is_sorted(sequence)) << "run " << r << " is in the cooked order, not a hashed one";
+
+        // Level j holds exactly the first ceil(j * 100 / 64) of ITS strands.
+        EXPECT_EQ(run.Prefix[0], 0u);
+        for (u32 level = 1; level <= kGroomCasterPrefixLevels; ++level)
+        {
+            const u32 strands = (level * 100u + kGroomCasterPrefixLevels - 1u) / kGroomCasterPrefixLevels;
+            u32 indexCount = 0;
+            for (u32 k = 0; k < strands; ++k)
+            {
+                indexCount += 6u * (1u + (sequence[k] % 3u));
+            }
+            EXPECT_EQ(run.Prefix[level], indexCount) << "run " << r << " level " << level;
+        }
+
+        // Its own width and its own direction. Every strand of the group lies
+        // along one axis, so its moments are its length on that axis and
+        // nothing across it: along the axis it projects to nothing, across it
+        // to the whole of its length.
+        EXPECT_NEAR(run.MeanRadius, 0.0005f * static_cast<f32>(1u + group), 1.0e-8f) << "run " << r;
+        glm::vec3 along(0.0f);
+        along[static_cast<glm::length_t>(group)] = 1.0f;
+        glm::vec3 across(0.0f);
+        across[static_cast<glm::length_t>((group + 1u) % 3u)] = 1.0f;
+        EXPECT_NEAR(GroomShadowProjectedLengthLowerBound(run.TotalLength, run.Moments, along), 0.0f,
+                    1.0e-5f * run.TotalLength)
+            << "run " << r;
+        EXPECT_NEAR(GroomShadowProjectedLengthLowerBound(run.TotalLength, run.Moments, across), run.TotalLength,
+                    1.0e-5f * run.TotalLength)
+            << "run " << r;
+
+        // Its box holds every point of every one of its strands.
+        for (const u32 strand : sequence)
+        {
+            const sizet end = strand + 1u < stream.StrandFirstIndex.size() ? stream.StrandFirstIndex[strand + 1u]
+                                                                           : stream.Indices.size();
+            for (sizet index = stream.StrandFirstIndex[strand]; index < end; ++index)
+            {
+                const glm::vec3& p = stream.Vertices[stream.Indices[index]].Position;
+                EXPECT_TRUE(glm::all(glm::greaterThanEqual(p, run.BoundsMin)) &&
+                            glm::all(glm::lessThanEqual(p, run.BoundsMax)))
+                    << "run " << r << " strand " << strand;
+            }
+        }
+        expectedFirst += run.Prefix[kGroomCasterPrefixLevels];
+    }
+    EXPECT_EQ(expectedFirst, order.Indices.size());
+    EXPECT_EQ(BuildGroomCasterOrder(stream.Vertices, stream.Indices, stream.StrandFirstIndex, summaries).Indices,
+              order.Indices)
+        << "the same stream gives the same order";
+}
+
+// A groom with more groups than a view should draw runs for is split by coat
+// role instead -- with no coat, one run -- and keeps its moments.
+TEST(GroomStrandMesh, ACasterOrderWithMoreGroupsThanItHasRunsForSplitsByRoleInstead)
+{
+    for (const u32 groups : { kGroomCasterMaxRuns, kGroomCasterMaxRuns + 1u })
+    {
+        const auto groom = MakeGroupedGroom(groups * 2u, groups);
+        ASSERT_TRUE(groom);
+        std::vector<GroomCasterStrand> summaries;
+        const StreamWithStrands stream = BuildWithStrands(*groom, &summaries);
+        const GroomCasterOrder order =
+            BuildGroomCasterOrder(stream.Vertices, stream.Indices, stream.StrandFirstIndex, summaries);
+        ASSERT_EQ(order.Indices.size(), stream.Indices.size()) << groups << " groups";
+        if (groups <= kGroomCasterMaxRuns)
+        {
+            EXPECT_EQ(order.Runs.size(), groups) << "one run per group, up to the cap";
+        }
+        else
+        {
+            ASSERT_EQ(order.Runs.size(), 1u) << "past the cap: one run per ROLE, and with no coat every role is 0";
+            EXPECT_TRUE(order.Runs[0].MomentsKnown);
+            EXPECT_EQ(order.Runs[0].Strands, groups * 2u);
+        }
+    }
+}
+
+// The decision a view makes for a run (#1533), at its edges: what cannot be
+// measured is cast whole, and a dense run lying across the light thins.
+TEST(GroomStrandMesh, ACasterRunWithNothingToMeasureIsCastWholeAndADenseOneThins)
+{
+    GroomCasterRun run;
+    for (u32 level = 0; level <= kGroomCasterPrefixLevels; ++level)
+    {
+        run.Prefix[level] = 6u * level * 100u;
+    }
+    run.Strands = 6400u;
+    run.MeanRadius = 5.0e-5f;
+    run.TotalLength = 6400.0f * 0.03f; // 3 cm strands
+    run.MomentsKnown = true;
+    run.Moments = { run.TotalLength, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f }; // all along +x
+    run.BoundsMin = glm::vec3(0.0f);
+    run.BoundsMax = glm::vec3(0.1f, 0.03f, 0.1f);
+    const u32 whole = run.Prefix[kGroomCasterPrefixLevels];
+
+    // A sun straight down a 16 m cascade at 4096^2: a 4 mm texel, a 0.1 mm
+    // strand widened about fortyfold.
+    GroomCasterView view;
+    view.ViewProjection = glm::ortho(-8.0f, 8.0f, -8.0f, 8.0f, 0.1f, 100.0f) *
+                          glm::lookAt(glm::vec3(0.05f, 20.0f, 0.05f), glm::vec3(0.05f, 0.0f, 0.05f),
+                                      glm::vec3(1.0f, 0.0f, 0.0f));
+    view.ResolutionTexels = 4096.0f;
+    GroomCasterPlacement caster;
+    caster.CullMin = run.BoundsMin;
+    caster.CullMax = run.BoundsMax;
+
+    // Across the light: 192 m of strand over a 10 cm square, the dense case.
+    const GroomCasterRunDecision dense = DecideGroomCasterRun(run, caster, view);
+    EXPECT_NEAR(dense.ProjectedLength, run.TotalLength, 1.0e-3f * run.TotalLength) << "strands across the light";
+    EXPECT_GT(dense.Layers, 4.0f * kGroomCasterMinLayers);
+    EXPECT_LT(dense.Fraction, 1.0f);
+    EXPECT_LT(dense.IndexCount, whole);
+    EXPECT_EQ(dense.IndexCount, GroomCasterIndexCount(run.Prefix, dense.Fraction));
+
+    // The same strands standing ALONG the light project to nothing: nothing to
+    // estimate layers from, so the run is cast whole -- where the half share
+    // would have credited them with half their length.
+    GroomCasterRun standing = run;
+    standing.Moments = { 0.0f, run.TotalLength, 0.0f, 0.0f, 0.0f, 0.0f };
+    const GroomCasterRunDecision upright = DecideGroomCasterRun(standing, caster, view);
+    EXPECT_NEAR(upright.ProjectedLength, 0.0f, 1.0e-3f * run.TotalLength);
+    EXPECT_EQ(upright.IndexCount, whole);
+    GroomCasterRun assumed = standing;
+    assumed.MomentsKnown = false;
+    EXPECT_LT(DecideGroomCasterRun(assumed, caster, view).IndexCount, whole)
+        << "without moments the half share is assumed, and it thins strands that cast dots";
+
+    // No cull box: nothing to measure the run against.
+    GroomCasterPlacement unbounded = caster;
+    unbounded.CullMin = glm::vec3(std::numeric_limits<f32>::max());
+    unbounded.CullMax = glm::vec3(std::numeric_limits<f32>::lowest());
+    EXPECT_EQ(DecideGroomCasterRun(run, unbounded, view).IndexCount, whole);
+
+    // A perspective view whose light sits inside the box: texels down to nothing.
+    GroomCasterView spot = view;
+    spot.ViewProjection = glm::perspective(glm::radians(90.0f), 1.0f, 0.01f, 50.0f) *
+                          glm::lookAt(glm::vec3(0.05f, 0.01f, 0.05f), glm::vec3(0.05f, -1.0f, 0.05f),
+                                      glm::vec3(1.0f, 0.0f, 0.0f));
+    EXPECT_EQ(DecideGroomCasterRun(run, caster, spot).IndexCount, whole);
+
+    // A run with no strands draws nothing.
+    EXPECT_EQ(DecideGroomCasterRun(GroomCasterRun{}, caster, view).IndexCount, 0u);
 }
 
 TEST(GroomStrandMesh, APrefixOfTheCasterOrderIsAUniformShareAndNotAPeriodicOne)
@@ -647,7 +879,8 @@ TEST(GroomStrandMesh, APrefixOfTheCasterOrderIsAUniformShareAndNotAPeriodicOne)
     ASSERT_TRUE(groom);
     const StreamWithStrands stream = BuildWithStrands(*groom);
     const GroomCasterOrder order = BuildGroomCasterOrder(stream.Vertices, stream.Indices, stream.StrandFirstIndex);
-    const u32 count = GroomCasterIndexCount(order.Prefix, 0.25f);
+    ASSERT_EQ(order.Runs.size(), 1u);
+    const u32 count = GroomCasterIndexCount(order.Runs[0].Prefix, 0.25f);
     ASSERT_EQ(count, 1024u * 6u) << "a quarter of 4096 one-segment strands";
 
     std::array<u32, 8> perBlock{};
@@ -735,7 +968,15 @@ TEST(GroomStrandMesh, AStrandTableThatDoesNotDescribeTheStreamGivesNoOrder)
     pastTheEnd.back() = static_cast<u32>(stream.Indices.size()) + 6u;
     const GroomCasterOrder broken = BuildGroomCasterOrder(stream.Vertices, stream.Indices, pastTheEnd);
     EXPECT_TRUE(broken.Indices.empty()) << "a caster order of something else would cast the wrong coat";
-    EXPECT_EQ(broken.Prefix[kGroomCasterPrefixLevels], 0u);
+    EXPECT_TRUE(broken.Runs.empty());
+
+    // Summaries for some other number of strands are not trusted either: the
+    // order is the whole stream as one run, with no moments to bound by.
+    std::vector<GroomCasterStrand> tooFew(stream.StrandFirstIndex.size() - 1u);
+    const GroomCasterOrder unsummarised =
+        BuildGroomCasterOrder(stream.Vertices, stream.Indices, stream.StrandFirstIndex, tooFew);
+    ASSERT_EQ(unsummarised.Runs.size(), 1u);
+    EXPECT_FALSE(unsummarised.Runs[0].MomentsKnown);
 
     std::vector<u32> descending = stream.StrandFirstIndex;
     std::swap(descending[2], descending[3]);

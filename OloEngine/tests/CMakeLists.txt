@@ -163,6 +163,7 @@ add_executable(OloEngine-Tests
 		# its authoring boundary: pure arithmetic, so the machine with no GPU is
 		# the machine that pins the measurement the caster family rests on.
 		Groom/GroomShadowWideningTest.cpp
+		Groom/GroomCasterCoverageTest.cpp
 		ComponentSerializerCoverageTest.cpp
 		ComponentTupleCoverageTest.cpp
 		ComponentHandlerCoverageTest.cpp

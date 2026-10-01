@@ -204,15 +204,18 @@ namespace
         std::vector<GroomStrandVertex> cpu;
         std::vector<u32> cpuIndices;
         std::vector<u32> cpuStrandFirst;
+        std::vector<GroomCasterStrand> cpuCaster;
         const GroomStrandMeshStats cpuStats = BuildGroomStrandMesh(source, settings, cpu, cpuIndices, &deformation,
-                                                                   coat, simulation, &cpuStrandFirst);
+                                                                   coat, simulation, &cpuStrandFirst, &cpuCaster);
 
         std::vector<GroomStrandVertex> rest;
         std::vector<u32> restIndices;
         std::vector<u32> rootCurves;
         std::vector<u32> restStrandFirst;
-        const GroomStrandMeshStats restStats = BuildGroomStrandRestMesh(source, settings, binding, rest, restIndices,
-                                                                        rootCurves, coat, nullptr, &restStrandFirst);
+        std::vector<GroomCasterStrand> restCaster;
+        const GroomStrandMeshStats restStats =
+            BuildGroomStrandRestMesh(source, settings, binding, rest, restIndices, rootCurves, coat, nullptr,
+                                     &restStrandFirst, &restCaster);
 
         EXPECT_EQ(rest.size(), cpu.size()) << "the two paths must walk the same strands";
         EXPECT_EQ(restIndices, cpuIndices) << "and index them identically";
@@ -220,12 +223,36 @@ namespace
         // must cast the same strands as the same subset.
         EXPECT_EQ(restStrandFirst, cpuStrandFirst) << "and group them into the same strands";
         EXPECT_EQ(restStrandFirst.size(), rootCurves.size()) << "one strand per root slot";
+        // The caster's summaries are REST-space and come from the one walk, so
+        // the two paths report them bit for bit, however the CPU path posed its
+        // vertices (#1533).
+        EXPECT_EQ(restCaster.size(), restStrandFirst.size()) << "one summary per emitted strand";
+        EXPECT_EQ(cpuCaster.size(), cpuStrandFirst.size());
+        for (sizet strand = 0; strand < std::min(restCaster.size(), cpuCaster.size()); ++strand)
+        {
+            EXPECT_EQ(restCaster[strand].Group, cpuCaster[strand].Group) << "strand " << strand;
+            EXPECT_EQ(restCaster[strand].Role, cpuCaster[strand].Role) << "strand " << strand;
+            EXPECT_EQ(std::bit_cast<u32>(restCaster[strand].Length), std::bit_cast<u32>(cpuCaster[strand].Length))
+                << "strand " << strand;
+            for (sizet m = 0; m < 6u; ++m)
+            {
+                EXPECT_EQ(std::bit_cast<u32>(restCaster[strand].Moments[m]), std::bit_cast<u32>(cpuCaster[strand].Moments[m]))
+                    << "strand " << strand << " moment " << m;
+            }
+            EXPECT_TRUE(BitwiseEqual(restCaster[strand].BoundsMin, cpuCaster[strand].BoundsMin)) << "strand " << strand;
+            EXPECT_TRUE(BitwiseEqual(restCaster[strand].BoundsMax, cpuCaster[strand].BoundsMax)) << "strand " << strand;
+        }
         if (!rest.empty() && rest.size() == cpu.size())
         {
-            const GroomCasterOrder restOrder = BuildGroomCasterOrder(rest, restIndices, restStrandFirst);
-            const GroomCasterOrder cpuOrder = BuildGroomCasterOrder(cpu, cpuIndices, cpuStrandFirst);
+            const GroomCasterOrder restOrder = BuildGroomCasterOrder(rest, restIndices, restStrandFirst, restCaster);
+            const GroomCasterOrder cpuOrder = BuildGroomCasterOrder(cpu, cpuIndices, cpuStrandFirst, cpuCaster);
             EXPECT_EQ(restOrder.Indices, cpuOrder.Indices);
-            EXPECT_EQ(restOrder.Prefix, cpuOrder.Prefix);
+            EXPECT_EQ(restOrder.Runs.size(), cpuOrder.Runs.size());
+            for (sizet run = 0; run < std::min(restOrder.Runs.size(), cpuOrder.Runs.size()); ++run)
+            {
+                EXPECT_EQ(restOrder.Runs[run].FirstIndex, cpuOrder.Runs[run].FirstIndex) << "run " << run;
+                EXPECT_EQ(restOrder.Runs[run].Prefix, cpuOrder.Runs[run].Prefix) << "run " << run;
+            }
             // Lengths in the bind frame against lengths in the pose: a rotation
             // per root, so equal up to rounding -- and the simulation's
             // displacement, which stretches a strand by a hair at most.

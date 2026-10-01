@@ -1419,9 +1419,8 @@ namespace OloEngine
             ShadowGroomCaster caster;
             caster.vaoID = geometry.Vao;
             caster.indexCount = geometry.IndexCount;
-            caster.prefix = geometry.CasterPrefix;
-            caster.meanRadius = geometry.MeanRadius;
-            caster.totalLength = geometry.TotalLength;
+            caster.runs = geometry.CasterRuns.data();
+            caster.runCount = static_cast<u32>(geometry.CasterRuns.size());
             caster.transform = request.Transform;
             // THE WIDTH THE COAT IS DRAWN AT. Since #1428 the per-role coverage
             // compensation is baked into the stream's radii, so the only lever
@@ -1492,60 +1491,72 @@ namespace OloEngine
         }
     }
 
+    namespace
+    {
+        // The index ranges one shadow view draws of a groom caster (#1533), in
+        // order, to `emit(firstIndex, count)`: a prefix of each run, as
+        // DecideGroomCasterRun allows it here, with a run cast WHOLE merged into
+        // the range of the run after it -- they are contiguous in the order --
+        // so a coat whose runs are mostly whole costs few draws. Returns the
+        // index total. The stats and the draw both go through this, so the
+        // count a panel reports is the count drawn.
+        template<typename Emit>
+        u32 VisitGroomCasterRanges(const ShadowGroomCaster& caster, const glm::mat4& viewProjection,
+                                   const glm::vec3& origin, f32 resolutionTexels, Emit&& emit)
+        {
+            if (caster.runs == nullptr || caster.runCount == 0u)
+            {
+                emit(0u, caster.indexCount);
+                return caster.indexCount;
+            }
+            const std::optional<f32> forced = Levers::GroomShadowCasterFraction();
+            GroomCasterPlacement placement;
+            placement.Transform = caster.transform;
+            placement.ObjectScale = caster.objectScale;
+            placement.WidthScale = caster.widthScale;
+            placement.MinWidthTexels = caster.minWidthTexels;
+            placement.CullMin = caster.WorldBounds.Min;
+            placement.CullMax = caster.WorldBounds.Max;
+            const GroomCasterView view{ viewProjection, origin, resolutionTexels };
+
+            u32 total = 0;
+            u32 rangeFirst = 0;
+            u32 rangeCount = 0;
+            for (const GroomCasterRun& run : std::span<const GroomCasterRun>(caster.runs, caster.runCount))
+            {
+                const u32 count = forced ? GroomCasterIndexCount(run.Prefix, *forced)
+                                         : DecideGroomCasterRun(run, placement, view).IndexCount;
+                if (count == 0u)
+                {
+                    continue;
+                }
+                if (rangeCount > 0u && rangeFirst + rangeCount == run.FirstIndex)
+                {
+                    rangeCount += count;
+                }
+                else
+                {
+                    if (rangeCount > 0u)
+                    {
+                        emit(rangeFirst, rangeCount);
+                    }
+                    rangeFirst = run.FirstIndex;
+                    rangeCount = count;
+                }
+                total += count;
+            }
+            if (rangeCount > 0u)
+            {
+                emit(rangeFirst, rangeCount);
+            }
+            return total;
+        }
+    } // namespace
+
     u32 ShadowRenderPass::GroomCasterViewIndexCount(const ShadowGroomCaster& caster, const glm::mat4& viewProjection,
                                                     const glm::vec3& origin, f32 resolutionTexels)
     {
-        if (caster.prefix.size() != kGroomCasterPrefixLevels + 1u)
-        {
-            return caster.indexCount;
-        }
-        if (const std::optional<f32> forced = Levers::GroomShadowCasterFraction())
-        {
-            return GroomCasterIndexCount(caster.prefix, *forced);
-        }
-        // No box, no texel to measure the coat against: the whole coat.
-        if (caster.WorldBounds.Min.x >= std::numeric_limits<f32>::max())
-        {
-            return caster.indexCount;
-        }
-
-        // THE DENSEST TEXELS THE COAT MEETS in this view: the most NDC per metre
-        // over the box's corners -- the nearest corner, under a perspective map
-        // -- so every part of the coat gets at least the strands its own texels
-        // need. A box reaching the light's plane has texels down to nothing near
-        // the light, so it casts whole.
-        // THE FOOTPRINT: the box's corners projected and bounded, so the strand
-        // layers per texel can be measured against the area they fall on.
-        f32 ndcPerWorld = 0.0f;
-        glm::vec2 ndcMin{ std::numeric_limits<f32>::max() };
-        glm::vec2 ndcMax{ std::numeric_limits<f32>::lowest() };
-        for (u32 corner = 0; corner < 8u; ++corner)
-        {
-            const glm::vec3 point{ (corner & 1u) ? caster.WorldBounds.Max.x : caster.WorldBounds.Min.x,
-                                   (corner & 2u) ? caster.WorldBounds.Max.y : caster.WorldBounds.Min.y,
-                                   (corner & 4u) ? caster.WorldBounds.Max.z : caster.WorldBounds.Min.z };
-            const glm::vec4 clip = viewProjection * glm::vec4(point - origin, 1.0f);
-            if (!(clip.w > 1.0e-6f))
-            {
-                return caster.indexCount;
-            }
-            ndcPerWorld = std::max(ndcPerWorld, GroomShadowNdcPerWorld(viewProjection, clip.w));
-            const glm::vec2 ndc = glm::vec2(clip) / clip.w;
-            ndcMin = glm::min(ndcMin, ndc);
-            ndcMax = glm::max(ndcMax, ndc);
-        }
-        const f32 footprintNdcArea = (ndcMax.x - ndcMin.x) * (ndcMax.y - ndcMin.y);
-
-        // The width the strands are drawn at: the stream's radii under the
-        // per-groom scale and the transform's mean axis, as the shader has it.
-        const f32 meanRadiusWorld = caster.meanRadius * caster.widthScale * caster.objectScale;
-        const f32 totalLengthWorld = caster.totalLength * caster.objectScale;
-        const f32 layers = GroomShadowCasterLayers(totalLengthWorld, meanRadiusWorld, ndcPerWorld, resolutionTexels,
-                                                   caster.minWidthTexels, footprintNdcArea);
-        const f32 fraction = GroomShadowCasterFraction(meanRadiusWorld, ndcPerWorld, resolutionTexels,
-                                                       caster.minWidthTexels, kGroomCasterCoverageMargin,
-                                                       kGroomCasterMinFraction, layers, kGroomCasterMinLayers);
-        return GroomCasterIndexCount(caster.prefix, fraction);
+        return VisitGroomCasterRanges(caster, viewProjection, origin, resolutionTexels, [](u32, u32) {});
     }
 
     void ShadowRenderPass::RenderGroomCasters(const Frustum* cullFrustum, const glm::mat4& viewProjection,
@@ -1602,11 +1613,12 @@ namespace OloEngine
             paramsUBO.SetData(&params, UBOStructures::GroomShadowParamsUBO::GetSize());
             paramsUBO.Bind();
 
-            // The share of the coat this view needs (#1533 E1): a prefix of the
-            // caster order, which is a uniform random share of its strands.
-            RenderCommand::DrawIndexedRaw(caster.vaoID,
-                                          GroomCasterViewIndexCount(caster, viewProjection, renderOrigin,
-                                                                    resolutionTexels));
+            // The share of each run this view needs (#1533): a prefix of each
+            // run of the caster order, a uniform random share of that run's
+            // strands, in as few draws as the runs cast whole allow.
+            (void)VisitGroomCasterRanges(caster, viewProjection, renderOrigin, resolutionTexels,
+                                         [&](u32 firstIndex, u32 count)
+                                         { RenderCommand::DrawIndexedRaw(caster.vaoID, count, firstIndex); });
         }
 
         RenderCommand::EnableCulling();

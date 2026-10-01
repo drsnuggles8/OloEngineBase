@@ -30,6 +30,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cmath>
 #include <limits>
 
@@ -316,28 +317,86 @@ namespace OloEngine::Tests
     // -- 9. The strand-layer floor (#1533 E1) ------------------------------
     //
     // The margin is an expectation; a sparse coat meets it with strands far
-    // apart and the thinned map shows the gaps. The subset keeps at least
-    // kGroomCasterMinLayers strand layers over each texel of the footprint.
+    // apart and the thinned map shows the gaps. The subset keeps
+    // kGroomCasterMinLayers of a run's ESTIMATED layers -- a run-wide mean from
+    // its projected length over its box, not a per-texel count
+    // (GroomCasterCoverageTest measures it against a model of the map).
 
-    TEST(GroomShadowWidening, TheLayersAreTheCoatsFlooredAreaOverItsFootprint)
+    TEST(GroomShadowWidening, TheLayersAreTheRunsFlooredAreaOverItsFootprint)
     {
-        // 10 km of strand 0.1 mm across under a 4 m / 4096 cascade (a texel just
-        // under a millimetre, so the floor sets the width) over a 1 m^2 box:
-        // half the length projected, times a texel, over the box -- all in NDC.
+        // 5 km of PROJECTED strand 0.1 mm across under a 4 m / 4096 cascade (a
+        // texel just under a millimetre, so the floor sets the width) over a
+        // 1 m^2 box: the length times a texel, over the box -- all in NDC.
         const glm::mat4 cascade = MakeCascadeViewProjection(4.0f);
         const f32 ndcPerWorld = GroomShadowNdcPerWorld(cascade, 1.0f); // 0.5
         const f32 boxNdc = 1.0f * ndcPerWorld * ndcPerWorld;
-        const f32 layers = GroomShadowCasterLayers(10000.0f, 5.0e-5f, ndcPerWorld, 4096.0f, 1.0f, boxNdc);
+        const f32 layers = GroomShadowCasterLayersFromProjection(5000.0f, 5.0e-5f, ndcPerWorld, 4096.0f, 1.0f, boxNdc);
         const f32 texelMetres = 2.0f / (4096.0f * ndcPerWorld);
-        EXPECT_NEAR(layers, kGroomCasterProjectedLengthShare * 10000.0f * texelMetres / 1.0f, 0.01f);
+        EXPECT_NEAR(layers, 5000.0f * texelMetres / 1.0f, 0.01f);
         EXPECT_NEAR(layers, 4.883f, 0.01f) << "pinned: 5000 m of projected strand a texel wide over a square metre";
 
-        // Unmeasurable inputs report no layers, which casts the coat whole.
-        EXPECT_EQ(GroomShadowCasterLayers(10000.0f, 5.0e-5f, ndcPerWorld, 4096.0f, 1.0f, 0.0f), 0.0f);
-        EXPECT_EQ(GroomShadowCasterLayers(0.0f, 5.0e-5f, ndcPerWorld, 4096.0f, 1.0f, boxNdc), 0.0f);
-        EXPECT_EQ(GroomShadowCasterLayers(10000.0f, 5.0e-5f, std::numeric_limits<f32>::quiet_NaN(), 4096.0f, 1.0f,
-                                          boxNdc),
+        // Unmeasurable inputs report no layers, which casts the run whole --
+        // and so does a run that projects to nothing: a ribbon has no end caps,
+        // so a strand along the light lays no layers at all.
+        EXPECT_EQ(GroomShadowCasterLayersFromProjection(5000.0f, 5.0e-5f, ndcPerWorld, 4096.0f, 1.0f, 0.0f), 0.0f);
+        EXPECT_EQ(GroomShadowCasterLayersFromProjection(0.0f, 5.0e-5f, ndcPerWorld, 4096.0f, 1.0f, boxNdc), 0.0f);
+        EXPECT_EQ(GroomShadowCasterLayersFromProjection(5000.0f, 5.0e-5f, std::numeric_limits<f32>::quiet_NaN(),
+                                                        4096.0f, 1.0f, boxNdc),
                   0.0f);
+    }
+
+    TEST(GroomShadowWidening, TheProjectedLengthBoundIsExactAcrossTheLightAndZeroAlongIt)
+    {
+        // One metre of strand along +x: sum l * outer(t, t) is 1 in xx.
+        const std::array<f32, 6> alongX{ 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+        EXPECT_NEAR(GroomShadowProjectedLengthLowerBound(1.0f, alongX, { 0.0f, 1.0f, 0.0f }), 1.0f, 1.0e-6f)
+            << "a strand across the light projects to its whole length";
+        EXPECT_NEAR(GroomShadowProjectedLengthLowerBound(1.0f, alongX, { 1.0f, 0.0f, 0.0f }), 0.0f, 1.0e-6f)
+            << "a strand along the light projects to nothing";
+
+        // At 60 degrees to the light a strand projects to sin(60) = 0.866 of its
+        // length; the bound, sin^2(60) = 0.75, is BELOW it -- never above.
+        const f32 c = std::cos(glm::radians(60.0f));
+        const f32 s = std::sin(glm::radians(60.0f));
+        const glm::vec3 t{ c, s, 0.0f };
+        const std::array<f32, 6> tilted{ t.x * t.x, t.y * t.y, 0.0f, t.x * t.y, 0.0f, 0.0f };
+        const f32 bound = GroomShadowProjectedLengthLowerBound(1.0f, tilted, { 1.0f, 0.0f, 0.0f });
+        EXPECT_NEAR(bound, s * s, 1.0e-5f);
+        EXPECT_LT(bound, s) << "the bound overstated the projected length";
+
+        // A run split between strands along and across the light MEETS the
+        // bound: half its length projects, and the bound says half.
+        const std::array<f32, 6> split{ 0.5f, 0.5f, 0.0f, 0.0f, 0.0f, 0.0f };
+        EXPECT_NEAR(GroomShadowProjectedLengthLowerBound(1.0f, split, { 1.0f, 0.0f, 0.0f }), 0.5f, 1.0e-6f);
+
+        // Never negative, never a NaN.
+        EXPECT_EQ(GroomShadowProjectedLengthLowerBound(0.5f, alongX, { 1.0f, 0.0f, 0.0f }), 0.0f);
+        const std::array<f32, 6> broken{ std::numeric_limits<f32>::quiet_NaN(), 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+        EXPECT_EQ(GroomShadowProjectedLengthLowerBound(1.0f, broken, { 1.0f, 0.0f, 0.0f }), 0.0f);
+    }
+
+    TEST(GroomShadowWidening, TheProjectionDirectionIsTheLightsRayForBothProjectionKinds)
+    {
+        // An orthographic sun looking down -y: every point projects along y.
+        const glm::mat4 sun = glm::ortho(-8.0f, 8.0f, -8.0f, 8.0f, 0.1f, 100.0f) *
+                              glm::lookAt(glm::vec3(0.0f, 20.0f, 0.0f), glm::vec3(0.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+        for (const glm::vec3& point : { glm::vec3(0.0f), glm::vec3(3.0f, -1.0f, 2.0f) })
+        {
+            const glm::vec3 d = GroomShadowProjectionDirection(sun, point);
+            EXPECT_NEAR(std::abs(d.y), 1.0f, 1.0e-5f);
+        }
+
+        // A spot at (0, 5, 0): a point projects along the ray from the spot to it.
+        const glm::vec3 spotAt{ 0.0f, 5.0f, 0.0f };
+        const glm::mat4 spot = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 50.0f) *
+                               glm::lookAt(spotAt, glm::vec3(0.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+        const glm::vec3 point{ 2.0f, 0.0f, 1.0f };
+        const glm::vec3 d = GroomShadowProjectionDirection(spot, point);
+        const glm::vec3 ray = glm::normalize(point - spotAt);
+        EXPECT_NEAR(std::abs(glm::dot(d, ray)), 1.0f, 1.0e-4f);
+
+        // A matrix that maps everything to one point gives no direction.
+        EXPECT_EQ(glm::length(GroomShadowProjectionDirection(glm::mat4(0.0f), point)), 0.0f);
     }
 
     TEST(GroomShadowWidening, ASparseCoatIsCastWholeAndADenseOneThinsToTheMargin)
@@ -350,20 +409,22 @@ namespace OloEngine::Tests
                                                      0.0f, kDenseCoat, kGroomCasterMinLayers);
         ASSERT_NEAR(margin, 0.2048f, 0.0005f);
 
-        // Dense: 100 km over the square metre lays ~49 layers whole; the margin's
-        // 0.2 keeps ~10, above the floor, so the margin decides.
-        const f32 denseLayers = GroomShadowCasterLayers(100000.0f, radius, ndcPerWorld, 4096.0f, 1.0f, boxNdc);
+        // Dense: 50 km projected over the square metre lays ~49 layers whole;
+        // the margin's 0.2 keeps ~10, above the floor, so the margin decides.
+        const f32 denseLayers =
+            GroomShadowCasterLayersFromProjection(50000.0f, radius, ndcPerWorld, 4096.0f, 1.0f, boxNdc);
         EXPECT_NEAR(GroomShadowCasterFraction(radius, ndcPerWorld, 4096.0f, 1.0f, kGroomCasterCoverageMargin, 0.0f,
                                               denseLayers, kGroomCasterMinLayers),
                     margin, 1.0e-5f);
-        // Middling: 10 km lays ~4.9 layers whole; the floor wants 4 of them.
-        const f32 midLayers = GroomShadowCasterLayers(10000.0f, radius, ndcPerWorld, 4096.0f, 1.0f, boxNdc);
+        // Middling: 5 km lays ~4.9 layers whole; the floor wants 4 of them.
+        const f32 midLayers = GroomShadowCasterLayersFromProjection(5000.0f, radius, ndcPerWorld, 4096.0f, 1.0f, boxNdc);
         const f32 mid = GroomShadowCasterFraction(radius, ndcPerWorld, 4096.0f, 1.0f, kGroomCasterCoverageMargin, 0.0f,
                                                   midLayers, kGroomCasterMinLayers);
         EXPECT_NEAR(mid, kGroomCasterMinLayers / midLayers, 1.0e-4f);
         EXPECT_GE(mid * midLayers, kGroomCasterMinLayers * 0.9999f) << "the subset lays fewer layers than the floor";
-        // Sparse: 1 km lays under one layer whole -- nothing to spare.
-        const f32 sparseLayers = GroomShadowCasterLayers(1000.0f, radius, ndcPerWorld, 4096.0f, 1.0f, boxNdc);
+        // Sparse: 500 m lays under one layer whole -- nothing to spare.
+        const f32 sparseLayers =
+            GroomShadowCasterLayersFromProjection(500.0f, radius, ndcPerWorld, 4096.0f, 1.0f, boxNdc);
         EXPECT_EQ(GroomShadowCasterFraction(radius, ndcPerWorld, 4096.0f, 1.0f, kGroomCasterCoverageMargin, 0.0f,
                                             sparseLayers, kGroomCasterMinLayers),
                   1.0f);

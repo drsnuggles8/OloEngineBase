@@ -481,16 +481,12 @@ namespace OloEngine
         {
             RHI::ResourceHandle Vao{};
             u32 IndexCount = 0;
-            /// The caster order's prefix table (GroomCasterOrder::Prefix, #1533
-            /// E1): `Vao` then draws the strands in a hashed order and a view may
-            /// cast the first GroomCasterIndexCount(CasterPrefix, f) indices.
-            /// EMPTY when the stream has no caster order -- `Vao` is then the
-            /// stream's own and is cast whole.
-            std::span<const u32> CasterPrefix{};
-            /// The drawn segments' length-weighted mean OBJECT-space radius,
-            /// and their total object-space length.
-            f32 MeanRadius = 0.0f;
-            f32 TotalLength = 0.0f;
+            /// The caster order's runs (GroomCasterOrder::Runs, #1533): `Vao`
+            /// then draws the strands run by run, each run in a hashed order, and
+            /// a view casts a prefix of each (DecideGroomCasterRun). EMPTY when
+            /// the stream has no caster order -- `Vao` is then the stream's own
+            /// and is cast whole.
+            std::span<const GroomCasterRun> CasterRuns{};
             /// The coat's box in GROOM OBJECT SPACE in THIS pose — the posed
             /// roots padded by the longest strand's reach for a GPU-deformed
             /// coat, whose stream bounds are bind-local and mean nothing here.
@@ -604,19 +600,23 @@ namespace OloEngine
         {
             Ref<VertexArray> Array;
             Ref<IndexBuffer> Indices;
-            std::array<u32, kGroomCasterPrefixLevels + 1> Prefix{};
+            /// One run per group (GroomCasterOrder::Runs), covering the index
+            /// buffer end to end.
+            std::vector<GroomCasterRun> Runs;
+            /// The whole stream's length-weighted mean radius, for the log.
             f32 MeanRadius = 0.0f;
-            f32 TotalLength = 0.0f;
             /// GPU bytes of the index buffer, counted with the stream's.
             u64 Bytes = 0;
         };
 
-        /// The caster order of a stream just built, or an empty one when the
+        /// The caster order of a stream just built, one run per group of
+        /// `strands` (the builder's caster summaries), or an empty one when the
         /// stream gave none (the caster then casts the stream whole).
         [[nodiscard]] static GroomCasterStream BuildCasterStream(const Ref<VertexBuffer>& vertexBuffer,
                                                                  std::span<const GroomStrandVertex> vertices,
                                                                  std::span<const u32> indices,
-                                                                 std::span<const u32> strandFirstIndex);
+                                                                 std::span<const u32> strandFirstIndex,
+                                                                 std::span<const GroomCasterStrand> strands);
 
         /// A bound coat's REST stream (#1427), shared by every entity that wears
         /// the same groom at the same budget, coat and binding. Unlike the frame

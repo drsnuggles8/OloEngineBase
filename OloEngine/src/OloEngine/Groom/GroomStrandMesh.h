@@ -49,6 +49,7 @@
 #include <glm/glm.hpp>
 
 #include <array>
+#include <limits>
 #include <span>
 #include <vector>
 
@@ -185,6 +186,24 @@ namespace OloEngine
         glm::vec3 P1{ 0.0f };
         f32 Radius0 = 0.0f;
         f32 Radius1 = 0.0f;
+    };
+
+    /// What the shadow caster's share needs of one emitted strand, in the
+    /// groom's REST space (#1533): its group and coat role, its length, the
+    /// second moment of its direction -- the sum over its segments of
+    /// l * outer(t, t) -- and its box. Recorded by the shared walk, so a
+    /// GPU-deformed stream, whose vertices are bind-local, reports the same rest
+    /// shape an unbound one does. BuildGroomCasterOrder folds them into one
+    /// GroomCasterRun per group.
+    struct GroomCasterStrand
+    {
+        u16 Group = 0;
+        u8 Role = 0;
+        f32 Length = 0.0f;
+        /// xx, yy, zz, xy, xz, yz of sum l * outer(t, t).
+        std::array<f32, 6> Moments{};
+        glm::vec3 BoundsMin{ std::numeric_limits<f32>::max() };
+        glm::vec3 BoundsMax{ std::numeric_limits<f32>::lowest() };
     };
 
     static_assert(sizeof(GroomStrandVertex) == 64,
@@ -414,7 +433,8 @@ namespace OloEngine
                                               const GroomStrandDeformation* deformation = nullptr,
                                               const GroomCoatContext* coat = nullptr,
                                               const GroomStrandSimulation* simulation = nullptr,
-                                              std::vector<u32>* outStrandFirstIndex = nullptr);
+                                              std::vector<u32>* outStrandFirstIndex = nullptr,
+                                              std::vector<GroomCasterStrand>* outCasterStrands = nullptr);
 
     /**
      * @brief The same strands as BuildGroomStrandMesh, in the GPU-deformed
@@ -442,7 +462,8 @@ namespace OloEngine
                                                   std::vector<u32>& outIndices, std::vector<u32>& outRootCurves,
                                                   const GroomCoatContext* coat = nullptr,
                                                   std::vector<GroomRestPoseSegment>* outPoseSegments = nullptr,
-                                                  std::vector<u32>* outStrandFirstIndex = nullptr);
+                                                  std::vector<u32>* outStrandFirstIndex = nullptr,
+                                                  std::vector<GroomCasterStrand>* outCasterStrands = nullptr);
 
     /**
      * @brief The pose segments BuildGroomStrandRestMesh emits beside its stream,
@@ -462,21 +483,63 @@ namespace OloEngine
                                                     const GroomBindingAsset& binding, const GroomCoatContext* coat,
                                                     std::vector<GroomRestPoseSegment>& outPoseSegments);
 
-    /// Steps in GroomCasterOrder::Prefix: a shadow view draws its strands in
-    /// sixty-fourths of the coat.
+    /// Steps in a caster run's Prefix: a shadow view draws each run's strands in
+    /// sixty-fourths of the run.
     inline constexpr u32 kGroomCasterPrefixLevels = 64;
+
+    /// The most runs a caster order splits into by GROUP. A groom with more
+    /// groups than this is split by coat role instead, so a view's draw count
+    /// stays bounded whatever an import made of the groups.
+    inline constexpr u32 kGroomCasterMaxRuns = 64;
+
+    /// One run of a caster order (#1533): the strands of one GROUP of the groom
+    /// -- one region of one coat role, as the groom was authored -- whole, in a
+    /// hashed order of their own. A shadow view casts its own share of each
+    /// run, from the run's own density, width and direction, so a sparse
+    /// long-hair plume is not thinned to a dense undercoat's share and thick
+    /// guard hairs are not thinned to the thin majority's: a coat-wide share
+    /// did both, because the coat's averages say nothing about either.
+    struct GroomCasterRun
+    {
+        /// The run's key: the group its strands share, or their coat role when
+        /// the order fell back to roles (see kGroomCasterMaxRuns). `Role` is
+        /// its first strand's.
+        u16 Group = 0;
+        u8 Role = 0;
+        /// Where the run starts in GroomCasterOrder::Indices.
+        u32 FirstIndex = 0;
+        /// Index counts WITHIN the run: Prefix[j] covers its first
+        /// ceil(j * Strands / kGroomCasterPrefixLevels) strands.
+        std::array<u32, kGroomCasterPrefixLevels + 1> Prefix{};
+        u32 Strands = 0;
+        /// The drawn segments' object-space radius averaged over their LENGTH
+        /// -- the radius a run's projected area divides by -- and their total
+        /// object-space length.
+        f32 MeanRadius = 0.0f;
+        f32 TotalLength = 0.0f;
+        /// The strands' summed direction moments (GroomCasterStrand::Moments)
+        /// and box, both in the groom's REST space. False when the order was
+        /// built without strand summaries: the share then ASSUMES a projected
+        /// length (kGroomCasterProjectedLengthShare) and measures against the
+        /// caster's own box.
+        bool MomentsKnown = false;
+        std::array<f32, 6> Moments{};
+        glm::vec3 BoundsMin{ 0.0f };
+        glm::vec3 BoundsMax{ 0.0f };
+    };
 
     /**
      * @brief A built stream's strands in the order a SHADOW caster draws them
      *        (#1533 E1).
      *
-     * Every strand, whole, with its segments in their own order, and the
-     * strands in a HASHED order -- so the first k of them are a uniform random
-     * k of the coat, whatever k is. A shadow view whose width floor already
-     * draws each strand several times its true width needs only a fraction of
-     * them to cover the map as densely as the real coat covers the light (see
+     * Every strand, whole, with its segments in their own order, grouped into
+     * RUNS (one per group, see GroomCasterRun) and each run's strands in a
+     * HASHED order -- so the first k of a run are a uniform random k of it,
+     * whatever k is. A shadow view whose width floor already draws each strand
+     * several times its true width needs only a fraction of them to cover the
+     * map as densely as the real coat covers the light (see
      * GroomShadowCasterFraction); with this order that fraction is a shorter
-     * draw from the same buffer, with no second vertex buffer and no
+     * draw per run from the same buffer, with no second vertex buffer and no
      * per-fraction index buffer.
      *
      * HASHED, NOT STRIDED. Every N-th strand of the cooked order aliases with
@@ -485,32 +548,95 @@ namespace OloEngine
      */
     struct GroomCasterOrder
     {
-        /// The stream's indices, regrouped by strand into the hashed order.
+        /// The stream's indices, regrouped run by run, each run's strands in
+        /// its hashed order.
         std::vector<u32> Indices;
-        /// Prefix[j] is the index count of the first ceil(j * strands /
-        /// kGroomCasterPrefixLevels) strands of that order: Prefix[0] is 0 and
-        /// Prefix[kGroomCasterPrefixLevels] is every index.
-        std::array<u32, kGroomCasterPrefixLevels + 1> Prefix{};
-        /// The drawn segments' object-space radius, averaged over their LENGTH
-        /// -- the radius a coat's projected area divides by.
+        /// The runs, in group order, covering Indices end to end. ONE run when
+        /// the order was built without strand summaries -- the whole stream,
+        /// which is the order every caller got before the runs.
+        std::vector<GroomCasterRun> Runs;
+        /// The whole stream's length-weighted mean radius and total length, for
+        /// reports; a view decides from each run's own.
         f32 MeanRadius = 0.0f;
-        /// The drawn segments' total object-space length: with MeanRadius, the
-        /// area the coat lays over its footprint, which says how many strands
-        /// cross each texel and so how far a share of them may thin before the
-        /// map shows the gaps between them (GroomShadowCasterLayers).
         f32 TotalLength = 0.0f;
     };
 
     /// Reorders `indices` (a stream BuildGroomStrandMesh or BuildGroomStrandRestMesh
-    /// emitted, with its `strandFirstIndex`) for the shadow caster. Pure: the
-    /// same stream always gives the same order. Empty when the stream is.
+    /// emitted, with its `strandFirstIndex`) for the shadow caster, one run per
+    /// group of `strands` (the builder's `outCasterStrands`; one run for the
+    /// whole stream without them). Pure: the same stream always gives the same
+    /// order. Empty when the stream is, or when the table does not describe it.
     [[nodiscard]] GroomCasterOrder BuildGroomCasterOrder(std::span<const GroomStrandVertex> vertices,
                                                          std::span<const u32> indices,
-                                                         std::span<const u32> strandFirstIndex);
+                                                         std::span<const u32> strandFirstIndex,
+                                                         std::span<const GroomCasterStrand> strands = {});
 
-    /// The index count a caster draws to cast `fraction` of its strands: the
+    /// The index count a run draws to cast `fraction` of its strands: the
     /// prefix at the next sixty-fourth up, so it never casts fewer.
     [[nodiscard]] u32 GroomCasterIndexCount(std::span<const u32> prefix, f32 fraction) noexcept;
+
+    /// A caster as the share sees it in one view (#1533): where it stands and
+    /// how its strands are widened, the same numbers the depth shader uses.
+    struct GroomCasterPlacement
+    {
+        /// Groom object space to world.
+        glm::mat4 Transform{ 1.0f };
+        /// The transform's mean axis length and the per-groom width scale, as
+        /// the shader widens with them.
+        f32 ObjectScale = 1.0f;
+        f32 WidthScale = 1.0f;
+        /// The width floor in texels of the target.
+        f32 MinWidthTexels = 1.0f;
+        /// The caster's POSED cull box, world space (Min > Max = none): the
+        /// densest texels any of its strands can meet.
+        glm::vec3 CullMin{ std::numeric_limits<f32>::max() };
+        glm::vec3 CullMax{ std::numeric_limits<f32>::lowest() };
+    };
+
+    /// One shadow view as the share sees it.
+    struct GroomCasterView
+    {
+        /// (world - Origin) -> clip.
+        glm::mat4 ViewProjection{ 1.0f };
+        glm::vec3 Origin{ 0.0f };
+        f32 ResolutionTexels = 1.0f;
+    };
+
+    /// What one view casts of one run, and why.
+    struct GroomCasterRunDecision
+    {
+        /// The projected length the layers were estimated from, world metres.
+        f32 ProjectedLength = 0.0f;
+        /// The run's estimated layers whole (GroomShadowCasterLayersFromProjection).
+        f32 Layers = 0.0f;
+        f32 Fraction = 1.0f;
+        /// Indices to draw from the run's FirstIndex.
+        u32 IndexCount = 0;
+    };
+
+    /**
+     * @brief The share of one run a shadow view casts (#1533): the decision the
+     *        shadow pass makes per run, here so a test can make the same one.
+     *
+     * The widening is measured at the DENSEST texels the caster's posed cull box
+     * meets, which keeps the most strands. The layers are ESTIMATED from the
+     * run's projected length -- the moment lower bound across the view's
+     * projection direction at the run's centre, or the assumed half share
+     * without moments -- over the NDC area of the run's box under the caster's
+     * transform, at the SPARSEST texels that box meets. Both choices err toward
+     * keeping strands.
+     *
+     * ASSUMPTIONS, stated because they are not checked here: the transform is a
+     * similarity (the shader's one ObjectScale makes the same one); the run's
+     * rest box and moments still describe it in this pose, so a body part that
+     * swings a run toward the light thins it more than its rest shape would;
+     * and under a perspective view the direction is the one at the run's centre.
+     * A run whose box meets the light's plane, a caster with no cull box, or a
+     * run that measures nothing is cast whole.
+     */
+    [[nodiscard]] GroomCasterRunDecision DecideGroomCasterRun(const GroomCasterRun& run,
+                                                              const GroomCasterPlacement& caster,
+                                                              const GroomCasterView& view) noexcept;
 
     /**
      * @brief The strands BuildGroomStrandMesh draws, as a coat baked at rest sees

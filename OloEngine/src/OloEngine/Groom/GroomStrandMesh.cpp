@@ -3,6 +3,7 @@
 
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomLod.h"
+#include "OloEngine/Groom/GroomShadowWidening.h"
 
 #include <algorithm>
 #include <array>
@@ -587,6 +588,9 @@ namespace OloEngine
             // two at P1 another.
             f32 Tint0 = 0.0f;
             f32 Tint1 = 0.0f;
+            // The curve's group and coat role, for the shadow caster's runs (#1533).
+            u16 Group = 0;
+            u8 Role = 0;
         };
 
         // The strand walk BuildGroomStrandMesh has always done — selection, the
@@ -704,6 +708,7 @@ namespace OloEngine
             // once, because the frame they follow is transported along it and
             // their phase runs on its arc length.
             TArray<glm::vec3> shaped;
+            const auto& groupIds = groom.GetCurveGroupIds();
 
             RoleWalk walk;
             u32 emittedSegments = 0;
@@ -829,6 +834,8 @@ namespace OloEngine
                     segment.SegmentId = std::bit_cast<f32>(GroomSegmentIdentity(curve, i));
                     segment.Tint0 = tintRuns ? PackGroomCoatTintAt(curveCoat.Params, segment.T0) : rootTint;
                     segment.Tint1 = tintRuns ? PackGroomCoatTintAt(curveCoat.Params, segment.T1) : rootTint;
+                    segment.Group = curve < groupIds.size() ? groupIds[curve] : u16{ 0 };
+                    segment.Role = static_cast<u8>(curveCoat.Role);
                     onSegment(segment);
 
                     ++emittedSegments;
@@ -841,6 +848,31 @@ namespace OloEngine
             }
 
             stats.SegmentCount = emittedSegments;
+        }
+
+        // One segment into its strand's caster summary (#1533), in REST space:
+        // l * outer(t, t) is outer(d, d) / l for the segment d = Rest1 - Rest0.
+        void AccumulateCasterStrand(GroomCasterStrand& strand, const RestSegment& segment) noexcept
+        {
+            strand.Group = segment.Group;
+            strand.Role = segment.Role;
+            const f32 radius = std::max(segment.Radius0, segment.Radius1);
+            strand.BoundsMin = glm::min(strand.BoundsMin, glm::min(segment.Rest0, segment.Rest1) - glm::vec3(radius));
+            strand.BoundsMax = glm::max(strand.BoundsMax, glm::max(segment.Rest0, segment.Rest1) + glm::vec3(radius));
+            const glm::vec3 d = segment.Rest1 - segment.Rest0;
+            const f32 length = glm::length(d);
+            if (!(length > 0.0f) || !std::isfinite(length))
+            {
+                return;
+            }
+            const f32 inverse = 1.0f / length;
+            strand.Length += length;
+            strand.Moments[0] += d.x * d.x * inverse;
+            strand.Moments[1] += d.y * d.y * inverse;
+            strand.Moments[2] += d.z * d.z * inverse;
+            strand.Moments[3] += d.x * d.y * inverse;
+            strand.Moments[4] += d.x * d.z * inverse;
+            strand.Moments[5] += d.y * d.z * inverse;
         }
 
         // Four corners and six indices for one segment, in the order every
@@ -917,13 +949,18 @@ namespace OloEngine
                                               std::vector<GroomStrandVertex>& outVertices, std::vector<u32>& outIndices,
                                               const GroomStrandDeformation* deformation, const GroomCoatContext* coat,
                                               const GroomStrandSimulation* simulation,
-                                              std::vector<u32>* outStrandFirstIndex)
+                                              std::vector<u32>* outStrandFirstIndex,
+                                              std::vector<GroomCasterStrand>* outCasterStrands)
     {
         outVertices.clear();
         outIndices.clear();
         if (outStrandFirstIndex != nullptr)
         {
             outStrandFirstIndex->clear();
+        }
+        if (outCasterStrands != nullptr)
+        {
+            outCasterStrands->clear();
         }
 
         // A deformation that does not span this groom is treated as ABSENT
@@ -967,6 +1004,10 @@ namespace OloEngine
             {
                 outStrandFirstIndex->push_back(static_cast<u32>(outIndices.size()));
             }
+            if (outCasterStrands != nullptr)
+            {
+                outCasterStrands->emplace_back();
+            }
             record = nullptr;
             transform = nullptr;
             if (deformed)
@@ -1006,6 +1047,10 @@ namespace OloEngine
 
         const auto onSegment = [&](const RestSegment& segment)
         {
+            if (outCasterStrands != nullptr)
+            {
+                AccumulateCasterStrand(outCasterStrands->back(), segment);
+            }
             const auto place = [&](const glm::vec3& restPoint, f32 t, bool previous)
             {
                 glm::vec3 placed = transform != nullptr
@@ -1117,11 +1162,16 @@ namespace OloEngine
                                                   std::vector<u32>& outIndices, std::vector<u32>& outRootCurves,
                                                   const GroomCoatContext* coat,
                                                   std::vector<GroomRestPoseSegment>* outPoseSegments,
-                                                  std::vector<u32>* outStrandFirstIndex)
+                                                  std::vector<u32>* outStrandFirstIndex,
+                                                  std::vector<GroomCasterStrand>* outCasterStrands)
     {
         outVertices.clear();
         outIndices.clear();
         outRootCurves.clear();
+        if (outCasterStrands != nullptr)
+        {
+            outCasterStrands->clear();
+        }
         if (outPoseSegments != nullptr)
         {
             outPoseSegments->clear();
@@ -1164,6 +1214,10 @@ namespace OloEngine
             {
                 outStrandFirstIndex->push_back(static_cast<u32>(outIndices.size()));
             }
+            if (outCasterStrands != nullptr)
+            {
+                outCasterStrands->emplace_back();
+            }
             record = &binding.GetRoot(sourceCurve);
             // The slot is the index of this strand's per-frame record in the
             // deformation buffer. A FLOAT holding an integer rather than a
@@ -1176,6 +1230,10 @@ namespace OloEngine
 
         const auto onSegment = [&](const RestSegment& segment)
         {
+            if (outCasterStrands != nullptr)
+            {
+                AccumulateCasterStrand(outCasterStrands->back(), segment);
+            }
             // The rest points in the root's bind frame (MakeRestPoseSegment).
             const GroomRestPoseSegment pose = MakeRestPoseSegment(*record, static_cast<u32>(rootSlot), segment);
             const glm::vec3 local0 = pose.Local0;
@@ -1276,7 +1334,8 @@ namespace OloEngine
     } // namespace
 
     GroomCasterOrder BuildGroomCasterOrder(std::span<const GroomStrandVertex> vertices, std::span<const u32> indices,
-                                           std::span<const u32> strandFirstIndex)
+                                           std::span<const u32> strandFirstIndex,
+                                           std::span<const GroomCasterStrand> strandSummaries)
     {
         GroomCasterOrder order;
         const sizet strands = strandFirstIndex.size();
@@ -1295,31 +1354,47 @@ namespace OloEngine
                 return order;
             }
         }
+        // Summaries that do not describe these strands are not trusted: the
+        // order is then the whole stream as one run, whose share is assumed.
+        const bool summarised = strandSummaries.size() == strands;
 
-        std::vector<std::pair<u32, u32>> keyed(strands);
-        for (sizet strand = 0; strand < strands; ++strand)
+        // THE RUN KEY: each strand's group, unless the groom has more groups than
+        // a view should issue draws for, then its coat role; one key for all of
+        // them without summaries.
+        u32 distinctGroups = 0;
+        if (summarised)
         {
-            keyed[strand] = { CasterOrderHash(static_cast<u32>(strand)), static_cast<u32>(strand) };
-        }
-        std::ranges::sort(keyed);
-
-        order.Indices.reserve(indices.size());
-        sizet level = 1u;
-        for (sizet placed = 0; placed < strands; ++placed)
-        {
-            const u32 strand = keyed[placed].second;
-            order.Indices.insert(order.Indices.end(), indices.begin() + strandFirstIndex[strand],
-                                 indices.begin() + strandEnd(strand));
-            // Every level this strand completes: level j holds the first
-            // ceil(j * strands / levels) strands, which is `placed + 1` exactly
-            // when j * strands <= (placed + 1) * levels.
-            while (level <= kGroomCasterPrefixLevels &&
-                   static_cast<u64>(level) * strands <= static_cast<u64>(placed + 1u) * kGroomCasterPrefixLevels)
+            std::vector<bool> seen(static_cast<sizet>(std::numeric_limits<u16>::max()) + 1u, false);
+            for (const GroomCasterStrand& summary : strandSummaries)
             {
-                order.Prefix[level] = static_cast<u32>(order.Indices.size());
-                ++level;
+                if (!seen[summary.Group])
+                {
+                    seen[summary.Group] = true;
+                    ++distinctGroups;
+                }
             }
         }
+        const bool byGroup = summarised && distinctGroups <= kGroomCasterMaxRuns;
+        const auto keyOf = [&](sizet strand) -> u32
+        {
+            if (!summarised)
+            {
+                return 0u;
+            }
+            return byGroup ? strandSummaries[strand].Group : strandSummaries[strand].Role;
+        };
+
+        // (key, hash) in one sortable word: sorted, the runs come out in key
+        // order and each run's strands in the lowbias32 order of their own
+        // indices -- with one key, the order every caller before the runs got.
+        std::vector<std::pair<u64, u32>> keyed;
+        keyed.reserve(strands);
+        for (sizet strand = 0; strand < strands; ++strand)
+        {
+            keyed.emplace_back((static_cast<u64>(keyOf(strand)) << 32u) | CasterOrderHash(static_cast<u32>(strand)),
+                               static_cast<u32>(strand));
+        }
+        std::ranges::sort(keyed);
 
         // Each segment's four corners: two at P0 carrying Radius0 and two at P1
         // carrying Radius1, every one with Other - Position = the segment, in both
@@ -1327,11 +1402,88 @@ namespace OloEngine
         // sub-millimetre radii lose digits in a float sum.
         f64 radiusLength = 0.0;
         f64 length = 0.0;
-        for (sizet corner = 0; corner + 3u < vertices.size(); corner += 4u)
+        order.Indices.reserve(indices.size());
+        for (sizet begin = 0; begin < keyed.size();)
         {
-            const f64 segmentLength = glm::length(vertices[corner].Other - vertices[corner].Position);
-            radiusLength += 0.5 * (vertices[corner].Radius + vertices[corner + 2u].Radius) * segmentLength;
-            length += segmentLength;
+            const u64 key = keyed[begin].first >> 32u;
+            sizet end = begin;
+            while (end < keyed.size() && (keyed[end].first >> 32u) == key)
+            {
+                ++end;
+            }
+            const sizet runStrands = end - begin;
+
+            GroomCasterRun run;
+            run.Group = static_cast<u16>(key);
+            run.Role = summarised ? strandSummaries[keyed[begin].second].Role : u8{ 0 };
+            run.FirstIndex = static_cast<u32>(order.Indices.size());
+            run.Strands = static_cast<u32>(runStrands);
+            run.MomentsKnown = summarised;
+            glm::vec3 boundsMin{ std::numeric_limits<f32>::max() };
+            glm::vec3 boundsMax{ std::numeric_limits<f32>::lowest() };
+            f64 runRadiusLength = 0.0;
+            f64 runLength = 0.0;
+            std::array<f64, 6> moments{};
+            sizet level = 1u;
+            for (sizet placed = 0; placed < runStrands; ++placed)
+            {
+                const u32 strand = keyed[begin + placed].second;
+                for (u32 index = strandFirstIndex[strand]; index < strandEnd(strand); index += 6u)
+                {
+                    const u32 corner = indices[index] / 4u * 4u;
+                    const f64 l = glm::length(vertices[corner].Other - vertices[corner].Position);
+                    runRadiusLength += 0.5 *
+                                       (static_cast<f64>(vertices[corner].Radius) +
+                                        static_cast<f64>(vertices[corner + 2u].Radius)) *
+                                       l;
+                    runLength += l;
+                }
+                order.Indices.insert(order.Indices.end(), indices.begin() + strandFirstIndex[strand],
+                                     indices.begin() + strandEnd(strand));
+                if (summarised)
+                {
+                    const GroomCasterStrand& summary = strandSummaries[strand];
+                    for (sizet m = 0; m < 6u; ++m)
+                    {
+                        moments[m] += summary.Moments[m];
+                    }
+                    if (summary.BoundsMin.x <= summary.BoundsMax.x)
+                    {
+                        boundsMin = glm::min(boundsMin, summary.BoundsMin);
+                        boundsMax = glm::max(boundsMax, summary.BoundsMax);
+                    }
+                }
+                // Every level this strand completes: level j holds the first
+                // ceil(j * n / levels) of the run's n strands, which is
+                // `placed + 1` exactly when j * n <= (placed + 1) * levels.
+                while (level <= kGroomCasterPrefixLevels &&
+                       static_cast<u64>(level) * runStrands <= static_cast<u64>(placed + 1u) * kGroomCasterPrefixLevels)
+                {
+                    run.Prefix[level] = static_cast<u32>(order.Indices.size()) - run.FirstIndex;
+                    ++level;
+                }
+            }
+            run.MeanRadius = runLength > 0.0 ? static_cast<f32>(runRadiusLength / runLength) : 0.0f;
+            run.TotalLength = static_cast<f32>(runLength);
+            for (sizet m = 0; m < 6u; ++m)
+            {
+                run.Moments[m] = static_cast<f32>(moments[m]);
+            }
+            if (boundsMin.x <= boundsMax.x)
+            {
+                run.BoundsMin = boundsMin;
+                run.BoundsMax = boundsMax;
+            }
+            else
+            {
+                // No segment gave the run a box: it is measured like an order
+                // without summaries.
+                run.MomentsKnown = false;
+            }
+            radiusLength += runRadiusLength;
+            length += runLength;
+            order.Runs.push_back(run);
+            begin = end;
         }
         order.MeanRadius = length > 0.0 ? static_cast<f32>(radiusLength / length) : 0.0f;
         order.TotalLength = static_cast<f32>(length);
@@ -1344,7 +1496,7 @@ namespace OloEngine
         {
             return 0u;
         }
-        // NaN and anything from 1 up cast the whole coat; a subset never rounds
+        // NaN and anything from 1 up cast the whole run; a subset never rounds
         // to nothing.
         if (!(fraction < 1.0f))
         {
@@ -1353,6 +1505,94 @@ namespace OloEngine
         const f32 levels = std::ceil(std::max(fraction, 0.0f) * static_cast<f32>(kGroomCasterPrefixLevels));
         const sizet level = std::clamp<sizet>(static_cast<sizet>(levels), 1u, kGroomCasterPrefixLevels);
         return prefix[level];
+    }
+
+    GroomCasterRunDecision DecideGroomCasterRun(const GroomCasterRun& run, const GroomCasterPlacement& caster,
+                                                const GroomCasterView& view) noexcept
+    {
+        GroomCasterRunDecision decision;
+        decision.IndexCount = run.Prefix[kGroomCasterPrefixLevels];
+        // No box, no texel to measure the run against: the whole run.
+        if (decision.IndexCount == 0u || !(caster.CullMin.x <= caster.CullMax.x))
+        {
+            return decision;
+        }
+        const auto corner = [](const glm::vec3& lo, const glm::vec3& hi, u32 index)
+        {
+            return glm::vec3{ (index & 1u) ? hi.x : lo.x, (index & 2u) ? hi.y : lo.y, (index & 4u) ? hi.z : lo.z };
+        };
+
+        // THE DENSEST TEXELS the caster meets in this view: the most NDC per
+        // metre over its posed cull box -- the nearest corner, under a
+        // perspective map -- so the widening, and with it the share the margin
+        // keeps, is never understated. A box reaching the light's plane has
+        // texels down to nothing near the light, so it casts whole.
+        f32 densest = 0.0f;
+        for (u32 index = 0; index < 8u; ++index)
+        {
+            const glm::vec4 clip =
+                view.ViewProjection * glm::vec4(corner(caster.CullMin, caster.CullMax, index) - view.Origin, 1.0f);
+            if (!(clip.w > 1.0e-6f))
+            {
+                return decision;
+            }
+            densest = std::max(densest, GroomShadowNdcPerWorld(view.ViewProjection, clip.w));
+        }
+
+        // THE RUN'S FOOTPRINT: its rest box under the caster's transform,
+        // projected and bounded in NDC, and the SPARSEST texels over it, which
+        // keep the layer estimate low. A run without moments has no box of its
+        // own and is measured against the caster's.
+        f32 sparsest = std::numeric_limits<f32>::max();
+        glm::vec2 ndcMin{ std::numeric_limits<f32>::max() };
+        glm::vec2 ndcMax{ std::numeric_limits<f32>::lowest() };
+        glm::vec3 centre{ 0.0f };
+        for (u32 index = 0; index < 8u; ++index)
+        {
+            const glm::vec3 world =
+                run.MomentsKnown ? glm::vec3(caster.Transform * glm::vec4(corner(run.BoundsMin, run.BoundsMax, index), 1.0f))
+                                 : corner(caster.CullMin, caster.CullMax, index);
+            const glm::vec4 clip = view.ViewProjection * glm::vec4(world - view.Origin, 1.0f);
+            if (!(clip.w > 1.0e-6f))
+            {
+                return decision;
+            }
+            sparsest = std::min(sparsest, GroomShadowNdcPerWorld(view.ViewProjection, clip.w));
+            const glm::vec2 ndc = glm::vec2(clip) / clip.w;
+            ndcMin = glm::min(ndcMin, ndc);
+            ndcMax = glm::max(ndcMax, ndc);
+            centre += world * 0.125f;
+        }
+        const f32 footprintNdcArea = (ndcMax.x - ndcMin.x) * (ndcMax.y - ndcMin.y);
+
+        // THE PROJECTED LENGTH: bounded below from the run's moments across the
+        // direction this view projects along at the run's centre, carried into
+        // the groom's space by the transform's rotation; ASSUMED at half the
+        // length without moments, or where the view gives no direction.
+        f32 projectedLength = kGroomCasterProjectedLengthShare * run.TotalLength;
+        if (run.MomentsKnown)
+        {
+            const glm::vec3 direction = GroomShadowProjectionDirection(view.ViewProjection, centre - view.Origin);
+            const glm::vec3 local = glm::transpose(glm::mat3(caster.Transform)) * direction;
+            const f32 localLength = glm::length(local);
+            if (localLength > 0.0f && std::isfinite(localLength))
+            {
+                projectedLength = GroomShadowProjectedLengthLowerBound(run.TotalLength, run.Moments, local / localLength);
+            }
+        }
+
+        // The width the strands are drawn at: the run's radii under the
+        // per-groom scale and the transform's mean axis, as the shader has it.
+        const f32 meanRadiusWorld = run.MeanRadius * caster.WidthScale * caster.ObjectScale;
+        decision.ProjectedLength = projectedLength * caster.ObjectScale;
+        decision.Layers = GroomShadowCasterLayersFromProjection(decision.ProjectedLength, meanRadiusWorld, sparsest,
+                                                                view.ResolutionTexels, caster.MinWidthTexels,
+                                                                footprintNdcArea);
+        decision.Fraction = GroomShadowCasterFraction(meanRadiusWorld, densest, view.ResolutionTexels,
+                                                      caster.MinWidthTexels, kGroomCasterCoverageMargin,
+                                                      kGroomCasterMinFraction, decision.Layers, kGroomCasterMinLayers);
+        decision.IndexCount = GroomCasterIndexCount(run.Prefix, decision.Fraction);
+        return decision;
     }
 
     // ── The GroomAsset overloads ────────────────────────────────────────────

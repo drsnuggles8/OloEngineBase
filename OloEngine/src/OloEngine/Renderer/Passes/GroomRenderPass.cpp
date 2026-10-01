@@ -382,14 +382,16 @@ namespace OloEngine
         std::vector<GroomStrandVertex> vertices;
         std::vector<u32> indices;
         std::vector<u32> strandFirstIndex;
+        std::vector<GroomCasterStrand> casterStrands;
         auto stream = Ref<GroomRestStream>::Create();
         // NO POSE SEGMENTS HERE (#1533). Only a POSED coat bake reads them, and
         // AcquireDrawnPose builds them on its first call, straight from the walk.
         // Built with every stream whose coat asked for a self-shadow, they were
         // 44 bytes a segment -- over 80 MiB on the showcase dog -- held for a
         // coat baked at rest, which never reads them.
-        const GroomStrandMeshStats stats = BuildGroomStrandRestMesh(
-            source, request.Build, binding, vertices, indices, stream->RootCurves, &coat, nullptr, &strandFirstIndex);
+        const GroomStrandMeshStats stats =
+            BuildGroomStrandRestMesh(source, request.Build, binding, vertices, indices, stream->RootCurves, &coat,
+                                     nullptr, &strandFirstIndex, &casterStrands);
         m_Stats.DeformedBuildMicroseconds += static_cast<u64>(
             std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - buildStart)
                 .count());
@@ -425,7 +427,7 @@ namespace OloEngine
         stream->Array = VertexArray::Create();
         stream->Array->AddVertexBuffer(stream->Vertices);
         stream->Array->SetIndexBuffer(stream->Indices);
-        stream->Caster = BuildCasterStream(stream->Vertices, vertices, indices, strandFirstIndex);
+        stream->Caster = BuildCasterStream(stream->Vertices, vertices, indices, strandFirstIndex, casterStrands);
         stream->Bytes += stream->Caster.Bytes;
 
         m_CacheBytes += stream->Bytes;
@@ -1040,6 +1042,7 @@ namespace OloEngine
         std::vector<GroomStrandVertex>& vertices = deformed ? outDeformedVertices : restVertices;
         std::vector<u32> indices;
         std::vector<u32> strandFirstIndex;
+        std::vector<GroomCasterStrand> casterStrands;
         // The coat context is assembled HERE, at the point of use, because it is
         // the only place both halves are certainly alive: the settings come from
         // the request and the per-group table belongs to the asset the request
@@ -1067,7 +1070,7 @@ namespace OloEngine
             BuildGroomStrandMesh(request.BuildSource(), request.Build, vertices, indices,
                                  deformed ? &deformation : nullptr, &coat,
                                  simulation.IsUsable(request.Groom->GetCurveCount()) ? &simulation : nullptr,
-                                 &strandFirstIndex);
+                                 &strandFirstIndex, &casterStrands);
         if (deformed)
         {
             m_Stats.DeformedBuildMicroseconds += static_cast<u64>(
@@ -1141,7 +1144,7 @@ namespace OloEngine
         entry.Array->SetIndexBuffer(entry.Indices);
         // Built once with the buffers: the refill above moves the vertices and
         // keeps every index, so the caster's order stays valid with them.
-        entry.Caster = BuildCasterStream(entry.Vertices, vertices, indices, strandFirstIndex);
+        entry.Caster = BuildCasterStream(entry.Vertices, vertices, indices, strandFirstIndex, casterStrands);
         entry.Bytes += entry.Caster.Bytes;
 
         m_CacheBytes += entry.Bytes;
@@ -2819,11 +2822,12 @@ namespace OloEngine
     GroomRenderPass::GroomCasterStream GroomRenderPass::BuildCasterStream(const Ref<VertexBuffer>& vertexBuffer,
                                                                           std::span<const GroomStrandVertex> vertices,
                                                                           std::span<const u32> indices,
-                                                                          std::span<const u32> strandFirstIndex)
+                                                                          std::span<const u32> strandFirstIndex,
+                                                                          std::span<const GroomCasterStrand> strands)
     {
         GroomCasterStream caster;
-        GroomCasterOrder order = BuildGroomCasterOrder(vertices, indices, strandFirstIndex);
-        if (!vertexBuffer || order.Indices.size() != indices.size())
+        GroomCasterOrder order = BuildGroomCasterOrder(vertices, indices, strandFirstIndex, strands);
+        if (!vertexBuffer || order.Indices.size() != indices.size() || order.Runs.empty())
         {
             return caster;
         }
@@ -2831,9 +2835,8 @@ namespace OloEngine
         caster.Array = VertexArray::Create();
         caster.Array->AddVertexBuffer(vertexBuffer);
         caster.Array->SetIndexBuffer(caster.Indices);
-        caster.Prefix = order.Prefix;
+        caster.Runs = std::move(order.Runs);
         caster.MeanRadius = order.MeanRadius;
-        caster.TotalLength = order.TotalLength;
         caster.Bytes = static_cast<u64>(order.Indices.size()) * sizeof(u32);
         return caster;
     }
@@ -2859,17 +2862,19 @@ namespace OloEngine
             return false;
         }
 
-        // THE CASTER'S ORDER when the stream has one (#1533 E1) -- the same
-        // vertices and the same indices, regrouped so a view can cast a prefix.
-        // A GPU-deformed entry draws its shared rest stream, so it casts that
-        // stream's order.
+        // THE CASTER'S ORDER when the stream has one (#1533) -- the same
+        // vertices and the same indices, regrouped run by run so a view can
+        // cast a prefix of each. A GPU-deformed entry draws its shared rest
+        // stream, so it casts that stream's order. Runs that do not end where
+        // the stream does describe some other stream, and are not trusted.
         const GroomCasterStream& caster = (entry->GpuDeformed && entry->Rest) ? entry->Rest->Caster : entry->Caster;
-        if (caster.Array && caster.Prefix[kGroomCasterPrefixLevels] == entry->Stats.IndexCount)
+        const bool runsCoverStream =
+            !caster.Runs.empty() && caster.Runs.back().FirstIndex + caster.Runs.back().Prefix[kGroomCasterPrefixLevels] ==
+                                        entry->Stats.IndexCount;
+        if (caster.Array && runsCoverStream)
         {
             out.Vao = caster.Array->GetRHIHandle();
-            out.CasterPrefix = caster.Prefix;
-            out.MeanRadius = caster.MeanRadius;
-            out.TotalLength = caster.TotalLength;
+            out.CasterRuns = caster.Runs;
         }
         else
         {

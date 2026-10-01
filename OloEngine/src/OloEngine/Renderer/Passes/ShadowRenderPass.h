@@ -97,6 +97,8 @@ namespace OloEngine
         glm::mat4 transform = glm::mat4(1.0f);
     };
 
+    struct GroomCasterRun;
+
     // A groom, rasterised from the light as widened ribbons (issue #1323).
     //
     // THE SIXTH CASTER FAMILY, and the one that needed a different shape from
@@ -129,12 +131,13 @@ namespace OloEngine
     {
         RHI::ResourceHandle vaoID{};
         u32 indexCount = 0;
-        // The caster order's prefix table and the stream's length-weighted mean
-        // object-space radius (#1533 E1; GroomRenderPass::ShadowCasterGeometry).
-        // Empty prefix = the stream has no caster order and is cast whole.
-        std::span<const u32> prefix{};
-        f32 meanRadius = 0.0f;
-        f32 totalLength = 0.0f; // object space, the stream's drawn segments
+        // The caster order's runs (#1533; GroomRenderPass::ShadowCasterGeometry),
+        // owned by the groom pass: each view casts a prefix of each run, decided
+        // per run (DecideGroomCasterRun). None = the stream has no caster order
+        // and is cast whole. A pointer and a count rather than a span, so this
+        // header needs no Groom header for an incomplete type.
+        const GroomCasterRun* runs = nullptr;
+        u32 runCount = 0;
         glm::mat4 transform = glm::mat4(1.0f);
         BoundingBox WorldBounds = NoBounds; // World-space AABB of the POSED coat; NoBounds = always include
         // The width the coat is DRAWN at — the per-groom authoring scale (the
@@ -290,11 +293,11 @@ namespace OloEngine
                                 const glm::vec3& renderOrigin, f32 resolutionTexels, i32 clipLevel,
                                 UniformBuffer& paramsUBO) const;
 
-        // How many of `caster`'s indices one shadow view draws (#1533 E1): the
-        // whole coat, or -- when its stream has a caster order -- the prefix
-        // GroomShadowCasterFraction allows at the densest texels the coat's box
-        // meets in this view. `viewProjection` maps (world - origin) to clip.
-        // OLO_GROOM_SHADOW_CASTER_FRACTION overrides the rule in every view.
+        // How many of `caster`'s indices one shadow view draws (#1533): the whole
+        // coat, or -- when its stream has a caster order -- the sum over its
+        // runs of the prefix DecideGroomCasterRun allows each in this view.
+        // `viewProjection` maps (world - origin) to clip.
+        // OLO_GROOM_SHADOW_CASTER_FRACTION overrides the rule for every run.
         [[nodiscard]] static u32 GroomCasterViewIndexCount(const ShadowGroomCaster& caster,
                                                            const glm::mat4& viewProjection, const glm::vec3& origin,
                                                            f32 resolutionTexels);
