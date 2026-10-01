@@ -144,6 +144,18 @@ TEST_F(AssetCreationTest, ScriptFileAsset_LoadsFromCSharpSourceAndNeverOverwrite
                                                "namespace Sandbox.Gameplay { public class PlayerController : Entity { } }\n";
     ASSERT_TRUE(serializer.TryLoadData(metadata, asset));
     EXPECT_EQ(asset.As<ScriptFileAsset>()->GetFullyQualifiedClassName(), "Sandbox.Gameplay.PlayerController");
+
+    // A class after a closed namespace block is in the global namespace...
+    std::ofstream(script, std::ios::binary) << "namespace Helpers { class Tuning { } }\n"
+                                               "public class PlayerController : Entity { }\n";
+    ASSERT_TRUE(serializer.TryLoadData(metadata, asset));
+    EXPECT_EQ(asset.As<ScriptFileAsset>()->GetFullyQualifiedClassName(), "PlayerController");
+
+    // ...and nested blocks join, outermost first.
+    std::ofstream(script, std::ios::binary) << "namespace Sandbox{namespace Gameplay{\n"
+                                               "public class PlayerController:Entity{}\n}}\n";
+    ASSERT_TRUE(serializer.TryLoadData(metadata, asset));
+    EXPECT_EQ(asset.As<ScriptFileAsset>()->GetFullyQualifiedClassName(), "Sandbox.Gameplay.PlayerController");
 }
 
 // @brief Test ColliderMaterial structure

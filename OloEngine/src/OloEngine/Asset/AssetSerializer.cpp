@@ -2571,44 +2571,102 @@ namespace OloEngine
                                       std::string& outClass)
         {
             const std::string code = StripCSharpCommentsAndLiterals(source);
-            std::istringstream tokens(code);
-            std::string previous;
-            std::string token;
-            const auto identifier = [](std::string value)
+
+            // Words, with each brace, semicolon and colon a token of its own, so
+            // "Sandbox{" and "Entity{}" still show their scopes.
+            std::vector<std::string> tokens;
+            std::string word;
+            const auto flush = [&]
             {
-                // "Sandbox;" / "Player:" / "Player{" -> the bare (dotted) name.
+                if (!word.empty())
+                    tokens.push_back(std::move(word));
+                word.clear();
+            };
+            for (const char c : code)
+            {
+                if (std::isspace(static_cast<unsigned char>(c)))
+                {
+                    flush();
+                }
+                else if (c == '{' || c == '}' || c == ';' || c == ':')
+                {
+                    flush();
+                    tokens.emplace_back(1, c);
+                }
+                else
+                {
+                    word += c;
+                }
+            }
+            flush();
+
+            const auto identifier = [](const std::string& value)
+            {
                 const auto end = value.find_first_not_of(
                     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.");
                 return end == std::string::npos ? value : value.substr(0, end);
             };
-            // The namespace that goes with a class is the one declared last
-            // before it, so a helper namespace earlier in the file does not
-            // lend its name to the script class.
-            std::string currentNamespace;
+
+            // The namespace that goes with a class is every block namespace open
+            // around it, outermost first, after a file-scoped one, so a class
+            // after a closed helper namespace is not given that helper's name.
+            std::string fileScoped;
+            std::vector<std::pair<std::string, i32>> open; // name, brace depth it opened at
+            std::string pending;
+            i32 depth = 0;
+            const auto currentNamespace = [&]
+            {
+                std::string joined = fileScoped;
+                for (const auto& scope : open)
+                    joined += (joined.empty() ? "" : ".") + scope.first;
+                return joined;
+            };
+
             std::string firstClass;
             std::string firstClassNamespace;
-            while (tokens >> token)
+            for (sizet i = 0; i < tokens.size(); ++i)
             {
-                if (previous == "namespace")
+                const std::string& token = tokens[i];
+                if (token == "namespace" && i + 1 < tokens.size())
                 {
-                    currentNamespace = identifier(token);
+                    const std::string name = identifier(tokens[i + 1]);
+                    if (i + 2 < tokens.size() && tokens[i + 2] == ";")
+                        fileScoped = name;
+                    else
+                        pending = name;
+                    ++i;
                 }
-                else if (previous == "class")
+                else if (token == "{")
                 {
-                    const std::string name = identifier(token);
+                    ++depth;
+                    if (!pending.empty())
+                    {
+                        open.emplace_back(std::move(pending), depth);
+                        pending.clear();
+                    }
+                }
+                else if (token == "}")
+                {
+                    if (!open.empty() && open.back().second == depth)
+                        open.pop_back();
+                    --depth;
+                }
+                else if (token == "class" && i + 1 < tokens.size())
+                {
+                    const std::string name = identifier(tokens[i + 1]);
                     if (firstClass.empty())
                     {
                         firstClass = name;
-                        firstClassNamespace = currentNamespace;
+                        firstClassNamespace = currentNamespace();
                     }
                     if (name == fileStem)
                     {
                         outClass = name;
-                        outNamespace = currentNamespace;
+                        outNamespace = currentNamespace();
                         return;
                     }
+                    ++i;
                 }
-                previous = token;
             }
             outClass = firstClass;
             outNamespace = firstClassNamespace;
