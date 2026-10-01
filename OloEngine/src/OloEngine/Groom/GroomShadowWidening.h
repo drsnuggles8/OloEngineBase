@@ -90,6 +90,43 @@ namespace OloEngine
     /// the saving is noise and the subset is a few strands per texel.
     inline constexpr f32 kGroomCasterMinFraction = 1.0f / 16.0f;
 
+    /// The strand LAYERS a subset must still lay over every texel of the coat's
+    /// footprint (#1533 E1). The coverage margin is an expectation, and a sparse
+    /// coat meets it with strands far apart: each one a texel wide, gaps between
+    /// them, and the shadow turns to streaks and blocks where the whole cast was
+    /// solid (GroomSceneShadow case 9, measured). Poisson holes fall as exp(-n):
+    /// four layers leave about two per cent of texels open, which the 3x3 kernel
+    /// averages away.
+    inline constexpr f32 kGroomCasterMinLayers = 4.0f;
+
+    /// The share of a strand's length its shadow keeps on average: strands lie
+    /// along the skin, and toward the silhouette the skin turns along the light.
+    /// A half undercounts the layers, which only keeps more strands.
+    inline constexpr f32 kGroomCasterProjectedLengthShare = 0.5f;
+
+    /// The strand layers a coat cast WHOLE lays over each texel of its footprint
+    /// in one view (#1533 E1): its drawn length times the width each strand is
+    /// rasterised at, over the area it falls on, all in that view's NDC.
+    /// `footprintNdcArea` is the coat's box projected and bounded in NDC. The
+    /// box overstates the footprint and the mean width understates the floored
+    /// one, so this errs low, toward keeping strands. Zero for anything that
+    /// cannot be measured, which casts the coat whole.
+    [[nodiscard]] inline f32 GroomShadowCasterLayers(f32 totalLengthWorld, f32 meanRadiusWorld, f32 ndcPerWorld,
+                                                     f32 resolutionTexels, f32 minWidthTexels,
+                                                     f32 footprintNdcArea) noexcept
+    {
+        if (!(footprintNdcArea > 0.0f) || !(ndcPerWorld > 0.0f) || !(totalLengthWorld > 0.0f) ||
+            !std::isfinite(footprintNdcArea) || !std::isfinite(ndcPerWorld) || !std::isfinite(totalLengthWorld))
+        {
+            return 0.0f;
+        }
+        const f32 widthNdc =
+            2.0f * GroomShadowHalfWidthNdc(std::max(meanRadiusWorld, 0.0f), ndcPerWorld, resolutionTexels, minWidthTexels);
+        const f32 lengthNdc = kGroomCasterProjectedLengthShare * totalLengthWorld * ndcPerWorld;
+        const f32 layers = lengthNdc * widthNdc / footprintNdcArea;
+        return std::isfinite(layers) ? layers : 0.0f;
+    }
+
     /// The share of a coat's strands one shadow view needs (#1533 E1), given the
     /// coat's LENGTH-WEIGHTED mean radius in world metres.
     ///
@@ -106,8 +143,14 @@ namespace OloEngine
     /// covers at least floor * length per strand and never less than the mean
     /// says. Where the mean strand is already a texel wide nothing is widened,
     /// nothing is over-covered, and the whole coat is cast.
+    ///
+    /// AND NO THINNER THAN `minLayers` OVER `layersWhole` (GroomShadowCasterLayers):
+    /// the expectation above says nothing about how far apart the kept strands
+    /// are, and a sparse coat thinned to it shows them one by one. A coat whose
+    /// whole cast lays too few layers to spare any is cast whole.
     [[nodiscard]] inline f32 GroomShadowCasterFraction(f32 meanRadiusWorld, f32 ndcPerWorld, f32 resolutionTexels,
-                                                       f32 minWidthTexels, f32 margin, f32 minFraction) noexcept
+                                                       f32 minWidthTexels, f32 margin, f32 minFraction,
+                                                       f32 layersWhole, f32 minLayers) noexcept
     {
         const f32 widening = GroomShadowWideningFactor(meanRadiusWorld, ndcPerWorld, resolutionTexels, minWidthTexels);
         if (!(widening > 1.0f) || !std::isfinite(widening))
@@ -116,7 +159,11 @@ namespace OloEngine
         }
         // A margin below 1 would cast less than the real coat blocks.
         const f32 kept = std::max(std::isfinite(margin) ? margin : 1.0f, 1.0f) / widening;
+        // Unmeasured layers, or a floor that is not a number, keep every strand.
+        const f32 dense = (layersWhole > 0.0f && std::isfinite(layersWhole) && std::isfinite(minLayers))
+                              ? std::max(minLayers, 0.0f) / layersWhole
+                              : 1.0f;
         const f32 lowest = std::isfinite(minFraction) ? std::clamp(minFraction, 0.0f, 1.0f) : 1.0f;
-        return std::clamp(kept, lowest, 1.0f);
+        return std::clamp(std::max(kept, dense), lowest, 1.0f);
     }
 } // namespace OloEngine

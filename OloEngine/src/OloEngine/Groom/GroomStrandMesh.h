@@ -476,6 +476,11 @@ namespace OloEngine
         /// The drawn segments' object-space radius, averaged over their LENGTH
         /// -- the radius a coat's projected area divides by.
         f32 MeanRadius = 0.0f;
+        /// The drawn segments' total object-space length: with MeanRadius, the
+        /// area the coat lays over its footprint, which says how many strands
+        /// cross each texel and so how far a share of them may thin before the
+        /// map shows the gaps between them (GroomShadowCasterLayers).
+        f32 TotalLength = 0.0f;
     };
 
     /// Reorders `indices` (a stream BuildGroomStrandMesh or BuildGroomStrandRestMesh

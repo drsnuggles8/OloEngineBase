@@ -57,6 +57,10 @@ namespace OloEngine::Tests
         // because widths on disk are diameters and are halved exactly once
         // (groom-strand-visibility.md rule 8).
         constexpr f32 kHairRadiusMetres = 0.5f * 70.0e-6f;
+
+        // A coat so dense the strand-layer floor never binds: the margin alone
+        // decides, which is what the cases that pin the margin need.
+        constexpr f32 kDenseCoat = 1.0e6f;
     } // namespace
 
     // ── 1. The measurement the whole caster family rests on ─────────────
@@ -207,7 +211,8 @@ namespace OloEngine::Tests
         ASSERT_GT(widening, 2.0f * kGroomCasterCoverageMargin) << "the case must sit where the floor dominates";
 
         const f32 share = GroomShadowCasterFraction(meanRadius, ndcPerWorld, 4096.0f, 1.0f,
-                                                    kGroomCasterCoverageMargin, kGroomCasterMinFraction);
+                                                    kGroomCasterCoverageMargin, kGroomCasterMinFraction, kDenseCoat,
+                                                    kGroomCasterMinLayers);
         // PINNED: a texel of 4/4096 m over a 0.1 mm strand is a 9.77x widening,
         // so twice the true coverage is 2/9.77 of the strands.
         EXPECT_NEAR(widening, 9.766f, 0.01f);
@@ -223,12 +228,13 @@ namespace OloEngine::Tests
         const f32 ndcPerWorld = GroomShadowNdcPerWorld(cascade, 1.0f);
         // A 2 mm "strand" is two texels wide: nothing widened, nothing to undo.
         EXPECT_EQ(GroomShadowCasterFraction(1.0e-3f, ndcPerWorld, 4096.0f, 1.0f, kGroomCasterCoverageMargin,
-                                            kGroomCasterMinFraction),
+                                            kGroomCasterMinFraction, kDenseCoat, kGroomCasterMinLayers),
                   1.0f);
         // And a coat whose widening is below the margin keeps every strand too.
         const f32 texelHalfMetres = 1.0f / (ndcPerWorld * 4096.0f);
         EXPECT_EQ(GroomShadowCasterFraction(0.7f * texelHalfMetres, ndcPerWorld, 4096.0f, 1.0f,
-                                            kGroomCasterCoverageMargin, kGroomCasterMinFraction),
+                                            kGroomCasterCoverageMargin, kGroomCasterMinFraction, kDenseCoat,
+                                            kGroomCasterMinLayers),
                   1.0f);
     }
 
@@ -236,13 +242,13 @@ namespace OloEngine::Tests
     {
         const glm::mat4 cascade = MakeCascadeViewProjection(4.0f);
         const f32 ndcPerWorld = GroomShadowNdcPerWorld(cascade, 1.0f);
-        EXPECT_EQ(GroomShadowCasterFraction(5.0e-5f, ndcPerWorld, 4096.0f, 0.0f, 2.0f, 0.0625f), 1.0f)
+        EXPECT_EQ(GroomShadowCasterFraction(5.0e-5f, ndcPerWorld, 4096.0f, 0.0f, 2.0f, 0.0625f, kDenseCoat, 4.0f), 1.0f)
             << "a zero floor widens nothing, so there is no over-coverage to trade";
-        EXPECT_EQ(GroomShadowCasterFraction(0.0f, ndcPerWorld, 4096.0f, 1.0f, 2.0f, 0.0625f), 1.0f)
+        EXPECT_EQ(GroomShadowCasterFraction(0.0f, ndcPerWorld, 4096.0f, 1.0f, 2.0f, 0.0625f, kDenseCoat, 4.0f), 1.0f)
             << "an unmeasured radius is not an infinitely thin one";
-        EXPECT_EQ(GroomShadowCasterFraction(5.0e-5f, 0.0f, 4096.0f, 1.0f, 2.0f, 0.0625f), 1.0f);
+        EXPECT_EQ(GroomShadowCasterFraction(5.0e-5f, 0.0f, 4096.0f, 1.0f, 2.0f, 0.0625f, kDenseCoat, 4.0f), 1.0f);
         EXPECT_EQ(GroomShadowCasterFraction(std::numeric_limits<f32>::quiet_NaN(), ndcPerWorld, 4096.0f, 1.0f, 2.0f,
-                                            0.0625f),
+                                            0.0625f, kDenseCoat, 4.0f),
                   1.0f);
     }
 
@@ -253,7 +259,7 @@ namespace OloEngine::Tests
         const glm::mat4 coarse = MakeCascadeViewProjection(200.0f);
         const f32 ndcPerWorld = GroomShadowNdcPerWorld(coarse, 1.0f);
         EXPECT_EQ(GroomShadowCasterFraction(5.0e-5f, ndcPerWorld, 1024.0f, 1.0f, kGroomCasterCoverageMargin,
-                                            kGroomCasterMinFraction),
+                                            kGroomCasterMinFraction, kDenseCoat, kGroomCasterMinLayers),
                   kGroomCasterMinFraction);
 
         // A margin under 1 -- or not a number -- would cast less than the coat
@@ -263,7 +269,8 @@ namespace OloEngine::Tests
         const f32 widening = GroomShadowWideningFactor(5.0e-5f, nearNdc, 4096.0f, 1.0f);
         for (const f32 margin : { 0.25f, std::numeric_limits<f32>::quiet_NaN() })
         {
-            const f32 share = GroomShadowCasterFraction(5.0e-5f, nearNdc, 4096.0f, 1.0f, margin, 0.0f);
+            const f32 share = GroomShadowCasterFraction(5.0e-5f, nearNdc, 4096.0f, 1.0f, margin, 0.0f, kDenseCoat,
+                                                        0.0f);
             EXPECT_NEAR(share * widening, 1.0f, 1.0e-4f) << "margin " << margin;
         }
     }
@@ -300,10 +307,70 @@ namespace OloEngine::Tests
             flooredArea += std::max(trueHalf, floorHalfNdc) * population.Length;
         }
         const f32 share = GroomShadowCasterFraction(radiusLength / length, ndcPerWorld, resolution, 1.0f,
-                                                    kGroomCasterCoverageMargin, 0.0f);
+                                                    kGroomCasterCoverageMargin, 0.0f, kDenseCoat, 0.0f);
         EXPECT_LT(share, 1.0f) << "the case must actually thin the coat";
         EXPECT_GE(share * flooredArea, kGroomCasterCoverageMargin * trueArea * 0.9999f)
             << "the subset covers less than the margin promises once some strands are wider than the floor";
+    }
+
+    // -- 9. The strand-layer floor (#1533 E1) ------------------------------
+    //
+    // The margin is an expectation; a sparse coat meets it with strands far
+    // apart and the thinned map shows the gaps. The subset keeps at least
+    // kGroomCasterMinLayers strand layers over each texel of the footprint.
+
+    TEST(GroomShadowWidening, TheLayersAreTheCoatsFlooredAreaOverItsFootprint)
+    {
+        // 10 km of strand 0.1 mm across under a 4 m / 4096 cascade (a texel just
+        // under a millimetre, so the floor sets the width) over a 1 m^2 box:
+        // half the length projected, times a texel, over the box -- all in NDC.
+        const glm::mat4 cascade = MakeCascadeViewProjection(4.0f);
+        const f32 ndcPerWorld = GroomShadowNdcPerWorld(cascade, 1.0f); // 0.5
+        const f32 boxNdc = 1.0f * ndcPerWorld * ndcPerWorld;
+        const f32 layers = GroomShadowCasterLayers(10000.0f, 5.0e-5f, ndcPerWorld, 4096.0f, 1.0f, boxNdc);
+        const f32 texelMetres = 2.0f / (4096.0f * ndcPerWorld);
+        EXPECT_NEAR(layers, kGroomCasterProjectedLengthShare * 10000.0f * texelMetres / 1.0f, 0.01f);
+        EXPECT_NEAR(layers, 4.883f, 0.01f) << "pinned: 5000 m of projected strand a texel wide over a square metre";
+
+        // Unmeasurable inputs report no layers, which casts the coat whole.
+        EXPECT_EQ(GroomShadowCasterLayers(10000.0f, 5.0e-5f, ndcPerWorld, 4096.0f, 1.0f, 0.0f), 0.0f);
+        EXPECT_EQ(GroomShadowCasterLayers(0.0f, 5.0e-5f, ndcPerWorld, 4096.0f, 1.0f, boxNdc), 0.0f);
+        EXPECT_EQ(GroomShadowCasterLayers(10000.0f, 5.0e-5f, std::numeric_limits<f32>::quiet_NaN(), 4096.0f, 1.0f,
+                                          boxNdc),
+                  0.0f);
+    }
+
+    TEST(GroomShadowWidening, ASparseCoatIsCastWholeAndADenseOneThinsToTheMargin)
+    {
+        const glm::mat4 cascade = MakeCascadeViewProjection(4.0f);
+        const f32 ndcPerWorld = GroomShadowNdcPerWorld(cascade, 1.0f);
+        const f32 boxNdc = 1.0f * ndcPerWorld * ndcPerWorld;
+        const f32 radius = 5.0e-5f; // a 9.77x widening: the margin alone would keep 0.2
+        const f32 margin = GroomShadowCasterFraction(radius, ndcPerWorld, 4096.0f, 1.0f, kGroomCasterCoverageMargin,
+                                                     0.0f, kDenseCoat, kGroomCasterMinLayers);
+        ASSERT_NEAR(margin, 0.2048f, 0.0005f);
+
+        // Dense: 100 km over the square metre lays ~49 layers whole; the margin's
+        // 0.2 keeps ~10, above the floor, so the margin decides.
+        const f32 denseLayers = GroomShadowCasterLayers(100000.0f, radius, ndcPerWorld, 4096.0f, 1.0f, boxNdc);
+        EXPECT_NEAR(GroomShadowCasterFraction(radius, ndcPerWorld, 4096.0f, 1.0f, kGroomCasterCoverageMargin, 0.0f,
+                                              denseLayers, kGroomCasterMinLayers),
+                    margin, 1.0e-5f);
+        // Middling: 10 km lays ~4.9 layers whole; the floor wants 4 of them.
+        const f32 midLayers = GroomShadowCasterLayers(10000.0f, radius, ndcPerWorld, 4096.0f, 1.0f, boxNdc);
+        const f32 mid = GroomShadowCasterFraction(radius, ndcPerWorld, 4096.0f, 1.0f, kGroomCasterCoverageMargin, 0.0f,
+                                                  midLayers, kGroomCasterMinLayers);
+        EXPECT_NEAR(mid, kGroomCasterMinLayers / midLayers, 1.0e-4f);
+        EXPECT_GE(mid * midLayers, kGroomCasterMinLayers * 0.9999f) << "the subset lays fewer layers than the floor";
+        // Sparse: 1 km lays under one layer whole -- nothing to spare.
+        const f32 sparseLayers = GroomShadowCasterLayers(1000.0f, radius, ndcPerWorld, 4096.0f, 1.0f, boxNdc);
+        EXPECT_EQ(GroomShadowCasterFraction(radius, ndcPerWorld, 4096.0f, 1.0f, kGroomCasterCoverageMargin, 0.0f,
+                                            sparseLayers, kGroomCasterMinLayers),
+                  1.0f);
+        // Unmeasured layers keep every strand.
+        EXPECT_EQ(GroomShadowCasterFraction(radius, ndcPerWorld, 4096.0f, 1.0f, kGroomCasterCoverageMargin, 0.0f, 0.0f,
+                                            kGroomCasterMinLayers),
+                  1.0f);
     }
 
     TEST(GroomSceneShadowComponentSanitiser, ANonFiniteOrNegativeFloorIsReplacedRatherThanPassedThrough)

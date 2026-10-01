@@ -1288,6 +1288,7 @@ namespace OloEngine
             length += segmentLength;
         }
         order.MeanRadius = length > 0.0 ? static_cast<f32>(radiusLength / length) : 0.0f;
+        order.TotalLength = static_cast<f32>(length);
         return order;
     }
 

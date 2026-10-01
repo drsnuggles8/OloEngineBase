@@ -134,6 +134,7 @@ namespace OloEngine
         // Empty prefix = the stream has no caster order and is cast whole.
         std::span<const u32> prefix{};
         f32 meanRadius = 0.0f;
+        f32 totalLength = 0.0f; // object space, the stream's drawn segments
         glm::mat4 transform = glm::mat4(1.0f);
         BoundingBox WorldBounds = NoBounds; // World-space AABB of the POSED coat; NoBounds = always include
         // The width the coat is DRAWN at — the per-groom authoring scale (the

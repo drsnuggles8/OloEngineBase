@@ -702,6 +702,7 @@ TEST(GroomStrandMesh, TheCasterMeanRadiusIsWeightedByLength)
     const GroomCasterOrder order = BuildGroomCasterOrder(vertices, indices, firsts);
     EXPECT_NEAR(order.MeanRadius, 1.75e-4f, 1.0e-9f)
         << "an unweighted mean (1.5e-4) lets short strands speak for the area long ones cover";
+    EXPECT_NEAR(order.TotalLength, 4.0f, 1.0e-6f) << "the drawn length the strand-layer floor divides";
 }
 
 TEST(GroomStrandMesh, ACasterCountRoundsUpToTheNextSixtyFourthAndNeverToNothing)

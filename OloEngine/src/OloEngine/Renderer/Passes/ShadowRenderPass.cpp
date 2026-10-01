@@ -1421,6 +1421,7 @@ namespace OloEngine
             caster.indexCount = geometry.IndexCount;
             caster.prefix = geometry.CasterPrefix;
             caster.meanRadius = geometry.MeanRadius;
+            caster.totalLength = geometry.TotalLength;
             caster.transform = request.Transform;
             // THE WIDTH THE COAT IS DRAWN AT. Since #1428 the per-role coverage
             // compensation is baked into the stream's radii, so the only lever
@@ -1513,7 +1514,11 @@ namespace OloEngine
         // -- so every part of the coat gets at least the strands its own texels
         // need. A box reaching the light's plane has texels down to nothing near
         // the light, so it casts whole.
+        // THE FOOTPRINT: the box's corners projected and bounded, so the strand
+        // layers per texel can be measured against the area they fall on.
         f32 ndcPerWorld = 0.0f;
+        glm::vec2 ndcMin{ std::numeric_limits<f32>::max() };
+        glm::vec2 ndcMax{ std::numeric_limits<f32>::lowest() };
         for (u32 corner = 0; corner < 8u; ++corner)
         {
             const glm::vec3 point{ (corner & 1u) ? caster.WorldBounds.Max.x : caster.WorldBounds.Min.x,
@@ -1525,14 +1530,21 @@ namespace OloEngine
                 return caster.indexCount;
             }
             ndcPerWorld = std::max(ndcPerWorld, GroomShadowNdcPerWorld(viewProjection, clip.w));
+            const glm::vec2 ndc = glm::vec2(clip) / clip.w;
+            ndcMin = glm::min(ndcMin, ndc);
+            ndcMax = glm::max(ndcMax, ndc);
         }
+        const f32 footprintNdcArea = (ndcMax.x - ndcMin.x) * (ndcMax.y - ndcMin.y);
 
         // The width the strands are drawn at: the stream's radii under the
         // per-groom scale and the transform's mean axis, as the shader has it.
         const f32 meanRadiusWorld = caster.meanRadius * caster.widthScale * caster.objectScale;
+        const f32 totalLengthWorld = caster.totalLength * caster.objectScale;
+        const f32 layers = GroomShadowCasterLayers(totalLengthWorld, meanRadiusWorld, ndcPerWorld, resolutionTexels,
+                                                   caster.minWidthTexels, footprintNdcArea);
         const f32 fraction = GroomShadowCasterFraction(meanRadiusWorld, ndcPerWorld, resolutionTexels,
                                                        caster.minWidthTexels, kGroomCasterCoverageMargin,
-                                                       kGroomCasterMinFraction);
+                                                       kGroomCasterMinFraction, layers, kGroomCasterMinLayers);
         return GroomCasterIndexCount(caster.prefix, fraction);
     }
 

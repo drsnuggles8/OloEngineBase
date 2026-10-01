@@ -47,8 +47,10 @@ the groom half of `Renderer/Passes/ShadowRenderPass.cpp`, `GroomStrandDepth.glsl
    depth target has no alpha, and a hashed discard would be a stochastic technique with nothing to
    converge it (`groom-strand-visibility.md` rule 6). A widened strand over-occludes by the widening
    factor, so a view casts `GroomShadowCasterFraction` of the strands (2 / factor, at least 1/16): a
-   prefix of a hashed strand order (`GroomCasterOrder`) that keeps twice the true coverage. Strided
-   subsets alias with periodic cooks; a subset never adds shadow (#1533).
+   prefix of a hashed strand order (`GroomCasterOrder`) that keeps twice the true coverage, but never
+   fewer than four strand layers over each texel of the coat's footprint -- an expectation met by
+   strands far apart shows them one by one, in streaks. Strided subsets alias with periodic cooks;
+   a subset never adds shadow (#1533).
 
 8. **A strand samples the OPAQUE copies at itself; without a copy its receiver is the coat's
    LIGHT-EXIT POINT, gated on CASTING, not on the density volume.** A caster's strands are in the map,

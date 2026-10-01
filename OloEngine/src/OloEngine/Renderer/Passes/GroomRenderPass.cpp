@@ -2744,6 +2744,7 @@ namespace OloEngine
         caster.Array->SetIndexBuffer(caster.Indices);
         caster.Prefix = order.Prefix;
         caster.MeanRadius = order.MeanRadius;
+        caster.TotalLength = order.TotalLength;
         caster.Bytes = static_cast<u64>(order.Indices.size()) * sizeof(u32);
         return caster;
     }
@@ -2779,6 +2780,7 @@ namespace OloEngine
             out.Vao = caster.Array->GetRHIHandle();
             out.CasterPrefix = caster.Prefix;
             out.MeanRadius = caster.MeanRadius;
+            out.TotalLength = caster.TotalLength;
         }
         else
         {

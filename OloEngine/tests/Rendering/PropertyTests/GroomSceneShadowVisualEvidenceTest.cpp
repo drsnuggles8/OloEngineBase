@@ -61,7 +61,8 @@
 //      directions leaves the coat as lit as no routing at all.
 //   9. A COAT CASTS THE SHARE ITS TEXELS NEED (#1533 E1). Thin enough for the
 //      floor to dominate, a coat casts a prefix of a hashed strand order; the
-//      prefix never adds shadow, still casts, and a sixty-fourth of the coat
+//      prefix never adds shadow, keeps the whole cast's shadow to within a
+//      tenth (no gaps between the kept strands), and a sixty-fourth of the coat
 //      casts visibly less (the measurement can see the share).
 //
 // Classification: L8 / golden image (full GL pipeline + RGBA8 readback + PNG).
@@ -1013,7 +1014,13 @@ namespace OloEngine::Tests
 
         EXPECT_LE(darker, scenePixels / 1000u) << "a subset of the occluders added shadow somewhere";
         EXPECT_GT(wholeDarkening, 0.0);
-        EXPECT_GT(subsetDarkening, 0.25 * wholeDarkening) << "the subset's shadow is mostly gone";
+        // The strand-layer floor (kGroomCasterMinLayers): without it this coat
+        // -- 6000 strands, far apart against these cascades -- cast a sixteenth
+        // of its strands and the ground showed them one by one, in streaks and
+        // blocks where the whole cast is a solid disk (measured: half the
+        // darkening). With it the subset still lays four layers over every texel.
+        EXPECT_GT(subsetDarkening, 0.9 * wholeDarkening)
+            << "the subset left gaps between its strands that the whole cast filled";
         EXPECT_LT(sliverDarkening, 0.75 * subsetDarkening)
             << "a sixty-fourth of the coat shadowed as much as the rule's share, so this measurement cannot see "
                "the share at all";

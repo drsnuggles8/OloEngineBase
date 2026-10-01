@@ -448,8 +448,10 @@ namespace OloEngine
             /// EMPTY when the stream has no caster order -- `Vao` is then the
             /// stream's own and is cast whole.
             std::span<const u32> CasterPrefix{};
-            /// The drawn segments' length-weighted mean OBJECT-space radius.
+            /// The drawn segments' length-weighted mean OBJECT-space radius,
+            /// and their total object-space length.
             f32 MeanRadius = 0.0f;
+            f32 TotalLength = 0.0f;
             /// The coat's box in GROOM OBJECT SPACE in THIS pose — the posed
             /// roots padded by the longest strand's reach for a GPU-deformed
             /// coat, whose stream bounds are bind-local and mean nothing here.
@@ -565,6 +567,7 @@ namespace OloEngine
             Ref<IndexBuffer> Indices;
             std::array<u32, kGroomCasterPrefixLevels + 1> Prefix{};
             f32 MeanRadius = 0.0f;
+            f32 TotalLength = 0.0f;
             /// GPU bytes of the index buffer, counted with the stream's.
             u64 Bytes = 0;
         };
