@@ -5539,12 +5539,34 @@ namespace OloEngine
             return current;
         };
 
-        const auto matches = [resourceName, &canonical](const auto& contract)
-        { return canonical(contract.SourceResource.ToView()) == resourceName; };
+        // A VIEW's storage is its parent's, and the planner tracks the parent:
+        // TAA extracts its surface history from Velocity, which on the forward
+        // paths is an attachment view of SceneColor (issue #1332). Without this
+        // the framebuffer's lifetime ended at its last pass access and its slot
+        // could go to a later same-descriptor framebuffer before the copy ran.
+        const auto storageOf = [this, &canonical](std::string_view name) -> std::string
+        {
+            std::string current(canonical(name));
+            for (u32 depth = 0; depth < kMaxVersionAliasDepth; ++depth)
+            {
+                const auto viewIt = m_TextureViewDefinitions.find(current);
+                if (viewIt == m_TextureViewDefinitions.end())
+                    break;
+                const FString& next = viewIt->second.Kind == TextureViewKind::TextureMultisampleResolve
+                                          ? viewIt->second.BackingResource
+                                          : viewIt->second.ParentResource;
+                if (next.IsEmpty())
+                    break;
+                current = std::string(canonical(next.ToView()));
+            }
+            return current;
+        };
+        const auto matches = [resourceName, &storageOf](const auto& contract)
+        { return storageOf(contract.SourceResource.ToView()) == resourceName; };
         // A frame-epilogue read (#1331) is the same case: declared before the
         // plan, read after the last pass.
-        const auto epilogueMatches = [resourceName, &canonical](const FrameEpilogueRead& read)
-        { return canonical(read.Resource.ToView()) == resourceName; };
+        const auto epilogueMatches = [resourceName, &storageOf](const FrameEpilogueRead& read)
+        { return storageOf(read.Resource.ToView()) == resourceName; };
         return std::ranges::any_of(m_TemporalHistoryContracts, matches) ||
                std::ranges::any_of(m_ExternalTextureSinkContracts, matches) ||
                std::ranges::any_of(m_FrameEpilogueReads, epilogueMatches);

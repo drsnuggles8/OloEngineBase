@@ -443,6 +443,7 @@ add_executable(OloEngine-Tests
 		# Listed directly since #1305 dropped it from the heavy-compile pool (0.94 GiB, #34);
 		# it no longer needs the variable indirection that held it out of this list.
 		Rendering/RenderGraphTest.cpp
+		Rendering/RenderGraphAttachmentViewExportTest.cpp
 		# Phase 2 ratchet for the Vulkan-RHI epic (#691, ADR 0011): counts raw
 		# glXxx() outside Platform/OpenGL/ and fails when it rises above
 		# Rendering/rhi_boundary_baseline.json. Also the only TU that compiles the
