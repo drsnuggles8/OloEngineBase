@@ -1365,6 +1365,15 @@ namespace OloEngine::Tests
                     static_cast<unsigned long long>(both.CoatShadow.ResidentBytes),
                     static_cast<unsigned long long>(cpu.CapacityBytes.value_or(0)));
 
+        // The pass's own breakdown (#1533) walks the same allocations by KIND
+        // where these rows split them by sharing and demand. Two walks written
+        // apart: a byte one of them misses shows as a difference here.
+        EXPECT_EQ(*rest.CapacityBytes + entities.CapacityBytes.value_or(0) + *ring.CapacityBytes, both.Memory.GpuBytes())
+            << "the report's GPU rows and the pass's breakdown count different allocations";
+        EXPECT_EQ(both.Memory.GpuBytes(), both.CachedBytes) << "the breakdown misses bytes the cache budget counts";
+        EXPECT_EQ(cpu.CapacityBytes.value_or(0), both.Memory.CpuBytes())
+            << "the report's CPU row and the pass's breakdown count different allocations";
+
         // Drawn this frame, by two routes: the rows' demand and the pass's own
         // once-per-entry, once-per-stream byte count.
         EXPECT_EQ(*rest.ActiveDemandBytes + *entities.ActiveDemandBytes, drawnBytes(both))

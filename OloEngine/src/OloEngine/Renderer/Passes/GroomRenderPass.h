@@ -223,7 +223,7 @@ namespace OloEngine
             // CAPACITY (what they hold on to), not by the size in use.
             u64 CpuPoseSegmentBytes = 0;  ///< rest streams' pose segments + entries' bake subsets
             u64 CpuDeformMirrorBytes = 0; ///< each GPU-deformed entity's packed frame buffer, host side
-            u64 CpuBakeInputBytes = 0;    ///< a posed bake's captured pose and card fibre scales
+            u64 CpuBakeInputBytes = 0;    ///< a posed bake's captured pose, card fibre scales and their tables
             u64 CpuRootTableBytes = 0;    ///< rest streams' root slot -> curve tables
             u64 CpuScratchBytes = 0;      ///< the pass's reusable bake, pose and CPU-stream scratch
             u32 RestStreams = 0;          ///< distinct rest streams counted

@@ -158,8 +158,9 @@ namespace OloEngine
                 cpuBytes += VectorBytes(stream->RootCurves) + VectorBytes(stream->PoseSegments);
         }
         cpuBytes += VectorBytes(m_DeformedVertices) + VectorBytes(m_DrawnPose) + VectorBytes(m_DrawnPoseFull) +
-                    VectorBytes(m_CoatSegments) + VectorBytes(m_CoatVolumeScratch.Density) +
-                    VectorBytes(m_CoatVolumeScratch.Direction) + VectorBytes(m_CoatPackHalf) + VectorBytes(m_CoatPackFloat);
+                    VectorBytes(m_CoatSegments) + VectorBytes(m_RestCentrelines) + VectorBytes(m_CoatVolumeScratch.Density) +
+                    VectorBytes(m_CoatVolumeScratch.Direction) + VectorBytes(m_CoatPackHalf) + VectorBytes(m_CoatPackFloat) +
+                    static_cast<u64>(m_CpuRootScratch.GetAllocatedSize());
         for (const auto& table : m_CardFibreTables)
             cpuBytes += VectorBytes(table.ByGroup);
         {

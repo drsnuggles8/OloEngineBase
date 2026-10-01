@@ -2748,6 +2748,10 @@ namespace OloEngine
             memory.CpuPoseSegmentBytes += capacityBytes(entry.CoatPoseSubset);
             memory.CpuBakeInputBytes += capacityBytes(entry.CoatBakedPose) + capacityBytes(entry.CoatFibreScales);
         }
+        for (const CardFibreTable& table : m_CardFibreTables)
+        {
+            memory.CpuBakeInputBytes += capacityBytes(table.ByGroup);
+        }
         memory.CpuScratchBytes = capacityBytes(m_DeformedVertices) + capacityBytes(m_DrawnPose) +
                                  capacityBytes(m_DrawnPoseFull) + capacityBytes(m_CoatSegments) +
                                  capacityBytes(m_RestCentrelines) + capacityBytes(m_CoatVolumeScratch.Density) +
