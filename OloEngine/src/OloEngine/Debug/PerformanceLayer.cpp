@@ -279,8 +279,11 @@ namespace OloEngine
             { "VBOs", RT::VertexBuffer },
             { "IBOs", RT::IndexBuffer },
             { "UBOs", RT::UniformBuffer },
+            { "SSBOs", RT::StorageBuffer },
             { "FBOs", RT::Framebuffer },
-            { "Shaders", RT::Shader },
+            { "Render targets", RT::RenderTarget },
+            { "Accel. structures", RT::AccelerationStructure },
+            // No "Shaders" row: shader programs are CPU-side estimates (#1342), not GPU bytes.
         };
 
         for (auto const& [label, type] : categories)

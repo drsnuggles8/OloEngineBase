@@ -186,8 +186,13 @@ namespace OloEngine
         // hot reload or a scene load.
         void BeginPeakWindow();
 
-        // @brief Detect potential memory leaks
+        // @brief Backing allocations older than the detection threshold. An age heuristic:
+        // persistent resources pass it too, so it is a list to inspect, not a leak verdict.
         TArray<LeakInfo> DetectLeaks() const;
+        [[nodiscard]] f64 GetLeakDetectionThresholdSeconds() const
+        {
+            return m_LeakDetectionThreshold;
+        }
 
         // @brief Export memory report to file
         bool ExportReport(const std::string& filePath) const;

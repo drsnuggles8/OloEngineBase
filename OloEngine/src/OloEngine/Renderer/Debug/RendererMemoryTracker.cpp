@@ -479,7 +479,18 @@ namespace OloEngine
         info.m_BackingAddress = backingAddress;
         if (const auto stale = m_Allocations.find(aliasAddress); stale != m_Allocations.end())
         {
+            // The same rule as a backing entry reusing an address (InsertBackingUnlocked):
+            // a live backing entry here was never untracked. Say so, and unbind its handle
+            // so no later view resolves to the alias that replaced it.
+            if (!stale->second.IsAlias())
+            {
+                OLO_CORE_WARN("Alias '{}' reused address {} of backing '{}' ({} bytes, tracked at {}:{}), which was never "
+                              "untracked",
+                              info.m_Name.ToView(), aliasAddress, stale->second.m_Name.ToView(), stale->second.m_Size,
+                              stale->second.m_File.ToView(), stale->second.m_Line);
+            }
             RemovePhysicalUnlocked(stale->second, false);
+            ForgetHandleUnlocked(stale->second);
         }
         m_Allocations[aliasAddress] = std::move(info);
     }
@@ -779,8 +790,8 @@ namespace OloEngine
                     MemoryOwnerRow& row = owners[{ info.m_OwnerId, info.m_Lifetime }];
                     if (info.m_IsGPU)
                         (retiring ? row.GpuRetiringBytes : row.GpuLiveBytes) += info.m_Size;
-                    else if (!retiring)
-                        row.CpuLiveBytes += info.m_Size;
+                    else
+                        (retiring ? row.CpuRetiringBytes : row.CpuLiveBytes) += info.m_Size;
                     ++row.AllocationCount;
                     (info.m_SizeSource == MemorySizeSource::Committed ? row.CommittedBytes : row.EstimatedBytes) += info.m_Size;
                 };
@@ -1368,6 +1379,9 @@ namespace OloEngine
 
         for (const auto& [address, info] : m_Allocations)
         {
+            // A view owns no storage, so it cannot leak any.
+            if (info.IsAlias())
+                continue;
             f64 age = currentTime - info.m_Timestamp;
             if (age > m_LeakDetectionThreshold)
             {

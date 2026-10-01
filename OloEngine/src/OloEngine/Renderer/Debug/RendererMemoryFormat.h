@@ -7,8 +7,10 @@
 #include <algorithm>
 #include <optional>
 
-// Format-estimate byte sizes for the memory report (issue #1342): ONE table for every
-// place that books or estimates renderer texture bytes. Before this there were three
+// Format-estimate byte sizes for the memory report (issue #1342): one table for every
+// place that books or estimates renderer texture bytes from an ImageFormat or a
+// FramebufferTextureFormat. (The render-graph planner sizes RGResourceFormat
+// descriptors with its own table, which covers every value of that enum.) Before this there were three
 // private tables that disagreed — the GL framebuffer counted 4 bytes for every colour
 // attachment and ignored samples, the GL texture ignored its mip chain, and the transient
 // pool returned 0 for RG8 and R16F — so the same texture had three sizes depending on who

@@ -138,6 +138,7 @@ namespace OloEngine
         u64 GpuLiveBytes = 0;
         u64 GpuRetiringBytes = 0;
         u64 CpuLiveBytes = 0;
+        u64 CpuRetiringBytes = 0;
         u32 AllocationCount = 0;
         u64 EstimatedBytes = 0;
         u64 CommittedBytes = 0;
@@ -253,6 +254,7 @@ namespace OloEngine
                                       TIsTriviallyRelocatable<decltype(MemoryOwnerRow::GpuLiveBytes)>::Value &&
                                       TIsTriviallyRelocatable<decltype(MemoryOwnerRow::GpuRetiringBytes)>::Value &&
                                       TIsTriviallyRelocatable<decltype(MemoryOwnerRow::CpuLiveBytes)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(MemoryOwnerRow::CpuRetiringBytes)>::Value &&
                                       TIsTriviallyRelocatable<decltype(MemoryOwnerRow::AllocationCount)>::Value &&
                                       TIsTriviallyRelocatable<decltype(MemoryOwnerRow::EstimatedBytes)>::Value &&
                                       TIsTriviallyRelocatable<decltype(MemoryOwnerRow::CommittedBytes)>::Value;

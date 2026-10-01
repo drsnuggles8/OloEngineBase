@@ -440,6 +440,7 @@ namespace OloEngine
             OLO_CORE_TRACE("Shutting down RenderGraph");
 
         m_MemoryReporter.Reset();
+        m_DepartedNodes.Reset(); // the graph is going away; nothing is left to sweep
         m_TransientPool.Clear();
         m_TemporalHistoryRegistry.Clear();
 
@@ -542,7 +543,7 @@ namespace OloEngine
         // topology is populated (SceneRenderPass sizes the G-buffer from it).
         for (const auto& [name, node] : m_NodeLookup)
         {
-            if (node)
+            if (node && !m_DepartedNodes.Contains(node))
                 m_DepartedNodes.Add(node);
         }
         m_TransientPool.Clear();

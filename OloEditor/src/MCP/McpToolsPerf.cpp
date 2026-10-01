@@ -71,7 +71,10 @@ namespace OloEngine::MCP
                     byType.push_back(Json{ { "type", name }, { "bytes", static_cast<u64>(bytes) }, { "count", count } });
                 }
                 out["byType"] = std::move(byType);
-                out["suspectedLeakCount"] = static_cast<int>(tracker.DetectLeaks().Num());
+                // An AGE count, not a leak verdict: every persistent resource passes the threshold.
+                // The leak signal is the [Teardown] survivor line at renderer shutdown (#1342).
+                out["longLivedAllocations"] = Json{ { "thresholdSeconds", tracker.GetLeakDetectionThresholdSeconds() },
+                                                    { "count", static_cast<int>(tracker.DetectLeaks().Num()) } };
                 return out; });
             return ToolResult::Structured(j);
         }
@@ -489,8 +492,12 @@ namespace OloEngine::MCP
                                                       .Prop("bytes", Schema::Int().Min(0))
                                                       .Prop("count", Schema::Int().Min(0)))
                                         .Desc("Live physical bytes per resource type (CPU and GPU bookings); only non-empty types."))
-                    .Prop("suspectedLeakCount", Schema::Int().Min(0))
-                    .Required({ "units", "gpu", "cpu", "aliases", "backend", "owners", "capacity", "byType", "suspectedLeakCount" });
+                    .Prop("longLivedAllocations", Schema::Object()
+                                                      .Prop("thresholdSeconds", Schema::Number())
+                                                      .Prop("count", Schema::Int().Min(0))
+                                                      .Desc("Backing allocations older than the threshold. Age only: persistent "
+                                                            "resources belong here; it is not a leak count."))
+                    .Required({ "units", "gpu", "cpu", "aliases", "backend", "owners", "capacity", "byType", "longLivedAllocations" });
             tool.MainMarshaled = false;
             tool.Handler = Handle_MemoryReport;
             registry.Register(std::move(tool));

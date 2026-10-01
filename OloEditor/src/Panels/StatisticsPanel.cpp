@@ -687,8 +687,16 @@ namespace OloEngine
 
         // GPU and CPU bytes are separate quantities and never share a total (#1342). The full
         // physical report — owners, capacity rows, reconciliation — is the Renderer Memory
-        // Tracker window.
-        RendererMemoryReport const report = tracker.BuildReport();
+        // Tracker window. Building it walks every allocation and runs every owner's capacity
+        // reporter, so this tab refreshes its copy once a second, not every frame.
+        static RendererMemoryReport s_Report;
+        static f64 s_ReportTime = -1.0;
+        if (const f64 now = DebugUtils::GetCurrentTimeSeconds(); s_ReportTime < 0.0 || now - s_ReportTime >= 1.0)
+        {
+            s_Report = tracker.BuildReport();
+            s_ReportTime = now;
+        }
+        RendererMemoryReport const& report = s_Report;
         ImGui::Text("GPU resident: %s (live %s, retiring %s)",
                     DebugUtils::FormatMemorySize(static_cast<sizet>(report.Gpu.ResidentBytes())).c_str(),
                     DebugUtils::FormatMemorySize(static_cast<sizet>(report.Gpu.LiveBytes)).c_str(),

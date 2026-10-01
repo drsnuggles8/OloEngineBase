@@ -73,6 +73,7 @@ namespace OloEngine
                                    { "gpuLiveBytes", row.GpuLiveBytes },
                                    { "gpuRetiringBytes", row.GpuRetiringBytes },
                                    { "cpuLiveBytes", row.CpuLiveBytes },
+                                   { "cpuRetiringBytes", row.CpuRetiringBytes },
                                    { "committedBytes", row.CommittedBytes },
                                    { "estimatedBytes", row.EstimatedBytes },
                                    { "count", row.AllocationCount } });
