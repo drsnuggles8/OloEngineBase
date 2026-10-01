@@ -584,7 +584,10 @@ namespace OloEngine
                 std::vector<std::filesystem::path> files;
                 for (std::filesystem::directory_iterator it(source, ec), end; it != end && !ec; it.increment(ec))
                 {
-                    if (it->is_regular_file(ec) && !ec)
+                    // Its own error code: one unreadable entry must not end the
+                    // enumeration or be reported as an iterator failure.
+                    std::error_code entryEc;
+                    if (it->is_regular_file(entryEc) && !entryEc)
                         files.push_back(it->path().filename());
                 }
                 if (ec)
@@ -1591,7 +1594,8 @@ namespace OloEngine
         for (std::filesystem::recursive_directory_iterator it(Project::GetAssetDirectory(), ec), end;
              it != end && !ec; it.increment(ec))
         {
-            if (it->is_regular_file(ec) && !ec && it->path().extension() == ".olo")
+            std::error_code entryEc; // per entry, apart from the iterator's
+            if (it->is_regular_file(entryEc) && !entryEc && it->path().extension() == ".olo")
             {
                 scenes.push_back(it->path());
             }

@@ -142,7 +142,7 @@ namespace OloEngine
             if (loadedCount == 0)
             {
                 tempAssetManager->Shutdown();
-                return { false, "No assets could be loaded from the registry", 0, 0, {} };
+                return { false, "No assets could be loaded from the registry", 0, 0, settings.m_OutputPath, failedCount };
             }
 
             // Check for cancellation before starting the build
