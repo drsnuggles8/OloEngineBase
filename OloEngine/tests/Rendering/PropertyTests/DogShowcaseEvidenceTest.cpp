@@ -34,6 +34,10 @@
 #include "OloEngine/Animation/Skeleton.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
+#include "OloEngine/Asset/AssetManager/RuntimeAssetManager.h"
+#include "OloEngine/Asset/AssetPackBuilder.h"
+#include "OloEngine/Asset/AssetRegistry.h"
+#include "OloEngine/Asset/PlaceholderAsset.h"
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Asset/MeshCache.h"
 #include "OloEngine/Core/BuildInfo.h"
@@ -3503,31 +3507,33 @@ namespace OloEngine::Tests
         ASSERT_TRUE(GroomBindingSerializer::EncodeToBytes(*loadedBinding, again, reason)) << reason;
         EXPECT_EQ(again, bindingBytes) << "loose binding";
 
-        // Packed: through the serializers the runtime's pack reader uses.
-        const fs::path packPath = m_ProjectDir / "ShippedDog.pack";
-        AssetSerializationInfo groomInfo{}, bindingInfo{};
-        {
-            FileStreamWriter writer(packPath);
-            ASSERT_TRUE(writer.IsStreamGood());
-            ASSERT_TRUE(GroomSerializer{}.SerializeToAssetPack(looseGroom, writer, groomInfo));
-            ASSERT_TRUE(GroomBindingSerializer{}.SerializeToAssetPack(looseBinding, writer, bindingInfo));
-        }
-        FileStreamReader reader(packPath);
-        ASSERT_TRUE(reader.IsStreamGood());
-        AssetPackFile::AssetInfo gi{};
-        gi.Handle = looseGroom;
-        gi.PackedOffset = groomInfo.Offset;
-        gi.PackedSize = groomInfo.Size;
-        gi.Type = AssetType::Groom;
-        reader.SetStreamPosition(gi.PackedOffset);
-        const auto packedGroom = GroomSerializer{}.DeserializeFromAssetPack(reader, gi).As<GroomAsset>();
-        AssetPackFile::AssetInfo bi{};
-        bi.Handle = looseBinding;
-        bi.PackedOffset = bindingInfo.Offset;
-        bi.PackedSize = bindingInfo.Size;
-        bi.Type = AssetType::GroomBinding;
-        reader.SetStreamPosition(bi.PackedOffset);
-        const auto packedBinding = GroomBindingSerializer{}.DeserializeFromAssetPack(reader, bi).As<GroomBindingAsset>();
+        // Packed: the pack the GAME ships, written by AssetPackBuilder and read back by
+        // the runtime's asset manager. Through the serializers alone, which is what
+        // this case did, it passed while every offset the builder recorded ran 4 bytes
+        // per index entry late and the packaged dog loaded bald (#1533).
+        // The registry is WRITTEN first: the builder's manager starts from the file.
+        ASSERT_TRUE(editorAssets->SerializeAssetRegistry());
+        AssetRegistry shippedPair;
+        shippedPair.AddAsset(editorAssets->GetMetadata(looseGroom));
+        shippedPair.AddAsset(editorAssets->GetMetadata(looseBinding));
+        AssetPackBuilder::BuildSettings packSettings;
+        packSettings.m_OutputPath = m_ProjectDir / "ShippedDog.olopack";
+        packSettings.m_CompressAssets = false;
+        packSettings.m_IncludeScriptModule = false;
+        std::atomic<f32> packProgress = 0.0f;
+        const auto packed = AssetPackBuilder::BuildFromRegistry(shippedPair, packSettings, packProgress);
+        ASSERT_TRUE(packed.m_Success) << packed.m_ErrorMessage;
+        ASSERT_EQ(packed.m_FailedAssetCount, 0u);
+        RuntimeAssetManager runtimeAssets(/*autoLoadDefaultPack=*/false);
+        ASSERT_TRUE(runtimeAssets.LoadAssetPack(packSettings.m_OutputPath));
+        const Ref<Asset> packedGroomAsset = runtimeAssets.GetAsset(looseGroom);
+        const Ref<Asset> packedBindingAsset = runtimeAssets.GetAsset(looseBinding);
+        ASSERT_TRUE(packedGroomAsset && !PlaceholderAssetManager::IsPlaceholderAsset(packedGroomAsset))
+            << "the packed coat did not load";
+        ASSERT_TRUE(packedBindingAsset && !PlaceholderAssetManager::IsPlaceholderAsset(packedBindingAsset))
+            << "the packed binding did not load";
+        const auto packedGroom = packedGroomAsset.As<GroomAsset>();
+        const auto packedBinding = packedBindingAsset.As<GroomBindingAsset>();
         ASSERT_TRUE(packedGroom);
         ASSERT_TRUE(packedBinding);
         ASSERT_TRUE(GroomSerializer::EncodeToBytes(*packedGroom, again, reason)) << reason;
