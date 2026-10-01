@@ -2651,10 +2651,12 @@ namespace OloEngine
                         open.pop_back();
                     --depth;
                 }
-                // A declaration only when a name follows: in a generic constraint
-                // ("where T : class {") the next token is the brace, which must
-                // still open its scope.
-                else if (token == "class" && i + 1 < tokens.size() && !identifier(tokens[i + 1]).empty())
+                // A declaration only when a name follows and no colon precedes:
+                // "class" right after a colon is a generic constraint ("where T :
+                // class { ...", "where T : class where U : new()"), and its brace
+                // must still open a scope.
+                else if (token == "class" && i + 1 < tokens.size() && !identifier(tokens[i + 1]).empty() &&
+                         (i == 0 || tokens[i - 1] != ":"))
                 {
                     const std::string name = identifier(tokens[i + 1]);
                     if (firstClass.empty())

@@ -157,6 +157,11 @@ TEST_F(AssetCreationTest, ScriptFileAsset_LoadsFromCSharpSourceAndNeverOverwrite
                                                "    public class PlayerController : Entity { } }\n";
     ASSERT_TRUE(serializer.TryLoadData(metadata, asset));
     EXPECT_EQ(asset.As<ScriptFileAsset>()->GetFullyQualifiedClassName(), "Sandbox.PlayerController");
+    // Nor when a second clause follows it and no class is named like the file.
+    std::ofstream(script, std::ios::binary) << "namespace Game { interface IPool<T, U> where T : class where U : new() { }\n"
+                                               "    public class Spawner : Entity { } }\n";
+    ASSERT_TRUE(serializer.TryLoadData(metadata, asset));
+    EXPECT_EQ(asset.As<ScriptFileAsset>()->GetFullyQualifiedClassName(), "Game.Spawner");
 
     // ...and nested blocks join, outermost first.
     std::ofstream(script, std::ios::binary) << "namespace Sandbox{namespace Gameplay{\n"
