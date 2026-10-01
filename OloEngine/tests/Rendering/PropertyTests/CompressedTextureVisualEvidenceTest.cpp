@@ -31,6 +31,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -196,6 +197,49 @@ TEST(CompressedTextureVisualEvidence, BC7UploadStoresBlocksAndDecompressesOnGPU)
         std::error_code ec;
         std::filesystem::remove(pngPath, ec);
     }
+}
+
+// A CPU reader of a cooked texture gets its texels (#1533). Texture2D::GetData
+// reads the blocks back and decodes them with the engine's decoder, so GL and
+// Vulkan return the same bytes and a packed game's coat colour map is no longer
+// dropped. BC6H stays refused: an HDR texture has no 8-bit form.
+TEST(CompressedTextureVisualEvidence, GetDataReturnsTheStoredBlocksDecodedToRGBA8)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+
+    constexpr u32 kW = 64;
+    constexpr u32 kH = 64;
+    const std::vector<u8> source = MakeGradientRGBA(kW, kH);
+    for (const TextureCompressionFormat format :
+         { TextureCompressionFormat::BC7, TextureCompressionFormat::BC5, TextureCompressionFormat::BC4 })
+    {
+        SCOPED_TRACE(static_cast<int>(format));
+        const CompressedTextureImage image =
+            format == TextureCompressionFormat::BC7   ? TextureCompression::EncodeBC7(source.data(), kW, kH, 4, /*srgb*/ true, /*mips*/ false)
+            : format == TextureCompressionFormat::BC5 ? TextureCompression::EncodeBC5(source.data(), kW, kH, 4, /*mips*/ false)
+                                                      : TextureCompression::EncodeBC4(source.data(), kW, kH, 4, /*mips*/ false);
+        ASSERT_TRUE(image.IsValid());
+        Ref<Texture2D> texture = Texture2D::Create(image);
+        ASSERT_TRUE(texture && texture->IsLoaded());
+
+        TArray64<u8> readback;
+        ASSERT_TRUE(texture->GetData(readback, 0)) << "a block-compressed texture refused CPU readback";
+        TArray64<u8> expected;
+        u32 width = 0;
+        u32 height = 0;
+        ASSERT_TRUE(TextureCompression::DecodeToRGBA8(image, 0, expected, width, height));
+        ASSERT_EQ(readback.Num(), expected.Num());
+        EXPECT_EQ(0, std::memcmp(readback.GetData(), expected.GetData(), static_cast<sizet>(expected.Num())))
+            << "the readback is not the uploaded blocks decoded";
+    }
+
+    std::vector<f32> grey(static_cast<sizet>(kW) * kH * 3u, 0.5f);
+    const CompressedTextureImage hdr = TextureCompression::EncodeBC6H(grey.data(), kW, kH, 3, /*signed*/ false, /*mips*/ false);
+    ASSERT_TRUE(hdr.IsValid());
+    Ref<Texture2D> hdrTexture = Texture2D::Create(hdr);
+    ASSERT_TRUE(hdrTexture && hdrTexture->IsLoaded());
+    TArray64<u8> hdrReadback;
+    EXPECT_FALSE(hdrTexture->GetData(hdrReadback, 0)) << "BC6H has no 8-bit form and must be refused, not clipped";
 }
 
 TEST(CompressedTextureVisualEvidence, BC5UploadStoresBlocksAndDecompressesOnGPU)

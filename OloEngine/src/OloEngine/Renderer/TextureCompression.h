@@ -48,6 +48,8 @@ namespace OloEngine
         return format == TextureCompressionFormat::BC6H || format == TextureCompressionFormat::BC6HSigned;
     }
 
+    enum class ImageFormat; // Renderer/Texture.h
+
     // A GPU-ready block-compressed image: a mip chain of raw BCn block bytes (mip 0 first).
     struct CompressedTextureImage
     {
@@ -205,6 +207,15 @@ namespace OloEngine
         // non-BC6H formats.
         [[nodiscard]] bool DecodeToRGBAFloat(const CompressedTextureImage& image, u32 mipLevel,
                                              TArray64<f32>& outRGBA, u32& outWidth, u32& outHeight);
+
+        // ---- GPU readback (CPU) ----------------------------------------------
+        // The block format an engine ImageFormat holds; None for an uncompressed one.
+        [[nodiscard]] TextureCompressionFormat FromImageFormat(ImageFormat format);
+        // One mip's blocks, read back from a GPU texture, decoded to RGBA8: what
+        // Texture2D::GetData returns for a block-compressed texture (#1533). False
+        // for BC6H (HDR has no 8-bit form) and for blocks that do not fill the mip.
+        [[nodiscard]] bool DecodeReadbackToRGBA8(ImageFormat format, u32 width, u32 height, TArray64<u8> blocks,
+                                                 TArray64<u8>& outRGBA8);
 
         // ---- Container (.olotex) ---------------------------------------------
         [[nodiscard]] std::vector<u8> SerializeToBlob(const CompressedTextureImage& image);

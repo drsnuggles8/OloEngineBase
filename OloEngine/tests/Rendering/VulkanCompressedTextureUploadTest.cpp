@@ -70,6 +70,7 @@ TEST(VulkanCompressedTextureUpload, SkipsWhenNotCompiledIn)
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <functional>
 #include <memory>
 #include <string>
@@ -460,6 +461,53 @@ namespace OloEngine::Tests
         Ref<Texture2D> texture = Texture2D::Create(image);
         ASSERT_NE(texture, nullptr);
         EXPECT_FALSE(texture->IsLoaded());
+    }
+
+    TEST_F(VulkanCompressedTextureUpload, AReadbackReturnsTheStoredBlocksDecodedToRGBA8)
+    {
+        // A CPU reader of a cooked texture gets its texels (#1533): GetData copies
+        // the blocks out and decodes them, as on GL. Before, the texel size of a
+        // block format was 0 and the readback returned false, so a packed game's
+        // coat colour map was dropped. A GRADIENT, so a block grid copied in the
+        // wrong order or at the wrong stride does not decode to the same bytes.
+        ScopedVulkanApiSelection vulkanApi;
+        constexpr u32 kW = 36;
+        constexpr u32 kH = 20;
+        std::vector<u8> gradient(static_cast<sizet>(kW) * kH * 4u);
+        for (u32 y = 0; y < kH; ++y)
+        {
+            for (u32 x = 0; x < kW; ++x)
+            {
+                u8* texel = gradient.data() + ((static_cast<sizet>(y) * kW + x) * 4u);
+                texel[0] = static_cast<u8>(x * 7u);
+                texel[1] = static_cast<u8>(y * 11u);
+                texel[2] = static_cast<u8>((x + y) * 3u);
+                texel[3] = 255u;
+            }
+        }
+        for (const TextureCompressionFormat format :
+             { TextureCompressionFormat::BC7, TextureCompressionFormat::BC5, TextureCompressionFormat::BC4 })
+        {
+            SCOPED_TRACE(static_cast<int>(format));
+            CompressedTextureImage image =
+                format == TextureCompressionFormat::BC7   ? TextureCompression::EncodeBC7(gradient.data(), kW, kH, 4, false, false)
+                : format == TextureCompressionFormat::BC5 ? TextureCompression::EncodeBC5(gradient.data(), kW, kH, 4, false)
+                                                          : TextureCompression::EncodeBC4(gradient.data(), kW, kH, 4, false);
+            ASSERT_TRUE(image.IsValid());
+            image.HasAlpha = false;
+            Ref<Texture2D> texture = Texture2D::Create(image);
+            ASSERT_TRUE(texture && texture->IsLoaded());
+
+            TArray64<u8> readback;
+            ASSERT_TRUE(texture->GetData(readback, 0)) << "a block-compressed texture refused CPU readback";
+            TArray64<u8> expected;
+            u32 width = 0;
+            u32 height = 0;
+            ASSERT_TRUE(TextureCompression::DecodeToRGBA8(image, 0, expected, width, height));
+            ASSERT_EQ(readback.Num(), expected.Num());
+            EXPECT_EQ(0, std::memcmp(readback.GetData(), expected.GetData(), static_cast<sizet>(expected.Num())))
+                << "the readback is not the uploaded blocks decoded";
+        }
     }
 
     TEST_F(VulkanCompressedTextureUpload, ACookedCutoutReportsTheAlphaTheCookMeasured)

@@ -5,6 +5,7 @@
 #include "OloEngine/Debug/Instrumentor.h"
 #include "OloEngine/Renderer/AlphaCoverageMips.h"
 #include "OloEngine/Renderer/BC6HEncoder.h"
+#include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/TextureImportSettings.h"
 
 // Vendored encoders/decoders (bc7enc_rdo, MIT / public domain). Only this TU pulls
@@ -815,6 +816,44 @@ namespace OloEngine
                 [](const TArray64<f32>& s, u32 w, u32 h, u32& ow, u32& oh)
                 { return DownsampleRGBFloat(s, w, h, ow, oh); });
             return image;
+        }
+
+        TextureCompressionFormat FromImageFormat(ImageFormat format)
+        {
+            switch (format)
+            {
+                case ImageFormat::BC7:
+                    return TextureCompressionFormat::BC7;
+                case ImageFormat::BC5:
+                    return TextureCompressionFormat::BC5;
+                case ImageFormat::BC4:
+                    return TextureCompressionFormat::BC4;
+                case ImageFormat::BC6H:
+                    return TextureCompressionFormat::BC6H;
+                case ImageFormat::BC6HS:
+                    return TextureCompressionFormat::BC6HSigned;
+                default:
+                    return TextureCompressionFormat::None;
+            }
+        }
+
+        bool DecodeReadbackToRGBA8(ImageFormat format, u32 width, u32 height, TArray64<u8> blocks,
+                                   TArray64<u8>& outRGBA8)
+        {
+            CompressedTextureImage image;
+            image.Format = FromImageFormat(format);
+            image.Width = width;
+            image.Height = height;
+            if (image.Format == TextureCompressionFormat::None || IsBC6H(image.Format) ||
+                static_cast<sizet>(blocks.Num()) != MipByteSize(image.Format, width, height))
+            {
+                return false;
+            }
+            image.Mips.Add(std::move(blocks));
+            u32 decodedWidth = 0;
+            u32 decodedHeight = 0;
+            return DecodeToRGBA8(image, 0, outRGBA8, decodedWidth, decodedHeight) && decodedWidth == width &&
+                   decodedHeight == height;
         }
 
         bool DecodeToRGBA8(const CompressedTextureImage& image, u32 mipLevel,

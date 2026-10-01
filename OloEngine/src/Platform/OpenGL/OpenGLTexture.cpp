@@ -1250,6 +1250,37 @@ namespace OloEngine
         u32 mipWidth = std::max(1u, m_Width >> mipLevel);
         u32 mipHeight = std::max(1u, m_Height >> mipLevel);
 
+        // A BLOCK-COMPRESSED texture reads back its blocks and returns them decoded
+        // to RGBA8 (#1533). A packed game's textures are cooked to BC7, and every CPU
+        // reader of one -- a coat's colour map -- used to get nothing at all.
+        if (IsCompressedFormat(m_Specification.Format))
+        {
+            GLint compressedSize = 0;
+            glGetTextureLevelParameteriv(m_RendererID, static_cast<GLint>(mipLevel), GL_TEXTURE_COMPRESSED_IMAGE_SIZE,
+                                         &compressedSize);
+            if (compressedSize <= 0)
+            {
+                OLO_CORE_ERROR("OpenGLTexture2D::GetData: compressed level {} reports no image size", mipLevel);
+                return false;
+            }
+            TArray64<u8> blocks;
+            blocks.SetNum(static_cast<sizet>(compressedSize), EAllowShrinking::No);
+            Utils::DrainGLErrors();
+            glGetCompressedTextureImage(m_RendererID, static_cast<GLint>(mipLevel), compressedSize, blocks.GetData());
+            if (GLenum error = glGetError(); error != GL_NO_ERROR)
+            {
+                OLO_CORE_ERROR("OpenGLTexture2D::GetData: GL error {} reading compressed level {}", error, mipLevel);
+                return false;
+            }
+            if (!TextureCompression::DecodeReadbackToRGBA8(m_Specification.Format, mipWidth, mipHeight, std::move(blocks),
+                                                           outData))
+            {
+                OLO_CORE_ERROR("OpenGLTexture2D::GetData: compressed level {} could not be decoded to RGBA8", mipLevel);
+                return false;
+            }
+            return true;
+        }
+
         // Determine bytes per pixel based on format
         u32 bytesPerPixel = 4;
         GLenum dataType = GL_UNSIGNED_BYTE;
