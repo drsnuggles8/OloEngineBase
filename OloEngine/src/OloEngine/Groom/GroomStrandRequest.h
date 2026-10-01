@@ -464,19 +464,26 @@ namespace OloEngine
     };
 
     /// The drawn roots on the CPU (#1533 E1): the request's own transforms when
-    /// the producer evaluated them, otherwise every curve's, evaluated into
-    /// `scratch` from the inputs the producer handed over. Indexed by curve and
-    /// spanning the groom either way, so a caller indexes it exactly as it
-    /// indexes `RootTransforms`.
+    /// the producer evaluated them, otherwise `curves` (BASE curve indices, or
+    /// every curve for std::nullopt) evaluated into `scratch` from the inputs the
+    /// producer handed over, every other entry a default (Valid false) one.
+    /// Indexed by curve and spanning the groom either way, so a caller indexes it
+    /// exactly as it indexes `RootTransforms`.
+    ///
+    /// A caller that already holds the curves it draws (a stream's root slots)
+    /// passes them; one that would have to walk the groom to find them passes
+    /// std::nullopt, because on a 410k-curve coat that walk costs more than
+    /// evaluating every root in parallel.
     [[nodiscard]] inline std::span<const GroomRootTransform> GroomCpuRootTransforms(const GroomStrandRequest& request,
+                                                                                    std::optional<std::span<const u32>> curves,
                                                                                     TArray<GroomRootTransform>& scratch)
     {
         if (!request.GpuRootFrames || !request.Groom || !request.Binding)
         {
             return { request.RootTransforms.GetData(), static_cast<sizet>(request.RootTransforms.Num()) };
         }
-        (void)EvaluateGroomRootTransforms(*request.Groom, *request.Binding, request.GpuRootInputs, std::nullopt,
-                                          scratch);
+        (void)EvaluateGroomRootTransforms(*request.Groom, *request.Binding, request.GpuRootInputs, curves, scratch);
         return { scratch.GetData(), static_cast<sizet>(scratch.Num()) };
     }
+
 } // namespace OloEngine

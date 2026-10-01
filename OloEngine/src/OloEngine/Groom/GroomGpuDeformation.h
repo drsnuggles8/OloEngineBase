@@ -370,6 +370,17 @@ namespace OloEngine
     [[nodiscard]] glm::vec3 EvaluateGroomDeformedPoint(const GroomDeformBuffer& buffer, u32 rootSlot,
                                                        const glm::vec3& local, f32 t, bool previous) noexcept;
 
+    /// A rest stream (BuildGroomStrandRestMesh's root-local corners) deformed and
+    /// displaced through `buffer`, as GroomStrand.glsl's vertex stage deforms it:
+    /// each corner's Position, Other and PrevPosition, every other lane copied.
+    /// For a strand whose root deformed this frame, Position and Other are
+    /// BuildGroomStrandMesh's bit for bit. The ray-traced proxy refits from this
+    /// each frame (#1533): rebuilding a coat from its groom walks every curve
+    /// several times, ~90 ms a frame on the showcase dog, where this touches the
+    /// drawn corners only. `outVertices` is resized to `rest`.
+    void DeformGroomRestStream(const GroomDeformBuffer& buffer, std::span<const GroomStrandVertex> rest,
+                               std::vector<GroomStrandVertex>& outVertices);
+
     /// The drawn centrelines of a GPU-deformed coat, for the coat bake (#1426):
     /// one segment per entry of `pose`, in stream order, with the radii the
     /// stream holds (no per-groom width scale — GroomCoatShadow applies that).

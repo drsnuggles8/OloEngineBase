@@ -44,6 +44,7 @@
 // =============================================================================
 
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Groom/GroomGpuDeformation.h"
 #include "OloEngine/Groom/GroomRayTracingProxy.h"
 #include "OloEngine/Groom/GroomStrandRequest.h"
 #include "OloEngine/Renderer/Vertex.h"
@@ -96,6 +97,9 @@ namespace OloEngine::RayTracing
         {
             return m_Stats;
         }
+        /// CPU bytes held by allocated capacity: each bound coat's rest stream and
+        /// deformation buffer, and the conversion scratch (the memory report).
+        [[nodiscard]] u64 GetCpuBytes() const;
 
       private:
         // Entity id and asset handle. The asset handle is in the key because a
@@ -132,6 +136,23 @@ namespace OloEngine::RayTracing
             /// that happened to rebuild this frame.
             f32 Compensation = 1.0f;
             bool Deformed = false;
+
+            /// A BOUND coat's root-local stream (#1533; BuildGroomStrandRestMesh),
+            /// its root slots' curves and that build's stats, rebuilt only when
+            /// what it was built from changes: the ShapeHash's inputs, and the
+            /// groom, binding and LOD level themselves (held, so a freed one's
+            /// address cannot come back as another) -- and the CPU deformation
+            /// buffer each frame packs and deforms it through.
+            std::vector<GroomStrandVertex> Rest;
+            std::vector<u32> RootCurves;
+            GroomStrandMeshStats RestStats;
+            u64 RestHash = 0;
+            Ref<GroomAsset> RestGroom;
+            Ref<GroomBindingAsset> RestBinding;
+            const GroomLodLevel* RestLevel = nullptr;
+            GroomDeformBuffer DeformCpu;
+            Ref<GroomGuideInfluenceTable> DeformWeightsFrom;
+            bool DeformRelayout = true;
         };
 
         /// Rebuilds one coat's ray-space geometry. Returns

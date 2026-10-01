@@ -691,6 +691,32 @@ namespace OloEngine
         return placed;
     }
 
+    void DeformGroomRestStream(const GroomDeformBuffer& buffer, std::span<const GroomStrandVertex> rest,
+                               std::vector<GroomStrandVertex>& outVertices)
+    {
+        outVertices.resize(rest.size());
+        GroomStrandVertex* const out = outVertices.data();
+        ParallelFor("GroomDeformRestStream", static_cast<i32>(rest.size()), 4096,
+                    [&rest, out, &buffer](i32 index)
+                    {
+                        // The rest stream's lanes, read as GroomStrand.glsl's mode-1
+                        // branch reads them: PrevPosition carries the root slot, the
+                        // other end's parameter and which end this corner is at.
+                        const GroomStrandVertex& corner = rest[static_cast<sizet>(index)];
+                        const u32 root = static_cast<u32>(corner.PrevPosition.x + 0.5f);
+                        const f32 tSelf = corner.Coords.x;
+                        const f32 tOther = corner.PrevPosition.y;
+                        const bool atP1 = corner.PrevPosition.z > 0.5f;
+                        const glm::vec3 self = EvaluateGroomDeformedPoint(buffer, root, corner.Position, tSelf, false);
+                        const glm::vec3 otherEnd = EvaluateGroomDeformedPoint(buffer, root, corner.Other, tOther, false);
+                        GroomStrandVertex deformed = corner;
+                        deformed.Position = self;
+                        deformed.Other = self + (atP1 ? (self - otherEnd) : (otherEnd - self));
+                        deformed.PrevPosition = EvaluateGroomDeformedPoint(buffer, root, corner.Position, tSelf, true);
+                        out[index] = deformed;
+                    });
+    }
+
     void EvaluateGroomDeformedPose(const GroomDeformBuffer& buffer, std::span<const GroomRestPoseSegment> pose,
                                    std::vector<GroomCoatShadow::CoatSegment>& outSegments)
     {

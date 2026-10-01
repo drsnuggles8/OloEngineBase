@@ -187,6 +187,19 @@ namespace OloEngine::RendererMemoryOwners
             };
             proxyRow("Deformed-surface RT geometry (skinned/morphed)", Renderer3D::GetDeformedSurfaceCache().GetStats().ResidentBytes);
             proxyRow("Groom RT proxies (independent of the strand cache)", Renderer3D::GetGroomSurfaceCache().GetStats().ResidentBytes);
+            {
+                // The bound coats' rest streams the proxies refit from (#1533), on
+                // the CPU and reported apart from the GPU bytes above.
+                MemoryCapacityRow row;
+                row.Owner = "RayTracingScene";
+                row.Category = "Groom RT proxy rest streams and conversion scratch (CPU)";
+                row.Lifetime = MemoryLifetime::Persistent;
+                row.Source = MemorySizeSource::FormatEstimate;
+                row.IsGpu = false;
+                row.CapacityBytes = Renderer3D::GetGroomSurfaceCache().GetCpuBytes();
+                row.UnknownReason = "active demand: retained streams and reused scratch have no per-frame demand figure";
+                rows.Add(std::move(row));
+            }
             proxyRow("Vegetation RT proxies", Renderer3D::GetVegetationSurfaceCache().GetStats().ResidentBytes);
         }
     } // namespace

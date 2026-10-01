@@ -654,7 +654,7 @@ namespace OloEngine
         const std::span<const GroomRootTransform> transforms =
             rootsOnGpu ? std::span<const GroomRootTransform>{ request.RootTransforms.GetData(),
                                                               static_cast<sizet>(request.RootTransforms.Num()) }
-                       : GroomCpuRootTransforms(request, m_CpuRootScratch);
+                       : GroomCpuRootTransforms(request, rootCurves, m_CpuRootScratch);
         const GroomDeformFrameStats packed = entry.DeformCpu.PackFrame(rootCurves, *request.Binding, transforms,
                                                                        simulated ? &simulation : nullptr, baseCurveCount);
         // THE DRAWN ROOTS' COUNTERS, for a coat whose producer left its roots to
@@ -844,7 +844,8 @@ namespace OloEngine
             if (entry.DeformCpu.GetLayout().RootsOnGpu())
             {
                 (void)entry.DeformCpu.PackCpuRoots(entry.Rest->RootCurves, *request.Binding,
-                                                   GroomCpuRootTransforms(request, m_CpuRootScratch),
+                                                   GroomCpuRootTransforms(request, entry.Rest->RootCurves,
+                                                                          m_CpuRootScratch),
                                                    request.Groom->GetCurveCount());
             }
             EvaluateGroomDeformedPose(entry.DeformCpu, evaluate, m_DrawnPose);
@@ -1030,7 +1031,7 @@ namespace OloEngine
             deformation.Binding = request.Binding.Raw();
             // Evaluated here when the producer left the drawn roots to the GPU
             // (#1533 E1) and this coat takes the CPU path after all.
-            deformation.RootTransforms = GroomCpuRootTransforms(request, m_CpuRootScratch);
+            deformation.RootTransforms = GroomCpuRootTransforms(request, std::nullopt, m_CpuRootScratch);
         }
 
         // A DEFORMED build writes straight into the caller's stream, because

@@ -2,6 +2,8 @@
 #include "OloEngine/Renderer/RayTracing/GroomSurfaceCache.h"
 #include "OloEngine/Renderer/RayTracing/GroomProxyDiagnostics.h"
 
+#include "OloEngine/Core/PerformanceProfiler.h"
+
 #include "OloEngine/Renderer/GPUScene/GPUScene.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/Material.h"
@@ -117,6 +119,22 @@ namespace OloEngine::RayTracing
         m_Enabled = enabled;
     }
 
+    u64 GroomSurfaceCache::GetCpuBytes() const
+    {
+        u64 bytes = static_cast<u64>(m_StrandVertices.capacity()) * sizeof(GroomStrandVertex) +
+                    static_cast<u64>(m_StrandIndices.capacity()) * sizeof(u32) +
+                    static_cast<u64>(m_ProxyVertices.capacity()) * sizeof(Vertex) +
+                    static_cast<u64>(m_ProxyIndices.capacity()) * sizeof(u32) +
+                    static_cast<u64>(m_RootScratch.GetAllocatedSize());
+        for (const auto& [key, entry] : m_Entries)
+        {
+            static_cast<void>(key);
+            bytes += static_cast<u64>(entry.Rest.capacity()) * sizeof(GroomStrandVertex) +
+                     static_cast<u64>(entry.RootCurves.capacity()) * sizeof(u32) + entry.DeformCpu.GetCpuBytes();
+        }
+        return bytes;
+    }
+
     void GroomSurfaceCache::Shutdown()
     {
         m_Entries.clear();
@@ -129,6 +147,7 @@ namespace OloEngine::RayTracing
         m_ProxyVertices.shrink_to_fit();
         m_ProxyIndices.clear();
         m_ProxyIndices.shrink_to_fit();
+        m_RootScratch.Reset();
         m_Stats.Reset();
         m_Enabled = false;
     }
@@ -164,25 +183,80 @@ namespace OloEngine::RayTracing
         // in would widen every thinned strand twice.
         build.MaxWidthCompensation = 1.0f;
 
-        GroomStrandDeformation deformation;
         const bool deformed = IsDeformed(request);
-        if (deformed)
-        {
-            deformation.Binding = request.Binding.Raw();
-            // The drawn roots on the CPU: evaluated here when the producer left
-            // them to the raster pass's GPU evaluation (#1533 E1).
-            deformation.RootTransforms = GroomCpuRootTransforms(request, m_RootScratch);
-        }
         const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
         const GroomStrandSimulation simulation = request.Simulation();
+        const u32 baseCurveCount = request.Groom->GetCurveCount();
+        const bool simulated = simulation.IsUsable(baseCurveCount);
 
-        const GroomStrandMeshStats strandStats =
-            BuildGroomStrandMesh(request.BuildSource(), build, m_StrandVertices, m_StrandIndices,
-                                 deformed ? &deformation : nullptr, &coat,
-                                 simulation.IsUsable(request.Groom->GetCurveCount()) ? &simulation : nullptr);
-        if (m_StrandVertices.empty() || strandStats.StrandsSelected == 0u)
+        GroomStrandMeshStats strandStats;
+        if (deformed && request.Binding)
         {
-            return GroomProxyRefusalReason::GroomHasNoGeometry;
+            // A BOUND COAT REFITS FROM ITS REST STREAM (#1533), the raster pass's
+            // split: the root-local stream depends on nothing that moves, so it is
+            // built when its shape changes, and a frame evaluates this stream's
+            // roots alone, packs them with the guides and deforms the stream on
+            // the CPU as GroomStrand.glsl deforms it on the GPU -- bit for bit the
+            // points a rebuild produces (DeformGroomRestStream). The rebuild it
+            // replaces walked every curve of the groom several times a frame:
+            // ~90 ms on the showcase dog, and the RT shadow tier ran at 14 fps.
+            if (entry.RestHash != shapeHash || entry.Rest.empty() || entry.RestGroom != request.Groom ||
+                entry.RestBinding != request.Binding || entry.RestLevel != request.LodLevel)
+            {
+                OLO_PERF_SCOPE_AUTO("GroomProxy::RestBuild");
+                std::vector<u32> restIndices; // the conversion reads corners, never indices
+                entry.RestStats = BuildGroomStrandRestMesh(request.BuildSource(), build, *request.Binding, entry.Rest,
+                                                           restIndices, entry.RootCurves, &coat);
+                entry.RestHash = shapeHash;
+                entry.RestGroom = request.Groom;
+                entry.RestBinding = request.Binding;
+                entry.RestLevel = request.LodLevel;
+                entry.DeformRelayout = true;
+            }
+            if (entry.Rest.empty() || entry.RestStats.StrandsSelected == 0u)
+            {
+                return GroomProxyRefusalReason::GroomHasNoGeometry;
+            }
+
+            OLO_PERF_SCOPE_AUTO("GroomProxy::Deform");
+            // Sized for the table it was laid out against, as the raster pass's
+            // frame buffer is: a coat that starts being simulated, switches table
+            // or outgrows the capacity gets a new layout.
+            const u32 rootCount = static_cast<u32>(entry.RootCurves.size());
+            const u32 displacements =
+                simulated ? static_cast<u32>(simulation.Displacements.Displacements.size()) : 0u;
+            const Ref<GroomGuideInfluenceTable> weightsFrom =
+                simulated ? request.Influence : Ref<GroomGuideInfluenceTable>{};
+            const GroomDeformBufferLayout& layout = entry.DeformCpu.GetLayout();
+            if (entry.DeformRelayout || layout.RootCount != rootCount || weightsFrom != entry.DeformWeightsFrom ||
+                displacements > layout.DisplacementCapacity)
+            {
+                const GroomGuideInfluenceTable* table = simulated ? simulation.Influence : nullptr;
+                const u32 capacity = std::max(GroomDeformDisplacementCapacity(*request.Groom, table), displacements);
+                entry.DeformCpu.Reset(
+                    GroomDeformBufferLayout::Make(rootCount, table != nullptr ? table->GetGuideCount() : 0u, capacity),
+                    entry.RootCurves, table);
+                entry.DeformWeightsFrom = weightsFrom;
+                entry.DeformRelayout = false;
+            }
+            // This stream's roots only: the producer left the drawn ones to the
+            // raster pass's GPU evaluation (#1533 E1).
+            const std::span<const GroomRootTransform> roots =
+                GroomCpuRootTransforms(request, std::span<const u32>{ entry.RootCurves }, m_RootScratch);
+            (void)entry.DeformCpu.PackFrame(entry.RootCurves, *request.Binding, roots, simulated ? &simulation : nullptr,
+                                            baseCurveCount);
+            DeformGroomRestStream(entry.DeformCpu, entry.Rest, m_StrandVertices);
+            strandStats = entry.RestStats;
+        }
+        else
+        {
+            OLO_PERF_SCOPE_AUTO("GroomProxy::StrandBuild");
+            strandStats = BuildGroomStrandMesh(request.BuildSource(), build, m_StrandVertices, m_StrandIndices, nullptr,
+                                               &coat, simulated ? &simulation : nullptr);
+            if (m_StrandVertices.empty() || strandStats.StrandsSelected == 0u)
+            {
+                return GroomProxyRefusalReason::GroomHasNoGeometry;
+            }
         }
 
         // ── The compensation, on the ACHIEVED fraction ───────────────────
@@ -215,8 +289,11 @@ namespace OloEngine::RayTracing
         conversion.WidthScale = std::isfinite(request.WidthScale) && request.WidthScale > 0.0f
                                     ? request.WidthScale * compensation
                                     : compensation;
-        const GroomProxyMeshStats proxyStats = ConvertGroomStrandMeshToProxy(m_StrandVertices, conversion,
-                                                                             m_ProxyVertices, m_ProxyIndices);
+        GroomProxyMeshStats proxyStats;
+        {
+            OLO_PERF_SCOPE_AUTO("GroomProxy::Convert");
+            proxyStats = ConvertGroomStrandMeshToProxy(m_StrandVertices, conversion, m_ProxyVertices, m_ProxyIndices);
+        }
         if (proxyStats.VertexCount == 0u || proxyStats.IndexCount == 0u)
         {
             return GroomProxyRefusalReason::BuildFailed;
@@ -258,6 +335,7 @@ namespace OloEngine::RayTracing
         Ref<IndexBuffer> replacementIndices;
         try
         {
+            OLO_PERF_SCOPE_AUTO("GroomProxy::Upload");
             if (reallocate)
             {
                 replacementIndices = IndexBuffer::Create(m_ProxyIndices.data(), proxyStats.IndexCount);

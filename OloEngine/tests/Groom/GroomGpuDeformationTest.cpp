@@ -35,7 +35,9 @@
 #include "OloEngine/Groom/GroomDeformation.h"
 #include "OloEngine/Groom/GroomGpuDeformation.h"
 #include "OloEngine/Groom/GroomGuideInfluence.h"
+#include "OloEngine/Groom/GroomRayTracingProxy.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
+#include "OloEngine/Groom/GroomStrandRequest.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -43,6 +45,7 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <cstring>
 #include <numeric>
 #include <span>
 #include <string>
@@ -162,27 +165,6 @@ namespace
         return sim;
     }
 
-    // One corner of the GPU path's stream, reconstructed the way
-    // GroomStrand.glsl's mode-1 branch reconstructs it.
-    struct GpuCorner
-    {
-        glm::vec3 Position;
-        glm::vec3 Other;
-        glm::vec3 PrevPosition;
-    };
-
-    [[nodiscard]] GpuCorner ReconstructCorner(const GroomDeformBuffer& buffer, const GroomStrandVertex& rest)
-    {
-        const u32 root = static_cast<u32>(rest.PrevPosition.x + 0.5f);
-        const f32 tSelf = rest.Coords.x;
-        const f32 tOther = rest.PrevPosition.y;
-        const bool atP1 = rest.PrevPosition.z > 0.5f;
-        const glm::vec3 self = EvaluateGroomDeformedPoint(buffer, root, rest.Position, tSelf, false);
-        const glm::vec3 otherEnd = EvaluateGroomDeformedPoint(buffer, root, rest.Other, tOther, false);
-        const glm::vec3 delta = atP1 ? (self - otherEnd) : (otherEnd - self);
-        return { self, self + delta, EvaluateGroomDeformedPoint(buffer, root, rest.Position, tSelf, true) };
-    }
-
     [[nodiscard]] bool BitwiseEqual(const glm::vec3& a, const glm::vec3& b) noexcept
     {
         return std::bit_cast<u32>(a.x) == std::bit_cast<u32>(b.x) && std::bit_cast<u32>(a.y) == std::bit_cast<u32>(b.y) &&
@@ -278,6 +260,13 @@ namespace
         EXPECT_EQ(frame.StrandsSimulated, cpuStats.StrandsSimulated);
         EXPECT_EQ(frame.StrandsUnguided, cpuStats.StrandsUnguided);
 
+        // The GPU path's stream, deformed on the CPU the way GroomStrand.glsl's
+        // mode-1 branch deforms it -- the function the ray-traced proxy refits
+        // from (#1533), so every case below also checks the proxy's geometry.
+        std::vector<GroomStrandVertex> deformedRest;
+        DeformGroomRestStream(buffer, rest, deformedRest);
+        EXPECT_EQ(deformedRest.size(), rest.size());
+
         for (sizet i = 0; i < cpu.size(); ++i)
         {
             SCOPED_TRACE("corner " + std::to_string(i));
@@ -291,7 +280,7 @@ namespace
             EXPECT_EQ(std::bit_cast<u32>(encoded.SegmentId), std::bit_cast<u32>(expected.SegmentId));
             EXPECT_EQ(std::bit_cast<u32>(encoded.Tint), std::bit_cast<u32>(expected.Tint));
 
-            const GpuCorner gpu = ReconstructCorner(buffer, encoded);
+            const GroomStrandVertex& gpu = deformedRest[i];
             const u32 root = static_cast<u32>(encoded.PrevPosition.x + 0.5f);
             const bool held = !transforms[rootCurves[root]].Valid;
             if (held && heldTolerance >= 0.0f)
@@ -521,6 +510,73 @@ TEST(GroomGpuDeformation, ARemappedCurveSetReadsItsSourceCurvesRootsAndGuides)
     const std::span<const GroomRootTransform> transforms{ scene.Transforms.GetData(),
                                                           static_cast<sizet>(scene.Transforms.Num()) };
     EXPECT_GT(ExpectPathsAgree(source, GroomStrandBuildSettings{}, *scene.Binding, transforms, &view), 0u);
+}
+
+// #1533: the ray-traced proxy of a bound coat refits each frame from its REST
+// stream -- roots evaluated for its own root slots only, one frame packed, the
+// stream deformed on the CPU -- instead of rebuilding the coat from the groom,
+// which walked every curve several times a frame (~90 ms on the showcase dog).
+// The proxy it converts must be the one the rebuild converted, bit for bit.
+TEST(GroomGpuDeformation, TheRayTracedProxyRefitsFromItsRestStreamExactly)
+{
+    const BoundScene scene = MakeBoundScene(40u, 8u);
+    const Simulation simulation = MakeSimulation(*scene.Groom);
+    const GroomStrandSimulation view = simulation.View();
+    GroomStrandBuildSettings build;
+    build.MaxStrands = 13u; // a tier's budget: a subset of the coat
+    build.MaxWidthCompensation = 1.0f;
+    const GroomBuildSource source = GroomBuildSource::FromAsset(*scene.Groom);
+
+    // The rebuild, from every root.
+    GroomStrandDeformation deformation;
+    deformation.Binding = scene.Binding.Raw();
+    deformation.RootTransforms = { scene.Transforms.GetData(), static_cast<sizet>(scene.Transforms.Num()) };
+    std::vector<GroomStrandVertex> rebuilt;
+    std::vector<u32> rebuiltIndices;
+    const GroomStrandMeshStats rebuiltStats =
+        BuildGroomStrandMesh(source, build, rebuilt, rebuiltIndices, &deformation, nullptr, &view);
+    ASSERT_FALSE(rebuilt.empty());
+    ASSERT_LT(rebuiltStats.StrandsSelected, scene.Groom->GetCurveCount()) << "the budget must select a subset";
+
+    // The refit: the rest stream, its root slots' roots only, one packed frame.
+    std::vector<GroomStrandVertex> rest;
+    std::vector<u32> restIndices;
+    std::vector<u32> rootCurves;
+    (void)BuildGroomStrandRestMesh(source, build, *scene.Binding, rest, restIndices, rootCurves);
+    GroomStrandRequest request;
+    request.Groom = scene.Groom;
+    request.Binding = scene.Binding;
+    request.GpuRootFrames = true;
+    request.GpuRootInputs.Surface = scene.Grid.View(2u);
+    request.GpuRootInputs.Skinning = scene.Grid.Skinning(scene.Palette, scene.PrevPalette, true);
+    request.GpuRootInputs.HasHistory = true;
+    TArray<GroomRootTransform> scratch;
+    const std::span<const GroomRootTransform> roots =
+        GroomCpuRootTransforms(request, std::span<const u32>{ rootCurves }, scratch);
+    const auto evaluated = std::count_if(roots.begin(), roots.end(), [](const GroomRootTransform& t)
+                                         { return t.Valid; });
+    EXPECT_EQ(static_cast<sizet>(evaluated), rootCurves.size()) << "only the stream's own roots are evaluated";
+
+    GroomDeformBuffer buffer;
+    buffer.Reset(GroomDeformBufferLayout::Make(static_cast<u32>(rootCurves.size()), view.Influence->GetGuideCount(),
+                                               static_cast<u32>(view.Displacements.Displacements.size())),
+                 rootCurves, view.Influence);
+    (void)buffer.PackFrame(rootCurves, *scene.Binding, roots, &view, scene.Groom->GetCurveCount());
+    std::vector<GroomStrandVertex> refit;
+    DeformGroomRestStream(buffer, rest, refit);
+
+    GroomProxyConversionSettings conversion;
+    std::vector<Vertex> rebuiltProxy;
+    std::vector<Vertex> refitProxy;
+    std::vector<u32> rebuiltProxyIndices;
+    std::vector<u32> refitProxyIndices;
+    (void)ConvertGroomStrandMeshToProxy(rebuilt, conversion, rebuiltProxy, rebuiltProxyIndices);
+    (void)ConvertGroomStrandMeshToProxy(refit, conversion, refitProxy, refitProxyIndices);
+    ASSERT_FALSE(rebuiltProxy.empty());
+    ASSERT_EQ(refitProxy.size(), rebuiltProxy.size());
+    EXPECT_EQ(std::memcmp(refitProxy.data(), rebuiltProxy.data(), rebuiltProxy.size() * sizeof(Vertex)), 0)
+        << "the refit traces a different coat than the rebuild";
+    EXPECT_EQ(refitProxyIndices, rebuiltProxyIndices);
 }
 
 TEST(GroomGpuDeformation, AHeldRootRestsWhereTheCpuPathHoldsIt)
