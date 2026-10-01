@@ -766,9 +766,77 @@ def surface_of(body, arm, rig, log=print):
     bone = [dominant[vi[t, 0]] for t in idx]
     tris = dict(p=p[idx], uv=uvl[li[idx]], n=n[idx], area=area[idx])
     tris["where"] = classify(tris["p"].mean(axis=1), tris["n"], bone, lid[idx], fr)
+    # The WHOLE body for keep_off_other_parts: every triangle, the bare skins too, each labelled
+    # with its pelt region or -1 for a skin that grows nothing (nose, lips, gums, tongue, teeth, pads).
+    label = np.full(len(p), -1, dtype=np.int32)
+    label[idx] = tris["where"]
+    tris["body"] = dict(p=p, n=n, label=label)
     per = np.bincount(tris["where"], weights=tris["area"], minlength=len(REGIONS)) * 1e4
     log("[groom] pelt: " + " ".join(f"{REGIONS[r]}={per[r]:.0f}cm2" for r in range(len(REGIONS)) if per[r] > 0))
     return tris, fr
+
+
+EAR_REGIONS = {R["earouter"], R["earinner"]}
+
+
+def keep_off_other_parts(groups, tris, log=print):
+    """Cut each strand short of the first point where its REST shape enters skin across the ear's
+    edge: a face or cheek hair into the flap that hangs over it, an ear hair into the head or the
+    neck. Measured against the exact mesh
+    the engine binds to, at the bind pose: 52% of the face's guard hair ran through the ear flaps,
+    and in the editor it showed as a dark slit of hair at the flap's front edge, sliding in and out
+    of the head with every ear twitch.
+
+    Fur that dips into the skin it GROWS on is left alone: the neck, lid and leg coats lie flat and
+    sink a millimetre or two below their own skin's surface, which no view shows, and cutting them
+    there would shorten half the coat. So is fur over a bare skin: the lid and rim fur lie over the
+    socket's bare skin and dip a fraction of a millimetre into it, and cutting there left the lids a
+    fifth of their fur -- the goggles creature-eye-region.md warns about. Only a crossing between
+    the two sides of the ear's edge is cut. The cut leaves 1.5 mm of clearance and never less than a
+    1 mm stub; the strand keeps its point count, resampled along what is left.
+
+    OLO_DOG_KEEP_OFF=0 skips it, for look-development A/B."""
+    if os.environ.get("OLO_DOG_KEEP_OFF") == "0":
+        log("[groom] keep_off_other_parts: skipped (OLO_DOG_KEEP_OFF=0)")
+        return
+    from mathutils import Vector
+    from mathutils.bvhtree import BVHTree
+
+    body = tris["body"]
+    # Degenerate triangles have no normal to be behind; leave them out of the search.
+    tri = body["p"]
+    valid = np.nonzero(np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1) > 2.0e-12)[0]
+    verts = [Vector(v) for v in tri[valid].reshape(-1, 3)]
+    bvh = BVHTree.FromPolygons(verts, [(3 * t, 3 * t + 1, 3 * t + 2) for t in range(len(valid))], all_triangles=True)
+    normals, labels = body["n"][valid], body["label"][valid]
+    clearance, stub, inside = 0.0015, 0.001, -5.0e-4
+    for grp in groups:
+        lay = grp["layer"]
+        root_ear = lay["where"] in EAR_REGIONS
+        pts = grp["points"]
+        n, pc, _ = pts.shape
+        cut = 0
+        kept = []
+        for s in range(n):
+            for k in range(1, pc):
+                p = pts[s, k]
+                loc, _, idx, _ = bvh.find_nearest(Vector(p))
+                if loc is None or float(np.dot(p - np.array(loc), normals[idx])) >= inside:
+                    continue
+                label = int(labels[idx])
+                if label < 0 or (label in EAR_REGIONS) == root_ear:
+                    continue  # a bare skin, or its own side of the ear's edge: a dip, not a crossing
+                seg = np.linalg.norm(np.diff(pts[s], axis=0), axis=1)
+                along = np.concatenate([[0.0], np.cumsum(seg)])
+                keep = max(along[k - 1] - clearance, stub)
+                target = keep * np.arange(pc) / (pc - 1)
+                pts[s] = np.stack([np.interp(target, along, pts[s, :, a]) for a in range(3)], axis=1)
+                kept.append(keep / max(along[-1], 1e-9))
+                cut += 1
+                break
+        if cut:
+            log(f"[groom] {group_name(lay)}: {cut} of {n} strands cut short of the other side "
+                f"(kept {100.0 * float(np.mean(kept)):.0f}% of their length on average)")
 
 
 def grow_coat(tris, fr, log=print):
@@ -784,6 +852,7 @@ def grow_coat(tris, fr, log=print):
         groups.append(grown)
         log(f"[groom] {group_name(lay)}: {len(grown['points'])} strands x {lay['points']}, "
             f"{int(grown['guide'].sum())} guides ({time.time() - t0:.1f}s)")
+    keep_off_other_parts(groups, tris, log=log)
     total = sum(len(g["points"]) for g in groups)
     log(f"[groom] coat: {total} strands in {len(groups)} groups")
     return groups

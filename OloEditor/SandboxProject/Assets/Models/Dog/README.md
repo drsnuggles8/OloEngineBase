@@ -85,7 +85,10 @@ not bleed black across a seam.
 `build_dog_groom.py` imports `Dog.gltf`, the exact mesh the engine binds to, and grows the coat on
 it: regions from the skin's bones and the rig, a flow field smoothed across region seams, layers of
 undercoat, guard hair, long hair and strays per region, Voronoi locks, darkened roots and
-sun-bleached tips. It writes one hair object per coat group into `.dog-groom/Dog.abc`: ~410k
+sun-bleached tips. A last pass, `keep_off_other_parts`, cuts any strand short of the other side
+of an ear's edge: the face and cheek fur under a flap otherwise grew straight through it (52% of
+the face's guard hair) and showed as a slit of hair at the flap's front edge. Fur dipping into the
+skin it grows on is left alone. It writes one hair object per coat group into `.dog-groom/Dog.abc`: ~410k
 strands, 57 MB. The archive is a build output, git-ignored, and it stays out of `SandboxProject/Assets`,
 because the editor registers everything it finds there.
 
