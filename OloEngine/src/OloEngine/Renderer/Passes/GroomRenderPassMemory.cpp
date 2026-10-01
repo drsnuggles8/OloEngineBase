@@ -1,7 +1,14 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 
+// Complete types for the Ref<> members of the cache entries read below: GroomRenderPass.h
+// only forward-declares them, and a build without the PCH (the Linux sanitizer jobs) would
+// otherwise fail to instantiate their destructors in this TU.
+#include "OloEngine/Renderer/IndexBuffer.h"
+#include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/Texture3D.h"
+#include "OloEngine/Renderer/VertexArray.h"
+#include "OloEngine/Renderer/VertexBuffer.h"
 
 #include <optional>
 
