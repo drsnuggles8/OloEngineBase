@@ -47,7 +47,10 @@ namespace OloEngine
 
         m_CurrentFrameIndex = 0;
         m_TotalFrameCount = 0;
-        m_Initialized = true;
+        {
+            std::scoped_lock lock(m_DeletionMutex);
+            m_Initialized = true;
+        }
 
         OLO_CORE_INFO("FrameResourceManager: Initialized successfully");
     }
@@ -74,10 +77,15 @@ namespace OloEngine
             }
         }
 
-        // Drain all pending deletion queues before GL context is destroyed
+        // Drain all pending deletion queues before GL context is destroyed. From
+        // here on a submission runs at once, so the flag flips under the queue
+        // lock and a second drain catches whatever a worker queued in between.
         FlushAllDeletionQueues();
-
-        m_Initialized = false;
+        {
+            std::scoped_lock lock(m_DeletionMutex);
+            m_Initialized = false;
+        }
+        FlushAllDeletionQueues();
         OLO_CORE_INFO("FrameResourceManager: Shutdown complete");
     }
 
@@ -116,18 +124,7 @@ namespace OloEngine
 
         // Execute deferred deletions queued during the frame that last used this slot.
         // Safe: the GPU fence for that frame has been waited on above.
-        // Taken out under the lock and run outside it, so a deletion that
-        // releases another GPU object can queue that one without deadlocking.
-        {
-            TArray<TFunction<void()>> pending;
-            {
-                std::scoped_lock lock(m_DeletionMutex);
-                pending = std::move(m_FrameResources[currentIndex].DeletionQueue);
-                m_FrameResources[currentIndex].DeletionQueue.Reset();
-            }
-            for (const auto& fn : pending)
-                fn();
-        }
+        RunDeletionQueue(currentIndex);
 
         return currentIndex;
     }
@@ -267,32 +264,42 @@ namespace OloEngine
 
     void FrameResourceManager::SubmitForDeletion(TFunction<void()>&& deletionFunc)
     {
-        if (!m_Initialized)
         {
-            // After shutdown (or before init), execute immediately — the deferred
-            // queue will never be drained and the GL context may still be alive
-            // during teardown.
-            deletionFunc();
-            return;
+            // m_Initialized is read under the same lock Shutdown flips it under,
+            // so a submission is either queued before the final drain or run now.
+            std::scoped_lock lock(m_DeletionMutex);
+            if (m_Initialized)
+            {
+                u32 currentIndex = m_CurrentFrameIndex.load(std::memory_order_acquire);
+                m_FrameResources[currentIndex].DeletionQueue.Add(std::move(deletionFunc));
+                return;
+            }
         }
-        std::scoped_lock lock(m_DeletionMutex);
-        u32 currentIndex = m_CurrentFrameIndex.load(std::memory_order_acquire);
-        m_FrameResources[currentIndex].DeletionQueue.Add(std::move(deletionFunc));
+        // After shutdown (or before init), execute immediately — the deferred
+        // queue will never be drained and the GL context may still be alive
+        // during teardown.
+        deletionFunc();
+    }
+
+    void FrameResourceManager::RunDeletionQueue(u32 frameIndex)
+    {
+        // Swapped out under the lock and run outside it, so a deletion that
+        // releases another GPU object can queue that one without deadlocking.
+        // Swapping with a scratch array that is only emptied, never freed, keeps
+        // both allocations alive from frame to frame.
+        {
+            std::scoped_lock lock(m_DeletionMutex);
+            std::swap(m_DeletionScratch, m_FrameResources[frameIndex].DeletionQueue);
+        }
+        for (const auto& fn : m_DeletionScratch)
+            fn();
+        m_DeletionScratch.Reset();
     }
 
     void FrameResourceManager::FlushAllDeletionQueues()
     {
         for (u32 i = 0; i < NUM_BUFFERED_FRAMES; ++i)
-        {
-            TArray<TFunction<void()>> pending;
-            {
-                std::scoped_lock lock(m_DeletionMutex);
-                pending = std::move(m_FrameResources[i].DeletionQueue);
-                m_FrameResources[i].DeletionQueue.Reset();
-            }
-            for (const auto& fn : pending)
-                fn();
-        }
+            RunDeletionQueue(i);
     }
 
     // ========================================================================

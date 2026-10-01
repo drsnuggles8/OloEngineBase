@@ -133,6 +133,9 @@ namespace OloEngine
         void FlushAllDeletionQueues();
 
       private:
+        // Run one slot's queue on the calling (main) thread.
+        void RunDeletionQueue(u32 frameIndex);
+
         FrameResourceManager() = default;
         ~FrameResourceManager() = default;
 
@@ -161,9 +164,12 @@ namespace OloEngine
         f64 m_LastBeginFrameWaitMs = 0.0;
         bool m_DoubleBufferingEnabled = true;
         bool m_Initialized = false;
-        // Guards every FrameResources::DeletionQueue. An unguarded Add from the
-        // Build Game worker racing BeginFrame's drain corrupted the heap.
+        // Guards every FrameResources::DeletionQueue and m_Initialized. An
+        // unguarded Add from the Build Game worker racing BeginFrame's drain
+        // corrupted the heap.
         std::mutex m_DeletionMutex;
+        // Main thread only: the queue being run, swapped out of its slot.
+        TArray<TFunction<void()>> m_DeletionScratch;
     };
 
 } // namespace OloEngine
