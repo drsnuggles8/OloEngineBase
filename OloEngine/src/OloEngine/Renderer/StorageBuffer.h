@@ -34,7 +34,8 @@ namespace OloEngine
     class StorageBuffer : public RefCounted
     {
       public:
-        virtual ~StorageBuffer() = default;
+        // Out of line: it unregisters from StorageBufferRegistry (issue #607).
+        virtual ~StorageBuffer();
 
         // Bind the buffer to its binding point
         virtual void Bind() const = 0;
@@ -43,8 +44,11 @@ namespace OloEngine
         // Upload data to the GPU
         virtual void SetData(const void* data, u32 size, u32 offset = 0) = 0;
 
-        // Read data back from the GPU (requires GPU-to-CPU sync)
-        virtual void GetData(void* outData, u32 size, u32 offset = 0) const = 0;
+        // Read data back from the GPU (requires GPU-to-CPU sync). Returns false
+        // when the readback did not happen (out of range, no device, a failed
+        // copy); `outData` is then zero-filled and must not be presented as the
+        // buffer's contents. Callers that only consume data may ignore it.
+        virtual bool GetData(void* outData, u32 size, u32 offset = 0) const = 0;
 
         // Typed convenience wrapper for reading structured data from the GPU
         template<typename T>
@@ -53,7 +57,7 @@ namespace OloEngine
             static_assert(std::is_trivially_copyable_v<T>, "StorageBuffer::GetData<T> requires a trivially copyable type");
             OLO_CORE_ASSERT(offset + sizeof(T) <= GetSize(), "StorageBuffer::GetData<T> out of range!");
             T result;
-            GetData(&result, static_cast<u32>(sizeof(T)), offset);
+            (void)GetData(&result, static_cast<u32>(sizeof(T)), offset);
             return result;
         }
 

@@ -1,11 +1,14 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLStorageBuffer.h"
+#include "Platform/OpenGL/OpenGLUtilities.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 
 #include <glad/gl.h>
+
+#include <cstring>
 
 namespace OloEngine
 {
@@ -55,10 +58,19 @@ namespace OloEngine
         glNamedBufferSubData(m_RendererID, static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(size), data);
     }
 
-    void OpenGLStorageBuffer::GetData(void* outData, u32 size, u32 offset) const
+    bool OpenGLStorageBuffer::GetData(void* outData, u32 size, u32 offset) const
     {
         OLO_CORE_ASSERT(offset + size <= m_Size, "StorageBuffer::GetData out of range!");
+        if (outData == nullptr || static_cast<u64>(offset) + size > m_Size)
+            return false;
+        Utils::DrainGLErrors();
         glGetNamedBufferSubData(m_RendererID, static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(size), outData);
+        if (glGetError() != GL_NO_ERROR)
+        {
+            std::memset(outData, 0, size);
+            return false;
+        }
+        return true;
     }
 
     void OpenGLStorageBuffer::ClearData()

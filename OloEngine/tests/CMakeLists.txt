@@ -1343,6 +1343,20 @@ add_executable(OloEngine-Tests
 		# being derivable only by reading the counters. Header-only
 		# (MCP/McpGpuReadbackStats.h), no extra editor TU pulled in.
 		MCP/McpGpuReadbackStatsTest.cpp
+		# Pure JSON shaping behind olo_frame_graph_declaration_stats (#607, from
+		# #1333): a stale-cache detection reaches the top level, and with verify
+		# mode off a zero count is reported as unchecked rather than clean.
+		# Header-only (MCP/McpFrameGraphDeclarationStats.h).
+		MCP/McpFrameGraphDeclarationStatsTest.cpp
+		# Request parsing, BCn refusal, row mapping and raw/encoded/linear texel
+		# shaping behind olo_texture_probe (#607, from #1078). Header-only
+		# (MCP/McpTextureProbe.h).
+		MCP/McpTextureProbeTest.cpp
+		# Buffer selection (a shared binding is an error, not a guess), range
+		# checks, decoding, and SSBO_* name coverage against ShaderBindingLayout.h
+		# behind olo_gpu_buffer_read (#607, from #1105). Header-only
+		# (MCP/McpGpuBufferRead.h).
+		MCP/McpGpuBufferReadTest.cpp
 		# Pure array-layer selection behind olo_render_capture_target's 'layer'
 		# argument (#607): the CSM cascade array / shadow-atlas raw-depth views, and
 		# the "a layer view must not silently capture layer 0" rule. Header-only

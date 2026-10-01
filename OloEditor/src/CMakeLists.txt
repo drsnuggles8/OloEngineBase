@@ -68,6 +68,7 @@
 		"MCP/McpRenderValidate.h"
 		"MCP/McpFroxelFogProbe.h"
 		"MCP/McpGpuReadbackStats.h"
+		"MCP/McpFrameGraphDeclarationStats.h"
 		"MCP/McpShadowCapture.h"
 		"MCP/McpInputInject.h"
 		"MCP/McpToolsAssets.cpp"
@@ -87,6 +88,7 @@
 		"MCP/McpFieldRegistry.cpp"
 		"MCP/McpToolsScripting.cpp"
 		"MCP/McpToolsShader.cpp"
+		"MCP/McpToolsResources.cpp"
 		# Structured test execution + whole-project validation (issue #1130).
 		"MCP/McpTestExecution.h"
 		"MCP/McpToolsTesting.cpp"
@@ -256,6 +258,7 @@ set(OLO_EDITOR_CORE_SOURCES
 		"MCP/McpToolsScene.cpp"
 		"MCP/McpToolsScripting.cpp"
 		"MCP/McpToolsShader.cpp"
+		"MCP/McpToolsResources.cpp"
 		"MCP/McpToolsTesting.cpp"
 		"MCP/McpToolsValidation.cpp"
 		"Panels/ContentBrowser/ContentBrowserItem.cpp"
