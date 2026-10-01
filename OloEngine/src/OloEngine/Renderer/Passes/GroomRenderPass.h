@@ -922,7 +922,13 @@ namespace OloEngine
         std::unordered_map<u64, CacheEntry> m_Cache;
         /// Shared rest streams (#1427), keyed by RestStreamKey.
         std::unordered_map<u64, Ref<GroomRestStream>> m_RestStreams;
-        u64 m_CacheBudgetBytes = 256ull * 1024ull * 1024ull;
+        // 1 GiB (#1533): above one hero coat. The showcase dog alone holds
+        // 651 MiB in use (Dog_Cost.txt's memory table, 474 MiB of it strand
+        // vertices), so the 256 MiB this started at could evict nothing and
+        // the scene logged the over-budget warning every time it opened. The
+        // budget bounds what coats NOT drawn this frame may keep; it never
+        // stops a coat being drawn.
+        u64 m_CacheBudgetBytes = 1024ull * 1024ull * 1024ull;
         u64 m_CacheBytes = 0;
         GroomCacheBudgetWarningGate m_CacheBudgetWarning;
 
