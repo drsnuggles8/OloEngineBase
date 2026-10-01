@@ -39,6 +39,14 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 
 #include "OloEngine/Particle/GPUParticleSystem.h"
 #include "OloEngine/Fluid/GPUFluidSolver.h"
+#include "OloEngine/Renderer/GPUScene/GPUScene.h"
+#include "OloEngine/Animation/Skeleton.h"
+#include "OloEngine/Renderer/MeshSource.h"
+#include "OloEngine/Renderer/RayTracing/DeformedSurfaceCache.h"
+#include "OloEngine/Renderer/RayTracing/GroomSurfaceCache.h"
+#include "OloEngine/Terrain/Foliage/FoliageGPUCuller.h"
+#include "OloEngine/Terrain/Foliage/FoliageInstanceRegistry.h"
+#include "OloEngine/Terrain/Foliage/FoliagePlacement.h"
 #include "OloEngine/Particle/ParticleBatchRenderer.h"
 #include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
 #include "OloEngine/Renderer/OITBlendState.h"
@@ -60,6 +68,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "../Groom/GroomStrandFixture.h"
 #include "OloEngine/Groom/GroomBindingBuilder.h"
 #include "VulkanTestSupport.h"
+#include "PropertyTests/PerfBaselineGate.h"
 #include "../TestOptions.h"
 #include "OloEngine/Renderer/Passes/AOApplyRenderPass.h"
 #include "OloEngine/Renderer/Passes/BloomRenderPass.h"
@@ -165,6 +174,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include <format>
 #include <fstream>
 #include <string>
+#include <chrono>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -12943,6 +12953,617 @@ TEST_F(VulkanPassSuite, InterleavedParticleEmitUploadsKeepDistinctComputeInputs)
         << "the second dispatch must read the second upload";
     EXPECT_NEAR(actual[7].Misc.z, 1.0f, 1e-6f);
     EXPECT_NEAR(actual[6].Misc.z, 1.0f, 1e-6f);
+}
+
+// =============================================================================
+// Delayed-frame reads of per-version buffers (issue #1526, item 4).
+//
+// Five producers publish a FRESH Vulkan allocation for every new version of a
+// buffer a compute or acceleration-structure consumer reads, and retire the
+// old one through VulkanDeferredReclaim, instead of rewriting it in place
+// (docs/agent-rules/vulkan-command-ordered-buffer-writes.md, "Current
+// buffer-family audit"). Each test holds a read of the OLD version on the
+// async compute queue behind an unsignalled timeline semaphore — a consumer
+// from an earlier frame that has not executed yet — publishes the next
+// version through the production call, then releases the read and requires
+// the OLD bytes. In-place reuse overwrites them before the read executes, so
+// each test fails when its producer's fresh-allocation branch is reverted
+// (the negative controls in the PR body name the one-line revert for each).
+//
+// At most ONE SubmitFrame may run between the publish and the release: the
+// reclaim destroys an entry after two completed frames, which is the
+// production frames-in-flight contract the old version relies on.
+// =============================================================================
+namespace
+{
+    // `Immediate` reads now on the GRAPHICS queue: a second read on the compute
+    // queue could wait behind a held one on a driver that runs a queue in order.
+    enum class ReadTiming : u8
+    {
+        Held,
+        Immediate,
+    };
+
+    class DelayedComputeRead
+    {
+      public:
+        DelayedComputeRead(VulkanDevice& device, VkBuffer source, VkDeviceSize offset, VkDeviceSize bytes,
+                           ReadTiming timing = ReadTiming::Held)
+            : m_Device(device.GetDevice()), m_Bytes(bytes)
+        {
+            const bool held = timing == ReadTiming::Held;
+            VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+            bufferInfo.size = bytes;
+            bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+            bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            if (vkCreateBuffer(m_Device, &bufferInfo, nullptr, &m_Readback) != VK_SUCCESS)
+                return;
+            VkMemoryRequirements requirements{};
+            vkGetBufferMemoryRequirements(m_Device, m_Readback, &requirements);
+            VkPhysicalDeviceMemoryProperties properties{};
+            vkGetPhysicalDeviceMemoryProperties(device.GetPhysicalDevice(), &properties);
+            constexpr VkMemoryPropertyFlags kWanted =
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+            u32 memoryType = UINT32_MAX;
+            for (u32 i = 0; i < properties.memoryTypeCount; ++i)
+            {
+                if ((requirements.memoryTypeBits & (1u << i)) != 0u &&
+                    (properties.memoryTypes[i].propertyFlags & kWanted) == kWanted)
+                {
+                    memoryType = i;
+                    break;
+                }
+            }
+            if (memoryType == UINT32_MAX)
+                return;
+            VkMemoryAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+            allocInfo.allocationSize = requirements.size;
+            allocInfo.memoryTypeIndex = memoryType;
+            if (vkAllocateMemory(m_Device, &allocInfo, nullptr, &m_Memory) != VK_SUCCESS ||
+                vkBindBufferMemory(m_Device, m_Readback, m_Memory, 0) != VK_SUCCESS)
+                return;
+
+            VkCommandPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+            poolInfo.queueFamilyIndex = held ? device.GetAsyncComputeQueueFamily() : device.GetQueueFamily();
+            if (vkCreateCommandPool(m_Device, &poolInfo, nullptr, &m_Pool) != VK_SUCCESS)
+                return;
+            VkCommandBufferAllocateInfo cmdInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+            cmdInfo.commandPool = m_Pool;
+            cmdInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            cmdInfo.commandBufferCount = 1;
+            VkCommandBuffer cmd = VK_NULL_HANDLE;
+            if (vkAllocateCommandBuffers(m_Device, &cmdInfo, &cmd) != VK_SUCCESS)
+                return;
+            VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+            vkBeginCommandBuffer(cmd, &begin);
+            const VkBufferCopy copy{ offset, 0, bytes };
+            vkCmdCopyBuffer(cmd, source, m_Readback, 1, &copy);
+            if (vkEndCommandBuffer(cmd) != VK_SUCCESS)
+                return;
+
+            VkSemaphoreTypeCreateInfo type{ VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
+            type.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+            VkSemaphoreCreateInfo semaphoreInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+            semaphoreInfo.pNext = &type;
+            VkFenceCreateInfo fenceInfo{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+            if (vkCreateSemaphore(m_Device, &semaphoreInfo, nullptr, &m_Gate) != VK_SUCCESS ||
+                vkCreateFence(m_Device, &fenceInfo, nullptr, &m_Fence) != VK_SUCCESS)
+                return;
+            const u64 waitValue = 1;
+            VkTimelineSemaphoreSubmitInfo timeline{ VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
+            timeline.waitSemaphoreValueCount = 1;
+            timeline.pWaitSemaphoreValues = &waitValue;
+            const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+            VkSubmitInfo submit{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+            if (held)
+            {
+                submit.pNext = &timeline;
+                submit.waitSemaphoreCount = 1;
+                submit.pWaitSemaphores = &m_Gate;
+                submit.pWaitDstStageMask = &waitStage;
+            }
+            submit.commandBufferCount = 1;
+            submit.pCommandBuffers = &cmd;
+            m_Pending = vkQueueSubmit(held ? device.GetAsyncComputeQueue() : device.GetQueue(), 1, &submit, m_Fence) ==
+                        VK_SUCCESS;
+        }
+
+        ~DelayedComputeRead()
+        {
+            if (m_Pending)
+                (void)Release();
+            if (m_Fence != VK_NULL_HANDLE)
+                vkDestroyFence(m_Device, m_Fence, nullptr);
+            if (m_Gate != VK_NULL_HANDLE)
+                vkDestroySemaphore(m_Device, m_Gate, nullptr);
+            if (m_Pool != VK_NULL_HANDLE)
+                vkDestroyCommandPool(m_Device, m_Pool, nullptr);
+            if (m_Readback != VK_NULL_HANDLE)
+                vkDestroyBuffer(m_Device, m_Readback, nullptr);
+            if (m_Memory != VK_NULL_HANDLE)
+                vkFreeMemory(m_Device, m_Memory, nullptr);
+        }
+        DelayedComputeRead(const DelayedComputeRead&) = delete;
+        DelayedComputeRead& operator=(const DelayedComputeRead&) = delete;
+
+        [[nodiscard]] bool IsPending() const
+        {
+            return m_Pending;
+        }
+
+        // Let the held read execute, wait for it, and return what it read.
+        [[nodiscard]] std::vector<u8> Release()
+        {
+            std::vector<u8> bytes;
+            if (!m_Pending)
+                return bytes;
+            VkSemaphoreSignalInfo signal{ VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO };
+            signal.semaphore = m_Gate;
+            signal.value = 1;
+            vkSignalSemaphore(m_Device, &signal);
+            vkWaitForFences(m_Device, 1, &m_Fence, VK_TRUE, UINT64_MAX);
+            m_Pending = false;
+            void* mapped = nullptr;
+            if (vkMapMemory(m_Device, m_Memory, 0, m_Bytes, 0, &mapped) == VK_SUCCESS)
+            {
+                bytes.resize(static_cast<sizet>(m_Bytes));
+                std::memcpy(bytes.data(), mapped, bytes.size());
+                vkUnmapMemory(m_Device, m_Memory);
+            }
+            return bytes;
+        }
+
+      private:
+        VkDevice m_Device = VK_NULL_HANDLE;
+        VkDeviceSize m_Bytes = 0;
+        VkBuffer m_Readback = VK_NULL_HANDLE;
+        VkDeviceMemory m_Memory = VK_NULL_HANDLE;
+        VkCommandPool m_Pool = VK_NULL_HANDLE;
+        VkSemaphore m_Gate = VK_NULL_HANDLE;
+        VkFence m_Fence = VK_NULL_HANDLE;
+        bool m_Pending = false;
+    };
+
+    [[nodiscard]] VkBuffer BoundStorageBuffer(u32 binding)
+    {
+        const VulkanStorageBuffer* buffer = VulkanBindingState::Get().GetStorageBuffer(binding);
+        return buffer != nullptr ? buffer->GetVkBuffer() : VK_NULL_HANDLE;
+    }
+
+    // The foliage registry driver loop from FoliageRenderer::GenerateInstances
+    // (the same shape FoliageInstanceIdentityPropertyTests keeps), returning
+    // layer 0's instance count.
+    [[nodiscard]] u32 RegenerateFlatFoliage(FoliageInstanceRegistry& registry, const TArray<FoliageLayer>& layers,
+                                            f32 height)
+    {
+        constexpr u32 kResolution = 32;
+        constexpr f32 kWorldSize = 32.0f;
+        const TArray<f32> heights(static_cast<sizet>(kResolution) * kResolution, height);
+        registry.BeginGeneration(layers);
+        TArray<FoliagePlacement::Placement> placements;
+        FoliagePlacement::GenerateLayer(layers[0], 0u, heights, kResolution, nullptr, kWorldSize, kWorldSize, 20.0f,
+                                        placements);
+        registry.BeginLayer(0u, layers[0], FoliagePlacement::SeedForLayer(0u),
+                            FoliagePlacement::SpacingForDensity(layers[0].Density), kWorldSize, kWorldSize,
+                            FoliageRepresentation::MeshCard, false);
+        for (u32 row = 0; row < static_cast<u32>(placements.Num()); ++row)
+            registry.AddInstance(placements[row].m_CellX, placements[row].m_CellZ, placements[row].m_Row, row);
+        registry.EndLayer();
+        registry.EndGeneration();
+        return static_cast<u32>(placements.Num());
+    }
+} // namespace
+
+// The foliage GPU cull's layer input: a same-sized regeneration must not
+// rewrite the buffer an earlier frame's cull dispatch is still reading.
+TEST_F(VulkanPassSuite, FoliageCullLayerInputSurvivesADelayedRead)
+{
+    if (!m_Device->HasAsyncComputeQueue())
+        GTEST_SKIP() << "A separate compute queue is needed to hold the old read.";
+
+    TArray<FoliageLayer> layers;
+    FoliageLayer layer;
+    layer.Name = "delayed-read";
+    layer.Density = 0.25f;
+    layers.Add(layer);
+    FoliageInstanceRegistry registry;
+    const u32 instanceCount = RegenerateFlatFoliage(registry, layers, 0.5f);
+    ASSERT_GT(instanceCount, 0u);
+
+    FoliageGPUCuller culler;
+    FoliageGPUCuller::LayerResources resources;
+    FoliageBoundsProfile first;
+    first.m_MaxY = 1.0f;
+    ASSERT_TRUE(culler.BuildLayer(resources, registry, 0u, instanceCount, first));
+    const VkBuffer oldBuffer = static_cast<VulkanStorageBuffer*>(resources.LayerBuffer.Raw())->GetVkBuffer();
+    const u32 oldSize = resources.LayerBuffer->GetSize();
+
+    DelayedComputeRead read(*m_Device, oldBuffer, 0, sizeof(FoliageCullLayerHeader));
+    ASSERT_TRUE(read.IsPending());
+
+    // The next generation: the same plants on raised ground, so the registry
+    // advances its generation (a same-field regeneration does not, and
+    // BuildLayer would return early), the byte count stays, and the header and
+    // group bounds change.
+    const u64 generation = registry.GetGeneration();
+    ASSERT_EQ(RegenerateFlatFoliage(registry, layers, 0.6f), instanceCount);
+    ASSERT_NE(registry.GetGeneration(), generation) << "the fixture must produce a NEW generation";
+    FoliageBoundsProfile second = first;
+    second.m_MaxY = 2.0f;
+    ASSERT_TRUE(culler.BuildLayer(resources, registry, 0u, instanceCount, second));
+    EXPECT_EQ(resources.LayerBuffer->GetSize(), oldSize) << "the fixture must exercise the SAME-size branch";
+    {
+        // The next version really carries the new header, so the check below
+        // cannot pass because nothing was rewritten.
+        DelayedComputeRead current(*m_Device,
+                                   static_cast<VulkanStorageBuffer*>(resources.LayerBuffer.Raw())->GetVkBuffer(), 0,
+                                   sizeof(FoliageCullLayerHeader), ReadTiming::Immediate);
+        const std::vector<u8> now = current.Release();
+        ASSERT_EQ(now.size(), sizeof(FoliageCullLayerHeader));
+        FoliageCullLayerHeader published{};
+        std::memcpy(&published, now.data(), sizeof(published));
+        ASSERT_FLOAT_EQ(published.MaxY, 2.0f) << "BuildLayer did not publish the next generation";
+    }
+    SubmitFrame([]() {});
+
+    const std::vector<u8> bytes = read.Release();
+    ASSERT_EQ(bytes.size(), sizeof(FoliageCullLayerHeader));
+    FoliageCullLayerHeader header{};
+    std::memcpy(&header, bytes.data(), sizeof(header));
+    EXPECT_FLOAT_EQ(header.MaxY, 1.0f) << "the delayed cull read the NEXT generation's layer input";
+    EXPECT_EQ(header.InstanceCount, instanceCount);
+}
+
+// GPU fluid emit staging: an earlier frame's emit dispatch keeps its batch.
+TEST_F(VulkanPassSuite, FluidEmitStagingSurvivesADelayedRead)
+{
+    if (!m_Device->HasAsyncComputeQueue())
+        GTEST_SKIP() << "A separate compute queue is needed to hold the old read.";
+    GPUFluidSolver solver(16);
+    ASSERT_TRUE(solver.IsValid());
+    FluidSolverParams params;
+    params.BoundsMin = { -1.0f, -1.0f, -1.0f };
+    params.BoundsMax = { 1.0f, 1.0f, 1.0f };
+    params.SolverIterations = 1;
+
+    const GPUFluidEmitEntry first{ .Position = { -0.5f, 0.0f, 0.0f, 0.0f }, .Velocity = { 0.0f, 0.0f, 0.0f, 0.0f } };
+    const GPUFluidEmitEntry second{ .Position = { 0.5f, 0.0f, 0.0f, 0.0f }, .Velocity = { 0.0f, 0.0f, 0.0f, 0.0f } };
+    VkBuffer oldBuffer = VK_NULL_HANDLE;
+    SubmitFrame([&]()
+                {
+                    solver.Emit(std::span(&first, 1));
+                    oldBuffer = BoundStorageBuffer(ShaderBindingLayout::SSBO_FLUID_EMIT_STAGING);
+                    solver.Step(params, 1.0f / 60.0f, {}, {}); });
+    ASSERT_NE(oldBuffer, VK_NULL_HANDLE);
+
+    DelayedComputeRead read(*m_Device, oldBuffer, 0, sizeof(GPUFluidEmitEntry));
+    ASSERT_TRUE(read.IsPending());
+    SubmitFrame([&]()
+                {
+                    solver.Emit(std::span(&second, 1));
+                    solver.Step(params, 1.0f / 60.0f, {}, {}); });
+
+    const std::vector<u8> bytes = read.Release();
+    ASSERT_EQ(bytes.size(), sizeof(GPUFluidEmitEntry));
+    GPUFluidEmitEntry seen{};
+    std::memcpy(&seen, bytes.data(), sizeof(seen));
+    EXPECT_FLOAT_EQ(seen.Position.x, -0.5f) << "the delayed emit read the NEXT batch";
+    EXPECT_EQ(solver.RefreshExactCount(), 2u);
+}
+
+// GPU fluid body proxies: an earlier step's collision read keeps its proxies.
+TEST_F(VulkanPassSuite, FluidBodyProxiesSurviveADelayedRead)
+{
+    if (!m_Device->HasAsyncComputeQueue())
+        GTEST_SKIP() << "A separate compute queue is needed to hold the old read.";
+    GPUFluidSolver solver(16);
+    ASSERT_TRUE(solver.IsValid());
+    FluidSolverParams params;
+    params.BoundsMin = { -1.0f, -1.0f, -1.0f };
+    params.BoundsMax = { 1.0f, 1.0f, 1.0f };
+    params.SolverIterations = 1;
+    const GPUFluidEmitEntry particle{ .Position = { 0.0f, 0.0f, 0.0f, 0.0f }, .Velocity = { 0.0f, 0.0f, 0.0f, 0.0f } };
+
+    FluidBodyProxy proxy{};
+    proxy.Position = { 0.8f, 0.8f, 0.8f, static_cast<f32>(FluidBodyProxyShape::Sphere) };
+    proxy.Rotation = { 0.0f, 0.0f, 0.0f, 1.0f };
+    proxy.HalfExtents = { 0.1f, 0.0f, 0.0f, 0.0f };
+    VkBuffer oldBuffer = VK_NULL_HANDLE;
+    SubmitFrame([&]()
+                {
+                    solver.Emit(std::span(&particle, 1));
+                    solver.Step(params, 1.0f / 60.0f, std::span(&proxy, 1), {});
+                    oldBuffer = BoundStorageBuffer(ShaderBindingLayout::SSBO_FLUID_BODY_PROXIES); });
+    ASSERT_NE(oldBuffer, VK_NULL_HANDLE);
+
+    DelayedComputeRead read(*m_Device, oldBuffer, 0, sizeof(FluidBodyProxy));
+    ASSERT_TRUE(read.IsPending());
+    // The same proxy count, so a reverted (reused) buffer would take the write.
+    proxy.Position.x = -0.8f;
+    SubmitFrame([&]()
+                { solver.Step(params, 1.0f / 60.0f, std::span(&proxy, 1), {}); });
+
+    const std::vector<u8> bytes = read.Release();
+    ASSERT_EQ(bytes.size(), sizeof(FluidBodyProxy));
+    FluidBodyProxy seen{};
+    std::memcpy(&seen, bytes.data(), sizeof(seen));
+    EXPECT_FLOAT_EQ(seen.Position.x, 0.8f) << "the delayed collision read the NEXT step's proxies";
+}
+
+// The ray-traced skeletal palette: a deformation dispatch from an earlier frame
+// keeps the pose it was queued with, even at a stable palette capacity.
+TEST_F(VulkanPassSuite, SkeletalPaletteSurvivesADelayedRead)
+{
+    if (!m_Device->HasAsyncComputeQueue())
+        GTEST_SKIP() << "A separate compute queue is needed to hold the old read.";
+
+    TArray<Vertex> vertices;
+    vertices.Add(Vertex({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, glm::vec2(0.0f)));
+    vertices.Add(Vertex({ 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, glm::vec2(1.0f, 0.0f)));
+    vertices.Add(Vertex({ 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, glm::vec2(0.0f, 1.0f)));
+    TArray<u32> indices;
+    indices.Add(0u);
+    indices.Add(1u);
+    indices.Add(2u);
+    auto source = Ref<MeshSource>::Create(MoveTemp(vertices), MoveTemp(indices));
+    BoneInfluence influence;
+    influence.SetBoneData(0, /*boneId=*/0, /*weight=*/1.0f);
+    for (u32 i = 0; i < 3u; ++i)
+        source->SetVertexBoneData(i, influence);
+    Submesh submesh;
+    submesh.m_IndexCount = 3;
+    submesh.m_VertexCount = 3;
+    submesh.m_IsRigged = true;
+    source->AddSubmesh(submesh);
+    // A rigged mesh builds its influence stream only with a skeleton.
+    source->SetSkeleton(Ref<Skeleton>::Create(static_cast<sizet>(1)));
+    source->Build();
+    ASSERT_TRUE(source->GetVertexBuffer());
+    ASSERT_TRUE(source->GetBoneInfluenceBuffer()) << "the rigged mesh built no influence buffer";
+
+    RayTracing::DeformedSurfaceCache cache;
+    cache.SetEnabled(true);
+    const RayTracing::DeformedSurfaceKey key{ .EntityId = 7u, .RestVertexBuffer = 1u };
+    const std::array<glm::mat4, 1> first{ glm::translate(glm::mat4(1.0f), glm::vec3(0.25f, 0.0f, 0.0f)) };
+    const std::array<glm::mat4, 1> second{ glm::translate(glm::mat4(1.0f), glm::vec3(0.75f, 0.0f, 0.0f)) };
+
+    cache.BeginFrame();
+    ASSERT_TRUE(cache.Acquire(key, true, source, first, 0u).DeviceAddress != 0u);
+    cache.EndFrame();
+    // The palette buffer claims binding 0 at construction (the report path);
+    // it is the newest storage buffer there once EndFrame published it.
+    const VkBuffer oldBuffer = BoundStorageBuffer(0u);
+    ASSERT_NE(oldBuffer, VK_NULL_HANDLE);
+    const u64 paletteBytes = cache.GetStats().PaletteBytes;
+    // The CAPACITY, which grows in steps; a second pose of the same surface
+    // must reuse it, which is the stable-capacity case the reuse branch took.
+    ASSERT_GE(paletteBytes, sizeof(glm::mat4));
+
+    DelayedComputeRead read(*m_Device, oldBuffer, 0, sizeof(glm::mat4));
+    ASSERT_TRUE(read.IsPending());
+    cache.BeginFrame();
+    (void)cache.Acquire(key, true, source, second, 0u);
+    cache.EndFrame();
+    EXPECT_EQ(cache.GetStats().PaletteBytes, paletteBytes) << "the fixture must exercise a STABLE capacity";
+
+    const std::vector<u8> bytes = read.Release();
+    ASSERT_EQ(bytes.size(), sizeof(glm::mat4));
+    glm::mat4 seen(0.0f);
+    std::memcpy(&seen, bytes.data(), sizeof(seen));
+    EXPECT_FLOAT_EQ(seen[3].x, 0.25f) << "the delayed deformation read the NEXT frame's palette";
+}
+
+// The ray-traced groom proxy's vertices: a same-shape deformed coat publishes a
+// fresh vertex allocation per frame on Vulkan, so a BLAS build from an earlier
+// frame keeps the strands it was recorded with. GroomSurfaceCache itself is
+// another worktree's (#1533); this test only reads it.
+TEST_F(VulkanPassSuite, GroomProxyVerticesSurviveADelayedRead)
+{
+    if (!m_Device->HasAsyncComputeQueue())
+        GTEST_SKIP() << "A separate compute queue is needed to hold the old read.";
+
+    using namespace OloEngine::GroomBindingTest;
+    GridSurface grid = MakeGrid(8u);
+    WeightAsHinge(grid);
+    Ref<GroomAsset> groom = MakeCoat(96u, 8u, /*height*/ 0.6f);
+    ASSERT_TRUE(groom);
+    Ref<GroomBindingAsset> binding;
+    GroomBindingBuildStats bindStats;
+    std::string reason;
+    ASSERT_TRUE(GroomBindingBuilder::Build(*groom, grid.View(2u), "DelayedReadBody", GroomBindingBuildSettings{},
+                                           binding, bindStats, reason))
+        << reason;
+
+    const auto requestAt = [&](f32 degrees)
+    {
+        const glm::vec3 hinge{ 0.5f, 0.0f, 0.0f };
+        glm::mat4 bend = glm::translate(glm::mat4(1.0f), hinge);
+        bend = glm::rotate(bend, glm::radians(degrees), glm::vec3(0.0f, 0.0f, 1.0f));
+        bend = glm::translate(bend, -hinge);
+        const std::vector<glm::mat4> palette{ glm::mat4(1.0f), bend };
+        GroomStrandRequest request;
+        request.Groom = groom;
+        request.Handle = 0x1526u;
+        request.EntityID = 13;
+        request.Transform = glm::mat4(1.0f);
+        request.PreviousTransform = glm::mat4(1.0f);
+        request.Color = glm::vec3(0.8f);
+        request.WidthScale = 24.0f;
+        request.ApparentPixelSize = 400.0f;
+        GroomDeformationInputs inputs;
+        inputs.Surface = grid.View(2u);
+        inputs.Skinning = grid.Skinning(palette, palette, true);
+        inputs.HasHistory = true;
+        request.DeformationStats = EvaluateGroomRootTransforms(*groom, *binding, inputs, std::nullopt,
+                                                               request.RootTransforms);
+        request.Binding = binding;
+        return request;
+    };
+
+    GPUScene scene;
+    scene.InitializeGPU(GPUSceneCapacities{ .m_Instances = 4, .m_Geometries = 4 });
+    RayTracing::GroomSurfaceCache cache;
+    cache.SetEnabled(true);
+    const GPUSceneGeometryKey geometryKey{ 13u, 0x1526u, std::numeric_limits<u32>::max() };
+    VkDeviceSize vertexBytes = 0;
+    const auto extract = [&](f32 degrees, u64 frame) -> VkBuffer
+    {
+        const std::array<GroomStrandRequest, 1> requests{ requestAt(degrees) };
+        scene.BeginExtraction(frame, glm::vec3(0.0f));
+        cache.Extract(scene, requests, true);
+        (void)scene.EndExtraction();
+        scene.Upload();
+        const GPUSceneGeometry* record = scene.GetGeometryRecord(scene.FindGeometry(geometryKey));
+        if (record == nullptr)
+            return VK_NULL_HANDLE;
+        vertexBytes = static_cast<VkDeviceSize>(record->VertexCount) * sizeof(Vertex);
+        const auto* entry = VulkanRootObjectRegistry::Get().Lookup(
+            RHI::ResourceHandle{ record->VertexBufferIndex, record->VertexBufferGeneration });
+        return entry != nullptr ? static_cast<VulkanVertexBuffer*>(entry->Object)->GetVkBuffer() : VK_NULL_HANDLE;
+    };
+
+    const VkBuffer oldBuffer = extract(10.0f, 1u);
+    ASSERT_NE(oldBuffer, VK_NULL_HANDLE) << "the coat produced no ray-traced proxy (stats: resident "
+                                         << cache.GetStats().ResidentBytes << " B)";
+    // The whole stream: strands rooted on the grid's unbent half keep their
+    // bytes when the hinge bends, so a prefix can match across versions.
+    const VkDeviceSize probeBytes = vertexBytes;
+    ASSERT_GT(probeBytes, 0u);
+    // The OLD bytes as the proxy wrote them, to compare the delayed read with.
+    std::vector<u8> expected;
+    {
+        DelayedComputeRead snapshot(*m_Device, oldBuffer, 0, probeBytes, ReadTiming::Immediate);
+        expected = snapshot.Release();
+    }
+    ASSERT_EQ(expected.size(), static_cast<sizet>(probeBytes));
+    DelayedComputeRead read(*m_Device, oldBuffer, 0, probeBytes);
+    ASSERT_TRUE(read.IsPending());
+
+    // The same coat, bent further: the same shape, new deformed vertices.
+    const VkBuffer newBuffer = extract(40.0f, 2u);
+    ASSERT_NE(newBuffer, VK_NULL_HANDLE);
+    {
+        // The next version really holds different strands, so the check below
+        // cannot pass because nothing was rewritten.
+        DelayedComputeRead current(*m_Device, newBuffer, 0, probeBytes, ReadTiming::Immediate);
+        ASSERT_NE(current.Release(), expected) << "the bent coat published the same vertex bytes";
+    }
+
+    const std::vector<u8> bytes = read.Release();
+    ASSERT_EQ(bytes.size(), static_cast<sizet>(probeBytes));
+    EXPECT_EQ(bytes, expected) << "the delayed BLAS input read the NEXT frame's deformed strands";
+    scene.Shutdown();
+}
+
+// L6 timing baselines for the per-dispatch staging allocations (issue #1526).
+//
+// On Vulkan every particle emit batch, fluid emit batch and nonempty fluid
+// body-proxy step allocates a FRESH storage buffer and retires the last one
+// through the deferred reclaim (the delayed-read tests above pin why). That is
+// an allocation on a hot path, so it carries a baseline before it is treated
+// as performance-safe. The GL twin (PerfRegressionTests.cpp) measures the same
+// calls on GL's reuse path under gl_* keys.
+//
+// CPU submission cost only — the minimum over 20 calls recorded into one
+// frame, the way several emitters in one frame would call them. The fluid
+// proxy key has a no-proxy twin so the proxy staging's share of a step is the
+// difference between two numbers taken the same way.
+TEST_F(VulkanPassSuite, StagingAllocationsStayWithinCpuBaselines)
+{
+    ::testing::Test::RecordProperty("measurement_kind", "lower-bound cost");
+    using namespace ::OloEngine::Tests::PerfBaseline;
+    constexpr u32 kSamples = 20u;
+    const auto minOf = [](std::array<u64, kSamples>& samples)
+    { return *std::ranges::min_element(samples); };
+    const auto timed = [](auto&& call) -> u64
+    {
+        const auto start = std::chrono::steady_clock::now();
+        call();
+        return static_cast<u64>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count());
+    };
+    const auto report = [](std::string_view key, u64 ns)
+    {
+        std::cout << "[BENCHMARK] " << key << ": " << ns << " ns/call\n";
+        CheckPerfRegression(std::string(key), ns);
+    };
+
+    // -- GPU particle emit staging --------------------------------------------
+    GPUParticleSystem particles(1u << 16);
+    ASSERT_TRUE(particles.IsInitialized());
+    ASSERT_TRUE(particles.GetShaderHealth().Emit);
+    VulkanFrameArena::Get().BeginFrame(0);
+    std::vector<GPUParticle> batch(64);
+    for (u32 i = 0; i < batch.size(); ++i)
+        batch[i].PositionLifetime = glm::vec4(static_cast<f32>(i) * 0.01f, 0.0f, 0.0f, 5.0f);
+    SubmitFrame([&]()
+                {
+                    for (u32 i = 0; i < 5u; ++i)
+                        particles.EmitParticles(batch); });
+    const auto measureParticles = [&]() -> u64
+    {
+        std::array<u64, kSamples> samples{};
+        SubmitFrame([&]()
+                    {
+                        for (u64& sample : samples)
+                            sample = timed([&]() { particles.EmitParticles(batch); }); });
+        return minOf(samples);
+    };
+    report("vk_particle_emit_staging_64", MeasureBenchmarkStableNs("vk_particle_emit_staging_64", measureParticles));
+
+    // -- GPU fluid emit staging and body proxies ------------------------------
+    GPUFluidSolver solver(4096);
+    ASSERT_TRUE(solver.IsValid());
+    FluidSolverParams params;
+    params.BoundsMin = { -4.0f, -4.0f, -4.0f };
+    params.BoundsMax = { 4.0f, 4.0f, 4.0f };
+    params.SolverIterations = 1;
+    std::vector<GPUFluidEmitEntry> entries(32);
+    for (u32 i = 0; i < entries.size(); ++i)
+        entries[i].Position = { static_cast<f32>(i % 8u) * 0.2f - 0.8f, static_cast<f32>(i / 8u) * 0.2f, 0.0f, 0.0f };
+    std::array<FluidBodyProxy, 4> proxies{};
+    for (u32 i = 0; i < proxies.size(); ++i)
+    {
+        proxies[i].Position = { -2.0f + static_cast<f32>(i), -2.0f, 0.0f, static_cast<f32>(FluidBodyProxyShape::Sphere) };
+        proxies[i].Rotation = { 0.0f, 0.0f, 0.0f, 1.0f };
+        proxies[i].HalfExtents = { 0.25f, 0.0f, 0.0f, 0.0f };
+    }
+    constexpr f32 kDt = 1.0f / 60.0f;
+    SubmitFrame([&]()
+                {
+                    solver.Emit(entries);
+                    solver.Step(params, kDt, proxies, {}); });
+    const auto measureEmit = [&]() -> u64
+    {
+        std::array<u64, kSamples> samples{};
+        SubmitFrame([&]()
+                    {
+                        for (u64& sample : samples)
+                        {
+                            sample = timed([&]() { solver.Emit(entries); });
+                            solver.Step(params, kDt, {}, {}); // consumes the batch, so the next Emit allocates
+                        } });
+        return minOf(samples);
+    };
+    const auto measureStep = [&](bool withProxies) -> u64
+    {
+        std::array<u64, kSamples> samples{};
+        SubmitFrame([&]()
+                    {
+                        for (u64& sample : samples)
+                        {
+                            sample = withProxies ? timed([&]() { solver.Step(params, kDt, proxies, {}); })
+                                                 : timed([&]() { solver.Step(params, kDt, {}, {}); });
+                        } });
+        return minOf(samples);
+    };
+    report("vk_fluid_emit_staging_32", MeasureBenchmarkStableNs("vk_fluid_emit_staging_32", measureEmit));
+    report("vk_fluid_step_4_proxies",
+           MeasureBenchmarkStableNs("vk_fluid_step_4_proxies", [&]()
+                                    { return measureStep(true); }));
+    report("vk_fluid_step_no_proxies",
+           MeasureBenchmarkStableNs("vk_fluid_step_no_proxies", [&]()
+                                    { return measureStep(false); }));
 }
 
 // =============================================================================
