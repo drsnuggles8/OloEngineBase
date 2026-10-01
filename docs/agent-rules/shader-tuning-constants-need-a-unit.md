@@ -70,12 +70,34 @@ Three consequences worth copying:
   name.*
 - **One number cannot serve two spaces.** The same `ShadowParams.x` was also the local-light **atlas**
   bias, whose entries are perspective, so an unrelated directional light's authoring decided how spot
-  and point shadows biased. The atlas now reads its own `u_AtlasDepthBias` lane — taken from the former
-  `_shadowPad1` int, so the std140 size is unchanged.
+  and point shadows biased. The atlas now reads its own lane — taken from the former `_shadowPad1` int,
+  so the std140 size is unchanged.
 - **Pin the unit, not the value.** `ShadowMapTest`'s `CSMDepthBias*` tests assert that converting the
   bias back to metres gives exactly N texels *of that cascade*, that the result stays centimetre-scale
   in cascade 0, and that `MaxShadowDistance` does not change what one authored texel means. A test
   that had only pinned `0.005` would have passed throughout.
+
+## The atlas kept the same defect until #1533
+
+**A perspective map's [0,1] depth is no better a unit than an orthographic one.** #1119 gave the atlas
+its own lane but left it a constant `0.005` of normalized depth. A spot or cube-face entry has a 0.1 m
+near plane, and its depth compresses as `1/d`, so `0.005` was `0.05 d^2` metres of world depth: 5 cm a
+metre from the light, 20 cm at two, 1.8 m at six. A crate standing on the floor under a spot seven
+metres up cast no shadow at all, and nothing showed acne, so it read as a soft look again. Found by a
+groom strand that sampled the atlas and was shadowed by nothing within two metres of its body.
+
+The lane is now `u_AtlasDepthBiasTexels` (renamed, because its unit changed), converted per receiver
+in `calculateAtlasEntryShadow`: `texels * |P32| / (P00 * tile * d)`, with `P00`, `P22` and `P32`
+recovered from the entry matrix the way the cascades recover theirs (`ShadowAtlasBias.h` is the C++
+twin). A perspective texel grows with distance, so the conversion is per receiver, not per entry. Two
+more lessons:
+
+- **A depth bias alone cannot cover a grazing two-sided receiver.** Its own plane is `tan(theta)`
+  texels nearer per kernel texel; the receiver also moves 1.5 texels along its normal, measured at the
+  receiver, which clears about 80 degrees.
+- **A single-sided acne test proves nothing.** The shadow pass culls front faces, so a one-sided floor
+  never reaches the map and cannot shadow itself at ANY bias; the negative control read zero pixels
+  until the floor was made two-sided (`ShadowAtlasBiasEvidenceTest`).
 
 ## Related
 

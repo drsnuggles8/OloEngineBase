@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
+#include "OloEngine/Renderer/Shadow/ShadowAtlasBias.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/ShaderConstants.h"
@@ -474,7 +475,7 @@ TEST(ShadowSettingsTest, DefaultValues)
     ShadowSettings settings;
     EXPECT_EQ(settings.Resolution, static_cast<u32>(ShaderConstants::SHADOW_MAP_SIZE));
     EXPECT_FLOAT_EQ(settings.DepthBiasTexels, ShaderConstants::SHADOW_CSM_DEPTH_BIAS_TEXELS);
-    EXPECT_FLOAT_EQ(settings.AtlasBias, ShaderConstants::SHADOW_BIAS);
+    EXPECT_FLOAT_EQ(settings.AtlasDepthBiasTexels, ShaderConstants::SHADOW_ATLAS_DEPTH_BIAS_TEXELS);
     EXPECT_FLOAT_EQ(settings.NormalBias, 0.01f);
     EXPECT_FLOAT_EQ(settings.Softness, 1.0f);
     EXPECT_FLOAT_EQ(settings.MaxShadowDistance, 200.0f);
@@ -711,6 +712,106 @@ TEST_F(ShadowMapMatrixTest, CSMDepthBiasIsIndependentOfMaxShadowDistance)
             << "MaxShadowDistance " << maxDistance << ": the cascade's texel size is not the one the splits imply";
         EXPECT_NEAR(biasWorld / expectedTexel, kBiasTexels, 1.0e-2f)
             << "MaxShadowDistance " << maxDistance << " changed what one authored texel means";
+    }
+}
+
+// =============================================================================
+// The local-light atlas's depth bias, in texels (#1533; #1119's perspective twin)
+// =============================================================================
+//
+// The atlas compared `projCoords.z - 0.005` in a perspective entry's [0,1]
+// depth, which is 0.05 d^2 metres of world depth with the 0.1 m near plane:
+// 1.8 m six metres from a spot. ShadowAtlasBias.h converts a TEXEL count at the
+// receiver instead, from the entry matrix alone; these tests check it against a
+// derivation that never reads the matrix -- the cone angle, the near plane and
+// the range the builders were handed.
+
+namespace
+{
+    constexpr f32 kAtlasNear = 0.1f; // ShadowMap's spot and cube-face projections
+    // The constant [0,1] depth bias the atlas used before #1533, kept here only
+    // to state the defect in the units it was found in.
+    constexpr f32 kOldAtlasBias = 0.005f;
+
+    // d(z01)/d(distance) of a GL perspective with this near and far, at `d`.
+    [[nodiscard]] f32 AtlasDepthSlope(f32 farPlane, f32 d)
+    {
+        return farPlane * kAtlasNear / ((farPlane - kAtlasNear) * d * d);
+    }
+} // namespace
+
+TEST(ShadowAtlasBias, TheDepthBiasIsTheAuthoredNumberOfTexelsAtEveryDistance)
+{
+    constexpr f32 kOuterCutoff = 34.0f;
+    constexpr f32 kRange = 16.0f;
+    constexpr f32 kTile = 512.0f;
+    constexpr f32 kBiasTexels = 2.0f;
+    const glm::vec3 position{ 0.0f, 8.0f, 0.0f };
+    const glm::vec3 direction{ 0.0f, -1.0f, 0.0f };
+    const glm::mat4 entry = ShadowMap::BuildSpotLightMatrix(position, direction, kOuterCutoff, kRange);
+
+    const AtlasEntryProjectionTerms terms = AtlasEntryTerms(entry);
+    EXPECT_NEAR(terms.P00, 1.0f / std::tan(glm::radians(kOuterCutoff)), 1.0e-4f);
+    EXPECT_NEAR(terms.P32, -2.0f * kRange * kAtlasNear / (kRange - kAtlasNear), 1.0e-5f);
+
+    for (const f32 distance : { 0.5f, 1.0f, 2.0f, 4.0f, 6.0f, 8.0f, 12.0f })
+    {
+        const glm::vec4 clip = entry * glm::vec4(position + (direction * distance), 1.0f);
+        ASSERT_NEAR(clip.w, distance, 1.0e-4f) << "clip w is the distance along the light's axis";
+        const f32 texel = 2.0f * distance * std::tan(glm::radians(kOuterCutoff)) / kTile;
+        EXPECT_NEAR(AtlasEntryTexelWorld(entry, kTile, clip.w), texel, texel * 1.0e-4f) << distance << " m";
+        const f32 biasWorld = AtlasEntryDepthBias(entry, kTile, kBiasTexels, clip.w) / AtlasDepthSlope(kRange, distance);
+        EXPECT_NEAR(biasWorld, kBiasTexels * texel, kBiasTexels * texel * 1.0e-3f)
+            << distance << " m from the light: the bias is not " << kBiasTexels << " texels of world depth";
+    }
+}
+
+TEST(ShadowAtlasBias, TheBiasStaysCentimetresWhereTheConstantWasMetres)
+{
+    // A spot six metres above the floor with a 512-texel tile. The constant is
+    // computed only to state the defect in the units it was found in.
+    constexpr f32 kRange = 16.0f;
+    const glm::mat4 entry = ShadowMap::BuildSpotLightMatrix({ 0.0f, 6.0f, 0.0f }, { 0.0f, -1.0f, 0.0f }, 34.0f, kRange);
+    const f32 slope = AtlasDepthSlope(kRange, 6.0f);
+    const f32 constantMetres = kOldAtlasBias / slope;
+    const f32 texelMetres =
+        AtlasEntryDepthBias(entry, 512.0f, ShaderConstants::SHADOW_ATLAS_DEPTH_BIAS_TEXELS, 6.0f) / slope;
+    EXPECT_GT(constantMetres, 1.5f) << "the old constant was " << constantMetres << " m at 6 m";
+    EXPECT_LT(texelMetres, 0.05f) << "the texel bias is " << texelMetres << " m at 6 m";
+    EXPECT_GT(texelMetres, 0.005f) << "and still clears the 3x3 kernel's own plane";
+}
+
+TEST(ShadowAtlasBias, TheTermsSurviveTheCameraRelativeShiftAndVulkansRowFlip)
+{
+    const glm::mat4 entry = ShadowMap::BuildSpotLightMatrix({ 3.0f, 5.0f, -2.0f },
+                                                            glm::normalize(glm::vec3(0.3f, -0.9f, 0.2f)), 28.0f, 20.0f);
+    const AtlasEntryProjectionTerms terms = AtlasEntryTerms(entry);
+
+    // The camera-relative shift moves the w column only (MakeViewProjectionRelative).
+    const glm::mat4 relative = entry * glm::translate(glm::mat4(1.0f), glm::vec3(1250.0f, -40.0f, 890.0f));
+    // Vulkan's sampling matrices negate row 1 (AdjustProjectionForShaderReconstruction).
+    glm::mat4 flipped = relative;
+    for (int column = 0; column < 4; ++column)
+    {
+        flipped[column][1] = -flipped[column][1];
+    }
+    for (const glm::mat4& variant : { relative, flipped })
+    {
+        const AtlasEntryProjectionTerms moved = AtlasEntryTerms(variant);
+        EXPECT_NEAR(moved.P00, terms.P00, terms.P00 * 1.0e-5f);
+        EXPECT_NEAR(moved.P32, terms.P32, std::abs(terms.P32) * 1.0e-3f);
+    }
+}
+
+TEST(ShadowAtlasBias, EveryCubeFaceConvertsAsANinetyDegreeEntry)
+{
+    constexpr f32 kRange = 12.0f;
+    const auto faces = ShadowMap::BuildPointLightFaceMatrices({ -1.0f, 2.0f, 4.0f }, kRange);
+    for (sizet face = 0; face < faces.size(); ++face)
+    {
+        const AtlasEntryProjectionTerms terms = AtlasEntryTerms(faces[face]);
+        EXPECT_NEAR(terms.P00, 1.0f, 1.0e-5f) << "face " << face;
+        EXPECT_NEAR(terms.P32, -2.0f * kRange * kAtlasNear / (kRange - kAtlasNear), 1.0e-5f) << "face " << face;
     }
 }
 

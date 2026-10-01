@@ -443,7 +443,7 @@ layout(std140, binding = 6) uniform ShadowData {
 	int u_AtlasResolution;
 	int u_CascadeDebugEnabled;
 	int u_SoftShadowMode;
-	float u_AtlasDepthBias;
+	float u_AtlasDepthBiasTexels;
 	int _shadowPad2;
 };
 
@@ -691,18 +691,18 @@ float oloGroomCoatExitDistance(vec3 worldDir)
 // copy, or a coat that does not cast and so has no exit offset. 1.0 with
 // known == false is "nothing here can say", not "lit", and dual scattering
 // needs the difference (see oloGroomShadeFibre).
-// A STRAND AGAINST THE OPAQUE ATLAS BIASES IN METRES, not in the atlas's depth
-// units (#1533). A local light's map is perspective, so its depth is non-linear:
-// a few metres from the light the constant u_AtlasDepthBias (0.005) spans metres
-// of distance -- 0.990 at 6 m, 0.994 at 8 m with the 0.1 m near plane -- and a
-// spot 6 m away shadowed nothing within ~2 m behind its occluder, the body its fur
-// grows on included (measured: none of it). Against a map with none of its own
-// fur in it -- the opaque copy, or the full map under a coat that does not cast --
-// a strand has nothing of its own to self-shadow on, so it moves toward the light
-// by a centimetre (about two texels of a tile at those distances) and the depth
-// bias drops to a hair's breadth. The exit-point fallback keeps the surfaces' bias.
+// A STRAND AGAINST THE OPAQUE ATLAS MOVES TOWARD THE LIGHT, not along a normal it
+// does not have (#1533). Against a map with none of its own fur in it -- the
+// opaque copy, or the full map under a coat that does not cast -- a strand has
+// nothing of its own to self-shadow on, so it moves a centimetre toward the light
+// (about two texels of a tile a few metres away) and passes no normal; its depth
+// bias, in texels of the entry like every atlas lookup's (PBRCommon.glsl),
+// is a quarter of one. This is where the atlas's old constant [0,1] bias was first
+// measured spanning metres -- a spot 6 m away shadowed nothing within ~2 m behind
+// its occluder, the body the fur grows on included -- before the bias moved to
+// texels for every surface. The exit-point fallback keeps the surfaces' bias.
 const float OLO_GROOM_STRAND_ATLAS_OFFSET = 0.01;
-const float OLO_GROOM_STRAND_ATLAS_BIAS = 0.00001;
+const float OLO_GROOM_STRAND_ATLAS_BIAS = 0.25;
 
 float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L, out bool known)
 {
@@ -759,9 +759,9 @@ float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L
 		{
 			bool atlasAtStrand = opaqueAtlas || atStrand;
 			vec3 receiver = atlasAtStrand ? v_WorldPos + L * OLO_GROOM_STRAND_ATLAS_OFFSET : shadowPos;
-			float atlasBias = atlasAtStrand ? OLO_GROOM_STRAND_ATLAS_BIAS : u_AtlasDepthBias;
+			float atlasBias = atlasAtStrand ? OLO_GROOM_STRAND_ATLAS_BIAS : u_AtlasDepthBiasTexels;
 			known = atlasAtStrand;
-			return calculateAtlasEntryShadow(receiver, u_AtlasEntryMatrices[atlasEntry],
+			return calculateAtlasEntryShadow(receiver, vec3(0.0), u_AtlasEntryMatrices[atlasEntry],
 			                                 u_AtlasEntryScaleOffset[atlasEntry], u_ShadowAtlas, u_ShadowAtlasRaw,
 			                                 atlasBias, u_AtlasResolution, u_SoftShadowMode, u_ShadowParams.z);
 		}
@@ -784,10 +784,10 @@ float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L
 		{
 			bool atlasAtStrand = opaqueAtlas || atStrand;
 			vec3 receiver = atlasAtStrand ? v_WorldPos + L * OLO_GROOM_STRAND_ATLAS_OFFSET : shadowPos;
-			float atlasBias = atlasAtStrand ? OLO_GROOM_STRAND_ATLAS_BIAS : u_AtlasDepthBias;
+			float atlasBias = atlasAtStrand ? OLO_GROOM_STRAND_ATLAS_BIAS : u_AtlasDepthBiasTexels;
 			known = atlasAtStrand;
 			int entry = baseEntry + atlasCubeFace(receiver - light.position.xyz);
-			return calculateAtlasEntryShadow(receiver, u_AtlasEntryMatrices[entry],
+			return calculateAtlasEntryShadow(receiver, vec3(0.0), u_AtlasEntryMatrices[entry],
 			                                 u_AtlasEntryScaleOffset[entry], u_ShadowAtlas, u_ShadowAtlasRaw,
 			                                 atlasBias, u_AtlasResolution,
 			                                 0, // PCF only on cube faces, matching the surface path

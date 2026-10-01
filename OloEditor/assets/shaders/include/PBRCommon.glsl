@@ -2232,20 +2232,55 @@ float pcssShadowAtlasFactor(sampler2DArrayShadow atlas, sampler2DArray rawAtlas,
     return sum / 16.0;
 }
 
+// The receiver's offset along its normal, in texels of the entry at the
+// receiver (#1533). See calculateAtlasEntryShadow.
+const float ATLAS_NORMAL_OFFSET_TEXELS = 1.5;
+
 // Visibility for one atlas entry: project worldPos by the entry matrix,
 // remap into its tile, and filter. Returns 1.0 (lit) outside the entry's
 // frustum. Spot entries pass softMode = u_SoftShadowMode (PCSS-capable);
 // point cube-face entries pass softMode = 0 (PCF only, matching the old
 // cubemap path which never had PCSS).
-float calculateAtlasEntryShadow(vec3 worldPos, mat4 entryMatrix, vec4 scaleOffset,
+//
+// THE BIAS IS IN TEXELS of the entry's tile (u_AtlasDepthBiasTexels, #1533), the
+// perspective twin of the cascades' #1119 conversion; ShadowAtlasBias.h is the
+// C++ twin. The constant [0,1] depth it replaces was 0.05 d^2 metres of world
+// depth with the 0.1 m near plane -- 1.8 m six metres from a spot, so a crate on
+// the floor there cast nothing. A texel grows with distance (2 d / (P00 * tile)
+// metres) while the depth compresses (d(z01)/dd = |P32| / (2 d^2)), so the
+// depth `bias` texels span is bias * |P32| / (P00 * tile * d). P00, P22 and P32
+// come out of the entry matrix: row 3 is the view axis, row 2 is P22 times it
+// plus P32 in w, and |row 0| is P00 -- unchanged by the camera-relative shift
+// and by Vulkan's row-1 flip.
+//
+// `normal` moves the receiver ATLAS_NORMAL_OFFSET_TEXELS texels along itself,
+// measured at the receiver: a depth bias alone cannot cover a grazing receiver,
+// whose own plane a 3x3 kernel sees tan(theta) texels nearer per texel. Pass
+// vec3(0.0) where there is no surface (a volume tap) or the caller offsets its
+// own receiver.
+float calculateAtlasEntryShadow(vec3 worldPos, vec3 normal, mat4 entryMatrix, vec4 scaleOffset,
                                 sampler2DArrayShadow atlas, sampler2DArray rawAtlas,
-                                float bias, int atlasResolution, int softMode, float softness)
+                                float biasTexels, int atlasResolution, int softMode, float softness)
 {
-    vec4 lightSpacePos = entryMatrix * vec4(worldPos, 1.0);
-    if (lightSpacePos.w <= 0.0)
+    vec4 receiverClip = entryMatrix * vec4(worldPos, 1.0);
+    if (receiverClip.w <= 0.0)
         return 1.0; // behind the light's perspective projection
+
+    vec4 row2 = vec4(entryMatrix[0][2], entryMatrix[1][2], entryMatrix[2][2], entryMatrix[3][2]);
+    vec4 row3 = vec4(entryMatrix[0][3], entryMatrix[1][3], entryMatrix[2][3], entryMatrix[3][3]);
+    float p22 = -dot(row2.xyz, row3.xyz) / max(dot(row3.xyz, row3.xyz), 1e-12);
+    float p32 = row2.w + p22 * row3.w;
+    float p00 = max(length(vec3(entryMatrix[0][0], entryMatrix[1][0], entryMatrix[2][0])), 1e-8);
+    float tileTexels = max(scaleOffset.x * float(atlasResolution), 1.0);
+    float texelWorld = 2.0 * receiverClip.w / (p00 * tileTexels);
+
+    vec3 receiver = worldPos + normal * (texelWorld * ATLAS_NORMAL_OFFSET_TEXELS);
+    vec4 lightSpacePos = entryMatrix * vec4(receiver, 1.0);
+    if (lightSpacePos.w <= 0.0)
+        return 1.0;
     vec3 projCoords = lightSpacePos.xyz / lightSpacePos.w;
     projCoords = projCoords * 0.5 + 0.5;
+    float bias = biasTexels * abs(p32) / (p00 * tileTexels * lightSpacePos.w);
 
     if (projCoords.x < 0.0 || projCoords.x > 1.0 ||
         projCoords.y < 0.0 || projCoords.y > 1.0 ||

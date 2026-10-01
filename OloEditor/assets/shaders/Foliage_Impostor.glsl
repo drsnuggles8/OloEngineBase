@@ -103,7 +103,7 @@ layout(std140, binding = 6) uniform ShadowData {
     int u_AtlasResolution;
     int u_CascadeDebugEnabled;
     int u_SoftShadowMode;
-    float u_AtlasDepthBias;
+    float u_AtlasDepthBiasTexels;
     int _shadowPad2;
 };
 
@@ -207,8 +207,8 @@ void main()
             else if (atlasEntry >= 0 && atlasEntry < u_AtlasEntryCount)
             {
                 shadow = calculateAtlasEntryShadow(
-                    v_CardWorld, u_AtlasEntryMatrices[atlasEntry], u_AtlasEntryScaleOffset[atlasEntry],
-                    u_ShadowAtlas, u_ShadowAtlasRaw, u_AtlasDepthBias, u_AtlasResolution,
+                    v_CardWorld, Ns, u_AtlasEntryMatrices[atlasEntry], u_AtlasEntryScaleOffset[atlasEntry],
+                    u_ShadowAtlas, u_ShadowAtlasRaw, u_AtlasDepthBiasTexels, u_AtlasResolution,
                     u_SoftShadowMode, u_ShadowParams.z);
             }
         }
@@ -224,8 +224,8 @@ void main()
             {
                 int entry = baseEntry + atlasCubeFace(v_CardWorld - u_Lights[i].position.xyz);
                 shadow = calculateAtlasEntryShadow(
-                    v_CardWorld, u_AtlasEntryMatrices[entry], u_AtlasEntryScaleOffset[entry],
-                    u_ShadowAtlas, u_ShadowAtlasRaw, u_AtlasDepthBias, u_AtlasResolution,
+                    v_CardWorld, Ns, u_AtlasEntryMatrices[entry], u_AtlasEntryScaleOffset[entry],
+                    u_ShadowAtlas, u_ShadowAtlasRaw, u_AtlasDepthBiasTexels, u_AtlasResolution,
                     0, u_ShadowParams.z);
             }
         }

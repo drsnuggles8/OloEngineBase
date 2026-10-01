@@ -40,13 +40,13 @@ namespace OloEngine
         // number, which is why the sample scenes rendered ground shadows 2-13 m
         // clear of their casters at the engine default.
         f32 DepthBiasTexels = ShaderConstants::SHADOW_CSM_DEPTH_BIAS_TEXELS;
-        // Local-light ATLAS constant depth bias, in the atlas entry's own
-        // normalized [0,1] depth. Separate from DepthBiasTexels because the two
-        // live in different spaces (perspective entry vs orthographic cascade)
-        // and because routing the directional light's number into the spot /
-        // point lookups - which is what a single shared field did - made an
-        // unrelated light's authoring decide how local shadows biased.
-        f32 AtlasBias = ShaderConstants::SHADOW_BIAS;
+        // Local-light ATLAS depth bias, in TEXELS of the entry's tile at the
+        // receiver (#1533; see ShadowAtlasBias.h). Separate from DepthBiasTexels
+        // because the two convert differently (perspective entry vs orthographic
+        // cascade) and because routing the directional light's number into the
+        // spot / point lookups - which is what a single shared field did - made
+        // an unrelated light's authoring decide how local shadows biased.
+        f32 AtlasDepthBiasTexels = ShaderConstants::SHADOW_ATLAS_DEPTH_BIAS_TEXELS;
         // Receiver offset along the shading normal, in WORLD METRES, applied
         // before the light-space projection (the VSM normal offset's unit).
         // It does NOT scale with the cascade - 0.01 is one centimetre in every

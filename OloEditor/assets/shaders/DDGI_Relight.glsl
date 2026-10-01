@@ -106,7 +106,7 @@ layout(std140, binding = 6) uniform ShadowData {
     int u_AtlasResolution;
     int u_CascadeDebugEnabled;
     int u_SoftShadowMode;
-    float u_AtlasDepthBias; // local-light atlas constant depth bias, normalized [0,1] (#1119)
+    float u_AtlasDepthBiasTexels; // local-light atlas depth bias, in TEXELS of the entry's tile (#1533)
     int _shadowPad2;
 };
 
@@ -316,11 +316,12 @@ void main()
             {
                 shadow = calculateAtlasEntryShadow(
                     hitPos,
+                    N,
                     u_AtlasEntryMatrices[atlasEntry],
                     u_AtlasEntryScaleOffset[atlasEntry],
                     u_ShadowAtlas,
                     u_ShadowAtlasRaw,
-                    u_AtlasDepthBias,
+                    u_AtlasDepthBiasTexels,
                     u_AtlasResolution,
                     u_SoftShadowMode,
                     u_ShadowParams.z);
@@ -334,11 +335,12 @@ void main()
                 int entry = baseEntry + atlasCubeFace(hitPos - u_Lights[i].position.xyz);
                 shadow = calculateAtlasEntryShadow(
                     hitPos,
+                    N,
                     u_AtlasEntryMatrices[entry],
                     u_AtlasEntryScaleOffset[entry],
                     u_ShadowAtlas,
                     u_ShadowAtlasRaw,
-                    u_AtlasDepthBias,
+                    u_AtlasDepthBiasTexels,
                     u_AtlasResolution,
                     0, // PCF only on cube faces (matches the lit paths)
                     u_ShadowParams.z);

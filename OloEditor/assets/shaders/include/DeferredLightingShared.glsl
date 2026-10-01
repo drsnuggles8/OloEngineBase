@@ -666,11 +666,12 @@ vec3 ComputeDeferredLitSplit(
             {
                 float shadow = calculateAtlasEntryShadow(
                     worldPos,
+                    shadowN,
                     u_AtlasEntryMatrices[atlasEntry],
                     u_AtlasEntryScaleOffset[atlasEntry],
                     u_ShadowAtlas,
                     u_ShadowAtlasRaw,
-                    u_AtlasDepthBias,
+                    u_AtlasDepthBiasTexels,
                     u_AtlasResolution,
                     u_SoftShadowMode,
                     u_ShadowParams.z);
@@ -698,11 +699,12 @@ vec3 ComputeDeferredLitSplit(
                 int entry = baseEntry + atlasCubeFace(worldPos - lightPos);
                 float shadow = calculateAtlasEntryShadow(
                     worldPos,
+                    shadowN,
                     u_AtlasEntryMatrices[entry],
                     u_AtlasEntryScaleOffset[entry],
                     u_ShadowAtlas,
                     u_ShadowAtlasRaw,
-                    u_AtlasDepthBias,
+                    u_AtlasDepthBiasTexels,
                     u_AtlasResolution,
                     0, // PCF only on cube faces (matches the old cubemap path)
                     u_ShadowParams.z);

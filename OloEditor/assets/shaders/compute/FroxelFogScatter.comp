@@ -64,7 +64,7 @@ layout(std140, binding = 6) uniform ShadowData
     int u_AtlasResolution;
     int u_CascadeDebugEnabled;
     int u_SoftShadowMode;
-    float u_AtlasDepthBias; // local-light atlas constant depth bias, normalized [0,1] (#1119)
+    float u_AtlasDepthBiasTexels; // local-light atlas depth bias, in TEXELS of the entry's tile (#1533)
     int _shadowPad2;
 };
 
@@ -218,7 +218,20 @@ float fogAtlasShadowTap(vec3 relPos, int entry)
 
     vec4 so = u_AtlasEntryScaleOffset[entry];
     vec2 uv = projCoords.xy * so.xy + so.zw;
-    return texture(u_ShadowAtlas, vec4(uv, 0.0, projCoords.z - u_AtlasDepthBias));
+    // u_AtlasDepthBiasTexels is in TEXELS of the entry's tile (#1533), converted to
+    // this entry's [0,1] depth at the sample as PBRCommon.glsl's
+    // calculateAtlasEntryShadow does; keep the two in sync. Doubled for the
+    // reason the cascade tap above doubles its own: one tap, no kernel to
+    // average a marginal comparison away. A volume sample has no normal.
+    mat4 entryMatrix = u_AtlasEntryMatrices[entry];
+    vec4 row2 = vec4(entryMatrix[0][2], entryMatrix[1][2], entryMatrix[2][2], entryMatrix[3][2]);
+    vec4 row3 = vec4(entryMatrix[0][3], entryMatrix[1][3], entryMatrix[2][3], entryMatrix[3][3]);
+    float p22 = -dot(row2.xyz, row3.xyz) / max(dot(row3.xyz, row3.xyz), 1e-12);
+    float p32 = row2.w + p22 * row3.w;
+    float p00 = max(length(vec3(entryMatrix[0][0], entryMatrix[1][0], entryMatrix[2][0])), 1e-8);
+    float tileTexels = max(so.x * float(u_AtlasResolution), 1.0);
+    float atlasBias = u_AtlasDepthBiasTexels * 2.0 * abs(p32) / (p00 * tileTexels * lightSpacePos.w);
+    return texture(u_ShadowAtlas, vec4(uv, 0.0, projCoords.z - atlasBias));
 }
 
 // Dominant-axis cube face — order matches ShadowMap::BuildPointLightFaceMatrices

@@ -799,17 +799,20 @@ namespace OloEngine
             i32 AtlasResolution = 0;     // Atlas texture resolution
             i32 CascadeDebugEnabled = 0; // Visualize cascade boundaries
             i32 SoftShadowMode = 0;      // 0 = legacy hardware PCF, 1 = PCSS (contact-hardening)
-            // Local-light ATLAS constant depth bias, in the entry's own
-            // normalized [0,1] depth (issue #1119). It takes the former Pad1
-            // int rather than growing the block, so the std140 size and every
+            // Local-light ATLAS depth bias, in TEXELS of the entry's tile,
+            // converted at each receiver by calculateAtlasEntryShadow (#1533;
+            // it was the entry's normalized [0,1] depth from #1119, which the
+            // perspective made 0.05 d^2 metres). It takes the former Pad1 int
+            // rather than growing the block, so the std140 size and every
             // offset after it are unchanged. It is a SEPARATE number from
             // ShadowParams.x: the atlas entries are perspective and the CSM
-            // cascades orthographic, so one value cannot serve both.
-            // The literal mirrors ShaderConstants::SHADOW_BIAS, which cannot be
-            // named here: ShaderConstants.h includes THIS header, not the other
-            // way round. ShadowMap::Init/UploadUBO always overwrite it from
-            // ShadowSettings::AtlasBias, which does use the named constant.
-            f32 AtlasDepthBias = 0.005f;
+            // cascades orthographic, so each converts its own.
+            // The literal mirrors ShaderConstants::SHADOW_ATLAS_DEPTH_BIAS_TEXELS,
+            // which cannot be named here: ShaderConstants.h includes THIS
+            // header, not the other way round. ShadowMap::Init/UploadUBO always
+            // overwrite it from ShadowSettings::AtlasDepthBiasTexels, which does use the
+            // named constant.
+            f32 AtlasDepthBiasTexels = 2.0f;
             i32 Pad2 = 0;
 
             // Ray-traced shadow technique routing (issue #1056). Which light
@@ -4990,7 +4993,7 @@ layout(std140, binding = 6) uniform ShadowData {
     int u_AtlasResolution;
     int u_CascadeDebugEnabled;
     int u_SoftShadowMode;  // 0 = legacy hardware PCF, 1 = PCSS (contact-hardening)
-    float u_AtlasDepthBias; // local-light atlas constant depth bias, normalized [0,1] (#1119)
+    float u_AtlasDepthBiasTexels; // local-light atlas depth bias, in TEXELS of the entry's tile (#1533)
     int _shadowPad2;
     ivec4 u_RayTracedShadowLightIndices; // light index per mask channel, -1 = unassigned (#1056)
     vec4 u_RayTracedShadowParams;        // x = mask active, yzw reserved (#1056)

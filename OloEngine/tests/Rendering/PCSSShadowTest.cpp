@@ -28,6 +28,7 @@
 #include <gtest/gtest.h>
 
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/ShaderConstants.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Renderer/QualityTiering.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
@@ -236,7 +237,7 @@ TEST(PCSSShadow, LocalLightAtlasDoesNotShareTheCSMDepthBias)
     // Issue #1119 split the two: the atlas entries are perspective and the CSM
     // cascades orthographic, so one number cannot serve both, and the atlas
     // lookups used to take theirs from whatever the scene's FIRST DIRECTIONAL
-    // LIGHT had authored. Every atlas call site reads u_AtlasDepthBias now.
+    // LIGHT had authored. Every atlas call site reads u_AtlasDepthBiasTexels now.
     const std::filesystem::path root = std::filesystem::path{ OLO_TEST_EDITOR_ROOT } / "assets";
 
     for (const char* relative : { "shaders/include/DeferredLightingShared.glsl",
@@ -251,9 +252,9 @@ TEST(PCSSShadow, LocalLightAtlasDoesNotShareTheCSMDepthBias)
         std::ifstream in(root / relative, std::ios::binary);
         ASSERT_TRUE(in) << "could not read " << relative;
         const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        EXPECT_NE(text.find("u_AtlasDepthBias"), std::string::npos)
+        EXPECT_NE(text.find("u_AtlasDepthBiasTexels"), std::string::npos)
             << relative << " does not use the dedicated atlas depth bias";
-        // The load-bearing half. Merely MENTIONING u_AtlasDepthBias is satisfied
+        // The load-bearing half. Merely MENTIONING u_AtlasDepthBiasTexels is satisfied
         // by the UBO declaration alone, so one reverted call site would slip
         // through; ShadowParams.x is the CSM's texel count and means nothing in
         // an atlas entry's perspective depth, so no lookup in these files may
@@ -272,8 +273,16 @@ TEST(PCSSShadow, LocalLightAtlasDoesNotShareTheCSMDepthBias)
         std::ifstream in(root / "shaders/compute/FroxelFogScatter.comp", std::ios::binary);
         ASSERT_TRUE(in) << "could not read FroxelFogScatter.comp";
         const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        EXPECT_NE(text.find("projCoords.z - u_AtlasDepthBias"), std::string::npos)
-            << "the fog atlas tap does not use the dedicated atlas depth bias";
+        // In texels of the entry since #1533, converted at the sample like
+        // PBRCommon's calculateAtlasEntryShadow (doubled: one tap, no kernel).
+        EXPECT_NE(text.find("float atlasBias = u_AtlasDepthBiasTexels * 2.0 * abs(p32) / (p00 * tileTexels * "
+                            "lightSpacePos.w);"),
+                  std::string::npos)
+            << "the fog atlas tap does not convert the dedicated atlas depth bias from texels";
+        EXPECT_NE(text.find("projCoords.z - atlasBias"), std::string::npos)
+            << "the fog atlas tap does not compare against the converted bias";
+        EXPECT_EQ(text.find("projCoords.z - u_AtlasDepthBiasTexels"), std::string::npos)
+            << "the fog atlas tap is back on the raw normalized-depth bias #1533 removed";
         EXPECT_NE(
             text.find("u_ShadowParams.x * 2.0 * lenRow2 / (float(u_ShadowMapResolution) * lenRow0)"),
             std::string::npos)
@@ -286,6 +295,43 @@ TEST(PCSSShadow, LocalLightAtlasDoesNotShareTheCSMDepthBias)
         }
         EXPECT_EQ(uses, 1u) << "FroxelFogScatter.comp reads ShadowParams.x somewhere other than its cascade tap";
     }
+}
+
+TEST(PCSSShadow, LocalLightAtlasConvertsItsBiasFromTexelsAtTheReceiver)
+{
+    // #1533, the perspective twin of #1119. u_AtlasDepthBiasTexels is in TEXELS of
+    // the entry's tile and calculateAtlasEntryShadow converts it at the
+    // receiver from the entry matrix; the constant [0,1] depth it replaces was
+    // 0.05 d^2 metres with the 0.1 m near plane. The receiver also moves along
+    // its normal by a texel count measured at the receiver, BEFORE it is
+    // projected. The numeric half -- that the conversion is N texels of world
+    // depth at every distance -- lives in ShadowMapTest's ShadowAtlasBias tests
+    // against ShadowAtlasBias.h, the C++ twin.
+    const std::string source = ReadPbrCommon();
+    ASSERT_FALSE(source.empty()) << "PBRCommon.glsl was not found under OLO_TEST_EDITOR_ROOT";
+    const std::size_t begin = source.find("float calculateAtlasEntryShadow(");
+    ASSERT_NE(begin, std::string::npos);
+    const std::size_t end = source.find("\n}", begin);
+    ASSERT_NE(end, std::string::npos);
+    const std::string atlas = source.substr(begin, end - begin);
+
+    EXPECT_NE(atlas.find("vec3 worldPos, vec3 normal, mat4 entryMatrix"), std::string::npos)
+        << "the atlas lookup no longer takes the receiver's normal";
+    const std::size_t offset = atlas.find("vec3 receiver = worldPos + normal * (texelWorld * ATLAS_NORMAL_OFFSET_TEXELS);");
+    const std::size_t projection = atlas.find("vec4 lightSpacePos = entryMatrix * vec4(receiver, 1.0);");
+    ASSERT_NE(offset, std::string::npos) << "the receiver is not offset along its normal in texels";
+    ASSERT_NE(projection, std::string::npos) << "the offset receiver is not what gets projected";
+    EXPECT_LT(offset, projection);
+    EXPECT_NE(atlas.find("float bias = biasTexels * abs(p32) / (p00 * tileTexels * lightSpacePos.w);"),
+              std::string::npos)
+        << "the atlas no longer converts its bias from texels to the entry's depth at the receiver";
+    EXPECT_EQ(atlas.find("projCoords.z - u_AtlasDepthBiasTexels"), std::string::npos);
+
+    // The GLSL constant and its C++ name must agree.
+    const std::string tag = "const float ATLAS_NORMAL_OFFSET_TEXELS = ";
+    const std::size_t at = source.find(tag);
+    ASSERT_NE(at, std::string::npos);
+    EXPECT_FLOAT_EQ(std::stof(source.substr(at + tag.size(), 8)), ShaderConstants::SHADOW_ATLAS_NORMAL_OFFSET_TEXELS);
 }
 
 // =============================================================================

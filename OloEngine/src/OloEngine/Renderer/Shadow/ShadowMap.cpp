@@ -88,7 +88,7 @@ namespace OloEngine
         m_UBOData.ShadowMapResolution = static_cast<i32>(m_Settings.Resolution);
         m_UBOData.AtlasResolution = static_cast<i32>(m_Settings.AtlasResolution);
         m_UBOData.SoftShadowMode = m_Settings.SoftShadows ? 1 : 0;
-        m_UBOData.AtlasDepthBias = m_Settings.AtlasBias;
+        m_UBOData.AtlasDepthBiasTexels = m_Settings.AtlasDepthBiasTexels;
 
         // The directional VSM (issue #702). Init is a no-op while disabled, so the
         // default path allocates nothing extra; when enabled it replaces the CSM
@@ -454,7 +454,7 @@ namespace OloEngine
         data.ShadowMapResolution = static_cast<i32>(m_Settings.Resolution);
         data.AtlasResolution = static_cast<i32>(m_Settings.AtlasResolution);
         data.SoftShadowMode = m_Settings.SoftShadows ? 1 : 0;
-        data.AtlasDepthBias = m_Settings.AtlasBias;
+        data.AtlasDepthBiasTexels = m_Settings.AtlasDepthBiasTexels;
 
         // The ray-traced routing goes up INACTIVE every frame (issue #1056).
         // This is what makes the fallback structural rather than a flag: the
