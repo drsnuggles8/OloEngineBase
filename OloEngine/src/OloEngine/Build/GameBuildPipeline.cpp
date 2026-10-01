@@ -226,9 +226,18 @@ namespace OloEngine
         [[nodiscard]] std::string MapStatementFile(const std::string& rest, const std::filesystem::path& directory)
         {
             static const std::unordered_map<std::string, std::pair<int, int>> kOptionArgs = {
-                { "-blendu", { 1, 1 } }, { "-blendv", { 1, 1 } }, { "-bm", { 1, 1 } }, { "-boost", { 1, 1 } },
-                { "-cc", { 1, 1 } }, { "-clamp", { 1, 1 } }, { "-imfchan", { 1, 1 } }, { "-mm", { 2, 2 } },
-                { "-o", { 1, 3 } }, { "-s", { 1, 3 } }, { "-t", { 1, 3 } }, { "-texres", { 1, 1 } },
+                { "-blendu", { 1, 1 } },
+                { "-blendv", { 1, 1 } },
+                { "-bm", { 1, 1 } },
+                { "-boost", { 1, 1 } },
+                { "-cc", { 1, 1 } },
+                { "-clamp", { 1, 1 } },
+                { "-imfchan", { 1, 1 } },
+                { "-mm", { 2, 2 } },
+                { "-o", { 1, 3 } },
+                { "-s", { 1, 3 } },
+                { "-t", { 1, 3 } },
+                { "-texres", { 1, 1 } },
                 { "-type", { 1, 1 } },
             };
             const std::vector<Token> tokens = Tokenise(rest);

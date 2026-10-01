@@ -2543,7 +2543,8 @@ namespace OloEngine
                 else if (c == '"' || c == '\'')
                 {
                     // @"...", $@"..." and @$"..." are verbatim: no escapes, "" is a quote.
-                    const auto prefixed = [&](sizet back) { return i >= back && source[i - back] == '@'; };
+                    const auto prefixed = [&](sizet back)
+                    { return i >= back && source[i - back] == '@'; };
                     const bool verbatim = c == '"' && (prefixed(1) || (prefixed(2) && source[i - 1] == '$'));
                     for (++i; i < source.size(); ++i)
                     {

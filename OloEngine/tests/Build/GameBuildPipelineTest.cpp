@@ -404,8 +404,8 @@ TEST(GameBuildPipelineTest, SceneReferencedContentStagesEveryFileAScenePathOpens
     const std::array staged{
         fs::path{ "Assets/Models/Plant/plant.obj" },
         fs::path{ "Assets/Models/Plant/plant.mtl" },
-        fs::path{ "Assets/Models/Plant/bark.mtl" },           // the second name on the mtllib line
-        fs::path{ "Assets/Models/Plant/Textures/chrome.png" }, // after "-type sphere -mm 0 1"
+        fs::path{ "Assets/Models/Plant/bark.mtl" },                // the second name on the mtllib line
+        fs::path{ "Assets/Models/Plant/Textures/chrome.png" },     // after "-type sphere -mm 0 1"
         fs::path{ "Assets/Models/Plant/Textures/leaves big.png" }, // after "-s 1 1 1", spaces and all
         fs::path{ "Assets/Models/Plant/Textures/leaves_n.png" },
         fs::path{ "Assets/Models/Plant/plant.obj.oloimport" },
