@@ -44,7 +44,10 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
+#include <atomic>
 #include <filesystem>
+#include <thread>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -244,6 +247,40 @@ namespace OloEngine::Tests
     // The old code clobbered the entry and added the new size on top, so the type total grew by
     // the old allocation's size on every single rebuild — this is why the Statistics panel's
     // memory numbers crept upward.
+    // A deallocation must never be dropped because another thread holds the tracker's mutex.
+    // TrackDeallocation used TryLock() and, on contention, logged a warning and RETURNED:
+    // the bytes stayed booked forever, a leak the tracker itself invented. Any reader — the
+    // Statistics panel, olo_memory_report, the benchmark sampler — was enough to trigger it.
+    // A reader thread hammers the mutex here while this thread cycles allocations; with the
+    // old code the totals drift up by every dropped deallocation.
+    TEST(RendererMemoryTracker, ConcurrentReadersDoNotCostADeallocation)
+    {
+        Tracker& tracker = Tracker::GetInstance();
+        constexpr ResourceType kType = ResourceType::Other;
+        const sizet usageBefore = tracker.GetMemoryUsage(kType);
+        const u32 countBefore = tracker.GetAllocationCount(kType);
+
+        std::atomic<bool> stop{ false };
+        std::thread reader([&tracker, &stop]
+                           {
+            while (!stop.load(std::memory_order_relaxed))
+                static_cast<void>(tracker.GetTotalMemoryUsage()); });
+
+        std::array<int, 16> objects{};
+        for (u32 cycle = 0; cycle < 2000; ++cycle)
+        {
+            for (int& object : objects)
+                tracker.TrackAllocation(&object, 256, kType, "contended", true, __FILE__, __LINE__);
+            for (int& object : objects)
+                tracker.TrackDeallocation(&object, __FILE__, __LINE__);
+        }
+        stop.store(true, std::memory_order_relaxed);
+        reader.join();
+
+        EXPECT_EQ(tracker.GetMemoryUsage(kType), usageBefore) << "deallocations were dropped under contention";
+        EXPECT_EQ(tracker.GetAllocationCount(kType), countBefore);
+    }
+
     TEST(RendererMemoryTracker, DoubleAllocationRetiresTheStaleEntryInsteadOfInflatingTotals)
     {
         Tracker& tracker = Tracker::GetInstance();

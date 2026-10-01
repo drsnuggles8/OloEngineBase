@@ -291,23 +291,12 @@ namespace OloEngine
         if (!address || m_IsShutdown)
             return;
 
-        // Try to acquire the mutex to avoid deadlock during shutdown
-        if (!m_Mutex.TryLock())
-        {
-            // If we can't acquire the lock, we might be in shutdown - just return
-            OLO_CORE_WARN("RendererMemoryTracker: Could not acquire lock for deallocation, possibly during shutdown");
-            return;
-        }
-
-        // Scope guard to ensure unlock on all exit paths
-        struct FScopedUnlock
-        {
-            FMutex& Mutex;
-            ~FScopedUnlock()
-            {
-                Mutex.Unlock();
-            }
-        } ScopedUnlock{ m_Mutex };
+        // A blocking lock. This used to be TryLock(), which DROPPED the deallocation — with only a
+        // warning — whenever another thread happened to hold the mutex (a UI tab, the MCP report,
+        // an allocation on a loader thread). The bytes then stayed booked forever: a leak the
+        // tracker invented under ordinary contention. Nothing in this class calls back into a
+        // resource destructor while holding the mutex, so there is no deadlock to avoid.
+        TUniqueLock<FMutex> lock(m_Mutex);
 
         // Double-check shutdown state after acquiring lock
         if (m_IsShutdown)
@@ -442,41 +431,16 @@ namespace OloEngine
             totalMemory += m_TypeUsage[i];
         }
 
-        // Debug output to see what's in the type usage array
-        sizet nonZeroEntries = 0;
-        for (sizet i = 0; i < static_cast<sizet>(std::to_underlying(ResourceType::COUNT)); ++i)
-        {
-            if (m_TypeUsage[i] > 0)
-                ++nonZeroEntries;
-        }
-
-        OLO_CORE_INFO("RendererMemoryTracker: Debug - nonZeroEntries={}, m_Allocations.size()={}, totalMemory={}",
-                      nonZeroEntries, m_Allocations.size(), totalMemory);
-        if (nonZeroEntries > 0)
-        {
-            OLO_CORE_TRACE("RendererMemoryTracker: TypeUsage array has {} entries, total = {} bytes",
-                           nonZeroEntries, totalMemory);
-            for (sizet i = 0; i < static_cast<sizet>(std::to_underlying(ResourceType::COUNT)); ++i)
-            {
-                if (m_TypeUsage[i] > 0)
-                {
-                    OLO_CORE_TRACE("  Type {}: {} bytes", i, m_TypeUsage[i]);
-                }
-            }
-        }
-        else
-        {
-            OLO_CORE_INFO("RendererMemoryTracker: TypeUsage array has NO active entries!");
-        }
-
-        // Summary statistics        ImGui::Text("Total Memory Usage: %s", DebugUtils::FormatMemorySize(totalMemory).c_str());
+        // Summary statistics. These two lines used to sit on the END of a comment, so neither
+        // was drawn, and in their place this tab logged at INFO level on every frame it was open.
+        ImGui::Text("Total Memory Usage: %s", DebugUtils::FormatMemorySize(totalMemory).c_str());
         ImGui::Text("Peak Memory Usage: %s", DebugUtils::FormatMemorySize(m_PeakMemoryUsage).c_str());
         ImGui::Text("Active Allocations: %zu", m_Allocations.size());
         ImGui::Text("Total Allocations: %zu", m_TotalAllocations);
         ImGui::Text("Total Deallocations: %zu", m_TotalDeallocations);
 
         ImGui::Separator();
-        // Memory by type        ImGui::Text("Memory Usage by Type:");
+        ImGui::Text("Memory Usage by Type:");
         for (u32 i = 0; i < static_cast<u32>(std::to_underlying(ResourceType::COUNT)); ++i)
         {
             ResourceType type = (ResourceType)i;
@@ -508,7 +472,7 @@ namespace OloEngine
         static void* s_SelectedAllocation = nullptr; // Track selected allocation
         ImGui::Text("Filters:");
         ImGui::Combo("Resource Type", &s_TypeFilter,
-                     "All\0Vertex Buffer\0Index Buffer\0Uniform Buffer\0Texture 2D\0Texture Cubemap\0Framebuffer\0Shader\0Render Target\0Command Buffer\0Other\0");
+                     "All\0Vertex Buffer\0Index Buffer\0Uniform Buffer\0Storage Buffer\0Texture 2D\0Texture Cubemap\0Framebuffer\0Shader\0Render Target\0Command Buffer\0Other\0");
         ImGui::Checkbox("GPU Only", &s_ShowGPUOnly);
         ImGui::SameLine();
         ImGui::Checkbox("CPU Only", &s_ShowCPUOnly);
