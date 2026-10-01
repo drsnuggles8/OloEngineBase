@@ -526,7 +526,7 @@ namespace
         for (sizet strand = 0; strand < stream.StrandFirstIndex.size(); ++strand)
         {
             const sizet end = strand + 1u < stream.StrandFirstIndex.size() ? stream.StrandFirstIndex[strand + 1u]
-                                                                            : stream.Indices.size();
+                                                                           : stream.Indices.size();
             for (sizet index = stream.StrandFirstIndex[strand]; index < end; index += 6u)
             {
                 strands[index / 6u] = static_cast<u32>(strand);

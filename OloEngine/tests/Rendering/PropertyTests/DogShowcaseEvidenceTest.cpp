@@ -2521,15 +2521,16 @@ namespace OloEngine::Tests
             }
             WritePng(stem + "Diff", diff, kWidth, kHeight);
             const f64 share = ruleStats.SegmentsWhole > 0u ? static_cast<f64>(ruleStats.SegmentsCast) /
-                                                                  static_cast<f64>(ruleStats.SegmentsWhole)
-                                                            : 1.0;
+                                                                 static_cast<f64>(ruleStats.SegmentsWhole)
+                                                           : 1.0;
             for (const auto& [name, region] : { std::pair<const char*, const Region&>{ "coat", coat },
                                                 std::pair<const char*, const Region&>{ "scene", scene } })
             {
                 const f64 n = std::max<f64>(1.0, static_cast<f64>(region.Pixels));
                 const f64 change = ((region.Rule[0] + region.Rule[1]) - (region.Whole[0] + region.Whole[1])) / (2.0 * n);
                 const f64 noise = std::max(std::abs(region.Whole[1] - region.Whole[0]),
-                                           std::abs(region.Rule[1] - region.Rule[0])) / n;
+                                           std::abs(region.Rule[1] - region.Rule[0])) /
+                                  n;
                 std::printf("[dog] caster subset %-12s cast %.1f%% of %llu segments | %-5s %6u px mean luma %+.3f "
                             "(floor %.3f), %u px darker under the rule vs %u between the whole casts\n",
                             view.Name, 100.0 * share, static_cast<unsigned long long>(ruleStats.SegmentsWhole), name,
