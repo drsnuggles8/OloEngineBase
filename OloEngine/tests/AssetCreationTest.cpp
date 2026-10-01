@@ -138,6 +138,12 @@ TEST_F(AssetCreationTest, ScriptFileAsset_LoadsFromCSharpSourceAndNeverOverwrite
     ASSERT_TRUE(serializer.TryLoadData(metadata, asset));
     EXPECT_EQ(asset.As<ScriptFileAsset>()->GetClassName(), "PlayerController");
     EXPECT_EQ(asset.As<ScriptFileAsset>()->GetClassNamespace(), "Sandbox");
+
+    // The namespace is the one the chosen class is declared in, not the file's first.
+    std::ofstream(script, std::ios::binary) << "namespace Helpers { class Tuning { } }\n"
+                                               "namespace Sandbox.Gameplay { public class PlayerController : Entity { } }\n";
+    ASSERT_TRUE(serializer.TryLoadData(metadata, asset));
+    EXPECT_EQ(asset.As<ScriptFileAsset>()->GetFullyQualifiedClassName(), "Sandbox.Gameplay.PlayerController");
 }
 
 // @brief Test ColliderMaterial structure

@@ -2581,27 +2581,37 @@ namespace OloEngine
                     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.");
                 return end == std::string::npos ? value : value.substr(0, end);
             };
+            // The namespace that goes with a class is the one declared last
+            // before it, so a helper namespace earlier in the file does not
+            // lend its name to the script class.
+            std::string currentNamespace;
             std::string firstClass;
+            std::string firstClassNamespace;
             while (tokens >> token)
             {
-                if (previous == "namespace" && outNamespace.empty())
+                if (previous == "namespace")
                 {
-                    outNamespace = identifier(token);
+                    currentNamespace = identifier(token);
                 }
                 else if (previous == "class")
                 {
                     const std::string name = identifier(token);
                     if (firstClass.empty())
+                    {
                         firstClass = name;
+                        firstClassNamespace = currentNamespace;
+                    }
                     if (name == fileStem)
                     {
                         outClass = name;
+                        outNamespace = currentNamespace;
                         return;
                     }
                 }
                 previous = token;
             }
             outClass = firstClass;
+            outNamespace = firstClassNamespace;
         }
     } // namespace
 
