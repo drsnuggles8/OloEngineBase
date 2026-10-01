@@ -200,8 +200,44 @@ namespace OloEngine
         u32 StrandsDrawn = 0;
         u32 SegmentsDrawn = 0;
         u32 TrianglesDrawn = 0;
-        /// GPU bytes resident in the strand-buffer cache.
+        /// GPU bytes the strand cache holds, the aggregate its budget and
+        /// eviction work against: strand geometry, caster orders, deformation
+        /// buffers AND coat volumes (Memory breaks it down; the coat volumes
+        /// are in it, so never add CoatShadow.ResidentBytes on top).
         u64 CachedBytes = 0;
+        /// What the pass holds, by allocation (#1533). LOGICAL bytes -- what the
+        /// pass asked the RHI and the host allocator for -- not a driver-reported
+        /// VRAM measurement: a driver pads, aligns and may keep staging copies.
+        struct MemoryBreakdown
+        {
+            // GPU, inside the cache budget. Each shared rest stream counts once,
+            // however many entities draw it. These five sum to CachedBytes.
+            u64 StrandVertexBytes = 0; ///< rest streams' and CPU-path entries' vertex buffers
+            u64 StrandIndexBytes = 0;  ///< their main index buffers
+            u64 CasterIndexBytes = 0;  ///< the shadow casters' hashed-order index buffers
+            u64 DeformBufferBytes = 0; ///< each GPU-deformed entity's frame buffer
+            u64 CoatVolumeBytes = 0;   ///< coat-volume textures, every ring slot
+            // CPU, OUTSIDE the budget: retained host arrays by allocated
+            // CAPACITY (what they hold on to), not by the size in use.
+            u64 CpuPoseSegmentBytes = 0;  ///< rest streams' pose segments + entries' bake subsets
+            u64 CpuDeformMirrorBytes = 0; ///< each GPU-deformed entity's packed frame buffer, host side
+            u64 CpuBakeInputBytes = 0;    ///< a posed bake's captured pose and card fibre scales
+            u64 CpuRootTableBytes = 0;    ///< rest streams' root slot -> curve tables
+            u64 CpuScratchBytes = 0;      ///< the pass's reusable bake, pose and CPU-stream scratch
+            u32 RestStreams = 0;          ///< distinct rest streams counted
+            u32 Entries = 0;              ///< cache entries counted
+
+            [[nodiscard]] u64 GpuBytes() const noexcept
+            {
+                return StrandVertexBytes + StrandIndexBytes + CasterIndexBytes + DeformBufferBytes + CoatVolumeBytes;
+            }
+            [[nodiscard]] u64 CpuBytes() const noexcept
+            {
+                return CpuPoseSegmentBytes + CpuDeformMirrorBytes + CpuBakeInputBytes + CpuRootTableBytes +
+                       CpuScratchBytes;
+            }
+        };
+        MemoryBreakdown Memory;
         /// The strand-cache budget in force, and how far over it the cache
         /// stayed after this frame's eviction: non-zero means every resident
         /// entry was in use, nothing could be freed and every groom was still
@@ -211,6 +247,9 @@ namespace OloEngine
         u32 CachedGrooms = 0;
         u32 CacheBuilds = 0;
         u32 CacheEvictions = 0;
+        /// Rest streams whose pose segments were built this frame: once per
+        /// stream, on the first posed bake that asks (#1533).
+        u32 PoseSegmentBuilds = 0;
 
         // ── Surface binding (#1249) ──────────────────────────────────
 
@@ -605,9 +644,10 @@ namespace OloEngine
             /// Root slot -> base curve, the order every frame buffer over this
             /// stream is packed in.
             std::vector<u32> RootCurves;
-            /// The centrelines, for the coat bake. Built on first use rather
-            /// than with the stream: a coat that never asks for a self-shadow
-            /// never pays for them.
+            /// The centrelines a POSED coat bake evaluates (#1426), built on the
+            /// first AcquireDrawnPose of any entity sharing the stream, straight
+            /// from the walk (BuildGroomRestPoseSegments), and kept: a coat baked
+            /// at rest never reads them and never pays for them (#1533).
             std::vector<GroomRestPoseSegment> PoseSegments;
             bool PoseSegmentsBuilt = false;
             /// The farthest any drawn point sits from its own root, and the widest
@@ -854,6 +894,16 @@ namespace OloEngine
         /// groom, and for a deformed one whose pose could not be produced.
         [[nodiscard]] std::span<const GroomCoatShadow::CoatSegment> AcquireDrawnPose(const GroomStrandRequest& request,
                                                                                      CacheEntry& entry);
+        /// The cache's numbers into m_Stats -- the budget aggregate and its
+        /// breakdown -- at every exit Execute takes (#1533).
+        void PublishCacheStats();
+        /// Gives back each scratch group that has idled kScratchIdleFrames
+        /// frames, and the pose scratch at once on a frame with no bound groom.
+        void ReleaseIdleScratch(bool noDeformedGroom);
+        /// The breakdown, walked from the cache: each rest stream in
+        /// m_RestStreams once, each entry once. Its GPU categories sum to
+        /// m_CacheBytes, which tests hold it to.
+        [[nodiscard]] GroomRenderStats::MemoryBreakdown CollectMemoryBreakdown() const;
         /// The coat's box in groom object space in THIS pose (#1323): the posed
         /// roots padded by the stream's reach for a GPU-deformed coat, the build
         /// bounds otherwise. False when there is nothing to bound.
@@ -949,6 +999,15 @@ namespace OloEngine
         GroomCoatShadow::DensityVolume m_CoatVolumeScratch;
         std::vector<u16> m_CoatPackHalf;
         std::vector<f32> m_CoatPackFloat;
+        /// THE SCRATCH IS GIVEN BACK WHEN IT IDLES (#1533). Each group keeps the
+        /// capacity of the largest job it served, so a coat that rebakes or
+        /// re-poses every frame never reallocates; a coat that did its job once
+        /// -- a rest bake, a static coat's one bake -- would otherwise pin that
+        /// peak for the session, outside every budget. A group unused for this
+        /// many frames is released (see Execute's end).
+        static constexpr u64 kScratchIdleFrames = 120;
+        u64 m_BakeScratchUsedTick = 0; ///< m_CoatSegments, m_RestCentrelines, the volume and its packing
+        u64 m_PoseScratchUsedTick = 0; ///< m_DrawnPose(Full), m_DeformedVertices, m_CpuRootScratch
 
         GroomCoatShadow::CoatRebakePolicy m_CoatRebakePolicy;
         bool m_GpuDeformation = true;

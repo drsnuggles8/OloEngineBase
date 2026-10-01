@@ -570,6 +570,69 @@ TEST(GroomGpuDeformation, TheCoatBakeSeesThePoseTheGpuDraws)
 // #1533 E1: the simulated and unguided strand counts are a lookup per drawn
 // strand, so PackFrame keeps its last count until the guides it counted change
 // -- and a frame whose budget drops guides is recounted, not served stale.
+TEST(GroomGpuDeformation, TheDirectPoseBuilderIsTheRestStreamsPoseWithoutItsRibbons)
+{
+    // #1533. A rest stream is built WITHOUT its pose segments now, and the first
+    // posed coat bake builds them straight from the walk (BuildGroomRestPoseSegments)
+    // instead of building the whole four-corner ribbon mesh again and dropping it.
+    // They must be the segments the rest builder emits beside its ribbons, bit for
+    // bit -- one walk and one bind arithmetic -- on a curled, authored coat, whole
+    // and under a strand budget; and the builder's one allocation of any size is
+    // its output, reserved to the planned count and never regrown.
+    const GroomCoatGroupDesc curled = CurledCoat();
+    const BoundScene scene = MakeBoundScene(24u, 24u, 55.0f, &curled);
+    const GroomCoatSettings coatSettings = CurledSettings();
+    const GroomCoatContext coat{ &coatSettings, scene.Groom->GetGroupCoats() };
+    const GroomBuildSource source = GroomBuildSource::FromAsset(*scene.Groom);
+    for (const u32 budget : { GroomStrandBuildSettings{}.MaxStrands, 10u })
+    {
+        SCOPED_TRACE(budget);
+        GroomStrandBuildSettings build;
+        build.MaxStrands = budget;
+        std::vector<GroomStrandVertex> vertices;
+        std::vector<u32> indices;
+        std::vector<u32> roots;
+        std::vector<GroomRestPoseSegment> reference;
+        const GroomStrandMeshStats full =
+            BuildGroomStrandRestMesh(source, build, *scene.Binding, vertices, indices, roots, &coat, &reference);
+        std::vector<GroomRestPoseSegment> direct;
+        const GroomStrandMeshStats lean = BuildGroomRestPoseSegments(source, build, *scene.Binding, &coat, direct);
+
+        ASSERT_FALSE(reference.empty());
+        ASSERT_EQ(direct.size(), reference.size());
+        for (sizet i = 0; i < direct.size(); ++i)
+        {
+            const GroomRestPoseSegment& a = direct[i];
+            const GroomRestPoseSegment& b = reference[i];
+            ASSERT_TRUE(a.RootSlot == b.RootSlot && BitwiseEqual(a.Local0, b.Local0) && BitwiseEqual(a.Local1, b.Local1) &&
+                        std::bit_cast<u32>(a.T0) == std::bit_cast<u32>(b.T0) &&
+                        std::bit_cast<u32>(a.T1) == std::bit_cast<u32>(b.T1) &&
+                        std::bit_cast<u32>(a.Radius0) == std::bit_cast<u32>(b.Radius0) &&
+                        std::bit_cast<u32>(a.Radius1) == std::bit_cast<u32>(b.Radius1))
+                << "segment " << i;
+        }
+        EXPECT_EQ(lean.SegmentCount, full.SegmentCount);
+        EXPECT_EQ(lean.StrandsSelected, full.StrandsSelected);
+        EXPECT_EQ(lean.VertexBytes, 0u) << "the direct builder built ribbon vertices";
+        EXPECT_EQ(lean.IndexBytes, 0u) << "the direct builder built ribbon indices";
+        EXPECT_EQ(direct.capacity(), direct.size()) << "reserved to the planned count and never regrown";
+        std::printf("[groom-gpu] %zu pose segments: %zu bytes direct; the rest builder also needed %zu + %zu bytes of "
+                    "ribbons\n",
+                    direct.size(), direct.capacity() * sizeof(GroomRestPoseSegment),
+                    vertices.capacity() * sizeof(GroomStrandVertex), indices.capacity() * sizeof(u32));
+    }
+
+    // The rest builder's refusal, for its reason: a binding that does not span
+    // the groom builds nothing.
+    const BoundScene other = MakeBoundScene(12u, 12u, 55.0f);
+    std::vector<GroomRestPoseSegment> none;
+    const GroomStrandMeshStats refused =
+        BuildGroomRestPoseSegments(GroomBuildSource::FromAsset(*scene.Groom), GroomStrandBuildSettings{}, *other.Binding,
+                                   nullptr, none);
+    EXPECT_TRUE(none.empty());
+    EXPECT_EQ(refused.SegmentCount, 0u);
+}
+
 TEST(GroomGpuDeformation, TheSimulatedStrandCountIsRecountedOnlyWhenTheGuidesChange)
 {
     const BoundScene scene = MakeBoundScene(40u, 12u);

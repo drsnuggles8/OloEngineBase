@@ -79,7 +79,14 @@ namespace OloEngine
             entry.CoatSlot = 0;
             entry.CoatResolution = 0;
             entry.CoatBytes = 0;
-            entry.CoatBakedPose.clear();
+            // Its CPU inputs go with it, by capacity, not just by size (#1533):
+            // cleared, they kept a posed coat's captured pose and bake subset
+            // -- tens of MiB -- for a volume that no longer exists. No steady
+            // state releases a volume, so nothing reallocates every frame.
+            std::vector<glm::vec3>().swap(entry.CoatBakedPose);
+            std::vector<GroomRestPoseSegment>().swap(entry.CoatPoseSubset);
+            entry.CoatPoseSubsetStride = 0;
+            entry.CoatPoseSubsetSource = nullptr;
             entry.CoatBakedFromPose = false;
             entry.CoatDriftVoxels = 0.0f;
         }
@@ -376,18 +383,13 @@ namespace OloEngine
         std::vector<u32> indices;
         std::vector<u32> strandFirstIndex;
         auto stream = Ref<GroomRestStream>::Create();
-        // The coat bake's centrelines come out of the same walk when the coat
-        // already asks for a self-shadow; otherwise AcquireDrawnPose builds
-        // them on first use.
-        const bool wantsPose = request.CoatShadow != GroomCoatShadowTechnique::None;
-        const GroomStrandMeshStats stats =
-            BuildGroomStrandRestMesh(source, request.Build, binding, vertices, indices, stream->RootCurves, &coat,
-                                     wantsPose ? &stream->PoseSegments : nullptr, &strandFirstIndex);
-        if (wantsPose)
-        {
-            ScaleRestPoseToCardFibre(request, stream->PoseSegments);
-        }
-        stream->PoseSegmentsBuilt = wantsPose;
+        // NO POSE SEGMENTS HERE (#1533). Only a POSED coat bake reads them, and
+        // AcquireDrawnPose builds them on its first call, straight from the walk.
+        // Built with every stream whose coat asked for a self-shadow, they were
+        // 44 bytes a segment -- over 80 MiB on the showcase dog -- held for a
+        // coat baked at rest, which never reads them.
+        const GroomStrandMeshStats stats = BuildGroomStrandRestMesh(
+            source, request.Build, binding, vertices, indices, stream->RootCurves, &coat, nullptr, &strandFirstIndex);
         m_Stats.DeformedBuildMicroseconds += static_cast<u64>(
             std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - buildStart)
                 .count());
@@ -773,24 +775,24 @@ namespace OloEngine
         {
             return {};
         }
+        m_PoseScratchUsedTick = m_CacheTick;
 
         const auto poseStart = std::chrono::steady_clock::now();
         if (entry.GpuDeformed)
         {
-            // The centrelines were not kept when the stream was built — the coat
-            // did not ask for a self-shadow then. The same walk again, once; its
-            // vertices are discarded, because the GPU already holds them.
+            // The stream is built without its centrelines (AcquireRestStream);
+            // the first posed bake of ANY entity sharing it builds them here,
+            // once, straight from the walk -- no ribbon vertices or indices,
+            // which the GPU already holds -- and every later one reuses them.
             GroomRestStream& stream = *entry.Rest;
             if (!stream.PoseSegmentsBuilt)
             {
                 const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
-                std::vector<GroomStrandVertex> vertices;
-                std::vector<u32> indices;
-                std::vector<u32> rootCurves;
-                (void)BuildGroomStrandRestMesh(request.BuildSource(), request.Build, *request.Binding, vertices,
-                                               indices, rootCurves, &coat, &stream.PoseSegments);
+                (void)BuildGroomRestPoseSegments(request.BuildSource(), request.Build, *request.Binding, &coat,
+                                                 stream.PoseSegments);
                 ScaleRestPoseToCardFibre(request, stream.PoseSegments);
                 stream.PoseSegmentsBuilt = true;
+                ++m_Stats.PoseSegmentBuilds;
             }
             // THE BAKE SUBSET (#1445), taken BEFORE the evaluation so the
             // evaluation, the drift and the binning all pay for the subset
@@ -965,6 +967,10 @@ namespace OloEngine
         // never hand the coat bake the previous groom's pose.
         m_DeformedVertices.clear();
         const bool deformed = IsDeformed(request);
+        if (deformed)
+        {
+            m_PoseScratchUsedTick = m_CacheTick;
+        }
 
         // A BOUND COAT IS DEFORMED ON THE GPU (#1427): its stream is built once,
         // in each root's bind frame, and only a small per-frame buffer moves.
@@ -1203,6 +1209,7 @@ namespace OloEngine
         GroomCoatShadow::DensityVolumeSettings volumeSettings;
         volumeSettings.Resolution = resolution;
         GroomCoatShadow::DensityVolume& volume = m_CoatVolumeScratch;
+        m_BakeScratchUsedTick = m_CacheTick;
         GroomCoatShadow::DensityVolumeBuildStats volumeStats;
         const auto binStart = std::chrono::steady_clock::now();
         const bool binned = GroomCoatShadow::BuildDensityVolume(segments, volumeSettings, volume, &volumeStats);
@@ -1476,6 +1483,11 @@ namespace OloEngine
             // Nothing to do, and NOT a fallback: a coat that never asked must
             // not be counted as a failure, or the counter that explains a
             // missing shadow is saturated by coats working exactly as authored.
+            // A volume a coat STOPPED asking for is given back (#1533): it
+            // serves no draw, and kept it held every ring slot in the cache --
+            // counted, so nothing leaked, but held -- until the coat itself
+            // was evicted. Asking again bakes again, as a first request does.
+            ReleaseCoatVolume(entry, m_CacheBytes);
             entry.CoatRequestedLodStep = 0;
             entry.CoatLodStableFrames = 0;
             inputs.ResolvedResolution = request.CoatLod.BaseResolution;
@@ -1632,6 +1644,7 @@ namespace OloEngine
             const auto bakeStart = std::chrono::steady_clock::now();
 
             std::vector<GroomCoatShadow::CoatSegment>& segments = m_CoatSegments;
+            m_BakeScratchUsedTick = m_CacheTick;
             u32 emitted = 0;
             const auto segmentStart = std::chrono::steady_clock::now();
             if (deformed)
@@ -1868,15 +1881,14 @@ namespace OloEngine
         if (m_Requests.empty() || !m_SceneFramebuffer || !m_Shader || !m_ParamsUBO)
         {
             m_Requests = {};
-            m_Stats.CachedBytes = m_CacheBytes;
-            m_Stats.CacheBudgetBytes = m_CacheBudgetBytes;
+            ReleaseIdleScratch(true);
+            PublishCacheStats();
             // The cache can still be over budget on a frame that draws nothing.
             m_Stats.CacheOverBudgetBytes = m_CacheBytes > m_CacheBudgetBytes ? m_CacheBytes - m_CacheBudgetBytes : 0;
             // Back within budget (a raised budget, an emptied cache) re-arms the
             // warning here too, not only in EvictToBudget.
             if (m_Stats.CacheOverBudgetBytes == 0)
                 (void)m_CacheBudgetWarning.Observe(0);
-            m_Stats.CachedGrooms = static_cast<u32>(m_Cache.size());
             return;
         }
 
@@ -1896,15 +1908,14 @@ namespace OloEngine
                                "GroomRenderPass has no coat-shadow placeholder volume or no deformation "
                                "placeholder buffer; skipping the strand draws rather than binding a null resource.");
             m_Requests = {};
-            m_Stats.CachedBytes = m_CacheBytes;
-            m_Stats.CacheBudgetBytes = m_CacheBudgetBytes;
+            ReleaseIdleScratch(true);
+            PublishCacheStats();
             // The cache can still be over budget on a frame that draws nothing.
             m_Stats.CacheOverBudgetBytes = m_CacheBytes > m_CacheBudgetBytes ? m_CacheBytes - m_CacheBudgetBytes : 0;
             // Back within budget (a raised budget, an emptied cache) re-arms the
             // warning here too, not only in EvictToBudget.
             if (m_Stats.CacheOverBudgetBytes == 0)
                 (void)m_CacheBudgetWarning.Observe(0);
-            m_Stats.CachedGrooms = static_cast<u32>(m_Cache.size());
             return;
         }
 
@@ -2561,15 +2572,7 @@ namespace OloEngine
             }
         }
 
-        // The drawn-pose scratch keeps the capacity of the largest bound groom
-        // it has served, 256 bytes a segment. Given back on a frame with no
-        // bound groom, so a hero coat that left the scene does not pin its
-        // stream for the rest of the session outside every budget.
-        if (m_Stats.GroomsDeformed == 0)
-        {
-            std::vector<GroomStrandVertex>().swap(m_DeformedVertices);
-            std::vector<GroomCoatShadow::CoatSegment>().swap(m_DrawnPose);
-        }
+        ReleaseIdleScratch(m_Stats.GroomsDeformed == 0);
 
         // The bald case has its own latch and its own count (#1429), not the
         // dominant reason's: a groom that lost its resolve must be reported
@@ -2629,9 +2632,7 @@ namespace OloEngine
         }
 
         EvictToBudget();
-        m_Stats.CachedBytes = m_CacheBytes;
-        m_Stats.CacheBudgetBytes = m_CacheBudgetBytes;
-        m_Stats.CachedGrooms = static_cast<u32>(m_Cache.size());
+        PublishCacheStats();
 
         // Requests are per-frame; holding them would draw last frame's grooms
         // on a frame that published none.
@@ -2661,6 +2662,91 @@ namespace OloEngine
         // for why GroomFrameState::FrameIndex cannot serve.
         ++m_CacheTick;
         m_FrameBegun = true;
+    }
+
+    void GroomRenderPass::ReleaseIdleScratch(bool noDeformedGroom)
+    {
+        // The drawn-pose scratch keeps the capacity of the largest bound groom
+        // it has served, 256 bytes a segment. Given back on a frame with no
+        // bound groom, so a hero coat that left the scene does not pin its
+        // stream for the rest of the session outside every budget -- and, like
+        // the bake scratch, once it has idled kScratchIdleFrames frames (#1533):
+        // a coat baked once, at rest, otherwise kept its bake's peak (the
+        // walk's centrelines, the binned volume, its packed texels) for good.
+        const auto idle = [this](u64 lastUsed) { return m_CacheTick > lastUsed + kScratchIdleFrames; };
+        if (noDeformedGroom || idle(m_PoseScratchUsedTick))
+        {
+            std::vector<GroomStrandVertex>().swap(m_DeformedVertices);
+            std::vector<GroomCoatShadow::CoatSegment>().swap(m_DrawnPose);
+            std::vector<GroomCoatShadow::CoatSegment>().swap(m_DrawnPoseFull);
+            m_CpuRootScratch.Reset();
+        }
+        if (idle(m_BakeScratchUsedTick))
+        {
+            std::vector<GroomCoatShadow::CoatSegment>().swap(m_CoatSegments);
+            std::vector<GroomRestCentreline>().swap(m_RestCentrelines);
+            std::vector<f32>().swap(m_CoatVolumeScratch.Density);
+            std::vector<glm::vec3>().swap(m_CoatVolumeScratch.Direction);
+            std::vector<u16>().swap(m_CoatPackHalf);
+            std::vector<f32>().swap(m_CoatPackFloat);
+        }
+    }
+
+    void GroomRenderPass::PublishCacheStats()
+    {
+        m_Stats.CachedBytes = m_CacheBytes;
+        m_Stats.CacheBudgetBytes = m_CacheBudgetBytes;
+        m_Stats.CachedGrooms = static_cast<u32>(m_Cache.size());
+        m_Stats.Memory = CollectMemoryBreakdown();
+    }
+
+    GroomRenderStats::MemoryBreakdown GroomRenderPass::CollectMemoryBreakdown() const
+    {
+        // WALKED, not kept as five more running totals beside m_CacheBytes: the
+        // walk visits each allocation's owner once, so its sum can be held to
+        // the budget's aggregate, and a counter forgotten on one release path
+        // cannot drift. A few entries a frame.
+        GroomRenderStats::MemoryBreakdown memory;
+        const auto capacityBytes = [](const auto& vector)
+        { return static_cast<u64>(vector.capacity()) * sizeof(typename std::decay_t<decltype(vector)>::value_type); };
+        // A shared rest stream is counted where m_CacheBytes counts it: once,
+        // while the map holds it, however many entities draw it.
+        for (const auto& [key, stream] : m_RestStreams)
+        {
+            if (!stream)
+            {
+                continue;
+            }
+            ++memory.RestStreams;
+            memory.StrandVertexBytes += stream->Stats.VertexBytes;
+            memory.StrandIndexBytes += stream->Stats.IndexBytes;
+            memory.CasterIndexBytes += stream->Caster.Bytes;
+            memory.CpuPoseSegmentBytes += capacityBytes(stream->PoseSegments);
+            memory.CpuRootTableBytes += capacityBytes(stream->RootCurves);
+        }
+        for (const auto& [key, entry] : m_Cache)
+        {
+            ++memory.Entries;
+            // A GPU-deformed entry draws its rest stream, counted above; only
+            // its frame buffer is its own. Every other entry owns its stream.
+            if (!entry.GpuDeformed)
+            {
+                memory.StrandVertexBytes += entry.Stats.VertexBytes;
+                memory.StrandIndexBytes += entry.Stats.IndexBytes;
+                memory.CasterIndexBytes += entry.Caster.Bytes;
+            }
+            memory.DeformBufferBytes += entry.DeformGpu ? static_cast<u64>(entry.DeformGpu->GetSize()) : 0u;
+            memory.CoatVolumeBytes += entry.CoatBytes;
+            memory.CpuDeformMirrorBytes += entry.DeformCpu.HostCapacityBytes();
+            memory.CpuPoseSegmentBytes += capacityBytes(entry.CoatPoseSubset);
+            memory.CpuBakeInputBytes += capacityBytes(entry.CoatBakedPose) + capacityBytes(entry.CoatFibreScales);
+        }
+        memory.CpuScratchBytes = capacityBytes(m_DeformedVertices) + capacityBytes(m_DrawnPose) +
+                                 capacityBytes(m_DrawnPoseFull) + capacityBytes(m_CoatSegments) +
+                                 capacityBytes(m_RestCentrelines) + capacityBytes(m_CoatVolumeScratch.Density) +
+                                 capacityBytes(m_CoatVolumeScratch.Direction) + capacityBytes(m_CoatPackHalf) +
+                                 capacityBytes(m_CoatPackFloat) + static_cast<u64>(m_CpuRootScratch.GetAllocatedSize());
+        return memory;
     }
 
     bool GroomRenderPass::PosedObjectBounds(const GroomStrandRequest& request, const CacheEntry& entry,

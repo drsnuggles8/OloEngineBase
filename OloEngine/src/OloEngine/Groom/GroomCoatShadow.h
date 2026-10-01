@@ -568,10 +568,9 @@ namespace OloEngine
             std::vector<glm::vec3> Direction;
 
             [[nodiscard]] bool IsValid() const noexcept;
-            /// Bytes the GPU copy occupies: ONE RGBA32F 3D texture at 16 bytes
-            /// a voxel, which is what GroomRenderPass actually uploads. Not the
-            /// tighter packing the channels would allow — see the definition
-            /// for why RGBA16F is unavailable through Texture3D::SetData.
+            /// Bytes the GPU copy occupies: ONE RGBA16F 3D texture at 8 bytes a
+            /// voxel, which is what GroomRenderPass uploads (#1445). The pass
+            /// falls back to RGBA32F only for a density that overflows a half.
             [[nodiscard]] u64 GpuBytes() const noexcept;
             [[nodiscard]] glm::vec3 VoxelSize() const noexcept;
         };

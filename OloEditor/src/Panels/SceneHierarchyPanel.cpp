@@ -8891,6 +8891,29 @@ namespace OloEngine
                     {
                         ImGui::Text("Active: %s", std::string(ToString(decision.Effective)).c_str());
                     }
+
+                    // WHAT THE PASS HOLDS for every coat (#1533): the cache is
+                    // shared, so this is not this entity's share. Logical bytes
+                    // requested, not a driver VRAM reading; the GPU rows sum to
+                    // the cache total its budget works against.
+                    const GroomRenderStats::MemoryBreakdown& memory = groomPass->GetStats().Memory;
+                    constexpr double kMiB = 1024.0 * 1024.0;
+                    ImGui::TextWrapped("Strand cache, all coats: %.1f MiB GPU = vertices %.1f + indices %.1f + casters "
+                                       "%.1f + deformation %.1f + coat volumes %.1f",
+                                       static_cast<double>(memory.GpuBytes()) / kMiB,
+                                       static_cast<double>(memory.StrandVertexBytes) / kMiB,
+                                       static_cast<double>(memory.StrandIndexBytes) / kMiB,
+                                       static_cast<double>(memory.CasterIndexBytes) / kMiB,
+                                       static_cast<double>(memory.DeformBufferBytes) / kMiB,
+                                       static_cast<double>(memory.CoatVolumeBytes) / kMiB);
+                    ImGui::TextWrapped("Retained on the CPU (capacity): %.1f MiB = pose segments %.1f + deformation "
+                                       "mirrors %.1f + bake inputs %.1f + root tables %.1f + scratch %.1f",
+                                       static_cast<double>(memory.CpuBytes()) / kMiB,
+                                       static_cast<double>(memory.CpuPoseSegmentBytes) / kMiB,
+                                       static_cast<double>(memory.CpuDeformMirrorBytes) / kMiB,
+                                       static_cast<double>(memory.CpuBakeInputBytes) / kMiB,
+                                       static_cast<double>(memory.CpuRootTableBytes) / kMiB,
+                                       static_cast<double>(memory.CpuScratchBytes) / kMiB);
                 }
             }
 

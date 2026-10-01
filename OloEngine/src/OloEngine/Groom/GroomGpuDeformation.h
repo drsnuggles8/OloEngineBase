@@ -296,6 +296,15 @@ namespace OloEngine
         {
             return { m_Bytes.GetData(), static_cast<sizet>(m_Bytes.Num()) };
         }
+        /// Host bytes held by allocated CAPACITY -- the typed records, the byte
+        /// image and the count cache -- for the pass's memory breakdown (#1533).
+        [[nodiscard]] u64 HostCapacityBytes() const noexcept
+        {
+            return static_cast<u64>(m_Weights.GetAllocatedSize() + m_BindFrames.GetAllocatedSize() +
+                                    m_Roots.GetAllocatedSize() + m_Slots.GetAllocatedSize() +
+                                    m_Displacements.GetAllocatedSize() + m_Bytes.GetAllocatedSize()) +
+                   static_cast<u64>(m_CountedGuideOfSlot.capacity()) * sizeof(u32);
+        }
         /// The per-frame region only — what a frame uploads.
         [[nodiscard]] std::span<const u8> GetDynamicBytes() const noexcept
         {

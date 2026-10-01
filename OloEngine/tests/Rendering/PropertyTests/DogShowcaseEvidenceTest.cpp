@@ -36,6 +36,7 @@
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Asset/MeshCache.h"
+#include "OloEngine/Core/BuildInfo.h"
 #include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomBinding.h"
@@ -1623,8 +1624,13 @@ namespace OloEngine::Tests
             f64 BakeMs = 0.0;
             u32 Rebakes = 0;
             f64 DeformMs = 0.0;
-            f64 GeometryMiB = 0.0;
-            f64 CoatVolumeMiB = 0.0;
+            // The groom cache's budget aggregate (CachedBytes, coat volumes
+            // INCLUDED) and its breakdown by allocation; logical bytes.
+            f64 CacheMiB = 0.0;
+            GroomRenderStats::MemoryBreakdown Memory;
+            u32 Segments = 0;
+            u64 SegmentsCast = 0;
+            u64 SegmentsWhole = 0;
             // CPU breakdown, ms per frame.
             f64 BakeSegmentMs = 0.0;
             f64 BakeBinMs = 0.0;
@@ -1743,8 +1749,15 @@ namespace OloEngine::Tests
             m.SolverMs = static_cast<f64>(solveUs) / 1000.0 / kFrames;
             m.BakeMs = static_cast<f64>(bakeUs) / 1000.0 / kFrames;
             m.DeformMs = static_cast<f64>(deformUs) / 1000.0 / kFrames;
-            m.GeometryMiB = static_cast<f64>(st.CachedBytes) / (1024.0 * 1024.0);
-            m.CoatVolumeMiB = static_cast<f64>(st.CoatShadow.ResidentBytes) / (1024.0 * 1024.0);
+            m.CacheMiB = static_cast<f64>(st.CachedBytes) / (1024.0 * 1024.0);
+            m.Memory = st.Memory;
+            m.Segments = st.SegmentsDrawn;
+            m.SegmentsCast = st.SceneShadow.SegmentsCast;
+            m.SegmentsWhole = st.SceneShadow.SegmentsWhole;
+            // The breakdown is the aggregate, row for row (GroomRenderPass::
+            // CollectMemoryBreakdown): the old report printed the aggregate as
+            // "geometry" and the coat volumes beside it, counting them twice.
+            EXPECT_EQ(st.Memory.GpuBytes(), st.CachedBytes) << framing.Name;
             const auto perFrame = [](u64 us)
             { return static_cast<f64>(us) / 1000.0 / kFrames; };
             m.BakeSegmentMs = perFrame(segmentUs);
@@ -1763,10 +1776,13 @@ namespace OloEngine::Tests
                 m.PassMs[name] = total.first / total.second;
             }
             std::printf("[dog] cost %s: wall p50 %.2f p95 %.2f ms, GPU frame %.2f ms (p50 %.2f p95 %.2f), strands %u, "
-                        "solver %.2f ms, bake %.2f ms (%u rebakes), deform %.2f ms, geometry %.1f MiB, coat volumes "
-                        "%.1f MiB\n",
-                        framing.Name, m.WallP50, m.WallP95, m.FrameGpuMs, m.GpuP50, m.GpuP95, m.Strands, m.SolverMs,
-                        m.BakeMs, m.Rebakes, m.DeformMs, m.GeometryMiB, m.CoatVolumeMiB);
+                        "segments %u, cast %llu of %llu, solver %.2f ms, bake %.2f ms (%u rebakes), deform %.2f ms, "
+                        "groom cache %.1f MiB (coat volumes %.1f of it), CPU retained %.1f MiB\n",
+                        framing.Name, m.WallP50, m.WallP95, m.FrameGpuMs, m.GpuP50, m.GpuP95, m.Strands, m.Segments,
+                        static_cast<unsigned long long>(m.SegmentsCast), static_cast<unsigned long long>(m.SegmentsWhole),
+                        m.SolverMs, m.BakeMs, m.Rebakes, m.DeformMs, m.CacheMiB,
+                        static_cast<f64>(m.Memory.CoatVolumeBytes) / (1024.0 * 1024.0),
+                        static_cast<f64>(m.Memory.CpuBytes()) / (1024.0 * 1024.0));
             std::printf("[dog] cost %s CPU: bake segments %.2f bin %.2f pack %.2f upload %.2f; pose %.2f, deform build %.2f "
                         "upload %.2f; curve select %.2f, root evaluate %.2f; GPU-deformed grooms %u, roots evaluated on "
                         "the GPU %u\n",
@@ -1789,6 +1805,21 @@ namespace OloEngine::Tests
         report += "# GPU ms are means of VALID GPUPassTimerPool samples; a sub-pass (Parent/Child) is INSIDE its parent.\n";
         report += "# CPU ms per frame: solver (guide simulation), bake (coat-shadow volume), deform (strand build + upload).\n";
         report += "# Headless: the live editor's p50/p95 are the E1/E2 gate; this file is the regression record.\n";
+        {
+            const auto* version = reinterpret_cast<const char*>(glGetString(GL_VERSION));
+            const ShadowSettings& shadow = Renderer3D::GetShadowMap().GetSettings();
+            const PostProcessSettings& post = Renderer3D::GetPostProcessSettings();
+            report += std::string("# Build ") + BuildInfo::GetBuildId() + ", driver " +
+                      (version != nullptr ? version : "unknown") + ".\n";
+            report += "# The editor's quality tier: " + std::to_string(shadow.Resolution) + "^2 cascades, " +
+                      (shadow.SoftShadows ? "PCSS" : "PCF") + ", AO technique " +
+                      std::to_string(static_cast<int>(post.ActiveAOTechnique)) + ", bloom " +
+                      (post.BloomEnabled ? "on" : "off") + ", FXAA " + (post.FXAAEnabled ? "on" : "off") + ".\n";
+        }
+        report += "# Strands, segments and castShare are what the frame ACHIEVED (strides and caps apply), not what was asked.\n";
+        report += "# cacheMiB is the groom cache's budget aggregate, coat volumes INCLUDED; the memory table breaks it\n";
+        report += "# down. Logical bytes requested, not a driver VRAM reading; CPU rows are retained host arrays by\n";
+        report += "# allocated capacity, outside the cache budget.\n";
         if (!subs.empty())
         {
             report += "# SUBSTITUTED (OLO_DOG_COST_SUB=" + subs + "): a bottleneck experiment, not the shipped look.\n";
@@ -1798,17 +1829,43 @@ namespace OloEngine::Tests
             report += "# LAWN: OLO_DOG_COST_LAWN=" + lawn + ".\n";
         }
         char row[512];
-        report += "framing      wallP50  wallP95  gpuFrame  gpuP50  gpuP95  strands  triangles  solverMs  bakeMs  rebakes  "
-                  "deformMs  geomMiB  coatMiB\n";
+        report += "framing      wallP50  wallP95  gpuFrame  gpuP50  gpuP95  strands  segments  triangles  castShare  "
+                  "solverMs  bakeMs  rebakes  deformMs  cacheMiB\n";
         for (sizet i = 0; i < framings.size(); ++i)
         {
             const Measured& m = results[i];
+            const f64 castShare =
+                m.SegmentsWhole > 0u ? static_cast<f64>(m.SegmentsCast) / static_cast<f64>(m.SegmentsWhole) : 0.0;
             std::snprintf(row, sizeof(row),
-                          "%-11s  %7.2f  %7.2f  %8.2f  %6.2f  %6.2f  %7u  %9u  %8.2f  %6.2f  %7u  %8.2f  %7.1f  %7.1f\n",
+                          "%-11s  %7.2f  %7.2f  %8.2f  %6.2f  %6.2f  %7u  %8u  %9u  %9.3f  %8.2f  %6.2f  %7u  %8.2f  %8.1f\n",
                           framings[i].Name, m.WallP50, m.WallP95, m.FrameGpuMs, m.GpuP50, m.GpuP95, m.Strands,
-                          m.Triangles, m.SolverMs, m.BakeMs, m.Rebakes, m.DeformMs, m.GeometryMiB, m.CoatVolumeMiB);
+                          m.Segments, m.Triangles, castShare, m.SolverMs, m.BakeMs, m.Rebakes, m.DeformMs, m.CacheMiB);
             report += row;
         }
+        report += "\nmemory MiB (GPU rows sum to cacheMiB)      FaceCloseUp     FullBody  WalkMidShot\n";
+        using MemoryRow = u64 GroomRenderStats::MemoryBreakdown::*;
+        const auto memoryRow = [&](const char* label, MemoryRow field)
+        {
+            std::snprintf(row, sizeof(row), "%-40s", label);
+            report += row;
+            for (const Measured& m : results)
+            {
+                std::snprintf(row, sizeof(row), "  %11.1f", static_cast<f64>(m.Memory.*field) / (1024.0 * 1024.0));
+                report += row;
+            }
+            report += "\n";
+        };
+        using MB = GroomRenderStats::MemoryBreakdown;
+        memoryRow("gpu strand vertices", &MB::StrandVertexBytes);
+        memoryRow("gpu strand indices", &MB::StrandIndexBytes);
+        memoryRow("gpu caster indices", &MB::CasterIndexBytes);
+        memoryRow("gpu deformation buffers", &MB::DeformBufferBytes);
+        memoryRow("gpu coat volumes", &MB::CoatVolumeBytes);
+        memoryRow("cpu pose segments", &MB::CpuPoseSegmentBytes);
+        memoryRow("cpu deformation mirrors", &MB::CpuDeformMirrorBytes);
+        memoryRow("cpu bake inputs", &MB::CpuBakeInputBytes);
+        memoryRow("cpu root tables", &MB::CpuRootTableBytes);
+        memoryRow("cpu scratch", &MB::CpuScratchBytes);
         report += "\npass GPU ms per frame                      FaceCloseUp     FullBody  WalkMidShot\n";
         for (const std::string& name : passOrder)
         {

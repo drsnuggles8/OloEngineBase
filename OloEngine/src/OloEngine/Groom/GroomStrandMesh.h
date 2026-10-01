@@ -444,6 +444,24 @@ namespace OloEngine
                                                   std::vector<GroomRestPoseSegment>* outPoseSegments = nullptr,
                                                   std::vector<u32>* outStrandFirstIndex = nullptr);
 
+    /**
+     * @brief The pose segments BuildGroomStrandRestMesh emits beside its stream,
+     *        and nothing else (#1533).
+     *
+     * The same walk -- the same strands, root slots, coat shape and budget --
+     * through the same bind-frame arithmetic, with no ribbon vertices or
+     * indices: what the coat bake evaluates a posed coat from, built on first
+     * use for a stream that was built without it. `outPoseSegments` is reserved
+     * to the planned segment count and is the only allocation of any size.
+     * Equal, segment for segment, to BuildGroomStrandRestMesh's
+     * `outPoseSegments`; empty, with empty stats, when `binding` does not span
+     * the base groom.
+     */
+    GroomStrandMeshStats BuildGroomRestPoseSegments(const GroomBuildSource& source,
+                                                    const GroomStrandBuildSettings& settings,
+                                                    const GroomBindingAsset& binding, const GroomCoatContext* coat,
+                                                    std::vector<GroomRestPoseSegment>& outPoseSegments);
+
     /// Steps in GroomCasterOrder::Prefix: a shadow view draws its strands in
     /// sixty-fourths of the coat.
     inline constexpr u32 kGroomCasterPrefixLevels = 64;

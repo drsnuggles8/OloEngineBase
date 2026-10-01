@@ -72,6 +72,26 @@ namespace OloEngine::MCP::GroomBudgetStats
         u64 CacheBudgetBytes = 0;
         u64 CacheOverBudgetBytes = 0;
         u32 CacheEvictions = 0;
+        // What the pass holds, by allocation (#1533): LOGICAL bytes, not a
+        // driver VRAM reading. The five GPU rows sum to CachedBytes (coat
+        // volumes included); the CPU rows are retained host arrays by capacity
+        // and sit outside the budget.
+        struct MemoryBreakdown
+        {
+            u64 StrandVertexBytes = 0;
+            u64 StrandIndexBytes = 0;
+            u64 CasterIndexBytes = 0;
+            u64 DeformBufferBytes = 0;
+            u64 CoatVolumeBytes = 0;
+            u64 CpuPoseSegmentBytes = 0;
+            u64 CpuDeformMirrorBytes = 0;
+            u64 CpuBakeInputBytes = 0;
+            u64 CpuRootTableBytes = 0;
+            u64 CpuScratchBytes = 0;
+            u32 RestStreams = 0;
+            u32 Entries = 0;
+        };
+        MemoryBreakdown Memory;
 
         // ── Coat self-shadowing (#1248, #1426) ───────────────────────
         u32 CoatShadowed = 0;
@@ -168,6 +188,24 @@ namespace OloEngine::MCP::GroomBudgetStats
             { "budgetBytes", snapshot.CacheBudgetBytes },
             { "overBudgetBytes", snapshot.CacheOverBudgetBytes },
             { "evictions", snapshot.CacheEvictions },
+            { "memory",
+              Json{
+                  { "accounting", "logical bytes requested, not driver-reported VRAM; cpu rows by capacity" },
+                  { "gpu",
+                    Json{ { "strandVertexBytes", snapshot.Memory.StrandVertexBytes },
+                          { "strandIndexBytes", snapshot.Memory.StrandIndexBytes },
+                          { "casterIndexBytes", snapshot.Memory.CasterIndexBytes },
+                          { "deformBufferBytes", snapshot.Memory.DeformBufferBytes },
+                          { "coatVolumeBytes", snapshot.Memory.CoatVolumeBytes } } },
+                  { "cpu",
+                    Json{ { "poseSegmentBytes", snapshot.Memory.CpuPoseSegmentBytes },
+                          { "deformMirrorBytes", snapshot.Memory.CpuDeformMirrorBytes },
+                          { "bakeInputBytes", snapshot.Memory.CpuBakeInputBytes },
+                          { "rootTableBytes", snapshot.Memory.CpuRootTableBytes },
+                          { "scratchBytes", snapshot.Memory.CpuScratchBytes } } },
+                  { "restStreams", snapshot.Memory.RestStreams },
+                  { "entries", snapshot.Memory.Entries },
+              } },
         };
 
         // Whether a coat asked for self-shadowing got it, and -- for a coat

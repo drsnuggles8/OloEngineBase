@@ -6910,6 +6910,18 @@ namespace OloEngine::MCP
             snapshot.CacheBudgetBytes = groom.CacheBudgetBytes;
             snapshot.CacheOverBudgetBytes = groom.CacheOverBudgetBytes;
             snapshot.CacheEvictions = groom.CacheEvictions;
+            snapshot.Memory.StrandVertexBytes = groom.Memory.StrandVertexBytes;
+            snapshot.Memory.StrandIndexBytes = groom.Memory.StrandIndexBytes;
+            snapshot.Memory.CasterIndexBytes = groom.Memory.CasterIndexBytes;
+            snapshot.Memory.DeformBufferBytes = groom.Memory.DeformBufferBytes;
+            snapshot.Memory.CoatVolumeBytes = groom.Memory.CoatVolumeBytes;
+            snapshot.Memory.CpuPoseSegmentBytes = groom.Memory.CpuPoseSegmentBytes;
+            snapshot.Memory.CpuDeformMirrorBytes = groom.Memory.CpuDeformMirrorBytes;
+            snapshot.Memory.CpuBakeInputBytes = groom.Memory.CpuBakeInputBytes;
+            snapshot.Memory.CpuRootTableBytes = groom.Memory.CpuRootTableBytes;
+            snapshot.Memory.CpuScratchBytes = groom.Memory.CpuScratchBytes;
+            snapshot.Memory.RestStreams = groom.Memory.RestStreams;
+            snapshot.Memory.Entries = groom.Memory.Entries;
 
             for (sizet r = 0; r < GroomRepresentationCount; ++r)
             {

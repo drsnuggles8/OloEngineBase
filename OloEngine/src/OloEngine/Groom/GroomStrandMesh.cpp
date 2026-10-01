@@ -1086,6 +1086,30 @@ namespace OloEngine
         return stats;
     }
 
+    namespace
+    {
+        // A segment's rest points IN ITS ROOT'S BIND FRAME -- the half of
+        // ApplyGroomRootTransform that does not change from frame to frame,
+        // taken once with the same arithmetic that function uses, so the
+        // per-frame half on the GPU is `Origin + Rotation * local` and nothing
+        // else. ONE definition for the stream's vertices and for the pose
+        // segments the coat bake evaluates, so the two cannot disagree.
+        [[nodiscard]] GroomRestPoseSegment MakeRestPoseSegment(const GroomRootBinding& record, u32 rootSlot,
+                                                               const RestSegment& segment) noexcept
+        {
+            const glm::quat inverseRest = glm::conjugate(record.RestRotation);
+            GroomRestPoseSegment pose;
+            pose.RootSlot = rootSlot;
+            pose.Local0 = inverseRest * (segment.Rest0 - record.RestOrigin);
+            pose.Local1 = inverseRest * (segment.Rest1 - record.RestOrigin);
+            pose.T0 = segment.T0;
+            pose.T1 = segment.T1;
+            pose.Radius0 = segment.Radius0;
+            pose.Radius1 = segment.Radius1;
+            return pose;
+        }
+    } // namespace
+
     GroomStrandMeshStats BuildGroomStrandRestMesh(const GroomBuildSource& source,
                                                   const GroomStrandBuildSettings& settings,
                                                   const GroomBindingAsset& binding,
@@ -1152,14 +1176,10 @@ namespace OloEngine
 
         const auto onSegment = [&](const RestSegment& segment)
         {
-            // The rest points IN THE ROOT'S BIND FRAME — the half of
-            // ApplyGroomRootTransform that does not change from frame to frame,
-            // taken once here with the same arithmetic that function uses, so
-            // the per-frame half on the GPU is `Origin + Rotation * local` and
-            // nothing else.
-            const glm::quat inverseRest = glm::conjugate(record->RestRotation);
-            const glm::vec3 local0 = inverseRest * (segment.Rest0 - record->RestOrigin);
-            const glm::vec3 local1 = inverseRest * (segment.Rest1 - record->RestOrigin);
+            // The rest points in the root's bind frame (MakeRestPoseSegment).
+            const GroomRestPoseSegment pose = MakeRestPoseSegment(*record, static_cast<u32>(rootSlot), segment);
+            const glm::vec3 local0 = pose.Local0;
+            const glm::vec3 local1 = pose.Local1;
 
             // Bounds of the REST coat. A deformed coat's drawn box moves every
             // frame and nothing on this path measures it; the stats say what the
@@ -1193,20 +1213,46 @@ namespace OloEngine
 
             if (outPoseSegments != nullptr)
             {
-                GroomRestPoseSegment pose;
-                pose.RootSlot = static_cast<u32>(rootSlot);
-                pose.Local0 = local0;
-                pose.Local1 = local1;
-                pose.T0 = segment.T0;
-                pose.T1 = segment.T1;
-                pose.Radius0 = segment.Radius0;
-                pose.Radius1 = segment.Radius1;
                 outPoseSegments->push_back(pose);
             }
         };
 
         WalkStrandSegments(source, settings, coat, stats, onCurve, onSegment);
         FinishStreamStats(stats, outVertices, outIndices, boundsMin, boundsMax);
+        return stats;
+    }
+
+    GroomStrandMeshStats BuildGroomRestPoseSegments(const GroomBuildSource& source,
+                                                    const GroomStrandBuildSettings& settings,
+                                                    const GroomBindingAsset& binding, const GroomCoatContext* coat,
+                                                    std::vector<GroomRestPoseSegment>& outPoseSegments)
+    {
+        outPoseSegments.clear();
+        // The rest builder's refusal, for its reason (see BuildGroomStrandRestMesh).
+        if (binding.GetRootCount() != source.BaseCurveCount)
+        {
+            return GroomStrandMeshStats{};
+        }
+        const GroomStrandMeshStats plan = PlanGroomStrandMesh(source, settings, coat);
+        outPoseSegments.reserve(plan.SegmentCount);
+
+        // THE SAME WALK, the same root slots in the same order and the same bind
+        // arithmetic as BuildGroomStrandRestMesh -- and no ribbon vertices or
+        // indices at all: a stream built without its pose segments gets them
+        // here, on first use, without building and discarding a second copy of
+        // the four-corner ribbon mesh the GPU already holds (#1533).
+        const GroomRootBinding* record = nullptr;
+        u32 rootSlot = 0;
+        u32 curves = 0;
+        GroomStrandMeshStats stats;
+        WalkStrandSegments(
+            source, settings, coat, stats,
+            [&](u32 /*curve*/, u32 sourceCurve)
+            {
+                record = &binding.GetRoot(sourceCurve);
+                rootSlot = curves++;
+            },
+            [&](const RestSegment& segment) { outPoseSegments.push_back(MakeRestPoseSegment(*record, rootSlot, segment)); });
         return stats;
     }
 

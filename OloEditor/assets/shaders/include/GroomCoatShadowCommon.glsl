@@ -82,10 +82,9 @@ const float OLO_GROOM_COAT_ISOTROPIC_MEAN_SINE = 0.78539816339744830961;
 // the isotropic arm does not even read. It also costs ONE sampler slot, and the
 // sampler namespace has exactly one index left (ShaderBindingLayout.h).
 //
-// RGBA32F on the wire, 16 bytes a voxel. RGBA16F would halve that and is what
-// the packing wants, but Texture3D's RGBA16F declares 8 bytes a texel while
-// uploading its client data as GL_FLOAT, so SetData rejects the only buffer it
-// could be handed. See GroomRenderPass's bake.
+// RGBA16F on the wire, 8 bytes a voxel (#1445: Texture3D's RGBA16F upload takes
+// half-float client data). GroomRenderPass's bake falls back to RGBA32F only for
+// a volume whose density would overflow a half.
 struct OloGroomCoatVolumeSample
 {
 	vec3 Direction; // mean direction * coherence, object space
@@ -178,7 +177,7 @@ bool oloGroomCoatIntersectUnitBox(vec3 originUvw, vec3 dirUvw, out float tEnter,
 // Expected fibre crossings between `worldPos` and the light, along `L` (the
 // direction TOWARDS the light, already normalised).
 //
-//   coatVolume      the packed RGBA32F volume
+//   coatVolume      the packed volume (RGBA16F, RGBA32F on overflow)
 //   worldToObject   RIGID render-relative-world -> groom object space
 //   boundsMin       the volume's object-space minimum corner
 //   invExtent       1 / (boundsMax - boundsMin), object space
