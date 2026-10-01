@@ -340,6 +340,8 @@ TEST(GameBuildPipelineTest, SceneReferencedContentStagesEveryFileAScenePathOpens
     std::ofstream(project / "Assets/Models/Rock/rock data.bin") << "bytes";
     WritePngSignature(project / "Assets/Models/Rock/rock_albedo.png");
     std::ofstream(project / "Assets/Models/Unused/unused.obj") << "v 0 0 0\n";
+    fs::create_directories(project / "Assets/Models/Horse");
+    std::ofstream(project / "Assets/Models/Horse/Horse.glb") << "glb";
     WritePngSignature(project / "Assets/Skies/Day/right.png");
     WritePngSignature(project / "Assets/Skies/Day/left.png");
     WritePngSignature(engine / "assets/textures/leaf_normal.png");
@@ -361,7 +363,14 @@ TEST(GameBuildPipelineTest, SceneReferencedContentStagesEveryFileAScenePathOpens
                             "          AlbedoPath: ../outside/texture.png\n"
                             "          ThicknessMapPath: Assets/../../escape.png\n"
                             "    EnvironmentMapComponent:\n"
-                            "      FilePath: Assets/Skies/Day\n";
+                            "      FilePath: Assets/Skies/Day\n"
+                            "  - Entity: 2\n"
+                            "    AnimationStateComponent:\n"
+                            "      SourceFilePath: Models/Horse/Horse.glb\n"
+                            "  - Entity: 3\n"
+                            "    FoliageComponent:\n"
+                            "      Layers:\n"
+                            "        - AlbedoPath: ../outside/texture.png\n";
     fs::create_directories(project.parent_path() / "outside");
     WritePngSignature(project.parent_path() / "outside/texture.png");
 
@@ -384,6 +393,9 @@ TEST(GameBuildPipelineTest, SceneReferencedContentStagesEveryFileAScenePathOpens
         fs::path{ "Assets/Skies/Day/left.png" },
         fs::path{ "Assets/Skies/Day/right.png" },
         fs::path{ "assets/textures/leaf_normal.png" },
+        // Asset-relative: an animated model's SourceFilePath is read back as
+        // <AssetDirectory>/<value>.
+        fs::path{ "Assets/Models/Horse/Horse.glb" },
     };
     for (const auto& path : staged)
     {
@@ -393,8 +405,8 @@ TEST(GameBuildPipelineTest, SceneReferencedContentStagesEveryFileAScenePathOpens
     EXPECT_FALSE(fs::exists(output / "Assets/Models/Unused/unused.obj")) << "an unreferenced model was staged";
     EXPECT_FALSE(fs::exists(output / "Assets/Scenes")) << "the scenes ship through CopySceneFiles, not here";
 
-    // Missing, outside the project, and escaping the asset root: each named,
-    // none staged, none a build failure.
+    // Missing, outside the project, and escaping the asset root: each named
+    // once (the ../ reference appears twice), none staged, none a build failure.
     ASSERT_EQ(unresolved.size(), 3u);
     const auto mentions = [&](const std::string& needle)
     {

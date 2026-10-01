@@ -287,8 +287,16 @@ namespace OloEngine
             if (seen.insert(reference.Stored.generic_string()).second)
                 pending.push_back(std::move(reference));
         };
+        // Once per line: a crowd scene names the same model in every entity.
+        std::unordered_set<std::string> reported;
+        const auto report = [&](std::string line)
+        {
+            if (reported.insert(line).second)
+                unresolved.push_back(std::move(line));
+        };
 
-        // ResolveContentPath's spelling rule, applied to one scene scalar.
+        // ResolveContentPath's spelling rule, applied to one scene scalar, plus
+        // the asset-relative spelling some fields use instead.
         const auto consider = [&](const std::string& value, const std::string& sceneName)
         {
             if (value.empty() || value.size() > 1024 || value.find_first_of("\r\n") != std::string::npos)
@@ -301,21 +309,33 @@ namespace OloEngine
             {
                 std::error_code ec;
                 if (std::filesystem::is_regular_file(stored, ec))
-                    unresolved.push_back(sceneName + ": " + value + " (an absolute path; a packaged game cannot carry it)");
+                    report(sceneName + ": " + value + " (an absolute path; a packaged game cannot carry it)");
                 return;
             }
             if (first == "..")
             {
                 // Present or not, a package has nowhere to put it: the runtime
                 // would read it from beside the game directory.
-                unresolved.push_back(sceneName + ": " + value +
-                                     " (outside the project; a relocatable package has nowhere to put it)");
+                report(sceneName + ": " + value +
+                       " (outside the project; a relocatable package has nowhere to put it)");
                 return;
             }
             if (first == assetDirectoryName.generic_string())
                 enqueue({ stored, &projectDir, &assetDirectoryName, sceneName });
             else if (first == engineRootName.generic_string())
                 enqueue({ stored, &engineRoot, &engineRootName, sceneName });
+            else
+            {
+                // Asset-directory-relative ("Models/Horse/Horse.gltf"): how an
+                // animated model's SourceFilePath is stored, read back as
+                // <AssetDirectory>/<value>, which is <game>/Assets/<value> in a
+                // packaged game. Only a value naming a file that is there counts,
+                // so ordinary text is never taken for a path.
+                const std::filesystem::path assetRelative = assetDirectoryName / stored;
+                std::error_code ec;
+                if (std::filesystem::is_regular_file(projectDir / assetRelative, ec))
+                    enqueue({ assetRelative, &projectDir, &assetDirectoryName, sceneName });
+            }
         };
 
         for (const auto& sceneFile : sceneFiles)
@@ -328,8 +348,8 @@ namespace OloEngine
             }
             catch (const std::exception& e)
             {
-                unresolved.push_back(sceneName + ": the scene did not parse, so its references were not staged (" +
-                                     e.what() + ")");
+                report(sceneName + ": the scene did not parse, so its references were not staged (" +
+                       e.what() + ")");
                 continue;
             }
 
@@ -383,8 +403,8 @@ namespace OloEngine
 
             if (!IsRootedUnder(reference.Stored, *reference.Root))
             {
-                unresolved.push_back(reference.Referrer + ": " + reference.Stored.generic_string() + " (leaves " +
-                                     reference.Root->generic_string() + "/)");
+                report(reference.Referrer + ": " + reference.Stored.generic_string() + " (leaves " +
+                       reference.Root->generic_string() + "/)");
                 continue;
             }
 
@@ -418,8 +438,8 @@ namespace OloEngine
             }
             if (!std::filesystem::is_regular_file(source, ec))
             {
-                unresolved.push_back(reference.Referrer + ": " + reference.Stored.generic_string() + " (no such file under " +
-                                     reference.Base->string() + ")");
+                report(reference.Referrer + ": " + reference.Stored.generic_string() + " (no such file under " +
+                       reference.Base->string() + ")");
                 continue;
             }
 

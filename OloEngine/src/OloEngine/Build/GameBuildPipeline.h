@@ -63,7 +63,10 @@ namespace OloEngine
      *
      * Every scalar in every scene is read with ResolveContentPath's spelling rule:
      * `<assetDirectoryName>/...` is project content under `projectDir`, `assets/...`
-     * is engine content under `engineRoot` (the editor working directory). A value
+     * is engine content under `engineRoot` (the editor working directory), and any
+     * other value naming a file under the asset directory is the asset-relative
+     * spelling an animated model's SourceFilePath uses and stages as
+     * `<assetDirectoryName>/<value>`. A value
      * naming an existing file is copied to `outputDir / <value>`, which is where the
      * runtime resolves it: the runtime mounts its project at the game directory and
      * runs with that directory as its working directory. A value naming a directory
