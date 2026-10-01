@@ -87,6 +87,7 @@
 #include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
+#include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 
@@ -539,6 +540,153 @@ namespace OloEngine::Tests
         {
             m_BodyEntity.GetComponent<MaterialComponent>().m_Material.SetFlag(MaterialFlag::DisableShadowCasting,
                                                                               !casts);
+        }
+
+        // CASE 8's measurement under whichever light placeLight puts behind
+        // the coat: the backlit frames with no routing, routed with the body
+        // out of the map, routed with it, and through the coat-exit receiver
+        // (the fault lever). opaqueMap names the copy that light samples.
+        void RunBacklitBodyCase(const char* lightName, const std::string& tag, ShadowMap::OpaqueCopy opaqueMap,
+                                const std::function<void()>& placeLight)
+        {
+            Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+            Renderer3D::ApplyRendererSettings();
+
+            GetScene().DestroyEntity(m_OccluderEntity);
+            m_OccluderEntity = {};
+            placeLight();
+
+            Routing().m_CastShadows = false;
+            Routing().m_ReceiveShadows = false;
+            const std::vector<u8> coatMask = DeriveCoatMask();
+            if (::testing::Test::HasFatalFailure())
+            {
+                return;
+            }
+            ASSERT_GT(CountMask(coatMask), 20000u) << "the backlit coat barely registers against the frame";
+
+            // The no-shadow control, with the body not casting either.
+            SetBodyCasts(false);
+            std::vector<u8> control;
+            Capture({}, control);
+
+            Routing().m_CastShadows = true;
+            Routing().m_ReceiveShadows = true;
+            std::vector<u8> noBodyCaster;
+            Capture(tag + "NoBodyCaster", noBodyCaster);
+            const GroomRenderPass* const groomPass = Renderer3D::GetGroomRenderPass();
+            const u32 opaqueGrooms = groomPass == nullptr                      ? 0u
+                                     : opaqueMap == ShadowMap::OpaqueCopy::Atlas ? groomPass->GetStats().GroomsShadowedByOpaqueAtlas
+                                                                                 : groomPass->GetStats().GroomsShadowedByOpaqueCascades;
+
+            SetBodyCasts(true);
+            std::vector<u8> fixed;
+            Capture(tag + "Body", fixed);
+
+            // THE EQUIVALENCE: a coat that receives and does not cast samples
+            // the FULL map at the strand -- a map with the body and no fur in
+            // it, which is exactly what the opaque copy has to be. So the fixed
+            // frame must match it on every coat pixel; a copy that missed the
+            // texels the strands read, or held the fur, would not.
+            Routing().m_CastShadows = false;
+            std::vector<u8> receiveOnly;
+            Capture({}, receiveOnly);
+            Routing().m_CastShadows = true;
+
+            // THE NEGATIVE CONTROL: the same frame through the old receiver.
+            struct FaultRestore
+            {
+                ~FaultRestore()
+                {
+                    Levers::SetFaultGroomShadowAtCoatExit(false);
+                }
+            } faultRestore;
+            Levers::SetFaultGroomShadowAtCoatExit(true);
+            std::vector<u8> atExit;
+            Capture(tag + "BodyAtCoatExit", atExit);
+            Levers::SetFaultGroomShadowAtCoatExit(false);
+            if (::testing::Test::HasFatalFailure())
+            {
+                return;
+            }
+
+            // PER PIXEL, not the coat's mean: the coat grows on the upper half of
+            // the sphere and its crown faces the sun, so only a band of it is on
+            // the body's far side, and the engine's soft shadow spreads that band's
+            // edge over a wide penumbra that the tone curve compresses further. The
+            // body's shadow is three claims about the pixels it touches: it only
+            // ever REMOVES light, where it is full the fur goes BLACK (nothing else
+            // lights this scene), and over its whole footprint the fur keeps well
+            // under the light it had. Measured at the time of writing: 7832 coat
+            // pixels changed, 3 of them brighter; 1355 went from lit to black; the
+            // changed pixels kept 0.66 of their luma.
+            u32 bodyTouched = 0;
+            u32 bodyBrightened = 0;
+            u32 litToBlack = 0;
+            f64 touchedFixed = 0.0;
+            f64 touchedAtExit = 0.0;
+            for (sizet i = 0, px = 0; i + 3 < fixed.size() && px < coatMask.size(); i += 4, ++px)
+            {
+                if (coatMask[px] == 0u)
+                {
+                    continue;
+                }
+                const f64 withFix = Luma(fixed, i);
+                const f64 throughExit = Luma(atExit, i);
+                if (std::abs(withFix - throughExit) <= kMaskThreshold)
+                {
+                    continue;
+                }
+                ++bodyTouched;
+                bodyBrightened += withFix > throughExit ? 1u : 0u;
+                litToBlack += (withFix < 10.0 && throughExit > 50.0) ? 1u : 0u;
+                touchedFixed += withFix;
+                touchedAtExit += throughExit;
+            }
+            const f64 touchedRatio = touchedAtExit > 0.0 ? touchedFixed / touchedAtExit : 1.0;
+            const u32 coatPixels = CountMask(coatMask);
+            // The two frames the negative control and the double-count check
+            // compare, per pixel for the same reason.
+            const u32 exitMovedByBody = CountDifferingIn(atExit, noBodyCaster, coatMask, /*inside=*/true);
+            const u32 routingMovedCoat = CountDifferingIn(noBodyCaster, control, coatMask, /*inside=*/true);
+            const u32 copyDiffersFromFurlessMap = CountDifferingIn(fixed, receiveOnly, coatMask, /*inside=*/true);
+            std::printf("[groom-scene-shadow] %-9s %u coat px | the body touched %u (%u brighter, %u lit -> black), "
+                        "keeping %.3f of their luma | through the coat exit the body moved %u px (negative control) | "
+                        "routing with no body caster moved %u px | %u groom(s) on the opaque copy\n",
+                        lightName, coatPixels, bodyTouched, bodyBrightened, litToBlack, touchedRatio, exitMovedByBody,
+                        routingMovedCoat, opaqueGrooms);
+            std::printf("[groom-scene-shadow] %-9s the opaque copy against the furless full map: %u coat px differ\n",
+                        lightName, copyDiffersFromFurlessMap);
+
+            ASSERT_GT(MeanLumaIn(control, coatMask, true), 10.0)
+                << "the backlit control coat is already almost black, so this case cannot measure a shadow on it";
+            EXPECT_GT(opaqueGrooms, 0u) << "no groom sampled the opaque copy of the " << lightName
+                                        << "'s map, so the frames below measured the light-exit receiver twice";
+
+            // THE SENSITIVITY CHECK FIRST: the old receiver must NOT see the body,
+            // or the darkening asserted next could come from something else.
+            ASSERT_LT(exitMovedByBody, coatPixels / 100u)
+                << "through the light-exit receiver the body casting moved the coat anyway, so this case cannot tell "
+                   "the fix from the defect it replaces";
+
+            EXPECT_GT(bodyTouched, coatPixels / 5u)
+                << "the body's shadow reached too little of the coat to be the far side of the body";
+            EXPECT_LT(bodyBrightened, bodyTouched / 100u)
+                << "the body BRIGHTENED coat pixels: an occluder can only remove light";
+            EXPECT_GT(litToBlack, coatPixels / 50u)
+                << "no coat pixel in the body's full shadow went black: the body still lets its sun through";
+            EXPECT_LT(touchedRatio, 0.8)
+                << "where the body's shadow falls the coat kept almost all of its light";
+
+            // AND THE FUR STILL NOT ITSELF: with the body out of the map, routing
+            // both directions must leave the coat exactly as lit as no routing. Its
+            // own strands in the map would take it to black (case 5's 0.22 luma).
+            EXPECT_LT(copyDiffersFromFurlessMap, coatPixels / 100u)
+                << "the coat sampling the opaque copy is not the coat sampling a map with no fur in it: the copy missed "
+                   "the texels the strands read, or holds the fur";
+            EXPECT_LT(routingMovedCoat, coatPixels / 100u)
+                << "with nothing but its own strands to shadow it, routing moved the coat: the opaque cascades hold "
+                   "the fur, which counts the coat twice";
         }
 
         [[nodiscard]] static const GroomShadowCasterStats& CasterStats()
@@ -1108,129 +1256,40 @@ namespace OloEngine::Tests
     //     the copy, which is the double count the exit point existed to stop.
     TEST_F(GroomSceneShadowVisualEvidenceTest, TheBodyShadowsItsOwnFurAndTheFurStillNotItself)
     {
-        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
-        Renderer3D::ApplyRendererSettings();
-
-        GetScene().DestroyEntity(m_OccluderEntity);
-        m_OccluderEntity = {};
         // BEHIND AND ABOVE, towards the camera: the camera faces the body's
         // shadowed side, and the coat's own cast falls in front of the body.
-        m_LightEntity.GetComponent<DirectionalLightComponent>().m_Direction =
-            glm::normalize(glm::vec3(0.25f, -0.55f, 0.80f));
+        RunBacklitBodyCase("sun", "GroomSceneShadow_GL_Forward_Backlit", ShadowMap::OpaqueCopy::Cascades,
+                           [this]
+                           {
+                               m_LightEntity.GetComponent<DirectionalLightComponent>().m_Direction =
+                                   glm::normalize(glm::vec3(0.25f, -0.55f, 0.80f));
+                           });
+    }
 
-        Routing().m_CastShadows = false;
-        Routing().m_ReceiveShadows = false;
-        const std::vector<u8> coatMask = DeriveCoatMask();
-        if (::testing::Test::HasFatalFailure())
-        {
-            return;
-        }
-        ASSERT_GT(CountMask(coatMask), 20000u) << "the backlit coat barely registers against the frame";
-
-        // The no-shadow control, with the body not casting either.
-        SetBodyCasts(false);
-        std::vector<u8> control;
-        Capture({}, control);
-
-        Routing().m_CastShadows = true;
-        Routing().m_ReceiveShadows = true;
-        std::vector<u8> noBodyCaster;
-        Capture("GroomSceneShadow_GL_Forward_BacklitNoBodyCaster", noBodyCaster);
-        const u32 opaqueGrooms = Renderer3D::GetGroomRenderPass() != nullptr
-                                     ? Renderer3D::GetGroomRenderPass()->GetStats().GroomsShadowedByOpaqueCascades
-                                     : 0u;
-
-        SetBodyCasts(true);
-        std::vector<u8> fixed;
-        Capture("GroomSceneShadow_GL_Forward_BacklitBody", fixed);
-
-        // THE NEGATIVE CONTROL: the same frame through the old receiver.
-        struct FaultRestore
-        {
-            ~FaultRestore()
-            {
-                Levers::SetFaultGroomShadowAtCoatExit(false);
-            }
-        } faultRestore;
-        Levers::SetFaultGroomShadowAtCoatExit(true);
-        std::vector<u8> atExit;
-        Capture("GroomSceneShadow_GL_Forward_BacklitBodyAtCoatExit", atExit);
-        Levers::SetFaultGroomShadowAtCoatExit(false);
-        if (::testing::Test::HasFatalFailure())
-        {
-            return;
-        }
-
-        // PER PIXEL, not the coat's mean: the coat grows on the upper half of
-        // the sphere and its crown faces the sun, so only a band of it is on
-        // the body's far side, and the engine's soft shadow spreads that band's
-        // edge over a wide penumbra that the tone curve compresses further. The
-        // body's shadow is three claims about the pixels it touches: it only
-        // ever REMOVES light, where it is full the fur goes BLACK (nothing else
-        // lights this scene), and over its whole footprint the fur keeps well
-        // under the light it had. Measured at the time of writing: 7832 coat
-        // pixels changed, 3 of them brighter; 1355 went from lit to black; the
-        // changed pixels kept 0.66 of their luma.
-        u32 bodyTouched = 0;
-        u32 bodyBrightened = 0;
-        u32 litToBlack = 0;
-        f64 touchedFixed = 0.0;
-        f64 touchedAtExit = 0.0;
-        for (sizet i = 0, px = 0; i + 3 < fixed.size() && px < coatMask.size(); i += 4, ++px)
-        {
-            if (coatMask[px] == 0u)
-            {
-                continue;
-            }
-            const f64 withFix = Luma(fixed, i);
-            const f64 throughExit = Luma(atExit, i);
-            if (std::abs(withFix - throughExit) <= kMaskThreshold)
-            {
-                continue;
-            }
-            ++bodyTouched;
-            bodyBrightened += withFix > throughExit ? 1u : 0u;
-            litToBlack += (withFix < 10.0 && throughExit > 50.0) ? 1u : 0u;
-            touchedFixed += withFix;
-            touchedAtExit += throughExit;
-        }
-        const f64 touchedRatio = touchedAtExit > 0.0 ? touchedFixed / touchedAtExit : 1.0;
-        const u32 coatPixels = CountMask(coatMask);
-        // The two frames the negative control and the double-count check
-        // compare, per pixel for the same reason.
-        const u32 exitMovedByBody = CountDifferingIn(atExit, noBodyCaster, coatMask, /*inside=*/true);
-        const u32 routingMovedCoat = CountDifferingIn(noBodyCaster, control, coatMask, /*inside=*/true);
-        std::printf("[groom-scene-shadow] backlit   %u coat px | the body touched %u (%u brighter, %u lit -> black), "
-                    "keeping %.3f of their luma | through the coat exit the body moved %u px (negative control) | "
-                    "routing with no body caster moved %u px | %u groom(s) on the opaque cascades\n",
-                    coatPixels, bodyTouched, bodyBrightened, litToBlack, touchedRatio, exitMovedByBody,
-                    routingMovedCoat, opaqueGrooms);
-
-        ASSERT_GT(MeanLumaIn(control, coatMask, true), 10.0)
-            << "the backlit control coat is already almost black, so this case cannot measure a shadow on it";
-        EXPECT_GT(opaqueGrooms, 0u) << "no groom sampled the opaque cascades, so the frames below measured the "
-                                       "light-exit receiver twice";
-
-        // THE SENSITIVITY CHECK FIRST: the old receiver must NOT see the body,
-        // or the darkening asserted next could come from something else.
-        ASSERT_LT(exitMovedByBody, coatPixels / 100u)
-            << "through the light-exit receiver the body casting moved the coat anyway, so this case cannot tell "
-               "the fix from the defect it replaces";
-
-        EXPECT_GT(bodyTouched, coatPixels / 5u)
-            << "the body's shadow reached too little of the coat to be the far side of the body";
-        EXPECT_LT(bodyBrightened, bodyTouched / 100u)
-            << "the body BRIGHTENED coat pixels: an occluder can only remove light";
-        EXPECT_GT(litToBlack, coatPixels / 50u)
-            << "no coat pixel in the body's full shadow went black: the body still lets its sun through";
-        EXPECT_LT(touchedRatio, 0.8)
-            << "where the body's shadow falls the coat kept almost all of its light";
-
-        // AND THE FUR STILL NOT ITSELF: with the body out of the map, routing
-        // both directions must leave the coat exactly as lit as no routing. Its
-        // own strands in the map would take it to black (case 5's 0.22 luma).
-        EXPECT_LT(routingMovedCoat, coatPixels / 100u)
-            << "with nothing but its own strands to shadow it, routing moved the coat: the opaque cascades hold "
-               "the fur, which counts the coat twice";
+    // The same under a SPOT light, whose shadow is a tile of the local-light
+    // atlas: the atlas is split and copied as the cascades are, and a strand
+    // samples the opaque atlas at itself. The sun goes, so the spot is the only
+    // light and every darkened pixel is its shadow.
+    TEST_F(GroomSceneShadowVisualEvidenceTest, TheBodyShadowsItsOwnFurUnderASpotLight)
+    {
+        RunBacklitBodyCase("spot", "GroomSceneShadow_GL_Forward_SpotBacklit", ShadowMap::OpaqueCopy::Atlas,
+                           [this]
+                           {
+                               GetScene().DestroyEntity(m_LightEntity);
+                               m_LightEntity = GetScene().CreateEntity("Spot");
+                               const glm::vec3 travels = glm::normalize(glm::vec3(0.25f, -0.55f, 0.80f));
+                               // Six metres back along the sun's direction, its
+                               // cone just wider than the coat seen from there.
+                               m_LightEntity.GetComponent<TransformComponent>().Translation =
+                                   glm::vec3(0.0f, 1.45f, 0.0f) - (travels * 6.0f);
+                               auto& spot = m_LightEntity.AddComponent<SpotLightComponent>();
+                               spot.m_Direction = travels;
+                               spot.m_Color = glm::vec3(1.0f, 0.97f, 0.93f);
+                               spot.m_Intensity = 60.0f;
+                               spot.m_Range = 15.0f;
+                               spot.m_InnerCutoff = 20.0f;
+                               spot.m_OuterCutoff = 26.0f;
+                               spot.m_CastShadows = true;
+                           });
     }
 } // namespace OloEngine::Tests

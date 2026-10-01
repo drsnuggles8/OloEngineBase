@@ -26,9 +26,11 @@
 #include "OloEngine/Renderer/VertexArray.h"
 
 #include <algorithm>
+#include <cmath>
 #include <ranges>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 
 namespace OloEngine
 {
@@ -449,7 +451,8 @@ namespace OloEngine
         // casters, copies the map into ShadowMap's opaque copy, and then takes
         // its grooms on top, uncleared. The strands sample the copy where they
         // are; every other receiver samples the whole map.
-        const bool splitForGrooms = !m_GroomCasters.IsEmpty() && !Levers::FaultGroomShadowAtCoatExit();
+        const bool splitForGrooms =
+            !m_GroomCasters.IsEmpty() && m_HasGroomReceivers && !Levers::FaultGroomShadowAtCoatExit();
         const auto recordRegionForGrooms =
             [&](const ShadowPassType type, const ShadowMap::OpaqueCopy which,
                 const std::function<void(const ActiveShadowView&)>& selectTarget, const bool clearPerItem,
@@ -552,6 +555,10 @@ namespace OloEngine
                     // foliage and virtual geometry share this item's layer.
                     m_ShadowFramebuffer->AttachDepthTextureArrayLayer(csmArray->GetRHIHandle(), view.Index);
                 };
+                // ONLY THE RECEIVERS' TEXELS of each cascade: a strand samples
+                // where its own coat projects, so the rest of a layer is never
+                // read. At the dog's 4096^2 cascades the whole-layer copy cost
+                // ~0.3 ms of GPU; the coat's rect is a few percent of a layer.
                 const u32 side = m_ShadowMap->GetResolution();
                 recordRegionForGrooms(ShadowPassType::CSM, ShadowMap::OpaqueCopy::Cascades, selectLayer,
                                       /*clearPerItem=*/true,
@@ -559,11 +566,20 @@ namespace OloEngine
                                       {
                                           for (const ActiveShadowView& view : m_ActiveViews)
                                           {
-                                              RenderCommand::CopyImageSubDataFull(
+                                              u32 x = 0;
+                                              u32 y = 0;
+                                              u32 width = 0;
+                                              u32 height = 0;
+                                              if (!GroomReceiverTexelRect(view.LightVP, 0u, 0u, side, x, y, width, height))
+                                              {
+                                                  continue;
+                                              }
+                                              const auto layer = static_cast<i32>(view.Index);
+                                              RenderCommand::CopyImageSubDataRegion(
                                                   csmArray->GetRHIHandle(), RendererAPI::TextureTargetType::Texture2DArray,
-                                                  0, static_cast<i32>(view.Index), opaque,
-                                                  RendererAPI::TextureTargetType::Texture2DArray, 0,
-                                                  static_cast<i32>(view.Index), side, side);
+                                                  0, static_cast<i32>(x), static_cast<i32>(y), layer, opaque,
+                                                  RendererAPI::TextureTargetType::Texture2DArray, 0, static_cast<i32>(x),
+                                                  static_cast<i32>(y), layer, width, height);
                                           }
                                       });
             }
@@ -613,18 +629,34 @@ namespace OloEngine
                     const auto& rect = m_ShadowMap->GetAtlasEntryRect(view.Index);
                     RenderCommand::SetViewport(rect.X, rect.Y, rect.Size, rect.Size);
                 };
-                // The WHOLE layer, not the tiles: one copy, and no tile-rect to
-                // image-row convention to get wrong on a backend whose viewport
-                // origin differs from its texel origin. The groom half re-attaches
-                // the layer, uncleared, because the copy closed the scope.
-                const u32 side = m_ShadowMap->GetAtlasResolution();
+                // Per entry, the receivers' texels inside its tile. The tile's
+                // rect is in the same texel space the sampling reads it in
+                // (TileScaleOffset), which is the space the tile was drawn in
+                // on every backend whose local shadows work at all. The groom
+                // half re-attaches the layer, uncleared, because the copies
+                // closed the scope.
                 recordRegionForGrooms(ShadowPassType::Atlas, ShadowMap::OpaqueCopy::Atlas, selectTile,
                                       /*clearPerItem=*/false,
                                       [&](const RHI::ResourceHandle opaque)
                                       {
-                                          RenderCommand::CopyImageSubDataFull(
-                                              atlas->GetRHIHandle(), RendererAPI::TextureTargetType::Texture2DArray, 0, 0,
-                                              opaque, RendererAPI::TextureTargetType::Texture2DArray, 0, 0, side, side);
+                                          for (const ActiveShadowView& view : m_ActiveViews)
+                                          {
+                                              const auto& tile = m_ShadowMap->GetAtlasEntryRect(view.Index);
+                                              u32 x = 0;
+                                              u32 y = 0;
+                                              u32 width = 0;
+                                              u32 height = 0;
+                                              if (!GroomReceiverTexelRect(view.LightVP, tile.X, tile.Y, tile.Size, x, y, width,
+                                                                          height))
+                                              {
+                                                  continue;
+                                              }
+                                              RenderCommand::CopyImageSubDataRegion(
+                                                  atlas->GetRHIHandle(), RendererAPI::TextureTargetType::Texture2DArray, 0,
+                                                  static_cast<i32>(x), static_cast<i32>(y), 0, opaque,
+                                                  RendererAPI::TextureTargetType::Texture2DArray, 0, static_cast<i32>(x),
+                                                  static_cast<i32>(y), 0, width, height);
+                                          }
                                           m_ShadowFramebuffer->AttachDepthTextureArrayLayer(atlas->GetRHIHandle(), 0);
                                       });
             }
@@ -1235,11 +1267,71 @@ namespace OloEngine
         return widest;
     }
 
+    bool ShadowRenderPass::GroomReceiverTexelRect(const glm::mat4& lightVP, const u32 tileX, const u32 tileY,
+                                                  const u32 tileSize, u32& x, u32& y, u32& width, u32& height) const
+    {
+        const auto whole = [&]()
+        {
+            x = tileX;
+            y = tileY;
+            width = tileSize;
+            height = tileSize;
+            return tileSize > 0u;
+        };
+        if (m_GroomReceiverBoundsUnknown || m_GroomReceiverBounds.Min.x == NoBounds.Min.x)
+        {
+            return whole();
+        }
+        glm::vec2 lo(std::numeric_limits<f32>::max());
+        glm::vec2 hi(std::numeric_limits<f32>::lowest());
+        for (u32 corner = 0; corner < 8u; ++corner)
+        {
+            const glm::vec3 p((corner & 1u) ? m_GroomReceiverBounds.Max.x : m_GroomReceiverBounds.Min.x,
+                              (corner & 2u) ? m_GroomReceiverBounds.Max.y : m_GroomReceiverBounds.Min.y,
+                              (corner & 4u) ? m_GroomReceiverBounds.Max.z : m_GroomReceiverBounds.Min.z);
+            const glm::vec4 clip = lightVP * glm::vec4(p, 1.0f);
+            // A corner behind a perspective light has no texel: the whole tile.
+            if (!(clip.w > 1.0e-6f))
+            {
+                return whole();
+            }
+            // The sampling's own mapping (projCoords * 0.5 + 0.5), so the rect
+            // is the texels the strands read on every backend.
+            const glm::vec2 uv = (glm::vec2(clip) / clip.w) * 0.5f + 0.5f;
+            lo = glm::min(lo, uv);
+            hi = glm::max(hi, uv);
+        }
+        if (!std::isfinite(lo.x) || !std::isfinite(lo.y) || !std::isfinite(hi.x) || !std::isfinite(hi.y))
+        {
+            return whole();
+        }
+        // The filter kernels read past the coat's own texels -- PCF a few, the
+        // PCSS blocker search further -- so the rect is padded generously.
+        constexpr f32 kPadTexels = 96.0f;
+        const auto size = static_cast<f32>(tileSize);
+        const f32 x0 = std::clamp(std::floor(lo.x * size) - kPadTexels, 0.0f, size);
+        const f32 x1 = std::clamp(std::ceil(hi.x * size) + kPadTexels, 0.0f, size);
+        const f32 y0 = std::clamp(std::floor(lo.y * size) - kPadTexels, 0.0f, size);
+        const f32 y1 = std::clamp(std::ceil(hi.y * size) + kPadTexels, 0.0f, size);
+        if (!(x1 > x0) || !(y1 > y0))
+        {
+            return false;
+        }
+        x = tileX + static_cast<u32>(x0);
+        y = tileY + static_cast<u32>(y0);
+        width = static_cast<u32>(x1 - x0);
+        height = static_cast<u32>(y1 - y0);
+        return true;
+    }
+
     void ShadowRenderPass::CollectGroomCasters()
     {
         OLO_PROFILE_FUNCTION();
 
         m_GroomCasters.Reset();
+        m_GroomReceiverBounds = NoBounds;
+        m_HasGroomReceivers = false;
+        m_GroomReceiverBoundsUnknown = false;
         if (m_GroomPass == nullptr)
         {
             return;
@@ -1262,17 +1354,45 @@ namespace OloEngine
         // before the graph executes.
         for (const auto& request : Renderer3D::GetGroomStrandRequests())
         {
-            if (!request.CastsSceneShadow || !request.Groom)
+            if (!request.Groom || (!request.CastsSceneShadow && !request.ReceivesSceneShadow))
             {
                 continue;
             }
-            ++stats.GroomsAskedToCast;
+            if (request.CastsSceneShadow)
+            {
+                ++stats.GroomsAskedToCast;
+            }
 
             // ACQUIRING CAN BUILD, which is why this is on the render thread
-            // and outside every parallel region (amendment (92) rule 7).
+            // and outside every parallel region (amendment (92) rule 7). A
+            // receiver is acquired too, for its box; the strand pass acquires
+            // the same cache entry right after, so nothing is built twice.
             GroomRenderPass::ShadowCasterGeometry geometry;
-            if (!m_GroomPass->AcquireShadowCaster(request, geometry) || !geometry.Vao.IsValid() ||
-                geometry.IndexCount == 0u)
+            const bool acquired = m_GroomPass->AcquireShadowCaster(request, geometry) && geometry.Vao.IsValid() &&
+                                  geometry.IndexCount > 0u;
+
+            // THE RECEIVERS' BOX (#1533): the opaque copies need cover no more.
+            if (request.ReceivesSceneShadow)
+            {
+                m_HasGroomReceivers = true;
+                if (acquired && geometry.BoundsValid)
+                {
+                    const BoundingBox world =
+                        BoundingBox{ geometry.BoundsMin, geometry.BoundsMax }.Transform(request.Transform);
+                    const bool first = m_GroomReceiverBounds.Min.x == NoBounds.Min.x;
+                    m_GroomReceiverBounds.Min = first ? world.Min : glm::min(m_GroomReceiverBounds.Min, world.Min);
+                    m_GroomReceiverBounds.Max = first ? world.Max : glm::max(m_GroomReceiverBounds.Max, world.Max);
+                }
+                else
+                {
+                    m_GroomReceiverBoundsUnknown = true;
+                }
+            }
+            if (!request.CastsSceneShadow)
+            {
+                continue;
+            }
+            if (!acquired)
             {
                 // A coat that renders and casts nothing is a different fault
                 // from a family that was never wired into a technique, and the

@@ -691,6 +691,19 @@ float oloGroomCoatExitDistance(vec3 worldDir)
 // copy, or a coat that does not cast and so has no exit offset. 1.0 with
 // known == false is "nothing here can say", not "lit", and dual scattering
 // needs the difference (see oloGroomShadeFibre).
+// A STRAND AGAINST THE OPAQUE ATLAS BIASES IN METRES, not in the atlas's depth
+// units (#1533). A local light's map is perspective, so its depth is non-linear:
+// a few metres from the light the constant u_AtlasDepthBias (0.005) spans metres
+// of distance -- 0.990 at 6 m, 0.994 at 8 m with the 0.1 m near plane -- and a
+// spot 6 m away shadowed nothing within ~2 m behind its occluder, the body its fur
+// grows on included (measured: none of it). Against a map with none of its own
+// fur in it -- the opaque copy, or the full map under a coat that does not cast --
+// a strand has nothing of its own to self-shadow on, so it moves toward the light
+// by a centimetre (about two texels of a tile at those distances) and the depth
+// bias drops to a hair's breadth. The exit-point fallback keeps the surfaces' bias.
+const float OLO_GROOM_STRAND_ATLAS_OFFSET = 0.01;
+const float OLO_GROOM_STRAND_ATLAS_BIAS = 0.00001;
+
 float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L, out bool known)
 {
 	known = false;
@@ -744,12 +757,13 @@ float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L
 		}
 		if (atlasEntry >= 0 && atlasEntry < u_AtlasEntryCount)
 		{
-			vec3 receiver = opaqueAtlas ? v_WorldPos : shadowPos;
-			known = opaqueAtlas || atStrand;
+			bool atlasAtStrand = opaqueAtlas || atStrand;
+			vec3 receiver = atlasAtStrand ? v_WorldPos + L * OLO_GROOM_STRAND_ATLAS_OFFSET : shadowPos;
+			float atlasBias = atlasAtStrand ? OLO_GROOM_STRAND_ATLAS_BIAS : u_AtlasDepthBias;
+			known = atlasAtStrand;
 			return calculateAtlasEntryShadow(receiver, u_AtlasEntryMatrices[atlasEntry],
 			                                 u_AtlasEntryScaleOffset[atlasEntry], u_ShadowAtlas, u_ShadowAtlasRaw,
-			                                 u_AtlasDepthBias, u_AtlasResolution, u_SoftShadowMode,
-			                                 u_ShadowParams.z);
+			                                 atlasBias, u_AtlasResolution, u_SoftShadowMode, u_ShadowParams.z);
 		}
 		return 1.0;
 	}
@@ -768,12 +782,14 @@ float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L
 		}
 		if (baseEntry >= 0 && baseEntry + 5 < u_AtlasEntryCount)
 		{
-			vec3 receiver = opaqueAtlas ? v_WorldPos : shadowPos;
-			known = opaqueAtlas || atStrand;
+			bool atlasAtStrand = opaqueAtlas || atStrand;
+			vec3 receiver = atlasAtStrand ? v_WorldPos + L * OLO_GROOM_STRAND_ATLAS_OFFSET : shadowPos;
+			float atlasBias = atlasAtStrand ? OLO_GROOM_STRAND_ATLAS_BIAS : u_AtlasDepthBias;
+			known = atlasAtStrand;
 			int entry = baseEntry + atlasCubeFace(receiver - light.position.xyz);
 			return calculateAtlasEntryShadow(receiver, u_AtlasEntryMatrices[entry],
 			                                 u_AtlasEntryScaleOffset[entry], u_ShadowAtlas, u_ShadowAtlasRaw,
-			                                 u_AtlasDepthBias, u_AtlasResolution,
+			                                 atlasBias, u_AtlasResolution,
 			                                 0, // PCF only on cube faces, matching the surface path
 			                                 u_ShadowParams.z);
 		}

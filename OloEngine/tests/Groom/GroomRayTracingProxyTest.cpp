@@ -591,8 +591,9 @@ namespace OloEngine
         // one for the cascades, two for the atlas (spot, point face).
         EXPECT_EQ(count("opaqueCascades ? v_WorldPos : shadowPos"), 1u)
             << "the CSM receiver is the strand only when the opaque cascades are bound";
-        EXPECT_EQ(count("opaqueAtlas ? v_WorldPos : shadowPos"), 2u)
-            << "each atlas receiver is the strand only when the opaque atlas is bound";
+        EXPECT_EQ(count("atlasAtStrand ? v_WorldPos + L * OLO_GROOM_STRAND_ATLAS_OFFSET : shadowPos"), 2u)
+            << "each atlas receiver is the strand (a centimetre toward the light) only against a map without this "
+               "coat's fur: the opaque atlas, or the full one under a coat that does not cast";
         EXPECT_EQ(count("(u_GroomCoatModes.y & 2) != 0"), 1u) << "one gate on the opaque cascades' bit";
         EXPECT_EQ(count("(u_GroomCoatModes.y & 4) != 0"), 1u) << "one gate on the opaque atlas' bit";
 
@@ -603,6 +604,7 @@ namespace OloEngine
         EXPECT_EQ(count("known = true"), 0u) << "known asserted without the lookup having run at the strand";
         EXPECT_EQ(count("known = atStrand;"), 3u) << "the three VSM lookups";
         EXPECT_EQ(count("|| atStrand;"), 3u) << "the CSM and the two atlas lookups";
+        EXPECT_EQ(count("known = atlasAtStrand;"), 2u) << "the two atlas lookups";
 
         // And the absences: no screen-space or ray-traced shadow term reaches a
         // strand.

@@ -409,6 +409,14 @@ namespace OloEngine
         // fork: rule 7 refuses resource creation on an item context.
         void EnsureItemResources(u32 count, u32 instanceCapacity);
         // One item per active CSM layer or atlas viewport, joined in view order.
+        // The texels of one light view the receiving grooms can sample, as a
+        // rect inside its tile (tileX/tileY/tileSize: the whole layer for a
+        // cascade, the entry's tile for the atlas): their box projected
+        // through lightVP, padded for the filter kernels, clamped to the tile.
+        // False when the box misses the view.
+        [[nodiscard]] bool GroomReceiverTexelRect(const glm::mat4& lightVP, u32 tileX, u32 tileY, u32 tileSize, u32& x,
+                                                  u32& y, u32& width, u32& height) const;
+
         void RecordShadowRegion(ShadowPassType type, const ShadowCasterShaders& shaders, bool recordingInstancedDraws,
                                 u32 instanceCapacity,
                                 const std::function<void(const ActiveShadowView&)>& selectTarget,
@@ -434,6 +442,14 @@ namespace OloEngine
         // render thread before a region forks and read-only while its items
         // record; All outside RecordShadowRegion.
         ShadowCasterFilter m_CasterFilter = ShadowCasterFilter::All;
+        // Where a strand can sample an opaque copy this frame (#1533): the
+        // union of the posed boxes of the grooms that RECEIVE the scene's
+        // shadow, so a copy need cover no more of a map than that. Unknown
+        // (a receiver without bounds) copies whole maps; no receiver at all
+        // makes no copy.
+        BoundingBox m_GroomReceiverBounds = NoBounds;
+        bool m_HasGroomReceivers = false;
+        bool m_GroomReceiverBoundsUnknown = false;
         // The groom pass owns the strand geometry (its cache, its GPU
         // deformation buffer); the caster family borrows it through
         // GroomRenderPass::AcquireShadowCaster. Wired by CreateFramePasses.

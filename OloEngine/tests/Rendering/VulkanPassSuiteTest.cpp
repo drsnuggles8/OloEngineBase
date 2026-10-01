@@ -10693,11 +10693,13 @@ TEST_F(VulkanPassSuite, AGroomSplitCascadeCopiesItsOpaqueHalfAndLoadsItUnderTheG
             opaqueQuad->Bind();
             RenderCommand::DrawIndexed(opaqueQuad, 6);
 
-            // The copy, between the halves.
-            RenderCommand::CopyImageSubDataFull(cascades->GetRHIHandle(), RendererAPI::TextureTargetType::Texture2DArray,
-                                                0, static_cast<i32>(kLayer), opaqueCopy->GetRHIHandle(),
-                                                RendererAPI::TextureTargetType::Texture2DArray, 0,
-                                                static_cast<i32>(kLayer), kSize, kSize);
+            // The copy, between the halves -- a RECT, as the pass copies only
+            // the receivers' texels: offset on both axes so a backend that
+            // dropped the offsets would leave the sampled row uninitialised.
+            RenderCommand::CopyImageSubDataRegion(cascades->GetRHIHandle(), RendererAPI::TextureTargetType::Texture2DArray,
+                                                  0, 4, 16, static_cast<i32>(kLayer), opaqueCopy->GetRHIHandle(),
+                                                  RendererAPI::TextureTargetType::Texture2DArray, 0, 4, 16,
+                                                  static_cast<i32>(kLayer), 48u, 32u);
 
             // The groom half: the same layer, uncleared.
             shadowFramebuffer->AttachDepthTextureArrayLayer(cascades->GetRHIHandle(), kLayer);
