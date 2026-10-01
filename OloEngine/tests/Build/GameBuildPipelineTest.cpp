@@ -328,7 +328,12 @@ TEST(GameBuildPipelineTest, SceneReferencedContentStagesEveryFileAScenePathOpens
     fs::create_directories(project / "Assets/Skies/Day");
     fs::create_directories(engine / "assets/textures");
 
-    std::ofstream(project / "Assets/Models/Plant/plant.obj") << "# plant\nmtllib plant.mtl\nv 0 0 0\n";
+    std::ofstream(project / "Assets/Models/Plant/plant.obj") << "# plant\nmtllib plant.mtl bark.mtl\nv 0 0 0\n";
+    std::ofstream(project / "Assets/Models/Plant/bark.mtl") << "newmtl bark\nrefl -type sphere -mm 0 1 Textures/chrome.png\n";
+    WritePngSignature(project / "Assets/Models/Plant/Textures/chrome.png");
+    // A one-part working-directory value and the library beside it.
+    std::ofstream(engine / "tree.obj") << "mtllib tree.mtl\nv 0 0 0\n";
+    std::ofstream(engine / "tree.mtl") << "newmtl tree\n";
     std::ofstream(project / "Assets/Models/Plant/plant.mtl")
         << "newmtl leaves\nmap_Kd -s 1 1 1 Textures/leaves big.png\nmap_Bump -bm 0.5 Textures/leaves_n.png\n";
     WritePngSignature(project / "Assets/Models/Plant/Textures/leaves big.png");
@@ -384,7 +389,8 @@ TEST(GameBuildPipelineTest, SceneReferencedContentStagesEveryFileAScenePathOpens
                             "      TexturePath: Resources/Icons/marker.png\n"
                             "  - Entity: 4\n"
                             "    MaterialA: Assets/Shared/Tex.png\n"
-                            "    MaterialB: assets/shared/tex.png\n";
+                            "    MaterialB: assets/shared/tex.png\n"
+                            "    LooseModel: tree.obj\n";
     fs::create_directories(project.parent_path() / "outside");
     WritePngSignature(project.parent_path() / "outside/texture.png");
 
@@ -398,6 +404,8 @@ TEST(GameBuildPipelineTest, SceneReferencedContentStagesEveryFileAScenePathOpens
     const std::array staged{
         fs::path{ "Assets/Models/Plant/plant.obj" },
         fs::path{ "Assets/Models/Plant/plant.mtl" },
+        fs::path{ "Assets/Models/Plant/bark.mtl" },           // the second name on the mtllib line
+        fs::path{ "Assets/Models/Plant/Textures/chrome.png" }, // after "-type sphere -mm 0 1"
         fs::path{ "Assets/Models/Plant/Textures/leaves big.png" }, // after "-s 1 1 1", spaces and all
         fs::path{ "Assets/Models/Plant/Textures/leaves_n.png" },
         fs::path{ "Assets/Models/Plant/plant.obj.oloimport" },
@@ -411,6 +419,8 @@ TEST(GameBuildPipelineTest, SceneReferencedContentStagesEveryFileAScenePathOpens
         // <AssetDirectory>/<value>.
         fs::path{ "Assets/Audio/Wind.ogg" },
         fs::path{ "Resources/Icons/marker.png" },
+        fs::path{ "tree.obj" },
+        fs::path{ "tree.mtl" },
     };
     for (const auto& path : staged)
     {

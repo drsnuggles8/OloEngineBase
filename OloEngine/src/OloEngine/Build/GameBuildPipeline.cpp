@@ -191,42 +191,75 @@ namespace OloEngine
             return text.substr(begin, end - begin + 1);
         }
 
-        // The file an .mtl map statement names: the rest of the line once its
-        // options are skipped. A filename may contain spaces, so it is never just
-        // the last token. An option is "-name" followed by its arguments, which
-        // are numbers, "on"/"off", or a one-letter channel.
-        [[nodiscard]] std::string MapStatementFile(const std::string& rest)
+        struct Token
         {
+            std::string Text;
+            sizet At = 0;
+        };
+
+        [[nodiscard]] std::vector<Token> Tokenise(const std::string& text)
+        {
+            std::vector<Token> tokens;
             sizet at = 0;
-            const auto nextToken = [&](sizet from, sizet& end) -> std::string
+            while ((at = text.find_first_not_of(" \t", at)) != std::string::npos)
             {
-                const auto begin = rest.find_first_not_of(" \t", from);
-                if (begin == std::string::npos)
-                {
-                    end = rest.size();
-                    return {};
-                }
-                end = rest.find_first_of(" \t", begin);
+                sizet end = text.find_first_of(" \t", at);
                 if (end == std::string::npos)
-                    end = rest.size();
-                at = begin;
-                return rest.substr(begin, end - begin);
-            };
-            const auto isArgument = [](const std::string& token)
-            {
-                if (token == "on" || token == "off" || (token.size() == 1 && std::isalpha(static_cast<unsigned char>(token[0]))))
-                    return true;
-                return !token.empty() && token.find_first_not_of("0123456789+-.eE") == std::string::npos;
-            };
-            sizet end = 0;
-            std::string token = nextToken(0, end);
-            while (!token.empty() && token[0] == '-')
-            {
-                token = nextToken(end, end);
-                while (!token.empty() && token[0] != '-' && isArgument(token))
-                    token = nextToken(end, end);
+                    end = text.size();
+                tokens.push_back({ text.substr(at, end - at), at });
+                at = end;
             }
-            return token.empty() ? std::string{} : Trim(rest.substr(at));
+            return tokens;
+        }
+
+        [[nodiscard]] bool IsNumber(const std::string& token)
+        {
+            return !token.empty() && token.find_first_not_of("0123456789+-.eE") == std::string::npos &&
+                   token.find_first_of("0123456789") != std::string::npos;
+        }
+
+        // The file an .mtl map statement names, once its options are skipped.
+        // Options and their argument counts are the MTL spec's. A filename may
+        // contain spaces, so the name is the rest of the line; when that names
+        // nothing on disk and the last token does, the last token wins, since
+        // the directory is the only arbiter of an ambiguous line.
+        [[nodiscard]] std::string MapStatementFile(const std::string& rest, const std::filesystem::path& directory)
+        {
+            static const std::unordered_map<std::string, std::pair<int, int>> kOptionArgs = {
+                { "-blendu", { 1, 1 } }, { "-blendv", { 1, 1 } }, { "-bm", { 1, 1 } }, { "-boost", { 1, 1 } },
+                { "-cc", { 1, 1 } }, { "-clamp", { 1, 1 } }, { "-imfchan", { 1, 1 } }, { "-mm", { 2, 2 } },
+                { "-o", { 1, 3 } }, { "-s", { 1, 3 } }, { "-t", { 1, 3 } }, { "-texres", { 1, 1 } },
+                { "-type", { 1, 1 } },
+            };
+            const std::vector<Token> tokens = Tokenise(rest);
+            sizet i = 0;
+            while (i < tokens.size() && tokens[i].Text.size() > 1 && tokens[i].Text[0] == '-' && !IsNumber(tokens[i].Text))
+            {
+                std::string option = tokens[i].Text;
+                std::ranges::transform(option, option.begin(), [](unsigned char c)
+                                       { return static_cast<char>(std::tolower(c)); });
+                ++i;
+                if (const auto known = kOptionArgs.find(option); known != kOptionArgs.end())
+                {
+                    int taken = 0;
+                    for (; taken < known->second.first && i < tokens.size(); ++taken)
+                        ++i;
+                    for (; taken < known->second.second && i < tokens.size() && IsNumber(tokens[i].Text); ++taken)
+                        ++i;
+                }
+                else
+                {
+                    while (i < tokens.size() && IsNumber(tokens[i].Text))
+                        ++i;
+                }
+            }
+            if (i >= tokens.size())
+                return {};
+            const std::string whole = Trim(rest.substr(tokens[i].At));
+            std::error_code ec;
+            if (!std::filesystem::exists(directory / whole, ec) && std::filesystem::exists(directory / tokens.back().Text, ec))
+                return tokens.back().Text;
+            return whole;
         }
 
         // The files `file` opens by itself, as paths relative to its own directory.
@@ -234,10 +267,11 @@ namespace OloEngine
         {
             std::vector<std::string> dependencies;
             const std::string extension = LowerExtension(file);
+            const std::filesystem::path directory = file.parent_path();
             if (extension == ".obj" || extension == ".mtl")
             {
-                // An .obj names its materials with `mtllib` (the rest of the line);
-                // an .mtl names each texture in a map statement, after its options.
+                // An .obj names its material libraries with `mtllib`; an .mtl names
+                // each texture in a map statement, after its options.
                 static const std::unordered_set<std::string> mapStatements = {
                     "map_ka", "map_kd", "map_ks", "map_ke", "map_ns", "map_d", "map_bump", "bump", "norm",
                     "disp", "decal", "refl", "map_pr", "map_pm", "map_ps", "map_rma", "map_orm"
@@ -253,14 +287,23 @@ namespace OloEngine
                     std::string statement = trimmed.substr(0, split);
                     std::ranges::transform(statement, statement.begin(), [](unsigned char c)
                                            { return static_cast<char>(std::tolower(c)); });
-                    const std::string rest = trimmed.substr(split + 1);
-                    std::string named;
+                    const std::string rest = Trim(trimmed.substr(split + 1));
                     if (extension == ".obj" && statement == "mtllib")
-                        named = Trim(rest);
+                    {
+                        // One library whose name has spaces, or several on one
+                        // line (the OBJ spec allows both); the directory decides.
+                        std::error_code ec;
+                        if (std::filesystem::exists(directory / rest, ec))
+                            dependencies.push_back(rest);
+                        else
+                            for (const auto& token : Tokenise(rest))
+                                dependencies.push_back(token.Text);
+                    }
                     else if (extension == ".mtl" && mapStatements.contains(statement))
-                        named = MapStatementFile(rest);
-                    if (!named.empty())
-                        dependencies.push_back(named);
+                    {
+                        if (std::string named = MapStatementFile(rest, directory); !named.empty())
+                            dependencies.push_back(std::move(named));
+                    }
                 }
             }
             else if (extension == ".gltf")
@@ -307,11 +350,12 @@ namespace OloEngine
             return any;
         }
 
-        // True when `path` is relative, starts with `root` and has no `..` left
-        // after folding, i.e. it cannot leave the directory it is staged into.
+        // True when `path` is relative, starts with `root` (an empty root is the
+        // base directory itself) and has no `..` left after folding, i.e. it
+        // cannot leave the directory it is staged into.
         [[nodiscard]] bool IsRootedUnder(const std::filesystem::path& path, const std::filesystem::path& root)
         {
-            if (path.empty() || path.is_absolute() || !StartsWithComponents(path, root))
+            if (path.empty() || path.is_absolute() || (!root.empty() && !StartsWithComponents(path, root)))
                 return false;
             return std::ranges::none_of(path, [](const std::filesystem::path& component)
                                         { return component == ".."; });
@@ -425,7 +469,7 @@ namespace OloEngine
             if (std::filesystem::exists(projectDir / assetRelative, ec))
                 enqueue({ assetRelative, projectDir, assetDirectoryName, sceneName });
             if (std::filesystem::exists(engineRoot / stored, ec))
-                enqueue({ stored, engineRoot, first, sceneName });
+                enqueue({ stored, engineRoot, {}, sceneName }); // rooted at the working directory itself
         };
 
         for (const auto& sceneFile : sceneFiles)
@@ -526,7 +570,7 @@ namespace OloEngine
                 // which would copy the whole content tree.
                 const auto depth = std::distance(reference.Stored.begin(), reference.Stored.end());
                 const auto rootDepth = std::distance(reference.Root.begin(), reference.Root.end());
-                if (depth <= rootDepth)
+                if (depth <= std::max<decltype(rootDepth)>(rootDepth, 1))
                     continue;
                 std::vector<std::filesystem::path> files;
                 for (std::filesystem::directory_iterator it(source, ec), end; it != end && !ec; it.increment(ec))
