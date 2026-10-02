@@ -184,4 +184,3 @@ namespace OloEngine
         m_Phase2Culls.Reset();
     }
 } // namespace OloEngine
-
