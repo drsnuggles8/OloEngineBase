@@ -21,6 +21,14 @@
 // layer of the look is load-bearing (fur, self-shadow, scene shadow), the coat
 // stays on the body through every clip, and the cooked assets round-trip.
 //
+// WHICH FRAMES MEASURE WHAT (the fixture's "How each helper moves the scene"):
+// a claim about motion -- shimmer in a walk, the coat through a clip, secondary
+// motion -- is measured on RUNTIME frames, the guide solver stepping as in
+// Play; a claim about one state -- a pair, a still, the LOD at a distance -- on
+// HELD frames, the scene paused and the renderer started from the same place.
+// Editor-preview frames, where the solver does not step, are only stills of a
+// paused pose.
+//
 // RUN IT IN RELEASE: the coat is ~150k strands.
 // =============================================================================
 
@@ -46,6 +54,7 @@
 #include "OloEngine/Groom/GroomBinding.h"
 #include "OloEngine/Groom/GroomBindingBuilder.h"
 #include "OloEngine/Groom/GroomBindingCooker.h"
+#include "OloEngine/Groom/GroomBuilder.h"
 #if defined(OLO_WITH_ALEMBIC)
 #include "OloEngine/Asset/Interchange/Alembic/AlembicGroomImporter.h"
 #endif
@@ -1020,18 +1029,63 @@ namespace OloEngine::Tests
             Renderer3D::ApplyRendererSettings();
         }
 
+        // The resolve the scene runs: its stochastic coat requests TAA
+        // (Scene::CountGroomsNeedingTemporalResolve), and the scene file stores
+        // no TAA settings, so the editor resolves with the defaults -- the
+        // feedback and the post-resolve sharpen of PostProcessSettings{}.
+        // `feedback` 0 is the no-history control: the same jitter and sharpen,
+        // no history.
         static void SetTaa(f32 feedback)
         {
             auto& post = Renderer3D::GetPostProcessSettings();
             post.TAAEnabled = true;
             post.TAAFeedback = feedback;
-            post.TAASharpness = 0.0f;
+            post.TAASharpness = PostProcessSettings{}.TAASharpness;
         }
 
         static void ColdHistory()
         {
             Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SceneReset);
         }
+
+        // ── How each helper moves the scene (#1533 acceptance review, section 1) ──
+        //
+        // Every frame this fixture renders is one of four kinds, and the helper's
+        // name says which. There is ONE clock: the scene's own, at 1/60 s,
+        // advanced only by AdvanceRuntime and StartClip.
+        //
+        //   AdvanceRuntime(n)     Play. Scene::OnUpdateRuntime through the runtime
+        //                         camera (RuntimeCamera, posed by AimRuntimeCamera):
+        //                         the clip's time advances, the guide solver steps,
+        //                         and the renderer's frame sequences and temporal
+        //                         history advance. The only path a claim about
+        //                         MOTION is measured on.
+        //   AdvanceEditorPreview  Scene::OnUpdateEditor through an EditorCamera.
+        //                         The clip advances if it is playing; the guide
+        //                         solver does NOT -- its clock is zero in edit mode
+        //                         (#1250) -- so the coat rides its roots rigidly.
+        //                         Stills of a PAUSED pose only.
+        //   HoldRuntime(n)        Scene::OnUpdateRuntime with the scene PAUSED, the
+        //                         engine's own gate: the frame renders through the
+        //                         runtime camera and nothing in the scene moves --
+        //                         no clip time, no solver step, no wind. Only the
+        //                         renderer's sequences and history advance.
+        //   Readback*             the last frame the graph rendered. Advances
+        //                         nothing.
+        //
+        // PAIRED images come from ONE held state (CaptureHeldPair): the scene is
+        // paused across both arms, and each arm starts the renderer from the same
+        // place -- Renderer3D::ResetFrameSequences (the jitter and stochastic
+        // indices) and a cold history -- and renders the same number of frames, so
+        // the arm is the only difference. The SHIPPED arm goes first: hiding the
+        // coat drops its binding history (an unsubmitted coat misses a deformation
+        // revision), and the coat re-seeds at its groomed shape when it returns.
+        // A pair that hides the coat therefore ENDS a run; what follows starts
+        // from StartClip. Arms that must be compared in MOTION are replayed
+        // instead: StartClip re-seeds the solver and the clip from the clip's
+        // first frame, the frame sequences are reset at the same point, and the
+        // replays' clip times and solver steps are compared to prove the state
+        // was the same.
 
         struct MotionResult
         {
@@ -1040,11 +1094,17 @@ namespace OloEngine::Tests
             u32 MaxBindingRefused = 0;
             u32 MaxHeldAtRest = 0;
             f32 WorstStretch = 1.0f;
+            u32 SolverSteps = 0; // fixed steps the guide solver took over these frames
+            u32 Reseeds = 0;     // frames on which it re-seeded instead of integrating
         };
 
-        // A clip from its first frame, the solver re-seeded (see the horse
-        // fixture's PlayFromStart for why TWO reseeding frames).
-        MotionResult PlayClip(const char* clip, bool loop, u32 frames)
+        // ADVANCES RUNTIME. The clip from its first frame, the solver re-seeded
+        // (see the horse fixture's PlayFromStart for why TWO reseeding frames),
+        // then `frames` runtime frames in all. The same call always reaches the
+        // same state: the clip time, the pose and the particles are a function of
+        // it alone (StepGroomGuideSimulation is deterministic), which is what a
+        // replayed arm stands on.
+        MotionResult StartClip(const char* clip, bool loop, u32 frames)
         {
             auto& anim = m_Dog.Body.GetComponent<AnimationStateComponent>();
             anim.m_RequestedClip = clip;
@@ -1053,11 +1113,12 @@ namespace OloEngine::Tests
             // Straight onto the clip's first frame: no cross-fade in a replay.
             AnimationSystemApplyNow(anim);
             ++m_Dog.Coat.GetComponent<GroomSimulationComponent>().m_ResetKey;
-            MotionResult first = Play(1u);
+            MotionResult first = AdvanceRuntime(1u);
             ++m_Dog.Coat.GetComponent<GroomSimulationComponent>().m_ResetKey;
-            MotionResult rest = Play(frames > 1u ? frames - 1u : 0u);
+            MotionResult rest = AdvanceRuntime(frames > 1u ? frames - 1u : 0u);
             rest.MinGroomsDeformed = std::min(rest.MinGroomsDeformed, first.MinGroomsDeformed);
             rest.MaxBindingRefused = std::max(rest.MaxBindingRefused, first.MaxBindingRefused);
+            rest.SolverSteps += first.SolverSteps;
             return rest;
         }
 
@@ -1080,7 +1141,8 @@ namespace OloEngine::Tests
             ADD_FAILURE() << "the dog has no clip '" << anim.m_RequestedClip << "'";
         }
 
-        MotionResult Play(u32 frames)
+        // ADVANCES RUNTIME by `frames` frames of 1/60 s.
+        MotionResult AdvanceRuntime(u32 frames)
         {
             MotionResult r;
             for (u32 f = 0; f < frames; ++f)
@@ -1090,12 +1152,24 @@ namespace OloEngine::Tests
                 r.MinGroomsDeformed = std::min(r.MinGroomsDeformed, r.Last.GroomsDeformed);
                 r.MaxBindingRefused = std::max(r.MaxBindingRefused, r.Last.GroomsBindingRefused);
                 r.MaxHeldAtRest = std::max(r.MaxHeldAtRest, r.Last.RootsHeldAtRest);
+                r.SolverSteps += r.Last.SimulationSteps;
+                r.Reseeds += r.Last.SimulationReseeds;
                 if (std::abs(r.Last.WorstStretchRatio - 1.0f) > std::abs(r.WorstStretch - 1.0f))
                 {
                     r.WorstStretch = r.Last.WorstStretchRatio;
                 }
             }
             return r;
+        }
+
+        // HOLDS: `frames` runtime frames with the scene paused.
+        void HoldRuntime(u32 frames)
+        {
+            Scene& scene = GetScene();
+            const bool wasPaused = scene.IsPaused();
+            scene.SetPaused(true);
+            RunFrames(frames, 1.0f / 60.0f);
+            scene.SetPaused(wasPaused);
         }
 
         struct View
@@ -1118,15 +1192,68 @@ namespace OloEngine::Tests
                        { "FullBody", { 1.25f, 0.55f, 1.65f }, { 0.0f, 0.32f, 0.0f }, 35.0f } } };
         }
 
-        void Capture(const std::string& name, const View& view, std::vector<u8>& out, u32 settleFrames = 24)
+        // The primary camera AdvanceRuntime and HoldRuntime render through.
+        [[nodiscard]] Entity RuntimeCamera()
+        {
+            for (auto e : GetScene().GetAllEntitiesWith<CameraComponent>())
+            {
+                Entity camera{ e, &GetScene() };
+                if (camera.GetComponent<CameraComponent>().Primary)
+                {
+                    return camera;
+                }
+            }
+            ADD_FAILURE() << "the scene has no primary runtime camera";
+            return {};
+        }
+
+        void AimRuntimeCamera(const View& view)
+        {
+            Entity camera = RuntimeCamera();
+            auto& t = camera.GetComponent<TransformComponent>();
+            const glm::vec3 d = glm::normalize(view.Target - view.Eye);
+            t.Translation = view.Eye;
+            // Pitch about x, then yaw about y (glm's (x, y, z) Euler is Ry * Rx).
+            t.SetRotationEuler(glm::vec3(std::asin(std::clamp(d.y, -1.0f, 1.0f)), std::atan2(-d.x, -d.z), 0.0f));
+            camera.GetComponent<CameraComponent>().Camera.SetPerspective(glm::radians(view.Fov), 0.02f, 400.0f);
+        }
+
+        // The runtime camera's world-to-clip transform, unjittered: what a held
+        // frame's depth is unprojected through (the jitter is a fraction of a
+        // pixel, a fraction of a millimetre at these distances). From the
+        // camera's OWN transform, as RenderRuntime reads it: its cached world
+        // matrix is propagated by the runtime tick, which a held frame skips,
+        // so after a camera move on held frames it still holds the last
+        // runtime frame's pose -- and depth unprojected through it lands
+        // nowhere near the dog.
+        [[nodiscard]] glm::mat4 RuntimeViewProjection()
+        {
+            Entity camera = RuntimeCamera();
+            return camera.GetComponent<CameraComponent>().Camera.GetProjection() *
+                   glm::inverse(camera.GetComponent<TransformComponent>().GetTransform());
+        }
+
+        [[nodiscard]] EditorCamera MakeEditorCamera(const View& view) const
         {
             const glm::vec3 d = glm::normalize(view.Target - view.Eye);
-            const f32 yaw = std::atan2(d.x, -d.z);
-            const f32 pitch = std::asin(std::clamp(-d.y, -1.0f, 1.0f));
-            EditorCamera camera(view.Fov, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.02f, 400.0f);
+            EditorCamera camera(view.Fov, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.02f,
+                                400.0f);
             camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
-            camera.SetPose(view.Eye, yaw, pitch);
-            RunEditorFrames(camera, settleFrames);
+            camera.SetPose(view.Eye, std::atan2(d.x, -d.z), std::asin(std::clamp(-d.y, -1.0f, 1.0f)));
+            return camera;
+        }
+
+        // ADVANCES THE EDITOR PREVIEW: `frames` editor frames at `view`.
+        void AdvanceEditorPreview(const View& view, u32 frames)
+        {
+            RunEditorFrames(MakeEditorCamera(view), frames);
+        }
+
+        // An editor-preview still: AdvanceEditorPreview, then ReadbackFrame. For a
+        // PAUSED clip only -- with the clip playing every call moves it.
+        void CaptureEditorPreview(const std::string& name, const View& view, std::vector<u8>& out, u32 settleFrames = 24)
+        {
+            AdvanceEditorPreview(view, settleFrames);
             ReadbackFrame(out);
             ASSERT_FALSE(HasFatalFailure());
             if (!name.empty())
@@ -1135,7 +1262,37 @@ namespace OloEngine::Tests
             }
         }
 
-        // The last frame the graph composited, top row first.
+        // A held still: the state the scene is in, through the runtime camera at
+        // `view`, the frame sequences reset and the history cold -- so one state
+        // always renders one frame.
+        void CaptureHeld(const std::string& name, const View& view, std::vector<u8>& out, u32 settleFrames = 24)
+        {
+            AimRuntimeCamera(view);
+            Renderer3D::ResetFrameSequences();
+            ColdHistory();
+            HoldRuntime(settleFrames);
+            ReadbackFrame(out);
+            ASSERT_FALSE(HasFatalFailure());
+            if (!name.empty())
+            {
+                WritePng(name, out, kWidth, kHeight);
+            }
+        }
+
+        // A PAIR from one held state: `arm(true)` -- the shipped arm -- then
+        // `arm(false)`, each from the same renderer start; the arm is left on.
+        void CaptureHeldPair(const View& view, const std::function<void(bool)>& arm, std::vector<u8>& on,
+                             std::vector<u8>& off, const std::string& onName = {}, const std::string& offName = {},
+                             u32 settleFrames = 24)
+        {
+            arm(true);
+            CaptureHeld(onName, view, on, settleFrames);
+            arm(false);
+            CaptureHeld(offName, view, off, settleFrames);
+            arm(true);
+        }
+
+        // READS BACK the last frame the graph composited, top row first.
         static void ReadbackFrame(std::vector<u8>& out)
         {
             auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite);
@@ -1195,18 +1352,19 @@ namespace OloEngine::Tests
             return static_cast<f64>(pixels) / static_cast<f64>(kWidth * kHeight);
         }
 
-        // The coat's own pixels in a view: the frame with the coat drawn against
-        // the same frame with it hidden.
-        u32 CoatPixels(const View& view, const std::string& onName, const std::string& offName,
-                       std::vector<u8>* outOn = nullptr)
+        // How much the coat changes a view's beauty frame: the frame with the coat
+        // drawn against the SAME held state with it hidden (CaptureHeldPair). A
+        // visibility claim -- the coat shows -- and not the coat's own pixels:
+        // hiding it also removes its shadow on the body and the ground, which the
+        // count includes. Coverage is CoatCoverage's, from the coat's entity id.
+        // Ends a run (see CaptureHeldPair).
+        u32 CoatVisibleChange(const View& view, const std::string& onName, const std::string& offName,
+                              std::vector<u8>* outOn = nullptr)
         {
             std::vector<u8> on, off;
-            m_Dog.Coat.GetComponent<GroomComponent>().m_RenderStrands = false;
-            ColdHistory();
-            Capture(offName, view, off);
-            m_Dog.Coat.GetComponent<GroomComponent>().m_RenderStrands = true;
-            ColdHistory();
-            Capture(onName, view, on);
+            auto& groom = m_Dog.Coat.GetComponent<GroomComponent>();
+            CaptureHeldPair(
+                view, [&](bool shown) { groom.m_RenderStrands = shown; }, on, off, onName, offName);
             const u32 n = CountDiffering(on, off);
             if (outOn != nullptr)
             {
@@ -1254,83 +1412,112 @@ namespace OloEngine::Tests
             std::vector<glm::vec3> World; // NaN where only the clear is
         };
 
-        // Settles `settleFrames` editor frames at `view`, then averages the
-        // linear luminance of the next `averageFrames` (the resolve's jitter
-        // and the stochastic strands, averaged rather than sampled once). The
-        // ids and the world points are the last frame's.
-        void CaptureLinear(const View& view, LinearFrame& out, u32 settleFrames = 24, u32 averageFrames = 8)
+        // READS BACK the last frame the graph rendered into `out`: the entity ids,
+        // the world point under each pixel through `viewProjection`, and (when
+        // `luminance`) scene colour's linear luminance. Top row first. Advances
+        // nothing.
+        static void ReadbackLinear(const glm::mat4& viewProjection, LinearFrame& out, bool luminance = true)
         {
-            const glm::vec3 d = glm::normalize(view.Target - view.Eye);
-            EditorCamera camera(view.Fov, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.02f, 400.0f);
-            camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
-            camera.SetPose(view.Eye, std::atan2(d.x, -d.z), std::asin(std::clamp(-d.y, -1.0f, 1.0f)));
-            RunEditorFrames(camera, settleFrames);
             out = LinearFrame{};
-            std::vector<f32> colour;
-            std::vector<i32> ids;
-            std::vector<f32> depth;
-            for (u32 frame = 0; frame < std::max(averageFrames, 1u); ++frame)
+            auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
+            ASSERT_TRUE(fb);
+            const u32 width = fb->GetSpecification().Width;
+            const u32 height = fb->GetSpecification().Height;
+            const u32 activeWidth = std::min(fb->GetActiveViewportWidth(), width);
+            const u32 activeHeight = std::min(fb->GetActiveViewportHeight(), height);
+            out.Width = activeWidth;
+            out.Height = activeHeight;
+            const sizet pixels = static_cast<sizet>(activeWidth) * activeHeight;
+            if (luminance)
             {
-                RunEditorFrames(camera, 1);
-                auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
-                ASSERT_TRUE(fb);
-                const u32 width = fb->GetSpecification().Width;
-                const u32 height = fb->GetSpecification().Height;
-                const u32 activeWidth = std::min(fb->GetActiveViewportWidth(), width);
-                const u32 activeHeight = std::min(fb->GetActiveViewportHeight(), height);
-                colour.resize(static_cast<sizet>(width) * height * 4u);
+                std::vector<f32> colour(static_cast<sizet>(width) * height * 4u);
                 ReadbackRgbaFloat(fb->GetColorAttachmentRendererID(0), width, height, colour);
-                if (out.Luminance.empty())
-                {
-                    out.Width = activeWidth;
-                    out.Height = activeHeight;
-                    out.Luminance.assign(static_cast<sizet>(activeWidth) * activeHeight, 0.0f);
-                }
-                ASSERT_EQ(out.Width, activeWidth);
+                out.Luminance.resize(pixels);
                 for (u32 y = 0; y < activeHeight; ++y)
                 {
                     for (u32 x = 0; x < activeWidth; ++x)
                     {
                         const sizet src = (static_cast<sizet>(y) * width) + x;
-                        const sizet dst = (static_cast<sizet>(activeHeight - 1u - y) * activeWidth) + x;
-                        out.Luminance[dst] += ((0.2126f * colour[src * 4u]) + (0.7152f * colour[(src * 4u) + 1u]) +
-                                               (0.0722f * colour[(src * 4u) + 2u])) /
-                                              static_cast<f32>(std::max(averageFrames, 1u));
-                    }
-                }
-                if (frame + 1u < std::max(averageFrames, 1u))
-                {
-                    continue;
-                }
-                ids.resize(static_cast<sizet>(width) * height);
-                ::glGetTextureImage(fb->GetColorAttachmentRendererID(1), 0, GL_RED_INTEGER, GL_INT,
-                                    static_cast<GLsizei>(ids.size() * sizeof(i32)), ids.data());
-                depth.resize(static_cast<sizet>(width) * height);
-                ::glGetTextureImage(fb->GetDepthAttachmentRendererID(), 0, GL_DEPTH_COMPONENT, GL_FLOAT,
-                                    static_cast<GLsizei>(depth.size() * sizeof(f32)), depth.data());
-                const glm::mat4 inverseViewProjection = glm::inverse(camera.GetViewProjection());
-                out.Ids.assign(out.Luminance.size(), -1);
-                out.World.assign(out.Luminance.size(), glm::vec3(std::numeric_limits<f32>::quiet_NaN()));
-                for (u32 y = 0; y < activeHeight; ++y)
-                {
-                    for (u32 x = 0; x < activeWidth; ++x)
-                    {
-                        const sizet src = (static_cast<sizet>(y) * width) + x;
-                        const sizet dst = (static_cast<sizet>(activeHeight - 1u - y) * activeWidth) + x;
-                        out.Ids[dst] = ids[src];
-                        if (!(depth[src] < 1.0f))
-                        {
-                            continue;
-                        }
-                        // glm::perspective is RH_NO: depth [0, 1] is NDC z [-1, 1].
-                        const glm::vec4 ndc{ ((static_cast<f32>(x) + 0.5f) / static_cast<f32>(activeWidth)) * 2.0f - 1.0f,
-                                             ((static_cast<f32>(y) + 0.5f) / static_cast<f32>(activeHeight)) * 2.0f - 1.0f,
-                                             (depth[src] * 2.0f) - 1.0f, 1.0f };
-                        const glm::vec4 world = inverseViewProjection * ndc;
-                        out.World[dst] = glm::vec3(world) / world.w;
+                        out.Luminance[(static_cast<sizet>(activeHeight - 1u - y) * activeWidth) + x] =
+                            (0.2126f * colour[src * 4u]) + (0.7152f * colour[(src * 4u) + 1u]) +
+                            (0.0722f * colour[(src * 4u) + 2u]);
                     }
                 }
             }
+            std::vector<i32> ids(static_cast<sizet>(width) * height);
+            ::glGetTextureImage(fb->GetColorAttachmentRendererID(1), 0, GL_RED_INTEGER, GL_INT,
+                                static_cast<GLsizei>(ids.size() * sizeof(i32)), ids.data());
+            std::vector<f32> depth(static_cast<sizet>(width) * height);
+            ::glGetTextureImage(fb->GetDepthAttachmentRendererID(), 0, GL_DEPTH_COMPONENT, GL_FLOAT,
+                                static_cast<GLsizei>(depth.size() * sizeof(f32)), depth.data());
+            const glm::mat4 inverseViewProjection = glm::inverse(viewProjection);
+            out.Ids.assign(pixels, -1);
+            out.World.assign(pixels, glm::vec3(std::numeric_limits<f32>::quiet_NaN()));
+            for (u32 y = 0; y < activeHeight; ++y)
+            {
+                for (u32 x = 0; x < activeWidth; ++x)
+                {
+                    const sizet src = (static_cast<sizet>(y) * width) + x;
+                    const sizet dst = (static_cast<sizet>(activeHeight - 1u - y) * activeWidth) + x;
+                    out.Ids[dst] = ids[src];
+                    if (!(depth[src] < 1.0f))
+                    {
+                        continue;
+                    }
+                    // glm::perspective is RH_NO: depth [0, 1] is NDC z [-1, 1].
+                    const glm::vec4 ndc{ ((static_cast<f32>(x) + 0.5f) / static_cast<f32>(activeWidth)) * 2.0f - 1.0f,
+                                         ((static_cast<f32>(y) + 0.5f) / static_cast<f32>(activeHeight)) * 2.0f - 1.0f,
+                                         (depth[src] * 2.0f) - 1.0f, 1.0f };
+                    const glm::vec4 world = inverseViewProjection * ndc;
+                    out.World[dst] = glm::vec3(world) / world.w;
+                }
+            }
+        }
+
+        // Settles `settleFrames` editor-preview frames at `view` (a PAUSED clip),
+        // then averages the linear luminance of the next `averageFrames` -- the
+        // resolve's jitter and the stochastic strands averaged rather than
+        // sampled once. The ids and the world points are the last frame's.
+        void CaptureLinear(const View& view, LinearFrame& out, u32 settleFrames = 24, u32 averageFrames = 8)
+        {
+            const EditorCamera camera = MakeEditorCamera(view);
+            RunEditorFrames(camera, settleFrames);
+            AverageLinear(
+                [&] { RunEditorFrames(camera, 1); }, camera.GetViewProjection(), out, averageFrames);
+        }
+
+        // The same from ONE held state, through the runtime camera at `view`, the
+        // frame sequences reset and the history cold.
+        void CaptureHeldLinear(const View& view, LinearFrame& out, u32 settleFrames = 24, u32 averageFrames = 8)
+        {
+            AimRuntimeCamera(view);
+            Renderer3D::ResetFrameSequences();
+            ColdHistory();
+            HoldRuntime(settleFrames);
+            AverageLinear([&] { HoldRuntime(1); }, RuntimeViewProjection(), out, averageFrames);
+        }
+
+        static void AverageLinear(const std::function<void()>& renderOne, const glm::mat4& viewProjection,
+                                  LinearFrame& out, u32 averageFrames)
+        {
+            const u32 frames = std::max(averageFrames, 1u);
+            std::vector<f32> sum;
+            for (u32 frame = 0; frame < frames; ++frame)
+            {
+                renderOne();
+                ReadbackLinear(viewProjection, out);
+                ASSERT_FALSE(HasFatalFailure());
+                if (sum.empty())
+                {
+                    sum.assign(out.Luminance.size(), 0.0f);
+                }
+                ASSERT_EQ(sum.size(), out.Luminance.size());
+                for (sizet i = 0; i < sum.size(); ++i)
+                {
+                    sum[i] += out.Luminance[i] / static_cast<f32>(frames);
+                }
+            }
+            out.Luminance = std::move(sum);
         }
 
         // The parts of the dog the review names. Boxes in the dog's own frame --
@@ -1494,7 +1681,7 @@ namespace OloEngine::Tests
         };
 
         // Four arms in ONE IDENTICAL STATE each: the clip replayed from its start
-        // with the solver reset (PlayClip), paused at `frames`, the frame
+        // with the solver reset (StartClip), paused at `frames`, the frame
         // sequences reset and the history cold -- so the bake is the only thing
         // that differs. POSE, POSE again (the noise), REST, and OFF (no
         // self-shadow). Linear scene colour throughout.
@@ -1507,7 +1694,7 @@ namespace OloEngine::Tests
             {
                 shadow.m_BakeAtRest = atRest;
                 shadow.m_Enabled = enabled;
-                (void)PlayClip(clip, true, frames);
+                (void)StartClip(clip, true, frames);
                 anim.m_IsPlaying = false;
                 Renderer3D::ResetFrameSequences();
                 ColdHistory();
@@ -1627,11 +1814,916 @@ namespace OloEngine::Tests
                         c.TileWorst, c.Tiles);
             std::fflush(stdout);
         }
+
+        // ── The dog's parts, following the body (#1533 acceptance review, sections 2-4) ──
+        //
+        // A world point takes the part of the NEAREST SKINNED BODY VERTEX, and each
+        // vertex takes its part from its dominant bone and its bind-pose normal --
+        // build_dog_groom.py's own region rules (classify()), coarsened to the parts
+        // the review names. A part therefore stays itself through a sit or a walk,
+        // which the world boxes above (CoatRegion, for a paused pose) cannot. The
+        // body is skinned here on the CPU from the skeleton's final matrices, the
+        // palette the GPU draws with (bones only: Dog.gltf has no morph targets),
+        // and the distance to that vertex is how far a coat pixel stands off the
+        // skin.
+        //
+        // The ears and the legs are split by side, the legs front and hind: a
+        // part is a place a viewer would see bald, and one bald ear behind a
+        // furred one, averaged, reads as a thin pair.
+        enum class BodyPart : u8
+        {
+            Face,
+            EarLeft,
+            EarRight,
+            Neck,
+            Chest,
+            Torso,
+            LegFrontLeft,
+            LegFrontRight,
+            LegHindLeft,
+            LegHindRight,
+            Tail,
+            Count
+        };
+        static constexpr sizet kBodyParts = static_cast<sizet>(BodyPart::Count);
+        static constexpr std::array<const char*, kBodyParts> kBodyPartNames{
+            "face",  "left ear",        "right ear",       "neck",           "chest",          "torso",
+            "front left leg", "front right leg", "hind left leg", "hind right leg", "tail"
+        };
+
+        struct BodyParts
+        {
+            std::vector<glm::vec3> Bind; // model space
+            std::vector<BodyPart> Part;
+            std::vector<u8> Furred; // 1 on DogSkin, where the coat grows; 0 on the bare skins (nose, lips, pads...)
+            std::vector<std::string> Material; // the vertex's submesh material: DogSkin, DogNose, DogLid...
+            std::vector<u32> Dominant;         // the bone that weights it most
+            std::vector<std::array<u32, 4>> Bones;
+            std::vector<glm::vec4> Weights;
+            // How far a coat point of each part may stand off the skin: its
+            // longest strands, with the coat's length jitter and a vertex
+            // spacing's slack. A coat point beyond it has left the body.
+            std::array<f32, kBodyParts> Reach{};
+            std::vector<glm::vec3> Posed; // world space, the pose PoseBody last saw
+            std::vector<u32> Tree;        // Posed's k-d tree (BuildTree)
+
+            // Nothing farther than this from the body is anyone's: a query past
+            // it returns ~0u (a coat pixel with no body within 30 cm is lost).
+            static constexpr f32 kMaxDistance = 0.30f;
+
+            // A balanced k-d tree over `points`, implicit in the order of `tree`:
+            // each range's median splits it on depth % 3.
+            static void BuildTree(const std::vector<glm::vec3>& points, std::vector<u32>& tree)
+            {
+                tree.resize(points.size());
+                std::iota(tree.begin(), tree.end(), 0u);
+                const std::function<void(sizet, sizet, u32)> build = [&](sizet lo, sizet hi, u32 depth)
+                {
+                    if (hi - lo <= 1u)
+                    {
+                        return;
+                    }
+                    const sizet mid = (lo + hi) / 2u;
+                    const auto axis = static_cast<glm::length_t>(depth % 3u);
+                    std::nth_element(tree.begin() + static_cast<std::ptrdiff_t>(lo), tree.begin() + static_cast<std::ptrdiff_t>(mid),
+                                     tree.begin() + static_cast<std::ptrdiff_t>(hi),
+                                     [&](u32 a, u32 b) { return points[a][axis] < points[b][axis]; });
+                    build(lo, mid, depth + 1u);
+                    build(mid + 1u, hi, depth + 1u);
+                };
+                build(0u, tree.size(), 0u);
+            }
+
+            // The nearest of `points` to `p` through `tree`; ~0u when none is
+            // within kMaxDistance.
+            [[nodiscard]] static u32 Nearest(const std::vector<glm::vec3>& points, const std::vector<u32>& tree,
+                                             const glm::vec3& p, f32& outDistance)
+            {
+                u32 best = ~0u;
+                f32 bestSquared = kMaxDistance * kMaxDistance;
+                const std::function<void(sizet, sizet, u32)> visit = [&](sizet lo, sizet hi, u32 depth)
+                {
+                    if (lo >= hi)
+                    {
+                        return;
+                    }
+                    const sizet mid = (lo + hi) / 2u;
+                    const u32 index = tree[mid];
+                    const glm::vec3 d = points[index] - p;
+                    const f32 squared = glm::dot(d, d);
+                    if (squared < bestSquared)
+                    {
+                        bestSquared = squared;
+                        best = index;
+                    }
+                    const auto axis = static_cast<glm::length_t>(depth % 3u);
+                    const f32 across = p[axis] - points[index][axis];
+                    const bool lowFirst = across < 0.0f;
+                    visit(lowFirst ? lo : mid + 1u, lowFirst ? mid : hi, depth + 1u);
+                    if (across * across < bestSquared)
+                    {
+                        visit(lowFirst ? mid + 1u : lo, lowFirst ? hi : mid, depth + 1u);
+                    }
+                };
+                visit(0u, tree.size(), 0u);
+                outDistance = best != ~0u ? std::sqrt(bestSquared) : std::numeric_limits<f32>::infinity();
+                return best;
+            }
+        };
+
+        // The parts, the bare skins and each part's reach, from the bind pose.
+        [[nodiscard]] BodyParts BuildBodyParts()
+        {
+            BodyParts parts;
+            const MeshSource& surface = *m_Dog.Body.GetComponent<MeshComponent>().m_MeshSource;
+            const Skeleton& skeleton = *m_Dog.Body.GetComponent<SkeletonComponent>().m_Skeleton;
+            const auto& vertices = surface.GetVertices();
+            const auto& influences = surface.GetBoneInfluences();
+            const sizet count = static_cast<sizet>(vertices.Num());
+            EXPECT_EQ(static_cast<sizet>(influences.Num()), count) << "the body must be skinned";
+            const auto boneHead = [&](const std::string& name)
+            {
+                for (sizet i = 0; i < skeleton.m_BoneNames.size(); ++i)
+                {
+                    if (skeleton.m_BoneNames[i] == name)
+                    {
+                        return glm::vec3(glm::inverse(skeleton.m_InverseBindPoses[i])[3]);
+                    }
+                }
+                ADD_FAILURE() << "the dog has no bone " << name;
+                return glm::vec3(0.0f);
+            };
+            const f32 elbowY = boneHead("forearm_L").y;
+            const f32 stifleY = boneHead("shin_L").y;
+            parts.Furred.assign(count, 0u);
+            parts.Material.assign(count, std::string());
+            parts.Dominant.assign(count, 0u);
+            for (const Submesh& submesh : surface.GetSubmeshes())
+            {
+                const auto& materials = m_Dog.Model->GetMaterials();
+                const std::string material = submesh.m_MaterialIndex < static_cast<u32>(materials.size())
+                                                 ? materials[submesh.m_MaterialIndex].GetName().ToStdString()
+                                                 : std::string();
+                for (u32 v = submesh.m_BaseVertex; v < submesh.m_BaseVertex + submesh.m_VertexCount && v < count; ++v)
+                {
+                    parts.Furred[v] = material == "DogSkin" ? 1u : 0u;
+                    parts.Material[v] = material;
+                }
+            }
+            EXPECT_TRUE(std::ranges::find(parts.Material, std::string("DogNose")) != parts.Material.end())
+                << "the body's submeshes do not name their materials";
+            parts.Bind.resize(count);
+            parts.Part.resize(count);
+            parts.Bones.resize(count);
+            parts.Weights.resize(count);
+            for (sizet v = 0; v < count; ++v)
+            {
+                const Vertex& vertex = vertices[static_cast<i32>(v)];
+                const BoneInfluence& influence = influences[static_cast<i32>(v)];
+                parts.Bind[v] = vertex.Position;
+                u32 dominant = 0;
+                for (u32 k = 0; k < 4u; ++k)
+                {
+                    parts.Bones[v][k] = influence.m_BoneIDs[k];
+                    parts.Weights[v][static_cast<i32>(k)] = influence.m_Weights[k];
+                    if (influence.m_Weights[k] > influence.m_Weights[dominant])
+                    {
+                        dominant = k;
+                    }
+                }
+                const u32 boneIndex = influence.m_BoneIDs[dominant];
+                parts.Dominant[v] = boneIndex;
+                const std::string& bone = boneIndex < skeleton.m_BoneNames.size() ? skeleton.m_BoneNames[boneIndex] : std::string();
+                const glm::vec3 n = glm::length(vertex.Normal) > 0.0f ? glm::normalize(vertex.Normal) : glm::vec3(0.0f, 1.0f, 0.0f);
+                const f32 forward = n.z;
+                const f32 up = n.y;
+                const f32 y = vertex.Position.y;
+                const auto starts = [&](const char* prefix) { return bone.starts_with(prefix); };
+                const bool left = bone.ends_with("_L");
+                const auto leg = [&](bool front)
+                {
+                    return front ? (left ? BodyPart::LegFrontLeft : BodyPart::LegFrontRight)
+                                 : (left ? BodyPart::LegHindLeft : BodyPart::LegHindRight);
+                };
+                BodyPart part = BodyPart::Torso;
+                if (bone == "head" || bone == "jaw" || starts("brow") || starts("lid") || starts("tongue") || starts("eye"))
+                {
+                    part = BodyPart::Face;
+                }
+                else if (starts("ear_"))
+                {
+                    part = starts("ear_L") ? BodyPart::EarLeft : BodyPart::EarRight;
+                }
+                else if (starts("neck"))
+                {
+                    part = (forward > 0.35f || up < -0.45f) ? BodyPart::Chest : BodyPart::Neck;
+                }
+                else if (bone == "spine_03")
+                {
+                    part = (forward > 0.30f || up < -0.50f) ? BodyPart::Chest : BodyPart::Torso;
+                }
+                else if (starts("scapula") || starts("upperarm"))
+                {
+                    part = y > elbowY + 0.02f ? ((forward > 0.30f || up < -0.50f) ? BodyPart::Chest : BodyPart::Torso)
+                                              : leg(true);
+                }
+                else if (starts("thigh"))
+                {
+                    part = y > stifleY + 0.02f ? BodyPart::Torso : leg(false);
+                }
+                else if (starts("forearm") || starts("wrist") || starts("paw_front"))
+                {
+                    part = leg(true);
+                }
+                else if (starts("shin") || starts("hock") || starts("paw_rear"))
+                {
+                    part = leg(false);
+                }
+                else if (starts("tail"))
+                {
+                    part = BodyPart::Tail;
+                }
+                parts.Part[v] = part;
+            }
+
+            // Each part's reach, from the coat's own strands: each curve is the
+            // part of the bind vertex nearest its root (SurfaceToGroom is the
+            // identity), and the reach is 1.3x the part's 99th-percentile length
+            // (the coat's length jitter is 0.2) plus 15 mm for the vertex spacing.
+            std::vector<u32> bindTree;
+            BodyParts::BuildTree(parts.Bind, bindTree);
+            const GroomAsset& groom = *m_Dog.CoatAsset.Groom;
+            std::array<std::vector<f32>, kBodyParts> lengths;
+            std::vector<f64> roots(parts.Bind.size(), 0.0);
+            const auto& points = groom.GetPoints();
+            for (u32 c = 0; c < groom.GetCurveCount(); ++c)
+            {
+                const u32 first = groom.GetCurveFirstPoint(c);
+                const u32 n = groom.GetCurvePointCount(c);
+                f32 length = 0.0f;
+                for (u32 i = 1; i < n; ++i)
+                {
+                    length += glm::distance(points[first + i], points[first + i - 1u]);
+                }
+                f32 distance = 0.0f;
+                const u32 nearest = BodyParts::Nearest(parts.Bind, bindTree, points[first], distance);
+                if (nearest != ~0u)
+                {
+                    lengths[static_cast<sizet>(parts.Part[nearest])].push_back(length);
+                    roots[nearest] += 1.0;
+                }
+            }
+
+            // WHERE THE COAT WAS GROWN. Skin counts as furred -- a place the coat
+            // may not leave bare -- only where the shipped groom roots hair
+            // densely: roots per square metre over each vertex's share of its
+            // triangles, smoothed over its one-ring, against the median over the
+            // DogSkin vertices. A dog's coat is sparse by design in places (the
+            // inner thighs; build_dog_groom.py grows by region), and skin showing
+            // there is the groom, not a fault; a coat missing where the groom put
+            // it is.
+            {
+                const auto& indices = surface.GetIndices();
+                std::vector<f64> area(parts.Bind.size(), 0.0);
+                std::vector<std::vector<u32>> ring(parts.Bind.size());
+                for (i32 t = 0; t + 2 < indices.Num(); t += 3)
+                {
+                    const u32 a = indices[t];
+                    const u32 b = indices[t + 1];
+                    const u32 c = indices[t + 2];
+                    if (a >= parts.Bind.size() || b >= parts.Bind.size() || c >= parts.Bind.size())
+                    {
+                        continue;
+                    }
+                    const f64 third = 0.5 * glm::length(glm::cross(parts.Bind[b] - parts.Bind[a], parts.Bind[c] - parts.Bind[a])) / 3.0;
+                    for (const u32 v : { a, b, c })
+                    {
+                        area[v] += third;
+                    }
+                    ring[a].push_back(b);
+                    ring[a].push_back(c);
+                    ring[b].push_back(a);
+                    ring[b].push_back(c);
+                    ring[c].push_back(a);
+                    ring[c].push_back(b);
+                }
+                std::vector<f64> density(parts.Bind.size(), 0.0);
+                for (sizet v = 0; v < parts.Bind.size(); ++v)
+                {
+                    f64 r = roots[v];
+                    f64 w = area[v];
+                    for (const u32 n : ring[v])
+                    {
+                        r += roots[n] / 2.0; // each neighbour is listed twice per shared triangle pair
+                        w += area[n] / 2.0;
+                    }
+                    density[v] = w > 0.0 ? r / w : 0.0;
+                }
+                std::vector<f64> skin;
+                for (sizet v = 0; v < parts.Bind.size(); ++v)
+                {
+                    if (parts.Furred[v] != 0u)
+                    {
+                        skin.push_back(density[v]);
+                    }
+                }
+                f64 median = 0.0;
+                if (!skin.empty())
+                {
+                    std::nth_element(skin.begin(), skin.begin() + static_cast<std::ptrdiff_t>(skin.size() / 2u), skin.end());
+                    median = skin[skin.size() / 2u];
+                }
+                std::array<u32, kBodyParts> sparse{};
+                std::array<u32, kBodyParts> furred{};
+                for (sizet v = 0; v < parts.Bind.size(); ++v)
+                {
+                    if (parts.Furred[v] == 0u)
+                    {
+                        continue;
+                    }
+                    ++furred[static_cast<sizet>(parts.Part[v])];
+                    if (density[v] < kSparseGroomShare * median)
+                    {
+                        parts.Furred[v] = 0u;
+                        ++sparse[static_cast<sizet>(parts.Part[v])];
+                    }
+                }
+                std::printf("[dog] attach: groomed density median %.0f roots/m2; DogSkin vertices groomed under %.0f%% of it, "
+                            "by part:",
+                            median, 100.0 * kSparseGroomShare);
+                for (sizet q = 0; q < kBodyParts; ++q)
+                {
+                    std::printf(" %s %u/%u", kBodyPartNames[q], sparse[q], furred[q]);
+                }
+                std::printf("\n");
+                std::fflush(stdout);
+            }
+            for (sizet p = 0; p < kBodyParts; ++p)
+            {
+                auto& l = lengths[p];
+                f32 p99 = 0.0f;
+                if (!l.empty())
+                {
+                    std::ranges::sort(l);
+                    p99 = l[std::min(l.size() - 1u, static_cast<sizet>(0.99 * static_cast<f64>(l.size())))];
+                }
+                parts.Reach[p] = (1.3f * p99) + 0.015f;
+            }
+            return parts;
+        }
+
+        // Skins the body to the pose the skeleton holds now, into world space.
+        void PoseBody(BodyParts& parts)
+        {
+            const Skeleton& skeleton = *m_Dog.Body.GetComponent<SkeletonComponent>().m_Skeleton;
+            const glm::mat4 world = GetScene().GetWorldTransform(static_cast<entt::entity>(m_Dog.Body));
+            parts.Posed.resize(parts.Bind.size());
+            for (sizet v = 0; v < parts.Bind.size(); ++v)
+            {
+                glm::mat4 skin(0.0f);
+                f32 total = 0.0f;
+                for (u32 k = 0; k < 4u; ++k)
+                {
+                    const f32 w = parts.Weights[v][static_cast<i32>(k)];
+                    const u32 bone = parts.Bones[v][k];
+                    if (w > 0.0f && bone < skeleton.m_FinalBoneMatrices.size())
+                    {
+                        skin += w * skeleton.m_FinalBoneMatrices[bone];
+                        total += w;
+                    }
+                }
+                const glm::vec4 local = total > 0.0f ? (skin / total) * glm::vec4(parts.Bind[v], 1.0f) : glm::vec4(parts.Bind[v], 1.0f);
+                parts.Posed[v] = glm::vec3(world * local);
+            }
+            BodyParts::BuildTree(parts.Posed, parts.Tree);
+        }
+
+        // ── What a frame says about the coat on the body (B3, B6) ──
+        //
+        // Every pixel of a frame read back with ReadbackLinear, by what it shows:
+        // the coat (any of `coats`), skin the coat should cover (furred, its
+        // nearest vertex on DogSkin), the bare skins (nose, lips, gums, tongue,
+        // teeth, pads, lids), an eye, or the rest of the scene. A coat pixel is
+        // FLOATING when it stands off the skin by more than its part's reach.
+        struct PartCounts
+        {
+            f64 Coat = 0.0;
+            f64 Skin = 0.0;     // furred skin showing: a gap, or a bald patch
+            f64 Floating = 0.0; // coat pixels farther off the skin than the part's reach
+            // The part's furred skin in kBaldTile-pixel tiles the coat covers
+            // less than kBaldTileCoverage of (over the measured frames), and in
+            // all the tiles measured: a missing patch is a run of nearly empty
+            // tiles, a thin coat is not.
+            f64 BaldArea = 0.0;
+            f64 TiledArea = 0.0;
+            [[nodiscard]] f64 BaldShare() const
+            {
+                return TiledArea > 0.0 ? BaldArea / TiledArea : 0.0;
+            }
+            [[nodiscard]] f64 Coverage() const
+            {
+                return (Coat + Skin) > 0.0 ? Coat / (Coat + Skin) : 0.0;
+            }
+            [[nodiscard]] f64 FloatingShare() const
+            {
+                return Coat > 0.0 ? Floating / Coat : 0.0;
+            }
+        };
+
+        struct FrameParts
+        {
+            std::array<PartCounts, kBodyParts> Parts{};
+            f64 CoatPixels = 0.0; // every coat pixel with a depth, whatever its part
+            f64 Lost = 0.0;       // coat pixels with no body vertex within 30 cm
+            f64 NoDepth = 0.0;    // coat pixels whose depth reads as the clear: no world point to classify
+        };
+
+        // Per pixel: the part (kBodyParts for none), whether it is coat, whether
+        // it is the dog at all (coat, body or an eye), and the coat's SPARSE
+        // FRINGE: coat pixels with something that is not the dog within two
+        // pixels, where the coat thins out against the background.
+        struct PixelParts
+        {
+            std::vector<u8> Part;
+            std::vector<u8> Coat;
+            std::vector<u8> Dog;
+            std::vector<u8> Fringe;
+        };
+
+        void ClassifyFrame(const BodyParts& parts, const LinearFrame& frame, const std::vector<i32>& coatIds,
+                           FrameParts& counts, PixelParts* pixels = nullptr) const
+        {
+            const i32 body = static_cast<i32>(static_cast<u32>(m_Dog.Body));
+            if (pixels != nullptr)
+            {
+                pixels->Part.assign(frame.Ids.size(), static_cast<u8>(kBodyParts));
+                pixels->Coat.assign(frame.Ids.size(), 0u);
+                pixels->Dog.assign(frame.Ids.size(), 0u);
+                pixels->Fringe.assign(frame.Ids.size(), 0u);
+                for (sizet i = 0; i < frame.Ids.size(); ++i)
+                {
+                    const i32 id = frame.Ids[i];
+                    bool dog = id == body || std::ranges::find(coatIds, id) != coatIds.end();
+                    for (const Entity& eye : m_Dog.Eyes)
+                    {
+                        dog = dog || (eye && id == static_cast<i32>(static_cast<u32>(eye)));
+                    }
+                    pixels->Dog[i] = dog ? 1u : 0u;
+                }
+            }
+            for (sizet i = 0; i < frame.Ids.size(); ++i)
+            {
+                const i32 id = frame.Ids[i];
+                const bool coat = std::ranges::find(coatIds, id) != coatIds.end();
+                if (coat && pixels != nullptr)
+                {
+                    const i32 x = static_cast<i32>(i % frame.Width);
+                    const i32 y = static_cast<i32>(i / frame.Width);
+                    for (i32 dy = -2; dy <= 2 && pixels->Fringe[i] == 0u; ++dy)
+                    {
+                        for (i32 dx = -2; dx <= 2; ++dx)
+                        {
+                            const i32 nx = x + dx;
+                            const i32 ny = y + dy;
+                            if (nx >= 0 && ny >= 0 && nx < static_cast<i32>(frame.Width) && ny < static_cast<i32>(frame.Height) &&
+                                pixels->Dog[(static_cast<sizet>(ny) * frame.Width) + static_cast<sizet>(nx)] == 0u)
+                            {
+                                pixels->Fringe[i] = 1u;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (!coat && id != body)
+                {
+                    continue;
+                }
+                if (std::isnan(frame.World[i].x))
+                {
+                    counts.NoDepth += coat ? 1.0 : 0.0;
+                    continue;
+                }
+                f32 distance = 0.0f;
+                const u32 nearest = BodyParts::Nearest(parts.Posed, parts.Tree, frame.World[i], distance);
+                if (coat)
+                {
+                    counts.CoatPixels += 1.0;
+                    if (nearest == ~0u)
+                    {
+                        counts.Lost += 1.0;
+                        continue;
+                    }
+                    const auto part = static_cast<sizet>(parts.Part[nearest]);
+                    counts.Parts[part].Coat += 1.0;
+                    counts.Parts[part].Floating += distance > parts.Reach[part] ? 1.0 : 0.0;
+                    if (pixels != nullptr)
+                    {
+                        pixels->Part[i] = static_cast<u8>(part);
+                        pixels->Coat[i] = 1u;
+                    }
+                }
+                else if (nearest != ~0u && parts.Furred[nearest] != 0u)
+                {
+                    const auto part = static_cast<sizet>(parts.Part[nearest]);
+                    counts.Parts[part].Skin += 1.0;
+                    if (pixels != nullptr)
+                    {
+                        pixels->Part[i] = static_cast<u8>(part);
+                    }
+                }
+            }
+        }
+
+        // The last measured frame by what ClassifyFrame made of each pixel: the
+        // coat in its part's hue (white where it floats past its reach), the
+        // furred skin showing in a dark shade of the same hue, red where a coat
+        // pixel has no body within 30 cm, blue where it has no depth at all.
+        [[nodiscard]] std::vector<u8> PartMap(const BodyParts& parts, const LinearFrame& frame,
+                                              const std::vector<i32>& coatIds) const
+        {
+            static constexpr std::array<std::array<u8, 3>, kBodyParts> kHue{ { { 230, 180, 60 },  // face
+                                                                               { 200, 90, 220 },  // left ear
+                                                                               { 150, 60, 170 },  // right ear
+                                                                               { 70, 170, 230 },  // neck
+                                                                               { 240, 120, 80 },  // chest
+                                                                               { 90, 110, 240 },  // torso
+                                                                               { 120, 200, 90 },  // front left leg
+                                                                               { 70, 140, 60 },   // front right leg
+                                                                               { 60, 200, 190 },  // hind left leg
+                                                                               { 40, 130, 130 },  // hind right leg
+                                                                               { 240, 220, 90 } } }; // tail
+            const i32 body = static_cast<i32>(static_cast<u32>(m_Dog.Body));
+            std::vector<u8> rgba(frame.Ids.size() * 4u, 0u);
+            for (sizet i = 0; i < frame.Ids.size(); ++i)
+            {
+                u8* px = &rgba[i * 4u];
+                px[3] = 255u;
+                const bool coat = std::ranges::find(coatIds, frame.Ids[i]) != coatIds.end();
+                if (!coat && frame.Ids[i] != body)
+                {
+                    px[0] = px[1] = px[2] = 24u;
+                    continue;
+                }
+                if (std::isnan(frame.World[i].x))
+                {
+                    px[2] = coat ? 255u : 96u;
+                    continue;
+                }
+                f32 distance = 0.0f;
+                const u32 v = BodyParts::Nearest(parts.Posed, parts.Tree, frame.World[i], distance);
+                if (v == ~0u)
+                {
+                    px[0] = 255u;
+                    continue;
+                }
+                const auto part = static_cast<sizet>(parts.Part[v]);
+                const bool floating = coat && distance > parts.Reach[part];
+                for (u32 ch = 0; ch < 3u; ++ch)
+                {
+                    px[ch] = floating ? 255u : (coat ? kHue[part][ch] : static_cast<u8>(kHue[part][ch] / 4u));
+                }
+            }
+            return rgba;
+        }
+
+        // ONE HELD STATE's attachment, from the runtime camera at `view`: the
+        // body posed once, then `frames` held frames (the coat's stochastic
+        // samples change, the state does not), the counts averaged over them.
+        // `ldr`, when given, receives the last frame's composite.
+        FrameParts MeasureAttachment(BodyParts& parts, const View& view, const std::vector<i32>& coatIds, u32 frames,
+                                     std::vector<u8>* ldr = nullptr, const std::string& partMap = {},
+                                     std::vector<u8>* partMapOut = nullptr)
+        {
+            PoseBody(parts);
+            AimRuntimeCamera(view);
+            Renderer3D::ResetFrameSequences();
+            ColdHistory();
+            HoldRuntime(16);
+            FrameParts sum;
+            LinearFrame frame;
+            PixelParts pixels;
+            // Per tile and part: coat and furred-skin pixels over every frame.
+            std::vector<std::array<f64, 2>> tiles;
+            u32 tilesX = 0;
+            const glm::mat4 viewProjection = RuntimeViewProjection();
+            for (u32 f = 0; f < frames; ++f)
+            {
+                HoldRuntime(1);
+                ReadbackLinear(viewProjection, frame, false);
+                if (HasFatalFailure())
+                {
+                    return sum;
+                }
+                ClassifyFrame(parts, frame, coatIds, sum, &pixels);
+                tilesX = (frame.Width + kBaldTile - 1u) / kBaldTile;
+                const u32 tilesY = (frame.Height + kBaldTile - 1u) / kBaldTile;
+                tiles.resize(static_cast<sizet>(tilesX) * tilesY * kBodyParts, { 0.0, 0.0 });
+                for (sizet i = 0; i < pixels.Part.size(); ++i)
+                {
+                    if (pixels.Part[i] >= kBodyParts)
+                    {
+                        continue;
+                    }
+                    const u32 x = static_cast<u32>(i % frame.Width) / kBaldTile;
+                    const u32 y = static_cast<u32>(i / frame.Width) / kBaldTile;
+                    tiles[((static_cast<sizet>(y) * tilesX) + x) * kBodyParts + pixels.Part[i]][pixels.Coat[i] != 0u ? 0u : 1u] += 1.0;
+                }
+            }
+            for (sizet t = 0; t < tiles.size(); ++t)
+            {
+                const f64 coat = tiles[t][0];
+                const f64 skin = tiles[t][1];
+                if (coat + skin < kBaldTileMinPixels * static_cast<f64>(frames))
+                {
+                    continue;
+                }
+                PartCounts& part = sum.Parts[t % kBodyParts];
+                part.TiledArea += coat + skin;
+                part.BaldArea += (coat / (coat + skin)) < kBaldTileCoverage ? coat + skin : 0.0;
+            }
+            const f64 n = static_cast<f64>(std::max(frames, 1u));
+            for (PartCounts& part : sum.Parts)
+            {
+                part.Coat /= n;
+                part.Skin /= n;
+                part.Floating /= n;
+                part.BaldArea /= n;
+                part.TiledArea /= n;
+            }
+            sum.CoatPixels /= n;
+            sum.Lost /= n;
+            sum.NoDepth /= n;
+            if (ldr != nullptr)
+            {
+                ReadbackFrame(*ldr);
+            }
+            if (!partMap.empty() || partMapOut != nullptr)
+            {
+                std::vector<u8> map = PartMap(parts, frame, coatIds);
+                if (!partMap.empty())
+                {
+                    WritePng(partMap, map, frame.Width, frame.Height);
+                }
+                if (partMapOut != nullptr)
+                {
+                    *partMapOut = std::move(map);
+                }
+            }
+            return sum;
+        }
+
+        // THE ATTACHMENT CONTRACT (B3), over the held steps of one clip from one
+        // view. Per part with enough pixels to say anything (kPartPixels):
+        //   - no part has a bald patch: at most kBaldCeiling of its groomed skin
+        //     (furred, and rooted densely by the shipped groom: BuildBodyParts)
+        //     lies in 8x8-pixel tiles its coat covers less than a fifth of, at
+        //     every step. Tiles, not the part's mean: coverage is a single
+        //     frame's -- the stochastic coat's id against the skin it leaves
+        //     showing -- so a healthy coat reads well under 1, and a thin one (a
+        //     hind leg's inner side seen from behind reads 0.38-0.58 in the walk)
+        //     differs from a missing patch only in WHERE the skin shows: spread
+        //     through the coat, or in a run of empty tiles;
+        //   - nothing floats: at most kFloatingCeiling of its coat pixels stand
+        //     off the skin by more than the part's reach.
+        // Over the whole frame:
+        //   - the coat's pixels stay within `frameBand` of the clip's mean, the
+        //     horse fixture's "coat stays on the body" check;
+        //   - nothing is lost (no coat pixel without body within 30 cm).
+        // A part's coverage is NOT held steady through a clip: a leg seen edge
+        // on, or mostly hidden behind another, shows its inner side where the
+        // coat is thinner, and a walking leg's coverage swings by 0.3 while
+        // nothing is wrong. Returns each violation as a line; empty is a pass.
+        // A DogSkin vertex the groom roots hair on less densely than this share
+        // of the median is sparse by design and not judged bald (BuildBodyParts).
+        static constexpr f64 kSparseGroomShare = 0.25;
+        static constexpr u32 kBaldTile = 8;
+        static constexpr f64 kBaldTileCoverage = 0.20;
+        static constexpr f64 kBaldTileMinPixels = 16.0; // per frame
+        // A quarter of a part's groomed skin in empty tiles: the shipped coat's
+        // worst part reads 0.13 (a walking front leg, from behind), the planted
+        // faults 0.58 to 0.82 (TheAttachmentCheckSeesALocalFailure).
+        static constexpr f64 kBaldCeiling = 0.25;
+        static constexpr f64 kFloatingCeiling = 0.02;
+        static constexpr f64 kPartPixels = 1000.0;
+
+        [[nodiscard]] static std::vector<std::string> JudgeAttachment(const std::vector<FrameParts>& steps,
+                                                                    const std::string& what, f64 frameBand = 0.25)
+        {
+            std::vector<std::string> failures;
+            char line[256];
+            for (sizet p = 0; p < kBodyParts; ++p)
+            {
+                for (sizet s = 0; s < steps.size(); ++s)
+                {
+                    const PartCounts& part = steps[s].Parts[p];
+                    if (part.Coat + part.Skin < kPartPixels)
+                    {
+                        continue;
+                    }
+                    if (part.BaldShare() > kBaldCeiling)
+                    {
+                        std::snprintf(line, sizeof(line), "%s step %zu: %.3f of the %s skin is bald (tiles under %.0f%% coat; ceiling %.2f)",
+                                      what.c_str(), s, part.BaldShare(), kBodyPartNames[p], 100.0 * kBaldTileCoverage, kBaldCeiling);
+                        failures.emplace_back(line);
+                    }
+                    if (part.FloatingShare() > kFloatingCeiling)
+                    {
+                        std::snprintf(line, sizeof(line), "%s step %zu: %.3f of the %s coat stands off the skin past its reach (ceiling %.2f)",
+                                      what.c_str(), s, part.FloatingShare(), kBodyPartNames[p], kFloatingCeiling);
+                        failures.emplace_back(line);
+                    }
+                }
+            }
+            f64 meanCoat = 0.0;
+            for (const FrameParts& step : steps)
+            {
+                meanCoat += step.CoatPixels / static_cast<f64>(std::max<sizet>(steps.size(), 1u));
+            }
+            for (sizet s = 0; s < steps.size(); ++s)
+            {
+                if (meanCoat > 0.0 && std::abs((steps[s].CoatPixels / meanCoat) - 1.0) > frameBand)
+                {
+                    std::snprintf(line, sizeof(line), "%s step %zu: the frame's coat pixels %.0f left the clip's mean %.0f by more than %.0f%%",
+                                  what.c_str(), s, steps[s].CoatPixels, meanCoat, 100.0 * frameBand);
+                    failures.emplace_back(line);
+                }
+                if (steps[s].CoatPixels > 0.0 && steps[s].Lost / steps[s].CoatPixels > kFloatingCeiling)
+                {
+                    std::snprintf(line, sizeof(line), "%s step %zu: %.3f of the coat has no body within 30 cm", what.c_str(),
+                                  s, steps[s].Lost / steps[s].CoatPixels);
+                    failures.emplace_back(line);
+                }
+            }
+            return failures;
+        }
+
+        static void ReportAttachment(const std::string& what, sizet step, const FrameParts& f)
+        {
+            std::printf("[dog] attach %-22s step %zu: coat %6.0f px (lost %.0f) |", what.c_str(), step, f.CoatPixels, f.Lost);
+            for (sizet p = 0; p < kBodyParts; ++p)
+            {
+                const PartCounts& part = f.Parts[p];
+                if (part.Coat + part.Skin >= kPartPixels)
+                {
+                    std::printf(" %s %.3f/%.3f/%.4f/%.0f", kBodyPartNames[p], part.Coverage(), part.BaldShare(),
+                                part.FloatingShare(), part.Coat + part.Skin);
+                }
+            }
+            std::printf("  (part coverage/bald/floating/pixels)\n");
+            std::fflush(stdout);
+        }
+
+        // ── B3's planted faults (#1533 acceptance review, section 3) ──
+
+        // A copy of a coat through GroomBuilder: the curves `keep` accepts, each
+        // point through `move`. Groups (with their coat descriptions), guides and
+        // the basis come across; the card level does not -- these coats are only
+        // ever seen close.
+        [[nodiscard]] static Ref<GroomAsset> CopyGroom(const GroomAsset& source, const std::function<bool(u32)>& keep,
+                                                       const std::function<glm::vec3(u32, const glm::vec3&)>& move)
+        {
+            GroomBuilder builder;
+            builder.SetBasis(source.GetBasis());
+            builder.SetName(source.GetName() + "Planted");
+            std::vector<u16> groupOf(source.GetGroupNames().size(), 0xFFFFu);
+            std::string reason;
+            std::vector<std::string> repairs;
+            std::vector<glm::vec3> points;
+            std::vector<f32> widths;
+            for (u32 c = 0; c < source.GetCurveCount(); ++c)
+            {
+                if (!keep(c))
+                {
+                    continue;
+                }
+                const u16 group = source.GetCurveGroupIds()[c];
+                if (groupOf[group] == 0xFFFFu)
+                {
+                    u16 id = 0;
+                    EXPECT_TRUE(builder.AddGroup(source.GetGroupNames()[group], id, reason)) << reason;
+                    EXPECT_TRUE(builder.SetGroupCoat(id, source.GetGroupCoat(group), repairs));
+                    groupOf[group] = id;
+                }
+                const u32 first = source.GetCurveFirstPoint(c);
+                const u32 n = source.GetCurvePointCount(c);
+                points.clear();
+                widths.clear();
+                for (u32 i = 0; i < n; ++i)
+                {
+                    points.push_back(move(c, source.GetPoints()[first + i]));
+                    widths.push_back(source.GetPointWidths()[first + i]);
+                }
+                GroomCurveInput input;
+                input.Points = points;
+                input.Widths = widths;
+                input.RootUV = source.GetRootUVs()[c];
+                input.GroupId = groupOf[group];
+                input.IsGuide = source.IsGuide(c);
+                EXPECT_TRUE(builder.AddCurve(input, reason)) << reason;
+            }
+            Ref<GroomAsset> out = builder.Build(reason);
+            EXPECT_TRUE(out) << reason;
+            return out;
+        }
+
+        // The coat region build_dog_groom.py grew a curve in: its group's leaf,
+        // "/<region>_<layer>/<region>_<layer>".
+        [[nodiscard]] static std::string RegionOfCurve(const GroomAsset& groom, u32 curve)
+        {
+            const std::string& path = groom.GetGroupNames()[groom.GetCurveGroupIds()[curve]];
+            const std::string leaf = path.substr(path.find_last_of('/') + 1u);
+            return leaf.substr(0, leaf.find('_'));
+        }
+
+        // Cooks `groom`'s binding to the dog's body, registers both, and points
+        // `coat` at them (every strand drawn).
+        void InstallCoat(Entity coat, const Ref<GroomAsset>& groom)
+        {
+            const Ref<MeshSource> surface = m_Dog.Body.GetComponent<MeshComponent>().m_MeshSource;
+            const Skeleton& skeleton = *m_Dog.Body.GetComponent<SkeletonComponent>().m_Skeleton;
+            GroomBindingBuildSettings bind;
+            bind.SurfaceToGroom = glm::mat4(1.0f);
+            std::vector<u8> bytes;
+            GroomBindingBuildStats stats;
+            Ref<GroomBindingAsset> binding;
+            std::string reason;
+            ASSERT_TRUE(GroomBindingCooker::CookPair(*groom, MakeSurfaceView(*surface, &skeleton), "DogPlanted", bind,
+                                                     bytes, binding, stats, reason))
+                << reason;
+            ASSERT_TRUE(GroomBindingSerializer::DecodeFromBytes(bytes.data(), bytes.size(), binding, reason)) << reason;
+            auto& gc = coat.GetComponent<GroomComponent>();
+            gc.m_Groom = AssetManager::AddMemoryOnlyAsset<GroomAsset>(groom);
+            gc.m_MaxRenderStrands = groom->GetCurveCount();
+            coat.GetComponent<GroomBindingComponent>().m_Binding = AssetManager::AddMemoryOnlyAsset<GroomBindingAsset>(binding);
+        }
+
+        // Puts the shipped coat back on the dog.
+        void RestoreShippedCoat()
+        {
+            auto& gc = m_Dog.Coat.GetComponent<GroomComponent>();
+            gc.m_Groom = m_Dog.GroomHandle;
+            gc.m_MaxRenderStrands = m_Dog.CoatAsset.Strands;
+            m_Dog.Coat.GetComponent<GroomBindingComponent>().m_Binding = m_Dog.BindingHandle;
+        }
+
+        // A clip's held instants from one view: StartClip, then `steps` times
+        // `framesPerStep` runtime frames and a MeasureAttachment. The binding's
+        // counters ride along in `motion`.
+        std::vector<FrameParts> AttachmentThroughClip(BodyParts& parts, const char* clip, bool loop, u32 steps,
+                                                      u32 framesPerStep, const View& view,
+                                                      const std::vector<i32>& coatIds, MotionResult* motion = nullptr,
+                                                      std::vector<std::vector<u8>>* ldr = nullptr,
+                                                      std::vector<std::vector<u8>>* partMaps = nullptr)
+        {
+            std::vector<FrameParts> out;
+            // The clip runs through the camera it is measured from, the LOD
+            // settled there first (see RecordRuntime), so a replay of the same
+            // call reaches the same states.
+            AimRuntimeCamera(view);
+            HoldRuntime(8);
+            (void)StartClip(clip, loop, 2u);
+            for (u32 step = 0; step < steps; ++step)
+            {
+                const MotionResult m = AdvanceRuntime(framesPerStep);
+                if (motion != nullptr)
+                {
+                    motion->MinGroomsDeformed = std::min(motion->MinGroomsDeformed, m.MinGroomsDeformed);
+                    motion->MaxBindingRefused = std::max(motion->MaxBindingRefused, m.MaxBindingRefused);
+                    motion->MaxHeldAtRest = std::max(motion->MaxHeldAtRest, m.MaxHeldAtRest);
+                    motion->Reseeds += m.Reseeds;
+                    motion->SolverSteps += m.SolverSteps;
+                }
+                std::vector<u8> frame;
+                std::vector<u8> map;
+                out.push_back(MeasureAttachment(parts, view, coatIds, 6, ldr != nullptr ? &frame : nullptr, {},
+                                                partMaps != nullptr ? &map : nullptr));
+                if (HasFatalFailure())
+                {
+                    return out;
+                }
+                if (ldr != nullptr)
+                {
+                    ldr->push_back(std::move(frame));
+                }
+                if (partMaps != nullptr)
+                {
+                    partMaps->push_back(std::move(map));
+                }
+            }
+            return out;
+        }
+
+        // Whether `failures` names `part` -- the check found the planted fault
+        // where it was planted.
+        [[nodiscard]] static bool NamesPart(const std::vector<std::string>& failures, BodyPart part)
+        {
+            const std::string needle = std::string(" ") + kBodyPartNames[static_cast<sizet>(part)] + " ";
+            return std::ranges::any_of(failures, [&](const std::string& f) { return f.find(needle) != std::string::npos; });
+        }
+
+
     };
 
-    // =========================================================================
-    // F1: the real pipeline from every hero angle, the coat covering the dog.
-    // =========================================================================
     // =========================================================================
     // #1533: the coat is Blender's. build_dog_groom.py grows it, AlembicGroomImporter
     // cooks it, and the shipped Dog.ologroom says so in its provenance. Its coat
@@ -1682,24 +2774,55 @@ namespace OloEngine::Tests
         EXPECT_LT(zeroUVs, groom.GetCurveCount() / 1000u) << "the root UVs did not arrive";
     }
 
+    // =========================================================================
+    // F1: the real pipeline from every hero angle, the coat covering the dog.
+    // Each view from ONE held state, Idle's frame 40 replayed for each (the pair
+    // below hides the coat, which ends a run). Coverage is the coat's entity id
+    // over the furred skin it should hide (MeasureAttachment); the beauty pair
+    // says the coat visibly changes the frame.
+    // =========================================================================
     TEST_F(DogShowcaseEvidenceTest, TheDogIsFurredFromEveryHeroAngle)
     {
         SetPath(RenderingPath::Forward);
-        const MotionResult motion = PlayClip("Idle", true, 40);
-        EXPECT_EQ(motion.MinGroomsDeformed, 1u) << "the coat must follow the body";
-        EXPECT_EQ(motion.MaxBindingRefused, 0u) << "the cooked binding must attach to the dog's own mesh";
-
+        BodyParts parts = BuildBodyParts();
+        const std::vector<i32> coat{ static_cast<i32>(static_cast<u32>(m_Dog.Coat)) };
         std::vector<std::vector<u8>> frames;
         for (const View& view : HeroViews())
         {
             SCOPED_TRACE(view.Name);
-            std::vector<u8> on;
-            const u32 coat = CoatPixels(view, std::string("DogShowcase_GL_Forward_") + view.Name,
-                                        std::string("DogShowcaseBald_GL_Forward_") + view.Name, &on);
+            const MotionResult motion = StartClip("Idle", true, 40);
+            EXPECT_EQ(motion.MinGroomsDeformed, 1u) << "the coat must follow the body";
+            EXPECT_EQ(motion.MaxBindingRefused, 0u) << "the cooked binding must attach to the dog's own mesh";
+            const FrameParts covered =
+                MeasureAttachment(parts, view, coat, 6, nullptr, std::string("DogParts_GL_Forward_") + view.Name);
             ASSERT_FALSE(HasFatalFailure());
-            std::printf("[dog] %s: coat %u px (%.1f%% of the frame)\n", view.Name, coat, 100.0 * Fraction(coat));
+            f64 coatPx = 0.0;
+            f64 skinPx = 0.0;
+            for (const PartCounts& part : covered.Parts)
+            {
+                coatPx += part.Coat;
+                skinPx += part.Skin;
+            }
+            std::vector<u8> on;
+            const u32 visible = CoatVisibleChange(view, std::string("DogShowcase_GL_Forward_") + view.Name,
+                                                  std::string("DogShowcaseBald_GL_Forward_") + view.Name, &on);
+            ASSERT_FALSE(HasFatalFailure());
+            const f64 coverage = coatPx + skinPx > 0.0 ? coatPx / (coatPx + skinPx) : 0.0;
+            std::printf("[dog] %s: the coat covers %.3f of the furred skin in view (%.0f coat px; %.0f without a depth, %.0f "
+                        "lost); hiding it changes %u px (%.1f%% of the frame)\n",
+                        view.Name, coverage, coatPx, covered.NoDepth, covered.Lost, visible, 100.0 * Fraction(visible));
             std::fflush(stdout);
-            EXPECT_GT(Fraction(coat), 0.03) << view.Name << ": the coat must visibly change the dog";
+            // No part of the dog is bald from this angle (JudgeAttachment's floor).
+            for (sizet p = 0; p < kBodyParts; ++p)
+            {
+                const PartCounts& part = covered.Parts[p];
+                if (part.Coat + part.Skin >= kPartPixels)
+                {
+                    EXPECT_LE(part.BaldShare(), kBaldCeiling)
+                        << view.Name << ": the " << kBodyPartNames[p] << " has a bald patch from this angle";
+                }
+            }
+            EXPECT_GT(Fraction(visible), 0.03) << view.Name << ": the coat must visibly change the dog";
             frames.push_back(std::move(on));
         }
         WriteStrip("DogShowcaseHero_GL_Forward", frames, 3u);
@@ -1723,16 +2846,16 @@ namespace OloEngine::Tests
             const bool moving = std::string_view(clip) == "Walk";
             const auto sequence = [&](f32 feedback)
             {
-                (void)PlayClip(clip, true, 20);
+                (void)StartClip(clip, true, 20);
                 m_Dog.Body.GetComponent<AnimationStateComponent>().m_IsPlaying = moving;
                 SetTaa(feedback);
                 ColdHistory();
                 std::vector<u8> px;
-                Capture("", view, px, 16);
+                CaptureEditorPreview("", view, px, 16);
                 std::vector<std::vector<f32>> luma;
                 for (u32 i = 0; i < 12; ++i)
                 {
-                    Capture("", view, px, 1);
+                    CaptureEditorPreview("", view, px, 1);
                     std::vector<f32> l(static_cast<sizet>(kWidth) * kHeight);
                     for (sizet p = 0; p < l.size(); ++p)
                     {
@@ -1769,7 +2892,7 @@ namespace OloEngine::Tests
     TEST_F(DogShowcaseEvidenceTest, TheLodLadderKeepsCoverageAndEnergyFromCloseUpTo15m)
     {
         SetPath(RenderingPath::Forward);
-        (void)PlayClip("Rest", true, 30);
+        (void)StartClip("Rest", true, 30);
         m_Dog.Body.GetComponent<AnimationStateComponent>().m_IsPlaying = false;
         const i32 coatId = static_cast<i32>(static_cast<u32>(m_Dog.Coat));
         const glm::vec3 away = glm::normalize(glm::vec3(0.55f, 0.22f, 1.0f));
@@ -2060,7 +3183,7 @@ namespace OloEngine::Tests
             // Pitch about x, then yaw about y (glm's (x, y, z) Euler is Ry * Rx).
             t.SetRotationEuler(glm::vec3(std::asin(std::clamp(d.y, -1.0f, 1.0f)), std::atan2(-d.x, -d.z), 0.0f));
             camera.GetComponent<CameraComponent>().Camera.SetPerspective(glm::radians(framing.Fov), 0.02f, 400.0f);
-            (void)PlayClip(framing.Clip, true, 90); // the warm-up: caches, coat volumes, TAA history
+            (void)StartClip(framing.Clip, true, 90); // the warm-up: caches, coat volumes, TAA history
 
             Measured m;
             std::vector<f64> wall;
@@ -2450,7 +3573,7 @@ namespace OloEngine::Tests
         // 60 Hz) it is held on: Idle at 62 is its first blink half closed.
         const char* clip = std::getenv("OLO_DOG_LOOKDEV_CLIP");
         const char* clipFrames = std::getenv("OLO_DOG_LOOKDEV_FRAMES");
-        (void)PlayClip(clip != nullptr ? clip : "Rest", true,
+        (void)StartClip(clip != nullptr ? clip : "Rest", true,
                        clipFrames != nullptr ? static_cast<u32>(std::max(1, std::atoi(clipFrames))) : 30u);
         m_Dog.Body.GetComponent<AnimationStateComponent>().m_IsPlaying = false;
         // A/B switches for diagnosing the look: OLO_DOG_LOOKDEV_OFF is a comma
@@ -2527,7 +3650,7 @@ namespace OloEngine::Tests
             }
             std::vector<u8> px;
             ColdHistory();
-            Capture(std::string("DogLookDev_GL_Forward_") + view.Name, view, px, 32);
+            CaptureEditorPreview(std::string("DogLookDev_GL_Forward_") + view.Name, view, px, 32);
             ASSERT_FALSE(HasFatalFailure());
             // The middle of the frame, enlarged: the face in the close-ups.
             std::vector<u8> crop(static_cast<sizet>(kWidth) * kHeight * 4u);
@@ -2569,11 +3692,11 @@ namespace OloEngine::Tests
                 t.Translation = view.Eye;
                 t.SetRotationEuler(glm::vec3(std::asin(std::clamp(d.y, -1.0f, 1.0f)), std::atan2(-d.x, -d.z), 0.0f));
                 camera.GetComponent<CameraComponent>().Camera.SetPerspective(glm::radians(view.Fov), 0.02f, 400.0f);
-                (void)PlayClip("Pant", true, 60);
+                (void)StartClip("Pant", true, 60);
                 std::vector<std::vector<u8>> wagFrames;
                 for (u32 k = 0; k < 8u; ++k)
                 {
-                    (void)Play(5u);
+                    (void)AdvanceRuntime(5u);
                     std::vector<u8> px;
                     ReadbackFrame(px);
                     ASSERT_FALSE(HasFatalFailure());
@@ -2652,7 +3775,7 @@ namespace OloEngine::Tests
             inBoneAtBind[e] = glm::inverse(boneWorld(bones[e])) * world;
             centreAtBind[e] = glm::vec3(world[3]);
         }
-        (void)PlayClip("HeadTilt", false, 45); // the head rolls about 16 degrees
+        (void)StartClip("HeadTilt", false, 45); // the head rolls about 16 degrees
         m_Dog.Body.GetComponent<AnimationStateComponent>().m_IsPlaying = false;
         GetScene().PropagateWorldTransforms();
         for (u32 e = 0; e < 2u; ++e)
@@ -2675,23 +3798,22 @@ namespace OloEngine::Tests
 
     // =========================================================================
     // F1 negative controls: fur, the coat's self-shadow and the scene shadow
-    // each switched off must change the frame.
+    // each switched off must change the frame. Every arm from ONE held state
+    // (Idle's frame 40) and the same renderer start, so the repeat is exact and
+    // the arm is the only difference; the fur goes LAST, because hiding the coat
+    // re-seeds it when it returns (see CaptureHeldPair).
     // =========================================================================
     TEST_F(DogShowcaseEvidenceTest, EveryLayerOfTheLookIsLoadBearing)
     {
         SetPath(RenderingPath::Forward);
-        (void)PlayClip("Idle", true, 40);
-        auto& anim = m_Dog.Body.GetComponent<AnimationStateComponent>();
-        anim.m_IsPlaying = false; // one pose for every arm
+        (void)StartClip("Idle", true, 40);
         const View view = HeroViews()[0];
         std::vector<u8> lit;
-        ColdHistory();
-        Capture("DogShowcaseLook_GL_Forward_All", view, lit);
+        CaptureHeld("DogShowcaseLook_GL_Forward_All", view, lit);
         ASSERT_FALSE(HasFatalFailure());
 
         std::vector<u8> repeat;
-        ColdHistory();
-        Capture("", view, repeat);
+        CaptureHeld("", view, repeat);
         const u32 floor = CountDiffering(lit, repeat);
 
         struct Arm
@@ -2701,8 +3823,6 @@ namespace OloEngine::Tests
         };
         auto& coat = m_Dog.Coat;
         const Arm arms[] = {
-            { "NoFur", [&](bool on)
-              { coat.GetComponent<GroomComponent>().m_RenderStrands = on; } },
             { "NoSelfShadow", [&](bool on)
               { coat.GetComponent<GroomCoatShadowComponent>().m_Enabled = on; } },
             // The transport alone (#1533): the crossings stay as occluders.
@@ -2713,14 +3833,15 @@ namespace OloEngine::Tests
                   coat.GetComponent<GroomSceneShadowComponent>().m_CastShadows = on;
                   coat.GetComponent<GroomSceneShadowComponent>().m_ReceiveShadows = on;
               } },
+            { "NoFur", [&](bool on)
+              { coat.GetComponent<GroomComponent>().m_RenderStrands = on; } },
         };
         for (const Arm& arm : arms)
         {
             SCOPED_TRACE(arm.Name);
             arm.Set(false);
             std::vector<u8> off;
-            ColdHistory();
-            Capture(std::string("DogShowcaseLook_GL_Forward_") + arm.Name, view, off);
+            CaptureHeld(std::string("DogShowcaseLook_GL_Forward_") + arm.Name, view, off);
             arm.Set(true);
             ASSERT_FALSE(HasFatalFailure());
             const u32 changed = CountDiffering(lit, off);
@@ -2728,7 +3849,6 @@ namespace OloEngine::Tests
             std::fflush(stdout);
             EXPECT_GT(changed, std::max(4u * floor, 1500u)) << arm.Name << " must change the frame";
         }
-        anim.m_IsPlaying = true;
     }
 
     // =========================================================================
@@ -2754,16 +3874,14 @@ namespace OloEngine::Tests
     // MEANS, NOT PIXEL COUNTS. The coat is on the stochastic tier -- the
     // opaque one alpha-tests coverage and drops every sub-pixel strand, which
     // on this dog is most of the head, the legs and the tail -- and its dither
-    // makes two identical captures differ in 5 to 8 thousand pixels. Over the
-    // coat's hundreds of thousands the MEAN barely moves between repeats, so
-    // the claim is on the mean, against the repeat's own mean difference.
+    // moves thousands of pixels whenever the samples differ. Every arm here is
+    // one held state drawn from the same renderer start, so the samples are
+    // the arms' own; the claim is still on the mean over the coat's hundreds
+    // of thousands of pixels, against the repeat's own mean difference.
     // =========================================================================
     TEST_F(DogShowcaseEvidenceTest, TheBodyShadowsItsOwnCoat)
     {
         SetPath(RenderingPath::Forward);
-        (void)PlayClip("Idle", true, 40);
-        auto& anim = m_Dog.Body.GetComponent<AnimationStateComponent>();
-        anim.m_IsPlaying = false; // one pose for every arm
         auto& coatShadow = m_Dog.Coat.GetComponent<GroomCoatShadowComponent>();
         struct Restore
         {
@@ -2791,22 +3909,23 @@ namespace OloEngine::Tests
         for (const View& view : views)
         {
             SCOPED_TRACE(view.Name);
+            // Every arm from ONE held state, Idle's frame 40 replayed per view;
+            // the bald arm LAST, because hiding the coat ends a run.
+            (void)StartClip("Idle", true, 40);
             std::vector<u8> fixed;
-            const u32 coatCount = CoatPixels(view, std::string("DogBodyShadow_GL_Forward_") + view.Name, "", &fixed);
-            std::vector<u8> bald;
-            m_Dog.Coat.GetComponent<GroomComponent>().m_RenderStrands = false;
-            ColdHistory();
-            Capture("", view, bald);
-            m_Dog.Coat.GetComponent<GroomComponent>().m_RenderStrands = true;
+            CaptureHeld(std::string("DogBodyShadow_GL_Forward_") + view.Name, view, fixed);
             std::vector<u8> repeat;
-            ColdHistory();
-            Capture("", view, repeat);
+            CaptureHeld("", view, repeat);
             Levers::SetFaultGroomShadowAtCoatExit(true);
             std::vector<u8> atExit;
-            ColdHistory();
-            Capture(std::string("DogBodyShadow_GL_Forward_") + view.Name + "AtCoatExit", view, atExit);
+            CaptureHeld(std::string("DogBodyShadow_GL_Forward_") + view.Name + "AtCoatExit", view, atExit);
             Levers::SetFaultGroomShadowAtCoatExit(false);
+            std::vector<u8> bald;
+            m_Dog.Coat.GetComponent<GroomComponent>().m_RenderStrands = false;
+            CaptureHeld("", view, bald);
+            m_Dog.Coat.GetComponent<GroomComponent>().m_RenderStrands = true;
             ASSERT_FALSE(HasFatalFailure());
+            const u32 coatCount = CountDiffering(fixed, bald);
 
             u32 darkened = 0;
             u32 brightened = 0;
@@ -2858,19 +3977,17 @@ namespace OloEngine::Tests
             auto& rim = m_Rim.GetComponent<DirectionalLightComponent>();
             const bool sunCasts = sun.m_CastShadows;
             sun.m_CastShadows = false;
+            (void)StartClip("Idle", true, 40);
             std::vector<u8> rimOpen;
-            std::vector<u8> bald;
-            m_Dog.Coat.GetComponent<GroomComponent>().m_RenderStrands = false;
-            ColdHistory();
-            Capture("", face, bald);
-            m_Dog.Coat.GetComponent<GroomComponent>().m_RenderStrands = true;
-            ColdHistory();
-            Capture("DogBodyShadow_GL_Forward_RimUnshadowed", face, rimOpen);
+            CaptureHeld("DogBodyShadow_GL_Forward_RimUnshadowed", face, rimOpen);
             rim.m_CastShadows = true;
             std::vector<u8> rimShadowed;
-            ColdHistory();
-            Capture("DogBodyShadow_GL_Forward_RimShadowed", face, rimShadowed);
+            CaptureHeld("DogBodyShadow_GL_Forward_RimShadowed", face, rimShadowed);
             rim.m_CastShadows = false;
+            std::vector<u8> bald;
+            m_Dog.Coat.GetComponent<GroomComponent>().m_RenderStrands = false;
+            CaptureHeld("", face, bald);
+            m_Dog.Coat.GetComponent<GroomComponent>().m_RenderStrands = true;
             sun.m_CastShadows = sunCasts;
             ASSERT_FALSE(HasFatalFailure());
             u32 coat = 0;
@@ -2894,7 +4011,6 @@ namespace OloEngine::Tests
                         coat > 0u ? shadowedSum / coat : 0.0);
             std::fflush(stdout);
         }
-        anim.m_IsPlaying = true;
     }
 
     // =========================================================================
@@ -2942,7 +4058,7 @@ namespace OloEngine::Tests
                             "Dog_Lighting.txt)";
         }
         SetPath(RenderingPath::Forward);
-        (void)PlayClip("Idle", true, 40);
+        (void)StartClip("Idle", true, 40);
         auto& anim = m_Dog.Body.GetComponent<AnimationStateComponent>();
         anim.m_IsPlaying = false; // one pose, one coat, for every arm
         auto& simulation = m_Dog.Coat.GetComponent<GroomSimulationComponent>();
@@ -3194,7 +4310,7 @@ namespace OloEngine::Tests
     TEST_F(DogShowcaseEvidenceTest, TheCoatCastsTheShareItsTexelsNeedWithoutChangingTheDog)
     {
         SetPath(RenderingPath::Forward);
-        (void)PlayClip("Idle", true, 40);
+        (void)StartClip("Idle", true, 40);
         auto& anim = m_Dog.Body.GetComponent<AnimationStateComponent>();
         anim.m_IsPlaying = false; // one pose for every arm
         auto& simulation = m_Dog.Coat.GetComponent<GroomSimulationComponent>();
@@ -3226,7 +4342,7 @@ namespace OloEngine::Tests
             std::vector<u8> bald;
             m_Dog.Coat.GetComponent<GroomComponent>().m_RenderStrands = false;
             ColdHistory();
-            Capture("", view, bald);
+            CaptureEditorPreview("", view, bald);
             m_Dog.Coat.GetComponent<GroomComponent>().m_RenderStrands = true;
 
             std::array<std::vector<u8>, 2> whole;
@@ -3237,11 +4353,11 @@ namespace OloEngine::Tests
             {
                 Levers::SetGroomShadowCasterFraction(1.0f);
                 ColdHistory();
-                Capture(repeat == 0u ? stem + "Whole" : std::string(), view, whole[repeat]);
+                CaptureEditorPreview(repeat == 0u ? stem + "Whole" : std::string(), view, whole[repeat]);
                 wholeStats = shadowStats();
                 Levers::SetGroomShadowCasterFraction(std::nullopt);
                 ColdHistory();
-                Capture(repeat == 0u ? stem + "Rule" : std::string(), view, rule[repeat]);
+                CaptureEditorPreview(repeat == 0u ? stem + "Rule" : std::string(), view, rule[repeat]);
                 ruleStats = shadowStats();
             }
             ASSERT_FALSE(HasFatalFailure());
@@ -3399,51 +4515,210 @@ namespace OloEngine::Tests
     }
 
     // =========================================================================
-    // B3 + C1: through every clip the coat stays bound, nothing is held at
-    // rest, and the coat's share of the frame holds steady.
+    // B3 + C1: the coat stays on the body through every clip (#1533 acceptance
+    // review, section 3). Each clip plays on RUNTIME frames -- the solver steps
+    // as in Play -- and at six instants the state is HELD and read from two
+    // views, the full body from the dog's left and the rear with the tail
+    // (MeasureAttachment): per body part, how much of its furred skin the coat
+    // covers, how steady that is through the clip, and how much of the coat
+    // stands off the skin past the part's reach (JudgeAttachment). The parts
+    // come from the posed body (BodyParts), so a sitting dog's hind legs are
+    // still its legs, and a sit's changed silhouette changes what is measured,
+    // not what it is measured against. The binding's own counters are read at
+    // every runtime frame. TheAttachmentCheckSeesALocalFailure proves the
+    // check catches a local failure a whole-frame count does not.
     // =========================================================================
     TEST_F(DogShowcaseEvidenceTest, TheCoatStaysOnTheBodyThroughEveryClip)
     {
         SetPath(RenderingPath::Forward);
+        BodyParts parts = BuildBodyParts();
+        std::printf("[dog] attach: reach per part (m):");
+        for (sizet p = 0; p < kBodyParts; ++p)
+        {
+            std::printf(" %s %.3f", kBodyPartNames[p], parts.Reach[p]);
+        }
+        std::printf("\n");
+        const std::vector<i32> coat{ static_cast<i32>(static_cast<u32>(m_Dog.Coat)) };
         struct ClipCase
         {
             const char* Name;
             bool Loop;
             f32 Seconds;
         };
-        const View view = HeroViews()[5];
+        const std::array<View, 2> views{ HeroViews()[5], HeroViews()[3] };
         for (const ClipCase& clip : { ClipCase{ "Idle", true, 4.0f }, ClipCase{ "HeadTilt", false, 2.5f },
                                       ClipCase{ "Sit", false, 3.0f }, ClipCase{ "Walk", true, 1.0f },
                                       ClipCase{ "Pant", true, 2.0f } })
         {
             SCOPED_TRACE(clip.Name);
-            (void)PlayClip(clip.Name, clip.Loop, 2u);
             constexpr u32 kSteps = 6;
             const u32 framesPerStep = std::max(1u, static_cast<u32>(clip.Seconds * 60.0f / kSteps));
-            std::vector<u32> coverage;
-            std::vector<std::vector<u8>> frames;
-            for (u32 step = 0; step < kSteps; ++step)
+            for (const View& view : views)
             {
-                const MotionResult motion = Play(framesPerStep);
-                EXPECT_EQ(motion.MinGroomsDeformed, 1u) << "step " << step;
-                EXPECT_EQ(motion.MaxBindingRefused, 0u) << "step " << step;
-                EXPECT_EQ(motion.MaxHeldAtRest, 0u) << "step " << step;
-                std::vector<u8> on;
-                const u32 coat = CoatPixels(view, "", "", &on);
+                SCOPED_TRACE(view.Name);
+                MotionResult motion;
+                std::vector<std::vector<u8>> frames;
+                std::vector<std::vector<u8>> maps;
+                const std::vector<FrameParts> steps = AttachmentThroughClip(parts, clip.Name, clip.Loop, kSteps, framesPerStep,
+                                                                            view, coat, &motion, &frames, &maps);
                 ASSERT_FALSE(HasFatalFailure());
-                coverage.push_back(coat);
-                frames.push_back(std::move(on));
+                EXPECT_EQ(motion.MinGroomsDeformed, 1u) << "the coat stopped following the body";
+                EXPECT_EQ(motion.MaxBindingRefused, 0u) << "the binding was refused mid-clip";
+                EXPECT_EQ(motion.MaxHeldAtRest, 0u) << "roots were held at rest";
+                EXPECT_EQ(motion.Reseeds, 0u) << "the solver re-seeded mid-clip";
+                const std::string what = std::string(clip.Name) + " " + view.Name;
+                for (sizet s = 0; s < steps.size(); ++s)
+                {
+                    ReportAttachment(what, s, steps[s]);
+                }
+                // A sit changes the silhouette itself, so its whole-frame band is wider.
+                for (const std::string& failure : JudgeAttachment(steps, what, std::string_view(clip.Name) == "Sit" ? 0.40 : 0.25))
+                {
+                    ADD_FAILURE() << failure;
+                }
+                WriteStrip(std::string("DogShowcaseClip_GL_Forward_") + clip.Name + "_" + view.Name, frames, 3u);
+                WriteStrip(std::string("DogParts_GL_Forward_") + clip.Name + "_" + view.Name, maps, 3u);
             }
-            const f64 mean = std::accumulate(coverage.begin(), coverage.end(), 0.0) / static_cast<f64>(coverage.size());
-            for (u32 step = 0; step < kSteps; ++step)
+        }
+    }
+
+    // =========================================================================
+    // The attachment check's negative controls (#1533 acceptance review,
+    // section 3). Three LOCAL failures planted on the real dog, each a few
+    // percent of the frame's coat. JudgeAttachment must name each in the part
+    // it was planted in, while the whole frame's coat pixels move by less than
+    // 25% -- the old whole-frame check's band, which all three would pass:
+    //   MISSING PATCH  the left ear's coat removed (a groom without it, its own
+    //                  cooked binding): the ear's skin shows.
+    //   DISPLACED      the head's short fur (skull and face regions) grown 8 cm
+    //                  off the skin, its points moved along the skin's normal
+    //                  before binding: it floats, and follows the head.
+    //   STALE          the hind legs' coat moved to a second entity bound to
+    //                  nothing, so it stays standing while the Sit clip folds
+    //                  the legs under the dog: the left hind leg's skin shows and
+    //                  its coat is left in the air.
+    // Each against the shipped coat at the SAME held instants of the same clip
+    // (StartClip replays it), where the check must not name that part.
+    //
+    // THE LIMIT: a stale coat is seen where the body moves away from it by more
+    // than the coat's own reach, or uncovers skin. Long loose hair -- the tail's
+    // plume, the ears' feathering -- reaches far (BuildBodyParts' per-part
+    // reach), so a plume left at rest while the tail wags stays within reach of
+    // the moving tail and shows only as a partial coverage loss (measured while
+    // this was developed: the tail's coverage fell from 0.92-0.96 to 0.75-0.90).
+    // =========================================================================
+    TEST_F(DogShowcaseEvidenceTest, TheAttachmentCheckSeesALocalFailure)
+    {
+        SetPath(RenderingPath::Forward);
+        BodyParts parts = BuildBodyParts();
+        const GroomAsset& shipped = *m_Dog.CoatAsset.Groom;
+        const MeshSource& surface = *m_Dog.Body.GetComponent<MeshComponent>().m_MeshSource;
+        std::vector<u32> bindTree;
+        BodyParts::BuildTree(parts.Bind, bindTree);
+        const auto rootNormal = [&](u32 curve)
+        {
+            f32 distance = 0.0f;
+            const u32 v = BodyParts::Nearest(parts.Bind, bindTree, shipped.GetPoints()[shipped.GetCurveFirstPoint(curve)], distance);
+            return v != ~0u ? glm::normalize(surface.GetVertices()[static_cast<i32>(v)].Normal) : glm::vec3(0.0f, 1.0f, 0.0f);
+        };
+        struct Plant
+        {
+            const char* Name;
+            const char* Clip;
+            bool Loop;
+            u32 FramesPerStep;
+            View Where;
+            BodyPart Part;
+        };
+        const std::array<Plant, 3> plants{ {
+            { "MissingPatch", "Idle", true, 30u, HeroViews()[5], BodyPart::EarLeft },
+            { "Displaced", "Idle", true, 30u, HeroViews()[5], BodyPart::Face },
+            { "Stale", "Sit", false, 40u, HeroViews()[5], BodyPart::LegHindLeft },
+        } };
+        constexpr u32 kSteps = 3;
+        for (const Plant& plant : plants)
+        {
+            SCOPED_TRACE(plant.Name);
+            const std::vector<i32> shippedIds{ static_cast<i32>(static_cast<u32>(m_Dog.Coat)) };
+            const std::vector<FrameParts> healthy =
+                AttachmentThroughClip(parts, plant.Clip, plant.Loop, kSteps, plant.FramesPerStep, plant.Where, shippedIds);
+            ASSERT_FALSE(HasFatalFailure());
+            const std::string healthyWhat = std::string(plant.Name) + " shipped";
+            const std::vector<std::string> healthyFailures = JudgeAttachment(healthy, healthyWhat);
+            EXPECT_FALSE(NamesPart(healthyFailures, plant.Part)) << "the shipped coat already fails here: the control is vacuous";
+
+            std::vector<i32> plantedIds = shippedIds;
+            Entity unbound; // the stale plant's second coat
+            if (std::string_view(plant.Name) == "MissingPatch")
             {
-                std::printf("[dog] %s step %u: coat %u px\n", clip.Name, step, coverage[step]);
-                // A sit changes the silhouette itself, so its bound is wider.
-                EXPECT_NEAR(static_cast<f64>(coverage[step]) / mean, 1.0, std::string_view(clip.Name) == "Sit" ? 0.40 : 0.25)
-                    << "step " << step << ": the coat's share of the frame jumped";
+                InstallCoat(m_Dog.Coat, CopyGroom(
+                                            shipped,
+                                            [&](u32 c)
+                                            {
+                                                const std::string region = RegionOfCurve(shipped, c);
+                                                return !(region.starts_with("ear") &&
+                                                         shipped.GetPoints()[shipped.GetCurveFirstPoint(c)].x > 0.0f);
+                                            },
+                                            [](u32, const glm::vec3& p) { return p; }));
+            }
+            else if (std::string_view(plant.Name) == "Displaced")
+            {
+                InstallCoat(m_Dog.Coat, CopyGroom(
+                                            shipped, [](u32) { return true; },
+                                            [&](u32 c, const glm::vec3& p)
+                                            {
+                                                const std::string region = RegionOfCurve(shipped, c);
+                                                return (region == "skull" || region == "face") ? p + (0.08f * rootNormal(c)) : p;
+                                            }));
+            }
+            else
+            {
+                // The hind legs' curves: those rooted on a hind leg's skin.
+                const auto isHindLeg = [&](u32 c)
+                {
+                    f32 distance = 0.0f;
+                    const u32 v = BodyParts::Nearest(parts.Bind, bindTree, shipped.GetPoints()[shipped.GetCurveFirstPoint(c)], distance);
+                    return v != ~0u && (parts.Part[v] == BodyPart::LegHindLeft || parts.Part[v] == BodyPart::LegHindRight);
+                };
+                InstallCoat(m_Dog.Coat, CopyGroom(shipped, [&](u32 c) { return !isHindLeg(c); },
+                                                  [](u32, const glm::vec3& p) { return p; }));
+                const Ref<GroomAsset> legGroom = CopyGroom(shipped, isHindLeg, [](u32, const glm::vec3& p) { return p; });
+                ASSERT_TRUE(legGroom);
+                unbound = MakeCoat("DogHindLegsUnbound", AssetManager::AddMemoryOnlyAsset<GroomAsset>(legGroom), AssetHandle(0),
+                                m_Dog.Body, m_Dog.ColorMap, legGroom->GetCurveCount());
+                unbound.GetComponent<GroomBindingComponent>().m_Enabled = false;
+                unbound.GetComponent<GroomSimulationComponent>().m_Enabled = false;
+                plantedIds.push_back(static_cast<i32>(static_cast<u32>(unbound)));
+            }
+            ASSERT_FALSE(HasFatalFailure());
+            const std::vector<FrameParts> planted =
+                AttachmentThroughClip(parts, plant.Clip, plant.Loop, kSteps, plant.FramesPerStep, plant.Where, plantedIds);
+            if (unbound)
+            {
+                GetScene().DestroyEntity(unbound);
+            }
+            RestoreShippedCoat();
+            ASSERT_FALSE(HasFatalFailure());
+
+            const std::string plantedWhat = std::string(plant.Name) + " planted";
+            const std::vector<std::string> plantedFailures = JudgeAttachment(planted, plantedWhat);
+            for (sizet s = 0; s < planted.size(); ++s)
+            {
+                ReportAttachment(healthyWhat, s, healthy[s]);
+                ReportAttachment(plantedWhat, s, planted[s]);
+                const f64 wholeFrame = healthy[s].CoatPixels > 0.0 ? planted[s].CoatPixels / healthy[s].CoatPixels : 0.0;
+                std::printf("[dog] attach %s step %zu: the whole frame's coat pixels moved by %+.1f%%\n", plant.Name, s,
+                            100.0 * (wholeFrame - 1.0));
+                EXPECT_NEAR(wholeFrame, 1.0, 0.25)
+                    << "step " << s << ": the plant moved the whole frame's coat past the old band; it is not a LOCAL fault";
+            }
+            for (const std::string& failure : plantedFailures)
+            {
+                std::printf("[dog] attach %s caught: %s\n", plant.Name, failure.c_str());
             }
             std::fflush(stdout);
-            WriteStrip(std::string("DogShowcaseClip_GL_Forward_") + clip.Name, frames, 3u);
+            EXPECT_TRUE(NamesPart(plantedFailures, plant.Part))
+                << "the attachment check missed a planted " << plant.Name << " in the " << kBodyPartNames[static_cast<sizet>(plant.Part)];
         }
     }
 
@@ -3560,22 +4835,23 @@ namespace OloEngine::Tests
         // The scene draws the PACK-LOADED pair on the moving dog, at the same
         // frame of the same clip as the fixture's own pair.
         SetPath(RenderingPath::Forward);
-        (void)PlayClip("Idle", true, 8u);
-        const u32 drawnBefore = CoatPixels(HeroViews()[0], "", "");
+        (void)StartClip("Idle", true, 8u);
+        const u32 drawnBefore = CoatVisibleChange(HeroViews()[0], "", "");
         ASSERT_FALSE(HasFatalFailure());
         m_Dog.Coat.GetComponent<GroomComponent>().m_Groom = AssetManager::AddMemoryOnlyAsset<GroomAsset>(packedGroom);
         m_Dog.Coat.GetComponent<GroomBindingComponent>().m_Binding =
             AssetManager::AddMemoryOnlyAsset<GroomBindingAsset>(packedBinding);
-        const MotionResult motion = PlayClip("Idle", true, 8u);
+        const MotionResult motion = StartClip("Idle", true, 8u);
         EXPECT_EQ(motion.Last.GroomsDrawn, 1u);
         EXPECT_EQ(motion.MinGroomsDeformed, 1u) << "the packed binding attaches to the live body";
         EXPECT_EQ(motion.MaxBindingRefused, 0u);
-        const u32 drawnPacked = CoatPixels(HeroViews()[0], "DogShowcasePacked_GL_Forward_FrontThreeQuarter", "");
+        const u32 drawnPacked = CoatVisibleChange(HeroViews()[0], "DogShowcasePacked_GL_Forward_FrontThreeQuarter", "");
         ASSERT_FALSE(HasFatalFailure());
-        std::printf("[dog] packed: groom %zu bytes, binding %zu bytes; coat %u px (fixture's own %u px)\n",
+        std::printf("[dog] packed: groom %zu bytes, binding %zu bytes; the coat changes %u px (the fixture's own pair %u px)\n",
                     groomBytes.size(), bindingBytes.size(), drawnPacked, drawnBefore);
         std::fflush(stdout);
         EXPECT_NEAR(static_cast<f64>(drawnPacked) / std::max(1.0, static_cast<f64>(drawnBefore)), 1.0, 0.1)
             << "the packed pair draws the coat the fixture's own pair draws";
     }
+
 } // namespace OloEngine::Tests
