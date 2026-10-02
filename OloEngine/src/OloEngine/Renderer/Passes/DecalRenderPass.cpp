@@ -32,14 +32,17 @@ namespace OloEngine
         if (!HasSubmittedCommands())
             return;
 
-        const bool hasProjectionDepth = board.Scene.SceneDepth.IsValid();
+        // The SNAPSHOT: decals draw into SceneColor, whose depth SceneDepth is
+        // on the forward paths, so sampling SceneDepth would be a feedback loop
+        // (issue #1332). On Deferred the snapshot is the G-Buffer's depth.
+        const bool hasProjectionDepth = board.Scene.SceneDepthSnapshot.IsValid();
         const bool writesOIT = m_OITEnabled && (board.OIT.OITAccum.IsValid() || board.OIT.OITRevealage.IsValid());
         const bool writesSceneColor = !m_OITEnabled && board.Scene.SceneColor.IsValid();
 
         if (hasProjectionDepth && (writesOIT || writesSceneColor))
         {
-            m_SelectedSceneDepthTexture = board.Scene.SceneDepth;
-            [[maybe_unused]] const auto sceneDepthRead = builder.Read(board.Scene.SceneDepth, RGReadUsage::ShaderSample);
+            m_SelectedSceneDepthTexture = board.Scene.SceneDepthSnapshot;
+            [[maybe_unused]] const auto sceneDepthRead = builder.Read(board.Scene.SceneDepthSnapshot, RGReadUsage::ShaderSample);
         }
 
         if (m_OITEnabled)

@@ -3418,25 +3418,43 @@ namespace OloEngine
 
             if (sceneSpec.Width > 0u && sceneSpec.Height > 0u && !deferredActive)
             {
+                // GRAPH-OWNED ATTACHMENT VIEWS (issue #1332). These were transient
+                // textures ScenePass filled by copying its attachments, and every
+                // later geometry writer had to copy again; one that drew without
+                // copying (groom, the GPU-driven batches' velocity, water's) left
+                // its consumers a version from before it. As views of SceneColor,
+                // a write to the framebuffer is a write to them: a reader sees
+                // every write the graph ordered before it, and nothing is copied.
+                board.Scene.SceneDepth = graph.CreateFramebufferDepthAttachmentView(ResourceNames::SceneDepth, board.Scene.SceneColor);
+                board.Scene.SceneNormals = graph.CreateFramebufferAttachmentView(ResourceNames::SceneNormals, board.Scene.SceneColor, 2u);
+                // The PBR shader writes RT2 in VIEW space — unlike the deferred
+                // G-Buffer's world-space normal. Flag it so AO doesn't transform
+                // it a second time.
+                board.Scene.SceneNormalsAreViewSpace = true;
+
+                // The ONE copy of the depth the forward paths keep: decals and
+                // water sample depth while drawing into SceneColor, which a view
+                // cannot serve (SceneAttachmentSnapshotPass).
                 RGResourceDesc depthDesc;
                 depthDesc.Kind = RGResourceHandle::Kind::Texture2D;
                 depthDesc.Format = RGResourceFormat::Depth24Stencil8;
                 depthDesc.Width = sceneSpec.Width;
                 depthDesc.Height = sceneSpec.Height;
-                depthDesc.DebugName = ResourceNames::SceneDepth;
-                board.Scene.SceneDepth = graph.AllocateTransientTextureHandle(ResourceNames::SceneDepth, depthDesc);
+                depthDesc.DebugName = ResourceNames::SceneDepthSnapshot;
+                board.Scene.SceneDepthSnapshot = graph.AllocateTransientTextureHandle(ResourceNames::SceneDepthSnapshot, depthDesc);
+            }
 
+            // Water also marches the view normals it writes: a copy on every path.
+            if (sceneSpec.Width > 0u && sceneSpec.Height > 0u && board.Scene.SceneViewNormals.IsValid())
+            {
                 RGResourceDesc normalsDesc;
                 normalsDesc.Kind = RGResourceHandle::Kind::Texture2D;
                 normalsDesc.Format = RGResourceFormat::RG16Float;
                 normalsDesc.Width = sceneSpec.Width;
                 normalsDesc.Height = sceneSpec.Height;
-                normalsDesc.DebugName = ResourceNames::SceneNormals;
-                board.Scene.SceneNormals = graph.AllocateTransientTextureHandle(ResourceNames::SceneNormals, normalsDesc);
-                // Forward fills this from the scene FB's RT2, which the PBR shader
-                // writes in VIEW space — unlike the deferred G-Buffer's world-space
-                // normal. Flag it so AO doesn't transform it a second time.
-                board.Scene.SceneNormalsAreViewSpace = true;
+                normalsDesc.DebugName = ResourceNames::SceneViewNormalsSnapshot;
+                board.Scene.SceneViewNormalsSnapshot =
+                    graph.AllocateTransientTextureHandle(ResourceNames::SceneViewNormalsSnapshot, normalsDesc);
             }
         }
 
@@ -3578,25 +3596,19 @@ namespace OloEngine
                 board.GBuffer.Velocity = graph.CreateFramebufferAttachmentView(ResourceNames::Velocity, resolvedGBuffer, 3u);
                 board.GBuffer.GBufferBakedGI = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferBakedGI, resolvedGBuffer, 5u);
             }
+
+            // The decal and water passes draw into SceneColor, not the G-Buffer,
+            // so they sample the G-Buffer's depth directly: no copy (#1332). The
+            // name answers too, for by-name lookups (the MCP captures).
+            board.Scene.SceneDepthSnapshot = board.Scene.SceneDepth;
+            graph.RegisterTextureAlias(ResourceNames::SceneDepthSnapshot, ResourceNames::SceneDepth);
         }
 
         // ------------------------------------------------------------------
-        // Velocity buffer
+        // Velocity buffer: SceneColor RT3 on the forward paths (issue #1332)
         // ------------------------------------------------------------------
-        if (!deferredActive && pipeline.FrameCorePasses.Scene)
-        {
-            const auto& sceneSpec = pipeline.FrameCorePasses.Scene->GetFramebufferSpecification();
-            if (sceneSpec.Width > 0u && sceneSpec.Height > 0u)
-            {
-                RGResourceDesc velocityDesc;
-                velocityDesc.Kind = RGResourceHandle::Kind::Texture2D;
-                velocityDesc.Format = RGResourceFormat::RGBA16Float;
-                velocityDesc.Width = sceneSpec.Width;
-                velocityDesc.Height = sceneSpec.Height;
-                velocityDesc.DebugName = ResourceNames::Velocity;
-                board.GBuffer.Velocity = graph.AllocateTransientTextureHandle(ResourceNames::Velocity, velocityDesc);
-            }
-        }
+        if (!deferredActive && board.Scene.SceneColor.IsValid())
+            board.GBuffer.Velocity = graph.CreateFramebufferAttachmentView(ResourceNames::Velocity, board.Scene.SceneColor, 3u);
 
         // ------------------------------------------------------------------
         // AO buffer
@@ -5766,6 +5778,8 @@ namespace OloEngine
         inputs.Passes.ScenePrepass = FrameCorePasses.ScenePrepass.Raw();
         inputs.Passes.GPUOcclusionPrepass = FrameCorePasses.GPUOcclusionPrepass.Raw();
         inputs.Passes.FoliagePrepass = FrameCorePasses.FoliagePrepass.Raw();
+        inputs.Passes.SceneDepthSnapshot = FrameCorePasses.SceneDepthSnapshot.Raw();
+        inputs.Passes.SceneViewNormalsSnapshot = FrameCorePasses.SceneViewNormalsSnapshot.Raw();
         inputs.Passes.Shadow = FrameCorePasses.Shadow.Raw();
         inputs.Passes.DDGIProbeUpdate = FrameCorePasses.DDGIProbeUpdate.Raw();
         inputs.Passes.VirtualShadowMapMark = FrameCorePasses.VirtualShadowMapMark.Raw();
@@ -5877,6 +5891,12 @@ namespace OloEngine
         // Forward prepass as its own node (issue #1452): renders the Scene
         // pass's bucket into the Scene pass's target, so it owns neither.
         FrameCorePasses.ScenePrepass = Ref<ScenePrepassRenderPass>::Create(FrameCorePasses.Scene.Raw());
+        // The explicit attachment copies for the passes that sample one while
+        // drawing into SceneColor (issue #1332). Sized by the Scene pass's spec.
+        FrameCorePasses.SceneDepthSnapshot =
+            Ref<SceneAttachmentSnapshotPass>::Create(FrameCorePasses.Scene.Raw(), SceneAttachmentSnapshotPass::Attachment::Depth);
+        FrameCorePasses.SceneViewNormalsSnapshot =
+            Ref<SceneAttachmentSnapshotPass>::Create(FrameCorePasses.Scene.Raw(), SceneAttachmentSnapshotPass::Attachment::ViewNormals);
 
         // Realtime DDGI probe update (#632) — path-agnostic, self-disables
         // when no Realtime/Hybrid volume is submitted for the frame. All its

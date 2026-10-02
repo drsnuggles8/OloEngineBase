@@ -167,7 +167,17 @@ namespace OloEngine
     void GBuffer::Resolve()
     {
         OLO_PROFILE_FUNCTION();
+        ResolveAttachments(true);
+    }
 
+    void GBuffer::ResolveColorOnly()
+    {
+        OLO_PROFILE_FUNCTION();
+        ResolveAttachments(false);
+    }
+
+    void GBuffer::ResolveAttachments(const bool includeDepth)
+    {
         if (m_SampleCount <= 1 || !m_Framebuffer || !m_ResolvedFramebuffer)
             return;
 
@@ -190,10 +200,13 @@ namespace OloEngine
         }
 
         // Resolve depth (no sample filtering — GL_NEAREST is the only legal choice).
-        RenderCommand::BlitFramebuffer(srcFB, dstFB,
-                                       0, 0, w, h,
-                                       0, 0, w, h,
-                                       RHI::BlitAspect::Depth, RHI::Filter::Nearest);
+        if (includeDepth)
+        {
+            RenderCommand::BlitFramebuffer(srcFB, dstFB,
+                                           0, 0, w, h,
+                                           0, 0, w, h,
+                                           RHI::BlitAspect::Depth, RHI::Filter::Nearest);
+        }
 
         // RT2's alpha is a BITFIELD, and the blit above just averaged it
         // (issue #996). Put back the one channel averaging cannot express.

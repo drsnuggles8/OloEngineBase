@@ -13,9 +13,10 @@ namespace OloEngine
     // to apply it there, the AO buffer has to exist before forward colour runs
     // — so the prepass that fills depth and the view normals the AO passes read
     // runs first, as this node, then SSAO / GTAO / the sphere proxies, then
-    // ScenePass's colour sub-pass. The depth and normals it exports are what the
-    // AO nodes registered after it read; ScenePass exports both again after
-    // colour for the consumers that come later (water, SSR, the overlays).
+    // ScenePass's colour sub-pass. The AO nodes registered after it read the
+    // depth and normals it wrote through SceneDepth / SceneNormals, which are
+    // views of the scene target (issue #1332): nothing is exported or copied
+    // except the AO upsample's ForwardAODepth.
     //
     // It owns no bucket and no framebuffer: the geometry is ScenePass's bucket,
     // rendered into ScenePass's target, through SceneRenderPass's own entry

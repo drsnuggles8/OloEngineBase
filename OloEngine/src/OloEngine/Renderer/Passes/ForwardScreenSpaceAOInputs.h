@@ -1,7 +1,10 @@
 #pragma once
 
 #include "OloEngine/Renderer/FrameBlackboard.h"
+#include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/RGBuilder.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RenderingPath.h"
 
 namespace OloEngine
@@ -25,15 +28,15 @@ namespace OloEngine
 
     // What a forward geometry pass's SHARE of the depth-normal prepass writes
     // (issue #1452's GPU-driven share, #1474's foliage share): it draws into
-    // the scene target after ScenePrepassPass and re-exports the depth, the
-    // view normals and the AO depth copy, so the AO passes registered after it
-    // read versions that include its geometry. Declares nothing, and returns
-    // false, without a forward AO buffer — the one consumer the share exists
-    // for — so that frame draws exactly as it did before the share existed.
+    // the scene target after ScenePrepassPass and copies the AO depth again, so
+    // the forward shaders' AO upsample includes its geometry. SceneDepth and
+    // SceneNormals need no copy: they are views of the scene target (#1332),
+    // so the AO passes registered after the share read its draws already.
+    // Declares nothing, and returns false, without a forward AO buffer — the
+    // one consumer the share exists for — so that frame draws exactly as it
+    // did before the share existed.
     struct ForwardPrepassShareExports
     {
-        RGTextureHandle SceneDepth;
-        RGTextureHandle SceneNormals;
         RGTextureHandle ForwardAODepth;
     };
 
@@ -49,18 +52,28 @@ namespace OloEngine
         builder.DependsOnPass("ScenePrepassPass");
         if (board.Scene.SceneColor.IsValid())
             builder.Write(board.Scene.SceneColor, RGWriteUsage::RenderTarget);
-        if (board.Scene.SceneDepth.IsValid())
-        {
-            out.SceneDepth = board.Scene.SceneDepth;
-            builder.Write(board.Scene.SceneDepth, RGWriteUsage::TransferDest);
-        }
-        if (board.Scene.SceneNormals.IsValid())
-        {
-            out.SceneNormals = board.Scene.SceneNormals;
-            builder.Write(board.Scene.SceneNormals, RGWriteUsage::TransferDest);
-        }
         out.ForwardAODepth = board.Scene.ForwardAODepth;
         builder.Write(board.Scene.ForwardAODepth, RGWriteUsage::TransferDest);
         return true;
+    }
+
+    // The one copy the forward prepass writers keep (#1332): the scene target's
+    // depth into ForwardAODepth, which every forward shader samples for the AO
+    // upsample while depth-testing against the live attachment, so it cannot be
+    // a view. Identities throughout (issue #691): the destination is a graph
+    // transient and the self-copy guard compares OBJECTS.
+    inline void CopyDepthIntoForwardAODepth(const RGCommandContext& context, const Ref<Framebuffer>& sceneTarget,
+                                            const RGTextureHandle forwardAODepth)
+    {
+        if (!forwardAODepth.IsValid() || !sceneTarget)
+            return;
+        const auto& spec = sceneTarget->GetSpecification();
+        const RHI::ResourceHandle source = sceneTarget->GetDepthAttachmentHandle();
+        const RHI::ResourceHandle destination = context.ResolveTextureHandle(forwardAODepth);
+        if (spec.Width == 0u || spec.Height == 0u || !source.IsValid() || !destination.IsValid() || destination == source)
+            return;
+        RenderCommand::CopyImageSubData(source, RendererAPI::TextureTargetType::Texture2D,
+                                        destination, RendererAPI::TextureTargetType::Texture2D,
+                                        spec.Width, spec.Height);
     }
 } // namespace OloEngine

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include <functional>
@@ -33,10 +34,12 @@ namespace OloEngine
 
         // Setup() declares nothing without a render callback, which only a Scene
         // frame sets: a renderer-only frame would otherwise cache a culled node.
+        // The depth read follows whether the last frame's callback asked for it.
         void AppendDeclarationInputs(RGDeclarationKey& key) const override
         {
             key.Add(HasRenderCallback());
             key.Add(m_OITEnabled);
+            key.Add(m_SceneDepthWanted);
         }
         void Init(const FramebufferSpecification& spec) override;
         void Execute(RGCommandContext& context) override;
@@ -60,10 +63,26 @@ namespace OloEngine
             m_OITEnabled = enabled;
         }
 
+        // The depth the soft-particle fade samples, asked for by the render
+        // callback while it draws. Particles draw into SceneColor, whose depth
+        // SceneDepth is on the forward paths (#1332), so this is the depth
+        // SNAPSHOT, and only on a frame whose Setup declared the read. Setup
+        // declares it after a frame that asked, so the snapshot is made only
+        // while a soft system draws; one turning soft fades in a frame late.
+        [[nodiscard]] RHI::ResourceHandle AcquireSceneDepth() noexcept
+        {
+            m_SceneDepthAsked = true;
+            return m_SceneDepthID;
+        }
+
       private:
         Ref<Framebuffer> m_SceneFramebuffer;
         RGFramebufferHandle m_SelectedOITFramebuffer;
+        RGTextureHandle m_SelectedSceneDepth;
+        RHI::ResourceHandle m_SceneDepthID = RHI::NullResource;
         RenderCallback m_RenderCallback;
         bool m_OITEnabled = false;
+        bool m_SceneDepthWanted = false;
+        bool m_SceneDepthAsked = false;
     };
 } // namespace OloEngine

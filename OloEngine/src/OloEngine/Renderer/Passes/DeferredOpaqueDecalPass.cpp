@@ -26,11 +26,6 @@ namespace OloEngine
         m_SelectedGBufferAlbedoExport = {};
         m_SelectedGBufferNormalExport = {};
         m_SelectedGBufferEmissiveExport = {};
-        m_SelectedGBufferAlbedoMSExport = {};
-        m_SelectedGBufferNormalMSExport = {};
-        m_SelectedGBufferEmissiveMSExport = {};
-        m_SelectedVelocityMSExport = {};
-        m_SelectedSceneDepthMSExport = {};
 
         if (!m_GBuffer)
             return;
@@ -96,33 +91,18 @@ namespace OloEngine
         }
 
         if (blackboard.GBuffer.GBufferAlbedoMS.IsValid())
-        {
-            m_SelectedGBufferAlbedoMSExport = blackboard.GBuffer.GBufferAlbedoMS;
             builder.Write(blackboard.GBuffer.GBufferAlbedoMS, RGWriteUsage::TransferDest);
-        }
         if (blackboard.GBuffer.GBufferNormalMS.IsValid())
-        {
-            m_SelectedGBufferNormalMSExport = blackboard.GBuffer.GBufferNormalMS;
             builder.Write(blackboard.GBuffer.GBufferNormalMS, RGWriteUsage::TransferDest);
-        }
         if (blackboard.GBuffer.GBufferEmissiveMS.IsValid())
-        {
-            m_SelectedGBufferEmissiveMSExport = blackboard.GBuffer.GBufferEmissiveMS;
             builder.Write(blackboard.GBuffer.GBufferEmissiveMS, RGWriteUsage::TransferDest);
-        }
         if (blackboard.GBuffer.VelocityMS.IsValid())
-        {
-            m_SelectedVelocityMSExport = blackboard.GBuffer.VelocityMS;
             builder.Write(blackboard.GBuffer.VelocityMS, RGWriteUsage::TransferDest);
-        }
         if (blackboard.GBuffer.SceneDepthMS.IsValid())
-        {
-            m_SelectedSceneDepthMSExport = blackboard.GBuffer.SceneDepthMS;
             builder.Write(blackboard.GBuffer.SceneDepthMS, RGWriteUsage::TransferDest);
-        }
     }
 
-    void DeferredOpaqueDecalPass::Execute(RGCommandContext& context)
+    void DeferredOpaqueDecalPass::Execute(RGCommandContext& /*context*/)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -149,74 +129,14 @@ namespace OloEngine
             // No additional handling required.
         }
 
-        const bool anySingleSampleExportRequested = m_SelectedSceneNormalsExport.IsValid() ||
-                                                    m_SelectedGBufferAlbedoExport.IsValid() ||
-                                                    m_SelectedGBufferNormalExport.IsValid() ||
-                                                    m_SelectedGBufferEmissiveExport.IsValid();
-        const bool anyMultisampleExportRequested = m_SelectedGBufferAlbedoMSExport.IsValid() ||
-                                                   m_SelectedGBufferNormalMSExport.IsValid() ||
-                                                   m_SelectedGBufferEmissiveMSExport.IsValid() ||
-                                                   m_SelectedVelocityMSExport.IsValid() ||
-                                                   m_SelectedSceneDepthMSExport.IsValid();
-        if (!anySingleSampleExportRequested && !anyMultisampleExportRequested)
-            return;
-
-        if (anySingleSampleExportRequested && hasDecalWork && m_PerSampleLighting && m_GBuffer->GetSampleCount() > 1u)
-        {
+        // Decals drawn into the multisample G-Buffer (per-sample lighting) are
+        // resolved so the single-sample views the AO / lighting / SSR readers
+        // sample carry them. Nothing is copied: the G-Buffer exports are views
+        // of these attachments, and the re-export this pass used to run
+        // compared each view with its own attachment and never copied a texel
+        // (#1332's copy ledger).
+        if (hasDecalWork && m_PerSampleLighting && m_GBuffer->GetSampleCount() > 1u)
             m_GBuffer->Resolve();
-        }
-
-        const auto copyGBufferExport = [this, &context](const RGTextureHandle handle, const RHI::ResourceHandle sourceTextureID)
-        {
-            if (!handle.IsValid() || !sourceTextureID.IsValid())
-                return;
-
-            const RHI::ResourceHandle exportedTextureID = context.ResolveTextureHandle(handle);
-            if (!exportedTextureID.IsValid() || exportedTextureID == sourceTextureID)
-                return;
-
-            RenderCommand::CopyImageSubData(sourceTextureID, RendererAPI::TextureTargetType::Texture2D,
-                                            exportedTextureID, RendererAPI::TextureTargetType::Texture2D,
-                                            m_GBuffer->GetWidth(), m_GBuffer->GetHeight());
-        };
-
-        const auto copyMultisampleGBufferExport = [this, &context](const RGTextureHandle handle, const RHI::ResourceHandle sourceTextureID)
-        {
-            if (!handle.IsValid() || !sourceTextureID.IsValid())
-                return;
-
-            const RHI::ResourceHandle exportedTextureID = context.ResolveTextureHandle(handle);
-            if (!exportedTextureID.IsValid() || exportedTextureID == sourceTextureID)
-                return;
-
-            RenderCommand::CopyImageSubData(sourceTextureID, RendererAPI::TextureTargetType::Texture2DMultisample,
-                                            exportedTextureID, RendererAPI::TextureTargetType::Texture2DMultisample,
-                                            m_GBuffer->GetWidth(), m_GBuffer->GetHeight());
-        };
-
-        const RHI::ResourceHandle albedoID = m_GBuffer->GetColorAttachmentHandle(GBuffer::Albedo);
-        const RHI::ResourceHandle normalID = m_GBuffer->GetColorAttachmentHandle(GBuffer::Normal);
-        const RHI::ResourceHandle emissiveID = m_GBuffer->GetColorAttachmentHandle(GBuffer::Emissive);
-
-        const RHI::ResourceHandle albedoMSID = m_GBuffer->GetMSColorAttachmentHandle(GBuffer::Albedo);
-        const RHI::ResourceHandle normalMSID = m_GBuffer->GetMSColorAttachmentHandle(GBuffer::Normal);
-        const RHI::ResourceHandle emissiveMSID = m_GBuffer->GetMSColorAttachmentHandle(GBuffer::Emissive);
-        const RHI::ResourceHandle velocityMSID = m_GBuffer->GetMSColorAttachmentHandle(GBuffer::Velocity);
-        const RHI::ResourceHandle depthMSID = m_GBuffer->GetMSDepthAttachmentHandle();
-
-        copyGBufferExport(m_SelectedSceneNormalsExport, normalID);
-        copyGBufferExport(m_SelectedGBufferAlbedoExport, albedoID);
-        copyGBufferExport(m_SelectedGBufferNormalExport, normalID);
-        copyGBufferExport(m_SelectedGBufferEmissiveExport, emissiveID);
-
-        if (m_GBuffer->GetSampleCount() > 1u)
-        {
-            copyMultisampleGBufferExport(m_SelectedGBufferAlbedoMSExport, albedoMSID);
-            copyMultisampleGBufferExport(m_SelectedGBufferNormalMSExport, normalMSID);
-            copyMultisampleGBufferExport(m_SelectedGBufferEmissiveMSExport, emissiveMSID);
-            copyMultisampleGBufferExport(m_SelectedVelocityMSExport, velocityMSID);
-            copyMultisampleGBufferExport(m_SelectedSceneDepthMSExport, depthMSID);
-        }
     }
 
     Ref<Framebuffer> DeferredOpaqueDecalPass::GetTarget() const

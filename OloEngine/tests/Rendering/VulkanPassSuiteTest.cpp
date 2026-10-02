@@ -25,6 +25,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/DebugLevers.h"
+#include "OloEngine/Renderer/Debug/RenderTargetCopyLedger.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 
 #include <gtest/gtest.h>
@@ -9803,14 +9804,12 @@ TEST_F(VulkanPassSuite, DecalGBufferModeMatrixMasksItsTargetRenderTargets)
 // DeferredOpaqueDecal (#691, second half): the graph node that
 // owns the drain and the G-Buffer EXPORTS.
 //
-// The node declares TransferDest writes on the blackboard's G-Buffer texture
-// slots, drains the opaque decals into the G-Buffer, then CopyImageSubData's
-// the attachments into those exported textures — which is how downstream
-// passes read the G-Buffer without importing the pass's own attachments. This
-// tenant runs the UNMODIFIED node in the real graph and pins the EXPORT half:
-// a seeded export target must come back carrying the G-Buffer's content, which
-// only happens if Setup declared the slot, Execute resolved it, and the copy
-// ran with the right extents.
+// The node declares writes on the blackboard's G-Buffer slots and drains the
+// opaque decals into the G-Buffer. The slots are attachment VIEWS of the
+// G-Buffer framebuffer, so that write is the export: downstream passes read
+// the attachments themselves and nothing is copied (#1332). This tenant runs
+// the UNMODIFIED node in the real graph and pins the EXPORT half: the views
+// resolve to the G-Buffer's own attachments and the frame issues no copy.
 //
 // The DRAIN half is pinned by the ExecuteOnGBuffer tenant above and cannot be
 // re-pinned here at ONE sample: in that configuration the node hands
@@ -9826,12 +9825,21 @@ TEST_F(VulkanPassSuite, DecalGBufferModeMatrixMasksItsTargetRenderTargets)
 //
 // The multisample arm (GetSampleCount() > 1 + PerSampleLighting — which is
 // also the configuration that would give the drain a separate depth
-// framebuffer — needs multisample VulkanTexture2D attachments, the MS
-// CopyImageSubData pair and GBuffer::Resolve, none of which this backend has
-// yet. Reported, not worked around.
+// framebuffer — needs multisample VulkanTexture2D attachments and
+// GBuffer::Resolve, which this backend does not have yet. Reported, not
+// worked around.
 // =============================================================================
 TEST_F(VulkanPassSuite, DeferredOpaqueDecalExportsTheGBufferThroughTheGraph)
 {
+    // The G-Buffer exports are attachment VIEWS of the G-Buffer framebuffer
+    // (RenderPipeline::PopulateBlackboard), so the node's export is a declared
+    // write on those views and nothing is copied: its consumers read the very
+    // attachments its decals draw into. Before #1332 this tenant handed the
+    // node two separate imported textures and pinned the copy into them, a
+    // configuration the real pipeline never builds (the copy ledger shows the
+    // node never copied a texel in a real frame). What stays pinned on Vulkan:
+    // the node runs inside a graph frame without a dropped draw or a stub, its
+    // views resolve to the G-Buffer's own attachments, and no copy is issued.
     constexpr u32 kSize = 128;
     VulkanFrameArena::Get().BeginFrame(0);
 
@@ -9841,35 +9849,6 @@ TEST_F(VulkanPassSuite, DeferredOpaqueDecalExportsTheGBufferThroughTheGraph)
     auto gbuffer = GBuffer::Create(kSize, kSize, 1);
     ASSERT_TRUE(gbuffer);
     Ref<Framebuffer> gbufferFB = gbuffer->GetSamplingFramebuffer();
-
-    // Export targets: caller-owned textures imported under the blackboard names
-    // the node writes, so they survive the frame for readback. Each is seeded
-    // with a value the copy has to overwrite — an untouched target and a
-    // correctly copied one must not be able to look the same.
-    const auto makeSeededExport = [&](ImageFormat format, u32 bytesPerPixel, u8 seedValue)
-    {
-        TextureSpecification exportSpec;
-        exportSpec.Width = kSize;
-        exportSpec.Height = kSize;
-        exportSpec.Format = format;
-        exportSpec.GenerateMips = false;
-        auto texture = Texture2D::Create(exportSpec);
-        if (texture)
-        {
-            TArray64<u8> seed(static_cast<sizet>(kSize) * kSize * bytesPerPixel, seedValue);
-            texture->SetData(seed.GetData(), static_cast<u32>(seed.Num()));
-        }
-        return texture;
-    };
-    // Each export target must be TEXEL-SIZE COMPATIBLE with the G-Buffer
-    // attachment it copies from (VUID-vkCmdCopyImage-srcImage-01548): albedo
-    // is RGBA8 (RT0), normals are RGBA16F (RT1). A copy is not a conversion.
-    // The 16F seed ships 16 bytes/texel — the facade's f32-per-channel client
-    // contract (the backend converts to halves); the seed's exact value is
-    // irrelevant, it only has to differ from the copied G-Buffer content.
-    auto exportedAlbedo = makeSeededExport(ImageFormat::RGBA8, 4u, 17u);
-    auto exportedNormals = makeSeededExport(ImageFormat::RGBA16F, 16u, 19u);
-    ASSERT_TRUE(exportedAlbedo && exportedNormals);
 
     auto decalPass = Ref<DecalRenderPass>::Create();
     decalPass->SetupFramebuffer(kSize, kSize);
@@ -9883,42 +9862,34 @@ TEST_F(VulkanPassSuite, DeferredOpaqueDecalExportsTheGBufferThroughTheGraph)
     graph.SetTransientMaterializationEnabled(true);
     auto& blackboard = graph.GetBlackboard();
 
-    RGResourceDesc importDesc;
-    importDesc.Kind = RGResourceHandle::Kind::Texture2D;
-    importDesc.Format = RGResourceFormat::RGBA8UNorm;
-    importDesc.Width = kSize;
-    importDesc.Height = kSize;
-    blackboard.GBuffer.GBufferAlbedo =
-        graph.ImportTextureHandle(ResourceNames::GBufferAlbedo, exportedAlbedo->GetRHIHandle(), importDesc);
-    // SceneNormals copies the G-Buffer NORMAL attachment (RGBA16F) — the
-    // node's second, independently-declared export slot.
-    RGResourceDesc normalDesc = importDesc;
-    normalDesc.Format = RGResourceFormat::RGBA16Float;
-    blackboard.Scene.SceneNormals =
-        graph.ImportTextureHandle(ResourceNames::SceneNormals, exportedNormals->GetRHIHandle(), normalDesc);
+    // GBuffer::AttachmentIndex order, as PopulateBlackboard declares it.
+    RGResourceDesc gbufferDesc;
+    gbufferDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+    gbufferDesc.Width = kSize;
+    gbufferDesc.Height = kSize;
+    gbufferDesc.Attachments = { RGResourceFormat::RGBA8UNorm, RGResourceFormat::RGBA16Float, RGResourceFormat::RGBA16Float,
+                                RGResourceFormat::RGBA16Float, RGResourceFormat::R32Int, RGResourceFormat::RGBA16Float,
+                                RGResourceFormat::Depth24Stencil8 };
+    const auto resolved = graph.ImportFramebuffer(ResourceNames::GBufferResolved, gbufferFB, gbufferDesc);
+    blackboard.GBuffer.GBufferAlbedo = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferAlbedo, resolved, 0u);
+    blackboard.Scene.SceneNormals = graph.CreateFramebufferAttachmentView(ResourceNames::SceneNormals, resolved, 1u);
+    ASSERT_TRUE(blackboard.GBuffer.GBufferAlbedo.IsValid() && blackboard.Scene.SceneNormals.IsValid());
 
     graph.AddNode(opaqueDecalPass);
     graph.SetFinalPass("DeferredOpaqueDecalPass");
     graph.BuildFrameGraph();
 
+    // The serial is process-wide: an earlier test's frame would satisfy "> 0".
+    const u64 serialBefore = RenderTargetCopyLedger::GetLastFrame().Serial;
+    const bool ledgerWas = Levers::RenderGraphCopyLedger();
+    Levers::SetRenderGraphCopyLedger(true);
     SubmitFrame(
         [&]()
         {
-            // Authored G-Buffer content the exports must carry: albedo 0.25 on
-            // every channel (-> 64) and entity id 7.
             gbufferFB->ClearAllAttachments(glm::vec4(0.25f), 7);
-
             graph.Execute();
-
-            for (const auto& handle : { exportedAlbedo->GetRHIHandle(), exportedNormals->GetRHIHandle() })
-            {
-                RHI::Barrier toSampled{};
-                toSampled.Resource = handle;
-                toSampled.Before = RHI::Access::TransferWrite;
-                toSampled.After = RHI::Access::ShaderSampleRead;
-                api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
-            }
         });
+    Levers::SetRenderGraphCopyLedger(ledgerWas);
 
     EXPECT_TRUE(opaqueDecalPass->GetTarget()) << "the node early-returned";
     for (const auto& failure : graph.GetResolveFailures())
@@ -9928,24 +9899,16 @@ TEST_F(VulkanPassSuite, DeferredOpaqueDecalExportsTheGBufferThroughTheGraph)
     }
     EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
 
-    TArray64<u8> exported;
-    ASSERT_TRUE(exportedAlbedo->GetData(exported, 0));
-    ASSERT_EQ(exported.Num(), static_cast<sizet>(kSize) * kSize * 4);
-    for (const auto& [x, y] : { std::pair<u32, u32>{ 8, 8 }, { 64, 64 }, { 120, 120 } })
+    EXPECT_EQ(graph.ResolveTextureHandle(blackboard.GBuffer.GBufferAlbedo), gbuffer->GetColorAttachmentHandle(GBuffer::Albedo))
+        << "the albedo export must be the G-Buffer's own attachment";
+    EXPECT_EQ(graph.ResolveTextureHandle(blackboard.Scene.SceneNormals), gbuffer->GetColorAttachmentHandle(GBuffer::Normal))
+        << "the SceneNormals export must be the G-Buffer's own normal attachment";
+    const RenderTargetCopyFrame copies = RenderTargetCopyLedger::GetLastFrame();
+    EXPECT_GT(copies.Serial, serialBefore) << "the ledger saw no graph frame, so the zero below is vacuous";
+    for (const auto& copy : copies.Copies)
     {
-        const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
-        EXPECT_EQ(exported[i], 64) << "the exported albedo must carry the G-Buffer's content at (" << x << ","
-                                   << y << ")";
-        EXPECT_NE(exported[i], 17) << "the seed must have been overwritten — the copy has to have run";
-    }
-
-    TArray64<u8> exportedNormalBytes;
-    ASSERT_TRUE(exportedNormals->GetData(exportedNormalBytes, 0));
-    ASSERT_EQ(exportedNormalBytes.Num(), static_cast<sizet>(kSize) * kSize * 8);
-    {
-        const auto* halves = reinterpret_cast<const u16*>(exportedNormalBytes.GetData());
-        EXPECT_NEAR(HalfToFloat(halves[(static_cast<sizet>(64) * kSize + 64) * 4]), 0.25f, 1e-3f)
-            << "the SceneNormals export is a SECOND declared slot — its RGBA16F copy must run too";
+        ADD_FAILURE() << copy.Pass.ToStdString() << " copied " << copy.Source.ToStdString() << " into "
+                      << copy.Destination.ToStdString() << ": a view export needs no copy";
     }
 
     EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore);

@@ -5,6 +5,8 @@
 
 #include "OloEngine/Core/PerformanceProfiler.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryFormat.h"
+#include "OloEngine/Renderer/Debug/RenderTargetCopyLedger.h"
 #include "OloEngine/Renderer/RenderGraphBarrierPlanner.h"
 #include "OloEngine/Renderer/RenderGraphHandleAllocator.h"
 #include "OloEngine/Renderer/RenderGraphHazardValidator.h"
@@ -3321,6 +3323,153 @@ namespace OloEngine
         return it->second.ParentResource;
     }
 
+    RenderGraph::CopyOperandDescription RenderGraph::DescribeCopyOperand(const RHI::ResourceHandle texture,
+                                                                         const std::string_view passName,
+                                                                         const bool asDestination) const
+    {
+        if (!texture.IsValid())
+            return { .Name = FString("<null>") };
+
+        const auto texelBytesOf = [this](std::string_view name) -> std::optional<u32>
+        {
+            RGResourceFormat format = RGResourceFormat::Unknown;
+            if (const auto* info = FindRegisteredResource(name))
+                format = info->Desc.Format;
+            if (format == RGResourceFormat::Unknown)
+            {
+                if (const auto viewIt = m_TextureViewResourceDescs.find(name); viewIt != m_TextureViewResourceDescs.end())
+                    format = viewIt->second.Format;
+            }
+            if (format == RGResourceFormat::Unknown)
+                return std::nullopt;
+            return RendererMemoryFormat::BytesPerTexel(ToImageFormat(format));
+        };
+        const auto resolvesHere = [this, texture](std::string_view name)
+        {
+            const auto it = m_TextureHandlesByName.find(name);
+            return it != m_TextureHandlesByName.end() && ResolveTextureHandle(it->second) == texture;
+        };
+
+        // The pass's own declarations: the expanded list, so a framebuffer
+        // write names each of its attachment views.
+        if (const auto accessIt = m_PassAccessDeclarations.find(passName); !passName.empty() && accessIt != m_PassAccessDeclarations.end())
+        {
+            for (const bool wantWrite : { asDestination, !asDestination })
+            {
+                for (const auto& access : accessIt->second)
+                {
+                    if (access.IsWrite != wantWrite || !resolvesHere(access.ResourceName.ToView()))
+                        continue;
+                    return { .Name = access.ResourceName,
+                             .DeclaredByPass = asDestination && access.IsWrite,
+                             .BytesPerTexel = texelBytesOf(access.ResourceName.ToView()) };
+                }
+            }
+        }
+
+        for (const auto& [name, handle] : m_TextureHandlesByName)
+        {
+            if (ResolveTextureHandle(handle) == texture)
+                return { .Name = FString(std::string_view(name)), .BytesPerTexel = texelBytesOf(name) };
+        }
+
+        for (const auto& [name, handle] : m_FramebufferHandlesByName)
+        {
+            // A placeholder resolves with a warning, and is never real storage.
+            if (handle.Index >= static_cast<u32>(m_FramebufferHandleSlots.Num()) || m_FramebufferHandleSlots[handle.Index].IsPlaceholder)
+                continue;
+            const Ref<Framebuffer> framebuffer = IsFramebufferHandleCurrent(handle) ? ResolveFramebuffer(handle) : nullptr;
+            if (!framebuffer)
+                continue;
+            u32 colorIndex = 0;
+            for (const auto& attachment : framebuffer->GetSpecification().Attachments.Attachments)
+            {
+                const bool isDepth = attachment.TextureFormat == FramebufferTextureFormat::DEPTH24STENCIL8 ||
+                                     attachment.TextureFormat == FramebufferTextureFormat::DEPTH_COMPONENT32F;
+                const RHI::ResourceHandle candidate = isDepth ? framebuffer->GetDepthAttachmentHandle()
+                                                              : framebuffer->GetColorAttachmentHandle(colorIndex);
+                if (candidate == texture)
+                {
+                    return { .Name = FString(std::string(name) + (isDepth ? "[depth]" : "[" + std::to_string(colorIndex) + "]")),
+                             .BytesPerTexel = RendererMemoryFormat::BytesPerTexel(attachment.TextureFormat),
+                             .Samples = std::max(framebuffer->GetSpecification().Samples, 1u) };
+                }
+                if (!isDepth)
+                    ++colorIndex;
+            }
+        }
+        return { .Name = FString("<external>") };
+    }
+
+    RenderGraph::CopyOperandDescription RenderGraph::DescribeBlitOperand(const RHI::ResourceHandle framebuffer,
+                                                                         const std::optional<u32> colorAttachment,
+                                                                         const std::string_view passName,
+                                                                         const bool asDestination) const
+    {
+        if (!framebuffer.IsValid())
+            return { .Name = FString("<default framebuffer>") };
+
+        const auto describe = [&](std::string_view name, const Ref<Framebuffer>& fb) -> CopyOperandDescription
+        {
+            const auto& spec = fb->GetSpecification();
+            std::optional<u32> texelBytes;
+            u32 colorIndex = 0;
+            for (const auto& attachment : spec.Attachments.Attachments)
+            {
+                const bool isDepth = attachment.TextureFormat == FramebufferTextureFormat::DEPTH24STENCIL8 ||
+                                     attachment.TextureFormat == FramebufferTextureFormat::DEPTH_COMPONENT32F;
+                if (isDepth ? !colorAttachment : colorAttachment && *colorAttachment == colorIndex)
+                    texelBytes = RendererMemoryFormat::BytesPerTexel(attachment.TextureFormat);
+                if (!isDepth)
+                    ++colorIndex;
+            }
+            bool declared = false;
+            if (const auto accessIt = m_PassAccessDeclarations.find(passName); asDestination && accessIt != m_PassAccessDeclarations.end())
+            {
+                const FString parent(name);
+                for (const auto& access : accessIt->second)
+                {
+                    if (!access.IsWrite)
+                        continue;
+                    const auto base = GetVersionLookupBaseName(access.ResourceName.ToView());
+                    if (access.ResourceName == parent || base == name || FindAttachmentViewParent(access.ResourceName.ToView()) == parent ||
+                        FindAttachmentViewParent(base) == parent)
+                    {
+                        declared = true;
+                        break;
+                    }
+                }
+            }
+            return { .Name = FString(std::string(name) + (colorAttachment ? "[" + std::to_string(*colorAttachment) + "]" : "[depth]")),
+                     .DeclaredByPass = declared,
+                     .BytesPerTexel = texelBytes,
+                     .Samples = std::max(spec.Samples, 1u) };
+        };
+
+        // Unversioned names first, so a framebuffer reads as "SceneColor" rather
+        // than as whichever rename of it the map happens to list first.
+        for (const bool unversionedOnly : { true, false })
+        {
+            for (const auto& [name, handle] : m_FramebufferHandlesByName)
+            {
+                if (unversionedOnly && GetVersionLookupBaseName(name) != std::string_view(name))
+                    continue;
+                if (handle.Index >= static_cast<u32>(m_FramebufferHandleSlots.Num()) || m_FramebufferHandleSlots[handle.Index].IsPlaceholder ||
+                    !IsFramebufferHandleCurrent(handle))
+                    continue;
+                if (const Ref<Framebuffer> fb = ResolveFramebuffer(handle); fb && fb->GetRHIHandle() == framebuffer)
+                    return describe(name, fb);
+            }
+        }
+        return { .Name = FString(colorAttachment ? "<external>[" + std::to_string(*colorAttachment) + "]" : "<external>[depth]") };
+    }
+
+    const TArray64<RGAccessDeclaration>* RenderGraph::GetDeclaredPassAccesses(const std::string_view passName) const
+    {
+        const auto it = m_PassAccessDeclarations.find(passName);
+        return it == m_PassAccessDeclarations.end() ? nullptr : &it->second;
+    }
+
     auto RenderGraph::GetLastWriterPassName(std::string_view resourceName) const -> const FString&
     {
         static const FString emptyName;
@@ -3526,6 +3675,7 @@ namespace OloEngine
         }
 
         MaterializeTransientResources();
+        RenderTargetCopyLedger::BeginGraphFrame(*this);
 
         // Run the pre-built submission-plan IR through the extracted plan
         // executor module. The executor is a thin loop
@@ -3624,6 +3774,8 @@ namespace OloEngine
             }
         }
         m_OutOfBandLedger.BeginEpilogue();
+        // Named while this frame's physical resources are still its own.
+        RenderTargetCopyLedger::EndGraphFrame(*this);
 
         // Before the pool takes this frame's objects back: every pass reference to a pooled
         // framebuffer this frame did not acquire is stale, and dropping it is what lets the
@@ -5387,12 +5539,34 @@ namespace OloEngine
             return current;
         };
 
-        const auto matches = [resourceName, &canonical](const auto& contract)
-        { return canonical(contract.SourceResource.ToView()) == resourceName; };
+        // A VIEW's storage is its parent's, and the planner tracks the parent:
+        // TAA extracts its surface history from Velocity, which on the forward
+        // paths is an attachment view of SceneColor (issue #1332). Without this
+        // the framebuffer's lifetime ended at its last pass access and its slot
+        // could go to a later same-descriptor framebuffer before the copy ran.
+        const auto storageOf = [this, &canonical](std::string_view name) -> std::string
+        {
+            std::string current(canonical(name));
+            for (u32 depth = 0; depth < kMaxVersionAliasDepth; ++depth)
+            {
+                const auto viewIt = m_TextureViewDefinitions.find(current);
+                if (viewIt == m_TextureViewDefinitions.end())
+                    break;
+                const FString& next = viewIt->second.Kind == TextureViewKind::TextureMultisampleResolve
+                                          ? viewIt->second.BackingResource
+                                          : viewIt->second.ParentResource;
+                if (next.IsEmpty())
+                    break;
+                current = std::string(canonical(next.ToView()));
+            }
+            return current;
+        };
+        const auto matches = [resourceName, &storageOf](const auto& contract)
+        { return storageOf(contract.SourceResource.ToView()) == resourceName; };
         // A frame-epilogue read (#1331) is the same case: declared before the
         // plan, read after the last pass.
-        const auto epilogueMatches = [resourceName, &canonical](const FrameEpilogueRead& read)
-        { return canonical(read.Resource.ToView()) == resourceName; };
+        const auto epilogueMatches = [resourceName, &storageOf](const FrameEpilogueRead& read)
+        { return storageOf(read.Resource.ToView()) == resourceName; };
         return std::ranges::any_of(m_TemporalHistoryContracts, matches) ||
                std::ranges::any_of(m_ExternalTextureSinkContracts, matches) ||
                std::ranges::any_of(m_FrameEpilogueReads, epilogueMatches);
@@ -7739,12 +7913,25 @@ namespace OloEngine
                     // Recorded before the writer lookup: a read of a resource
                     // no earlier pass wrote (an import, last frame's content)
                     // still has to finish before a later pass overwrites it.
-                    auto& readers = liveReadersByResource[access.ResourceName.ToStdString()];
-                    if (std::ranges::none_of(readers, [&](const DepWriterSlot& reader)
-                                             { return reader.PassName == nodeName && reader.Range == access.Range; }))
+                    //
+                    // Under the BASE name too. A renamed version ("X@Tag") is the
+                    // same storage as X, so a later WriteNewVersion of X -- whose
+                    // own name is "X@Other" -- overwrites what this pass read. Keyed
+                    // only by the exact name, that write found no reader: a pass
+                    // reading SceneDepth (a view of SceneColor since #1332) was not
+                    // ordered before the foliage or groom pass that redraws it.
+                    const auto recordReader = [&](const std::string& key)
                     {
-                        readers.emplace_back(nodeName, access.Range);
-                    }
+                        auto& readers = liveReadersByResource[key];
+                        if (std::ranges::none_of(readers, [&](const DepWriterSlot& reader)
+                                                 { return reader.PassName == nodeName && reader.Range == access.Range; }))
+                        {
+                            readers.emplace_back(nodeName, access.Range);
+                        }
+                    };
+                    recordReader(access.ResourceName.ToStdString());
+                    if (const auto readBase = GetVersionLookupBaseName(access.ResourceName.ToView()); readBase != access.ResourceName.ToView())
+                        recordReader(std::string(readBase));
 
                     const auto writerIt = lastWriterByResource.find(access.ResourceName);
                     if (writerIt == lastWriterByResource.end())
@@ -7763,10 +7950,14 @@ namespace OloEngine
                 {
                     // Write after read: every earlier reader of an overlapping
                     // range runs first. Ordering only — this writer does not
-                    // consume what the reader produced.
-                    if (const auto readersIt = liveReadersByResource.find(access.ResourceName);
-                        readersIt != liveReadersByResource.end())
+                    // consume what the reader produced. A renamed version is the
+                    // same storage, so the readers of its base name count too
+                    // (see the reader record above).
+                    const auto orderAfterReaders = [&](std::string_view key)
                     {
+                        const auto readersIt = liveReadersByResource.find(key);
+                        if (readersIt == liveReadersByResource.end())
+                            return;
                         auto& readers = readersIt->second;
                         for (const auto& reader : readers)
                         {
@@ -7777,7 +7968,10 @@ namespace OloEngine
                         }
                         std::erase_if(readers, [&](const DepWriterSlot& reader)
                                       { return reader.PassName != nodeName && depSubresourceRangesOverlap(reader.Range, access.Range); });
-                    }
+                    };
+                    orderAfterReaders(access.ResourceName.ToView());
+                    if (const auto writeBase = GetVersionLookupBaseName(access.ResourceName.ToView()); writeBase != access.ResourceName.ToView())
+                        orderAfterReaders(writeBase);
 
                     auto& writerVec = lastWriterByResource[access.ResourceName.ToStdString()];
                     for (const auto& slot : writerVec)
@@ -8087,8 +8281,20 @@ namespace OloEngine
                         }
 
                         // Mirrors the real derivation: a read is a live
-                        // reader the next overlapping writer waits for.
-                        simulatedLiveReadersByResource[access.ResourceName.ToStdString()].emplace_back(nodeName, access.Range);
+                        // reader the next overlapping writer waits for, under
+                        // its exact name and its version base name.
+                        const auto recordSimulatedReader = [&](const std::string& key)
+                        {
+                            auto& readers = simulatedLiveReadersByResource[key];
+                            if (std::ranges::none_of(readers, [&](const DepWriterSlot& reader)
+                                                     { return reader.PassName == nodeName && reader.Range == access.Range; }))
+                            {
+                                readers.emplace_back(nodeName, access.Range);
+                            }
+                        };
+                        recordSimulatedReader(access.ResourceName.ToStdString());
+                        if (const auto readBase = GetVersionLookupBaseName(access.ResourceName.ToView()); readBase != access.ResourceName.ToView())
+                            recordSimulatedReader(std::string(readBase));
 
                         const auto writerIt = simulatedLastWriterByResource.find(access.ResourceName);
                         if (writerIt == simulatedLastWriterByResource.end())
@@ -8108,9 +8314,11 @@ namespace OloEngine
                     }
                     else
                     {
-                        if (const auto readersIt = simulatedLiveReadersByResource.find(access.ResourceName);
-                            readersIt != simulatedLiveReadersByResource.end())
+                        const auto orderAfterSimulatedReaders = [&](std::string_view key)
                         {
+                            const auto readersIt = simulatedLiveReadersByResource.find(key);
+                            if (readersIt == simulatedLiveReadersByResource.end())
+                                return;
                             for (const auto& reader : readersIt->second)
                             {
                                 if (reader.PassName == nodeName || !depSubresourceRangesOverlap(reader.Range, access.Range))
@@ -8120,7 +8328,10 @@ namespace OloEngine
                             }
                             std::erase_if(readersIt->second, [&](const DepWriterSlot& reader)
                                           { return reader.PassName != nodeName && depSubresourceRangesOverlap(reader.Range, access.Range); });
-                        }
+                        };
+                        orderAfterSimulatedReaders(access.ResourceName.ToView());
+                        if (const auto writeBase = GetVersionLookupBaseName(access.ResourceName.ToView()); writeBase != access.ResourceName.ToView())
+                            orderAfterSimulatedReaders(writeBase);
 
                         auto& writerVec = simulatedLastWriterByResource[access.ResourceName.ToStdString()];
                         for (const auto& slot : writerVec)

@@ -71,10 +71,5 @@ namespace OloEngine
         RGTextureHandle m_SelectedGBufferAlbedoExport{};
         RGTextureHandle m_SelectedGBufferNormalExport{};
         RGTextureHandle m_SelectedGBufferEmissiveExport{};
-        RGTextureHandle m_SelectedGBufferAlbedoMSExport{};
-        RGTextureHandle m_SelectedGBufferNormalMSExport{};
-        RGTextureHandle m_SelectedGBufferEmissiveMSExport{};
-        RGTextureHandle m_SelectedVelocityMSExport{};
-        RGTextureHandle m_SelectedSceneDepthMSExport{};
     };
 } // namespace OloEngine

@@ -17,9 +17,20 @@ namespace OloEngine
     {
         RenderGraphNode::Setup(builder, blackboard);
         m_SelectedOITFramebuffer = {};
+        m_SelectedSceneDepth = {};
 
         if (!HasRenderCallback())
             return;
+
+        // The soft-particle fade depth (see AcquireSceneDepth). The read is
+        // what keeps SceneDepthSnapshotPass alive on a frame whose only reader
+        // is this pass, so it is declared only while a soft system asks.
+        if (m_SceneDepthWanted && blackboard.Scene.SceneDepthSnapshot.IsValid())
+        {
+            m_SelectedSceneDepth = blackboard.Scene.SceneDepthSnapshot;
+            [[maybe_unused]] const auto softDepthRead =
+                builder.Read(blackboard.Scene.SceneDepthSnapshot, RGReadUsage::ShaderSample);
+        }
 
         if (m_OITEnabled)
         {
@@ -107,6 +118,9 @@ namespace OloEngine
         {
             return;
         }
+
+        m_SceneDepthID = m_SelectedSceneDepth.IsValid() ? context.ResolveTextureHandle(m_SelectedSceneDepth) : RHI::NullResource;
+        m_SceneDepthAsked = false;
 
         Ref<Framebuffer> oitFramebuffer;
         if (m_OITEnabled && m_SelectedOITFramebuffer.IsValid())
@@ -215,6 +229,8 @@ namespace OloEngine
             m_SceneFramebuffer->Unbind();
         }
 
+        m_SceneDepthWanted = m_SceneDepthAsked;
+        m_SceneDepthID = RHI::NullResource;
         m_RenderCallback = nullptr;
     }
 
@@ -245,6 +261,10 @@ namespace OloEngine
     void ParticleRenderPass::OnReset()
     {
         m_SelectedOITFramebuffer = {};
+        m_SelectedSceneDepth = {};
+        m_SceneDepthID = RHI::NullResource;
+        m_SceneDepthWanted = false;
+        m_SceneDepthAsked = false;
         // No own framebuffer to reset
     }
 } // namespace OloEngine

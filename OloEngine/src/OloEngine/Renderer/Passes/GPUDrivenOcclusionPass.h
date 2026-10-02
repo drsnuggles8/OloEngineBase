@@ -85,24 +85,14 @@ namespace OloEngine
         // packets were drawn: they are only when the mid-frame Hi-Z was usable,
         // because the culls that fill their indirect buffers only run then.
         [[nodiscard]] bool DrawPhases(RGCommandContext& context, bool cullPhase2);
-        // Copies the scene target's depth / view normals over the exports.
-        void ExportDepthAndNormals(RGCommandContext& context, RGTextureHandle depthExport,
-                                   RGTextureHandle normalsExport);
 
         Ref<Framebuffer> m_SceneFramebuffer;
         // Phase-2 work registered this frame (parallel arrays: packet[i] draws
         // cull[i].Phase2Output after DispatchPhase2 fills it). Cleared each Execute.
         std::vector<CommandPacket*> m_Phase2Packets;
         std::vector<GPUFrustumCuller::TwoPhaseCullResult> m_Phase2Culls;
-        // SceneDepth / SceneNormals export targets (#431). After drawing,
-        // the pass re-copies the live framebuffer depth + view-normals into these
-        // so the downstream AO / SSR passes (which sample the exported textures,
-        // not the framebuffer) see the instanced geometry. ScenePass exported
-        // them before this pass drew.
-        RGTextureHandle m_SelectedSceneDepth{};
-        RGTextureHandle m_SelectedSceneNormals{};
-        RGTextureHandle m_PrepassSceneDepth{};
-        RGTextureHandle m_PrepassSceneNormals{};
+        // The prepass share's AO depth copy (#1452). SceneDepth / SceneNormals
+        // are views of the scene target since #1332 and need no copy.
         RGTextureHandle m_PrepassForwardAODepth{};
         // Set by ExecuteForwardPrepass: both phases are in depth, the phase-2
         // culls have run, and Execute() only replays the draws in colour.
