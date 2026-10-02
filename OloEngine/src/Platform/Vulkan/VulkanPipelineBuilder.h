@@ -185,6 +185,19 @@ namespace OloEngine
             return m_Pipelines.size();
         }
 
+        // One shader's pipelines (issue #607). InvalidateShader erases every
+        // entry for the key, so after a reload `Live` counts only pipelines
+        // built from the NEW modules, and `Failed` says some variant's latest
+        // creation attempt failed since then. This is what lets
+        // olo_shader_reload report `ready` only when the reload reached a PSO.
+        struct ShaderPipelines
+        {
+            sizet Live = 0;
+            bool Failed = false;
+            VkResult LastFailure = VK_SUCCESS;
+        };
+        [[nodiscard]] ShaderPipelines GetShaderPipelines(u64 shaderKey) const;
+
       private:
         VulkanPipelineBuilder() = default;
 
@@ -224,6 +237,11 @@ namespace OloEngine
         mutable std::shared_mutex m_Mutex;
         std::unordered_map<Key, VkPipeline, KeyHash> m_Pipelines;
         CreationFailure m_LastCreationFailure;
+        // Pipeline keys (every variant: target formats, blend, layout) whose
+        // latest creation failed. Keyed by the FULL key, so a variant that
+        // succeeds cannot clear another variant's failure. Cleared per key by
+        // that key's next successful creation, per shader by InvalidateShader.
+        std::unordered_map<Key, VkResult, KeyHash> m_FailedPipelines;
     };
 } // namespace OloEngine
 

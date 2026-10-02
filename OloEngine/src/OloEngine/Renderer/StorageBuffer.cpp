@@ -1,5 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
+#include "OloEngine/Renderer/StorageBufferRegistry.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "Platform/OpenGL/OpenGLStorageBuffer.h"
 
@@ -11,6 +13,29 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        // Every buffer passes through Create, so this is where the diagnostics
+        // registry learns about it (StorageBufferRegistry.h), together with the
+        // memory-owner scope the caller opened: a pooled buffer's binding is
+        // nominal, and a reader must be able to tell.
+        Ref<StorageBuffer> Registered(Ref<StorageBuffer> buffer, StorageBufferUsage usage)
+        {
+            if (buffer)
+            {
+                const RendererMemoryOwnerScope::Frame owner = RendererMemoryOwnerScope::Current();
+                StorageBufferRegistry::Get().Register(buffer.Raw(), usage, FString(owner.Owner),
+                                                      owner.Lifetime == MemoryLifetime::Pooled);
+            }
+            return buffer;
+        }
+    } // namespace
+
+    StorageBuffer::~StorageBuffer()
+    {
+        StorageBufferRegistry::Get().Unregister(this);
+    }
+
     Ref<StorageBuffer> StorageBuffer::Create(u32 size, u32 binding, StorageBufferUsage usage)
     {
         switch (Renderer::GetAPI())
@@ -29,7 +54,7 @@ namespace OloEngine
                 // this factory's OpenGL arm.
                 if (VulkanDevice::Get() != nullptr)
                 {
-                    return Ref<StorageBuffer>(new VulkanStorageBuffer(size, binding, usage));
+                    return Registered(Ref<StorageBuffer>(new VulkanStorageBuffer(size, binding, usage)), usage);
                 }
 #endif
                 OLO_CORE_ASSERT(false, "RendererAPI::Vulkan: no VulkanDevice is up (or OLO_WITH_VULKAN is compiled out) — cannot create a Vulkan storage buffer!");
@@ -37,7 +62,7 @@ namespace OloEngine
             }
             case RendererAPI::API::OpenGL:
             {
-                return Ref<StorageBuffer>(new OpenGLStorageBuffer(size, binding, usage));
+                return Registered(Ref<StorageBuffer>(new OpenGLStorageBuffer(size, binding, usage)), usage);
             }
         }
 

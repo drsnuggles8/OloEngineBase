@@ -511,27 +511,27 @@ namespace OloEngine
         return HasLiveSnapshot() ? m_SnapshotCpu : nullptr;
     }
 
-    void VulkanStorageBuffer::GetData(void* outData, u32 size, u32 offset) const
+    bool VulkanStorageBuffer::GetData(void* outData, u32 size, u32 offset) const
     {
         OLO_PROFILE_FUNCTION();
 
         if (outData == nullptr || size == 0)
         {
-            return;
+            return false;
         }
         // Widened before the sum — same u32 wrap as SetData's guard.
         if (static_cast<u64>(offset) + static_cast<u64>(size) > static_cast<u64>(std::max(m_Size, 1u)))
         {
             OLO_CORE_ERROR("VulkanStorageBuffer::GetData: {}+{} exceeds the buffer's {} bytes", offset, size, m_Size);
             std::memset(outData, 0, size);
-            return;
+            return false;
         }
 
         auto* device = VulkanDevice::Get();
         if (device == nullptr || m_Buffer == VK_NULL_HANDLE)
         {
             std::memset(outData, 0, size);
-            return;
+            return false;
         }
 
         // Mid-frame (#691): the producing dispatch may still sit
@@ -574,7 +574,7 @@ namespace OloEngine
                                    &readbackOut) != VK_SUCCESS)
         {
             std::memset(outData, 0, size);
-            return;
+            return false;
         }
         const VkDeviceAddress readbackAddress = VulkanAddressCommands::QueryAddress(device->GetDevice(), readback);
 
@@ -619,6 +619,7 @@ namespace OloEngine
             std::memset(outData, 0, size);
         }
         TrackedVmaDestroyBuffer(device->GetAllocator(), readback, readbackAllocation);
+        return ok;
     }
 
     void VulkanStorageBuffer::ClearData()

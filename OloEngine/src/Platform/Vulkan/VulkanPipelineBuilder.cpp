@@ -530,9 +530,11 @@ namespace OloEngine
             OLO_CORE_ERROR("VulkanPipelineBuilder: compute pipeline creation failed (VkResult {})",
                            static_cast<int>(result));
             m_LastCreationFailure = { true, "<compute>", result };
+            m_FailedPipelines[key] = result;
             return VK_NULL_HANDLE;
         }
 
+        m_FailedPipelines.erase(key);
         m_Pipelines[key] = pipeline;
         return pipeline;
     }
@@ -861,9 +863,11 @@ namespace OloEngine
             OLO_CORE_ERROR("VulkanPipelineBuilder: vkCreateGraphicsPipelines failed for '{}' (VkResult {})",
                            shader.GetName(), static_cast<int>(result));
             m_LastCreationFailure = { true, shader.GetName(), result };
+            m_FailedPipelines[key] = result;
             return VK_NULL_HANDLE;
         }
 
+        m_FailedPipelines.erase(key);
         m_Pipelines[key] = pipeline;
         return pipeline;
     }
@@ -881,7 +885,27 @@ namespace OloEngine
             VulkanDeferredReclaim::Get().Enqueue(entry.second);
             ++count;
             return true; });
+        std::erase_if(m_FailedPipelines, [shaderKey](const auto& entry)
+                      { return entry.first.ShaderKey == shaderKey; });
         return count;
+    }
+
+    VulkanPipelineBuilder::ShaderPipelines VulkanPipelineBuilder::GetShaderPipelines(u64 shaderKey) const
+    {
+        std::shared_lock lock(m_Mutex);
+        ShaderPipelines result;
+        result.Live = static_cast<sizet>(std::ranges::count_if(m_Pipelines, [shaderKey](const auto& entry)
+                                                               { return entry.first.ShaderKey == shaderKey; }));
+        for (const auto& [key, failure] : m_FailedPipelines)
+        {
+            if (key.ShaderKey == shaderKey)
+            {
+                result.Failed = true;
+                result.LastFailure = failure;
+                break;
+            }
+        }
+        return result;
     }
 
     void VulkanPipelineBuilder::FlushDynamicState(VkCommandBuffer cmd, const VulkanRecordedPipelineState& state,
@@ -1022,6 +1046,7 @@ namespace OloEngine
             VulkanDeferredReclaim::Get().Enqueue(pipeline);
         }
         m_Pipelines.clear();
+        m_FailedPipelines.clear();
     }
 } // namespace OloEngine
 

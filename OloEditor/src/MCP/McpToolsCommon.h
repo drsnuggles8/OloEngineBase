@@ -378,6 +378,7 @@ namespace OloEngine::MCP
     void RegisterPerfTools(AutomationRegistry& registry);
     void RegisterRenderTools(AutomationRegistry& registry);
     void RegisterShaderTools(AutomationRegistry& registry);
+    void RegisterResourceTools(AutomationRegistry& registry);
     void RegisterAssetTools(AutomationRegistry& registry);
     void RegisterScriptingTools(AutomationRegistry& registry);
     void RegisterCameraTools(AutomationRegistry& registry);

@@ -28,6 +28,7 @@ TEST(VulkanShaderPipeline, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/ShaderRegistry.h"
 #include "../TestTempDir.h"
 #include "Platform/Vulkan/VulkanCapabilities.h"
 #include "Platform/Vulkan/VulkanDevice.h"
@@ -43,6 +44,7 @@ TEST(VulkanShaderPipeline, SkipsWhenNotCompiledIn)
 #include <stb_image/stb_image.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -847,6 +849,131 @@ TEST_F(VulkanShaderPipeline, SuccessfulReloadAdvancesRevisionAndFailurePreserves
     EXPECT_TRUE(shader->IsReady());
     EXPECT_EQ(shader->GetModule(VK_SHADER_STAGE_FRAGMENT_BIT), replacementFragment);
     EXPECT_EQ(shader->GetSPIRV(), replacementSpirv);
+}
+
+// -----------------------------------------------------------------------------
+// Issue #607: a shader edit reaches the PIXELS after a reload on Vulkan. The
+// module test above stops at "new VkShaderModule"; what olo_shader_reload
+// promises is a different frame, and between the two sits the PSO cache. A
+// pipeline built from the old modules and still cached would draw the old
+// colour with every module check green. So: draw red through the pipeline
+// builder, edit the file to green, reload, draw again through the SAME lookup
+// the draw path uses, and require green, plus the pipeline counts the MCP
+// tool reports. Negative control: with the InvalidateShader call in
+// VulkanShader::Reload removed, the second draw is red and this fails.
+// -----------------------------------------------------------------------------
+TEST_F(VulkanShaderPipeline, ReloadedShaderEditReachesThePixelsThroughThePipelineCache)
+{
+    ScopedVulkanApiSelection vulkanSelected;
+
+    struct ScratchDirectory
+    {
+        std::filesystem::path Previous = std::filesystem::current_path();
+        std::filesystem::path Directory = OloEngine::Tests::TempDir("reload-pixels");
+        ~ScratchDirectory()
+        {
+            std::error_code error;
+            std::filesystem::current_path(Previous, error);
+        }
+    } scratch;
+    std::filesystem::current_path(scratch.Directory);
+    const auto sourcePath = scratch.Directory / "ReloadPixels.glsl";
+    const auto writeSource = [&sourcePath](std::string_view colour)
+    {
+        std::ofstream source(sourcePath, std::ios::trunc);
+        // A full-viewport triangle from gl_VertexIndex: no vertex buffer, so
+        // the root struct carries nothing and only the shader decides the pixel.
+        source << "#type vertex\n#version 460 core\n"
+                  "void main() {\n"
+                  "    vec2 p = vec2(float((gl_VertexIndex << 1) & 2), float(gl_VertexIndex & 2));\n"
+                  "    gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);\n"
+                  "}\n"
+                  "#type fragment\n#version 460 core\n"
+                  "layout(location = 0) out vec4 o_Color;\n"
+                  "void main() { o_Color = "
+               << colour << "; }\n";
+        source.close();
+        return !source.fail();
+    };
+
+    OffscreenImage target = CreateOffscreen(*m_Device, 16, 16);
+    ASSERT_NE(target.Image, VK_NULL_HANDLE);
+    VulkanRenderTargetDesc targets;
+    targets.ColorCount = 1;
+    targets.ColorFormats[0] = target.Format;
+    VulkanRecordedPipelineState state{};
+    state.DepthTest = false;
+    state.DepthWrite = false;
+
+    auto& arena = VulkanFrameArena::Get();
+    arena.BeginFrame(0);
+    const u64 rootPlaceholder = 0;
+    const auto rootAlloc = arena.Push(&rootPlaceholder, sizeof(rootPlaceholder), 16);
+    ASSERT_TRUE(rootAlloc.IsValid());
+
+    // Draw once through GetOrCreateGraphics, exactly as the draw path does, and
+    // return the centre pixel.
+    const auto drawCentre = [&](VulkanShader& shader) -> std::array<u8, 4>
+    {
+        const VulkanRootDataLayout& layout = shader.GetRootDataLayout();
+        const VkPipeline pipeline = VulkanPipelineBuilder::Get().GetOrCreateGraphics(shader, layout, state, targets);
+        EXPECT_NE(pipeline, VK_NULL_HANDLE);
+        Submit([&](VkCommandBuffer cmd)
+               {
+            VulkanResourceHeap::Get().CmdBind(cmd);
+            CmdImageBarrier(cmd, target.Image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                            VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
+                            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+            CmdBeginRendering(cmd, target, /*clear=*/true);
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+            VulkanPipelineBuilder::FlushDynamicState(cmd, state, targets);
+            CmdPushRootPointer(cmd, rootAlloc.Gpu);
+            vkCmdDraw(cmd, 3, 1, 0, 0);
+            vkCmdEndRendering(cmd); });
+        std::vector<u8> pixels;
+        ReadbackImage(*this, *m_Device, target, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, pixels);
+        const sizet centre = (static_cast<sizet>(8) * 16 + 8) * 4;
+        if (pixels.size() < centre + 4)
+            return { 0, 0, 0, 0 };
+        return { pixels[centre], pixels[centre + 1], pixels[centre + 2], pixels[centre + 3] };
+    };
+
+    ASSERT_TRUE(writeSource("vec4(1.0, 0.0, 0.0, 1.0)"));
+    auto shader = Ref<VulkanShader>::Create(sourcePath.generic_string());
+    ASSERT_TRUE(shader->IsReady());
+
+    // File-backed Vulkan shaders resolve by name, which is how
+    // olo_shader_reload finds a pass-owned one.
+    auto byName = ShaderRegistry::Get().FindShaders("ReloadPixels");
+    EXPECT_TRUE(std::ranges::any_of(byName, [&shader](const Ref<Shader>& found)
+                                    { return found.Raw() == shader.Raw(); }))
+        << "a file-backed VulkanShader must register itself for reload by name";
+
+    const auto red = drawCentre(*shader);
+    EXPECT_EQ(red[0], 255);
+    EXPECT_EQ(red[1], 0);
+    ASSERT_EQ(shader->GetPipelineState().Live, 1u);
+
+    ASSERT_TRUE(writeSource("vec4(0.0, 1.0, 0.0, 1.0)"));
+    ASSERT_TRUE(shader->Reload());
+
+    // The reload invalidated the one pipeline and nothing has rebuilt it yet:
+    // the state olo_shader_reload reports as `pending`, not `ready`.
+    ShaderPipelineState afterReload = shader->GetPipelineState();
+    EXPECT_TRUE(afterReload.Tracked);
+    EXPECT_EQ(afterReload.InvalidatedByLastReload, 1u);
+    EXPECT_EQ(afterReload.Live, 0u);
+    EXPECT_FALSE(afterReload.CreationFailed);
+
+    const auto green = drawCentre(*shader);
+    EXPECT_EQ(green[0], 0) << "the reload left a pipeline built from the OLD modules in the cache";
+    EXPECT_EQ(green[1], 255);
+    EXPECT_EQ(shader->GetPipelineState().Live, 1u) << "the draw rebuilt exactly one pipeline from the new modules";
+
+    DestroyOffscreen(*m_Device, target);
+    byName.clear(); // the lookup handed out strong Refs
+    shader.Reset();
+    EXPECT_TRUE(ShaderRegistry::Get().FindShaders("ReloadPixels").empty()) << "the destructor must unregister";
 }
 
 #endif // OLO_WITH_VULKAN

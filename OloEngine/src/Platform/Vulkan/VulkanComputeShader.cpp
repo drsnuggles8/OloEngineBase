@@ -15,6 +15,7 @@
 #include "Platform/OpenGL/OpenGLShader.h"
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Renderer/ShaderCachePaths.h"
+#include "OloEngine/Renderer/ShaderRegistry.h"
 #include "OloEngine/Renderer/ShaderToolchainFloor.h"
 
 #include <shaderc/shaderc.hpp>
@@ -68,6 +69,9 @@ namespace OloEngine
 
         m_Name = std::filesystem::path(filepath).stem().string();
 
+        // Reloadable by name, like OpenGLComputeShader (issue #607).
+        ShaderRegistry::Get().RegisterComputeShader(GetName(), this);
+
         const std::string raw = ReadWholeFile(filepath);
         if (raw.empty())
         {
@@ -95,6 +99,8 @@ namespace OloEngine
 
     VulkanComputeShader::~VulkanComputeShader()
     {
+        // First, before this address can be recycled (ShaderRegistry.h).
+        ShaderRegistry::Get().UnregisterComputeShader(this);
         if (s_CurrentlyBound == this)
         {
             s_CurrentlyBound = nullptr;
@@ -325,28 +331,49 @@ namespace OloEngine
         m_Module = VK_NULL_HANDLE;
     }
 
-    void VulkanComputeShader::Reload()
+    bool VulkanComputeShader::Reload()
     {
         if (GetFilePath().empty())
         {
-            return; // source-born shaders have nothing to re-read
+            return true; // source-born shaders have nothing to re-read; the live module stays live
         }
         const std::string raw = ReadWholeFile(GetFilePath());
         if (raw.empty())
         {
             OLO_CORE_ERROR("VulkanComputeShader '{}': reload cannot read '{}'", GetName(), GetFilePath());
-            return;
+            return false;
         }
         const auto dirEnd = GetFilePath().find_last_of("/\\");
         const std::string directory = (dirEnd != std::string::npos) ? GetFilePath().substr(0, dirEnd) : "";
         const std::string source = OpenGLShader::ProcessIncludes(raw, directory);
 
-        if (BuildFromSource(source, /*useCache=*/true))
+        // A failed build keeps the previous module, so IsValid() stays true:
+        // the return value is the only signal of a failed reload.
+        if (!BuildFromSource(source, /*useCache=*/true))
         {
-            const sizet invalidated = VulkanPipelineBuilder::Get().InvalidateShader(GetPipelineIndexKey());
-            OLO_CORE_INFO("VulkanComputeShader '{}': reloaded ({} dependent pipeline(s) invalidated)", GetName(),
-                          invalidated);
+            return false;
         }
+        const sizet invalidated = VulkanPipelineBuilder::Get().InvalidateShader(GetPipelineIndexKey());
+        m_PipelinesInvalidatedByLastReload = static_cast<u32>(invalidated);
+        OLO_CORE_INFO("VulkanComputeShader '{}': reloaded ({} dependent pipeline(s) invalidated)", GetName(),
+                      invalidated);
+        return true;
+    }
+
+    ShaderPipelineState VulkanComputeShader::GetPipelineState() const
+    {
+        const auto pipelines = VulkanPipelineBuilder::Get().GetShaderPipelines(GetPipelineIndexKey());
+        ShaderPipelineState state;
+        state.Tracked = true;
+        state.InvalidatedByLastReload = m_PipelinesInvalidatedByLastReload;
+        state.Live = static_cast<u32>(pipelines.Live);
+        state.CreationFailed = pipelines.Failed;
+        if (pipelines.Failed)
+        {
+            state.CreationFailure = FString(std::format("vkCreateComputePipelines returned VkResult {} for '{}'",
+                                                        static_cast<int>(pipelines.LastFailure), GetName()));
+        }
+        return state;
     }
 
     void VulkanComputeShader::Bind() const

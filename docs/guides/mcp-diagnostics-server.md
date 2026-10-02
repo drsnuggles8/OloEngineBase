@@ -322,6 +322,9 @@ and for what to do when adding a tool.
 | `olo_project_validate` | every project validator in one call — asset-registry problems, shader compile/link errors, recent script errors, and the live render graph's hazard sweep — as one structured report. Each section invokes the standalone command's own handler, so it reports exactly what the editor panels show. A validator that cannot run here comes back `unavailable` **with its reason** and makes the report's `ok` false: an unrun check is never a clean bill of health |
 | `olo_build_list` | the CMake targets `olo_build_run` can build, each with its artefact path, size and **build timestamp**, plus whether the tree is configured and whether a build-lock slot is free right now. Builds nothing. This is how you answer *is the binary I am about to run older than my change?* — an exit code cannot tell a fresh artefact from last week's, a timestamp can. Targets the editor holds open (`OloEditor` itself, `OloEngine-ScriptCore`) are listed with `buildable:false` and the mechanism that refuses them |
 | `olo_build_run` | build one or more targets and get **structured** per-target results: outcome, exit code, wall time, the artefact's path and timestamp, and every compiler/linker diagnostic as a record with file, line, column and code — no console scraping. Always goes through `build-lock.ps1`. A build that could not start is an **error** naming the reason, never an empty success; so is exit 0 with no artefact, and so is the lock **stand-down** that exits 0 having built nothing. `up-to-date` is reported separately from `rebuilt`. See [Structured build invocation](#structured-build-invocation-olo_build_list--olo_build_run) |
+| `olo_frame_graph_declaration_stats` | the render-graph declaration cache's counters (issue #1333): frames, compiles, cache hits, redundant compiles (over-invalidation), and, only under the `OLO_RG_VERIFY_DECLARATION_CACHE` lever, verified hits and stale-cache detections (under-invalidation: a declaration input missing from `FrameGraphDeclarationConfig`). Read `anyStale` first and `verifyMode` before trusting a zero: with verify mode off nothing is checked, and the reply's `note` says so. `lastCompileCause` names what moved the key last; `timing` carries totals and per-outcome means (null over nothing). `reset:true` clears the counters after the read, for an A/B window. See [Resource probes](#resource-probes-olo_texture_probe--olo_gpu_buffer_read--olo_frame_graph_declaration_stats) |
+| `olo_texture_probe` | read texels of an **asset** `Texture2D` on the GPU, which the render-target tools cannot reach: `handle` or `path`, optional `mip`, a region `x`/`y`/`w`/`h` of at most 256 texels. Reports format, sRGB flag, dimensions, mip count and the backend's storage format; an 8-bit texel carries `raw`, `encoded` and (sRGB only) `linear`, so the reply says which value it is. **Block-compressed (BCn) textures are refused by name**, never read as zeros. Rows default to source-image top-left (`origin:"image"`). See [Resource probes](#resource-probes-olo_texture_probe--olo_gpu_buffer_read--olo_frame_graph_declaration_stats) |
+| `olo_gpu_buffer_read` | read a byte range of a live **storage buffer** back from the GPU: select by `binding`, `name` (an `SSBO_*` constant, prefix optional) or `id`; `offsetBytes`, `lengthBytes` (≤ 4096) and `format` (`u32`/`i32`/`f32`/`vec4`/`hex`). Several live buffers can share a binding (one per particle system): the call then fails and lists them as candidates, and `id` picks one. Pooled (`TransientPool`) buffers carry a nominal binding, so only `id` reaches them. An unknown name, a binding with no live buffer and a range past the end are errors, never an empty read. Synchronous and fenced. See [Resource probes](#resource-probes-olo_texture_probe--olo_gpu_buffer_read--olo_frame_graph_declaration_stats) |
 
 ### Write consent — Disabled / Prompt / Allow all (issue #306)
 
@@ -749,6 +752,8 @@ appear under the `script` toolset — see "Script-defined tools" below):
 | `build` | `olo_build_list`, `olo_build_run` |
 | `validation` | `olo_project_validate` |
 
+Also in `render`: `olo_frame_graph_declaration_stats`, `olo_gpu_buffer_read`; in `assets`: `olo_texture_probe` (issue #607, registered from `McpToolsResources.cpp`).
+
 `tools/search` params (both optional):
 
 - `query` — free text; whitespace-separated terms are ANDed and matched
@@ -944,6 +949,72 @@ syntax error trips `OLO_CORE_VERIFY` in a Debug build and times the reload out. 
 `status: "failed"` with the compiler log (`ShaderCompileFailureRecoveryTest`). A malformed
 `#type` directive still trips an `OLO_CORE_ASSERT` in `OpenGLShader::PreProcess`. The
 correction is from the code and that test; it was not re-run live.
+
+**On Vulkan, `ready` means a pipeline was rebuilt (#607).** A module rebuild is not yet a visible
+change there: the reload invalidates every pipeline built from the old modules and the next draw
+(or dispatch, for a compute shader) that uses the shader rebuilds it. So the tool renders three frames and reads the pipeline cache:
+
+| reply | meaning |
+|---|---|
+| `ready`, `pipelines: {invalidated: N, rebuilt: M > 0}` | the edit reached a PSO; the next frame shows it |
+| `ready`, `invalidated: 0` | no pipeline existed yet, so nothing stale can be drawn |
+| `pending` + `note` | invalidated but not rebuilt: no draw used the shader in the window. Usually it belongs to the other render path (reload `Skybox_GBuffer` on Forward). Switch path and reload again |
+| `failed` + `note` | the compile failed (the previous program stays live; the compiler error is in the editor log), or pipeline creation failed |
+
+Every copy is reloaded: the library copies and any pass-owned copy registered under the name,
+de-duplicated by address. Vulkan shaders register for reload by name like the GL ones, so
+pass-owned shaders (`PostProcess_ToneMap`, `GroomStrand`, …) are reloadable there too. A copy's
+verdict is `Reload()`'s return value, never `IsReady()`: Vulkan keeps the previous program and
+its Ready status after a failed compile, and reading the status made a broken edit answer
+`ready`. Live, Release editor, `ForwardPlusTest.olo`: sky set to magenta on Forward (`Skybox`) and
+Deferred (`Skybox_GBuffer`) recoloured ~382k px on both backends and restored to 0 px;
+`PostProcess_ToneMap` on Vulkan recoloured the whole viewport; a broken edit answered `failed` on
+both backends for a graphics shader and for `GTAO` (compute).
+`VulkanShaderPipeline.ReloadedShaderEditReachesThePixelsThroughThePipelineCache` pins the pixel;
+with the `InvalidateShader` call removed it fails (the cached old pipeline draws red).
+
+### Resource probes (`olo_texture_probe` / `olo_gpu_buffer_read` / `olo_frame_graph_declaration_stats`)
+
+Three reads of state the frame tools cannot reach (issue #607). All three work on both backends.
+
+**`olo_texture_probe {handle|path, mip, x, y, w, h, origin}`** reads an asset `Texture2D` through
+`RenderCommand::ReadTextureSubImage`, so a region costs its own bytes. What a value is, is stated,
+not left to guess:
+
+- 8-bit texels carry `raw` (the stored byte), `encoded` (raw/255) and, for an sRGB texture,
+  `linear` (the decode a sampler applies; alpha is never decoded). Neither backend's readback
+  decodes sRGB: `colormap-car.png` (sRGB) read `[242,120,240]` on GL and Vulkan, the same bytes
+  as the PNG on disk.
+- Float formats carry `value`; single-channel integer formats carry an integer.
+- Block-compressed (BCn) textures are refused by name. A loose `.png` is never BCn; a cooked
+  `.olotex` is.
+- `origin:"image"` (the default for a file-backed texture) addresses the source file top-left.
+  The loaders flip rows on upload, so `origin:"storage"` row 0 is the image's bottom row. Both
+  were checked texel-for-texel against `Otter.png` on both backends.
+- `path` is project-relative (`Assets/Textures/Otter.png`) or asset-directory-relative
+  (`Textures/Otter.png`). The asset is loaded if it is not resident; a placeholder is never probed.
+
+**`olo_gpu_buffer_read {binding|name|id, offsetBytes, lengthBytes, format}`** reads a live
+storage buffer synchronously (fenced copy on Vulkan, `glGetNamedBufferSubData` after a
+buffer-update barrier on GL). Buffers are found through `StorageBufferRegistry`, which every
+`StorageBuffer::Create` fills, so a pass needs no opt-in. Several live buffers can share a
+binding (four `SSBO_GPU_PARTICLES` in `DriftMenu.olo`, two `SSBO_FPLUS_POINT_LIGHTS` in
+`ForwardPlusTest.olo`); the call then fails and lists `candidates` with `id`, size and usage, and
+`id` picks one. A pooled (`TransientPool`) buffer is created with a nominal binding
+(15), so binding and name selection skip it and report `pooled: true`; `id` still reaches it. A
+failed readback is an error, never a buffer of zeros. Example: `{"id": 52, "format": "vec4", "lengthBytes": 48}` on `ForwardPlusTest.olo`
+returns the first `GPUPointLight`, `[6.93, 2, -4, 12]`, `[1, 0.5, 0.3, 5]`, `[-1, 1, 0, 0]`
+(position + range, colour + intensity, no shadow + attenuation), identically on both backends.
+A `DynamicDraw` buffer reads its persistent storage: the last CPU upload, not a mid-frame
+snapshot a draw may have used.
+
+**`olo_frame_graph_declaration_stats {reset}`** is the #1333 declaration cache. Without the
+`OLO_RG_VERIFY_DECLARATION_CACHE` lever the stale-cache counters are not collected, and the reply
+says so. A recipe for "does this setting invalidate the cache it should, and only that?":
+`olo_cvar_set OLO_RG_VERIFY_DECLARATION_CACHE on`, read with `reset:true`, change the setting,
+read again. Switching Forward → Deferred live gave one compile with
+`lastCompileCause: "TopologyGeneration,Path,GBufferWidth,…,PassStates[ScenePass,DeferredLightingPass,…]"`,
+355 verified hits and no stale detection.
 
 ### The scripting inner loop (`olo_reload_script`)
 
