@@ -712,14 +712,13 @@ TEST(GroomGuideSimulation, TheSlowestStepWithTheStiffestCoatStillSettles)
     }
 }
 
-// THE SHIPPED COAT COMES TO REST (#1533). Dynamic follow-the-leader hands the
-// length projection's correction back as velocity, and under a CONSTANT force
-// the projection corrects by the same amount every step: at the default 0.85
-// that fed a standing oscillation, the dog's long hair still swinging 0.4 mm
-// RMS a second after the clip came to rest, the same in the first half-second
-// as the second. Below a few centimetres a second the correction is now faded
-// out, so a still coat settles to its sag as plain follow-the-leader does, while
-// a coat in motion keeps the momentum the correction exists to return.
+// THE SHIPPED SOLVER BRINGS A FREE STRAND TO REST (#1533). Dynamic
+// follow-the-leader hands the length projection's correction back as velocity
+// every step, and under gravity that correction never goes to zero; a hanging
+// strand still settles to its sag, to well under a micrometre. Kept because the
+// dog's long hair does NOT come to rest (0.35-0.45 mm for seconds), and this is
+// what says the solver alone is not why: with the body's colliders off the dog
+// stops within two seconds too (TheCoatAtRestIsMeasuredSecondBySecond).
 TEST(GroomGuideSimulation, TheShippedCoatComesToRestUnderGravity)
 {
     const TestGuides guides = TestGuides::Make(1, 12, 0.02f, glm::normalize(glm::vec3(1.0f, 0.3f, 0.0f)));
@@ -753,6 +752,66 @@ TEST(GroomGuideSimulation, TheShippedCoatComesToRestUnderGravity)
     EXPECT_LT(rms, 0.01e-3) << "the coat still moves " << rms * 1000.0 << " mm RMS after ten seconds at rest";
     // Not vacuous: gravity does deflect the strand, so there was something to settle.
     EXPECT_GT(sag, 1.0e-3f) << "gravity did not deflect the strand at all";
+}
+
+// A STRAND HELD ON A COLLIDER COMES TO REST (#1533). The dog's long hair swings
+// 0.35-0.45 mm RMS for seconds at rest and stops within two with its colliders
+// off, so its contact with them is what keeps it moving. This is the simplest
+// version of that contact -- a fitted proxy fatter than the body, the strand's
+// groomed shape INSIDE it and held at its own depth
+// (TheColliderNeverPushesAStrandPastWhereTheGroomPutIt), gravity pressing it in,
+// the dog's solver settings -- and it settles: whatever moves the dog's hair
+// needs more of its collider set than one capsule. Ten seconds at rest, it must
+// hold still.
+TEST(GroomGuideSimulation, AStrandRestingOnAColliderComesToRest)
+{
+    TestGuides guides = TestGuides::Make(1, 14, 0.02f, glm::vec3(1.0f, 0.0f, 0.0f));
+    GroomCollider capsule;
+    capsule.PointA = glm::vec3(0.14f, -0.04f, -1.0f);
+    capsule.PointB = glm::vec3(0.14f, -0.04f, 1.0f);
+    capsule.Radius = 0.05f; // the strand's middle is 4 cm above the axis: inside the shell
+    const std::vector<GroomCollider> colliders{ capsule };
+
+    GroomSimulationParams params; // the shipped solver: DFTL, correction 0.85, 60 Hz
+    params.CollisionEnabled = true;
+    params.Stiffness = 1200.0f;                       // the dog's
+    params.Gravity = glm::vec3(0.0f, -4.0f, 0.0f);    // the dog's
+    ASSERT_EQ(params.Model, GroomSolverModel::DynamicFollowTheLeader);
+
+    GroomGuideSimulationState state;
+    {
+        GroomSimulationInputs seed = guides.Inputs(params, 1.0f / 60.0f, false);
+        seed.Colliders = colliders;
+        (void)StepGroomGuideSimulation(seed, state);
+    }
+    std::vector<glm::vec3> late;
+    u32 lateContacts = 0;
+    for (u32 frame = 0; frame < 600u; ++frame)
+    {
+        GroomSimulationInputs inputs = guides.Inputs(params, 1.0f / 60.0f, true);
+        inputs.Colliders = colliders;
+        const GroomSimulationStats stats = StepGroomGuideSimulation(inputs, state);
+        ASSERT_FALSE(stats.Refused) << "frame " << frame;
+        if (frame >= 540u)
+        {
+            late.push_back(state.Curr.back());
+            lateContacts += stats.ContactsResolved;
+        }
+    }
+    glm::vec3 mean(0.0f);
+    for (const glm::vec3& p : late)
+        mean += p;
+    mean /= static_cast<f32>(late.size());
+    f64 sum2 = 0.0;
+    for (const glm::vec3& p : late)
+        sum2 += static_cast<f64>(glm::length2(p - mean));
+    const f64 rms = std::sqrt(sum2 / static_cast<f64>(late.size()));
+    std::printf("[solver] a strand on a capsule, 10 s at rest: tip RMS about its mean over the last second = %.6f mm, "
+                "%u contacts in that second\n",
+                rms * 1000.0, lateContacts);
+    // Not vacuous: the strand is still lying on the capsule in the second that is measured.
+    EXPECT_GT(lateContacts, 0u) << "the strand left the capsule, so this measured a free strand";
+    EXPECT_LT(rms, 0.01e-3) << "the strand still moves " << rms * 1000.0 << " mm RMS after ten seconds on the capsule";
 }
 
 // The clamp is a function of the STEP, so it must not touch a configuration

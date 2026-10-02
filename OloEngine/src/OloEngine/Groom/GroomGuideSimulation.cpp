@@ -20,14 +20,6 @@ namespace OloEngine
         // would normalise a zero vector. Squared, because every caller has the
         // squared length in hand already.
         constexpr f32 kSegmentEpsilon2 = 1.0e-12f;
-        // The speed band (m/s) over which DFTL's velocity correction fades in
-        // (#1533): none below the low end, where a particle is effectively at
-        // rest and the correction would only re-inject the same constant
-        // projection every step, all of it above the high end. A walking dog's
-        // long hair moves at tenths of a metre a second; the standing
-        // oscillation it replaced peaked near a centimetre a second.
-        constexpr f32 kCorrectionGateLow = 0.005f;
-        constexpr f32 kCorrectionGateHigh = 0.03f;
 
         [[nodiscard]] bool ParamsAreFinite(const GroomSimulationParams& p) noexcept
         {
@@ -340,9 +332,6 @@ namespace OloEngine
         // buffer for the whole call; the FTL pass is per strand and reads only
         // its own range.
         std::vector<glm::vec3> corrections(pointCount, glm::vec3(0.0f));
-        // Each particle's speed coming into the step, which gates how much of
-        // that correction is handed back (see the DFTL pass below).
-        std::vector<f32> speeds(pointCount, 0.0f);
 
         // The steps this call owes, counted before any runs: every guide takes
         // the same number.
@@ -392,7 +381,6 @@ namespace OloEngine
                 for (u32 i = first + 1u; i < last; ++i)
                 {
                     const glm::vec3 curr = state.Curr[i];
-                    speeds[i] = glm::length(curr - state.Prev[i]) / dt;
                     const glm::vec3 velocity = (curr - state.Prev[i]) * velocityRetain;
                     // The shape term is what makes this fur rather than hair:
                     // the strand is pulled back toward the position the GROOM
@@ -533,24 +521,9 @@ namespace OloEngine
                             // particle i. Handing it back through `Prev` —
                             // which is where this integrator keeps velocity —
                             // is what separates DFTL from FTL's syrup.
-                            //
-                            // GATED BY SPEED (#1533). Under a CONSTANT force --
-                            // gravity on a coat at rest -- the projection
-                            // corrects by the same amount every step, so the
-                            // full correction keeps handing back the same
-                            // momentum and the strand never reaches its sag: the
-                            // dog's long hair swung 0.4 mm RMS a second after
-                            // the clip stopped. Faded out below a few
-                            // centimetres a second, a still coat settles as FTL
-                            // does; a moving one, which is what the correction
-                            // is for, keeps all of it.
                             for (u32 i = first + 1u; i + 1u < last; ++i)
                             {
-                                const f32 gate = std::clamp((speeds[i] - kCorrectionGateLow) /
-                                                                (kCorrectionGateHigh - kCorrectionGateLow),
-                                                            0.0f, 1.0f);
-                                const f32 smooth = gate * gate * (3.0f - 2.0f * gate);
-                                state.Prev[i] -= corrections[i + 1u] * (params.VelocityCorrection * smooth);
+                                state.Prev[i] -= corrections[i + 1u] * params.VelocityCorrection;
                             }
                         }
                         break;

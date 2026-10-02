@@ -4046,6 +4046,69 @@ namespace OloEngine::Tests
     }
 
     // =========================================================================
+    // Not an assertion (OLO_DOG_REST_SETTLE=1): the long hair at rest, second by
+    // second for six seconds from the re-seed -- the swing B6 judges over one
+    // second after 1.5 s of warm-up -- and how far each second's mean offset has
+    // moved since the second before. A coat that settles shows both falling; one
+    // that hovers shows the swing flat and the mean still; one that creeps shows
+    // the mean moving. Measured in round 4 of #1533: 0.90, 0.46, 0.43, 0.37, 0.34,
+    // 0.37 mm, the mean nearly still -- and with OLO_DOG_REST_SETTLE_OFF=collide
+    // 0.87, 0.016, then under a micrometre: the body's colliders keep it moving.
+    // =========================================================================
+    TEST_F(DogShowcaseEvidenceTest, TheCoatAtRestIsMeasuredSecondBySecond)
+    {
+        const char* flag = std::getenv("OLO_DOG_REST_SETTLE");
+        if (flag == nullptr || flag[0] != '1')
+        {
+            GTEST_SKIP() << "set OLO_DOG_REST_SETTLE=1 to record the coat at rest second by second";
+        }
+        SetPath(RenderingPath::Forward);
+        // OLO_DOG_REST_SETTLE_OFF=collide: the same with the body's colliders off.
+        auto& simulation = m_Dog.Coat.GetComponent<GroomSimulationComponent>();
+        const bool shippedCollide = simulation.m_Collide;
+        if (const char* off = std::getenv("OLO_DOG_REST_SETTLE_OFF"); off != nullptr && std::string(off).find("collide") != std::string::npos)
+        {
+            simulation.m_Collide = false;
+        }
+        constexpr u32 kSeconds = 6;
+        constexpr u32 kPerSecond = 60;
+        const RuntimeSequence rest = RecordRuntime("Rest", HeroViews()[0], 0, kSeconds * kPerSecond, nullptr);
+        simulation.m_Collide = shippedCollide;
+        ASSERT_FALSE(HasFatalFailure());
+        ASSERT_EQ(rest.LongHairTips.size(), static_cast<sizet>(kSeconds * kPerSecond));
+        std::vector<glm::dvec3> previousMean;
+        for (u32 s = 0; s < kSeconds; ++s)
+        {
+            RuntimeSequence chunk;
+            chunk.LongHairTips.assign(rest.LongHairTips.begin() + (s * kPerSecond),
+                                      rest.LongHairTips.begin() + ((s + 1u) * kPerSecond));
+            const Liveness live = JudgeLiveness(chunk);
+            const sizet guides = chunk.LongHairTips.front().size();
+            std::vector<glm::dvec3> mean(guides, glm::dvec3(0.0));
+            for (const auto& tips : chunk.LongHairTips)
+            {
+                for (sizet g = 0; g < guides && g < tips.size(); ++g)
+                {
+                    mean[g] += glm::dvec3(tips[g]) / static_cast<f64>(kPerSecond);
+                }
+            }
+            f64 moved = 0.0;
+            if (previousMean.size() == guides)
+            {
+                for (sizet g = 0; g < guides; ++g)
+                {
+                    moved += glm::length(mean[g] - previousMean[g]) / static_cast<f64>(guides);
+                }
+            }
+            previousMean = mean;
+            std::printf("[dog] rest second %u: the long hair swings %.3f mm; its mean offset moved %.3f mm since the "
+                        "second before\n",
+                        s + 1u, 1000.0 * live.LongHairSwing, 1000.0 * moved);
+        }
+        std::fflush(stdout);
+    }
+
+    // =========================================================================
     // B6's oracle against a solver that does not run (#1533 acceptance review,
     // section 2): the walk recorded exactly as above with the guide simulation
     // switched off must be called NOT LIVE -- no solver step, no long-hair swing
