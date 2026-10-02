@@ -1,0 +1,39 @@
+SkinProfile:
+  Name: Dog Teeth
+  # The showcase dog's teeth (issue #1533, round 4). TRANSPORT VERSION 4, the
+  # human OralEnamel.oloskin's enamel with the dog's sizes. Until round 4 the
+  # teeth were bare glTF PBR and half the size a golden retriever's are; with
+  # the mouth open they now show, so they need what makes a tooth read as a
+  # tooth rather than a white bead: a near-achromatic scatter, enamel's own wet
+  # film at its own index, and the cavity weight that keeps a tooth inside a
+  # shut mouth from glowing through the lip.
+  EvaluationModel: 4
+  Units: "colours: linear Rec.709 (unitless 0..1); lengths: millimetres"
+  # Enamel over dentin: it scatters, but it does not carry red the way a dermis
+  # does. A tooth authored with a skin ScatterColor reads as a gum.
+  ScatterColor: [0.92, 0.9, 0.86]
+  ScatterRadiusMM: [0.42, 0.4, 0.38]
+  ThicknessScale: 1000
+  SpecularTint: [1.0, 1.0, 0.98]
+  # A canine's tip is thin enough to pass a backlight: forward-biased.
+  Transmission:
+    Strength: 1
+    Anisotropy: 0.7
+    Power: 4
+  Specular:
+    LobeMix: 0.1
+    LobeRoughnessScale: 1.6
+    NormalVarianceStrength: 0.0
+    DetailStrength: 0
+    ExpressionDetailGain: 0
+  Oral:
+    # Enamel's film, lower than the tongue's: most of a tooth's gloss is the
+    # tooth, a hard smooth dielectric.
+    CoatStrength: 0.45
+    CoatRoughness: 0.04
+    # Enamel, 1.63, against saliva's 1.33: three times the reflectance head-on,
+    # and the field that stops a tooth shading like the gum it sits in.
+    CoatIor: 1.63
+    # Fully spent on the teeth's baked occlusion (DogTeethOcclusion.png, in the
+    # pant pose): a tooth inside the shut mouth must not glow through the lip.
+    CavityOcclusion: 1.0

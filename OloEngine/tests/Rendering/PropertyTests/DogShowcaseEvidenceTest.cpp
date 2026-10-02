@@ -340,10 +340,12 @@ namespace OloEngine::Tests
             const char* Profile; // under Assets/Materials
             f32 Thickness;
         };
-        constexpr std::array<SkinPatch, 4> kSkinPatches{ { { "DogNose", "DogNose.oloskin", 0.003f },
+        // The teeth since round 4 (#1533): enamel, now that the open mouth shows them.
+        constexpr std::array<SkinPatch, 5> kSkinPatches{ { { "DogNose", "DogNose.oloskin", 0.003f },
                                                            { "DogLip", "DogLip.oloskin", 0.003f },
                                                            { "DogGum", "DogGum.oloskin", 0.004f },
-                                                           { "DogTongue", "DogTongue.oloskin", 0.006f } } };
+                                                           { "DogTongue", "DogTongue.oloskin", 0.006f },
+                                                           { "DogTeeth", "DogTeeth.oloskin", 0.005f } } };
     } // namespace
 
     class DogShowcaseEvidenceTest : public RendererAttachedTest
@@ -370,7 +372,8 @@ namespace OloEngine::Tests
         Entity m_Rim;
         Entity m_Ground;
         fs::path m_ProjectDir;
-        std::array<AssetHandle, 5> m_SkinHandles{}; // kSkinPatches..., then the eye
+        std::array<AssetHandle, kSkinPatches.size() + 1u> m_SkinHandles{}; // kSkinPatches..., then the eye
+        static constexpr sizet kEyeSkinSlot = kSkinPatches.size();
 
         static constexpr int kDiffThreshold = 12;
 
@@ -790,6 +793,33 @@ namespace OloEngine::Tests
                 EXPECT_TRUE(nose->GetNormalMap()) << "the nose leather lost its cobblestone normal map";
                 EXPECT_TRUE(nose->GetAOMap()) << "the nose leather's occlusion map was dropped on import";
             }
+            // The mouth's maps (build_dog.py, bake_mouth; round 4): the tongue's
+            // colour, papillae and occlusion, the gums' colour and occlusion, and
+            // the lips' and teeth's occlusion, which keeps the open mouth dark
+            // inside instead of reflecting the sky off the palate.
+            {
+                const auto material = [&d](const char* name) -> const Material*
+                {
+                    for (const Material& m : d.Model->GetMaterials())
+                    {
+                        if (m.GetName().ToStdString() == name)
+                            return &m;
+                    }
+                    return nullptr;
+                };
+                const Material* tongue = material("DogTongue");
+                const Material* gum = material("DogGum");
+                const Material* lip = material("DogLip");
+                const Material* teeth = material("DogTeeth");
+                ASSERT_TRUE(tongue && gum && lip && teeth) << "a mouth material is missing from the dog";
+                EXPECT_TRUE(tongue->GetAlbedoMap()) << "the tongue lost its colour map";
+                EXPECT_TRUE(tongue->GetNormalMap()) << "the tongue lost its papillae";
+                EXPECT_TRUE(tongue->GetAOMap()) << "the tongue's occlusion was dropped on import";
+                EXPECT_TRUE(gum->GetAlbedoMap()) << "the gums lost their colour map";
+                EXPECT_TRUE(gum->GetAOMap()) << "the gums' occlusion was dropped on import";
+                EXPECT_TRUE(lip->GetAOMap()) << "the lips' occlusion was dropped on import";
+                EXPECT_TRUE(teeth->GetAOMap()) << "the teeth's occlusion was dropped on import";
+            }
 
             d.Body = scene.CreateEntity("Dog");
             (void)ModelImporter::PopulateAnimatedEntity(d.Body, d.Model, DogPath().string(), true);
@@ -815,7 +845,7 @@ namespace OloEngine::Tests
                 {
                     m_SkinHandles[i] = LoadSkinProfile(kSkinPatches[i].Profile);
                 }
-                m_SkinHandles[4] = LoadSkinProfile("DogEye.oloskin");
+                m_SkinHandles[kEyeSkinSlot] = LoadSkinProfile("DogEye.oloskin");
                 EXPECT_EQ(warnings.Count("had out-of-range parameters"), 0u)
                     << "a dog skin profile was clamped on load";
             }
@@ -895,7 +925,7 @@ namespace OloEngine::Tests
                 material.SetMetallicFactor(0.0f);
                 material.SetRoughnessFactor(0.08f);
                 material.SetMaterialKind(MaterialKind::Skin);
-                material.SetSkinProfileHandle(m_SkinHandles[4]);
+                material.SetSkinProfileHandle(m_SkinHandles[kEyeSkinSlot]);
                 material.SetThicknessFactor(0.004f);
                 // Local transform in the bone's frame: the bone's head IS the eye
                 // centre; rotate +Z onto the gaze as the bone sees it.
@@ -5097,8 +5127,10 @@ namespace OloEngine::Tests
         // the one place a thin coat's forward scatter shows.
         // And three the way a viewer's editor camera finds the dog up close (Ole's
         // review, #1533): the neck from its other side, near enough to count
-        // strands; the muzzle in profile, near; and the tail from above.
-        const std::array<View, 10> views{ {
+        // strands; the muzzle in profile, near; and the tail from above. Last,
+        // the open mouth from the front and below, where the tongue, gums and
+        // teeth of the Pant clip are seen (OLO_DOG_LOOKDEV_CLIP=Pant).
+        const std::array<View, 11> views{ {
             { "FaceFront", { 0.0f, 0.60f, 1.05f }, { 0.0f, 0.57f, 0.42f }, 30.0f },
             { "FaceThreeQuarter", { 0.42f, 0.63f, 0.95f }, { 0.0f, 0.57f, 0.40f }, 30.0f },
             { "FaceProfile", { 0.78f, 0.60f, 0.42f }, { 0.0f, 0.57f, 0.40f }, 30.0f },
@@ -5109,6 +5141,7 @@ namespace OloEngine::Tests
             { "NeckClose", { -0.30f, 0.40f, 0.22f }, { 0.0f, 0.46f, 0.24f }, 30.0f },
             { "MuzzleClose", { -0.36f, 0.58f, 0.47f }, { 0.0f, 0.56f, 0.47f }, 24.0f },
             { "TailTop", { 0.30f, 1.05f, -0.80f }, { 0.0f, 0.48f, -0.40f }, 30.0f },
+            { "MouthOpen", { -0.22f, 0.44f, 0.78f }, { 0.0f, 0.47f, 0.47f }, 24.0f },
         } };
         // OLO_DOG_LOOKDEV_ONLY=wag skips the stills for the wag flip-book alone.
         const bool wagOnly = []

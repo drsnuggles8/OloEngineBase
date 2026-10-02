@@ -1440,30 +1440,46 @@ def build_tongue_mesh(log=print):
 
 
 # teeth: (base point in the head frame, direction, length, base radii (mesio-distal, labio-lingual), jaw)
-def _teeth_layout():
+#
+# TWO SIZES, and the split is about the coat, not the teeth (#1533, round 4). The body's UVs are one
+# smart projection over the whole mesh, teeth included, and the groom keys its colour map and clump
+# cells on the pelt's root UVs: an island that changes shape repacks the pelt and regrows every clump.
+# So the teeth enter the projection at their FIRST size (final=False), and reshape_teeth puts them at
+# the size the face shows after the coat map is baked, with the same topology; only their own
+# material samples them from there on. The first size was a stylised half-size row: the lower
+# incisors sank in the jaw and the canines stayed behind the flews with the mouth open. A golden
+# retriever's upper canine crown is 15-20 mm; 16 mm keeps its tip in the lip slit with the mouth
+# shut (22 mm stood out under the flews like a fang, measured against f_head) and shows the crown
+# when it opens. The lower incisors stand 3-4 mm clear of the gum, the lower canines 10 mm.
+def _teeth_layout(final=False):
     teeth = []
     # upper incisors: an arc behind the upper lip, hanging down
     for x in (-0.0100, -0.0060, -0.0020, 0.0020, 0.0060, 0.0100):
         y = -0.1790 + 0.022 * x * x / 0.011
         length = 0.0042 if abs(x) < 0.008 else 0.0047
+        if final:
+            length += 0.0008
         teeth.append(((x, y, -0.0712), (0.0, -0.12, -1.0), length, (0.0019, 0.0012), "upper"))
     for s in (1.0, -1.0):  # upper canines, in the gap outside the lower jaw
-        teeth.append(((s * 0.0245, -0.1600, -0.0705), (s * 0.05, 0.10, -1.0), 0.0080, (0.0021, 0.0021), "upper"))
+        length, radius = (0.0160, 0.0030) if final else (0.0080, 0.0021)
+        teeth.append(((s * 0.0245, -0.1600, -0.0705), (s * 0.05, 0.10, -1.0), length, (radius, radius), "upper"))
     # lower incisors on the front of the lower jaw, pointing up
     for x in (-0.0084, -0.0050, -0.0016, 0.0016, 0.0050, 0.0084):
         y = -0.1725 + 0.020 * x * x / 0.009
-        teeth.append(((x, y, -0.0795), (0.0, -0.18, 1.0), 0.0037, (0.0016, 0.0011), "lower"))
+        z, length = (-0.0773, 0.0055) if final else (-0.0795, 0.0037)
+        teeth.append(((x, y, z), (0.0, -0.18, 1.0), length, (0.0016, 0.0011), "lower"))
     for s in (1.0, -1.0):  # lower canines
-        teeth.append(((s * 0.0170, -0.1650, -0.0800), (s * 0.06, -0.10, 1.0), 0.0070, (0.0019, 0.0019), "lower"))
+        length, radius = (0.0100, 0.0024) if final else (0.0070, 0.0019)
+        teeth.append(((s * 0.0170, -0.1650, -0.0800), (s * 0.06, -0.10, 1.0), length, (radius, radius), "lower"))
     return teeth
 
 
-def build_teeth():
+def build_teeth(final=False):
     """Stylised teeth as open-based tapered tubes (disk topology: one UV island each).
-    Returns list of (verts, tris, jaw) in world coordinates."""
+    Returns list of (verts, tris, jaw) in world coordinates. The same topology at either size."""
     out = []
     seg, rings = 14, 9
-    for base, d, length, (ra, rb), jaw in _teeth_layout():
+    for base, d, length, (ra, rb), jaw in _teeth_layout(final):
         b = np.array(base, dtype=np.float64) + HEAD
         d = np.array(d, dtype=np.float64)
         d /= np.linalg.norm(d)
@@ -1505,6 +1521,26 @@ def build_teeth():
             tris = tris[:, ::-1]
         out.append((verts, tris, jaw))
     return out
+
+
+def reshape_teeth(ob, log=print):
+    """The teeth at the size the face shows (see _teeth_layout), AFTER the coat map is baked: the
+    same topology as the size they entered the UV projection at, so this moves vertices and nothing
+    else. They are the mesh's last vertices (assemble appends them after the tongue)."""
+    me = ob.data
+    final = np.concatenate([v for v, _t, _j in build_teeth(final=True)])
+    first = np.concatenate([v for v, _t, _j in build_teeth(final=False)])
+    total = len(me.vertices)
+    co = np.zeros(total * 3, dtype=np.float64)
+    me.vertices.foreach_get("co", co)
+    co = co.reshape(-1, 3)
+    n = len(final)
+    if not np.allclose(co[total - n:], first, atol=1e-5):
+        raise RuntimeError("reshape_teeth: the mesh's last vertices are not the teeth assemble appended")
+    co[total - n:] = final
+    me.vertices.foreach_set("co", co.ravel())
+    me.update()
+    log(f"[teeth] resized after the coat bake: {n} vertices, the same topology")
 
 
 # ----------------------------------------------------------------------------
@@ -2535,6 +2571,354 @@ def bake_nose_occlusion(ob, out_path, log=print):
     return img
 
 
+# ----------------------------------------------------------------------------
+# The mouth's own maps (#1533, round 4). The tongue, gums, lips and teeth were flat glTF colour and
+# roughness: the tongue read as smooth pink plastic, and with no occlusion the wet film on the palate
+# reflected the sky's sun as a white blaze. Each part is re-unwrapped into its own UV square after
+# the coat map is baked (the pelt's islands are not touched), then gets
+#   * a COLOUR map painted from its own surface (position and normal baked per texel, the pattern
+#     evaluated in 3D so it is the same size whatever the UVs do): the tongue redder at the root
+#     and the edges, paler at the tip, its median groove darker, the pale tips of the filiform
+#     papillae over the dorsum, a purple, veined underside; the gums pink with black pigment;
+#   * on the tongue, a NORMAL map of those papillae (Cycles, domes in object space);
+#   * an OCCLUSION map from the whole head, baked in the PANT pose: the only clip that shows the
+#     inside of the mouth, and a tongue baked inside the shut mouth would hang out dark.
+# ----------------------------------------------------------------------------
+MOUTH_TEX_SIZE = 1024
+TONGUE_PAPILLA = 0.00055  # metres between the filiform papillae on the dorsum
+TONGUE_RELIEF = 0.00010  # metres from a papilla's foot to its tip
+MOUTH_AO_DISTANCE = 0.03  # metres: the whole oral cavity
+MOUTH_AO_SAMPLES = 48
+PANT_WIDEST_FRAME = 2  # Pant's jaw is 22 + 3 sin(8 pi t) degrees: widest at t = 1/16 s, frame 2 at 30 fps
+MOUTH_PARTS = ((M_TONGUE, "Tongue"), (M_GUM, "Gum"), (M_LIP, "Lip"), (M_TEETH, "Teeth"))
+
+
+def unwrap_material(ob, mat_index, label, angle=66.0, margin=0.01, log=print):
+    """Re-unwrap one material's faces alone into the whole UV square, after the coat map is baked:
+    they overlap the pelt's islands from then on, which only that material samples."""
+    import bpy
+
+    me = ob.data
+    idx = np.zeros(len(me.polygons), dtype=np.int32)
+    me.polygons.foreach_get("material_index", idx)
+    face_sel = idx == mat_index
+    vert_sel = np.zeros(len(me.vertices), dtype=bool)
+    loop_v = np.zeros(len(me.loops), dtype=np.int32)
+    me.loops.foreach_get("vertex_index", loop_v)
+    start = np.zeros(len(me.polygons), dtype=np.int32)
+    total = np.zeros(len(me.polygons), dtype=np.int32)
+    me.polygons.foreach_get("loop_start", start)
+    me.polygons.foreach_get("loop_total", total)
+    for f in np.nonzero(face_sel)[0]:
+        vert_sel[loop_v[start[f]:start[f] + total[f]]] = True
+    edge_v = np.zeros(len(me.edges) * 2, dtype=np.int32)
+    me.edges.foreach_get("vertices", edge_v)
+    edge_sel = vert_sel[edge_v.reshape(-1, 2)].all(axis=1)
+    me.polygons.foreach_set("select", face_sel)
+    me.vertices.foreach_set("select", vert_sel)
+    me.edges.foreach_set("select", edge_sel)
+    for o in bpy.context.view_layer.objects:
+        o.select_set(False)
+    ob.select_set(True)
+    bpy.context.view_layer.objects.active = ob
+    with bpy.context.temp_override(active_object=ob, object=ob, edit_object=ob):
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.uv.smart_project(angle_limit=math.radians(angle), island_margin=margin, area_weight=0.0,
+                                 correct_aspect=True, scale_to_bounds=False)
+        bpy.ops.object.mode_set(mode="OBJECT")
+    log(f"[uv] {label}: {int(face_sel.sum())} faces into their own square")
+
+
+def _bake_copy(ob, mat_index, whole, posed_from=None):
+    """A temporary copy of the body for baking one material's faces. whole=False keeps only those
+    faces; True keeps every face as an occluder with the others' UVs collapsed outside the image,
+    where the bake writes nothing. posed_from: a mesh object in a pose whose vertex positions replace
+    the copy's (the same topology and UVs), for a bake in that pose."""
+    import bmesh
+    import bpy
+
+    dup = ob.copy()
+    dup.data = ob.data.copy()
+    dup.modifiers.clear()
+    bpy.context.collection.objects.link(dup)
+    me = dup.data
+    if posed_from is not None:
+        src = posed_from.data
+        co = np.zeros(len(src.vertices) * 3, dtype=np.float64)
+        src.vertices.foreach_get("co", co)
+        me.vertices.foreach_set("co", co)
+        me.update()
+    if whole:
+        idx = np.zeros(len(me.polygons), dtype=np.int32)
+        me.polygons.foreach_get("material_index", idx)
+        start = np.zeros(len(me.polygons), dtype=np.int32)
+        total = np.zeros(len(me.polygons), dtype=np.int32)
+        me.polygons.foreach_get("loop_start", start)
+        me.polygons.foreach_get("loop_total", total)
+        uv = np.zeros(len(me.loops) * 2, dtype=np.float32)
+        me.uv_layers.active.data.foreach_get("uv", uv)
+        uv = uv.reshape(-1, 2)
+        for f in np.nonzero(idx != mat_index)[0]:
+            uv[start[f]:start[f] + total[f]] = (-4.0, -4.0)
+        me.uv_layers.active.data.foreach_set("uv", uv.ravel())
+    else:
+        bm = bmesh.new()
+        bm.from_mesh(me)
+        bmesh.ops.delete(bm, geom=[f for f in bm.faces if f.material_index != mat_index], context="FACES")
+        bm.to_mesh(me)
+        bm.free()
+    me.polygons.foreach_set("material_index", np.zeros(len(me.polygons), dtype=np.int32))
+    return dup
+
+
+def _bake_into(dup, name, size, build, bake_type, samples, float_buffer, colorspace, log):
+    """Bake the shader `build(nt, out)` wires into a fresh material on `dup`, into a new image."""
+    import bpy
+
+    img = bpy.data.images.new(name, size, size, alpha=False, float_buffer=float_buffer)
+    img.colorspace_settings.name = colorspace
+    mat = bpy.data.materials.new(name + "Bake")
+    nt = mat.node_tree
+    for nd in list(nt.nodes):
+        nt.nodes.remove(nd)
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    build(nt, out)
+    tex = nt.nodes.new("ShaderNodeTexImage")
+    tex.image = img
+    nt.nodes.active = tex
+    dup.data.materials.clear()
+    dup.data.materials.append(mat)
+    scene = bpy.context.scene
+    scene.render.engine = "CYCLES"
+    scene.cycles.device = "CPU"
+    scene.cycles.samples = samples
+    scene.render.bake.normal_space = "TANGENT"
+    for o in bpy.context.view_layer.objects:
+        o.select_set(False)
+    dup.select_set(True)
+    bpy.context.view_layer.objects.active = dup
+    t0 = time.time()
+    bpy.ops.object.bake(type=bake_type, margin=16, use_clear=True)
+    log(f"[mouth] baked {name} ({bake_type}, {size}^2) in {time.time() - t0:.1f}s")
+    bpy.data.materials.remove(mat)
+    return img
+
+
+def _emit_of(socket_name):
+    """A shader that emits one Texture Coordinate output as its colour (a position or normal bake)."""
+
+    def build(nt, out):
+        emit = nt.nodes.new("ShaderNodeEmission")
+        coord = nt.nodes.new("ShaderNodeTexCoord")
+        nt.links.new(coord.outputs[socket_name], emit.inputs["Color"])
+        nt.links.new(emit.outputs["Emission"], out.inputs["Surface"])
+
+    return build
+
+
+def _emit_white(nt, out):
+    emit = nt.nodes.new("ShaderNodeEmission")
+    emit.inputs["Color"].default_value = (1.0, 1.0, 1.0, 1.0)
+    nt.links.new(emit.outputs["Emission"], out.inputs["Surface"])
+
+
+def _pixels(img):
+    px = np.zeros(img.size[0] * img.size[1] * 4, dtype=np.float32)
+    img.pixels.foreach_get(px)
+    return px.reshape(img.size[1], img.size[0], 4)
+
+
+def _hash3(i, j, k, seed):
+    """A hash of integer lattice coordinates to [0, 1]."""
+    h = (i * 73856093) ^ (j * 19349663) ^ (k * 83492791) ^ (seed * 2654435761)
+    h = (h ^ (h >> 13)) * 1274126177
+    return ((h ^ (h >> 16)) & 0xFFFFFF).astype(np.float64) / float(0xFFFFFF)
+
+
+def _value_noise3(p, cell, seed):
+    """Smooth value noise in [0, 1] over 3D points p (N, 3), one lattice cell `cell` metres wide."""
+    q = p / cell
+    i0 = np.floor(q).astype(np.int64)
+    f = q - i0
+    f = f * f * (3.0 - 2.0 * f)
+    acc = np.zeros(len(p))
+    for dx in (0, 1):
+        for dy in (0, 1):
+            for dz in (0, 1):
+                w = ((f[:, 0] if dx else 1.0 - f[:, 0]) * (f[:, 1] if dy else 1.0 - f[:, 1]) *
+                     (f[:, 2] if dz else 1.0 - f[:, 2]))
+                acc += w * _hash3(i0[:, 0] + dx, i0[:, 1] + dy, i0[:, 2] + dz, seed)
+    return acc
+
+
+def _cell_dots3(p, cell, seed):
+    """Distance, in cells, to the nearest jittered lattice point, and that point's random value."""
+    q = p / cell
+    i0 = np.floor(q).astype(np.int64)
+    best = np.full(len(p), 9.0)
+    value = np.zeros(len(p))
+    for dx in (-1, 0, 1):
+        for dy in (-1, 0, 1):
+            for dz in (-1, 0, 1):
+                ci = i0 + np.array((dx, dy, dz))
+                jitter = np.stack([_hash3(ci[:, 0], ci[:, 1], ci[:, 2], seed + s) for s in range(3)], axis=1)
+                d = np.linalg.norm(ci + 0.15 + 0.7 * jitter - q, axis=1)
+                closer = d < best
+                best = np.where(closer, d, best)
+                value = np.where(closer, _hash3(ci[:, 0], ci[:, 1], ci[:, 2], seed + 7), value)
+    return best, value
+
+
+def _lerp_rows(a, b, t):
+    return a + (b - a) * t[:, None]
+
+
+def _to_srgb(rgb):
+    rgb = np.maximum(rgb, 0.0)
+    return np.clip(np.where(rgb <= 0.0031308, rgb * 12.92, 1.055 * np.power(rgb, 1.0 / 2.4) - 0.055), 0.0, 1.0)
+
+
+def paint_tongue(p, n):
+    """sRGB colours for tongue texels at rest-pose positions p with normals n (both (N, 3))."""
+    lin = lambda c: _srgb_to_linear(np.array(c, dtype=np.float64))  # noqa: E731
+    q = p - HEAD.astype(np.float64)
+    along = np.clip((-0.060 - q[:, 1]) / 0.110, 0.0, 1.0)  # 0 at the root, 1 at the tip
+    root, mid, tip = lin((0.66, 0.24, 0.28)), lin((0.80, 0.34, 0.38)), lin((0.86, 0.46, 0.49))
+    dorsal = np.where((along < 0.5)[:, None], _lerp_rows(root, mid, along * 2.0),
+                      _lerp_rows(mid, tip, along * 2.0 - 1.0))
+    # The edges a little darker and redder, the median groove darker still toward the root.
+    edge = np.clip((np.abs(q[:, 0]) - 0.012) / 0.007, 0.0, 1.0)
+    dorsal *= (1.0 - 0.14 * edge)[:, None] * np.power(np.array((1.0, 0.86, 0.88))[None, :], edge[:, None])
+    groove = np.exp(-(q[:, 0] / 0.0016) ** 2) * np.clip((0.95 - along) * 3.0, 0.0, 1.0)
+    dorsal *= (1.0 - 0.22 * groove)[:, None]
+    dorsal *= (1.0 + 0.10 * (_value_noise3(p, 0.004, 3) - 0.5))[:, None]
+    # The filiform papillae's pale tips, on about half of them.
+    dist, val = _cell_dots3(p, TONGUE_PAPILLA, 11)
+    tips = np.clip(1.0 - dist / 0.35, 0.0, 1.0) * (val > 0.55)
+    dorsal = dorsal + (lin((0.92, 0.70, 0.70)) - dorsal) * (0.30 * tips)[:, None]
+    # The underside: deeper and bluer, with veins.
+    under = np.tile(lin((0.60, 0.22, 0.32)), (len(p), 1))
+    ridge = np.abs(_value_noise3(p, 0.009, 21) - 0.5) + 0.35 * np.abs(_value_noise3(p, 0.0035, 23) - 0.5)
+    vein = np.clip(1.0 - ridge / 0.03, 0.0, 1.0)
+    under = under * (1.0 - vein[:, None] * (1.0 - np.array((0.80, 0.68, 0.90))[None, :]))
+    top = np.clip((n[:, 2] + 0.15) / 0.5, 0.0, 1.0)
+    return _to_srgb(_lerp_rows(under, dorsal, top))
+
+
+def paint_gum(p, n):
+    """sRGB colours for gum texels: pink, with the black pigment patches a golden's gums carry."""
+    lin = lambda c: _srgb_to_linear(np.array(c, dtype=np.float64))  # noqa: E731
+    base = np.tile(lin((0.70, 0.36, 0.38)), (len(p), 1))
+    base *= (1.0 + 0.12 * (_value_noise3(p, 0.003, 5) - 0.5))[:, None]
+    pigment = np.clip((_value_noise3(p, 0.0045, 9) - 0.66) / 0.05, 0.0, 1.0)
+    return _to_srgb(base + (lin((0.05, 0.035, 0.035)) - base) * pigment[:, None])
+
+
+def _papilla_normal(nt, out):
+    """The filiform papillae as domes in object space, through a bump into the BSDF's normal."""
+    bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
+    coord = nt.nodes.new("ShaderNodeTexCoord")
+    dome = nt.nodes.new("ShaderNodeTexVoronoi")
+    dome.voronoi_dimensions = "3D"
+    dome.feature = "F1"
+    dome.inputs["Scale"].default_value = 1.0 / TONGUE_PAPILLA
+    nt.links.new(coord.outputs["Object"], dome.inputs["Vector"])
+    sq = nt.nodes.new("ShaderNodeMath")
+    sq.operation = "MULTIPLY"
+    nt.links.new(dome.outputs["Distance"], sq.inputs[0])
+    nt.links.new(dome.outputs["Distance"], sq.inputs[1])
+    inv = nt.nodes.new("ShaderNodeMath")
+    inv.operation = "MULTIPLY_ADD"
+    inv.use_clamp = True
+    inv.inputs[1].default_value = -3.0
+    inv.inputs[2].default_value = 1.0
+    nt.links.new(sq.outputs["Value"], inv.inputs[0])
+    bump = nt.nodes.new("ShaderNodeBump")
+    bump.inputs["Strength"].default_value = 1.0
+    bump.inputs["Distance"].default_value = TONGUE_RELIEF
+    nt.links.new(inv.outputs["Value"], bump.inputs["Height"])
+    nt.links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
+    nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+
+
+def _mouth_ao(nt, out):
+    emit = nt.nodes.new("ShaderNodeEmission")
+    ao = nt.nodes.new("ShaderNodeAmbientOcclusion")
+    ao.samples = MOUTH_AO_SAMPLES
+    ao.only_local = True
+    ao.inputs["Distance"].default_value = MOUTH_AO_DISTANCE
+    ao.inputs["Color"].default_value = (1.0, 1.0, 1.0, 1.0)
+    nt.links.new(ao.outputs["Color"], emit.inputs["Color"])
+    nt.links.new(emit.outputs["Emission"], out.inputs["Surface"])
+
+
+def _save_png(img, path):
+    img.filepath_raw = path
+    img.file_format = "PNG"
+    img.save()
+    return img
+
+
+def bake_mouth(ob, arm, out_dir, log=print):
+    """The mouth's maps (see the block comment above): {material index: {kind: image}}."""
+    import bpy
+
+    for mat_index, label in MOUTH_PARTS:
+        unwrap_material(ob, mat_index, label.lower(), angle=60.0, margin=0.008, log=log)
+    maps = {}
+    size = MOUTH_TEX_SIZE
+    # Colour, painted from the rest pose's surface.
+    for mat_index, label, paint in ((M_TONGUE, "Tongue", paint_tongue), (M_GUM, "Gum", paint_gum)):
+        dup = _bake_copy(ob, mat_index, whole=False)
+        scratch = [f"Dog{label}Pos", f"Dog{label}Nrm", f"Dog{label}Cover"]
+        pos = _pixels(_bake_into(dup, scratch[0], size, _emit_of("Object"), "EMIT", 1, True, "Non-Color", log))
+        nrm = _pixels(_bake_into(dup, scratch[1], size, _emit_of("Normal"), "EMIT", 1, True, "Non-Color", log))
+        cover = _pixels(_bake_into(dup, scratch[2], size, _emit_white, "EMIT", 1, True, "Non-Color", log))
+        me = dup.data
+        bpy.data.objects.remove(dup)
+        bpy.data.meshes.remove(me)
+        inside = cover[..., 0] > 0.5
+        rgb = np.zeros((size, size, 3))
+        rgb[inside] = paint(pos[..., :3][inside].astype(np.float64), nrm[..., :3][inside].astype(np.float64))
+        img = bpy.data.images.new(f"Dog{label}Color", size, size, alpha=False, float_buffer=False)
+        img.colorspace_settings.name = "sRGB"
+        img.pixels.foreach_set(np.concatenate([rgb, np.ones((size, size, 1))], axis=2).astype(np.float32).ravel())
+        maps.setdefault(mat_index, {})["color"] = _save_png(img, os.path.join(out_dir, f"Dog{label}Color.png"))
+        for name in scratch:
+            bpy.data.images.remove(bpy.data.images[name])
+    # The papillae.
+    dup = _bake_copy(ob, M_TONGUE, whole=False)
+    normal = _bake_into(dup, "DogTongueNormal", size, _papilla_normal, "NORMAL", 1, False, "Non-Color", log)
+    maps[M_TONGUE]["normal"] = _save_png(normal, os.path.join(out_dir, "DogTongueNormal.png"))
+    me = dup.data
+    bpy.data.objects.remove(dup)
+    bpy.data.meshes.remove(me)
+    # Occlusion, in the pant pose at its widest jaw.
+    use_clip(arm, "Pant")
+    scene = bpy.context.scene
+    scene.frame_set(PANT_WIDEST_FRAME + 1)
+    scene.frame_set(PANT_WIDEST_FRAME)
+    posed = ob.evaluated_get(bpy.context.evaluated_depsgraph_get())
+    posed_mesh = bpy.data.meshes.new_from_object(posed)
+    holder = bpy.data.objects.new("PantPose", posed_mesh)
+    for mat_index, label in MOUTH_PARTS:
+        dup = _bake_copy(ob, mat_index, whole=True, posed_from=holder)
+        img = _bake_into(dup, f"Dog{label}Occlusion", size, _mouth_ao, "EMIT", 8, False, "Non-Color", log)
+        ao_px = _pixels(img)[..., 0]
+        lit = ao_px[ao_px > 0.0]
+        if len(lit):
+            log(f"[mouth] {label.lower()} occlusion: p5 {np.percentile(lit, 5):.2f}, median {np.median(lit):.2f}")
+        maps.setdefault(mat_index, {})["occlusion"] = _save_png(img, os.path.join(out_dir, f"Dog{label}Occlusion.png"))
+        me = dup.data
+        bpy.data.objects.remove(dup)
+        bpy.data.meshes.remove(me)
+    bpy.data.objects.remove(holder)
+    bpy.data.meshes.remove(posed_mesh)
+    use_clip(arm, None)
+    scene.frame_set(0)
+    return maps
+
+
 def _gltf_occlusion_group():
     """The glTF exporter's custom output group: an Occlusion socket it exports as occlusionTexture."""
     import bpy
@@ -2590,6 +2974,36 @@ def build_materials(coat_img, nose_normal=None, nose_occlusion=None):
                 nt.links.new(otex.outputs["Color"], sep.inputs["Color"])
                 nt.links.new(sep.outputs["Red"], grp.inputs["Occlusion"])
         m.diffuse_color = (*_srgb_to_linear(MATERIAL_LOOKS.get(nm, (COAT_GOLD, 0))[0]).tolist(), 1.0)
+
+
+def wire_mouth_materials(maps):
+    """Point the mouth's materials at their maps (bake_mouth): colour, the tongue's normal map, and
+    every part's occlusion through the glTF exporter's occlusion group, as DogNose's is."""
+    import bpy
+
+    for mat_index, kinds in maps.items():
+        m = bpy.data.materials.get(MATERIALS[mat_index])
+        nt = m.node_tree
+        bsdf = nt.nodes.get("Principled BSDF")
+        if "color" in kinds:
+            ctex = nt.nodes.new("ShaderNodeTexImage")
+            ctex.image = kinds["color"]
+            nt.links.new(ctex.outputs["Color"], bsdf.inputs["Base Color"])
+        if "normal" in kinds:
+            ntex = nt.nodes.new("ShaderNodeTexImage")
+            ntex.image = kinds["normal"]
+            nmap = nt.nodes.new("ShaderNodeNormalMap")
+            nmap.space = "TANGENT"
+            nt.links.new(ntex.outputs["Color"], nmap.inputs["Color"])
+            nt.links.new(nmap.outputs["Normal"], bsdf.inputs["Normal"])
+        if "occlusion" in kinds:
+            otex = nt.nodes.new("ShaderNodeTexImage")
+            otex.image = kinds["occlusion"]
+            sep = nt.nodes.new("ShaderNodeSeparateColor")
+            grp = nt.nodes.new("ShaderNodeGroup")
+            grp.node_tree = _gltf_occlusion_group()
+            nt.links.new(otex.outputs["Color"], sep.inputs["Color"])
+            nt.links.new(sep.outputs["Red"], grp.inputs["Occlusion"])
 
 
 # ----------------------------------------------------------------------------
@@ -2859,8 +3273,10 @@ def clip_pant(r, t):
     s = math.sin(2 * math.pi * 4 * t)
     r.rot("jaw", AX_X, 22.0 + 3.0 * s)
     # The tongue SLIDES out over the lower incisors first (its bend pivots sit behind the lip,
-    # so bending in place drove the tip through the chin), then hangs over the lip.
-    r.move("tongue_01", (0.0, -0.030, 0.003))
+    # so bending in place drove the tip through the chin), then hangs over the lip. Lifted 7 mm
+    # as it goes: the incisors stand clear of the gum since round 4 (_teeth_layout), and at the
+    # first 3 mm the tongue slid through them.
+    r.move("tongue_01", (0.0, -0.030, 0.007))
     r.rot("tongue_01", AX_X, -4.0)
     r.rot("tongue_02", AX_X, 6.0 + 2.0 * s)
     r.rot("tongue_03", AX_X, 28.0 + 5.0 * s)
@@ -3213,9 +3629,11 @@ def main():
     unwrap_nose(body, log=log)
     nose = bake_nose_normal(body, os.path.join(out_dir, "DogNoseNormal.png"), log=log)
     nose_ao = bake_nose_occlusion(body, os.path.join(out_dir, "DogNoseOcclusion.png"), log=log)
+    reshape_teeth(body, log=log)
     build_materials(img, nose, nose_ao)
     write_weights(body, arm, W, names, log=log)
     bake_clips(arm, log=log)
+    wire_mouth_materials(bake_mouth(body, arm, out_dir, log=log))
     use_clip(arm, None)
     export_gltf(body, arm, out_dir, log=log)
     export_eyeball(out_dir, log=log)

@@ -18,7 +18,10 @@ writes it as Alembic hair curves, which the engine cooks into `Grooms/Dog/Dog.ol
 | `Dog.gltf` + `Dog.bin` | one skinned mesh (~256k triangles) on a 50-bone rig, eight materials, six clips |
 | `DogCoatColor.png` | 2048² coat colours: DogSkin's albedo and the groom's colour map |
 | `DogNoseNormal.png`, `DogNoseOcclusion.png` | 2048² each, the nose leather's own UV square: its cobblestones, and the occlusion that keeps its nostrils dark |
-| `DogIrisColor.png` | 1024², the eyeball's albedo on a planar UV across the gaze: the painted iris and the sclera round it |
+| `DogTongueColor.png`, `DogTongueNormal.png`, `DogTongueOcclusion.png` | 1024² each, the tongue's own UV square: its colour (redder root and edges, paler tip, the median groove, the papillae's pale tips, a veined underside), its filiform papillae, and its occlusion |
+| `DogGumColor.png`, `DogGumOcclusion.png` | 1024² each: pink gums with black pigment patches, and the oral cavity's occlusion |
+| `DogLipOcclusion.png`, `DogTeethOcclusion.png` | 1024² each: the lips' and teeth's occlusion, all of the mouth's baked in the Pant pose |
+| `DogIrisColor.png` | 2048², the eyeball's albedo on a planar UV across the gaze: the painted iris (fetched at the refracted iris point), its crisp pupil, and the sclera round it |
 | `Dog.rig.json` | eye radius, eye centres and gaze, lid and socket radii, the clip list |
 | `DogEyeball.gltf` + `.bin` | the unit sphere each eye entity draws (128 x 64: the engine's primitive sphere reloads at 16 segments) |
 
@@ -35,8 +38,8 @@ node's scale twice.
 
 **Materials.** `DogSkin` (the pelt), `DogNose`, `DogLip`, `DogGum`, `DogTongue`, `DogTeeth`, `DogPad`
 and `DogLid` (the outer skin of the eyelid shells). The scene patches skin profiles over the bare
-skins by name through a `MaterialOverridesComponent`, and the coat grows only on `DogSkin` and
-`DogLid`. Each nostril's inside, past 1.5 mm into the leather, is `DogPad`: matte, dark, with no wet
+skins by name through a `MaterialOverridesComponent` (the nose, lips, gums, tongue and, since round 4
+of #1533, the teeth's enamel), and the coat grows only on `DogSkin` and `DogLid`. Each nostril's inside, past 1.5 mm into the leather, is `DogPad`: matte, dark, with no wet
 film to catch the light, which read as a pair of glass beads.
 
 **Eyes.** Not in the glTF. `SkinOcularSurface` needs each eye to be its own uniformly scaled sphere
@@ -79,6 +82,19 @@ rest of the attachment lost the weight the ear beside it kept, and the twitch to
 non-overlapping, because the groom keys its colour map and clump cells on the root UV. The coat
 colours are a per-vertex field baked into the texture, with every empty texel filled so mipmaps do
 not bleed black across a seam.
+
+## The mouth
+
+The teeth are a golden retriever's size: upper canines 16 mm, lower canines 10 mm, the lower
+incisors standing clear of the gum. They enter the body's UV projection at their first, half-size
+shape and are resized after the coat map is baked (`reshape_teeth`, the same topology), because the
+pelt's UVs are one projection over the whole mesh and an island that changed shape would repack the
+pelt and regrow every clump of the coat; grown on the resized mouth, the coat is the same strand for
+strand. The tongue, gums, lips and teeth are then re-unwrapped into their own squares
+(`unwrap_material`) and get their maps (`bake_mouth`): colour painted in 3D from the baked surface,
+the tongue's papillae as a Cycles normal bake, and occlusion from the whole head in the Pant pose,
+the only clip that shows the inside of the mouth. In Pant the tongue lifts 7 mm as it slides out,
+over the incisors.
 
 ## The coat
 

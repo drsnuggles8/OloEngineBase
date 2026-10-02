@@ -312,25 +312,105 @@ LightmapSettings:
   MaxBounces: 4
   TexelsPerMeter: 8
 Entities:
-  - Entity: 5132922477606895433
+  - Entity: 193513189554010833
     TagComponent:
-      Tag: Sky
+      Tag: Dog
     TransformComponent:
       Translation: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    ProceduralSkyComponent:
-      SunDirection: [0.6717826, 0.5715166, 0.4712505]
-      Turbidity: 3
-      Exposure: 0.1
-      SunIntensity: 1
-      SunDiskSize: 1
-      ShowSunDisk: true
-      EnableSkybox: true
-      EnableIBL: true
-      IBLIntensity: 0.3
-      CubemapResolution: 256
-  - Entity: 6021589945823404428
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.35
+      CurrentClipIndex: 0
+      IsPlaying: true
+      Loop: true
+      PlaybackSpeed: 1
+      SourceFilePath: Assets/Models/Dog/Dog.gltf
+      CurrentClipName: Idle
+    SkeletonComponent:
+      {}
+    MaterialOverridesComponent:
+      Overrides:
+        - MaterialName: DogSkin
+          Kind: 0
+          SkinProfile: 0
+          ThicknessFactor: 0
+          OverrideBaseColor: true
+          BaseColor: [0.58, 0.48, 0.38, 1]
+          OverrideRoughness: true
+          Roughness: 0.9
+          OverrideMetallic: false
+          Metallic: 0
+        - MaterialName: DogLid
+          Kind: 0
+          SkinProfile: 0
+          ThicknessFactor: 0
+          OverrideBaseColor: true
+          BaseColor: [0.2, 0.14, 0.1, 1]
+          OverrideRoughness: true
+          Roughness: 0.9
+          OverrideMetallic: false
+          Metallic: 0
+        - MaterialName: DogNose
+          Kind: 2
+          SkinProfile: 15952688685437936331
+          ThicknessFactor: 0.003
+          OverrideBaseColor: false
+          BaseColor: [1, 1, 1, 1]
+          OverrideRoughness: false
+          Roughness: 0.5
+          OverrideMetallic: false
+          Metallic: 0
+        - MaterialName: DogLip
+          Kind: 2
+          SkinProfile: 15952688685437936330
+          ThicknessFactor: 0.003
+          OverrideBaseColor: false
+          BaseColor: [1, 1, 1, 1]
+          OverrideRoughness: false
+          Roughness: 0.5
+          OverrideMetallic: false
+          Metallic: 0
+        - MaterialName: DogGum
+          Kind: 2
+          SkinProfile: 15952688685437936329
+          ThicknessFactor: 0.004
+          OverrideBaseColor: false
+          BaseColor: [1, 1, 1, 1]
+          OverrideRoughness: false
+          Roughness: 0.5
+          OverrideMetallic: false
+          Metallic: 0
+        - MaterialName: DogTongue
+          Kind: 2
+          SkinProfile: 15952688685437936332
+          ThicknessFactor: 0.006
+          OverrideBaseColor: false
+          BaseColor: [1, 1, 1, 1]
+          OverrideRoughness: false
+          Roughness: 0.5
+          OverrideMetallic: false
+          Metallic: 0
+        - MaterialName: DogTeeth
+          Kind: 2
+          SkinProfile: 15952688685437936341
+          ThicknessFactor: 0.005
+          OverrideBaseColor: false
+          BaseColor: [1, 1, 1, 1]
+          OverrideRoughness: false
+          Roughness: 0.5
+          OverrideMetallic: false
+          Metallic: 0
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 13962845770024567391
+        - 5115306550982845187
+  - Entity: 5115306550982845187
     TagComponent:
       Tag: DogEyeR
     TransformComponent:
@@ -351,10 +431,202 @@ Entities:
       BoneName: eye_R
       Enabled: true
     RelationshipComponent:
-      ParentHandle: 11691239616518547383
+      ParentHandle: 193513189554010833
       Children:
         []
-  - Entity: 6729723779412351378
+  - Entity: 6290270820412235342
+    TagComponent:
+      Tag: Lawn
+    TransformComponent:
+      Translation: [-30, 0, -30]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    TerrainComponent:
+      HeightmapPath: ""
+      WorldSizeX: 60
+      WorldSizeZ: 60
+      HeightScale: 1
+      CollisionEnabled: true
+      ProceduralEnabled: false
+      ProceduralSeed: 42
+      ProceduralResolution: 512
+      ProceduralOctaves: 6
+      ProceduralFrequency: 3
+      ProceduralLacunarity: 2
+      ProceduralPersistence: 0.45
+      ProceduralErosionIterations: 0
+      ShapingRidgeBlend: 0
+      ShapingWarpStrength: 0
+      ShapingWarpFrequency: 2
+      ShapingTerraceSteps: 0
+      ShapingTerraceSharpness: 0.6
+      ShapingHeightExponent: 1
+      ShapingIslandFalloff: 0
+      ShapingIslandFalloffRadius: 0.3
+      AutoMaterial: true
+      SplatmapGenResolution: 512
+      LayerRules:
+        - LayerIndex: 0
+          MinHeight: 0
+          MaxHeight: 1
+          HeightBlend: 0
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 90
+          SlopeBlend: 6
+          Strength: 1
+      TessellationEnabled: false
+      TargetTriangleSize: 8
+      MorphRegion: 0.3
+      StreamingEnabled: false
+      TileDirectory: ""
+      TileFilePattern: tile_%d_%d.raw
+      TileWorldSize: 256
+      TileResolution: 513
+      StreamingLoadRadius: 3
+      StreamingMaxTiles: 25
+      VirtualTextureEnabled: false
+      VTVirtualPagesWide: 256
+      VTPageTexels: 128
+      VTBorderTexels: 4
+      VTCacheTilesWide: 16
+      VTMaxTileBakesPerFrame: 8
+      VTAdaptiveEnabled: true
+      VTSectorsWide: 8
+      VTMaxImagePagesWide: 64
+      VTTrilinearEnabled: true
+      VTCompressedCache: true
+      VoxelEnabled: false
+      VoxelSize: 1
+      VoxelMesher: 0
+      SplatmapPath0: ""
+      SplatmapPath1: ""
+      Layers:
+        - Name: Turf
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 24
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.11, 0.17, 0.035]
+          Roughness: 0.95
+          Metallic: 0
+    FoliageComponent:
+      Enabled: true
+      Layers:
+        - Name: Lawn
+          MeshPath: SandboxProject/Assets/Models/Vegetation/grass/grass.obj
+          AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass/Textures/grass_card.png
+          Density: 60
+          SplatmapChannel: -1
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 45
+          MinScale: 0.85
+          MaxScale: 1.25
+          MinHeight: 0.12
+          MaxHeight: 0.2
+          RandomRotation: true
+          SlopeFeather: 0
+          UseAltitudeBand: false
+          MinAltitude: 0
+          MaxAltitude: 1000
+          AltitudeFeather: 0
+          UseMoisture: false
+          MinMoisture: 0
+          MaxMoisture: 1
+          MoistureFeather: 0
+          ExclusionSplatmapChannel: -1
+          ExclusionThreshold: 0.5
+          ClumpStrength: 0
+          ClumpScale: 12
+          ClumpFalloff: 1
+          ClumpScaleInfluence: 0
+          ClumpGroup: -1
+          GroundOffset: 0
+          SlopeSinkFactor: 0
+          DecorrelatedVariation: true
+          ViewDistance: 45
+          FadeStartDistance: 34
+          UseAuthoredMesh: true
+          MeshViewDistance: 6
+          MeshFadeStartDistance: 4.5
+          WindStrength: 0.12
+          WindSpeed: 1.1
+          WindStiffness: 0
+          WindBranchWeight: 0
+          WindLeafWeight: 0
+          WindDebugDisplacement: false
+          InteractionResponse: 1
+          BaseColor: [0.3, 0.5, 0.14]
+          Roughness: 0.75
+          AlphaCutoff: 0.5
+          NormalMapPath: ""
+          RoughnessMapPath: ""
+          ThicknessMapPath: ""
+          NormalStrength: 1
+          TransmissionStrength: 0.5
+          TransmissionColor: [0.45, 0.62, 0.16]
+          Thickness: 0.5
+          TransmissionDistortion: 0.35
+          TransmissionPower: 4
+          TransmissionWrap: 0.5
+          TransmissionAmbient: 0.35
+          UseImpostor: false
+          ImpostorStartDistance: 40
+          ImpostorTransitionBand: 15
+          LodTransitionSpread: 1
+          LodHysteresis: 0
+          LodStochasticCoverage: true
+          UseDensityLod: true
+          DensityLodStartDistance: 6
+          DensityLodEndDistance: 20
+          DensityLodMinFraction: 0.3
+          DensityLodFadeFraction: 0.15
+          DensityLodMaxScale: 2
+          ImpostorFramesPerAxis: 8
+          ImpostorAtlasResolution: 1024
+          ImpostorHemiOctahedral: true
+          Enabled: true
+          CastShadows: false
+  - Entity: 6585740634619327673
+    TagComponent:
+      Tag: RuntimeCamera
+    TransformComponent:
+      Translation: [0.78, 0.66, 1.22]
+      Rotation: [-0.15641233, 0.66242623, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.55850536
+        PerspectiveNear: 0.02
+        PerspectiveFar: 2500
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+      RuntimeControl: false
+      FlySpeed: 5
+  - Entity: 9944571689279452715
+    TagComponent:
+      Tag: Sky
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ProceduralSkyComponent:
+      SunDirection: [0.6717826, 0.5715166, 0.4712505]
+      Turbidity: 3
+      Exposure: 0.1
+      SunIntensity: 1
+      SunDiskSize: 1
+      ShowSunDisk: true
+      EnableSkybox: true
+      EnableIBL: true
+      IBLIntensity: 0.3
+      CubemapResolution: 256
+  - Entity: 11047392561502437989
     TagComponent:
       Tag: DogCoat
     TransformComponent:
@@ -363,7 +635,7 @@ Entities:
       Scale: [1, 1, 1]
     GroomBindingComponent:
       Binding: 15952688685437936337
-      TargetEntity: 11691239616518547383
+      TargetEntity: 193513189554010833
       TeleportDistance: 5
       Enabled: true
       ShowBindingPreview: false
@@ -465,113 +737,7 @@ Entities:
       DebugView: 0
       Enabled: true
       Collide: true
-  - Entity: 7019342187276258945
-    TagComponent:
-      Tag: Rim
-    TransformComponent:
-      Translation: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    DirectionalLightComponent:
-      Direction: [0.29897034, -0.3986271, 0.86701393]
-      Color: [0.86, 0.9, 1]
-      Intensity: 2
-      CastShadows: false
-      CascadeDebugVisualization: false
-      RayTracedShadows: false
-      ShadowDepthBiasTexels: 2
-      ShadowNormalBias: 0.01
-      MaxShadowDistance: 200
-      CascadeSplitLambda: 0.5
-  - Entity: 11691239616518547383
-    TagComponent:
-      Tag: Dog
-    TransformComponent:
-      Translation: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    MeshComponent:
-      {}
-    AnimationStateComponent:
-      State: 0
-      CurrentTime: 0
-      BlendDuration: 0.35
-      CurrentClipIndex: 0
-      IsPlaying: true
-      Loop: true
-      PlaybackSpeed: 1
-      SourceFilePath: Assets/Models/Dog/Dog.gltf
-      CurrentClipName: Idle
-    SkeletonComponent:
-      {}
-    MaterialOverridesComponent:
-      Overrides:
-        - MaterialName: DogSkin
-          Kind: 0
-          SkinProfile: 0
-          ThicknessFactor: 0
-          OverrideBaseColor: true
-          BaseColor: [0.58, 0.48, 0.38, 1]
-          OverrideRoughness: true
-          Roughness: 0.9
-          OverrideMetallic: false
-          Metallic: 0
-        - MaterialName: DogLid
-          Kind: 0
-          SkinProfile: 0
-          ThicknessFactor: 0
-          OverrideBaseColor: true
-          BaseColor: [0.2, 0.14, 0.1, 1]
-          OverrideRoughness: true
-          Roughness: 0.9
-          OverrideMetallic: false
-          Metallic: 0
-        - MaterialName: DogNose
-          Kind: 2
-          SkinProfile: 15952688685437936331
-          ThicknessFactor: 0.003
-          OverrideBaseColor: false
-          BaseColor: [1, 1, 1, 1]
-          OverrideRoughness: false
-          Roughness: 0.5
-          OverrideMetallic: false
-          Metallic: 0
-        - MaterialName: DogLip
-          Kind: 2
-          SkinProfile: 15952688685437936330
-          ThicknessFactor: 0.003
-          OverrideBaseColor: false
-          BaseColor: [1, 1, 1, 1]
-          OverrideRoughness: false
-          Roughness: 0.5
-          OverrideMetallic: false
-          Metallic: 0
-        - MaterialName: DogGum
-          Kind: 2
-          SkinProfile: 15952688685437936329
-          ThicknessFactor: 0.004
-          OverrideBaseColor: false
-          BaseColor: [1, 1, 1, 1]
-          OverrideRoughness: false
-          Roughness: 0.5
-          OverrideMetallic: false
-          Metallic: 0
-        - MaterialName: DogTongue
-          Kind: 2
-          SkinProfile: 15952688685437936332
-          ThicknessFactor: 0.006
-          OverrideBaseColor: false
-          BaseColor: [1, 1, 1, 1]
-          OverrideRoughness: false
-          Roughness: 0.5
-          OverrideMetallic: false
-          Metallic: 0
-    RelationshipComponent:
-      ParentHandle: 0
-      Children:
-        - 13868090061245929099
-        - 6021589945823404428
-  - Entity: 12124777054498018028
+  - Entity: 12846372569550906031
     TagComponent:
       Tag: Sun
     TransformComponent:
@@ -589,37 +755,35 @@ Entities:
       ShadowNormalBias: 0.01
       MaxShadowDistance: 25
       CascadeSplitLambda: 0.5
-  - Entity: 12818745863045336359
+  - Entity: 13069695283887200261
     TagComponent:
-      Tag: RuntimeCamera
+      Tag: Rim
     TransformComponent:
-      Translation: [0.78, 0.66, 1.22]
-      Rotation: [-0.15641233, 0.66242623, 0]
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    CameraComponent:
-      Camera:
-        ProjectionType: 0
-        PerspectiveFOV: 0.55850536
-        PerspectiveNear: 0.02
-        PerspectiveFar: 400
-        OrthographicSize: 10
-        OrthographicNear: -1
-        OrthographicFar: 1
-      Primary: true
-      FixedAspectRatio: false
-      RuntimeControl: false
-      FlySpeed: 5
-  - Entity: 13202562555912878239
+    DirectionalLightComponent:
+      Direction: [0.29897034, -0.3986271, 0.86701393]
+      Color: [0.86, 0.9, 1]
+      Intensity: 2
+      CastShadows: false
+      CascadeDebugVisualization: false
+      RayTracedShadows: false
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
+      MaxShadowDistance: 200
+      CascadeSplitLambda: 0.5
+  - Entity: 13746654445447580307
     TagComponent:
-      Tag: Lawn
+      Tag: Meadow
     TransformComponent:
-      Translation: [-30, 0, -30]
+      Translation: [-2500, -0.05, -2500]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     TerrainComponent:
       HeightmapPath: ""
-      WorldSizeX: 60
-      WorldSizeZ: 60
+      WorldSizeX: 5000
+      WorldSizeZ: 5000
       HeightScale: 1
       CollisionEnabled: true
       ProceduralEnabled: false
@@ -683,87 +847,10 @@ Entities:
           TilingScale: 24
           HeightBlendSharpness: 4
           TriplanarSharpness: 8
-          BaseColor: [0.07, 0.1, 0.035]
+          BaseColor: [0.11, 0.17, 0.035]
           Roughness: 0.95
           Metallic: 0
-    FoliageComponent:
-      Enabled: true
-      Layers:
-        - Name: Lawn
-          MeshPath: SandboxProject/Assets/Models/Vegetation/grass/grass.obj
-          AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass/Textures/grass_card.png
-          Density: 60
-          SplatmapChannel: -1
-          MinSlopeAngle: 0
-          MaxSlopeAngle: 45
-          MinScale: 0.85
-          MaxScale: 1.25
-          MinHeight: 0.12
-          MaxHeight: 0.2
-          RandomRotation: true
-          SlopeFeather: 0
-          UseAltitudeBand: false
-          MinAltitude: 0
-          MaxAltitude: 1000
-          AltitudeFeather: 0
-          UseMoisture: false
-          MinMoisture: 0
-          MaxMoisture: 1
-          MoistureFeather: 0
-          ExclusionSplatmapChannel: -1
-          ExclusionThreshold: 0.5
-          ClumpStrength: 0
-          ClumpScale: 12
-          ClumpFalloff: 1
-          ClumpScaleInfluence: 0
-          ClumpGroup: -1
-          GroundOffset: 0
-          SlopeSinkFactor: 0
-          DecorrelatedVariation: true
-          ViewDistance: 24
-          FadeStartDistance: 18
-          UseAuthoredMesh: true
-          MeshViewDistance: 6
-          MeshFadeStartDistance: 4.5
-          WindStrength: 0.12
-          WindSpeed: 1.1
-          WindStiffness: 0
-          WindBranchWeight: 0
-          WindLeafWeight: 0
-          WindDebugDisplacement: false
-          InteractionResponse: 1
-          BaseColor: [0.3, 0.5, 0.14]
-          Roughness: 0.75
-          AlphaCutoff: 0.5
-          NormalMapPath: ""
-          RoughnessMapPath: ""
-          ThicknessMapPath: ""
-          NormalStrength: 1
-          TransmissionStrength: 0.5
-          TransmissionColor: [0.45, 0.62, 0.16]
-          Thickness: 0.5
-          TransmissionDistortion: 0.35
-          TransmissionPower: 4
-          TransmissionWrap: 0.5
-          TransmissionAmbient: 0.35
-          UseImpostor: false
-          ImpostorStartDistance: 40
-          ImpostorTransitionBand: 15
-          LodTransitionSpread: 1
-          LodHysteresis: 0
-          LodStochasticCoverage: true
-          UseDensityLod: true
-          DensityLodStartDistance: 6
-          DensityLodEndDistance: 20
-          DensityLodMinFraction: 0.3
-          DensityLodFadeFraction: 0.15
-          DensityLodMaxScale: 2
-          ImpostorFramesPerAxis: 8
-          ImpostorAtlasResolution: 1024
-          ImpostorHemiOctahedral: true
-          Enabled: true
-          CastShadows: false
-  - Entity: 13868090061245929099
+  - Entity: 13962845770024567391
     TagComponent:
       Tag: DogEyeL
     TransformComponent:
@@ -784,6 +871,6 @@ Entities:
       BoneName: eye_L
       Enabled: true
     RelationshipComponent:
-      ParentHandle: 11691239616518547383
+      ParentHandle: 193513189554010833
       Children:
         []

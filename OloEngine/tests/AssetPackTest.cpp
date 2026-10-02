@@ -455,11 +455,12 @@ TEST(AssetPackBuilderTest, EveryAssetLoadsBackFromTheOffsetTheBuilderRecorded)
     // the YAML reader rejects; the name check catches a record served from the
     // wrong offset that still parses.
     const fs::path materials = fs::path{ OLO_TEST_EDITOR_ROOT } / "SandboxProject" / "Assets" / "Materials";
-    constexpr std::array<std::pair<const char*, const char*>, 4> profiles = { {
+    constexpr std::array<std::pair<const char*, const char*>, 5> profiles = { {
         { "DogGum.oloskin", "Dog Gum" },
         { "DogLip.oloskin", "Dog Lip" },
         { "DogNose.oloskin", "Dog Nose" },
         { "DogTongue.oloskin", "Dog Tongue" },
+        { "DogTeeth.oloskin", "Dog Teeth" },
     } };
     // Imported through the project's manager and its registry WRITTEN: the builder's
     // own manager starts from that file, as it does for a shipped project, and a
