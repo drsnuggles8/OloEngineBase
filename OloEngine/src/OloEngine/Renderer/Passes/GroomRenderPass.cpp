@@ -89,6 +89,8 @@ namespace OloEngine
             entry.CoatPoseSubsetSource = nullptr;
             entry.CoatBakedFromPose = false;
             entry.CoatDriftVoxels = 0.0f;
+            entry.CoatBodyVoxels = 0;
+            entry.CoatBakedWithSurface = false;
         }
 
         // Frames an unused cache entry survives before eviction is allowed to
@@ -1203,7 +1205,8 @@ namespace OloEngine
     }
 
     bool GroomRenderPass::BakeCoatVolume(CacheEntry& entry, std::span<const GroomCoatShadow::CoatSegment> segments,
-                                         u32 resolution, bool ring, u32* outOccupiedVoxels)
+                                         u32 resolution, bool ring, u32* outOccupiedVoxels,
+                                         const GroomDeformationInputs* body)
     {
         if (segments.empty())
         {
@@ -1227,6 +1230,40 @@ namespace OloEngine
             *outOccupiedVoxels = volumeStats.OccupiedVoxels;
         }
 
+        // THE BODY (#1533), for a rest bake over a bound surface: marked where
+        // the coat is not, so the lights no shadow map answers for at the strand
+        // -- a light that does not cast, the sky, the VSM -- are stopped by it.
+        // A surface with no closed part says so: those lights then reach the
+        // fur through the body, as they did before the body was there.
+        u32 bodyVoxels = 0;
+        const bool haveSurface = body != nullptr && body->Surface.IsUsable();
+        if (haveSurface)
+        {
+            const auto bodyStart = std::chrono::steady_clock::now();
+            GroomCoatShadow::BodyVoxelStats bodyStats;
+            const bool marked = GroomCoatShadow::MarkBodyInDensityVolume(volume, body->Surface, body->SurfaceToGroom,
+                                                                         GroomCoatShadow::BodyVoxelSettings{},
+                                                                         &bodyStats);
+            const u64 bodyMicroseconds = MicrosecondsSince(bodyStart);
+            m_Stats.CoatShadow.BakeBodyMicroseconds += bodyMicroseconds;
+            if (marked)
+            {
+                bodyVoxels = bodyStats.MarkedVoxels;
+                OLO_CORE_INFO("GroomRenderPass: the coat volume holds its body, {} voxels from {} closed of {} parts "
+                              "({} open skipped, {} cleared beside the coat, {} odd columns) in {:.1f} ms",
+                              bodyStats.MarkedVoxels, bodyStats.ClosedComponents, bodyStats.Components,
+                              bodyStats.OpenComponents, bodyStats.ClearedBesideCoat, bodyStats.OddColumns,
+                              static_cast<f64>(bodyMicroseconds) / 1000.0);
+            }
+            else
+            {
+                OLO_CORE_WARN("GroomRenderPass: the coat's bound surface has no closed part the volume can hold ({} "
+                              "parts, {} open, {} voxels left after the erosion): lights that do not cast, the sky "
+                              "and the VSM reach this fur through its body",
+                              bodyStats.Components, bodyStats.OpenComponents, bodyStats.MarkedVoxels);
+            }
+        }
+
         // ONE RGBA texture: xyz = mean fibre direction * coherence,
         // w = areal density. Packed rather than two textures because the
         // march is a per-fragment hot loop and two fetches per step
@@ -1242,7 +1279,12 @@ namespace OloEngine
                              static_cast<sizet>(volume.Dimensions.z);
         const auto packStart = std::chrono::steady_clock::now();
         constexpr f32 kLargestHalf = 65504.0f;
-        const f32 densest = volume.Density.empty() ? 0.0f : *std::max_element(volume.Density.begin(), volume.Density.end());
+        // The largest MAGNITUDE: the body is negative (#1533) and must fit too.
+        f32 densest = 0.0f;
+        for (const f32 density : volume.Density)
+        {
+            densest = std::max(densest, std::abs(density));
+        }
         const bool half = densest < kLargestHalf;
         const void* texels = nullptr;
         sizet texelBytes = 0;
@@ -1385,6 +1427,8 @@ namespace OloEngine
         entry.CoatBoundsMin = volume.BoundsMin;
         entry.CoatBoundsMax = volume.BoundsMax;
         entry.CoatResolution = resolution;
+        entry.CoatBodyVoxels = bodyVoxels;
+        entry.CoatBakedWithSurface = haveSurface;
         // The REAL voxel size, carried rather than re-derived. The
         // grid's dimensions differ per axis (only the longest gets
         // `resolution`), so extent/resolution is the voxel size on
@@ -1637,10 +1681,15 @@ namespace OloEngine
         // And an un-posed bake is the drawn walk at rest, which the coat
         // authoring shapes: re-authoring the coat is a different volume.
         const bool coatChanged = !deformed && entry.CoatBakedCoatDigest != request.Build.CoatDigest;
+        // A rest bake marks the body it grows on (#1533); one made before the
+        // bound surface arrived is made again once it has.
+        const GroomDeformationInputs* restBody =
+            !deformed && request.GpuRootInputs.Surface.IsUsable() ? &request.GpuRootInputs : nullptr;
+        const bool bodyArrived = restBody != nullptr && !entry.CoatBakedWithSurface;
         const bool needsRebuild = !entry.CoatVolume || !bakeSourceMatches || entry.CoatResolution != resolution ||
                                   entry.CoatLodStep != lodStep ||
                                   !Math::BitwiseEqual(entry.CoatWidthScale, request.WidthScale) || poseMoved ||
-                                  coatChanged;
+                                  coatChanged || bodyArrived;
 
         if (needsRebuild && inputs.GrantedSlot != kNoGroomCoatShadowSlot &&
             resolution >= request.CoatLod.MinResolution)
@@ -1721,7 +1770,7 @@ namespace OloEngine
             m_Stats.CoatShadow.BakeSegmentMicroseconds += MicrosecondsSince(segmentStart);
 
             u32 occupiedVoxels = 0;
-            if (emitted > 0 && BakeCoatVolume(entry, segments, resolution, deformed, &occupiedVoxels))
+            if (emitted > 0 && BakeCoatVolume(entry, segments, resolution, deformed, &occupiedVoxels, restBody))
             {
                 entry.CoatLodStep = lodStep;
                 entry.CoatWidthScale = request.WidthScale;
@@ -2186,6 +2235,11 @@ namespace OloEngine
                 m_Stats.CoatShadow.MaxAgeFrames = std::max(
                     m_Stats.CoatShadow.MaxAgeFrames, static_cast<u32>(m_CacheTick - entry->CoatBuiltTick));
                 m_Stats.CoatShadow.MaxDriftVoxels = std::max(m_Stats.CoatShadow.MaxDriftVoxels, entry->CoatDriftVoxels);
+                if (bakeAtRest)
+                {
+                    m_Stats.CoatShadow.BodyVoxelsInForce = std::max(m_Stats.CoatShadow.BodyVoxelsInForce,
+                                                                    entry->CoatBodyVoxels);
+                }
             }
 
             // ALWAYS A REAL 3D TEXTURE, never a null handle. The shader
@@ -2418,8 +2472,13 @@ namespace OloEngine
                         {
                             params.CoatModes.x = static_cast<i32>(coatDecision.Effective);
                             // The volume is the coat AT REST: march it from each
-                            // fragment's bind point (#1533, see the shader).
-                            params.CoatModes.w = bakeAtRest ? 1 : 0;
+                            // fragment's bind point (#1533, see the shader). Bit 2:
+                            // it holds the body too, which the shader counts for
+                            // every light no map answers for at the strand
+                            // (OLO_GROOM_NO_COAT_BODY leaves it out, the A/B).
+                            const bool holdsBody =
+                                bakeAtRest && entry->CoatBodyVoxels > 0u && !Levers::GroomNoCoatBody();
+                            params.CoatModes.w = (bakeAtRest ? 1 : 0) | (holdsBody ? 2 : 0);
                             // Dual scattering counts the neighbours through the
                             // volume, so it switches on here and nowhere else:
                             // the density factors are the only lanes the

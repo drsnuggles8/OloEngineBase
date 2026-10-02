@@ -730,6 +730,14 @@ namespace OloEngine
             /// with (#1533): a rest or static volume is built from the drawn walk,
             /// which the coat shapes, so re-authoring the coat rebuilds it.
             u64 CoatBakedCoatDigest = 0;
+            /// Voxels of BODY the resident bake holds (#1533,
+            /// GroomCoatShadow::MarkBodyInDensityVolume): zero for a pose bake,
+            /// a coat with no bound surface, or a surface with no closed part.
+            /// Non-zero is what lets the shader count the body.
+            u32 CoatBodyVoxels = 0;
+            /// Whether the resident rest bake had the bound surface to mark, so
+            /// a bake made before the body arrived is made again once it has.
+            bool CoatBakedWithSurface = false;
             /// GPU bytes the volume occupies.
             u64 CoatBytes = 0;
             /// The LOD step the resident bake was made at, the step the policy
@@ -998,8 +1006,11 @@ namespace OloEngine
         };
         std::vector<CardFibreTable> m_CardFibreTables;
 
+        // `body`, for a rest bake over a bound surface (#1533), is marked into
+        // the volume after the coat; see GroomCoatShadow::MarkBodyInDensityVolume.
         bool BakeCoatVolume(CacheEntry& entry, std::span<const GroomCoatShadow::CoatSegment> segments,
-                            u32 resolution, bool ring, u32* outOccupiedVoxels = nullptr);
+                            u32 resolution, bool ring, u32* outOccupiedVoxels = nullptr,
+                            const GroomDeformationInputs* body = nullptr);
 
         /// The CPU path's rebuilt stream for the groom being processed, reused
         /// across draws so a bound coat does not allocate it twice. Empty on the

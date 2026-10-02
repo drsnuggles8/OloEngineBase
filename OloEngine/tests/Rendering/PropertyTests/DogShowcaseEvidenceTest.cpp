@@ -55,6 +55,7 @@
 #include "OloEngine/Groom/GroomBindingBuilder.h"
 #include "OloEngine/Groom/GroomBindingCooker.h"
 #include "OloEngine/Groom/GroomBuilder.h"
+#include "OloEngine/Groom/GroomCoatShadow.h"
 #if defined(OLO_WITH_ALEMBIC)
 #include "OloEngine/Asset/Interchange/Alembic/AlembicGroomImporter.h"
 #endif
@@ -4120,6 +4121,190 @@ namespace OloEngine::Tests
     }
 
     // =========================================================================
+    // Not an assertion (OLO_DOG_BODY_SLICES=1): the dog's body as the coat's
+    // volume holds it (GroomCoatShadow::MarkBodyInDensityVolume), in slices --
+    // green the coat's density, red the body -- through the midline and across
+    // the head, the chest and the hips, so where the body sits against the coat
+    // can be LOOKED at. The volume is binned from the cooked curves at the
+    // shipped resolution; the body comes from the same surface the pass marks.
+    // =========================================================================
+    TEST_F(DogShowcaseEvidenceTest, TheBodyInTheCoatVolumeIsSlicedForLooking)
+    {
+        const char* flag = std::getenv("OLO_DOG_BODY_SLICES");
+        if (flag == nullptr || flag[0] != '1')
+        {
+            GTEST_SKIP() << "set OLO_DOG_BODY_SLICES=1 to write the body-in-the-volume slices";
+        }
+        const GroomAsset& groom = *m_Dog.CoatAsset.Groom;
+        std::vector<GroomCoatShadow::CoatSegment> segments;
+        GroomCoatShadow::CoatSampleSettings sample;
+        sample.MaxStrands = groom.GetCurveCount();
+        sample.MaxSegments = 8000000u;
+        ASSERT_GT(GroomCoatShadow::BuildCoatSegments(groom, glm::mat4(1.0f), sample, segments), 0u);
+        GroomCoatShadow::DensityVolumeSettings settings;
+        settings.Resolution = 256;
+        GroomCoatShadow::DensityVolume volume;
+        ASSERT_TRUE(GroomCoatShadow::BuildDensityVolume(segments, settings, volume));
+
+        const MeshSource& body = *m_Dog.Body.GetComponent<MeshComponent>().m_MeshSource;
+        GroomSurfaceView surface;
+        surface.PositionData = reinterpret_cast<const std::byte*>(body.GetVertices().GetData());
+        surface.PositionStride = static_cast<u32>(sizeof(Vertex));
+        surface.VertexCount = static_cast<u32>(body.GetVertices().Num());
+        surface.Indices = body.GetIndices().GetData();
+        surface.IndexCount = static_cast<u32>(body.GetIndices().Num());
+        GroomCoatShadow::BodyVoxelStats stats;
+        ASSERT_TRUE(GroomCoatShadow::MarkBodyInDensityVolume(volume, surface, glm::mat4(1.0f), GroomCoatShadow::BodyVoxelSettings{},
+                                                             &stats));
+        std::printf("[dog] body slices: %u x %u x %u voxels of %.2f mm, %u body voxels, %u closed of %u parts\n",
+                    volume.Dimensions.x, volume.Dimensions.y, volume.Dimensions.z, 1000.0 * volume.VoxelSize().x,
+                    stats.MarkedVoxels, stats.ClosedComponents, stats.Components);
+
+        f32 densest = 0.0f;
+        for (const f32 d : volume.Density)
+        {
+            densest = std::max(densest, d);
+        }
+        const glm::ivec3 dims = volume.Dimensions;
+        const auto at = [&](i32 x, i32 y, i32 z)
+        { return volume.Density[static_cast<sizet>(x) + (static_cast<sizet>(dims.x) * (static_cast<sizet>(y) + (static_cast<sizet>(dims.y) * static_cast<sizet>(z))))]; };
+        const auto paint = [&](f32 d, u8* px)
+        {
+            if (d < 0.0f)
+            {
+                px[0] = 255u;
+                px[1] = 40u;
+                px[2] = 40u;
+            }
+            else
+            {
+                const f32 g = densest > 0.0f ? std::sqrt(std::min(1.0f, d / (0.25f * densest))) : 0.0f;
+                px[0] = 0u;
+                px[1] = static_cast<u8>(255.0f * g);
+                px[2] = 0u;
+            }
+            px[3] = 255u;
+        };
+        // The midline (x through the body's centre): z across, y up.
+        {
+            const i32 x = dims.x / 2;
+            std::vector<u8> img(static_cast<sizet>(dims.z) * dims.y * 4u);
+            for (i32 y = 0; y < dims.y; ++y)
+            {
+                for (i32 z = 0; z < dims.z; ++z)
+                {
+                    paint(at(x, y, z), &img[(static_cast<sizet>(dims.y - 1 - y) * dims.z + static_cast<sizet>(z)) * 4u]);
+                }
+            }
+            WritePng("DogBodySlice_Midline", img, static_cast<u32>(dims.z), static_cast<u32>(dims.y));
+        }
+        // Across the dog (z fixed): x across, y up, at the head, the chest and the hips.
+        for (const auto& [name, along] : { std::pair{ "Head", 0.85f }, std::pair{ "Chest", 0.62f }, std::pair{ "Hips", 0.3f } })
+        {
+            const i32 z = std::clamp(static_cast<i32>(along * static_cast<f32>(dims.z)), 0, dims.z - 1);
+            std::vector<u8> img(static_cast<sizet>(dims.x) * dims.y * 4u);
+            for (i32 y = 0; y < dims.y; ++y)
+            {
+                for (i32 x = 0; x < dims.x; ++x)
+                {
+                    paint(at(x, y, z), &img[(static_cast<sizet>(dims.y - 1 - y) * dims.x + static_cast<sizet>(x)) * 4u]);
+                }
+            }
+            WritePng(std::string("DogBodySlice_") + name, img, static_cast<u32>(dims.x), static_cast<u32>(dims.y));
+        }
+
+        // The rim, cast from 3 mm off the skin of each part through this volume,
+        // against the bind-pose body mesh itself (every triangle, as the shadow
+        // map holds it): where the volume's body says "blocked" and the mesh
+        // agrees, where only the mesh does, and where only the volume does.
+        const glm::vec3 toLight = -glm::normalize(m_Rim.GetComponent<DirectionalLightComponent>().m_Direction);
+        const BodyParts parts = BuildBodyParts();
+        const auto& vertices = body.GetVertices();
+        const auto& indices = body.GetIndices();
+        std::printf("[dog] body rim probe: %zu labelled vertices of %d, %zu furred, %d indices, toward the light (%.3f %.3f %.3f)\n",
+                    parts.Part.size(), static_cast<i32>(vertices.Num()),
+                    static_cast<sizet>(std::ranges::count(parts.Furred, static_cast<u8>(1u))), static_cast<i32>(indices.Num()),
+                    toLight.x, toLight.y, toLight.z);
+        std::fflush(stdout);
+        const auto rayHitsBody = [&](const glm::vec3& origin)
+        {
+            for (i32 t = 0; t + 2 < static_cast<i32>(indices.Num()); t += 3)
+            {
+                const glm::vec3 a = vertices[static_cast<i32>(indices[t])].Position;
+                const glm::vec3 e1 = vertices[static_cast<i32>(indices[t + 1])].Position - a;
+                const glm::vec3 e2 = vertices[static_cast<i32>(indices[t + 2])].Position - a;
+                const glm::vec3 p = glm::cross(toLight, e2);
+                const f32 det = glm::dot(e1, p);
+                if (std::abs(det) < 1.0e-12f)
+                    continue;
+                const f32 inv = 1.0f / det;
+                const glm::vec3 s = origin - a;
+                const f32 u = glm::dot(s, p) * inv;
+                if (u < 0.0f || u > 1.0f)
+                    continue;
+                const glm::vec3 q = glm::cross(s, e1);
+                const f32 v = glm::dot(toLight, q) * inv;
+                if (v < 0.0f || u + v > 1.0f)
+                    continue;
+                if (glm::dot(e2, q) * inv > 1.0e-4f)
+                    return true;
+            }
+            return false;
+        };
+        for (sizet partIndex = 0; partIndex < kBodyParts; ++partIndex)
+        {
+            std::vector<u32> members;
+            for (u32 v = 0; v < static_cast<u32>(parts.Part.size()); ++v)
+            {
+                if (static_cast<sizet>(parts.Part[v]) == partIndex && parts.Furred[v] != 0u)
+                    members.push_back(v);
+            }
+            if (members.empty())
+                continue;
+            u32 both = 0;
+            u32 meshOnly = 0;
+            u32 volumeOnly = 0;
+            u32 neither = 0;
+            u32 meshOnlyButVoxelOnRay = 0; // the mesh blocks, the march misses, a body voxel IS on the ray
+            const sizet stride = std::max<sizet>(1u, members.size() / 60u);
+            for (sizet k = 0; k < members.size(); k += stride)
+            {
+                const u32 v = members[k];
+                const glm::vec3 origin =
+                    vertices[static_cast<i32>(v)].Position + 0.003f * glm::normalize(vertices[static_cast<i32>(v)].Normal);
+                f64 bodyTau = 0.0;
+                (void)GroomCoatShadow::SampleDensityVolume(volume, origin, toLight, false, 1.0f, nullptr, &bodyTau);
+                const bool volumeBlocks = bodyTau > 3.0;
+                const bool meshBlocks = rayHitsBody(origin);
+                both += (volumeBlocks && meshBlocks) ? 1u : 0u;
+                meshOnly += (!volumeBlocks && meshBlocks) ? 1u : 0u;
+                if (!volumeBlocks && meshBlocks)
+                {
+                    // Walk the same ray at 1 mm through the voxels: is any of the
+                    // body on it at all, or did the erosion take it?
+                    const glm::vec3 voxel = volume.VoxelSize();
+                    bool onRay = false;
+                    for (f32 t = 0.0f; t < 2.0f && !onRay; t += 0.001f)
+                    {
+                        const glm::vec3 q = (origin + toLight * t - volume.BoundsMin) / voxel;
+                        const glm::ivec3 c = glm::ivec3(glm::floor(q));
+                        if (glm::any(glm::lessThan(c, glm::ivec3(0))) || glm::any(glm::greaterThanEqual(c, dims)))
+                            break;
+                        onRay = at(c.x, c.y, c.z) < 0.0f;
+                    }
+                    meshOnlyButVoxelOnRay += onRay ? 1u : 0u;
+                }
+                volumeOnly += (volumeBlocks && !meshBlocks) ? 1u : 0u;
+                neither += (!volumeBlocks && !meshBlocks) ? 1u : 0u;
+            }
+            std::printf("[dog] body rim probe %-12s blocked by both %3u, the mesh only %3u (%3u with body voxels on the ray), "
+                        "the volume only %3u, neither %3u\n",
+                        kBodyPartNames[partIndex], both, meshOnly, meshOnlyButVoxelOnRay, volumeOnly, neither);
+        }
+        std::fflush(stdout);
+    }
+
+    // =========================================================================
     // B6's oracle against a solver that does not run (#1533 acceptance review,
     // section 2): the walk recorded exactly as above with the guide simulation
     // switched off must be called NOT LIVE -- no solver step, no long-hair swing
@@ -5541,14 +5726,16 @@ namespace OloEngine::Tests
             EXPECT_GT(darkened, brightened) << "an occluder can only remove light";
         }
 
-        // THE RIM, which nothing shadows: the cascades go to the brightest directional light that
-        // casts, and the scene's rim does not cast. So the body cannot stop it, and what it sends
-        // THROUGH the body onto the face is measured here by making it, for one arm, the light
-        // that casts -- the sun casting in neither, so its share is the same in both. The
-        // difference is the rim's light on fur the head stands in front of. A record, not a
-        // contract: the gap is documented (groom-into-the-shadow-techniques.md rule 8). The
-        // volume is ON, as shipped -- its march charges most of that light to the coat on the far
-        // side of the head -- and multiple scattering OFF, which only the casting arm would get.
+        // THE RIM, which no shadow map stops: the cascades go to the brightest directional light
+        // that casts, and the scene's rim does not cast. What stops it is the coat's volume, which
+        // holds the body as well as the coat (groom-coat-body-in-the-volume.md). What it still
+        // sends THROUGH the head onto the face is measured here by making it, for one arm, the
+        // light that casts -- over the sun's range, not its own 200 m default, which put the dog on
+        // a handful of texels -- the sun casting in neither, so its share is the same in both. The
+        // difference is the rim's light on fur the head stands in front of that the volume lets
+        // through. A record, as TheLightTheBodyCannotStopIsMeasuredRegionByRegion is; the volume's
+        // contract is GroomCoatBodyPropertyTests'. Multiple scattering OFF, which only the casting
+        // arm would get.
         coatShadow.m_Enabled = true;
         coatShadow.m_MultipleScattering = false;
         {
@@ -5556,14 +5743,17 @@ namespace OloEngine::Tests
             auto& sun = m_Sun.GetComponent<DirectionalLightComponent>();
             auto& rim = m_Rim.GetComponent<DirectionalLightComponent>();
             const bool sunCasts = sun.m_CastShadows;
+            const f32 rimRange = rim.m_MaxShadowDistance;
             sun.m_CastShadows = false;
             (void)StartClip("Idle", true, 40);
             std::vector<u8> rimOpen;
             CaptureHeld("DogBodyShadow_GL_Forward_RimUnshadowed", face, rimOpen);
             rim.m_CastShadows = true;
+            rim.m_MaxShadowDistance = sun.m_MaxShadowDistance;
             std::vector<u8> rimShadowed;
             CaptureHeld("DogBodyShadow_GL_Forward_RimShadowed", face, rimShadowed);
             rim.m_CastShadows = false;
+            rim.m_MaxShadowDistance = rimRange;
             std::vector<u8> bald;
             m_Dog.Coat.GetComponent<GroomComponent>().m_RenderStrands = false;
             CaptureHeld("", face, bald);
@@ -5596,17 +5786,19 @@ namespace OloEngine::Tests
     // =========================================================================
     // #1533 review, section 6: the light the body cannot stop, region by region.
     //
-    // A strand's receive knows about the body only where a shadow map answers
-    // AT the strand -- the opaque cascades and the opaque atlas
-    // (groom-into-the-shadow-techniques.md rule 8). Everywhere else the coat's
-    // own volume is all that stands between a strand and its light, and the
-    // body the coat grows on stops none of it:
+    // A strand's receive knows about the body from a shadow map only where the
+    // map answers AT the strand -- the opaque cascades and the opaque atlas
+    // (groom-into-the-shadow-techniques.md rule 8). For everything else the
+    // coat's volume is what stands between a strand and its light:
     //   - a light that does not cast (the scene's rim, CastShadows: false);
     //   - the environment (the irradiance cube, along the fibre's eye-facing
     //     normal and behind it);
     //   - the VSM, which answers at the coat's light-exit point.
-    // Each is set against a BODY-AWARE reference built from the engine's own
-    // shadowed direct light, in LINEAR scene colour, region by region:
+    // That volume held the coat and nothing else until #1533 marked the body
+    // into it (GroomCoatShadow::MarkBodyInDensityVolume). Every such arm is
+    // measured WITH the body, as shipped, and WITHOUT it (OLO_GROOM_NO_COAT_BODY,
+    // the old picture), against BODY-AWARE references built from the engine's
+    // own shadowed direct light, in LINEAR scene colour, region by region:
     //   KEY       the sun alone, casting, as shipped: the scale of the rest;
     //   RIM       the rim alone, as shipped (not casting); twice, for the floor;
     //   RIM+BODY  the rim alone, made the light that owns the cascades;
@@ -5615,16 +5807,17 @@ namespace OloEngine::Tests
     //   DOME      a UNIFORM sky as 24 equal-area directional lights, each alone
     //             in its own frames, summed: not casting, then casting. Their
     //             ratio is the share of a sky the body lets reach that region's
-    //             fur; the shipped environment's is 1 everywhere by
-    //             construction. It is not path traced: it is the cascades' own
-    //             verdict on the body, from 24 directions.
-    // Multiple scattering is OFF in every arm: only a casting light gets its
-    // forwarded term, so leaving it on would credit each reference with light
-    // the arm it is compared against cannot receive.
+    //             fur by the volume's account against the cascades'. It is not
+    //             path traced: it is the cascades' verdict on the body, from 24
+    //             directions.
+    // Multiple scattering is OFF in every arm: what is measured is which light
+    // the body stops, and the forwarded term would credit the arms unevenly.
     //
-    // A RECORD: the gaps are documented (rule 8), CastShadows keeps its meaning,
-    // and nothing is held to a bound but that each comparison rises above its
-    // own repeat noise. OLO_DOG_LIGHTING=1 runs it (about 4,000 frames);
+    // A RECORD. It asserts only its instruments: the rim reaches the coat, the
+    // body's share of the rim rises above the rim's repeat noise in some view,
+    // and a casting dome lets less through the body than a non-casting one
+    // without it. How much of the rim the volume stops is the shell's business
+    // (see the note at the end); OLO_DOG_LIGHTING=1 runs it (about 6,000 frames);
     // OLO_DOG_LIGHTING_EXPORT=1 also rewrites assets/tests/visual/Dog_Lighting.txt.
     // =========================================================================
     TEST_F(DogShowcaseEvidenceTest, TheLightTheBodyCannotStopIsMeasuredRegionByRegion)
@@ -5677,6 +5870,7 @@ namespace OloEngine::Tests
                        rim = shippedRim;
                        sky->m_IBLIntensity = shippedIbl;
                        coatShadow.m_MultipleScattering = shippedMultiple;
+                       Levers::SetGroomNoCoatBody(false);
                        (void)setVsm(false);
                        anim.m_IsPlaying = true;
                        simulation.m_Enabled = true;
@@ -5686,7 +5880,10 @@ namespace OloEngine::Tests
         // One light setup per arm, everything else as shipped. A light at zero
         // intensity still exists; the cascades go to the brightest light that
         // CASTS (Scene.cpp), so an arm that wants the rim to own them stops the
-        // sun casting.
+        // sun casting. The cascades then span the rim's own MaxShadowDistance,
+        // and the shipped rim keeps the 200 m default: its first cascade put
+        // the dog on 3 x 7 texels, a reference that stopped none of the light
+        // the body stops. A rim that casts takes the sun's range.
         const auto lights = [&](f32 sunIntensity, bool sunCasts, f32 rimIntensity, bool rimCasts, f32 ibl)
         {
             sun = shippedSun;
@@ -5695,6 +5892,10 @@ namespace OloEngine::Tests
             sun.m_CastShadows = sunCasts;
             rim.m_Intensity = rimIntensity;
             rim.m_CastShadows = rimCasts;
+            if (rimCasts)
+            {
+                rim.m_MaxShadowDistance = shippedSun.m_MaxShadowDistance;
+            }
             sky->m_IBLIntensity = ibl;
         };
         const auto capture = [&](const View& view, LinearFrame& out, u32 settle = 24, u32 average = 8)
@@ -5702,6 +5903,15 @@ namespace OloEngine::Tests
             Renderer3D::ResetFrameSequences();
             ColdHistory();
             CaptureLinear(view, out, settle, average);
+        };
+        // The same capture with the body left out of the coat's march: the
+        // picture before #1533 put it there. Read per frame, so it takes effect
+        // on the capture's first frame.
+        const auto captureWithoutBody = [&](const View& view, LinearFrame& out, u32 settle = 24, u32 average = 8)
+        {
+            Levers::SetGroomNoCoatBody(true);
+            capture(view, out, settle, average);
+            Levers::SetGroomNoCoatBody(false);
         };
 
         // The dome: equal-area directions over the upper hemisphere (a
@@ -5725,44 +5935,85 @@ namespace OloEngine::Tests
         report += "# Linear scene colour (Rec.709 luminance, before tone mapping), GL Forward, the editor's quality tier,\n";
         report += "# Idle frame 40, simulation off, multiple scattering off in every arm; 24 settle + 8 averaged frames\n";
         report += "# per arm (dome: 12 + 4 per direction). Means over each region's coat pixels.\n";
-        report += "#   rimLeak    (RIM - RIM+BODY) / RIM: the share of the rim's light on this fur the body would stop\n";
-        report += "#   floor      |RIM - RIM again| / RIM: the same arm against itself\n";
+        report += "# Each column is shipped / without the body in the coat's volume (OLO_GROOM_NO_COAT_BODY, before #1533).\n";
+        report += "#   rimLeak    (RIM - RIM+BODY) / RIM: the share of the rim's light on this fur the cascades say the body\n";
+        report += "#              stops and the arm lets through (0 = the volume's body agrees with the cascades)\n";
+        report += "#   floor      |RIM - RIM again| / RIM: the shipped arm against itself\n";
         report += "#   leak/key   (RIM - RIM+BODY) / KEY: that light against the key's on the same fur\n";
-        report += "#   skyVis     DOME casting / DOME not casting: the share of a uniform sky the body lets reach it\n";
-        report += "#              (the shipped environment's is 1 by construction)\n";
-        report += "#   env/dome   (ENV / DOME not casting) over its coat-wide value: where the shipped environment puts\n";
-        report += "#              its light, against an unoccluded uniform sky evaluated through the fibre's lobes\n";
+        report += "#   skyVis     DOME casting / DOME not casting: the share of a uniform sky the cascades let reach this fur\n";
+        report += "#              against the volume's account (1 = they agree)\n";
+        report += "#   env        ENV / ENV without the body: what the volume's body takes from the sky on this fur\n";
         report += "#   vsm/key    VSM / KEY: the sun on this fur under the VSM's exit point against the opaque cascades\n";
         bool measurable = false;
         for (const View& view : views)
         {
             SCOPED_TRACE(view.Name);
-            LinearFrame key, rimOpen, rimAgain, rimBody, vsm, env, domeFrame;
+            LinearFrame key, rimOpen, rimAgain, rimBody, rimNoBody, vsm, vsmNoBody, env, envNoBody, domeFrame;
             lights(shippedSun.m_Intensity, true, 0.0f, false, 0.0f);
             capture(view, key);
             ASSERT_FALSE(HasFatalFailure());
             lights(0.0f, false, shippedRim.m_Intensity, false, 0.0f);
             capture(view, rimOpen);
             capture(view, rimAgain);
+            captureWithoutBody(view, rimNoBody);
             lights(0.0f, false, shippedRim.m_Intensity, true, 0.0f);
             capture(view, rimBody);
+            {
+                // The rim's three arms side by side at one exposure -- shipped,
+                // casting, without the body -- then shipped against casting:
+                // red where the volume's body darkens more than the cascades.
+                const u32 w = rimOpen.Width;
+                const u32 h = rimOpen.Height;
+                std::vector<u8> strip(static_cast<sizet>(w) * 4u * h * 4u, 255u);
+                const std::array<const LinearFrame*, 3> arms{ &rimOpen, &rimBody, &rimNoBody };
+                for (u32 y = 0; y < h; ++y)
+                {
+                    for (u32 x = 0; x < w; ++x)
+                    {
+                        const sizet i = (static_cast<sizet>(y) * w) + x;
+                        for (u32 a = 0; a < 4u; ++a)
+                        {
+                            u8* px = &strip[((static_cast<sizet>(y) * w * 4u) + (a * w) + x) * 4u];
+                            if (a < 3u)
+                            {
+                                const f64 l = arms[a]->Luminance[i] * 12.0;
+                                px[0] = px[1] = px[2] = static_cast<u8>(255.0 * std::clamp(std::pow(l / (1.0 + l), 1.0 / 2.2), 0.0, 1.0));
+                                continue;
+                            }
+                            const f64 d = (static_cast<f64>(rimOpen.Luminance[i]) - rimBody.Luminance[i]) * 12.0;
+                            px[0] = static_cast<u8>(255.0 * std::clamp(std::pow(std::max(0.0, -d), 1.0 / 2.2), 0.0, 1.0));
+                            px[1] = static_cast<u8>(255.0 * std::clamp(std::pow(std::max(0.0, d), 1.0 / 2.2), 0.0, 1.0));
+                            px[2] = 0u;
+                        }
+                    }
+                }
+                WritePng(std::string("DogLighting_GL_Forward_") + view.Name + "RimArms", strip, w * 4u, h);
+            }
             lights(shippedSun.m_Intensity, true, 0.0f, false, 0.0f);
             ASSERT_TRUE(setVsm(true)) << "the VSM did not come up";
             capture(view, vsm);
+            captureWithoutBody(view, vsmNoBody);
             ASSERT_TRUE(setVsm(false));
             lights(0.0f, false, 0.0f, false, shippedIbl);
             capture(view, env);
+            captureWithoutBody(view, envNoBody);
             std::vector<f64> domeOpen(key.Luminance.size(), 0.0);
+            std::vector<f64> domeOpenNoBody(key.Luminance.size(), 0.0);
             std::vector<f64> domeBody(key.Luminance.size(), 0.0);
             for (u32 k = 0; k < kDome; ++k)
             {
-                for (const bool casts : { false, true })
+                // Not casting with the body, not casting without it, casting.
+                for (u32 arm = 0; arm < 3u; ++arm)
                 {
+                    const bool casts = arm == 2u;
                     lights(kDomeIntensity / static_cast<f32>(kDome), casts, 0.0f, false, 0.0f);
                     sun.m_Direction = -dome[k];
-                    capture(view, domeFrame, 12, 4);
+                    if (arm == 1u)
+                        captureWithoutBody(view, domeFrame, 12, 4);
+                    else
+                        capture(view, domeFrame, 12, 4);
                     ASSERT_FALSE(HasFatalFailure());
-                    std::vector<f64>& sum = casts ? domeBody : domeOpen;
+                    std::vector<f64>& sum = arm == 0u ? domeOpen : (arm == 1u ? domeOpenNoBody : domeBody);
                     for (sizet i = 0; i < sum.size(); ++i)
                     {
                         sum[i] += domeFrame.Luminance[i];
@@ -5777,10 +6028,14 @@ namespace OloEngine::Tests
                 f64 Key = 0.0;
                 f64 Rim = 0.0;
                 f64 RimAgain = 0.0;
+                f64 RimNoBody = 0.0;
                 f64 RimBody = 0.0;
                 f64 Vsm = 0.0;
+                f64 VsmNoBody = 0.0;
                 f64 Env = 0.0;
+                f64 EnvNoBody = 0.0;
                 f64 DomeOpen = 0.0;
+                f64 DomeOpenNoBody = 0.0;
                 f64 DomeBody = 0.0;
             };
             std::array<Sums, kCoatRegions + 2u> sums{};
@@ -5804,10 +6059,14 @@ namespace OloEngine::Tests
                     s.Key += key.Luminance[i];
                     s.Rim += rimOpen.Luminance[i];
                     s.RimAgain += rimAgain.Luminance[i];
+                    s.RimNoBody += rimNoBody.Luminance[i];
                     s.RimBody += rimBody.Luminance[i];
                     s.Vsm += vsm.Luminance[i];
+                    s.VsmNoBody += vsmNoBody.Luminance[i];
                     s.Env += env.Luminance[i];
+                    s.EnvNoBody += envNoBody.Luminance[i];
                     s.DomeOpen += domeOpen[i];
+                    s.DomeOpenNoBody += domeOpenNoBody[i];
                     s.DomeBody += domeBody[i];
                 };
                 add(sums[mask.Region[i]]);
@@ -5832,11 +6091,13 @@ namespace OloEngine::Tests
             WritePng(std::string("DogLighting_GL_Forward_") + view.Name + "SkyVisibility", skyMap, key.Width, key.Height);
 
             const Sums& all = sums[kAll];
-            const f64 envDomeAll = all.DomeOpen > 0.0 ? all.Env / all.DomeOpen : 0.0;
             char row[512];
-            std::snprintf(row, sizeof(row), "\n%s\nregion        pixels      key      rim  rimLeak  floor  leak/key   skyVis  env/dome  vsm/key\n",
+            std::snprintf(row, sizeof(row),
+                          "\n%s\nregion        pixels      key      rim  rimLeak (before)  floor  leak/key (before)   skyVis (before)    env  vsm/key (before)\n",
                           view.Name);
             report += row;
+            const auto ratio = [](f64 a, f64 b)
+            { return b > 0.0 ? a / b : 0.0; };
             for (sizet r = 0; r < sums.size(); ++r)
             {
                 const Sums& s = sums[r];
@@ -5846,23 +6107,34 @@ namespace OloEngine::Tests
                 }
                 const char* name = r < kCoatRegions ? kCoatRegionNames[r] : (r == kFringe ? "sparse fringe" : "all coat");
                 const f64 n = s.Pixels;
-                const f64 rimLeak = s.Rim > 0.0 ? (s.Rim - s.RimBody) / s.Rim : 0.0;
-                const f64 floor = s.Rim > 0.0 ? std::abs(s.Rim - s.RimAgain) / s.Rim : 0.0;
-                const f64 leakVsKey = s.Key > 0.0 ? (s.Rim - s.RimBody) / s.Key : 0.0;
-                const f64 skyVisibility = s.DomeOpen > 0.0 ? s.DomeBody / s.DomeOpen : 0.0;
-                const f64 envVsDome = (s.DomeOpen > 0.0 && envDomeAll > 0.0) ? (s.Env / s.DomeOpen) / envDomeAll : 0.0;
-                const f64 vsmVsKey = s.Key > 0.0 ? s.Vsm / s.Key : 0.0;
-                std::snprintf(row, sizeof(row), "%-12s %7.0f  %7.4f  %7.4f  %7.3f  %5.3f  %8.3f  %7.3f  %8.3f  %7.3f\n", name,
-                              n, s.Key / n, s.Rim / n, rimLeak, floor, leakVsKey, skyVisibility, envVsDome, vsmVsKey);
+                std::snprintf(row, sizeof(row),
+                              "%-12s %7.0f  %7.4f  %7.4f  %7.3f (%6.3f)  %5.3f  %8.3f (%6.3f)  %7.3f (%6.3f)  %5.3f  %7.3f (%6.3f)\n",
+                              name, n, s.Key / n, s.Rim / n, ratio(s.Rim - s.RimBody, s.Rim),
+                              ratio(s.RimNoBody - s.RimBody, s.RimNoBody), ratio(std::abs(s.Rim - s.RimAgain), s.Rim),
+                              ratio(s.Rim - s.RimBody, s.Key), ratio(s.RimNoBody - s.RimBody, s.Key),
+                              ratio(s.DomeBody, s.DomeOpen), ratio(s.DomeBody, s.DomeOpenNoBody), ratio(s.Env, s.EnvNoBody),
+                              ratio(s.Vsm, s.Key), ratio(s.VsmNoBody, s.Key));
                 report += row;
             }
-            // Measurable: the rim's light on the coat and the body's share of it
-            // both rise above the arm's own repeat noise.
+            // Measurable: the rim reaches the coat, and the body's share of it
+            // without the body in the volume rises above the arm's own repeat
+            // noise. How much of that share the volume stops is recorded, not
+            // bounded, because the share holds more than the volume claims: what
+            // it leaves transparent by design (the eroded outer shell the rim's
+            // grazing paths cross, parts too thin to keep a core such as the tail
+            // and the ears), and every opaque caster the cascades hold and the
+            // volume never does (the lawn, the eyes, the teeth). One view kept
+            // 0.135 of its 0.136, another 0.042 of 0.061. What the volume
+            // promises -- never a shadow the body does not cast, and no miss
+            // deeper than the shell -- is held on an analytic sphere by
+            // GroomCoatBody.TheVolumeNeverShadowsWhereTheBodyDoesNotAndMissesOnlyItsShell
+            // (groom-coat-body-in-the-volume.md, "What the volume misses").
             const f64 allFloor = all.Rim > 0.0 ? std::abs(all.Rim - all.RimAgain) / all.Rim : 1.0;
-            const f64 allLeak = all.Rim > 0.0 ? (all.Rim - all.RimBody) / all.Rim : 0.0;
+            const f64 leakBefore = ratio(all.RimNoBody - all.RimBody, all.RimNoBody);
             EXPECT_GT(all.Rim / std::max(all.Pixels, 1.0), 0.0) << "the rim does not reach the coat in this view";
-            EXPECT_LT(all.DomeBody, all.DomeOpen) << "a casting dome let as much light through the body as a non-casting one";
-            measurable = measurable || allLeak > 4.0 * allFloor;
+            EXPECT_LT(all.DomeBody, all.DomeOpenNoBody)
+                << "a casting dome let as much light through the body as a non-casting one without the body";
+            measurable = measurable || leakBefore > 4.0 * allFloor;
         }
         EXPECT_TRUE(measurable) << "in no view did the body's share of the rim rise above the rim's own repeat noise";
         std::printf("%s", report.c_str());

@@ -35,7 +35,7 @@ in [groom-representation-lod.md](groom-representation-lod.md).
    with the skin (+2% on the strand tier).
 
 4a. **A ribbon's coat-shadow march starts on its tube's LIT side, one radius from the axis
-   (#1533).** This is rule 4's reasoning applied to light, in `oloGroomCoatTau`. A card sits on its
+   (#1533).** This is rule 4's reasoning applied to light, in `oloGroomCoatTauAndBody`. A card sits on its
    lock's centreline, the densest line in the volume, so a march from the axis shadowed every card
    fragment by its own lock. A viewer sees a lock's outer strands, not its centre, and under a
    converged volume the long coat's cards read 0.74-0.80 of the strands. From the lit side they

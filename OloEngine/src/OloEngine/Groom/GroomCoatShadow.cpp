@@ -3,11 +3,13 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
+#include "OloEngine/Groom/GroomSurfaceFrame.h"
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
 #include <numbers>
+#include <tuple>
 
 namespace OloEngine::GroomCoatShadow
 {
@@ -1321,11 +1323,15 @@ namespace OloEngine::GroomCoatShadow
     } // namespace
 
     f64 SampleDensityVolume(const DensityVolume& volume, const glm::vec3& origin, const glm::vec3& direction,
-                            bool anisotropic, f32 stepScale, u32* outSteps)
+                            bool anisotropic, f32 stepScale, u32* outSteps, f64* outBodyTau)
     {
         if (outSteps != nullptr)
         {
             *outSteps = 0;
+        }
+        if (outBodyTau != nullptr)
+        {
+            *outBodyTau = 0.0;
         }
         if (!volume.IsValid())
         {
@@ -1370,6 +1376,7 @@ namespace OloEngine::GroomCoatShadow
         const glm::vec3 invVoxel = 1.0f / voxel;
 
         f64 tau = 0.0;
+        f64 bodyTau = 0.0;
         for (i32 i = 0; i < steps; ++i)
         {
             const f32 t = tEnter + dt * (static_cast<f32>(i) + 0.5f);
@@ -1381,6 +1388,16 @@ namespace OloEngine::GroomCoatShadow
             SampleVolumeAt(volume, local, density, meanDirection);
             if (density <= 0.0f)
             {
+                // The body (#1533), counted only when asked for, and stopped
+                // where the shader stops: past kBodyOpaqueTau nothing is left.
+                if (outBodyTau != nullptr && density < 0.0f)
+                {
+                    bodyTau -= static_cast<f64>(density) * static_cast<f64>(dt);
+                    if (bodyTau > kBodyOpaqueTau)
+                    {
+                        break;
+                    }
+                }
                 continue;
             }
 
@@ -1411,7 +1428,436 @@ namespace OloEngine::GroomCoatShadow
         {
             *outSteps = static_cast<u32>(steps);
         }
+        if (outBodyTau != nullptr)
+        {
+            *outBodyTau = std::isfinite(bodyTau) ? bodyTau : 0.0;
+        }
         return std::isfinite(tau) ? tau : 0.0;
+    }
+
+    f64 BodyTransmittance(f64 bodyTau) noexcept
+    {
+        if (!(bodyTau > 0.0) || !std::isfinite(bodyTau))
+        {
+            return 1.0;
+        }
+        return std::clamp(std::exp(-bodyTau), 0.0, 1.0);
+    }
+
+    // =========================================================================
+    // The body inside the coat (#1533)
+    // =========================================================================
+
+    namespace
+    {
+        // Fixed-point steps per voxel for the parity raster. A column centre is
+        // an exact integer at this scale, so the edge functions below are exact
+        // and the two triangles sharing an edge compute exact negatives of each
+        // other: a centre on the edge is claimed by exactly one of them under
+        // the top-left rule. Snapping moves a vertex by at most 1/131072 of a
+        // voxel. Products stay inside i64 for any grid the bake accepts (1024
+        // voxels * 65536 = 2^26, squared 2^52).
+        constexpr i64 kRasterSteps = 65536;
+
+        [[nodiscard]] i64 EdgeFunction(i64 ax, i64 ay, i64 bx, i64 by, i64 px, i64 py) noexcept
+        {
+            return ((bx - ax) * (py - ay)) - ((by - ay) * (px - ax));
+        }
+
+        // For a counter-clockwise triangle in a y-up frame the interior is on
+        // each edge's left: a left edge runs down, a top edge runs left.
+        [[nodiscard]] bool IsTopLeftEdge(i64 ax, i64 ay, i64 bx, i64 by) noexcept
+        {
+            return by < ay || (by == ay && bx < ax);
+        }
+
+        [[nodiscard]] bool EdgeClaims(i64 weight, bool topLeft) noexcept
+        {
+            return weight > 0 || (weight == 0 && topLeft);
+        }
+
+        struct UnionFind
+        {
+            std::vector<u32> Parent;
+
+            explicit UnionFind(u32 count)
+                : Parent(count)
+            {
+                for (u32 i = 0; i < count; ++i)
+                {
+                    Parent[i] = i;
+                }
+            }
+
+            [[nodiscard]] u32 Find(u32 x) noexcept
+            {
+                while (Parent[x] != x)
+                {
+                    Parent[x] = Parent[Parent[x]];
+                    x = Parent[x];
+                }
+                return x;
+            }
+
+            void Join(u32 a, u32 b) noexcept
+            {
+                a = Find(a);
+                b = Find(b);
+                if (a != b)
+                {
+                    Parent[std::max(a, b)] = std::min(a, b);
+                }
+            }
+        };
+
+        // One separable pass of a 3x3x3 min (erode) or max (dilate) over a
+        // 0/1 mask: run along `axis` with radius 1, out of the grid counting as
+        // `outside`. Three passes, one per axis, are the full 26-neighbourhood.
+        void MorphologyPass(const std::vector<u8>& in, std::vector<u8>& out, const glm::ivec3& dims, i32 axis,
+                            bool erode)
+        {
+            out.resize(in.size());
+            const u8 outside = 0u;
+            const i32 stride = axis == 0 ? 1 : (axis == 1 ? dims.x : dims.x * dims.y);
+            const i32 length = dims[axis];
+            for (i32 z = 0; z < dims.z; ++z)
+            {
+                for (i32 y = 0; y < dims.y; ++y)
+                {
+                    for (i32 x = 0; x < dims.x; ++x)
+                    {
+                        const i32 coordinate = axis == 0 ? x : (axis == 1 ? y : z);
+                        const sizet index = VoxelIndex(dims, x, y, z);
+                        const u8 here = in[index];
+                        const u8 before = coordinate > 0 ? in[index - static_cast<sizet>(stride)] : outside;
+                        const u8 after = coordinate + 1 < length ? in[index + static_cast<sizet>(stride)] : outside;
+                        out[index] = erode ? std::min({ here, before, after }) : std::max({ here, before, after });
+                    }
+                }
+            }
+        }
+
+        void Morphology(std::vector<u8>& mask, std::vector<u8>& scratch, const glm::ivec3& dims, bool erode)
+        {
+            for (i32 axis = 0; axis < 3; ++axis)
+            {
+                MorphologyPass(mask, scratch, dims, axis, erode);
+                mask.swap(scratch);
+            }
+        }
+    } // namespace
+
+    bool MarkBodyInDensityVolume(DensityVolume& volume, const GroomSurfaceView& surface,
+                                 const glm::mat4& surfaceToVolume, const BodyVoxelSettings& settings,
+                                 BodyVoxelStats* outStats)
+    {
+        BodyVoxelStats stats;
+        const auto finish = [&](bool marked)
+        {
+            if (outStats != nullptr)
+            {
+                *outStats = stats;
+            }
+            return marked;
+        };
+
+        if (!volume.IsValid() || !surface.IsUsable() || !std::isfinite(settings.OpacityPerVoxel) ||
+            settings.OpacityPerVoxel <= 0.0f || !std::isfinite(settings.WeldTolerance) ||
+            settings.WeldTolerance <= 0.0f)
+        {
+            return finish(false);
+        }
+        for (i32 c = 0; c < 4; ++c)
+        {
+            if (!IsFiniteVec(glm::vec3(surfaceToVolume[c])) || !std::isfinite(surfaceToVolume[c].w))
+            {
+                return finish(false);
+            }
+        }
+        const glm::ivec3 dims = volume.Dimensions;
+        const glm::vec3 voxel = volume.VoxelSize();
+        const f32 voxelLength = std::min({ voxel.x, voxel.y, voxel.z });
+        if (!(voxelLength > 0.0f))
+        {
+            return finish(false);
+        }
+
+        // ── Weld, then split into connected components ───────────────────
+        // glTF splits a vertex at every UV seam and normal crease, so the raw
+        // index buffer is a patchwork of open pieces; welding by position is
+        // what lets "closed" be asked at all. Sorted rather than hashed, so the
+        // ids, and therefore everything below, are the same on every run.
+        const u32 vertexCount = surface.VertexCount;
+        const f64 invTolerance = 1.0 / static_cast<f64>(settings.WeldTolerance);
+        struct WeldKey
+        {
+            i64 X;
+            i64 Y;
+            i64 Z;
+            u32 Vertex;
+        };
+        std::vector<WeldKey> keys;
+        keys.reserve(vertexCount);
+        for (u32 v = 0; v < vertexCount; ++v)
+        {
+            const glm::vec3 p = surface.Position(v);
+            if (!IsFiniteVec(p))
+            {
+                continue;
+            }
+            keys.push_back(WeldKey{ std::llround(static_cast<f64>(p.x) * invTolerance),
+                                    std::llround(static_cast<f64>(p.y) * invTolerance),
+                                    std::llround(static_cast<f64>(p.z) * invTolerance), v });
+        }
+        std::sort(keys.begin(), keys.end(), [](const WeldKey& a, const WeldKey& b)
+                  { return std::tie(a.X, a.Y, a.Z, a.Vertex) < std::tie(b.X, b.Y, b.Z, b.Vertex); });
+        constexpr u32 kNoWeld = std::numeric_limits<u32>::max();
+        std::vector<u32> weldOf(vertexCount, kNoWeld);
+        u32 welded = 0;
+        for (sizet i = 0; i < keys.size(); ++i)
+        {
+            if (i > 0 && (keys[i].X != keys[i - 1].X || keys[i].Y != keys[i - 1].Y || keys[i].Z != keys[i - 1].Z))
+            {
+                ++welded;
+            }
+            weldOf[keys[i].Vertex] = welded;
+        }
+        const u32 weldCount = keys.empty() ? 0u : welded + 1u;
+
+        const u32 triangleCount = surface.TriangleCount();
+        std::vector<glm::uvec3> triangles;
+        triangles.reserve(triangleCount);
+        UnionFind components(weldCount);
+        for (u32 t = 0; t < triangleCount; ++t)
+        {
+            const glm::uvec3 corners = surface.TriangleIndices(t);
+            if (corners.x >= vertexCount || corners.y >= vertexCount || corners.z >= vertexCount)
+            {
+                continue;
+            }
+            const glm::uvec3 w{ weldOf[corners.x], weldOf[corners.y], weldOf[corners.z] };
+            if (w.x == kNoWeld || w.y == kNoWeld || w.z == kNoWeld || w.x == w.y || w.y == w.z || w.x == w.z)
+            {
+                continue; // a corrupt corner, or a triangle the weld collapsed
+            }
+            triangles.push_back(glm::uvec3{ corners.x, corners.y, corners.z });
+            components.Join(w.x, w.y);
+            components.Join(w.y, w.z);
+        }
+
+        // A component is CLOSED when every edge in it has an even number of
+        // faces: that is what makes the parity of a ray's crossings an answer.
+        std::vector<u64> edges;
+        edges.reserve(triangles.size() * 3u);
+        for (const glm::uvec3& t : triangles)
+        {
+            const std::array<u32, 3> w{ weldOf[t.x], weldOf[t.y], weldOf[t.z] };
+            for (sizet e = 0; e < 3; ++e)
+            {
+                const u32 a = std::min(w[e], w[(e + 1) % 3u]);
+                const u32 b = std::max(w[e], w[(e + 1) % 3u]);
+                edges.push_back((static_cast<u64>(a) << 32u) | b);
+            }
+        }
+        std::sort(edges.begin(), edges.end());
+        std::vector<u8> openComponent(weldCount, 0u);
+        for (sizet i = 0; i < edges.size();)
+        {
+            sizet j = i;
+            while (j < edges.size() && edges[j] == edges[i])
+            {
+                ++j;
+            }
+            if (((j - i) & 1u) != 0u)
+            {
+                openComponent[components.Find(static_cast<u32>(edges[i] >> 32u))] = 1u;
+            }
+            i = j;
+        }
+        std::vector<u8> isRoot(weldCount, 0u);
+        for (const glm::uvec3& t : triangles)
+        {
+            isRoot[components.Find(weldOf[t.x])] = 1u;
+        }
+        for (u32 r = 0; r < weldCount; ++r)
+        {
+            if (isRoot[r] != 0u)
+            {
+                ++stats.Components;
+                if (openComponent[r] != 0u)
+                {
+                    ++stats.OpenComponents;
+                }
+                else
+                {
+                    ++stats.ClosedComponents;
+                }
+            }
+        }
+        if (stats.ClosedComponents == 0u)
+        {
+            return finish(false);
+        }
+
+        // ── Parity along every z column of voxel centres ─────────────────
+        struct Crossing
+        {
+            u32 Column;
+            f64 Z;
+        };
+        std::vector<Crossing> crossings;
+        const glm::dvec3 lo(volume.BoundsMin);
+        const f64 invVoxel = 1.0 / static_cast<f64>(voxelLength);
+        const glm::dmat4 toVolume(surfaceToVolume);
+        const auto place = [&](u32 vertex, i64& x, i64& y, f64& z)
+        {
+            const glm::dvec3 p = glm::dvec3(toVolume * glm::dvec4(glm::dvec3(surface.Position(vertex)), 1.0));
+            const glm::dvec3 local = (p - lo) * invVoxel;
+            x = std::llround(local.x * static_cast<f64>(kRasterSteps));
+            y = std::llround(local.y * static_cast<f64>(kRasterSteps));
+            z = local.z;
+        };
+        constexpr i64 kHalf = kRasterSteps / 2;
+        for (const glm::uvec3& t : triangles)
+        {
+            if (openComponent[components.Find(weldOf[t.x])] != 0u)
+            {
+                continue;
+            }
+            ++stats.FilledTriangles;
+            i64 ax = 0;
+            i64 ay = 0;
+            i64 bx = 0;
+            i64 by = 0;
+            i64 cx = 0;
+            i64 cy = 0;
+            f64 az = 0.0;
+            f64 bz = 0.0;
+            f64 cz = 0.0;
+            place(t.x, ax, ay, az);
+            place(t.y, bx, by, bz);
+            place(t.z, cx, cy, cz);
+            i64 area = EdgeFunction(ax, ay, bx, by, cx, cy);
+            if (area == 0)
+            {
+                continue; // edge-on to the column: no crossing
+            }
+            if (area < 0)
+            {
+                std::swap(bx, cx);
+                std::swap(by, cy);
+                std::swap(bz, cz);
+                area = -area;
+            }
+            const bool topLeftA = IsTopLeftEdge(bx, by, cx, cy); // the edge opposite a
+            const bool topLeftB = IsTopLeftEdge(cx, cy, ax, ay);
+            const bool topLeftC = IsTopLeftEdge(ax, ay, bx, by);
+            // The columns whose centre (i * steps + steps / 2) can fall inside.
+            const auto firstColumn = [](i64 low)
+            { return static_cast<i64>(std::ceil(static_cast<f64>(low - kHalf) / static_cast<f64>(kRasterSteps))); };
+            const auto lastColumn = [](i64 high)
+            { return static_cast<i64>(std::floor(static_cast<f64>(high - kHalf) / static_cast<f64>(kRasterSteps))); };
+            const i64 i0 = std::max<i64>(0, firstColumn(std::min({ ax, bx, cx })));
+            const i64 i1 = std::min<i64>(dims.x - 1, lastColumn(std::max({ ax, bx, cx })));
+            const i64 j0 = std::max<i64>(0, firstColumn(std::min({ ay, by, cy })));
+            const i64 j1 = std::min<i64>(dims.y - 1, lastColumn(std::max({ ay, by, cy })));
+            for (i64 j = j0; j <= j1; ++j)
+            {
+                const i64 py = (j * kRasterSteps) + kHalf;
+                for (i64 i = i0; i <= i1; ++i)
+                {
+                    const i64 px = (i * kRasterSteps) + kHalf;
+                    const i64 wa = EdgeFunction(bx, by, cx, cy, px, py);
+                    const i64 wb = EdgeFunction(cx, cy, ax, ay, px, py);
+                    const i64 wc = EdgeFunction(ax, ay, bx, by, px, py);
+                    if (!EdgeClaims(wa, topLeftA) || !EdgeClaims(wb, topLeftB) || !EdgeClaims(wc, topLeftC))
+                    {
+                        continue;
+                    }
+                    const f64 z = ((static_cast<f64>(wa) * az) + (static_cast<f64>(wb) * bz) + (static_cast<f64>(wc) * cz)) /
+                                  static_cast<f64>(area);
+                    crossings.push_back(Crossing{ static_cast<u32>((j * dims.x) + i), z });
+                }
+            }
+        }
+        std::sort(crossings.begin(), crossings.end(),
+                  [](const Crossing& a, const Crossing& b)
+                  { return std::tie(a.Column, a.Z) < std::tie(b.Column, b.Z); });
+
+        const sizet voxelCount = static_cast<sizet>(dims.x) * static_cast<sizet>(dims.y) * static_cast<sizet>(dims.z);
+        std::vector<u8> body(voxelCount, 0u);
+        for (sizet i = 0; i < crossings.size();)
+        {
+            sizet j = i;
+            while (j < crossings.size() && crossings[j].Column == crossings[i].Column)
+            {
+                ++j;
+            }
+            if (((j - i) & 1u) != 0u)
+            {
+                ++stats.OddColumns; // left empty: never filled to the far side of the box
+                i = j;
+                continue;
+            }
+            const i32 x = static_cast<i32>(crossings[i].Column % static_cast<u32>(dims.x));
+            const i32 y = static_cast<i32>(crossings[i].Column / static_cast<u32>(dims.x));
+            for (sizet k = i; k + 1 < j; k += 2)
+            {
+                // Voxel centres (z + 0.5) in [enter, exit).
+                const i32 first = std::max(0, static_cast<i32>(std::ceil(crossings[k].Z - 0.5)));
+                const i32 last = std::min(dims.z, static_cast<i32>(std::ceil(crossings[k + 1].Z - 0.5)));
+                for (i32 z = first; z < last; ++z)
+                {
+                    body[VoxelIndex(dims, x, y, z)] = 1u;
+                }
+            }
+            i = j;
+        }
+        stats.InsideVoxels = static_cast<u32>(std::count(body.begin(), body.end(), u8{ 1 }));
+
+        // ── Erode from the skin, then keep clear of the coat ─────────────
+        std::vector<u8> scratch;
+        for (u32 pass = 0; pass < settings.ErodeVoxels; ++pass)
+        {
+            Morphology(body, scratch, dims, /*erode*/ true);
+        }
+        std::vector<u8> coat(voxelCount, 0u);
+        for (sizet i = 0; i < voxelCount; ++i)
+        {
+            coat[i] = volume.Density[i] > 0.0f ? 1u : 0u;
+        }
+        Morphology(coat, scratch, dims, /*erode*/ false);
+        u32 marked = 0;
+        for (sizet i = 0; i < voxelCount; ++i)
+        {
+            if (body[i] == 0u)
+            {
+                continue;
+            }
+            if (coat[i] != 0u)
+            {
+                body[i] = 0u;
+                ++stats.ClearedBesideCoat;
+                continue;
+            }
+            ++marked;
+        }
+        stats.MarkedVoxels = marked;
+        if (marked == 0u)
+        {
+            return finish(false);
+        }
+
+        const f32 extinction = settings.OpacityPerVoxel / voxelLength;
+        for (sizet i = 0; i < voxelCount; ++i)
+        {
+            if (body[i] != 0u)
+            {
+                volume.Density[i] = -extinction;
+                volume.Direction[i] = glm::vec3(0.0f);
+            }
+        }
+        return finish(true);
     }
 
     // =========================================================================

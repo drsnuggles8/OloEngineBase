@@ -911,6 +911,10 @@ add_executable(OloEngine-Tests
 		# bound and its stale detector, and the cadence sweep whose numbers the
 		# rule doc quotes. CPU-only and deterministic: it runs in CI.
 		Rendering/PropertyTests/GroomCoatShadowDeformedPropertyTests.cpp
+		# #1533: the body marked into the coat's volume. Coat voxels untouched,
+		# none beside the body, the casting march bit-identical, a ray into the
+		# body stopped. CPU-only and deterministic: it runs in CI.
+		Rendering/PropertyTests/GroomCoatBodyPropertyTests.cpp
 		Rendering/PropertyTests/ShaderCompilationTest.cpp
 		# Issue #691 Phase 3. BindlessShaderPipelineTest pins the toolchain
 		# constraint (bindless GLSL cannot enter the Vulkan-SPIR-V pipeline);

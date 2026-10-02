@@ -465,6 +465,14 @@ namespace OloEngine
         /// (GroomCoatShadow::CoatBakeSubsetStride): 1 for a full bake, 0 when
         /// nothing deformed was baked.
         u32 MaxBakeStride = 0;
+        /// The most voxels of BODY a shadowed rest bake held this frame
+        /// (#1533, GroomCoatShadow::MarkBodyInDensityVolume): zero when no
+        /// coat's volume carries its body, so the lights no map answers for at
+        /// the strand reach that fur through it.
+        u32 BodyVoxelsInForce = 0;
+        /// CPU time spent marking bodies into rest bakes this frame, inside
+        /// BakeMicroseconds.
+        u64 BakeBodyMicroseconds = 0;
 
         void Record(const GroomCoatShadowDecision& decision) noexcept
         {
@@ -524,7 +532,8 @@ namespace OloEngine
                    BakeSegmentMicroseconds == other.BakeSegmentMicroseconds &&
                    BakeBinMicroseconds == other.BakeBinMicroseconds && BakePackMicroseconds == other.BakePackMicroseconds &&
                    BakeUploadMicroseconds == other.BakeUploadMicroseconds && DriftMicroseconds == other.DriftMicroseconds &&
-                   MaxBakeStride == other.MaxBakeStride;
+                   MaxBakeStride == other.MaxBakeStride && BodyVoxelsInForce == other.BodyVoxelsInForce &&
+                   BakeBodyMicroseconds == other.BakeBodyMicroseconds;
         }
     };
 } // namespace OloEngine

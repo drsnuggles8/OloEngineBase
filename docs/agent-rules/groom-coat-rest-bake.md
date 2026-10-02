@@ -1,7 +1,7 @@
 # A coat baked at rest (#1533)
 
 Read before touching `GroomCoatShadowComponent::m_BakeAtRest`, the `bakeAtRest` arm of
-`GroomRenderPass::AcquireCoatVolume`, `oloGroomCoatTau` / `oloGroomCoatExitDistance` in
+`GroomRenderPass::AcquireCoatVolume`, `oloGroomCoatTauAndBody` / `oloGroomCoatExitDistance` in
 `GroomStrand.glsl`, or the bind frames in the deformation buffer (`GroomDeformBindRecord`,
 `oloGroomDeformBindFrame`). The pose bake it replaces for a coat that opts in is
 [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shadowing.md).

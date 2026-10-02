@@ -548,17 +548,19 @@ namespace OloEngine
         // Pinned at its count so a second call site — the shape a scene-shadow
         // term would most likely arrive in — fails here.
         //
-        // ONE FUNNEL since the rest bake (#1533): oloGroomCoatTau holds both
-        // marches -- the posed coat's, and a coat baked at rest from its
+        // ONE FUNNEL since the rest bake (#1533): oloGroomCoatTauAndBody holds
+        // both marches -- the posed coat's, and a coat baked at rest from its
         // bind-pose point -- and is called for each light, the sky on the
         // viewer's side, and the sky BEHIND the fibre (the TT paths, whose light
         // comes through the coat below). Five transmittance mentions: one per
         // call plus two comments naming the function. All of it is the coat's
-        // own strands -- none is a scene term.
+        // own volume -- the strands, and since #1533 the body it grows on,
+        // counted only where no shadow map answered for it -- none is a scene
+        // shadow map's term.
         EXPECT_EQ(count("oloGroomCoatOpticalDepth"), 2u)
             << "the coat's own optical-depth path moved; re-read the double-count boundary in "
                "GroomCoatShadow.h before changing this number";
-        EXPECT_EQ(count("oloGroomCoatTau("), 4u)
+        EXPECT_EQ(count("oloGroomCoatTauAndBody("), 4u)
             << "one definition and three marches (each light, the sky, the sky behind the fibre); a new "
                "caller is a new attenuation path";
         EXPECT_EQ(count("oloGroomCoatTransmittance"), 5u)

@@ -87,6 +87,11 @@ OLO_LEVER_EXACT(GroomNoCoatMarch, "OLO_GROOM_NO_COAT_MARCH",
                 "the way' -- transmittance 1 -- while the volume is still baked and bound and its dual scattering "
                 "still evaluated. NOT the shipped look: the A/B that separates the march's cost from the rest of "
                 "the coat's shading (OLO_DOG_COST_SUB=nomarch). Read per frame.")
+OLO_LEVER_EXACT(GroomNoCoatBody, "OLO_GROOM_NO_COAT_BODY",
+                "Leave the body out of every groom's coat march (#1533): a rest bake still marks the body into its "
+                "volume, but the shader counts it for no light, so a light that does not cast, the sky and the VSM "
+                "reach the fur through the body as they did before it was there. The A/B for the body's share of "
+                "the coat's light (TheLightTheBodyCannotStopIsMeasuredRegionByRegion). Read per frame.")
 OLO_LEVER_EXACT(GroomConstantFibre, "OLO_GROOM_CONSTANT_FIBRE",
                 "DIAGNOSTIC SUBSTITUTION (#1533 cost matrix): every groom's fibre scattering -- the BCSDF per light "
                 "and its ambient response -- replaced by a constant lobe, with every attenuation (scene shadow, coat "

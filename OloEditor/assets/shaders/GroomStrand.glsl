@@ -111,9 +111,10 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	vec4 u_GroomCoatInvExtent;     // xyz = 1/(max-min), w = march step in world metres
 	// x = effective CoatShadowMode; y = receives the scene shadow (#1323);
 	// z = the object box above is valid for the scene-shadow receiver offset
-	// (set for a CASTER, volume or not); w = the volume is the coat AT REST and is
-	// marched from v_CoatRestPos along the direction v_CoatRestFrame turns back
-	// (#1533; only a GPU-deformed draw sets it).
+	// (set for a CASTER, volume or not); w = a bitfield (#1533, only a
+	// GPU-deformed draw sets it): 1 the volume is the coat AT REST and is
+	// marched from v_CoatRestPos along the direction v_CoatRestFrame turns back,
+	// 2 it also holds the BODY (OLO_GROOM_COAT_HOLDS_BODY).
 	ivec4 u_GroomCoatModes;
 	// GPU strand deformation (#1427). Mirrored lane for lane from
 	// UBOStructures::GroomStrandParamsUBO; include/GroomStrandDeform.glsl reads
@@ -156,7 +157,7 @@ layout(location = 9) out vec3 v_CoatTint;
 layout(location = 10) out vec3 v_CoatRestPos;
 layout(location = 11) flat out vec4 v_CoatRestFrame;
 // The ribbon's half-width in world metres: the radius of the tube it stands
-// for, which the coat-shadow march starts outside of (see oloGroomCoatTau).
+// for, which the coat-shadow march starts outside of (see oloGroomCoatTauAndBody).
 layout(location = 12) out float v_TubeRadius;
 
 void main()
@@ -218,7 +219,7 @@ void main()
 		// turned back. Local to the root, so rigid with it -- exact for all the
 		// body carries, and the simulation's displacement is not in it: a
 		// swinging lock is shadowed by the neighbours it was groomed among.
-		if (!depthOnly && u_GroomCoatModes.w != 0)
+		if (!depthOnly && (u_GroomCoatModes.w & 1) != 0) // the coat is baked at rest
 		{
 			vec3 bindOrigin;
 			vec4 bindRotation;
@@ -548,9 +549,10 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	vec4 u_GroomCoatInvExtent;     // xyz = 1/(max-min), w = march step in world metres
 	// x = effective CoatShadowMode; y = receives the scene shadow (#1323);
 	// z = the object box above is valid for the scene-shadow receiver offset
-	// (set for a CASTER, volume or not); w = the volume is the coat AT REST and is
-	// marched from v_CoatRestPos along the direction v_CoatRestFrame turns back
-	// (#1533; only a GPU-deformed draw sets it).
+	// (set for a CASTER, volume or not); w = a bitfield (#1533, only a
+	// GPU-deformed draw sets it): 1 the volume is the coat AT REST and is
+	// marched from v_CoatRestPos along the direction v_CoatRestFrame turns back,
+	// 2 it also holds the BODY (OLO_GROOM_COAT_HOLDS_BODY).
 	ivec4 u_GroomCoatModes;
 	// GPU strand deformation (#1427). Mirrored lane for lane from
 	// UBOStructures::GroomStrandParamsUBO; include/GroomStrandDeform.glsl reads
@@ -639,20 +641,38 @@ void oloGroomAccumulate(inout OloGroomFibreLobes total, OloGroomFibreLobes add, 
 const int OLO_GROOM_SUBSTITUTE_NO_MARCH = 1;
 const int OLO_GROOM_SUBSTITUTE_CONSTANT_FIBRE = 2;
 
-float oloGroomCoatTau(vec3 worldDir)
+// u_GroomCoatModes.w (#1533): the volume is the coat at rest, and it holds the
+// body. Only a rest bake over a bound surface marks the body, so the second bit
+// never comes without the first.
+const int OLO_GROOM_COAT_AT_REST = 1;
+const int OLO_GROOM_COAT_HOLDS_BODY = 2;
+
+bool oloGroomCoatHoldsBody()
 {
+	return (u_GroomCoatModes.w & OLO_GROOM_COAT_HOLDS_BODY) != 0;
+}
+
+// The coat between this strand and `worldDir`, and with `countBody` the body
+// too (out `bodyTau`, zero otherwise). The body is counted only where no shadow
+// map has already answered for it at the strand; see the light loop.
+float oloGroomCoatTauAndBody(vec3 worldDir, bool countBody, out float bodyTau)
+{
+	bodyTau = 0.0;
 	if ((u_GroomFibreModes.w & OLO_GROOM_SUBSTITUTE_NO_MARCH) != 0)
 	{
 		return 0.0;
 	}
 	float tube = max(v_TubeRadius, 0.0);
-	if (u_GroomCoatModes.w != 0)
+	if ((u_GroomCoatModes.w & OLO_GROOM_COAT_AT_REST) != 0)
 	{
 		vec3 dirObject = normalize(oloGroomQuatRotate(v_CoatRestFrame, mat3(u_GroomCoatWorldToObject) * worldDir));
-		return oloGroomCoatOpticalDepthObject(u_GroomCoatVolume, u_GroomCoatBoundsMin.xyz, u_GroomCoatInvExtent.xyz,
-		                                      v_CoatRestPos + dirObject * tube, dirObject, u_GroomCoatInvExtent.w,
-		                                      u_GroomCoatModes.x);
+		vec2 depths = oloGroomCoatOpticalDepthAndBodyObject(
+		    u_GroomCoatVolume, u_GroomCoatBoundsMin.xyz, u_GroomCoatInvExtent.xyz, v_CoatRestPos + dirObject * tube,
+		    dirObject, u_GroomCoatInvExtent.w, u_GroomCoatModes.x, countBody && oloGroomCoatHoldsBody());
+		bodyTau = depths.y;
+		return depths.x;
 	}
+	// A pose bake holds no body.
 	return oloGroomCoatOpticalDepth(u_GroomCoatVolume, u_GroomCoatWorldToObject, u_GroomCoatBoundsMin.xyz,
 	                                u_GroomCoatInvExtent.xyz, v_WorldPos + worldDir * tube, worldDir,
 	                                u_GroomCoatInvExtent.w, u_GroomCoatModes.x);
@@ -660,7 +680,7 @@ float oloGroomCoatTau(vec3 worldDir)
 
 float oloGroomCoatExitDistance(vec3 worldDir)
 {
-	if (u_GroomCoatModes.w != 0)
+	if ((u_GroomCoatModes.w & OLO_GROOM_COAT_AT_REST) != 0)
 	{
 		return oloGroomCoatLightExitDistanceObject(
 		    u_GroomCoatBoundsMin.xyz, u_GroomCoatInvExtent.xyz, v_CoatRestPos,
@@ -991,26 +1011,35 @@ OloGroomShading oloGroomShadeFibre()
 		// How much of this coat is between the fragment and this light. Zero
 		// crossings (or an inactive mode) gives transmittance 1, so a coat with
 		// no volume built renders exactly as it did before this existed.
-		float coatTau = oloGroomCoatTau(L);
+		//
+		// AND THE BODY, WHERE NO MAP SAID IT (#1533). A light whose map answered
+		// at the strand has the body in that answer already; every other one --
+		// a light that does not cast, the VSM at the coat's exit point, a map
+		// with no opaque copy -- is stopped by the body the volume holds, which
+		// multiplies the light arriving here as the scene's shadow does.
+		bool countBody = !occlusionKnown && oloGroomCoatHoldsBody();
+		float bodyTau = 0.0;
+		float coatTau = oloGroomCoatTauAndBody(L, countBody, bodyTau);
 		float coatShadow = oloGroomCoatTransmittance(coatTau, u_GroomCoatBoundsMin.w);
+		float bodyShadow = oloGroomBodyTransmittance(bodyTau);
 		// What the other fibres forwarded on top of it (dual scattering) —
-		// ONLY where a shadow map accounts for the body, which is a map sampled
-		// AT THE STRAND (see the scene-shadow receive above): one sampled at the
-		// coat's exit point answers for what lies beyond the coat and not for
-		// the body inside it. The volume holds strands, not the body, so a light nothing
-		// shadows would forward straight through the animal: a rim light behind
-		// the head lit the front of the face through it, as a frost of backlit
-		// strands. Unscattered, such a light is still stopped by the coat's two
-		// root layers, which is the #1248 behaviour; that part stays.
+		// ONLY where the body is accounted for: by a map sampled AT THE STRAND
+		// (see the scene-shadow receive above), or by the body in the volume.
+		// A map sampled at the coat's exit point answers for what lies beyond
+		// the coat and not for the body inside it, and a volume of strands alone
+		// would forward a light nothing shadows straight through the animal: a
+		// rim light behind the head lit the front of the face through it, as a
+		// frost of backlit strands. Unscattered, such a light is still stopped
+		// by the coat's two root layers, which is the #1248 behaviour.
 		vec3 forwarded = vec3(0.0);
-		if (dualScattering && occlusionKnown)
+		if (dualScattering && (occlusionKnown || countBody))
 		{
 			forwarded = max(oloGroomCoatForwardTransmittance(coatTau, u_GroomCoatBoundsMin.w, forwardScatter) -
 			                    vec3(coatShadow),
 			                vec3(0.0));
 		}
 
-		vec3 radiance = light.color.rgb * light.color.w * attenuation * sceneShadow;
+		vec3 radiance = light.color.rgb * light.color.w * attenuation * sceneShadow * bodyShadow;
 
 		// THE FIBRE'S PROJECTED WIDTH, not a surface N.L. A strand lit along
 		// its own length intercepts almost no light per unit length, and this
@@ -1071,9 +1100,13 @@ OloGroomShading oloGroomShadeFibre()
 		// direction it is sampled from — so this is the one extra march that is
 		// consistent with the term it attenuates rather than an invented
 		// ambient-occlusion factor. A strand buried in the coat sees the sky
-		// through the coat; one on the surface sees it directly.
-		float envTau = oloGroomCoatTau(envDir);
+		// through the coat; one on the surface sees it directly. No map answers
+		// for the sky, so the body the volume holds stops it (#1533).
+		bool envBody = oloGroomCoatHoldsBody();
+		float envBodyTau = 0.0;
+		float envTau = oloGroomCoatTauAndBody(envDir, envBody, envBodyTau);
 		float envShadow = oloGroomCoatTransmittance(envTau, u_GroomCoatBoundsMin.w);
+		float envBodyShadow = oloGroomBodyTransmittance(envBodyTau);
 		OloGroomFibreLobes ambient = oloGroomFibreConstantLobes();
 		if ((u_GroomFibreModes.w & OLO_GROOM_SUBSTITUTE_CONSTANT_FIBRE) == 0)
 		{
@@ -1081,7 +1114,7 @@ OloGroomShading oloGroomShadeFibre()
 		}
 		if (!dualScattering)
 		{
-			oloGroomAccumulate(total, ambient, averageRadiance * envShadow);
+			oloGroomAccumulate(total, ambient, averageRadiance * (envShadow * envBodyShadow));
 		}
 		else
 		{
@@ -1093,21 +1126,34 @@ OloGroomShading oloGroomShadeFibre()
 			// through the coat above; TT and the other half see it behind,
 			// through the coat below.
 			//
-			// BEHIND, ONLY THE UNSCATTERED PART. The volume holds strands, not
-			// the body, so a ray through the coat's roots and on through the
-			// body would find a second coat and read the sky beyond it. Counting
-			// what pale fibres forward along that ray would light the front of
-			// the dog with the sky behind it; the colourless transmittance does
-			// not, because the two root layers stop it.
+			// BEHIND, ONLY THE UNSCATTERED PART -- unless the volume holds the
+			// body (#1533). A volume of strands alone lets a ray through the
+			// coat's roots carry on through the body, find a second coat and
+			// read the sky beyond it. Counting what pale fibres forward along
+			// that ray would light the front of the dog with the sky behind it;
+			// the colourless transmittance does not, because the two root layers
+			// stop it. With the body in the volume that ray is stopped by the
+			// body, and what the coat forwards along a ray the body does not
+			// stop -- out through a fringe, past a leg -- is light that is there.
 			vec3 envForwarded = max(oloGroomCoatForwardTransmittance(envTau, u_GroomCoatBoundsMin.w, forwardScatter) -
 			                            vec3(envShadow),
 			                        vec3(0.0));
-			vec3 front = averageRadiance * (vec3(envShadow) + (envForwarded * densityForward));
+			vec3 front = averageRadiance * (vec3(envShadow) + (envForwarded * densityForward)) * envBodyShadow;
 
 			vec3 behindDir = -envDir;
-			float behindTau = oloGroomCoatTau(behindDir);
+			float behindBodyTau = 0.0;
+			float behindTau = oloGroomCoatTauAndBody(behindDir, envBody, behindBodyTau);
+			float behindShadow = oloGroomCoatTransmittance(behindTau, u_GroomCoatBoundsMin.w);
+			vec3 behindArriving = vec3(behindShadow);
+			if (envBody)
+			{
+				behindArriving += max(oloGroomCoatForwardTransmittance(behindTau, u_GroomCoatBoundsMin.w, forwardScatter) -
+				                          vec3(behindShadow),
+				                      vec3(0.0)) *
+				                  densityForward;
+			}
 			vec3 behind = oloGroomFibreEnvironmentRadiance(u_IrradianceMap, behindDir, u_GroomFibreLobe.w) *
-			              oloGroomCoatTransmittance(behindTau, u_GroomCoatBoundsMin.w);
+			              behindArriving * oloGroomBodyTransmittance(behindBodyTau);
 
 			total.R += ambient.R * front;
 			total.TRT += ambient.TRT * front;
