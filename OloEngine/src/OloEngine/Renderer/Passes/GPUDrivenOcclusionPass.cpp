@@ -23,8 +23,6 @@ namespace OloEngine
     void GPUDrivenOcclusionPass::Setup(RGBuilder& builder, FrameBlackboard& board)
     {
         RenderGraphNode::Setup(builder, board);
-        m_SelectedSceneDepth = {};
-        m_SelectedSceneNormals = {};
 
         // Forward / Forward+ only — the instanced batches are forward-lit PBR.
         // In Deferred they stay on the SceneRenderPass G-Buffer path.
@@ -38,22 +36,12 @@ namespace OloEngine
         // frame's partial depth (Renderer3D::BuildCurrentOcclusionHZB), #1331.
         builder.WriteOutOfBand(RGOutOfBandBoundaries::OcclusionHZB);
 
-        // Re-export SceneDepth / SceneNormals after our draws so the AO / SSR
-        // passes (which sample the exported textures) include this pass's
-        // instanced geometry. Declared as TransferDest (we update them via
-        // glCopyImageSubData in Execute) so the graph orders the AO reader after
-        // us. ScenePass is the prior writer; we publish the newer version.
-        if (board.Scene.SceneDepth.IsValid())
-        {
-            m_SelectedSceneDepth = board.Scene.SceneDepth;
-            builder.Write(board.Scene.SceneDepth, RGWriteUsage::TransferDest);
-        }
-        if (board.Scene.SceneNormals.IsValid())
-        {
-            m_SelectedSceneNormals = board.Scene.SceneNormals;
-            builder.Write(board.Scene.SceneNormals, RGWriteUsage::TransferDest);
-        }
-
+        // No export to refresh: SceneDepth, SceneNormals and Velocity are views
+        // of SceneColor (issue #1332), so the SceneColor write below puts this
+        // pass's instanced geometry in front of every reader registered after
+        // it. (This pass used to re-copy depth and normals but not velocity,
+        // which left TAA and motion blur reprojecting the batches with the
+        // motion of whatever ScenePass drew behind them.)
         // Declare the SceneColor RMW UNCONDITIONALLY in the forward path —
         // NOT gated on the per-frame bucket count. The HZB-occlusion toggle
         // flips at runtime without forcing a graph rebuild, so Setup may not
@@ -121,9 +109,7 @@ namespace OloEngine
             // THE COLOUR HALF OF A SPLIT FRAME (issue #1452): the prepass node
             // drew both phases depth + view-normal and ran the phase-2 culls
             // against a complete depth buffer, so this replays the same draws
-            // at GL_LEQUAL with depth writes off. Depth is unchanged, so only
-            // the view normals are re-exported (the colour pass writes the
-            // same values; the export keeps the post-colour version current).
+            // at GL_LEQUAL with depth writes off.
             m_ForwardPrepassDrew = false;
             BindSceneForDraw(context);
             if (capturing)
@@ -134,7 +120,6 @@ namespace OloEngine
                 (void)CommandBucket::RecordPackets(rendererAPI, m_Phase2Packets);
             m_ForwardPrepassDrewPhase2 = false;
             CommandDispatch::SetDepthPrepassColorPassActive(false);
-            ExportDepthAndNormals(context, RGTextureHandle{}, m_SelectedSceneNormals);
         }
         else
         {
@@ -143,11 +128,6 @@ namespace OloEngine
             if (capturing)
                 captureManager.OnPostSort(m_CommandBucket);
             (void)DrawPhases(context, true);
-            // Re-export depth + view-normals so AO / SSR include our instanced
-            // geometry (#431). The framebuffer attachments now hold the
-            // occluders + phase-1 + phase-2 survivors; copy them over ScenePass's
-            // earlier export. Texture-to-texture copies — no framebuffer needed.
-            ExportDepthAndNormals(context, m_SelectedSceneDepth, m_SelectedSceneNormals);
         }
 
         context.ResetOpaqueForwardDrawState();
@@ -243,30 +223,17 @@ namespace OloEngine
         return false;
     }
 
-    void GPUDrivenOcclusionPass::ExportDepthAndNormals(RGCommandContext& context, const RGTextureHandle depthExport,
-                                                       const RGTextureHandle normalsExport)
+    void GPUDrivenOcclusionPass::CopyForwardAODepth(RGCommandContext& context, const RGTextureHandle forwardAODepth)
     {
-        // Identities (issue #691) -- same unblock as SceneRenderPass's
-        // exports: the destinations are graph transients.
+        // Identities (issue #691): the destination is a graph transient.
         const auto& sceneSpec = m_SceneFramebuffer->GetSpecification();
         const RHI::ResourceHandle fbDepth = m_SceneFramebuffer->GetDepthAttachmentHandle();
-        const RHI::ResourceHandle sceneDepthExport =
-            depthExport.IsValid() ? context.ResolveTextureHandle(depthExport) : RHI::NullResource;
-        if (sceneDepthExport.IsValid() && fbDepth.IsValid() && sceneDepthExport != fbDepth)
+        const RHI::ResourceHandle destination =
+            forwardAODepth.IsValid() ? context.ResolveTextureHandle(forwardAODepth) : RHI::NullResource;
+        if (destination.IsValid() && fbDepth.IsValid() && destination != fbDepth)
         {
             RenderCommand::CopyImageSubData(fbDepth, RendererAPI::TextureTargetType::Texture2D,
-                                            sceneDepthExport, RendererAPI::TextureTargetType::Texture2D,
-                                            sceneSpec.Width, sceneSpec.Height);
-        }
-        // RT2 is the octahedral view-normal attachment in the forward layout.
-        const RHI::ResourceHandle fbNormals =
-            m_SceneColorAttachmentCount > 2 ? m_SceneFramebuffer->GetColorAttachmentHandle(2) : RHI::NullResource;
-        const RHI::ResourceHandle sceneNormalsExport =
-            normalsExport.IsValid() ? context.ResolveTextureHandle(normalsExport) : RHI::NullResource;
-        if (sceneNormalsExport.IsValid() && fbNormals.IsValid() && sceneNormalsExport != fbNormals)
-        {
-            RenderCommand::CopyImageSubData(fbNormals, RendererAPI::TextureTargetType::Texture2D,
-                                            sceneNormalsExport, RendererAPI::TextureTargetType::Texture2D,
+                                            destination, RendererAPI::TextureTargetType::Texture2D,
                                             sceneSpec.Width, sceneSpec.Height);
         }
     }
@@ -278,8 +245,6 @@ namespace OloEngine
         // pass draws in one go, exactly as before #1452.
         ForwardPrepassShareExports exports;
         DeclareForwardPrepassShare(builder, board, exports);
-        m_PrepassSceneDepth = exports.SceneDepth;
-        m_PrepassSceneNormals = exports.SceneNormals;
         m_PrepassForwardAODepth = exports.ForwardAODepth;
         // The prepass draws both phases, so it rebuilds the occlusion pyramid
         // in place exactly like the colour pass (#1331).
@@ -312,10 +277,10 @@ namespace OloEngine
         context.ResetOpaqueForwardDrawState();
         m_SceneFramebuffer->Unbind();
 
-        // The prepass exports again, now with the instanced survivors in them:
-        // the AO passes registered after this node read these versions.
-        ExportDepthAndNormals(context, m_PrepassSceneDepth, m_PrepassSceneNormals);
-        ExportDepthAndNormals(context, m_PrepassForwardAODepth, RGTextureHandle{});
+        // The AO depth copy again, now with the instanced survivors in it. The
+        // AO passes registered after this node read SceneDepth / SceneNormals,
+        // views of the target this drew into (#1332): nothing else to copy.
+        CopyForwardAODepth(context, m_PrepassForwardAODepth);
         m_ForwardPrepassDrew = true;
         m_ForwardPrepassDrewPhase2 = drewPhase2;
     }

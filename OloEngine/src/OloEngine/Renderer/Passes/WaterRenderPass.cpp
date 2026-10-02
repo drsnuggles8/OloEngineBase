@@ -72,8 +72,9 @@ namespace OloEngine
         // NVIDIA happened to return usable values from the loop, so it only
         // ever surfaced on AMD.
         //
-        // Scene.SceneDepth is the semantic snapshot for exactly this purpose,
-        // and is what ContactShadowRenderPass and FogRenderPass already read.
+        // Scene.SceneDepthSnapshot is the copy made for exactly this purpose
+        // (issue #1332). SceneDepth is no longer a copy on the forward paths: it
+        // is a view of this framebuffer's depth, the same feedback loop.
         // No fallback to SceneDepthAttachment. An earlier version fell back to
         // it when the snapshot was missing, which contradicts the paragraph
         // above: the fallback IS the live attachment, so the "never sample the
@@ -83,11 +84,11 @@ namespace OloEngine
         // debuggable outcome, whereas a feedback loop is undefined behaviour
         // that reads correctly on one vendor and shows the seafloor through
         // the surface on another.
-        if (board.Scene.SceneDepth.IsValid())
+        if (board.Scene.SceneDepthSnapshot.IsValid())
         {
-            m_SelectedSceneDepthTexture = board.Scene.SceneDepth;
+            m_SelectedSceneDepthTexture = board.Scene.SceneDepthSnapshot;
             [[maybe_unused]] const auto sceneDepthRead =
-                builder.Read(board.Scene.SceneDepth, RGReadUsage::ShaderSample);
+                builder.Read(board.Scene.SceneDepthSnapshot, RGReadUsage::ShaderSample);
         }
 
         if (board.Scene.SceneViewNormals.IsValid())

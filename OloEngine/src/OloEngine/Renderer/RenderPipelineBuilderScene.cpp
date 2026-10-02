@@ -72,6 +72,11 @@ namespace OloEngine::RenderPipelineBuilderInternal
         // depth into the scene framebuffer by the time this runs.
         AddExistingNode(graph, inputs.Passes->Groom);
 
+        // The depth decals project from and water refracts through, copied after
+        // the last depth-writing geometry (groom) because both sample it while
+        // drawing into SceneColor (issue #1332). Culled without a reader.
+        if (inputs.Passes->SceneDepthSnapshot)
+            AddExistingNode(graph, inputs.Passes->SceneDepthSnapshot);
         AddExistingNode(graph, inputs.Passes->Decal);
         AddExistingNode(graph, inputs.Passes->Water);
 

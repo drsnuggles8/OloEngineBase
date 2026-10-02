@@ -1301,6 +1301,9 @@ add_executable(OloEngine-Tests
 		Rendering/BenchmarkExportValidityTest.cpp
 		Rendering/PropertyTests/GpuTimingPoolEvidenceTest.cpp
 		Rendering/PropertyTests/RendererMemoryAccountingEvidenceTest.cpp
+		# The copy ledger's per-cell export report and the attachment-view
+		# migration's freshness and lifetime contract (#1332).
+		Rendering/PropertyTests/RenderTargetExportEvidenceTest.cpp
 		# Pure per-scope CPU timings shaping behind olo_perf_cpu_scopes (#519,
 		# first slice: expose PerformanceProfiler's per-scope CPU timings, incl.
 		# the Distribution-build "unavailable" degradation). Header-only

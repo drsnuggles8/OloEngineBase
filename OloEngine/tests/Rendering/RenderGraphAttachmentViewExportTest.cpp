@@ -156,7 +156,7 @@ TEST(RenderGraphAttachmentViewExports, AConsumerReadsTheVersionTheLastFramebuffe
     ASSERT_GE(consumer, 0);
     EXPECT_LT(late, consumer) << "the consumer ran before the late writer it must see";
     EXPECT_TRUE(graph.ValidateCompiledResourceHazards().IsEmpty()) << "views of one framebuffer read and written as declared "
-                                                                     "must validate clean";
+                                                                      "must validate clean";
 }
 
 // -----------------------------------------------------------------------------

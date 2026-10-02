@@ -147,12 +147,12 @@ namespace OloEngine
         // Replays the bucket depth-only (or depth + view normal, on the forward
         // paths with AO live) under the "DepthPrepass" timing bracket.
         void RunDepthPrepass(bool writeViewNormals);
-        // Copies the scene target's depth and view normals into the graph's
-        // SceneDepth / SceneNormals exports. `exportVelocity` is the colour
-        // half's alone: velocity is written by the colour draws, and only
-        // ScenePass declares the write to its export.
-        void ExportSceneDepthAndNormals(RGCommandContext& context, RGTextureHandle depthExport,
-                                        RGTextureHandle normalsExport, bool deferredActive, bool exportVelocity);
+        // Copies the prepass depth into ForwardAODepth, the one copy the
+        // forward paths keep: the forward shaders sample it for the AO
+        // upsample while depth-testing against the live attachment (#1452).
+        // SceneDepth, SceneNormals and Velocity are views and are never
+        // copied (issue #1332).
+        void CopyForwardAODepth(RGCommandContext& context, RGTextureHandle forwardAODepth) const;
 
         // Lazily create / resize the G-Buffer to match the forward target.
         void EnsureGBuffer(u32 width, u32 height, u32 sampleCount);
@@ -177,13 +177,10 @@ namespace OloEngine
         // RT1.w (AO) into one RGB image for DebugChannel == 3. The other
         // debug channels are cheap single-attachment blits.
         Ref<Shader> m_DebugRMAShader;
-        RGTextureHandle m_SelectedSceneDepthExport{};
-        RGTextureHandle m_SelectedSceneNormalsExport{};
-        RGTextureHandle m_SelectedVelocityExport{};
-        // The forward prepass node's own export handles (its versions of
-        // SceneDepth / SceneNormals, which the AO nodes read).
-        RGTextureHandle m_PrepassSceneDepthExport{};
-        RGTextureHandle m_PrepassSceneNormalsExport{};
+        // Deferred only: a pass after this one reads the G-Buffer velocity, so
+        // a per-sample MSAA G-Buffer must be resolved for it.
+        bool m_DeferredVelocityRead = false;
+        // The forward prepass node's copy of its depth for the AO upsample.
         RGTextureHandle m_PrepassForwardAODepthExport{};
         // Set by ExecuteForwardPrepass, consumed by the Execute() that follows
         // in the same frame: the frame has begun and the bucket is batched.

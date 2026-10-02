@@ -25,15 +25,15 @@ namespace OloEngine
 
     // What a forward geometry pass's SHARE of the depth-normal prepass writes
     // (issue #1452's GPU-driven share, #1474's foliage share): it draws into
-    // the scene target after ScenePrepassPass and re-exports the depth, the
-    // view normals and the AO depth copy, so the AO passes registered after it
-    // read versions that include its geometry. Declares nothing, and returns
-    // false, without a forward AO buffer — the one consumer the share exists
-    // for — so that frame draws exactly as it did before the share existed.
+    // the scene target after ScenePrepassPass and copies the AO depth again, so
+    // the forward shaders' AO upsample includes its geometry. SceneDepth and
+    // SceneNormals need no copy: they are views of the scene target (#1332),
+    // so the AO passes registered after the share read its draws already.
+    // Declares nothing, and returns false, without a forward AO buffer — the
+    // one consumer the share exists for — so that frame draws exactly as it
+    // did before the share existed.
     struct ForwardPrepassShareExports
     {
-        RGTextureHandle SceneDepth;
-        RGTextureHandle SceneNormals;
         RGTextureHandle ForwardAODepth;
     };
 
@@ -49,16 +49,6 @@ namespace OloEngine
         builder.DependsOnPass("ScenePrepassPass");
         if (board.Scene.SceneColor.IsValid())
             builder.Write(board.Scene.SceneColor, RGWriteUsage::RenderTarget);
-        if (board.Scene.SceneDepth.IsValid())
-        {
-            out.SceneDepth = board.Scene.SceneDepth;
-            builder.Write(board.Scene.SceneDepth, RGWriteUsage::TransferDest);
-        }
-        if (board.Scene.SceneNormals.IsValid())
-        {
-            out.SceneNormals = board.Scene.SceneNormals;
-            builder.Write(board.Scene.SceneNormals, RGWriteUsage::TransferDest);
-        }
         out.ForwardAODepth = board.Scene.ForwardAODepth;
         builder.Write(board.Scene.ForwardAODepth, RGWriteUsage::TransferDest);
         return true;
