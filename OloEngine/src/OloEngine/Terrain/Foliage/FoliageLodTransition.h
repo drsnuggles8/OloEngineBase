@@ -277,6 +277,18 @@ namespace OloEngine::FoliageLod
                             TransitionDistance(bandEnd, offset01, spread, shift));
     }
 
+    // @brief The far card's normal lane, FoliageUBO::MeshParams.w (#1533): 0 is a
+    // legacy card (instance yaw, +Y normal, the x/z `scale` stretch); a value in
+    // [1, 2] says the card is the layer mesh's bake, which the vertex stages
+    // face to the eye and scale like the mesh, and carries the elevation of the
+    // mesh's mean front-facing normal as 2 (lane - 1) - 1. Encoded so the zero
+    // a default-constructed UBO uploads is the legacy card, never a mesh's.
+    [[nodiscard]] inline f32 CardNormalLane(f32 tilt)
+    {
+        const f32 t = std::isfinite(tilt) ? glm::clamp(tilt, -0.95f, 0.95f) : 0.0f;
+        return 1.0f + (0.5f * (t + 1.0f));
+    }
+
     // @brief Every authored density-LOD number, sanitised once so the shader
     // side and the cull side read the same thing.
     //

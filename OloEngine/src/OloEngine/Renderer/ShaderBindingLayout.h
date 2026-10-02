@@ -640,7 +640,7 @@ namespace OloEngine
             f32 AlphaCutoff;
             f32 PrevTime = 0.0f; // Previous-frame time for per-fragment wind reprojection
             f32 WindHistoryValid = 1.0f;
-            glm::vec4 BaseColor; // xyz = color, w = unused
+            glm::vec4 BaseColor; // xyz = color, w = the dither's frame (#1533; 0 without a temporal resolve)
 
             // Octahedral impostor params (issue #433). Consumed only by the
             // Foliage_Impostor shader; zero/ignored on the flat-billboard path.
@@ -655,6 +655,9 @@ namespace OloEngine
             //   y, z = near fade-in band [start, end]. Below `end` the draw is
             //       cut; the mesh's far band and the card's near band are the
             //       same interval, so exactly one of them covers a plant.
+            //   w = the far card's normal lane (#1533, FoliageLod::CardNormalLane):
+            //       0 for a legacy card; in [1, 2] the card is the layer mesh's bake,
+            //       faced to the eye, its normal rising by 2 (w - 1) - 1.
             glm::vec4 MeshParams{ 0.0f };
 
             // xyz = the view position the hand-over is measured from, in the

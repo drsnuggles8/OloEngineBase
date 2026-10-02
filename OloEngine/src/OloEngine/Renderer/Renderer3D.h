@@ -1018,6 +1018,14 @@ namespace OloEngine
         {
             return s_Data.TemporalUpscaleActive;
         }
+        // The engine-wide stochastic frame counter (#706), for a draw that folds
+        // it into a per-pixel pattern a temporal resolve accumulates. Whether to
+        // sample with it is the caller's decision (see the foliage dither in
+        // CommandDispatch::DrawFoliageLayer, which freezes it without a resolve).
+        [[nodiscard]] static u32 GetStochasticFrameIndex() noexcept
+        {
+            return s_Data.StochasticFrameIndex;
+        }
         // What reconstructed the LAST PREPARED frame and, when a temporal request
         // fell back, why. Latched beside TemporalUpscaleActive from the same
         // inputs, so a caller reporting "resolved" reads the pipeline's answer
@@ -1979,7 +1987,11 @@ namespace OloEngine
             // The defaults are the identity, so every existing caller and test
             // keeps the pre-#1237 ladder.
             const glm::vec4& lodTransition0 = glm::vec4(0.0f, 30.0f, 80.0f, 0.25f),
-            const glm::vec4& lodTransition1 = glm::vec4(0.15f, 2.0f, 0.0f, 0.0f));
+            const glm::vec4& lodTransition1 = glm::vec4(0.15f, 2.0f, 0.0f, 0.0f),
+            // The far card's normal lane (#1533, FoliageLod::CardNormalLane): 0 for
+            // a legacy card, whose +Y normal and instance yaw are untouched;
+            // otherwise the card is the layer mesh's bake, faced to the eye.
+            f32 cardNormalLane = 0.0f);
 
         // Water rendering parameters (grouped to avoid 25+ parameter function)
         struct WaterDrawParams

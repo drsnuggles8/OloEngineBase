@@ -174,14 +174,29 @@ void main()
     float lodScalePrev = foliageDensityScaleAt(u_LodTransition0, u_LodTransition1, lodPrevDist);
     scale *= lodScale;
 
-    mat3 rotY = foliageInstanceRotation(rotation);
-    vec3 rotatedPos = rotY * foliageInstanceLocalPos(a_Position, scale, height, isAuthoredMesh);
+    // The far card of a layer with a mesh faces the main view and is scaled
+    // like the mesh (#1533; see foliageIsMeshLayerCard). Its yaw follows the
+    // eye, so the PREVIOUS frame's yaw, from the previous eye, re-places the
+    // previous vertex below: a card turning to follow the camera is moving.
+    bool meshLayerCard = foliageIsMeshLayerCard(isAuthoredMesh, u_MeshParams);
+    bool uniformScale = isAuthoredMesh || meshLayerCard;
+    float facing = meshLayerCard
+                       ? foliageCardFacingYaw(lodPivot, u_MeshViewPos.xyz, instances[0].Transform, rotation)
+                       : rotation;
+    float facingPrev = meshLayerCard
+                           ? foliageCardFacingYaw(lodPivotPrev, u_PrevMeshViewPos.xyz, instances[0].PrevTransform,
+                                                  rotation)
+                           : rotation;
 
-    // The mesh's scaling is uniform, so it leaves normals unchanged; the card's
-    // is not, but its only normal is +Y — the scaling axis itself — which a
-    // non-uniform scale also leaves alone. So one rotation serves both, and the
-    // card's normal comes out as the vec3(0, 1, 0) this stage used to hard-code.
-    vec3 rotatedNormal = rotY * a_Normal;
+    mat3 rotY = foliageInstanceRotation(facing);
+    vec3 rotatedPos = rotY * foliageInstanceLocalPos(a_Position, scale, height, uniformScale);
+
+    // The mesh's scaling is uniform, so it leaves normals unchanged; the legacy
+    // card's is not, but its only normal is +Y — the scaling axis itself — which
+    // a non-uniform scale also leaves alone. A mesh layer's card takes the
+    // mesh's mean front-facing normal instead (foliageCardNormal).
+    vec3 localNormal = meshLayerCard ? foliageCardNormal(u_MeshParams.w) : a_Normal;
+    vec3 rotatedNormal = rotY * localNormal;
 
     FoliageDeformation deformation = foliageDeform(rotatedPos, a_Position, a_PositionScale.xyz, a_RotationHeight.w,
                                                    instances[0].Transform, instances[0].PrevTransform);
@@ -196,10 +211,16 @@ void main()
     {
         float baseScale = a_PositionScale.w;
         rotatedPosPrev += rotY * (foliageInstanceLocalPos(a_Position, baseScale * lodScalePrev, height,
-                                                          isAuthoredMesh) -
-                                  foliageInstanceLocalPos(a_Position, scale, height, isAuthoredMesh));
+                                                          uniformScale) -
+                                  foliageInstanceLocalPos(a_Position, scale, height, uniformScale));
     }
-    vec3 displacement = deformation.Current - rotY * foliageInstanceLocalPos(a_Position, scale, height, isAuthoredMesh);
+    // And at the previous frame's facing, for a card that turned with the eye.
+    if (facingPrev != facing)
+    {
+        rotatedPosPrev += (foliageInstanceRotation(facingPrev) - rotY) *
+                          foliageInstanceLocalPos(a_Position, scale, height, uniformScale);
+    }
+    vec3 displacement = deformation.Current - rotY * foliageInstanceLocalPos(a_Position, scale, height, uniformScale);
     // Transport the normal whenever the plant is actually deformed. Interaction
     // bending (issue #1238) reaches layers that never opted into hierarchical
     // wind, and shading a flattened blade with its upright normal is the same
@@ -207,9 +228,9 @@ void main()
     if (dot(u_WindWeights.xyz, vec3(1.0)) > 0.0 ||
         (u_InteractionParams.x >= 0.5 && u_InteractionParams.y > 0.0))
     {
-        vec3 size = isAuthoredMesh ? vec3(height * scale) : vec3(scale, height * scale, scale);
+        vec3 size = uniformScale ? vec3(height * scale) : vec3(scale, height * scale, scale);
         mat3 shapeJacobian = rotY * mat3(vec3(size.x, 0.0, 0.0), vec3(0.0, size.y, 0.0), vec3(0.0, 0.0, size.z));
-        rotatedNormal = foliageWindNormal(a_Normal, a_Position, a_PositionScale.xyz, a_RotationHeight.w,
+        rotatedNormal = foliageWindNormal(localNormal, a_Position, a_PositionScale.xyz, a_RotationHeight.w,
                                           shapeJacobian, displacement, instances[0].Transform);
     }
 

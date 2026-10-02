@@ -295,10 +295,13 @@ namespace OloEngine
         f32 LodHysteresis = 0.0f;
 
         // Resolve a partial fade by DITHER in the passes that have no alpha to
-        // blend — the deferred G-Buffer and the shadow depth pass. Off, those
-        // take the hard `alpha < 0.3` cut-off they always did. This is a
-        // separate switch from the density reduction below because a layer
-        // with no thinning still benefits from its far fade dissolving.
+        // blend — which is every foliage pass: the forward colour pass and its
+        // depth prepass (#1533; they draw with blending off), the deferred
+        // G-Buffer and the shadow depth pass. Off, the deferred and shadow
+        // passes take the hard `alpha < 0.3` cut-off they always did and the
+        // forward ones discard only at a fade of 0. This is a separate switch
+        // from the density reduction below because a layer with no thinning
+        // still benefits from its far fade dissolving.
         bool LodStochasticCoverage = false;
 
         // Coverage-preserving density reduction. As the layer thins with

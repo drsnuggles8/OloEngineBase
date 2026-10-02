@@ -155,6 +155,25 @@ namespace OloEngine::Tests
             return total == 0 ? 1.0 : static_cast<f64>(differing) / static_cast<f64>(total);
         }
 
+        // The mean absolute per-channel difference between two frames, in 8-bit
+        // units: how MUCH a layer changes the frame, where DifferingFraction
+        // counts how many pixels it changes at all. A temporal resolve turns a
+        // dithered fade into partly covered pixels, which the count sees whole.
+        [[nodiscard]] f64 DifferenceEnergy(const std::vector<u8>& a, const std::vector<u8>& b)
+        {
+            if (a.size() != b.size() || a.empty())
+                return 0.0;
+            f64 sum = 0.0;
+            sizet total = 0;
+            for (sizet i = 0; i + 3 < a.size(); i += 4)
+            {
+                ++total;
+                for (sizet c = 0; c < 3; ++c)
+                    sum += std::abs(static_cast<int>(a[i + c]) - static_cast<int>(b[i + c]));
+            }
+            return total == 0 ? 0.0 : sum / (3.0 * static_cast<f64>(total));
+        }
+
         [[nodiscard]] const char* PathName(RenderingPath path)
         {
             switch (path)
@@ -671,6 +690,98 @@ namespace OloEngine::Tests
             << "compensating the survivors recovered little of the lost coverage (missing "
             << lossCompensated * 100.0 << "% of the screen against " << lossThinned * 100.0
             << "% uncompensated) — the scale compensation is not reaching the vertex stages";
+    }
+
+    // ── The forward passes resolve the fade (#1533) ──────────────────────────
+    //
+    // Every foliage pass draws with blending OFF. The deferred G-Buffer has
+    // always resolved a partial fade by dither when stochastic coverage is
+    // authored; the forward colour pass and its prepass multiplied the fade into
+    // an alpha nobody blended, so on Forward the far field ended on a hard circle
+    // at ViewDistance and a thinned plant popped out whole (the dog's lawn showed
+    // both). Here the fade spans the whole visible stand, with no thinning and no
+    // spread, so the only difference between the two arms is whether the fade is
+    // resolved: with stochastic coverage the layer must cover clearly less of the
+    // frame on both forward paths. Before #1533 the two forward arms drew the
+    // same pixels. Deferred is logged as the reference that always dithered.
+    //
+    // THE BAND IS 0 TO 120 M. The camera's nearest plant is about 36 m away, and
+    // the fade is a smoothstep, so a band that starts near the camera and ends
+    // far past the stand (the first cut: 10 to 420 m) keeps every plant that is
+    // large on screen above 85% of its fade: both arms then drew nearly the same
+    // pixels on every path, Deferred included, and the comparison measured
+    // nothing. Across 0 to 120 m the stand's fade runs from about 0.75 down to 0.
+    TEST_F(FoliageLodCoverageEvidenceTest, TheForwardPassesDissolveTheFadeInsteadOfCuttingIt)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        struct ScopedMockTime
+        {
+            explicit ScopedMockTime(f32 t)
+            {
+                Time::SetMockTime(t);
+            }
+            ~ScopedMockTime()
+            {
+                Time::ClearMockTime();
+            }
+        } scopedMockTime(kCaptureTime);
+
+        const ScopedRenderPath restorePath(*this);
+        const CameraPose pose = SweepPose(kSweepSteps / 2u);
+        const auto setFade = [this](bool stochastic)
+        {
+            auto& foliage = m_TerrainEntity.GetComponent<FoliageComponent>();
+            for (auto& layer : foliage.m_Layers)
+            {
+                layer.LodTransitionSpread = 0.0f;
+                layer.LodHysteresis = 0.0f;
+                layer.UseDensityLod = false;
+                layer.LodStochasticCoverage = stochastic;
+                // The whole visible stand inside one fade (see above).
+                layer.FadeStartDistance = 0.0f;
+                layer.ViewDistance = 120.0f;
+            }
+            foliage.m_NeedsRebuild = true;
+        };
+
+        constexpr std::array<RenderingPath, 3> kPaths{ RenderingPath::Forward, RenderingPath::ForwardPlus,
+                                                       RenderingPath::Deferred };
+        for (const RenderingPath path : kPaths)
+        {
+            SCOPED_TRACE(PathName(path));
+            SetPath(path);
+
+            setFade(false);
+            SetFoliageEnabled(false);
+            std::vector<u8> noFoliage;
+            Capture(pose, noFoliage);
+            SetFoliageEnabled(true);
+
+            std::vector<u8> unresolved;
+            Capture(pose, unresolved);
+            setFade(true);
+            std::vector<u8> dissolved;
+            Capture(pose, dissolved);
+
+            // The SUMMED difference from the bare frame, not a count of the pixels
+            // that differ: under a temporal resolve a dissolving plant leaves its
+            // pixels partly covered rather than absent, and a count sees a partly
+            // covered pixel as a whole one.
+            const f64 coverageUnresolved = DifferenceEnergy(unresolved, noFoliage);
+            const f64 coverageDissolved = DifferenceEnergy(dissolved, noFoliage);
+            GTEST_LOG_(INFO) << PathName(path) << ": the mid-fade stand changes the frame by " << coverageUnresolved
+                             << " (mean absolute channel difference) without stochastic coverage and "
+                             << coverageDissolved << " with it";
+            if (path == RenderingPath::Deferred)
+                continue; // the reference: its unresolved arm is the 0.3 cut-off, not the whole stand
+
+            ASSERT_GT(coverageUnresolved, 0.5) << "the stand barely changes the frame: nothing to dissolve";
+            EXPECT_LT(coverageDissolved, coverageUnresolved * 0.85)
+                << "with stochastic coverage authored the forward passes changed the frame by " << coverageDissolved
+                << " against " << coverageUnresolved << " without: the fade is not resolved, so the far field "
+                << "ends on a hard circle and a thinned plant pops";
+        }
     }
 
     // ── The cost the thinning actually buys ──────────────────────────────────

@@ -12929,7 +12929,9 @@ namespace OloEngine
                             layer.IndirectBufferID, layer.IndirectOffsetBytes,
                             // LOD transitions + coverage-preserving density
                             // (issue #1237), packed by FoliageRenderer.
-                            layer.LodTransition0, layer.LodTransition1);
+                            layer.LodTransition0, layer.LodTransition1,
+                            // The far card's normal lane (#1533).
+                            layer.CardNormalLane);
                     }
                 }
             }

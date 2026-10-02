@@ -26,22 +26,68 @@
 
 // Place a geometry vertex in instance-local space.
 //
-// The CARD is anisotropic: x/z by `scale`, y by `height * scale`. That is
-// deliberate — it is a tufted billboard, and the per-layer Min/MaxHeight range
-// is what gives a grass field its variation.
+// The legacy CARD (a layer with no mesh) is anisotropic: x/z by `scale`, y by
+// `height * scale`. That is deliberate — it is a tufted billboard, and the
+// per-layer Min/MaxHeight range is what gives a grass field its variation.
 //
-// The authored MESH is scaled UNIFORMLY by `height * scale`, which is exactly
+// The authored MESH, and the far card of a layer that HAS one (#1533, see
+// foliageIsMeshLayerCard), are scaled UNIFORMLY by `height * scale`, which is exactly
 // what FoliageImpostorVertexStage.glsl does to the impostor card
 // (`radius = meshRadius * height * scale`). Matching it is the whole point: a
 // mesh stretched to the card's 1:16 aspect renders a pine as a needle, and the
 // near geometry and the far impostor would be different trees. Uniform puts
 // the drawn plant at exactly `height * scale` tall in both, so nothing changes
 // size across the hand-over.
-vec3 foliageInstanceLocalPos(vec3 vertexPos, float scale, float height, bool isAuthoredMesh)
+vec3 foliageInstanceLocalPos(vec3 vertexPos, float scale, float height, bool uniformScale)
 {
     vec3 cardLocal = vec3(vertexPos.x * scale, vertexPos.y * height * scale, vertexPos.z * scale);
     vec3 meshLocal = vertexPos * (height * scale);
-    return isAuthoredMesh ? meshLocal : cardLocal;
+    return uniformScale ? meshLocal : cardLocal;
+}
+
+// THE FAR CARD OF A PLANT THAT HAS A MESH (#1533). That card is the mesh's bake
+// seen along its local -Z (tools/vegetation-import, bake_billboard) over the
+// mesh's own [-0.5, 0.5] x [0, 1] frame, so it is scaled like the mesh and
+// turned to face the main view about +Y, the one direction the bake is a
+// picture of. Drawn at the instance's random yaw with the legacy card's x/z
+// `scale`, a 0.18 m grass tuft became a 1 m strip at 12% opacity, seen from any
+// angle, and back-face culling dropped the half that faced away. `meshParams`
+// is u_MeshParams, whose w is FoliageLod::CardNormalLane: 0 for a legacy card,
+// [1, 2] for a mesh's bake -- set whenever a mesh with its own textures LOADED,
+// whatever its hand-over distance, since the card was baked from it either way.
+// A mesh drawn with the layer's albedo keeps the legacy card: that albedo is a
+// texture for its UVs, not a picture of it (FoliageRenderer::MeshLayerCardLane).
+bool foliageIsMeshLayerCard(bool isAuthoredMesh, vec4 meshParams)
+{
+    return !isAuthoredMesh && meshParams.w >= 1.0;
+}
+
+// The yaw that turns a card's front (+Z) toward `eye` about +Y, in the frame of
+// `model` (a terrain is translated and may be scaled; its turn is undone here
+// with the transpose, exact for a rotation). `fallbackYaw` serves a plant right
+// under the eye, which has no horizontal direction to it.
+float foliageCardFacingYaw(vec3 pivot, vec3 eye, mat4 model, float fallbackYaw)
+{
+    vec3 toEye = transpose(mat3(model)) * (eye - pivot);
+    vec2 d = toEye.xz;
+    float len = length(d);
+    if (!(len > 1.0e-4))
+        return fallbackYaw;
+    d /= len;
+    // foliageInstanceRotation(R) maps +Z to (-sin R, 0, cos R).
+    return atan(-d.x, d.y);
+}
+
+// That card's normal in its own frame: facing +Z, raised by the elevation of the
+// mesh's mean front-facing normal (FoliageRenderer measures it from the
+// geometry; `lane` is u_MeshParams.w, which carries it as 2 (lane - 1) - 1), so
+// the far card is lit the way the near plant is on average. The legacy constant
+// +Y made every far card an upward-facing glossy sheet that caught a light
+// behind it as a pale wash.
+vec3 foliageCardNormal(float lane)
+{
+    float t = clamp(2.0 * (lane - 1.0) - 1.0, -0.95, 0.95);
+    return vec3(0.0, t, sqrt(max(0.0, 1.0 - t * t)));
 }
 
 // Per-instance Y rotation, as a matrix so a NORMAL goes through the same
@@ -152,9 +198,23 @@ float foliageMeshCoverageLod(float dist, float prevDist, float bandStart, float 
 //
 // Both quantise to whole pixels so the pattern does not shimmer within a pixel
 // under MSAA sample positions.
+//
+// THE PATTERN MOVES WITH THE FRAME where a temporal resolve accumulates it
+// (#1533). A pattern fixed to the screen is a fixed stipple under TAA: the
+// resolve keeps the same pixels every frame, so a half-faded plant stood as a
+// screen door that crawled as the camera moved. The main-view programs define
+// OLO_FOLIAGE_DITHER_FRAME as the foliage UBO's dither frame, which advances
+// only while a resolve runs, and the pixel is offset by Jimenez's temporal step
+// so the dither averages into the fade it encodes. The mesh and card draws of
+// one frame read the same frame, so their partition stays exact. Shadow
+// programs leave it at 0: a shadow map is not accumulated, and a moving
+// pattern there would flicker the shadow.
+#ifndef OLO_FOLIAGE_DITHER_FRAME
+#define OLO_FOLIAGE_DITHER_FRAME 0.0
+#endif
 float foliageLodDither(vec2 fragCoord, float instanceSeed, bool decorrelate)
 {
-    vec2 p = floor(fragCoord);
+    vec2 p = floor(fragCoord) + vec2(5.588238 * OLO_FOLIAGE_DITHER_FRAME);
     if (!decorrelate)
         return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
     // The IGN constants (Jimenez 2014), with the instance's draw folded into

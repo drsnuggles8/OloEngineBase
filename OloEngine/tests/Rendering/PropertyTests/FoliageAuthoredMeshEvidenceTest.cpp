@@ -393,4 +393,60 @@ namespace OloEngine::Tests
         EXPECT_LT(farDelta, nearDelta * 0.5)
             << "far " << farDelta * 100.0 << "% vs near " << nearDelta * 100.0 << "%";
     }
+
+    // ── Which far card a mesh layer draws (#1533) ────────────────────────────
+    //
+    // A mesh layer's far card is drawn as the mesh's bake -- faced to the eye,
+    // scaled like the mesh, lit with the mesh's mean normal -- when u_MeshParams.w
+    // carries a lane in [1, 2] (FoliageLod::CardNormalLane), and as the legacy
+    // tuft when it is 0. The bake's treatment is right only when the card IS the
+    // mesh's picture, which holds for a mesh with its own textures: every
+    // imported plant, whose card is the vegetation import's billboard of it. This
+    // fixture's procedural pine has no material and is drawn with the layer's
+    // grass.png, a texture for its UVs and no picture of a pine; treated as a
+    // bake it drew a 10 m grass tuft where the legacy card drew a 1 m strip, on
+    // every fixture that authors it. The imported grass clump, with its own
+    // texture and its own baked card, takes the bake's treatment.
+    TEST_F(FoliageAuthoredMeshEvidenceTest, TheFarCardIsTheMeshsBakeOnlyWhenTheMeshHasItsOwnTextures)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        const auto lanes = [this](const char* meshPath, const char* albedoPath)
+        {
+            auto& foliage = m_TerrainEntity.GetComponent<FoliageComponent>();
+            for (auto& layer : foliage.m_Layers)
+            {
+                layer.MeshPath = meshPath;
+                layer.AlbedoPath = albedoPath;
+            }
+            foliage.m_NeedsRebuild = true;
+            std::vector<u8> frame;
+            Capture(glm::vec3(128.0f, 12.0f, 150.0f), 0.0f, 0.12f, frame);
+            std::vector<f32> out;
+            if (foliage.m_Renderer)
+            {
+                for (const auto& draw : foliage.m_Renderer->GetActiveLayerDrawInfo())
+                    out.push_back(draw.CardNormalLane);
+            }
+            return out;
+        };
+
+        const std::vector<f32> untextured = lanes(kPineMesh, kFoliageAlbedo);
+        ASSERT_GE(untextured.size(), 2u) << "the procedural pine did not load: no mesh and card draws to inspect";
+        // Below 1 is the legacy card: foliageIsMeshLayerCard tests w >= 1.
+        for (const f32 lane : untextured)
+        {
+            EXPECT_LT(lane, 1.0f) << "a mesh drawn with the layer's albedo has its far card treated as the mesh's "
+                                     "bake: the card is then a surface texture blown up to the plant's size";
+        }
+
+        const std::vector<f32> textured = lanes("SandboxProject/Assets/Models/Vegetation/grass/grass.obj",
+                                                "SandboxProject/Assets/Models/Vegetation/grass/Textures/grass_card.png");
+        ASSERT_GE(textured.size(), 2u) << "the imported grass clump did not load: no mesh and card draws to inspect";
+        for (const f32 lane : textured)
+        {
+            EXPECT_GE(lane, 1.0f) << "an imported plant's far card is drawn as the legacy tuft, not as its bake";
+            EXPECT_LE(lane, 2.0f);
+        }
+    }
 } // namespace OloEngine::Tests

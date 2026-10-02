@@ -44,6 +44,26 @@
 
 namespace OloEngine
 {
+    // THE CARD IS THE MESH'S BAKE ONLY WHEN THE MESH HAS ITS OWN TEXTURES.
+    // Every imported plant carries its own (its .mtl), and its card is the
+    // vegetation import's billboard of it, over the mesh's own frame. A mesh with
+    // no material of its own is drawn with the layer's albedo, which is then a
+    // texture for the mesh's UVs rather than a picture of the plant: drawn as a
+    // bake, the procedural pine.obj with grass.png that the foliage fixtures
+    // author turned from a 1 m strip into a 10 m grass tuft. So any part that
+    // borrows the layer's albedo keeps the whole layer on the legacy card.
+    f32 FoliageRenderer::MeshLayerCardLane(const LayerRenderData& data)
+    {
+        if (!data.MeshVBO || data.MeshParts.IsEmpty())
+            return 0.0f;
+        for (const auto& part : data.MeshParts)
+        {
+            if (!part.Albedo)
+                return 0.0f;
+        }
+        return FoliageLod::CardNormalLane(data.CardNormalTilt);
+    }
+
     void FoliageRenderer::QueueRayTracing(u64 owner, const glm::vec3& cameraPosition) const
     {
         if (!Renderer3D::WantsRayTracingVegetation())
@@ -188,6 +208,12 @@ namespace OloEngine
                     wind.WindHistoryValid = WindSystem::HasStableParameters() ? 1.0f : 0.0f;
                     wind.MeshParams.x = mesh ? 1.0f : 0.0f;
                     wind.MeshParams.z = impostor ? 1.0f : 0.0f;
+                    // A mesh layer's card is the mesh's bake (#1533): sized like
+                    // the mesh, with the mesh's mean normal (the lane). Kept at the
+                    // plant's own yaw here, unlike the raster card: a proxy turned
+                    // to the main view would be neither a ray-space silhouette nor
+                    // a cacheable one.
+                    wind.MeshParams.w = mesh ? 0.0f : MeshLayerCardLane(layer);
                     wind.ImpostorParams1.x = impostor ? 1.0f : 0.0f;
                     // The ray-traced vegetation representation (issue #1240)
                     // takes the same influence set as the raster passes, so a
@@ -382,6 +408,36 @@ namespace OloEngine
             }
             return nullptr;
         }
+
+        // The elevation of a plant's mean FRONT-FACING normal (#1533): its face
+        // normals flipped toward +Z, the card bake's eye (bake_billboard projects
+        // along -Z), area-weighted, averaged and normalised. The far card faces
+        // the eye and takes this as its normal's rise, so it is lit the way the
+        // near plant is on average rather than as an upward-facing sheet.
+        [[nodiscard]] f32 MeanFrontFacingNormalElevation(const TArray<Vertex>& vertices, const TArray<u32>& indices)
+        {
+            glm::dvec3 sum(0.0);
+            for (i32 i = 0; i + 2 < indices.Num(); i += 3)
+            {
+                const u32 a = indices[i];
+                const u32 b = indices[i + 1];
+                const u32 c = indices[i + 2];
+                if (a >= static_cast<u32>(vertices.Num()) || b >= static_cast<u32>(vertices.Num()) ||
+                    c >= static_cast<u32>(vertices.Num()))
+                    continue;
+                const glm::dvec3 pa(vertices[static_cast<i32>(a)].Position);
+                // The cross product's length is twice the face's area: the weight.
+                glm::dvec3 face = glm::cross(glm::dvec3(vertices[static_cast<i32>(b)].Position) - pa,
+                                             glm::dvec3(vertices[static_cast<i32>(c)].Position) - pa);
+                if (face.z < 0.0)
+                    face = -face;
+                sum += face;
+            }
+            const f64 length = glm::length(sum);
+            if (!(length > 0.0) || !std::isfinite(length))
+                return 0.0f;
+            return static_cast<f32>(std::clamp(sum.y / length, -0.95, 0.95));
+        }
     } // namespace
 
     bool FoliageRenderer::BuildMeshGeometry(LayerRenderData& data, const FoliageLayer& layer) const
@@ -400,6 +456,7 @@ namespace OloEngine
         data.MeshIndexCount = 0;
         data.MeshGeometryPath.Empty();
         data.BoundsProfile = FoliageBoundsProfile{};
+        data.CardNormalTilt = 0.0f;
 
         // Project-relative for project content, working-directory-relative for
         // engine content (#1496). An unresolvable path is logged by the resolver
@@ -439,6 +496,7 @@ namespace OloEngine
         data.MeshIndexCount = static_cast<u32>(plant.Indices.Num());
         data.MeshModel = model;
         data.MeshGeometryPath = layer.MeshPath;
+        data.CardNormalTilt = MeanFrontFacingNormalElevation(srcVertices, plant.Indices);
 
         // Conservative bounds from the REAL geometry (issue #1233, second
         // criterion). A quad's box is not a pine's: the canopy is wider than
@@ -607,6 +665,10 @@ namespace OloEngine
             return;
 
         const bool meshDrawable = data.MeshVAO && !data.MeshParts.IsEmpty() && data.MeshViewDistance > 0.0f;
+        // The card is the mesh's bake whenever a textured mesh LOADED (#1533),
+        // whatever its hand-over distance: the card texture was baked from it
+        // either way (MeshLayerCardLane).
+        const f32 cardLane = MeshLayerCardLane(data);
         const f32 handoverStart = meshDrawable ? data.MeshFadeStartDistance : 0.0f;
         const f32 handoverEnd = meshDrawable ? data.MeshViewDistance : 0.0f;
 
@@ -625,6 +687,7 @@ namespace OloEngine
                 draw.IsAuthoredMesh = true;
                 draw.HandoverStart = handoverStart;
                 draw.HandoverEnd = handoverEnd;
+                draw.CardNormalLane = cardLane;
                 draw.FadeStart = data.FadeStartDistance;
                 draw.ViewDistance = data.ViewDistance;
                 draw.LodTransition0 = FoliageLodTransition0(data.Lod);
@@ -647,6 +710,7 @@ namespace OloEngine
             draw.IsAuthoredMesh = false;
             draw.HandoverStart = handoverStart;
             draw.HandoverEnd = handoverEnd;
+            draw.CardNormalLane = cardLane;
             draw.FadeStart = data.FadeStartDistance;
             draw.ViewDistance = data.ViewDistance;
             draw.LodTransition0 = FoliageLodTransition0(data.Lod);
@@ -1151,7 +1215,7 @@ namespace OloEngine
                 foliageUBOData.PrevTime = m_PrevTime;
                 foliageUBOData.BaseColor = glm::vec4(layer.BaseColor, 0.0f);
                 foliageUBOData.MeshParams = glm::vec4(draw.IsAuthoredMesh ? 1.0f : 0.0f,
-                                                      draw.HandoverStart, draw.HandoverEnd, 0.0f);
+                                                      draw.HandoverStart, draw.HandoverEnd, draw.CardNormalLane);
                 foliageUBOData.MeshViewPos = glm::vec4(renderRelativeViewPos, 0.0f);
                 // The #1237 lanes, from the draw the enumeration packed them on.
                 foliageUBOData.LodTransition0 = draw.LodTransition0;
@@ -1316,7 +1380,7 @@ namespace OloEngine
                 foliageUBOData.WindHistoryValid = WindSystem::HasStableParameters() ? 1.0f : 0.0f;
                 foliageUBOData.AlphaCutoff = layer.AlphaCutoff;
                 foliageUBOData.MeshParams = glm::vec4(draw.IsAuthoredMesh ? 1.0f : 0.0f,
-                                                      draw.HandoverStart, draw.HandoverEnd, 0.0f);
+                                                      draw.HandoverStart, draw.HandoverEnd, draw.CardNormalLane);
                 // The MAIN view's position, not this pass's camera — that one is
                 // the light. Without it the shadow pass would pick the mesh where
                 // the lit frame drew the card and the plant's shadow would be a
@@ -1741,6 +1805,7 @@ namespace OloEngine
                 info.IsAuthoredMesh = draw.IsAuthoredMesh;
                 info.MeshHandoverStartDistance = draw.HandoverStart;
                 info.MeshHandoverEndDistance = draw.HandoverEnd;
+                info.CardNormalLane = draw.CardNormalLane;
                 info.ViewDistance = draw.ViewDistance;
                 info.FadeStartDistance = draw.FadeStart;
                 info.LodTransition0 = draw.LodTransition0;

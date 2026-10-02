@@ -3586,7 +3586,15 @@ namespace OloEngine
             foliageData.FadeStart = cmd->fadeStart;
             foliageData.AlphaCutoff = cmd->alphaCutoff;
             foliageData.PrevTime = cmd->prevTime;
-            foliageData.BaseColor = cmd->baseColor;
+            // The dither's frame rides BaseColor.w (#1533): it advances only while
+            // a temporal resolve accumulates the foliage dither, and the main-view
+            // programs fold it into their keep/discard pattern, so a half-faded
+            // plant averages to its fade instead of standing as a screen door.
+            // See OLO_FOLIAGE_DITHER_FRAME in include/FoliageInstanceGeometry.glsl.
+            const bool temporalResolve = Renderer3D::IsEngineTAAWanted() || Renderer3D::IsTemporalUpscaleActive();
+            const f32 ditherFrame =
+                temporalResolve ? static_cast<f32>(Renderer3D::GetStochasticFrameIndex() & 63u) : 0.0f;
+            foliageData.BaseColor = glm::vec4(glm::vec3(cmd->baseColor), ditherFrame);
             // Octahedral impostor params (issue #433) — zero on the billboard path.
             foliageData.ImpostorParams0 = glm::vec4(cmd->impostorFramesPerAxis, cmd->impostorHemi, cmd->impostorStartDistance, cmd->impostorBand);
             foliageData.ImpostorParams1 = glm::vec4(cmd->impostorEnabled, cmd->impostorRadius, cmd->impostorParallaxScale, 0.0f);
@@ -3595,7 +3603,8 @@ namespace OloEngine
             // because the shadow pass's camera is the LIGHT — see
             // ShaderBindingLayout::FoliageUBO::MeshViewPos. Same expression the
             // camera UBO uses for its own Position, so the two agree exactly.
-            foliageData.MeshParams = glm::vec4(cmd->isAuthoredMesh, cmd->meshHandoverStart, cmd->meshHandoverEnd, 0.0f);
+            foliageData.MeshParams =
+                glm::vec4(cmd->isAuthoredMesh, cmd->meshHandoverStart, cmd->meshHandoverEnd, cmd->cardNormalLane);
             foliageData.MeshViewPos =
                 glm::vec4(MakePositionRelative(Data().ViewPos, Data().RenderOrigin), 0.0f);
             // LOD transition + coverage-preserving density (issue #1237).

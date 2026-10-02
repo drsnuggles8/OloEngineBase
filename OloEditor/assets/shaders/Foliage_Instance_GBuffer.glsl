@@ -42,6 +42,9 @@ layout(location = 8) in float v_InstanceSeed; // this plant's own draw (issue #1
 // lane (issue #1452).
 #include "include/CameraCommon.glsl"
 
+// The main view's dither moves with the frame under a temporal resolve
+// (#1533); see OLO_FOLIAGE_DITHER_FRAME in FoliageInstanceGeometry.glsl.
+#define OLO_FOLIAGE_DITHER_FRAME u_FoliageDitherFrame
 #include "include/FoliageParams.glsl"
 
 #include "include/FoliageInstanceGeometry.glsl"

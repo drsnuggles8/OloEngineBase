@@ -125,6 +125,9 @@ layout(binding = 11) uniform samplerCube u_PrefilterMap;   // TEX_USER_1
 layout(binding = 12) uniform sampler2D u_BRDFLutMap;       // TEX_USER_2
 #endif
 
+// The main view's dither moves with the frame under a temporal resolve
+// (#1533); see OLO_FOLIAGE_DITHER_FRAME in FoliageInstanceGeometry.glsl.
+#define OLO_FOLIAGE_DITHER_FRAME u_FoliageDitherFrame
 #include "include/FoliageParams.glsl"
 
 // This program BLENDS (Coverage * DistFade as the output alpha), so the

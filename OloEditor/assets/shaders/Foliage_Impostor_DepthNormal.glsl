@@ -38,6 +38,9 @@ layout(location = 7) in float v_Radius;
 layout(location = 8) in float v_WindDisplacement;
 
 #include "include/CameraCommon.glsl"
+// The main view's dither moves with the frame under a temporal resolve
+// (#1533); see OLO_FOLIAGE_DITHER_FRAME in FoliageInstanceGeometry.glsl.
+#define OLO_FOLIAGE_DITHER_FRAME u_FoliageDitherFrame
 #include "include/FoliageParams.glsl"
 // The LOBE half only, for oloFoliageFaceNormal: an impostor has no leaf maps.
 #include "include/FoliageSurface.glsl"
