@@ -8281,8 +8281,20 @@ namespace OloEngine
                         }
 
                         // Mirrors the real derivation: a read is a live
-                        // reader the next overlapping writer waits for.
-                        simulatedLiveReadersByResource[access.ResourceName.ToStdString()].emplace_back(nodeName, access.Range);
+                        // reader the next overlapping writer waits for, under
+                        // its exact name and its version base name.
+                        const auto recordSimulatedReader = [&](const std::string& key)
+                        {
+                            auto& readers = simulatedLiveReadersByResource[key];
+                            if (std::ranges::none_of(readers, [&](const DepWriterSlot& reader)
+                                                     { return reader.PassName == nodeName && reader.Range == access.Range; }))
+                            {
+                                readers.emplace_back(nodeName, access.Range);
+                            }
+                        };
+                        recordSimulatedReader(access.ResourceName.ToStdString());
+                        if (const auto readBase = GetVersionLookupBaseName(access.ResourceName.ToView()); readBase != access.ResourceName.ToView())
+                            recordSimulatedReader(std::string(readBase));
 
                         const auto writerIt = simulatedLastWriterByResource.find(access.ResourceName);
                         if (writerIt == simulatedLastWriterByResource.end())
@@ -8302,9 +8314,11 @@ namespace OloEngine
                     }
                     else
                     {
-                        if (const auto readersIt = simulatedLiveReadersByResource.find(access.ResourceName);
-                            readersIt != simulatedLiveReadersByResource.end())
+                        const auto orderAfterSimulatedReaders = [&](std::string_view key)
                         {
+                            const auto readersIt = simulatedLiveReadersByResource.find(key);
+                            if (readersIt == simulatedLiveReadersByResource.end())
+                                return;
                             for (const auto& reader : readersIt->second)
                             {
                                 if (reader.PassName == nodeName || !depSubresourceRangesOverlap(reader.Range, access.Range))
@@ -8314,7 +8328,10 @@ namespace OloEngine
                             }
                             std::erase_if(readersIt->second, [&](const DepWriterSlot& reader)
                                           { return reader.PassName != nodeName && depSubresourceRangesOverlap(reader.Range, access.Range); });
-                        }
+                        };
+                        orderAfterSimulatedReaders(access.ResourceName.ToView());
+                        if (const auto writeBase = GetVersionLookupBaseName(access.ResourceName.ToView()); writeBase != access.ResourceName.ToView())
+                            orderAfterSimulatedReaders(writeBase);
 
                         auto& writerVec = simulatedLastWriterByResource[access.ResourceName.ToStdString()];
                         for (const auto& slot : writerVec)
