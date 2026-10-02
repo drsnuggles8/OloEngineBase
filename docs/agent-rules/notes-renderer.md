@@ -168,14 +168,20 @@ single-context win. If bake latency ever matters, the lever is the SH irradiance
   the contract and `RenderTargetExportEvidence.EveryExportConsumerReadsTheLastWriteOfItsAttachment`
   checks every consumer of a real frame.
 - **A pass that samples an attachment while drawing into the same framebuffer reads a snapshot.**
-  That is a feedback loop, so a view cannot serve it: decals and water read
+  That is a feedback loop, so a view cannot serve it: decals, water and soft particles read
   `Scene.SceneDepthSnapshot` / `SceneViewNormalsSnapshot`, made once by
   `SceneAttachmentSnapshotPass`, and the forward AO upsample reads `ForwardAODepth`. A new pass of
   that kind reads one of these, or adds a snapshot node, and documents why. The full list of the
   copies that remain and the reason for each is in
   [render-target-exports-1332.md](../analysis/render-target-exports-1332.md).
+- **Declare a snapshot read only on frames that use it.** The read is what keeps the snapshot pass
+  alive, and each snapshot is a full-screen copy. ParticleRenderPass first declared it whenever it
+  had a render callback, which the Scene installs on every frame, so every Forward frame paid
+  8.3 MB for no reader. It now latches "a soft system asked" into its declaration key
+  (`AcquireSceneDepth`). Pin the frame without the use too: `OnlyASoftParticleSystemHasTheDepthSnapshotMade`.
 - **Ordering is by registration order.** A reader is ordered after every writer of the framebuffer
-  registered before it. Register a geometry writer before the readers that must see it. The
+  registered before it, and before a later versioned rewrite of it: a read of a view counts against
+  its base name. Register a geometry writer before the readers that must see it. The
   "registration order changed derived dependency result" log lines are order-sensitivity
   *diagnostics*, not errors.
 - **Count the copies with `OLO_RG_COPY_LEDGER=1`.** It logs every image copy and blit a frame issues,
