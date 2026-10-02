@@ -28,17 +28,6 @@ namespace OloEngine
     void DeferredGPUOcclusionPass::Setup(RGBuilder& builder, FrameBlackboard& board)
     {
         RenderGraphNode::Setup(builder, board);
-        m_SelectedSceneDepthExport = {};
-        m_SelectedSceneNormalsExport = {};
-        m_SelectedVelocityExport = {};
-        m_SelectedGBufferAlbedoExport = {};
-        m_SelectedGBufferNormalExport = {};
-        m_SelectedGBufferEmissiveExport = {};
-        m_SelectedGBufferAlbedoMSExport = {};
-        m_SelectedGBufferNormalMSExport = {};
-        m_SelectedGBufferEmissiveMSExport = {};
-        m_SelectedVelocityMSExport = {};
-        m_SelectedSceneDepthMSExport = {};
 
         // Forward / Forward+ never build a G-Buffer — no-op there (the forward
         // two-phase path is handled by GPUDrivenOcclusionPass instead).
@@ -51,37 +40,35 @@ namespace OloEngine
         // and is ordered before this one (#1331).
         builder.WriteOutOfBand(RGOutOfBandBoundaries::OcclusionHZB);
 
-        // Re-publish the G-Buffer after our phase-2 draws so the AO / lighting /
-        // SSR consumers (which sample the exported textures, not the FBO) see the
-        // disoccluded geometry. Declared as TransferDest — the graph orders us
-        // between ScenePass (the prior writer) and every downstream reader.
+        // The phase-2 draws write the G-Buffer, whose attachment views the AO /
+        // lighting / SSR consumers read: these writes order the pass between
+        // ScenePass (the prior writer) and every downstream reader. Nothing is
+        // copied -- the views ARE the attachments; the re-export this pass used
+        // to run compared each view with its own attachment and never copied a
+        // texel (#1332's copy ledger).
         // Declared UNCONDITIONALLY on every deferred frame (not gated on the
         // per-frame phase-2 count): the HZB-occlusion toggle flips at runtime
         // without forcing a graph rebuild, so gating the writes on the reject
         // count would leave the pass undeclared on the flip frame. Execute
-        // no-ops when there is no phase-2 work — a no-op frame passes ScenePass's
-        // exported G-Buffer through unchanged.
-        const auto declareExport = [&builder](const RGTextureHandle handle, RGTextureHandle& stored)
+        // no-ops when there is no phase-2 work.
+        const auto declareWrite = [&builder](const RGTextureHandle handle)
         {
             if (handle.IsValid())
-            {
-                stored = handle;
                 builder.Write(handle, RGWriteUsage::TransferDest);
-            }
         };
 
-        declareExport(board.Scene.SceneDepth, m_SelectedSceneDepthExport);
-        declareExport(board.Scene.SceneNormals, m_SelectedSceneNormalsExport);
-        declareExport(board.GBuffer.Velocity, m_SelectedVelocityExport);
-        declareExport(board.GBuffer.GBufferAlbedo, m_SelectedGBufferAlbedoExport);
-        declareExport(board.GBuffer.GBufferNormal, m_SelectedGBufferNormalExport);
-        declareExport(board.GBuffer.GBufferEmissive, m_SelectedGBufferEmissiveExport);
+        declareWrite(board.Scene.SceneDepth);
+        declareWrite(board.Scene.SceneNormals);
+        declareWrite(board.GBuffer.Velocity);
+        declareWrite(board.GBuffer.GBufferAlbedo);
+        declareWrite(board.GBuffer.GBufferNormal);
+        declareWrite(board.GBuffer.GBufferEmissive);
 
-        declareExport(board.GBuffer.GBufferAlbedoMS, m_SelectedGBufferAlbedoMSExport);
-        declareExport(board.GBuffer.GBufferNormalMS, m_SelectedGBufferNormalMSExport);
-        declareExport(board.GBuffer.GBufferEmissiveMS, m_SelectedGBufferEmissiveMSExport);
-        declareExport(board.GBuffer.VelocityMS, m_SelectedVelocityMSExport);
-        declareExport(board.GBuffer.SceneDepthMS, m_SelectedSceneDepthMSExport);
+        declareWrite(board.GBuffer.GBufferAlbedoMS);
+        declareWrite(board.GBuffer.GBufferNormalMS);
+        declareWrite(board.GBuffer.GBufferEmissiveMS);
+        declareWrite(board.GBuffer.VelocityMS);
+        declareWrite(board.GBuffer.SceneDepthMS);
     }
 
     void DeferredGPUOcclusionPass::Execute(RGCommandContext& context)
@@ -173,57 +160,11 @@ namespace OloEngine
             targetFB->Unbind();
 
             // Per-sample MSAA drew into the multisample FBO — resolve so the
-            // single-sample export copies below (and AO / SSR) see the phase-2
-            // texels. Non-per-sample drew straight into the resolved FBO, so no
-            // resolve is needed. Mirrors DeferredOpaqueDecalPass.
+            // single-sample views (AO / SSR / lighting) see the phase-2 texels.
+            // Non-per-sample drew straight into the resolved FBO, so no resolve
+            // is needed. Mirrors DeferredOpaqueDecalPass.
             if (perSampleMSAA)
                 m_GBuffer->Resolve();
-
-            // Re-export the G-Buffer attachments over ScenePass's earlier copy.
-            const u32 width = m_GBuffer->GetWidth();
-            const u32 height = m_GBuffer->GetHeight();
-
-            const auto copyExport = [&context, width, height](const RGTextureHandle handle,
-                                                              const RHI::ResourceHandle sourceTextureID,
-                                                              const RendererAPI::TextureTargetType textureTarget)
-            {
-                if (!handle.IsValid() || !sourceTextureID.IsValid())
-                    return;
-                const RHI::ResourceHandle exportedTextureID = context.ResolveTextureHandle(handle);
-                if (!exportedTextureID.IsValid() || exportedTextureID == sourceTextureID)
-                    return;
-                RenderCommand::CopyImageSubData(sourceTextureID, textureTarget,
-                                                exportedTextureID, textureTarget,
-                                                width, height);
-            };
-
-            const RHI::ResourceHandle albedoID = m_GBuffer->GetColorAttachmentHandle(GBuffer::Albedo);
-            const RHI::ResourceHandle normalID = m_GBuffer->GetColorAttachmentHandle(GBuffer::Normal);
-            const RHI::ResourceHandle emissiveID = m_GBuffer->GetColorAttachmentHandle(GBuffer::Emissive);
-            const RHI::ResourceHandle velocityID = m_GBuffer->GetColorAttachmentHandle(GBuffer::Velocity);
-            const RHI::ResourceHandle gbufferDepthID = m_GBuffer->GetDepthAttachmentHandle();
-
-            copyExport(m_SelectedSceneDepthExport, gbufferDepthID, RendererAPI::TextureTargetType::Texture2D);
-            copyExport(m_SelectedSceneNormalsExport, normalID, RendererAPI::TextureTargetType::Texture2D);
-            copyExport(m_SelectedVelocityExport, velocityID, RendererAPI::TextureTargetType::Texture2D);
-            copyExport(m_SelectedGBufferAlbedoExport, albedoID, RendererAPI::TextureTargetType::Texture2D);
-            copyExport(m_SelectedGBufferNormalExport, normalID, RendererAPI::TextureTargetType::Texture2D);
-            copyExport(m_SelectedGBufferEmissiveExport, emissiveID, RendererAPI::TextureTargetType::Texture2D);
-
-            // Only re-export the multisample attachments when phase-2 actually
-            // rasterized into them (per-sample MSAA path). Non-per-sample mode
-            // drew straight into the resolved FBO and left the MS attachments
-            // untouched, so the MS exports already carry ScenePass's data and a
-            // re-copy here would be redundant. Matches the perSampleMSAA-gated
-            // Resolve() above.
-            if (perSampleMSAA)
-            {
-                copyExport(m_SelectedGBufferAlbedoMSExport, m_GBuffer->GetMSColorAttachmentHandle(GBuffer::Albedo), RendererAPI::TextureTargetType::Texture2DMultisample);
-                copyExport(m_SelectedGBufferNormalMSExport, m_GBuffer->GetMSColorAttachmentHandle(GBuffer::Normal), RendererAPI::TextureTargetType::Texture2DMultisample);
-                copyExport(m_SelectedGBufferEmissiveMSExport, m_GBuffer->GetMSColorAttachmentHandle(GBuffer::Emissive), RendererAPI::TextureTargetType::Texture2DMultisample);
-                copyExport(m_SelectedVelocityMSExport, m_GBuffer->GetMSColorAttachmentHandle(GBuffer::Velocity), RendererAPI::TextureTargetType::Texture2DMultisample);
-                copyExport(m_SelectedSceneDepthMSExport, m_GBuffer->GetMSDepthAttachmentHandle(), RendererAPI::TextureTargetType::Texture2DMultisample);
-            }
         }
 
         // Restore a sane default GL state for whatever runs next.
