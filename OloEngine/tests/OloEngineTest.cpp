@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Interactivity.h"
 #include "OloEngine/Core/DebugLevers.h"
+#include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Support/RendererSupport.h"
 #include "Rendering/PropertyTests/GLErrorStateCheck.h"
@@ -106,6 +107,18 @@ namespace
         {
             GTEST_FLAG_SET(output, unique);
         }
+    }
+
+    // The production shutdown order (~Application): the project and its asset manager go first, while
+    // the graphics context and this process's scratch root still exist, then the renderer. Left to static
+    // destruction, the asset manager saves its registry into a TempDir() project that TempRoot()'s exit
+    // cleanup has already removed ("AssetRegistry::Serialize - Failed to open file" at the end of every
+    // run that loaded one), and its assets free GPU buffers after Renderer::Shutdown.
+    void ShutDownEngine()
+    {
+        OloEngine::Tests::StopMemoryCeilingWatchdog();
+        OloEngine::Project::Unload();
+        OloEngine::Renderer::Shutdown();
     }
 } // namespace
 
@@ -255,8 +268,7 @@ int main(int argc, char** argv)
         std::fprintf(stderr,
                      "OloEngine-Tests: --olo-capture-manifest was given but the active gtest filter "
                      "matched no tests (expected the BenchmarkCapture suite).\n");
-        OloEngine::Tests::StopMemoryCeilingWatchdog();
-        OloEngine::Renderer::Shutdown();
+        ShutDownEngine();
         return 2;
     }
 
@@ -272,8 +284,7 @@ int main(int argc, char** argv)
         std::fprintf(stderr,
                      "OloEngine-Tests: --olo-require-vulkan was given but no device-gated Vulkan test "
                      "executed. This run verified nothing about the Vulkan backend.\n");
-        OloEngine::Tests::StopMemoryCeilingWatchdog();
-        OloEngine::Renderer::Shutdown();
+        ShutDownEngine();
         // A real test failure outranks this. A script that special-cases 3
         // would otherwise be told "Vulkan was not exercised" and never learn
         // that the run ALSO had failing tests.
@@ -289,8 +300,7 @@ int main(int argc, char** argv)
         if (::testing::UnitTest::GetInstance()->test_to_run_count() == 0)
         {
             std::fprintf(stderr, "OloEngine-Tests: required renderer preset selected zero tests.\n");
-            OloEngine::Tests::StopMemoryCeilingWatchdog();
-            OloEngine::Renderer::Shutdown();
+            ShutDownEngine();
             return result != 0 ? result : 4;
         }
         for (const auto& definition : OloEngine::RendererSupport::Presets)
@@ -309,8 +319,7 @@ int main(int argc, char** argv)
                 std::fprintf(stderr, "OloEngine-Tests: required renderer preset '%s' unsupported: %.*s.\n",
                              supportOptions.RequiredRendererPreset.c_str(),
                              static_cast<int>(reason.size()), reason.data());
-                OloEngine::Tests::StopMemoryCeilingWatchdog();
-                OloEngine::Renderer::Shutdown();
+                ShutDownEngine();
                 return result != 0 ? result : 4;
             }
         }
@@ -324,9 +333,9 @@ int main(int argc, char** argv)
     // GPUResourceInspector / FrameResourceManager — Meyer's singletons already
     // destroyed by then — which segfaults on the way out. Mirror the production
     // app shutdown and release these now, while those singletons are still alive.
-    // Joined before the statics it reads are destroyed (CodeRabbit on #1204).
-    OloEngine::Tests::StopMemoryCeilingWatchdog();
-    OloEngine::Renderer::Shutdown();
+    // ShutDownEngine joins the memory watchdog first, before the statics it reads
+    // are destroyed (CodeRabbit on #1204).
+    ShutDownEngine();
 
     return result;
 }
