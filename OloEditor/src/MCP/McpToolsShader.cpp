@@ -248,10 +248,11 @@ namespace OloEngine::MCP
         //      nothing on screen. Copies are de-duplicated by address, so the
         //      library copy (registered too) is not reloaded twice.
         //
-        // A copy's verdict is Reload()'s RETURN value, not IsReady()/IsValid(): a
-        // backend may keep the previous program and its status after a failed
-        // compile (Vulkan does), so the status reported a broken edit as `ready`
-        // (#607). The return value is the contract (#1131).
+        // A copy reloaded only if Reload() RETURNED true; IsReady()/IsValid() is
+        // an additional check on top, never the verdict on its own. A backend may
+        // keep the previous program and its status after a failed compile (Vulkan
+        // does), so the status alone reported a broken edit as `ready` (#607).
+        // The return value is the contract (#1131).
         //
         // On a backend with a PSO cache (Vulkan) a successful module rebuild is
         // not yet a visible change: the reload invalidates every pipeline built
