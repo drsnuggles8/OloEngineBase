@@ -737,23 +737,24 @@ float oloGroomCoatExitDistance(vec3 worldDir)
 // copy, or a coat that does not cast and so has no exit offset. 1.0 with
 // known == false is "nothing here can say", not "lit", and dual scattering
 // needs the difference (see oloGroomShadeFibre).
-// A STRAND AGAINST THE OPAQUE ATLAS MOVES TOWARD THE LIGHT, BY TEXELS OF THE ENTRY
-// (#1533). Against a map with none of its own fur in it -- the opaque copy, or the
+// A STRAND SAMPLED AT ITSELF MOVES ONE MILLIMETRE TOWARD THE LIGHT, AND NO MORE
+// (#1533). Against a map with none of its own fur in it -- an opaque copy, or the
 // full map under a coat that does not cast -- a strand has nothing of its own to
-// self-shadow on; what it must clear is the body it grows from. It has no normal of
-// its own, so it hands the shared atlas lookup the light direction as the offset
-// direction, and the shared helper moves it ATLAS_NORMAL_OFFSET_TEXELS (1.5) texels
-// of the entry AT THE RECEIVER: the unit every surface's offset is in, so it grows
-// with the light's distance, shrinks with the tile's resolution and never depends
-// on the object. It is bounded by what the map can resolve: an occluder nearer than
-// a texel and a half along the light falls in the receiver's own texel or the next,
-// where the map cannot tell it from the body. The fixed centimetre it replaced was
-// two texels of a tile a few metres away and many times that close up, so under a
-// close spot it stepped past a thin occluder millimetres above the fur, which then
-// took none of its shadow (GroomSceneShadowVisualEvidenceTest, ShadowMapTest).
-// The depth bias, in texels of the entry like every atlas lookup's (PBRCommon.glsl),
-// is a quarter of one. The exit-point fallback keeps the surfaces' bias, no offset.
-const float OLO_GROOM_STRAND_ATLAS_BIAS = 0.25;
+// self-shadow on, and the body it grows from is NOT at the strand in the map: the
+// shadow pass culls FRONT faces, so a closed body is stored by its FAR side. Fur on
+// the lit side then stands in front of the stored depth by the body's whole
+// thickness, and fur on the far side lies a few millimetres BEHIND it -- flat
+// along the skin it grows from. The surfaces' receiver bias (a centimetre along
+// the normal plus two texels of depth) carried that far-side fur back in front of
+// the stored skin, so the key and every casting light lit the fur on the far side
+// of the body as if it were not there (DogShowcaseEvidenceTest's light-by-region
+// record: the cascades let 98% of a sky reach the face). One millimetre is below
+// the height any fur stands off its skin and above the depth noise of a two-sided
+// caster drawn unculled, whose NEAR face is stored: there the roots, deep in the
+// coat, are what a smaller offset would speckle. No depth bias, and the same
+// world-space offset against the cascades and the atlas. The exit-point fallback
+// keeps the surfaces' bias, no offset.
+const float OLO_GROOM_STRAND_RECEIVER_OFFSET = 0.001;
 
 float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L, out bool known)
 {
@@ -787,14 +788,16 @@ float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L
 			return vsmShadowFactor(shadowPos, L);
 		}
 		// The opaque cascades are sampled at the strand itself: the body's
-		// shadow. The fibre has no surface, so the receiver bias runs toward
-		// the light either way.
+		// shadow, with the strand's own millimetre toward the light and no
+		// depth bias (OLO_GROOM_STRAND_RECEIVER_OFFSET). The exit point keeps
+		// the surfaces' bias, the fibre having no surface normal to run it on.
 		vec3 receiver = opaqueCascades ? v_WorldPos : shadowPos;
 		known = opaqueCascades || atStrand;
+		vec4 receiverParams = known ? vec4(0.0, OLO_GROOM_STRAND_RECEIVER_OFFSET, u_ShadowParams.zw) : u_ShadowParams;
 		vec4 viewSpacePos = u_View * vec4(receiver, 1.0);
 		return calculateCascadedShadowFactorCSM(u_ShadowMapCSM, u_ShadowMapCSMRaw, receiver, L, viewSpacePos.z,
 		                                        u_DirectionalLightSpaceMatrices, u_CascadePlaneDistances,
-		                                        u_ShadowParams, u_ShadowMapResolution, u_SoftShadowMode);
+		                                        receiverParams, u_ShadowMapResolution, u_SoftShadowMode);
 	}
 
 	if (lightType == SPOT_LIGHT)
@@ -809,9 +812,9 @@ float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L
 		if (atlasEntry >= 0 && atlasEntry < u_AtlasEntryCount)
 		{
 			bool atlasAtStrand = opaqueAtlas || atStrand;
-			vec3 receiver = atlasAtStrand ? v_WorldPos : shadowPos;
-			vec3 offsetDirection = atlasAtStrand ? L : vec3(0.0);
-			float atlasBias = atlasAtStrand ? OLO_GROOM_STRAND_ATLAS_BIAS : u_AtlasDepthBiasTexels;
+			vec3 receiver = atlasAtStrand ? v_WorldPos + (L * OLO_GROOM_STRAND_RECEIVER_OFFSET) : shadowPos;
+			vec3 offsetDirection = vec3(0.0);
+			float atlasBias = atlasAtStrand ? 0.0 : u_AtlasDepthBiasTexels;
 			known = atlasAtStrand;
 			return calculateAtlasEntryShadow(receiver, offsetDirection, u_AtlasEntryMatrices[atlasEntry],
 			                                 u_AtlasEntryScaleOffset[atlasEntry], u_ShadowAtlas, u_ShadowAtlasRaw,
@@ -835,9 +838,9 @@ float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L
 		if (baseEntry >= 0 && baseEntry + 5 < u_AtlasEntryCount)
 		{
 			bool atlasAtStrand = opaqueAtlas || atStrand;
-			vec3 receiver = atlasAtStrand ? v_WorldPos : shadowPos;
-			vec3 offsetDirection = atlasAtStrand ? L : vec3(0.0);
-			float atlasBias = atlasAtStrand ? OLO_GROOM_STRAND_ATLAS_BIAS : u_AtlasDepthBiasTexels;
+			vec3 receiver = atlasAtStrand ? v_WorldPos + (L * OLO_GROOM_STRAND_RECEIVER_OFFSET) : shadowPos;
+			vec3 offsetDirection = vec3(0.0);
+			float atlasBias = atlasAtStrand ? 0.0 : u_AtlasDepthBiasTexels;
 			known = atlasAtStrand;
 			int entry = baseEntry + atlasCubeFace(receiver - light.position.xyz);
 			return calculateAtlasEntryShadow(receiver, offsetDirection, u_AtlasEntryMatrices[entry],

@@ -12,6 +12,10 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <string>
 
 using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file, brevity preferred
 
@@ -816,68 +820,82 @@ TEST(ShadowAtlasBias, EveryCubeFaceConvertsAsANinetyDegreeEntry)
 }
 
 // =============================================================================
-// A strand's offset at the opaque atlas: texels of its entry, toward the light (#1533)
+// A strand sampled at itself: one millimetre toward the light, no bias (#1533)
 // =============================================================================
 //
-// GroomStrand.glsl hands the shared atlas lookup the light direction as its
-// offset direction, so a strand moves SHADOW_ATLAS_NORMAL_OFFSET_TEXELS texels of
-// its entry AT THE RECEIVER toward the light -- the unit every surface's normal
-// offset is in. It replaced a fixed centimetre, whose texel count ran from two at
-// a few metres to many close up, and which stepped past occluders the map could
-// resolve.
+// The shadow pass culls FRONT faces, so a closed body is stored by its far side,
+// and the fur on that side lies flat along the skin, millimetres behind it. A
+// strand sampled at itself -- against an opaque copy, which holds none of the
+// coat -- must fall behind that stored skin there, and stay in front of it on the
+// lit side, where the body's whole thickness separates them. So GroomStrand.glsl
+// moves it kStrandReceiverOffset toward the light with NO depth bias, in the
+// cascades and the atlas alike. It replaced the surfaces' bias at the cascades (a
+// centimetre along the light plus two texels of depth) and a texel and a half of
+// the entry at the atlas, both of which carried that fur back in front of its
+// skin: every casting light lit the fur on the far side of the body.
 
 namespace
 {
-    [[nodiscard]] f32 StrandAtlasOffset(const glm::mat4& entry, f32 tile, f32 clipW)
+    constexpr f32 kStrandReceiverOffset = 0.001f; // GroomStrand.glsl's OLO_GROOM_STRAND_RECEIVER_OFFSET
+
+    [[nodiscard]] std::string ReadGroomStrandShader()
     {
-        return ShaderConstants::SHADOW_ATLAS_NORMAL_OFFSET_TEXELS * AtlasEntryTexelWorld(entry, tile, clipW);
+        const std::filesystem::path path =
+            std::filesystem::path{ OLO_TEST_EDITOR_ROOT } / "assets" / "shaders" / "GroomStrand.glsl";
+        std::ifstream file(path, std::ios::binary);
+        return { std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>() };
     }
 } // namespace
 
-TEST(ShadowAtlasBias, AStrandsOffsetIsTexelsOfItsEntryAtEveryDistanceAndTile)
+TEST(GroomStrandShadowReceiver, TheShaderMovesAStrandOneMillimetreTowardTheLight)
 {
-    constexpr f32 kOuterCutoff = 20.0f;
-    const glm::vec3 position{ 0.0f, 12.0f, 0.0f };
-    const glm::vec3 direction{ 0.0f, -1.0f, 0.0f };
-    const glm::mat4 entry = ShadowMap::BuildSpotLightMatrix(position, direction, kOuterCutoff, 20.0f);
-    for (const f32 tile : { 256.0f, 512.0f, 1024.0f, 2048.0f })
-    {
-        for (const f32 distance : { 0.75f, 1.5f, 3.0f, 6.0f, 12.0f })
-        {
-            const f32 texel = 2.0f * distance * std::tan(glm::radians(kOuterCutoff)) / tile;
-            EXPECT_NEAR(StrandAtlasOffset(entry, tile, distance),
-                        ShaderConstants::SHADOW_ATLAS_NORMAL_OFFSET_TEXELS * texel, texel * 1.0e-3f)
-                << distance << " m, a " << tile << "-texel tile";
-        }
-    }
-    // It takes the entry and the receiver's distance and nothing of the object:
-    // a character at a tenth of the size under the same light moves the same
-    // metres. The map's texel, not the fur, is what the offset answers to --
-    // fur thinner than a texel is fur the map cannot resolve at all.
+    const std::string source = ReadGroomStrandShader();
+    ASSERT_FALSE(source.empty()) << "GroomStrand.glsl was not found under OLO_TEST_EDITOR_ROOT";
+    const std::string tag = "const float OLO_GROOM_STRAND_RECEIVER_OFFSET = ";
+    const sizet at = source.find(tag);
+    ASSERT_NE(at, std::string::npos) << "the strand's receiver offset is gone from GroomStrand.glsl";
+    EXPECT_FLOAT_EQ(std::stof(source.substr(at + tag.size(), 8)), kStrandReceiverOffset);
 }
 
-TEST(ShadowAtlasBias, AStrandsOffsetStaysUnderAThinOccluderTheCentimetreSteppedPast)
+TEST(GroomStrandShadowReceiver, FurOnTheFarSideOfTheBodyFallsBehindItsStoredSkin)
+{
+    // The dog's first cascade at its hero framings: a 4096 map over a sphere
+    // about 3.5 m in radius, so a texel of ~1.7 mm, and fur standing 2-8 mm off
+    // its skin. Depth along the light past the stored far-side skin, after the
+    // receiver's offset: positive is behind it, in the body's shadow.
+    constexpr f32 kTexel = 2.0f * 3.5f / 4096.0f;
+    constexpr f32 kSurfacesNormalBias = 0.01f; // DirectionalLightComponent::m_ShadowNormalBias
+    for (const f32 standOff : { 0.002f, 0.003f, 0.005f, 0.008f })
+    {
+        const f32 strand = standOff - kStrandReceiverOffset;
+        const f32 surfaces = standOff - (kSurfacesNormalBias + (ShaderConstants::SHADOW_CSM_DEPTH_BIAS_TEXELS * kTexel));
+        EXPECT_GT(strand, 0.0f) << "fur " << standOff * 1000.0f << " mm off the far-side skin reads lit";
+        EXPECT_LT(surfaces, 0.0f) << "the surfaces' bias this replaced shadowed fur " << standOff * 1000.0f << " mm off";
+    }
+    // On the lit side the stored depth is the far side, a body's thickness
+    // away: an ear, 3 mm thick, still stands its fur in front of it.
+    constexpr f32 kEar = 0.003f;
+    EXPECT_LT(-kEar - kStrandReceiverOffset, 0.0f);
+}
+
+TEST(GroomStrandShadowReceiver, AStrandStaysUnderAThinOccluderAtEveryDistance)
 {
     // An occluder 5 mm above short fur, along the light, under a 20-degree spot
-    // with a 512-texel tile. Where the map resolves the gap (a texel and a half
-    // under it), the texel offset stays beneath the occluder and the fur takes
-    // its shadow; the fixed centimetre stepped past it at every distance.
+    // with a 512-texel tile. A millimetre stays beneath it at any distance; the
+    // texel and a half of the entry it replaced stepped past it from about 2.5 m
+    // out, and the centimetre before that everywhere.
     constexpr f32 kGap = 0.005f;
-    constexpr f32 kOldOffset = 0.01f;
     const glm::mat4 entry =
         ShadowMap::BuildSpotLightMatrix({ 0.0f, 12.0f, 0.0f }, { 0.0f, -1.0f, 0.0f }, 20.0f, 20.0f);
-    for (const f32 distance : { 0.75f, 1.0f, 1.5f, 2.0f })
+    for (const f32 distance : { 0.75f, 1.5f, 3.0f, 6.0f })
     {
-        const f32 offset = StrandAtlasOffset(entry, 512.0f, distance);
-        EXPECT_LT(offset, kGap) << distance << " m: the strand stepped past an occluder the map resolves";
-        EXPECT_GT(kOldOffset, kGap) << "the centimetre this replaced stepped past it";
+        EXPECT_LT(kStrandReceiverOffset, kGap) << distance << " m";
+        const f32 texelOffset = ShaderConstants::SHADOW_ATLAS_NORMAL_OFFSET_TEXELS * AtlasEntryTexelWorld(entry, 512.0f, distance);
+        if (distance >= 3.0f)
+        {
+            EXPECT_GT(texelOffset, kGap) << distance << " m: the offset this replaced did not step past it";
+        }
     }
-    // Beyond that the gap is under a texel and a half, and the map cannot tell
-    // the occluder from the body: there the offset is larger than the gap by
-    // design, and bounded by the texel instead.
-    const f32 distantOffset = StrandAtlasOffset(entry, 512.0f, 6.0f);
-    EXPECT_GT(distantOffset, kGap);
-    EXPECT_LE(distantOffset, ShaderConstants::SHADOW_ATLAS_NORMAL_OFFSET_TEXELS * AtlasEntryTexelWorld(entry, 512.0f, 6.0f));
 }
 
 // =============================================================================

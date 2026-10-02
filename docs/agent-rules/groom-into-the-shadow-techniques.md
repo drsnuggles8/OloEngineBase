@@ -70,9 +70,13 @@ the groom half of `Renderer/Passes/ShadowRenderPass.cpp`, `GroomStrandDepth.glsl
    fur, so one coat does not shadow a second. The VSM keeps the exit point: its cached pages hold the
    fur. A copy covers only the receiving coats' texels (their posed box projected through each view,
    padded 96 texels for the kernels): at the dog's 4096² cascades the whole-layer copy cost ~0.3 ms.
-   Against the atlas a strand at itself offsets 1.5 texels of the entry toward the light
-   (`ATLAS_NORMAL_OFFSET_TEXELS`, every surface's unit) with a quarter-texel depth bias; the fixed 1 cm
-   it replaced stepped past occluders millimetres above short fur under a close spot. `GroomsShadowedByOpaqueCascades` / `...Atlas` say which coats got the opaque lookup, and
+   A strand sampled at itself moves 1 mm toward the light with no depth bias, against the cascades and
+   the atlas alike (`OLO_GROOM_STRAND_RECEIVER_OFFSET`). The shadow pass culls front faces, so a closed
+   body is stored by its far side, and fur on that far side lies a few millimetres behind the stored
+   skin; the surfaces' receiver bias (1 cm along the normal plus two texels of depth) carried it back
+   in front and lit it through the body (`GroomStrandShadowReceiver` in `ShadowMapTest.cpp`). 1 mm is
+   below any fur's stand-off and above the depth noise of a two-sided caster, whose near face is
+   stored. The exit-point fallback keeps the surfaces' bias. `GroomsShadowedByOpaqueCascades` / `...Atlas` say which coats got the opaque lookup, and
    `OLO_FAULT_GROOM_SHADOW_AT_COAT_EXIT` brings the exit point back for a negative control. `known`
    is true only where the lookup ran at the strand: an exit-point answer says nothing about the body.
    Where it is false the coat's volume holds the body since #1533 and the march counts it, which also

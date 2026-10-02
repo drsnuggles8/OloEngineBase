@@ -593,14 +593,23 @@ namespace OloEngine
         // one for the cascades, two for the atlas (spot, point face).
         EXPECT_EQ(count("opaqueCascades ? v_WorldPos : shadowPos"), 1u)
             << "the CSM receiver is the strand only when the opaque cascades are bound";
-        EXPECT_EQ(count("atlasAtStrand ? v_WorldPos : shadowPos"), 2u)
+        EXPECT_EQ(count("atlasAtStrand ? v_WorldPos + (L * OLO_GROOM_STRAND_RECEIVER_OFFSET) : shadowPos"), 2u)
             << "each atlas receiver is the strand only against a map without this coat's fur: the opaque atlas, "
                "or the full one under a coat that does not cast";
-        EXPECT_EQ(count("atlasAtStrand ? L : vec3(0.0)"), 2u)
-            << "a strand at the atlas moves toward the light by the helper's texels of the entry, and the exit "
-               "point not at all (#1533)";
-        EXPECT_EQ(count("OLO_GROOM_STRAND_ATLAS_OFFSET"), 0u)
-            << "the fixed world-space offset is back; it stepped past thin occluders under a close spot";
+        // A STRAND SAMPLED AT ITSELF MOVES ONE MILLIMETRE, WITH NO DEPTH BIAS
+        // (#1533). The shadow pass culls front faces, so the body is stored by
+        // its far side, and the fur on that side lies millimetres behind it: the
+        // surfaces' receiver bias -- and the atlas helper's texels of the entry --
+        // carried that fur back in front, and the body shadowed none of it.
+        EXPECT_EQ(count("vec3 offsetDirection = vec3(0.0);"), 2u)
+            << "an atlas lookup at the strand took the helper's texel offset back";
+        EXPECT_EQ(count("atlasAtStrand ? 0.0 : u_AtlasDepthBiasTexels"), 2u)
+            << "an atlas lookup at the strand took a depth bias back";
+        EXPECT_EQ(count("known ? vec4(0.0, OLO_GROOM_STRAND_RECEIVER_OFFSET, u_ShadowParams.zw) : u_ShadowParams"), 1u)
+            << "the cascade lookup at the strand took the surfaces' bias back";
+        EXPECT_EQ(count("OLO_GROOM_STRAND_RECEIVER_OFFSET"), 5u)
+            << "the definition, the cascades' parameters, the two atlas receivers, and the comment naming it";
+        EXPECT_EQ(count("OLO_GROOM_STRAND_ATLAS_BIAS"), 0u) << "the atlas' own strand bias is back";
         EXPECT_EQ(count("(u_GroomCoatModes.y & 2) != 0"), 1u) << "one gate on the opaque cascades' bit";
         EXPECT_EQ(count("(u_GroomCoatModes.y & 4) != 0"), 1u) << "one gate on the opaque atlas' bit";
 
