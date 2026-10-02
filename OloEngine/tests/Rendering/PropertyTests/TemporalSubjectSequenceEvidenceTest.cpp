@@ -1189,9 +1189,10 @@ namespace OloEngine::Tests
             // copy taken before GroomPass. Now TAA reads the coat's own velocity,
             // which carries the projection jitter delta like every surface's does,
             // and accumulates it as it does them. Deferred, whose resolve still
-            // reads G-Buffer velocity the groom never writes, keeps 11x. #1552 owns
-            // the velocity convention and restoring the 3x floor.
-            EXPECT_LT(arms.Resolved.MeanFrameDelta, arms.NoHistory.MeanFrameDelta / 2.0)
+            // reads G-Buffer velocity the groom never writes, keeps 11x and the 3x
+            // floor. #1552 owns the velocity convention and restoring 3x on Forward.
+            const f64 floor = path == RenderingPath::Deferred ? 3.0 : 2.0;
+            EXPECT_LT(arms.Resolved.MeanFrameDelta, arms.NoHistory.MeanFrameDelta / floor)
                 << cell << ": the resolve does not suppress the coat's shimmer on this path ("
                 << arms.NoHistory.MeanFrameDelta << " -> " << arms.Resolved.MeanFrameDelta << ")";
         }
@@ -1248,9 +1249,11 @@ namespace OloEngine::Tests
             // copy taken before GroomPass. Now TAA reads the coat's own velocity,
             // which carries the projection jitter delta like every surface's does,
             // and accumulates it as it does them. Deferred, whose resolve still
-            // reads G-Buffer velocity the groom never writes, keeps 11x. #1552 owns
-            // the velocity convention and restoring the 3x floor.
-            EXPECT_LT(arms.Resolved.MeanFrameDelta, arms.NoHistory.MeanFrameDelta / 2.0)
+            // reads G-Buffer velocity the groom never writes, keeps 11x and the 3x
+            // floor (the MSAA cell). #1552 owns the velocity convention and
+            // restoring 3x on Forward.
+            const f64 floor = rendererSettings.Path == RenderingPath::Deferred ? 3.0 : 2.0;
+            EXPECT_LT(arms.Resolved.MeanFrameDelta, arms.NoHistory.MeanFrameDelta / floor)
                 << cell << ": the resolve does not suppress the coat's shimmer in this configuration ("
                 << arms.NoHistory.MeanFrameDelta << " -> " << arms.Resolved.MeanFrameDelta << ")";
         };

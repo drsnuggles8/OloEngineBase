@@ -24,6 +24,7 @@
 #include "RenderPropertyTest.h"
 #include "VisualEvidenceGuards.h"
 #include "OloEngine/Core/DebugLevers.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Particle/ParticleSystem.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
@@ -259,8 +260,15 @@ namespace OloEngine::Tests
             const fs::path dir = fs::path("assets") / "tests" / "exports";
             std::error_code ec;
             fs::create_directories(dir, ec);
-            std::ofstream out(dir / ("RenderTargetExports_" + cell + ".json"), std::ios::binary | std::ios::trunc);
+            ASSERT_FALSE(ec) << "cannot create " << dir.string() << ": " << ec.message();
+            const fs::path file = dir / ("RenderTargetExports_" + cell + ".json");
+            std::ofstream out(file, std::ios::binary | std::ios::trunc);
+            ASSERT_TRUE(out.is_open()) << "cannot open " << file.string();
             out << report.dump(2) << '\n';
+            out.close();
+            // A failed write would leave the committed artefact stale while the
+            // test passed.
+            ASSERT_FALSE(out.fail()) << "writing " << file.string() << " failed";
         }
     };
 
@@ -386,7 +394,7 @@ namespace OloEngine::Tests
                 report["frameGpuMsMedian"] = Median(frameMs);
                 for (const auto& [pass, samples] : passMs)
                     report["passGpuMsMedian"][pass] = Median(samples);
-                WriteArtefact(name, report);
+                ASSERT_NO_FATAL_FAILURE(WriteArtefact(name, report));
 
                 std::cout << "[ exports ] " << name << ": " << copies.Copies.Num() << " copies/blits, "
                           << copies.KnownBytes() << " bytes; frame " << Median(frameMs) << " ms; peak "
@@ -723,7 +731,10 @@ namespace OloEngine::Tests
         for (sizet i = 0; i + 3 < sampled.size(); i += 4)
         {
             moving += std::abs(attachment[i]) + std::abs(attachment[i + 1]) > 1e-5f ? 1u : 0u;
-            differing += (sampled[i] != attachment[i] || sampled[i + 1] != attachment[i + 1]) ? 1u : 0u;
+            differing += (!Math::BitwiseEqual(sampled[i], attachment[i]) ||
+                          !Math::BitwiseEqual(sampled[i + 1], attachment[i + 1]))
+                             ? 1u
+                             : 0u;
         }
         std::cout << "[ exports ] TAA velocity: " << moving << " moving texels, " << differing << " differ from the attachment\n";
         EXPECT_GT(moving, kWidth * kHeight / 100u) << "the camera moved but the attachment holds no motion: the check is vacuous";
