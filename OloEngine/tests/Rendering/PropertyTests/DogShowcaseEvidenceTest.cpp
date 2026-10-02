@@ -4053,7 +4053,9 @@ namespace OloEngine::Tests
     // that hovers shows the swing flat and the mean still; one that creeps shows
     // the mean moving. Measured in round 4 of #1533: 0.90, 0.46, 0.43, 0.37, 0.34,
     // 0.37 mm, the mean nearly still -- and with OLO_DOG_REST_SETTLE_OFF=collide
-    // 0.87, 0.016, then under a micrometre: the body's colliders keep it moving.
+    // 0.87, 0.016, then under a micrometre: the body's colliders kept it moving,
+    // through the solver's contact (StrandsAcrossTwoCollidersComeToRestAtAnyFriction).
+    // With that fixed: 0.75, 0.012, then 0.005 mm, the mean still.
     // =========================================================================
     TEST_F(DogShowcaseEvidenceTest, TheCoatAtRestIsMeasuredSecondBySecond)
     {
@@ -4063,17 +4065,26 @@ namespace OloEngine::Tests
             GTEST_SKIP() << "set OLO_DOG_REST_SETTLE=1 to record the coat at rest second by second";
         }
         SetPath(RenderingPath::Forward);
-        // OLO_DOG_REST_SETTLE_OFF=collide: the same with the body's colliders off.
+        // OLO_DOG_REST_SETTLE_OFF, any of: "collide" the body's colliders off;
+        // "correction" DFTL's velocity correction off (plain FTL); "stick" and
+        // "slide" the contact's tangential retention at 0 and 1.
         auto& simulation = m_Dog.Coat.GetComponent<GroomSimulationComponent>();
-        const bool shippedCollide = simulation.m_Collide;
-        if (const char* off = std::getenv("OLO_DOG_REST_SETTLE_OFF"); off != nullptr && std::string(off).find("collide") != std::string::npos)
+        const GroomSimulationComponent shipped = simulation;
+        if (const char* off = std::getenv("OLO_DOG_REST_SETTLE_OFF"); off != nullptr)
         {
-            simulation.m_Collide = false;
+            const std::string arms(off);
+            simulation.m_Collide = arms.find("collide") == std::string::npos;
+            simulation.m_VelocityCorrection = arms.find("correction") != std::string::npos ? 0.0f : simulation.m_VelocityCorrection;
+            simulation.m_ColliderFriction = arms.find("stick") != std::string::npos   ? 0.0f
+                                            : arms.find("slide") != std::string::npos ? 1.0f
+                                                                                      : simulation.m_ColliderFriction;
         }
         constexpr u32 kSeconds = 6;
         constexpr u32 kPerSecond = 60;
         const RuntimeSequence rest = RecordRuntime("Rest", HeroViews()[0], 0, kSeconds * kPerSecond, nullptr);
-        simulation.m_Collide = shippedCollide;
+        simulation.m_Collide = shipped.m_Collide;
+        simulation.m_VelocityCorrection = shipped.m_VelocityCorrection;
+        simulation.m_ColliderFriction = shipped.m_ColliderFriction;
         ASSERT_FALSE(HasFatalFailure());
         ASSERT_EQ(rest.LongHairTips.size(), static_cast<sizet>(kSeconds * kPerSecond));
         std::vector<glm::dvec3> previousMean;
@@ -4484,7 +4495,8 @@ namespace OloEngine::Tests
         // contains it (the dolly alone, while a lawn change is looked at).
         const char* onlyEnv = std::getenv("OLO_DOG_FOOTAGE_ONLY");
         const std::string only = onlyEnv != nullptr ? onlyEnv : "";
-        const auto wanted = [&only](const char* name) { return only.empty() || std::string(name).find(only) != std::string::npos; };
+        const auto wanted = [&only](const char* name)
+        { return only.empty() || std::string(name).find(only) != std::string::npos; };
         for (const Shot& shot : shots)
         {
             if (!wanted(shot.Name))

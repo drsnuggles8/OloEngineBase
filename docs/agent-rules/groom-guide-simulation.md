@@ -59,10 +59,14 @@ and a visibly stretched strand, and a stretched strand is the failure criterion 
 change the order, change `GroomGuideSimulationTest.CollisionKeepsGuidesOutOfTheBody`'s declared
 bound with it — it is written as the arithmetic, not as a magic number, for exactly this reason.
 
-**Friction is applied to `Prev`, not to a velocity field.** This integrator's velocity *is*
-`Curr - Prev`. Moving `Prev` toward the contact point along the normal kills the inward component
-and scales the tangential one in one expression, so the two halves cannot disagree about which is
-which.
+**Contact friction acts on what the step LEAVES, and DFTL's hand-back never crosses a contact**
+(#1533). Velocity *is* `Curr - Prev`, so friction moves `Prev`: the approaching normal part is
+removed, a separating part kept, the tangential part scaled. It runs last, after the length pass and
+the hand-back; applied at the push, the length pass's move of the held particle became its velocity
+unfiltered, and full stick did not stick. The hand-back skips a pair with a held particle: from a
+held child it carried the collider's push into the parent every step. With either, a coat lying on
+its body never came to rest: the dog's long hair swung 0.4 mm while it stood, and a strand across
+two capsules 13 mm at full stick (`StrandsAcrossTwoCollidersComeToRestAtAnyFriction`).
 
 **The reset control is a COUNTER, not a flag the scene clears.** `m_ResetKey` is compared against a
 stored copy. A bool would make the reset a mutation of a component the tick is meant to read, it
@@ -90,12 +94,10 @@ re-cook every groom in the project. The one exception, since #1533, is the per-G
 `StiffnessScale` in section 9: how stiff a tail plume is against the undercoat is part of the groom,
 so it is cooked, and it multiplies the component's `m_Stiffness` per guide.
 
-**The coat-shadow volume is not part of this, and that is #1248's decision rather than an oversight.**
-`GroomRenderPass::AcquireCoatVolume` releases the volume and reports not-ready for any DEFORMED groom, so a
-bound coat has no self-shadow representation today — and a simulated coat is always a bound one. There is
-therefore no frame-state incoherence between the solver and the shadow bake to introduce, because there is no
-bake. When #1248's deformed path lands it will bake from the cache entry's geometry, which is the geometry the
-interpolation just wrote, so it is coherent by construction — but check that rather than assume it.
+**The coat-shadow volume never reads the particles.** A bound coat bakes from the strands the pass
+draws, or once at rest ([groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shadowing.md),
+[groom-coat-rest-bake.md](groom-coat-rest-bake.md)), so the solver reaches it only through the
+interpolated geometry.
 
 **A new component means the whole cross-binding walk.** `GroomSimulationComponent` is generated into
 the `AllComponents` tuple, the `OnComponent*` no-ops, scene YAML and the MCP field registry; the
@@ -114,6 +116,7 @@ comment for why, and say so rather than leaving it as an omission.
 | The coat is rubbery through a frame spike | `PositionBasedDistance` selected, or an iteration count taken as a length guarantee |
 | The coat hangs off the body like wet rope | `m_Stiffness` at or near zero: that term is the only one that knows the coat was authored |
 | The coat is pushed off the arm | The fitted proxy inflated by a stray vertex — check `AxisHighPercentile`, not `MaxColliders` |
+| A coat on its body never settles (a sub-mm swing), worse at full stick | Friction applied before the length pass, or the DFTL hand-back crossing a held particle |
 | Short fur stands off a slim part (crown, ear base) and bares it | The proxy pushed the groom's own fur out to its shell; hold each particle only as far out as its target |
 | The coat is left behind a body animating in edit mode | A call that runs no step left the particles in world space; carry them by their targets' motion |
 | Fingers poke through | `GroomColliderBuildStats::Truncated`: the cap dropped the smallest capsules |

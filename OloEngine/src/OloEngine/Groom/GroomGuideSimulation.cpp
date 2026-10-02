@@ -333,6 +333,12 @@ namespace OloEngine
         // its own range.
         std::vector<glm::vec3> corrections(pointCount, glm::vec3(0.0f));
 
+        // Per particle, this step: whether a collider held it, and the normal
+        // of the last one that did -- what the contact's friction is applied
+        // along at the END of the step. Same ownership as `corrections`.
+        std::vector<u8> touching(pointCount, 0u);
+        std::vector<glm::vec3> contactNormals(pointCount, glm::vec3(0.0f));
+
         // The steps this call owes, counted before any runs: every guide takes
         // the same number.
         u32 steps = 0;
@@ -390,6 +396,7 @@ namespace OloEngine
                     const glm::vec3 accel = stiffness * (inputs.TargetPoints[i] - curr) + params.Gravity;
                     state.Prev[i] = curr;
                     state.Curr[i] = curr + velocity + accel * dt2;
+                    touching[i] = 0u;
                 }
 
                 // ── 2. Collide, BEFORE the length pass ──────────────
@@ -457,18 +464,12 @@ namespace OloEngine
                             }
 
                             state.Curr[i] = nearest + normal * radius;
-                            // FRICTION IS APPLIED TO THE PREVIOUS POSITION, not
-                            // to a velocity field, because this integrator's
-                            // velocity IS curr - prev. Moving `prev` toward the
-                            // contact point along the normal kills the inward
-                            // component and keeps the tangential one, scaled by
-                            // the friction coefficient — one expression for both
-                            // halves, so they cannot disagree about which is
-                            // which.
-                            const glm::vec3 relative = state.Prev[i] - state.Curr[i];
-                            const glm::vec3 alongNormal = normal * glm::dot(relative, normal);
-                            const glm::vec3 tangential = relative - alongNormal;
-                            state.Prev[i] = state.Curr[i] + tangential * params.ColliderFriction;
+                            // The contact's FRICTION waits for the end of the
+                            // step (section 4): the length pass still moves
+                            // this particle, and what it leaves with is what
+                            // the friction must act on.
+                            touching[i] = 1u;
+                            contactNormals[i] = normal;
                             context.ContactsResolved += lastStep ? 1u : 0u;
                         }
                     }
@@ -521,8 +522,25 @@ namespace OloEngine
                             // particle i. Handing it back through `Prev` —
                             // which is where this integrator keeps velocity —
                             // is what separates DFTL from FTL's syrup.
+                            //
+                            // NOT TO OR FROM A PARTICLE A COLLIDER HELD (#1533).
+                            // The momentum is a FREE chain's. Where i+1 sat on a
+                            // collider, its correction undoes the collider's
+                            // push, and handed to i as velocity it fed the
+                            // contact's reaction back into the strand every
+                            // step; where i sat on one, its velocity is the
+                            // contact's to decide. Handed back across contacts,
+                            // a coat lying on its body never came to rest: the
+                            // dog's long hair swung 0.4 mm for as long as it
+                            // stood, and with full stick (friction 0) a strand
+                            // across two capsules swung 13 mm
+                            // (StrandsAcrossTwoCollidersComeToRestAtAnyFriction).
                             for (u32 i = first + 1u; i + 1u < last; ++i)
                             {
+                                if ((touching[i] | touching[i + 1u]) != 0u)
+                                {
+                                    continue;
+                                }
                                 state.Prev[i] -= corrections[i + 1u] * params.VelocityCorrection;
                             }
                         }
@@ -568,6 +586,36 @@ namespace OloEngine
                     }
                     case GroomSolverModel::Count:
                         break;
+                }
+
+                // ── 4. The contact's friction, on what the step leaves ──
+                //
+                // FRICTION IS APPLIED TO THE PREVIOUS POSITION, not to a
+                // velocity field, because this integrator's velocity IS curr -
+                // prev: the approaching part of it along the contact normal is
+                // removed, a separating part kept, and the tangential part
+                // scaled by the friction coefficient. And it is applied LAST
+                // (#1533). Applied at the push, it acted on a velocity the
+                // length pass then replaced -- its displacement of the held
+                // particle became that particle's velocity unfiltered -- so full
+                // stick (friction 0) did not stick at all: a strand across two
+                // capsules swung 13 mm at rest.
+                if (collide)
+                {
+                    for (u32 i = first + 1u; i < last; ++i)
+                    {
+                        if (touching[i] == 0u)
+                        {
+                            continue;
+                        }
+                        const glm::vec3 normal = contactNormals[i];
+                        const glm::vec3 velocity = state.Curr[i] - state.Prev[i];
+                        const f32 alongNormal = glm::dot(velocity, normal);
+                        const glm::vec3 tangential = velocity - normal * alongNormal;
+                        const glm::vec3 kept = (alongNormal > 0.0f ? normal * alongNormal : glm::vec3(0.0f)) +
+                                               tangential * params.ColliderFriction;
+                        state.Prev[i] = state.Curr[i] - kept;
+                    }
                 }
             }
         };

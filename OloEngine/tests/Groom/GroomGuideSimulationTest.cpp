@@ -27,6 +27,7 @@
 #include <glm/gtx/norm.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <limits>
@@ -716,9 +717,9 @@ TEST(GroomGuideSimulation, TheSlowestStepWithTheStiffestCoatStillSettles)
 // follow-the-leader hands the length projection's correction back as velocity
 // every step, and under gravity that correction never goes to zero; a hanging
 // strand still settles to its sag, to well under a micrometre. Kept because the
-// dog's long hair does NOT come to rest (0.35-0.45 mm for seconds), and this is
-// what says the solver alone is not why: with the body's colliders off the dog
-// stops within two seconds too (TheCoatAtRestIsMeasuredSecondBySecond).
+// dog's long hair once did NOT come to rest (0.35-0.45 mm for seconds), and this
+// is what said the free solver was not why: the contact was
+// (StrandsAcrossTwoCollidersComeToRestAtAnyFriction).
 TEST(GroomGuideSimulation, TheShippedCoatComesToRestUnderGravity)
 {
     const TestGuides guides = TestGuides::Make(1, 12, 0.02f, glm::normalize(glm::vec3(1.0f, 0.3f, 0.0f)));
@@ -754,15 +755,15 @@ TEST(GroomGuideSimulation, TheShippedCoatComesToRestUnderGravity)
     EXPECT_GT(sag, 1.0e-3f) << "gravity did not deflect the strand at all";
 }
 
-// A STRAND HELD ON A COLLIDER COMES TO REST (#1533). The dog's long hair swings
-// 0.35-0.45 mm RMS for seconds at rest and stops within two with its colliders
-// off, so its contact with them is what keeps it moving. This is the simplest
+// A STRAND HELD ON A COLLIDER COMES TO REST (#1533). The dog's long hair swung
+// 0.35-0.45 mm RMS for seconds at rest and stopped within two with its colliders
+// off, so its contact with them was what kept it moving. This is the simplest
 // version of that contact -- a fitted proxy fatter than the body, the strand's
 // groomed shape INSIDE it and held at its own depth
 // (TheColliderNeverPushesAStrandPastWhereTheGroomPutIt), gravity pressing it in,
-// the dog's solver settings -- and it settles: whatever moves the dog's hair
-// needs more of its collider set than one capsule. Ten seconds at rest, it must
-// hold still.
+// the dog's solver settings -- and it settles. Two capsules that meet did not
+// (StrandsAcrossTwoCollidersComeToRestAtAnyFriction). Ten seconds at rest, it
+// must hold still.
 TEST(GroomGuideSimulation, AStrandRestingOnAColliderComesToRest)
 {
     TestGuides guides = TestGuides::Make(1, 14, 0.02f, glm::vec3(1.0f, 0.0f, 0.0f));
@@ -774,8 +775,8 @@ TEST(GroomGuideSimulation, AStrandRestingOnAColliderComesToRest)
 
     GroomSimulationParams params; // the shipped solver: DFTL, correction 0.85, 60 Hz
     params.CollisionEnabled = true;
-    params.Stiffness = 1200.0f;                       // the dog's
-    params.Gravity = glm::vec3(0.0f, -4.0f, 0.0f);    // the dog's
+    params.Stiffness = 1200.0f;                    // the dog's
+    params.Gravity = glm::vec3(0.0f, -4.0f, 0.0f); // the dog's
     ASSERT_EQ(params.Model, GroomSolverModel::DynamicFollowTheLeader);
 
     GroomGuideSimulationState state;
@@ -812,6 +813,119 @@ TEST(GroomGuideSimulation, AStrandRestingOnAColliderComesToRest)
     // Not vacuous: the strand is still lying on the capsule in the second that is measured.
     EXPECT_GT(lateContacts, 0u) << "the strand left the capsule, so this measured a free strand";
     EXPECT_LT(rms, 0.01e-3) << "the strand still moves " << rms * 1000.0 << " mm RMS after ten seconds on the capsule";
+}
+
+// STRANDS ACROSS TWO COLLIDERS COME TO REST, AT ANY FRICTION (#1533). The
+// dog's long hair swung 0.35-0.45 mm RMS for as long as it stood, and stopped
+// within two seconds with its colliders off. One capsule settles
+// (AStrandRestingOnAColliderComesToRest); two that meet -- a fitted proxy's
+// joints, where the dog's coat lies across bones -- did not, and at full stick
+// a strand across them swung 13 mm. Two causes, both in how a contact met
+// DFTL's hand-back: the length pass moved a held particle AFTER its friction
+// was applied, so what it left with never saw the friction; and the hand-back
+// carried the collider's push from a held particle to its parent as velocity,
+// every step. Measured before the fix (worst tip RMS over the tenth second):
+//   elbow    0.0013 mm at 0.35, 13 mm at full stick, 0.0025 mm sliding
+//   spine    0.0013 mm,         0.75 mm,             0.0007 mm
+//   crossing 0.041 mm,          6.4 mm,              0.25 mm
+// and after it every arm at or under 0.0054 mm, which is a binary contact
+// flickering under gravity: two of some 150 contacts entering every fifth step.
+// Penetration and length are unchanged.
+TEST(GroomGuideSimulation, StrandsAcrossTwoCollidersComeToRestAtAnyFriction)
+{
+    struct Joint
+    {
+        const char* Name;
+        GroomCollider A;
+        GroomCollider B;
+    };
+    const std::array<Joint, 3> joints{ {
+        { "elbow", { glm::vec3(-0.30f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 0.0f), 0.060f }, { glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.20f, 0.17f, 0.0f), 0.050f } },
+        { "spine", { glm::vec3(-0.30f, 0.0f, 0.0f), glm::vec3(0.05f, 0.0f, 0.0f), 0.060f }, { glm::vec3(-0.05f, 0.01f, 0.0f), glm::vec3(0.30f, 0.01f, 0.0f), 0.058f } },
+        { "crossing", { glm::vec3(-0.30f, 0.0f, 0.0f), glm::vec3(0.30f, 0.0f, 0.0f), 0.060f }, { glm::vec3(0.0f, -0.25f, -0.03f), glm::vec3(0.0f, 0.05f, 0.03f), 0.050f } },
+    } };
+    // 48 guides rooted on a "skin" 4.5 cm round the x axis astride the joint,
+    // inside both shells, lying back along -x and a little out: 13 cm of
+    // long hair, the dog's solver settings.
+    TestGuides guides;
+    guides.Offsets.push_back(0u);
+    for (f32 x : { -0.04f, -0.01f, 0.02f, 0.05f })
+    {
+        for (u32 k = 0; k < 12u; ++k)
+        {
+            const f32 a = static_cast<f32>(k) * (6.2831853f / 12.0f);
+            const glm::vec3 out(0.0f, std::cos(a), std::sin(a));
+            const glm::vec3 root = glm::vec3(x, 0.0f, 0.0f) + 0.045f * out;
+            const glm::vec3 dir = glm::normalize(glm::vec3(-1.0f, 0.0f, 0.0f) + 0.25f * out);
+            guides.Curves.push_back(static_cast<u32>(guides.Curves.size()));
+            for (u32 i = 0; i < 14u; ++i)
+            {
+                guides.Targets.push_back(root + dir * (static_cast<f32>(i) * 0.01f));
+            }
+            guides.Offsets.push_back(static_cast<u32>(guides.Targets.size()));
+        }
+    }
+    const u32 guideCount = static_cast<u32>(guides.Curves.size());
+    for (const Joint& joint : joints)
+    {
+        const std::vector<GroomCollider> colliders{ joint.A, joint.B };
+        for (const f32 friction : { 0.35f, 0.0f, 1.0f })
+        {
+            SCOPED_TRACE(std::string(joint.Name) + " friction " + std::to_string(friction));
+            GroomSimulationParams params; // the shipped solver: DFTL, correction 0.85, 60 Hz
+            params.CollisionEnabled = true;
+            params.Stiffness = 1200.0f;                    // the dog's
+            params.Gravity = glm::vec3(0.0f, -4.0f, 0.0f); // the dog's
+            params.ColliderFriction = friction;
+            ASSERT_EQ(params.Model, GroomSolverModel::DynamicFollowTheLeader);
+            GroomGuideSimulationState state;
+            {
+                GroomSimulationInputs seed = guides.Inputs(params, 1.0f / 60.0f, false);
+                seed.Colliders = colliders;
+                (void)StepGroomGuideSimulation(seed, state);
+            }
+            std::vector<std::vector<glm::vec3>> late(guideCount);
+            u32 lateContacts = 0;
+            f32 worstStretch = 1.0f;
+            for (u32 frame = 0; frame < 600u; ++frame)
+            {
+                GroomSimulationInputs inputs = guides.Inputs(params, 1.0f / 60.0f, true);
+                inputs.Colliders = colliders;
+                const GroomSimulationStats stats = StepGroomGuideSimulation(inputs, state);
+                ASSERT_FALSE(stats.Refused) << "frame " << frame;
+                if (std::abs(stats.MaxStretchRatio - 1.0f) > std::abs(worstStretch - 1.0f))
+                {
+                    worstStretch = stats.MaxStretchRatio;
+                }
+                if (frame >= 540u)
+                {
+                    lateContacts += stats.ContactsResolved;
+                    for (u32 g = 0; g < guideCount; ++g)
+                    {
+                        late[g].push_back(state.Curr[guides.Offsets[g + 1u] - 1u]);
+                    }
+                }
+            }
+            f64 worst = 0.0;
+            for (const auto& tips : late)
+            {
+                glm::dvec3 mean(0.0);
+                for (const glm::vec3& p : tips)
+                    mean += glm::dvec3(p) / static_cast<f64>(tips.size());
+                f64 sum2 = 0.0;
+                for (const glm::vec3& p : tips)
+                    sum2 += glm::length2(glm::dvec3(p) - mean);
+                worst = std::max(worst, std::sqrt(sum2 / static_cast<f64>(tips.size())));
+            }
+            std::printf("[solver] two colliders, %-8s friction %.2f, 10 s at rest: worst tip RMS over the last second "
+                        "%.6f mm, %u contacts in that second\n",
+                        joint.Name, static_cast<f64>(friction), worst * 1000.0, lateContacts);
+            // Not vacuous: the coat still lies on the colliders in the measured second.
+            EXPECT_GT(lateContacts, 0u) << "the strands left the colliders, so this measured free strands";
+            EXPECT_LT(worst, 0.01e-3) << "a strand still moves " << worst * 1000.0 << " mm RMS after ten seconds";
+            EXPECT_LE(std::abs(worstStretch - 1.0f), params.StretchTolerance) << "the length guarantee broke";
+        }
+    }
 }
 
 // The clamp is a function of the STEP, so it must not touch a configuration
