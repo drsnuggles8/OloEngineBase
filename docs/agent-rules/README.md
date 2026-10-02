@@ -52,6 +52,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [world-anchored-renderer-state-in-tests.md](world-anchored-renderer-state-in-tests.md): a fixture that builds a `Scene` per test must also reset the process-static renderer state scene load resets.
 - [ab-diff-peak-is-not-a-location.md](ab-diff-peak-is-not-a-location.md): place a measurement box by the highest-mean window of an A/B difference, never by its brightest pixel.
 - [cross-path-term-measurement-traps.md](cross-path-term-measurement-traps.md): to separate a lighting term by switching its source, read colour inside the frame, assert every toggled estimator engaged, measure a temporal upscaler converged, and read each state from the target it wrote.
+- [motion-claims-need-runtime-frames.md](motion-claims-need-runtime-frames.md): measure a claim about a coat in motion on runtime frames, through the runtime camera, and check they were alive; take a pair from one held state with the shipped arm first, because hiding a coat re-seeds it.
 
 ## Build and dependencies
 
@@ -497,6 +498,7 @@ The check passes for a correct implementation and for a broken one.
 | [forward-deferred-parity-measurement.md](forward-deferred-parity-measurement.md) | A live Forward-vs-Deferred diff blamed the point-light evaluator for a gap that was screen-space AO, which Forward applies to the composed colour; the evaluators agreed to 1e-5. |
 | [gpu-readback-stats-channel.md](gpu-readback-stats-channel.md) | A GPU counter that stopped updating is byte-identical to one that is constant. |
 | [vulkan-parallel-cascade-recording-fault.md](vulkan-parallel-cascade-recording-fault.md) | A Vulkan device-fault checkpoint named `ScenePrepassPass` in every report, and inlining that pass's parallel region changed nothing: the region that set the fault up was the shadow cascades, recorded earlier in the frame. The issue's "opened directly: clean 3/3" control was a 1-in-2 fault that missed three times. |
+| [motion-claims-need-runtime-frames.md](motion-claims-need-runtime-frames.md) | The dog's shimmer test "in motion" read back editor frames, where the guide solver never steps; its coverage pair compared two poses 24 frames apart; and every arm after a coat-off arm drew a coat re-seeded at its groomed shape. |
 | [automation-build-invocation.md](automation-build-invocation.md) | A build's exit code is 0 three different ways without anything having been built — the lock's stand-down, a no-op incremental, and a build that never started next to last week's binary. |
 | [incomplete-texture-samples-as-zero.md](incomplete-texture-samples-as-zero.md) | A sampled zero is a value, not an error: the frame is wrong exactly where the feature is active and right where it is not, on one vendor only. |
 | [water-displaced-once-and-pinned-captures.md](water-displaced-once-and-pinned-captures.md) | A live-clock editor capture compared two wave phases and read as a backend geometry difference; switching foam terms off one at a time left the water white at every step because another term was saturated. |

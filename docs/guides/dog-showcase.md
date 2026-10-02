@@ -45,24 +45,55 @@ or `PlayClip` from Lua).
 
 ## What the headless fixture asserts
 
-All on GL, Release, 1280×720 unless named.
+All on GL, Release, 1280×720 unless named. Each test says which frames it measures
+([motion-claims-need-runtime-frames.md](../agent-rules/motion-claims-need-runtime-frames.md)):
+**runtime** frames for anything about motion (the guide solver steps as in Play), **held** frames
+(the scene paused, the renderer restarted the same way for every arm) for anything about one
+state. Editor-preview frames, where the solver does not step, are used only for stills of a
+paused pose.
 
 - **The coat is Blender's**: the shipped groom's provenance names the `.abc` and the current
   importer, every group carries its role and root tint, the flag its stiffness, and the root UVs
   arrived.
-- **Furred from every hero angle**: front three-quarter, profile, face close-up, rear with the
-  tail, low hero, full body.
+- **Furred from every hero angle** (F1): front three-quarter, profile, face close-up, rear with the
+  tail, low hero, full body. No body part is bald (below), and hiding the coat changes the frame.
 - **The eyes sit in their sockets** and look along the rig's gaze, uniformly scaled.
+- **A whole blink** (A3): Idle's first blink frame by frame. No skinned lid vertex enters its
+  eyeball, the eye's pixels fall to none at the deepest frame and come back, and the open eye has
+  a catch-light. The head tilt moves the brow.
+- **The nose and the panting mouth** (A4): the nose leather is dark against the coat with a
+  specular highlight; at the Pant clip's widest jaw the tongue, gums and lips are on screen.
 - **Every layer is load-bearing**: fur, the coat's self-shadow, dual scattering and the scene
   shadow each switched off change the frame by several times the repeat floor.
-- **The coat stays on the body through every clip**: no binding refused, nothing held at rest, and
-  the coat's share of the frame steady.
-- **The resolve settles the coat** (B6): shimmer under half the no-history control, at rest and in
-  the walk.
-- **The LOD ladder** (B7): coverage and linear energy within 10% from a 0.6 m face close-up to
-  15 m.
+- **The coat stays on the body through every clip** (B3): every clip on runtime frames, read at six
+  held instants from two views. Per body part (the face, each ear, the neck, chest, torso, each leg,
+  the tail, found from the skinned body so a sitting dog's legs stay its legs): no part is bald,
+  coverage stays steady, nothing floats off the skin past the part's reach. Three planted local
+  faults are each caught in their own part while the whole frame's coat moves by under 25%: a
+  missing ear patch, face fur grown 8 cm off the skin, hind-leg fur left standing through a sit.
+- **The resolve settles the coat** (B6): runtime frames at rest and in the walk. The resolved
+  shimmer must be under half the no-history control, over the whole frame and per region (face,
+  ears, tail, body, the sparse fringe). In the walk it is also measured as the difference between
+  two draws of the same frames, plus a lag check against ghosting; at rest there is a detail check
+  against blurring. The frames must show life: the clip advances, the solver steps, and the long
+  hair swings against its root-following targets. With the solver switched off, that life check
+  must fail.
+- **The clips** (C1, B4): the scene starts on Idle; Idle and the walk loop without a pop; Idle to
+  the walk blends without one; the ears, the tail and the leg feathering swing where their clip
+  moves them, with body contacts resolved.
+- **The LOD ladder** (B7): coverage and linear energy within 10% at six settled stops from a 0.6 m
+  face close-up to 15 m, and through a continuous dolly out to 15 m and back at 1920×1080 with the
+  history never reset. Every frame records the tier, the budgets and the width compensation; no
+  transition may step the coat's energy or brightness by more than half the band (coverage steps
+  are recorded: up to 4.7% at the 11 m visibility step, energy 1.5%). Removing the width
+  compensation must fail the same judge. The card hand-over is past 15 m (out at about 22.5 m, in
+  at about 16 m) and gets its own dolly, 15 to 45 m.
 - **The rest bake shadows the moving coat as the pose bake does**: see
   [groom-coat-rest-bake.md](../agent-rules/groom-coat-rest-bake.md).
+
+`OLO_DOG_FOOTAGE=<dir> --gtest_filter=DogShowcaseEvidenceTest.RecordsTheReviewFootage` writes the
+review footage: every runtime frame of each clip and every frame of both dollies, at 1920×1080 on
+the lawn, as PNGs with a manifest.
 
 ## The eyes
 
