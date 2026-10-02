@@ -24,6 +24,7 @@
 #include "RenderPropertyTest.h"
 #include "VisualEvidenceGuards.h"
 #include "OloEngine/Core/DebugLevers.h"
+#include "OloEngine/Particle/ParticleSystem.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
@@ -317,6 +318,9 @@ namespace OloEngine::Tests
                 SetLateGeometry(late);
                 Frames(kWarmFrames);
 
+                // The serial is global: a frame left over from the previous cell
+                // would satisfy "> 0" while this cell recorded nothing.
+                const u64 serialBefore = RenderTargetCopyLedger::GetLastFrame().Serial;
                 auto& tracker = RendererMemoryTracker::GetInstance();
                 tracker.BeginPeakWindow();
                 std::map<std::string, std::vector<f64>> passMs;
@@ -333,7 +337,7 @@ namespace OloEngine::Tests
                 }
                 const RenderTargetCopyFrame copies = RenderTargetCopyLedger::GetLastFrame();
                 const RendererMemoryReport memory = tracker.BuildReport();
-                ASSERT_GT(copies.Serial, 0u) << "the ledger recorded no graph frame";
+                ASSERT_GT(copies.Serial, serialBefore) << "the ledger recorded no graph frame in this cell";
 
                 nlohmann::json report;
                 report["cell"] = name;
@@ -558,6 +562,111 @@ namespace OloEngine::Tests
                 EXPECT_EQ(Resolve(*graph, exportName), attachment) << exportName << " is not the attachment it names";
         }
         SetLateGeometry(false);
+    }
+
+    // -------------------------------------------------------------------------
+    // The soft-particle fade samples the depth snapshot, because particles draw
+    // into SceneColor, whose depth SceneDepth is on Forward. The snapshot is a
+    // full-screen depth copy, so it is made only while a soft system draws:
+    // the Scene installs a particle callback on every frame, and declaring the
+    // read whenever the callback existed made the copy on every Forward frame,
+    // particles or not. Pinned in both directions, and back again, and in
+    // pixels: the soft frame fades the billboards where they cut the cubes and
+    // leaves the rest, which it can do only by sampling a real scene depth.
+    // -------------------------------------------------------------------------
+    TEST_F(RenderTargetExportEvidence, OnlyASoftParticleSystemHasTheDepthSnapshotMade)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        const ScopedLever ledger(&Levers::RenderGraphCopyLedger, &Levers::SetRenderGraphCopyLedger, true);
+        auto& post = Renderer3D::GetPostProcessSettings();
+        post.ActiveAOTechnique = AOTechnique::GTAO;
+        post.GTAOEnabled = true;
+        post.Upscale = UpscaleMode::Off;
+        post.TAAEnabled = false;
+        post.MotionBlurEnabled = false;
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::GetRendererSettings().OITEnabled = false;
+        Renderer3D::ApplyRendererSettings();
+        SetLateGeometry(false);
+
+        const auto capture = [this](std::vector<u8>& frame)
+        {
+            Frames(kWarmFrames);
+            u32 w = 0;
+            u32 h = 0;
+            ASSERT_TRUE(ReadbackComposite(frame, w, h));
+        };
+        const auto differing = [](const std::vector<u8>& a, const std::vector<u8>& b)
+        {
+            sizet count = 0;
+            for (sizet i = 0; i + 3 < std::min(a.size(), b.size()); i += 4)
+            {
+                const i32 delta = std::max({ std::abs(a[i] - b[i]), std::abs(a[i + 1] - b[i + 1]), std::abs(a[i + 2] - b[i + 2]) });
+                count += delta > 6 ? 1u : 0u;
+            }
+            return count;
+        };
+        std::vector<u8> empty;
+        capture(empty);
+
+        const auto snapshotCopies = []
+        {
+            const RenderTargetCopyFrame frame = RenderTargetCopyLedger::GetLastFrame();
+            return std::ranges::count_if(frame.Copies, [](const RenderTargetCopyRecord& copy)
+                                         { return copy.Destination.ToView() == ResourceNames::SceneDepthSnapshot; });
+        };
+
+        Entity emitter = GetScene().CreateEntity("SoftParticles");
+        auto& component = emitter.AddComponent<ParticleSystemComponent>();
+        auto& system = component.System;
+        system.RenderMode = ParticleRenderMode::Billboard;
+        system.GravityModule.Enabled = false;
+        system.DragModule.Enabled = false;
+        system.Emitter.RateOverTime = 0;
+        system.SoftParticlesEnabled = false;
+        system.SoftParticleDistance = 0.6f;
+        auto& pool = system.GetPool();
+        constexpr u32 kCount = 25;
+        ASSERT_EQ(pool.Emit(kCount), kCount);
+        for (u32 i = 0; i < kCount; ++i)
+        {
+            // A sheet through the cubes' centre plane: some billboards cut a
+            // cube, the rest stand clear of everything behind them.
+            pool.m_Positions[i] = pool.m_PrevPositions[i] = { 128.0f + 2.5f * static_cast<f32>(i % 5), 6.0f + 1.0f * static_cast<f32>(i / 5), 136.0f };
+            pool.m_Velocities[i] = glm::vec3(0.0f);
+            pool.m_Colors[i] = pool.m_InitialColors[i] = { 0.9f, 0.9f, 1.0f, 0.6f };
+            pool.m_Sizes[i] = pool.m_PrevSizes[i] = pool.m_InitialSizes[i] = 2.0f;
+            pool.m_Lifetimes[i] = pool.m_MaxLifetimes[i] = 1000.0f;
+        }
+        system.Update(0.001f, glm::vec3(0.0f));
+
+        std::vector<u8> hard;
+        capture(hard);
+        EXPECT_EQ(snapshotCopies(), 0) << "hard particles made the depth snapshot: 8.3 MB copied for no reader";
+
+        system.SoftParticlesEnabled = true;
+        std::vector<u8> soft;
+        capture(soft);
+        EXPECT_EQ(snapshotCopies(), 1) << "a soft system drew without the depth snapshot it fades against";
+        const sizet covered = differing(empty, hard);
+        const sizet faded = differing(hard, soft);
+        std::cout << "[ exports ] soft particles: " << covered << " particle pixels, " << faded << " faded\n";
+        ASSERT_GT(covered, 2000u) << "the particle sheet is not in view, so the fade below proves nothing";
+        EXPECT_GT(faded, 0u) << "soft particles drew exactly like hard ones: the fade never sampled a depth";
+        EXPECT_LT(faded, covered / 2) << "the fade reached most of the sheet: the depth it sampled is not the scene's";
+        const RenderGraph* graph = RenderGraphDebugRuntime::GetActiveGraph().Raw();
+        ASSERT_NE(graph, nullptr);
+        const auto* accesses = graph->GetDeclaredPassAccesses("ParticlePass");
+        ASSERT_NE(accesses, nullptr) << "ParticlePass declared nothing";
+        EXPECT_TRUE(std::ranges::any_of(*accesses, [](const RGAccessDeclaration& access)
+                                        { return !access.IsWrite && access.ResourceName.ToView() == ResourceNames::SceneDepthSnapshot; }))
+            << "ParticlePass samples the snapshot without declaring it, so nothing orders the copy before it";
+
+        system.SoftParticlesEnabled = false;
+        Frames(kWarmFrames);
+        EXPECT_EQ(snapshotCopies(), 0) << "the snapshot outlived the last soft system";
+
+        GetScene().DestroyEntity(emitter);
     }
 
     // -------------------------------------------------------------------------

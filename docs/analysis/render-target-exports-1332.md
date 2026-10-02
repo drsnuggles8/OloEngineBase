@@ -76,7 +76,7 @@ slower, and the Deferred MSAA cells vary between 1.0 and 1.9 ms between identica
 | copy | made by | why it is not a view |
 |---|---|---|
 | ForwardAODepth (1 per prepass writer, Forward with screen-space AO) | ScenePrepassPass, the GPU-driven and foliage prepass shares | Every forward shader samples it for the AO upsample while it depth-tests against the live attachment. A view would be a feedback loop. |
-| SceneDepthSnapshot (Forward, when decals or water draw) | SceneDepthSnapshotPass, after GroomPass | Decals and water sample depth while drawing into SceneColor. On Deferred the snapshot is SceneDepth itself, the G-Buffer's depth, which they do not draw into. |
+| SceneDepthSnapshot (Forward, when decals, water or soft particles draw) | SceneDepthSnapshotPass, after GroomPass | Decals, water and the soft-particle fade sample depth while drawing into SceneColor. On Deferred the snapshot is SceneDepth itself, the G-Buffer's depth, which they do not draw into. |
 | SceneViewNormalsSnapshot (every path, when water draws) | SceneViewNormalsSnapshotPass, right before WaterPass | Water marches view normals while `Water.glsl` writes them to the same attachment. Before #1332 it sampled that attachment live. |
 | GBufferMS -> GBufferResolved blits (Deferred MSAA) | ScenePass, DeferredGPUOcclusionPass, DeferredOpaqueDecalPass | A real MSAA resolve. Each late writer that draws into the multisample G-Buffer resolves all seven attachments again, 91 MB each at 1080p. See *Not changed* below. |
 | G-Buffer depth and entity ID -> SceneColor blits (Deferred) | DeferredLightingPass | The forward overlay, groom and decals depth-test in SceneColor, and picking reads its entity ID. |

@@ -1401,6 +1401,10 @@ namespace OloEngine
         }
 
         static void SetParticleRenderCallback(RenderCallback callback);
+        // Inside the particle render callback: the depth a soft-particle fade
+        // samples, or NullResource on the frame a system first asks
+        // (ParticleRenderPass::AcquireSceneDepth).
+        static RHI::ResourceHandle AcquireSoftParticleDepth();
 
         /// Queue one fluid domain's screen-space draw for this frame (issue
         /// #630). Consumed by FluidIntermediatesPass/FluidCompositePass; the

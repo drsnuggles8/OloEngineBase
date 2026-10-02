@@ -3598,8 +3598,10 @@ namespace OloEngine
             }
 
             // The decal and water passes draw into SceneColor, not the G-Buffer,
-            // so they sample the G-Buffer's depth directly: no copy (#1332).
+            // so they sample the G-Buffer's depth directly: no copy (#1332). The
+            // name answers too, for by-name lookups (the MCP captures).
             board.Scene.SceneDepthSnapshot = board.Scene.SceneDepth;
+            graph.RegisterTextureAlias(ResourceNames::SceneDepthSnapshot, ResourceNames::SceneDepth);
         }
 
         // ------------------------------------------------------------------
