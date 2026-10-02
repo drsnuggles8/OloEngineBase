@@ -7913,12 +7913,25 @@ namespace OloEngine
                     // Recorded before the writer lookup: a read of a resource
                     // no earlier pass wrote (an import, last frame's content)
                     // still has to finish before a later pass overwrites it.
-                    auto& readers = liveReadersByResource[access.ResourceName.ToStdString()];
-                    if (std::ranges::none_of(readers, [&](const DepWriterSlot& reader)
-                                             { return reader.PassName == nodeName && reader.Range == access.Range; }))
+                    //
+                    // Under the BASE name too. A renamed version ("X@Tag") is the
+                    // same storage as X, so a later WriteNewVersion of X -- whose
+                    // own name is "X@Other" -- overwrites what this pass read. Keyed
+                    // only by the exact name, that write found no reader: a pass
+                    // reading SceneDepth (a view of SceneColor since #1332) was not
+                    // ordered before the foliage or groom pass that redraws it.
+                    const auto recordReader = [&](const std::string& key)
                     {
-                        readers.emplace_back(nodeName, access.Range);
-                    }
+                        auto& readers = liveReadersByResource[key];
+                        if (std::ranges::none_of(readers, [&](const DepWriterSlot& reader)
+                                                 { return reader.PassName == nodeName && reader.Range == access.Range; }))
+                        {
+                            readers.emplace_back(nodeName, access.Range);
+                        }
+                    };
+                    recordReader(access.ResourceName.ToStdString());
+                    if (const auto readBase = GetVersionLookupBaseName(access.ResourceName.ToView()); readBase != access.ResourceName.ToView())
+                        recordReader(std::string(readBase));
 
                     const auto writerIt = lastWriterByResource.find(access.ResourceName);
                     if (writerIt == lastWriterByResource.end())
@@ -7937,10 +7950,14 @@ namespace OloEngine
                 {
                     // Write after read: every earlier reader of an overlapping
                     // range runs first. Ordering only — this writer does not
-                    // consume what the reader produced.
-                    if (const auto readersIt = liveReadersByResource.find(access.ResourceName);
-                        readersIt != liveReadersByResource.end())
+                    // consume what the reader produced. A renamed version is the
+                    // same storage, so the readers of its base name count too
+                    // (see the reader record above).
+                    const auto orderAfterReaders = [&](std::string_view key)
                     {
+                        const auto readersIt = liveReadersByResource.find(key);
+                        if (readersIt == liveReadersByResource.end())
+                            return;
                         auto& readers = readersIt->second;
                         for (const auto& reader : readers)
                         {
@@ -7951,7 +7968,10 @@ namespace OloEngine
                         }
                         std::erase_if(readers, [&](const DepWriterSlot& reader)
                                       { return reader.PassName != nodeName && depSubresourceRangesOverlap(reader.Range, access.Range); });
-                    }
+                    };
+                    orderAfterReaders(access.ResourceName.ToView());
+                    if (const auto writeBase = GetVersionLookupBaseName(access.ResourceName.ToView()); writeBase != access.ResourceName.ToView())
+                        orderAfterReaders(writeBase);
 
                     auto& writerVec = lastWriterByResource[access.ResourceName.ToStdString()];
                     for (const auto& slot : writerVec)

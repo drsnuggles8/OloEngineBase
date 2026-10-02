@@ -14,6 +14,8 @@
 //   * a consumer of a view is ordered after every writer of the framebuffer
 //     registered before it, and the version it reads names that writer
 //     (the version assertion the copy model cannot pass);
+//   * a reader of a view runs before a later versioned write of its
+//     framebuffer, which overwrites the texels it sampled;
 //   * a temporal history extracted from a view keeps the framebuffer alive
 //     to the end of the frame, so the end-of-frame copy cannot read storage
 //     the transient planner already handed to another resource.
@@ -22,6 +24,7 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RenderGraph.h"
@@ -196,6 +199,69 @@ TEST(RenderGraphAttachmentViewExports, ACopiedExportStaysAtTheCopyingPassesVersi
 
     EXPECT_EQ(versionAtConsumer, "ScenePass") << "the copied export does not carry the late writer's version; if this "
                                                  "changed, the copy model is no longer what the test above rules out";
+}
+
+// -----------------------------------------------------------------------------
+// Write after read through a view: a decal-like pass samples SceneDepth (a view
+// of SceneColor), and a late geometry pass registered after it redraws
+// SceneColor under a new version name ("SceneColor@LateGeometryPass"). That
+// write overwrites the depth the reader sampled, so the reader must run first.
+// Keyed only by the exact resource name, the write found no reader of
+// "SceneColor@LateGeometryPass" and the order fell to the tie-break; the
+// reverse tie-break ran the late pass first. Run under both tie-breaks so the
+// order cannot come from registration alone.
+// -----------------------------------------------------------------------------
+TEST(RenderGraphAttachmentViewExports, AViewReaderRunsBeforeALaterVersionedWriteOfItsFramebuffer)
+{
+    // Restored on every exit, an ASSERT's early return included.
+    struct RestoreTieBreak
+    {
+        bool Was = Levers::RenderGraphReverseTieBreak();
+        ~RestoreTieBreak()
+        {
+            Levers::SetRenderGraphReverseTieBreak(Was);
+        }
+    } const restore;
+    for (const bool reverse : { false, true })
+    {
+        SCOPED_TRACE(reverse ? "reverse tie-break" : "forward tie-break");
+        Levers::SetRenderGraphReverseTieBreak(reverse);
+
+        RenderGraph graph;
+        graph.SetRuntimeBarrierExecutionEnabled(false);
+
+        const auto scene = graph.DeclareTransientFramebuffer("SceneColor", SceneTargetDesc());
+        const auto depth = graph.CreateFramebufferDepthAttachmentView("SceneDepth", scene);
+        ASSERT_TRUE(depth.IsValid());
+
+        Add(graph, "ScenePass", [scene](RGBuilder& builder)
+            { builder.Write(scene, RGWriteUsage::RenderTarget); });
+        Add(graph, "DepthReaderPass", [depth](RGBuilder& builder)
+            {
+                [[maybe_unused]] const auto read = builder.Read(depth, RGReadUsage::ShaderSample);
+                builder.Write(builder.CreateTexture("ReaderOut", TextureDesc(RGResourceFormat::RGBA16Float)),
+                              RGWriteUsage::RenderTarget); });
+        Add(graph, "LateGeometryPass", [scene](RGBuilder& builder)
+            {
+                [[maybe_unused]] const auto read = builder.Read(scene, RGReadUsage::RenderTargetRead);
+                [[maybe_unused]] const auto next = builder.WriteNewVersion(scene, RGWriteUsage::RenderTarget, "LateGeometryPass");
+                builder.DependsOnPreviousWriter("SceneColor"); });
+        Add(graph, "FinalPass", [scene](RGBuilder& builder)
+            {
+                [[maybe_unused]] const auto read = builder.Read(scene, RGReadUsage::ShaderSample);
+                const auto out = builder.CreateTexture("ReaderOut", TextureDesc(RGResourceFormat::RGBA16Float));
+                [[maybe_unused]] const auto readOut = builder.Read(out, RGReadUsage::ShaderSample); });
+
+        graph.SetFinalPass("FinalPass");
+        graph.BuildFrameGraph();
+        graph.Execute();
+
+        const auto reader = IndexOf(graph, "DepthReaderPass");
+        const auto late = IndexOf(graph, "LateGeometryPass");
+        ASSERT_GE(reader, 0);
+        ASSERT_GE(late, 0);
+        EXPECT_LT(reader, late) << "the late pass redrew SceneColor before the SceneDepth reader sampled it";
+    }
 }
 
 // -----------------------------------------------------------------------------
