@@ -85,10 +85,6 @@ namespace OloEngine
         // packets were drawn: they are only when the mid-frame Hi-Z was usable,
         // because the culls that fill their indirect buffers only run then.
         [[nodiscard]] bool DrawPhases(RGCommandContext& context, bool cullPhase2);
-        // Copies the scene target's depth into ForwardAODepth, the forward
-        // shaders' AO upsample depth (they sample it while depth-testing
-        // against the live attachment, so it cannot be a view).
-        void CopyForwardAODepth(RGCommandContext& context, RGTextureHandle forwardAODepth);
 
         Ref<Framebuffer> m_SceneFramebuffer;
         // Phase-2 work registered this frame (parallel arrays: packet[i] draws

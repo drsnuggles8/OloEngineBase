@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/DeferredGPUOcclusionPass.h"
+#include "OloEngine/Renderer/Passes/GBufferWriteDeclarations.h"
 
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/RGBuilder.h"
@@ -41,34 +42,12 @@ namespace OloEngine
         builder.WriteOutOfBand(RGOutOfBandBoundaries::OcclusionHZB);
 
         // The phase-2 draws write the G-Buffer, whose attachment views the AO /
-        // lighting / SSR consumers read: these writes order the pass between
-        // ScenePass (the prior writer) and every downstream reader. Nothing is
-        // copied -- the views ARE the attachments; the re-export this pass used
-        // to run compared each view with its own attachment and never copied a
-        // texel (#1332's copy ledger).
-        // Declared UNCONDITIONALLY on every deferred frame (not gated on the
-        // per-frame phase-2 count): the HZB-occlusion toggle flips at runtime
-        // without forcing a graph rebuild, so gating the writes on the reject
-        // count would leave the pass undeclared on the flip frame. Execute
+        // lighting / SSR consumers read: the shared declaration orders this
+        // pass between ScenePass and every one of them. Declared on every
+        // deferred frame, not gated on the phase-2 count: the HZB-occlusion
+        // toggle flips at runtime without forcing a graph rebuild. Execute
         // no-ops when there is no phase-2 work.
-        const auto declareWrite = [&builder](const RGTextureHandle handle)
-        {
-            if (handle.IsValid())
-                builder.Write(handle, RGWriteUsage::TransferDest);
-        };
-
-        declareWrite(board.Scene.SceneDepth);
-        declareWrite(board.Scene.SceneNormals);
-        declareWrite(board.GBuffer.Velocity);
-        declareWrite(board.GBuffer.GBufferAlbedo);
-        declareWrite(board.GBuffer.GBufferNormal);
-        declareWrite(board.GBuffer.GBufferEmissive);
-
-        declareWrite(board.GBuffer.GBufferAlbedoMS);
-        declareWrite(board.GBuffer.GBufferNormalMS);
-        declareWrite(board.GBuffer.GBufferEmissiveMS);
-        declareWrite(board.GBuffer.VelocityMS);
-        declareWrite(board.GBuffer.SceneDepthMS);
+        DeclareGBufferWrites(builder, board);
     }
 
     void DeferredGPUOcclusionPass::Execute(RGCommandContext& context)
@@ -205,3 +184,4 @@ namespace OloEngine
         m_Phase2Culls.Reset();
     }
 } // namespace OloEngine
+

@@ -147,12 +147,6 @@ namespace OloEngine
         // Replays the bucket depth-only (or depth + view normal, on the forward
         // paths with AO live) under the "DepthPrepass" timing bracket.
         void RunDepthPrepass(bool writeViewNormals);
-        // Copies the prepass depth into ForwardAODepth, the one copy the
-        // forward paths keep: the forward shaders sample it for the AO
-        // upsample while depth-testing against the live attachment (#1452).
-        // SceneDepth, SceneNormals and Velocity are views and are never
-        // copied (issue #1332).
-        void CopyForwardAODepth(RGCommandContext& context, RGTextureHandle forwardAODepth) const;
 
         // Lazily create / resize the G-Buffer to match the forward target.
         void EnsureGBuffer(u32 width, u32 height, u32 sampleCount);
@@ -177,9 +171,6 @@ namespace OloEngine
         // RT1.w (AO) into one RGB image for DebugChannel == 3. The other
         // debug channels are cheap single-attachment blits.
         Ref<Shader> m_DebugRMAShader;
-        // Deferred only: a pass after this one reads the G-Buffer velocity, so
-        // a per-sample MSAA G-Buffer must be resolved for it.
-        bool m_DeferredVelocityRead = false;
         // The forward prepass node's copy of its depth for the AO upsample.
         RGTextureHandle m_PrepassForwardAODepthExport{};
         // Set by ExecuteForwardPrepass, consumed by the Execute() that follows

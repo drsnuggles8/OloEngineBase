@@ -223,21 +223,6 @@ namespace OloEngine
         return false;
     }
 
-    void GPUDrivenOcclusionPass::CopyForwardAODepth(RGCommandContext& context, const RGTextureHandle forwardAODepth)
-    {
-        // Identities (issue #691): the destination is a graph transient.
-        const auto& sceneSpec = m_SceneFramebuffer->GetSpecification();
-        const RHI::ResourceHandle fbDepth = m_SceneFramebuffer->GetDepthAttachmentHandle();
-        const RHI::ResourceHandle destination =
-            forwardAODepth.IsValid() ? context.ResolveTextureHandle(forwardAODepth) : RHI::NullResource;
-        if (destination.IsValid() && fbDepth.IsValid() && destination != fbDepth)
-        {
-            RenderCommand::CopyImageSubData(fbDepth, RendererAPI::TextureTargetType::Texture2D,
-                                            destination, RendererAPI::TextureTargetType::Texture2D,
-                                            sceneSpec.Width, sceneSpec.Height);
-        }
-    }
-
     void GPUDrivenOcclusionPass::SetupForwardPrepass(RGBuilder& builder, FrameBlackboard& board)
     {
         // Only with a forward AO buffer: that is the one consumer the prepass
@@ -280,7 +265,7 @@ namespace OloEngine
         // The AO depth copy again, now with the instanced survivors in it. The
         // AO passes registered after this node read SceneDepth / SceneNormals,
         // views of the target this drew into (#1332): nothing else to copy.
-        CopyForwardAODepth(context, m_PrepassForwardAODepth);
+        CopyDepthIntoForwardAODepth(context, m_SceneFramebuffer, m_PrepassForwardAODepth);
         m_ForwardPrepassDrew = true;
         m_ForwardPrepassDrewPhase2 = drewPhase2;
     }

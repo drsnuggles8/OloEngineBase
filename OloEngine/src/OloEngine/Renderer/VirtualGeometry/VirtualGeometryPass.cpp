@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualGeometryPass.h"
+#include "OloEngine/Renderer/Passes/GBufferWriteDeclarations.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
@@ -207,31 +208,11 @@ namespace OloEngine
         // Declared UNCONDITIONALLY in Deferred (not gated on this frame's
         // submission count) so the topology stays stable when the instance
         // list transitions empty <-> non-empty without a graph rebuild.
-        // Writes on the G-Buffer's attachment views order this pass after
-        // ScenePass (their prior writer) and before every downstream reader
-        // (DeferredLightingPass / GTAO / SSR / TAA), exactly like
-        // DeferredGPUOcclusionPass. The views ARE the attachments this pass
-        // draws into, so nothing is copied: the re-export this pass used to
-        // run compared each view with its own attachment and never copied a
-        // texel (#1332's copy ledger).
-        const auto declareWrite = [&builder](const RGTextureHandle handle)
-        {
-            if (handle.IsValid())
-                builder.Write(handle, RGWriteUsage::TransferDest);
-        };
-        declareWrite(board.Scene.SceneDepth);
-        declareWrite(board.GBuffer.Velocity);
-        declareWrite(board.GBuffer.GBufferAlbedo);
-        declareWrite(board.GBuffer.GBufferNormal);
-        declareWrite(board.GBuffer.GBufferEmissive);
-        // MSAA per-sample companions (present only when the G-Buffer is
-        // multisample); declared unconditionally like the resolved set so a
-        // runtime MSAA toggle doesn't force a graph rebuild.
-        declareWrite(board.GBuffer.GBufferAlbedoMS);
-        declareWrite(board.GBuffer.GBufferNormalMS);
-        declareWrite(board.GBuffer.GBufferEmissiveMS);
-        declareWrite(board.GBuffer.VelocityMS);
-        declareWrite(board.GBuffer.SceneDepthMS);
+        // Orders this pass after ScenePass and before every G-Buffer reader,
+        // exactly like DeferredGPUOcclusionPass (the shared declaration). The
+        // re-export this pass used to run never copied a texel (#1332's copy
+        // ledger): the exports are views of the attachments it draws into.
+        DeclareGBufferWrites(builder, board);
 
         // The two-phase cluster cull (#682, #1331): phase 1 tests the RETAINED
         // occlusion pyramid, last frame's final depth, and phase 2 rebuilds it
@@ -1099,3 +1080,4 @@ namespace OloEngine
         }
     }
 } // namespace OloEngine
+

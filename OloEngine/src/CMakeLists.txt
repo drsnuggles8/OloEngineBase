@@ -1142,6 +1142,7 @@
 		"OloEngine/Renderer/Passes/SceneRenderPass.cpp"
 		"OloEngine/Renderer/Passes/ScenePrepassRenderPass.h"
 		"OloEngine/Renderer/Passes/ScenePrepassRenderPass.cpp"
+		"OloEngine/Renderer/Passes/GBufferWriteDeclarations.h"
 		"OloEngine/Renderer/Passes/SceneAttachmentSnapshotPass.h"
 		"OloEngine/Renderer/Passes/SceneAttachmentSnapshotPass.cpp"
 		"OloEngine/Renderer/Passes/ForwardScreenSpaceAOInputs.h"

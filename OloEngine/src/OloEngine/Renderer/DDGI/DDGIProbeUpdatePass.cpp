@@ -302,9 +302,12 @@ namespace OloEngine
         // frame's depth anyway (paired with the previous frame's inverse
         // view-projection), and the request signal is quantized to probe cells
         // and kept alive for 16 frames — one frame of latency is invisible,
-        // reordering the frame is not. Best-effort: an unresolvable handle just
-        // disables the screen half of the request chain, which the camera seed
-        // covers.
+        // reordering the frame is not. SceneDepth is a view of the scene
+        // target's own depth attachment since #1332 (the G-Buffer's on
+        // Deferred), not a copy, so what this reads here is last frame's final
+        // depth, late geometry included, until the prepass clears it.
+        // Best-effort: an unresolvable handle just disables the screen half of
+        // the request chain, which the camera seed covers.
         m_SelectedSceneDepth = blackboard.Scene.SceneDepth;
 
         // Publish the pass-owned atlases into the graph so they appear in

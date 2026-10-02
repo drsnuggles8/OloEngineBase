@@ -18,6 +18,7 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionCuller.h"
 #include "OloEngine/Renderer/Passes/DecalRenderPass.h"
+#include "OloEngine/Renderer/Passes/ForwardScreenSpaceAOInputs.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 namespace OloEngine
@@ -81,7 +82,6 @@ namespace OloEngine
     void SceneRenderPass::Setup(RGBuilder& builder, FrameBlackboard& board)
     {
         RenderGraphNode::Setup(builder, board);
-        m_DeferredVelocityRead = false;
 
         if (board.Scene.SceneColor.IsValid())
             SetPrimaryInputFramebufferHandle(board.Scene.SceneColor);
@@ -141,10 +141,7 @@ namespace OloEngine
             if (board.Scene.SceneDepth.IsValid())
                 builder.Write(board.Scene.SceneDepth, RGWriteUsage::TransferDest);
             if (board.GBuffer.Velocity.IsValid())
-            {
-                m_DeferredVelocityRead = true;
                 builder.Write(board.GBuffer.Velocity, RGWriteUsage::TransferDest);
-            }
         }
         else if (board.Scene.SceneColor.IsValid())
         {
@@ -266,7 +263,7 @@ namespace OloEngine
 
         renderFB->Unbind();
         if (writeViewNormals)
-            CopyForwardAODepth(context, m_PrepassForwardAODepthExport);
+            CopyDepthIntoForwardAODepth(context, m_Target, m_PrepassForwardAODepthExport);
 
         m_ForwardPrepassRan = true;
         m_ForwardPrepassDrew = depthPrepass;
@@ -416,21 +413,6 @@ namespace OloEngine
         rendererAPI.SetColorMask(true, true, true, true);
         CommandDispatch::InvalidateRenderStateCache();
         gpuSubTimers.EndSubPass();
-    }
-
-    void SceneRenderPass::CopyForwardAODepth(RGCommandContext& context, const RGTextureHandle forwardAODepth) const
-    {
-        if (!forwardAODepth.IsValid() || !m_Target || m_FramebufferSpec.Width == 0u || m_FramebufferSpec.Height == 0u)
-            return;
-        // Identities throughout (issue #691): the destination is a graph
-        // transient, and the self-copy guard compares OBJECTS.
-        const RHI::ResourceHandle source = m_Target->GetDepthAttachmentHandle();
-        const RHI::ResourceHandle destination = context.ResolveTextureHandle(forwardAODepth);
-        if (!source.IsValid() || !destination.IsValid() || destination == source)
-            return;
-        RenderCommand::CopyImageSubData(source, RendererAPI::TextureTargetType::Texture2D,
-                                        destination, RendererAPI::TextureTargetType::Texture2D,
-                                        m_FramebufferSpec.Width, m_FramebufferSpec.Height);
     }
 
     void SceneRenderPass::Execute(RGCommandContext& context)
@@ -733,7 +715,11 @@ namespace OloEngine
         const bool aoNeedsResolvedNormals =
             (postProcessSettings.ActiveAOTechnique == AOTechnique::SSAO && postProcessSettings.SSAOEnabled) ||
             (postProcessSettings.ActiveAOTechnique == AOTechnique::GTAO && postProcessSettings.GTAOEnabled);
-        if (const bool postNeedsResolvedVelocity = postProcessSettings.MotionBlurEnabled || Renderer3D::IsEngineTAAWanted() || m_DeferredVelocityRead; perSampleLighting && (debugNeedsColour || aoNeedsResolvedNormals || postNeedsResolvedVelocity))
+        // The G-Buffer velocity view is published on every Deferred frame and
+        // this pass cannot see which later passes read it, so a per-sample
+        // G-Buffer is always resolved for it -- what the export copy's
+        // always-valid handle used to decide here.
+        if (const bool postNeedsResolvedVelocity = postProcessSettings.MotionBlurEnabled || Renderer3D::IsEngineTAAWanted() || deferredActive; perSampleLighting && (debugNeedsColour || aoNeedsResolvedNormals || postNeedsResolvedVelocity))
         {
             // Colour only: depth was resolved above and nothing has drawn since.
             // A full Resolve() blitted it a second time (#1332's copy ledger).
@@ -1066,7 +1052,6 @@ namespace OloEngine
     void SceneRenderPass::OnReset()
     {
         OLO_PROFILE_FUNCTION();
-        m_DeferredVelocityRead = false;
         m_PrepassForwardAODepthExport = {};
         m_ForwardPrepassRan = false;
         m_ForwardPrepassDrew = false;
