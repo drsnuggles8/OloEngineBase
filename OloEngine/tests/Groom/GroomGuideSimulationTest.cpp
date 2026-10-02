@@ -712,6 +712,49 @@ TEST(GroomGuideSimulation, TheSlowestStepWithTheStiffestCoatStillSettles)
     }
 }
 
+// THE SHIPPED COAT COMES TO REST (#1533). Dynamic follow-the-leader hands the
+// length projection's correction back as velocity, and under a CONSTANT force
+// the projection corrects by the same amount every step: at the default 0.85
+// that fed a standing oscillation, the dog's long hair still swinging 0.4 mm
+// RMS a second after the clip came to rest, the same in the first half-second
+// as the second. Below a few centimetres a second the correction is now faded
+// out, so a still coat settles to its sag as plain follow-the-leader does, while
+// a coat in motion keeps the momentum the correction exists to return.
+TEST(GroomGuideSimulation, TheShippedCoatComesToRestUnderGravity)
+{
+    const TestGuides guides = TestGuides::Make(1, 12, 0.02f, glm::normalize(glm::vec3(1.0f, 0.3f, 0.0f)));
+    GroomSimulationParams params; // the shipped defaults: DFTL, correction 0.85, 60 Hz
+    params.CollisionEnabled = false;
+    ASSERT_EQ(params.Model, GroomSolverModel::DynamicFollowTheLeader);
+
+    GroomGuideSimulationState state;
+    (void)StepGroomGuideSimulation(guides.Inputs(params, 1.0f / 60.0f, false), state);
+    std::vector<glm::vec3> late;
+    for (u32 frame = 0; frame < 600u; ++frame)
+    {
+        const GroomSimulationStats stats =
+            StepGroomGuideSimulation(guides.Inputs(params, 1.0f / 60.0f, true), state);
+        ASSERT_FALSE(stats.Refused) << "frame " << frame;
+        if (frame >= 540u)
+            late.push_back(state.Curr.back());
+    }
+    glm::vec3 mean(0.0f);
+    for (const glm::vec3& p : late)
+        mean += p;
+    mean /= static_cast<f32>(late.size());
+    f64 sum2 = 0.0;
+    for (const glm::vec3& p : late)
+        sum2 += static_cast<f64>(glm::length2(p - mean));
+    const f64 rms = std::sqrt(sum2 / static_cast<f64>(late.size()));
+    const f32 sag = glm::length(state.Curr.back() - guides.Targets.back());
+    std::printf("[solver] shipped defaults, 10 s at rest: tip RMS about its mean over the last second = %.6f mm, sag "
+                "%.2f mm\n",
+                rms * 1000.0, static_cast<f64>(sag) * 1000.0);
+    EXPECT_LT(rms, 0.01e-3) << "the coat still moves " << rms * 1000.0 << " mm RMS after ten seconds at rest";
+    // Not vacuous: gravity does deflect the strand, so there was something to settle.
+    EXPECT_GT(sag, 1.0e-3f) << "gravity did not deflect the strand at all";
+}
+
 // The clamp is a function of the STEP, so it must not touch a configuration
 // that is already stable. At 60 Hz the ceiling is 7200 and the authored maximum
 // is 2000, so a fast-stepping coat keeps exactly the stiffness it asked for.
