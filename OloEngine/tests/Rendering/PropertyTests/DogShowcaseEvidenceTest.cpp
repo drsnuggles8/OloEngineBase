@@ -3156,7 +3156,473 @@ namespace OloEngine::Tests
             return std::ranges::any_of(failures, [&](const std::string& f) { return f.find(needle) != std::string::npos; });
         }
 
+        // ── B7's continuous dolly (#1533 acceptance review, section 4) ──
 
+        struct DollyPath
+        {
+            f32 Near = 0.6f;
+            f32 Far = 15.0f;
+            u32 FramesEachWay = 240;
+        };
+
+        struct DollyFrame
+        {
+            f32 Distance = 0.0f;
+            bool Outbound = true;
+            GroomRepresentation Representation = GroomRepresentation::Strand;
+            u32 VisibilityStep = 0;
+            u32 SimulationStep = 0;
+            u32 ShadowStep = 0;
+            u32 Strands = 0;
+            u32 Segments = 0;
+            f32 WidthCompensation = 1.0f;
+            f64 Coverage = 0.0;  // the coat's entity-id pixels
+            f64 Energy = 0.0;    // linear luminance summed over them, before tone mapping
+            f64 Displayed = 0.0; // mean displayed luma over them, after the resolve; -1 when not read
+            std::array<f64, kBodyParts> PartEnergy{}; // on every fourth frame (HasParts)
+            bool HasParts = false;
+        };
+
+        struct DollyTile
+        {
+            std::string Label;
+            u32 Frame = 0;
+            std::vector<u8> Rgba; // kDollyTile^2
+        };
+        static constexpr u32 kDollyTile = 320;
+
+        struct Dolly
+        {
+            std::vector<DollyFrame> Frames;
+            std::vector<DollyTile> Tiles; // evenly spaced outbound frames, and both sides of each change
+        };
+
+        // The dolly's view at `distance`: aimed from the eyes' midpoint at the
+        // face close-up to the body's middle by 2 m, along the settled ladder's
+        // direction, through the shipped scene camera's 32 degrees.
+        [[nodiscard]] View DollyView(f32 distance) const
+        {
+            const glm::vec3 away = glm::normalize(glm::vec3(0.55f, 0.22f, 1.0f));
+            const glm::vec3 body(0.0f, 0.38f, 0.05f);
+            const glm::vec3 target = glm::mix(m_Dog.Frame.EyeMid, body, glm::smoothstep(0.6f, 2.0f, distance));
+            return View{ "Dolly", target + (away * distance), target, 32.0f };
+        }
+
+        // The middle of the composite (top row first), cropped to a side that
+        // shrinks with distance so the dog keeps its size, and box-resampled to a
+        // tile.
+        [[nodiscard]] static std::vector<u8> DollyCrop(const std::vector<u8>& rgba, u32 width, u32 height, f32 distance)
+        {
+            const u32 side = std::clamp(static_cast<u32>(static_cast<f32>(height) * std::min(1.0f, 1.2f / std::max(distance, 0.6f))),
+                                        64u, height);
+            const u32 x0 = (width - side) / 2u;
+            const u32 y0 = (height - side) / 2u;
+            std::vector<u8> tile(static_cast<sizet>(kDollyTile) * kDollyTile * 4u, 0u);
+            for (u32 ty = 0; ty < kDollyTile; ++ty)
+            {
+                for (u32 tx = 0; tx < kDollyTile; ++tx)
+                {
+                    const u32 sx0 = x0 + (tx * side) / kDollyTile;
+                    const u32 sx1 = std::max(sx0 + 1u, x0 + ((tx + 1u) * side) / kDollyTile);
+                    const u32 sy0 = y0 + (ty * side) / kDollyTile;
+                    const u32 sy1 = std::max(sy0 + 1u, y0 + ((ty + 1u) * side) / kDollyTile);
+                    std::array<u32, 4> sum{};
+                    u32 n = 0;
+                    for (u32 sy = sy0; sy < sy1; ++sy)
+                    {
+                        for (u32 sx = sx0; sx < sx1; ++sx)
+                        {
+                            for (u32 c = 0; c < 4u; ++c)
+                            {
+                                sum[c] += rgba[((static_cast<sizet>(sy) * width) + sx) * 4u + c];
+                            }
+                            ++n;
+                        }
+                    }
+                    for (u32 c = 0; c < 4u; ++c)
+                    {
+                        tile[((static_cast<sizet>(ty) * kDollyTile) + tx) * 4u + c] = static_cast<u8>(sum[c] / std::max(n, 1u));
+                    }
+                }
+            }
+            return tile;
+        }
+
+        // HOLDS, and records: the frame sequences reset and the history cold
+        // ONCE, then one held frame per camera position, out from Near to Far
+        // and back, log-spaced (the speed proportional to the distance, as a
+        // dolly reads). Nothing is reset between frames: the history and the
+        // LOD's hysteresis see the dolly a viewer would. Tiles at `tileFrames`
+        // when given (the reference takes the ladder's), else evenly spaced
+        // outbound and on both sides of every change.
+        Dolly RecordDolly(BodyParts& parts, const DollyPath& path, const std::vector<u32>* tileFrames = nullptr)
+        {
+            Dolly dolly;
+            const std::vector<i32> coat{ static_cast<i32>(static_cast<u32>(m_Dog.Coat)) };
+            const i32 coatId = coat.front();
+            Renderer3D::ResetFrameSequences();
+            ColdHistory();
+            AimRuntimeCamera(DollyView(path.Near));
+            HoldRuntime(16);
+            LinearFrame frame;
+            std::vector<u8> composite;
+            std::vector<u8> previousComposite;
+            u32 compositeWidth = 0;
+            u32 compositeHeight = 0;
+            const u32 frames = 2u * path.FramesEachWay;
+            const u32 tileEvery = std::max(1u, path.FramesEachWay / 7u);
+            for (u32 k = 0; k < frames; ++k)
+            {
+                DollyFrame f;
+                f.Outbound = k < path.FramesEachWay;
+                const u32 i = f.Outbound ? k : (frames - 1u - k);
+                const f32 s = static_cast<f32>(i) / static_cast<f32>(path.FramesEachWay - 1u);
+                f.Distance = path.Near * std::pow(path.Far / path.Near, s);
+                AimRuntimeCamera(DollyView(f.Distance));
+                HoldRuntime(1);
+                ReadbackLinear(RuntimeViewProjection(), frame, true);
+                if (HasFatalFailure())
+                {
+                    return dolly;
+                }
+                const GroomRenderStats& st = PassStats();
+                f.Strands = st.StrandsDrawn;
+                f.Segments = st.SegmentsDrawn;
+                f.WidthCompensation = st.Lod.MaxWidthCompensation;
+                if (const GroomLodState* lod = GetScene().FindGroomLodState(m_Dog.Coat.GetUUID()); lod != nullptr)
+                {
+                    f.Representation = lod->Representation;
+                    f.VisibilityStep = lod->VisibilityStep;
+                    f.SimulationStep = lod->SimulationStep;
+                    f.ShadowStep = lod->ShadowStep;
+                }
+                previousComposite.swap(composite);
+                const bool read = ReadbackComposite(composite, compositeWidth, compositeHeight) &&
+                                  compositeWidth == frame.Width && compositeHeight == frame.Height;
+                f64 displayed = 0.0;
+                const bool regional = (k % 4u) == 0u;
+                for (u32 y = 0; y < frame.Height; ++y)
+                {
+                    for (u32 x = 0; x < frame.Width; ++x)
+                    {
+                        const sizet p = (static_cast<sizet>(y) * frame.Width) + x;
+                        if (frame.Ids[p] != coatId)
+                        {
+                            continue;
+                        }
+                        f.Coverage += 1.0;
+                        f.Energy += frame.Luminance[p];
+                        if (read)
+                        {
+                            // The composite is bottom row first.
+                            const sizet q = ((static_cast<sizet>(frame.Height - 1u - y) * frame.Width) + x) * 4u;
+                            displayed += ((0.2126 * composite[q]) + (0.7152 * composite[q + 1u]) + (0.0722 * composite[q + 2u])) / 255.0;
+                        }
+                        // Parts on every fourth frame and a 2x2 subsample: the regional
+                        // record, not the gate.
+                        if (regional && (x % 2u) == 0u && (y % 2u) == 0u && !std::isnan(frame.World[p].x))
+                        {
+                            f32 distance = 0.0f;
+                            const u32 v = BodyParts::Nearest(parts.Posed, parts.Tree, frame.World[p], distance);
+                            if (v != ~0u)
+                            {
+                                f.PartEnergy[static_cast<sizet>(parts.Part[v])] += 4.0 * frame.Luminance[p];
+                                f.HasParts = true;
+                            }
+                        }
+                    }
+                }
+                f.Displayed = read && f.Coverage > 0.0 ? displayed / f.Coverage : -1.0;
+                // Tiles: evenly spaced outbound, and both sides of every change of
+                // tier or budget step.
+                const bool changed = tileFrames == nullptr && !dolly.Frames.empty() &&
+                                     (dolly.Frames.back().Representation != f.Representation ||
+                                      dolly.Frames.back().VisibilityStep != f.VisibilityStep);
+                const bool listed = tileFrames != nullptr && std::ranges::find(*tileFrames, k) != tileFrames->end();
+                if (read && (listed || (tileFrames == nullptr && ((f.Outbound && (i % tileEvery) == 0u) || changed))))
+                {
+                    std::vector<u8> topFirst(composite.size());
+                    const sizet row = static_cast<sizet>(compositeWidth) * 4u;
+                    for (u32 y = 0; y < compositeHeight; ++y)
+                    {
+                        std::memcpy(&topFirst[static_cast<sizet>(y) * row],
+                                    &composite[static_cast<sizet>(compositeHeight - 1u - y) * row], row);
+                    }
+                    if (changed && previousComposite.size() == composite.size())
+                    {
+                        std::vector<u8> before(previousComposite.size());
+                        for (u32 y = 0; y < compositeHeight; ++y)
+                        {
+                            std::memcpy(&before[static_cast<sizet>(y) * row],
+                                        &previousComposite[static_cast<sizet>(compositeHeight - 1u - y) * row], row);
+                        }
+                        char label[64];
+                        std::snprintf(label, sizeof(label), "%.2f m %s, before", dolly.Frames.back().Distance,
+                                      f.Outbound ? "out" : "in");
+                        dolly.Tiles.push_back({ label, k - 1u,
+                                                DollyCrop(before, compositeWidth, compositeHeight, dolly.Frames.back().Distance) });
+                    }
+                    char label[64];
+                    std::snprintf(label, sizeof(label), "%.2f m %s%s", f.Distance, f.Outbound ? "out" : "in",
+                                  changed ? ", after" : "");
+                    dolly.Tiles.push_back({ label, k, DollyCrop(topFirst, compositeWidth, compositeHeight, f.Distance) });
+                }
+                dolly.Frames.push_back(f);
+            }
+            return dolly;
+        }
+
+        // THE DOLLY'S JUDGE. Per frame, the ladder over the reference for the
+        // coverage, the linear energy and the displayed brightness (mean luma
+        // per coat pixel, after the resolve). Over a 9-frame window:
+        //   - coverage and energy within kDollyBand of 1 (the criterion);
+        //   - at every frame where the ladder's tier or a budget step changed,
+        //     the step in the light the coat sends -- the linear energy and the
+        //     displayed brightness, the 4-frame window after against the 4
+        //     before -- no larger than kDollyStep, or 3x the same step's noise
+        //     where nothing changed, whichever is larger. kDollyStep is half the
+        //     criterion's band: one transition may not spend more than half of
+        //     what the whole ladder is allowed. A POP is a jump in that light.
+        //     Coverage's own step is recorded, not judged: it counts a pixel the
+        //     coat wins in one frame's id buffer as wholly coat, so at a distant
+        //     dog's sub-pixel fringe it moves without the image moving (the
+        //     visibility halving at 11 m steps it 4-5% while the energy moves
+        //     1-1.5% and the displayed brightness 0.5%); the band still holds it.
+        // Frames where the reference covers fewer than kDollyMinCoverage pixels
+        // say nothing and are skipped.
+        static constexpr sizet kDollyWindow = 4;
+        static constexpr f64 kDollyBand = 0.10;
+        static constexpr f64 kDollyStep = 0.05;
+        static constexpr f64 kDollyMinCoverage = 200.0;
+
+        struct DollyVerdict
+        {
+            std::vector<std::string> Failures;
+            std::vector<sizet> Transitions;
+            std::array<f64, 3> NoiseFloor{}; // p95 |window step| away from any change: coverage, energy, displayed
+            std::array<f64, 3> WorstBand{};
+            std::array<f64, 3> WorstStep{};
+            std::array<std::vector<f64>, 3> Ratio; // per frame
+        };
+
+        [[nodiscard]] static DollyVerdict JudgeDolly(const Dolly& ladder, const Dolly& reference, const std::string& what)
+        {
+            static constexpr std::array<const char*, 3> kMetric{ "coverage", "linear energy", "displayed brightness" };
+            DollyVerdict v;
+            const sizet n = std::min(ladder.Frames.size(), reference.Frames.size());
+            for (auto& r : v.Ratio)
+            {
+                r.assign(n, std::numeric_limits<f64>::quiet_NaN());
+            }
+            for (sizet f = 0; f < n; ++f)
+            {
+                const DollyFrame& l = ladder.Frames[f];
+                const DollyFrame& r = reference.Frames[f];
+                if (r.Coverage < kDollyMinCoverage)
+                {
+                    continue;
+                }
+                v.Ratio[0][f] = l.Coverage / r.Coverage;
+                v.Ratio[1][f] = r.Energy > 0.0 ? l.Energy / r.Energy : std::numeric_limits<f64>::quiet_NaN();
+                v.Ratio[2][f] = (l.Displayed > 0.0 && r.Displayed > 0.0) ? l.Displayed / r.Displayed
+                                                                          : std::numeric_limits<f64>::quiet_NaN();
+                if (f > 0u)
+                {
+                    const DollyFrame& p = ladder.Frames[f - 1u];
+                    if (p.Representation != l.Representation || p.VisibilityStep != l.VisibilityStep ||
+                        p.ShadowStep != l.ShadowStep || p.SimulationStep != l.SimulationStep)
+                    {
+                        v.Transitions.push_back(f);
+                    }
+                }
+            }
+            const auto mean = [](const std::vector<f64>& r, sizet from, sizet to)
+            {
+                f64 sum = 0.0;
+                f64 count = 0.0;
+                for (sizet f = from; f < to && f < r.size(); ++f)
+                {
+                    if (!std::isnan(r[f]))
+                    {
+                        sum += r[f];
+                        count += 1.0;
+                    }
+                }
+                return count >= 3.0 ? sum / count : std::numeric_limits<f64>::quiet_NaN();
+            };
+            const auto nearTransition = [&](sizet f)
+            {
+                return std::ranges::any_of(v.Transitions, [&](sizet t) { return (f > t ? f - t : t - f) <= 2u * kDollyWindow; });
+            };
+            char line[320];
+            for (sizet m = 0; m < 3u; ++m)
+            {
+                const std::vector<f64>& r = v.Ratio[m];
+                std::vector<f64> quiet;
+                sizet worstBandFrame = 0;
+                for (sizet f = kDollyWindow; f + kDollyWindow < n; ++f)
+                {
+                    const f64 windowed = mean(r, f - kDollyWindow, f + kDollyWindow + 1u);
+                    if (!std::isnan(windowed) && m < 2u && std::abs(windowed - 1.0) > v.WorstBand[m])
+                    {
+                        v.WorstBand[m] = std::abs(windowed - 1.0);
+                        worstBandFrame = f;
+                    }
+                    const f64 step = mean(r, f, f + kDollyWindow) - mean(r, f - kDollyWindow, f);
+                    if (!std::isnan(step) && !nearTransition(f))
+                    {
+                        quiet.push_back(std::abs(step));
+                    }
+                }
+                if (!quiet.empty())
+                {
+                    std::ranges::sort(quiet);
+                    v.NoiseFloor[m] = quiet[std::min(quiet.size() - 1u, static_cast<sizet>(0.95 * static_cast<f64>(quiet.size())))];
+                }
+                if (m < 2u && v.WorstBand[m] > kDollyBand)
+                {
+                    std::snprintf(line, sizeof(line), "%s: the ladder's %s leaves the reference by %.3f at %.2f m (%s)",
+                                  what.c_str(), kMetric[m], v.WorstBand[m], ladder.Frames[worstBandFrame].Distance,
+                                  ladder.Frames[worstBandFrame].Outbound ? "out" : "in");
+                    v.Failures.emplace_back(line);
+                }
+                const f64 allowed = std::max(kDollyStep, 3.0 * v.NoiseFloor[m]);
+                const bool judged = m > 0u; // the energy and the brightness; coverage is recorded
+                for (const sizet t : v.Transitions)
+                {
+                    if (t < kDollyWindow || t + kDollyWindow > n)
+                    {
+                        continue;
+                    }
+                    const f64 step = mean(r, t, t + kDollyWindow) - mean(r, t - kDollyWindow, t);
+                    if (std::isnan(step))
+                    {
+                        continue;
+                    }
+                    v.WorstStep[m] = std::max(v.WorstStep[m], std::abs(step));
+                    if (judged && std::abs(step) > allowed)
+                    {
+                        std::snprintf(line, sizeof(line), "%s: the %s steps by %+.3f across the change at %.2f m (%s), "
+                                                          "allowed %.3f (noise %.3f)",
+                                      what.c_str(), kMetric[m], step, ladder.Frames[t].Distance,
+                                      ladder.Frames[t].Outbound ? "out" : "in", allowed, v.NoiseFloor[m]);
+                        v.Failures.emplace_back(line);
+                    }
+                }
+            }
+            return v;
+        }
+
+        static void ReportDolly(const std::string& what, const Dolly& ladder, const Dolly& reference, const DollyVerdict& v)
+        {
+            static constexpr std::array<const char*, 3> kTier{ "strand", "card", "mesh" };
+            const auto tier = [](GroomRepresentation r)
+            {
+                const auto i = static_cast<sizet>(r);
+                return i < kTier.size() ? kTier[i] : "?";
+            };
+            std::printf("[dog] dolly %s: %zu frames, %zu changes; noise (cov/energy/displayed) %.3f/%.3f/%.3f; worst band "
+                        "%.3f/%.3f; worst step at a change %.3f/%.3f/%.3f\n",
+                        what.c_str(), ladder.Frames.size(), v.Transitions.size(), v.NoiseFloor[0], v.NoiseFloor[1],
+                        v.NoiseFloor[2], v.WorstBand[0], v.WorstBand[1], v.WorstStep[0], v.WorstStep[1], v.WorstStep[2]);
+            const auto row = [&](sizet f, const char* tag)
+            {
+                const DollyFrame& l = ladder.Frames[f];
+                const DollyFrame& r = reference.Frames[f];
+                std::printf("[dog] dolly %s %5.2f m %-3s %-6s vis %u sim %u shadow %u | strands %6u (ref %6u) segments %7u "
+                            "width x%.2f | cov %7.0f (%.3f) energy %.3f displayed %.3f | %s\n",
+                            what.c_str(), l.Distance, l.Outbound ? "out" : "in", tier(l.Representation), l.VisibilityStep,
+                            l.SimulationStep, l.ShadowStep, l.Strands, r.Strands, l.Segments, l.WidthCompensation, r.Coverage,
+                            v.Ratio[0][f], v.Ratio[1][f], v.Ratio[2][f], tag);
+            };
+            for (sizet f = 0; f < ladder.Frames.size() && f < reference.Frames.size(); ++f)
+            {
+                const bool change = std::ranges::find(v.Transitions, f) != v.Transitions.end();
+                if (change)
+                {
+                    if (f > 0u)
+                    {
+                        row(f - 1u, "before the change");
+                    }
+                    row(f, "CHANGE");
+                }
+                else if ((f % 20u) == 0u)
+                {
+                    row(f, "");
+                }
+            }
+            // The part energies at the near and far ends, ladder over reference.
+            for (const sizet f : { sizet{ 0 }, (ladder.Frames.size() / 2u) & ~sizet{ 3 } })
+            {
+                if (f >= ladder.Frames.size() || f >= reference.Frames.size() || !ladder.Frames[f].HasParts ||
+                    !reference.Frames[f].HasParts)
+                {
+                    continue;
+                }
+                std::printf("[dog] dolly %s %5.2f m part energy (ladder/reference):", what.c_str(), ladder.Frames[f].Distance);
+                for (sizet p = 0; p < kBodyParts; ++p)
+                {
+                    if (reference.Frames[f].PartEnergy[p] > 0.0)
+                    {
+                        std::printf(" %s %.3f", kBodyPartNames[p], ladder.Frames[f].PartEnergy[p] / reference.Frames[f].PartEnergy[p]);
+                    }
+                }
+                std::printf("\n");
+            }
+            for (const std::string& failure : v.Failures)
+            {
+                std::printf("[dog] dolly %s FAILS: %s\n", what.c_str(), failure.c_str());
+            }
+            std::fflush(stdout);
+        }
+
+        // The ladder's tiles over the reference's, at the same distances.
+        static void WriteDollyStrip(const std::string& name, const Dolly& ladder, const Dolly& reference)
+        {
+            const sizet columns = std::min(ladder.Tiles.size(), static_cast<sizet>(12));
+            if (columns == 0u)
+            {
+                return;
+            }
+            const u32 width = static_cast<u32>(columns) * kDollyTile;
+            std::vector<u8> strip(static_cast<sizet>(width) * kDollyTile * 2u * 4u, 0u);
+            for (sizet c = 0; c < columns; ++c)
+            {
+                for (u32 rowIndex = 0; rowIndex < 2u; ++rowIndex)
+                {
+                    // The reference row shows the reference's tile of the same frame.
+                    const DollyTile* tile = rowIndex == 0u ? &ladder.Tiles[c] : nullptr;
+                    if (rowIndex == 1u)
+                    {
+                        for (const DollyTile& t : reference.Tiles)
+                        {
+                            if (t.Frame == ladder.Tiles[c].Frame)
+                            {
+                                tile = &t;
+                                break;
+                            }
+                        }
+                    }
+                    if (tile == nullptr)
+                    {
+                        continue;
+                    }
+                    for (u32 y = 0; y < kDollyTile; ++y)
+                    {
+                        std::memcpy(&strip[((static_cast<sizet>(rowIndex * kDollyTile + y) * width) + (c * kDollyTile)) * 4u],
+                                    &tile->Rgba[static_cast<sizet>(y) * kDollyTile * 4u], static_cast<sizet>(kDollyTile) * 4u);
+                    }
+                }
+            }
+            WritePng(name, strip, width, kDollyTile * 2u);
+            std::printf("[dog] %s columns:", name.c_str());
+            for (sizet c = 0; c < columns; ++c)
+            {
+                std::printf(" [%s]", ladder.Tiles[c].Label.c_str());
+            }
+            std::printf(" (top: the ladder; bottom: every strand)\n");
+            std::fflush(stdout);
+        }
     };
 
     // =========================================================================
@@ -3602,6 +4068,107 @@ namespace OloEngine::Tests
         }
         m_Dog.Coat.GetComponent<GroomLodComponent>().m_Enabled = true;
         m_Dog.Body.GetComponent<AnimationStateComponent>().m_IsPlaying = true;
+    }
+
+    // =========================================================================
+    // B7 IN MOTION (#1533 acceptance review, section 4): a CONTINUOUS dolly from
+    // the face close-up out to 15 m and back, the history never reset, the coat
+    // with its LOD against the same dolly with LOD off (every strand: the
+    // reference). Held runtime frames -- the dog stands still in its rest pose,
+    // so the camera and the ladder are the only things that move -- at the E
+    // criteria's 1920x1080, through the shipped scene camera's 32 degrees.
+    //
+    // Every frame records the tier, the strands and segments drawn, each
+    // budget's step, the width compensation achieved, and the coat's coverage
+    // (its entity id's pixels) and linear energy (summed linear luminance over
+    // them, before tone mapping), whole and by body part, plus the displayed
+    // luma over the coat after the resolve -- what a viewer sees pop. The
+    // ladder over the reference, frame by frame, must stay within 10% (the
+    // criterion) on a 9-frame window, and no LOD transition may step it by
+    // more than 4% (a pop is a jump, not a drift): the step across each
+    // transition, window after against window before, against the noise of
+    // the same step taken where nothing changed (JudgeDolly).
+    //
+    // THE CARD HAND-OVER IS PAST 15 m at this resolution, so the 0.6-15 m dolly
+    // never reaches it; an EXTENDED dolly, 15-45 m and back, is recorded and
+    // judged separately and says where it hands over in each direction. And
+    // the negative control: the same 0.6-15 m dolly with the width
+    // compensation capped at 1 (the strands thin with no compensation) must be
+    // caught by the same judge.
+    // =========================================================================
+    TEST_F(DogShowcaseEvidenceTest, TheLodLadderHoldsThroughAContinuousDolly)
+    {
+        SetPath(RenderingPath::Forward);
+        (void)StartClip("Rest", true, 30);
+        BodyParts parts = BuildBodyParts();
+        ResizeRenderTarget(1920u, 1080u);
+        const GroomLodComponent shippedLod = m_Dog.Coat.GetComponent<GroomLodComponent>();
+        struct Restore
+        {
+            std::function<void()> Undo;
+            ~Restore()
+            {
+                Undo();
+            }
+        } restore{ [&]
+                   {
+                       ResizeRenderTarget(kWidth, kHeight);
+                       m_Dog.Coat.GetComponent<GroomLodComponent>() = shippedLod;
+                   } };
+        PoseBody(parts);
+
+        const DollyPath out{ 0.6f, 15.0f, 200u };
+        const DollyPath extended{ 15.0f, 45.0f, 120u };
+        const auto record = [&](const DollyPath& path, bool lod, f32 maxWidthCompensation, const Dolly* tilesOf = nullptr)
+        {
+            auto& lodComponent = m_Dog.Coat.GetComponent<GroomLodComponent>();
+            lodComponent = shippedLod;
+            lodComponent.m_Enabled = lod;
+            lodComponent.m_MaxWidthCompensation = maxWidthCompensation;
+            std::vector<u32> frames;
+            if (tilesOf != nullptr)
+            {
+                for (const DollyTile& tile : tilesOf->Tiles)
+                {
+                    frames.push_back(tile.Frame);
+                }
+            }
+            return RecordDolly(parts, path, tilesOf != nullptr ? &frames : nullptr);
+        };
+        const f32 shippedCompensation = shippedLod.m_MaxWidthCompensation;
+
+        const Dolly ladder = record(out, true, shippedCompensation);
+        ASSERT_FALSE(HasFatalFailure());
+        const Dolly reference = record(out, false, shippedCompensation, &ladder);
+        ASSERT_FALSE(HasFatalFailure());
+        const DollyVerdict verdict = JudgeDolly(ladder, reference, "0.6-15 m");
+        ReportDolly("0.6-15 m", ladder, reference, verdict);
+        for (const std::string& failure : verdict.Failures)
+        {
+            ADD_FAILURE() << failure;
+        }
+        EXPECT_FALSE(verdict.Transitions.empty()) << "the ladder never changed over 0.6-15 m: the dolly tests nothing";
+        WriteDollyStrip("DogLodDolly_GL_Forward_Out", ladder, reference);
+
+        // The negative control: no width compensation.
+        const Dolly thinned = record(out, true, 1.0f);
+        ASSERT_FALSE(HasFatalFailure());
+        const DollyVerdict caught = JudgeDolly(thinned, reference, "0.6-15 m, no width compensation");
+        ReportDolly("0.6-15 m, no width compensation", thinned, reference, caught);
+        EXPECT_FALSE(caught.Failures.empty()) << "the dolly's judge passed a ladder with no width compensation";
+
+        // Past 15 m, labelled as such: where the cards take over.
+        const Dolly farLadder = record(extended, true, shippedCompensation);
+        ASSERT_FALSE(HasFatalFailure());
+        const Dolly farReference = record(extended, false, shippedCompensation, &farLadder);
+        ASSERT_FALSE(HasFatalFailure());
+        const DollyVerdict extendedVerdict = JudgeDolly(farLadder, farReference, "EXTENDED 15-45 m");
+        ReportDolly("EXTENDED 15-45 m", farLadder, farReference, extendedVerdict);
+        for (const std::string& failure : extendedVerdict.Failures)
+        {
+            ADD_FAILURE() << failure;
+        }
+        WriteDollyStrip("DogLodDolly_GL_Forward_Extended", farLadder, farReference);
     }
 
     // =========================================================================
