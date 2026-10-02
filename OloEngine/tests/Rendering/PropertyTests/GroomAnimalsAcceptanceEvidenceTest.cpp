@@ -30,6 +30,7 @@
 #include "../../TestOptions.h"
 
 #include "RendererAttachedTest.h"
+#include "RenderPropertyTest.h"
 #include "TestTempDir.h"
 #include "../../MemoryCeiling.h"
 
@@ -58,6 +59,7 @@
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Passes/TAARenderPass.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Scene/Components.h"
@@ -66,7 +68,10 @@
 #include "OloEngine/Scene/SceneCamera.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Scene/AnimalScheduler.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
+#include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
+#include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/TemporalHistoryRegistry.h"
 #include "OloEngine/Renderer/TemporalSequenceMetrics.h"
 #include "OloEngine/Serialization/AssetPackFile.h"
@@ -2112,11 +2117,10 @@ namespace OloEngine::Tests
 
         // ── MSAA and upscale, one moving pose each, on Deferred ─────────
         SetPath(RenderingPath::Deferred);
-        // The floor and the drift of THIS path. They used to be the Forward
-        // path's, which only worked while the two drifted alike; since #1332
-        // Forward TAA reprojects the coat by its own velocity and drifts three
-        // times as much, while Deferred's resolve still never sees the coat's
-        // velocity (#1552).
+        // The floor and the drift of THIS path, measured here rather than
+        // borrowed from Forward's: the two paths reach TAA through different
+        // velocity targets (SceneVelocity is seeded from the G-Buffer on
+        // Deferred, #1552) and need not drift alike.
         (void)PlayFromStart(30);
         ColdHistory();
         Capture("", side, first);
@@ -2810,6 +2814,70 @@ namespace OloEngine::Tests
         // 0.6 since #1332 (0.5 before), measured 0.52: Forward TAA now reads the
         // coat's own velocity instead of the cleared zero behind it (#1552).
         EXPECT_LT(resolved.MeanFrameDelta, raw.MeanFrameDelta * 0.6) << "the resolve must cut the shimmer by 40 %";
+    }
+
+    // =========================================================================
+    // #1552: on Deferred the resolve samples the walking coat's OWN motion.
+    // The opaque scene writes the G-Buffer's velocity there and the groom,
+    // drawn over the lit frame, writes SceneColor RT3, which TAA did not read:
+    // it reprojected a walking coat by the velocity of the body and the ground
+    // behind it. TAA now samples SceneVelocity -- SceneColor RT3, seeded with
+    // the G-Buffer's velocity before the forward passes draw -- so where a coat
+    // stands, what the resolve reprojects by is the coat's, not the G-Buffer's.
+    // On the old source the two are one texture and this counts nothing.
+    // =========================================================================
+    TEST_F(GroomAnimalsAcceptanceEvidenceTest, TheDeferredResolveSamplesTheWalkingCoatsOwnMotion)
+    {
+        SetPath(RenderingPath::Deferred);
+        SetTaa(0.9f);
+        (void)PlayFromStart(24);
+        RenderGraph* graph = const_cast<RenderGraph*>(RenderGraphDebugRuntime::GetActiveGraph().Raw());
+        ASSERT_NE(graph, nullptr);
+        std::vector<f32> sampled;
+        std::vector<f32> opaque;
+        u32 width = 0;
+        u32 height = 0;
+        constexpr std::string_view kHook = "DeferredCoatVelocity";
+        graph->AddPostPassHook(kHook, [&](std::string_view pass, RenderGraph& g)
+                               {
+                                   if (pass != "TAAPass" || !sampled.empty())
+                                       return;
+                                   const RGTextureHandle velocityHandle = g.GetTextureHandle("SceneVelocity");
+                                   const u32 velocity = g.ResolveTexture(velocityHandle);
+                                   const u32 gbuffer = g.ResolveTexture(g.GetTextureHandle("Velocity"));
+                                   if (velocity == 0u || gbuffer == 0u)
+                                       return;
+                                   GLint w = 0;
+                                   GLint h = 0;
+                                   glGetTextureLevelParameteriv(velocity, 0, GL_TEXTURE_WIDTH, &w);
+                                   glGetTextureLevelParameteriv(velocity, 0, GL_TEXTURE_HEIGHT, &h);
+                                   width = static_cast<u32>(w);
+                                   height = static_cast<u32>(h);
+                                   ReadbackRgbaFloat(velocity, width, height, sampled);
+                                   ReadbackRgbaFloat(gbuffer, width, height, opaque); });
+        (void)Play(1);
+        graph->RemovePostPassHook(kHook);
+
+        // What TAA selected to sample: SceneVelocity, not the G-Buffer's.
+        const Ref<TAARenderPass> taa = graph->GetNode<TAARenderPass>("TAAPass");
+        ASSERT_TRUE(taa) << "no TAAPass in the graph";
+        const FString selected = graph->GetResourceName(taa->GetSelectedVelocityTexture());
+        EXPECT_EQ(selected.ToView().substr(0, selected.ToView().find('@')), "SceneVelocity")
+            << "TAA does not sample SceneVelocity on Deferred";
+        SetPath(RenderingPath::Forward);
+
+        ASSERT_FALSE(sampled.empty()) << "the hook never saw TAAPass sample SceneVelocity on Deferred";
+        ASSERT_EQ(sampled.size(), opaque.size());
+        sizet ownMotion = 0;
+        for (sizet i = 0; i + 3 < sampled.size(); i += 4)
+        {
+            ownMotion += (!Math::BitwiseEqual(sampled[i], opaque[i]) || !Math::BitwiseEqual(sampled[i + 1], opaque[i + 1])) ? 1u : 0u;
+        }
+        const f64 share = static_cast<f64>(ownMotion) / static_cast<f64>(std::max<sizet>(1u, static_cast<sizet>(width) * height));
+        std::printf("[groom-animals] Deferred TAA velocity: %zu of %u x %u texels carry motion the G-Buffer does not (%.2f%%)\n",
+                    ownMotion, width, height, 100.0 * share);
+        EXPECT_GT(share, 0.005) << "the Deferred resolve sees none of the walking coats' own motion: it still samples the "
+                                   "G-Buffer's velocity";
     }
 
     // =========================================================================

@@ -1,7 +1,7 @@
 # The screen-space velocity convention
 
 Rules for anything that writes or reads the engine's motion vectors (SceneColor RT3 and the G-Buffer's
-RT3, `GBuffer::Velocity`). Issue #1552.
+RT3, `FrameBlackboard::Scene::SceneVelocity` / `GBuffer::Velocity`). Issue #1552.
 
 ## The rules
 
@@ -31,7 +31,14 @@ RT3, `GBuffer::Velocity`). Issue #1552.
    every offset. The stages of one shader must declare identical layouts: the engine's SPIR-V link
    validation rejects a mismatch, so extending one stage's block means extending them all.
 
-4. **FSR2 is told the vectors carry no jitter** (`TemporalUpscalerConfig::MotionVectorsIncludeJitter =
+4. **The resolves read `SceneVelocity`, every writer's.** That covers TAA, motion blur, FSR2 and the
+   depth/velocity upscale. On the forward paths it is the same handle as `GBuffer.Velocity`. On Deferred,
+   `SceneVelocitySeedPass` copies the G-Buffer's RT3 into SceneColor RT3 before the forward overlay, so the
+   groom, foliage, particles and water drawn over the lit frame write their own motion over it. The passes
+   that run before those (SSR, SSGI, ReSTIR, RT shadows, the deferred lighting) read `GBuffer.Velocity`
+   (`RenderTargetExportEvidence.DeferredTemporalResolveSamplesTheSeededSceneVelocity`).
+
+5. **FSR2 is told the vectors carry no jitter** (`TemporalUpscalerConfig::MotionVectorsIncludeJitter =
    false`). Told they do, it cancels a jitter that is not there: a pixel of reprojection error every frame.
 
 ## The failure that taught it

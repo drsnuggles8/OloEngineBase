@@ -381,6 +381,11 @@ namespace OloEngine::ResourceNames
     // itself on Deferred, where SceneDepth is not the framebuffer they draw into.
     inline constexpr std::string_view SceneDepthSnapshot = "SceneDepthSnapshot";
     inline constexpr std::string_view SceneViewNormalsSnapshot = "SceneViewNormalsSnapshot";
+    // Deferred's view of SceneColor RT3: every surface's velocity once the
+    // forward passes have drawn theirs over the seeded G-Buffer velocity
+    // (issue #1552, SceneVelocitySeedPass). On the forward paths the
+    // resolves read `Velocity`, the same attachment.
+    inline constexpr std::string_view SceneVelocity = "SceneVelocity";
 
     // Planar reflection — the opaque scene re-rendered from a mirrored, oblique-
     // clipped camera into a transient color target, sampled projectively by the

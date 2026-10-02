@@ -3631,6 +3631,17 @@ namespace OloEngine
         // ------------------------------------------------------------------
         if (!deferredActive && board.Scene.SceneColor.IsValid())
             board.GBuffer.Velocity = graph.CreateFramebufferAttachmentView(ResourceNames::Velocity, board.Scene.SceneColor, 3u);
+        // ...and the velocity the resolves read once every pass has written
+        // its own (#1552): that same attachment on the forward paths; on
+        // Deferred SceneColor RT3 too, seeded with the G-Buffer's velocity
+        // (SceneVelocitySeedPass) so the groom, foliage, particles and water
+        // drawn over the lit frame reach TAA with their own motion.
+        if (board.Scene.SceneColor.IsValid())
+        {
+            board.Scene.SceneVelocity =
+                deferredActive ? graph.CreateFramebufferAttachmentView(ResourceNames::SceneVelocity, board.Scene.SceneColor, 3u)
+                               : board.GBuffer.Velocity;
+        }
 
         // ------------------------------------------------------------------
         // AO buffer
@@ -5390,7 +5401,7 @@ namespace OloEngine
         // and the forward paths that reconstruct velocity from depth carry no
         // coverage at all. The shader's own u_HasSurfaceHistory gate means an
         // absent plane costs the term nothing rather than reading garbage.
-        if (pipeline.PostProcessPasses.TAA && board.GBuffer.Velocity.IsValid())
+        if (pipeline.PostProcessPasses.TAA && board.Scene.SceneVelocity.IsValid())
         {
             const auto& taaSurfaceSpec = pipeline.PostProcessPasses.TAA->GetFramebufferSpecification();
             if (taaSurfaceSpec.Width > 0u && taaSurfaceSpec.Height > 0u)
@@ -5802,6 +5813,7 @@ namespace OloEngine
         inputs.Passes.FoliagePrepass = FrameCorePasses.FoliagePrepass.Raw();
         inputs.Passes.SceneDepthSnapshot = FrameCorePasses.SceneDepthSnapshot.Raw();
         inputs.Passes.SceneViewNormalsSnapshot = FrameCorePasses.SceneViewNormalsSnapshot.Raw();
+        inputs.Passes.SceneVelocitySeed = FrameCorePasses.SceneVelocitySeed.Raw();
         inputs.Passes.Shadow = FrameCorePasses.Shadow.Raw();
         inputs.Passes.DDGIProbeUpdate = FrameCorePasses.DDGIProbeUpdate.Raw();
         inputs.Passes.VirtualShadowMapMark = FrameCorePasses.VirtualShadowMapMark.Raw();
@@ -5920,6 +5932,8 @@ namespace OloEngine
             Ref<SceneAttachmentSnapshotPass>::Create(FrameCorePasses.Scene.Raw(), SceneAttachmentSnapshotPass::Attachment::Depth);
         FrameCorePasses.SceneViewNormalsSnapshot =
             Ref<SceneAttachmentSnapshotPass>::Create(FrameCorePasses.Scene.Raw(), SceneAttachmentSnapshotPass::Attachment::ViewNormals);
+        // Deferred's velocity, every surface's, for the resolves (#1552).
+        FrameCorePasses.SceneVelocitySeed = Ref<SceneVelocitySeedPass>::Create(FrameCorePasses.Scene.Raw());
 
         // Realtime DDGI probe update (#632) — path-agnostic, self-disables
         // when no Realtime/Hybrid volume is submitted for the frame. All its

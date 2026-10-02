@@ -1152,6 +1152,8 @@
 		"OloEngine/Renderer/Passes/GBufferWriteDeclarations.h"
 		"OloEngine/Renderer/Passes/SceneAttachmentSnapshotPass.h"
 		"OloEngine/Renderer/Passes/SceneAttachmentSnapshotPass.cpp"
+		"OloEngine/Renderer/Passes/SceneVelocitySeedPass.h"
+		"OloEngine/Renderer/Passes/SceneVelocitySeedPass.cpp"
 		"OloEngine/Renderer/Passes/ForwardScreenSpaceAOInputs.h"
 		"OloEngine/Renderer/Passes/GPUDrivenOcclusionPrepassPass.h"
 		"OloEngine/Renderer/Passes/GPUDrivenOcclusionPrepassPass.cpp"

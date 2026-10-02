@@ -136,6 +136,9 @@ on Deferred has no velocity in TAA at all.
 The groom temporal tests were re-baselined to the honest velocity, with the measured numbers in their
 comments. The velocity convention and Deferred groom motion are #1552.
 
+Resolved by #1552: every writer now takes each frame's jitter out of its velocity, and the Deferred resolve
+reads SceneColor RT3 seeded with the G-Buffer's velocity (docs/agent-rules/velocity-convention.md).
+
 ## Not changed, and why
 
 - **Deferred MSAA resolves.** With late geometry, the G-Buffer is resolved three times a frame (ScenePass,

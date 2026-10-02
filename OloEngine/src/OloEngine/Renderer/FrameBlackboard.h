@@ -103,6 +103,15 @@ namespace OloEngine
             // SceneDepthSnapshot == SceneDepth on Deferred.
             RGTextureHandle SceneDepthSnapshot;
             RGTextureHandle SceneViewNormalsSnapshot;
+            // The velocity AFTER every writer (#1552): what the temporal
+            // resolves and the late post-process read (TAA, motion blur, FSR2,
+            // the depth/velocity upscale). SceneColor RT3 on every path; on
+            // the forward paths the same handle as GBuffer.Velocity, on
+            // Deferred seeded with the G-Buffer's by SceneVelocitySeedPass
+            // before the forward passes draw their own motion into it. The
+            // passes that run before those (SSR, SSGI, ReSTIR, RT shadows)
+            // keep GBuffer.Velocity, the opaque scene's.
+            RGTextureHandle SceneVelocity;
         };
 
         // -----------------------------------------------------------------------
@@ -112,7 +121,7 @@ namespace OloEngine
         //   RT0 Albedo   (RGBA8)  — albedo.rgb + metallic.a
         //   RT1 Normal   (RGBA16F)— octahedral normal + roughness + AO
         //   RT2 Emissive (RGBA16F)— emissive HDR (+ unlit flag in .a)
-        //   RT3 Velocity (RG16F)  — exposed via `Velocity`.
+        //   RT3 Velocity (RGBA16F)— velocity (rg) + coverage (b) + profile (a), via `Velocity`.
         //   RT5 BakedGI  (RGBA16F)— baked lightmap irradiance E + coverage (#865)
         //
         // Multisample companions are populated only when

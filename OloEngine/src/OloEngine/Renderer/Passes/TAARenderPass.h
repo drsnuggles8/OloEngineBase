@@ -63,6 +63,15 @@ namespace OloEngine
             m_Settings = settings;
         }
 
+        // The velocity the resolve samples, as its last Setup selected it: the
+        // blackboard's SceneVelocity, or its upscaled view (#1552). What a
+        // test pins instead of the declared accesses, which name every view of
+        // a framebuffer the pass reads any of.
+        [[nodiscard]] RGTextureHandle GetSelectedVelocityTexture() const
+        {
+            return m_SelectedVelocityTexture;
+        }
+
       private:
         void CreateFramebuffers(u32 width, u32 height);
 

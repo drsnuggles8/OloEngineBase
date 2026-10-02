@@ -37,6 +37,7 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Passes/TAARenderPass.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Terrain/TerrainGenerator.h"
@@ -831,6 +832,90 @@ namespace OloEngine::Tests
             }
             SetLateGeometry(false);
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // #1552: on Deferred the temporal resolve samples SceneColor RT3, seeded
+    // with the G-Buffer's velocity. The opaque scene writes the G-Buffer's RT3
+    // there and the forward passes drawn over the lit frame write SceneColor
+    // RT3, which TAA did not read; SceneVelocitySeedPass copies the one into the
+    // other before they draw. With the camera moving, TAA's input is bit for bit
+    // the scene target's RT3 as TAA runs, and bit for bit the G-Buffer's motion
+    // wherever no forward pass wrote its own -- here everywhere: the water
+    // blends its velocity output away (alpha 0 in RT3), as every transparent
+    // surface leaves the opaque motion under it. The groom, which writes its
+    // own, is GroomAnimalsAcceptanceEvidenceTest's.
+    // -------------------------------------------------------------------------
+    TEST_F(RenderTargetExportEvidence, DeferredTemporalResolveSamplesTheSeededSceneVelocity)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        auto& post = Renderer3D::GetPostProcessSettings();
+        post.TAAEnabled = true;
+        post.MotionBlurEnabled = false;
+        post.Upscale = UpscaleMode::Off;
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+        Renderer3D::ApplyRendererSettings();
+        SetLateGeometry(true, /*water*/ true, /*foliagePresent*/ false);
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.5f, 2000.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        for (u32 frame = 0; frame < kWarmFrames; ++frame)
+        {
+            camera.SetPose(kEye + glm::vec3(0.25f * static_cast<f32>(frame), 0.0f, 0.0f), 0.0f, 0.06f);
+            RunEditorFrames(camera, 1);
+        }
+
+        RenderGraph* graph = const_cast<RenderGraph*>(RenderGraphDebugRuntime::GetActiveGraph().Raw());
+        ASSERT_NE(graph, nullptr);
+        std::vector<f32> sampled;
+        std::vector<f32> attachment;
+        std::vector<f32> gbuffer;
+        constexpr std::string_view kHook = "DeferredSceneVelocity";
+        graph->AddPostPassHook(kHook, [&](std::string_view pass, RenderGraph& g)
+                               {
+                                   if (pass != "TAAPass" || !sampled.empty())
+                                       return;
+                                   const u32 velocity = g.ResolveTexture(g.GetTextureHandle("SceneVelocity"));
+                                   const u32 opaque = g.ResolveTexture(g.GetTextureHandle("Velocity"));
+                                   const Ref<Framebuffer> scene = g.ResolveFramebuffer(g.GetFramebufferHandle("SceneColor"));
+                                   if (velocity != 0u && opaque != 0u && scene)
+                                   {
+                                       ReadbackRgbaFloat(velocity, kWidth, kHeight, sampled);
+                                       ReadbackRgbaFloat(scene->GetColorAttachmentRendererID(3), kWidth, kHeight, attachment);
+                                       ReadbackRgbaFloat(opaque, kWidth, kHeight, gbuffer);
+                                   } });
+        camera.SetPose(kEye + glm::vec3(0.25f * static_cast<f32>(kWarmFrames) + 1.0f, 0.0f, 0.0f), 0.0f, 0.06f);
+        RunEditorFrames(camera, 1);
+        graph->RemovePostPassHook(kHook);
+
+        ASSERT_FALSE(sampled.empty()) << "the hook never saw TAAPass sample SceneVelocity on Deferred";
+        ASSERT_EQ(sampled.size(), attachment.size());
+        ASSERT_EQ(sampled.size(), gbuffer.size());
+        sizet differing = 0;
+        sizet unseeded = 0;
+        sizet moving = 0;
+        for (sizet i = 0; i + 3 < sampled.size(); i += 4)
+        {
+            differing += (!Math::BitwiseEqual(sampled[i], attachment[i]) || !Math::BitwiseEqual(sampled[i + 1], attachment[i + 1]))
+                             ? 1u
+                             : 0u;
+            unseeded += (!Math::BitwiseEqual(sampled[i], gbuffer[i]) || !Math::BitwiseEqual(sampled[i + 1], gbuffer[i + 1]))
+                            ? 1u
+                            : 0u;
+            moving += std::abs(gbuffer[i]) + std::abs(gbuffer[i + 1]) > 1.0e-5f ? 1u : 0u;
+        }
+        std::cout << "[ exports ] Deferred TAA velocity: " << moving << " moving texels in the G-Buffer, " << differing
+                  << " differ from SceneColor RT3, " << unseeded << " from the G-Buffer\n";
+        EXPECT_GT(moving, kWidth * kHeight / 100u) << "the camera moved but the G-Buffer holds no motion: the check is vacuous";
+        EXPECT_EQ(differing, 0u) << "TAA sampled a velocity that is not SceneColor RT3 as TAA ran";
+        EXPECT_EQ(unseeded, 0u) << "SceneColor RT3 is not the G-Buffer's velocity where no forward pass wrote its own";
+        // ...and SceneVelocity is what TAA selected to sample, not the G-Buffer's.
+        // (Its declared accesses cannot say: a read of any view of a framebuffer
+        // names every view of it, and TAA reads the G-Buffer's depth.)
+        const Ref<TAARenderPass> taa = graph->GetNode<TAARenderPass>("TAAPass");
+        ASSERT_TRUE(taa) << "no TAAPass in the graph";
+        EXPECT_EQ(BaseName(graph->GetResourceName(taa->GetSelectedVelocityTexture()).ToView()), "SceneVelocity")
+            << "TAA does not sample SceneVelocity on Deferred";
+        SetLateGeometry(false);
     }
 
     // -------------------------------------------------------------------------

@@ -42,11 +42,12 @@ namespace OloEngine
             m_SelectedSceneDepthTexture = blackboard.Post.UpscaledSceneDepthTexture.IsValid() ? blackboard.Post.UpscaledSceneDepthTexture : blackboard.Scene.SceneDepth;
             [[maybe_unused]] const auto sceneDepthRead = builder.Read(m_SelectedSceneDepthTexture, RGReadUsage::ShaderSample);
         }
-        // Per-pixel velocity (Deferred G-Buffer RT3 / Forward attachment 3). Optional:
-        // when absent the shader reconstructs camera-only motion for every pixel.
-        if (blackboard.GBuffer.Velocity.IsValid())
+        // Per-pixel velocity, every surface's (SceneColor RT3 on both paths,
+        // #1552). Optional: when absent the shader reconstructs camera-only
+        // motion for every pixel.
+        if (blackboard.Scene.SceneVelocity.IsValid())
         {
-            m_SelectedVelocityTexture = blackboard.Post.UpscaledVelocityTexture.IsValid() ? blackboard.Post.UpscaledVelocityTexture : blackboard.GBuffer.Velocity;
+            m_SelectedVelocityTexture = blackboard.Post.UpscaledVelocityTexture.IsValid() ? blackboard.Post.UpscaledVelocityTexture : blackboard.Scene.SceneVelocity;
             [[maybe_unused]] const auto velocityRead = builder.Read(m_SelectedVelocityTexture, RGReadUsage::ShaderSample);
         }
         if (blackboard.Post.MotionBlurColor.IsValid())
