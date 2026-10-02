@@ -244,8 +244,11 @@ namespace OloEngine::MCP
             int worst = 0;
             if (args.contains("worst") && args["worst"].is_number_integer())
                 worst = static_cast<int>(std::clamp<long long>(args["worst"].get<long long>(), 0, 64));
+            // EVERY frame, unsampled, each with its time split (#1533 E1): the raw
+            // data a p95 claim rests on, which the percentiles alone do not show.
+            const bool raw = args.contains("raw") && args["raw"].is_boolean() && args["raw"].get<bool>();
 
-            Json j = host.MarshalRead([points, worst]() -> Json
+            Json j = host.MarshalRead([points, worst, raw]() -> Json
                                       {
                 const TArray<RendererProfiler::FrameData> hist = RendererProfiler::GetInstance().GetFrameHistoryCopy();
                 Json series = Json::array();
@@ -255,13 +258,21 @@ namespace OloEngine::MCP
                     // Ceiling division so we emit at most `points` samples (floor
                     // division would over-stride and return more than requested).
                     const auto p = static_cast<std::size_t>(points);
-                    const std::size_t step = std::max<std::size_t>(1, (n + p - 1) / p);
+                    const std::size_t step = raw ? 1u : std::max<std::size_t>(1, (n + p - 1) / p);
                     for (std::size_t i = 0; i < n; i += step)
                     {
                         const auto& f = hist[i];
-                        series.push_back(Json{ { "frameTimeMs", Round2(f.m_FrameTime) },
-                                               { "fps", f.m_FrameTime > 0.0 ? Round2(1000.0 / f.m_FrameTime) : 0.0 },
-                                               { "drawCalls", f.m_DrawCalls } });
+                        Json sample{ { "frameTimeMs", Round2(f.m_FrameTime) },
+                                     { "fps", f.m_FrameTime > 0.0 ? Round2(1000.0 / f.m_FrameTime) : 0.0 },
+                                     { "drawCalls", f.m_DrawCalls } };
+                        if (raw)
+                        {
+                            sample["cpuMs"] = Round2(f.m_CPUTime);
+                            sample["gpuMs"] = Round2(f.m_GPUTime);
+                            sample["fenceWaitMs"] = Round2(f.m_FenceWaitTime);
+                            sample["presentWaitMs"] = Round2(f.m_PresentWaitTime);
+                        }
+                        series.push_back(std::move(sample));
                     }
                 }
                 // The percentiles over EVERY frame in the ring, never over the
@@ -699,10 +710,12 @@ namespace OloEngine::MCP
                 "holds the frame-time mean and p50/p95/p99/max over EVERY frame in the ring (up to 1024), not the "
                 "downsampled series. 'worst' (optional) lists that many of the slowest frames, oldest first, with "
                 "their ring position and their CPU / GPU / fence-wait / present-wait split -- what a hitch is and "
-                "how often it comes.";
+                "how often it comes. 'raw' returns EVERY frame in the ring instead of the downsampled series, each "
+                "with that split: the data a percentile claim rests on.";
             tool.InputSchema = Schema::Object()
                                    .Prop("points", Schema::Int().Min(1).Max(300).Desc("Number of downsampled points to return (default 60)."))
                                    .Prop("worst", Schema::Int().Min(0).Max(64).Desc("How many of the slowest frames to list whole (default 0)."))
+                                   .Prop("raw", Schema::Bool().Desc("Every frame in the ring, unsampled, oldest first, each with cpuMs / gpuMs / fenceWaitMs / presentWaitMs (ignores 'points'; default false)."))
                                    .NoAdditional();
             tool.OutputSchema = Schema::Object()
                                     .Prop("totalFrames", Schema::Int().Min(0).Desc("Frames in the profiler ring buffer, before downsampling."))
@@ -710,8 +723,12 @@ namespace OloEngine::MCP
                                     .Prop("series", Schema::Array(Schema::Object()
                                                                       .Prop("frameTimeMs", Schema::Number())
                                                                       .Prop("fps", Schema::Number())
-                                                                      .Prop("drawCalls", Schema::Int().Min(0)))
-                                                        .Desc("Downsampled samples, oldest first; empty when no frame history exists yet."))
+                                                                      .Prop("drawCalls", Schema::Int().Min(0))
+                                                                      .Prop("cpuMs", Schema::Number())
+                                                                      .Prop("gpuMs", Schema::Number())
+                                                                      .Prop("fenceWaitMs", Schema::Number())
+                                                                      .Prop("presentWaitMs", Schema::Number()))
+                                                        .Desc("Downsampled samples, oldest first (every frame, with its split, under 'raw'); empty when no frame history exists yet."))
                                     .Prop("stats", Schema::Object()
                                                        .Prop("frames", Schema::Int().Min(0).Desc("Frames with a recorded time."))
                                                        .Prop("meanMs", Schema::Number())
