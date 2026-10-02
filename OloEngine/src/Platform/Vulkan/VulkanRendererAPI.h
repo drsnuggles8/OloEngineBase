@@ -616,6 +616,7 @@ namespace OloEngine
         [[nodiscard("Store this!")]] u32 GetMaxUniformBlockSize() const override;
         [[nodiscard("Store this!")]] bool SupportsInt64ShaderAtomics() const override;
         [[nodiscard("Store this!")]] bool SupportsMeshShaders() const override;
+        [[nodiscard("Store this!")]] bool SupportsIndirectFirstInstance() const override;
         [[nodiscard("Store this!")]] RayTracing::Capabilities GetRayTracingCapabilities() const override;
 
         // Acceleration-structure builds (#978) are queue commands and are

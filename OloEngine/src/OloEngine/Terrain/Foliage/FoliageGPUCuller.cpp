@@ -239,8 +239,10 @@ namespace OloEngine
         {
             // Grown with slack for the same reason FoliageRenderer's instance
             // VBO is: a sculpt that adds a handful of plants must not reallocate
-            // and rebuild every vertex array that streams this buffer.
-            const u32 newCapacity = std::max(capacity * 2u, 256u);
+            // and rebuild every vertex array that streams this buffer. A quarter,
+            // not double: a mesh layer asks for twice its instance count already
+            // (the mesh region, #1533), and doubling that held four.
+            const u32 newCapacity = std::max(capacity + (capacity / 4u), 256u);
             const u32 bytes = newCapacity * static_cast<u32>(sizeof(FoliageInstanceData));
             view.Compacted = VertexBuffer::Create(bytes);
             if (!view.Compacted)
@@ -300,6 +302,20 @@ namespace OloEngine
 
         const auto partCount = static_cast<u32>(parts.size());
 
+        // THE MESH REGION (#1533): a layer's mesh parts draw only the survivors
+        // the mesh band can reach, from a second region of the compacted stream
+        // that starts at the layer's instance count (past every slot the
+        // all-survivor list can use), through the command's BaseInstance. It
+        // needs that BaseInstance honoured, room for the region, and no debug
+        // capacity (that knob exercises the all-survivor list's overflow).
+        // Without it every part draws every survivor, as before.
+        bool anyMeshPart = false;
+        for (const Part& part : parts)
+            anyMeshPart = anyMeshPart || part.MeshRegion;
+        const bool meshRegion = anyMeshPart && lod.MeshReach > 0.0f && m_DebugOutputCapacity == 0 &&
+                                view.Capacity / 2u >= layer.InstanceCount && RenderCommand::SupportsIndirectFirstInstance();
+        const u32 meshRegionBase = meshRegion ? layer.InstanceCount : 0u;
+
         // A layer wholly outside this view rejects here, before either kernel is
         // dispatched. Two dispatches are ~22 us of launch cost on this box and
         // they are paid per layer PER VIEW, so with five views and five layers a
@@ -329,9 +345,12 @@ namespace OloEngine
         std::array<FoliageCullDrawArgs, kMaxParts> args{};
         for (u32 i = 0; i < partCount; ++i)
         {
+            const bool drawsRegion = meshRegion && parts[i].MeshRegion;
             args[i].Count = parts[i].IndexCount;
             args[i].InstanceCount = 0;
             args[i].FirstIndex = parts[i].BaseIndex;
+            args[i].BaseInstance = drawsRegion ? meshRegionBase : 0u;
+            args[i].MeshRegion = drawsRegion ? 1u : 0u;
         }
         view.DrawArgs->SetData(args.data(), partCount * kDrawArgsStride, 0);
 
@@ -367,6 +386,9 @@ namespace OloEngine
         state.PartCount = partCount;
         state.SourceRowOffset = layer.GroupCount;
         state.EmitStats = emitStats ? 1u : 0u;
+        state.MeshRegionBase = meshRegionBase;
+        state.MeshReach = meshRegion ? lod.MeshReach : 0.0f;
+        state.MeshCursor = 0;
         view.State->SetData(&state, static_cast<u32>(sizeof(state)), 0);
 
         // ── 3. Bind and dispatch ──
@@ -419,8 +441,20 @@ namespace OloEngine
         FoliageCullStateHeader header{};
         view.State->GetData(&header, static_cast<u32>(sizeof(header)), 0);
 
-        FoliageCullDrawArgs args{};
-        view.DrawArgs->GetData(&args, static_cast<u32>(sizeof(args)), 0);
+        // The all-survivor list's count is on any part that does NOT draw the
+        // mesh region (#1533); a mesh part's count is the region's.
+        std::array<FoliageCullDrawArgs, kMaxParts> partArgs{};
+        const u32 readParts = std::min(view.PartCount, kMaxParts);
+        view.DrawArgs->GetData(partArgs.data(), readParts * kDrawArgsStride, 0);
+        FoliageCullDrawArgs args = partArgs[0];
+        for (u32 i = 0; i < readParts; ++i)
+        {
+            if (partArgs[i].MeshRegion == 0u)
+            {
+                args = partArgs[i];
+                break;
+            }
+        }
 
         out.GroupsVisible = header.GroupsVisible;
         out.Visible = header.VisibleCount;

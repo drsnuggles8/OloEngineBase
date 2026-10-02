@@ -586,6 +586,12 @@ namespace OloEngine
             return s_RendererAPI->SupportsInt64ShaderAtomics();
         }
 
+        // See RendererAPI::SupportsIndirectFirstInstance (#1533).
+        [[nodiscard("Store this!")]] static bool SupportsIndirectFirstInstance()
+        {
+            return s_RendererAPI->SupportsIndirectFirstInstance();
+        }
+
         // The DrawMeshTasks capability gate (issue #813) — see
         // RendererAPI::SupportsMeshShaders.
         [[nodiscard("Store this!")]] static bool SupportsMeshShaders()

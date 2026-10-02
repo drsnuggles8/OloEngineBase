@@ -463,4 +463,56 @@ namespace OloEngine
         EXPECT_FLOAT_EQ(FoliageLod::DensityKeepFraction(200.0f, clean.Start, clean.End, clean.MinFraction),
                         clean.MinFraction);
     }
+
+    // THE MESH REGION ADMITS EVERY PLANT THAT HAS MESH COVERAGE (#1533). The GPU
+    // cull appends a survivor to the region its mesh parts draw only when its
+    // pivot is within MeshRegionReach; a plant the vertex stage would still give
+    // mesh coverage, left out, is a hole in the near field. So: over every
+    // per-plant offset, both directions of travel and a spread of bands, any
+    // distance with MeshCoverageLod > 0 is inside the reach. And the reach is
+    // not vacuous: it is within a few percent of the band's far edge plus the
+    // spread and hysteresis, so the region is a near-field region rather than
+    // the whole layer.
+    TEST(FoliageLodTransitionContract, TheMeshRegionReachesEveryPlantThatStillHasMeshCoverage)
+    {
+        struct Band
+        {
+            f32 Start;
+            f32 End;
+            f32 Spread;
+            f32 Hysteresis;
+        };
+        constexpr std::array<Band, 5> kBands{ { { 4.5f, 6.0f, 1.0f, 0.0f },
+                                                { 22.0f, 30.0f, 0.0f, 0.0f },
+                                                { 22.0f, 30.0f, 6.0f, 0.15f },
+                                                { 0.0f, 0.5f, 2.0f, 0.5f },
+                                                { 10.0f, 10.0f, 0.0f, 0.0f } } };
+        for (const Band& band : kBands)
+        {
+            SCOPED_TRACE(testing::Message() << "band [" << band.Start << ", " << band.End << "] spread " << band.Spread
+                                            << " hysteresis " << band.Hysteresis);
+            const f32 reach = FoliageLod::MeshRegionReach(band.Start, band.End, band.Spread, band.Hysteresis);
+            f32 farthestCovered = 0.0f;
+            for (i32 o = 0; o <= 100; ++o)
+            {
+                const f32 offset = static_cast<f32>(o) / 100.0f * 0.999f;
+                for (const bool receding : { false, true })
+                {
+                    for (f32 dist = 0.0f; dist <= band.End * 2.0f + band.Spread + 10.0f; dist += 0.01f)
+                    {
+                        const f32 prev = receding ? dist - 0.05f : dist + 0.05f;
+                        if (FoliageLod::MeshCoverageLod(dist, prev, band.Start, band.End, offset, band.Spread,
+                                                        band.Hysteresis) > 0.0f)
+                            farthestCovered = std::max(farthestCovered, dist);
+                    }
+                }
+            }
+            EXPECT_LE(farthestCovered, reach) << "a plant at " << farthestCovered << " m still has mesh coverage and "
+                                              << "the region, reaching " << reach << " m, leaves it out";
+            const f32 nominal = std::max(band.End, band.Start + 1e-3f) + 0.5f * band.Spread + band.Start * band.Hysteresis;
+            EXPECT_LE(reach, nominal * 1.01f + 0.1f) << "the reach is padded well past the band: the region stops "
+                                                       "being a near-field region";
+        }
+        EXPECT_EQ(FoliageLod::MeshRegionReach(0.0f, 0.0f, 1.0f, 0.2f), 0.0f) << "a layer with no mesh has no region";
+    }
 } // namespace OloEngine

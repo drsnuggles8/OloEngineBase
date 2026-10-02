@@ -1545,6 +1545,13 @@ namespace OloEngine
         return device != nullptr && device->IsWeightedBlendedOITSupported();
     }
 
+    bool VulkanRendererAPI::SupportsIndirectFirstInstance() const
+    {
+        // ENABLED, not merely supported (the SupportsInt64ShaderAtomics rule).
+        const auto* device = VulkanDevice::Get();
+        return device != nullptr && device->IsDrawIndirectFirstInstanceEnabled();
+    }
+
     bool VulkanRendererAPI::SupportsMeshShaders() const
     {
         // ENABLED on the logical device, not merely supported by the physical

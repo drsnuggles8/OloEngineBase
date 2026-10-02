@@ -289,6 +289,23 @@ namespace OloEngine::FoliageLod
         return 1.0f + (0.5f * (t + 1.0f));
     }
 
+    // @brief The farthest a plant's pivot can be from the viewer and still have
+    // authored-mesh coverage (#1533): MeshCoverageLod's far edge at its largest,
+    // with the plant's spread offset at the top of its range and the receding
+    // hysteresis shift. FoliageGPUCuller admits exactly the plants inside it into
+    // the mesh region, so a plant the region leaves out is one every mesh draw
+    // would have collapsed. Padded because the two sides measure in different
+    // spaces: terrain-local in the cull, render-relative in the vertex stage.
+    // 0 for a layer with no mesh band.
+    [[nodiscard]] inline f32 MeshRegionReach(f32 bandStart, f32 bandEnd, f32 spread, f32 hysteresis)
+    {
+        if (!(bandEnd > 0.0f))
+            return 0.0f;
+        const f32 end = glm::max(bandEnd, bandStart + 1e-3f);
+        const f32 reach = end + (0.5f * glm::max(spread, 0.0f)) + (glm::max(bandStart, 0.0f) * glm::max(hysteresis, 0.0f));
+        return (reach * 1.001f) + 0.05f;
+    }
+
     // @brief Every authored density-LOD number, sanitised once so the shader
     // side and the cull side read the same thing.
     //

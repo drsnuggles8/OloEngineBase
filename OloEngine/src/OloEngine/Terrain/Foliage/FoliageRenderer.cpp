@@ -2020,12 +2020,19 @@ namespace OloEngine
 
             parts.Reset();
             parts.Reserve(draws.Num());
+            bool hasMeshPart = false;
             for (const auto& draw : draws)
-                parts.Add(FoliageGPUCuller::Part{ draw.IndexCount, draw.BaseIndex });
+            {
+                parts.Add(FoliageGPUCuller::Part{ draw.IndexCount, draw.BaseIndex, draw.IsAuthoredMesh });
+                hasMeshPart = hasMeshPart || draw.IsAuthoredMesh;
+            }
 
+            // Room for the mesh region beside the all-survivor list (#1533):
+            // the region starts at the instance count, so the buffer holds two.
             auto& view = layer.CullViews[slotIndex];
+            const u32 capacityWanted = hasMeshPart ? layer.InstanceCount * 2u : layer.InstanceCount;
             const bool recreated =
-                m_Culler.EnsureViewCapacity(view.Resources, layer.InstanceCount, layer.CullLayer.GroupCount);
+                m_Culler.EnsureViewCapacity(view.Resources, capacityWanted, layer.CullLayer.GroupCount);
             if (recreated || (!view.CardVAO && !view.MeshVAO))
                 RebuildCulledVertexArrays(layer, slotIndex);
 
@@ -2042,6 +2049,10 @@ namespace OloEngine
             FoliageGPUCuller::LodInputs lodInputs;
             lodInputs.Transition0 = FoliageLodTransition0(layer.Lod);
             lodInputs.Transition1 = FoliageLodTransition1(layer.Lod);
+            // Every draw of a layer carries the same hand-over band.
+            if (hasMeshPart)
+                lodInputs.MeshReach = FoliageLod::MeshRegionReach(draws[0].HandoverStart, draws[0].HandoverEnd,
+                                                                  layer.Lod.TransitionSpread, layer.Lod.Hysteresis);
             if (m_Culler.Cull(layer.CullLayer, view.Resources, layer.InstanceVBO->GetRHIHandle(), std::span(parts.GetData(), static_cast<sizet>(parts.Num())), layerInputs,
                               emitStats, lodInputs))
             {
