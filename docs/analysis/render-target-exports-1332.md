@@ -14,7 +14,7 @@ change.
 ## How it was measured
 
 `RenderTargetExportEvidence.EveryCellReportsItsCopiesBytesTimeAndPeak` renders the real pipeline at
-1920x1080 (GL, Debug) with GTAO, TAA and motion blur on, with and without late geometry: foliage, a
+1920x1080 (GL, Release, RTX) with GTAO, TAA and motion blur on, with and without late geometry: foliage, a
 GPU-driven instanced field (>1024 instances, HZB occlusion), a decal and water. For every cell it writes
 `OloEditor/assets/tests/exports/RenderTargetExports_<cell>.json`, which records:
 
@@ -23,8 +23,9 @@ GPU-driven instanced field (>1024 instances, HZB occlusion), a decal and water. 
 - the frame's peak resident bytes;
 - the median GPU time of every pass over 12 frames.
 
-The *before* figures come from commit `59c024fc8` (the ledger, before the migration); the *after*
-figures come from the PR head.
+The *before* figures come from commit `59c024fc8` (the ledger, before the migration), built in a
+detached worktree; the *after* figures come from the PR head. The two ran interleaved, twice each.
+Copies, bytes, pool and peak are identical in Debug and Release and between repeats.
 
 ## Before: the export copy graph
 
@@ -64,12 +65,21 @@ retained copies below). The MSAA cells lose ScenePass's second depth resolve (`G
 peak in the MSAA cell without late geometry is 8.3 MB higher because the pool still holds the previous cell's
 snapshot; its demand is unchanged.
 
-**GPU time.** Within one run, a pass's total minus its own draw sub-pass is the time the pass spends
-outside its draws, which is where its copies were. With Forward and late geometry, that time dropped from
-0.142 to 0.039 ms in ScenePrepassPass and from 0.108 to 0.003 ms in ScenePass, so about 0.21 ms per frame
-at 1080p in these two passes. The prepass shares and FoliagePass lose their copies too. Totals across runs
-are not comparable to better than about 20%: the before run's draw sub-passes (unchanged code) were 10–25%
-slower, and the Deferred MSAA cells vary between 1.0 and 1.9 ms between identical runs.
+**GPU time** (Release, Forward with late geometry, median of 12 frames, both runs). A pass's total
+minus its own draw sub-pass is where its copies ran:
+
+| pass | before ms | after ms |
+|---|---|---|
+| ScenePrepassPass, outside draws | 0.084 / 0.087 | 0.037 / 0.036 |
+| ScenePass, outside draws | 0.088 / 0.091 | 0.002 / 0.003 |
+| FoliagePrepassPass | 0.103 / 0.106 | 0.057 / 0.054 |
+| FoliagePass | 0.294 / 0.298 | 0.233 / 0.222 |
+| GPUDrivenOcclusionPass | 0.038 / 0.038 | 0.014 / 0.014 |
+| the two snapshot passes | none | 0.055 / 0.054 |
+
+Net of the snapshots that is about 0.2 ms per frame at 1080p, and the frame medians agree: 4.25 / 4.09 -> 3.96 / 3.98 ms.
+Frame totals of the other cells differ by up to 2 ms between identical runs, so only these per-pass
+figures are a measurement.
 
 ## Retained copies and why (AC4)
 
