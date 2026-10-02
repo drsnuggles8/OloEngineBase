@@ -40,6 +40,24 @@ namespace OloEngine
         static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(RenderTargetCopyLedgerDetail::PendingCopy::Pass)>;
     };
 
+    namespace RenderTargetCopyLedgerDetail
+    {
+        // One executing graph's copies. Graphs nest (a graph executed from
+        // inside another's pass), so the open frames are a stack and a copy
+        // belongs to the innermost one.
+        struct OpenFrame
+        {
+            const RenderGraph* Graph = nullptr;
+            TArray<PendingCopy> Pending;
+        };
+    } // namespace RenderTargetCopyLedgerDetail
+
+    template<>
+    struct TIsTriviallyRelocatable<RenderTargetCopyLedgerDetail::OpenFrame>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(RenderTargetCopyLedgerDetail::OpenFrame::Pending)>;
+    };
+
     u64 RenderTargetCopyFrame::KnownBytes() const
     {
         u64 total = 0;
@@ -69,13 +87,13 @@ namespace OloEngine
     {
         namespace
         {
+            using RenderTargetCopyLedgerDetail::OpenFrame;
             using RenderTargetCopyLedgerDetail::PendingCopy;
 
             struct LedgerState
             {
                 std::mutex Mutex;
-                const RenderGraph* ActiveGraph = nullptr;
-                TArray<PendingCopy> Pending;
+                TArray<OpenFrame> Open;
                 // The colour attachment each framebuffer's blits read from.
                 std::unordered_map<RHI::ResourceHandle, u32> ReadAttachments;
                 std::unordered_map<RHI::ResourceHandle, u32> DrawAttachments;
@@ -90,6 +108,12 @@ namespace OloEngine
             }
 
             thread_local std::string_view t_ActivePass;
+
+            // The pass a copy outside every pass is charged to.
+            [[nodiscard]] FString PassOrPhase()
+            {
+                return t_ActivePass.empty() ? FString("<extraction>") : FString(t_ActivePass);
+            }
 
             constexpr u64 kLogEveryFrames = 120;
 
@@ -122,10 +146,10 @@ namespace OloEngine
         {
             auto& state = State();
             std::scoped_lock lock(state.Mutex);
-            if (!state.ActiveGraph)
+            if (state.Open.IsEmpty())
                 return;
-            state.Pending.Add(PendingCopy{
-                .Pass = t_ActivePass.empty() ? FString("<extraction>") : FString(t_ActivePass),
+            state.Open.Last().Pending.Add(PendingCopy{
+                .Pass = PassOrPhase(),
                 .Source = source,
                 .Destination = destination,
                 .Width = width,
@@ -138,13 +162,13 @@ namespace OloEngine
         {
             auto& state = State();
             std::scoped_lock lock(state.Mutex);
-            if (!state.ActiveGraph)
+            if (state.Open.IsEmpty())
                 return;
             const auto readIt = state.ReadAttachments.find(sourceFramebuffer);
             const u32 readAttachment = readIt != state.ReadAttachments.end() ? readIt->second : 0u;
             const auto drawIt = state.DrawAttachments.find(destinationFramebuffer);
-            state.Pending.Add(PendingCopy{
-                .Pass = t_ActivePass.empty() ? FString("<extraction>") : FString(t_ActivePass),
+            state.Open.Last().Pending.Add(PendingCopy{
+                .Pass = PassOrPhase(),
                 .Source = sourceFramebuffer,
                 .Destination = destinationFramebuffer,
                 .Width = width,
@@ -175,10 +199,11 @@ namespace OloEngine
 
         void BeginGraphFrame(const RenderGraph& graph)
         {
+            if (!IsRecording())
+                return;
             auto& state = State();
             std::scoped_lock lock(state.Mutex);
-            state.Pending.Reset();
-            state.ActiveGraph = IsRecording() ? &graph : nullptr;
+            state.Open.Add(OpenFrame{ .Graph = &graph });
         }
 
         void EndGraphFrame(const RenderGraph& graph)
@@ -187,11 +212,14 @@ namespace OloEngine
             {
                 auto& state = State();
                 std::scoped_lock lock(state.Mutex);
-                if (state.ActiveGraph != &graph)
+                // Innermost first: a nested graph closes before its host.
+                i32 index = state.Open.Num() - 1;
+                while (index >= 0 && state.Open[index].Graph != &graph)
+                    --index;
+                if (index < 0)
                     return;
-                state.ActiveGraph = nullptr;
-                pending = std::move(state.Pending);
-                state.Pending.Reset();
+                pending = std::move(state.Open[index].Pending);
+                state.Open.RemoveAt(index);
             }
 
             RenderTargetCopyFrame frame;
@@ -208,12 +236,15 @@ namespace OloEngine
                 // a copy is format-identical, so either operand sizes it.
                 const std::optional<u32> texelBytes = copy.IsBlit ? (source.BytesPerTexel ? source.BytesPerTexel : destination.BytesPerTexel)
                                                                   : (destination.BytesPerTexel ? destination.BytesPerTexel : source.BytesPerTexel);
-                const bool extraction = copy.Pass.ToView() == "<extraction>";
+                // Declared by a contract rather than a pass: the end-of-frame
+                // history and external sinks, and a debug hook's capture clone.
+                const bool declaredOutsideAPass = copy.Pass.ToView() == "<extraction>" ||
+                                                  copy.Pass.ToView() == "<post-pass hook>";
                 frame.Copies.Add(RenderTargetCopyRecord{
                     .Pass = copy.Pass,
                     .Source = source.Name,
                     .Destination = destination.Name,
-                    .DestinationDeclared = extraction || destination.DeclaredByPass,
+                    .DestinationDeclared = declaredOutsideAPass || destination.DeclaredByPass,
                     .Width = copy.Width,
                     .Height = copy.Height,
                     .Bytes = texelBytes ? std::optional<u64>(static_cast<u64>(copy.Width) * copy.Height * *texelBytes)

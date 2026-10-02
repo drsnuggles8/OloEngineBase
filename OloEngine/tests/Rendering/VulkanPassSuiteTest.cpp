@@ -9879,6 +9879,8 @@ TEST_F(VulkanPassSuite, DeferredOpaqueDecalExportsTheGBufferThroughTheGraph)
     graph.SetFinalPass("DeferredOpaqueDecalPass");
     graph.BuildFrameGraph();
 
+    // The serial is process-wide: an earlier test's frame would satisfy "> 0".
+    const u64 serialBefore = RenderTargetCopyLedger::GetLastFrame().Serial;
     const bool ledgerWas = Levers::RenderGraphCopyLedger();
     Levers::SetRenderGraphCopyLedger(true);
     SubmitFrame(
@@ -9902,7 +9904,7 @@ TEST_F(VulkanPassSuite, DeferredOpaqueDecalExportsTheGBufferThroughTheGraph)
     EXPECT_EQ(graph.ResolveTextureHandle(blackboard.Scene.SceneNormals), gbuffer->GetColorAttachmentHandle(GBuffer::Normal))
         << "the SceneNormals export must be the G-Buffer's own normal attachment";
     const RenderTargetCopyFrame copies = RenderTargetCopyLedger::GetLastFrame();
-    EXPECT_GT(copies.Serial, 0u) << "the ledger saw no graph frame, so the zero below is vacuous";
+    EXPECT_GT(copies.Serial, serialBefore) << "the ledger saw no graph frame, so the zero below is vacuous";
     for (const auto& copy : copies.Copies)
     {
         ADD_FAILURE() << copy.Pass.ToStdString() << " copied " << copy.Source.ToStdString() << " into "
