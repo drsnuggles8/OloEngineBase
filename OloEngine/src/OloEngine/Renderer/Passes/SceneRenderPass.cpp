@@ -735,7 +735,9 @@ namespace OloEngine
             (postProcessSettings.ActiveAOTechnique == AOTechnique::GTAO && postProcessSettings.GTAOEnabled);
         if (const bool postNeedsResolvedVelocity = postProcessSettings.MotionBlurEnabled || Renderer3D::IsEngineTAAWanted() || m_DeferredVelocityRead; perSampleLighting && (debugNeedsColour || aoNeedsResolvedNormals || postNeedsResolvedVelocity))
         {
-            m_GBuffer->Resolve();
+            // Colour only: depth was resolved above and nothing has drawn since.
+            // A full Resolve() blitted it a second time (#1332's copy ledger).
+            m_GBuffer->ResolveColorOnly();
         }
 
         // Deferred debug visualisation: until DeferredLightingPass lands in
