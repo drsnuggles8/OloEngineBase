@@ -811,7 +811,18 @@ namespace OloEngine
         // lit deferred image unscathed. Mirrors the same pattern DrawSkybox
         // uses for the skybox-on-deferred fallback.
         bool overlayRoute = false;
-        if (material.GetShader())
+        // A see-through debug draw (DrawLine / DrawSphere, #1533) goes to the
+        // late DebugOverlayPass on every path, after every scene-colour writer:
+        // drawn in ScenePass (or ForwardOverlayPass on Deferred) it came before
+        // the foliage, the fur and the water, which painted over it. Shaded by
+        // the forward PBR program, since that pass binds the scene framebuffer.
+        const bool debugRoute = Renderer3DDetail::t_DebugDraw.Active &&
+                                s_Data.Pipeline->RenderStreamPasses.DebugOverlay && s_Data.PBRShader;
+        if (debugRoute)
+        {
+            shaderToUse = s_Data.PBRShader;
+        }
+        else if (material.GetShader())
         {
             shaderToUse = material.GetShader();
             // Forward-only override on the Deferred path would alias its
@@ -831,7 +842,8 @@ namespace OloEngine
             // top of this file.
             const bool deferred = s_Data.Settings.Path == RenderingPath::Deferred;
             const bool hasForwardOverlay = s_Data.Pipeline->RenderStreamPasses.ForwardOverlay != nullptr;
-            // A see-through debug draw (DrawLine / DrawSphere) — see
+            // A see-through debug draw with no DebugOverlayPass to take it (a
+            // pipeline built without one) keeps the old route on Deferred — see
             // Renderer3DDetail::DebugDrawRequest.
             const bool debugOverlay = deferred && Renderer3DDetail::t_DebugDraw.Active && hasForwardOverlay &&
                                       s_Data.PBRShader;
@@ -863,9 +875,9 @@ namespace OloEngine
             return nullptr;
 
         // Create POD command using asset handles and renderer IDs.
-        CommandPacket* packet = overlayRoute
-                                    ? CreateForwardOverlayDrawCall<DrawMeshCommand>()
-                                    : CreateDrawCall<DrawMeshCommand>();
+        CommandPacket* packet = debugRoute     ? CreateDebugOverlayDrawCall<DrawMeshCommand>()
+                                : overlayRoute ? CreateForwardOverlayDrawCall<DrawMeshCommand>()
+                                               : CreateDrawCall<DrawMeshCommand>();
         if (!packet)
             return nullptr;
         auto* cmd = packet->GetCommandData<DrawMeshCommand>();
@@ -954,7 +966,7 @@ namespace OloEngine
             // and entity ID.
             constexpr u8 kSceneColourOnly = 0x01;
             constexpr u8 kGBufferSurfaceLanes = (1u << 0) | (1u << 1) | (1u << 2) | (1u << 5);
-            const bool intoGBuffer = s_Data.Settings.Path == RenderingPath::Deferred && !overlayRoute;
+            const bool intoGBuffer = s_Data.Settings.Path == RenderingPath::Deferred && !overlayRoute && !debugRoute;
             debugState.colorAttachmentWriteMask = intoGBuffer ? kGBufferSurfaceLanes : kSceneColourOnly;
             if (debugDraw.TwoSided)
                 debugState.cullingEnabled = false;
@@ -963,6 +975,13 @@ namespace OloEngine
         }
         packet->SetMetadata(metadata);
 
+        if (debugRoute)
+        {
+            // Straight to the late debug bucket, returning nullptr for the same
+            // reason the overlay route below does.
+            SubmitDebugOverlayPacket(packet);
+            return nullptr;
+        }
         if (overlayRoute)
         {
             // Submit to the overlay bucket directly; return nullptr so the

@@ -333,6 +333,9 @@ namespace OloEngine
         // absent from GetRenderStreamNode / ForEachRenderStreamNode — both of
         // which deal in CommandBufferRenderPass.
         Ref<ShaderDebugDrawPass> ShaderDebugDraw;
+        // See-through debug draws, after every scene-colour writer on every path
+        // (#1533): a second ForwardOverlayRenderPass, registered late.
+        Ref<ForwardOverlayRenderPass> DebugOverlay;
 
         // Every pass in this set, once. Reset() and ForEachPass() both walk
         // this list, and the static_assert in Reset() fails the build
@@ -350,7 +353,8 @@ namespace OloEngine
                 &RenderStreamPassSet::FluidIntermediates,
                 &RenderStreamPassSet::FluidComposite,
                 &RenderStreamPassSet::VirtualGeometry,
-                &RenderStreamPassSet::ShaderDebugDraw
+                &RenderStreamPassSet::ShaderDebugDraw,
+                &RenderStreamPassSet::DebugOverlay
             };
         }
 
@@ -413,6 +417,8 @@ namespace OloEngine
                     return RenderStreamPasses.Decal.Raw();
                 case RenderStreamType::GPUOcclusion:
                     return RenderStreamPasses.GPUOcclusion.Raw();
+                case RenderStreamType::DebugOverlay:
+                    return RenderStreamPasses.DebugOverlay.Raw();
             }
 
             return nullptr;
@@ -427,6 +433,7 @@ namespace OloEngine
             func(GetRenderStreamNode(RenderStreamType::Water));
             func(GetRenderStreamNode(RenderStreamType::Decal));
             func(GetRenderStreamNode(RenderStreamType::GPUOcclusion));
+            func(GetRenderStreamNode(RenderStreamType::DebugOverlay));
         }
 
         void Setup(Renderer3DData& data,

@@ -5791,6 +5791,7 @@ namespace OloEngine
         inputs.Passes.FluidComposite = RenderStreamPasses.FluidComposite.Raw();
         inputs.Passes.VirtualGeometry = RenderStreamPasses.VirtualGeometry.Raw();
         inputs.Passes.ShaderDebugDraw = RenderStreamPasses.ShaderDebugDraw.Raw();
+        inputs.Passes.DebugOverlay = RenderStreamPasses.DebugOverlay.Raw();
         inputs.Passes.Decal = RenderStreamPasses.Decal.Raw();
         inputs.Passes.SSAO = SceneCompositePasses.SSAO.Raw();
         inputs.Passes.GTAO = SceneCompositePasses.GTAO.Raw();
@@ -5945,6 +5946,16 @@ namespace OloEngine
         RenderStreamPasses.ForwardOverlay = Ref<ForwardOverlayRenderPass>::Create();
         RenderStreamPasses.ForwardOverlay->SetName("ForwardOverlayPass");
         RenderStreamPasses.ForwardOverlay->Init(finalPassSpec);
+
+        // The see-through debug draws' pass (#1533): the same replay into the
+        // scene framebuffer, on EVERY path, registered after the last
+        // scene-colour writer (RegisterTransparencyAndAONodes). In ScenePass, or
+        // ForwardOverlayPass on Deferred, a gizmo was drawn before the foliage,
+        // the fur and the water, which then painted over it.
+        RenderStreamPasses.DebugOverlay = Ref<ForwardOverlayRenderPass>::Create();
+        RenderStreamPasses.DebugOverlay->SetName("DebugOverlayPass");
+        RenderStreamPasses.DebugOverlay->SetRunsOnEveryPath(true);
+        RenderStreamPasses.DebugOverlay->Init(finalPassSpec);
 
         SceneCompositePasses.Particle = Ref<ParticleRenderPass>::Create();
         SceneCompositePasses.Particle->SetName("ParticlePass");

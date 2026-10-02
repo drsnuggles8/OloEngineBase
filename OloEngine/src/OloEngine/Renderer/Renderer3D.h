@@ -210,6 +210,11 @@ namespace OloEngine
             // (#431). Routed to GPUDrivenOcclusionPass, which draws after
             // ScenePass in Forward / Forward+.
             GPUOcclusion,
+            // See-through debug draws (DrawLine / DrawSphere, #1533): routed to
+            // DebugOverlayPass, which runs after every scene-colour writer on
+            // every path, so foliage, fur, water and particles drawn later in
+            // the frame no longer paint over a gizmo that sits inside them.
+            DebugOverlay,
         };
 
         struct Statistics
@@ -2176,6 +2181,18 @@ namespace OloEngine
         static void SubmitForwardOverlayPacket(CommandPacket* packet)
         {
             SubmitRenderStreamPacket(RenderStreamType::ForwardOverlay, packet);
+        }
+
+        // The see-through debug draws' late bucket (#1533).
+        template<typename T>
+        static CommandPacket* CreateDebugOverlayDrawCall()
+        {
+            return CreateRenderStreamDrawCall<T>(RenderStreamType::DebugOverlay);
+        }
+
+        static void SubmitDebugOverlayPacket(CommandPacket* packet)
+        {
+            SubmitRenderStreamPacket(RenderStreamType::DebugOverlay, packet);
         }
 
         template<typename T>

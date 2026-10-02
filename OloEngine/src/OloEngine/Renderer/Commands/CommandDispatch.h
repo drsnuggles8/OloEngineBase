@@ -40,6 +40,12 @@ namespace OloEngine
         // State tracking for current frame rendering
         static void ResetState();
         static void InvalidateRenderStateCache();
+        // A pass-wide ceiling on the colour attachments a draw may write, one bit
+        // per attachment, ANDed into every draw's colorAttachmentWriteMask until
+        // it is set back to 0xFF (and at ResetState). For a pass that keeps every
+        // attachment of its target in scope but must not write some of them:
+        // ForwardOverlayPass (#1533).
+        static void SetPassAttachmentWriteLimit(u8 attachmentMask);
 
         // Forget every "this is already bound" cache (shader, vertex array,
         // textures, UBOs, render state, material, GPU Scene table) without

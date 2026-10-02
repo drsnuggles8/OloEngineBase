@@ -116,6 +116,13 @@ namespace OloEngine
         // (skybox / terrain / voxel / custom shaders) is skipped so its full
         // material shader can't pollute the counter.
         bool OverdrawActive = false;
+        // A pass-wide ceiling on which colour attachments a draw may write, ANDed
+        // into every draw's colorAttachmentWriteMask (#1533). ForwardOverlayPass
+        // keeps every scene attachment in its scope -- so the overlay shaders'
+        // velocity and skin-diffuse outputs land on a real attachment rather than
+        // on none, which the Vulkan validation layer reports as unconsumed -- and
+        // stops them being written with this instead of narrowing the draw list.
+        u8 PassAttachmentWriteLimit = 0xFF;
         // Water surface-depth capture: forces depth-only state even for the blended
         // water draw so the nearest water surface is written to its own depth target.
         bool WaterDepthCaptureActive = false;
@@ -611,13 +618,15 @@ namespace OloEngine
         //     state stood.
         //   * colorAttachmentChannelMask -- one NIBBLE per attachment, which
         //     channels of it. Default 0xF per attachment, i.e. no refinement.
-        if (state.colorAttachmentWriteMask != 0xFF || state.colorAttachmentChannelMask != COLOR_CHANNEL_MASK_ALL)
+        // ...and the pass-wide ceiling (SetPassAttachmentWriteLimit), ANDed in.
+        const u8 attachmentWriteMask = static_cast<u8>(state.colorAttachmentWriteMask & s_FrameData.PassAttachmentWriteLimit);
+        if (attachmentWriteMask != 0xFF || state.colorAttachmentChannelMask != COLOR_CHANNEL_MASK_ALL)
         {
             const u8 globalChannels =
                 MakeColorChannelMask(state.colorMaskR, state.colorMaskG, state.colorMaskB, state.colorMaskA);
             for (u32 i = 0; i < MAX_MASKED_COLOR_ATTACHMENTS; ++i)
             {
-                const bool attachmentEnabled = (state.colorAttachmentWriteMask & (1u << i)) != 0u;
+                const bool attachmentEnabled = (attachmentWriteMask & (1u << i)) != 0u;
                 const u8 channels =
                     attachmentEnabled
                         ? static_cast<u8>(globalChannels & GetColorChannelMask(state.colorAttachmentChannelMask, i))
@@ -1867,12 +1876,22 @@ namespace OloEngine
         s_FrameData.DepthPrepassWritesNormals = false;
         s_FrameData.DepthPrepassColorPassActive = false;
         s_FrameData.OverdrawActive = false;
+        s_FrameData.PassAttachmentWriteLimit = 0xFF;
         Data().Stats.Reset();
     }
 
     void CommandDispatch::InvalidateRenderStateCache()
     {
         Data().LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
+    }
+
+    void CommandDispatch::SetPassAttachmentWriteLimit(u8 attachmentMask)
+    {
+        OLO_CORE_ASSERT(!s_RecordingData, "Frame state is frozen during recording");
+        s_FrameData.PassAttachmentWriteLimit = attachmentMask;
+        // The ceiling is part of every applied state, so a cached state
+        // index from before it changed no longer describes the context.
+        InvalidateRenderStateCache();
     }
 
     void CommandDispatch::InvalidateBindingCaches()

@@ -51,6 +51,7 @@ namespace OloEngine
         RenderGraphNode* FluidComposite = nullptr;
         RenderGraphNode* VirtualGeometry = nullptr; // #629 cluster LOD DAG cull + raster
         RenderGraphNode* ShaderDebugDraw = nullptr; // #725 GPU-pushable debug primitives (last SceneColor writer)
+        RenderGraphNode* DebugOverlay = nullptr;    // #1533 see-through debug draws, after every scene-colour writer
         RenderGraphNode* Decal = nullptr;
         RenderGraphNode* SSAO = nullptr;
         RenderGraphNode* GTAO = nullptr;

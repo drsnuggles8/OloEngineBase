@@ -9,8 +9,6 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 
-#include <array>
-
 namespace OloEngine
 {
     ForwardOverlayRenderPass::ForwardOverlayRenderPass()
@@ -23,7 +21,7 @@ namespace OloEngine
     {
         RenderGraphNode::Setup(builder, board);
 
-        if (board.Config.Path != RenderingPath::Deferred)
+        if (!m_RunsOnEveryPath && board.Config.Path != RenderingPath::Deferred)
             return;
         if (!HasSubmittedCommands())
             return;
@@ -70,9 +68,9 @@ namespace OloEngine
                 m_SceneFramebuffer = resolvedSceneFB;
         }
 
-        // Only runs when registered in the graph, which `Renderer3D::
-        // ConfigureRenderGraph` does solely for RenderingPath::Deferred
-        // (Forward/Forward+ route overlay draws through SceneRenderPass).
+        // The forward-overlay instance is registered solely for
+        // RenderingPath::Deferred (Forward/Forward+ route overlay draws through
+        // SceneRenderPass); the debug-overlay instance on every path (#1533).
         // Remaining guards are for invalid-state safety only.
         if (!m_SceneFramebuffer || m_CommandBucket.GetCommandCount() == 0)
         {
@@ -108,22 +106,25 @@ namespace OloEngine
 
         // Forward-overlay draws (grid / blended / transmissive / debug, and
         // the skybox / terrain / voxel fallback) use the forward fragment layout that writes o_Color
-        // (location 0), o_EntityID (location 1) and o_ViewNormal (location 2).
-        // Binding only attachment 0 silently discards the entity-ID and
-        // view-normal writes — breaking picking for any entity rendered
-        // through this pass and leaving stale SSAO/SSR normals in RT2.
-        // Bind attachments 0-2 (clamped to what the scene FB actually has) so
-        // those side buffers are repopulated per-frame. RT3 (velocity) is
-        // intentionally left off: overlay shaders don't track motion vectors.
-        std::array<u32, 3> drawBufs = {
-            0u, 1u, 2u
-        };
-        if (const u32 overlayDrawBufCount = std::min<u32>(sceneColorAttachmentCount, static_cast<u32>(drawBufs.size()));
-            overlayDrawBufCount > 0)
+        // (location 0), o_EntityID (location 1) and o_ViewNormal (location 2),
+        // and attachments 0-2 must be written: binding only attachment 0
+        // silently discarded the entity-ID and view-normal writes, breaking
+        // picking for any entity rendered through this pass and leaving stale
+        // SSAO/SSR normals in RT2. RT3 (velocity) and RT4 (skin diffuse) are
+        // NOT written: overlay shaders don't track motion vectors.
+        //
+        // EVERY ATTACHMENT IN SCOPE, the later ones write-masked (#1533). The
+        // same fragment layout also writes o_Velocity and o_SkinDiffuse, and a
+        // scope narrowed to {0, 1, 2} left those outputs with no attachment at
+        // all, which the Vulkan validation layer reports on every overlay draw
+        // (ShaderOutputNotConsumed; a null view in the slot does not silence
+        // it). A real attachment with its writes masked off consumes them.
+        if (sceneColorAttachmentCount > 0)
         {
-            RenderCommand::SetFramebufferDrawAttachments(
-                sceneFBID, std::span<const u32>(drawBufs.data(), overlayDrawBufCount));
+            RenderCommand::RestoreAllFramebufferDrawAttachments(sceneFBID, sceneColorAttachmentCount);
         }
+        constexpr u8 kOverlayWritableAttachments = (1u << 0) | (1u << 1) | (1u << 2);
+        CommandDispatch::SetPassAttachmentWriteLimit(kOverlayWritableAttachments);
 
         auto& rendererAPI = RenderCommand::GetRendererAPI();
         context.SetDepthTest(true);
@@ -152,14 +153,9 @@ namespace OloEngine
             m_CommandBucket.ExecuteParallel(rendererAPI);
         }
 
-        // Restore multi-attachment draw buffers built dynamically from the
-        // scene FB spec so later passes (e.g. decal pass writing to RT1/RT2,
-        // or TAA sampling RT3 velocity) see the full target set even if the
-        // attachment count differs from the previous 4-entry hardcoded list.
-        if (sceneColorAttachmentCount > 0)
-        {
-            RenderCommand::RestoreAllFramebufferDrawAttachments(sceneFBID, sceneColorAttachmentCount);
-        }
+        // The write ceiling ends with the pass; the full draw list it ran with
+        // is already what later passes expect.
+        CommandDispatch::SetPassAttachmentWriteLimit(0xFF);
 
         // Restores cull face + polygon mode too — skybox / debug commands inside
         // the bucket may flip these and would otherwise leak into the next pass.
