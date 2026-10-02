@@ -515,7 +515,16 @@ namespace OloEngine
         // shader load degrades to CSM instead of rendering nothing.
         [[nodiscard]] bool IsActive() const
         {
-            return m_Settings.Enabled && m_Initialized && !m_Suppressed;
+            return IsEnabledAndInitialized() && !m_Suppressed;
+        }
+        // IsActive() without the global shadow switch: the settings enable it
+        // and initialisation produced every resource. This is what a caller
+        // mirrors back as "VSM is on". The suppression is per frame and must not
+        // overwrite the user's choice: enabling VSM while shadows were off for a
+        // frame used to record it as refused (#1533).
+        [[nodiscard]] bool IsEnabledAndInitialized() const
+        {
+            return m_Settings.Enabled && m_Initialized;
         }
 
         // The shadow system as a whole was switched off (ShadowSettings::Enabled).

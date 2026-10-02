@@ -408,6 +408,10 @@ namespace OloEngine
         void SetEnabled(bool enabled)
         {
             m_Settings.Enabled = enabled;
+            // The VSM learns the global switch in BeginFrame; tell it now as well,
+            // so a settings change made before the next frame sees this state and
+            // not the last frame's (#1533).
+            m_VirtualShadowMap.SetSuppressed(!enabled);
         }
 
         void SetDirectionalShadowEnabled(bool enabled)

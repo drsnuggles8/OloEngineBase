@@ -98,7 +98,7 @@ namespace OloEngine
         // Init can refuse (wrong backend, shader load failure) and clears its own
         // Enabled flag when it does. Mirror that back so the settings the editor
         // and the serializer see match what is actually running.
-        m_Settings.VSM.Enabled = m_VirtualShadowMap.IsActive();
+        m_Settings.VSM.Enabled = m_VirtualShadowMap.IsEnabledAndInitialized();
 
         m_Initialized = true;
         OLO_CORE_INFO("ShadowMap initialized: {}x{} CSM resolution ({} cascades), {}x{} shadow atlas ({} entry budget)",
@@ -681,8 +681,11 @@ namespace OloEngine
         // re-Inits the VSM through Init().
         if (m_Initialized)
         {
+            // The global switch reaches the VSM in BeginFrame; pass it on now too,
+            // so the state read right after this call is the state just set.
+            m_VirtualShadowMap.SetSuppressed(!m_Settings.Enabled);
             m_VirtualShadowMap.SetSettings(m_Settings.VSM);
-            m_Settings.VSM.Enabled = m_VirtualShadowMap.IsActive();
+            m_Settings.VSM.Enabled = m_VirtualShadowMap.IsEnabledAndInitialized();
         }
     }
 

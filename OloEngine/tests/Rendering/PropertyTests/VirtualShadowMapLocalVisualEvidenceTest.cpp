@@ -901,4 +901,43 @@ namespace OloEngine::Tests
                "+X,-X,+Y,-Y,+Z,-Z face order";
     }
 
+    // Found by #1533's full sweep: the orbit test above skipped on every run,
+    // reporting that the pages "refused to initialise". They had initialised.
+    // ShadowMap mirrored IsActive() back into its settings, and IsActive() folds
+    // in the per-frame suppression BeginFrame derives from the global shadow
+    // switch, which SetEnabled(true) left in place until the next frame. So a
+    // frame with shadows off turned the user's VSM choice off. The choice must
+    // survive such a frame, the pages must stay dark while shadows are off, and
+    // they must be live as soon as shadows are back on.
+    TEST_F(VirtualShadowMapLocalSingleLightTest, TurningThePagesOnAroundAFrameWithoutShadowsKeepsTheChoice)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        auto& shadowMap = Renderer3D::GetShadowMap();
+        ASSERT_TRUE(SetVirtualShadowMaps(false));
+
+        // Turned on during a frame with the shadows off, as Scene drives it.
+        shadowMap.SetEnabled(false);
+        shadowMap.BeginFrame();
+        ShadowSettings settings = shadowMap.GetSettings();
+        settings.VSM.Enabled = true;
+        settings.VSM.LocalLights = true;
+        shadowMap.SetSettings(settings);
+        if (!shadowMap.GetVirtualShadowMap().IsEnabledAndInitialized())
+            GTEST_SKIP() << "Virtual Shadow Maps refused to initialise on this backend/driver";
+        EXPECT_TRUE(shadowMap.GetSettings().VSM.Enabled)
+            << "turning the pages on while the shadows were off was recorded as a refusal";
+        EXPECT_FALSE(shadowMap.IsVirtualShadowMapActive()) << "the pages must stay dark while the shadows are off";
+        shadowMap.SetEnabled(true);
+        EXPECT_TRUE(shadowMap.IsVirtualShadowMapActive())
+            << "the pages must be live as soon as the shadows are back on, not a frame later";
+
+        // Turned on just after the shadows came back, the orbit test's sequence.
+        ASSERT_TRUE(SetVirtualShadowMaps(false));
+        shadowMap.SetEnabled(false);
+        shadowMap.BeginFrame();
+        shadowMap.SetEnabled(true);
+        EXPECT_TRUE(SetVirtualShadowMaps(true)) << "the pages were reported as refused right after the shadows came back";
+        EXPECT_TRUE(shadowMap.GetSettings().VSM.Enabled);
+    }
+
 } // namespace OloEngine::Tests
