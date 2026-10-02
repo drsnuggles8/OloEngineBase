@@ -483,7 +483,18 @@ void main()
             discard;
     }
 
-    vec3 albedo = OLO_MAT_ALBEDO(u_AlbedoMap, v_TexCoord, matBaseColorFactor.rgb, matUseAlbedoMap);
+    // AN IRIS PAINTED INTO THE ALBEDO MAP is fetched where the cornea looks
+    // (issue #1533); see include/SkinOcularSurface.glsl, oloSkinOcularIrisShift.
+    // The material here is the INSTANCE's, which is uniform across a quad: a
+    // quad is one primitive of one instance.
+    vec2 albedoUV = v_TexCoord;
+    if (oloSkinEvaluatesOcularSurface(matMaterialKind, u_SkinEvaluationModel) && matUseAlbedoMap)
+    {
+        albedoUV = oloSkinOcularAlbedoUv(v_TexCoord, v_Normal, normalize(u_CameraPosition - v_WorldPos),
+                                         instances[v_InstanceIndex].Transform[2].xyz, u_SkinOcularCorneaLane,
+                                         u_SkinOcularIrisLane, u_SkinOcularResponseLane, u_SkinOcularTintLane);
+    }
+    vec3 albedo = OLO_MAT_ALBEDO(u_AlbedoMap, albedoUV, matBaseColorFactor.rgb, matUseAlbedoMap);
     vec2 metallicRoughness = OLO_MAT_METALLIC_ROUGHNESS(u_MetallicRoughnessMap, v_TexCoord,
                                                      matMetallicFactor, matRoughnessFactor,
                                                      matUseMRMap);

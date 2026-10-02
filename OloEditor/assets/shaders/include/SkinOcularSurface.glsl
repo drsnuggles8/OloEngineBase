@@ -385,6 +385,123 @@ OloSkinOcular oloSkinOcularApply(vec3 albedo, vec3 N, vec3 V, vec3 axis,
     return result;
 }
 
+// Where a PAINTED iris has to be fetched: how far the iris point the ladder
+// resolves sits from the surface point's own lateral coordinate, in eye radii
+// and world orientation. Mirrors SkinOcularIrisShift (issue #1533).
+//
+// oloSkinOcularApply puts the pupil, the ring and the disc fade at the
+// refracted iris point, but the albedo it multiplies was sampled at the
+// surface's own UV. An iris painted into the albedo map therefore stayed glued
+// to the globe while the shader's pupil slid over it: at a 30-degree view the
+// two disagreed by a fifth of the iris radius. The call site adds this shift to
+// its albedo UV (through oloSkinOcularUvShift) so the painted pattern and the
+// masks describe the same point. It is `offset - paintedOffset` in
+// oloSkinOcularApply, faded at the limbus.
+//
+// FADED ON THE PAINTED RADIAL, over the disc band [1 - band, 1]. The cone test
+// that hands the pixel to the sclera is on the SURFACE normal, where the
+// refracted radial is still below one (the cornea magnifies), so a shift that
+// stopped only at the cone would step the sample across the boundary. The
+// surface point's own radial reaches one exactly where the cone cuts.
+//
+// Zero wherever the full model does not apply: a zero master, the sclera,
+// total internal reflection, a ray that misses the iris plane.
+vec3 oloSkinOcularIrisShift(vec3 N, vec3 V, vec3 axis, vec4 corneaLane, vec4 irisLane, vec4 responseLane,
+                            vec4 tintLane)
+{
+    if (!(irisLane.w > 0.0))
+        return vec3(0.0);
+    if (!(dot(axis, axis) > kDegenerateEpsilon))
+        return vec3(0.0);
+
+    vec3 n = normalize(N);
+    vec3 v = normalize(V);
+    vec3 a = normalize(axis);
+    if (!(dot(n, a) >= corneaLane.w))
+        return vec3(0.0);
+
+    vec3 refracted;
+    if (!oloSkinOcularRefract(-v, oloSkinCornealNormal(n, a, corneaLane.y), corneaLane.x, refracted))
+        return vec3(0.0);
+    vec3 refractedHit;
+    if (!oloSkinIrisPlaneHit(n, a, refracted, corneaLane.z, refractedHit))
+        return vec3(0.0);
+
+    float irisRadius = irisLane.x;
+    if (!(irisRadius > 0.0))
+        return vec3(0.0);
+
+    vec3 paintedOffset = n - a * dot(n, a);
+    vec3 refractedOffset = refractedHit - a * dot(refractedHit, a);
+    float ladder = clamp(responseLane.w, 0.0, 1.0);
+    float limbusFade = oloSkinIrisDiscMask(length(paintedOffset) / irisRadius, tintLane.w);
+    return (refractedOffset - paintedOffset) * (ladder * limbusFade);
+}
+
+// The texture step that moves a sample by `shift` across the globe, from the
+// screen-space derivatives of the UV and of the painted lateral offset at this
+// pixel. Mirrors SkinOcularUvShift (issue #1533).
+//
+// FROM THE DERIVATIVES, NOT FROM A UV CONVENTION. Any locally smooth layout
+// (the dog's planar projection across the gaze, a primitive sphere's latitude
+// and longitude) maps a small lateral step to a UV step through one 2x2
+// Jacobian, and the derivatives measure it where the pixel is. Where they
+// cannot (the two screen directions nearly parallel across the gaze: an
+// edge-on view, a degenerate quad) this returns zero, the painted sample,
+// rather than a guessed step.
+//
+// The CALLER takes the derivatives, in uniform control flow: this function
+// runs inside the material's branch and may return early.
+vec2 oloSkinOcularUvShift(vec3 shift, vec3 axis, vec2 uvDx, vec2 uvDy, vec3 offsetDx, vec3 offsetDy)
+{
+    if (!(dot(axis, axis) > kDegenerateEpsilon))
+        return vec2(0.0);
+    vec3 a = normalize(axis);
+
+    // Any orthonormal basis across the gaze: the Jacobian absorbs its turn.
+    vec3 helper = (abs(a.z) < 0.9) ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+    vec3 e1 = normalize(cross(helper, a));
+    vec3 e2 = cross(a, e1);
+
+    vec2 colX = vec2(dot(offsetDx, e1), dot(offsetDx, e2));
+    vec2 colY = vec2(dot(offsetDy, e1), dot(offsetDy, e2));
+    float det = colX.x * colY.y - colY.x * colX.y;
+    float scale = length(colX) * length(colY);
+    // The sine of the angle between the two columns, against 1e-3.
+    if (!(scale > 0.0) || !(abs(det) > 1.0e-3 * scale))
+        return vec2(0.0);
+
+    // The screen step (p, q) whose lateral step is `shift`, by Cramer's rule,
+    // then the UV step the same screen step makes.
+    vec2 s = vec2(dot(shift, e1), dot(shift, e2));
+    float p = (s.x * colY.y - colY.x * s.y) / det;
+    float q = (colX.x * s.y - s.x * colX.y) / det;
+    return uvDx * p + uvDy * q;
+}
+
+// The albedo UV of one eye pixel: its own UV moved to where the cornea looks.
+// The four material stages call this in place of v_TexCoord for the albedo map
+// alone; the cornea's other maps describe the cornea, which is where it is.
+//
+// `vertexNormal` is the INTERPOLATED normal, the globe's radial direction. The
+// derivatives are taken FIRST, before the shift's early returns, and the call
+// sites gate this on per-draw (forward) or per-instance (deferred) material
+// values, which are uniform across a quad: a quad is one primitive.
+vec2 oloSkinOcularAlbedoUv(vec2 uv, vec3 vertexNormal, vec3 V, vec3 axis, vec4 corneaLane, vec4 irisLane,
+                           vec4 responseLane, vec4 tintLane)
+{
+    vec3 n = normalize(vertexNormal);
+    vec3 a = (dot(axis, axis) > kDegenerateEpsilon) ? normalize(axis) : vec3(0.0, 0.0, 1.0);
+    vec3 paintedOffset = n - a * dot(n, a);
+    vec2 uvDx = dFdx(uv);
+    vec2 uvDy = dFdy(uv);
+    vec3 offsetDx = dFdx(paintedOffset);
+    vec3 offsetDy = dFdy(paintedOffset);
+
+    vec3 shift = oloSkinOcularIrisShift(n, V, axis, corneaLane, irisLane, responseLane, tintLane);
+    return uv + oloSkinOcularUvShift(shift, axis, uvDx, uvDy, offsetDx, offsetDy);
+}
+
 // Whether a pixel evaluates the ocular terms at all.
 //
 // THE ONE PLACE THE VERSION TEST IS SPELLED on this side, mirroring

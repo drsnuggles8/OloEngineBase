@@ -372,7 +372,16 @@ void main()
             discard;
     }
 
-    vec3 albedo = OLO_MAT_ALBEDO(u_AlbedoMap, v_TexCoord, u_BaseColorFactor.rgb, bool(u_UseAlbedoMap));
+    // AN IRIS PAINTED INTO THE ALBEDO MAP is fetched where the cornea looks
+    // (issue #1533); see include/SkinOcularSurface.glsl, oloSkinOcularIrisShift.
+    vec2 albedoUV = v_TexCoord;
+    if (oloSkinEvaluatesOcularSurface(u_MaterialKind, u_SkinEvaluationModel) && u_UseAlbedoMap == 1)
+    {
+        albedoUV = oloSkinOcularAlbedoUv(v_TexCoord, v_Normal, normalize(u_CameraPosition - v_WorldPos),
+                                         instances[v_InstanceIndex].Transform[2].xyz, u_SkinOcularCorneaLane,
+                                         u_SkinOcularIrisLane, u_SkinOcularResponseLane, u_SkinOcularTintLane);
+    }
+    vec3 albedo = OLO_MAT_ALBEDO(u_AlbedoMap, albedoUV, u_BaseColorFactor.rgb, bool(u_UseAlbedoMap));
     vec2 metallicRoughness = OLO_MAT_METALLIC_ROUGHNESS(u_MetallicRoughnessMap, v_TexCoord,
                                                         u_MetallicFactor, u_RoughnessFactor,
                                                         bool(u_UseMetallicRoughnessMap));

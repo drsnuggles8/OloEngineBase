@@ -35,6 +35,10 @@
 #include "OloEngine/Renderer/SkinTransmission.h"
 #include "OloEngine/Renderer/SkinProfile.h"
 
+#include <glm/gtc/constants.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
+#include <algorithm>
 #include <cmath>
 #include <tuple>
 #include <limits>
@@ -949,6 +953,143 @@ namespace OloEngine::Tests
             << "the largest disagreement is at disc coordinate " << bestPaintedRadial
             << ", nowhere near the pupil margin at " << iris.y
             << " — so whatever moved, it was not the pupil";
+    }
+
+    // =========================================================================
+    // A painted iris is fetched where the cornea looks (issue #1533)
+    // =========================================================================
+
+    TEST(SkinOcularSurfaceTest, ThePaintedIrisIsFetchedAtThePointThePupilIsDrawnAt)
+    {
+        // The dog's iris is painted into its albedo map, and the albedo used to
+        // be sampled at the surface's own UV while the pupil and the ring sat at
+        // the refracted point: the pattern stayed on the globe and the pupil slid
+        // over it. The shift is the step between the two, so the surface point's
+        // painted offset plus the shift must land at the result's IrisRadial,
+        // wherever the limbus fade has not started.
+        SkinProfileParameters profile = ShippedEye();
+        ASSERT_TRUE(profile.Sanitize());
+        const glm::vec3 axis(0.0f, 0.0f, 1.0f);
+        const glm::vec4 cornea = SkinOcularCorneaLane(profile);
+        const glm::vec4 iris = SkinOcularIrisLane(profile);
+        const glm::vec4 response = SkinOcularResponseLane(profile);
+        const glm::vec4 tint = SkinOcularTintLane(profile);
+        const glm::vec3 view = glm::normalize(glm::vec3(0.35f, -0.2f, 1.0f));
+
+        u32 checked = 0;
+        f32 largestStep = 0.0f;
+        for (i32 i = 1; i <= 24; ++i)
+        {
+            const f32 t = glm::radians(static_cast<f32>(i));
+            const glm::vec3 n = glm::normalize(glm::vec3(std::sin(t) * 0.8f, std::sin(t) * 0.6f, std::cos(t)));
+            const glm::vec3 painted = n - axis * glm::dot(n, axis);
+            if (glm::length(painted) / iris.x > 1.0f - tint.w)
+                continue; // the fade band, where the shift is faded by design
+            const SkinOcularResult r =
+                ApplySkinOcularSurface(glm::vec3(0.5f), n, view, axis, cornea, iris, response, tint);
+            ASSERT_GE(r.IrisRadial, 0.0f) << "a pixel inside the fade band's edge did not resolve to the iris";
+
+            const glm::vec3 shift = SkinOcularIrisShift(n, view, axis, cornea, iris, response, tint);
+            EXPECT_NEAR(glm::dot(shift, axis), 0.0f, 1.0e-6f) << "the shift left the plane across the gaze";
+            EXPECT_NEAR(glm::length(painted + shift) / iris.x, r.IrisRadial, 1.0e-5f)
+                << "at " << i << " degrees the painted iris is fetched " << glm::length(painted + shift) / iris.x
+                << " of the iris radius out while the pupil is drawn at " << r.IrisRadial;
+            largestStep = std::max(largestStep, glm::length(shift) / iris.x);
+            ++checked;
+        }
+        EXPECT_GE(checked, 15u);
+        // AND IT MOVES SOMETHING: an oblique view sees the iris several percent
+        // of its radius away from where the surface point sits.
+        EXPECT_GT(largestStep, 0.03f) << "the shift never exceeds 3% of the iris radius at an oblique view";
+    }
+
+    TEST(SkinOcularSurfaceTest, ThePaintedIrisStaysPutWhereTheModelDoesNotApply)
+    {
+        SkinProfileParameters profile = ShippedEye();
+        ASSERT_TRUE(profile.Sanitize());
+        const glm::vec3 axis(0.0f, 0.0f, 1.0f);
+        const glm::vec4 cornea = SkinOcularCorneaLane(profile);
+        const glm::vec4 iris = SkinOcularIrisLane(profile);
+        const glm::vec4 response = SkinOcularResponseLane(profile);
+        const glm::vec4 tint = SkinOcularTintLane(profile);
+        const glm::vec3 view = glm::normalize(glm::vec3(0.35f, -0.2f, 1.0f));
+        const glm::vec3 oblique = glm::normalize(glm::vec3(0.3f, 0.1f, 0.95f));
+
+        // A zero master, exactly: no eye.
+        EXPECT_EQ(SkinOcularIrisShift(oblique, view, axis, cornea, glm::vec4(glm::vec3(iris), 0.0f), response, tint),
+                  glm::vec3(0.0f));
+        // The bottom of the quality ladder, exactly: the painted arm.
+        EXPECT_EQ(SkinOcularIrisShift(oblique, view, axis, cornea, iris, glm::vec4(glm::vec3(response), 0.0f), tint),
+                  glm::vec3(0.0f));
+        // The sclera, exactly.
+        const glm::vec3 sclera = glm::normalize(glm::vec3(0.8f, 0.0f, 0.5f));
+        EXPECT_EQ(SkinOcularIrisShift(sclera, view, axis, cornea, iris, response, tint), glm::vec3(0.0f));
+
+        // THE LIMBUS IS CONTINUOUS: walking out to the cone the shift falls to
+        // zero, so the sample does not step from the refracted iris to the
+        // sclera where the pixel changes hands.
+        const f32 limbus = std::acos(cornea.w);
+        f32 previous = std::numeric_limits<f32>::max();
+        for (i32 i = 0; i <= 10; ++i)
+        {
+            const f32 t = limbus * (0.9f + 0.01f * static_cast<f32>(i)) - 1.0e-5f;
+            const glm::vec3 n(std::sin(t), 0.0f, std::cos(t));
+            const f32 step = glm::length(SkinOcularIrisShift(n, view, axis, cornea, iris, response, tint)) / iris.x;
+            EXPECT_LE(step, previous + 1.0e-6f) << "the shift grows on the way out to the limbus";
+            previous = step;
+        }
+        EXPECT_LT(previous, 1.0e-3f) << "the shift is still " << previous << " of the iris radius at the limbus";
+    }
+
+    TEST(SkinOcularSurfaceTest, TheUvStepIsMeasuredFromTheDerivativesForAnyLayout)
+    {
+        // THE PLANAR LAYOUT the dog's eyeball carries, u = 0.5 + 0.5 x and
+        // v = 0.5 - 0.5 y (glTF's v runs down), under a turned optical axis and
+        // an arbitrary pair of screen steps: the derivatives alone must give the
+        // exact answer, 0.5 (s.x, -s.y) in the eye's own frame.
+        const glm::mat3 eyeFrame = glm::mat3(glm::rotate(glm::mat4(1.0f), 0.7f, glm::normalize(glm::vec3(0.3f, 1.0f, 0.2f))));
+        const glm::vec3 ex = eyeFrame[0];
+        const glm::vec3 ey = eyeFrame[1];
+        const glm::vec3 axis = eyeFrame[2];
+        const auto planarUv = [&](const glm::vec3& lateral) {
+            return glm::vec2(0.5f + 0.5f * glm::dot(lateral, ex), 0.5f - 0.5f * glm::dot(lateral, ey));
+        };
+        const glm::vec3 offsetDx = ex * 0.011f + ey * 0.002f;
+        const glm::vec3 offsetDy = ex * -0.003f + ey * 0.013f;
+        const glm::vec2 uvDx = planarUv(offsetDx) - planarUv(glm::vec3(0.0f));
+        const glm::vec2 uvDy = planarUv(offsetDy) - planarUv(glm::vec3(0.0f));
+        const glm::vec3 shift = ex * 0.04f - ey * 0.025f;
+        const glm::vec2 step = SkinOcularUvShift(shift, axis, uvDx, uvDy, offsetDx, offsetDy);
+        EXPECT_NEAR(step.x, 0.5f * 0.04f, 1.0e-6f);
+        EXPECT_NEAR(step.y, -0.5f * -0.025f, 1.0e-6f);
+
+        // A LATITUDE-LONGITUDE LAYOUT, the primitive sphere's, measured the way a
+        // pixel measures it (finite differences one pixel apart): the predicted
+        // step lands on the exact UV of the surface point the shift names, to
+        // second order in the step.
+        const glm::vec3 z(0.0f, 0.0f, 1.0f);
+        const auto latLongUv = [](const glm::vec3& p) {
+            return glm::vec2(std::atan2(p.x, p.z) / (2.0f * glm::pi<f32>()) + 0.5f,
+                             std::acos(std::clamp(p.y, -1.0f, 1.0f)) / glm::pi<f32>());
+        };
+        const auto surfaceAt = [&](const glm::vec3& lateral) {
+            return lateral + z * std::sqrt(std::max(0.0f, 1.0f - glm::dot(lateral, lateral)));
+        };
+        const glm::vec3 lateral0(0.18f, 0.12f, 0.0f);
+        const glm::vec3 pixelX(0.004f, 0.001f, 0.0f);
+        const glm::vec3 pixelY(-0.001f, 0.005f, 0.0f);
+        const glm::vec2 uv0 = latLongUv(surfaceAt(lateral0));
+        const glm::vec2 latDx = latLongUv(surfaceAt(lateral0 + pixelX)) - uv0;
+        const glm::vec2 latDy = latLongUv(surfaceAt(lateral0 + pixelY)) - uv0;
+        const glm::vec3 latShift(-0.02f, 0.015f, 0.0f);
+        const glm::vec2 predicted = uv0 + SkinOcularUvShift(latShift, z, latDx, latDy, pixelX, pixelY);
+        const glm::vec2 exact = latLongUv(surfaceAt(lateral0 + latShift));
+        EXPECT_NEAR(predicted.x, exact.x, 2.0e-4f);
+        EXPECT_NEAR(predicted.y, exact.y, 2.0e-4f);
+
+        // AND IT REFUSES TO GUESS: two screen steps that are parallel across the
+        // gaze measure nothing, and the painted sample is kept.
+        EXPECT_EQ(SkinOcularUvShift(shift, axis, uvDx, uvDx * 2.0f, offsetDx, offsetDx * 2.0f), glm::vec2(0.0f));
     }
 
     // =========================================================================

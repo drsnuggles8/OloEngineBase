@@ -461,6 +461,41 @@ namespace OloEngine
                                                           const glm::vec4& responseLane,
                                                           const glm::vec4& tintLane) noexcept;
 
+    // @brief Where a PAINTED iris has to be fetched (issue #1533): the lateral
+    //        step from the surface point's own coordinate to the iris point the
+    //        ladder resolves, in eye radii, in the frame of `normal` and `axis`.
+    //
+    // ApplySkinOcularSurface puts the pupil, the ring and the disc fade at the
+    // refracted iris point, but the albedo it multiplies was sampled at the
+    // surface's own UV. An iris painted into the albedo map stayed glued to the
+    // globe while the pupil slid over it, by a fifth of the iris radius at a
+    // 30-degree view. The shader adds this shift to its albedo UV, through
+    // SkinOcularUvShift, so the painted pattern and the masks describe one
+    // point: away from the limbus, `|paintedOffset + shift| / irisRadius` is the
+    // result's IrisRadial.
+    //
+    // Faded to zero over the disc band of the PAINTED radial, which reaches one
+    // exactly where the cone test hands the pixel to the sclera; the refracted
+    // radial is still below one there (the cornea magnifies), so a shift that
+    // stopped only at the cone would step the sample across the boundary. Zero
+    // wherever the full model does not apply: a zero master, the sclera, total
+    // internal reflection, a ray that misses the iris plane.
+    [[nodiscard]] glm::vec3 SkinOcularIrisShift(const glm::vec3& normal, const glm::vec3& view, const glm::vec3& axis,
+                                                const glm::vec4& corneaLane, const glm::vec4& irisLane,
+                                                const glm::vec4& responseLane, const glm::vec4& tintLane) noexcept;
+
+    // @brief The texture step that moves a sample by `shift` across the globe,
+    //        from the screen-space derivatives of the UV (`uvDx`, `uvDy`) and of
+    //        the painted lateral offset `n - a (n.a)` (`offsetDx`, `offsetDy`).
+    //
+    // From the derivatives rather than from a UV convention: any locally smooth
+    // layout maps a small lateral step to a UV step through one 2x2 Jacobian,
+    // and the derivatives measure it at the pixel. Zero where they cannot: the
+    // two screen directions within a sine of 1e-3 of parallel across the gaze.
+    [[nodiscard]] glm::vec2 SkinOcularUvShift(const glm::vec3& shift, const glm::vec3& axis, const glm::vec2& uvDx,
+                                              const glm::vec2& uvDy, const glm::vec3& offsetDx,
+                                              const glm::vec3& offsetDy) noexcept;
+
     // -------------------------------------------------------------------------
     // The lanes
     // -------------------------------------------------------------------------

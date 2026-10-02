@@ -2928,19 +2928,28 @@ def write_rig_json(path):
 
 # The painted iris (Ole's review, #1533). The engine's ocular model (DogEye.oloskin) refracts the
 # view into the eye and draws the pupil and the limbal ring on the iris plane, but its iris is one
-# flat colour: a dark disc with a hole in it read as a glass bead. The iris's structure -- the
-# radial fibres, the lighter pupillary zone inside the collarette, a few crypts -- is painted into
-# the globe's albedo instead, which the model multiplies by its tint inside the iris. Sizes are the
-# profile's, as fractions of the globe radius: the limbus at IrisRadiusMM / EyeRadiusMM, the
-# pupil's edge at PupilRadiusMM / EyeRadiusMM.
-IRIS_TEX_SIZE = 1024
+# flat colour: a dark disc with a hole in it read as a glass bead. The iris's structure is painted
+# into the globe's albedo instead, which the model multiplies by its tint inside the iris, and the
+# material stages FETCH it at the refracted iris point (oloSkinOcularIrisShift), so the painted
+# pattern moves behind the cornea with the pupil the model draws. Sizes are the profile's, as
+# fractions of the globe radius: the limbus at IrisRadiusMM / EyeRadiusMM, the pupil's edge at
+# PupilRadiusMM / EyeRadiusMM. Because the fetch is refracted, those fractions are positions on the
+# IRIS PLANE, the same coordinates the model's pupil and ring use.
+#
+# A golden retriever's iris is a dark, warm brown (the second review: the amber first version read
+# as a toy's eye), lighter and finer-grained inside the collarette, with a crisp black pupil. The
+# pupil is painted too: the texture's edge is mip-filtered, so it stays sharp at a close-up without
+# crawling, and the model's own soft pupil band then reads as the pigment ruff just outside it.
+IRIS_TEX_SIZE = 2048
 IRIS_LIMBUS = 9.6 / 12.0
 IRIS_PUPIL = 4.3 / 12.0
 IRIS_SCLERA_LINEAR = (0.78, 0.74, 0.71)  # the globe's albedo outside the iris, warm: the eye's old base colour
-# sRGB: amber in the pupillary zone, chestnut across the ciliary zone, dark toward the limbus
-IRIS_PUPILLARY = (0.64, 0.42, 0.19)
-IRIS_CILIARY = (0.46, 0.27, 0.11)
-IRIS_OUTER = (0.29, 0.155, 0.065)
+# sRGB: a warm brown in the pupillary zone, a darker chestnut across the ciliary zone, near-black at the limbus
+IRIS_PUPILLARY = (0.40, 0.235, 0.095)
+IRIS_CILIARY = (0.30, 0.165, 0.065)
+IRIS_OUTER = (0.13, 0.065, 0.027)
+IRIS_PUPIL_COLOUR = (0.018, 0.014, 0.012)
+IRIS_RUFF = (0.09, 0.05, 0.025)
 
 
 def _periodic_value_noise(rng, ang, rad, n_ang, n_rad):
@@ -2967,36 +2976,49 @@ def iris_albedo(size=IRIS_TEX_SIZE, seed=1533):
     rng = np.random.default_rng(seed)
     t = (np.arange(size, dtype=np.float32) + 0.5) / size * 2.0 - 1.0
     x, y = np.meshgrid(t, t)
-    rs = np.hypot(x, y)  # sin(angle off the gaze): the ocular model's painted-arm offset
+    rs = np.hypot(x, y)  # the lateral offset in globe radii: the ocular model's iris-plane coordinate
     ang = np.arctan2(y, x)
     ri = rs / IRIS_LIMBUS  # 0 at the gaze, 1 at the limbus
     pupil = IRIS_PUPIL / IRIS_LIMBUS
+    # The pupil's margin wobbles a little, as a real one does.
+    margin = pupil * (1.0 + 0.012 * (_periodic_value_noise(rng, ang, np.zeros_like(ri), 24, 1) - 0.5))
     # The collarette: a wavy ring a third of the way from the pupil to the limbus.
     wobble = _periodic_value_noise(rng, ang, np.zeros_like(ri), 40, 1) - 0.5
-    collar = pupil + 0.28 * (1.0 - pupil) + 0.025 * wobble
+    collar = pupil + 0.30 * (1.0 - pupil) + 0.03 * wobble
     zone = np.clip((ri - pupil) / np.maximum(1.0 - pupil, 1e-3), 0.0, 1.0)  # 0 pupil edge, 1 limbus
     lin = lambda c: _srgb_to_linear(np.array(c, dtype=np.float64)).astype(np.float32)
     inner, mid, outer = lin(IRIS_PUPILLARY), lin(IRIS_CILIARY), lin(IRIS_OUTER)
-    in_pupillary = _smoothstep(collar + 0.015, collar - 0.015, ri)[..., None]
-    t_out = _smoothstep(0.35, 1.0, zone)[..., None]
+    in_pupillary = _smoothstep(collar + 0.035, collar - 0.035, ri)[..., None]
+    t_out = _smoothstep(0.30, 1.0, zone)[..., None]
     base = mid[None, None, :] * (1.0 - t_out) + outer[None, None, :] * t_out
     base = base * (1.0 - in_pupillary) + inner[None, None, :] * in_pupillary
-    # The fibres: long radial streaks, many around and few out, in two octaves.
-    fib = (0.6 * _periodic_value_noise(rng, ang, zone, 180, 3) +
-           0.4 * _periodic_value_noise(rng, ang + 0.013, zone, 420, 6))
-    fibres = 0.60 + 0.80 * fib  # 0.6 .. 1.4
-    # The collarette's ridge, a little lighter, and the pupil's ruff just outside the pupil.
-    ridge = np.exp(-((ri - collar) / 0.02) ** 2)
-    ruff = np.exp(-((ri - pupil - 0.012) / 0.012) ** 2)
+    # The fibres: long radial streaks, many around and few out, in three octaves; the finest is what
+    # a close-up resolves, the coarse ones are the trabeculae a mid-shot reads.
+    fib = (0.45 * _periodic_value_noise(rng, ang, zone, 160, 3) +
+           0.35 * _periodic_value_noise(rng, ang + 0.013, zone, 420, 7) +
+           0.20 * _periodic_value_noise(rng, ang + 0.029, zone, 1100, 14))
+    fibres = 0.45 + 1.10 * fib  # 0.45 .. 1.55
+    # A few light trabeculae, gold flecks in the brown, more of them inside the collarette.
+    flecks = np.clip(_periodic_value_noise(rng, ang + 0.4, zone, 90, 5) - 0.72, 0.0, 1.0) / 0.28
+    fleck_gain = 1.0 + 0.55 * flecks * (0.6 + 0.4 * in_pupillary[..., 0])
+    # Contraction furrows: faint dark rings across the outer ciliary zone.
+    furrow = 1.0 - 0.18 * np.exp(-((zone - 0.62) / 0.025) ** 2) - 0.14 * np.exp(-((zone - 0.78) / 0.02) ** 2)
+    # The collarette's ridge, a little lighter.
+    ridge = np.exp(-((ri - collar) / 0.022) ** 2)
     # Crypts: dark lozenges in the ciliary zone, just outside the collarette.
     crypt = np.ones_like(ri)
-    for _ in range(26):
+    for _ in range(34):
         ca = rng.uniform(-np.pi, np.pi)
-        cr = rng.uniform(0.05, 0.45) * (1.0 - collar.mean()) + collar.mean() + 0.03
+        cr = rng.uniform(0.04, 0.42) * (1.0 - collar.mean()) + collar.mean() + 0.025
         da = np.angle(np.exp(1j * (ang - ca))) * ri
         dr = ri - cr
-        crypt *= 1.0 - 0.45 * np.exp(-(da / 0.022) ** 2 - (dr / 0.05) ** 2)
-    iris = base * (fibres * crypt)[..., None] * (1.0 + 0.25 * ridge + 0.15 * ruff)[..., None]
+        crypt *= 1.0 - 0.55 * np.exp(-(da / 0.02) ** 2 - (dr / 0.045) ** 2)
+    iris = base * (fibres * crypt * furrow * fleck_gain)[..., None] * (1.0 + 0.30 * ridge)[..., None]
+    # The ruff: a thin dark frill of pigment round the pupil, then the pupil itself, crisp.
+    ruff = _smoothstep(margin + 0.035, margin + 0.008, ri)[..., None]
+    iris = iris * (1.0 - ruff) + lin(IRIS_RUFF)[None, None, :] * ruff
+    in_pupil = _smoothstep(margin + 0.004, margin - 0.004, ri)[..., None]
+    iris = iris * (1.0 - in_pupil) + lin(IRIS_PUPIL_COLOUR)[None, None, :] * in_pupil
     iris = np.clip(iris, 0.0, 1.0)
     # The limbus: the iris ends at ri = 1 (the model's own ring darkens the edge band on top).
     in_iris = _smoothstep(1.03, 0.97, ri)[..., None]

@@ -106,8 +106,12 @@ opening just wider than the lids. The face's fur shortens toward the eye continu
 outer skin is furred like the face, and the dark, moist band is only at the margin. Every one of
 those choices removed a visible fault: see
 [creature-eye-region.md](../agent-rules/creature-eye-region.md). The iris is painted
-(`DogIrisColor.png`: amber inside the collarette, chestnut fibres, crypts), because the ocular
-model's single iris colour read as a glass bead; `DogEye.oloskin` leaves its tint white.
+(`DogIrisColor.png`, 2048²: a dark warm brown, finer and lighter inside the collarette, fibres,
+crypts and furrows, a crisp pupil with its ruff), because the ocular model's single iris colour read
+as a glass bead; `DogEye.oloskin` leaves its tint white. The material stages fetch the painting at
+the refracted iris point, so it moves behind the cornea with the pupil, and the profile's diffusion
+radii are tenths of a millimetre so the fibres and the pupil's edge are not blurred
+([eye-cornea-iris.md](eye-cornea-iris.md#a-painted-iris)).
 
 ## Look development
 
