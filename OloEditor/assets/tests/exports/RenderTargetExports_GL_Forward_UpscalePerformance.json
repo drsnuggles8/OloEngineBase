@@ -1,0 +1,108 @@
+{
+  "byDestination": {
+    "AOBuffer": {
+      "bytes": 518400,
+      "count": 1
+    },
+    "ForwardAODepth": {
+      "bytes": 2073600,
+      "count": 1
+    },
+    "TAAHistory": {
+      "bytes": 16588800,
+      "count": 1
+    },
+    "TAASurfaceHistory": {
+      "bytes": 16588800,
+      "count": 1
+    }
+  },
+  "cell": "GL_Forward_UpscalePerformance",
+  "copies": [
+    {
+      "bytes": 2073600,
+      "declared": true,
+      "destination": "ForwardAODepth",
+      "height": 540,
+      "kind": "copy",
+      "pass": "ScenePrepassPass",
+      "source": "SceneDepthAttachment",
+      "sourceSamples": 1,
+      "width": 960
+    },
+    {
+      "bytes": 518400,
+      "declared": true,
+      "destination": "AOBuffer",
+      "height": 540,
+      "kind": "copy",
+      "pass": "GTAOPass",
+      "source": "GTAODenoisePing",
+      "sourceSamples": 1,
+      "width": 960
+    },
+    {
+      "bytes": 16588800,
+      "declared": true,
+      "destination": "TAASurfaceHistory",
+      "height": 1080,
+      "kind": "copy",
+      "pass": "<extraction>",
+      "source": "UpscaledVelocityTexture@DepthVelocityUpscalePass",
+      "sourceSamples": 1,
+      "width": 1920
+    },
+    {
+      "bytes": 16588800,
+      "declared": true,
+      "destination": "TAAHistory",
+      "height": 1080,
+      "kind": "copy",
+      "pass": "<extraction>",
+      "source": "EASUColorTexture",
+      "sourceSamples": 1,
+      "width": 1920
+    }
+  ],
+  "copyBytes": 35769600,
+  "copyCount": 4,
+  "frameGpuMsMedian": 2.987008,
+  "gpuResidentBytes": 587400244,
+  "gpuWindowPeakBytes": 587400244,
+  "height": 1080,
+  "lateGeometry": false,
+  "passGpuMsMedian": {
+    "DDGIProbeUpdatePass": 0.001024,
+    "DepthVelocityUpscalePass": 0.022528,
+    "EASUPass": 0.045056,
+    "FinalPass": 0.004096,
+    "FoliagePrepassPass": 0.001024,
+    "GPUDrivenOcclusionPass": 0.001024,
+    "GPUDrivenOcclusionPrepassPass": 0.001024,
+    "GTAOPass": 0.73728,
+    "GTAOPass/GTAO": 0.041984,
+    "GTAOPass/GTAO_Denoise": 0.041984,
+    "GTAOPass/HZB": 0.642048,
+    "MotionBlurPass": 0.022528,
+    "ParticlePass": 0.07168,
+    "RayTracingScenePass": 0.001024,
+    "ScenePass": 0.407552,
+    "ScenePass/Color": 0.40448,
+    "ScenePrepassPass": 0.894976,
+    "ScenePrepassPass/DepthPrepass": 0.878592,
+    "ShadowPass": 0.159744,
+    "SkeletalDeformPass": 0.001024,
+    "SkinDiffusionPass": 0.001024,
+    "TAAPass": 0.077824,
+    "ToneMapPass": 0.021504,
+    "UICompositePass": 0.01024,
+    "UpscalerPass": 0.01536,
+    "VirtualShadowMapMarkPass": 0.001024
+  },
+  "transientPool": {
+    "aliasSavingsBytes": 33177600,
+    "capacityBytes": 132082004,
+    "demandBytes": 132082004
+  },
+  "width": 1920
+}

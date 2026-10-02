@@ -1,0 +1,178 @@
+{
+  "byDestination": {
+    "AOBuffer": {
+      "bytes": 2073600,
+      "count": 1
+    },
+    "ForwardAODepth": {
+      "bytes": 24883200,
+      "count": 3
+    },
+    "SceneDepthSnapshot": {
+      "bytes": 8294400,
+      "count": 1
+    },
+    "SceneViewNormalsSnapshot": {
+      "bytes": 8294400,
+      "count": 1
+    },
+    "TAAHistory": {
+      "bytes": 16588800,
+      "count": 1
+    },
+    "TAASurfaceHistory": {
+      "bytes": 16588800,
+      "count": 1
+    },
+    "WaterRefraction": {
+      "bytes": 16588800,
+      "count": 1
+    }
+  },
+  "cell": "GL_ForwardPlus_LateGeometry",
+  "copies": [
+    {
+      "bytes": 8294400,
+      "declared": true,
+      "destination": "ForwardAODepth",
+      "height": 1080,
+      "kind": "copy",
+      "pass": "ScenePrepassPass",
+      "source": "SceneDepthAttachment",
+      "sourceSamples": 1,
+      "width": 1920
+    },
+    {
+      "bytes": 8294400,
+      "declared": true,
+      "destination": "ForwardAODepth",
+      "height": 1080,
+      "kind": "copy",
+      "pass": "GPUDrivenOcclusionPrepassPass",
+      "source": "SceneDepthAttachment",
+      "sourceSamples": 1,
+      "width": 1920
+    },
+    {
+      "bytes": 8294400,
+      "declared": true,
+      "destination": "ForwardAODepth",
+      "height": 1080,
+      "kind": "copy",
+      "pass": "FoliagePrepassPass",
+      "source": "SceneDepthAttachment",
+      "sourceSamples": 1,
+      "width": 1920
+    },
+    {
+      "bytes": 2073600,
+      "declared": true,
+      "destination": "AOBuffer",
+      "height": 1080,
+      "kind": "copy",
+      "pass": "GTAOPass",
+      "source": "GTAODenoisePing",
+      "sourceSamples": 1,
+      "width": 1920
+    },
+    {
+      "bytes": 8294400,
+      "declared": true,
+      "destination": "SceneDepthSnapshot",
+      "height": 1080,
+      "kind": "copy",
+      "pass": "SceneDepthSnapshotPass",
+      "source": "SceneDepth",
+      "sourceSamples": 1,
+      "width": 1920
+    },
+    {
+      "bytes": 8294400,
+      "declared": true,
+      "destination": "SceneViewNormalsSnapshot",
+      "height": 1080,
+      "kind": "copy",
+      "pass": "SceneViewNormalsSnapshotPass",
+      "source": "SceneViewNormals",
+      "sourceSamples": 1,
+      "width": 1920
+    },
+    {
+      "bytes": 16588800,
+      "declared": true,
+      "destination": "WaterRefraction",
+      "height": 1080,
+      "kind": "copy",
+      "pass": "WaterPass",
+      "source": "SceneColorTexture",
+      "sourceSamples": 1,
+      "width": 1920
+    },
+    {
+      "bytes": 16588800,
+      "declared": true,
+      "destination": "TAASurfaceHistory",
+      "height": 1080,
+      "kind": "copy",
+      "pass": "<extraction>",
+      "source": "Velocity",
+      "sourceSamples": 1,
+      "width": 1920
+    },
+    {
+      "bytes": 16588800,
+      "declared": true,
+      "destination": "TAAHistory",
+      "height": 1080,
+      "kind": "copy",
+      "pass": "<extraction>",
+      "source": "TAAColorTexture",
+      "sourceSamples": 1,
+      "width": 1920
+    }
+  ],
+  "copyBytes": 93312000,
+  "copyCount": 9,
+  "frameGpuMsMedian": 9.54368,
+  "gpuResidentBytes": 556876108,
+  "gpuWindowPeakBytes": 556876108,
+  "height": 1080,
+  "lateGeometry": true,
+  "passGpuMsMedian": {
+    "DDGIProbeUpdatePass": 0.001024,
+    "DecalPass": 0.019456,
+    "FinalPass": 0.007168,
+    "FoliagePass": 0.4608,
+    "FoliagePrepassPass": 0.08192,
+    "GPUDrivenOcclusionPass": 0.023552,
+    "GPUDrivenOcclusionPrepassPass": 0.801792,
+    "GTAOPass": 0.730112,
+    "GTAOPass/GTAO": 0.388096,
+    "GTAOPass/GTAO_Denoise": 0.132096,
+    "GTAOPass/HZB": 0.070656,
+    "MotionBlurPass": 0.038912,
+    "ParticlePass": 0.012288,
+    "PlanarReflectionPass": 0.001024,
+    "RayTracingScenePass": 0.001024,
+    "SceneDepthSnapshotPass": 0.044032,
+    "ScenePass": 1.499136,
+    "ScenePass/Color": 1.491968,
+    "ScenePrepassPass": 1.179648,
+    "ScenePrepassPass/DepthPrepass": 1.122304,
+    "SceneViewNormalsSnapshotPass": 0.034816,
+    "ShadowPass": 2.772992,
+    "SkeletalDeformPass": 0.001024,
+    "SkinDiffusionPass": 0.001024,
+    "TAAPass": 0.130048,
+    "ToneMapPass": 0.024576,
+    "UICompositePass": 0.016384,
+    "VirtualShadowMapMarkPass": 0.001024,
+    "WaterPass": 0.498688
+  },
+  "transientPool": {
+    "aliasSavingsBytes": 41472000,
+    "capacityBytes": 196552020,
+    "demandBytes": 196552020
+  },
+  "width": 1920
+}

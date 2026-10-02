@@ -1,0 +1,414 @@
+{
+  "byDestination": {
+    "AOBuffer": {
+      "bytes": 2073600,
+      "count": 1
+    },
+    "GBufferResolved[0]": {
+      "bytes": 24883200,
+      "count": 3
+    },
+    "GBufferResolved[1]": {
+      "bytes": 49766400,
+      "count": 3
+    },
+    "GBufferResolved[2]": {
+      "bytes": 49766400,
+      "count": 3
+    },
+    "GBufferResolved[3]": {
+      "bytes": 49766400,
+      "count": 3
+    },
+    "GBufferResolved[4]": {
+      "bytes": 24883200,
+      "count": 3
+    },
+    "GBufferResolved[5]": {
+      "bytes": 49766400,
+      "count": 3
+    },
+    "GBufferResolved[depth]": {
+      "bytes": 24883200,
+      "count": 3
+    },
+    "SceneColor[1]": {
+      "bytes": 8294400,
+      "count": 1
+    },
+    "SceneColor[depth]": {
+      "bytes": 8294400,
+      "count": 1
+    },
+    "SceneViewNormalsSnapshot": {
+      "bytes": 8294400,
+      "count": 1
+    },
+    "TAAHistory": {
+      "bytes": 16588800,
+      "count": 1
+    },
+    "TAASurfaceHistory": {
+      "bytes": 16588800,
+      "count": 1
+    },
+    "WaterRefraction": {
+      "bytes": 16588800,
+      "count": 1
+    }
+  },
+  "cell": "GL_Deferred_Msaa4_LateGeometry",
+  "copies": [
+    {
+      "bytes": 8294400,
+      "declared": true,
+      "destination": "GBufferResolved[depth]",
+      "height": 1080,
+      "kind": "blit",
+      "pass": "ScenePass",
+      "source": "GBufferMS[depth]",
+      "sourceSamples": 4,
+      "width": 1920
+    },
+    {
+      "bytes": 8294400,
+      "declared": true,
+      "destination": "GBufferResolved[0]",
+      "height": 1080,
+      "kind": "blit",
+      "pass": "ScenePass",
+      "source": "GBufferMS[0]",
+      "sourceSamples": 4,
+      "width": 1920
+    },
+    {
+      "bytes": 16588800,
+      "declared": true,
+      "destination": "GBufferResolved[1]",
+      "height": 1080,
+      "kind": "blit",
+      "pass": "ScenePass",
+      "source": "GBufferMS[1]",
+      "sourceSamples": 4,
+      "width": 1920
+    },
+    {
+      "bytes": 16588800,
+      "declared": true,
+      "destination": "GBufferResolved[2]",
+      "height": 1080,
+      "kind": "blit",
+      "pass": "ScenePass",
+      "source": "GBufferMS[2]",
+      "sourceSamples": 4,
+      "width": 1920
+    },
+    {
+      "bytes": 16588800,
+      "declared": true,
+      "destination": "GBufferResolved[3]",
+      "height": 1080,
+      "kind": "blit",
+      "pass": "ScenePass",
+      "source": "GBufferMS[3]",
+      "sourceSamples": 4,
+      "width": 1920
+    },
+    {
+      "bytes": 8294400,
+      "declared": true,
+      "destination": "GBufferResolved[4]",
+      "height": 1080,
+      "kind": "blit",
+      "pass": "ScenePass",
+      "source": "GBufferMS[4]",
+      "sourceSamples": 4,
+      "width": 1920
+    },
+    {
+      "bytes": 16588800,
+      "declared": true,
+      "destination": "GBufferResolved[5]",
+      "height": 1080,
+      "kind": "blit",
+      "pass": "ScenePass",
+      "source": "GBufferMS[5]",
+      "sourceSamples": 4,
+      "width": 1920
+    },
+    {
+      "bytes": 8294400,
+      "declared": true,
+      "destination": "GBufferResolved[0]",
+      "height": 1080,
+      "kind": "blit",
+      "pass": "DeferredGPUOcclusionPass",
+      "source": "GBufferMS[0]",
+      "sourceSamples": 4,
+      "width": 1920
+    },
+    {
+      "bytes": 16588800,
+      "declared": true,
+      "destination": "GBufferResolved[1]",
+      "height": 1080,
+      "kind": "blit",
+      "pass": "DeferredGPUOcclusionPass",
+      "source": "GBufferMS[1]",
+      "sourceSamples": 4,
+      "width": 1920
+    },
+    {
+      "bytes": 16588800,
+      "declared": true,
+      "destination": "GBufferResolved[2]",
+      "height": 1080,
+      "kind": "blit",
+      "pass": "DeferredGPUOcclusionPass",
+      "source": "GBufferMS[2]",
+      "sourceSamples": 4,
+      "width": 1920
+    },
+    {
+      "bytes": 16588800,
+      "declared": true,
+      "destination": "GBufferResolved[3]",
+      "height": 1080,
+      "kind": "blit",
+      "pass": "DeferredGPUOcclusionPass",
+      "source": "GBufferMS[3]",
+      "sourceSamples": 4,
+      "width": 1920
+    },
+    {
+      "bytes": 8294400,
+      "declared": true,
+      "destination": "GBufferResolved[4]",
+      "height": 1080,
+      "kind": "blit",
+      "pass": "DeferredGPUOcclusionPass",
+      "source": "GBufferMS[4]",
+      "sourceSamples": 4,
+      "width": 1920
+    },
+    {
+      "bytes": 16588800,
+      "declared": true,
+      "destination": "GBufferResolved[5]",
+      "height": 1080,
+      "kind": "blit",
+      "pass": "DeferredGPUOcclusionPass",
+      "source": "GBufferMS[5]",
+      "sourceSamples": 4,
+      "width": 1920
+    },
+    {
+      "bytes": 8294400,
+      "declared": true,
+      "destination": "GBufferResolved[depth]",
+      "height": 1080,
+      "kind": "blit",
+      "pass": "DeferredGPUOcclusionPass",
+      "source": "GBufferMS[depth]",
+      "sourceSamples": 4,
+      "width": 1920
+    },
+    {
+      "bytes": 8294400,
+      "declared": true,
+      "destination": "GBufferResolved[0]",
+      "height": 1080,
+      "kind": "blit",
+      "pass": "DeferredOpaqueDecalPass",
+      "source": "GBufferMS[0]",
+      "sourceSamples": 4,
+      "width": 1920
+    },
+    {
+      "bytes": 16588800,
+      "declared": true,
+      "destination": "GBufferResolved[1]",
+      "height": 1080,
+      "kind": "blit",
+      "pass": "DeferredOpaqueDecalPass",
+      "source": "GBufferMS[1]",
+      "sourceSamples": 4,
+      "width": 1920
+    },
+    {
+      "bytes": 16588800,
+      "declared": true,
+      "destination": "GBufferResolved[2]",
+      "height": 1080,
+      "kind": "blit",
+      "pass": "DeferredOpaqueDecalPass",
+      "source": "GBufferMS[2]",
+      "sourceSamples": 4,
+      "width": 1920
+    },
+    {
+      "bytes": 16588800,
+      "declared": true,
+      "destination": "GBufferResolved[3]",
+      "height": 1080,
+      "kind": "blit",
+      "pass": "DeferredOpaqueDecalPass",
+      "source": "GBufferMS[3]",
+      "sourceSamples": 4,
+      "width": 1920
+    },
+    {
+      "bytes": 8294400,
+      "declared": true,
+      "destination": "GBufferResolved[4]",
+      "height": 1080,
+      "kind": "blit",
+      "pass": "DeferredOpaqueDecalPass",
+      "source": "GBufferMS[4]",
+      "sourceSamples": 4,
+      "width": 1920
+    },
+    {
+      "bytes": 16588800,
+      "declared": true,
+      "destination": "GBufferResolved[5]",
+      "height": 1080,
+      "kind": "blit",
+      "pass": "DeferredOpaqueDecalPass",
+      "source": "GBufferMS[5]",
+      "sourceSamples": 4,
+      "width": 1920
+    },
+    {
+      "bytes": 8294400,
+      "declared": true,
+      "destination": "GBufferResolved[depth]",
+      "height": 1080,
+      "kind": "blit",
+      "pass": "DeferredOpaqueDecalPass",
+      "source": "GBufferMS[depth]",
+      "sourceSamples": 4,
+      "width": 1920
+    },
+    {
+      "bytes": 2073600,
+      "declared": true,
+      "destination": "AOBuffer",
+      "height": 1080,
+      "kind": "copy",
+      "pass": "GTAOPass",
+      "source": "GTAODenoisePing",
+      "sourceSamples": 1,
+      "width": 1920
+    },
+    {
+      "bytes": 8294400,
+      "declared": true,
+      "destination": "SceneColor[depth]",
+      "height": 1080,
+      "kind": "blit",
+      "pass": "DeferredLightingPass",
+      "source": "GBufferResolved[depth]",
+      "sourceSamples": 1,
+      "width": 1920
+    },
+    {
+      "bytes": 8294400,
+      "declared": true,
+      "destination": "SceneColor[1]",
+      "height": 1080,
+      "kind": "blit",
+      "pass": "DeferredLightingPass",
+      "source": "GBufferResolved[4]",
+      "sourceSamples": 1,
+      "width": 1920
+    },
+    {
+      "bytes": 8294400,
+      "declared": true,
+      "destination": "SceneViewNormalsSnapshot",
+      "height": 1080,
+      "kind": "copy",
+      "pass": "SceneViewNormalsSnapshotPass",
+      "source": "SceneViewNormals",
+      "sourceSamples": 1,
+      "width": 1920
+    },
+    {
+      "bytes": 16588800,
+      "declared": true,
+      "destination": "WaterRefraction",
+      "height": 1080,
+      "kind": "copy",
+      "pass": "WaterPass",
+      "source": "SceneColorTexture",
+      "sourceSamples": 1,
+      "width": 1920
+    },
+    {
+      "bytes": 16588800,
+      "declared": true,
+      "destination": "TAASurfaceHistory",
+      "height": 1080,
+      "kind": "copy",
+      "pass": "<extraction>",
+      "source": "Velocity__ResolvedBacking",
+      "sourceSamples": 1,
+      "width": 1920
+    },
+    {
+      "bytes": 16588800,
+      "declared": true,
+      "destination": "TAAHistory",
+      "height": 1080,
+      "kind": "copy",
+      "pass": "<extraction>",
+      "source": "TAAColorTexture",
+      "sourceSamples": 1,
+      "width": 1920
+    }
+  ],
+  "copyBytes": 350438400,
+  "copyCount": 28,
+  "frameGpuMsMedian": 9.609216,
+  "gpuResidentBytes": 1079423308,
+  "gpuWindowPeakBytes": 1079423308,
+  "height": 1080,
+  "lateGeometry": true,
+  "passGpuMsMedian": {
+    "DDGIProbeUpdatePass": 0.001024,
+    "DecalPass": 0.001024,
+    "DeferredGPUOcclusionPass": 0.2304,
+    "DeferredLightingPass": 3.44064,
+    "DeferredOpaqueDecalPass": 0.17408,
+    "FinalPass": 0.004096,
+    "ForwardOverlayPass": 0.264192,
+    "GTAOPass": 0.331776,
+    "GTAOPass/GTAO": 0.164864,
+    "GTAOPass/GTAO_Denoise": 0.089088,
+    "GTAOPass/HZB": 0.0512,
+    "MotionBlurPass": 0.024576,
+    "ParticlePass": 0.007168,
+    "PlanarReflectionPass": 0.001024,
+    "RayTracingScenePass": 0.001024,
+    "ScenePass": 0.766976,
+    "ScenePass/Color": 0.323584,
+    "ScenePass/DepthPrepass": 0.2304,
+    "SceneViewNormalsSnapshotPass": 0.023552,
+    "ShadowPass": 2.844672,
+    "SkeletalDeformPass": 0.001024,
+    "SkinDiffusionPass": 0.001024,
+    "TAAPass": 0.079872,
+    "ToneMapPass": 0.01536,
+    "UICompositePass": 0.01024,
+    "VirtualGeometryPass": 0.001024,
+    "VirtualShadowMapMarkPass": 0.001024,
+    "WaterPass": 0.227328
+  },
+  "transientPool": {
+    "aliasSavingsBytes": 33177600,
+    "capacityBytes": 188257620,
+    "demandBytes": 188257620
+  },
+  "width": 1920
+}

@@ -156,17 +156,30 @@ single-context win. If bake latency ever matters, the lever is the SH irradiance
 
 > Note `EnableMultithreading` and `UseDiskCache` are **not** hashed into the cache key.
 
-## 8. Adding a pass that writes the G-Buffer after `SceneRenderPass`
+## 8. Adding a pass that writes the scene target or the G-Buffer after `SceneRenderPass`
 
-- **Downstream consumers sample the *exported* graph textures, not the FBO.** ScenePass copies the
-  live attachments into `Scene.SceneDepth`/`SceneNormals` and `GBuffer.{Albedo,Normal,Emissive,Velocity}`
-  at the end of its Execute — *before* your pass draws. After adding geometry you **must re-copy**
-  those (`glCopyImageSubData`, declared as `builder.Write(handle, RGWriteUsage::TransferDest)`) or
-  AO / DeferredLighting / SSR won't see it. Unlike a decal pass, a geometry pass also changes depth
-  and velocity, so re-export `SceneDepth` and single-sample `Velocity` too.
-- **Ordering is by registration order** for same-resource `TransferDest` writers. Register between
-  ScenePass and `DeferredOpaqueDecalPass`/AO. The "registration order changed derived dependency
-  result" log lines are order-sensitivity *diagnostics*, not errors.
+- **Never copy an attachment into an export; declare the framebuffer write.** `Scene.SceneDepth`,
+  `Scene.SceneNormals` and `GBuffer.Velocity` are attachment views: of `SceneColor` on Forward and
+  Forward+ (issue #1332), of the G-Buffer on Deferred. A pass that draws geometry declares
+  `WriteNewVersion(SceneColor, RenderTarget, …)` (or writes the G-Buffer views), and every reader
+  registered after it sees its depth, normals and velocity. Before #1332 the forward exports were
+  copies that each late writer had to refresh; groom, water and the GPU-driven batches' velocity did
+  not, and their readers got a version from before them. `RenderGraphAttachmentViewExports.*` pins
+  the contract and `RenderTargetExportEvidence.EveryExportConsumerReadsTheLastWriteOfItsAttachment`
+  checks every consumer of a real frame.
+- **A pass that samples an attachment while drawing into the same framebuffer reads a snapshot.**
+  That is a feedback loop, so a view cannot serve it: decals and water read
+  `Scene.SceneDepthSnapshot` / `SceneViewNormalsSnapshot`, made once by
+  `SceneAttachmentSnapshotPass`, and the forward AO upsample reads `ForwardAODepth`. A new pass of
+  that kind reads one of these, or adds a snapshot node, and documents why. The full list of the
+  copies that remain and the reason for each is in
+  [render-target-exports-1332.md](../analysis/render-target-exports-1332.md).
+- **Ordering is by registration order.** A reader is ordered after every writer of the framebuffer
+  registered before it. Register a geometry writer before the readers that must see it. The
+  "registration order changed derived dependency result" log lines are order-sensitivity
+  *diagnostics*, not errors.
+- **Count the copies with `OLO_RG_COPY_LEDGER=1`.** It logs every image copy and blit a frame issues,
+  by pass, with bytes, and marks a copy into a graph resource the pass never declared.
 - **Declare exports unconditionally (handle-gated), never gated on per-frame work count.** Runtime
   toggles flip without forcing a graph rebuild, so Setup may not re-run on the flip frame and the
   pass would be left undeclared. Let Execute no-op instead — a no-op frame passes ScenePass's export

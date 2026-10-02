@@ -1,0 +1,121 @@
+{
+  "byDestination": {
+    "AOBuffer": {
+      "bytes": 2073600,
+      "count": 1
+    },
+    "SceneColor[1]": {
+      "bytes": 8294400,
+      "count": 1
+    },
+    "SceneColor[depth]": {
+      "bytes": 8294400,
+      "count": 1
+    },
+    "TAAHistory": {
+      "bytes": 16588800,
+      "count": 1
+    },
+    "TAASurfaceHistory": {
+      "bytes": 16588800,
+      "count": 1
+    }
+  },
+  "cell": "GL_Deferred",
+  "copies": [
+    {
+      "bytes": 2073600,
+      "declared": true,
+      "destination": "AOBuffer",
+      "height": 1080,
+      "kind": "copy",
+      "pass": "GTAOPass",
+      "source": "GTAODenoisePing",
+      "sourceSamples": 1,
+      "width": 1920
+    },
+    {
+      "bytes": 8294400,
+      "declared": true,
+      "destination": "SceneColor[depth]",
+      "height": 1080,
+      "kind": "blit",
+      "pass": "DeferredLightingPass",
+      "source": "GBufferResolved[depth]",
+      "sourceSamples": 1,
+      "width": 1920
+    },
+    {
+      "bytes": 8294400,
+      "declared": true,
+      "destination": "SceneColor[1]",
+      "height": 1080,
+      "kind": "blit",
+      "pass": "DeferredLightingPass",
+      "source": "GBufferResolved[4]",
+      "sourceSamples": 1,
+      "width": 1920
+    },
+    {
+      "bytes": 16588800,
+      "declared": true,
+      "destination": "TAASurfaceHistory",
+      "height": 1080,
+      "kind": "copy",
+      "pass": "<extraction>",
+      "source": "Velocity",
+      "sourceSamples": 1,
+      "width": 1920
+    },
+    {
+      "bytes": 16588800,
+      "declared": true,
+      "destination": "TAAHistory",
+      "height": 1080,
+      "kind": "copy",
+      "pass": "<extraction>",
+      "source": "TAAColorTexture",
+      "sourceSamples": 1,
+      "width": 1920
+    }
+  ],
+  "copyBytes": 51840000,
+  "copyCount": 5,
+  "frameGpuMsMedian": 4.332544,
+  "gpuResidentBytes": 687334116,
+  "gpuWindowPeakBytes": 687334116,
+  "height": 1080,
+  "lateGeometry": false,
+  "passGpuMsMedian": {
+    "DDGIProbeUpdatePass": 0.001024,
+    "DeferredGPUOcclusionPass": 0.001024,
+    "DeferredLightingPass": 0.886784,
+    "DeferredOpaqueDecalPass": 0.001024,
+    "FinalPass": 0.012288,
+    "ForwardOverlayPass": 0.398336,
+    "GTAOPass": 0.636928,
+    "GTAOPass/GTAO": 0.282624,
+    "GTAOPass/GTAO_Denoise": 0.140288,
+    "GTAOPass/HZB": 0.181248,
+    "MotionBlurPass": 0.041984,
+    "ParticlePass": 0.011264,
+    "RayTracingScenePass": 0.001024,
+    "ScenePass": 0.80384,
+    "ScenePass/Color": 0.420864,
+    "ScenePass/DepthPrepass": 0.32768,
+    "ShadowPass": 0.26112,
+    "SkeletalDeformPass": 0.001024,
+    "SkinDiffusionPass": 0.001024,
+    "TAAPass": 0.243712,
+    "ToneMapPass": 0.028672,
+    "UICompositePass": 0.021504,
+    "VirtualGeometryPass": 0.001024,
+    "VirtualShadowMapMarkPass": 0.001024
+  },
+  "transientPool": {
+    "aliasSavingsBytes": 33177600,
+    "capacityBytes": 163374420,
+    "demandBytes": 163374420
+  },
+  "width": 1920
+}
