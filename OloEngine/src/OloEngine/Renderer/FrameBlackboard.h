@@ -102,6 +102,7 @@ namespace OloEngine
             // SceneColor (decals, water): see ResourceNames::SceneDepthSnapshot.
             // SceneDepthSnapshot == SceneDepth on Deferred.
             RGTextureHandle SceneDepthSnapshot;
+            RGTextureHandle SceneViewNormalsSnapshot;
         };
 
         // -----------------------------------------------------------------------

@@ -268,6 +268,7 @@ namespace OloEngine
         // water, which sample them while drawing into SceneColor (issue #1332).
         // Registered in the render-stream band, before their readers.
         Ref<SceneAttachmentSnapshotPass> SceneDepthSnapshot;
+        Ref<SceneAttachmentSnapshotPass> SceneViewNormalsSnapshot;
         // Realtime DDGI probe capture/relight/blend (#632). Path-agnostic:
         // registered between ShadowPass (its relight samples the CSM/atlas)
         // and ScenePass (the forward lit shaders sample the atlases it
@@ -296,6 +297,7 @@ namespace OloEngine
                 &FrameCorePassSet::GPUOcclusionPrepass,
                 &FrameCorePassSet::FoliagePrepass,
                 &FrameCorePassSet::SceneDepthSnapshot,
+                &FrameCorePassSet::SceneViewNormalsSnapshot,
                 &FrameCorePassSet::DDGIProbeUpdate,
                 &FrameCorePassSet::VirtualShadowMapMark,
                 &FrameCorePassSet::SkeletalDeform,

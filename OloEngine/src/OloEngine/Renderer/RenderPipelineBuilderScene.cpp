@@ -74,10 +74,13 @@ namespace OloEngine::RenderPipelineBuilderInternal
 
         // The depth decals project from and water refracts through, copied after
         // the last depth-writing geometry (groom) because both sample it while
-        // drawing into SceneColor (issue #1332). Culled without a reader.
+        // drawing into SceneColor (issue #1332). The view normals water marches,
+        // copied right before it for the same reason. Culled without a reader.
         if (inputs.Passes->SceneDepthSnapshot)
             AddExistingNode(graph, inputs.Passes->SceneDepthSnapshot);
         AddExistingNode(graph, inputs.Passes->Decal);
+        if (inputs.Passes->SceneViewNormalsSnapshot)
+            AddExistingNode(graph, inputs.Passes->SceneViewNormalsSnapshot);
         AddExistingNode(graph, inputs.Passes->Water);
 
         // Screen-space fluid (issue #630): intermediates first (name-based

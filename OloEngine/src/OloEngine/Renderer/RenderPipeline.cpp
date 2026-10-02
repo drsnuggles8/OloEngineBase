@@ -3443,6 +3443,19 @@ namespace OloEngine
                 depthDesc.DebugName = ResourceNames::SceneDepthSnapshot;
                 board.Scene.SceneDepthSnapshot = graph.AllocateTransientTextureHandle(ResourceNames::SceneDepthSnapshot, depthDesc);
             }
+
+            // Water also marches the view normals it writes: a copy on every path.
+            if (sceneSpec.Width > 0u && sceneSpec.Height > 0u && board.Scene.SceneViewNormals.IsValid())
+            {
+                RGResourceDesc normalsDesc;
+                normalsDesc.Kind = RGResourceHandle::Kind::Texture2D;
+                normalsDesc.Format = RGResourceFormat::RG16Float;
+                normalsDesc.Width = sceneSpec.Width;
+                normalsDesc.Height = sceneSpec.Height;
+                normalsDesc.DebugName = ResourceNames::SceneViewNormalsSnapshot;
+                board.Scene.SceneViewNormalsSnapshot =
+                    graph.AllocateTransientTextureHandle(ResourceNames::SceneViewNormalsSnapshot, normalsDesc);
+            }
         }
 
         // ------------------------------------------------------------------
@@ -5764,6 +5777,7 @@ namespace OloEngine
         inputs.Passes.GPUOcclusionPrepass = FrameCorePasses.GPUOcclusionPrepass.Raw();
         inputs.Passes.FoliagePrepass = FrameCorePasses.FoliagePrepass.Raw();
         inputs.Passes.SceneDepthSnapshot = FrameCorePasses.SceneDepthSnapshot.Raw();
+        inputs.Passes.SceneViewNormalsSnapshot = FrameCorePasses.SceneViewNormalsSnapshot.Raw();
         inputs.Passes.Shadow = FrameCorePasses.Shadow.Raw();
         inputs.Passes.DDGIProbeUpdate = FrameCorePasses.DDGIProbeUpdate.Raw();
         inputs.Passes.VirtualShadowMapMark = FrameCorePasses.VirtualShadowMapMark.Raw();
@@ -5879,6 +5893,8 @@ namespace OloEngine
         // drawing into SceneColor (issue #1332). Sized by the Scene pass's spec.
         FrameCorePasses.SceneDepthSnapshot =
             Ref<SceneAttachmentSnapshotPass>::Create(FrameCorePasses.Scene.Raw(), SceneAttachmentSnapshotPass::Attachment::Depth);
+        FrameCorePasses.SceneViewNormalsSnapshot =
+            Ref<SceneAttachmentSnapshotPass>::Create(FrameCorePasses.Scene.Raw(), SceneAttachmentSnapshotPass::Attachment::ViewNormals);
 
         // Realtime DDGI probe update (#632) — path-agnostic, self-disables
         // when no Realtime/Hybrid volume is submitted for the frame. All its

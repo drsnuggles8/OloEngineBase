@@ -91,10 +91,15 @@ namespace OloEngine
                 builder.Read(board.Scene.SceneDepthSnapshot, RGReadUsage::ShaderSample);
         }
 
-        if (board.Scene.SceneViewNormals.IsValid())
+        // The view normals the reflection march reads, COPIED for the same
+        // reason: Water.glsl writes view normals to RT2 of the framebuffer it
+        // draws into, and used to sample that same attachment -- a feedback loop
+        // on every path (issue #1332).
+        if (board.Scene.SceneViewNormalsSnapshot.IsValid())
         {
-            m_SelectedSceneNormalsTexture = board.Scene.SceneViewNormals;
-            [[maybe_unused]] const auto sceneNormalsRead = builder.Read(board.Scene.SceneViewNormals, RGReadUsage::ShaderSample);
+            m_SelectedSceneNormalsTexture = board.Scene.SceneViewNormalsSnapshot;
+            [[maybe_unused]] const auto sceneNormalsRead =
+                builder.Read(board.Scene.SceneViewNormalsSnapshot, RGReadUsage::ShaderSample);
         }
 
         if (board.Scratch.WaterRefraction.IsValid())

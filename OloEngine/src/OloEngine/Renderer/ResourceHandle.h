@@ -380,6 +380,7 @@ namespace OloEngine::ResourceNames
     // (issue #1332, SceneAttachmentSnapshotPass). The depth one is SceneDepth
     // itself on Deferred, where SceneDepth is not the framebuffer they draw into.
     inline constexpr std::string_view SceneDepthSnapshot = "SceneDepthSnapshot";
+    inline constexpr std::string_view SceneViewNormalsSnapshot = "SceneViewNormalsSnapshot";
 
     // Planar reflection — the opaque scene re-rendered from a mirrored, oblique-
     // clipped camera into a transient color target, sampled projectively by the
