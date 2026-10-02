@@ -85,7 +85,7 @@ paused pose.
   face close-up to 15 m, and through a continuous dolly out to 15 m and back at 1920×1080 with the
   history never reset. Every frame records the tier, the budgets and the width compensation; no
   transition may step the coat's energy or brightness by more than half the band (coverage steps
-  are recorded: up to 4.7% at the 11 m visibility step, energy 1.5%). Removing the width
+  are recorded: up to 4.7% at the 11 m visibility step, energy 1.0%). Removing the width
   compensation must fail the same judge. The card hand-over is past 15 m (out at about 22.5 m, in
   at about 16 m) and gets its own dolly, 15 to 45 m.
 - **The rest bake shadows the moving coat as the pose bake does**: see
@@ -117,9 +117,51 @@ Blender without exporting it.
 
 ## Cost
 
-`Dog_Cost.txt` is the per-pass record (1920×1080, the lawn included, runtime frames). The live
-editor's numbers, which are the performance gate, are in the PR that shipped the scene.
+The performance gate is the live editor: Release `OloEditor`, Play, a 1920×1080 viewport, the
+scene's own settings (the coat requests TAA; the editor's tier draws 4096² PCF cascades), every
+wall-clock frame of a 1,024-frame ring after a 10 s warm-up. Measured at `95a80bcd2` on an RTX 4090
+with driver 617.14, nothing else running:
+
+| p50 / p95 ms | face close-up | full body | walk mid-shot |
+|---|---|---|---|
+| GL Forward | 19.8 / 21.1 | 18.4 / 19.5 | 18.1 / 19.3 |
+| Vulkan Forward | 14.3 / 14.8 | 12.3 / 12.9 | 10.7 / 11.2 |
+
+Both frames are GPU-bound (CPU 7.9–8.7 ms a frame). `Dog_Cost.txt` is the headless per-pass record
+of the same three framings on runtime frames (GL); `Dog_Cost_Matrix.txt` attributes it by one
+substitution per run against three baselines. In both, a sub-pass (`Parent/Child`) is inside its
+parent: never add the two.
 
 ## Known gaps
 
-To be filled at the end of #1533.
+- **60 fps on GL.** The GL frame misses 16.7 ms by 1.4–3.1 ms; Vulkan holds it. The same lawn's
+  grass costs GL 2.5–4.3 ms more than Vulkan in `FoliagePass`, which alone covers the full-body and
+  walk gaps. Of the coat's own costs, the self-shadow march is the largest at close range: removing
+  it saves 3.7 / 1.7 / 0.4 ms headless (`Dog_Cost_Matrix.txt`), enough for the face close-up and the
+  full body.
+- **The card hand-over is past 15 m** (out at about 22.5 m, back in at about 16 m). The 15 m ladder
+  never reaches it; the extended 15–45 m dolly does, but judges it loosely: a step there may be 3x
+  the leg's frame-to-frame noise, which at that size (a 25–80 px dog) allows 16% for energy. The
+  worst step at a change is 6.5%.
+- **The 11 m visibility step moves coverage by up to 4.7%** while energy moves 1.0% and brightness
+  0.5%. The dolly judges pops on energy and brightness, at half the 10% band.
+- **The sparse fringe seen from behind in the walk sits at B6's bar**: its resolved shimmer is
+  0.4997 of the no-history control against "under half".
+- **At rest the long hair still swings**: the tips' RMS offset about their mean is 0.41 mm over the
+  first half-second and 0.38 mm over the second, under the 0.5 mm jitter ceiling.
+- **B3 cannot see a stale tail plume.** A plume left standing stays inside its own 24 cm reach, so
+  the planted stale fault is the hind legs through a sit instead.
+- **About 12–14% of the leg skin is groomed sparsely on purpose** (the inner legs) and is not judged
+  for bald patches.
+- **Under the VSM the body does not shadow its fur** (the fur reads 4–7% brighter, 23% on the legs).
+  The editor's tier uses CSM.
+- **Lights that do not cast, and the environment, see no body** inside the coat (the rim light,
+  the sky). **One groom's fur does not shadow another groom's coat.**
+- **RT reflections with this lawn withhold the TLAS** (its near field overruns the vegetation
+  budget), and the RT shadow tier costs about 5 ms, mostly the coat proxy's CPU refit.
+- **Debug lines and spheres draw before the groom pass**, so fur hides a gizmo inside the coat.
+- **One Vulkan validation warning**, `ShaderOutputNotConsumed`, from editor overlays on Deferred
+  only; Play and packaged games draw no overlays.
+- **The headless fixture renders GL only.** Vulkan's look is checked live; the opaque shadow copy's
+  Vulkan row order is pinned on the CPU (`ShadowReceiverTexelRectTest`).
+- **The look itself (F3) is a human call.** No test above settles it.
