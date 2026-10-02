@@ -319,8 +319,8 @@ namespace OloEngine::MCP
             constexpr int kPipelineSettleFrames = 3;
 
             auto state = std::make_shared<ReloadState>();
-            const Json first = host.MarshalRead([name, state, &host]() -> Json
-                                                {
+            const auto reloadJob = [name, state, &host]() -> Json
+            {
                 ShaderReload::Result& r = state->Result;
                 r.Name = name;
 
@@ -448,7 +448,21 @@ namespace OloEngine::MCP
                 {
                     state->BaseFrame = host.Context().GetFrameIndex();
                 }
-                return Json{ { "settle", settle } }; });
+                return Json{ { "settle", settle } }; };
+
+            // The job stores Refs in `state` before it can fail. If the marshal
+            // throws (the job threw, or the editor never picked it up), `state`
+            // would otherwise unwind here with ours possibly the last reference.
+            Json first;
+            try
+            {
+                first = host.MarshalRead(reloadJob);
+            }
+            catch (...)
+            {
+                ReleaseOnMainThread(host, state);
+                throw;
+            }
 
             if (first.is_object() && first.contains("__error"))
                 return ToolResult::Error(first["__error"].get<std::string>());
