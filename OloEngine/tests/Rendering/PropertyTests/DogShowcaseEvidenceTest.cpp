@@ -1365,7 +1365,8 @@ namespace OloEngine::Tests
             std::vector<u8> on, off;
             auto& groom = m_Dog.Coat.GetComponent<GroomComponent>();
             CaptureHeldPair(
-                view, [&](bool shown) { groom.m_RenderStrands = shown; }, on, off, onName, offName);
+                view, [&](bool shown)
+                { groom.m_RenderStrands = shown; }, on, off, onName, offName);
             const u32 n = CountDiffering(on, off);
             if (outOn != nullptr)
             {
@@ -1484,7 +1485,8 @@ namespace OloEngine::Tests
             const EditorCamera camera = MakeEditorCamera(view);
             RunEditorFrames(camera, settleFrames);
             AverageLinear(
-                [&] { RunEditorFrames(camera, 1); }, camera.GetViewProjection(), out, averageFrames);
+                [&]
+                { RunEditorFrames(camera, 1); }, camera.GetViewProjection(), out, averageFrames);
         }
 
         // The same from ONE held state, through the runtime camera at `view`, the
@@ -1495,7 +1497,8 @@ namespace OloEngine::Tests
             Renderer3D::ResetFrameSequences();
             ColdHistory();
             HoldRuntime(settleFrames);
-            AverageLinear([&] { HoldRuntime(1); }, RuntimeViewProjection(), out, averageFrames);
+            AverageLinear([&]
+                          { HoldRuntime(1); }, RuntimeViewProjection(), out, averageFrames);
         }
 
         static void AverageLinear(const std::function<void()>& renderOne, const glm::mat4& viewProjection,
@@ -1848,7 +1851,7 @@ namespace OloEngine::Tests
         };
         static constexpr sizet kBodyParts = static_cast<sizet>(BodyPart::Count);
         static constexpr std::array<const char*, kBodyParts> kBodyPartNames{
-            "face",  "left ear",        "right ear",       "neck",           "chest",          "torso",
+            "face", "left ear", "right ear", "neck", "chest", "torso",
             "front left leg", "front right leg", "hind left leg", "hind right leg", "tail"
         };
 
@@ -1856,7 +1859,7 @@ namespace OloEngine::Tests
         {
             std::vector<glm::vec3> Bind; // model space
             std::vector<BodyPart> Part;
-            std::vector<u8> Furred; // 1 on DogSkin, where the coat grows; 0 on the bare skins (nose, lips, pads...)
+            std::vector<u8> Furred;            // 1 on DogSkin, where the coat grows; 0 on the bare skins (nose, lips, pads...)
             std::vector<std::string> Material; // the vertex's submesh material: DogSkin, DogNose, DogLid...
             std::vector<u32> Dominant;         // the bone that weights it most
             std::vector<std::array<u32, 4>> Bones;
@@ -1888,7 +1891,8 @@ namespace OloEngine::Tests
                     const auto axis = static_cast<glm::length_t>(depth % 3u);
                     std::nth_element(tree.begin() + static_cast<std::ptrdiff_t>(lo), tree.begin() + static_cast<std::ptrdiff_t>(mid),
                                      tree.begin() + static_cast<std::ptrdiff_t>(hi),
-                                     [&](u32 a, u32 b) { return points[a][axis] < points[b][axis]; });
+                                     [&](u32 a, u32 b)
+                                     { return points[a][axis] < points[b][axis]; });
                     build(lo, mid, depth + 1u);
                     build(mid + 1u, hi, depth + 1u);
                 };
@@ -1999,7 +2003,8 @@ namespace OloEngine::Tests
                 const f32 forward = n.z;
                 const f32 up = n.y;
                 const f32 y = vertex.Position.y;
-                const auto starts = [&](const char* prefix) { return bone.starts_with(prefix); };
+                const auto starts = [&](const char* prefix)
+                { return bone.starts_with(prefix); };
                 const bool left = bone.ends_with("_L");
                 const auto leg = [&](bool front)
                 {
@@ -2342,16 +2347,16 @@ namespace OloEngine::Tests
         [[nodiscard]] std::vector<u8> PartMap(const BodyParts& parts, const LinearFrame& frame,
                                               const std::vector<i32>& coatIds) const
         {
-            static constexpr std::array<std::array<u8, 3>, kBodyParts> kHue{ { { 230, 180, 60 },  // face
-                                                                               { 200, 90, 220 },  // left ear
-                                                                               { 150, 60, 170 },  // right ear
-                                                                               { 70, 170, 230 },  // neck
-                                                                               { 240, 120, 80 },  // chest
-                                                                               { 90, 110, 240 },  // torso
-                                                                               { 120, 200, 90 },  // front left leg
-                                                                               { 70, 140, 60 },   // front right leg
-                                                                               { 60, 200, 190 },  // hind left leg
-                                                                               { 40, 130, 130 },  // hind right leg
+            static constexpr std::array<std::array<u8, 3>, kBodyParts> kHue{ { { 230, 180, 60 },     // face
+                                                                               { 200, 90, 220 },     // left ear
+                                                                               { 150, 60, 170 },     // right ear
+                                                                               { 70, 170, 230 },     // neck
+                                                                               { 240, 120, 80 },     // chest
+                                                                               { 90, 110, 240 },     // torso
+                                                                               { 120, 200, 90 },     // front left leg
+                                                                               { 70, 140, 60 },      // front right leg
+                                                                               { 60, 200, 190 },     // hind left leg
+                                                                               { 40, 130, 130 },     // hind right leg
                                                                                { 240, 220, 90 } } }; // tail
             const i32 body = static_cast<i32>(static_cast<u32>(m_Dog.Body));
             std::vector<u8> rgba(frame.Ids.size() * 4u, 0u);
@@ -2508,7 +2513,7 @@ namespace OloEngine::Tests
         static constexpr f64 kPartPixels = 1000.0;
 
         [[nodiscard]] static std::vector<std::string> JudgeAttachment(const std::vector<FrameParts>& steps,
-                                                                    const std::string& what, f64 frameBand = 0.25)
+                                                                      const std::string& what, f64 frameBand = 0.25)
         {
             std::vector<std::string> failures;
             char line[256];
@@ -3154,7 +3159,8 @@ namespace OloEngine::Tests
         [[nodiscard]] static bool NamesPart(const std::vector<std::string>& failures, BodyPart part)
         {
             const std::string needle = std::string(" ") + kBodyPartNames[static_cast<sizet>(part)] + " ";
-            return std::ranges::any_of(failures, [&](const std::string& f) { return f.find(needle) != std::string::npos; });
+            return std::ranges::any_of(failures, [&](const std::string& f)
+                                       { return f.find(needle) != std::string::npos; });
         }
 
         // ── B7's continuous dolly (#1533 acceptance review, section 4) ──
@@ -3177,9 +3183,9 @@ namespace OloEngine::Tests
             u32 Strands = 0;
             u32 Segments = 0;
             f32 WidthCompensation = 1.0f;
-            f64 Coverage = 0.0;  // the coat's entity-id pixels
-            f64 Energy = 0.0;    // linear luminance summed over them, before tone mapping
-            f64 Displayed = 0.0; // mean displayed luma over them, after the resolve; -1 when not read
+            f64 Coverage = 0.0;                       // the coat's entity-id pixels
+            f64 Energy = 0.0;                         // linear luminance summed over them, before tone mapping
+            f64 Displayed = 0.0;                      // mean displayed luma over them, after the resolve; -1 when not read
             std::array<f64, kBodyParts> PartEnergy{}; // on every fourth frame (HasParts)
             bool HasParts = false;
         };
@@ -3426,7 +3432,7 @@ namespace OloEngine::Tests
                 v.Ratio[0][f] = l.Coverage / r.Coverage;
                 v.Ratio[1][f] = r.Energy > 0.0 ? l.Energy / r.Energy : std::numeric_limits<f64>::quiet_NaN();
                 v.Ratio[2][f] = (l.Displayed > 0.0 && r.Displayed > 0.0) ? l.Displayed / r.Displayed
-                                                                          : std::numeric_limits<f64>::quiet_NaN();
+                                                                         : std::numeric_limits<f64>::quiet_NaN();
                 if (f > 0u)
                 {
                     const DollyFrame& p = ladder.Frames[f - 1u];
@@ -3453,7 +3459,8 @@ namespace OloEngine::Tests
             };
             const auto nearTransition = [&](sizet f)
             {
-                return std::ranges::any_of(v.Transitions, [&](sizet t) { return (f > t ? f - t : t - f) <= 2u * kDollyWindow; });
+                return std::ranges::any_of(v.Transitions, [&](sizet t)
+                                           { return (f > t ? f - t : t - f) <= 2u * kDollyWindow; });
             };
             char line[320];
             for (sizet m = 0; m < 3u; ++m)
@@ -3766,7 +3773,7 @@ namespace OloEngine::Tests
         BodyParts parts = BuildBodyParts();
         constexpr u32 kWarmup = 90; // 1.5 s: the long hair settles after the re-seed
         constexpr u32 kFrames = 60;
-        constexpr u32 kSequenceOffset = 7; // a second draw: every jitter and stochastic sample shifted
+        constexpr u32 kSequenceOffset = 7;                                 // a second draw: every jitter and stochastic sample shifted
         const std::array<View, 2> views{ HeroViews()[0], HeroViews()[3] }; // the face and ears; the tail
         const f32 shippedFeedback = Renderer3D::GetPostProcessSettings().TAAFeedback;
         for (const char* clip : { "Rest", "Walk" })
@@ -4299,9 +4306,7 @@ namespace OloEngine::Tests
             manifest["sequences"][shot.Name] = { { "clip", shot.Clip },
                                                  { "frames", frames },
                                                  { "fps", 60 },
-                                                 { "camera", { { "eye", { shot.Where.Eye.x, shot.Where.Eye.y, shot.Where.Eye.z } },
-                                                               { "target", { shot.Where.Target.x, shot.Where.Target.y, shot.Where.Target.z } },
-                                                               { "fovDegrees", shot.Where.Fov } } },
+                                                 { "camera", { { "eye", { shot.Where.Eye.x, shot.Where.Eye.y, shot.Where.Eye.z } }, { "target", { shot.Where.Target.x, shot.Where.Target.y, shot.Where.Target.z } }, { "fovDegrees", shot.Where.Fov } } },
                                                  { "advance", "runtime: clip time and solver" } };
             std::printf("[dog] footage %s: %u frames\n", shot.Name, frames);
             std::fflush(stdout);
@@ -4932,7 +4937,7 @@ namespace OloEngine::Tests
         const char* clip = std::getenv("OLO_DOG_LOOKDEV_CLIP");
         const char* clipFrames = std::getenv("OLO_DOG_LOOKDEV_FRAMES");
         (void)StartClip(clip != nullptr ? clip : "Rest", true,
-                       clipFrames != nullptr ? static_cast<u32>(std::max(1, std::atoi(clipFrames))) : 30u);
+                        clipFrames != nullptr ? static_cast<u32>(std::max(1, std::atoi(clipFrames))) : 30u);
         m_Dog.Body.GetComponent<AnimationStateComponent>().m_IsPlaying = false;
         // A/B switches for diagnosing the look: OLO_DOG_LOOKDEV_OFF is a comma
         // list of selfshadow, sceneshadow, colormap, taa.
@@ -6017,12 +6022,14 @@ namespace OloEngine::Tests
                                                 return !(region.starts_with("ear") &&
                                                          shipped.GetPoints()[shipped.GetCurveFirstPoint(c)].x > 0.0f);
                                             },
-                                            [](u32, const glm::vec3& p) { return p; }));
+                                            [](u32, const glm::vec3& p)
+                                            { return p; }));
             }
             else if (std::string_view(plant.Name) == "Displaced")
             {
                 InstallCoat(m_Dog.Coat, CopyGroom(
-                                            shipped, [](u32) { return true; },
+                                            shipped, [](u32)
+                                            { return true; },
                                             [&](u32 c, const glm::vec3& p)
                                             {
                                                 const std::string region = RegionOfCurve(shipped, c);
@@ -6038,12 +6045,14 @@ namespace OloEngine::Tests
                     const u32 v = BodyParts::Nearest(parts.Bind, bindTree, shipped.GetPoints()[shipped.GetCurveFirstPoint(c)], distance);
                     return v != ~0u && (parts.Part[v] == BodyPart::LegHindLeft || parts.Part[v] == BodyPart::LegHindRight);
                 };
-                InstallCoat(m_Dog.Coat, CopyGroom(shipped, [&](u32 c) { return !isHindLeg(c); },
-                                                  [](u32, const glm::vec3& p) { return p; }));
-                const Ref<GroomAsset> legGroom = CopyGroom(shipped, isHindLeg, [](u32, const glm::vec3& p) { return p; });
+                InstallCoat(m_Dog.Coat, CopyGroom(shipped, [&](u32 c)
+                                                  { return !isHindLeg(c); }, [](u32, const glm::vec3& p)
+                                                  { return p; }));
+                const Ref<GroomAsset> legGroom = CopyGroom(shipped, isHindLeg, [](u32, const glm::vec3& p)
+                                                           { return p; });
                 ASSERT_TRUE(legGroom);
                 unbound = MakeCoat("DogHindLegsUnbound", AssetManager::AddMemoryOnlyAsset<GroomAsset>(legGroom), AssetHandle(0),
-                                m_Dog.Body, m_Dog.ColorMap, legGroom->GetCurveCount());
+                                   m_Dog.Body, m_Dog.ColorMap, legGroom->GetCurveCount());
                 unbound.GetComponent<GroomBindingComponent>().m_Enabled = false;
                 unbound.GetComponent<GroomSimulationComponent>().m_Enabled = false;
                 plantedIds.push_back(static_cast<i32>(static_cast<u32>(unbound)));
@@ -6329,10 +6338,10 @@ namespace OloEngine::Tests
         }
         const u32 openAgain = std::min<u32>(std::max(peakFrame + 14u, opening + 4u), static_cast<u32>(turns.size()) + 1u);
         const std::array<Instant, 5> instants{ { { "open", before },
-                                                  { "closing", closing },
-                                                  { "closed", peakFrame },
-                                                  { "opening", opening },
-                                                  { "open again", openAgain } } };
+                                                 { "closing", closing },
+                                                 { "closed", peakFrame },
+                                                 { "opening", opening },
+                                                 { "open again", openAgain } } };
         (void)StartClip("Idle", true, before);
         f32 worstClearance = std::numeric_limits<f32>::max();
         u32 worstFrame = 0;
