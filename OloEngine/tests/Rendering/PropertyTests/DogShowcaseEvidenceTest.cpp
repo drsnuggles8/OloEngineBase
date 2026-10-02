@@ -75,6 +75,7 @@
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Utils/PlatformUtils.h"
 #include "OloEngine/Renderer/QualityTiering.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/SkinProfile.h"
@@ -373,8 +374,26 @@ namespace OloEngine::Tests
 
         static constexpr int kDiffThreshold = 12;
 
+        // THE LAWN'S CLOCK IS PINNED. The scene drives foliage wind and water from
+        // an animation clock seeded from, and advanced by, the WALL clock
+        // (Scene.cpp). The cases that grow the live scene's lawn (the footage,
+        // the cost record, the look-development frames, the export) drew its
+        // grass at whatever phase the run reached, so two recordings of the same
+        // frames differed wherever grass showed (#1533). A frozen mock time seeds
+        // that clock and never moves it, as the water goldens do; the coat's own
+        // motion runs on the frame step and is untouched. The asserted cases
+        // stand on the evidence slab and never drew grass.
+        static constexpr f32 kLawnClock = 12.5f;
+
+        void TearDown() override
+        {
+            Time::ClearMockTime();
+            RendererAttachedTest::TearDown();
+        }
+
         void BuildScene() override
         {
+            Time::SetMockTime(kLawnClock);
             if (!Project::GetActive() || !Project::HasAssetManager())
             {
                 std::error_code ec;
@@ -4240,6 +4259,7 @@ namespace OloEngine::Tests
             manifest["fxaa"] = post.FXAAEnabled;
             manifest["shadow"] = { { "resolution", shadow.Resolution }, { "soft", shadow.SoftShadows } };
             manifest["ground"] = "the live scene's lawn (BuildLawn)";
+            manifest["lawnClock"] = "pinned (a frozen mock time): the grass holds still here; it sways in the editor";
             manifest["frameStep"] = "1/60 s";
         }
 

@@ -50,7 +50,11 @@ All on GL, Release, 1280×720 unless named. Each test says which frames it measu
 **runtime** frames for anything about motion (the guide solver steps as in Play), **held** frames
 (the scene paused, the renderer restarted the same way for every arm) for anything about one
 state. Editor-preview frames, where the solver does not step, are used only for stills of a
-paused pose.
+paused pose. The asserted cases stand on an evidence slab; the cases that grow the live scene's
+lawn (the footage, the cost record, the look-development frames) pin its animation clock with a
+frozen mock time. The scene drives wind from the wall clock, so the grass would otherwise sway at
+whatever pace the run went and two recordings of the same frames would differ wherever grass
+shows. The grass holds still in those frames; it sways in the editor.
 
 - **The coat is Blender's**: the shipped groom's provenance names the `.abc` and the current
   importer, every group carries its role and root tint, the flag its stiffness, and the root UVs
