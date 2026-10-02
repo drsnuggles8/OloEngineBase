@@ -726,6 +726,17 @@ namespace OloEngine
         /// say how many grooms the resolve is running for.
         [[nodiscard]] u32 CountGroomsNeedingTemporalResolve() const;
 
+        /// A simulated coat's solver state (#1250), or null when the entity is
+        /// not simulated. Read-only: the particles (`Curr`) against the targets
+        /// the last step was handed (`LastTargets`), both WORLD space, are what
+        /// tell a coat whose long hair swings from one its roots carry rigidly
+        /// -- which no counter and no still frame can (#1533).
+        [[nodiscard]] const GroomGuideSimulationState* FindGroomGuideSimulation(UUID groomEntity) const;
+
+        /// A coat's representation-LOD state (#1252): the tier it is drawn as
+        /// and each budget's step, or null when its LOD did not run this frame.
+        [[nodiscard]] const GroomLodState* FindGroomLodState(UUID groomEntity) const;
+
         void SetLightmapSettings(const SceneLightmapSettings& settings)
         {
             m_LightmapSettings = settings;

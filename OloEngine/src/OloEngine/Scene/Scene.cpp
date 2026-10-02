@@ -4886,6 +4886,18 @@ namespace OloEngine
         return it != m_AnimalSchedules.end() ? &it->second : nullptr;
     }
 
+    const GroomGuideSimulationState* Scene::FindGroomGuideSimulation(UUID groomEntity) const
+    {
+        const auto it = m_GroomSimulationRuntime.find(groomEntity);
+        return it != m_GroomSimulationRuntime.end() ? &it->second.m_Solver : nullptr;
+    }
+
+    const GroomLodState* Scene::FindGroomLodState(UUID groomEntity) const
+    {
+        const auto it = m_GroomLodRuntime.find(groomEntity);
+        return it != m_GroomLodRuntime.end() ? &it->second : nullptr;
+    }
+
     bool Scene::ShouldPoseAnimalThisFrame(UUID id, f32 frameSeconds, f32& outScaledSeconds) const
     {
         outScaledSeconds = frameSeconds;
