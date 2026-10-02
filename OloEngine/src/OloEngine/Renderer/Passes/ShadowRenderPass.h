@@ -169,6 +169,21 @@ namespace OloEngine
         f32 time = 0.0f;
     };
 
+    // The texels of one light view that receivers inside `bounds` can sample,
+    // as a rect inside its tile (tileX/tileY/tileSize: the whole layer for a
+    // cascade, the entry's tile for the atlas), padded for the filter kernels
+    // and clamped to the tile. `lightVP` is the GL-convention matrix the CPU
+    // keeps; the box is projected through the matrix the SAMPLING uses,
+    // RHI::AdjustProjectionForShaderReconstruction(lightVP), because Vulkan
+    // stores every shadow map top-down (#691) and so reads a world point at the
+    // mirrored row. A rect from the raw matrix is the mirror image of the
+    // receivers' texels there, and receivers outside it read whatever an
+    // earlier frame copied (#1533). NoBounds, a corner behind a perspective
+    // light or a non-finite projection give the whole tile; false when the box
+    // misses the tile.
+    [[nodiscard]] bool ShadowReceiverTexelRect(const BoundingBox& bounds, const glm::mat4& lightVP, u32 tileX, u32 tileY,
+                                               u32 tileSize, u32& x, u32& y, u32& width, u32& height);
+
     // @brief Render pass for shadow map generation.
     //
     // Executes before SceneRenderPass — which is also why a groom caster's
@@ -432,11 +447,9 @@ namespace OloEngine
         // fork: rule 7 refuses resource creation on an item context.
         void EnsureItemResources(u32 count, u32 instanceCapacity);
         // One item per active CSM layer or atlas viewport, joined in view order.
-        // The texels of one light view the receiving grooms can sample, as a
-        // rect inside its tile (tileX/tileY/tileSize: the whole layer for a
-        // cascade, the entry's tile for the atlas): their box projected
-        // through lightVP, padded for the filter kernels, clamped to the tile.
-        // False when the box misses the view.
+        // The texels of one light view the receiving grooms can sample:
+        // ShadowReceiverTexelRect over their box, or the whole tile when the
+        // box is unknown. False when the box misses the view.
         [[nodiscard]] bool GroomReceiverTexelRect(const glm::mat4& lightVP, u32 tileX, u32 tileY, u32 tileSize, u32& x,
                                                   u32& y, u32& width, u32& height) const;
 

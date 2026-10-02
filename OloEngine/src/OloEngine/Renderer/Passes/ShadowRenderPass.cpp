@@ -1285,6 +1285,13 @@ namespace OloEngine
     bool ShadowRenderPass::GroomReceiverTexelRect(const glm::mat4& lightVP, const u32 tileX, const u32 tileY,
                                                   const u32 tileSize, u32& x, u32& y, u32& width, u32& height) const
     {
+        return ShadowReceiverTexelRect(m_GroomReceiverBoundsUnknown ? NoBounds : m_GroomReceiverBounds, lightVP, tileX,
+                                       tileY, tileSize, x, y, width, height);
+    }
+
+    bool ShadowReceiverTexelRect(const BoundingBox& bounds, const glm::mat4& lightVP, const u32 tileX, const u32 tileY,
+                                 const u32 tileSize, u32& x, u32& y, u32& width, u32& height)
+    {
         const auto whole = [&]()
         {
             x = tileX;
@@ -1293,25 +1300,29 @@ namespace OloEngine
             height = tileSize;
             return tileSize > 0u;
         };
-        if (m_GroomReceiverBoundsUnknown || m_GroomReceiverBounds.Min.x == NoBounds.Min.x)
+        if (bounds.Min.x == NoBounds.Min.x)
         {
             return whole();
         }
+        // The matrix the receivers sample through (ShadowMap uploads the
+        // cascade and atlas matrices through the same seam): identity on GL,
+        // the row flip on Vulkan, where the map's memory row 0 is the light
+        // view's TOP row. The copy addresses memory rows, so the rect must be
+        // in the sampled rows, not the GL-convention ones.
+        const glm::mat4 sampled = RHI::AdjustProjectionForShaderReconstruction(lightVP);
         glm::vec2 lo(std::numeric_limits<f32>::max());
         glm::vec2 hi(std::numeric_limits<f32>::lowest());
         for (u32 corner = 0; corner < 8u; ++corner)
         {
-            const glm::vec3 p((corner & 1u) ? m_GroomReceiverBounds.Max.x : m_GroomReceiverBounds.Min.x,
-                              (corner & 2u) ? m_GroomReceiverBounds.Max.y : m_GroomReceiverBounds.Min.y,
-                              (corner & 4u) ? m_GroomReceiverBounds.Max.z : m_GroomReceiverBounds.Min.z);
-            const glm::vec4 clip = lightVP * glm::vec4(p, 1.0f);
+            const glm::vec3 p((corner & 1u) ? bounds.Max.x : bounds.Min.x, (corner & 2u) ? bounds.Max.y : bounds.Min.y,
+                              (corner & 4u) ? bounds.Max.z : bounds.Min.z);
+            const glm::vec4 clip = sampled * glm::vec4(p, 1.0f);
             // A corner behind a perspective light has no texel: the whole tile.
             if (!(clip.w > 1.0e-6f))
             {
                 return whole();
             }
-            // The sampling's own mapping (projCoords * 0.5 + 0.5), so the rect
-            // is the texels the strands read on every backend.
+            // The sampling's own mapping (projCoords * 0.5 + 0.5).
             const glm::vec2 uv = (glm::vec2(clip) / clip.w) * 0.5f + 0.5f;
             lo = glm::min(lo, uv);
             hi = glm::max(hi, uv);

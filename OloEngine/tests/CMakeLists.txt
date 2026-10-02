@@ -429,6 +429,7 @@ add_executable(OloEngine-Tests
 		Rendering/ClusteredLightingMathTest.cpp
 		Rendering/AtlasAllocatorTest.cpp
 		Rendering/ShadowAtlasPackingTest.cpp
+		Rendering/ShadowReceiverTexelRectTest.cpp
 		Rendering/VolumetricFogMathTest.cpp
 		Rendering/VolumetricShadowMapMathTest.cpp
 		Rendering/MotionVectorMathTest.cpp
