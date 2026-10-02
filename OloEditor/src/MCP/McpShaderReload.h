@@ -82,6 +82,12 @@ namespace OloEngine::MCP::ShaderReload
         bool Tracked = false; // a backend PSO cache answered (false on OpenGL)
         u32 Invalidated = 0;  // pipelines the reload invalidated
         u32 Live = 0;         // pipelines built since, from the new modules
+        // Copies (library / pass-owned instances of the shader) whose reload
+        // invalidated at least one pipeline, and how many of those have rebuilt
+        // at least one since. Summing Live across copies alone let one copy's
+        // rebuild answer for another that drew nothing.
+        u32 CopiesInvalidated = 0;
+        u32 CopiesRebuilt = 0;
         bool CreationFailed = false;
         std::string CreationFailure;
         u32 SettleFrames = 0;      // frames waited for a draw to rebuild them
@@ -90,7 +96,11 @@ namespace OloEngine::MCP::ShaderReload
 
     // The status contract on a PSO backend, layered over the module status:
     //   * a failed module rebuild, or a failed pipeline creation, is `failed`;
-    //   * pipelines rebuilt since the reload is `ready`;
+    //   * every copy whose reload invalidated a pipeline rebuilt at least one
+    //     since: `ready`. Per copy, not summed (one copy's rebuild cannot answer
+    //     for another), and not per variant (an occasional render-target variant
+    //     is legitimately not redrawn in the window);
+    //   * some copies rebuilt and others drew nothing: `pending`, with counts;
     //   * nothing to rebuild (no pipeline existed yet) is `ready`: the first
     //     draw builds one from the new modules, so nothing stale can be used;
     //   * invalidated but not rebuilt is `pending`, with the reason. That is a
@@ -115,10 +125,24 @@ namespace OloEngine::MCP::ShaderReload
                      ". Draws using this shader are skipped until it is fixed.";
             return r;
         }
-        if (pipelines.Live > 0)
+        if (pipelines.CopiesInvalidated > 0 && pipelines.CopiesRebuilt == pipelines.CopiesInvalidated)
         {
+            // Ready per COPY, not per variant: one shader has a pipeline per
+            // render-target format / blend state, and a variant used only now
+            // and then (a probe capture target) is legitimately not redrawn in
+            // the window. Those are named, not counted as a failure.
             r.Note = std::to_string(pipelines.Live) + " pipeline(s) rebuilt from the new modules (" +
                      std::to_string(pipelines.Invalidated) + " invalidated).";
+            if (pipelines.Live < pipelines.Invalidated)
+                r.Note += " The other variants were not drawn in the window and rebuild on their next use.";
+            return r;
+        }
+        if (pipelines.CopiesRebuilt > 0)
+        {
+            r.Status = ShaderCompilationStatus::Pending;
+            r.Note = std::to_string(pipelines.CopiesRebuilt) + " of " + std::to_string(pipelines.CopiesInvalidated) +
+                     " copies of this shader rebuilt a pipeline within " + std::to_string(pipelines.SettleFrames) +
+                     " frame(s); the others drew nothing, so their part of the frame may still show the old program.";
             return r;
         }
         if (pipelines.Invalidated == 0)
@@ -184,6 +208,8 @@ namespace OloEngine::MCP::ShaderReload
         {
             j["pipelines"] = Json{ { "invalidated", r.PipelineState.Invalidated },
                                    { "rebuilt", r.PipelineState.Live },
+                                   { "copiesInvalidated", r.PipelineState.CopiesInvalidated },
+                                   { "copiesRebuilt", r.PipelineState.CopiesRebuilt },
                                    { "creationFailed", r.PipelineState.CreationFailed },
                                    { "settleFrames", r.PipelineState.SettleFrames },
                                    { "frameRendered", r.PipelineState.FrameRendered } };

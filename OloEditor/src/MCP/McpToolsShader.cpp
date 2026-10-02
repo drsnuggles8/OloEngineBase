@@ -493,6 +493,12 @@ namespace OloEngine::MCP
                         ForEachPipelineState(*state, [&p](const ShaderPipelineState& after)
                                              {
                             p.Live += after.Live;
+                            if (after.InvalidatedByLastReload > 0)
+                            {
+                                ++p.CopiesInvalidated;
+                                if (after.Live > 0)
+                                    ++p.CopiesRebuilt;
+                            }
                             if (after.CreationFailed && !p.CreationFailed)
                             {
                                 p.CreationFailed = true;
@@ -677,6 +683,8 @@ namespace OloEngine::MCP
                                     .Prop("pipelines", Schema::Object()
                                                            .Prop("invalidated", Schema::Int().Min(0).Desc("Pipelines the reload invalidated."))
                                                            .Prop("rebuilt", Schema::Int().Min(0).Desc("Pipelines built from the new modules since."))
+                                                           .Prop("copiesInvalidated", Schema::Int().Min(0).Desc("Copies of the shader whose reload invalidated a pipeline."))
+                                                           .Prop("copiesRebuilt", Schema::Int().Min(0).Desc("Of those, copies that rebuilt at least one; ready needs all of them."))
                                                            .Prop("creationFailed", Schema::Bool())
                                                            .Prop("settleFrames", Schema::Int().Min(0).Desc("Frames waited for a draw to rebuild them."))
                                                            .Prop("frameRendered", Schema::Bool().Desc("False when no frame rendered during that wait."))

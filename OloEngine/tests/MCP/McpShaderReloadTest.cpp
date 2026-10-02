@@ -287,6 +287,7 @@ namespace
         Pipelines p;
         p.Tracked = true;
         p.Invalidated = invalidated;
+        p.CopiesInvalidated = invalidated > 0 ? 1u : 0u; // one copy unless a test says otherwise
         p.SettleFrames = 3;
         return p;
     }
@@ -304,9 +305,31 @@ TEST(McpShaderReload, RebuiltPipelinesAreReady)
 {
     auto p = VulkanInvalidated(4);
     p.Live = 2;
+    p.CopiesRebuilt = 1;
     const auto resolution = ResolveStatus(ShaderCompilationStatus::Ready, p);
     EXPECT_EQ(resolution.Status, ShaderCompilationStatus::Ready);
     EXPECT_NE(resolution.Note.find("2 pipeline(s) rebuilt"), std::string::npos) << resolution.Note;
+    // Ready per copy, not per variant: the two variants not redrawn are named,
+    // not counted as a failure (an occasional render target is not redrawn in
+    // three frames).
+    EXPECT_NE(resolution.Note.find("other variants"), std::string::npos) << resolution.Note;
+}
+
+// CodeRabbit review of #1551: Live summed across copies let one copy's rebuild
+// answer for another that drew nothing, so the frame could still show the old
+// program where that copy draws.
+TEST(McpShaderReload, EveryCopyMustRebuildBeforeReady)
+{
+    auto p = VulkanInvalidated(2);
+    p.CopiesInvalidated = 2; // a library copy and a pass-owned copy
+    p.Live = 2;              // both live pipelines belong to ONE copy
+    p.CopiesRebuilt = 1;
+    const auto partial = ResolveStatus(ShaderCompilationStatus::Ready, p);
+    EXPECT_EQ(partial.Status, ShaderCompilationStatus::Pending) << "Live == Invalidated must not hide a copy that drew nothing";
+    EXPECT_NE(partial.Note.find("1 of 2 copies"), std::string::npos) << partial.Note;
+
+    p.CopiesRebuilt = 2;
+    EXPECT_EQ(ResolveStatus(ShaderCompilationStatus::Ready, p).Status, ShaderCompilationStatus::Ready);
 }
 
 // THE ONE THAT MATTERS: the old answer. Modules rebuilt, pipelines invalidated,
@@ -351,6 +374,7 @@ TEST(McpShaderReload, ModuleFailureWinsOverPipelines)
 {
     auto p = VulkanInvalidated(2);
     p.Live = 2;
+    p.CopiesRebuilt = 1;
     EXPECT_EQ(ResolveStatus(ShaderCompilationStatus::Failed, p).Status, ShaderCompilationStatus::Failed);
 }
 
