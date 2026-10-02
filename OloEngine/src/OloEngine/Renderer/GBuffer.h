@@ -144,6 +144,12 @@ namespace OloEngine
         // (scene geometry + deferred-path decals) and before DeferredLightingPass.
         void Resolve();
 
+        // Resolve() without the depth blit, for a caller that already resolved
+        // depth this frame and has drawn nothing since (ScenePass's per-sample
+        // path: ResolveDepthOnly for the decals, then this when a later pass
+        // needs resolved colour). No-op when sampleCount == 1.
+        void ResolveColorOnly();
+
         // MSAA depth-only resolve — populates only the depth attachment of
         // the resolve framebuffer, leaving the colour attachments stale.
         // Used by the per-sample deferred lighting path: decals
@@ -185,6 +191,8 @@ namespace OloEngine
         // that is a bitfield rather than radiometry (issue #996). Runs inside
         // Resolve() so no caller can forget it; a no-op when sampleCount == 1.
         void ResolveFlagsLane();
+        // Resolve()'s body; ResolveColorOnly skips the depth blit.
+        void ResolveAttachments(bool includeDepth);
 
         u32 m_Width = 0;
         u32 m_Height = 0;

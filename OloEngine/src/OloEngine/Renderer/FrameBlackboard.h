@@ -78,12 +78,17 @@ namespace OloEngine
             // blur it. Written by every lit pass, read by SkinDiffusionPass.
             RGTextureHandle SkinDiffuse;
             RGTextureHandle SceneDepthAttachment; // Live SceneColor depth attachment view
-            RGTextureHandle SceneDepth;           // Semantic scene depth (forward snapshot texture, deferred attachment view, or deferred MSAA resolve view)
-            RGTextureHandle SceneNormals;         // Semantic AO/deferred normals input (forward snapshot, deferred attachment view, or deferred MSAA resolve view)
+            // The semantic scene depth and AO/deferred normals. On the forward
+            // paths they are attachment views of SceneColor -- its depth and RT2
+            // -- so a consumer sees every write the graph ordered before it, and
+            // nothing copies them (issue #1332). On Deferred they are the
+            // G-Buffer's attachment views, or MSAA resolve views over them.
+            RGTextureHandle SceneDepth;
+            RGTextureHandle SceneNormals;
             // Which space SceneNormals is encoded in, because the two paths differ:
             // the FORWARD scene shader writes VIEW-space normals
             // (PBR_MultiLight.glsl: octEncode(mat3(u_View) * N)) and SceneNormals is
-            // a straight copy of that attachment, whereas the DEFERRED G-Buffer
+            // that attachment, whereas the DEFERRED G-Buffer
             // stores WORLD-space normals. Consumers that convert to view space must
             // check this or they double-transform on one path — which is exactly
             // what made GTAO shade every surface fully occluded in forward, with
@@ -93,6 +98,11 @@ namespace OloEngine
             // prepass depth, copied once, read by every forward shader's
             // ambient AO upsample. See ResourceNames::ForwardAODepth.
             RGTextureHandle ForwardAODepth;
+            // Copies for the passes that sample an attachment while drawing into
+            // SceneColor (decals, water): see ResourceNames::SceneDepthSnapshot.
+            // SceneDepthSnapshot == SceneDepth on Deferred.
+            RGTextureHandle SceneDepthSnapshot;
+            RGTextureHandle SceneViewNormalsSnapshot;
         };
 
         // -----------------------------------------------------------------------
@@ -119,7 +129,7 @@ namespace OloEngine
             RGTextureHandle GBufferAlbedo;   // RT0 — canonical single-sample albedo + metallic view (direct attachment or MSAA resolve view)
             RGTextureHandle GBufferNormal;   // RT1 — canonical single-sample normal + roughness + AO view (direct attachment or MSAA resolve view)
             RGTextureHandle GBufferEmissive; // RT2 — canonical single-sample emissive HDR view (direct attachment or MSAA resolve view)
-            RGTextureHandle Velocity;        // RT3 — screen-space motion vectors (forward snapshot, deferred attachment view, or deferred MSAA resolve view)
+            RGTextureHandle Velocity;        // RT3 — screen-space motion vectors (forward: SceneColor RT3 view; deferred attachment view, or deferred MSAA resolve view)
             RGTextureHandle GBufferBakedGI;  // RT5 — canonical single-sample baked lightmap irradiance + coverage view (issue #865)
 
             RGTextureHandle GBufferAlbedoMS;   // RT0 multisample attachment view

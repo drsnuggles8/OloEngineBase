@@ -16080,7 +16080,9 @@ namespace OloEngine
             // Enable/disable soft particles per system
             {
                 SoftParticleParams softParams;
-                if (auto sceneDepthTextureID = Renderer3D::ResolveFrameGraphTextureHandle(ResourceNames::SceneDepth); sceneDepthTextureID.IsValid())
+                // Only a soft system asks: asking is what has the depth snapshot
+                // made (#1332, ParticleRenderPass::AcquireSceneDepth).
+                if (auto sceneDepthTextureID = sys.SoftParticlesEnabled ? Renderer3D::AcquireSoftParticleDepth() : RHI::NullResource; sceneDepthTextureID.IsValid())
                 {
                     u32 viewportWidth = 0;
                     u32 viewportHeight = 0;

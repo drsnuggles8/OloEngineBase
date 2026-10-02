@@ -72,8 +72,9 @@ namespace OloEngine
         // NVIDIA happened to return usable values from the loop, so it only
         // ever surfaced on AMD.
         //
-        // Scene.SceneDepth is the semantic snapshot for exactly this purpose,
-        // and is what ContactShadowRenderPass and FogRenderPass already read.
+        // Scene.SceneDepthSnapshot is the copy made for exactly this purpose
+        // (issue #1332). SceneDepth is no longer a copy on the forward paths: it
+        // is a view of this framebuffer's depth, the same feedback loop.
         // No fallback to SceneDepthAttachment. An earlier version fell back to
         // it when the snapshot was missing, which contradicts the paragraph
         // above: the fallback IS the live attachment, so the "never sample the
@@ -83,17 +84,22 @@ namespace OloEngine
         // debuggable outcome, whereas a feedback loop is undefined behaviour
         // that reads correctly on one vendor and shows the seafloor through
         // the surface on another.
-        if (board.Scene.SceneDepth.IsValid())
+        if (board.Scene.SceneDepthSnapshot.IsValid())
         {
-            m_SelectedSceneDepthTexture = board.Scene.SceneDepth;
+            m_SelectedSceneDepthTexture = board.Scene.SceneDepthSnapshot;
             [[maybe_unused]] const auto sceneDepthRead =
-                builder.Read(board.Scene.SceneDepth, RGReadUsage::ShaderSample);
+                builder.Read(board.Scene.SceneDepthSnapshot, RGReadUsage::ShaderSample);
         }
 
-        if (board.Scene.SceneViewNormals.IsValid())
+        // The view normals the reflection march reads, COPIED for the same
+        // reason: Water.glsl writes view normals to RT2 of the framebuffer it
+        // draws into, and used to sample that same attachment -- a feedback loop
+        // on every path (issue #1332).
+        if (board.Scene.SceneViewNormalsSnapshot.IsValid())
         {
-            m_SelectedSceneNormalsTexture = board.Scene.SceneViewNormals;
-            [[maybe_unused]] const auto sceneNormalsRead = builder.Read(board.Scene.SceneViewNormals, RGReadUsage::ShaderSample);
+            m_SelectedSceneNormalsTexture = board.Scene.SceneViewNormalsSnapshot;
+            [[maybe_unused]] const auto sceneNormalsRead =
+                builder.Read(board.Scene.SceneViewNormalsSnapshot, RGReadUsage::ShaderSample);
         }
 
         if (board.Scratch.WaterRefraction.IsValid())

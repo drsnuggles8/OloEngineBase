@@ -1,0 +1,155 @@
+{
+  "byDestination": {
+    "AOBuffer": {
+      "bytes": 2073600,
+      "count": 1
+    },
+    "SceneColor[1]": {
+      "bytes": 8294400,
+      "count": 1
+    },
+    "SceneColor[depth]": {
+      "bytes": 8294400,
+      "count": 1
+    },
+    "SceneViewNormalsSnapshot": {
+      "bytes": 8294400,
+      "count": 1
+    },
+    "TAAHistory": {
+      "bytes": 16588800,
+      "count": 1
+    },
+    "TAASurfaceHistory": {
+      "bytes": 16588800,
+      "count": 1
+    },
+    "WaterRefraction": {
+      "bytes": 16588800,
+      "count": 1
+    }
+  },
+  "cell": "GL_Deferred_LateGeometry",
+  "copies": [
+    {
+      "bytes": 2073600,
+      "declared": true,
+      "destination": "AOBuffer",
+      "height": 1080,
+      "kind": "copy",
+      "pass": "GTAOPass",
+      "source": "GTAODenoisePing",
+      "sourceSamples": 1,
+      "width": 1920
+    },
+    {
+      "bytes": 8294400,
+      "declared": true,
+      "destination": "SceneColor[depth]",
+      "height": 1080,
+      "kind": "blit",
+      "pass": "DeferredLightingPass",
+      "source": "GBufferResolved[depth]",
+      "sourceSamples": 1,
+      "width": 1920
+    },
+    {
+      "bytes": 8294400,
+      "declared": true,
+      "destination": "SceneColor[1]",
+      "height": 1080,
+      "kind": "blit",
+      "pass": "DeferredLightingPass",
+      "source": "GBufferResolved[4]",
+      "sourceSamples": 1,
+      "width": 1920
+    },
+    {
+      "bytes": 8294400,
+      "declared": true,
+      "destination": "SceneViewNormalsSnapshot",
+      "height": 1080,
+      "kind": "copy",
+      "pass": "SceneViewNormalsSnapshotPass",
+      "source": "SceneViewNormals",
+      "sourceSamples": 1,
+      "width": 1920
+    },
+    {
+      "bytes": 16588800,
+      "declared": true,
+      "destination": "WaterRefraction",
+      "height": 1080,
+      "kind": "copy",
+      "pass": "WaterPass",
+      "source": "SceneColorTexture",
+      "sourceSamples": 1,
+      "width": 1920
+    },
+    {
+      "bytes": 16588800,
+      "declared": true,
+      "destination": "TAASurfaceHistory",
+      "height": 1080,
+      "kind": "copy",
+      "pass": "<extraction>",
+      "source": "Velocity",
+      "sourceSamples": 1,
+      "width": 1920
+    },
+    {
+      "bytes": 16588800,
+      "declared": true,
+      "destination": "TAAHistory",
+      "height": 1080,
+      "kind": "copy",
+      "pass": "<extraction>",
+      "source": "TAAColorTexture",
+      "sourceSamples": 1,
+      "width": 1920
+    }
+  ],
+  "copyBytes": 76723200,
+  "copyCount": 7,
+  "frameGpuMsMedian": 3.234816,
+  "gpuResidentBytes": 714469708,
+  "gpuWindowPeakBytes": 714469708,
+  "height": 1080,
+  "lateGeometry": true,
+  "passGpuMsMedian": {
+    "DDGIProbeUpdatePass": 0.001024,
+    "DecalPass": 0.001024,
+    "DeferredGPUOcclusionPass": 0.075776,
+    "DeferredLightingPass": 0.535552,
+    "DeferredOpaqueDecalPass": 0.009216,
+    "FinalPass": 0.004096,
+    "ForwardOverlayPass": 0.451584,
+    "GTAOPass": 0.31744,
+    "GTAOPass/GTAO": 0.15872,
+    "GTAOPass/GTAO_Denoise": 0.084992,
+    "GTAOPass/HZB": 0.048128,
+    "MotionBlurPass": 0.021504,
+    "ParticlePass": 0.006144,
+    "PlanarReflectionPass": 0.001024,
+    "RayTracingScenePass": 0.001024,
+    "ScenePass": 0.432128,
+    "ScenePass/Color": 0.216064,
+    "ScenePass/DepthPrepass": 0.197632,
+    "SceneViewNormalsSnapshotPass": 0.021504,
+    "ShadowPass": 0.745472,
+    "SkeletalDeformPass": 0.001024,
+    "SkinDiffusionPass": 0.001024,
+    "TAAPass": 0.0768,
+    "ToneMapPass": 0.014336,
+    "UICompositePass": 0.01024,
+    "VirtualGeometryPass": 0.001024,
+    "VirtualShadowMapMarkPass": 0.001024,
+    "WaterPass": 0.219136
+  },
+  "transientPool": {
+    "aliasSavingsBytes": 33177600,
+    "capacityBytes": 188257620,
+    "demandBytes": 188257620
+  },
+  "width": 1920
+}

@@ -141,23 +141,6 @@ namespace OloEngine
         // between its two passes. C++ twin: UBOStructures::VirtualRasterUBO.
         Ref<UniformBuffer> m_RasterParamsUBO;
         Ref<UniformBuffer> m_DebugInfoUBO; // UBO_VIRTUAL_DEBUG, one update per frame (debug mode)
-        // ScenePass publishes the scene/G-Buffer textures as EXPORT COPIES at
-        // the end of its Execute — before this pass draws. Re-export after our
-        // draws (DeferredGPUOcclusionPass idiom) or lighting/AO/SSR/TAA and
-        // the editor grid treat every virtual-geometry pixel as sky.
-        RGTextureHandle m_SelectedSceneDepth{};
-        RGTextureHandle m_SelectedVelocity{};
-        RGTextureHandle m_SelectedGBufferAlbedo{};
-        RGTextureHandle m_SelectedGBufferNormal{};
-        RGTextureHandle m_SelectedGBufferEmissive{};
-        // MSAA per-sample re-export companions (only touched when the G-Buffer is
-        // multisample and per-sample lighting is on).
-        RGTextureHandle m_SelectedGBufferAlbedoMS{};
-        RGTextureHandle m_SelectedGBufferNormalMS{};
-        RGTextureHandle m_SelectedGBufferEmissiveMS{};
-        RGTextureHandle m_SelectedVelocityMS{};
-        RGTextureHandle m_SelectedSceneDepthMS{};
-
         bool m_PerSampleLighting = false;
         u32 m_ClusterBoundsDebugMode = 0;    // #725, see SetClusterBoundsDebug
         u32 m_ClusterBoundsDebugStride = 32; // #725

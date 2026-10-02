@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Renderer/RendererAPI.h"
+#include "OloEngine/Renderer/Debug/RenderTargetCopyLedger.h"
 
 namespace OloEngine
 {
@@ -478,6 +479,9 @@ namespace OloEngine
                                      RHI::ResourceHandle dst, RendererAPI::TextureTargetType dstTarget,
                                      u32 width, u32 height)
         {
+            // Every image copy is counted here when the copy ledger records (#1332).
+            if (RenderTargetCopyLedger::IsRecording())
+                RenderTargetCopyLedger::Record(src, dst, width, height);
             s_RendererAPI->CopyImageSubData(src, srcTarget, dst, dstTarget, width, height);
         }
 
@@ -489,6 +493,8 @@ namespace OloEngine
                                          i32 dstLevel, i32 dstZ,
                                          u32 width, u32 height)
         {
+            if (RenderTargetCopyLedger::IsRecording())
+                RenderTargetCopyLedger::Record(src, dst, width, height);
             s_RendererAPI->CopyImageSubDataFull(src, srcTarget, srcLevel, srcZ,
                                                 dst, dstTarget, dstLevel, dstZ,
                                                 width, height);
@@ -504,6 +510,8 @@ namespace OloEngine
                                            i32 dstLevel, i32 dstX, i32 dstY, i32 dstZ,
                                            u32 width, u32 height)
         {
+            if (RenderTargetCopyLedger::IsRecording())
+                RenderTargetCopyLedger::Record(src, dst, width, height);
             s_RendererAPI->CopyImageSubDataRegion(src, srcTarget, srcLevel, srcX, srcY, srcZ,
                                                   dst, dstTarget, dstLevel, dstX, dstY, dstZ,
                                                   width, height);
@@ -706,16 +714,22 @@ namespace OloEngine
         static void SetFramebufferDrawAttachments(RHI::ResourceHandle framebuffer,
                                                   std::span<const u32> attachmentIndices)
         {
+            if (RenderTargetCopyLedger::IsRecording())
+                RenderTargetCopyLedger::NoteDrawAttachments(framebuffer, attachmentIndices);
             s_RendererAPI->SetFramebufferDrawAttachments(framebuffer, attachmentIndices);
         }
 
         static void RestoreAllFramebufferDrawAttachments(RHI::ResourceHandle framebuffer, u32 colorAttachmentCount)
         {
+            if (RenderTargetCopyLedger::IsRecording())
+                RenderTargetCopyLedger::NoteDrawAttachments(framebuffer, {});
             s_RendererAPI->RestoreAllFramebufferDrawAttachments(framebuffer, colorAttachmentCount);
         }
 
         static void SetFramebufferReadAttachment(RHI::ResourceHandle framebuffer, u32 attachmentIndex)
         {
+            if (RenderTargetCopyLedger::IsRecording())
+                RenderTargetCopyLedger::NoteReadAttachment(framebuffer, attachmentIndex);
             s_RendererAPI->SetFramebufferReadAttachment(framebuffer, attachmentIndex);
         }
 
@@ -736,6 +750,12 @@ namespace OloEngine
                                     i32 dstX0, i32 dstY0, i32 dstX1, i32 dstY1,
                                     RHI::BlitAspect aspect, RHI::Filter filter = RHI::Filter::Nearest)
         {
+            if (RenderTargetCopyLedger::IsRecording())
+            {
+                RenderTargetCopyLedger::RecordBlit(srcFramebuffer, dstFramebuffer,
+                                                   static_cast<u32>(std::abs(dstX1 - dstX0)), static_cast<u32>(std::abs(dstY1 - dstY0)),
+                                                   aspect != RHI::BlitAspect::Color);
+            }
             s_RendererAPI->BlitFramebuffer(srcFramebuffer, dstFramebuffer,
                                            srcX0, srcY0, srcX1, srcY1,
                                            dstX0, dstY0, dstX1, dstY1, aspect, filter);

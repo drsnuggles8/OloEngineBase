@@ -363,14 +363,24 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view SkinDiffusionScratch = "SkinDiffusionScratch";
     inline constexpr std::string_view SkinDiffusionScratchTexture = "SkinDiffusionScratchTexture";
     inline constexpr std::string_view SceneDepthAttachment = "SceneDepthAttachment"; // Live SceneColor depth attachment view
-    inline constexpr std::string_view SceneDepth = "SceneDepth";                     // Semantic scene depth (forward snapshot or deferred G-Buffer depth)
-    inline constexpr std::string_view SceneNormals = "SceneNormals";                 // Semantic AO/deferred normals input
+    // Semantic scene depth: a view of SceneColor's depth attachment on the
+    // forward paths (issue #1332), the G-Buffer's depth on Deferred.
+    inline constexpr std::string_view SceneDepth = "SceneDepth";
+    // Semantic AO/deferred normals input: a view of SceneColor RT2 on the
+    // forward paths (issue #1332), the G-Buffer normal on Deferred.
+    inline constexpr std::string_view SceneNormals = "SceneNormals";
     // Forward paths with screen-space AO (issue #1452): the depth the forward
     // prepass wrote, copied ONCE. The bilateral upsample in
     // include/ForwardScreenSpaceAO.glsl reads it beside the AO buffer; nothing
     // writes it after the prepass, so every forward shader upsamples against
     // the depth the AO buffer was built from.
     inline constexpr std::string_view ForwardAODepth = "ForwardAODepth";
+    // Explicit copies of a SceneColor attachment for the passes that sample it
+    // while drawing into SceneColor, which a view cannot serve: a feedback loop
+    // (issue #1332, SceneAttachmentSnapshotPass). The depth one is SceneDepth
+    // itself on Deferred, where SceneDepth is not the framebuffer they draw into.
+    inline constexpr std::string_view SceneDepthSnapshot = "SceneDepthSnapshot";
+    inline constexpr std::string_view SceneViewNormalsSnapshot = "SceneViewNormalsSnapshot";
 
     // Planar reflection — the opaque scene re-rendered from a mirrored, oblique-
     // clipped camera into a transient color target, sampled projectively by the

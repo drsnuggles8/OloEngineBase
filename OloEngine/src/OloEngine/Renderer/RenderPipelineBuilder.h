@@ -35,6 +35,10 @@ namespace OloEngine
         // Forward paths with screen-space AO (issue #1474): foliage's
         // depth + view-normal share of the prepass.
         RenderGraphNode* FoliagePrepass = nullptr;
+        // Issue #1332: the explicit SceneColor attachment copies decals and
+        // water sample while drawing into SceneColor.
+        RenderGraphNode* SceneDepthSnapshot = nullptr;
+        RenderGraphNode* SceneViewNormalsSnapshot = nullptr;
         RenderGraphNode* Shadow = nullptr;
         RenderGraphNode* DDGIProbeUpdate = nullptr;      // #632 realtime DDGI capture/relight/blend
         RenderGraphNode* VirtualShadowMapMark = nullptr; // #702 VSM page marking (late: needs final scene depth)

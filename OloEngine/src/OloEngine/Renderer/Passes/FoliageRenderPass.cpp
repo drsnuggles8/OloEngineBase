@@ -19,8 +19,6 @@ namespace OloEngine
     void FoliageRenderPass::Setup(RGBuilder& builder, FrameBlackboard& board)
     {
         RenderGraphNode::Setup(builder, board);
-        m_SelectedVelocityExport = {};
-        m_SelectedSceneDepthExport = {};
         m_ReadsForwardAO = false;
 
         if (!HasSubmittedCommands())
@@ -45,45 +43,11 @@ namespace OloEngine
                 builder.WriteNewVersion(board.Scene.SceneColor, RGWriteUsage::RenderTarget, foliageVersionTag);
             builder.DependsOnPreviousWriter(ResourceNames::SceneColor);
         }
-        // ScenePass exports before these forward draws. Republish the actual
-        // attachments after foliage so temporal and depth consumers
-        // see the same surface as SceneColor.
-        const auto declareExport = [&builder](RGTextureHandle handle, RGTextureHandle& selected)
-        {
-            if (handle.IsValid())
-            {
-                selected = handle;
-                builder.Write(handle, RGWriteUsage::TransferDest);
-            }
-        };
-        // A deferred shader failure can route fallback overlays through this
-        // pass. Its framebuffer does not contain the opaque G-Buffer velocity;
-        // preserve those deferred exports rather than replacing the image.
-        if (board.Config.Path != RenderingPath::Deferred)
-        {
-            declareExport(board.GBuffer.Velocity, m_SelectedVelocityExport);
-            declareExport(board.Scene.SceneDepth, m_SelectedSceneDepthExport);
-            // Page marking consumes the opaque depth snapshot. Complete that
-            // reader before replacing it with the post-foliage depth image.
-            if (m_SelectedSceneDepthExport.IsValid())
-            {
-                builder.DependsOnPass("VirtualShadowMapMarkPass");
-                builder.DependsOnPass("SphereProxyAOPass");
-                // The technique the graph was BUILT with (#771): the requested
-                // one names an AO pass that may not be registered yet.
-                switch (board.Config.GraphAOTechnique)
-                {
-                    case AOTechnique::SSAO:
-                        builder.DependsOnPass("SSAOPass");
-                        break;
-                    case AOTechnique::GTAO:
-                        builder.DependsOnPass("GTAOPass");
-                        break;
-                    case AOTechnique::None:
-                        break;
-                }
-            }
-        }
+        // Nothing to re-export: on the forward paths SceneDepth and Velocity are
+        // views of SceneColor (issue #1332), so the write above is what puts
+        // the leaves in front of every reader registered after this pass, and
+        // the readers registered before it (page marking, the AO passes) are
+        // ordered ahead of it by that same write.
     }
 
     void FoliageRenderPass::Execute(RGCommandContext& context)
@@ -166,9 +130,6 @@ namespace OloEngine
 
         m_SceneFramebuffer->Unbind();
 
-        CopyToExport(context, m_SelectedVelocityExport, m_SceneFramebuffer->GetColorAttachmentHandle(3));
-        CopyToExport(context, m_SelectedSceneDepthExport, m_SceneFramebuffer->GetDepthAttachmentHandle());
-
         // Reset bucket for next frame
         ResetCommandBucket();
     }
@@ -179,8 +140,6 @@ namespace OloEngine
         // for — the same declaration GPUDrivenOcclusionPass's share makes.
         ForwardPrepassShareExports exports;
         DeclareForwardPrepassShare(builder, board, exports);
-        m_PrepassSceneDepth = exports.SceneDepth;
-        m_PrepassSceneNormals = exports.SceneNormals;
         m_PrepassForwardAODepth = exports.ForwardAODepth;
     }
 
@@ -228,12 +187,9 @@ namespace OloEngine
         CommandDispatch::InvalidateRenderStateCache();
         m_SceneFramebuffer->Unbind();
 
-        // Export again, now with the leaves in them: the AO passes registered
-        // after FoliagePrepassPass read these versions.
-        const RHI::ResourceHandle depth = m_SceneFramebuffer->GetDepthAttachmentHandle();
-        CopyToExport(context, m_PrepassSceneDepth, depth);
-        CopyToExport(context, m_PrepassSceneNormals, m_SceneFramebuffer->GetColorAttachmentHandle(2));
-        CopyToExport(context, m_PrepassForwardAODepth, depth);
+        // The AO depth copy again, now with the leaves in it. SceneDepth and
+        // SceneNormals are views of the target this drew into (#1332).
+        CopyToExport(context, m_PrepassForwardAODepth, m_SceneFramebuffer->GetDepthAttachmentHandle());
     }
 
     void FoliageRenderPass::CopyToExport(RGCommandContext& context, RGTextureHandle handle, RHI::ResourceHandle source) const

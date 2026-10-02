@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/Debug/GPUReadbackStats.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
+#include "OloEngine/Renderer/Passes/ParticleRenderPass.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/GBuffer.h"
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -20,6 +21,13 @@ namespace OloEngine
     void Renderer3D::SetParticleRenderCallback(RenderCallback callback)
     {
         s_Data.PendingParticleRenderCallback = std::move(callback);
+    }
+
+    RHI::ResourceHandle Renderer3D::AcquireSoftParticleDepth()
+    {
+        if (!s_Data.Pipeline || !s_Data.Pipeline->SceneCompositePasses.Particle)
+            return RHI::NullResource;
+        return s_Data.Pipeline->SceneCompositePasses.Particle->AcquireSceneDepth();
     }
 
     void Renderer3D::SubmitFluidDraw(const FluidRenderData& draw)

@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualGeometryPass.h"
+#include "OloEngine/Renderer/Passes/GBufferWriteDeclarations.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
@@ -199,16 +200,6 @@ namespace OloEngine
     void VirtualGeometryPass::Setup(RGBuilder& builder, FrameBlackboard& board)
     {
         RenderGraphNode::Setup(builder, board);
-        m_SelectedSceneDepth = {};
-        m_SelectedVelocity = {};
-        m_SelectedGBufferAlbedo = {};
-        m_SelectedGBufferNormal = {};
-        m_SelectedGBufferEmissive = {};
-        m_SelectedGBufferAlbedoMS = {};
-        m_SelectedGBufferNormalMS = {};
-        m_SelectedGBufferEmissiveMS = {};
-        m_SelectedVelocityMS = {};
-        m_SelectedSceneDepthMS = {};
 
         // Deferred-path only: the G-Buffer is the integration point.
         if (board.Config.Path != RenderingPath::Deferred)
@@ -217,33 +208,11 @@ namespace OloEngine
         // Declared UNCONDITIONALLY in Deferred (not gated on this frame's
         // submission count) so the topology stays stable when the instance
         // list transitions empty <-> non-empty without a graph rebuild.
-        // TransferDest writes on the exported scene/G-Buffer textures order
-        // this pass after ScenePass (their prior writer) and before every
-        // downstream reader (DeferredLightingPass / GTAO / SSR / TAA), exactly
-        // like DeferredGPUOcclusionPass. Execute re-copies the attachments
-        // over the exports after our draws; handles that alias the physical
-        // attachment self-skip the copy.
-        const auto declareExport = [&builder](const RGTextureHandle handle, RGTextureHandle& stored)
-        {
-            if (handle.IsValid())
-            {
-                stored = handle;
-                builder.Write(handle, RGWriteUsage::TransferDest);
-            }
-        };
-        declareExport(board.Scene.SceneDepth, m_SelectedSceneDepth);
-        declareExport(board.GBuffer.Velocity, m_SelectedVelocity);
-        declareExport(board.GBuffer.GBufferAlbedo, m_SelectedGBufferAlbedo);
-        declareExport(board.GBuffer.GBufferNormal, m_SelectedGBufferNormal);
-        declareExport(board.GBuffer.GBufferEmissive, m_SelectedGBufferEmissive);
-        // MSAA per-sample companions (present only when the G-Buffer is
-        // multisample); declared unconditionally like the resolved set so a
-        // runtime MSAA toggle doesn't force a graph rebuild.
-        declareExport(board.GBuffer.GBufferAlbedoMS, m_SelectedGBufferAlbedoMS);
-        declareExport(board.GBuffer.GBufferNormalMS, m_SelectedGBufferNormalMS);
-        declareExport(board.GBuffer.GBufferEmissiveMS, m_SelectedGBufferEmissiveMS);
-        declareExport(board.GBuffer.VelocityMS, m_SelectedVelocityMS);
-        declareExport(board.GBuffer.SceneDepthMS, m_SelectedSceneDepthMS);
+        // Orders this pass after ScenePass and before every G-Buffer reader,
+        // exactly like DeferredGPUOcclusionPass (the shared declaration). The
+        // re-export this pass used to run never copied a texel (#1332's copy
+        // ledger): the exports are views of the attachments it draws into.
+        DeclareGBufferWrites(builder, board);
 
         // The two-phase cluster cull (#682, #1331): phase 1 tests the RETAINED
         // occlusion pyramid, last frame's final depth, and phase 2 rebuilds it
@@ -1100,7 +1069,7 @@ namespace OloEngine
         }
 
         // Per-sample MSAA rasterized into the multisample G-Buffer — resolve so
-        // the single-sample export copies below (and AO / SSR) see the clusters.
+        // the single-sample views (lighting, AO, SSR) see the clusters.
         // Non-per-sample MSAA drew straight into the resolved FBO, so no resolve.
         // Resolve() mutates, but we borrow the G-Buffer as a const ref — take a
         // non-const Ref copy (cheap refcount bump) to call it.
@@ -1108,40 +1077,6 @@ namespace OloEngine
         {
             Ref<GBuffer> resolveTarget = gbuffer;
             resolveTarget->Resolve();
-        }
-
-        // Re-export the scene/G-Buffer textures so lighting / GTAO / SSR / TAA
-        // and the editor grid see the clusters we just drew — ScenePass copied
-        // its exports before we ran (DeferredGPUOcclusionPass idiom). Handles
-        // that alias the live attachment self-skip.
-        const auto copyExport = [&context, &gbuffer](const RGTextureHandle handle,
-                                                     RHI::ResourceHandle sourceTextureID,
-                                                     RendererAPI::TextureTargetType target)
-        {
-            if (!handle.IsValid() || !sourceTextureID.IsValid())
-                return;
-            const RHI::ResourceHandle exportedID = context.ResolveTextureHandle(handle);
-            if (!exportedID.IsValid() || exportedID == sourceTextureID)
-                return;
-            RenderCommand::CopyImageSubData(sourceTextureID, target, exportedID, target,
-                                            gbuffer->GetWidth(), gbuffer->GetHeight());
-        };
-        copyExport(m_SelectedSceneDepth, gbuffer->GetDepthAttachmentHandle(), RendererAPI::TextureTargetType::Texture2D);
-        copyExport(m_SelectedVelocity, gbuffer->GetColorAttachmentHandle(GBuffer::Velocity), RendererAPI::TextureTargetType::Texture2D);
-        copyExport(m_SelectedGBufferAlbedo, gbuffer->GetColorAttachmentHandle(GBuffer::Albedo), RendererAPI::TextureTargetType::Texture2D);
-        copyExport(m_SelectedGBufferNormal, gbuffer->GetColorAttachmentHandle(GBuffer::Normal), RendererAPI::TextureTargetType::Texture2D);
-        copyExport(m_SelectedGBufferEmissive, gbuffer->GetColorAttachmentHandle(GBuffer::Emissive), RendererAPI::TextureTargetType::Texture2D);
-
-        // Per-sample lighting samples the MULTISAMPLE G-Buffer, so re-export those
-        // attachments too (they carry the clusters we just drew into the MS FBO).
-        if (perSampleMSAA)
-        {
-            constexpr auto kMS = RendererAPI::TextureTargetType::Texture2DMultisample;
-            copyExport(m_SelectedSceneDepthMS, gbuffer->GetMSDepthAttachmentHandle(), kMS);
-            copyExport(m_SelectedVelocityMS, gbuffer->GetMSColorAttachmentHandle(GBuffer::Velocity), kMS);
-            copyExport(m_SelectedGBufferAlbedoMS, gbuffer->GetMSColorAttachmentHandle(GBuffer::Albedo), kMS);
-            copyExport(m_SelectedGBufferNormalMS, gbuffer->GetMSColorAttachmentHandle(GBuffer::Normal), kMS);
-            copyExport(m_SelectedGBufferEmissiveMS, gbuffer->GetMSColorAttachmentHandle(GBuffer::Emissive), kMS);
         }
     }
 } // namespace OloEngine

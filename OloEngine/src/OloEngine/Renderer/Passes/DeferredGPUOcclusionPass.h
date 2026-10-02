@@ -83,21 +83,5 @@ namespace OloEngine
         // cull[i].Phase2Output after DispatchPhase2 fills it). Cleared each Execute.
         TArray<CommandPacket*> m_Phase2Packets;
         TArray<GPUFrustumCuller::TwoPhaseCullResult> m_Phase2Culls;
-
-        // G-Buffer re-export targets. After the phase-2 draws the pass copies
-        // the live G-Buffer attachments into these graph textures so downstream
-        // consumers (which sample the exported textures, not the FBO) include
-        // the disoccluded geometry. ScenePass exported them before this pass ran.
-        RGTextureHandle m_SelectedSceneDepthExport{};
-        RGTextureHandle m_SelectedSceneNormalsExport{};
-        RGTextureHandle m_SelectedVelocityExport{};
-        RGTextureHandle m_SelectedGBufferAlbedoExport{};
-        RGTextureHandle m_SelectedGBufferNormalExport{};
-        RGTextureHandle m_SelectedGBufferEmissiveExport{};
-        RGTextureHandle m_SelectedGBufferAlbedoMSExport{};
-        RGTextureHandle m_SelectedGBufferNormalMSExport{};
-        RGTextureHandle m_SelectedGBufferEmissiveMSExport{};
-        RGTextureHandle m_SelectedVelocityMSExport{};
-        RGTextureHandle m_SelectedSceneDepthMSExport{};
     };
 } // namespace OloEngine

@@ -18,6 +18,7 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionCuller.h"
 #include "OloEngine/Renderer/Passes/DecalRenderPass.h"
+#include "OloEngine/Renderer/Passes/ForwardScreenSpaceAOInputs.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 namespace OloEngine
@@ -81,9 +82,6 @@ namespace OloEngine
     void SceneRenderPass::Setup(RGBuilder& builder, FrameBlackboard& board)
     {
         RenderGraphNode::Setup(builder, board);
-        m_SelectedSceneDepthExport = {};
-        m_SelectedSceneNormalsExport = {};
-        m_SelectedVelocityExport = {};
 
         if (board.Scene.SceneColor.IsValid())
             SetPrimaryInputFramebufferHandle(board.Scene.SceneColor);
@@ -135,26 +133,21 @@ namespace OloEngine
             [[maybe_unused]] const auto aoRead = builder.Read(board.AO.AOBuffer, RGReadUsage::ShaderSample);
             [[maybe_unused]] const auto depthRead = builder.Read(board.Scene.ForwardAODepth, RGReadUsage::ShaderSample);
         }
-        if (board.Scene.SceneDepth.IsValid())
+        if (board.Config.Path == RenderingPath::Deferred)
         {
-            m_SelectedSceneDepthExport = board.Scene.SceneDepth;
-            builder.Write(board.Scene.SceneDepth, RGWriteUsage::TransferDest);
+            // The deferred exports are attachment views of the G-Buffer this
+            // pass renders: these writes give their readers a producer. Nothing
+            // is copied (the views ARE the attachments).
+            if (board.Scene.SceneDepth.IsValid())
+                builder.Write(board.Scene.SceneDepth, RGWriteUsage::TransferDest);
+            if (board.GBuffer.Velocity.IsValid())
+                builder.Write(board.GBuffer.Velocity, RGWriteUsage::TransferDest);
         }
-        if (board.GBuffer.Velocity.IsValid())
+        else if (board.Scene.SceneColor.IsValid())
         {
-            m_SelectedVelocityExport = board.GBuffer.Velocity;
-            builder.Write(board.GBuffer.Velocity, RGWriteUsage::TransferDest);
-        }
-
-        if (board.Config.Path != RenderingPath::Deferred)
-        {
-            if (board.Scene.SceneNormals.IsValid())
-            {
-                m_SelectedSceneNormalsExport = board.Scene.SceneNormals;
-                builder.Write(board.Scene.SceneNormals, RGWriteUsage::TransferDest);
-            }
-            if (board.Scene.SceneColor.IsValid())
-                builder.Write(board.Scene.SceneColor, RGWriteUsage::RenderTarget);
+            // SceneDepth, SceneNormals and Velocity are views of SceneColor on
+            // the forward paths (issue #1332): this write is a write to them.
+            builder.Write(board.Scene.SceneColor, RGWriteUsage::RenderTarget);
         }
     }
 
@@ -186,8 +179,6 @@ namespace OloEngine
 
     void SceneRenderPass::SetupForwardPrepass(RGBuilder& builder, FrameBlackboard& board)
     {
-        m_PrepassSceneDepthExport = {};
-        m_PrepassSceneNormalsExport = {};
         m_PrepassForwardAODepthExport = {};
 
         // The same scene inputs Setup() declares: the prepass replays the same
@@ -219,18 +210,10 @@ namespace OloEngine
             [[maybe_unused]] const auto brdfRead = builder.Read(board.IBL.BrdfLut, RGReadUsage::ShaderSample);
         }
 
-        // The prepass writes depth and view normals, and exports both: these
-        // are the versions the AO nodes registered after it read.
-        if (board.Scene.SceneDepth.IsValid())
-        {
-            m_PrepassSceneDepthExport = board.Scene.SceneDepth;
-            builder.Write(board.Scene.SceneDepth, RGWriteUsage::TransferDest);
-        }
-        if (board.Scene.SceneNormals.IsValid())
-        {
-            m_PrepassSceneNormalsExport = board.Scene.SceneNormals;
-            builder.Write(board.Scene.SceneNormals, RGWriteUsage::TransferDest);
-        }
+        // The prepass writes depth and view normals into SceneColor, whose
+        // views SceneDepth and SceneNormals are what the AO nodes registered
+        // after it read (issue #1332): the SceneColor write below is the
+        // declaration. The AO depth is a copy, made here.
         if (board.Scene.ForwardAODepth.IsValid())
         {
             m_PrepassForwardAODepthExport = board.Scene.ForwardAODepth;
@@ -279,12 +262,8 @@ namespace OloEngine
         }
 
         renderFB->Unbind();
-        ExportSceneDepthAndNormals(context, m_PrepassSceneDepthExport,
-                                   writeViewNormals ? m_PrepassSceneNormalsExport : RGTextureHandle{}, false,
-                                   /*exportVelocity*/ false);
         if (writeViewNormals)
-            ExportSceneDepthAndNormals(context, m_PrepassForwardAODepthExport, RGTextureHandle{}, false,
-                                       /*exportVelocity*/ false);
+            CopyDepthIntoForwardAODepth(context, m_Target, m_PrepassForwardAODepthExport);
 
         m_ForwardPrepassRan = true;
         m_ForwardPrepassDrew = depthPrepass;
@@ -434,56 +413,6 @@ namespace OloEngine
         rendererAPI.SetColorMask(true, true, true, true);
         CommandDispatch::InvalidateRenderStateCache();
         gpuSubTimers.EndSubPass();
-    }
-
-    void SceneRenderPass::ExportSceneDepthAndNormals(RGCommandContext& context, const RGTextureHandle depthExport,
-                                                     const RGTextureHandle normalsExport, const bool deferredActive, const bool exportVelocity)
-    {
-        // Publish scene-derived textures through graph-owned handles. The
-        // scene pass still renders into the legacy scene/G-Buffer
-        // attachments, but downstream consumers now sample the exported graph
-        // textures instead of importing those attachments directly.
-        // Identities throughout (issue #691): the export target
-        // is a graph TRANSIENT, which only began answering ResolveTextureHandle
-        // once the planner recorded a handle for pooled textures. The self-copy
-        // guard now compares OBJECTS -- under driver names a recycled name could
-        // make source and export look identical and skip a copy the frame needed.
-        const auto copySceneExport = [this, &context](const RGTextureHandle handle,
-                                                      const RHI::ResourceHandle sourceTexture)
-        {
-            if (!handle.IsValid() || !sourceTexture.IsValid() ||
-                m_FramebufferSpec.Width == 0u || m_FramebufferSpec.Height == 0u)
-            {
-                return;
-            }
-
-            const RHI::ResourceHandle exportedTexture = context.ResolveTextureHandle(handle);
-            if (!exportedTexture.IsValid() || exportedTexture == sourceTexture)
-                return;
-
-            RenderCommand::CopyImageSubData(sourceTexture, RendererAPI::TextureTargetType::Texture2D,
-                                            exportedTexture, RendererAPI::TextureTargetType::Texture2D,
-                                            m_FramebufferSpec.Width, m_FramebufferSpec.Height);
-        };
-
-        const RHI::ResourceHandle sourceDepth = deferredActive && m_GBuffer
-                                                    ? m_GBuffer->GetDepthAttachmentHandle()
-                                                    : m_Target->GetDepthAttachmentHandle();
-        copySceneExport(depthExport, sourceDepth);
-
-        if (!deferredActive)
-            copySceneExport(normalsExport, m_Target->GetColorAttachmentHandle(2));
-
-        if (exportVelocity && m_SelectedVelocityExport.IsValid())
-        {
-            // Velocity is written by the colour pass alone, so it is exported
-            // with the colour half's depth/normal export and never by the
-            // forward prepass node.
-            const RHI::ResourceHandle sourceVelocity = deferredActive && m_GBuffer
-                                                           ? m_GBuffer->GetColorAttachmentHandle(GBuffer::Velocity)
-                                                           : m_Target->GetColorAttachmentHandle(3);
-            copySceneExport(m_SelectedVelocityExport, sourceVelocity);
-        }
     }
 
     void SceneRenderPass::Execute(RGCommandContext& context)
@@ -786,13 +715,16 @@ namespace OloEngine
         const bool aoNeedsResolvedNormals =
             (postProcessSettings.ActiveAOTechnique == AOTechnique::SSAO && postProcessSettings.SSAOEnabled) ||
             (postProcessSettings.ActiveAOTechnique == AOTechnique::GTAO && postProcessSettings.GTAOEnabled);
-        if (const bool postNeedsResolvedVelocity = postProcessSettings.MotionBlurEnabled || Renderer3D::IsEngineTAAWanted() || m_SelectedVelocityExport.IsValid(); perSampleLighting && (debugNeedsColour || aoNeedsResolvedNormals || postNeedsResolvedVelocity))
+        // The G-Buffer velocity view is published on every Deferred frame and
+        // this pass cannot see which later passes read it, so a per-sample
+        // G-Buffer is always resolved for it -- what the export copy's
+        // always-valid handle used to decide here.
+        if (const bool postNeedsResolvedVelocity = postProcessSettings.MotionBlurEnabled || Renderer3D::IsEngineTAAWanted() || deferredActive; perSampleLighting && (debugNeedsColour || aoNeedsResolvedNormals || postNeedsResolvedVelocity))
         {
-            m_GBuffer->Resolve();
+            // Colour only: depth was resolved above and nothing has drawn since.
+            // A full Resolve() blitted it a second time (#1332's copy ledger).
+            m_GBuffer->ResolveColorOnly();
         }
-
-        ExportSceneDepthAndNormals(context, m_SelectedSceneDepthExport, m_SelectedSceneNormalsExport, deferredActive,
-                                   /*exportVelocity*/ true);
 
         // Deferred debug visualisation: until DeferredLightingPass lands in
         // Copy the selected G-Buffer channel into the forward scene
@@ -1120,11 +1052,7 @@ namespace OloEngine
     void SceneRenderPass::OnReset()
     {
         OLO_PROFILE_FUNCTION();
-        m_SelectedSceneDepthExport = {};
-        m_SelectedSceneNormalsExport = {};
-        m_SelectedVelocityExport = {};
-        m_PrepassSceneDepthExport = {};
-        m_PrepassSceneNormalsExport = {};
+        m_PrepassForwardAODepthExport = {};
         m_ForwardPrepassRan = false;
         m_ForwardPrepassDrew = false;
 

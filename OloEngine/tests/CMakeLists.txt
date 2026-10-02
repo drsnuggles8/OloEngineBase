@@ -454,6 +454,7 @@ add_executable(OloEngine-Tests
 		# Listed directly since #1305 dropped it from the heavy-compile pool (0.94 GiB, #34);
 		# it no longer needs the variable indirection that held it out of this list.
 		Rendering/RenderGraphTest.cpp
+		Rendering/RenderGraphAttachmentViewExportTest.cpp
 		# Phase 2 ratchet for the Vulkan-RHI epic (#691, ADR 0011): counts raw
 		# glXxx() outside Platform/OpenGL/ and fails when it rises above
 		# Rendering/rhi_boundary_baseline.json. Also the only TU that compiles the
@@ -1337,6 +1338,9 @@ add_executable(OloEngine-Tests
 		Rendering/BenchmarkExportValidityTest.cpp
 		Rendering/PropertyTests/GpuTimingPoolEvidenceTest.cpp
 		Rendering/PropertyTests/RendererMemoryAccountingEvidenceTest.cpp
+		# The copy ledger's per-cell export report and the attachment-view
+		# migration's freshness and lifetime contract (#1332).
+		Rendering/PropertyTests/RenderTargetExportEvidenceTest.cpp
 		# Pure per-scope CPU timings shaping behind olo_perf_cpu_scopes (#519,
 		# first slice: expose PerformanceProfiler's per-scope CPU timings, incl.
 		# the Distribution-build "unavailable" degradation). Header-only

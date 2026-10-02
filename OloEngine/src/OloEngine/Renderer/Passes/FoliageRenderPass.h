@@ -36,8 +36,8 @@ namespace OloEngine
         // FoliagePrepassPass. With a forward screen-space AO buffer this frame,
         // the foliage bucket is replayed depth + view normal
         // (Foliage_*_DepthNormal.glsl) after the scene and GPU-driven prepasses
-        // and before the AO passes, and the depth, normals and AO depth copy
-        // are exported again, so the AO buffer holds the leaves' own occlusion
+        // and before the AO passes, and the AO depth copy is made again, so
+        // the AO buffer holds the leaves' own occlusion
         // and Execute()'s colour draws can apply it to their ambient term.
         // Without one this declares nothing and does nothing.
         void SetupForwardPrepass(RGBuilder& builder, FrameBlackboard& board);
@@ -59,14 +59,10 @@ namespace OloEngine
         void CopyToExport(RGCommandContext& context, RGTextureHandle handle, RHI::ResourceHandle source) const;
 
         Ref<Framebuffer> m_SceneFramebuffer;
-        RGTextureHandle m_SelectedVelocityExport;
-        RGTextureHandle m_SelectedSceneDepthExport;
         // Whether the colour draws read the forward AO buffer (issue #1474).
         bool m_ReadsForwardAO = false;
-        // The prepass half's export handles (its versions of SceneDepth,
-        // SceneNormals and ForwardAODepth, which the AO passes read).
-        RGTextureHandle m_PrepassSceneDepth;
-        RGTextureHandle m_PrepassSceneNormals;
+        // The prepass half's AO depth copy (#1474); SceneDepth and SceneNormals
+        // are views of the scene target and need none (#1332).
         RGTextureHandle m_PrepassForwardAODepth;
         // Whether this frame's forward prepass put every foliage draw's depth
         // in the scene target. Then the colour draws test against it without
