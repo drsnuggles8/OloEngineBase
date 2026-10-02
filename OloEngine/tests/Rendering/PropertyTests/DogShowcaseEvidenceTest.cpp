@@ -101,6 +101,7 @@
 #include <glm/gtc/quaternion.hpp>
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
+#include <yaml-cpp/yaml.h>
 
 #include <stb_image/stb_image_write.h>
 
@@ -4172,6 +4173,179 @@ namespace OloEngine::Tests
     }
 
     // =========================================================================
+    // Not a test: the review footage (#1533 acceptance review, section 6).
+    // OLO_DOG_FOOTAGE=<directory> writes, at the E criteria's 1920x1080 on the
+    // live scene's lawn, every RUNTIME frame (60 per second of clip time, the
+    // solver stepping as in Play) of each clip from its framing, and every
+    // HELD frame of the B7 dolly (out from the face to 15 m and back, the
+    // history never reset, then the extended 15-45 m leg), as lossless PNGs:
+    // <directory>/<sequence>/<frame>.png, plus <directory>/manifest.json with
+    // the build, the settings and each sequence's camera and clip. Headless:
+    // the live editor's look is the same pipeline with the same tier, but this
+    // is not an editor capture, and the manifest says so.
+    // =========================================================================
+    TEST_F(DogShowcaseEvidenceTest, RecordsTheReviewFootage)
+    {
+        const char* target = std::getenv("OLO_DOG_FOOTAGE");
+        if (target == nullptr || target[0] == '\0')
+        {
+            GTEST_SKIP() << "set OLO_DOG_FOOTAGE=<directory> to write the review footage";
+        }
+        const fs::path root(target);
+        std::error_code ec;
+        fs::create_directories(root, ec);
+        ASSERT_FALSE(ec) << root.string();
+        SetPath(RenderingPath::Forward);
+        BuildLawn(std::string(OLO_TEST_EDITOR_ROOT) + "/");
+        ResizeRenderTarget(1920u, 1080u);
+        const GroomLodComponent shippedLod = m_Dog.Coat.GetComponent<GroomLodComponent>();
+        struct Restore
+        {
+            std::function<void()> Undo;
+            ~Restore()
+            {
+                Undo();
+            }
+        } restore{ [&]
+                   {
+                       ResizeRenderTarget(kWidth, kHeight);
+                       m_Dog.Coat.GetComponent<GroomLodComponent>() = shippedLod;
+                   } };
+
+        nlohmann::json manifest;
+        {
+            const auto* renderer = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
+            const auto* version = reinterpret_cast<const char*>(glGetString(GL_VERSION));
+            const PostProcessSettings& post = Renderer3D::GetPostProcessSettings();
+            const ShadowSettings& shadow = Renderer3D::GetShadowMap().GetSettings();
+            manifest["kind"] = "headless runtime (DogShowcaseEvidenceTest.RecordsTheReviewFootage)";
+            manifest["build"] = BuildInfo::GetBuildId();
+            manifest["gpu"] = renderer != nullptr ? renderer : "unknown";
+            manifest["driver"] = version != nullptr ? version : "unknown";
+            manifest["backend"] = "OpenGL";
+            manifest["path"] = "Forward";
+            manifest["resolution"] = { 1920, 1080 };
+            manifest["internalResolution"] = { 1920, 1080 };
+            manifest["taa"] = { { "enabled", post.TAAEnabled }, { "feedback", post.TAAFeedback }, { "sharpness", post.TAASharpness } };
+            manifest["upscale"] = static_cast<int>(post.Upscale);
+            manifest["tonemap"] = static_cast<int>(post.Tonemap);
+            manifest["bloom"] = post.BloomEnabled;
+            manifest["fxaa"] = post.FXAAEnabled;
+            manifest["shadow"] = { { "resolution", shadow.Resolution }, { "soft", shadow.SoftShadows } };
+            manifest["ground"] = "the live scene's lawn (BuildLawn)";
+            manifest["frameStep"] = "1/60 s";
+        }
+
+        const auto write = [&](const fs::path& dir, u32 index)
+        {
+            std::vector<u8> rgba;
+            u32 width = 0;
+            u32 height = 0;
+            ASSERT_TRUE(ReadbackComposite(rgba, width, height));
+            // Bottom row first: flip on the way out.
+            const sizet row = static_cast<sizet>(width) * 4u;
+            std::vector<u8> top(rgba.size());
+            for (u32 y = 0; y < height; ++y)
+            {
+                std::memcpy(&top[static_cast<sizet>(y) * row], &rgba[static_cast<sizet>(height - 1u - y) * row], row);
+            }
+            char name[32];
+            std::snprintf(name, sizeof(name), "%04u.png", index);
+            const std::string path = (dir / name).string();
+            ASSERT_NE(::stbi_write_png(path.c_str(), static_cast<int>(width), static_cast<int>(height), 4, top.data(),
+                                       static_cast<int>(row)),
+                      0)
+                << path;
+        };
+
+        struct Shot
+        {
+            const char* Name;
+            const char* Clip;
+            bool Loop;
+            f32 Seconds;
+            View Where;
+        };
+        const View face{ "FaceCloseUp", { 0.24f, 0.64f, 0.98f }, { 0.0f, 0.57f, 0.40f }, 32.0f };
+        const View body{ "FullBody", { 1.30f, 0.60f, 1.72f }, { 0.0f, 0.33f, 0.0f }, 32.0f };
+        const View walk{ "WalkMidShot", { 2.10f, 1.00f, 2.90f }, { 0.0f, 0.35f, 0.0f }, 32.0f };
+        const View rear{ "RearTail", { -0.95f, 0.70f, -1.35f }, { 0.0f, 0.40f, -0.25f }, 35.0f };
+        const std::array<Shot, 8> shots{ {
+            { "Idle_FaceCloseUp", "Idle", true, 4.0f, face },
+            { "Idle_FullBody", "Idle", true, 4.0f, body },
+            { "HeadTilt_FaceCloseUp", "HeadTilt", false, 2.5f, face },
+            { "Sit_FullBody", "Sit", false, 3.0f, body },
+            { "Walk_MidShot", "Walk", true, 2.0f, walk },
+            { "Walk_RearTail", "Walk", true, 2.0f, rear },
+            { "Pant_FaceCloseUp", "Pant", true, 2.0f, face },
+            { "Pant_RearTail", "Pant", true, 2.0f, rear },
+        } };
+        for (const Shot& shot : shots)
+        {
+            SCOPED_TRACE(shot.Name);
+            const fs::path dir = root / shot.Name;
+            fs::create_directories(dir, ec);
+            AimRuntimeCamera(shot.Where);
+            Renderer3D::ResetFrameSequences();
+            ColdHistory();
+            (void)StartClip(shot.Clip, shot.Loop, 1u);
+            const u32 frames = static_cast<u32>(shot.Seconds * 60.0f);
+            for (u32 f = 0; f < frames; ++f)
+            {
+                write(dir, f);
+                ASSERT_FALSE(HasFatalFailure());
+                (void)AdvanceRuntime(1u);
+            }
+            manifest["sequences"][shot.Name] = { { "clip", shot.Clip },
+                                                 { "frames", frames },
+                                                 { "fps", 60 },
+                                                 { "camera", { { "eye", { shot.Where.Eye.x, shot.Where.Eye.y, shot.Where.Eye.z } },
+                                                               { "target", { shot.Where.Target.x, shot.Where.Target.y, shot.Where.Target.z } },
+                                                               { "fovDegrees", shot.Where.Fov } } },
+                                                 { "advance", "runtime: clip time and solver" } };
+            std::printf("[dog] footage %s: %u frames\n", shot.Name, frames);
+            std::fflush(stdout);
+        }
+
+        // The dolly: the B7 path, the dog held in its rest pose, LOD as shipped.
+        (void)StartClip("Rest", true, 30);
+        for (const auto& [name, path] : { std::pair{ "Dolly_0.6-15m", DollyPath{ 0.6f, 15.0f, 200u } },
+                                          std::pair{ "Dolly_Extended_15-45m", DollyPath{ 15.0f, 45.0f, 120u } } })
+        {
+            const fs::path dir = root / name;
+            fs::create_directories(dir, ec);
+            Renderer3D::ResetFrameSequences();
+            ColdHistory();
+            AimRuntimeCamera(DollyView(path.Near));
+            HoldRuntime(16);
+            const u32 frames = 2u * path.FramesEachWay;
+            nlohmann::json distances = nlohmann::json::array();
+            for (u32 k = 0; k < frames; ++k)
+            {
+                const bool outbound = k < path.FramesEachWay;
+                const u32 i = outbound ? k : (frames - 1u - k);
+                const f32 s = static_cast<f32>(i) / static_cast<f32>(path.FramesEachWay - 1u);
+                const f32 distance = path.Near * std::pow(path.Far / path.Near, s);
+                AimRuntimeCamera(DollyView(distance));
+                HoldRuntime(1);
+                write(dir, k);
+                ASSERT_FALSE(HasFatalFailure());
+                const GroomLodState* lod = GetScene().FindGroomLodState(m_Dog.Coat.GetUUID());
+                distances.push_back({ { "distance", distance },
+                                      { "tier", lod != nullptr ? static_cast<int>(lod->Representation) : -1 },
+                                      { "visibilityStep", lod != nullptr ? lod->VisibilityStep : 0u } });
+            }
+            manifest["sequences"][name] = { { "frames", frames },
+                                            { "fps", 60 },
+                                            { "advance", "held: the scene paused, the camera moving, the history never reset" },
+                                            { "perFrame", std::move(distances) } };
+            std::printf("[dog] footage %s: %u frames\n", name, frames);
+            std::fflush(stdout);
+        }
+        std::ofstream(root / "manifest.json") << manifest.dump(1);
+    }
+
+    // =========================================================================
     // E4: what the dog costs, on the live scene (the lawn included) with the
     // look as shipped, at the E criteria's 1920x1080. The three E1 framings --
     // the face close-up, the full body at about 60% of the frame's height, a
@@ -6038,4 +6212,572 @@ namespace OloEngine::Tests
             << "the packed pair draws the coat the fixture's own pair draws";
     }
 
+    // =========================================================================
+    // A3: a whole blink, on the skinned lids (#1533 acceptance review,
+    // section 5). Idle's first blink, frame by frame on RUNTIME frames:
+    //   - THE GEOMETRY: every lid vertex (the DogLid skin and whatever a lid
+    //     bone dominates), skinned on the CPU from the frame's palette, against
+    //     each eye as its entity sits that frame -- no lid vertex inside its
+    //     eyeball, so the lid closes OVER the eye and not through it;
+    //   - THE CLOSURE, from a held close-up of the left eye at five instants
+    //     (open, closing, deepest, opening, open again): the eye's own pixels
+    //     fall to nearly none at the deepest frame and come back;
+    //   - THE CATCH-LIGHT: on the open eye, its brightest pixels stand well
+    //     above its iris -- a wet highlight, not a matte ball.
+    // And the head tilt's brow: the brow bones move, and a held close-up shows
+    // it. The frames are written as strips for the review.
+    // =========================================================================
+    TEST_F(DogShowcaseEvidenceTest, TheLidsCloseOverTheEyesThroughABlink)
+    {
+        SetPath(RenderingPath::Forward);
+        BodyParts parts = BuildBodyParts();
+        const Skeleton& skeleton = *m_Dog.Body.GetComponent<SkeletonComponent>().m_Skeleton;
+        const auto boneIndex = [&](const char* name)
+        {
+            for (sizet i = 0; i < skeleton.m_BoneNames.size(); ++i)
+            {
+                if (skeleton.m_BoneNames[i] == name)
+                {
+                    return static_cast<i32>(i);
+                }
+            }
+            ADD_FAILURE() << "the dog has no bone " << name;
+            return -1;
+        };
+        const i32 head = boneIndex("head");
+        const i32 upperLid = boneIndex("lid_upper_L");
+        ASSERT_GE(head, 0);
+        ASSERT_GE(upperLid, 0);
+        // The upper lid's turn against the head, from its bind: the blink's depth.
+        const glm::mat3 bindRelative = glm::mat3(skeleton.m_InverseBindPoses[static_cast<sizet>(head)] *
+                                                 glm::inverse(skeleton.m_InverseBindPoses[static_cast<sizet>(upperLid)]));
+        const auto lidTurn = [&]
+        {
+            const glm::mat3 now = glm::mat3(glm::inverse(skeleton.m_GlobalTransforms[static_cast<sizet>(head)]) *
+                                            skeleton.m_GlobalTransforms[static_cast<sizet>(upperLid)]);
+            const glm::mat3 d = now * glm::transpose(bindRelative);
+            return std::acos(std::clamp((d[0][0] + d[1][1] + d[2][2] - 1.0f) * 0.5f, -1.0f, 1.0f));
+        };
+        // Find Idle's first blink: the first frame whose turn is the deepest of
+        // its neighbourhood and at least half the clip's deepest.
+        (void)StartClip("Idle", true, 1u);
+        std::vector<f32> turns;
+        for (u32 f = 1; f < 240u; ++f)
+        {
+            (void)AdvanceRuntime(1u);
+            turns.push_back(lidTurn());
+        }
+        ASSERT_FALSE(HasFatalFailure());
+        const f32 deepest = *std::ranges::max_element(turns);
+        sizet peak = 0;
+        for (sizet f = 0; f < turns.size(); ++f)
+        {
+            if (turns[f] >= 0.5f * deepest)
+            {
+                peak = f;
+                while (peak + 1u < turns.size() && turns[peak + 1u] >= turns[peak])
+                {
+                    ++peak;
+                }
+                break;
+            }
+        }
+        const u32 peakFrame = static_cast<u32>(peak) + 2u; // turns[0] is the clip's frame 2
+        std::printf("[dog] blink: the upper lid turns %.1f degrees at Idle frame %u (deepest in the clip %.1f)\n",
+                    glm::degrees(turns[peak]), peakFrame, glm::degrees(deepest));
+        ASSERT_GT(glm::degrees(deepest), 10.0f) << "Idle has no blink";
+
+        // The lid vertices.
+        std::vector<u32> lid;
+        for (u32 v = 0; v < static_cast<u32>(parts.Bind.size()); ++v)
+        {
+            const u32 dominant = parts.Dominant[v];
+            const bool lidBone = dominant < skeleton.m_BoneNames.size() && skeleton.m_BoneNames[dominant].starts_with("lid_");
+            if (lidBone || parts.Material[v] == "DogLid")
+            {
+                lid.push_back(v);
+            }
+        }
+        ASSERT_FALSE(lid.empty()) << "the dog has no lid vertices";
+
+        const i32 leftEye = static_cast<i32>(static_cast<u32>(m_Dog.Eyes[0]));
+        struct Instant
+        {
+            const char* Name;
+            u32 Frame;
+        };
+        // Open well before, half-way down, the deepest, half-way up, open after.
+        // Strictly increasing: half-way down, the deepest, half-way up.
+        const u32 before = peakFrame > 16u ? peakFrame - 14u : 2u;
+        u32 closing = peakFrame > before + 2u ? peakFrame - 2u : before + 1u;
+        for (u32 f = before + 1u; f < peakFrame; ++f)
+        {
+            if (turns[f - 2u] >= 0.5f * turns[peak])
+            {
+                closing = f;
+                break;
+            }
+        }
+        u32 opening = peakFrame + 3u;
+        for (u32 f = peakFrame + 1u; f - 2u < turns.size(); ++f)
+        {
+            if (turns[f - 2u] <= 0.5f * turns[peak])
+            {
+                opening = f;
+                break;
+            }
+        }
+        const u32 openAgain = std::min<u32>(std::max(peakFrame + 14u, opening + 4u), static_cast<u32>(turns.size()) + 1u);
+        const std::array<Instant, 5> instants{ { { "open", before },
+                                                  { "closing", closing },
+                                                  { "closed", peakFrame },
+                                                  { "opening", opening },
+                                                  { "open again", openAgain } } };
+        (void)StartClip("Idle", true, before);
+        f32 worstClearance = std::numeric_limits<f32>::max();
+        u32 worstFrame = 0;
+        std::array<f64, 5> eyePixels{};
+        f64 catchLight = 0.0;
+        std::vector<std::vector<u8>> frames;
+        sizet next = 0;
+        for (u32 frame = before; frame <= instants.back().Frame; ++frame)
+        {
+            if (frame > before)
+            {
+                (void)AdvanceRuntime(1u);
+            }
+            // The geometry, every frame.
+            PoseBody(parts);
+            for (u32 e = 0; e < 2u; ++e)
+            {
+                const glm::vec3 centre(m_Dog.Eyes[e].GetComponent<WorldTransformComponent>().WorldMatrix[3]);
+                for (const u32 v : lid)
+                {
+                    const f32 d = glm::distance(parts.Posed[v], centre);
+                    if (d < 0.03f && d < worstClearance)
+                    {
+                        worstClearance = d;
+                        worstFrame = frame;
+                    }
+                }
+            }
+            if (next < instants.size() && instants[next].Frame == frame)
+            {
+                // A held close-up of the left eye as it sits this frame, from in
+                // front and a little to its side: the eye's pixels, and on the
+                // open eye its catch-light.
+                const glm::vec3 eyeCentre(m_Dog.Eyes[0].GetComponent<WorldTransformComponent>().WorldMatrix[3]);
+                const View eyeView{ "EyeClose", eyeCentre + glm::vec3(0.12f, 0.03f, 0.26f), eyeCentre, 20.0f };
+                LinearFrame linear;
+                CaptureHeldLinear(eyeView, linear, 16, 6);
+                ASSERT_FALSE(HasFatalFailure());
+                std::vector<f32> eye;
+                for (sizet i = 0; i < linear.Ids.size(); ++i)
+                {
+                    if (linear.Ids[i] == leftEye)
+                    {
+                        eye.push_back(linear.Luminance[i]);
+                    }
+                }
+                eyePixels[next] = static_cast<f64>(eye.size());
+                if (next == 0u && eye.size() > 100u)
+                {
+                    std::ranges::sort(eye);
+                    const f64 median = eye[eye.size() / 2u];
+                    const f64 brightest = eye[std::min(eye.size() - 1u, static_cast<sizet>(0.995 * static_cast<f64>(eye.size())))];
+                    catchLight = median > 0.0 ? brightest / median : 0.0;
+                }
+                std::vector<u8> ldr;
+                ReadbackFrame(ldr);
+                frames.push_back(std::move(ldr));
+                std::printf("[dog] blink %-10s Idle frame %3u: the upper lid turns %.1f degrees; the left eye shows %.0f px\n",
+                            instants[next].Name, frame, glm::degrees(turns[frame - 2u]), eyePixels[next]);
+                ++next;
+            }
+        }
+        std::printf("[dog] blink: the closest a lid vertex comes to an eye's centre is %.2f mm at Idle frame %u (eyeball "
+                    "radius %.2f mm); catch-light: the open eye's brightest 0.5%% at %.1fx its median\n",
+                    1000.0f * worstClearance, worstFrame, 1000.0f * m_Dog.Rig.EyeRadius, catchLight);
+        std::fflush(stdout);
+        EXPECT_GE(worstClearance, m_Dog.Rig.EyeRadius) << "a lid vertex passes inside its eyeball: the lid clips the eye";
+        ASSERT_GT(eyePixels[0], 500.0) << "the open eye is not in the close-up";
+        EXPECT_LT(eyePixels[2], 0.05 * eyePixels[0]) << "the lids do not close over the eye at the blink's deepest";
+        EXPECT_GT(eyePixels[1], eyePixels[2]) << "no intermediate closure on the way down";
+        EXPECT_GT(eyePixels[3], eyePixels[2]) << "no intermediate closure on the way up";
+        EXPECT_GT(eyePixels[4], 0.8 * eyePixels[0]) << "the eye does not reopen";
+        EXPECT_GT(catchLight, 3.0) << "the open eye carries no catch-light";
+        WriteStrip("DogBlink_GL_Forward", frames, 5u);
+
+        // The head tilt's brow: the brow bone's travel against the head, and the
+        // face at the clip's furthest.
+        const i32 brow = boneIndex("brow_L");
+        ASSERT_GE(brow, 0);
+        const auto browOffset = [&]
+        {
+            return glm::vec3((glm::inverse(skeleton.m_GlobalTransforms[static_cast<sizet>(head)]) *
+                              skeleton.m_GlobalTransforms[static_cast<sizet>(brow)])[3]);
+        };
+        (void)StartClip("HeadTilt", false, 1u);
+        const glm::vec3 browAtRest = browOffset();
+        f32 browTravel = 0.0f;
+        u32 browFrame = 1;
+        for (u32 f = 2; f <= 150u; ++f)
+        {
+            (void)AdvanceRuntime(1u);
+            const f32 travel = glm::distance(browOffset(), browAtRest);
+            if (travel > browTravel)
+            {
+                browTravel = travel;
+                browFrame = f;
+            }
+        }
+        std::printf("[dog] head tilt: the left brow travels %.1f mm against the head, furthest at frame %u\n",
+                    1000.0f * browTravel, browFrame);
+        std::fflush(stdout);
+        EXPECT_GT(browTravel, 0.002f) << "the head tilt raises no brow";
+        (void)StartClip("HeadTilt", false, browFrame);
+        std::vector<u8> tilt;
+        CaptureHeld("DogHeadTiltBrow_GL_Forward", { "FaceFront", { 0.0f, 0.60f, 1.05f }, { 0.0f, 0.57f, 0.42f }, 30.0f }, tilt);
+    }
+
+    // =========================================================================
+    // A4: the nose leather and the panting mouth (#1533 acceptance review,
+    // section 5). The nose, held close at rest: dark against the coat around
+    // it, with a specular response (its brightest pixels well above its
+    // median). The mouth at the Pant clip's widest jaw: the tongue and the oral
+    // surfaces (gums, lips) take visible pixels in the face close-up.
+    // =========================================================================
+    TEST_F(DogShowcaseEvidenceTest, TheNoseShinesAndThePantShowsTheMouth)
+    {
+        SetPath(RenderingPath::Forward);
+        BodyParts parts = BuildBodyParts();
+        const i32 body = static_cast<i32>(static_cast<u32>(m_Dog.Body));
+        const i32 coat = static_cast<i32>(static_cast<u32>(m_Dog.Coat));
+        const auto materialPixels = [&](const LinearFrame& frame, const char* material, std::vector<f32>* luminance)
+        {
+            u32 n = 0;
+            for (sizet i = 0; i < frame.Ids.size(); ++i)
+            {
+                if (frame.Ids[i] != body || std::isnan(frame.World[i].x))
+                {
+                    continue;
+                }
+                f32 distance = 0.0f;
+                const u32 v = BodyParts::Nearest(parts.Posed, parts.Tree, frame.World[i], distance);
+                if (v != ~0u && parts.Material[v] == material)
+                {
+                    ++n;
+                    if (luminance != nullptr)
+                    {
+                        luminance->push_back(frame.Luminance[i]);
+                    }
+                }
+            }
+            return n;
+        };
+
+        const auto centroidOf = [&](const char* material)
+        {
+            glm::dvec3 sum(0.0);
+            f64 n = 0.0;
+            for (sizet v = 0; v < parts.Posed.size(); ++v)
+            {
+                if (parts.Material[v] == material)
+                {
+                    sum += glm::dvec3(parts.Posed[v]);
+                    n += 1.0;
+                }
+            }
+            EXPECT_GT(n, 0.0) << "the dog has no " << material << " skin";
+            return n > 0.0 ? glm::vec3(sum / n) : glm::vec3(0.0f);
+        };
+        (void)StartClip("Rest", true, 30u);
+        PoseBody(parts);
+        const glm::vec3 noseCentre = centroidOf("DogNose");
+        const View nose{ "NoseClose", noseCentre + glm::vec3(0.09f, 0.07f, 0.22f), noseCentre, 20.0f };
+        LinearFrame noseFrame;
+        CaptureHeldLinear(nose, noseFrame, 24, 8);
+        ASSERT_FALSE(HasFatalFailure());
+        std::vector<u8> noseLdr;
+        ReadbackFrame(noseLdr);
+        WritePng("DogNoseClose_GL_Forward", noseLdr, kWidth, kHeight);
+        std::vector<f32> leather;
+        (void)materialPixels(noseFrame, "DogNose", &leather);
+        std::vector<f32> fur;
+        for (sizet i = 0; i < noseFrame.Ids.size(); ++i)
+        {
+            if (noseFrame.Ids[i] == coat)
+            {
+                fur.push_back(noseFrame.Luminance[i]);
+            }
+        }
+        ASSERT_GT(leather.size(), 2000u) << "the nose is not in its close-up";
+        ASSERT_GT(fur.size(), 2000u);
+        std::ranges::sort(leather);
+        std::ranges::sort(fur);
+        const f64 leatherMedian = leather[leather.size() / 2u];
+        const f64 leatherBright = leather[std::min(leather.size() - 1u, static_cast<sizet>(0.995 * static_cast<f64>(leather.size())))];
+        const f64 furMedian = fur[fur.size() / 2u];
+        std::printf("[dog] nose: %zu px, median luminance %.4f against the coat's %.4f (%.2fx); its brightest 0.5%% at %.1fx "
+                    "its median\n",
+                    leather.size(), leatherMedian, furMedian, furMedian > 0.0 ? leatherMedian / furMedian : 0.0,
+                    leatherMedian > 0.0 ? leatherBright / leatherMedian : 0.0);
+        EXPECT_LT(leatherMedian, 0.5 * furMedian) << "the nose leather is not dark against the coat";
+        EXPECT_GT(leatherBright, 4.0 * leatherMedian) << "the nose leather has no specular response";
+
+        // The Pant's widest jaw.
+        const Skeleton& skeleton = *m_Dog.Body.GetComponent<SkeletonComponent>().m_Skeleton;
+        i32 jaw = -1;
+        i32 head = -1;
+        for (sizet i = 0; i < skeleton.m_BoneNames.size(); ++i)
+        {
+            jaw = skeleton.m_BoneNames[i] == "jaw" ? static_cast<i32>(i) : jaw;
+            head = skeleton.m_BoneNames[i] == "head" ? static_cast<i32>(i) : head;
+        }
+        ASSERT_GE(jaw, 0);
+        ASSERT_GE(head, 0);
+        const glm::mat3 jawBind = glm::mat3(skeleton.m_InverseBindPoses[static_cast<sizet>(head)] *
+                                            glm::inverse(skeleton.m_InverseBindPoses[static_cast<sizet>(jaw)]));
+        (void)StartClip("Pant", true, 1u);
+        f32 widest = 0.0f;
+        u32 widestFrame = 1;
+        for (u32 f = 2; f <= 120u; ++f)
+        {
+            (void)AdvanceRuntime(1u);
+            const glm::mat3 now = glm::mat3(glm::inverse(skeleton.m_GlobalTransforms[static_cast<sizet>(head)]) *
+                                            skeleton.m_GlobalTransforms[static_cast<sizet>(jaw)]);
+            const glm::mat3 d = now * glm::transpose(jawBind);
+            const f32 open = std::acos(std::clamp((d[0][0] + d[1][1] + d[2][2] - 1.0f) * 0.5f, -1.0f, 1.0f));
+            if (open > widest)
+            {
+                widest = open;
+                widestFrame = f;
+            }
+        }
+        (void)StartClip("Pant", true, widestFrame);
+        PoseBody(parts);
+        const glm::vec3 tongueCentre = centroidOf("DogTongue");
+        const View mouth{ "MouthOpen", tongueCentre + glm::vec3(0.12f, 0.01f, 0.30f), tongueCentre, 26.0f };
+        LinearFrame mouthFrame;
+        CaptureHeldLinear(mouth, mouthFrame, 24, 6);
+        ASSERT_FALSE(HasFatalFailure());
+        std::vector<u8> mouthLdr;
+        ReadbackFrame(mouthLdr);
+        WritePng("DogPantMouth_GL_Forward", mouthLdr, kWidth, kHeight);
+        const u32 tongue = materialPixels(mouthFrame, "DogTongue", nullptr);
+        const u32 gums = materialPixels(mouthFrame, "DogGum", nullptr);
+        const u32 lips = materialPixels(mouthFrame, "DogLip", nullptr);
+        std::printf("[dog] pant: the jaw opens %.1f degrees at frame %u; the close-up shows tongue %u px, gums %u px, lips "
+                    "%u px\n",
+                    glm::degrees(widest), widestFrame, tongue, gums, lips);
+        std::fflush(stdout);
+        EXPECT_GT(glm::degrees(widest), 8.0f) << "the Pant clip does not open the mouth";
+        EXPECT_GT(tongue, 1500u) << "the tongue is not visible in the pant pose";
+        EXPECT_GT(gums + lips, 1000u) << "the oral surfaces are not visible in the pant pose";
+    }
+
+    // =========================================================================
+    // C1 + B4: the clips play, loop, switch and move the long hair (#1533
+    // acceptance review, section 5). On RUNTIME frames:
+    //   - THE SCENE PLAYS IDLE: the shipped Dog.olo starts the dog's Idle,
+    //     looping, playing -- what Play shows;
+    //   - LOOPS: Idle and the walk across their loop boundary -- the frame that
+    //     wraps moves no bone further than the frames around it do, and the
+    //     coat does not re-seed there;
+    //   - SWITCHING: Idle to the walk through the scene's 0.35 s blend -- no
+    //     frame moves a bone further than the steady walk does, no re-seed;
+    //   - SECONDARY MOTION: per coat region, the long hair's swing against its
+    //     root-following targets (JudgeLiveness's swing, region by region): the
+    //     ears and the tail move visibly in the walk and the pant; the solver
+    //     resolves body contacts while the dog moves.
+    // =========================================================================
+    TEST_F(DogShowcaseEvidenceTest, TheClipsLoopSwitchAndMoveTheLongHair)
+    {
+        SetPath(RenderingPath::Forward);
+        {
+            const YAML::Node scene = YAML::LoadFile((SandboxAssets() / "Scenes" / "Dog.olo").string());
+            bool found = false;
+            for (const YAML::Node& entity : scene["Entities"])
+            {
+                if (entity["TagComponent"] && entity["TagComponent"]["Tag"].as<std::string>() == "Dog")
+                {
+                    const YAML::Node anim = entity["AnimationStateComponent"];
+                    ASSERT_TRUE(anim) << "the shipped dog has no AnimationStateComponent";
+                    EXPECT_EQ(anim["CurrentClipName"].as<std::string>(), "Idle") << "the scene does not start on Idle";
+                    EXPECT_TRUE(anim["IsPlaying"].as<bool>()) << "the scene's dog does not play on Play";
+                    EXPECT_TRUE(anim["Loop"].as<bool>()) << "the scene's Idle does not loop";
+                    found = true;
+                }
+            }
+            EXPECT_TRUE(found) << "Dog.olo has no entity tagged Dog";
+        }
+
+        const Skeleton& skeleton = *m_Dog.Body.GetComponent<SkeletonComponent>().m_Skeleton;
+        const auto boneHeads = [&]
+        {
+            std::vector<glm::vec3> heads(skeleton.m_GlobalTransforms.size());
+            for (sizet i = 0; i < heads.size(); ++i)
+            {
+                heads[i] = glm::vec3(skeleton.m_GlobalTransforms[i][3]);
+            }
+            return heads;
+        };
+        const auto maxMove = [](const std::vector<glm::vec3>& a, const std::vector<glm::vec3>& b)
+        {
+            f32 m = 0.0f;
+            for (sizet i = 0; i < a.size() && i < b.size(); ++i)
+            {
+                m = std::max(m, glm::distance(a[i], b[i]));
+            }
+            return m;
+        };
+        const auto& anim = m_Dog.Body.GetComponent<AnimationStateComponent>();
+
+        // Loops.
+        for (const auto& [clip, seconds] : { std::pair{ "Idle", 4.0f }, std::pair{ "Walk", 1.0f } })
+        {
+            SCOPED_TRACE(clip);
+            const u32 frames = static_cast<u32>(seconds * 60.0f * 1.5f);
+            (void)StartClip(clip, true, 2u);
+            std::vector<f32> moves;
+            std::vector<f32> times;
+            std::vector<glm::vec3> previous = boneHeads();
+            u32 reseeds = 0;
+            for (u32 f = 0; f < frames; ++f)
+            {
+                const MotionResult step = AdvanceRuntime(1u);
+                reseeds += step.Reseeds;
+                const std::vector<glm::vec3> now = boneHeads();
+                moves.push_back(maxMove(now, previous));
+                times.push_back(anim.m_CurrentTime);
+                previous = now;
+            }
+            sizet wrap = 0;
+            for (sizet f = 1; f < times.size(); ++f)
+            {
+                if (times[f] < times[f - 1u])
+                {
+                    wrap = f;
+                    break;
+                }
+            }
+            ASSERT_GT(wrap, 0u) << "the clip never wrapped";
+            f32 around = 0.0f;
+            for (sizet f = wrap > 6u ? wrap - 6u : 0u; f < std::min(moves.size(), wrap + 7u); ++f)
+            {
+                around = f == wrap ? around : std::max(around, moves[f]);
+            }
+            std::printf("[dog] loop %s: wraps at measured frame %zu; the wrap moves a bone %.2f mm, its neighbours at most "
+                        "%.2f mm; %u re-seeds\n",
+                        clip, wrap, 1000.0f * moves[wrap], 1000.0f * around, reseeds);
+            EXPECT_LE(moves[wrap], (2.0f * around) + 0.001f) << "the loop boundary pops";
+            EXPECT_EQ(reseeds, 0u) << "the coat re-seeded through the loop";
+        }
+
+        // Switching, through the scene's blend.
+        {
+            (void)StartClip("Walk", true, 2u);
+            f32 steadyWalk = 0.0f;
+            std::vector<glm::vec3> previous = boneHeads();
+            for (u32 f = 0; f < 60u; ++f)
+            {
+                (void)AdvanceRuntime(1u);
+                const std::vector<glm::vec3> now = boneHeads();
+                steadyWalk = std::max(steadyWalk, maxMove(now, previous));
+                previous = now;
+            }
+            (void)StartClip("Idle", true, 60u);
+            auto& state = m_Dog.Body.GetComponent<AnimationStateComponent>();
+            state.m_BlendDuration = 0.35f;
+            state.m_RequestedClip = "Walk";
+            state.m_RequestedLoop = true;
+            previous = boneHeads();
+            f32 worst = 0.0f;
+            u32 reseeds = 0;
+            for (u32 f = 0; f < 45u; ++f)
+            {
+                const MotionResult step = AdvanceRuntime(1u);
+                reseeds += step.Reseeds;
+                const std::vector<glm::vec3> now = boneHeads();
+                worst = std::max(worst, maxMove(now, previous));
+                previous = now;
+            }
+            std::printf("[dog] switch Idle -> Walk: the worst frame of the blend moves a bone %.2f mm; the steady walk's "
+                        "worst %.2f mm; %u re-seeds\n",
+                        1000.0f * worst, 1000.0f * steadyWalk, reseeds);
+            EXPECT_LE(worst, (1.25f * steadyWalk) + 0.001f) << "switching clips pops";
+            EXPECT_EQ(reseeds, 0u) << "switching clips re-seeded the coat";
+        }
+
+        // Secondary motion, region by region.
+        const GroomAsset& groom = *m_Dog.CoatAsset.Groom;
+        AimRuntimeCamera(HeroViews()[5]);
+        // What each clip must move: the ears where the head moves (the walk, the
+        // tilt), the tail where it wags (the walk, the pant), the long feathering
+        // on the legs where they swing; Idle is recorded.
+        struct Expect
+        {
+            const char* Clip;
+            f32 Seconds;
+            bool Ears;
+            bool Tail;
+            bool Feathering;
+        };
+        for (const auto& [clip, seconds, ears, tail, feathering] :
+             { Expect{ "Walk", 2.0f, true, true, true }, Expect{ "HeadTilt", 2.5f, true, false, false },
+               Expect{ "Pant", 2.0f, false, true, false }, Expect{ "Idle", 4.0f, false, false, false } })
+        {
+            SCOPED_TRACE(clip);
+            const bool loops = std::string_view(clip) != "HeadTilt";
+            (void)StartClip(clip, loops, loops ? 60u : 2u);
+            std::map<std::string, std::vector<std::vector<glm::vec3>>> perRegion; // region -> frames -> tips
+            u32 contacts = 0;
+            const u32 frames = static_cast<u32>(seconds * 60.0f);
+            for (u32 f = 0; f < frames; ++f)
+            {
+                const MotionResult step = AdvanceRuntime(1u);
+                contacts = std::max(contacts, step.Last.SimulationContacts);
+                std::map<std::string, std::vector<glm::vec3>> tips;
+                const GroomGuideSimulationState* sim = GetScene().FindGroomGuideSimulation(m_Dog.Coat.GetUUID());
+                ASSERT_NE(sim, nullptr) << "the coat is not simulated";
+                for (u32 g = 0; g < sim->GuideCount() && sim->LastTargets.size() == sim->Curr.size(); ++g)
+                {
+                    const u32 curve = sim->GuideCurves[g];
+                    const u32 tip = sim->GuideOffsets[g + 1u] - 1u;
+                    tips[RegionOfCurve(groom, curve)].push_back(sim->Curr[tip] - sim->LastTargets[tip]);
+                }
+                for (auto& [region, t] : tips)
+                {
+                    perRegion[region].push_back(std::move(t));
+                }
+            }
+            std::printf("[dog] secondary motion %s (%u contacts at most):", clip, contacts);
+            std::map<std::string, f64> swing;
+            for (const auto& [region, frameTips] : perRegion)
+            {
+                RuntimeSequence s;
+                s.LongHairTips = frameTips;
+                swing[region] = JudgeLiveness(s).LongHairSwing;
+                std::printf(" %s %.1f mm", region.c_str(), 1000.0 * swing[region]);
+            }
+            std::printf("\n");
+            std::fflush(stdout);
+            if (ears)
+            {
+                EXPECT_GT(swing["earouter"], kLongHairSwingFloor) << "the ears do not swing";
+            }
+            if (tail)
+            {
+                EXPECT_GT(std::max(swing["tailplume"], swing["tailtop"]), kLongHairSwingFloor) << "the tail's hair does not swing";
+            }
+            if (feathering)
+            {
+                EXPECT_GT(swing["legback"], kLongHairSwingFloor) << "the legs' feathering does not swing";
+            }
+            if (ears || tail || feathering)
+            {
+                EXPECT_GT(contacts, 0u) << "the solver resolved no body contact while the dog moved";
+            }
+        }
+    }
 } // namespace OloEngine::Tests
