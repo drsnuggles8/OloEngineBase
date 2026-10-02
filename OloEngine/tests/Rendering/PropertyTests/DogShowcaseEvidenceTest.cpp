@@ -385,6 +385,12 @@ namespace OloEngine::Tests
         // stand on the evidence slab and never drew grass.
         static constexpr f32 kLawnClock = 12.5f;
 
+        // Every camera's far plane: inside the lawn's meadow, which runs on to
+        // the horizon (BuildLawn, 2 x kCameraFar across). At 400 m the meadow
+        // was clipped a band below the horizon.
+        static constexpr f32 kCameraNear = 0.02f;
+        static constexpr f32 kCameraFar = 2500.0f;
+
         void TearDown() override
         {
             Time::ClearMockTime();
@@ -543,7 +549,7 @@ namespace OloEngine::Tests
                 auto& cc = cameraEntity.AddComponent<CameraComponent>();
                 cc.Primary = true;
                 cc.Camera.SetProjectionType(SceneCamera::ProjectionType::Perspective);
-                cc.Camera.SetPerspective(glm::radians(40.0f), 0.02f, 400.0f);
+                cc.Camera.SetPerspective(glm::radians(40.0f), kCameraNear, kCameraFar);
                 cc.Camera.SetViewportSize(kWidth, kHeight);
             }
             {
@@ -561,16 +567,66 @@ namespace OloEngine::Tests
             }
         }
 
+        // The lawn's far-field look, with an override for looking at it without a
+        // rebuild: OLO_DOG_LAWN="turf=r:g:b;view=metres;fade=metres;meadow=0|1".
+        // Unset, it is the shipped look.
+        struct LawnLook
+        {
+            // The ground between and beyond the blades: the blades' own colour
+            // seen from afar, a little darker for the shade between them (the
+            // blade texture's area-weighted albedo times the layer tint, 0.8x).
+            // The dark thatch it replaces made the far field a dark board the
+            // moment the grass thinned.
+            glm::vec3 Turf{ 0.11f, 0.17f, 0.035f };
+            // How far the grass is drawn, and where it starts to dissolve.
+            f32 ViewDistance = 45.0f;
+            f32 FadeStart = 34.0f;
+            // The meadow: a flat terrain under the lawn out to the horizon, so
+            // no edge of the 60 m lawn shows against the sky.
+            bool Meadow = true;
+        };
+
+        [[nodiscard]] static LawnLook ReadLawnLook()
+        {
+            LawnLook look;
+            const char* tune = std::getenv("OLO_DOG_LAWN");
+            if (tune == nullptr)
+                return look;
+            std::string rest(tune);
+            while (!rest.empty())
+            {
+                const sizet semi = rest.find(';');
+                const std::string item = rest.substr(0, semi);
+                rest = (semi == std::string::npos) ? std::string() : rest.substr(semi + 1);
+                const sizet eq = item.find('=');
+                if (eq == std::string::npos)
+                    continue;
+                const std::string key = item.substr(0, eq);
+                const std::string value = item.substr(eq + 1);
+                if (key == "turf")
+                    (void)std::sscanf(value.c_str(), "%f:%f:%f", &look.Turf.r, &look.Turf.g, &look.Turf.b);
+                else if (key == "view")
+                    (void)std::sscanf(value.c_str(), "%f", &look.ViewDistance);
+                else if (key == "fade")
+                    (void)std::sscanf(value.c_str(), "%f", &look.FadeStart);
+                else if (key == "meadow")
+                    look.Meadow = value != "0";
+            }
+            return look;
+        }
+
         // The live scene's ground (D1), in place of the slab: a flat terrain
         // centred on the dog under Poly Haven's grass tuft (CC0, 0.18 m as
         // scanned) at an unmown lawn's height. Real blades within a few metres
-        // of the camera, the tuft's billboard beyond, thinned with distance;
-        // past the grass the terrain's own colour is the lawn seen from afar.
-        // `root` prefixes the asset paths: empty for the scene file (the editor
-        // resolves them from OloEditor/, its working directory), the editor
-        // root for a headless run from anywhere.
+        // of the camera, the tuft's billboard beyond, thinned with distance and
+        // dissolving out at ViewDistance; under them and past them the turf is
+        // the lawn's own colour seen from afar, and the meadow carries it on to
+        // the horizon. `root` prefixes the asset paths: empty for the scene file
+        // (the editor resolves them from OloEditor/, its working directory), the
+        // editor root for a headless run from anywhere.
         void BuildLawn(const std::string& root)
         {
+            const LawnLook look = ReadLawnLook();
             Scene& scene = GetScene();
             if (m_Ground)
             {
@@ -590,9 +646,7 @@ namespace OloEngine::Tests
             terrain.m_Material = Ref<TerrainMaterial>::Create();
             TerrainLayer turf;
             turf.Name = "Turf";
-            // Dark thatch: between the blades a lawn is shaded soil and dead
-            // grass, and a pale floor read as tufts planted on a green board.
-            turf.BaseColor = glm::vec3(0.07f, 0.10f, 0.035f);
+            turf.BaseColor = look.Turf;
             turf.Roughness = 0.95f;
             turf.TilingScale = 24.0f;
             terrain.m_Material->AddLayer(turf);
@@ -601,6 +655,29 @@ namespace OloEngine::Tests
             everywhere.LayerIndex = 0;
             everywhere.HeightBlend = 0.0f;
             terrain.m_LayerRules.Add(everywhere);
+
+            // The meadow: the same turf out to the camera's far plane, 5 cm under
+            // the lawn so the lawn wins where they overlap (at the lawn's edge,
+            // 30 m or more away, the step is invisible), with no foliage of its
+            // own. Without it the lawn ended 30 m from the dog and its edge and
+            // corner stood against the sky as the horizon.
+            if (look.Meadow)
+            {
+                constexpr f32 kMeadowSize = 2.0f * kCameraFar;
+                Entity meadow = scene.CreateEntity("Meadow");
+                meadow.GetComponent<TransformComponent>().Translation =
+                    glm::vec3(-0.5f * kMeadowSize, -0.05f, -0.5f * kMeadowSize);
+                auto& field = meadow.AddComponent<TerrainComponent>();
+                field.m_WorldSizeX = kMeadowSize;
+                field.m_WorldSizeZ = kMeadowSize;
+                field.m_ProceduralEnabled = false;
+                field.m_HeightScale = 1.0f;
+                field.m_TessellationEnabled = false;
+                field.m_Material = Ref<TerrainMaterial>::Create();
+                field.m_Material->AddLayer(turf);
+                field.m_AutoMaterial = true;
+                field.m_LayerRules.Add(everywhere);
+            }
 
             auto& foliage = lawn.AddComponent<FoliageComponent>();
             foliage.m_Enabled = true;
@@ -621,8 +698,11 @@ namespace OloEngine::Tests
             grass.UseAuthoredMesh = true;
             grass.MeshViewDistance = 6.0f;
             grass.MeshFadeStartDistance = 4.5f;
-            grass.ViewDistance = 24.0f;
-            grass.FadeStartDistance = 18.0f;
+            // Out past the lawn's own edge from the B7 dolly's 15 m, dissolving
+            // from FadeStart (the forward passes dither the fade since #1533;
+            // before, the far field ended on a hard circle here).
+            grass.ViewDistance = look.ViewDistance;
+            grass.FadeStartDistance = look.FadeStart;
             grass.UseDensityLod = true;
             grass.DensityLodStartDistance = 6.0f;
             grass.DensityLodEndDistance = 20.0f;
@@ -659,7 +739,7 @@ namespace OloEngine::Tests
                 t.Translation = eye;
                 // Pitch about x, then yaw about y (glm's (x, y, z) Euler is Ry * Rx).
                 t.SetRotationEuler(glm::vec3(std::asin(std::clamp(d.y, -1.0f, 1.0f)), std::atan2(-d.x, -d.z), 0.0f));
-                camera.GetComponent<CameraComponent>().Camera.SetPerspective(glm::radians(32.0f), 0.02f, 400.0f);
+                camera.GetComponent<CameraComponent>().Camera.SetPerspective(glm::radians(32.0f), kCameraNear, kCameraFar);
             }
         }
 
@@ -1235,7 +1315,7 @@ namespace OloEngine::Tests
             t.Translation = view.Eye;
             // Pitch about x, then yaw about y (glm's (x, y, z) Euler is Ry * Rx).
             t.SetRotationEuler(glm::vec3(std::asin(std::clamp(d.y, -1.0f, 1.0f)), std::atan2(-d.x, -d.z), 0.0f));
-            camera.GetComponent<CameraComponent>().Camera.SetPerspective(glm::radians(view.Fov), 0.02f, 400.0f);
+            camera.GetComponent<CameraComponent>().Camera.SetPerspective(glm::radians(view.Fov), kCameraNear, kCameraFar);
         }
 
         // The runtime camera's world-to-clip transform, unjittered: what a held
@@ -4017,7 +4097,7 @@ namespace OloEngine::Tests
             m_Dog.Coat.GetComponent<GroomLodComponent>().m_Enabled = lod;
             const glm::vec3 eye = target + (away * distance);
             const glm::vec3 d = glm::normalize(target - eye);
-            EditorCamera camera(30.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.02f, 400.0f);
+            EditorCamera camera(30.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), kCameraNear, kCameraFar);
             camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
             camera.SetPose(eye, std::atan2(d.x, -d.z), std::asin(std::clamp(-d.y, -1.0f, 1.0f)));
             Renderer3D::ResetFrameSequences();
@@ -4307,8 +4387,15 @@ namespace OloEngine::Tests
             { "Pant_FaceCloseUp", "Pant", true, 2.0f, face },
             { "Pant_RearTail", "Pant", true, 2.0f, rear },
         } };
+        // OLO_DOG_FOOTAGE_ONLY=<substring> records only the sequences whose name
+        // contains it (the dolly alone, while a lawn change is looked at).
+        const char* onlyEnv = std::getenv("OLO_DOG_FOOTAGE_ONLY");
+        const std::string only = onlyEnv != nullptr ? onlyEnv : "";
+        const auto wanted = [&only](const char* name) { return only.empty() || std::string(name).find(only) != std::string::npos; };
         for (const Shot& shot : shots)
         {
+            if (!wanted(shot.Name))
+                continue;
             SCOPED_TRACE(shot.Name);
             const fs::path dir = root / shot.Name;
             fs::create_directories(dir, ec);
@@ -4337,6 +4424,8 @@ namespace OloEngine::Tests
         for (const auto& [name, path] : { std::pair{ "Dolly_0.6-15m", DollyPath{ 0.6f, 15.0f, 200u } },
                                           std::pair{ "Dolly_Extended_15-45m", DollyPath{ 15.0f, 45.0f, 120u } } })
         {
+            if (!wanted(name))
+                continue;
             const fs::path dir = root / name;
             fs::create_directories(dir, ec);
             Renderer3D::ResetFrameSequences();
@@ -4565,7 +4654,7 @@ namespace OloEngine::Tests
             t.Translation = framing.Eye;
             // Pitch about x, then yaw about y (glm's (x, y, z) Euler is Ry * Rx).
             t.SetRotationEuler(glm::vec3(std::asin(std::clamp(d.y, -1.0f, 1.0f)), std::atan2(-d.x, -d.z), 0.0f));
-            camera.GetComponent<CameraComponent>().Camera.SetPerspective(glm::radians(framing.Fov), 0.02f, 400.0f);
+            camera.GetComponent<CameraComponent>().Camera.SetPerspective(glm::radians(framing.Fov), kCameraNear, kCameraFar);
             (void)StartClip(framing.Clip, true, 90); // the warm-up: caches, coat volumes, TAA history
 
             Measured m;
@@ -5074,7 +5163,7 @@ namespace OloEngine::Tests
                 const glm::vec3 d = glm::normalize(view.Target - view.Eye);
                 t.Translation = view.Eye;
                 t.SetRotationEuler(glm::vec3(std::asin(std::clamp(d.y, -1.0f, 1.0f)), std::atan2(-d.x, -d.z), 0.0f));
-                camera.GetComponent<CameraComponent>().Camera.SetPerspective(glm::radians(view.Fov), 0.02f, 400.0f);
+                camera.GetComponent<CameraComponent>().Camera.SetPerspective(glm::radians(view.Fov), kCameraNear, kCameraFar);
                 (void)StartClip("Pant", true, 60);
                 std::vector<std::vector<u8>> wagFrames;
                 for (u32 k = 0; k < 8u; ++k)
