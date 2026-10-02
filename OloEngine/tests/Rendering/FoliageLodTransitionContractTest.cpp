@@ -511,7 +511,7 @@ namespace OloEngine
                                               << "the region, reaching " << reach << " m, leaves it out";
             const f32 nominal = std::max(band.End, band.Start + 1e-3f) + 0.5f * band.Spread + band.Start * band.Hysteresis;
             EXPECT_LE(reach, nominal * 1.01f + 0.1f) << "the reach is padded well past the band: the region stops "
-                                                       "being a near-field region";
+                                                        "being a near-field region";
         }
         EXPECT_EQ(FoliageLod::MeshRegionReach(0.0f, 0.0f, 1.0f, 0.2f), 0.0f) << "a layer with no mesh has no region";
     }

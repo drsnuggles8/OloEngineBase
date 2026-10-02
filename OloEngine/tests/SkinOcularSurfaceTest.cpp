@@ -1051,7 +1051,8 @@ namespace OloEngine::Tests
         const glm::vec3 ex = eyeFrame[0];
         const glm::vec3 ey = eyeFrame[1];
         const glm::vec3 axis = eyeFrame[2];
-        const auto planarUv = [&](const glm::vec3& lateral) {
+        const auto planarUv = [&](const glm::vec3& lateral)
+        {
             return glm::vec2(0.5f + 0.5f * glm::dot(lateral, ex), 0.5f - 0.5f * glm::dot(lateral, ey));
         };
         const glm::vec3 offsetDx = ex * 0.011f + ey * 0.002f;
@@ -1068,11 +1069,13 @@ namespace OloEngine::Tests
         // step lands on the exact UV of the surface point the shift names, to
         // second order in the step.
         const glm::vec3 z(0.0f, 0.0f, 1.0f);
-        const auto latLongUv = [](const glm::vec3& p) {
+        const auto latLongUv = [](const glm::vec3& p)
+        {
             return glm::vec2(std::atan2(p.x, p.z) / (2.0f * glm::pi<f32>()) + 0.5f,
                              std::acos(std::clamp(p.y, -1.0f, 1.0f)) / glm::pi<f32>());
         };
-        const auto surfaceAt = [&](const glm::vec3& lateral) {
+        const auto surfaceAt = [&](const glm::vec3& lateral)
+        {
             return lateral + z * std::sqrt(std::max(0.0f, 1.0f - glm::dot(lateral, lateral)));
         };
         const glm::vec3 lateral0(0.18f, 0.12f, 0.0f);
