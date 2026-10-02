@@ -35,21 +35,18 @@ frame. "TAA on shimmers more than TAA off" was true and meaningless.
 **The arm that isolates the variable is `TAAEnabled = true` with `TAAFeedback = 0`.**
 `OloTemporalMotionFeedback` returns 0, so no history is blended and the output is the current frame,
 while the coat stays stochastically composited. One variable. On that comparison the resolve cuts
-shimmer **11.3x** on Forward, 11.4x on Forward+, 11.9x on Deferred.
+shimmer **11.9x** on Forward and 11.8x on Forward+ and Deferred (#1552).
 
 The same trap applies to any feature the pipeline gates a second feature on. Check what else reads
 the flag before using it as an off switch.
 
-## The dead band is inert on the TAA path, and that is correct
+## A null from a shader edit needs proof the edit reached the GPU
 
-Setting `CoverageNoiseDeadBand` to `0` in `PostProcess_TAA.glsl` reproduces every number **byte for
-byte**. That is not a stale shader and not a dead feature:
-
-`PostProcess_TAA.glsl` clamps the previous coverage into the previous 3x3 neighbourhood's range
-before the shared model sees it, so `|current - previous|` is already exactly zero for anything that
-merely resampled — jitter or motion. The magnitude dead band is the **second** line of defence, for
-when the whole neighbourhood has moved. Expect it to be inert in any scenario where the coverage
-change is a resample.
+Setting `CoverageNoiseDeadBand` to `0` in `PostProcess_TAA.glsl` once reproduced every number **byte
+for byte**. It was a real null: the forward velocity export was copied before the groom drew, so TAA
+read the cleared coverage behind the coat and the term had nothing to fire on. Since #1552 the coat
+writes its own coverage and the term compares 8x8 means of it, and the band is load-bearing; see
+[temporal-coverage-means-not-samples.md](temporal-coverage-means-not-samples.md).
 
 **Prove the shader is reaching the GPU before concluding anything from an unchanged number.**
 Identical numbers are also what a stale program looks like — the shader cache key does not cover

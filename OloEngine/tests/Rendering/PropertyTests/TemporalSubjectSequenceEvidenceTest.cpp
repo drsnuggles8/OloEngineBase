@@ -838,30 +838,120 @@ namespace OloEngine::Tests
 
         // The claim. A floor with a margin rather than a pinned number, because
         // evidence shading here depends on test order and an absolute would be
-        // wrong in a different way on every run (see the note at the assertion
-        // for why it is 2x since #1332).
+        // wrong in a different way on every run.
         //
-        // NOTE ON WHAT THIS DOES *NOT* SHOW. CoverageNoiseDeadBand is inert in
-        // this scenario — setting it to 0 in PostProcess_TAA.glsl reproduces
-        // these numbers byte for byte. That is correct, not a gap: the pass
-        // clamps the previous coverage into the previous 3x3 neighbourhood's
-        // range before the model sees it, so a resample's delta is already
-        // exactly zero and the magnitude dead band has nothing left to do. The
-        // dead band is the second line of defence, for when the whole
-        // neighbourhood has moved. See docs/agent-rules/temporal-reactivity-separation.md.
-        // 2x since #1332, measured 2.97x on Forward (2.29x upscaled) against the
-        // 11x this suite was written at. That 11x was the resolve reading cleared
-        // zero velocity at the coat's pixels: the forward Velocity export was a
-        // copy taken before GroomPass. Now TAA reads the coat's own velocity,
-        // which carries the projection jitter delta like every surface's does,
-        // and accumulates it as it does them. Deferred, whose resolve still
-        // reads G-Buffer velocity the groom never writes, keeps 11x. #1552 owns
-        // the velocity convention and restoring the 3x floor.
-        EXPECT_LT(arms.Resolved.MeanFrameDelta, arms.NoHistory.MeanFrameDelta / 2.0)
+        // 9x, measured 11.9x, and the floor sits between the working resolve
+        // and the two ways it has broken (#1552). A velocity that carries the
+        // TAA jitter resamples the history every frame: 2.97x. A coverage term
+        // that compares the coat's per-pixel samples, which a stochastic coat
+        // redraws every frame, instead of their mean drops history on the
+        // frames it is working: 7.5x. With no coverage term at all it is 12.1x.
+        //
+        // The dead band is load-bearing here. Where coverage is fractional the
+        // pass compares the two frames' 8x8 coverage means, and
+        // CoverageNoiseDeadBand is what keeps the means' residual noise from
+        // firing: at 0 the gain falls to 7.1x. See
+        // PostProcess_TAA.glsl and docs/agent-rules/temporal-reactivity-separation.md.
+        EXPECT_LT(arms.Resolved.MeanFrameDelta, arms.NoHistory.MeanFrameDelta / 9.0)
             << "the resolve cut the coat's shimmer from " << arms.NoHistory.MeanFrameDelta << " only to "
             << arms.Resolved.MeanFrameDelta
             << ". A resolve whose coverage term reacts to the estimator's own per-frame noise lands "
                "exactly here, because it drops history on the frames history is working.";
+    }
+
+    // -------------------------------------------------------------------------
+    // Criterion 2, HAIR — A COVERAGE STEP
+    // -------------------------------------------------------------------------
+    // The other half of the coverage term's job (#1552). The test above needs
+    // it to leave a still coat's per-frame noise alone; here the coat's
+    // coverage genuinely halves, every strand at half its width and so half its
+    // widened alpha, and the history of the denser coat is stale. The term has
+    // to see that on the first frame after the step and drop part of the
+    // history. Without it the old coat only decays at the feedback rate, 10 %
+    // a frame.
+    //
+    // Read off the summed luma, which averages the coat's stochastic noise over
+    // every pixel it covers. `stale` is the share of the step still standing: 1
+    // is the dense coat settled, 0 the thin one settled from a cold history.
+    TEST_F(TemporalSubjectSequenceEvidenceTest, TheResolveLetsGoOfACoatWhoseCoverageHalves)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kSettle = 24u;
+        constexpr u32 kTail = 4u;
+        constexpr u32 kAfter = 4u;
+        ShowOnly(Subject::Hair);
+        const CameraPose pose = PoseFor(Subject::Hair);
+        const auto still = [&pose](u32)
+        { return pose; };
+        auto& groom = m_Hair.GetComponent<GroomComponent>();
+        const f32 shippedWidth = groom.m_WidthScale;
+        SetTaa(true);
+
+        // The thin coat settled from a cold history, the step's destination;
+        // then the dense coat settled, and the step.
+        groom.m_WidthScale = 0.5f * shippedWidth;
+        ColdHistory();
+        const auto thin = CaptureSequence(kSettle, still);
+        groom.m_WidthScale = shippedWidth;
+        ColdHistory();
+        std::vector<u8> denseRgba;
+        const auto dense = CaptureSequence(kSettle, still, &denseRgba);
+        groom.m_WidthScale = 0.5f * shippedWidth;
+        std::vector<u8> afterRgba;
+        const auto after = CaptureSequence(kAfter, still, &afterRgba);
+        groom.m_WidthScale = shippedWidth;
+        ColdHistory();
+        ASSERT_EQ(thin.size(), kSettle);
+        ASSERT_EQ(dense.size(), kSettle);
+        ASSERT_EQ(after.size(), kAfter);
+        WritePng("TemporalSubject_Hair_GL_Forward_DenseSettled.png", denseRgba);
+        WritePng("TemporalSubject_Hair_GL_Forward_HalfWidthStep.png", afterRgba);
+
+        const auto summed = [](const std::vector<f32>& luma)
+        {
+            f64 sum = 0.0;
+            for (const f32 l : luma)
+                sum += static_cast<f64>(l);
+            return sum;
+        };
+        // A settled coat's level is the mean of its last frames, and the most
+        // any one of them strays from that mean is the noise the step is read
+        // against.
+        f64 thinLevel = 0.0;
+        f64 denseLevel = 0.0;
+        for (u32 k = kSettle - kTail; k < kSettle; ++k)
+        {
+            thinLevel += summed(thin[k]) / static_cast<f64>(kTail);
+            denseLevel += summed(dense[k]) / static_cast<f64>(kTail);
+        }
+        f64 noise = 0.0;
+        for (u32 k = kSettle - kTail; k < kSettle; ++k)
+        {
+            noise = std::max({ noise, std::abs(summed(thin[k]) - thinLevel), std::abs(summed(dense[k]) - denseLevel) });
+        }
+        const f64 step = denseLevel - thinLevel;
+        std::array<f64, kAfter> stale{};
+        for (u32 k = 0u; k < kAfter; ++k)
+        {
+            stale[k] = (summed(after[k]) - thinLevel) / step;
+        }
+        GTEST_LOG_(INFO) << "coverage step: summed luma dense " << denseLevel << ", thin " << thinLevel << ", noise "
+                         << noise << " | stale after 1-4 frames " << stale[0] << " " << stale[1] << " " << stale[2]
+                         << " " << stale[3];
+
+        // The instrument: halving every strand's width must move the picture
+        // far past the settled noise, or there is no stale coat to let go of.
+        ASSERT_GT(std::abs(step), 20.0 * noise) << "half the strand width barely changes the coat's picture";
+
+        // The claim, on the first frame, where the term acts: measured 0.49 (then
+        // 0.38, 0.32, 0.26). The range test this replaced, which the coat's
+        // holes blind to the change, keeps 0.65, the colour clip alone having
+        // taken the rest of the feedback's 0.9; 0.57 is midway, and the step's
+        // noise is about 1 % of it. With the dead band at 0 the term also fires
+        // on the noise: 0.27 here, and the shimmer test above fails at 7.1x.
+        EXPECT_LT(stale[0], 0.57) << "the first frame after the coat's coverage halved still shows " << stale[0] * 100.0
+                                  << " % of the denser coat; the range test that could not see the change kept 65 %.";
     }
 
     // -------------------------------------------------------------------------
@@ -1183,16 +1273,9 @@ namespace OloEngine::Tests
             EXPECT_GT(arms.NoHistory.MeanFrameDelta, 5.0e-3)
                 << cell << ": the coat does not move without a history, so it is not stochastically "
                            "composited on this path";
-            // 2x since #1332, measured 2.97x on Forward (2.29x upscaled) against the
-            // 11x this suite was written at. That 11x was the resolve reading cleared
-            // zero velocity at the coat's pixels: the forward Velocity export was a
-            // copy taken before GroomPass. Now TAA reads the coat's own velocity,
-            // which carries the projection jitter delta like every surface's does,
-            // and accumulates it as it does them. Deferred, whose resolve still
-            // reads G-Buffer velocity the groom never writes, keeps 11x and the 3x
-            // floor. #1552 owns the velocity convention and restoring 3x on Forward.
-            const f64 floor = path == RenderingPath::Deferred ? 3.0 : 2.0;
-            EXPECT_LT(arms.Resolved.MeanFrameDelta, arms.NoHistory.MeanFrameDelta / floor)
+            // 9x on every path, measured 11.8x to 11.9x. The first test in this
+            // file says what that floor separates.
+            EXPECT_LT(arms.Resolved.MeanFrameDelta, arms.NoHistory.MeanFrameDelta / 9.0)
                 << cell << ": the resolve does not suppress the coat's shimmer on this path ("
                 << arms.NoHistory.MeanFrameDelta << " -> " << arms.Resolved.MeanFrameDelta << ")";
         }
@@ -1243,16 +1326,13 @@ namespace OloEngine::Tests
             EXPECT_GT(arms.NoHistory.ComparedPixels, 0u) << cell;
             EXPECT_GT(arms.NoHistory.MeanFrameDelta, 5.0e-3)
                 << cell << ": the coat does not move without a history in this configuration";
-            // 2x since #1332, measured 2.97x on Forward (2.29x upscaled) against the
-            // 11x this suite was written at. That 11x was the resolve reading cleared
-            // zero velocity at the coat's pixels: the forward Velocity export was a
-            // copy taken before GroomPass. Now TAA reads the coat's own velocity,
-            // which carries the projection jitter delta like every surface's does,
-            // and accumulates it as it does them. Deferred, whose resolve still
-            // reads G-Buffer velocity the groom never writes, keeps 11x and the 3x
-            // floor (the MSAA cell). #1552 owns the velocity convention and
-            // restoring 3x on Forward.
-            const f64 floor = rendererSettings.Path == RenderingPath::Deferred ? 3.0 : 2.0;
+            // 9x at the native render size (the MSAA and odd-size cells measure
+            // 11.8x and 12.0x; the first test in this file says what the floor
+            // separates), 3x upscaled (Quality 7.1x, Performance 4.3x). An
+            // upscale renders the coat at fewer pixels than the resolve
+            // accumulates over, and that, not the coverage term, sets its
+            // ceiling.
+            const f64 floor = post.Upscale == UpscaleMode::Off ? 9.0 : 3.0;
             EXPECT_LT(arms.Resolved.MeanFrameDelta, arms.NoHistory.MeanFrameDelta / floor)
                 << cell << ": the resolve does not suppress the coat's shimmer in this configuration ("
                 << arms.NoHistory.MeanFrameDelta << " -> " << arms.Resolved.MeanFrameDelta << ")";

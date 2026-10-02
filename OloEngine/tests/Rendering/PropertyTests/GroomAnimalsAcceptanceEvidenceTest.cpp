@@ -1744,11 +1744,11 @@ namespace OloEngine::Tests
         Capture("", view, again);
         const u32 noise = CountDiffering(again, baseline);
         std::printf("[groom-animals] repeat floor: %u px differ (%.3f%%)\n", noise, 100.0 * Fraction(noise));
-        // 4 % since #1332, measured 3.1 % (1.1 % before). Forward TAA now reads
-        // the coat's own velocity instead of the cleared zero behind it, and
-        // reprojects it by the jitter delta every surface's velocity carries,
-        // so less of the stochastic noise accumulates away (#1552).
-        EXPECT_LT(Fraction(noise), 0.04) << "an identical re-run must reproduce the frame up to stochastic noise";
+        // 3 %, measured 2.04 %. Forward TAA reads the coat's own velocity and
+        // coverage since #1332; it was 4.06 % while that velocity carried the
+        // TAA jitter and the coverage term compared the coat's per-pixel
+        // samples instead of their mean (#1552).
+        EXPECT_LT(Fraction(noise), 0.03) << "an identical re-run must reproduce the frame up to stochastic noise";
 
         struct Lever
         {
@@ -1836,12 +1836,10 @@ namespace OloEngine::Tests
             }
             else if (lever.ExpectChange)
             {
-                // 1.5x the floor since #1332 (2x before): the floor tripled with
-                // the coat's own velocity in Forward TAA (see the repeat floor
-                // above), the lowest lever measured 1.9x of it (#1552).
-                EXPECT_GT(2u * changed, 3u * noise) << lever.Child << " " << lever.Name
-                                                    << ": switching the child off must change the frame past 1.5x the "
-                                                       "repeat floor";
+                // 2x the floor; the lowest lever measures 2.74x (#1246).
+                EXPECT_GT(changed, 2u * noise) << lever.Child << " " << lever.Name
+                                               << ": switching the child off must change the frame past 2x the "
+                                                  "repeat floor";
             }
         }
     }
@@ -2085,20 +2083,9 @@ namespace OloEngine::Tests
                 // the two CANCEL in a summed luma (+25 532 against a 6 553
                 // drift). A net sum cannot score a view whose true answer has
                 // both signs, so the front views are printed and looked at,
-                // and hold only to the floor.
-                // The FRONT views hold to three quarters of the floor since #1332:
-                // Forward TAA now reprojects the coat by its own velocity, which
-                // tripled the floor (10 347 -> 30 830 px) while the A/B moved
-                // 30 461 px at F30 Front. The luma assertions carry the claim
-                // (#1552).
-                if (std::string_view(angle) == "Side")
-                {
-                    EXPECT_GT(moved, floor) << "F" << frame << " " << angle;
-                }
-                else
-                {
-                    EXPECT_GT(4u * moved, 3u * floor) << "F" << frame << " " << angle;
-                }
+                // and hold only to the floor (the least of them measures 1.58x,
+                // F45 Front).
+                EXPECT_GT(moved, floor) << "F" << frame << " " << angle;
                 if (std::string_view(angle) == "Side")
                 {
                     EXPECT_LT(delta, -5.0 * repeatLuma)
@@ -2811,9 +2798,10 @@ namespace OloEngine::Tests
                     raw.PeakPixelDelta, raw.ComparedPixels);
         ASSERT_GT(resolved.ComparedPixels, 0u);
         ASSERT_GT(raw.ComparedPixels, 0u);
-        // 0.6 since #1332 (0.5 before), measured 0.52: Forward TAA now reads the
-        // coat's own velocity instead of the cleared zero behind it (#1552).
-        EXPECT_LT(resolved.MeanFrameDelta, raw.MeanFrameDelta * 0.6) << "the resolve must cut the shimmer by 40 %";
+        // 0.5, measured 0.444; 0.527 while the coat's velocity carried the TAA
+        // jitter and the coverage term compared its per-pixel samples instead
+        // of their mean (#1552).
+        EXPECT_LT(resolved.MeanFrameDelta, raw.MeanFrameDelta * 0.5) << "the resolve must halve the shimmer";
     }
 
     // =========================================================================

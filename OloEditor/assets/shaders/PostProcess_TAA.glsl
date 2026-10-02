@@ -153,6 +153,51 @@ vec2 GetDilatedVelocityUV(vec2 uv)
     return bestUV;
 }
 
+// Whether any of four coverages is FRACTIONAL, strictly between empty and full.
+// An opaque surface writes 1 and a cleared texel reads 0; only a coverage
+// estimator writes in between: a widened strand's alpha, an alpha-tested leaf's.
+bool OloTaaAnyCoverageIsFractional(vec4 coverage)
+{
+    vec4 inside = step(vec4(0.001), coverage) * step(coverage, vec4(0.999));
+    return dot(inside, vec4(1.0)) > 0.0;
+}
+
+// Whether any of the 4x4 coverages (.b) around UV is fractional, in four
+// gathers. A gather returns texels whatever the sampler's filter, so a bilinear
+// blend of an opaque edge cannot pass for an estimator's value. SAMPLER is a
+// name, not a value; see include/TemporalResolve.glsl for why.
+#define OLO_TAA_ANY_FRACTIONAL_COVERAGE_4X4(SAMPLER, UV, TEXEL, OUT_ANY)                               \
+    {                                                                                                    \
+        OUT_ANY = false;                                                                                 \
+        for (int oloGy = 0; oloGy < 2; ++oloGy)                                                          \
+        {                                                                                                \
+            for (int oloGx = 0; oloGx < 2; ++oloGx)                                                      \
+            {                                                                                            \
+                vec2 oloCorner = (UV) + (((vec2(float(oloGx), float(oloGy)) * 2.0) - 0.5) * (TEXEL));    \
+                OUT_ANY = OUT_ANY || OloTaaAnyCoverageIsFractional(textureGather(SAMPLER, oloCorner, 2)); \
+            }                                                                                            \
+        }                                                                                                \
+    }
+
+// The mean coverage (.b) of the 8x8 texels around UV, in sixteen gathers, each
+// on a texel corner and so returning the four texels that share it. The window
+// is the texel UV falls in, four texels back and three on, for both frames
+// compared. SAMPLER is a name, not a value.
+#define OLO_TAA_MEAN_COVERAGE_8X8(SAMPLER, UV, TEXEL, OUT_MEAN)                                       \
+    {                                                                                                  \
+        float oloCoverageSum = 0.0;                                                                    \
+        for (int oloGy = 0; oloGy < 4; ++oloGy)                                                        \
+        {                                                                                              \
+            for (int oloGx = 0; oloGx < 4; ++oloGx)                                                    \
+            {                                                                                          \
+                vec2 oloCorner = (UV) + (((vec2(float(oloGx), float(oloGy)) * 2.0) - 3.5) * (TEXEL));  \
+                vec4 oloLanes = textureGather(SAMPLER, oloCorner, 2);                                  \
+                oloCoverageSum += (oloLanes.x + oloLanes.y) + (oloLanes.z + oloLanes.w);               \
+            }                                                                                          \
+        }                                                                                              \
+        OUT_MEAN = oloCoverageSum * (1.0 / 64.0);                                                      \
+    }
+
 void main()
 {
     vec2 uv = v_TexCoord;
@@ -266,18 +311,52 @@ void main()
         // OUTSIDE the range, and zero inside it. The screen-space resampling
         // concern stays here, in the pass that owns the reprojection, instead
         // of being baked into the model every other consumer shares.
-        float prevCoverageMin = 1.0;
-        float prevCoverageMax = 0.0;
-        for (int cy = -1; cy <= 1; ++cy)
+        //
+        // ...UNLESS AN ESTIMATOR IS AT WORK: THEN COMPARE ITS MEAN (#1552).
+        //
+        // The range test assumes coverage is a field that only moves. A
+        // STOCHASTIC coat's is not: each frame a different strand survives at
+        // each pixel, or none does, so every pixel draws a fresh sample and the
+        // 3x3 range is a sample of nine draws. On TemporalSubjectSequence's
+        // still hair the range test fired on 1.8 % of the coat's pixels every
+        // frame (mean reactivity 0.014), mostly a hole whose nine neighbours
+        // all drew a strand, and each firing threw a converged pixel back to
+        // one sample: the resolve kept 7.5x of the 12x it reaches without the
+        // term. It is also blind to what it is for. The holes put 0 in every
+        // range, so halving every strand's width, which halves the coat's
+        // coverage, moved 15 % of its pixels out of range.
+        //
+        // What a LOD step changes is the estimator's MEAN, and an 8x8 box mean
+        // carries an eighth of its per-pixel noise. On the same capture the two
+        // frames' means crossed the dead band on 0.1 % of the coat's pixels at
+        // rest (mean reactivity under 0.0001), and on 92 % at that width step
+        // (0.40, against the range test's 0.07). A neighbourhood of only 0s and
+        // 1s, an opaque edge, keeps the range test: jitter moves its edge by up
+        // to a texel, which shifts a box mean by up to an eighth and fired on
+        // 0.6 % of a sphere's pixels, where the range test fires on none. The
+        // decision reads the current frame, whose texels are exact.
+        bool estimatedCoverage = false;
+        OLO_TAA_ANY_FRACTIONAL_COVERAGE_4X4(u_Velocity, uv, u_TexelSize, estimatedCoverage);
+        if (estimatedCoverage)
         {
-            for (int cx = -1; cx <= 1; ++cx)
-            {
-                float c = texture(u_PrevSurface, prevUV + vec2(float(cx), float(cy)) * u_TexelSize).b;
-                prevCoverageMin = min(prevCoverageMin, c);
-                prevCoverageMax = max(prevCoverageMax, c);
-            }
+            OLO_TAA_MEAN_COVERAGE_8X8(u_Velocity, uv, u_TexelSize, currentSurface.b);
+            OLO_TAA_MEAN_COVERAGE_8X8(u_PrevSurface, prevUV, u_TexelSize, previousSurface.b);
         }
-        previousSurface.b = clamp(currentSurface.b, prevCoverageMin, prevCoverageMax);
+        else
+        {
+            float prevCoverageMin = 1.0;
+            float prevCoverageMax = 0.0;
+            for (int cy = -1; cy <= 1; ++cy)
+            {
+                for (int cx = -1; cx <= 1; ++cx)
+                {
+                    float c = texture(u_PrevSurface, prevUV + vec2(float(cx), float(cy)) * u_TexelSize).b;
+                    prevCoverageMin = min(prevCoverageMin, c);
+                    prevCoverageMax = max(prevCoverageMax, c);
+                }
+            }
+            previousSurface.b = clamp(currentSurface.b, prevCoverageMin, prevCoverageMax);
+        }
 
         OloSurfaceHistoryRecord currentRecord;
         currentRecord.LinearDepth = 0.0;
