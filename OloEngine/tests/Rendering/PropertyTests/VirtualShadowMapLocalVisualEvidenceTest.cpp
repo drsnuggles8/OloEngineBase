@@ -856,9 +856,13 @@ namespace OloEngine::Tests
         constexpr f32 kEyeHeight = 9.0f;
         const std::array<Pose, 4> poses{ {
             { "Orbit000", { 0.0f, kEyeHeight, kRadius }, 0.0f },
-            { "Orbit090", { kRadius, kEyeHeight, 0.0f }, 1.5707963f },
+            // EditorCamera faces rotate(quat(-pitch, -yaw, 0), -Z): yaw +90 degrees
+            // looks along +X, so the eye at +X turns to -90 to face the lamp. With
+            // the signs swapped these two poses looked away from the scene, and
+            // the floor's faint far shading passed the old 1.0 luma bar (#1533).
+            { "Orbit090", { kRadius, kEyeHeight, 0.0f }, -1.5707963f },
             { "Orbit180", { 0.0f, kEyeHeight, -kRadius }, 3.1415927f },
-            { "Orbit270", { -kRadius, kEyeHeight, 0.0f }, -1.5707963f },
+            { "Orbit270", { -kRadius, kEyeHeight, 0.0f }, 1.5707963f },
         } };
 
         auto& shadowMap = Renderer3D::GetShadowMap();
@@ -888,7 +892,11 @@ namespace OloEngine::Tests
                               << ") — this azimuth cannot say anything about shadows";
                 continue;
             }
-            if (diff > 1.0)
+            // A pose that sees the boxes changes by ~8.6 luma when their shadows
+            // land; one that looks away from them changes by ~1.1. The bar sits
+            // between the two, so a pose that misses the subject fails.
+            constexpr f64 kShadowedDiff = 4.0;
+            if (diff > kShadowedDiff)
                 ++azimuthsWithShadow;
         }
 
