@@ -155,6 +155,9 @@ namespace OloEngine
         // for any later shader reading the full CameraUBO (TAA velocity
         // reconstruction, motion blur).
         glm::mat4 PrevViewProjectionMatrix = glm::mat4(1.0f);
+        // The jitter offsets of ViewProjectionMatrix and PrevViewProjectionMatrix
+        // (#1552), mirrored like the matrices, for the camera re-upload.
+        glm::vec4 JitterUV = glm::vec4(0.0f);
         glm::vec3 ViewPos = glm::vec3(0.0f);
         // Camera-relative render origin for this frame (issue #429). The view /
         // view-projection / position above stay world-space; camera-UBO packing
@@ -2009,6 +2012,11 @@ namespace OloEngine
         Data().PrevViewProjectionMatrix = prevVP;
     }
 
+    void CommandDispatch::SetJitterUV(const glm::vec4& jitterUV)
+    {
+        Data().JitterUV = jitterUV;
+    }
+
     const glm::mat4& CommandDispatch::GetViewMatrix()
     {
         return Data().ViewMatrix;
@@ -2082,6 +2090,8 @@ namespace OloEngine
         cameraData.Pad0 = 0.0f;
         cameraData.PrevViewProjection = RHI::AdjustProjectionForBackend(
             MakeViewProjectionRelative(Data().PrevViewProjectionMatrix, origin));
+        // The jitter those two carry, which every velocity writer subtracts (#1552).
+        cameraData.JitterUV = Data().JitterUV;
         cameraData.RenderOrigin = origin; // for pattern shaders (triplanar/noise/etc.)
         // Reconstruction flavour (#691): terrain tessellation scale,
         // water depth math and the culling compute read this member.

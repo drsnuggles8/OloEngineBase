@@ -757,9 +757,13 @@ namespace OloEngine
         m_HasJitterMode = true;
         m_PreviousJitterMode = jitterMode;
 
-        data.PrevJitterUV = data.CurrJitterUV;
+        // THIS frame's jitter offset, set below where a jitter is applied. The
+        // previous frame's is rotated with PrevViewProjectionMatrix, at the end
+        // of the frame that used it (Renderer3D::ExecuteFrame), so the two
+        // always describe the same frame (#1552).
         data.CurrJitterUV = glm::vec2(0.0f);
         data.TemporalUpscaleJitterPixels = glm::vec2(0.0f);
+        const glm::mat4 unjitteredProjection = data.ProjectionMatrix;
 
         // Jitter is needed by EITHER temporal accumulator, and the two disagree on
         // the sequence: engine TAA walks a fixed Halton-16, while FSR2 derives
@@ -801,7 +805,8 @@ namespace OloEngine
                 }
                 data.ViewProjectionMatrix = data.ProjectionMatrix * data.ViewMatrix;
 
-                data.CurrJitterUV = glm::vec2(jitterNdcX * 0.5f, jitterNdcY * 0.5f);
+                data.CurrJitterUV = TemporalUpscalePolicy::ProjectionJitterVelocityOffset(
+                    RHI::AdjustProjectionForBackend(unjitteredProjection), RHI::AdjustProjectionForBackend(data.ProjectionMatrix));
                 // NOT jitterPixels — see UpscalerJitterFromProjectionJitter. The
                 // projection was given +jitter, so the image carries -jitter, and
                 // that is what FSR2 has to be told or it never converges.
@@ -857,9 +862,11 @@ namespace OloEngine
                 }
                 data.ViewProjectionMatrix = data.ProjectionMatrix * data.ViewMatrix;
 
-                // Track jitter in UV-space so the TAA shader (or any future
-                // consumer) can subtract it if needed. NDC -> UV is * 0.5.
-                data.CurrJitterUV = glm::vec2(jitterNdcX * 0.5f, jitterNdcY * 0.5f);
+                // The offset this jitter puts on every vertex, in velocity
+                // units and the uploaded convention: what every velocity
+                // writer subtracts (#1552).
+                data.CurrJitterUV = TemporalUpscalePolicy::ProjectionJitterVelocityOffset(
+                    RHI::AdjustProjectionForBackend(unjitteredProjection), RHI::AdjustProjectionForBackend(data.ProjectionMatrix));
 
                 data.TAAJitterFrameIndex = (data.TAAJitterFrameIndex + 1) % kHaltonSequenceLength;
             }
@@ -912,6 +919,7 @@ namespace OloEngine
         // consumer (TAA velocity reconstruction, motion blur) reads this
         // frame.
         CommandDispatch::SetPrevViewProjectionMatrix(data.PrevViewProjectionMatrix);
+        CommandDispatch::SetJitterUV(glm::vec4(data.CurrJitterUV, data.PrevJitterUV));
         CommandDispatch::SetRenderOrigin(renderOrigin);
 
         // Depth-reconstruction consumers (decals, motion blur, fog, underwater)
@@ -1021,6 +1029,9 @@ namespace OloEngine
             // relative to the *current* origin, matching PrevModel which is
             // shifted by the same origin, so velocity is invariant.
             cameraData.PrevViewProjection = RHI::AdjustProjectionForBackend(relativePrevViewProjection);
+            // The jitter each of those two carries, for the velocity writers to
+            // take out (#1552): static content then writes zero.
+            cameraData.JitterUV = glm::vec4(data.CurrJitterUV, data.PrevJitterUV);
             // The render origin itself, so pattern shaders can rebuild an
             // absolute world position (triplanar tiling, procedural noise, etc.).
             cameraData.RenderOrigin = renderOrigin;
@@ -2914,6 +2925,10 @@ namespace OloEngine
             // data.InverseViewProjectionMatrix there).
             mb.InverseViewProjection = RHI::AdjustedInverseForShaderReconstruction(data.ViewProjectionMatrix);
             mb.PrevViewProjection = RHI::AdjustProjectionForShaderReconstruction(data.PrevViewProjectionMatrix);
+            // Their jitters, which TAA's and motion blur's camera-velocity
+            // reconstruction takes out as the velocity writers do (#1552). The
+            // reconstruction flavour agrees with the uploaded one on .xy.
+            mb.JitterUV = glm::vec4(data.CurrJitterUV, data.PrevJitterUV);
             data.PostProcessGPU.MotionBlur->SetData(&mb, MotionBlurUBOData::GetSize());
             // Re-establish the base-8 binding every upload: of this UBO's
             // consumers only MotionBlurRenderPass binds it itself — the

@@ -48,7 +48,13 @@ layout(std140, binding = 0) uniform Camera
 	// Previous-frame VP combines with a_PrevPosition to emit accurate
 	// per-particle motion vectors to scene FB RT3 (used by TAA).
 	mat4 u_PrevViewProjection;
+	vec3 _camera_pad_origin;
+	float _camera_pad_tap;
+	mat4 _camera_pad_reconstruction;
+	vec4 _camera_pad_ao;
+	vec4 u_JitterUV; // the TAA jitter offsets, for the velocity (#1552)
 };
+#include "include/ScreenVelocity.glsl"
 
 layout(std140, binding = 2) uniform ParticleParams
 {
@@ -177,8 +183,8 @@ void main()
 	vec4 clipCurr = u_ViewProjection     * vec4(worldPos, 1.0);
 	vec4 clipPrev = u_PrevViewProjection * vec4(prevWorldPos, 1.0);
 	gl_Position = clipCurr;
-	v_ClipPosCurr = clipCurr;
-	v_ClipPosPrev = clipPrev;
+	v_ClipPosCurr = oloUnjitterClip(clipCurr, u_JitterUV.xy);
+	v_ClipPosPrev = oloUnjitterClip(clipPrev, u_JitterUV.zw);
 
 	// Interpolate UV within the sub-rect
 	vec2 uv01 = a_QuadPos + vec2(0.5); // Convert [-0.5, 0.5] to [0, 1]
@@ -277,6 +283,7 @@ void main()
 	o_EntityID = v_EntityID;
 	o_ViewNormal = vec2(-2.0);
 
+	// The clip positions arrive unjittered (oloUnjitterClip in the vertex stage, #1552).
 	vec2 ndcCurr = v_ClipPosCurr.xy / v_ClipPosCurr.w;
 	vec2 ndcPrev = v_ClipPosPrev.xy / v_ClipPosPrev.w;
 	o_Velocity = vec4((ndcCurr - ndcPrev) * 0.5, 1.0, 0.0);

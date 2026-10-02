@@ -1331,7 +1331,7 @@ void main()
 	// pays for it in alpha, so this is coverage by construction; see
 	// Groom/GroomCoverage.h. Under StochasticAlpha it is also the value that
 	// moves every frame, which the reactive term's dead band must ignore.
-	o_Velocity = vec4((ndcCurr - ndcPrev) * 0.5, alpha, 0.0);
+	o_Velocity = vec4(oloVelocityFromNdc(ndcCurr, ndcPrev), alpha, 0.0);
 
 	// "No skin diffusion here." Attachment 4 is undefined unless written, and
 	// an unwritten one is blurred into scene colour by SkinDiffusion.glsl.

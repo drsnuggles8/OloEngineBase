@@ -400,6 +400,6 @@ void main()
     // path needs it too: the editor runs forward by default, so wiring only
     // the deferred variant left the channel reading a flat 1.0 on every
     // foliage pixel a user actually sees.
-    o_Velocity = vec4((ndcCurr - ndcPrev) * 0.5, clamp(color.a, 0.0, 1.0), 0.0);
+    o_Velocity = vec4(oloVelocityFromNdc(ndcCurr, ndcPrev), clamp(color.a, 0.0, 1.0), 0.0);
     o_SkinDiffuse = vec4(0.0); // not skin -- see the declaration above (#1241)
 }

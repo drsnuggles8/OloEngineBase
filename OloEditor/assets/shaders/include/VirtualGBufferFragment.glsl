@@ -278,6 +278,7 @@ void main()
         N = OLO_MAT_NORMAL(u_NormalMap, v_TexCoord, v_WorldPos, v_Normal, u_NormalScale);
     }
 
+    // The clip positions arrive unjittered (oloUnjitterClip in the vertex stage, #1552).
     vec2 ndcCurr = v_ClipPosCurr.xy / max(v_ClipPosCurr.w, 1e-6);
     vec2 ndcPrev = v_ClipPosPrev.xy / max(v_ClipPosPrev.w, 1e-6);
     vec2 velocity = (ndcCurr - ndcPrev) * 0.5;

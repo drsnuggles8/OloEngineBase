@@ -131,6 +131,10 @@ namespace OloEngine
         // (terrain / voxel / decal) can fill CameraUBO::PrevViewProjection
         // without aliasing the current-frame VP.
         static void SetPrevViewProjectionMatrix(const glm::mat4& prevVP);
+        // @brief The TAA jitter offsets those two matrices carry (#1552): xy
+        // this frame's, zw the previous frame's, in velocity units -- what the
+        // shared CameraUBO re-upload hands the velocity writers to subtract.
+        static void SetJitterUV(const glm::vec4& jitterUV);
         static void SetViewPosition(const glm::vec3& viewPos);
         // @brief Camera-relative render origin for this frame (issue #429). The
         // stored view / view-projection / position above remain *world*-space

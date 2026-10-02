@@ -93,7 +93,14 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    mat4 _cameraPrevViewProjection;
+    vec3 _cameraRenderOrigin;
+    float _cameraLightingTap;
+    mat4 _cameraProjectionForReconstruction;
+    vec4 _cameraScreenSpaceAOParams;
+    vec4 u_JitterUV; // the TAA jitter offsets, for the velocity (#1552)
 };
+#include "include/ScreenVelocity.glsl"
 
 layout(std140, binding = 8) uniform MotionBlurMatrices {
     mat4 u_InverseViewProjection;
@@ -487,7 +494,7 @@ void main()
     vec4 prevClip = pc0 * bPersp.x + pc1 * bPersp.y + pc2 * bPersp.z;
     vec2 ndcCurr = (gl_FragCoord.xy / viewport) * 2.0 - 1.0;
     vec2 ndcPrev = prevClip.xy / max(prevClip.w, 1e-6);
-    vec2 velocity = (ndcCurr - ndcPrev) * 0.5;
+    vec2 velocity = oloVelocityFromNdc(ndcCurr, ndcPrev);
 
     o_GBufferAlbedo   = vec4(albedo, metallic);
     o_GBufferNormal   = vec4(octEncodeGB(N), roughness, ao);

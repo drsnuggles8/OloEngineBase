@@ -27,7 +27,13 @@ layout(std140, binding = 0) uniform Camera
 	mat4 _camera_pad_proj;
 	vec4 _camera_pad_position;
 	mat4 u_PrevViewProjection;
+	vec3 _camera_pad_origin;
+	float _camera_pad_tap;
+	mat4 _camera_pad_reconstruction;
+	vec4 _camera_pad_ao;
+	vec4 u_JitterUV; // the TAA jitter offsets, for the velocity (#1552)
 };
+#include "ScreenVelocity.glsl"
 
 struct VertexOutput
 {
@@ -53,8 +59,8 @@ void main()
 	vec4 clipCurr = u_ViewProjection     * vec4(a_Position, 1.0);
 	vec4 clipPrev = u_PrevViewProjection * vec4(a_Position, 1.0);
 	gl_Position = clipCurr;
-	v_ClipPosCurr = clipCurr;
-	v_ClipPosPrev = clipPrev;
+	v_ClipPosCurr = oloUnjitterClip(clipCurr, u_JitterUV.xy);
+	v_ClipPosPrev = oloUnjitterClip(clipPrev, u_JitterUV.zw);
 	Output.Color = a_Color;
 	Output.TexCoord = a_TexCoord;
 	v_EntityID = a_EntityID;

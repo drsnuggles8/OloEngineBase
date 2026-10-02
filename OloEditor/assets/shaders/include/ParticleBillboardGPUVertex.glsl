@@ -68,7 +68,13 @@ layout(std140, binding = 0) uniform Camera
 	mat4 _camera_pad_proj;
 	vec4 _camera_pad_position;
 	mat4 u_PrevViewProjection;
+	vec3 _camera_pad_origin;
+	float _camera_pad_tap;
+	mat4 _camera_pad_reconstruction;
+	vec4 _camera_pad_ao;
+	vec4 u_JitterUV; // the TAA jitter offsets, for the velocity (#1552)
 };
+#include "ScreenVelocity.glsl"
 
 layout(std140, binding = 2) uniform ParticleParams
 {
@@ -154,8 +160,8 @@ void main()
 	vec4 clipCurr = u_ViewProjection     * vec4(worldPos, 1.0);
 	vec4 clipPrev = u_PrevViewProjection * vec4(prevWorldPos, 1.0);
 	gl_Position = clipCurr;
-	v_ClipPosCurr = clipCurr;
-	v_ClipPosPrev = clipPrev;
+	v_ClipPosCurr = oloUnjitterClip(clipCurr, u_JitterUV.xy);
+	v_ClipPosPrev = oloUnjitterClip(clipPrev, u_JitterUV.zw);
 
 	// Full [0,1] UV from the quad pos
 	vec2 uv01 = a_QuadPos + vec2(0.5);

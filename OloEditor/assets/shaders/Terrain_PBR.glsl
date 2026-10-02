@@ -869,7 +869,7 @@ void main()
     vec2 ndcCurr = clipCurr.xy / clipCurr.w;
     vec2 ndcPrev = clipPrev.xy / clipPrev.w;
     // .a: the material profile (#1256) is the snow weight, as in G-Buffer RT3.a.
-    o_Velocity = vec4((ndcCurr - ndcPrev) * 0.5, 1.0, snowWeight);
+    o_Velocity = vec4(oloVelocityFromNdc(ndcCurr, ndcPrev), 1.0, snowWeight);
     // Not skin (#1241); a snow pixel hands its diffuse half to the snow blur
     // in the lane's negative range (issue #1451).
     o_SkinDiffuse = oloSnowLayerActive(snowWeight)

@@ -419,8 +419,11 @@ namespace OloEngine
             OcclusionQueryPool::GetInstance().EndFrame();
         }
 
-        // Store current VP as previous for next frame's motion blur
+        // Store current VP as previous for next frame's motion blur, and the
+        // jitter it carried with it, so the velocity writers take out exactly
+        // the offset that VP put on every vertex (#1552).
         s_Data.PrevViewProjectionMatrix = s_Data.ViewProjectionMatrix;
+        s_Data.PrevJitterUV = s_Data.CurrJitterUV;
         s_Data.PreviousViewPos = s_Data.ViewPos;
         s_Data.HasPreviousViewPosition = true;
         // The culling camera's own history rotates only while unfrozen, so it

@@ -30,7 +30,13 @@ layout(std140, binding = 0) uniform CameraMatrices {
     // zeros the translation columns of VP, yielding rotation-only clip
     // space (matching the current frame's `mat4(mat3(u_View))` trick).
     mat4 u_PrevViewProjection;
+    vec3 _cameraRenderOrigin;
+    float _cameraLightingTap;
+    mat4 _cameraProjectionForReconstruction;
+    vec4 _cameraScreenSpaceAOParams;
+    vec4 u_JitterUV; // the TAA jitter offsets, for the velocity (#1552)
 };
+#include "include/ScreenVelocity.glsl"
 
 layout(location = 0) out vec3 v_TexCoords;
 layout(location = 1) out vec4 v_ClipPosCurr;
@@ -54,8 +60,8 @@ void main()
     // Velocity reconstruction: use the full prev VP with w=0 so translation
     // drops out. xy in NDC then matches a rotation-only projection (the
     // current-frame path uses `mat4(mat3(u_View))` to the same end).
-    v_ClipPosCurr = vec4(pos.xy, pos.w, pos.w);
-    v_ClipPosPrev = u_PrevViewProjection * vec4(a_Position, 0.0);
+    v_ClipPosCurr = oloUnjitterClip(vec4(pos.xy, pos.w, pos.w), u_JitterUV.xy);
+    v_ClipPosPrev = oloUnjitterClip(u_PrevViewProjection * vec4(a_Position, 0.0), u_JitterUV.zw);
 }
 
 #type fragment
@@ -98,6 +104,7 @@ void main()
 
     // NDC-space velocity (units: half-NDC) matching PBR_MultiLight so TAA
     // sees consistently-scaled motion vectors across all forward shaders.
+    // The clip positions arrive unjittered (oloUnjitterClip in the vertex stage, #1552).
     vec2 ndcCurr = v_ClipPosCurr.xy / v_ClipPosCurr.w;
     vec2 ndcPrev = v_ClipPosPrev.xy / v_ClipPosPrev.w;
     o_Velocity = vec4((ndcCurr - ndcPrev) * 0.5, 1.0, 0.0);

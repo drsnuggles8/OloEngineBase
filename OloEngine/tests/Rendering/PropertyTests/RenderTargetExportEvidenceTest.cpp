@@ -743,6 +743,97 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
+    // #1552: a still camera over still content writes NO velocity while the TAA
+    // jitter moves, on both paths. Both view-projections carry their frame's
+    // sub-pixel jitter, so every writer differenced two jittered positions and
+    // wrote the jitter's change -- up to a pixel -- where nothing moved, and the
+    // resolves resampled their history by it every frame (a stochastic coat kept
+    // 3x of its 11x accumulation). The writers now take each frame's jitter out
+    // (oloVelocityFromNdc / oloUnjitterClip). Read exactly what TAA sampled,
+    // over two frames whose jittered projections differ.
+    // -------------------------------------------------------------------------
+    TEST_F(RenderTargetExportEvidence, StillContentWritesNoVelocityWhileTheJitterMoves)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        struct MockClock
+        {
+            MockClock()
+            {
+                Time::SetMockTime(7.0f);
+            }
+            ~MockClock()
+            {
+                Time::ClearMockTime();
+            }
+        } clock;
+        auto& post = Renderer3D::GetPostProcessSettings();
+        post.TAAEnabled = true;
+        post.MotionBlurEnabled = false;
+        post.Upscale = UpscaleMode::Off;
+        Renderer3D::GetWindSettings().Enabled = false;
+
+        for (const RenderingPath path : { RenderingPath::Forward, RenderingPath::Deferred })
+        {
+            const char* const pathName = path == RenderingPath::Forward ? "Forward" : "Deferred";
+            SCOPED_TRACE(pathName);
+            Renderer3D::GetRendererSettings().Path = path;
+            Renderer3D::ApplyRendererSettings();
+            // Still content only: terrain, the cubes, the GPU-driven batches and
+            // the decal; no water, no wind, a frozen clock.
+            SetLateGeometry(true, /*water*/ false, /*foliagePresent*/ false);
+            Frames(kWarmFrames);
+
+            RenderGraph* graph = const_cast<RenderGraph*>(RenderGraphDebugRuntime::GetActiveGraph().Raw());
+            ASSERT_NE(graph, nullptr);
+            // What TAA samples: SceneVelocity, whose resource is "Velocity" on
+            // the forward paths and "SceneVelocity" on Deferred.
+            const std::string velocityName = path == RenderingPath::Forward ? "Velocity" : "SceneVelocity";
+            std::array<std::vector<f32>, 2> sampled;
+            std::array<glm::mat4, 2> projection{};
+            u32 frame = 0;
+            constexpr std::string_view kHook = "StillContentVelocity";
+            graph->AddPostPassHook(kHook, [&](std::string_view pass, RenderGraph& g)
+                                   {
+                                       if (pass != "TAAPass" || frame >= 2u)
+                                           return;
+                                       const u32 velocity = g.ResolveTexture(g.GetTextureHandle(velocityName));
+                                       if (velocity != 0u)
+                                       {
+                                           ReadbackRgbaFloat(velocity, kWidth, kHeight, sampled[frame]);
+                                           projection[frame] = Renderer3D::GetProjectionMatrix();
+                                           ++frame;
+                                       } });
+            Frames(2);
+            graph->RemovePostPassHook(kHook);
+            ASSERT_EQ(frame, 2u) << "the hook did not see TAAPass sample " << velocityName << " twice";
+
+            // Not vacuous: the jitter did move between the two frames.
+            const glm::vec2 jitterA(projection[0][2][0] + projection[0][3][0], projection[0][2][1] + projection[0][3][1]);
+            const glm::vec2 jitterB(projection[1][2][0] + projection[1][3][0], projection[1][2][1] + projection[1][3][1]);
+            EXPECT_GT(glm::length(jitterB - jitterA), 0.1f / static_cast<f32>(kWidth))
+                << "the projection did not move between the frames: TAA's jitter is off and the check is vacuous";
+            for (u32 f = 0; f < 2u; ++f)
+            {
+                f32 largest = 0.0f;
+                sizet moving = 0;
+                for (sizet i = 0; i + 3 < sampled[f].size(); i += 4)
+                {
+                    const f32 magnitude = std::max(std::abs(sampled[f][i]), std::abs(sampled[f][i + 1]));
+                    largest = std::max(largest, magnitude);
+                    moving += magnitude > 1.0e-5f ? 1u : 0u;
+                }
+                std::cout << "[ exports ] " << pathName << " frame " << f << ": still content's largest velocity "
+                          << largest * static_cast<f32>(kWidth) << " px, " << moving << " texels over 0.02 px\n";
+                // 1e-5 UV is a fiftieth of a pixel at this width; the jitter's
+                // change was up to a whole one.
+                EXPECT_EQ(moving, 0u) << "frame " << f << ": still content wrote velocity "
+                                      << largest * static_cast<f32>(kWidth) << " px across while only the jitter moved";
+            }
+            SetLateGeometry(false);
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // AC3: the migrated exports are views of a pooled framebuffer. With transient
     // aliasing off, and with a capture snapshot armed on them, the frame must be
     // the same frame: views follow their parent's lifetime, and a capture clone

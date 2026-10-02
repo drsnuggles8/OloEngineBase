@@ -37,6 +37,8 @@ layout(std140, binding = 0) uniform CameraMatrices {
     // GL-convention math — the rasterizer flavour double-applies the remap
     // on Vulkan. Identical to u_Projection on GL.
     mat4 u_ProjectionForReconstruction;
+    vec4 _cameraScreenSpaceAOParams;
+    vec4 u_JitterUV; // the TAA jitter offsets, for the velocity (#1552)
 };
 
 layout(location = 0) out vec3 v_NearPoint;
@@ -95,7 +97,10 @@ layout(std140, binding = 0) uniform CameraMatrices {
     float _padding1;
     // Reconstruction flavour (#691) — see the vertex stage's note.
     mat4 u_ProjectionForReconstruction;
+    vec4 _cameraScreenSpaceAOParams;
+    vec4 u_JitterUV; // the TAA jitter offsets, for the velocity (#1552)
 };
+#include "include/ScreenVelocity.glsl"
 
 // Grid settings (hardcoded for now - could be passed via uniform block if needed)
 const float c_GridScale = 1.0;
@@ -219,7 +224,7 @@ void main() {
         vec4 clipPrev = u_PrevViewProjection * vec4(fragPos3D, 1.0);
         vec2 ndcCurr = clipCurr.xy / clipCurr.w;
         vec2 ndcPrev = clipPrev.xy / clipPrev.w;
-        o_Velocity = vec4((ndcCurr - ndcPrev) * 0.5, 1.0, 0.0);
+        o_Velocity = vec4(oloVelocityFromNdc(ndcCurr, ndcPrev), 1.0, 0.0);
     } else {
         discard;
     }

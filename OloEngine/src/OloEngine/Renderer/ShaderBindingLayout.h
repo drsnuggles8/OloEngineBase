@@ -87,6 +87,15 @@ namespace OloEngine
             // or IBL capture, a shadow view — leaves it at the zero default.
             // Read through include/ForwardScreenSpaceAO.glsl.
             glm::vec4 ScreenSpaceAOParams = glm::vec4(0.0f);
+            // The TAA jitter's screen offset (#1552): xy this frame's, zw the
+            // previous frame's, in VELOCITY units -- the uploaded projection's
+            // NDC times 0.5 (Renderer3D's CurrJitterUV / PrevJitterUV). Each
+            // jittered view-projection moves every vertex by one constant
+            // offset, so a difference of two jittered positions moves by the
+            // jitter's change even where nothing moved; every velocity writer
+            // subtracts these (include/CameraCommon.glsl, oloVelocityFromNdc)
+            // and static content writes zero. Zero on every unjittered view.
+            glm::vec4 JitterUV = glm::vec4(0.0f);
 
             static constexpr u32 GetSize()
             {
@@ -102,10 +111,11 @@ namespace OloEngine
         // camera-relative render origin, issue #429; the trailing mat4 is the
         // reconstruction-flavour projection, issue #691 — 288 + 64 =
         // 352; the trailing vec4 is the forward screen-space AO lane, issue
-        // #1452 — 368). Alignment is not asserted: GLM mat4 is not
-        // 16-byte-aligned by default, but the C++-side SetData() call uploads
-        // the raw byte buffer so only total size matters.
-        static_assert(sizeof(CameraUBO) == 368, "CameraUBO std140 size drifted from GLSL expectation (368 B)");
+        // #1452 — 368; then the TAA jitter's screen offsets, issue #1552 —
+        // 384). Alignment is not asserted: GLM mat4 is not 16-byte-aligned by
+        // default, but the C++-side SetData() call uploads the raw byte buffer
+        // so only total size matters.
+        static_assert(sizeof(CameraUBO) == 384, "CameraUBO std140 size drifted from GLSL expectation (384 B)");
 
         // @brief Per-light record in the multi-light UBO (binding 5). Packed
         // by Scene::ProcessScene3DSharedLogic; decoded in PBRCommon.glsl /
@@ -1640,6 +1650,10 @@ namespace OloEngine
             //     a caster with no volume still has to move its receiver past
             //     its own strands, or the map occludes the coat with itself and
             //     it renders black.
+            // w = a bitfield (#1533), set only for a GPU-deformed draw: 1 = the
+            //     volume is the coat AT REST, marched from each fragment's bind
+            //     point; 2 = it also holds the BODY (negative density), which the
+            //     shader counts for every light no map answers for at the strand.
             glm::ivec4 CoatModes{ 0, 0, 0, 0 };
 
             // ── GPU strand deformation (#1427) ───────────────────────
@@ -4878,7 +4892,10 @@ layout(std140, binding = 0) uniform CameraMatrices {
     float _padding0;
     mat4 u_PrevViewProjection;
     vec3 u_RenderOrigin;
-    float _padding1;
+    float u_LightingTap;
+    mat4 u_ProjectionForReconstruction;
+    vec4 u_ScreenSpaceAOParams;
+    vec4 u_JitterUV;
 };)";
         }
 

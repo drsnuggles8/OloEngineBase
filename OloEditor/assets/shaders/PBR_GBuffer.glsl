@@ -74,6 +74,9 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 _cameraPrevViewProjection;
     vec3 u_RenderOrigin;
     float _padding1;
+    mat4 _cameraProjectionForReconstruction;
+    vec4 _cameraScreenSpaceAOParams;
+    vec4 u_JitterUV; // the TAA jitter offsets, for the velocity (#1552)
 };
 
 // Model UBO (binding 3)
@@ -319,7 +322,11 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 _cameraPrevViewProjection;
     vec3 u_RenderOrigin;
     float _padding1;
+    mat4 _cameraProjectionForReconstruction;
+    vec4 _cameraScreenSpaceAOParams;
+    vec4 u_JitterUV; // the TAA jitter offsets, for the velocity (#1552)
 };
+#include "include/ScreenVelocity.glsl"
 
 
 // Canonical GPU Scene material record (issue #994). Included AFTER the
@@ -593,7 +600,7 @@ void main()
     // Screen-space velocity in [-1,1] NDC units.
     vec2 ndcCurr = v_ClipPosCurr.xy / max(v_ClipPosCurr.w, 1e-6);
     vec2 ndcPrev = v_ClipPosPrev.xy / max(v_ClipPosPrev.w, 1e-6);
-    vec2 velocity = (ndcCurr - ndcPrev) * 0.5; // convert [-2,2] -> [-1,1]
+    vec2 velocity = oloVelocityFromNdc(ndcCurr, ndcPrev); // convert [-2,2] -> [-1,1]
 
     o_GBufferAlbedo   = vec4(albedo, metallic);
     o_GBufferNormal   = vec4(octEncodeGB(N), roughness, ao);

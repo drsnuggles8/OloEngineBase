@@ -33,7 +33,14 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    mat4 _cameraPrevViewProjection;
+    vec3 _cameraRenderOrigin;
+    float _cameraLightingTap;
+    mat4 _cameraProjectionForReconstruction;
+    vec4 _cameraScreenSpaceAOParams;
+    vec4 u_JitterUV; // the TAA jitter offsets, for the velocity (#1552)
 };
+#include "ScreenVelocity.glsl"
 
 layout(std140, binding = 8) uniform MotionBlurMatrices {
     mat4 u_InverseViewProjection;
@@ -92,12 +99,12 @@ VirtualVertexOutputs TransformVirtualVertex(VirtualInstance inst, VirtualGpuVert
     o.Normal = mat3(inst.NormalMatrix) * skinned.Normal;
     o.TexCoord = vec2(vert.PositionU.w, vert.NormalV.w);
 
-    o.ClipPosCurr = u_ViewProjection * vec4(o.WorldPos, 1.0);
+    o.ClipPosCurr = oloUnjitterClip(u_ViewProjection * vec4(o.WorldPos, 1.0), u_JitterUV.xy);
     // Per-bone previous pose as well as per-entity: a stationary character
     // playing an animation has motion the entity transform knows nothing about,
     // and TAA / motion blur read this to resolve it.
     vec4 prevWorldPos = inst.PrevTransform * vec4(skinned.PrevPosition, 1.0);
-    o.ClipPosPrev = u_PrevViewProjection * prevWorldPos;
+    o.ClipPosPrev = oloUnjitterClip(u_PrevViewProjection * prevWorldPos, u_JitterUV.zw);
     return o;
 }
 

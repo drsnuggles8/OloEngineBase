@@ -1094,5 +1094,5 @@ void main()
     // .a is the MATERIAL PROFILE (#1256): the snow weight, the same number
     // G-Buffer RT3.a carries, so TAA reacts to a changing snow cover alike
     // on every path (issue #1451).
-    o_Velocity = vec4((ndcCurr - ndcPrev) * 0.5, 1.0, snowWeight);
+    o_Velocity = vec4(oloVelocityFromNdc(ndcCurr, ndcPrev), 1.0, snowWeight);
 }

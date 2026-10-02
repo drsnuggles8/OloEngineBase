@@ -94,6 +94,10 @@ layout(std140, binding = 8) uniform MotionBlurMatrices
 {
     mat4 u_InverseViewProjection;
     mat4 u_PrevViewProjection;
+    // xy this frame's TAA jitter offset, zw the previous frame's, in velocity
+    // units (MotionBlurUBOData::JitterUV): the reconstruction below takes them
+    // out as every velocity writer does, so a still camera reads zero (#1552).
+    vec4 u_MotionJitterUV;
 };
 
 layout(std140, binding = 32) uniform TAAParams
@@ -123,7 +127,8 @@ vec2 ReconstructCameraVelocity(vec2 uv)
     if (prevClip.w <= 0.0001)
         return vec2(0.0);
     vec2 prevUV = (prevClip.xy / prevClip.w) * 0.5 + 0.5;
-    return uv - prevUV; // current - prev (matches sign convention of RT3 velocity)
+    // current - prev, the jitter taken out (matches the convention of RT3 velocity)
+    return (uv - prevUV) - (u_MotionJitterUV.xy - u_MotionJitterUV.zw);
 }
 
 // Find closest-depth pixel in 3x3 neighborhood — standard velocity-dilation
@@ -194,11 +199,11 @@ void main()
 
     // 4) Feedback-weighted blend. Scale feedback down when velocity is large
     // to reduce ghosting around fast motion. The "motion" must be measured
-    // in *pixels*, not UV — and with a sub-pixel dead zone so the Halton
-    // jitter delta (always ~1 px frame-to-frame) doesn't keep dragging
-    // feedback toward 0.5 even when the camera is stationary. Without the
-    // dead zone TAA still half-converges, but ~10–15 % of the current
-    // jittered frame bleeds through every frame, visible as a faint shake.
+    // in *pixels*, not UV — and with a sub-pixel dead zone. It was written
+    // against the Halton jitter delta (always ~1 px frame-to-frame), which
+    // every velocity carried until #1552 took it out at the writers; a still
+    // camera now reads zero, and the dead zone keeps sub-pixel motion from
+    // dragging feedback toward 0.5.
     //
     // Velocity is in UV space; divide by TexelSize to get pixels. The dead
     // zone ramp starts at 1 px (anything sub-pixel = static, no ghosting
@@ -236,10 +241,13 @@ void main()
         // which is the subject changing:
         //
         //   * JITTER. TAA jitters the projection, so RT3 is rasterised at a
-        //     different sub-pixel offset every frame and `prevUV` lands
-        //     off-texel-centre. `texture()` then bilinearly mixes four texels
+        //     different sub-pixel offset every frame, and until #1552 every
+        //     velocity carried the jitter delta, so `prevUV` landed
+        //     off-texel-centre. `texture()` then bilinearly mixed four texels
         //     of a high-frequency coverage field, which at a blade edge is a
-        //     completely different number from the point sample at `uv`.
+        //     completely different number from the point sample at `uv`. The
+        //     raster still moves with the jitter, so the coverage at `uv`
+        //     does too.
         //   * MOTION. Wind moves a leaf, so the reprojected fetch legitimately
         //     lands on different coverage — but motion is ALREADY handled by
         //     `effectiveFeedback`, so letting it through here is the same

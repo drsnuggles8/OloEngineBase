@@ -187,7 +187,7 @@ void main()
     // fade. A density LOD step moves this while the instance, primitive,
     // material and depth all stay put, which is precisely the change no
     // other history channel can see.
-    o_GBufferVelocity = vec4((ndcCurr - ndcPrev) * 0.5, clamp(alpha, 0.0, 1.0), 0.0);
+    o_GBufferVelocity = vec4(oloVelocityFromNdc(ndcCurr, ndcPrev), clamp(alpha, 0.0, 1.0), 0.0);
 
     o_GBufferEntityID = instances[v_InstanceIndex].EntityID;
 

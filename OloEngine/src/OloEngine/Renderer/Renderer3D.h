@@ -2913,14 +2913,20 @@ namespace OloEngine
             bool HasTemporalProjectionMatrix = false;
 
             // TAA projection jitter state (Halton(2,3) sub-pixel sequence).
-            // `RenderPipeline::PrepareFrame(...)` rotates CurrJitterUV ->
-            // PrevJitterUV and then samples the next Halton pair when
-            // EngineTAAWanted (the user OR a scene request, #1429); the
-            // jitter offset is baked into `ProjectionMatrix` (and therefore
-            // `ViewProjectionMatrix`) so all downstream passes observe the
-            // jittered camera consistently. In Forward / Forward+ without
-            // TAA, and in any path with TAA disabled, both jitters stay at
-            // zero — no behavioural change.
+            // `RenderPipeline::PrepareFrame(...)` samples the next Halton pair
+            // when EngineTAAWanted (the user OR a scene request, #1429) and
+            // bakes it into `ProjectionMatrix` (and therefore
+            // `ViewProjectionMatrix`), so all downstream passes observe the
+            // jittered camera consistently.
+            //
+            // CurrJitterUV is the offset that jitter puts on every vertex, in
+            // VELOCITY units (the uploaded projection's NDC times 0.5,
+            // TemporalUpscalePolicy::ProjectionJitterVelocityOffset), and
+            // PrevJitterUV the previous frame's, rotated with
+            // PrevViewProjectionMatrix at the end of the frame. Both reach the
+            // camera block (CameraUBO::JitterUV) and the motion-blur block, and
+            // every velocity writer subtracts them (#1552): static content
+            // writes zero. Without a jitter both stay at zero.
             u32 TAAJitterFrameIndex = 0;
             glm::vec2 CurrJitterUV = glm::vec2(0.0f);
             glm::vec2 PrevJitterUV = glm::vec2(0.0f);
