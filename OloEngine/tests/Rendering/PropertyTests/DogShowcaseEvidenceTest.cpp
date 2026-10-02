@@ -2573,6 +2573,441 @@ namespace OloEngine::Tests
             std::fflush(stdout);
         }
 
+        // ── B6: runtime sequences and what they prove (#1533 acceptance review, section 2) ──
+
+        struct RuntimeSequence
+        {
+            std::vector<std::vector<f32>> Luma; // the composite's luma per measured frame, [0, 1]
+            std::vector<PixelParts> Parts;      // per measured frame, when RecordRuntime was given parts
+            std::vector<f32> ClipTime;          // the clip's time after each measured frame
+            std::vector<u32> SolverSteps;       // the solver's fixed steps in each
+            f32 ClipDuration = 0.0f;
+            u32 Reseeds = 0;
+            u32 DistinctFrames = 0; // consecutive measured frames that differ in any byte
+            // Per frame: each simulated long-hair guide's tip, minus the target
+            // its root carries it to (the solver's particle against LastTargets).
+            std::vector<std::vector<glm::vec3>> LongHairTips;
+        };
+
+        // ADVANCES RUNTIME, and records. `clip` from its first frame (StartClip,
+        // `warmup` frames in all), then `frames` measured runtime frames through
+        // the runtime camera at `view`, each read back as rendered -- no editor
+        // frame, no settle. The frame sequences are reset and the history is cold
+        // before StartClip, so two calls with the same arguments see the same
+        // clip times, the same solver steps and the same jitter and stochastic
+        // samples: only what the caller changed between them differs.
+        // `sequenceOffset` frames are rendered HELD after the reset and before
+        // the clip starts: the same states, drawn with every jitter and
+        // stochastic sample shifted (an independent draw of the same frames).
+        RuntimeSequence RecordRuntime(const char* clip, const View& view, u32 warmup, u32 frames, BodyParts* parts,
+                                      u32 sequenceOffset = 0)
+        {
+            RuntimeSequence s;
+            AimRuntimeCamera(view);
+            // The LOD settles at the view first, HELD, so no arm crosses a step
+            // (which re-selects the simulated guides) inside its warm-up while
+            // another does not: every arm starts from the tier and the budget
+            // the view gives.
+            HoldRuntime(8);
+            Renderer3D::ResetFrameSequences();
+            if (sequenceOffset > 0u)
+            {
+                HoldRuntime(sequenceOffset);
+            }
+            ColdHistory();
+            (void)StartClip(clip, true, warmup);
+            const auto& anim = m_Dog.Body.GetComponent<AnimationStateComponent>();
+            s.ClipDuration = anim.m_CurrentClip ? anim.m_CurrentClip->Duration : 0.0f;
+            const GroomAsset& groom = *m_Dog.CoatAsset.Groom;
+            const std::vector<i32> coat{ static_cast<i32>(static_cast<u32>(m_Dog.Coat)) };
+            const glm::mat4 viewProjection = RuntimeViewProjection();
+            std::vector<u8> ldr;
+            std::vector<u8> previous;
+            for (u32 f = 0; f < frames; ++f)
+            {
+                const MotionResult step = AdvanceRuntime(1u);
+                s.SolverSteps.push_back(step.SolverSteps);
+                s.Reseeds += step.Reseeds;
+                s.ClipTime.push_back(anim.m_CurrentTime);
+                ReadbackFrame(ldr);
+                if (HasFatalFailure())
+                {
+                    return s;
+                }
+                s.DistinctFrames += (!previous.empty() && ldr != previous) ? 1u : 0u;
+                std::vector<f32> luma(static_cast<sizet>(kWidth) * kHeight);
+                for (sizet p = 0; p < luma.size(); ++p)
+                {
+                    luma[p] = ((0.2126f * ldr[p * 4]) + (0.7152f * ldr[(p * 4) + 1]) + (0.0722f * ldr[(p * 4) + 2])) / 255.0f;
+                }
+                s.Luma.push_back(std::move(luma));
+                std::swap(previous, ldr);
+                if (parts != nullptr)
+                {
+                    PoseBody(*parts);
+                    LinearFrame frame;
+                    ReadbackLinear(viewProjection, frame, false);
+                    FrameParts counts;
+                    PixelParts pixels;
+                    ClassifyFrame(*parts, frame, coat, counts, &pixels);
+                    s.Parts.push_back(std::move(pixels));
+                }
+                std::vector<glm::vec3> tips;
+                const GroomGuideSimulationState* sim = GetScene().FindGroomGuideSimulation(m_Dog.Coat.GetUUID());
+                if (sim != nullptr && sim->Initialized && sim->LastTargets.size() == sim->Curr.size())
+                {
+                    for (u32 g = 0; g < sim->GuideCount(); ++g)
+                    {
+                        const u32 curve = sim->GuideCurves[g];
+                        if (curve >= groom.GetCurveCount() ||
+                            groom.GetGroupCoat(groom.GetCurveGroupIds()[curve]).Role != static_cast<u8>(GroomCoatRole::LongHair))
+                        {
+                            continue;
+                        }
+                        const u32 tip = sim->GuideOffsets[g + 1u] - 1u;
+                        tips.push_back(sim->Curr[tip] - sim->LastTargets[tip]);
+                    }
+                }
+                s.LongHairTips.push_back(std::move(tips));
+            }
+            return s;
+        }
+
+        // What says a measured sequence was ALIVE.
+        struct Liveness
+        {
+            f64 ClipAdvance = 0.0; // seconds the clip's time advanced, across loop wraps
+            u32 SolverSteps = 0;
+            // The long hair's swing: over the long-hair guides, the RMS of each
+            // tip's offset from its target about that offset's own mean. A sag
+            // that holds is not a swing; a tip that follows its root rigidly has
+            // none.
+            f64 LongHairSwing = 0.0;
+            u32 LongHairGuides = 0;
+        };
+
+        // The swing a walk must show and the most a coat at rest may jitter, in
+        // metres of tip motion against the root-following target.
+        static constexpr f64 kLongHairSwingFloor = 0.002;
+        static constexpr f64 kRestJitterCeiling = 0.0005;
+
+        [[nodiscard]] static Liveness JudgeLiveness(const RuntimeSequence& s)
+        {
+            Liveness live;
+            for (sizet f = 1; f < s.ClipTime.size(); ++f)
+            {
+                f32 d = s.ClipTime[f] - s.ClipTime[f - 1u];
+                if (d < 0.0f && s.ClipDuration > 0.0f)
+                {
+                    d += s.ClipDuration;
+                }
+                live.ClipAdvance += d;
+            }
+            for (const u32 n : s.SolverSteps)
+            {
+                live.SolverSteps += n;
+            }
+            const sizet guides = s.LongHairTips.empty() ? 0u : s.LongHairTips.front().size();
+            bool consistent = guides > 0u;
+            for (const auto& tips : s.LongHairTips)
+            {
+                consistent = consistent && tips.size() == guides; // the guide set holds while the camera does
+            }
+            if (!consistent)
+            {
+                return live;
+            }
+            live.LongHairGuides = static_cast<u32>(guides);
+            f64 sum = 0.0;
+            const f64 frames = static_cast<f64>(s.LongHairTips.size());
+            for (sizet g = 0; g < guides; ++g)
+            {
+                glm::dvec3 mean(0.0);
+                for (const auto& tips : s.LongHairTips)
+                {
+                    mean += glm::dvec3(tips[g]);
+                }
+                mean /= frames;
+                for (const auto& tips : s.LongHairTips)
+                {
+                    const glm::dvec3 d = glm::dvec3(tips[g]) - mean;
+                    sum += glm::dot(d, d) / frames;
+                }
+            }
+            live.LongHairSwing = std::sqrt(sum / static_cast<f64>(guides));
+            return live;
+        }
+
+        [[nodiscard]] static bool SameBits(const std::vector<f32>& a, const std::vector<f32>& b)
+        {
+            return a.size() == b.size() && (a.empty() || std::memcmp(a.data(), b.data(), a.size() * sizeof(f32)) == 0);
+        }
+
+        // Shimmer by where it is: the three parts a viewer's eye goes to, the
+        // rest of the coat, and the coat's sparse fringe against the background
+        // (PixelParts::Fringe), where the stochastic coat and a disocclusion both
+        // show first. Each is MeasureShimmer's mean |f(t) - f(t-1)| over the
+        // pixels that are coat in both frames, classified from the no-history
+        // arm (the ids are drawn before the resolve, the same in both arms).
+        static constexpr sizet kShimmerRegions = 5;
+        static constexpr std::array<const char*, kShimmerRegions> kShimmerRegionNames{ "face", "ears", "tail", "body",
+                                                                                       "fringe" };
+        static constexpr f64 kRegionPixels = 300.0; // per frame pair, for a region to say anything
+
+        struct RegionalShimmer
+        {
+            std::array<f64, kShimmerRegions> Resolved{};
+            std::array<f64, kShimmerRegions> Control{};
+            std::array<f64, kShimmerRegions> Pixels{}; // compared per frame pair
+        };
+
+        [[nodiscard]] static sizet ShimmerRegionOf(u8 part)
+        {
+            switch (static_cast<BodyPart>(part))
+            {
+                case BodyPart::Face:
+                    return 0u;
+                case BodyPart::EarLeft:
+                case BodyPart::EarRight:
+                    return 1u;
+                case BodyPart::Tail:
+                    return 2u;
+                default:
+                    return 3u;
+            }
+        }
+
+        // `delta(f, i)` is a pair of per-pixel changes (resolved, control) for
+        // frame f against its predecessor; the regions come from `parts`.
+        [[nodiscard]] static RegionalShimmer RegionalMeans(const std::vector<PixelParts>& parts, sizet frames,
+                                                           const std::function<std::pair<f64, f64>(sizet, sizet)>& delta,
+                                                           bool needPrevious)
+        {
+            RegionalShimmer out;
+            std::array<f64, kShimmerRegions> resolved{};
+            std::array<f64, kShimmerRegions> control{};
+            std::array<f64, kShimmerRegions> count{};
+            const sizet first = needPrevious ? 1u : 0u;
+            for (sizet f = first; f < frames && f < parts.size(); ++f)
+            {
+                const PixelParts& now = parts[f];
+                for (sizet i = 0; i < now.Coat.size(); ++i)
+                {
+                    if (now.Coat[i] == 0u || (needPrevious && parts[f - 1u].Coat[i] == 0u))
+                    {
+                        continue;
+                    }
+                    const auto [r, c] = delta(f, i);
+                    const sizet region = ShimmerRegionOf(now.Part[i]);
+                    resolved[region] += r;
+                    control[region] += c;
+                    count[region] += 1.0;
+                    if (now.Fringe[i] != 0u)
+                    {
+                        resolved[4] += r;
+                        control[4] += c;
+                        count[4] += 1.0;
+                    }
+                }
+            }
+            const f64 pairs = static_cast<f64>(std::max<sizet>(1u, frames - first));
+            for (sizet r = 0; r < kShimmerRegions; ++r)
+            {
+                out.Resolved[r] = count[r] > 0.0 ? resolved[r] / count[r] : 0.0;
+                out.Control[r] = count[r] > 0.0 ? control[r] / count[r] : 0.0;
+                out.Pixels[r] = count[r] / pairs;
+            }
+            return out;
+        }
+
+        [[nodiscard]] static RegionalShimmer MeasureRegionalShimmer(const RuntimeSequence& resolved, const RuntimeSequence& control)
+        {
+            const sizet frames = std::min(resolved.Luma.size(), control.Luma.size());
+            return RegionalMeans(
+                control.Parts, frames,
+                [&](sizet f, sizet i)
+                {
+                    return std::pair{ static_cast<f64>(std::abs(resolved.Luma[f][i] - resolved.Luma[f - 1u][i])),
+                                      static_cast<f64>(std::abs(control.Luma[f][i] - control.Luma[f - 1u][i])) };
+                },
+                true);
+        }
+
+        // INSTABILITY at a fixed state, for a sequence in MOTION, where a frame-
+        // to-frame difference is mostly the motion itself (MeasureShimmer is
+        // defined on static sequences). Two draws of the SAME frames -- the
+        // same clip times and solver state, the jitter and stochastic samples
+        // shifted (RecordRuntime's sequenceOffset) -- differ only by what the
+        // samples do; the resolve must at least halve that, as it must halve
+        // the static shimmer. Mean |a(t) - b(t)| per region, and whole frame.
+        struct Instability
+        {
+            RegionalShimmer Regions;
+            f64 Resolved = 0.0;
+            f64 Control = 0.0;
+        };
+
+        [[nodiscard]] static Instability MeasureInstability(const RuntimeSequence& resolvedA, const RuntimeSequence& resolvedB,
+                                                            const RuntimeSequence& controlA, const RuntimeSequence& controlB)
+        {
+            Instability out;
+            const sizet frames = std::min({ resolvedA.Luma.size(), resolvedB.Luma.size(), controlA.Luma.size(),
+                                            controlB.Luma.size() });
+            out.Regions = RegionalMeans(
+                controlA.Parts, frames,
+                [&](sizet f, sizet i)
+                {
+                    return std::pair{ static_cast<f64>(std::abs(resolvedA.Luma[f][i] - resolvedB.Luma[f][i])),
+                                      static_cast<f64>(std::abs(controlA.Luma[f][i] - controlB.Luma[f][i])) };
+                },
+                false);
+            f64 resolved = 0.0;
+            f64 control = 0.0;
+            f64 count = 0.0;
+            for (sizet f = 0; f < frames; ++f)
+            {
+                for (sizet i = 0; i < resolvedA.Luma[f].size(); ++i)
+                {
+                    resolved += std::abs(resolvedA.Luma[f][i] - resolvedB.Luma[f][i]);
+                    control += std::abs(controlA.Luma[f][i] - controlB.Luma[f][i]);
+                    count += 1.0;
+                }
+            }
+            out.Resolved = count > 0.0 ? resolved / count : 0.0;
+            out.Control = count > 0.0 ? control / count : 0.0;
+            return out;
+        }
+
+        // A 3x3 box of a luma field: the stochastic coat's per-pixel noise
+        // averaged down before a comparison that is about structure.
+        [[nodiscard]] static std::vector<f32> Box3(const std::vector<f32>& field)
+        {
+            std::vector<f32> out(field.size(), 0.0f);
+            for (u32 y = 0; y < kHeight; ++y)
+            {
+                for (u32 x = 0; x < kWidth; ++x)
+                {
+                    f32 sum = 0.0f;
+                    f32 n = 0.0f;
+                    for (i32 dy = -1; dy <= 1; ++dy)
+                    {
+                        for (i32 dx = -1; dx <= 1; ++dx)
+                        {
+                            const i32 sx = static_cast<i32>(x) + dx;
+                            const i32 sy = static_cast<i32>(y) + dy;
+                            if (sx >= 0 && sy >= 0 && sx < static_cast<i32>(kWidth) && sy < static_cast<i32>(kHeight))
+                            {
+                                sum += field[(static_cast<sizet>(sy) * kWidth) + static_cast<sizet>(sx)];
+                                n += 1.0f;
+                            }
+                        }
+                    }
+                    out[(static_cast<sizet>(y) * kWidth) + x] = sum / n;
+                }
+            }
+            return out;
+        }
+
+        // LAG, in motion: over the dog's moving pixels (where the no-history
+        // frame changed by more than 0.06 in `lag` frames), how far the resolved
+        // frame is from the no-history frame of its OWN instant, as a share of
+        // how far it is from the one `lag` frames earlier. A resolve that
+        // follows the motion scores well under 1; one that drags the past
+        // along -- ghosting, smearing -- scores near or over it. Box-filtered,
+        // so the stochastic noise does not decide it.
+        static constexpr f64 kLagCeiling = 0.8;
+
+        [[nodiscard]] static f64 MeasureLag(const RuntimeSequence& resolved, const RuntimeSequence& control, u32 lag)
+        {
+            const sizet frames = std::min({ resolved.Luma.size(), control.Luma.size(), control.Parts.size() });
+            std::vector<std::vector<f32>> boxedControl(frames);
+            for (sizet f = 0; f < frames; ++f)
+            {
+                boxedControl[f] = Box3(control.Luma[f]);
+            }
+            f64 now = 0.0;
+            f64 before = 0.0;
+            for (sizet f = lag; f < frames; ++f)
+            {
+                const std::vector<f32> boxedResolved = Box3(resolved.Luma[f]);
+                for (sizet i = 0; i < boxedResolved.size(); ++i)
+                {
+                    if (control.Parts[f].Dog[i] == 0u || std::abs(boxedControl[f][i] - boxedControl[f - lag][i]) <= 0.06f)
+                    {
+                        continue;
+                    }
+                    now += std::abs(boxedResolved[i] - boxedControl[f][i]);
+                    before += std::abs(boxedResolved[i] - boxedControl[f - lag][i]);
+                }
+            }
+            return before > 0.0 ? now / before : 0.0;
+        }
+
+        // DETAIL, at rest: the high-frequency variance (luma minus its 3x3 box)
+        // the resolved coat keeps, as a share of the converged control's -- the
+        // no-history frames of the held pose averaged, every sample the resolve
+        // could have accumulated, none of its filtering. Over the coat's pixels
+        // in the last frame. A resolve that beats shimmer by blurring scores
+        // well under 1; the shipped sharpen may score over it.
+        static constexpr f64 kDetailFloor = 0.7;
+
+        [[nodiscard]] static f64 MeasureRestDetail(const RuntimeSequence& resolved, const RuntimeSequence& control)
+        {
+            if (resolved.Luma.empty() || control.Luma.empty() || control.Parts.empty())
+            {
+                return 0.0;
+            }
+            std::vector<f32> converged(control.Luma.front().size(), 0.0f);
+            for (const auto& frame : control.Luma)
+            {
+                for (sizet i = 0; i < converged.size(); ++i)
+                {
+                    converged[i] += frame[i] / static_cast<f32>(control.Luma.size());
+                }
+            }
+            const std::vector<f32>& last = resolved.Luma.back();
+            const std::vector<f32> lastBox = Box3(last);
+            const std::vector<f32> convergedBox = Box3(converged);
+            const PixelParts& mask = control.Parts.back();
+            f64 kept = 0.0;
+            f64 reference = 0.0;
+            for (sizet i = 0; i < last.size(); ++i)
+            {
+                if (mask.Coat[i] == 0u)
+                {
+                    continue;
+                }
+                const f64 a = last[i] - lastBox[i];
+                const f64 b = converged[i] - convergedBox[i];
+                kept += a * a;
+                reference += b * b;
+            }
+            return reference > 0.0 ? kept / reference : 0.0;
+        }
+
+        // Six frames of a sequence across its measured span, resolved over no
+        // history, for the review.
+        static void WriteSequenceStrip(const std::string& name, const RuntimeSequence& resolved, const RuntimeSequence& control)
+        {
+            std::vector<std::vector<u8>> frames;
+            for (const RuntimeSequence* s : { &resolved, &control })
+            {
+                for (u32 k = 0; k < 6u && !s->Luma.empty(); ++k)
+                {
+                    const sizet f = (static_cast<sizet>(k) * (s->Luma.size() - 1u)) / 5u;
+                    std::vector<u8> rgba(s->Luma[f].size() * 4u);
+                    for (sizet i = 0; i < s->Luma[f].size(); ++i)
+                    {
+                        const auto v = static_cast<u8>(std::clamp(s->Luma[f][i] * 255.0f, 0.0f, 255.0f));
+                        rgba[i * 4u] = rgba[(i * 4u) + 1u] = rgba[(i * 4u) + 2u] = v;
+                        rgba[(i * 4u) + 3u] = 255u;
+                    }
+                    frames.push_back(std::move(rgba));
+                }
+            }
+            WriteStrip(name, frames, 6u);
+        }
+
         // ── B3's planted faults (#1533 acceptance review, section 3) ──
 
         // A copy of a coat through GroomBuilder: the curves `keep` accepts, each
@@ -2829,54 +3264,236 @@ namespace OloEngine::Tests
     }
 
     // =========================================================================
-    // B6: no shimmer or crawl, at rest or in motion. The metric is the horse
-    // fixture's (TemporalSequenceMetrics::MeasureShimmer over twelve frames),
-    // and so is the bar: the resolve the scene asks for must at least halve
-    // the shimmer of the same frames with no history. In motion the walk runs
-    // through the captures on RUNTIME frames, so the coat is simulated while
-    // it is measured.
+    // B6: no shimmer or crawl, at rest or in motion (#1533 acceptance review,
+    // section 2). Everything here is RUNTIME frames through the runtime camera,
+    // read back as rendered: the clip's time advances and the guide solver
+    // steps on the measured frames themselves, as in Play.
+    //
+    // THE BAR is the horse fixture's: TemporalSequenceMetrics::MeasureShimmer
+    // over the measured frames, and the resolve the scene runs (SetTaa's: the
+    // shipped feedback and sharpen) must at least halve the shimmer of the SAME
+    // frames with no history (feedback 0). Same frames because both arms replay
+    // the clip from its first frame with the solver re-seeded and the frame
+    // sequences reset at the same point (RecordRuntime) -- and the replays'
+    // clip times and solver steps are compared, frame by frame, to prove it.
+    //
+    // NOT VACUOUS: over the measured frames the walk's clip time advances, the
+    // solver steps (not necessarily every frame: it runs fixed steps), it does
+    // not re-seed, the long hair swings against the targets its roots carry
+    // (the solver's particles against LastTargets), and every frame differs
+    // from the one before. At rest the long hair holds still instead. The
+    // oracle that says so is checked against a suppressed solver in
+    // TheMotionOracleSeesASuppressedSolver.
+    //
+    // AND WHERE: the shimmer per body part (face, ears, tail, the rest of the
+    // coat) and at the coat's sparse fringe against the background, absolute and
+    // against the control. In motion, a LAG check: the resolved frame must match
+    // the no-history frame of its OWN instant better than the one four frames
+    // earlier (a smearing or ghosting resolve drags the past along). At rest, a
+    // DETAIL check: the resolved frame keeps the high-frequency detail of the
+    // converged no-history average (a resolve can beat shimmer by blurring).
     // =========================================================================
     TEST_F(DogShowcaseEvidenceTest, TheResolveSettlesTheCoatAtRestAndInMotion)
     {
         SetPath(RenderingPath::Forward);
-        const View view = HeroViews()[0];
+        BodyParts parts = BuildBodyParts();
+        constexpr u32 kWarmup = 90; // 1.5 s: the long hair settles after the re-seed
+        constexpr u32 kFrames = 60;
+        constexpr u32 kSequenceOffset = 7; // a second draw: every jitter and stochastic sample shifted
+        const std::array<View, 2> views{ HeroViews()[0], HeroViews()[3] }; // the face and ears; the tail
+        const f32 shippedFeedback = Renderer3D::GetPostProcessSettings().TAAFeedback;
         for (const char* clip : { "Rest", "Walk" })
         {
-            SCOPED_TRACE(clip);
             const bool moving = std::string_view(clip) == "Walk";
-            const auto sequence = [&](f32 feedback)
+            for (const View& view : views)
             {
-                (void)StartClip(clip, true, 20);
-                m_Dog.Body.GetComponent<AnimationStateComponent>().m_IsPlaying = moving;
-                SetTaa(feedback);
-                ColdHistory();
-                std::vector<u8> px;
-                CaptureEditorPreview("", view, px, 16);
-                std::vector<std::vector<f32>> luma;
-                for (u32 i = 0; i < 12; ++i)
+                SCOPED_TRACE(std::string(clip) + " " + view.Name);
+                SetTaa(shippedFeedback);
+                const RuntimeSequence resolved = RecordRuntime(clip, view, kWarmup, kFrames, &parts);
+                ASSERT_FALSE(HasFatalFailure());
+                SetTaa(0.0f);
+                const RuntimeSequence raw = RecordRuntime(clip, view, kWarmup, kFrames, &parts);
+                ASSERT_FALSE(HasFatalFailure());
+                // In motion, a second draw of the same frames for each arm (see
+                // MeasureInstability).
+                RuntimeSequence resolvedAgain;
+                RuntimeSequence rawAgain;
+                if (moving)
                 {
-                    CaptureEditorPreview("", view, px, 1);
-                    std::vector<f32> l(static_cast<sizet>(kWidth) * kHeight);
-                    for (sizet p = 0; p < l.size(); ++p)
-                    {
-                        l[p] = (0.2126f * px[p * 4] + 0.7152f * px[p * 4 + 1] + 0.0722f * px[p * 4 + 2]) / 255.0f;
-                    }
-                    luma.push_back(std::move(l));
+                    SetTaa(shippedFeedback);
+                    resolvedAgain = RecordRuntime(clip, view, kWarmup, kFrames, nullptr, kSequenceOffset);
+                    SetTaa(0.0f);
+                    rawAgain = RecordRuntime(clip, view, kWarmup, kFrames, nullptr, kSequenceOffset);
+                    ASSERT_FALSE(HasFatalFailure());
                 }
-                return TemporalSequenceMetrics::MeasureShimmer(luma);
-            };
-            const auto resolved = sequence(0.9f);
-            const auto raw = sequence(0.0f);
-            SetTaa(0.9f);
-            std::printf("[dog] shimmer %s: resolved=%.5f (peak %.3f, px %u) noHistory=%.5f (peak %.3f, px %u)\n", clip,
-                        resolved.MeanFrameDelta, resolved.PeakPixelDelta, resolved.ComparedPixels, raw.MeanFrameDelta,
-                        raw.PeakPixelDelta, raw.ComparedPixels);
-            std::fflush(stdout);
-            ASSERT_GT(resolved.ComparedPixels, 0u);
-            ASSERT_GT(raw.ComparedPixels, 0u);
-            EXPECT_LT(resolved.MeanFrameDelta, raw.MeanFrameDelta * 0.5) << "the resolve must at least halve the shimmer";
+                SetTaa(shippedFeedback);
+
+                // The same state in every arm, frame by frame.
+                EXPECT_TRUE(SameBits(resolved.ClipTime, raw.ClipTime)) << "the arms did not replay the same clip times";
+                EXPECT_EQ(resolved.SolverSteps, raw.SolverSteps) << "the arms did not replay the same solver steps";
+                if (moving)
+                {
+                    EXPECT_TRUE(SameBits(resolved.ClipTime, resolvedAgain.ClipTime) && SameBits(raw.ClipTime, rawAgain.ClipTime))
+                        << "the second draws did not replay the same clip times";
+                    EXPECT_EQ(resolved.SolverSteps, resolvedAgain.SolverSteps) << "the second draws did not replay the same solver steps";
+                }
+
+                const Liveness live = JudgeLiveness(resolved);
+                std::printf("[dog] B6 %s %s: clip advanced %.3f s, %u solver steps (%u re-seeds), long hair swings %.2f mm "
+                            "(%u guides), %u of %u frame pairs differ\n",
+                            clip, view.Name, live.ClipAdvance, live.SolverSteps, resolved.Reseeds,
+                            1000.0 * live.LongHairSwing, live.LongHairGuides, resolved.DistinctFrames, kFrames - 1u);
+                EXPECT_GT(live.SolverSteps, kFrames / 2u) << "the solver did not step through the measured frames";
+                EXPECT_EQ(resolved.Reseeds, 0u) << "the solver re-seeded inside the measured frames";
+                EXPECT_EQ(resolved.DistinctFrames, kFrames - 1u) << "consecutive measured frames came back identical";
+                EXPECT_GT(live.LongHairGuides, 0u) << "no long-hair guide is simulated";
+                if (moving)
+                {
+                    EXPECT_GT(live.ClipAdvance, 0.9 * (kFrames - 1u) / 60.0) << "the walk's clip time did not advance";
+                    EXPECT_GT(live.LongHairSwing, kLongHairSwingFloor)
+                        << "the long hair did not move against its root-following targets: the solver is vacuous";
+                }
+                else
+                {
+                    // Settling or jitter: the Rest clip holds the bind pose, so a
+                    // swing that halves from the first half of the measured frames
+                    // to the second is the solver settling after its re-seed; one
+                    // that holds is jitter.
+                    RuntimeSequence early;
+                    RuntimeSequence late;
+                    const sizet half = resolved.LongHairTips.size() / 2u;
+                    early.LongHairTips.assign(resolved.LongHairTips.begin(), resolved.LongHairTips.begin() + static_cast<std::ptrdiff_t>(half));
+                    late.LongHairTips.assign(resolved.LongHairTips.begin() + static_cast<std::ptrdiff_t>(half), resolved.LongHairTips.end());
+                    std::printf("[dog] B6 %s %s: at rest the long hair swings %.3f mm over the first half, %.3f mm over the "
+                                "second\n",
+                                clip, view.Name, 1000.0 * JudgeLiveness(early).LongHairSwing,
+                                1000.0 * JudgeLiveness(late).LongHairSwing);
+                    EXPECT_LT(live.LongHairSwing, kRestJitterCeiling) << "the long hair jitters at rest";
+                }
+
+                // The bar, whole frame.
+                const auto shimmer = TemporalSequenceMetrics::MeasureShimmer(resolved.Luma);
+                const auto control = TemporalSequenceMetrics::MeasureShimmer(raw.Luma);
+                ASSERT_GT(shimmer.ComparedPixels, 0u);
+                ASSERT_GT(control.ComparedPixels, 0u);
+                std::printf("[dog] B6 %s %s shimmer: resolved %.5f (max pair %.5f, peak px %.3f) | no history %.5f (max "
+                            "pair %.5f, peak px %.3f) | ratio %.3f\n",
+                            clip, view.Name, shimmer.MeanFrameDelta, shimmer.MaxFrameDelta, shimmer.PeakPixelDelta,
+                            control.MeanFrameDelta, control.MaxFrameDelta, control.PeakPixelDelta,
+                            control.MeanFrameDelta > 0.0 ? shimmer.MeanFrameDelta / control.MeanFrameDelta : 0.0);
+                EXPECT_LT(shimmer.MeanFrameDelta, control.MeanFrameDelta * 0.5) << "the resolve must at least halve the shimmer";
+
+                // Where: per part and at the fringe.
+                const RegionalShimmer regions = MeasureRegionalShimmer(resolved, raw);
+                for (sizet r = 0; r < regions.Resolved.size(); ++r)
+                {
+                    if (regions.Pixels[r] < kRegionPixels)
+                    {
+                        continue;
+                    }
+                    const f64 ratio = regions.Control[r] > 0.0 ? regions.Resolved[r] / regions.Control[r] : 0.0;
+                    std::printf("[dog] B6 %s %s %-7s %8.0f px/frame: resolved %.5f, no history %.5f, ratio %.3f\n", clip,
+                                view.Name, kShimmerRegionNames[r], regions.Pixels[r], regions.Resolved[r], regions.Control[r],
+                                ratio);
+                    EXPECT_LT(regions.Resolved[r], regions.Control[r] * 0.5)
+                        << kShimmerRegionNames[r] << ": the resolve must at least halve the shimmer here too";
+                }
+                if (moving)
+                {
+                    const Instability instability = MeasureInstability(resolved, resolvedAgain, raw, rawAgain);
+                    std::printf("[dog] B6 %s %s instability (two draws of the same frames): resolved %.5f, no history %.5f, "
+                                "ratio %.3f\n",
+                                clip, view.Name, instability.Resolved, instability.Control,
+                                instability.Control > 0.0 ? instability.Resolved / instability.Control : 0.0);
+                    EXPECT_LT(instability.Resolved, instability.Control * 0.5)
+                        << "in motion the resolve must at least halve what the samples alone do";
+                    for (sizet r = 0; r < kShimmerRegions; ++r)
+                    {
+                        if (instability.Regions.Pixels[r] < kRegionPixels)
+                        {
+                            continue;
+                        }
+                        std::printf("[dog] B6 %s %s instability %-7s %8.0f px/frame: resolved %.5f, no history %.5f, ratio %.3f\n",
+                                    clip, view.Name, kShimmerRegionNames[r], instability.Regions.Pixels[r],
+                                    instability.Regions.Resolved[r], instability.Regions.Control[r],
+                                    instability.Regions.Control[r] > 0.0 ? instability.Regions.Resolved[r] / instability.Regions.Control[r] : 0.0);
+                        EXPECT_LT(instability.Regions.Resolved[r], instability.Regions.Control[r] * 0.5)
+                            << kShimmerRegionNames[r] << ": in motion the resolve must at least halve the samples' instability here";
+                    }
+                    const f64 lag = MeasureLag(resolved, raw, 4u);
+                    std::printf("[dog] B6 %s %s lag: |resolved - its own instant| / |resolved - 4 frames earlier| = %.3f\n",
+                                clip, view.Name, lag);
+                    EXPECT_LT(lag, kLagCeiling) << "the resolved walk drags the past along (ghosting or smearing)";
+                }
+                else
+                {
+                    const f64 detail = MeasureRestDetail(resolved, raw);
+                    std::printf("[dog] B6 %s %s detail: the resolved coat keeps %.3f of the converged control's "
+                                "high-frequency variance\n",
+                                clip, view.Name, detail);
+                    EXPECT_GT(detail, kDetailFloor) << "the resolve blurs the coat at rest";
+                }
+                std::fflush(stdout);
+                if (std::string_view(view.Name) == views[0].Name)
+                {
+                    WriteSequenceStrip(std::string("DogShimmer_GL_Forward_") + clip, resolved, raw);
+                }
+            }
         }
-        m_Dog.Body.GetComponent<AnimationStateComponent>().m_IsPlaying = true;
+    }
+
+    // =========================================================================
+    // B6's oracle against a solver that does not run (#1533 acceptance review,
+    // section 2): the walk recorded exactly as above with the guide simulation
+    // switched off must be called NOT LIVE -- no solver step, no long-hair swing
+    // -- or the liveness checks above would pass on a coat that never moves. And
+    // the lag check against a sequence that IS dragged: the no-history frames
+    // half-blended with the frames four before them must fail it.
+    // =========================================================================
+    TEST_F(DogShowcaseEvidenceTest, TheMotionOracleSeesASuppressedSolver)
+    {
+        SetPath(RenderingPath::Forward);
+        BodyParts parts = BuildBodyParts();
+        constexpr u32 kFrames = 60;
+        auto& simulation = m_Dog.Coat.GetComponent<GroomSimulationComponent>();
+        const f32 shippedFeedback = Renderer3D::GetPostProcessSettings().TAAFeedback;
+        SetTaa(0.0f);
+        const RuntimeSequence raw = RecordRuntime("Walk", HeroViews()[0], 90, kFrames, &parts);
+        ASSERT_FALSE(HasFatalFailure());
+        simulation.m_Enabled = false;
+        const RuntimeSequence suppressed = RecordRuntime("Walk", HeroViews()[0], 90, kFrames, &parts);
+        simulation.m_Enabled = true;
+        SetTaa(shippedFeedback);
+        ASSERT_FALSE(HasFatalFailure());
+
+        const Liveness live = JudgeLiveness(raw);
+        const Liveness dead = JudgeLiveness(suppressed);
+        std::printf("[dog] oracle: live walk %u steps, swing %.2f mm (%u guides) | suppressed %u steps, swing %.2f mm "
+                    "(%u guides), clip advanced %.3f s\n",
+                    live.SolverSteps, 1000.0 * live.LongHairSwing, live.LongHairGuides, dead.SolverSteps,
+                    1000.0 * dead.LongHairSwing, dead.LongHairGuides, dead.ClipAdvance);
+        std::fflush(stdout);
+        // The live arm is live, so the control means something...
+        EXPECT_GT(live.SolverSteps, kFrames / 2u);
+        EXPECT_GT(live.LongHairSwing, kLongHairSwingFloor);
+        // ...and the suppressed arm is called dead on both counts, though its
+        // body walks exactly as far.
+        EXPECT_EQ(dead.SolverSteps, 0u) << "the oracle counted solver steps with the solver off";
+        EXPECT_LE(dead.LongHairSwing, kLongHairSwingFloor) << "the oracle saw long-hair swing with the solver off";
+        EXPECT_GT(dead.ClipAdvance, 0.9 * kFrames / 60.0) << "the control must walk as far as the live arm";
+
+        // The lag check against a dragged sequence.
+        RuntimeSequence dragged = raw;
+        for (sizet f = 4; f < dragged.Luma.size(); ++f)
+        {
+            for (sizet i = 0; i < dragged.Luma[f].size(); ++i)
+            {
+                dragged.Luma[f][i] = 0.5f * (raw.Luma[f][i] + raw.Luma[f - 4u][i]);
+            }
+        }
+        const f64 lag = MeasureLag(dragged, raw, 4u);
+        std::printf("[dog] oracle: a half-dragged walk scores lag %.3f (ceiling %.2f)\n", lag, kLagCeiling);
+        EXPECT_GE(lag, kLagCeiling) << "the lag check passed a sequence that drags the past along";
     }
 
     // =========================================================================
