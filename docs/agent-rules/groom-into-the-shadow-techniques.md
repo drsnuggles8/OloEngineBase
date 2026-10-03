@@ -51,9 +51,12 @@ the groom half of `Renderer/Passes/ShadowRenderPass.cpp`, `GroomStrandDepth.glsl
    strands (at least 1/16), and never fewer than four of the run's ESTIMATED layers. The estimate is a
    run-wide mean, not a per-texel count: the projected length is the moment lower bound across the
    light (the ribbon has no end caps, so a strand along the light lays none), over the run's box. A
-   bound coat's runs are RE-POSED each frame (`GroomCasterPose.h`): moments from 128 sampled strands
-   turned by their roots' frames, the box from the posed roots. Any transform counts its smallest
-   stretch; a perspective light, every ray into the box.
+   bound coat's runs are RE-POSED each frame, exactly (`GroomCasterPose.h`): each run's strands by root
+   triangle, each triangle framed once, its strands' moments and box turned by that frame. What the
+   pose cannot see costs credit and is never estimated: a frame the GPU may compute otherwise, a strand
+   held at rest, the simulation's displacement. Any transform counts its smallest stretch; a
+   perspective light reads the moments along the ray to the box's centre and pays the box's angular
+   spread times the length ([caster-bounds-come-from-the-geometry.md](caster-bounds-come-from-the-geometry.md)).
    A coat-wide share thinned a sparse plume to a dense patch's share, thick guard hairs to the thin
    majority's, and light-aligned strands as if they lay flat; `GroomCasterCoverageTest` measures each
    against a raster model, with the coat-wide rule as the negative control. Strided subsets alias with
