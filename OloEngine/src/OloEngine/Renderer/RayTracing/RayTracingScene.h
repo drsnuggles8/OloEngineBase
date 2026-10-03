@@ -78,9 +78,21 @@ namespace OloEngine::RayTracing
 
     struct GeometryKeyHash
     {
+        // MIXED, not concatenated (#1533). The standard library picks a bucket
+        // from the hash's low bits, and `Slot << 32 ^ Generation` left only the
+        // generation there: every geometry of one generation shared a bucket,
+        // so with the showcase lawn's thousand vegetation structures each
+        // lookup walked a thousand entries and RayTracingScene::Update spent
+        // ~10 ms a frame in its maps.
         [[nodiscard]] sizet operator()(const GeometryKey& key) const noexcept
         {
-            return (static_cast<sizet>(key.Slot) << 32) ^ static_cast<sizet>(key.Generation);
+            u64 x = (static_cast<u64>(key.Slot) << 32) | key.Generation;
+            x ^= x >> 30;
+            x *= 0xbf58476d1ce4e5b9ull;
+            x ^= x >> 27;
+            x *= 0x94d049bb133111ebull;
+            x ^= x >> 31;
+            return static_cast<sizet>(x);
         }
     };
 

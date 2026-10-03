@@ -40,6 +40,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
+#include <unordered_set>
 #include <iterator>
 #include <limits>
 #include <string>
@@ -1091,6 +1092,21 @@ namespace OloEngine::Tests
         m_Backend->ClearRecording();
         stage();
         EXPECT_TRUE(m_Backend->Builds.empty());
+    }
+
+    // #1533: a thousand geometries of one generation spread over the buckets.
+    // The bucket comes from the hash's low bits, and a hash that put only the
+    // generation there sent all of them to one bucket: every scene and backend
+    // lookup became a walk of the whole structure list.
+    TEST(RayTracingGeometryKeyHash, OneGenerationSpreadsOverTheBuckets)
+    {
+        std::unordered_set<RT::GeometryKey, RT::GeometryKeyHash> keys;
+        for (u32 slot = 0u; slot < 1024u; ++slot)
+            keys.insert(RT::GeometryKey{ slot, 1u });
+        sizet largest = 0u;
+        for (sizet bucket = 0u; bucket < keys.bucket_count(); ++bucket)
+            largest = std::max(largest, keys.bucket_size(bucket));
+        EXPECT_LE(largest, 8u) << "keys of one generation collide";
     }
 
     TEST_F(RayTracingSceneFixture, AFailedBuildKeepsItsInstanceOutOfTheTlas)
