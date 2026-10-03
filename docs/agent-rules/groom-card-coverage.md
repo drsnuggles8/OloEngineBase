@@ -90,6 +90,21 @@ as #1508, and the shipped cells hold a gross guard (0.75-1.40). The 32 m cell si
 The short coat's cards cover 1.14-1.17 of its strands. At range this coat is mostly mane and tail,
 flat fans seen face-on, and a card's width is the members' coverage averaged over every direction.
 
+## The dog's hand-over, held (#1533)
+
+`DogShowcaseEvidenceTest.TheCardHandOverStepsTheCoatWithinTheNearLaddersBar` holds the camera at
+17-27 m (the hand-over happens in at about 16 m and out at about 22.5 m at 1920x1080) and compares the
+coat on cards with the same coat on strands at the same visibility step. `m_CardPixelSize` 0.5 is the
+smallest threshold the policy keeps; 0 reads as unset and falls back to 256. Cards cover 0.9-1.6% more
+and send 3.6-4.8% less light, inside the near ladder's 5% step bar.
+
+The split at 22 m, cards over strands in energy: 0.960 shipped, 0.953 at kappa 0, 0.941 without the
+sky, 1.110 with single scattering only, 0.985 unlit (coverage 1.015 throughout). So it is the fibre
+model, not the shadow: a card's single scattering is brighter than its strands', and its
+multiple-scattering back-scatter, a lobe of the tangent, much weaker. A card shades at its kept
+strand's one tangent while its members spread around it. Widening a card's lobes by that spread is
+the fix that would take the step toward zero; it needs the spread cooked per card.
+
 ## What does not help
 
 - **The exact geometric union** (`SourcePixelSize = 0`), or a cook at the real hand-over size: the

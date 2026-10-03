@@ -4540,6 +4540,171 @@ namespace OloEngine::Tests
     }
 
     // =========================================================================
+    // B7 AT THE CARD HAND-OVER, HELD. The extended dolly crosses the hand-over
+    // (out past 22 m, in under 16 m, at 1920x1080) on a 25-80 px dog, where its
+    // 4-frame windows carry 6% of energy noise and judge a step only to 3x
+    // that. Held, the step is exact: at each distance the coat as shipped,
+    // which is on cards there, against the same coat told never to hand over
+    // (m_CardPixelSize 0.5 px, the smallest the policy keeps -- 0 reads as unset
+    // and falls back to 256: strands on the same budgets), both approached from
+    // 60 m so each arrives on the same visibility step, both on the same
+    // stochastic frames, averaged over 48 held runtime frames of scene colour
+    // (no temporal resolve). Every strand (LOD off) is printed beside them.
+    //
+    // THE BAR is the near ladder's step: within 5% in coverage and in linear
+    // energy, half the criterion's band, at every distance the hand-over can
+    // happen at (17-27 m here: in at about 16 m, out at about 22.5 m). Measured
+    // 0.9-1.6% in coverage and 3.6-4.8% in energy, the cards the darker. Where
+    // that comes from is printed at 22 m (groom-card-coverage.md rule 6): it is
+    // the fibre model, not the coat's shadow or the sky. With single scattering
+    // only, cards are 11% BRIGHTER than their strands; the multiple-scattering
+    // back-scatter, a lobe of the fibre's tangent, comes out much weaker on a
+    // card, which shades at its kept strand's one tangent while its members
+    // spread around it; unlit, a card's colour is 3% darker.
+    // =========================================================================
+    TEST_F(DogShowcaseEvidenceTest, TheCardHandOverStepsTheCoatWithinTheNearLaddersBar)
+    {
+        SetPath(RenderingPath::Forward);
+        (void)StartClip("Rest", true, 30);
+        ResizeRenderTarget(1920u, 1080u);
+        const GroomLodComponent shippedLod = m_Dog.Coat.GetComponent<GroomLodComponent>();
+        ProceduralSkyComponent* sky = nullptr;
+        for (auto e : GetScene().GetAllEntitiesWith<ProceduralSkyComponent>())
+        {
+            sky = &Entity{ e, &GetScene() }.GetComponent<ProceduralSkyComponent>();
+        }
+        ASSERT_NE(sky, nullptr);
+        auto& coatShadow = m_Dog.Coat.GetComponent<GroomCoatShadowComponent>();
+        auto& fibre = m_Dog.Coat.GetComponent<GroomFibreComponent>();
+        const f32 shippedKappa = coatShadow.m_Kappa;
+        const bool shippedMultiple = coatShadow.m_MultipleScattering;
+        const bool shippedFibre = fibre.m_Enabled;
+        const f32 shippedIbl = sky->m_IBLIntensity;
+        struct Restore
+        {
+            std::function<void()> Undo;
+            ~Restore()
+            {
+                Undo();
+            }
+        } restore{ [&]
+                   {
+                       ResizeRenderTarget(kWidth, kHeight);
+                       m_Dog.Coat.GetComponent<GroomLodComponent>() = shippedLod;
+                       coatShadow.m_Kappa = shippedKappa;
+                       coatShadow.m_MultipleScattering = shippedMultiple;
+                       fibre.m_Enabled = shippedFibre;
+                       sky->m_IBLIntensity = shippedIbl;
+                   } };
+        const i32 coatId = static_cast<i32>(static_cast<u32>(m_Dog.Coat));
+        struct Held
+        {
+            f64 Coverage = 0.0;
+            f64 Energy = 0.0;
+            u32 Representation = 0;
+            u32 VisibilityStep = 0;
+            u32 Strands = 0;
+        };
+        const auto hold = [&](f32 distance, f32 cardPixelSize, bool lodOn)
+        {
+            auto& lod = m_Dog.Coat.GetComponent<GroomLodComponent>();
+            lod = shippedLod;
+            lod.m_Enabled = lodOn;
+            lod.m_CardPixelSize = cardPixelSize;
+            // From the far side: past the hand-over and every visibility step.
+            AimRuntimeCamera(DollyView(60.0f));
+            HoldRuntime(24);
+            Renderer3D::ResetFrameSequences();
+            ColdHistory();
+            AimRuntimeCamera(DollyView(distance));
+            HoldRuntime(24);
+            constexpr u32 kFrames = 48;
+            Held out;
+            LinearFrame frame;
+            for (u32 k = 0; k < kFrames; ++k)
+            {
+                HoldRuntime(1);
+                ReadbackLinear(RuntimeViewProjection(), frame, true);
+                for (sizet p = 0; p < frame.Ids.size(); ++p)
+                {
+                    if (frame.Ids[p] == coatId)
+                    {
+                        out.Coverage += 1.0;
+                        out.Energy += frame.Luminance[p];
+                    }
+                }
+            }
+            out.Coverage /= kFrames;
+            out.Energy /= kFrames;
+            out.Strands = PassStats().StrandsDrawn;
+            if (const GroomLodState* state = GetScene().FindGroomLodState(m_Dog.Coat.GetUUID()); state != nullptr)
+            {
+                out.Representation = static_cast<u32>(state->Representation);
+                out.VisibilityStep = state->VisibilityStep;
+            }
+            return out;
+        };
+        const auto ratio = [](f64 a, f64 b)
+        { return b > 0.0 ? a / b : 0.0; };
+        for (const f32 distance : { 17.0f, 19.0f, 22.0f, 27.0f, 35.0f })
+        {
+            const Held cards = hold(distance, shippedLod.m_CardPixelSize, true);
+            const Held strands = hold(distance, 0.5f, true);
+            const Held every = hold(distance, shippedLod.m_CardPixelSize, false);
+            ASSERT_FALSE(HasFatalFailure());
+            std::printf("[dog] hand-over %4.1f m: cards rep %u vis %u (%u drawn) / strands rep %u vis %u (%u drawn) | cards/strands "
+                        "coverage %.3f energy %.3f | cards/every %.3f %.3f | strands/every %.3f %.3f (%.0f px)\n",
+                        distance, cards.Representation, cards.VisibilityStep, cards.Strands, strands.Representation,
+                        strands.VisibilityStep, strands.Strands, ratio(cards.Coverage, strands.Coverage),
+                        ratio(cards.Energy, strands.Energy), ratio(cards.Coverage, every.Coverage), ratio(cards.Energy, every.Energy),
+                        ratio(strands.Coverage, every.Coverage), ratio(strands.Energy, every.Energy), every.Coverage);
+            std::fflush(stdout);
+            if (distance <= 27.0f)
+            {
+                EXPECT_EQ(cards.Representation, static_cast<u32>(GroomRepresentation::Card)) << distance << " m: not on cards";
+                EXPECT_EQ(strands.Representation, static_cast<u32>(GroomRepresentation::Strand)) << distance << " m: not on strands";
+                EXPECT_EQ(cards.VisibilityStep, strands.VisibilityStep) << distance << " m: the arms are on different budgets";
+                EXPECT_NEAR(ratio(cards.Coverage, strands.Coverage), 1.0, 0.05) << distance << " m: the hand-over steps the coverage";
+                EXPECT_NEAR(ratio(cards.Energy, strands.Energy), 1.0, 0.05) << distance << " m: the hand-over steps the coat's light";
+            }
+        }
+
+        // Where the step comes from (groom-card-coverage.md rule 6), at 22 m:
+        // the coat's self-shadow made transparent (kappa 0), the sky's light
+        // off, multiple scattering off, and the fibre model off (the unlit
+        // root-to-tip ramp times the coat's tint).
+        struct Split
+        {
+            const char* Name;
+            f32 Kappa;
+            f32 Ibl;
+            bool Multiple;
+            bool Fibre;
+        };
+        for (const Split& split : { Split{ "kappa 0", 0.0f, shippedIbl, shippedMultiple, shippedFibre },
+                                    Split{ "no sky", shippedKappa, 0.0f, shippedMultiple, shippedFibre },
+                                    Split{ "kappa 0, no sky", 0.0f, 0.0f, shippedMultiple, shippedFibre },
+                                    Split{ "single only", shippedKappa, shippedIbl, false, shippedFibre },
+                                    Split{ "unlit", shippedKappa, shippedIbl, shippedMultiple, false } })
+        {
+            coatShadow.m_Kappa = split.Kappa;
+            sky->m_IBLIntensity = split.Ibl;
+            coatShadow.m_MultipleScattering = split.Multiple;
+            fibre.m_Enabled = split.Fibre;
+            const Held cards = hold(22.0f, shippedLod.m_CardPixelSize, true);
+            const Held strands = hold(22.0f, 0.5f, true);
+            ASSERT_FALSE(HasFatalFailure());
+            std::printf("[dog] hand-over 22.0 m, %-15s: cards/strands coverage %.3f energy %.3f\n", split.Name,
+                        ratio(cards.Coverage, strands.Coverage), ratio(cards.Energy, strands.Energy));
+            std::fflush(stdout);
+        }
+        coatShadow.m_Kappa = shippedKappa;
+        coatShadow.m_MultipleScattering = shippedMultiple;
+        fibre.m_Enabled = shippedFibre;
+        sky->m_IBLIntensity = shippedIbl;
+    }
+
+    // =========================================================================
     // B7 IN MOTION (#1533 acceptance review, section 4): a CONTINUOUS dolly from
     // the face close-up out to 15 m and back, the history never reset, the coat
     // with its LOD against the same dolly with LOD off (every strand: the
