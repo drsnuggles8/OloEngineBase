@@ -32,6 +32,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingStats.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingTypes.h"
+#include "OloEngine/Renderer/RayTracing/VegetationPolicy.h"
 
 #include <glm/glm.hpp>
 
@@ -172,6 +173,18 @@ namespace OloEngine::RayTracing
         // requested when a size query or an allocation failed, which the
         // caller reports rather than asserting.
         virtual u32 RecordBlasBuilds(std::span<const BlasBuildRequest> requests) = 0;
+        /// The storage a BLAS of this class and size would take, as the device
+        /// sizes it, before any buffer exists (#1533). 0 when unknown, which a
+        /// caller budgeting against it reads as free.
+        [[nodiscard]] virtual u64 EstimateBlasBytes(GeometryClass geometryClass, u32 vertexCount, u32 vertexStride,
+                                                    u32 triangleCount) const
+        {
+            static_cast<void>(geometryClass);
+            static_cast<void>(vertexCount);
+            static_cast<void>(vertexStride);
+            static_cast<void>(triangleCount);
+            return 0u;
+        }
 
         // Optional per-key acknowledgement for partial batches. A backend that
         // reports only a count retains the conservative all-or-nothing commit.
@@ -305,13 +318,40 @@ namespace OloEngine::RayTracing
         // checks the tracing pass declared ReadOutOfBand(SceneTLAS). Readiness
         // checks ("is there a TLAS at all?") use the plain accessor.
         [[nodiscard]] u64 GetTlasDeviceAddressForTrace() const;
+        // THE SAME TLAS FOR A PASS THAT TRACES ONLY SHADOW RAYS (#1533): the
+        // shadow-caster lane, which a vegetation layer that casts no shadow is
+        // staged out of. Such a pass needs every CASTING group resident and
+        // nothing else, so a reflection-only group the vegetation budget left
+        // out or refused does not take ray-traced shadows away with it.
+        [[nodiscard]] u64 GetShadowTlasDeviceAddress() const;
+        // What a deformed BLAS over `vertexCount` engine vertices and
+        // `triangleCount` triangles will occupy (#1533): the vegetation
+        // producer budgets against VegetationPolicy::AccelerationStructureBytes
+        // with it, the cap the backend enforces, rather than learn about the
+        // cap from builds the backend drops every frame.
+        [[nodiscard]] u64 EstimateDeformedBlasBytes(u32 vertexCount, u32 triangleCount) const;
+        [[nodiscard]] u64 GetShadowTlasDeviceAddressForTrace() const;
         void SetVegetationReady(bool ready)
         {
             m_VegetationProducerReady = ready;
         }
+        void SetVegetationCastersReady(bool ready)
+        {
+            m_VegetationCastersReady = ready;
+        }
         [[nodiscard]] bool IsVegetationReady() const
         {
             return m_VegetationProducerReady && m_VegetationBuildsReady;
+        }
+        [[nodiscard]] bool IsVegetationReadyForShadowRays() const
+        {
+            return m_VegetationCastersReady && m_VegetationBuildsReady;
+        }
+        /// The vegetation builds the backend did not record in the last
+        /// Update, which it is asked for again next frame (#1533).
+        [[nodiscard]] const VegetationBuildDebt& GetVegetationBuildDebt() const
+        {
+            return m_VegetationBuildDebt;
         }
 
         [[nodiscard]] const SceneStats& GetStats() const
@@ -414,6 +454,8 @@ namespace OloEngine::RayTracing
 
         SceneStats m_Stats{};
         bool m_VegetationProducerReady = true;
+        bool m_VegetationCastersReady = true;
+        VegetationBuildDebt m_VegetationBuildDebt;
         bool m_VegetationBuildsReady = true;
         u64 m_FrameNumber = 0;
         u32 m_PreviousInstanceCount = 0;

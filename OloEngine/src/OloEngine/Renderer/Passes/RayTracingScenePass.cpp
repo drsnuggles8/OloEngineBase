@@ -108,6 +108,7 @@ namespace OloEngine
             if (dispatched > 0u)
                 m_Scene->RecordDeformToBuildBarrier();
             m_Scene->SetVegetationReady(m_Vegetation->GetStats().Complete);
+            m_Scene->SetVegetationCastersReady(m_Vegetation->GetStats().CastersComplete);
             // A failed producer withholds the CANOPY, not the rest of the
             // scene. Returning here instead would skip every other build, the
             // retire-by-absence sweep, the multi-frame compaction handshake
@@ -118,6 +119,10 @@ namespace OloEngine
         gpuTimers.BeginSubPass("AccelerationStructureBuild");
         m_Scene->Update(*m_GPUScene, vegetationOutputTrusted);
         gpuTimers.EndSubPass();
+        // The vegetation builds the backend could not record come back next
+        // frame; the producer leaves room for them (VegetationBuildDebt).
+        if (m_Vegetation != nullptr)
+            m_Vegetation->ChargeBuildDebt(m_Scene->GetVegetationBuildDebt());
 
         // The build -> read edge. Emitted here rather than by each consumer so
         // there is exactly one place that can get it wrong, and emitted even

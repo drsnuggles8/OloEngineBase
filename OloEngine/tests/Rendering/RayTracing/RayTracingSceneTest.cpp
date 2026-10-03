@@ -1094,6 +1094,29 @@ namespace OloEngine::Tests
         EXPECT_TRUE(m_Backend->Builds.empty());
     }
 
+    // #1533: a pass that traces only shadow rays reads the shadow TLAS, which
+    // needs every vegetation group that CASTS and nothing else. A gap in a
+    // reflection-only layer withholds the TLAS from reflections, which would
+    // see it, and not from ray-traced shadows, which pass through that layer.
+    TEST_F(RayTracingSceneFixture, AReflectionOnlyVegetationGapWithholdsTheTlasFromReflectionsAlone)
+    {
+        BeginFrame();
+        StageInstance(1, MakeGeometryKey(10, 20), MakeTraceableGeometry(), MakeMaterial());
+        EndFrame();
+        m_Scene.SetVegetationReady(false);
+        m_Scene.SetVegetationCastersReady(true);
+        m_Scene.Update(m_GPUScene);
+        EXPECT_EQ(m_Scene.GetTlasDeviceAddress(), 0u) << "reflections would trace a scene missing grass they see";
+        EXPECT_NE(m_Scene.GetShadowTlasDeviceAddress(), 0u)
+            << "a gap shadow rays cannot see took ray-traced shadows away";
+        m_Scene.SetVegetationCastersReady(false);
+        EXPECT_EQ(m_Scene.GetShadowTlasDeviceAddress(), 0u) << "a missing caster would leak light";
+        m_Scene.SetVegetationReady(true);
+        m_Scene.SetVegetationCastersReady(true);
+        EXPECT_NE(m_Scene.GetTlasDeviceAddress(), 0u);
+        EXPECT_EQ(m_Scene.GetTlasDeviceAddress(), m_Scene.GetShadowTlasDeviceAddress()) << "one TLAS, two readiness rules";
+    }
+
     // #1533: a thousand geometries of one generation spread over the buckets.
     // The bucket comes from the hash's low bits, and a hash that put only the
     // generation there sent all of them to one bucket: every scene and backend
@@ -1107,6 +1130,34 @@ namespace OloEngine::Tests
         for (sizet bucket = 0u; bucket < keys.bucket_count(); ++bucket)
             largest = std::max(largest, keys.bucket_size(bucket));
         EXPECT_LE(largest, 8u) << "keys of one generation collide";
+    }
+
+    // #1533: the vegetation builds the backend does not record are reported
+    // as a debt the producer charges to its next frame, so refreshes cannot
+    // keep the backlog from draining. A recorded build is no debt.
+    TEST_F(RayTracingSceneFixture, UnrecordedVegetationBuildsBecomeTheProducersDebt)
+    {
+        m_Backend->MaximumBuilds = 1u;
+        m_Backend->ReportRecordedKeys = true;
+        const auto stage = [&]
+        {
+            BeginFrame();
+            auto geometry = MakeTraceableGeometry(0x1000, 0x2000, 12, 9);
+            geometry.m_Flags |= GPUSceneGeometryFlagVegetation;
+            StageDeformedInstance(1u, MakeGeometryKey(10u, 20u), geometry, MakeMaterial(), 7u);
+            StageDeformedInstance(2u, MakeGeometryKey(30u, 40u), geometry, MakeMaterial(), 7u);
+            EndFrame();
+            m_Scene.Update(m_GPUScene);
+        };
+        stage();
+        ASSERT_EQ(m_Backend->Builds.size(), 1u);
+        EXPECT_EQ(m_Scene.GetVegetationBuildDebt().Builds, 1u);
+        EXPECT_EQ(m_Scene.GetVegetationBuildDebt().Triangles, 4u);
+        EXPECT_EQ(m_Scene.GetVegetationBuildDebt().Vertices, 9u);
+        m_Backend->ClearRecording();
+        stage();
+        EXPECT_EQ(m_Scene.GetVegetationBuildDebt().Builds, 0u) << "the retry was recorded; nothing is owed";
+        EXPECT_EQ(m_Scene.GetVegetationBuildDebt().Triangles, 0u);
     }
 
     TEST_F(RayTracingSceneFixture, AFailedBuildKeepsItsInstanceOutOfTheTlas)

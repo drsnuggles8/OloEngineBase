@@ -668,6 +668,7 @@ namespace OloEngine
         s_Data.VegetationSurfaces.Shutdown();
         s_Data.VegetationSurfaces.SetEnabled(s_Data.SceneRT.IsAvailable());
         s_Data.SceneRT.SetVegetationReady(false);
+        s_Data.SceneRT.SetVegetationCastersReady(false);
         // The groom proxies go the same way and for the same reason: their
         // buffers ARE what the coats' BLASes were built over, so a reset that
         // dropped the GPU Scene records and left these resident would leave

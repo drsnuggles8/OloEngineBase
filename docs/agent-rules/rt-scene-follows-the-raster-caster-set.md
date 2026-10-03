@@ -44,9 +44,9 @@ off the GPU Scene instances the TLAS is built from).
 3. Arm the RT shadow tier in a scene with a large non-casting layer, then read `olo_rt_scene_stats`.
    You want `vegetation.requested` at 0 and a built TLAS, not refusals.
 
-## Not solved here
+## With RT reflections on
 
-With RT reflections on, the non-casting lawn is queued for the reflection rays. At its density it
-still overruns the vegetation budget and withholds the TLAS. That is the budget's fail-closed design
-meeting a 9.4M-vertex near field, and fixing it needs a ray-space level of detail for authored plants,
-not a mask.
+The non-casting lawn is queued for reflection rays. At its density it overran every vegetation
+limit, not only the geometry budget: the per-frame build budget and the acceleration-structure cap
+too. How it now fits, as cards nearest first with tufts nearest of all, and why each limit must be
+charged by the producer: [rt-vegetation-budget-charged-where-enforced.md](rt-vegetation-budget-charged-where-enforced.md).

@@ -285,6 +285,10 @@ namespace OloEngine
         // transform changes; no instance is invalidated by a terrain move.
         BoundingBox m_WorldBounds;
         TArray<FoliageInstanceId> m_Instances;
+        // Parallel to m_Instances: each id's index into the registry's records,
+        // rebuilt with them (#1533). A per-frame consumer walks these instead
+        // of a hash lookup per plant -- 216k a frame for the showcase lawn.
+        TArray<u32> m_RecordIndices;
         u32 m_RepresentedCount = 0;
         u32 m_UnsupportedCount = 0;
     };
@@ -298,6 +302,7 @@ namespace OloEngine
                                       TIsTriviallyRelocatable<decltype(FoliageSpatialGroup::m_LocalBounds)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageSpatialGroup::m_WorldBounds)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageSpatialGroup::m_Instances)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageSpatialGroup::m_RecordIndices)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageSpatialGroup::m_RepresentedCount)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageSpatialGroup::m_UnsupportedCount)>::Value;
     };
@@ -468,6 +473,15 @@ namespace OloEngine
             return m_Generation;
         }
 
+        // Advances whenever the record array is rebuilt, changed or not:
+        // pointers and indices into GetRecords() stay valid while it holds.
+        // A reconcile that changed nothing keeps the generation and still
+        // re-adds every record (#1533).
+        [[nodiscard]] u64 GetRecordsEpoch() const
+        {
+            return m_RecordsEpoch;
+        }
+
       private:
         // A spatial group's identity. A STRUCT rather than bits packed into a
         // u64: the packed form overlapped its own fields (a 32-bit cell index
@@ -515,6 +529,7 @@ namespace OloEngine
 
         FoliageInstanceId m_NextId = 1; // 0 is kInvalidFoliageInstanceId
         u64 m_Generation = 0;
+        u64 m_RecordsEpoch = 0;
 
         glm::mat4 m_TerrainTransform{ 1.0f };
 

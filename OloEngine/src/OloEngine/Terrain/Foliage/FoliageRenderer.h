@@ -12,6 +12,7 @@
 #include "OloEngine/Terrain/Foliage/FoliageLayer.h"
 #include "OloEngine/Terrain/Foliage/FoliageWind.h"
 #include "OloEngine/Renderer/Model.h"
+#include "OloEngine/Renderer/RayTracing/VegetationPolicy.h"
 
 #include <glm/glm.hpp>
 #include <array>
@@ -691,6 +692,38 @@ namespace OloEngine
         // writes only the coverage fields.
         static void UpdateAlphaCoverage(LayerRenderData& data, const FoliageLayer& layer, bool meshDrawn,
                                         bool impostorDrawn);
+
+        // A reflection-only group of plants, one representation (#1533).
+        // Plain data; its plants are a run of ReflectionSplit::Records.
+        // MeshRepresentation 2 (cards) means the group has no mesh tier.
+        struct ReflectionCandidate
+        {
+            u32 LayerIndex = 0u;
+            u32 MeshRepresentation = 2u;
+            RayTracing::VegetationPolicy::ReflectionGroupCost Cost;
+            f32 Distance = 0.0f;
+            u64 FirstId = 0u;
+            u32 FirstRecord = 0u;
+            u32 RecordCount = 0u;
+        };
+        // The reflection-only layers' plants split into groups (#1533): a
+        // pass over every plant, 216k for the showcase lawn. Kept while the
+        // camera stays within kReflectionSplitTolerance of where it was taken
+        // and the records, the terrain and the layers are the ones it was
+        // taken from. Reflections need no exact distances; shadow casters,
+        // which must match the raster, are split every frame.
+        struct ReflectionSplit
+        {
+            TArray<ReflectionCandidate> Candidates;
+            TArray<const FoliageInstanceRecord*> Records;
+            glm::mat4 Terrain{ 1.0f };
+            glm::vec3 Camera{ 0.0f };
+            u64 RecordsEpoch = 0u;
+            u64 LayersKey = 0u;
+            bool Valid = false;
+        };
+        static constexpr f32 kReflectionSplitTolerance = 0.25f;
+        mutable ReflectionSplit m_ReflectionSplit;
 
         TArray<LayerRenderData> m_Layers;
         FoliageInstanceRegistry m_Registry;

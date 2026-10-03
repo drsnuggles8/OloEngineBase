@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/RenderGraphOutOfBand.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingScene.h"
+#include "OloEngine/Core/PerformanceProfiler.h"
 
 #include "OloEngine/Math/Math.h"
 
@@ -140,7 +141,9 @@ namespace OloEngine::RayTracing
         m_HasRenderOrigin = false;
         m_Capabilities = Capabilities{};
         m_VegetationProducerReady = true;
+        m_VegetationCastersReady = true;
         m_VegetationBuildsReady = true;
+        m_VegetationBuildDebt = {};
     }
 
     void RayTracingScene::SetBackendForTesting(std::unique_ptr<IRayTracingBackend> backend)
@@ -354,7 +357,9 @@ namespace OloEngine::RayTracing
 
     void RayTracingScene::Update(const GPUScene& scene, bool vegetationOutputTrusted)
     {
+        OLO_PERF_SCOPE_AUTO("RayTracing::SceneUpdate");
         m_Stats.Frame.Reset();
+        m_VegetationBuildDebt = {};
         if (!IsAvailable())
         {
             return;
@@ -412,203 +417,209 @@ namespace OloEngine::RayTracing
         };
         std::unordered_map<GeometryKey, GeometryDemand, GeometryKeyHash> demand;
 
-        const u32 instanceSlots = scene.GetInstanceSlotCount();
-        for (u32 slot = 0; slot < instanceSlots; ++slot)
         {
-            const GPUSceneInstance* instance = scene.GetLiveInstanceRecordBySlot(slot);
-            if (instance == nullptr)
+            OLO_PERF_SCOPE_AUTO("RayTracing::Walk");
+            const u32 instanceSlots = scene.GetInstanceSlotCount();
+            for (u32 slot = 0; slot < instanceSlots; ++slot)
             {
-                continue;
-            }
-
-            const GPUSceneGeometry* geometry =
-                scene.GetLiveGeometryRecordBySlot(instance->GeometryIndex, instance->GeometryGeneration);
-            const GPUSceneMaterial* material =
-                scene.GetLiveMaterialRecordBySlot(instance->MaterialIndex, instance->MaterialGeneration);
-
-            const GeometryClass geometryClass = Classify(*instance, geometry, material);
-            if (geometryClass == GeometryClass::Unsupported)
-            {
-                // Counted per INSTANCE, and reported as an instance count:
-                // rejection is an instance-level verdict (a dead material slot
-                // rejects one instance of a mesh other instances still trace).
-                ++resident.UnsupportedInstances;
-                ++m_Stats.Frame.InstancesSkipped;
-                // ...and an ANIMATED refusal is broken out, because it is the
-                // one row here that means "this should have been traceable".
-                // Ticked from the instance's own flag rather than from the
-                // class, since Unsupported is the one class that does not say
-                // why it was reached.
-                if ((instance->Flags & GPUSceneInstanceFlagAnimated) != 0u)
+                const GPUSceneInstance* instance = scene.GetLiveInstanceRecordBySlot(slot);
+                if (instance == nullptr)
                 {
-                    ++resident.AnimatedInstancesRefused;
+                    continue;
                 }
-                continue;
-            }
 
-            const GeometryKey key{ instance->GeometryIndex, instance->GeometryGeneration };
-            GeometryDemand& entry = demand[key];
-            entry.Record = geometry;
-            entry.Fingerprint = FingerprintGeometry(*geometry);
-            // The strictest policy any instance of this geometry asks for
-            // wins: one deformed user means the shared BLAS has to stay
-            // refittable for everyone.
-            if (UpdatePolicyFor(geometryClass) == UpdatePolicy::RefitOrRebuild)
-            {
-                entry.Policy = UpdatePolicy::RefitOrRebuild;
-            }
-            // ...and the strictest CLASS is what the geometry is reported as,
-            // for the same reason: a mesh used both opaquely and as a cutout
-            // reports once, as Masked.
-            entry.ReportedClass = MostRestrictive(entry.ReportedClass, geometryClass);
-            if (geometryClass == GeometryClass::Deformed)
-            {
-                entry.DeformationRevision = instance->DeformedContentRevision;
-            }
+                const GPUSceneGeometry* geometry =
+                    scene.GetLiveGeometryRecordBySlot(instance->GeometryIndex, instance->GeometryGeneration);
+                const GPUSceneMaterial* material =
+                    scene.GetLiveMaterialRecordBySlot(instance->MaterialIndex, instance->MaterialGeneration);
 
-            InstanceRecord record{};
-            record.Transform[0] = instance->CurrentTransform.Row0;
-            record.Transform[1] = instance->CurrentTransform.Row1;
-            record.Transform[2] = instance->CurrentTransform.Row2;
-            record.CustomIndex = instance->StableIndex;
-            record.Mask = PackInstanceMask(instance->VisibilityMask);
-            // Opacity is decided PER INSTANCE, not baked into the shared BLAS:
-            // VK_GEOMETRY_INSTANCE_FORCE_OPAQUE / FORCE_NO_OPAQUE override the
-            // geometry's own flag, so one mesh used opaquely by one entity and
-            // as a cutout by another needs one BLAS, not two.
-            //
-            // Read from the MATERIAL rather than from the class, and that is a
-            // fix rather than a restatement (issue #1229). GeometryClass has
-            // one slot and a surface can be two things at once: an alpha-masked
-            // character is both Masked and Deformed, and since Deformed is the
-            // more restrictive of the two it is what Classify returns. Deriving
-            // opacity from the class would therefore hand every animated cutout
-            // FORCE_OPAQUE and trace its leaves and hair cards as solid quads —
-            // silently, because the only symptom is a shadow with the wrong
-            // outline.
-            //
-            // Asking the material is also simply the truer question: opacity IS
-            // a material property, which is what the BLAS geometry flag comment
-            // in the Vulkan backend has said since #978. For a rigid instance
-            // this is exactly what RequiresCandidateConfirmation(class) already
-            // computed, so nothing about the rigid path changes.
-            record.ForceOpaque = material->AlphaMode != static_cast<u32>(AlphaMode::Mask);
-            record.Geometry = key;
-            m_Instances.Add(record);
+                const GeometryClass geometryClass = Classify(*instance, geometry, material);
+                if (geometryClass == GeometryClass::Unsupported)
+                {
+                    // Counted per INSTANCE, and reported as an instance count:
+                    // rejection is an instance-level verdict (a dead material slot
+                    // rejects one instance of a mesh other instances still trace).
+                    ++resident.UnsupportedInstances;
+                    ++m_Stats.Frame.InstancesSkipped;
+                    // ...and an ANIMATED refusal is broken out, because it is the
+                    // one row here that means "this should have been traceable".
+                    // Ticked from the instance's own flag rather than from the
+                    // class, since Unsupported is the one class that does not say
+                    // why it was reached.
+                    if ((instance->Flags & GPUSceneInstanceFlagAnimated) != 0u)
+                    {
+                        ++resident.AnimatedInstancesRefused;
+                    }
+                    continue;
+                }
+
+                const GeometryKey key{ instance->GeometryIndex, instance->GeometryGeneration };
+                GeometryDemand& entry = demand[key];
+                entry.Record = geometry;
+                entry.Fingerprint = FingerprintGeometry(*geometry);
+                // The strictest policy any instance of this geometry asks for
+                // wins: one deformed user means the shared BLAS has to stay
+                // refittable for everyone.
+                if (UpdatePolicyFor(geometryClass) == UpdatePolicy::RefitOrRebuild)
+                {
+                    entry.Policy = UpdatePolicy::RefitOrRebuild;
+                }
+                // ...and the strictest CLASS is what the geometry is reported as,
+                // for the same reason: a mesh used both opaquely and as a cutout
+                // reports once, as Masked.
+                entry.ReportedClass = MostRestrictive(entry.ReportedClass, geometryClass);
+                if (geometryClass == GeometryClass::Deformed)
+                {
+                    entry.DeformationRevision = instance->DeformedContentRevision;
+                }
+
+                InstanceRecord record{};
+                record.Transform[0] = instance->CurrentTransform.Row0;
+                record.Transform[1] = instance->CurrentTransform.Row1;
+                record.Transform[2] = instance->CurrentTransform.Row2;
+                record.CustomIndex = instance->StableIndex;
+                record.Mask = PackInstanceMask(instance->VisibilityMask);
+                // Opacity is decided PER INSTANCE, not baked into the shared BLAS:
+                // VK_GEOMETRY_INSTANCE_FORCE_OPAQUE / FORCE_NO_OPAQUE override the
+                // geometry's own flag, so one mesh used opaquely by one entity and
+                // as a cutout by another needs one BLAS, not two.
+                //
+                // Read from the MATERIAL rather than from the class, and that is a
+                // fix rather than a restatement (issue #1229). GeometryClass has
+                // one slot and a surface can be two things at once: an alpha-masked
+                // character is both Masked and Deformed, and since Deformed is the
+                // more restrictive of the two it is what Classify returns. Deriving
+                // opacity from the class would therefore hand every animated cutout
+                // FORCE_OPAQUE and trace its leaves and hair cards as solid quads —
+                // silently, because the only symptom is a shadow with the wrong
+                // outline.
+                //
+                // Asking the material is also simply the truer question: opacity IS
+                // a material property, which is what the BLAS geometry flag comment
+                // in the Vulkan backend has said since #978. For a rigid instance
+                // this is exactly what RequiresCandidateConfirmation(class) already
+                // computed, so nothing about the rigid path changes.
+                record.ForceOpaque = material->AlphaMode != static_cast<u32>(AlphaMode::Mask);
+                record.Geometry = key;
+                m_Instances.Add(record);
+            }
         }
 
-        // Second pass: at most one build request per geometry.
-        for (const auto& [key, entry] : demand)
         {
-            auto found = m_Blas.find(key);
-            const bool known = found != m_Blas.end();
-            const GeometryClass buildClass =
-                entry.Policy == UpdatePolicy::RefitOrRebuild ? GeometryClass::Deformed : GeometryClass::Static;
-            const GeometryClass previousClass = known ? found->second.Class : buildClass;
-            const bool geometryChanged = known && found->second.GeometryFingerprint != entry.Fingerprint;
-            const u32 consecutiveRefits = known ? found->second.ConsecutiveRefits : 0u;
-
-            // Has this surface's POSE moved since the structure was built?
-            //
-            // The geometry fingerprint cannot answer it: a deformation rewrites
-            // the vertex BYTES in place and leaves every field of the geometry
-            // record — both addresses, both counts, both formats — exactly as
-            // it found them.
-            //
-            // Nor can the SKELETON's deformation revision, which is the obvious
-            // candidate and is wrong. #1226 advances bone history once per
-            // frame for every skinned entity whether or not it animated, so
-            // that counter ticks for a character standing perfectly still.
-            // Measured on the fox scene in edit mode with a fixed pose, driving
-            // this from it produced a refit every frame and a full rebuild
-            // every eighth — for a character that never moved.
-            //
-            // What answers it is the PRODUCER's content revision, which
-            // advances only when the deformed vertex stream was actually
-            // rewritten (GPUSceneInstance::DeformedContentRevision).
-            //
-            // A structure that has never carried a revision must build: that is
-            // the first sight of a new character, whose skeleton legitimately
-            // sits at revision 0.
-            const bool deformationAdvanced =
-                !known || !found->second.HasDeformation || found->second.DeformationRevision != entry.DeformationRevision;
-
-            if (!known)
+            OLO_PERF_SCOPE_AUTO("RayTracing::Decide");
+            // Second pass: at most one build request per geometry.
+            for (const auto& [key, entry] : demand)
             {
-                topologyChanged = true;
-            }
+                auto found = m_Blas.find(key);
+                const bool known = found != m_Blas.end();
+                const GeometryClass buildClass =
+                    entry.Policy == UpdatePolicy::RefitOrRebuild ? GeometryClass::Deformed : GeometryClass::Static;
+                const GeometryClass previousClass = known ? found->second.Class : buildClass;
+                const bool geometryChanged = known && found->second.GeometryFingerprint != entry.Fingerprint;
+                const u32 consecutiveRefits = known ? found->second.ConsecutiveRefits : 0u;
 
-            const auto reason = DecideBuild(previousClass, buildClass, geometryChanged,
-                                            known && m_Backend->IsBlasResident(key), consecutiveRefits,
-                                            deformationAdvanced);
-
-            // ONE structure, counted once. This loop is per unique geometry,
-            // which is what a BLAS is — the instance walk above would have
-            // counted a mesh drawn 500 times as 500 acceleration structures.
-            ++resident.BlasByClass[static_cast<sizet>(entry.ReportedClass)];
-
-            BlasState& state = m_Blas[key];
-            // LastSeenFrame only. It answers "was this geometry offered this
-            // frame", which is true whatever the backend goes on to do, and it
-            // is what the retire-by-absence loop reads — deferring it would
-            // retire a live structure on the frame one of its builds failed.
-            state.LastSeenFrame = m_FrameNumber;
-            if (!reason.has_value())
-            {
-                // Nothing was requested, which means DecideBuild found the class
-                // and the fingerprint unchanged — that is WHY it asked for no
-                // build. Committing them here is therefore a no-op that keeps a
-                // first-sight entry consistent, and it cannot describe a
-                // structure that failed to appear.
-                state.Class = buildClass;
-                state.GeometryFingerprint = entry.Fingerprint;
-            }
-            // A vegetation record whose deformed output was never written this
-            // frame must not be built over: the buffer still holds the previous
-            // frame's contents, or nothing at all. Dropping the request leaves
-            // the previous structure resident and untouched, which is exactly
-            // what a build the backend declines to record already means.
-            const bool buildableThisFrame =
-                vegetationOutputTrusted || (entry.Record->Flags & GPUSceneGeometryFlagVegetation) == 0u;
-            if (reason.has_value() && buildableThisFrame)
-            {
-                // The pose and the refit run are NOT committed here. Reaching
-                // this point means the build was REQUESTED; whether the backend
-                // records it is unknown until RecordBlasBuilds returns, and a
-                // request it drops leaves the previous structure resident and
-                // untouched.
+                // Has this surface's POSE moved since the structure was built?
                 //
-                // Committing here would mark that structure built-at-this-pose
-                // while it still holds the previous one, and the next frame
-                // would read deformationAdvanced == false and never refit it
-                // again — a character frozen mid-stride for the session.
-                // Deferred to after the record call below.
+                // The geometry fingerprint cannot answer it: a deformation rewrites
+                // the vertex BYTES in place and leaves every field of the geometry
+                // record — both addresses, both counts, both formats — exactly as
+                // it found them.
                 //
-                // A refit extends the run; any full rebuild resets it, so a
-                // geometry that stops deforming keeps its run length rather
-                // than rebuilding on the next change.
-                m_PendingBlasCommits.Add(PendingBlasCommit{
-                    .Key = key,
-                    .Class = buildClass,
-                    .GeometryFingerprint = entry.Fingerprint,
-                    .DeformationRevision = entry.DeformationRevision,
-                    .ConsecutiveRefits = *reason == BuildReason::DeformedRefit ? consecutiveRefits + 1u : 0u,
-                    .HasDeformation = buildClass == GeometryClass::Deformed,
-                });
-                m_PendingBuilds.Add(BlasBuildRequest{
-                    .Key = key,
-                    .Class = buildClass,
-                    .Reason = *reason,
-                    .VertexAddress = entry.Record->VertexAddress,
-                    .IndexAddress = entry.Record->IndexAddress,
-                    .VertexStride = static_cast<u32>(sizeof(Vertex)),
-                    .VertexCount = entry.Record->VertexCount,
-                    .FirstIndex = entry.Record->FirstIndex,
-                    .IndexCount = entry.Record->IndexCount,
-                    .BaseVertex = entry.Record->BaseVertex,
-                    .Vegetation = (entry.Record->Flags & GPUSceneGeometryFlagVegetation) != 0u,
-                    .Groom = (entry.Record->Flags & GPUSceneGeometryFlagGroom) != 0u,
-                });
+                // Nor can the SKELETON's deformation revision, which is the obvious
+                // candidate and is wrong. #1226 advances bone history once per
+                // frame for every skinned entity whether or not it animated, so
+                // that counter ticks for a character standing perfectly still.
+                // Measured on the fox scene in edit mode with a fixed pose, driving
+                // this from it produced a refit every frame and a full rebuild
+                // every eighth — for a character that never moved.
+                //
+                // What answers it is the PRODUCER's content revision, which
+                // advances only when the deformed vertex stream was actually
+                // rewritten (GPUSceneInstance::DeformedContentRevision).
+                //
+                // A structure that has never carried a revision must build: that is
+                // the first sight of a new character, whose skeleton legitimately
+                // sits at revision 0.
+                const bool deformationAdvanced =
+                    !known || !found->second.HasDeformation || found->second.DeformationRevision != entry.DeformationRevision;
+
+                if (!known)
+                {
+                    topologyChanged = true;
+                }
+
+                const auto reason = DecideBuild(previousClass, buildClass, geometryChanged,
+                                                known && m_Backend->IsBlasResident(key), consecutiveRefits,
+                                                deformationAdvanced);
+
+                // ONE structure, counted once. This loop is per unique geometry,
+                // which is what a BLAS is — the instance walk above would have
+                // counted a mesh drawn 500 times as 500 acceleration structures.
+                ++resident.BlasByClass[static_cast<sizet>(entry.ReportedClass)];
+
+                BlasState& state = m_Blas[key];
+                // LastSeenFrame only. It answers "was this geometry offered this
+                // frame", which is true whatever the backend goes on to do, and it
+                // is what the retire-by-absence loop reads — deferring it would
+                // retire a live structure on the frame one of its builds failed.
+                state.LastSeenFrame = m_FrameNumber;
+                if (!reason.has_value())
+                {
+                    // Nothing was requested, which means DecideBuild found the class
+                    // and the fingerprint unchanged — that is WHY it asked for no
+                    // build. Committing them here is therefore a no-op that keeps a
+                    // first-sight entry consistent, and it cannot describe a
+                    // structure that failed to appear.
+                    state.Class = buildClass;
+                    state.GeometryFingerprint = entry.Fingerprint;
+                }
+                // A vegetation record whose deformed output was never written this
+                // frame must not be built over: the buffer still holds the previous
+                // frame's contents, or nothing at all. Dropping the request leaves
+                // the previous structure resident and untouched, which is exactly
+                // what a build the backend declines to record already means.
+                const bool buildableThisFrame =
+                    vegetationOutputTrusted || (entry.Record->Flags & GPUSceneGeometryFlagVegetation) == 0u;
+                if (reason.has_value() && buildableThisFrame)
+                {
+                    // The pose and the refit run are NOT committed here. Reaching
+                    // this point means the build was REQUESTED; whether the backend
+                    // records it is unknown until RecordBlasBuilds returns, and a
+                    // request it drops leaves the previous structure resident and
+                    // untouched.
+                    //
+                    // Committing here would mark that structure built-at-this-pose
+                    // while it still holds the previous one, and the next frame
+                    // would read deformationAdvanced == false and never refit it
+                    // again — a character frozen mid-stride for the session.
+                    // Deferred to after the record call below.
+                    //
+                    // A refit extends the run; any full rebuild resets it, so a
+                    // geometry that stops deforming keeps its run length rather
+                    // than rebuilding on the next change.
+                    m_PendingBlasCommits.Add(PendingBlasCommit{
+                        .Key = key,
+                        .Class = buildClass,
+                        .GeometryFingerprint = entry.Fingerprint,
+                        .DeformationRevision = entry.DeformationRevision,
+                        .ConsecutiveRefits = *reason == BuildReason::DeformedRefit ? consecutiveRefits + 1u : 0u,
+                        .HasDeformation = buildClass == GeometryClass::Deformed,
+                    });
+                    m_PendingBuilds.Add(BlasBuildRequest{
+                        .Key = key,
+                        .Class = buildClass,
+                        .Reason = *reason,
+                        .VertexAddress = entry.Record->VertexAddress,
+                        .IndexAddress = entry.Record->IndexAddress,
+                        .VertexStride = static_cast<u32>(sizeof(Vertex)),
+                        .VertexCount = entry.Record->VertexCount,
+                        .FirstIndex = entry.Record->FirstIndex,
+                        .IndexCount = entry.Record->IndexCount,
+                        .BaseVertex = entry.Record->BaseVertex,
+                        .Vegetation = (entry.Record->Flags & GPUSceneGeometryFlagVegetation) != 0u,
+                        .Groom = (entry.Record->Flags & GPUSceneGeometryFlagGroom) != 0u,
+                    });
+                }
             }
         }
 
@@ -641,7 +652,11 @@ namespace OloEngine::RayTracing
         // at all. Guarding this on a non-empty list is how compaction silently
         // never completes in production while a test that calls the backend
         // directly still passes.
-        const u32 recorded = m_Backend->RecordBlasBuilds({ m_PendingBuilds.GetData(), static_cast<sizet>(m_PendingBuilds.Num()) });
+        u32 recorded = 0u;
+        {
+            OLO_PERF_SCOPE_AUTO("RayTracing::RecordBlas");
+            recorded = m_Backend->RecordBlasBuilds({ m_PendingBuilds.GetData(), static_cast<sizet>(m_PendingBuilds.Num()) });
+        }
         const bool everyBuildRecorded = recorded == m_PendingBuilds.Num();
         // Vegetation readiness follows the VEGETATION builds, not the batch: a
         // dropped build somewhere else in the scene is not a reason to withhold
@@ -654,6 +669,15 @@ namespace OloEngine::RayTracing
         {
             OLO_CORE_WARN("[RayTracing] {} of {} BLAS builds could not be recorded this frame",
                           m_PendingBuilds.Num() - recorded, m_PendingBuilds.Num());
+            // What the vegetation producer must leave room for next frame.
+            for (const BlasBuildRequest& build : m_PendingBuilds)
+            {
+                if (!build.Vegetation || m_Backend->WasBlasBuildRecorded(build.Key))
+                    continue;
+                ++m_VegetationBuildDebt.Builds;
+                m_VegetationBuildDebt.Vertices += build.VertexCount;
+                m_VegetationBuildDebt.Triangles += build.TriangleCount();
+            }
         }
 
         // Commit only acknowledged writes. Vulkan reports keys so bounded
@@ -682,7 +706,11 @@ namespace OloEngine::RayTracing
         const u32 instanceCount = static_cast<u32>(m_Instances.Num());
         const TlasBuildReason requested = DecideTlasBuild(m_PreviousInstanceCount, instanceCount, topologyChanged,
                                                           renderOriginRebased, m_EverBuiltTlas);
-        const TlasBuildReason used = m_Backend->RecordTlasBuild({ m_Instances.GetData(), static_cast<sizet>(m_Instances.Num()) }, requested);
+        TlasBuildReason used = requested;
+        {
+            OLO_PERF_SCOPE_AUTO("RayTracing::RecordTlas");
+            used = m_Backend->RecordTlasBuild({ m_Instances.GetData(), static_cast<sizet>(m_Instances.Num()) }, requested);
+        }
         if (used == TlasBuildReason::Update)
         {
             ++m_Stats.Frame.TlasUpdates;
@@ -725,6 +753,26 @@ namespace OloEngine::RayTracing
     u64 RayTracingScene::GetTlasDeviceAddressForTrace() const
     {
         const u64 address = GetTlasDeviceAddress();
+        if (address != 0u)
+            RGOutOfBand::Note(RGOutOfBandBoundaries::SceneTLAS, RGOutOfBandAccess::Read);
+        return address;
+    }
+
+    u64 RayTracingScene::EstimateDeformedBlasBytes(u32 vertexCount, u32 triangleCount) const
+    {
+        return IsAvailable() ? m_Backend->EstimateBlasBytes(GeometryClass::Deformed, vertexCount,
+                                                            static_cast<u32>(sizeof(Vertex)), triangleCount)
+                             : 0u;
+    }
+
+    u64 RayTracingScene::GetShadowTlasDeviceAddress() const
+    {
+        return IsAvailable() && IsVegetationReadyForShadowRays() ? m_Backend->GetTlasDeviceAddress() : 0u;
+    }
+
+    u64 RayTracingScene::GetShadowTlasDeviceAddressForTrace() const
+    {
+        const u64 address = GetShadowTlasDeviceAddress();
         if (address != 0u)
             RGOutOfBand::Note(RGOutOfBandBoundaries::SceneTLAS, RGOutOfBandAccess::Read);
         return address;

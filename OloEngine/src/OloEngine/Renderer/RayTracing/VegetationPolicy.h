@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <span>
 
 namespace OloEngine::RayTracing
 {
@@ -89,6 +90,70 @@ namespace OloEngine::RayTracing
             return castsShadows || reflectionsReadVegetation;
         }
 
+        // THE REFLECTION-ONLY SHARE (#1533). A layer that casts no shadow is
+        // traced for reflection rays alone (TracesLayer), and nothing it leaves
+        // out can leak light: shadow rays do not see it. So its groups need not
+        // all enter the scene, nor at full detail. Every group has a CARD tier
+        // (one quad per plant, the mesh's bake) and a group inside the raster's
+        // mesh distance also has a MESH tier (the authored plant). Cards are
+        // admitted first, nearest first, while their geometry AND their
+        // acceleration structures fit what the casting layers left; then the
+        // nearest card groups are upgraded to the mesh while the difference
+        // fits. Each pass stops at the first group that does not fit, so each
+        // tier is a disc around the camera rather than a scatter of small far
+        // groups. What is left is out -- counted, not refused, so it does not
+        // withhold the TLAS from every ray-traced pass.
+        //
+        // The showcase lawn: 216k plants inside its 45 m view distance. As
+        // authored tufts (1,257 triangles each) the geometry budget held 1,100
+        // of them, out to 1.2 m, and their structures overran the 64 MiB
+        // acceleration-structure cap at 26 groups, so the backend dropped the
+        // rest every frame and the TLAS never came back.
+        struct ReflectionGroupCost
+        {
+            u64 CardGeometryBytes = 0u;
+            u64 CardAccelerationBytes = 0u;
+            /// Both zero: the group has no mesh tier.
+            u64 MeshGeometryBytes = 0u;
+            u64 MeshAccelerationBytes = 0u;
+        };
+        enum class ReflectionTier : u8
+        {
+            Out,
+            Card,
+            Mesh
+        };
+        static void ChooseReflectionTiers(std::span<const ReflectionGroupCost> nearestFirst, u64 geometryTaken,
+                                          u64 accelerationTaken, std::span<ReflectionTier> tiers) noexcept
+        {
+            std::ranges::fill(tiers, ReflectionTier::Out);
+            u64 geometryRoom = geometryTaken < GeometryBytes ? GeometryBytes - geometryTaken : 0u;
+            u64 accelerationRoom = accelerationTaken < AccelerationStructureBytes ? AccelerationStructureBytes - accelerationTaken : 0u;
+            const sizet count = std::min(nearestFirst.size(), tiers.size());
+            for (sizet i = 0u; i < count; ++i)
+            {
+                const ReflectionGroupCost& cost = nearestFirst[i];
+                if (cost.CardGeometryBytes > geometryRoom || cost.CardAccelerationBytes > accelerationRoom)
+                    break;
+                geometryRoom -= cost.CardGeometryBytes;
+                accelerationRoom -= cost.CardAccelerationBytes;
+                tiers[i] = ReflectionTier::Card;
+            }
+            for (sizet i = 0u; i < count && tiers[i] == ReflectionTier::Card; ++i)
+            {
+                const ReflectionGroupCost& cost = nearestFirst[i];
+                if (cost.MeshGeometryBytes == 0u && cost.MeshAccelerationBytes == 0u)
+                    continue; // a card-only group is not a misfit
+                const u64 extraGeometry = cost.MeshGeometryBytes > cost.CardGeometryBytes ? cost.MeshGeometryBytes - cost.CardGeometryBytes : 0u;
+                const u64 extraAcceleration = cost.MeshAccelerationBytes > cost.CardAccelerationBytes ? cost.MeshAccelerationBytes - cost.CardAccelerationBytes : 0u;
+                if (extraGeometry > geometryRoom || extraAcceleration > accelerationRoom)
+                    break;
+                geometryRoom -= extraGeometry;
+                accelerationRoom -= extraAcceleration;
+                tiers[i] = ReflectionTier::Mesh;
+            }
+        }
+
         [[nodiscard]] static bool CanReuseSnapshot(f32 currentTime, f32 snapshotTime,
                                                    f32 velocityBound, bool historyContinuous)
         {
@@ -97,6 +162,21 @@ namespace OloEngine::RayTracing
             const f32 age = currentTime - snapshotTime;
             return age >= 0.0f && age < ProxyAgeLimit(velocityBound);
         }
+    };
+
+    // THE BUILD DEBT (#1533): the vegetation acceleration-structure builds the
+    // ray-traced scene requested last frame and the backend did not record,
+    // its own VegetationFrameBudget spent. The scene requests them again this
+    // frame, so the producer charges them to this frame's budget before it
+    // refreshes anything. A refresh is a build request too: a producer that
+    // spends the whole budget on refreshes leaves a backlog the backend never
+    // drains, and the TLAS waits on that backlog for good. The showcase lawn
+    // did exactly that: 37 builds requested a frame, 13 recorded, forever.
+    struct VegetationBuildDebt
+    {
+        u32 Builds = 0u;
+        u64 Vertices = 0u;
+        u64 Triangles = 0u;
     };
 
     // Reservation is transactional: an oversized request consumes no budget,
@@ -108,16 +188,28 @@ namespace OloEngine::RayTracing
         u32 Vertices = 0u;
         u32 Triangles = 0u;
 
-        [[nodiscard]] bool Reserve(u64 vertices, u64 triangles)
+        // `updates` is the number of acceleration-structure builds the work
+        // will request: one per part, each counting the part's whole vertex
+        // stream, which is how the backend charges them.
+        [[nodiscard]] bool Reserve(u64 vertices, u64 triangles, u32 updates = 1u)
         {
-            if (Updates >= VegetationPolicy::UpdatesPerFrame ||
+            if (updates > VegetationPolicy::UpdatesPerFrame - Updates ||
                 vertices > VegetationPolicy::VerticesPerFrame - Vertices ||
                 triangles > VegetationPolicy::TrianglesPerFrame - Triangles)
                 return false;
-            ++Updates;
+            Updates += updates;
             Vertices += static_cast<u32>(vertices);
             Triangles += static_cast<u32>(triangles);
             return true;
+        }
+
+        // Spends a debt up front, saturating: a debt larger than the frame
+        // leaves nothing to reserve, and the backend works it off over frames.
+        void Charge(const VegetationBuildDebt& debt)
+        {
+            Updates = static_cast<u32>(std::min<u64>(VegetationPolicy::UpdatesPerFrame, static_cast<u64>(Updates) + debt.Builds));
+            Vertices = static_cast<u32>(std::min<u64>(VegetationPolicy::VerticesPerFrame, static_cast<u64>(Vertices) + std::min<u64>(debt.Vertices, VegetationPolicy::VerticesPerFrame)));
+            Triangles = static_cast<u32>(std::min<u64>(VegetationPolicy::TrianglesPerFrame, static_cast<u64>(Triangles) + std::min<u64>(debt.Triangles, VegetationPolicy::TrianglesPerFrame)));
         }
     };
 } // namespace OloEngine::RayTracing
