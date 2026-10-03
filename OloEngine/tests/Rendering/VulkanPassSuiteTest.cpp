@@ -2152,7 +2152,8 @@ TEST_F(VulkanPassSuite, MotionBlurSmearsAlongTheVelocityAndPassesThroughAtZero)
         auxDesc.Height = kSize;
         blackboard.Scene.SceneDepth =
             graph.ImportTextureHandle(ResourceNames::SceneDepth, depthTexture->GetRHIHandle(), auxDesc);
-        blackboard.GBuffer.Velocity =
+        // Motion blur reads SceneVelocity, every surface's motion (#1552).
+        blackboard.Scene.SceneVelocity =
             graph.ImportTextureHandle(ResourceNames::Velocity, currentVelocity->GetRHIHandle(), auxDesc);
     };
 
@@ -4476,7 +4477,8 @@ TEST_F(VulkanPassSuite, TaaResolvesIdentityAndBlendsTheImportedHistory)
         auxDesc.Height = kSize;
         blackboard.Scene.SceneDepth =
             graph.ImportTextureHandle(ResourceNames::SceneDepth, depthTexture->GetRHIHandle(), auxDesc);
-        blackboard.GBuffer.Velocity =
+        // TAA reads SceneVelocity, every surface's motion (#1552).
+        blackboard.Scene.SceneVelocity =
             graph.ImportTextureHandle(ResourceNames::Velocity, velocityTexture->GetRHIHandle(), auxDesc);
         graph.RegisterHistoryTextureSink(ResourceNames::TAAHistory, historyTexture->GetRHIHandle(), kSize, kSize,
                                          &historyValid);
@@ -4742,7 +4744,8 @@ TEST_F(VulkanPassSuite, DepthVelocityUpscaleNearestUpsamplesExactValues)
     importDesc.Height = kReduced;
     blackboard.Scene.SceneDepth =
         graph.ImportTextureHandle(ResourceNames::SceneDepth, depthTexture->GetRHIHandle(), importDesc);
-    blackboard.GBuffer.Velocity =
+    // The upscale reads SceneVelocity, every surface's motion (#1552).
+    blackboard.Scene.SceneVelocity =
         graph.ImportTextureHandle(ResourceNames::Velocity, velocityTexture->GetRHIHandle(), importDesc);
 
     FramebufferSpecification outputSpec;
