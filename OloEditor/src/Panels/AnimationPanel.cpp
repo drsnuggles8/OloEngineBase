@@ -153,11 +153,37 @@ namespace OloEngine
         }
         ImGui::EndGroup();
 
-        // Playback speed
-        ImGui::DragFloat("Playback Speed##AnimPlayback", &m_PlaybackSpeed, 0.01f, 0.0f, 5.0f);
+        // Playback speed and loop live on the component (issue #1533), so they
+        // reach Play mode, the scene file and a save, and the scene's animation
+        // tick is the only clock. This panel used to advance the clip itself
+        // as well, which played a selected entity at twice its speed.
+        const f32 speedBefore = animState.m_PlaybackSpeed;
+        ImGui::DragFloat("Playback Speed##AnimPlayback", &animState.m_PlaybackSpeed, 0.01f, 0.0f, 10.0f);
+        if (ImGui::IsItemActivated())
+        {
+            m_PlaybackSpeedSnapshot = speedBefore;
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit() && m_CommandHistory && m_Context)
+        {
+            AnimationStateComponent oldState = animState;
+            oldState.m_PlaybackSpeed = m_PlaybackSpeedSnapshot;
+            m_CommandHistory->PushAlreadyExecuted(
+                std::make_unique<ComponentChangeCommand<AnimationStateComponent>>(
+                    m_Context, entity.GetUUID(), oldState, animState, "Change Playback Speed"));
+        }
 
-        // Loop toggle
-        ImGui::Checkbox("Loop##AnimPlayback", &m_LoopPlayback);
+        bool loop = animState.m_Loop;
+        if (ImGui::Checkbox("Loop##AnimPlayback", &loop))
+        {
+            AnimationStateComponent oldState = animState;
+            animState.m_Loop = loop;
+            if (m_CommandHistory && m_Context)
+            {
+                m_CommandHistory->PushAlreadyExecuted(
+                    std::make_unique<ComponentChangeCommand<AnimationStateComponent>>(
+                        m_Context, entity.GetUUID(), oldState, animState, "Toggle Animation Loop"));
+            }
+        }
 
         ImGui::Separator();
 
@@ -189,11 +215,23 @@ namespace OloEngine
                         // Snapshot for undo before changing
                         AnimationStateComponent oldState = animState;
 
-                        animState.m_CurrentClipIndex = i;
-                        animState.m_CurrentClip = animState.m_AvailableClips[i];
-                        animState.m_CurrentTime = 0.0f;
-                        OLO_CORE_INFO("Switched to animation [{}]: '{}'", i,
-                                      animState.m_CurrentClip ? animState.m_CurrentClip->Name : "(null)");
+                        if (animState.m_IsPlaying && clip)
+                        {
+                            // Playing: the same request a script files, so the
+                            // switch cross-fades (issue #1533).
+                            animState.m_RequestedClip = clip->Name;
+                            animState.m_RequestedLoop = animState.m_Loop;
+                        }
+                        else
+                        {
+                            // Paused: nothing to fade from; show the clip at once.
+                            animState.m_CurrentClipIndex = i;
+                            animState.m_CurrentClip = animState.m_AvailableClips[i];
+                            animState.m_CurrentTime = 0.0f;
+                            animState.m_Blending = false;
+                            animState.m_NextClip = nullptr;
+                        }
+                        OLO_CORE_INFO("Switched to animation [{}]: '{}'", i, clip ? clip->Name : "(null)");
 
                         if (m_CommandHistory && m_Context)
                         {
@@ -283,49 +321,6 @@ namespace OloEngine
         else
         {
             // No additional handling required.
-        }
-
-        // Update animation if playing (editor preview mode)
-        if (animState.m_IsPlaying && animState.m_CurrentClip)
-        {
-            // Get delta time from ImGui (for editor preview only)
-            f32 deltaTime = ImGui::GetIO().DeltaTime * m_PlaybackSpeed;
-
-            // Get clip duration from the actual clip
-            f32 clipDuration = animState.m_CurrentClip->Duration;
-
-            // Update skeleton transforms if we have a skeleton
-            if (entity.HasComponent<SkeletonComponent>())
-            {
-                auto& skelComp = entity.GetComponent<SkeletonComponent>();
-                if (skelComp.m_Skeleton)
-                {
-                    IKTargetComponent tempIk;
-                    const IKTargetComponent* ikTarget = m_Context->ResolveIKTargets(entity, tempIk) ? &tempIk : nullptr;
-                    auto const& entityTransform = entity.GetComponent<TransformComponent>().GetTransform();
-                    Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, deltaTime, ikTarget, entityTransform);
-                }
-            }
-            else
-            {
-                // No skeleton, just advance time manually
-                animState.m_CurrentTime += deltaTime;
-            }
-
-            // Handle looping
-            if (animState.m_CurrentTime > clipDuration)
-            {
-                if (m_LoopPlayback)
-                {
-                    animState.m_CurrentTime = std::fmod(animState.m_CurrentTime, clipDuration);
-                }
-                else
-                {
-                    animState.m_CurrentTime = clipDuration;
-                    animState.m_IsPlaying = false; // Also clear component state
-                    m_IsPlaying = false;
-                }
-            }
         }
     }
 

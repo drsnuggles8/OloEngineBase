@@ -2,6 +2,14 @@
 #include "OloEngine/Renderer/RayTracing/GroomSurfaceCache.h"
 #include "OloEngine/Renderer/RayTracing/GroomProxyDiagnostics.h"
 
+#include "OloEngine/Core/DebugLevers.h"
+#include "OloEngine/Core/PerformanceProfiler.h"
+#include "OloEngine/Renderer/ComputeShader.h"
+#include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/StorageBuffer.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
+
 #include "OloEngine/Renderer/GPUScene/GPUScene.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/Material.h"
@@ -11,6 +19,7 @@
 #include "OloEngine/Renderer/VertexBuffer.h"
 
 #include <algorithm>
+#include <bit>
 #include <chrono>
 #include <cmath>
 #include <limits>
@@ -117,20 +126,88 @@ namespace OloEngine::RayTracing
         m_Enabled = enabled;
     }
 
+    u64 GroomSurfaceCache::GetCpuBytes() const
+    {
+        u64 bytes = static_cast<u64>(m_StrandVertices.capacity()) * sizeof(GroomStrandVertex) +
+                    static_cast<u64>(m_ProxySegments.capacity()) * sizeof(GroomProxySegment) +
+                    static_cast<u64>(m_StrandIndices.capacity()) * sizeof(u32) +
+                    static_cast<u64>(m_ProxyVertices.capacity()) * sizeof(Vertex) +
+                    static_cast<u64>(m_ProxyIndices.capacity()) * sizeof(u32) +
+                    static_cast<u64>(m_RootScratch.GetAllocatedSize());
+        for (const auto& [key, entry] : m_Entries)
+        {
+            static_cast<void>(key);
+            bytes += static_cast<u64>(entry.Rest.capacity()) * sizeof(GroomStrandVertex) +
+                     static_cast<u64>(entry.RootCurves.capacity()) * sizeof(u32) + entry.DeformCpu.GetCpuBytes();
+        }
+        return bytes;
+    }
+
     void GroomSurfaceCache::Shutdown()
     {
         m_Entries.clear();
         m_TierState.clear();
         m_StrandVertices.clear();
         m_StrandVertices.shrink_to_fit();
+        m_ProxySegments.clear();
+        m_ProxySegments.shrink_to_fit();
         m_StrandIndices.clear();
         m_StrandIndices.shrink_to_fit();
         m_ProxyVertices.clear();
         m_ProxyVertices.shrink_to_fit();
         m_ProxyIndices.clear();
         m_ProxyIndices.shrink_to_fit();
+        m_RootScratch.Reset();
+        m_GpuJobs.Reset();
+        m_GpuShader.Reset();
+        m_GpuParams.Reset();
+        m_GpuShaderFailed = false;
         m_Stats.Reset();
         m_Enabled = false;
+    }
+
+    namespace
+    {
+        // std140 twin of GroomProxyDeformToBuffer.comp's RayTracingGroomProxyParams.
+        struct GpuProxyParams
+        {
+            glm::uvec2 Rest{ 0u };
+            glm::uvec2 Output{ 0u };
+            u32 SegmentCount = 0u;
+            u32 Ribbons = 0u;
+            f32 WidthScale = 1.0f;
+            u32 Padding = 0u;
+            glm::ivec4 DeformModes{ 0 };
+            glm::ivec4 DeformBases{ 0 };
+        };
+        static_assert(sizeof(GpuProxyParams) == 64u);
+
+        glm::uvec2 SplitAddress(u64 address)
+        {
+            return { static_cast<u32>(address), static_cast<u32>(address >> 32u) };
+        }
+    } // namespace
+
+    bool GroomSurfaceCache::GpuBuildAvailable()
+    {
+        if (RendererAPI::GetAPI() != RendererAPI::API::Vulkan || Levers::GroomProxyOnCpu() || m_GpuShaderFailed)
+            return false;
+        if (!m_GpuShader)
+        {
+            m_GpuShader = ComputeShader::Create("assets/shaders/GroomProxyDeformToBuffer.comp");
+            if (!m_GpuShader || !m_GpuShader->IsValid())
+            {
+                // Said once: the CPU build stays, the shader's own log names why.
+                OLO_CORE_WARN("[RayTracing] GroomProxyDeformToBuffer.comp did not compile; coat proxies are built on "
+                              "the CPU");
+                m_GpuShader.Reset();
+                m_GpuShaderFailed = true;
+                return false;
+            }
+        }
+        if (!m_GpuParams)
+            m_GpuParams = UniformBuffer::Create(sizeof(GpuProxyParams), ShaderBindingLayout::UBO_RAY_TRACING);
+        return m_GpuParams != nullptr;
     }
 
     GroomProxyRefusalReason GroomSurfaceCache::Refresh(Entry& entry, const GroomStrandRequest& request,
@@ -164,24 +241,100 @@ namespace OloEngine::RayTracing
         // in would widen every thinned strand twice.
         build.MaxWidthCompensation = 1.0f;
 
-        GroomStrandDeformation deformation;
         const bool deformed = IsDeformed(request);
-        if (deformed)
-        {
-            deformation.Binding = request.Binding.Raw();
-            deformation.RootTransforms = std::span<const GroomRootTransform>(
-                request.RootTransforms.GetData(), static_cast<sizet>(request.RootTransforms.Num()));
-        }
         const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
         const GroomStrandSimulation simulation = request.Simulation();
+        const u32 baseCurveCount = request.Groom->GetCurveCount();
+        const bool simulated = simulation.IsUsable(baseCurveCount);
 
-        const GroomStrandMeshStats strandStats =
-            BuildGroomStrandMesh(request.BuildSource(), build, m_StrandVertices, m_StrandIndices,
-                                 deformed ? &deformation : nullptr, &coat,
-                                 simulation.IsUsable(request.Groom->GetCurveCount()) ? &simulation : nullptr);
-        if (m_StrandVertices.empty() || strandStats.StrandsSelected == 0u)
+        GroomStrandMeshStats strandStats;
+        // A bound coat builds on the GPU where it can (#1533); its frame is then
+        // packed into a GPU-layout buffer the compute pass reads.
+        const bool gpuBuild = deformed && request.Binding && GpuBuildAvailable();
+        if (deformed && request.Binding)
         {
-            return GroomProxyRefusalReason::GroomHasNoGeometry;
+            // A BOUND COAT REFITS FROM ITS REST STREAM (#1533), the raster pass's
+            // split: the root-local stream depends on nothing that moves, so it is
+            // built when its shape changes, and a frame evaluates this stream's
+            // roots alone, packs them with the guides and deforms the stream on
+            // the CPU as GroomStrand.glsl deforms it on the GPU -- bit for bit the
+            // points a rebuild produces (DeformGroomRestStream). The rebuild it
+            // replaces walked every curve of the groom several times a frame:
+            // ~90 ms on the showcase dog, and the RT shadow tier ran at 14 fps.
+            if (entry.RestHash != shapeHash || entry.Rest.empty() || entry.RestGroom != request.Groom ||
+                entry.RestBinding != request.Binding || entry.RestLevel != request.LodLevel)
+            {
+                OLO_PERF_SCOPE_AUTO("GroomProxy::RestBuild");
+                std::vector<u32> restIndices; // the conversion reads corners, never indices
+                entry.RestStats = BuildGroomStrandRestMesh(request.BuildSource(), build, *request.Binding, entry.Rest,
+                                                           restIndices, entry.RootCurves, &coat);
+                entry.RestHash = shapeHash;
+                entry.RestGroom = request.Groom;
+                entry.RestBinding = request.Binding;
+                entry.RestLevel = request.LodLevel;
+                entry.DeformRelayout = true;
+            }
+            if (entry.Rest.empty() || entry.RestStats.StrandsSelected == 0u)
+            {
+                return GroomProxyRefusalReason::GroomHasNoGeometry;
+            }
+
+            OLO_PERF_SCOPE_AUTO("GroomProxy::Deform");
+            // Sized for the table it was laid out against, as the raster pass's
+            // frame buffer is: a coat that starts being simulated, switches table
+            // or outgrows the capacity gets a new layout.
+            const u32 rootCount = static_cast<u32>(entry.RootCurves.size());
+            const u32 displacements =
+                simulated ? static_cast<u32>(simulation.Displacements.Displacements.size()) : 0u;
+            const Ref<GroomGuideInfluenceTable> weightsFrom =
+                simulated ? request.Influence : Ref<GroomGuideInfluenceTable>{};
+            const GroomDeformBufferLayout& layout = entry.DeformCpu.GetLayout();
+            if (entry.DeformRelayout || layout.RootCount != rootCount || weightsFrom != entry.DeformWeightsFrom ||
+                displacements > layout.DisplacementCapacity || entry.DeformCpuOnly == gpuBuild)
+            {
+                const GroomGuideInfluenceTable* table = simulated ? simulation.Influence : nullptr;
+                const u32 capacity = std::max(GroomDeformDisplacementCapacity(*request.Groom, table), displacements);
+                // CPU-only for the CPU build (#1533): it reads the records, and no
+                // GPU sees an image. The GPU build sends the image.
+                entry.DeformCpu.Reset(
+                    GroomDeformBufferLayout::Make(rootCount, table != nullptr ? table->GetGuideCount() : 0u, capacity),
+                    entry.RootCurves, table, /*cpuOnly*/ !gpuBuild);
+                entry.DeformCpuOnly = !gpuBuild;
+                entry.DeformGpu.Reset(); // sized to the new layout below
+                entry.DeformWeightsFrom = weightsFrom;
+                entry.DeformRelayout = false;
+            }
+            // This stream's roots only: the producer left the drawn ones to the
+            // raster pass's GPU evaluation (#1533 E1).
+            std::span<const GroomRootTransform> roots;
+            {
+                OLO_PERF_SCOPE_AUTO("GroomProxy::Roots");
+                roots = GroomCpuRootTransforms(request, std::span<const u32>{ entry.RootCurves }, m_RootScratch,
+                                               /*onlyCurvesDefined*/ true);
+            }
+            {
+                OLO_PERF_SCOPE_AUTO("GroomProxy::Pack");
+                (void)entry.DeformCpu.PackFrame(entry.RootCurves, *request.Binding, roots,
+                                                simulated ? &simulation : nullptr, baseCurveCount);
+            }
+            if (!gpuBuild)
+            {
+                // The two points a segment's ribbons need, not DeformGroomRestStream's
+                // twelve (#1533).
+                OLO_PERF_SCOPE_AUTO("GroomProxy::DeformStream");
+                DeformGroomRestStreamSegments(entry.DeformCpu, entry.Rest, m_ProxySegments);
+            }
+            strandStats = entry.RestStats;
+        }
+        else
+        {
+            OLO_PERF_SCOPE_AUTO("GroomProxy::StrandBuild");
+            strandStats = BuildGroomStrandMesh(request.BuildSource(), build, m_StrandVertices, m_StrandIndices, nullptr,
+                                               &coat, simulated ? &simulation : nullptr);
+            if (m_StrandVertices.empty() || strandStats.StrandsSelected == 0u)
+            {
+                return GroomProxyRefusalReason::GroomHasNoGeometry;
+            }
         }
 
         // ── The compensation, on the ACHIEVED fraction ───────────────────
@@ -214,8 +367,18 @@ namespace OloEngine::RayTracing
         conversion.WidthScale = std::isfinite(request.WidthScale) && request.WidthScale > 0.0f
                                     ? request.WidthScale * compensation
                                     : compensation;
-        const GroomProxyMeshStats proxyStats = ConvertGroomStrandMeshToProxy(m_StrandVertices, conversion,
-                                                                             m_ProxyVertices, m_ProxyIndices);
+        if (gpuBuild)
+        {
+            return RefreshOnGpu(entry, shapeHash, compensation, conversion, budget);
+        }
+
+        GroomProxyMeshStats proxyStats;
+        {
+            OLO_PERF_SCOPE_AUTO("GroomProxy::Convert");
+            proxyStats = deformed && request.Binding
+                             ? ConvertGroomProxySegments(m_ProxySegments, conversion, m_ProxyVertices, m_ProxyIndices)
+                             : ConvertGroomStrandMeshToProxy(m_StrandVertices, conversion, m_ProxyVertices, m_ProxyIndices);
+        }
         if (proxyStats.VertexCount == 0u || proxyStats.IndexCount == 0u)
         {
             return GroomProxyRefusalReason::BuildFailed;
@@ -257,6 +420,7 @@ namespace OloEngine::RayTracing
         Ref<IndexBuffer> replacementIndices;
         try
         {
+            OLO_PERF_SCOPE_AUTO("GroomProxy::Upload");
             if (reallocate)
             {
                 replacementIndices = IndexBuffer::Create(m_ProxyIndices.data(), proxyStats.IndexCount);
@@ -265,11 +429,19 @@ namespace OloEngine::RayTracing
             }
             if (reallocate || RendererAPI::GetAPI() == RendererAPI::API::Vulkan)
             {
-                auto replacement = VertexBuffer::Create(static_cast<u32>(proxyStats.VertexBytes));
+                // Created WITH its data on Vulkan (#1533): a buffer created empty
+                // and then written also keeps a CPU shadow copy of every byte as
+                // a streamed buffer, 11 MB a frame for the showcase coat. GL keeps
+                // sized-then-filled (above).
+                const bool vulkan = RendererAPI::GetAPI() == RendererAPI::API::Vulkan;
+                auto replacement = vulkan ? VertexBuffer::Create(static_cast<const void*>(m_ProxyVertices.data()),
+                                                                 static_cast<u32>(proxyStats.VertexBytes))
+                                          : VertexBuffer::Create(static_cast<u32>(proxyStats.VertexBytes));
                 if (!replacement)
                     return GroomProxyRefusalReason::BuildFailed;
+                if (!vulkan)
+                    replacement->SetData({ m_ProxyVertices.data(), static_cast<u32>(proxyStats.VertexBytes) });
                 replacement->SetLayout(Vertex::GetLayout());
-                replacement->SetData({ m_ProxyVertices.data(), static_cast<u32>(proxyStats.VertexBytes) });
                 // Publish the pair only after both allocations and the upload succeed.
                 entry.Vertices = std::move(replacement);
                 if (reallocate)
@@ -327,6 +499,201 @@ namespace OloEngine::RayTracing
         return GroomProxyRefusalReason::None;
     }
 
+    GroomProxyRefusalReason GroomSurfaceCache::RefreshOnGpu(Entry& entry, u64 shapeHash, f32 compensation,
+                                                            const GroomProxyConversionSettings& conversion,
+                                                            GroomProxyFrameBudget& budget)
+    {
+        OLO_PERF_SCOPE_AUTO("GroomProxy::GpuStage");
+        const u32 segments = static_cast<u32>(entry.Rest.size() / 4u);
+        const u32 ribbons = conversion.CrossedRibbons ? 2u : 1u;
+        const u64 vertexCount = static_cast<u64>(segments) * ribbons * 4u;
+        const u64 indexCount = static_cast<u64>(segments) * ribbons * 6u;
+        if (segments == 0u || vertexCount > std::numeric_limits<u32>::max() || indexCount > std::numeric_limits<u32>::max())
+            return GroomProxyRefusalReason::GroomHasNoGeometry;
+        const u64 vertexBytes = vertexCount * sizeof(Vertex);
+        const u64 bytes = vertexBytes + indexCount * sizeof(u32);
+
+        // The same gates, in the same order, as the CPU build.
+        const u64 residentWithout = m_Stats.ResidentBytes - entry.Bytes;
+        if (bytes > GroomProxyPolicy::GeometryBytes - residentWithout)
+            return GroomProxyRefusalReason::ResidencyExhausted;
+        if (!budget.Reserve(static_cast<u32>(vertexCount), static_cast<u32>(segments * ribbons * 2u)))
+            return GroomProxyRefusalReason::BudgetExhausted;
+
+        try
+        {
+            // The deformation buffer's image on the GPU: whole after a relayout,
+            // then the frame's regions alone, as GroomRenderPass sends its own.
+            const GroomDeformBufferLayout& layout = entry.DeformCpu.GetLayout();
+            const std::span<const u8> image = entry.DeformCpu.GetBytes();
+            const bool relayout = !entry.DeformGpu;
+            if (relayout)
+            {
+                entry.DeformGpu = StorageBuffer::Create(static_cast<u32>(layout.TotalBytes()),
+                                                        ShaderBindingLayout::SSBO_GROOM_DEFORMATION,
+                                                        StorageBufferUsage::StreamCommandOrdered);
+                if (!entry.DeformGpu)
+                    return GroomProxyRefusalReason::BuildFailed;
+            }
+            const u64 usedEnd = (static_cast<u64>(layout.DisplacementBase) +
+                                 static_cast<u64>(entry.DeformCpu.GetFrameStats().DisplacementCount) * 2u) *
+                                16u;
+            const u64 begin = relayout ? 0u : layout.DynamicOffsetBytes();
+            const u64 end = std::min<u64>(relayout ? image.size() : std::max(usedEnd, begin), image.size());
+            if (end > begin)
+                entry.DeformGpu->SetData(image.data() + begin, static_cast<u32>(end - begin), static_cast<u32>(begin));
+
+            // The rest stream's segments, rebuilt with the rest stream: corners 0
+            // and 2, the corners the CPU conversion reads.
+            if (!entry.RestSegments || entry.RestSegmentsHash != entry.RestHash)
+            {
+                std::vector<glm::vec4> packed(static_cast<sizet>(segments) * 3u);
+                for (u32 segment = 0u; segment < segments; ++segment)
+                {
+                    const GroomStrandVertex& c0 = entry.Rest[static_cast<sizet>(segment) * 4u + 0u];
+                    const GroomStrandVertex& c2 = entry.Rest[static_cast<sizet>(segment) * 4u + 2u];
+                    const u32 root0 = static_cast<u32>(c0.PrevPosition.x + 0.5f);
+                    const u32 root2 = static_cast<u32>(c2.PrevPosition.x + 0.5f);
+                    packed[segment * 3u + 0u] = glm::vec4(c0.Position, c0.Coords.x);
+                    packed[segment * 3u + 1u] = glm::vec4(c2.Position, c2.Coords.x);
+                    packed[segment * 3u + 2u] =
+                        glm::vec4(std::bit_cast<f32>(root0), std::bit_cast<f32>(root2), c0.Radius, c2.Radius);
+                }
+                entry.RestSegments = VertexBuffer::Create(static_cast<const void*>(packed.data()),
+                                                          static_cast<u32>(packed.size() * sizeof(glm::vec4)));
+                if (!entry.RestSegments)
+                    return GroomProxyRefusalReason::BuildFailed;
+                entry.RestSegmentsHash = entry.RestHash;
+            }
+
+            // The ribbons' buffers, kept while the segment count holds: the
+            // compute pass rewrites the vertices in place each frame. A fresh
+            // vertex buffer starts as zeros, finite and degenerate, so a frame
+            // whose dispatch fails cannot hand a BLAS build unwritten memory.
+            if (!entry.Vertices || !entry.Indices || entry.GpuSegments != segments || entry.GpuRibbons != ribbons)
+            {
+                std::vector<Vertex> zeros(static_cast<sizet>(vertexCount));
+                auto vertices = VertexBuffer::Create(static_cast<const void*>(zeros.data()), static_cast<u32>(vertexBytes));
+                std::vector<u32> pattern(static_cast<sizet>(indexCount));
+                for (u32 quad = 0u; quad < segments * ribbons; ++quad)
+                {
+                    const u32 base = quad * 4u;
+                    u32* const i = pattern.data() + static_cast<sizet>(quad) * 6u;
+                    i[0] = base;
+                    i[1] = base + 1u;
+                    i[2] = base + 2u;
+                    i[3] = base;
+                    i[4] = base + 2u;
+                    i[5] = base + 3u;
+                }
+                auto indices = IndexBuffer::Create(pattern.data(), static_cast<u32>(indexCount));
+                if (!vertices || !indices)
+                    return GroomProxyRefusalReason::BuildFailed;
+                vertices->SetLayout(Vertex::GetLayout());
+                entry.Vertices = std::move(vertices);
+                entry.Indices = std::move(indices);
+                entry.GpuSegments = segments;
+                entry.GpuRibbons = ribbons;
+            }
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("GroomSurfaceCache: GPU proxy buffer allocation failed: {}", e.what());
+            return GroomProxyRefusalReason::BuildFailed;
+        }
+        if (entry.Vertices->GetDeviceAddress() == 0u || entry.Indices->GetDeviceAddress() == 0u ||
+            entry.RestSegments->GetDeviceAddress() == 0u)
+        {
+            // As the CPU build: `Bytes` stays at the value still counted.
+            entry.Vertices.Reset();
+            entry.Indices.Reset();
+            entry.VertexCount = 0u;
+            entry.IndexCount = 0u;
+            entry.GpuSegments = 0u;
+            return GroomProxyRefusalReason::BuildFailed;
+        }
+
+        const GroomDeformBufferLayout& layout = entry.DeformCpu.GetLayout();
+        const GroomDeformFrameStats& frame = entry.DeformCpu.GetFrameStats();
+        GpuJob job;
+        job.Deform = entry.DeformGpu.Raw();
+        job.RestAddress = entry.RestSegments->GetDeviceAddress();
+        job.OutputAddress = entry.Vertices->GetDeviceAddress();
+        job.SegmentCount = segments;
+        job.Ribbons = ribbons;
+        job.WidthScale = std::isfinite(conversion.WidthScale) && conversion.WidthScale > 0.0f ? conversion.WidthScale : 1.0f;
+        job.DeformModes = glm::ivec4(1, frame.Simulated ? 1 : 0, static_cast<i32>(layout.RootCount),
+                                     static_cast<i32>(layout.SlotCount));
+        job.DeformBases = glm::ivec4(static_cast<i32>(layout.RootBase), static_cast<i32>(layout.SlotBase),
+                                     static_cast<i32>(layout.DisplacementBase), static_cast<i32>(frame.DisplacementCount));
+        m_GpuJobs.Add(job);
+
+        m_Stats.ResidentBytes = residentWithout + bytes;
+        entry.Bytes = bytes;
+        entry.ShapeHash = shapeHash;
+        entry.VertexCount = static_cast<u32>(vertexCount);
+        entry.IndexCount = static_cast<u32>(indexCount);
+        entry.Compensation = compensation;
+        entry.Deformed = true;
+        entry.Revision = entry.Revision == std::numeric_limits<u32>::max() ? entry.Revision : entry.Revision + 1u;
+        entry.LastRefreshed = m_Frame;
+        ++m_Stats.Rebuilds;
+        m_Stats.SegmentsConverted += segments;
+        m_Stats.TrianglesBuilt += segments * ribbons * 2u;
+        return GroomProxyRefusalReason::None;
+    }
+
+    u32 GroomSurfaceCache::Dispatch()
+    {
+        OLO_PERF_SCOPE_AUTO("GroomProxy::Dispatch");
+        if (m_GpuJobs.IsEmpty())
+            return 0u;
+        u32 dispatched = 0u;
+        if (m_GpuShader && m_GpuParams)
+        {
+            // The deformation images just sent are visible to the kernel, and last
+            // frame's BLAS refits have finished reading the vertices it rewrites.
+            RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::BufferUpdate);
+            for (const GpuJob& job : m_GpuJobs)
+            {
+                GpuProxyParams params;
+                params.Rest = SplitAddress(job.RestAddress);
+                params.Output = SplitAddress(job.OutputAddress);
+                params.SegmentCount = job.SegmentCount;
+                params.Ribbons = job.Ribbons;
+                params.WidthScale = job.WidthScale;
+                params.DeformModes = job.DeformModes;
+                params.DeformBases = job.DeformBases;
+                // Bound before every dispatch (#1437): both points are shared.
+                m_GpuParams->Bind();
+                m_GpuParams->SetData(&params, sizeof(params));
+                job.Deform->Bind();
+                m_GpuShader->Bind();
+                const u64 recordedBefore = m_GpuShader->GetRecordedDispatchCount();
+                RenderCommand::DispatchCompute((job.SegmentCount + 63u) / 64u, 1u, 1u);
+                if (m_GpuShader->GetRecordedDispatchCount() != recordedBefore)
+                    ++dispatched;
+            }
+        }
+        if (dispatched != static_cast<u32>(m_GpuJobs.Num()))
+        {
+            // Last frame's ribbons stay (zeros for a fresh buffer): finite, so the
+            // refit is stale for a frame, never undefined. Said, and counted.
+            m_Stats.GpuDispatchFailures += static_cast<u32>(m_GpuJobs.Num()) - dispatched;
+            static bool s_Warned = false;
+            if (!s_Warned)
+            {
+                s_Warned = true;
+                OLO_CORE_WARN("[RayTracing] {} of {} coat proxy builds were not recorded; their structures refit from "
+                              "last frame's ribbons",
+                              static_cast<u32>(m_GpuJobs.Num()) - dispatched, m_GpuJobs.Num());
+            }
+        }
+        m_Stats.GpuDispatched += dispatched;
+        m_GpuJobs.Reset();
+        return dispatched;
+    }
+
     void GroomSurfaceCache::Extract(GPUScene& scene, std::span<const GroomStrandRequest> requests, bool wanted)
     {
         const auto started = std::chrono::steady_clock::now();
@@ -334,6 +701,10 @@ namespace OloEngine::RayTracing
         const u64 previousResident = m_Stats.ResidentBytes;
         m_Stats.Reset();
         m_Stats.ResidentBytes = previousResident;
+        // Builds a frame queued and never dispatched (no ray-tracing pass ran)
+        // point into entries this call may retire: dropped, and counted.
+        m_Stats.GpuDispatchFailures += static_cast<u32>(m_GpuJobs.Num());
+        m_GpuJobs.Reset();
 
         const bool active = m_Enabled && wanted && !GroomProxyDiagnostics::GetDisabled();
         const std::optional<GroomProxyTier> forcedTier = GroomProxyDiagnostics::GetForcedTier();

@@ -53,7 +53,7 @@ namespace OloEngine
         // pass runs BEFORE that one, so these are still the render-resolution
         // buffers FSR2 requires rather than the display-res copies.
         m_SceneDepth = blackboard.Scene.SceneDepth;
-        m_Velocity = blackboard.GBuffer.Velocity;
+        m_Velocity = blackboard.Scene.SceneVelocity; // every surface's, on both paths (#1552)
         if (m_SceneDepth.IsValid())
             (void)builder.Read(m_SceneDepth, RGReadUsage::ShaderSample);
         if (m_Velocity.IsValid())

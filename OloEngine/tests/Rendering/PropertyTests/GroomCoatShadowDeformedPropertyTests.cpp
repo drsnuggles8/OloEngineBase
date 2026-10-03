@@ -29,12 +29,15 @@
 // =============================================================================
 
 #include <gtest/gtest.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include "OloEngine/Groom/GroomCoatShadow.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
 #include "Groom/GroomStrandFixture.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <cstdio>
@@ -806,4 +809,207 @@ TEST(GroomCoatShadowDeformed, TheSubsetIsTheSameSegmentsEveryFrameAndKeepsTheCoa
     const std::vector<CoatSegment> few(pelt.RestSegments.begin(), pelt.RestSegments.begin() + 3);
     EXPECT_EQ(SubsampleCoatSegments(few, 100000u, first), 1.0f);
     EXPECT_EQ(first.size(), few.size()) << "an over-large stride keeps the coat whole";
+}
+
+// ── 5. The rest bake (#1533) ─────────────────────────────────────────────────
+//
+// GroomCoatShadowComponent::m_BakeAtRest bakes the coat ONCE, at rest, and
+// looks each fragment up at its REST point with the light turned back through
+// the rotation its root has made. The posed coat's density is the rest coat's
+// carried by that motion, so for everything the motion carries whole the two
+// march the same integral. Judged against the EXACT answer on the posed
+// geometry, as excess over the representation's own error at rest -- volume
+// against volume at two grid alignments mostly measures the two quantisations
+// ("Things that will bite" in groom-deformed-coat-self-shadowing.md).
+
+namespace
+{
+    // Turns every segment whose REST midpoint satisfies `select` about `pivot`,
+    // every position lane, as a root's rotation carries its strand.
+    template<typename Select>
+    [[nodiscard]] std::vector<GroomStrandVertex> Turned(const std::vector<GroomStrandVertex>& rest, const glm::vec3& pivot,
+                                                        const glm::quat& turn, Select select)
+    {
+        std::vector<GroomStrandVertex> out = rest;
+        for (sizet s = 0; s + 3 < out.size(); s += 4)
+        {
+            const glm::vec3 mid = (rest[s].Position + rest[s + 2].Position) * 0.5f;
+            if (!select(mid))
+            {
+                continue;
+            }
+            for (sizet c = 0; c < 4; ++c)
+            {
+                out[s + c].Position = pivot + (turn * (rest[s + c].Position - pivot));
+                out[s + c].Other = pivot + (turn * (rest[s + c].Other - pivot));
+                out[s + c].PrevPosition = pivot + (turn * (rest[s + c].PrevPosition - pivot));
+            }
+        }
+        return out;
+    }
+
+    // The exact reference's settings the limb case uses: a footprint of four
+    // strand spacings (below one it reports a confident zero).
+    [[nodiscard]] ReferenceSettings PeltReference(const Pelt& pelt)
+    {
+        glm::vec3 lo{ 0.0f };
+        glm::vec3 hi{ 0.0f };
+        (void)CoatSegmentBounds(pelt.RestSegments, lo, hi);
+        const f32 spacing = std::sqrt(((hi.x - lo.x) * (hi.z - lo.z)) / static_cast<f32>(pelt.Groom->GetCurveCount()));
+        ReferenceSettings reference;
+        reference.Rays = 64u;
+        reference.FootprintRadius = spacing * 4.0f;
+        return reference;
+    }
+
+    [[nodiscard]] std::vector<f32> Reference(const std::vector<CoatSegment>& segments, const std::vector<CoatProbe>& probes,
+                                             const ReferenceSettings& settings)
+    {
+        CoatSegmentGrid grid;
+        EXPECT_TRUE(BuildCoatSegmentGrid(segments, 64u, grid));
+        return EvaluateCoatShadowReference(segments, probes, kKappa, settings, &grid);
+    }
+
+    [[nodiscard]] CoatShadowError VolumeError(const DensityVolume& volume, const std::vector<CoatProbe>& probes,
+                                              const std::vector<f32>& truth)
+    {
+        std::vector<f32> got;
+        got.reserve(probes.size());
+        for (const CoatProbe& p : probes)
+        {
+            got.push_back(Transmittance(volume, p.Position, p.Direction));
+        }
+        return CompareCoatShadow(got, truth, 0.0);
+    }
+
+    [[nodiscard]] f64 MeanDarkening(const std::vector<f32>& truth)
+    {
+        f64 sum = 0.0;
+        for (const f32 t : truth)
+        {
+            sum += 1.0 - static_cast<f64>(t);
+        }
+        return truth.empty() ? 0.0 : sum / static_cast<f64>(truth.size());
+    }
+} // namespace
+
+TEST(GroomCoatShadowDeformed, ACoatCarriedByATurnIsLookedUpWhereItRests)
+{
+    // A head turning on its neck: the whole furred sphere swings 30 degrees
+    // about a pivot 20 cm below its centre, about 10 cm sideways. (A turn about
+    // the sphere's OWN centre would leave a uniform ball nearly where it was,
+    // and even the naive lookup nearly right.)
+    const Pelt pelt = MakePelt(4000u);
+    ASSERT_TRUE(pelt.Groom);
+    const glm::vec3 pivot{ 0.0f, -0.2f, 0.0f };
+    const glm::quat turn = glm::angleAxis(glm::radians(30.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    const auto turned = Turned(pelt.Rest, pivot, turn, [](const glm::vec3&)
+                               { return true; });
+    std::vector<CoatSegment> turnedSegments;
+    ASSERT_GT(BuildCoatSegmentsFromStrandVertices(turned, kWidthScale, turnedSegments), 0u);
+
+    const DensityVolume rest = Bake(pelt.Rest, 48u);
+    const DensityVolume posed = Bake(turned, 48u);
+    ASSERT_TRUE(rest.IsValid());
+    ASSERT_TRUE(posed.IsValid());
+
+    const glm::vec3 light = glm::normalize(glm::vec3(1.0f, 0.3f, 0.2f));
+    std::vector<CoatProbe> all;
+    (void)BuildCoatProbes(pelt.RestSegments, light, 1200u, 1533u, all);
+    ASSERT_GE(all.size(), 200u);
+    all.resize(250u);
+    std::vector<CoatProbe> restTurnedBack; // the rest point, the light turned back
+    std::vector<CoatProbe> posedProbes;    // the posed point, the world light
+    for (const CoatProbe& p : all)
+    {
+        restTurnedBack.push_back({ p.Position, glm::conjugate(turn) * light });
+        posedProbes.push_back({ pivot + (turn * (p.Position - pivot)), light });
+    }
+
+    const ReferenceSettings reference = PeltReference(pelt);
+    const std::vector<f32> restTruth = Reference(pelt.RestSegments, restTurnedBack, reference);
+    const std::vector<f32> posedTruth = Reference(turnedSegments, posedProbes, reference);
+
+    const CoatShadowError atRest = VolumeError(rest, restTurnedBack, restTruth);
+    const CoatShadowError poseBake = VolumeError(posed, posedProbes, posedTruth);
+    const CoatShadowError restLookup = VolumeError(rest, restTurnedBack, posedTruth);
+    const CoatShadowError naive = VolumeError(rest, posedProbes, posedTruth);
+    std::printf("[groom-coat-deformed] rest bake, carried by a turn: truth darkening %.4f; |dT| vs reference: at rest "
+                "%.4f, pose bake %.4f, rest lookup %.4f, naive %.4f\n",
+                MeanDarkening(posedTruth), atRest.MeanAbs, poseBake.MeanAbs, restLookup.MeanAbs, naive.MeanAbs);
+
+    ASSERT_GT(MeanDarkening(posedTruth), 0.1) << "the probes are not inside enough coat to measure anything";
+    // As good as the exact pose bake against the SAME truth (the reference's
+    // own noise is common to both), and as good as the rest volume is at
+    // rest: the lookup asks the rest coat the turned coat's question.
+    EXPECT_LE(restLookup.MeanAbs, poseBake.MeanAbs * 1.2 + 0.01)
+        << "a coat carried whole by a turn is not shadowed as the pose bake shadows it";
+    EXPECT_LE(restLookup.MeanAbs, atRest.MeanAbs * 1.2 + 0.01)
+        << "a coat carried whole by a turn is not shadowed by the neighbours it rests among";
+    const f64 lookupExcess = std::max(restLookup.MeanAbs - poseBake.MeanAbs, 0.005);
+    EXPECT_GT(naive.MeanAbs - poseBake.MeanAbs, lookupExcess * 5.0)
+        << "the rest volume read at the POSED point is not clearly wrong, so this case cannot tell the lookup from it";
+}
+
+TEST(GroomCoatShadowDeformed, ARestBakeIsBiasedOnlyWhereALimbMovesAgainstItsNeighbours)
+{
+    // The limb case of section 1 -- the +x half swung 4 cm along z -- asked two
+    // ways, from the same limb probes. A probe marches TOWARDS its light
+    // (BuildCoatProbes stores -lightDirection). Marching out through the limb
+    // (+x) it meets only the neighbours the limb carried with it, so the rest
+    // lookup is exact but for the representation. Marching back across the cut
+    // (-x) it meets body fur the limb has moved against, which the rest volume
+    // still shows where it was: that is the bias the mode accepts, measured
+    // here and quoted in groom-coat-rest-bake.md.
+    const Pelt pelt = MakePelt(4000u);
+    ASSERT_TRUE(pelt.Groom);
+    const glm::vec3 swing{ 0.0f, 0.0f, 0.04f };
+    const auto moved = Displaced(pelt.Rest, swing, [](const glm::vec3& mid)
+                                 { return mid.x > 0.0f; });
+    std::vector<CoatSegment> movedSegments;
+    ASSERT_GT(BuildCoatSegmentsFromStrandVertices(moved, kWidthScale, movedSegments), 0u);
+    const DensityVolume rest = Bake(pelt.Rest, 48u);
+    const DensityVolume posed = Bake(moved, 48u);
+    ASSERT_TRUE(rest.IsValid());
+    ASSERT_TRUE(posed.IsValid());
+    const ReferenceSettings reference = PeltReference(pelt);
+
+    const auto measure = [&](const glm::vec3& light, bool (*keep)(const glm::vec3&), const char* label)
+    {
+        std::vector<CoatProbe> all;
+        (void)BuildCoatProbes(pelt.RestSegments, light, 1600u, 1535u, all);
+        std::vector<CoatProbe> restProbes;
+        std::vector<CoatProbe> posedProbes;
+        for (const CoatProbe& p : all)
+        {
+            if (keep(p.Position) && restProbes.size() < 250u)
+            {
+                restProbes.push_back(p);
+                posedProbes.push_back({ p.Position + swing, p.Direction });
+            }
+        }
+        EXPECT_GE(restProbes.size(), 50u) << label;
+        const std::vector<f32> posedTruth = Reference(movedSegments, posedProbes, reference);
+        // All three against the same truth, so the reference's noise is common.
+        const CoatShadowError poseBake = VolumeError(posed, posedProbes, posedTruth);
+        const CoatShadowError restLookup = VolumeError(rest, restProbes, posedTruth); // a translation: no turn
+        const CoatShadowError naive = VolumeError(rest, posedProbes, posedTruth);
+        std::printf("[groom-coat-deformed] rest bake, limb %s: %zu probes, truth darkening %.4f; |dT| vs reference: "
+                    "pose bake %.4f, rest lookup %.4f, naive %.4f\n",
+                    label, restProbes.size(), MeanDarkening(posedTruth), poseBake.MeanAbs, restLookup.MeanAbs,
+                    naive.MeanAbs);
+        return std::array<f64, 3>{ poseBake.MeanAbs, restLookup.MeanAbs, naive.MeanAbs };
+    };
+
+    const auto inLimb = [](const glm::vec3& p)
+    { return p.x > 0.06f; };
+    const auto inside = measure(glm::vec3(-1.0f, 0.0f, 0.0f), inLimb, "inside"); // marches +x
+    const auto across = measure(glm::vec3(1.0f, 0.0f, 0.0f), inLimb, "across");  // marches -x
+
+    EXPECT_LE(inside[1], inside[0] * 1.2 + 0.01)
+        << "the rest lookup is worse than the pose bake even where the limb carries its neighbours";
+    // Across the cut the bias is the mode's price; it stays well under the
+    // naive lookup's.
+    EXPECT_LT(across[1] - across[0], 0.5 * (across[2] - across[0]))
+        << "across the cut the rest lookup is no better than naive";
 }

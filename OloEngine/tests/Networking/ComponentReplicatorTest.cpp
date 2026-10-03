@@ -345,7 +345,8 @@ TEST(ComponentReplicatorTest, Rigidbody3DRejectsZeroMass)
 }
 
 // ── AnimationState networked-subset wire hardening ───────────────────────
-// Wire layout (net archive): i32 state, i32 clipIndex, f32 currentTime, bool isPlaying.
+// Wire layout (net archive): i32 state, i32 clipIndex, f32 currentTime, bool isPlaying,
+// bool loop, f32 playbackSpeed.
 
 TEST(ComponentReplicatorTest, AnimationStateClampsOutOfRangeEnumToIdle)
 {
@@ -362,7 +363,9 @@ TEST(ComponentReplicatorTest, AnimationStateClampsOutOfRangeEnumToIdle)
         i32 clipIndex = 5;
         f32 time = 0.5f;
         bool playing = true;
-        writer << state << clipIndex << time << playing;
+        bool loop = false;
+        f32 speed = 0.5f;
+        writer << state << clipIndex << time << playing << loop << speed;
     }
 
     AnimationStateComponent loaded;
@@ -375,6 +378,8 @@ TEST(ComponentReplicatorTest, AnimationStateClampsOutOfRangeEnumToIdle)
     EXPECT_EQ(loaded.m_CurrentClipIndex, 5);
     EXPECT_FLOAT_EQ(loaded.m_CurrentTime, 0.5f);
     EXPECT_TRUE(loaded.m_IsPlaying);
+    EXPECT_FALSE(loaded.m_Loop);
+    EXPECT_FLOAT_EQ(loaded.m_PlaybackSpeed, 0.5f);
 }
 
 TEST(ComponentReplicatorTest, AnimationStateFloorsNegativeClipIndexAndKeepsValidEnum)
@@ -389,7 +394,9 @@ TEST(ComponentReplicatorTest, AnimationStateFloorsNegativeClipIndexAndKeepsValid
         i32 clipIndex = -3;
         f32 time = 0.0f;
         bool playing = false;
-        writer << state << clipIndex << time << playing;
+        bool loop = true;
+        f32 speed = std::numeric_limits<f32>::quiet_NaN(); // hostile: must not reach the clip clock
+        writer << state << clipIndex << time << playing << loop << speed;
     }
 
     AnimationStateComponent loaded;
@@ -400,4 +407,5 @@ TEST(ComponentReplicatorTest, AnimationStateFloorsNegativeClipIndexAndKeepsValid
     EXPECT_FALSE(reader.IsError());
     EXPECT_EQ(loaded.m_State, AnimationStateComponent::State::Bounce);
     EXPECT_EQ(loaded.m_CurrentClipIndex, 0); // floored
+    EXPECT_FLOAT_EQ(loaded.m_PlaybackSpeed, 1.0f);
 }

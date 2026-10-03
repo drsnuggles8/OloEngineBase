@@ -505,10 +505,13 @@ namespace OloEngine
     // ── The double-count invariant, as a guard ───────────────────────────
 
     // THE INVARIANT: a groom proxy occludes other receivers and never its own
-    // coat. It holds today because GroomRenderPass does not write the
-    // G-Buffer, so no screen-space shadow term reaches a strand and #1248's
-    // tau is the only thing attenuating one. That is a property of a SHADER,
-    // and nothing else in this suite would notice it changing.
+    // coat. It holds because GroomRenderPass does not write the G-Buffer, so
+    // no SCREEN-SPACE or RAY-TRACED shadow term reaches a strand: the coat's
+    // own occlusion is #1248's tau, and the only scene term a strand reads is
+    // the raster shadow maps (#1323, re-landed by #1523), sampled at the
+    // coat's LIGHT-EXIT point so a coat that is also a caster is not occluded
+    // by its own strands twice. That is a property of a SHADER, and nothing
+    // else in this suite would notice it changing.
     //
     // WHY THIS COUNTS RATHER THAN CHECKING FOR ABSENCE. A guard that only
     // asserts "this token is not here" passes on an empty string, a renamed
@@ -516,8 +519,9 @@ namespace OloEngine
     // the POSITIVE facts at their exact counts first — if those move, the
     // test fails and a human reads the diff — and only then the absences.
     // The failure it prevents is already on record in a different door:
-    // a groom that both casts and receives goes from 44.98 to 0.22 luma.
-    TEST(GroomRayTracingProxy, TheCoatShaderReadsNoSceneShadowTermSoAProxyCannotShadowItsOwnCoat)
+    // a groom that both casts and receives, with the receiver left at the
+    // fragment, goes from 44.98 to 0.22 luma.
+    TEST(GroomRayTracingProxy, TheCoatShaderReadsNoRayTracedShadowTermSoAProxyCannotShadowItsOwnCoat)
     {
         const auto path = std::filesystem::path{ OLO_TEST_EDITOR_ROOT } / "assets" / "shaders" /
                           "GroomStrand.glsl";
@@ -543,19 +547,100 @@ namespace OloEngine
         // The coat's OWN attenuation, which must stay exactly where it is.
         // Pinned at its count so a second call site — the shape a scene-shadow
         // term would most likely arrive in — fails here.
+        //
+        // ONE FUNNEL since the rest bake (#1533): oloGroomCoatTauAndBody holds
+        // both marches -- the posed coat's, and a coat baked at rest from its
+        // bind-pose point -- and is called for each light, the sky on the
+        // viewer's side, and the sky BEHIND the fibre (the TT paths, whose light
+        // comes through the coat below). Five transmittance mentions: one per
+        // call plus two comments naming the function. All of it is the coat's
+        // own volume -- the strands, and since #1533 the body it grows on,
+        // counted only where no shadow map answered for it -- none is a scene
+        // shadow map's term.
         EXPECT_EQ(count("oloGroomCoatOpticalDepth"), 2u)
             << "the coat's own optical-depth path moved; re-read the double-count boundary in "
                "GroomCoatShadow.h before changing this number";
-        EXPECT_EQ(count("oloGroomCoatTransmittance"), 3u)
+        EXPECT_EQ(count("oloGroomCoatTauAndBody("), 4u)
+            << "one definition and three marches (each light, the sky, the sky behind the fibre); a new "
+               "caller is a new attenuation path";
+        EXPECT_EQ(count("oloGroomCoatTransmittance"), 5u)
             << "the coat's own transmittance path moved; same warning";
 
-        // And the absences: no scene shadow term of any kind reaches a strand.
+        // The raster scene-shadow receive (#1323): ONE function, ONE call site in
+        // the light loop, ONE light-exit offset, and each technique's lookup
+        // reached only from inside that function. A second lookup elsewhere is
+        // a receiver left at the fragment, which is the black-coat failure. The
+        // third oloGroomSceneShadow is the fibre shader's comment naming it.
+        EXPECT_EQ(count("oloGroomSceneShadow"), 3u)
+            << "the scene-shadow receive moved; every lookup must go through the one light-exit function";
+        // The offset's two spaces (posed, and at rest) inside one wrapper, plus
+        // the comment that names it; the wrapper is called once.
+        EXPECT_EQ(count("oloGroomCoatLightExitDistance"), 3u)
+            << "the light-exit offset moved out of oloGroomCoatExitDistance";
+        EXPECT_EQ(count("oloGroomCoatExitDistance("), 2u)
+            << "the light-exit offset is computed once, in oloGroomSceneShadow";
+        // Two of each since #1533: the strand's lookup, and the full map's at the
+        // coat's light-exit point for another coat's fur -- both in
+        // oloGroomSceneShadow, the second never at the fragment (below).
+        EXPECT_EQ(count("calculateCascadedShadowFactorCSM"), 2u)
+            << "the strand's CSM lookup and the exit point's, both in oloGroomSceneShadow";
+        EXPECT_EQ(count("vsmShadowFactor"), 1u) << "one VSM directional lookup, in oloGroomSceneShadow";
+        EXPECT_EQ(count("calculateAtlasEntryShadow"), 4u)
+            << "the strand's and the exit point's atlas lookups for the spot and the point face, all in "
+               "oloGroomSceneShadow";
+
+        // THE FRAGMENT REACHES A LOOKUP ONLY AGAINST AN OPAQUE COPY (#1533).
+        // The cascades and the atlas each have a copy made before any groom
+        // cast into them, with no fur in it; sampled at the strand, it lets the
+        // body shadow its own fur and counts none of the coat. A lookup at the
+        // fragment against a map WITH the fur is the black-coat failure above,
+        // so each receiver is chosen by the one selection on its copy's bit:
+        // one for the cascades, two for the atlas (spot, point face).
+        EXPECT_EQ(count("opaqueCascades ? v_WorldPos : shadowPos"), 1u)
+            << "the CSM receiver is the strand only when the opaque cascades are bound";
+        EXPECT_EQ(count("atlasAtStrand ? v_WorldPos + (L * OLO_GROOM_STRAND_RECEIVER_OFFSET) : shadowPos"), 2u)
+            << "each atlas receiver is the strand only against a map without this coat's fur: the opaque atlas, "
+               "or the full one under a coat that does not cast";
+        // A STRAND SAMPLED AT ITSELF MOVES ONE MILLIMETRE, WITH NO DEPTH BIAS
+        // (#1533). The shadow pass culls front faces, so the body is stored by
+        // its far side, and the fur on that side lies millimetres behind it: the
+        // surfaces' receiver bias -- and the atlas helper's texels of the entry --
+        // carried that fur back in front, and the body shadowed none of it.
+        EXPECT_EQ(count("vec3 offsetDirection = vec3(0.0);"), 2u)
+            << "an atlas lookup at the strand took the helper's texel offset back";
+        EXPECT_EQ(count("atlasAtStrand ? 0.0 : u_AtlasDepthBiasTexels"), 2u)
+            << "an atlas lookup at the strand took a depth bias back";
+        EXPECT_EQ(count("known ? vec4(0.0, OLO_GROOM_STRAND_RECEIVER_OFFSET, u_ShadowParams.zw) : u_ShadowParams"), 1u)
+            << "the cascade lookup at the strand took the surfaces' bias back";
+        EXPECT_EQ(count("OLO_GROOM_STRAND_RECEIVER_OFFSET"), 5u)
+            << "the definition, the cascades' parameters, the two atlas receivers, and the comment naming it";
+        EXPECT_EQ(count("OLO_GROOM_STRAND_ATLAS_BIAS"), 0u) << "the atlas' own strand bias is back";
+        EXPECT_EQ(count("(u_GroomCoatModes.y & 2) != 0"), 1u) << "one gate on the opaque cascades' bit";
+        EXPECT_EQ(count("(u_GroomCoatModes.y & 4) != 0"), 1u) << "one gate on the opaque atlas' bit";
+        // ANOTHER COAT'S FUR (#1533): the full map, sampled only at the light-exit
+        // point (shadowPos), only against an opaque copy, only where another coat
+        // casts -- one gate, three lookups (the cascades, the spot, the point face).
+        EXPECT_EQ(count("(u_GroomCoatModes.y & 8) != 0"), 1u) << "one gate on the other-fur bit";
+        EXPECT_EQ(count("otherFur && !atStrand"), 3u)
+            << "an exit-point lookup for another coat's fur outside the opaque copy's branch, or one too many";
+
+        // `known` gates forwarded scattering on the BODY being in the answer,
+        // and a lookup at the exit point answers for nothing inside the coat.
+        // So it is never simply set: it is the opaque bit or a receiver that is
+        // the strand, once per lookup -- three VSM and three raster.
+        EXPECT_EQ(count("known = true"), 0u) << "known asserted without the lookup having run at the strand";
+        EXPECT_EQ(count("known = atStrand;"), 3u) << "the three VSM lookups";
+        EXPECT_EQ(count("|| atStrand;"), 3u) << "the CSM and the two atlas lookups";
+        EXPECT_EQ(count("known = atlasAtStrand;"), 2u) << "the two atlas lookups";
+
+        // And the absences: no screen-space or ray-traced shadow term reaches a
+        // strand.
         for (const std::string_view token : { "u_RayTracedShadowMask", "oloRayTracedShadowFactor",
-                                              "u_ShadowMap", "u_ShadowMapArray", "ShadowMask" })
+                                              "u_ShadowMapArray", "ShadowMask" })
         {
             EXPECT_EQ(count(token), 0u)
                 << "GroomStrand.glsl now reads '" << token << "'. A groom proxy is in the TLAS "
-                                                              "(#1253), so a strand that also RECEIVES a scene shadow is shadowed by its own "
+                                                              "(#1253), so a strand that also RECEIVES a ray-traced shadow is shadowed by its own "
                                                               "coat twice — which is the 44.98 -> 0.22 luma failure. Before allowing this, the "
                                                               "coat's own proxy instance must be excluded from its own visibility rays.";
         }

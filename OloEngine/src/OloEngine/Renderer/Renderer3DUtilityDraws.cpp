@@ -245,12 +245,18 @@ namespace OloEngine
             return nullptr;
         }
 
-        // Use a highly emissive material for skeleton visualization
+        // THE AUTHORED COLOUR ON SCREEN, unlit: a black base colour so the scene's
+        // lights add nothing, and the colour as emission at x1 (#1533). It was
+        // x5 "for visibility through surfaces", which the depth test being OFF
+        // already gives a debug line; what the x5 gave besides was an HDR value
+        // five times the colour, and in the dog scene -- bloom off -- the runtime
+        // camera's yellow frustum read as a white-hot cross wrapped in a green
+        // halo across the coat. At x1 it is a thin yellow line.
         Material material{};
-        material.SetBaseColorFactor(glm::vec4(color, 1.0f));
+        material.SetBaseColorFactor(glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
         material.SetMetallicFactor(0.0f);
         material.SetRoughnessFactor(1.0f);
-        material.SetEmissiveFactor(glm::vec4(color * 5.0f, 1.0f)); // Very bright emissive for visibility through surfaces
+        material.SetEmissiveFactor(glm::vec4(color, 1.0f));
 
         if (!s_Data.LineQuadMesh)
         {
@@ -311,12 +317,12 @@ namespace OloEngine
         // Create transform matrix for the sphere
         glm::mat4 transform = glm::translate(glm::mat4(1.0f), position) * glm::scale(glm::mat4(1.0f), glm::vec3(radius));
 
-        // Use a highly emissive material for skeleton joints
+        // Unlit at the authored colour, as DrawLine's lines are (#1533).
         Material material{};
-        material.SetBaseColorFactor(glm::vec4(color, 1.0f));
+        material.SetBaseColorFactor(glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
         material.SetMetallicFactor(0.0f);
-        material.SetRoughnessFactor(0.8f);
-        material.SetEmissiveFactor(glm::vec4(color * 3.0f, 1.0f)); // Very bright emission for visibility through surfaces
+        material.SetRoughnessFactor(1.0f);
+        material.SetEmissiveFactor(glm::vec4(color, 1.0f));
 
         CommandPacket* packet = nullptr;
 

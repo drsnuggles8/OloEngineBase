@@ -97,6 +97,11 @@ namespace OloEngine
         ar << component.m_CurrentClipIndex;
         ar << component.m_CurrentTime;
         ar << component.m_IsPlaying;
+        // A one-shot clip holds its last frame on the server and a slowed clip
+        // runs slow there; a client that looped it, or ran it at the authored
+        // rate, would drift out of step until the next snapshot.
+        ar << component.m_Loop;
+        ar << component.m_PlaybackSpeed;
         if (ar.IsLoading())
         {
             // Untrusted wire data: clamp the selector enum to its valid range so an
@@ -113,6 +118,7 @@ namespace OloEngine
                 component.m_CurrentClipIndex = 0;
             }
             component.m_CurrentTime = SanitizeWireFloat(component.m_CurrentTime, 0.0f);
+            component.m_PlaybackSpeed = std::clamp(SanitizeWireFloat(component.m_PlaybackSpeed, 1.0f), 0.0f, 10.0f);
         }
     }
 

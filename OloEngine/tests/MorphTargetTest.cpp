@@ -438,6 +438,43 @@ TEST(MorphTargetSystemTest, SampleMorphKeyframesMultipleTargets)
     EXPECT_NEAR(comp.GetWeight("B"), 0.5f, 1e-5f);
 }
 
+// Issue #1533: the morph half of a clip cross-fade. Without it a face's
+// weights jump to the target clip's values when the skeletal blend completes.
+TEST(MorphTargetSystemTest, BlendedSamplingMixesBothClipsByTheBlendFactor)
+{
+    auto idle = Ref<AnimationClip>::Create();
+    idle->Duration = 1.0f;
+    idle->MorphKeyframes.push_back({ 0.0f, "Blink", 0.2f });
+    idle->MorphKeyframes.push_back({ 1.0f, "Blink", 0.2f });
+    idle->MorphKeyframes.push_back({ 0.0f, "Brow", 0.6f });
+
+    auto pant = Ref<AnimationClip>::Create();
+    pant->Duration = 1.0f;
+    pant->MorphKeyframes.push_back({ 0.0f, "Blink", 0.8f });
+    pant->MorphKeyframes.push_back({ 0.0f, "MouthOpen", 1.0f });
+
+    MorphTargetComponent comp;
+    comp.SetWeight("MouthOpen", 0.1f); // Idle does not animate it: its side reads this
+    comp.SetWeight("Brow", 0.4f);      // Pant does not animate it: its side reads this
+
+    MorphTargetSystem::SampleMorphKeyframesBlended(idle, 0.5, pant, 0.0, 0.25f, comp);
+    EXPECT_NEAR(comp.GetWeight("Blink"), 0.2f * 0.75f + 0.8f * 0.25f, 1e-5f);
+    EXPECT_NEAR(comp.GetWeight("MouthOpen"), 0.1f * 0.75f + 1.0f * 0.25f, 1e-5f);
+    EXPECT_NEAR(comp.GetWeight("Brow"), 0.6f * 0.75f + 0.4f * 0.25f, 1e-5f);
+
+    // The ends of the blend are the two clips on their own.
+    MorphTargetComponent atEnd;
+    MorphTargetSystem::SampleMorphKeyframesBlended(idle, 0.5, pant, 0.0, 1.0f, atEnd);
+    EXPECT_NEAR(atEnd.GetWeight("Blink"), 0.8f, 1e-5f);
+    EXPECT_NEAR(atEnd.GetWeight("MouthOpen"), 1.0f, 1e-5f);
+
+    // A clip without morph keys on either side is the other clip alone.
+    auto bare = Ref<AnimationClip>::Create();
+    MorphTargetComponent oneSided;
+    MorphTargetSystem::SampleMorphKeyframesBlended(bare, 0.0, pant, 0.0, 0.25f, oneSided);
+    EXPECT_NEAR(oneSided.GetWeight("Blink"), 0.8f, 1e-5f);
+}
+
 TEST(MorphTargetSystemTest, EmptyClipDoesNotCrash)
 {
     auto clip = Ref<AnimationClip>::Create();

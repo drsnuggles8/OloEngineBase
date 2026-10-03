@@ -299,6 +299,12 @@ namespace OloEngine
             return nullptr;
         }
 
+        // Every reader starts AT ITS RECORD (#1533). Most serializers seek there
+        // themselves, but the groom, groom binding, static mesh, lightmap,
+        // light-probe volume and volume readers read from wherever the stream
+        // stood -- the pack's header on a fresh stream -- so a shipped game loaded
+        // every one of them as garbage, and the packaged dog was bald.
+        stream.SetStreamPosition(assetInfo.PackedOffset);
         const RendererMemoryOwnerScope memoryOwner(AssetUtils::AssetTypeToString(assetInfo.Type), MemoryLifetime::Asset);
         return it->second->DeserializeFromAssetPack(stream, assetInfo);
     }
@@ -315,6 +321,7 @@ namespace OloEngine
         }
 
         auto sceneSerializer = it->second.get();
+        stream.SetStreamPosition(assetInfo.PackedOffset); // at its record, as above
         return sceneSerializer->DeserializeSceneFromAssetPack(stream, assetInfo);
     }
 

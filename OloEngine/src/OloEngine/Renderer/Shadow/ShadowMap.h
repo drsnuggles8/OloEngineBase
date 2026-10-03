@@ -40,13 +40,13 @@ namespace OloEngine
         // number, which is why the sample scenes rendered ground shadows 2-13 m
         // clear of their casters at the engine default.
         f32 DepthBiasTexels = ShaderConstants::SHADOW_CSM_DEPTH_BIAS_TEXELS;
-        // Local-light ATLAS constant depth bias, in the atlas entry's own
-        // normalized [0,1] depth. Separate from DepthBiasTexels because the two
-        // live in different spaces (perspective entry vs orthographic cascade)
-        // and because routing the directional light's number into the spot /
-        // point lookups - which is what a single shared field did - made an
-        // unrelated light's authoring decide how local shadows biased.
-        f32 AtlasBias = ShaderConstants::SHADOW_BIAS;
+        // Local-light ATLAS depth bias, in TEXELS of the entry's tile at the
+        // receiver (#1533; see ShadowAtlasBias.h). Separate from DepthBiasTexels
+        // because the two convert differently (perspective entry vs orthographic
+        // cascade) and because routing the directional light's number into the
+        // spot / point lookups - which is what a single shared field did - made
+        // an unrelated light's authoring decide how local shadows biased.
+        f32 AtlasDepthBiasTexels = ShaderConstants::SHADOW_ATLAS_DEPTH_BIAS_TEXELS;
         // Receiver offset along the shading normal, in WORLD METRES, applied
         // before the light-space projection (the VSM normal offset's unit).
         // It does NOT scale with the cascade - 0.01 is one centimetre in every
@@ -244,6 +244,54 @@ namespace OloEngine
         {
             return m_AtlasTexture;
         }
+
+        // THE OPAQUE COPIES (#1533): the cascades and the local-light atlas as
+        // they stand before any groom casts into them. A groom's strands sample
+        // THESE for the scene's occlusion AT THEIR OWN POSITION -- the body they
+        // grow on and every other opaque caster -- while the coat's own
+        // extinction stays the density volume's, so nothing is counted twice.
+        // Every other receiver samples the full maps, fur and all. The arrays
+        // grow to hold them once a groom casts and receives (the layers double
+        // the arrays' memory); written by ShadowRenderPass after the opaque
+        // casters and before the grooms, and valid only for the frame that wrote
+        // them. See groom-into-the-shadow-techniques.md rule 8.
+        enum class OpaqueCopy : u8
+        {
+            Cascades,
+            Atlas,
+        };
+        /// WHERE THE COPIES LIVE (#1533): in the upper layers of the cascade and
+        /// atlas arrays themselves, cascade i at OPAQUE_CSM_LAYER_BASE + i and the
+        /// atlas at OPAQUE_ATLAS_LAYER. One binding then gives a groom both the
+        /// opaque map, sampled at the strand, and the full one, sampled at its
+        /// coat's light-exit point for another groom's fur -- separate copy
+        /// textures needed four more texture bindings, and the namespace sits at
+        /// GL 4.6's 80. GroomStrand.glsl's OLO_GROOM_OPAQUE_* are the twins.
+        static constexpr u32 OPAQUE_CSM_LAYER_BASE = MAX_CSM_CASCADES;
+        static constexpr u32 OPAQUE_ATLAS_LAYER = 1u;
+        /// True when the arrays carry the opaque layers. The first call asks for
+        /// them and answers false: they are added at the next BeginFrame, before
+        /// the frame hands out a shadow handle, so no frame samples a texture
+        /// replaced under it. That one frame keeps the light-exit receiver.
+        bool EnsureOpaqueCopy(OpaqueCopy which);
+        void SetOpaqueCopyWritten(OpaqueCopy which, bool written)
+        {
+            m_OpaqueWritten[static_cast<sizet>(which)] = written;
+        }
+        [[nodiscard]] bool IsOpaqueCopyWritten(OpaqueCopy which) const
+        {
+            return m_OpaqueLayers && m_OpaqueWritten[static_cast<sizet>(which)];
+        }
+        [[nodiscard]] bool HasOpaqueLayers() const
+        {
+            return m_OpaqueLayers;
+        }
+        /// Adds the opaque layers EnsureOpaqueCopy asked for. Called by
+        /// RenderPipeline::PrepareFrame BEFORE it hands the frame its shadow
+        /// handles: the scene's BeginFrame runs after them, and an array replaced
+        /// there left every receiver sampling the released one for a frame --
+        /// the whole scene read as shadowed.
+        void ApplyPendingOpaqueLayers();
         [[nodiscard]] u32 GetCSMRendererID() const;
         [[nodiscard]] u32 GetAtlasRendererID() const;
 
@@ -374,6 +422,10 @@ namespace OloEngine
         void SetEnabled(bool enabled)
         {
             m_Settings.Enabled = enabled;
+            // The VSM learns the global switch in BeginFrame; tell it now as well,
+            // so a settings change made before the next frame sees this state and
+            // not the last frame's (#1533).
+            m_VirtualShadowMap.SetSuppressed(!enabled);
         }
 
         void SetDirectionalShadowEnabled(bool enabled)
@@ -457,6 +509,14 @@ namespace OloEngine
         // Shadow map textures
         Ref<Texture2DArray> m_CSMTextureArray; // 4 layers for CSM cascades
         Ref<Texture2DArray> m_AtlasTexture;    // 1-layer local-light shadow atlas (issue #435)
+        // The opaque layers (#1533): asked for, carried, and written this frame.
+        bool m_OpaqueLayers = false;
+        bool m_OpaqueLayersRequested = false;
+        std::array<bool, 2> m_OpaqueWritten{};
+        // Creates / releases the two depth arrays and their raw views, at the
+        // layer count m_OpaqueLayers decides.
+        void CreateDepthArrays();
+        void ReleaseDepthArrays();
 
         // Comparison-OFF raw-depth views of the two depth textures above (for
         // PCSS blocker search). Owned GL texture-view objects; deleted in Shutdown().

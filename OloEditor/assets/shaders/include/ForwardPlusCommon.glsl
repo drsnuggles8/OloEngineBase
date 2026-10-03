@@ -225,9 +225,9 @@ OloSurfaceLighting fplusEvaluateTileLightsSplit(vec3 N, vec3 V, vec3 worldPos,
             {
                 int entry = baseEntry + atlasCubeFace(worldPos - lightPos);
                 radiance *= calculateAtlasEntryShadow(
-                    worldPos, u_AtlasEntryMatrices[entry], u_AtlasEntryScaleOffset[entry],
+                    worldPos, N, u_AtlasEntryMatrices[entry], u_AtlasEntryScaleOffset[entry],
                     u_ShadowAtlas, u_ShadowAtlasRaw,
-                    u_AtlasDepthBias, u_AtlasResolution, 0, u_ShadowParams.z);
+                    u_AtlasDepthBiasTexels, u_AtlasResolution, 0, u_ShadowParams.z);
             }
 #endif
 
@@ -267,9 +267,9 @@ OloSurfaceLighting fplusEvaluateTileLightsSplit(vec3 N, vec3 V, vec3 worldPos,
             {
                 int entry = baseEntry + atlasCubeFace(worldPos - lightPos);
                 float atlasShadow = calculateAtlasEntryShadow(
-                    worldPos, u_AtlasEntryMatrices[entry], u_AtlasEntryScaleOffset[entry],
+                    worldPos, N, u_AtlasEntryMatrices[entry], u_AtlasEntryScaleOffset[entry],
                     u_ShadowAtlas, u_ShadowAtlasRaw,
-                    u_AtlasDepthBias, u_AtlasResolution, 0, u_ShadowParams.z);
+                    u_AtlasDepthBiasTexels, u_AtlasResolution, 0, u_ShadowParams.z);
                 contribution = oloSurfaceLightingScale(contribution, vec3(atlasShadow));
             }
 #endif
@@ -316,9 +316,9 @@ OloSurfaceLighting fplusEvaluateTileLightsSplit(vec3 N, vec3 V, vec3 worldPos,
             else if (atlasEntry >= 0 && atlasEntry < u_AtlasEntryCount)
             {
                 radiance *= calculateAtlasEntryShadow(
-                    worldPos, u_AtlasEntryMatrices[atlasEntry], u_AtlasEntryScaleOffset[atlasEntry],
+                    worldPos, N, u_AtlasEntryMatrices[atlasEntry], u_AtlasEntryScaleOffset[atlasEntry],
                     u_ShadowAtlas, u_ShadowAtlasRaw,
-                    u_AtlasDepthBias, u_AtlasResolution, u_SoftShadowMode, u_ShadowParams.z);
+                    u_AtlasDepthBiasTexels, u_AtlasResolution, u_SoftShadowMode, u_ShadowParams.z);
             }
 #endif
 

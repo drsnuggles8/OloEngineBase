@@ -385,7 +385,7 @@ layout(std140, binding = 6) uniform ShadowData {
     int u_AtlasResolution;
     int u_CascadeDebugEnabled;
     int u_SoftShadowMode;  // 0 = legacy hardware PCF, 1 = PCSS (contact-hardening)
-    float u_AtlasDepthBias; // local-light atlas constant depth bias, normalized [0,1] (#1119)
+    float u_AtlasDepthBiasTexels; // local-light atlas depth bias, in TEXELS of the entry's tile (#1533)
     int _shadowPad2;
 };
 
@@ -463,7 +463,16 @@ void main()
             discard;
     }
 
-    vec3 albedo = OLO_MAT_ALBEDO(u_AlbedoMap, v_TexCoord, u_BaseColorFactor.rgb, bool(u_UseAlbedoMap));
+    // AN IRIS PAINTED INTO THE ALBEDO MAP is fetched where the cornea looks
+    // (issue #1533); see include/SkinOcularSurface.glsl, oloSkinOcularIrisShift.
+    vec2 albedoUV = v_TexCoord;
+    if (oloSkinEvaluatesOcularSurface(u_MaterialKind, u_SkinEvaluationModel) && u_UseAlbedoMap == 1)
+    {
+        albedoUV = oloSkinOcularAlbedoUv(v_TexCoord, v_Normal, normalize(u_CameraPosition - v_WorldPos),
+                                         instances[v_InstanceIndex].Transform[2].xyz, u_SkinOcularCorneaLane,
+                                         u_SkinOcularIrisLane, u_SkinOcularResponseLane, u_SkinOcularTintLane);
+    }
+    vec3 albedo = OLO_MAT_ALBEDO(u_AlbedoMap, albedoUV, u_BaseColorFactor.rgb, bool(u_UseAlbedoMap));
     vec2 metallicRoughness = OLO_MAT_METALLIC_ROUGHNESS(u_MetallicRoughnessMap, v_TexCoord,
                                                         u_MetallicFactor, u_RoughnessFactor,
                                                         bool(u_UseMetallicRoughnessMap));
@@ -696,7 +705,10 @@ void main()
         {
             lightVisibility *= cloudShadow;
         }
-        if (lightType == DIRECTIONAL_LIGHT && u_DirectionalShadowEnabled != 0)
+        // The cascades (and VSM's clip map) are the FIRST directional light's:
+        // Scene.cpp builds them for UBO index 0 only. A second directional light
+        // is unshadowed here rather than shadowed by the first one's map.
+        if (lightType == DIRECTIONAL_LIGHT && i == 0 && u_DirectionalShadowEnabled != 0)
         {
             // Compute view-space depth for cascade selection
             vec4 viewSpacePos = u_View * vec4(v_WorldPos, 1.0);
@@ -741,11 +753,12 @@ void main()
             {
                 float shadow = calculateAtlasEntryShadow(
                     v_WorldPos,
+                    shadowN,
                     u_AtlasEntryMatrices[atlasEntry],
                     u_AtlasEntryScaleOffset[atlasEntry],
                     u_ShadowAtlas,
                     u_ShadowAtlasRaw,
-                    u_AtlasDepthBias,
+                    u_AtlasDepthBiasTexels,
                     u_AtlasResolution,
                     u_SoftShadowMode,
                     u_ShadowParams.z
@@ -771,11 +784,12 @@ void main()
                 int entry = baseEntry + atlasCubeFace(v_WorldPos - lightPos);
                 float shadow = calculateAtlasEntryShadow(
                     v_WorldPos,
+                    shadowN,
                     u_AtlasEntryMatrices[entry],
                     u_AtlasEntryScaleOffset[entry],
                     u_ShadowAtlas,
                     u_ShadowAtlasRaw,
-                    u_AtlasDepthBias,
+                    u_AtlasDepthBiasTexels,
                     u_AtlasResolution,
                     0, // PCF only on cube faces (matches the old cubemap path)
                     u_ShadowParams.z
@@ -1029,5 +1043,5 @@ void main()
     // .a is the MATERIAL PROFILE (#1256): the snow weight, the same number
     // G-Buffer RT3.a carries, so TAA reacts to a changing snow cover alike
     // on every path (issue #1451).
-    o_Velocity = vec4((ndcCurr - ndcPrev) * 0.5, 1.0, snowWeight);
+    o_Velocity = vec4(oloVelocityFromNdc(ndcCurr, ndcPrev), 1.0, snowWeight);
 }

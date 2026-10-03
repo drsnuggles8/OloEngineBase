@@ -983,6 +983,15 @@ namespace OloEngine
         // visibility buffer with a single atomicMin on a packed uint64_t instead
         // of the portable two-pass 2x32 scheme (issue #629). Cached at Init.
         [[nodiscard("Store this!")]] virtual bool SupportsInt64ShaderAtomics() const = 0;
+        // True when an indirect draw's baseInstance (firstInstance) offsets the
+        // instance stream, which the foliage cull's mesh region relies on
+        // (#1533). OpenGL 4.6 always does; Vulkan when the device enabled
+        // drawIndirectFirstInstance. A virtual with that default rather than a
+        // pure one, so a test's mock backend need not answer it.
+        [[nodiscard("Store this!")]] virtual bool SupportsIndirectFirstInstance() const
+        {
+            return true;
+        }
         // True when the backend can run task/mesh-shader graphics pipelines
         // right now — the capability gate for DrawMeshTasks (issue #813).
         // Vulkan answers from the logical device's ENABLED VK_EXT_mesh_shader

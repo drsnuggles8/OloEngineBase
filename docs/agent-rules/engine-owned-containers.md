@@ -80,7 +80,7 @@ Two things the trait cannot see, which are yours to check:
 - **A `std::string_view` member** is trivially copyable and therefore accepted — but if it points
   into a buffer the same struct owns, relocation leaves it dangling.
 
-## Two traps this migration actually hit
+## Three traps this migration actually hit
 
 **A view into a temporary.** `set.insert(name.ToStdString())` on a `std::unordered_set<std::string_view>`
 compiles, and every entry dangles the moment the temporary dies. It cost a frame-graph mis-ordering
@@ -90,6 +90,12 @@ that no test caught. Use `.ToView()` when the container borrows and the owner ou
 `vector.resize(n)` to `array.SetNum(n)` used to leave aggregates of scalars — `glm::vec3`, POD
 structs — holding garbage, because `MemoryOps.h`'s zeroing whitelist covered bare scalars only.
 Fixed engine-side by value-initialising, but the asymmetry is worth knowing when reading UE code.
+
+**`Reset()` frees the allocation; `Empty()` keeps it.** This is the reverse of UE, where `Reset`
+keeps the slack. `TArray::Reset(n)` resizes the allocation to `n`, which is zero by default. A
+per-frame scratch array cleared with `Reset()` was reallocated, and its pages faulted in, every
+frame (#1533: the groom simulation's targets, the stand-in expansion's outputs). Clear a buffer
+that is refilled at the same size with `Empty()`.
 
 ## The trait answers differently on clang-cl and MSVC
 

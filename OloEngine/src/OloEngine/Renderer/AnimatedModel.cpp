@@ -49,6 +49,14 @@ namespace OloEngine
             // one in ProcessMesh instead left a mesh with no indices at all, which
             // MeshSource::Build cannot upload (issue #1440).
             importer.SetPropertyInteger(AI_CONFIG_PP_SBP_REMOVE, aiPrimitiveType_POINT | aiPrimitiveType_LINE);
+            // Keep the skin's joints that weight no vertex. Assimp drops them by
+            // default, and they are exactly the bones other entities attach to: a
+            // prop's socket, or an eye riding its eye bone (#1533). Dropped, a
+            // BoneAttachmentComponent cannot find its bone and composes against the
+            // parent instead -- right at the bind pose, wrong as soon as the
+            // skeleton moves: the showcase dog's eyes stayed put while its head
+            // turned, and rolled in their lids.
+            importer.SetPropertyBool(AI_CONFIG_IMPORT_REMOVE_EMPTY_BONES, false);
         }
 
         // Combine multiple MeshSources into a single MeshSource for binary cache serialization.
@@ -807,6 +815,25 @@ namespace OloEngine
         return combined;
     }
 
+    Ref<MeshSource> AnimatedModel::GetEntityMeshSource() const
+    {
+        if (m_Meshes.Num() <= 1)
+        {
+            return m_Meshes.IsEmpty() ? nullptr : m_Meshes[0];
+        }
+        if (!m_EntityMeshSource)
+        {
+            m_EntityMeshSource = CreateCombinedMeshSource();
+            if (m_EntityMeshSource)
+            {
+                // Pre-optimized, so this uploads without reordering a vertex: the
+                // topology a groom binding was cooked against is the one it draws.
+                m_EntityMeshSource->Build();
+            }
+        }
+        return m_EntityMeshSource;
+    }
+
     void AnimatedModel::ProcessNode(const aiNode* node, const aiScene* scene, const glm::mat4& parentTransform)
     {
         OLO_PROFILE_FUNCTION();
@@ -1117,9 +1144,19 @@ namespace OloEngine
                 // Malformed imported weights must never reach Normalize(): a NaN
                 // poisons the whole vertex, and a negative weight can cancel a
                 // valid influence before the palette is uploaded.
-                if (!std::isfinite(weight) || weight <= 0.0f)
+                //
+                // A ZERO weight is skipped quietly: it is how Assimp keeps a
+                // joint that weights nothing -- one zero weight on vertex 0 --
+                // once the importer stops dropping those joints (#1533, the eye
+                // bones and sockets above). Reporting it named every such joint
+                // as a malformed weight on every load of a rigged model.
+                if (!std::isfinite(weight) || weight < 0.0f)
                 {
                     OLO_CORE_WARN("AnimatedModel::ProcessBones: Invalid weight for vertex {}", vertexId);
+                    continue;
+                }
+                if (weight == 0.0f)
+                {
                     continue;
                 }
 
@@ -2039,7 +2076,16 @@ namespace OloEngine
             material.SetNormalMap(normalMaps[0]);
         }
 
-        if (auto aoMaps = LoadMaterialTextures(mat, aiTextureType_AMBIENT_OCCLUSION); !aoMaps.IsEmpty())
+        // Assimp's glTF2 importer files a glTF occlusionTexture under
+        // aiTextureType_LIGHTMAP, not AMBIENT_OCCLUSION, so without the second
+        // lookup every glTF occlusion map was dropped here while the static
+        // Model route (which already falls back the same way) kept it.
+        auto aoMaps = LoadMaterialTextures(mat, aiTextureType_AMBIENT_OCCLUSION);
+        if (aoMaps.IsEmpty())
+        {
+            aoMaps = LoadMaterialTextures(mat, aiTextureType_LIGHTMAP);
+        }
+        if (!aoMaps.IsEmpty())
         {
             material.SetAOMap(aoMaps[0]);
         }

@@ -1381,6 +1381,21 @@ TEST(MeshOptimization, MeasureModelExtentMatchesTheBoundingBox)
 // are the same point; the last ring collapses the same way. Emitting a full quad
 // per sector there gave one real triangle plus one with no area, at both poles.
 
+// The skybox cube is drawn by position alone, but a mesh the census sees with
+// all-zero UVs is twelve UV-degenerate triangles, and every sky bake logged them
+// as a warning -- twice on any scene with a procedural sky (#1533). Its faces
+// carry the unit square, so the census has nothing to say.
+TEST(MeshPrimitivesSkybox, TheSkyboxCubeIsCleanForTheDegenerateTriangleCensus)
+{
+    auto cube = MeshPrimitives::CreateSkyboxCube();
+    ASSERT_TRUE(cube);
+    const auto stats = MeshOptimization::AnalyzeDegenerateTriangles(*cube->GetMeshSource());
+    EXPECT_EQ(stats.TriangleCount, 12u);
+    EXPECT_EQ(stats.ZeroAreaCount, 0u);
+    EXPECT_EQ(stats.ZeroUvAreaCount, 0u) << "a sky bake would warn about the skybox cube again";
+    EXPECT_FALSE(stats.HasDegenerates());
+}
+
 TEST(MeshPrimitivesSphere, PoleRowsEmitNoDegenerateTriangles)
 {
     auto sphere = MeshPrimitives::CreateSphere(1.0f, 16);

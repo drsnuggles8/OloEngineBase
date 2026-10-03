@@ -63,6 +63,9 @@ layout(location = 3) in vec2 v_LodSeedFade; // (instance draw, thinning fade) â€
 // lane (issue #1452).
 #include "include/CameraCommon.glsl"
 
+// The main view's dither moves with the frame under a temporal resolve
+// (#1533); see OLO_FOLIAGE_DITHER_FRAME in FoliageInstanceGeometry.glsl.
+#define OLO_FOLIAGE_DITHER_FRAME u_FoliageDitherFrame
 #include "include/FoliageParams.glsl"
 
 // the instance EntityID rides the per-draw instance SSBO (foliage uploads ONE shared
@@ -140,7 +143,7 @@ void main()
     // .b is the card's blended atlas coverage times its distance fade
     // (#1256) â€” the impostor's equivalent of the near card's leaf alpha,
     // so a plant's coverage does not jump as it crosses the hand-over.
-    o_GBufferVelocity = vec4((ndcCurr - ndcPrev) * 0.5,
+    o_GBufferVelocity = vec4(oloVelocityFromNdc(ndcCurr, ndcPrev),
                              clamp(card.Coverage * card.DistFade, 0.0, 1.0), 0.0);
 
     o_GBufferEntityID = instances[v_InstanceIndex].EntityID;

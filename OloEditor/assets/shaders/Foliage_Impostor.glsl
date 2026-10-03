@@ -19,6 +19,12 @@
 #type vertex
 #version 460 core
 
+// THE GLSL TEXT ROUTE ON OPENGL (#1533): this program reaches a GL driver as
+// SPIRV-Cross GLSL text, not glShaderBinary SPIR-V, because NVIDIA's GLSL front
+// end runs the lawn and the terrain several times faster than its SPIR-V
+// ingestion. Vulkan is unaffected. docs/agent-rules/gl-shader-route.md.
+#define OLO_GL_GLSL_ROUTE 1
+
 // Nothing in this fragment stage reads the instance index — declare no
 // varying for it (a written-but-unconsumed output is a per-pipeline Vulkan
 // validation interface warning). The deferred sibling omits this define.
@@ -103,7 +109,7 @@ layout(std140, binding = 6) uniform ShadowData {
     int u_AtlasResolution;
     int u_CascadeDebugEnabled;
     int u_SoftShadowMode;
-    float u_AtlasDepthBias;
+    float u_AtlasDepthBiasTexels;
     int _shadowPad2;
 };
 
@@ -125,6 +131,9 @@ layout(binding = 11) uniform samplerCube u_PrefilterMap;   // TEX_USER_1
 layout(binding = 12) uniform sampler2D u_BRDFLutMap;       // TEX_USER_2
 #endif
 
+// The main view's dither moves with the frame under a temporal resolve
+// (#1533); see OLO_FOLIAGE_DITHER_FRAME in FoliageInstanceGeometry.glsl.
+#define OLO_FOLIAGE_DITHER_FRAME u_FoliageDitherFrame
 #include "include/FoliageParams.glsl"
 
 // This program BLENDS (Coverage * DistFade as the output alpha), so the
@@ -179,7 +188,10 @@ void main()
         vec3 Ns = hasDirection ? oloFoliageShadowNormal(N, L) : N;
         float shadow = 1.0;
 
-        if (lightType == DIRECTIONAL_LIGHT && u_DirectionalShadowEnabled != 0)
+        // The cascades (and VSM's clip map) are the FIRST directional light's:
+        // Scene.cpp builds them for UBO index 0 only. A second directional light
+        // is unshadowed here rather than shadowed by the first one's map.
+        if (lightType == DIRECTIONAL_LIGHT && i == 0 && u_DirectionalShadowEnabled != 0)
         {
             if (VSM_ENABLED != 0)
             {
@@ -204,8 +216,8 @@ void main()
             else if (atlasEntry >= 0 && atlasEntry < u_AtlasEntryCount)
             {
                 shadow = calculateAtlasEntryShadow(
-                    v_CardWorld, u_AtlasEntryMatrices[atlasEntry], u_AtlasEntryScaleOffset[atlasEntry],
-                    u_ShadowAtlas, u_ShadowAtlasRaw, u_AtlasDepthBias, u_AtlasResolution,
+                    v_CardWorld, Ns, u_AtlasEntryMatrices[atlasEntry], u_AtlasEntryScaleOffset[atlasEntry],
+                    u_ShadowAtlas, u_ShadowAtlasRaw, u_AtlasDepthBiasTexels, u_AtlasResolution,
                     u_SoftShadowMode, u_ShadowParams.z);
             }
         }
@@ -221,8 +233,8 @@ void main()
             {
                 int entry = baseEntry + atlasCubeFace(v_CardWorld - u_Lights[i].position.xyz);
                 shadow = calculateAtlasEntryShadow(
-                    v_CardWorld, u_AtlasEntryMatrices[entry], u_AtlasEntryScaleOffset[entry],
-                    u_ShadowAtlas, u_ShadowAtlasRaw, u_AtlasDepthBias, u_AtlasResolution,
+                    v_CardWorld, Ns, u_AtlasEntryMatrices[entry], u_AtlasEntryScaleOffset[entry],
+                    u_ShadowAtlas, u_ShadowAtlasRaw, u_AtlasDepthBiasTexels, u_AtlasResolution,
                     0, u_ShadowParams.z);
             }
         }
@@ -294,7 +306,7 @@ void main()
     // .b is the card's blended atlas coverage times its distance fade
     // (#1256) — the same quantity this program already uses as its output
     // alpha, and the same one Foliage_Impostor_GBuffer.glsl writes.
-    o_Velocity = vec4((ndcCurr - ndcPrev) * 0.5,
+    o_Velocity = vec4(oloVelocityFromNdc(ndcCurr, ndcPrev),
                       clamp(card.Coverage * card.DistFade, 0.0, 1.0), 0.0);
     o_SkinDiffuse = vec4(0.0); // not skin -- see the declaration above (#1241)
 }

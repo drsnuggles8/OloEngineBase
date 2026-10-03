@@ -3,6 +3,8 @@
 #include "SystemScheduler.h"
 
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Core/PerformanceProfiler.h"
+#include "OloEngine/Core/Timer.h"
 #include "OloEngine/Task/Task.h"
 
 #include <algorithm>
@@ -115,11 +117,32 @@ namespace OloEngine
     {
         Build();
 
+        // Each system's wall time, reported to the PerformanceProfiler under its
+        // own name (#1533): the editor's CPU-scope table and olo_perf_cpu_scopes
+        // then say which system a gameplay tick spent its time in, and a system's
+        // sample count reads 2 on a frame the fixed step ran twice -- which is
+        // what a frame-time spike on a fixed-step scene usually is. Stripped with
+        // the other scopes in Distribution.
+        const auto run = [](SystemNode& node, Scene& target, Timestep step)
+        {
+#if defined(OLO_DEBUG) || defined(OLO_RELEASE)
+            if (PerformanceProfiler* profiler = GetGlobalPerformanceProfiler())
+            {
+                Timer timer;
+                node.Exec(target, step);
+                const std::string scope = std::string("System::") + node.Name.ToStdString();
+                profiler->SetPerFrameTiming(scope.c_str(), timer.ElapsedMillis());
+                return;
+            }
+#endif
+            node.Exec(target, step);
+        };
+
         if (!m_AnyParallel || !IsParallelExecutionEnabled())
         {
             for (const u32 index : m_Order)
             {
-                m_Systems[index].Exec(scene, ts);
+                run(m_Systems[index], scene, ts);
             }
             return;
         }
@@ -158,7 +181,7 @@ namespace OloEngine
             if (!node.Parallel)
             {
                 joinAll();
-                node.Exec(scene, ts);
+                run(node, scene, ts);
                 continue;
             }
 
@@ -178,11 +201,11 @@ namespace OloEngine
                 }
             }
 
-            auto body = [&node, &scene, ts, &firstError, &errorMutex]
+            auto body = [&node, &scene, ts, &firstError, &errorMutex, &run]
             {
                 try
                 {
-                    node.Exec(scene, ts);
+                    run(node, scene, ts);
                 }
                 catch (...)
                 {

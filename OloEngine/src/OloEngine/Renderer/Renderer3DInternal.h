@@ -32,6 +32,7 @@
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Passes/ScenePrepassRenderPass.h"
 #include "OloEngine/Renderer/Passes/SceneAttachmentSnapshotPass.h"
+#include "OloEngine/Renderer/Passes/SceneVelocitySeedPass.h"
 #include "OloEngine/Renderer/Passes/GPUDrivenOcclusionPrepassPass.h"
 #include "OloEngine/Renderer/Passes/FoliagePrepassPass.h"
 #include "OloEngine/Renderer/Passes/ShaderDebugDrawPass.h"
@@ -269,6 +270,10 @@ namespace OloEngine
         // Registered in the render-stream band, before their readers.
         Ref<SceneAttachmentSnapshotPass> SceneDepthSnapshot;
         Ref<SceneAttachmentSnapshotPass> SceneViewNormalsSnapshot;
+        // Deferred only: the G-Buffer velocity copied into SceneColor RT3
+        // ahead of the forward passes, so the resolves read every surface's
+        // motion (#1552). Registered first in the render-stream band.
+        Ref<SceneVelocitySeedPass> SceneVelocitySeed;
         // Realtime DDGI probe capture/relight/blend (#632). Path-agnostic:
         // registered between ShadowPass (its relight samples the CSM/atlas)
         // and ScenePass (the forward lit shaders sample the atlases it
@@ -298,6 +303,7 @@ namespace OloEngine
                 &FrameCorePassSet::FoliagePrepass,
                 &FrameCorePassSet::SceneDepthSnapshot,
                 &FrameCorePassSet::SceneViewNormalsSnapshot,
+                &FrameCorePassSet::SceneVelocitySeed,
                 &FrameCorePassSet::DDGIProbeUpdate,
                 &FrameCorePassSet::VirtualShadowMapMark,
                 &FrameCorePassSet::SkeletalDeform,
@@ -341,6 +347,9 @@ namespace OloEngine
         // absent from GetRenderStreamNode / ForEachRenderStreamNode — both of
         // which deal in CommandBufferRenderPass.
         Ref<ShaderDebugDrawPass> ShaderDebugDraw;
+        // See-through debug draws, after every scene-colour writer on every path
+        // (#1533): a second ForwardOverlayRenderPass, registered late.
+        Ref<ForwardOverlayRenderPass> DebugOverlay;
 
         // Every pass in this set, once. Reset() and ForEachPass() both walk
         // this list, and the static_assert in Reset() fails the build
@@ -358,7 +367,8 @@ namespace OloEngine
                 &RenderStreamPassSet::FluidIntermediates,
                 &RenderStreamPassSet::FluidComposite,
                 &RenderStreamPassSet::VirtualGeometry,
-                &RenderStreamPassSet::ShaderDebugDraw
+                &RenderStreamPassSet::ShaderDebugDraw,
+                &RenderStreamPassSet::DebugOverlay
             };
         }
 
@@ -421,6 +431,8 @@ namespace OloEngine
                     return RenderStreamPasses.Decal.Raw();
                 case RenderStreamType::GPUOcclusion:
                     return RenderStreamPasses.GPUOcclusion.Raw();
+                case RenderStreamType::DebugOverlay:
+                    return RenderStreamPasses.DebugOverlay.Raw();
             }
 
             return nullptr;
@@ -435,6 +447,7 @@ namespace OloEngine
             func(GetRenderStreamNode(RenderStreamType::Water));
             func(GetRenderStreamNode(RenderStreamType::Decal));
             func(GetRenderStreamNode(RenderStreamType::GPUOcclusion));
+            func(GetRenderStreamNode(RenderStreamType::DebugOverlay));
         }
 
         void Setup(Renderer3DData& data,

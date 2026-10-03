@@ -32,7 +32,14 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    mat4 _cameraPrevViewProjection;
+    vec3 _cameraRenderOrigin;
+    float _cameraLightingTap;
+    mat4 _cameraProjectionForReconstruction;
+    vec4 _cameraScreenSpaceAOParams;
+    vec4 u_JitterUV; // the TAA jitter offsets, for the velocity (#1552)
 };
+#include "include/ScreenVelocity.glsl"
 
 #include "include/InstanceBlock_Vertex.glsl"
 
@@ -52,12 +59,12 @@ void main()
 #endif
     OLO_INSTANCE_FORWARD();
     vec4 worldPos = instances[gl_InstanceIndex].Transform * vec4(a_Position, 1.0);
-    v_ClipPosCurr = u_ViewProjection * worldPos;
+    v_ClipPosCurr = oloUnjitterClip(u_ViewProjection * worldPos, u_JitterUV.xy);
 
     // Per-entity previous transform — gizmo cubes translate with their
     // owning light so motion blur should reflect that.
     vec4 prevWorldPos = instances[gl_InstanceIndex].PrevTransform * vec4(a_Position, 1.0);
-    v_ClipPosPrev = u_PrevViewProjection * prevWorldPos;
+    v_ClipPosPrev = oloUnjitterClip(u_PrevViewProjection * prevWorldPos, u_JitterUV.zw);
 
     gl_Position = v_ClipPosCurr;
 }
@@ -89,6 +96,7 @@ layout(location = 5) out vec4 o_GBufferBakedGI;
 
 void main()
 {
+    // The clip positions arrive unjittered (oloUnjitterClip in the vertex stage, #1552).
     vec2 ndcCurr = v_ClipPosCurr.xy / max(v_ClipPosCurr.w, 1e-6);
     vec2 ndcPrev = v_ClipPosPrev.xy / max(v_ClipPosPrev.w, 1e-6);
 

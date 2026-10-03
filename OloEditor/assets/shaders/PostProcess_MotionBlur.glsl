@@ -94,6 +94,10 @@ layout(std140, binding = 8) uniform MotionBlurUBO
 {
     mat4 u_InverseViewProjection;
     mat4 u_PrevViewProjection;
+    // xy this frame's TAA jitter offset, zw the previous frame's, in velocity
+    // units (MotionBlurUBOData::JitterUV): the reconstruction below takes them
+    // out as every velocity writer does, so a still camera reads zero (#1552).
+    vec4 u_MotionJitterUV;
 };
 
 // Motion-blur per-pass flags (UBO binding 42). x = hasVelocityTexture (0/1):
@@ -118,7 +122,8 @@ vec2 ReconstructCameraVelocity(vec2 uv, float depth)
     if (prevClipPos.w <= 0.0001)
         return vec2(0.0);
     vec2 prevUV = (prevClipPos.xy / prevClipPos.w) * 0.5 + 0.5;
-    return uv - prevUV; // current - prev (matches the sign convention of the velocity buffer)
+    // current - prev, the jitter taken out (matches the convention of the velocity buffer)
+    return (uv - prevUV) - (u_MotionJitterUV.xy - u_MotionJitterUV.zw);
 }
 
 void main()

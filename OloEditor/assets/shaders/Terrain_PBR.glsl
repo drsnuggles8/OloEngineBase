@@ -11,6 +11,12 @@
 #type vertex
 #version 460 core
 
+// THE GLSL TEXT ROUTE ON OPENGL (#1533): this program reaches a GL driver as
+// SPIRV-Cross GLSL text, not glShaderBinary SPIR-V, because NVIDIA's GLSL front
+// end runs the lawn and the terrain several times faster than its SPIR-V
+// ingestion. Vulkan is unaffected. docs/agent-rules/gl-shader-route.md.
+#define OLO_GL_GLSL_ROUTE 1
+
 #ifdef OLO_VULKAN
 // #691 (ADR 0011 §5, amendment (76)): vertex pull from the engine-wide
 // binding 57. Draw site is the terrain patch VBO (TerrainChunk.cpp /
@@ -276,7 +282,7 @@ layout(std140, binding = 6) uniform ShadowData {
     int u_AtlasResolution;
     int u_CascadeDebugEnabled;
     int u_SoftShadowMode;  // 0 = legacy hardware PCF, 1 = PCSS (contact-hardening)
-    float u_AtlasDepthBias; // local-light atlas constant depth bias, normalized [0,1] (#1119)
+    float u_AtlasDepthBiasTexels; // local-light atlas depth bias, in TEXELS of the entry's tile (#1533)
     int _shadowPad2;
 };
 
@@ -695,7 +701,10 @@ void main()
             lightContrib *= cloudShadow;
             lightVisibility *= cloudShadow;
         }
-        if (lightType == DIRECTIONAL_LIGHT && u_DirectionalShadowEnabled != 0)
+        // The cascades (and VSM's clip map) are the FIRST directional light's:
+        // Scene.cpp builds them for UBO index 0 only. A second directional light
+        // is unshadowed here rather than shadowed by the first one's map.
+        if (lightType == DIRECTIONAL_LIGHT && i == 0 && u_DirectionalShadowEnabled != 0)
         {
             vec4 viewSpacePos = u_View * vec4(v_WorldPos, 1.0);
             float viewDepth = viewSpacePos.z;
@@ -730,11 +739,12 @@ void main()
             {
                 float shadow = calculateAtlasEntryShadow(
                     v_WorldPos,
+                    N,
                     u_AtlasEntryMatrices[atlasEntry],
                     u_AtlasEntryScaleOffset[atlasEntry],
                     u_ShadowAtlas,
                     u_ShadowAtlasRaw,
-                    u_AtlasDepthBias,
+                    u_AtlasDepthBiasTexels,
                     u_AtlasResolution,
                     u_SoftShadowMode,
                     u_ShadowParams.z
@@ -761,11 +771,12 @@ void main()
                 int entry = baseEntry + atlasCubeFace(v_WorldPos - lightPos);
                 float shadow = calculateAtlasEntryShadow(
                     v_WorldPos,
+                    N,
                     u_AtlasEntryMatrices[entry],
                     u_AtlasEntryScaleOffset[entry],
                     u_ShadowAtlas,
                     u_ShadowAtlasRaw,
-                    u_AtlasDepthBias,
+                    u_AtlasDepthBiasTexels,
                     u_AtlasResolution,
                     0, // PCF only on cube faces (matches the old cubemap path)
                     u_ShadowParams.z
@@ -864,7 +875,7 @@ void main()
     vec2 ndcCurr = clipCurr.xy / clipCurr.w;
     vec2 ndcPrev = clipPrev.xy / clipPrev.w;
     // .a: the material profile (#1256) is the snow weight, as in G-Buffer RT3.a.
-    o_Velocity = vec4((ndcCurr - ndcPrev) * 0.5, 1.0, snowWeight);
+    o_Velocity = vec4(oloVelocityFromNdc(ndcCurr, ndcPrev), 1.0, snowWeight);
     // Not skin (#1241); a snow pixel hands its diffuse half to the snow blur
     // in the lane's negative range (issue #1451).
     o_SkinDiffuse = oloSnowLayerActive(snowWeight)

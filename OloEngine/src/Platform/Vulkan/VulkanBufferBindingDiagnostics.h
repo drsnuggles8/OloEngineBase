@@ -58,7 +58,21 @@ namespace OloEngine
             const bool terrainShader = shaderName == "Terrain_PBR" || shaderName == "Terrain_GBuffer";
             const bool optionalVTFeedback = terrainShader && binding.Binding == ShaderBindingLayout::SSBO_TERRAIN_VT &&
                                             binding.Name == "TerrainVTFeedback" && binding.Stages == VK_SHADER_STAGE_FRAGMENT_BIT;
-            if (optionalLightmap || optionalMaterials || optionalVTFeedback)
+
+            // Terrain GPU-driven LOD (issue #714). b_TerrainVisibleNodes is read
+            // only by oloTerrainApplyGpuDrivenNode under `u_TerrainGpuDriven != 0`,
+            // and Scene sets GpuDrivenMode = 1 only on the draw that supplies the
+            // node list (DrawTerrainPatch refuses one buffer without the other).
+            // Every CHUNK draw -- the shadow casters always, the lit chunks before
+            // the GPU quadtree has its buffers, e.g. the first frames after a
+            // scene swap -- runs with the flag at 0 and declares the block all the
+            // same; found live after a Play stop (#1533).
+            const bool gpuDrivenTerrain = terrainShader || shaderName == "Terrain_Depth";
+            const bool optionalVisibleNodes = gpuDrivenTerrain &&
+                                              binding.Binding == ShaderBindingLayout::SSBO_TERRAIN_VISIBLE_NODES &&
+                                              binding.Name == "TerrainVisibleNodes" &&
+                                              binding.Stages == VK_SHADER_STAGE_VERTEX_BIT;
+            if (optionalLightmap || optionalMaterials || optionalVTFeedback || optionalVisibleNodes)
                 return VulkanMissingBufferSeverity::Trace;
         }
         return VulkanMissingBufferSeverity::Error;

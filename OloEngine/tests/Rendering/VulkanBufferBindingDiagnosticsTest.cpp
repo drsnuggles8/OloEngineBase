@@ -231,32 +231,71 @@ namespace OloEngine::Tests
         EXPECT_EQ(ClassifyMissingVulkanBuffer("Terrain_GBuffer", binding, true), Severity::Warning);
     }
 
-    // The real terrain SPIR-V: exactly one optional block per shader, and it is
-    // the feedback buffer in the fragment stage. Everything else the four stages
-    // declare (vertex pull, visible nodes, ...) stays required.
-    TEST(VulkanBufferBindingDiagnostics, ProductionTerrainReflectionHasExactlyTheFeedbackBlockOptional)
+    // #1533: every terrain CHUNK draw -- the shadow casters always, the lit
+    // chunks before the GPU quadtree has its buffers -- runs with
+    // u_TerrainGpuDriven at 0 and publishes no visible-node list, and the one
+    // read of it sits behind that flag, which Scene raises only on the draw that
+    // supplies the list. Found live: Terrain_Depth and Terrain_PBR logged the
+    // binding as unfed on the first chunk frames after a Play stop.
+    TEST(VulkanBufferBindingDiagnostics, TerrainVisibleNodesAreOptionalOnlyInTheTerrainVertexStages)
     {
-        for (const std::string shaderName : { "Terrain_PBR", "Terrain_GBuffer" })
+        const VulkanShaderBinding nodes{ .Binding = ShaderBindingLayout::SSBO_TERRAIN_VISIBLE_NODES,
+                                         .BindingKind = Kind::StorageBuffer,
+                                         .Stages = VK_SHADER_STAGE_VERTEX_BIT,
+                                         .Name = "TerrainVisibleNodes" };
+        for (const char* shader : { "Terrain_PBR", "Terrain_GBuffer", "Terrain_Depth" })
+        {
+            EXPECT_EQ(ClassifyMissingVulkanBuffer(shader, nodes, true), Severity::Trace) << shader;
+            EXPECT_EQ(ClassifyMissingVulkanBuffer(shader, nodes, false), Severity::Error)
+                << shader << ": a published list whose address failed to resolve is never an optional absence";
+        }
+        EXPECT_EQ(ClassifyMissingVulkanBuffer("TerrainCullArgs", nodes, true), Severity::Error)
+            << "the kernel that writes the list needs it";
+        auto binding = nodes;
+        binding.Stages = VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
+        EXPECT_EQ(ClassifyMissingVulkanBuffer("Terrain_PBR", binding, true), Severity::Error);
+        binding = nodes;
+        binding.Name = "TerrainVisibleNodeCount";
+        EXPECT_EQ(ClassifyMissingVulkanBuffer("Terrain_Depth", binding, true), Severity::Error);
+        binding = nodes;
+        binding.Binding = ShaderBindingLayout::SSBO_TERRAIN_VT;
+        EXPECT_EQ(ClassifyMissingVulkanBuffer("Terrain_Depth", binding, true), Severity::Error);
+    }
+
+    // The real terrain SPIR-V: the optional blocks are exactly the gated ones --
+    // the VT feedback in the fragment stage of the lit shaders and the visible
+    // node list in every terrain vertex stage. Everything else the stages
+    // declare (vertex pull, ...) stays required.
+    TEST(VulkanBufferBindingDiagnostics, ProductionTerrainReflectionHasExactlyTheGatedBlocksOptional)
+    {
+        for (const std::string shaderName : { "Terrain_PBR", "Terrain_GBuffer", "Terrain_Depth" })
         {
             SCOPED_TRACE(shaderName);
+            const bool lit = shaderName != "Terrain_Depth";
             const auto blocks = ReflectStorageBlocks(shaderName + ".glsl");
             u32 optionalCount = 0;
             bool sawFeedback = false;
+            bool sawNodes = false;
             for (const auto& binding : blocks)
             {
                 const bool isFeedback = binding.Name == "TerrainVTFeedback";
+                const bool isNodes = binding.Name == "TerrainVisibleNodes";
                 sawFeedback |= isFeedback;
+                sawNodes |= isNodes;
                 const auto severity = ClassifyMissingVulkanBuffer(shaderName, binding, true);
                 if (severity == Severity::Trace)
                 {
                     ++optionalCount;
-                    EXPECT_TRUE(isFeedback) << "unexpected optional block " << binding.Name.ToView();
-                    EXPECT_EQ(binding.Binding, ShaderBindingLayout::SSBO_TERRAIN_VT);
-                    EXPECT_EQ(binding.Stages, static_cast<VkShaderStageFlags>(VK_SHADER_STAGE_FRAGMENT_BIT));
+                    EXPECT_TRUE(isFeedback || isNodes) << "unexpected optional block " << binding.Name.ToView();
+                    EXPECT_EQ(binding.Binding, isFeedback ? ShaderBindingLayout::SSBO_TERRAIN_VT
+                                                          : ShaderBindingLayout::SSBO_TERRAIN_VISIBLE_NODES);
+                    EXPECT_EQ(binding.Stages, static_cast<VkShaderStageFlags>(isFeedback ? VK_SHADER_STAGE_FRAGMENT_BIT
+                                                                                         : VK_SHADER_STAGE_VERTEX_BIT));
                 }
             }
-            EXPECT_TRUE(sawFeedback) << "the fragment stage no longer declares TerrainVTFeedback";
-            EXPECT_EQ(optionalCount, 1u);
+            EXPECT_EQ(sawFeedback, lit) << "TerrainVTFeedback declared where it should not be, or missing";
+            EXPECT_TRUE(sawNodes) << "the vertex stage no longer declares TerrainVisibleNodes";
+            EXPECT_EQ(optionalCount, lit ? 2u : 1u);
         }
     }
 

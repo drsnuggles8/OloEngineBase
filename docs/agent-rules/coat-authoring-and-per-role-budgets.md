@@ -13,8 +13,9 @@ Written after #1251. The rules are first; the measurements that taught them foll
 ## 1. A coat group needs a ROLE, and the role belongs in the asset
 
 `GroomCoat.h` defines `GroomCoatRole` (Unassigned, Undercoat, GuardHair, Whisker, LongHair) and a
-per-group `GroomCoatGroupDesc` carrying it plus density, length, width, clump and tint. The table is
-**cooked** into the `.ologroom` as section 9, parallel to the group-name table.
+per-group `GroomCoatGroupDesc` carrying it plus density, length, width, clump, root and tip tint,
+curl, wave and a simulation stiffness scale (§6). The table is **cooked** into the `.ologroom` as
+section 9, parallel to the group-name table.
 
 Why the asset and not the component: a coat is a property of how the groom was groomed, and the
 component is per-entity. The component carries **bounded overrides** on top — and only for Undercoat
@@ -125,11 +126,40 @@ the per-role claim needs. That comparison gave the 0.320 vs 0.595 in §2.
 
 ---
 
-## 6. Checklist for the next coat change
+## 6. Curl, wave, tint gradient and stiffness are per group (v4, #1533)
+
+- **Curl and wave are baked at strand build, in rest space, with a zero envelope at the root.**
+  `ApplyGroomCoatCurl` runs inside the one shared walk after `ApplyGroomCoatShape` and before any
+  root transform, so the CPU-deformed stream, the GPU rest stream (#1427), the coat bake and the RT
+  proxy carry the same curled points. The offset follows a parallel-transport frame of the shaped
+  polyline, scaled by `smoothstep(0, 0.25, t)`; the root point is never written (adding zero would
+  turn a `-0.0` positive). The build never subdivides: a curl needs about eight points per turn, and
+  the grower must author them.
+- **The guide simulation solves the uncurled centreline.** Only a displacement crosses to the
+  strands, and each strand adds its own curl back in the build; a curled target would put one
+  strand's helix into every strand its guide drives.
+- **A card carries its members' mean curl**: both amplitudes times the group's `JitterScale`,
+  because N helices of random phase average to one of radius R/√N.
+- **The tint is per corner**, `pack(map · shade · mix(Tint, Tint · TipTint, t))`, unpacked per vertex and
+  interpolated (`v_CoatTint` is not `flat`). `TipTint` MULTIPLIES `Tint` at the tip and defaults to
+  white, so a group that authors only `Tint` stays one colour. An absolute tip colour defaulting to
+  white faded every such group to white at its tips; that was the first design, and it was changed.
+- **`StiffnessScale` multiplies the entity's stiffness per guide**, and each guide is clamped to the
+  step's stability ceiling on its own (`GroomSimulationStats::GuidesStiffnessCapped` counts them).
+
+---
+
+## 7. Checklist for the next coat change
 
 - New `GroomAsset` array → add it to `GroomCooker::CookToBytes`, to the serializer's section list,
   to `GroomAsset::Validate`, and bump `OloGroomFormat::CurrentVersion` **and** `MinSupportedVersion`
   (a `.ologroom` is a derived artifact; old files are rejected by version, not migrated).
+- New `GroomCoatGroupDesc` field → keep the struct explicitly padded (it is compared whole), add a
+  bound and a named repair to `SanitizeGroomCoatGroupDesc` and a finiteness check to
+  `GroomAsset::Validate`, bump both versions, then regenerate every committed cooked groom:
+  `OLO_GROOM_EXPORT_DIR=<repo>/OloEditor/SandboxProject/Assets/Grooms` with
+  `GroomReferenceAssets.ExportsTheEditorFixtures`, and `OLO_GROOM_ANIMALS_EXPORT=1` with
+  `GroomAnimalsAcceptanceEvidenceTest.ExportsTheLiveScene` (Release).
 - New `GroomStrandBuildSettings` field → add it to `GroomRenderPass::CacheKey`, which hashes field by
   field on purpose. `GroomStrandMeshTest.TheCacheKeySeparatesSettingsThatProduceDifferentMeshes`
   catches forgetting.

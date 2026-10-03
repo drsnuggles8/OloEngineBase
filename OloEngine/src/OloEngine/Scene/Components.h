@@ -12,6 +12,7 @@
 #include "OloEngine/Groom/GroomLod.h"
 #include "OloEngine/Groom/GroomVisibility.h"
 #include "OloEngine/Renderer/Material.h"
+#include "OloEngine/Renderer/MaterialOverride.h"
 #include "OloEngine/Renderer/Font.h"
 #include "OloEngine/Audio/AudioSource.h"
 #include "OloEngine/Audio/AudioListener.h"
@@ -2895,6 +2896,48 @@ namespace OloEngine
         }
     };
 
+    // Per-imported-material patches (issue #1533). Where a MaterialComponent
+    // replaces the material of EVERY submesh, each MaterialOverride names one
+    // IMPORTED material (Material::GetName(), what the glTF importer called it)
+    // and patches a COPY of it: kind, skin profile, thickness, and optionally the
+    // base colour / roughness / metallic factors. The shared imported material is
+    // never touched. Built for a skinned body whose nose, tongue, gums and lips
+    // are submeshes of one mesh and each need their own skin profile.
+    //
+    // Precedence on every path that shades or records the entity's submeshes
+    // (see Renderer/SubmeshMaterialResolve.h): MaterialComponent -> a matching
+    // patch -> the imported material -> engine default. Every such path asks
+    // Scene::PrepareMaterialOverrides for the patches, so the draw, the GPU Scene
+    // record, the lightmap bake and olo_material_get agree.
+    //
+    // All-trivial apart from the runtime cache, so scene YAML and the binary
+    // sidecar are generated. Deliberately not C#-annotated (a container has no
+    // OLO_PROPERTY shape) and not Lua-exposed: MaterialComponent's Lua surface is
+    // per-factor on one material, and a list of named patches is authoring data
+    // edited in the inspector, not a runtime-tuning lever.
+    struct MaterialOverridesComponent
+    {
+        TArray<MaterialOverride> m_Overrides;
+
+        // Runtime only: the patched copies this entity shades with, rebuilt by
+        // Scene::PrepareMaterialOverrides whenever the list, the mesh or an
+        // imported material changes. Never serialized, never compared, and a copy
+        // of the component starts with an empty cache (MaterialOverrideCache's
+        // copy constructor), so Play, duplication and undo snapshots never share
+        // Material objects between entities.
+        OLO_SERIALIZE(Skip)
+        MaterialOverrideCache m_Cache;
+
+        MaterialOverridesComponent() = default;
+
+        // The cache is derived state: two components with the same authored list
+        // are equal whatever either has built.
+        auto operator==(const MaterialOverridesComponent& other) const -> bool
+        {
+            return m_Overrides == other.m_Overrides;
+        }
+    };
+
     // 3D Light Components
 
     struct DirectionalLightComponent
@@ -4042,6 +4085,41 @@ namespace OloEngine
         }
     };
 
+    // Follow a BONE of the parent's skeleton (issue #1533). An entity that is a
+    // child (RelationshipComponent) of an entity carrying a SkeletonComponent
+    // composes its world matrix as
+    //
+    //     world = parentWorld * skeleton.m_GlobalTransforms[bone] * local
+    //
+    // instead of parentWorld * local: its own TransformComponent is an offset in
+    // the bone's model-space frame, and its descendants compose on top as usual.
+    //
+    // It exists because a skinned character has no bone ENTITIES — the pose lives
+    // in the Skeleton behind AnimationStateComponent + SkeletonComponent — so
+    // nothing could ride a bone, and only ClothComponent had a private attachment.
+    // An eye has to be its own entity (SkinOcularSurface.h reads each eye's
+    // optical axis from its model matrix), so it needs this to follow the head.
+    //
+    // The bone is resolved BY NAME against the parent's skeleton, and
+    // Scene::PropagateWorldTransforms caches the index per (skeleton, name). An
+    // attachment that cannot resolve — no parent, a parent without a skeleton,
+    // an empty or unknown bone name, or m_Enabled == false — composes
+    // parent-relative instead and SAYS SO: one warning per (entity, reason) in the
+    // log, and the reason in the inspector (Scene::ResolveBoneAttachment).
+    //
+    // Deliberately not C#-annotated, matching RelationshipComponent and
+    // ClothComponent's attachment fields; Lua exposes both fields.
+    struct BoneAttachmentComponent
+    {
+        std::string m_BoneName;
+        bool m_Enabled = true;
+
+        BoneAttachmentComponent() = default;
+        explicit BoneAttachmentComponent(std::string boneName) : m_BoneName(std::move(boneName)) {}
+
+        auto operator==(const BoneAttachmentComponent&) const -> bool = default;
+    };
+
     // Transient per-frame component — the composed parent-chain world matrix,
     // written once per tick by Scene::PropagateWorldTransforms() in a flat,
     // depth-sorted sweep (issue #499). NOT serialized: it's purely derived from
@@ -4708,9 +4786,16 @@ namespace OloEngine
 
         TerrainComponent() = default;
         TerrainComponent(const TerrainComponent& other)
-            : m_HeightmapPath(other.m_HeightmapPath), m_WorldSizeX(other.m_WorldSizeX), m_WorldSizeZ(other.m_WorldSizeZ), m_HeightScale(other.m_HeightScale), m_CollisionEnabled(other.m_CollisionEnabled), m_ProceduralEnabled(other.m_ProceduralEnabled), m_ProceduralSeed(other.m_ProceduralSeed), m_ProceduralResolution(other.m_ProceduralResolution), m_ProceduralOctaves(other.m_ProceduralOctaves), m_ProceduralFrequency(other.m_ProceduralFrequency), m_ProceduralLacunarity(other.m_ProceduralLacunarity), m_ProceduralPersistence(other.m_ProceduralPersistence), m_ProceduralErosionIterations(other.m_ProceduralErosionIterations), m_HeightShaping(other.m_HeightShaping), m_AutoMaterial(other.m_AutoMaterial), m_LayerRules(other.m_LayerRules), m_SplatmapGenResolution(other.m_SplatmapGenResolution), m_TessellationEnabled(other.m_TessellationEnabled), m_TargetTriangleSize(other.m_TargetTriangleSize), m_MorphRegion(other.m_MorphRegion), m_StreamingEnabled(other.m_StreamingEnabled), m_TileDirectory(other.m_TileDirectory), m_TileFilePattern(other.m_TileFilePattern), m_TileWorldSize(other.m_TileWorldSize), m_TileResolution(other.m_TileResolution), m_StreamingLoadRadius(other.m_StreamingLoadRadius), m_StreamingMaxTiles(other.m_StreamingMaxTiles), m_VirtualTextureEnabled(other.m_VirtualTextureEnabled), m_VTVirtualPagesWide(other.m_VTVirtualPagesWide), m_VTPageTexels(other.m_VTPageTexels), m_VTBorderTexels(other.m_VTBorderTexels), m_VTCacheTilesWide(other.m_VTCacheTilesWide), m_VTMaxTileBakesPerFrame(other.m_VTMaxTileBakesPerFrame), m_VTAdaptiveEnabled(other.m_VTAdaptiveEnabled), m_VTSectorsWide(other.m_VTSectorsWide), m_VTMaxImagePagesWide(other.m_VTMaxImagePagesWide), m_VTTrilinearEnabled(other.m_VTTrilinearEnabled), m_VTCompressedCache(other.m_VTCompressedCache), m_VoxelEnabled(other.m_VoxelEnabled), m_VoxelSize(other.m_VoxelSize), m_VoxelMesher(other.m_VoxelMesher)
+            : m_HeightmapPath(other.m_HeightmapPath), m_WorldSizeX(other.m_WorldSizeX), m_WorldSizeZ(other.m_WorldSizeZ), m_HeightScale(other.m_HeightScale), m_CollisionEnabled(other.m_CollisionEnabled), m_ProceduralEnabled(other.m_ProceduralEnabled), m_ProceduralSeed(other.m_ProceduralSeed), m_ProceduralResolution(other.m_ProceduralResolution), m_ProceduralOctaves(other.m_ProceduralOctaves), m_ProceduralFrequency(other.m_ProceduralFrequency), m_ProceduralLacunarity(other.m_ProceduralLacunarity), m_ProceduralPersistence(other.m_ProceduralPersistence), m_ProceduralErosionIterations(other.m_ProceduralErosionIterations), m_HeightShaping(other.m_HeightShaping), m_AutoMaterial(other.m_AutoMaterial), m_LayerRules(other.m_LayerRules), m_SplatmapGenResolution(other.m_SplatmapGenResolution), m_TessellationEnabled(other.m_TessellationEnabled), m_TargetTriangleSize(other.m_TargetTriangleSize), m_MorphRegion(other.m_MorphRegion), m_StreamingEnabled(other.m_StreamingEnabled), m_TileDirectory(other.m_TileDirectory), m_TileFilePattern(other.m_TileFilePattern), m_TileWorldSize(other.m_TileWorldSize), m_TileResolution(other.m_TileResolution), m_StreamingLoadRadius(other.m_StreamingLoadRadius), m_StreamingMaxTiles(other.m_StreamingMaxTiles), m_VirtualTextureEnabled(other.m_VirtualTextureEnabled), m_VTVirtualPagesWide(other.m_VTVirtualPagesWide), m_VTPageTexels(other.m_VTPageTexels), m_VTBorderTexels(other.m_VTBorderTexels), m_VTCacheTilesWide(other.m_VTCacheTilesWide), m_VTMaxTileBakesPerFrame(other.m_VTMaxTileBakesPerFrame), m_VTAdaptiveEnabled(other.m_VTAdaptiveEnabled), m_VTSectorsWide(other.m_VTSectorsWide), m_VTMaxImagePagesWide(other.m_VTMaxImagePagesWide), m_VTTrilinearEnabled(other.m_VTTrilinearEnabled), m_VTCompressedCache(other.m_VTCompressedCache), m_VoxelEnabled(other.m_VoxelEnabled), m_VoxelSize(other.m_VoxelSize), m_VoxelMesher(other.m_VoxelMesher), m_Material(other.m_Material), m_MaterialNeedsRebuild(other.m_MaterialNeedsRebuild)
         {
-            // Runtime state intentionally NOT copied — force rebuild
+            // THE MATERIAL IS AUTHORED, not runtime state: its layers are what the
+            // scene file's Layers block loads, and nothing rebuilds them. It is
+            // shared like an asset (Regenerate keeps it for the same reason), with
+            // its build state, so a built one is not rebuilt -- and so the Play
+            // copy (Scene::Copy) and an undo assignment keep the turf they had.
+            // Dropping it drew every textured terrain in Play with the untextured
+            // fallback, and an undone terrain edit lost its material in edit mode.
+            // The rest of the runtime state is not copied: it is rebuilt.
         }
         TerrainComponent& operator=(const TerrainComponent& other)
         {
@@ -4757,10 +4842,12 @@ namespace OloEngine
                 m_VoxelEnabled = other.m_VoxelEnabled;
                 m_VoxelSize = other.m_VoxelSize;
                 m_VoxelMesher = other.m_VoxelMesher;
-                // Runtime state reset — force rebuild
+                // The authored material is shared, with its build state (see the
+                // copy constructor); the runtime state is reset and rebuilt.
+                m_Material = other.m_Material;
+                m_MaterialNeedsRebuild = other.m_MaterialNeedsRebuild;
                 m_TerrainData = nullptr;
                 m_ChunkManager = nullptr;
-                m_Material = nullptr;
                 m_Streamer = nullptr;
                 m_VoxelOverride = nullptr;
                 m_VirtualTexture = nullptr;
@@ -4768,7 +4855,6 @@ namespace OloEngine
                 m_VoxelQuadMeshes = nullptr;
                 m_VoxelAutoSeeded = false;
                 m_NeedsRebuild = true;
-                m_MaterialNeedsRebuild = true;
                 m_AutoSplatNeedsRebuild = true;
                 m_RuntimeCollisionBodyToken = 0;
             }
@@ -6030,8 +6116,10 @@ namespace OloEngine
         /// GroomFibreDebugMode — which contribution the pass renders. The
         /// separated lobes are acceptance criterion 3's diagnostic output, and
         /// they are the only way to tell a too-dim TT from a too-bright TRT.
-        /// Reject for the same reason as above.
-        OLO_SERIALIZE(Reject, Min = 0, Max = 5)
+        /// Reject for the same reason as above. Max is the last enumerator,
+        /// MultipleScattering (6); ComponentRoundTrip's
+        /// GroomFibreComponentKeepsEveryDebugMode pins the two together.
+        OLO_SERIALIZE(Reject, Min = 0, Max = 6)
         u8 m_DebugMode = static_cast<u8>(GroomFibreDebugMode::Full);
 
         /// Light the coat at all. Off renders #1246's neutral ramp, which is
@@ -6187,10 +6275,26 @@ namespace OloEngine
         /// measured against — not a performance switch.
         bool m_Enabled = true;
 
-        OLO_SERIALIZE(Skip)
-        u8 Pad0 = 0;
-        OLO_SERIALIZE(Skip)
-        u8 Pad1 = 0;
+        /// Dual scattering (#1533): what the coat's other fibres pass on — the
+        /// light they forward and the light they scatter back. Needs the volume
+        /// above to count them, so it does nothing with m_Enabled off. Off is
+        /// #1248's picture, every crossing an opaque, colourless occluder: the
+        /// A/B control for the transport, and the arm #1248's own occlusion
+        /// evidence is measured on.
+        bool m_MultipleScattering = true;
+
+        /// Bake the volume ONCE, from the coat at rest, and look each fragment
+        /// up at its own bind-pose point with the light turned back through its
+        /// root's motion (#1533), instead of rebaking from the drawn pose as the
+        /// body moves (#1426). Exact for everything the body carries whole -- a
+        /// turning head, a wagging tail, a limb through its stride -- and free
+        /// after the first frame. A bias where a limb moves AGAINST its
+        /// neighbours: their fur shadows each other as it did at rest. The pose
+        /// bake costs a CPU pose of every segment each frame and a rebuild each
+        /// time the coat drifts half a voxel, which on a dense coat is the
+        /// frame. Only a GPU-deformed coat carries each vertex's bind point, so
+        /// any other keeps the pose bake.
+        bool m_BakeAtRest = false;
 
         GroomCoatShadowComponent() = default;
         GroomCoatShadowComponent(const GroomCoatShadowComponent&) = default;
@@ -6321,6 +6425,104 @@ namespace OloEngine
     };
     static_assert(sizeof(GroomLodComponent) == 48,
                   "GroomLodComponent must have no padding: see BitwiseEqualLayoutTest");
+
+    // ── Groom scene-shadow routing (issue #1323) ─────────────────
+    //
+    // Whether this groom takes part in the engine's shadow TECHNIQUES, in each
+    // direction: hair casting onto the body and the scene, and the body and the
+    // scene casting onto hair.
+    //
+    // A SEPARATE COMPONENT, for the three reasons GroomBindingComponent lists
+    // and with the same one deciding it: GroomComponent's layout is PINNED at
+    // 48 bytes with a whole-object memcmp equality, and widening it revs the
+    // save-game format for every scene that has a groom in it, routed or not.
+    //
+    // ITS ABSENCE IS THE PRE-#1323 BEHAVIOUR — a coat that casts no shadow and
+    // is lit as if it stood in the open — so a scene authored before this
+    // existed renders exactly as it did, and every capture #1246 through #1252
+    // committed still means what it meant. That is the same rule the coat, the
+    // binding, the simulation and the LOD components follow, and here it is
+    // load-bearing rather than polite: a groom that started casting on load
+    // would change every committed groom evidence PNG at once.
+    //
+    // THE TWO DIRECTIONS ARE INDEPENDENT FIELDS ON PURPOSE. They are different
+    // mechanisms that fail differently — casting is a caster family in
+    // ShadowRenderPass and shows up as a shadow on the BODY, receiving is a
+    // cascade lookup in GroomStrand.glsl and shows up as a coat that goes dark
+    // in shade — so being able to turn one off is what makes an A/B of the
+    // other a measurement rather than a picture of both.
+    //
+    // Not annotated OLO_PROPERTY and not registered in LuaScriptGlue, matching
+    // every other groom component. Whether a coat casts is authoring state; a
+    // script flipping it mid-frame would add or remove a caster family between
+    // the shadow pass and the strand pass of the same frame. Stated as a
+    // decision rather than left as an omission, because the next reader's
+    // question is "was this forgotten?".
+    struct GroomSceneShadowComponent
+    {
+        // Members ordered 4-byte then 1-byte so the layout has no alignment
+        // holes (issue #1019): operator== below is a whole-object memcmp.
+
+        /// The width floor, in TEXELS of the shadow target, a strand is
+        /// rasterised at from the light.
+        ///
+        /// ONE TEXEL IS THE DERIVATION, NOT A TASTE. A 70 um hair against a
+        /// cascade texel of a few centimetres projects to about a thousandth of
+        /// a texel, so rasterised honestly it crosses a texel centre
+        /// essentially never and an animal's whole coat casts nothing at all.
+        /// The same argument groom-strand-visibility.md rule 2 makes for the
+        /// main pass, three orders of magnitude coarser.
+        ///
+        /// ABOVE ONE IT IS AN AUTHORING LEVER for a coat whose shadow reads too
+        /// thin at distance, and it costs occlusion: a widened strand casts an
+        /// OPAQUE shadow, because a depth target has no alpha to weight and a
+        /// hashed discard would be a stochastic technique with nothing to
+        /// converge it. See Groom/GroomShadowWidening.h.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 16.0f)
+        f32 m_ShadowWidthTexels = 1.0f;
+
+        /// Rasterise this groom from the light — into the CSM cascades, the
+        /// Virtual Shadow Map's clip levels and the local-light atlas alike.
+        bool m_CastShadows = true;
+
+        /// Sample the scene's shadow term in the strand shader, so a character
+        /// standing in shade has a coat that is in shade too.
+        bool m_ReceiveShadows = true;
+
+        OLO_SERIALIZE(Skip)
+        u8 Pad0 = 0;
+        OLO_SERIALIZE(Skip)
+        u8 Pad1 = 0;
+
+        GroomSceneShadowComponent() = default;
+        GroomSceneShadowComponent(const GroomSceneShadowComponent&) = default;
+        GroomSceneShadowComponent& operator=(const GroomSceneShadowComponent&) = default;
+        GroomSceneShadowComponent(GroomSceneShadowComponent&&) noexcept = default;
+        GroomSceneShadowComponent& operator=(GroomSceneShadowComponent&&) noexcept = default;
+
+        auto operator==(const GroomSceneShadowComponent& other) const -> bool
+        {
+            return Math::BitwiseEqual(*this, other);
+        }
+    };
+    static_assert(sizeof(GroomSceneShadowComponent) == 8,
+                  "GroomSceneShadowComponent must have no padding: see BitwiseEqualLayoutTest");
+
+    /// The authored width floor, sanitised. The ONE place this component's
+    /// field becomes renderer input, for the reason MakeGroomCoatLodPolicy
+    /// exists: OLO_SERIALIZE guards scene YAML and the deserialisers but NOT a
+    /// direct MCP or native write, and this is the boundary those cross on the
+    /// way to a DIVISOR in the shader's widening. A non-finite floor makes the
+    /// half width NaN and the coat vanishes from every shadow map with nothing
+    /// logged.
+    [[nodiscard]] inline f32 MakeGroomShadowWidthTexels(const GroomSceneShadowComponent& component) noexcept
+    {
+        if (!std::isfinite(component.m_ShadowWidthTexels) || component.m_ShadowWidthTexels < 0.0f)
+        {
+            return GroomSceneShadowComponent{}.m_ShadowWidthTexels;
+        }
+        return std::min(component.m_ShadowWidthTexels, 16.0f);
+    }
 
     /// The authored fields as GroomLod wants them. The ONE place the component
     /// becomes policy input, so the renderer, a test and the editor cannot each

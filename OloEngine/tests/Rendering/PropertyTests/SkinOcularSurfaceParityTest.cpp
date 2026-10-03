@@ -85,6 +85,10 @@ namespace OloEngine::Tests
             CaseIrisPlaneDepthOverTheTop = 18,
             CasePupilRadialOverTheTop = 19,
             CaseConcavityOverTheTop = 20,
+            // Where a painted iris is fetched (issue #1533).
+            CaseIrisShiftParity = 21,
+            CaseIrisShiftFadesAtLimbus = 22,
+            CaseUvShiftParity = 23,
             CaseCount
         };
 
@@ -470,6 +474,38 @@ namespace OloEngine::Tests
                 << "the concavity's ceiling differs between the CPU and the shader";
             EXPECT_NEAR(got.y, expected.y, HalfTolerance(expected.y));
             EXPECT_NEAR(got.z, expected.z, HalfTolerance(expected.z));
+        }
+
+        // --- 21-23: WHERE A PAINTED IRIS IS FETCHED (issue #1533) -------------
+        //
+        // The shift the material stages add to an eye's albedo UV, and the
+        // Jacobian solve that turns it into a UV step. Parity first, then the
+        // limbus: the shift must vanish where the pixel becomes sclera, or the
+        // sample steps across the boundary.
+        {
+            const glm::vec3 expected =
+                SkinOcularIrisShift(kObliqueN, view, kAxis, corneaLane, irisLane, responseLane, tintLane);
+            const glm::vec4 got = at(CaseIrisShiftParity);
+            EXPECT_GT(glm::length(expected), 0.01f) << "the fixture's shift is too small to compare";
+            EXPECT_NEAR(got.x, expected.x, HalfTolerance(expected.x))
+                << "the shader fetches a painted iris somewhere the CPU does not";
+            EXPECT_NEAR(got.y, expected.y, HalfTolerance(expected.y));
+            EXPECT_NEAR(got.z, expected.z, HalfTolerance(expected.z));
+        }
+        {
+            const glm::vec4 got = at(CaseIrisShiftFadesAtLimbus);
+            EXPECT_LT(got.x, 1.0e-3f) << "the shift is " << got.x << " eye radii just inside the limbus";
+            EXPECT_EQ(got.y, 0.0f) << "the sclera's albedo is fetched away from its own point";
+            EXPECT_GT(got.z, 0.01f) << "the oblique pixel's shift vanished as well, so the fade proves nothing";
+        }
+        {
+            const glm::vec2 expected = SkinOcularUvShift(glm::vec3(0.04f, -0.025f, 0.0f), kAxis, glm::vec2(0.0055f, 0.001f),
+                                                         glm::vec2(-0.0015f, 0.0065f), glm::vec3(0.011f, 0.002f, 0.0f),
+                                                         glm::vec3(-0.003f, 0.013f, 0.0f));
+            const glm::vec4 got = at(CaseUvShiftParity);
+            EXPECT_GT(glm::length(expected), 0.005f);
+            EXPECT_NEAR(got.x, expected.x, HalfTolerance(expected.x)) << "the UV step's Jacobian solve differs";
+            EXPECT_NEAR(got.y, expected.y, HalfTolerance(expected.y));
         }
     }
 

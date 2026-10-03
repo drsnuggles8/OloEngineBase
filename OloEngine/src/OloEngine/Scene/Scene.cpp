@@ -8,6 +8,8 @@
 // include is direct rather than transitive through RendererAPI.h, which is
 // now GL-free.
 #include <algorithm>
+#include <chrono>
+#include <cstdint>
 #include <cmath>
 #include <limits>
 #include <string_view>
@@ -2285,6 +2287,70 @@ namespace OloEngine
         return surface && surface->HasSkeleton() ? surface->GetSkeleton() : nullptr;
     }
 
+    const MaterialOverrideCache* Scene::PrepareMaterialOverrides(entt::entity const entity,
+                                                                 std::span<const Ref<Material>> const importedTable)
+    {
+        auto* overrides = m_Registry.try_get<MaterialOverridesComponent>(entity);
+        if (!overrides)
+        {
+            return nullptr;
+        }
+
+        const std::span<const MaterialOverride> list{ overrides->m_Overrides.GetData(),
+                                                      static_cast<sizet>(overrides->m_Overrides.Num()) };
+        const bool shadowed = m_Registry.all_of<MaterialComponent>(entity);
+        const bool listChanged = overrides->m_Cache.Prepare(list, importedTable);
+
+        // Report what the list does, once per edit of it (the cache rebuilds on
+        // every change, and that is the moment the answer can change). None of
+        // these stop rendering — the submesh shades with its imported material —
+        // which is exactly why each one is said out loud.
+        if (listChanged && !list.empty())
+        {
+            auto const* tag = m_Registry.try_get<TagComponent>(entity);
+            auto const* id = m_Registry.try_get<IDComponent>(entity);
+            const std::string entityName = tag ? tag->Tag : std::string("<untagged>");
+            const u64 entityId = id ? static_cast<u64>(id->ID) : 0ull;
+            if (shadowed)
+            {
+                OLO_CORE_WARN("MaterialOverridesComponent on entity '{}' ({}): a MaterialComponent overrides every "
+                              "submesh, so its {} material override(s) are inactive.",
+                              entityName, entityId, list.size());
+            }
+            else if (importedTable.empty())
+            {
+                OLO_CORE_WARN("MaterialOverridesComponent on entity '{}' ({}): the mesh carries no imported "
+                              "materials, so its {} material override(s) have nothing to patch.",
+                              entityName, entityId, list.size());
+            }
+            else
+            {
+                for (sizet i = 0; i < list.size(); ++i)
+                {
+                    if (const MaterialOverrideStatus status = ClassifyMaterialOverride(list, i, importedTable);
+                        status != MaterialOverrideStatus::Applies)
+                    {
+                        OLO_CORE_WARN("MaterialOverridesComponent on entity '{}' ({}): override #{} ('{}') {}.",
+                                      entityName, entityId, i, list[i].MaterialName.ToView(),
+                                      DescribeMaterialOverrideStatus(status));
+                    }
+                }
+            }
+            if (const u32 rejected = overrides->m_Cache.GetRejectedPatchCount(); rejected > 0)
+            {
+                OLO_CORE_WARN("MaterialOverridesComponent on entity '{}' ({}): {} patch(es) carried an out-of-range "
+                              "kind or a non-finite factor; those fields keep the imported value (kind: Generic).",
+                              entityName, entityId, rejected);
+            }
+        }
+
+        if (shadowed || list.empty())
+        {
+            return nullptr;
+        }
+        return &overrides->m_Cache;
+    }
+
     static Ref<MeshSource> AnimatedSurfaceSource(const LODGroupComponent* lodComp,
                                                  const MeshComponent& meshComp)
     {
@@ -2574,25 +2640,239 @@ namespace OloEngine
         return m_Registry.get<TransformComponent>(entity).GetTransform();
     }
 
+    entt::entity Scene::ResolveTransformParent(entt::entity const entity) const
+    {
+        // Treats a missing/invalid/dangling RelationshipComponent::m_ParentHandle
+        // (e.g. DestroyEntity doesn't clean up former children — see
+        // HierarchyChildFollowsPhysicsParentTest) as "no parent" rather than
+        // propagating a stale reference.
+        auto const* rel = m_Registry.try_get<RelationshipComponent>(entity);
+        if (!rel || static_cast<u64>(rel->m_ParentHandle) == 0)
+            return entt::null;
+
+        auto const* parentEntity = m_EntityMap.Find(rel->m_ParentHandle);
+        if (!parentEntity || !m_Registry.valid(*parentEntity) || !m_Registry.all_of<TransformComponent>(*parentEntity))
+            return entt::null;
+
+        return *parentEntity;
+    }
+
+    std::optional<BoneAttachmentResolution> Scene::ResolveBoneAttachment(entt::entity const entity) const
+    {
+        auto const* attachment = m_Registry.try_get<BoneAttachmentComponent>(entity);
+        if (!attachment)
+            return std::nullopt;
+
+        // Same order of checks, and therefore the same reason, as the cached
+        // resolution PropagateWorldTransforms performs — see
+        // ResolveAttachedBoneTransform. This one only omits the cache and the log.
+        BoneAttachmentResolution resolution;
+        if (!attachment->m_Enabled)
+        {
+            resolution.Status = BoneAttachmentStatus::Disabled;
+            return resolution;
+        }
+        entt::entity const parent = ResolveTransformParent(entity);
+        if (parent == entt::null)
+        {
+            resolution.Status = BoneAttachmentStatus::NoParent;
+            return resolution;
+        }
+        auto const* skeletonComp = m_Registry.try_get<SkeletonComponent>(parent);
+        if (!skeletonComp || !skeletonComp->m_Skeleton)
+        {
+            resolution.Status = BoneAttachmentStatus::ParentHasNoSkeleton;
+            return resolution;
+        }
+        if (attachment->m_BoneName.empty())
+        {
+            resolution.Status = BoneAttachmentStatus::NoBoneName;
+            return resolution;
+        }
+        resolution.BoneIndex = FindPosedBoneIndex(*skeletonComp->m_Skeleton, attachment->m_BoneName);
+        resolution.Status = resolution.BoneIndex >= 0 ? BoneAttachmentStatus::Attached : BoneAttachmentStatus::UnknownBone;
+        return resolution;
+    }
+
+    const glm::mat4* Scene::ResolveAttachedBoneTransform(entt::entity const entity, entt::entity const parent)
+    {
+        auto const& attachment = m_Registry.get<BoneAttachmentComponent>(entity);
+        BoneAttachmentRuntimeState& runtime = m_BoneAttachmentRuntime[entity];
+
+        BoneAttachmentStatus status = BoneAttachmentStatus::Attached;
+        const Skeleton* skeleton = nullptr;
+        if (!attachment.m_Enabled)
+        {
+            status = BoneAttachmentStatus::Disabled;
+        }
+        else if (parent == entt::null)
+        {
+            status = BoneAttachmentStatus::NoParent;
+        }
+        else if (auto const* skeletonComp = m_Registry.try_get<SkeletonComponent>(parent);
+                 !skeletonComp || !skeletonComp->m_Skeleton)
+        {
+            status = BoneAttachmentStatus::ParentHasNoSkeleton;
+        }
+        else if (attachment.m_BoneName.empty())
+        {
+            status = BoneAttachmentStatus::NoBoneName;
+        }
+        else
+        {
+            skeleton = skeletonComp->m_Skeleton.Raw();
+        }
+
+        if (skeleton != nullptr)
+        {
+            // The cached index is keyed on the skeleton's identity AND re-checked
+            // against the name every use: one string compare per attached entity,
+            // and it covers a swapped skeleton, a renamed bone and a new skeleton
+            // allocated at a freed one's address alike.
+            i32 boneIndex = runtime.CachedBoneIndex;
+            const bool cacheHit = runtime.CachedSkeleton == skeleton && boneIndex >= 0 &&
+                                  static_cast<sizet>(boneIndex) < skeleton->m_BoneNames.size() &&
+                                  static_cast<sizet>(boneIndex) < skeleton->m_GlobalTransforms.size() &&
+                                  skeleton->m_BoneNames[static_cast<sizet>(boneIndex)] == attachment.m_BoneName;
+            if (!cacheHit)
+            {
+                boneIndex = FindPosedBoneIndex(*skeleton, attachment.m_BoneName);
+                runtime.CachedSkeleton = skeleton;
+                runtime.CachedBoneIndex = boneIndex;
+            }
+            if (boneIndex >= 0)
+            {
+                return &skeleton->m_GlobalTransforms[static_cast<sizet>(boneIndex)];
+            }
+            status = BoneAttachmentStatus::UnknownBone;
+        }
+
+        // NOT a silent fallback: the entity still composes parent-relative, but
+        // the log says so once per (entity, reason) and the inspector shows the
+        // same reason every frame (Scene::ResolveBoneAttachment).
+        if (const u32 bit = 1u << std::to_underlying(status); (runtime.WarnedReasons & bit) == 0)
+        {
+            runtime.WarnedReasons |= bit;
+            auto const* id = m_Registry.try_get<IDComponent>(entity);
+            auto const* tag = m_Registry.try_get<TagComponent>(entity);
+            OLO_CORE_WARN("BoneAttachmentComponent on entity '{}' ({}) cannot follow bone '{}': {} ({}). "
+                          "Composing parent-relative instead.",
+                          tag ? tag->Tag : std::string("<untagged>"), id ? static_cast<u64>(id->ID) : 0ull,
+                          attachment.m_BoneName, DescribeBoneAttachmentStatus(status),
+                          BoneAttachmentStatusToString(status));
+        }
+        return nullptr;
+    }
+
+    glm::mat4 Scene::ComposeWorldTransform(entt::entity const entity, entt::entity const parent, bool const boneAttached)
+    {
+        glm::mat4 const& local = m_Registry.get<TransformComponent>(entity).GetTransform();
+
+        // A bone-attached child composes against its parent skeleton's bone
+        // (#1533): parentWorld * boneGlobal * local. When the attachment cannot
+        // resolve it falls through to the ordinary rule below, having said why.
+        if (boneAttached)
+        {
+            if (glm::mat4 const* bone = ResolveAttachedBoneTransform(entity, parent))
+                return GetWorldTransform(parent) * (*bone) * local;
+        }
+
+        if (parent != entt::null)
+        {
+            if (auto const* parentWorld = m_Registry.try_get<WorldTransformComponent>(parent))
+                return parentWorld->WorldMatrix * local;
+        }
+        return local;
+    }
+
+    void Scene::RecomposeBoneAttachedSubtrees()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto const& attachments = m_Registry.storage<BoneAttachmentComponent>();
+        if (attachments.empty())
+            return;
+
+        // Depth of an entity in the resolved parent chain, hop-capped so a cycle
+        // that slipped past Entity::SetParent (direct deserialization) cannot hang
+        // the editor frame. Only attached entities are measured, so this is
+        // cheap next to the full sweep.
+        const sizet hopCap = m_Registry.storage<TransformComponent>().size() + 1;
+        auto depthOf = [this, hopCap](entt::entity entity)
+        {
+            sizet depth = 0;
+            for (entt::entity parent = ResolveTransformParent(entity); parent != entt::null && depth < hopCap;
+                 parent = ResolveTransformParent(parent))
+            {
+                ++depth;
+            }
+            return depth;
+        };
+
+        // Subtree roots, shallowest first: an attached entity nested inside
+        // another attached entity's subtree is recomposed as part of the outer
+        // one, AFTER its own parent — processing the outer subtree first is what
+        // guarantees that order, since the BFS below visits parents first.
+        struct DepthRoot
+        {
+            sizet Depth = 0;
+            entt::entity Entity = entt::null;
+        };
+        TArray<DepthRoot> roots;
+        roots.Reserve(static_cast<i32>(attachments.size()));
+        for (auto const entity : m_Registry.view<BoneAttachmentComponent, TransformComponent>())
+        {
+            roots.Add({ depthOf(entity), entity });
+        }
+        std::sort(roots.begin(), roots.end(), [](DepthRoot const& a, DepthRoot const& b)
+                  { return a.Depth < b.Depth; });
+
+        TArray<entt::entity>& queue = m_BoneRecomposeQueue;
+        std::unordered_set<entt::entity>& visited = m_TransformVisited; // free again once the full sweep returned
+        visited.clear();
+        for (DepthRoot const& root : roots)
+        {
+            if (visited.contains(root.Entity))
+                continue;
+            queue.Reset();
+            queue.Add(root.Entity);
+            for (sizet head = 0; head < queue.Num(); ++head)
+            {
+                entt::entity const entity = queue[head];
+                if (!visited.insert(entity).second)
+                    continue;
+
+                entt::entity const parent = ResolveTransformParent(entity);
+                m_Registry.emplace_or_replace<WorldTransformComponent>(
+                    entity, ComposeWorldTransform(entity, parent, attachments.contains(entity)));
+
+                auto const* rel = m_Registry.try_get<RelationshipComponent>(entity);
+                if (!rel)
+                    continue;
+                for (UUID const childId : rel->m_Children)
+                {
+                    auto const* childEntity = m_EntityMap.Find(childId);
+                    if (!childEntity || !m_Registry.valid(*childEntity) || visited.contains(*childEntity))
+                        continue;
+                    if (!m_Registry.all_of<TransformComponent>(*childEntity))
+                        continue;
+                    // Same guard as the full sweep: descend only where the child's
+                    // own resolved parent agrees.
+                    if (ResolveTransformParent(*childEntity) != entity)
+                        continue;
+                    queue.Add(*childEntity);
+                }
+            }
+        }
+    }
+
     void Scene::PropagateWorldTransforms()
     {
         OLO_PROFILE_FUNCTION();
 
-        // Resolves an entity's parent, treating a missing/invalid/dangling
-        // RelationshipComponent::m_ParentHandle (e.g. DestroyEntity doesn't
-        // clean up former children — see HierarchyChildFollowsPhysicsParentTest)
-        // as "no parent" rather than propagating a stale reference.
         auto resolveParent = [this](entt::entity entity) -> entt::entity
         {
-            auto const* rel = m_Registry.try_get<RelationshipComponent>(entity);
-            if (!rel || static_cast<u64>(rel->m_ParentHandle) == 0)
-                return entt::null;
-
-            auto const* parentEntity = m_EntityMap.Find(rel->m_ParentHandle);
-            if (!parentEntity || !m_Registry.valid(*parentEntity) || !m_Registry.all_of<TransformComponent>(*parentEntity))
-                return entt::null;
-
-            return *parentEntity;
+            return ResolveTransformParent(entity);
         };
 
         auto view = m_Registry.view<TransformComponent>();
@@ -2660,19 +2940,24 @@ namespace OloEngine
 
         // One linear sweep: parents are guaranteed to precede their children,
         // so each child composes against an already-written parent world matrix.
+        // The attachment pool is looked up ONCE: a per-entity registry query
+        // would put a type-map lookup on every entity of every scene, and almost
+        // every scene has no attachment at all (#1533).
+        auto const& attachments = m_Registry.storage<BoneAttachmentComponent>();
+        const bool anyAttachments = !attachments.empty();
         for (auto entity : order)
         {
-            glm::mat4 const& local = m_Registry.get<TransformComponent>(entity).GetTransform();
-            entt::entity const parent = resolveParent(entity);
+            const bool boneAttached = anyAttachments && attachments.contains(entity);
+            m_Registry.emplace_or_replace<WorldTransformComponent>(
+                entity, ComposeWorldTransform(entity, resolveParent(entity), boneAttached));
+        }
 
-            glm::mat4 world = local;
-            if (parent != entt::null)
-            {
-                if (auto const* parentWorld = m_Registry.try_get<WorldTransformComponent>(parent))
-                    world = parentWorld->WorldMatrix * local;
-            }
-
-            m_Registry.emplace_or_replace<WorldTransformComponent>(entity, world);
+        // Drop the attachment bookkeeping of entities that were destroyed or lost
+        // the component, so a long session cannot grow the map without bound.
+        if (m_BoneAttachmentRuntime.size() > attachments.size())
+        {
+            std::erase_if(m_BoneAttachmentRuntime, [this](auto const& entry)
+                          { return !m_Registry.valid(entry.first) || !m_Registry.all_of<BoneAttachmentComponent>(entry.first); });
         }
     }
 
@@ -3437,6 +3722,16 @@ namespace OloEngine
         // it after the tick — but writers/readers declared against it keep the
         // compose pass ordered after every local-transform mover (WAR edges).
         constexpr std::string_view kWorldTransforms = "WorldTransforms";
+        // The skeleton POSE: Skeleton::m_LocalTransforms / m_GlobalTransforms /
+        // m_FinalBoneMatrices, which both animation systems write in place (their
+        // IK, spring-bone, noise and foot-IK post passes run inside them). Before
+        // issue #1533 nothing inside the tick read the pose, so the writes went
+        // undeclared; now PropagateTransforms composes BoneAttachmentComponent
+        // children against it and PhysicsKick drives skeleton-attached cloth from
+        // it, and both must see THIS tick's pose. Every system that writes the
+        // pose declares Writes(kSkeletonPose) — a writer that does not is a reader
+        // racing it the day either is marked Parallelizable.
+        constexpr std::string_view kSkeletonPose = "SkeletonPose";
         // Morph-target weights sampled by the animation systems.
         constexpr std::string_view kMorphWeights = "MorphWeights";
         // Pending per-entity root-motion deltas extracted by the animation
@@ -3616,10 +3911,12 @@ namespace OloEngine
             // entity transforms (bone pose lives in skeleton/component state) —
             // it publishes extracted root-motion deltas on the RootMotion channel
             // instead; RootMotionApply is the transform/controller writer (#631).
+            // The pose it writes in place is declared on SkeletonPose (#1533).
             sched.AddSystem("Animation", [](Scene& s, Timestep ts)
                             { s.UpdateAnimation(ts); })
                 .Reads(kLocalTransforms)
                 .Reads(kAnimationClips)
+                .Writes(kSkeletonPose)
                 .Writes(kMorphWeights)
                 .Writes(kRootMotion);
 
@@ -3628,6 +3925,7 @@ namespace OloEngine
                 .Reads(kLocalTransforms)
                 .Reads(kAnimationClips)
                 .Reads(kAnimationParams)
+                .Writes(kSkeletonPose)
                 .Writes(kMorphWeights)
                 .Writes(kRootMotion);
 
@@ -3715,9 +4013,14 @@ namespace OloEngine
             // game thread (hence Reads(LocalTransforms)), then the ECS-free
             // world update (Box2D + Jolt) launches as an engine task —
             // published as the PhysicsInFlight channel the fence consumes.
+            // Reads(SkeletonPose): DriveClothAttachments welds skeleton-attached
+            // cloth to its bone's world transform here, and must weld it to THIS
+            // tick's pose — declared rather than left to the transitive chain
+            // through RootMotionApply that happened to provide it (#1533).
             sched.AddSystem("PhysicsKick", [](Scene& s, Timestep ts)
                             { s.KickPhysicsStep(ts); })
                 .Reads(kLocalTransforms)
+                .Reads(kSkeletonPose)
                 .Reads(kBodyForces)
                 .Writes(kPhysicsInFlight);
 
@@ -3772,9 +4075,13 @@ namespace OloEngine
 
             // Compose world matrices once every local-transform mover has run;
             // publishes WorldTransforms for post-tick consumers (rendering, #499).
+            // Reads(SkeletonPose): a BoneAttachmentComponent child composes against
+            // its parent skeleton's bone (#1533), so this pass must run after every
+            // pose writer — otherwise an attached eye trails its head by a tick.
             sched.AddSystem("PropagateTransforms", [](Scene& s, Timestep)
                             { s.PropagateWorldTransforms(); })
                 .Reads(kLocalTransforms)
+                .Reads(kSkeletonPose)
                 .Writes(kWorldTransforms);
 
             // Navigation reads agent positions AND writes them (crowd sync +
@@ -4207,6 +4514,32 @@ namespace OloEngine
         Animation::RetargetingSystem::OnUpdate(this);
     }
 
+    namespace
+    {
+        // Morph keyframes follow the skeletal cross-fade (issue #1533): while
+        // a blend runs both clips are sampled and mixed by the blend factor
+        // Update just computed, so a face does not snap to the target clip's
+        // expression on the frame the blend completes.
+        void SampleClipMorphs(Entity entity, const AnimationStateComponent& animState)
+        {
+            if (!entity.HasComponent<MorphTargetComponent>())
+            {
+                return;
+            }
+            auto& morphComp = entity.GetComponent<MorphTargetComponent>();
+            if (animState.m_Blending && animState.m_NextClip)
+            {
+                MorphTargetSystem::SampleMorphKeyframesBlended(animState.m_CurrentClip, animState.m_CurrentTime,
+                                                               animState.m_NextClip, animState.m_NextTime,
+                                                               animState.m_BlendFactor, morphComp);
+            }
+            else
+            {
+                MorphTargetSystem::SampleMorphKeyframes(animState.m_CurrentClip, animState.m_CurrentTime, morphComp);
+            }
+        }
+    } // namespace
+
     void Scene::UpdateAnimation(Timestep ts)
     {
 
@@ -4235,6 +4568,11 @@ namespace OloEngine
             {
                 auto& animState = animView.get<AnimationStateComponent>(e);
                 auto& skelComp = animView.get<SkeletonComponent>(e);
+
+                // A clip request (issue #1533) lands even on an entity that is
+                // paused or has no clip yet; Update applies it too, but the gate
+                // below keeps both of those away from Update.
+                Animation::AnimationSystem::ApplyClipRequest(animState);
 
                 if (animState.m_IsPlaying && animState.m_CurrentClip && skelComp.m_Skeleton)
                 {
@@ -4279,15 +4617,7 @@ namespace OloEngine
 
                     Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, poseSeconds, ikTarget, entityTransform, springBone, springState, noise, noiseState, footIK, footIKState);
 
-                    // Sample morph target keyframes from the current animation clip
-                    if (!animState.m_CurrentClip->MorphKeyframes.empty())
-                    {
-                        if (entity.HasComponent<MorphTargetComponent>())
-                        {
-                            auto& morphComp = entity.GetComponent<MorphTargetComponent>();
-                            MorphTargetSystem::SampleMorphKeyframes(animState.m_CurrentClip, animState.m_CurrentTime, morphComp);
-                        }
-                    }
+                    SampleClipMorphs(entity, animState);
                 }
             }
 
@@ -4296,14 +4626,30 @@ namespace OloEngine
             for (auto e : morphAnimView)
             {
                 auto& animState = morphAnimView.get<AnimationStateComponent>(e);
+                // No skeleton means no pose to cross-fade, so a clip request
+                // (issue #1533) switches at once.
+                Animation::AnimationSystem::ApplyClipRequest(animState);
+                if (animState.m_Blending && animState.m_NextClip)
+                {
+                    animState.m_CurrentClip = animState.m_NextClip;
+                    animState.m_CurrentTime = animState.m_NextTime;
+                    animState.m_Loop = animState.m_NextLoop;
+                    animState.m_NextClip = nullptr;
+                    animState.m_Blending = false;
+                    animState.m_BlendFactor = 0.0f;
+                }
                 if (!animState.m_IsPlaying || !animState.m_CurrentClip)
                     continue;
 
-                // Advance time for morph-only entities
-                animState.m_CurrentTime += ts.GetSeconds();
+                // Advance time for morph-only entities: a looping clip wraps, a
+                // one-shot holds its last frame.
+                const f32 playbackSpeed = std::isfinite(animState.m_PlaybackSpeed) ? std::clamp(animState.m_PlaybackSpeed, 0.0f, 10.0f) : 1.0f;
+                animState.m_CurrentTime += ts.GetSeconds() * playbackSpeed;
                 if (const float duration = animState.m_CurrentClip->Duration; duration > 0.0f && animState.m_CurrentTime > duration)
                 {
-                    animState.m_CurrentTime -= static_cast<int>(animState.m_CurrentTime / duration) * duration;
+                    animState.m_CurrentTime = animState.m_Loop
+                                                  ? animState.m_CurrentTime - static_cast<int>(animState.m_CurrentTime / duration) * duration
+                                                  : duration;
                 }
 
                 if (!animState.m_CurrentClip->MorphKeyframes.empty())
@@ -4538,6 +4884,18 @@ namespace OloEngine
     {
         const auto it = m_AnimalSchedules.find(id);
         return it != m_AnimalSchedules.end() ? &it->second : nullptr;
+    }
+
+    const GroomGuideSimulationState* Scene::FindGroomGuideSimulation(UUID groomEntity) const
+    {
+        const auto it = m_GroomSimulationRuntime.find(groomEntity);
+        return it != m_GroomSimulationRuntime.end() ? &it->second.m_Solver : nullptr;
+    }
+
+    const GroomLodState* Scene::FindGroomLodState(UUID groomEntity) const
+    {
+        const auto it = m_GroomLodRuntime.find(groomEntity);
+        return it != m_GroomLodRuntime.end() ? &it->second : nullptr;
     }
 
     bool Scene::ShouldPoseAnimalThisFrame(UUID id, f32 frameSeconds, f32& outScaledSeconds) const
@@ -5315,6 +5673,9 @@ namespace OloEngine
 
     void Scene::RenderRuntime(Timestep const ts)
     {
+        // In the editor's CPU-scope table (#1533): the once-per-frame half of a runtime
+        // frame, beside the per-tick System:: scopes the gameplay schedule reports.
+        OLO_PERF_SCOPE_AUTO("Scene::RenderRuntime");
         // Advance video playback once per displayed frame at the display rate
         // (frozen while paused). This is a presentation concern moved out of the
         // fixed-step sim body so it runs exactly once per frame instead of 0..N
@@ -5882,6 +6243,11 @@ namespace OloEngine
                 auto& animState = animView.get<AnimationStateComponent>(e);
                 auto& skelComp = animView.get<SkeletonComponent>(e);
 
+                // A clip request (issue #1533) lands even on an entity that is
+                // paused or has no clip yet; Update applies it too, but the gate
+                // below keeps both of those away from Update.
+                Animation::AnimationSystem::ApplyClipRequest(animState);
+
                 if (animState.m_IsPlaying && animState.m_CurrentClip && skelComp.m_Skeleton)
                 {
                     IKTargetComponent tempIk;
@@ -5925,18 +6291,18 @@ namespace OloEngine
 
                     Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, poseSeconds, ikTarget, entityTransform, springBone, springState, noise, noiseState, footIK, footIKState);
 
-                    // Sample morph target keyframes from the current animation clip
-                    if (!animState.m_CurrentClip->MorphKeyframes.empty())
-                    {
-                        if (entity.HasComponent<MorphTargetComponent>())
-                        {
-                            auto& morphComp = entity.GetComponent<MorphTargetComponent>();
-                            MorphTargetSystem::SampleMorphKeyframes(animState.m_CurrentClip, animState.m_CurrentTime, morphComp);
-                        }
-                    }
+                    SampleClipMorphs(entity, animState);
                 }
             }
         }
+
+        // The full PropagateWorldTransforms above ran BEFORE the preview loop
+        // posed the skeletons, so a BoneAttachmentComponent child (an eye riding
+        // a head bone, #1533) composed against LAST frame's pose. Re-compose just
+        // the attached subtrees against the pose this frame renders with. The
+        // runtime path needs no twin: its scheduler orders PropagateTransforms
+        // after every pose writer (the SkeletonPose channel).
+        RecomposeBoneAttachedSubtrees();
 
         // Evaluate morph targets for editor preview. Not a mirror of the runtime
         // pass but a second CALL of it: Scene::EvaluateMorphTargets is the one
@@ -8275,9 +8641,11 @@ namespace OloEngine
     // versus the Model's), and a second copy is how they drift.
     //
     // `importedMaterial` / `importedSlot` name the material this submesh was
-    // imported with — nullptr / 0 for none — and `resolvedMaterial` must be what
-    // ResolveSubmeshMaterial makes of the SAME (override, imported) pair, so the
-    // record cannot name one material while the draw shades with another.
+    // imported with — nullptr / 0 for none — `patchedMaterial` is the entity's
+    // patch of it (MaterialOverridesComponent, #1533) or nullptr, and
+    // `resolvedMaterial` must be what ResolveSubmeshMaterial makes of the SAME
+    // (override, patched, imported) triple, so the record cannot name one
+    // material while the draw shades with another.
     //
     // Returns the draw link the caller hands to DrawMesh, or
     // GPUSceneDrawLinkNone when no link was requested or the source was not
@@ -8399,14 +8767,14 @@ namespace OloEngine
 
     [[nodiscard]] static u32 StageGPUSceneSubmesh(u64 stableEntityId, const Ref<MeshSource>& meshSource,
                                                   u32 submeshIndex, const glm::mat4& worldTransform,
-                                                  const Material* overrideMaterial,
+                                                  const Material* overrideMaterial, const Material* patchedMaterial,
                                                   const Material* importedMaterial, u32 importedSlot,
                                                   const Material& resolvedMaterial,
                                                   GPUSceneDrawLinkRequest linkRequest,
                                                   const GPUSceneAnimatedSurface& animatedSurface = {})
     {
         const GPUSceneMaterialKey materialKey = Renderer3D::ResolveGPUSceneMaterialKey(
-            overrideMaterial, stableEntityId, meshSource, importedMaterial, importedSlot);
+            overrideMaterial, patchedMaterial, stableEntityId, meshSource, importedMaterial, importedSlot);
         Renderer3D::ExtractGPUSceneMaterial(materialKey, resolvedMaterial);
         return Renderer3D::ExtractGPUSceneMesh(stableEntityId, 0, meshSource, submeshIndex, worldTransform,
                                                materialKey, linkRequest, animatedSurface);
@@ -8445,7 +8813,12 @@ namespace OloEngine
                                         // reports a change on its own. Also the source of the
                                         // expression stamp on BOTH arms (issues #1243, #1395), so a
                                         // rigid caller passes it too.
-                                        const MorphTargetComponent* morph = nullptr)
+                                        const MorphTargetComponent* morph = nullptr,
+                                        // Issue #1533: the entity's patches of THIS source's imported
+                                        // materials (Scene::PrepareMaterialOverrides), or null. They
+                                        // reach the draw AND the staged record through the same
+                                        // patched pointer below.
+                                        const MaterialOverrideCache* materialPatches = nullptr)
     {
         if (!meshSource || meshSource->GetSubmeshes().IsEmpty())
         {
@@ -8463,7 +8836,9 @@ namespace OloEngine
         {
             auto submesh = Ref<Mesh>::Create(meshSource, i);
             const Material* importedMaterial = meshSource->GetImportedMaterialPtrForSubmesh(static_cast<u32>(i));
-            const Material& material = ResolveSubmeshMaterial(overrideMaterial, importedMaterial, GetDefaultMaterial());
+            const Material* patchedMaterial = ResolveMaterialPatch(materialPatches, importedMaterial);
+            const Material& material =
+                ResolveSubmeshMaterial(overrideMaterial, patchedMaterial, importedMaterial, GetDefaultMaterial());
 
             // The skinned arm (issue #1150). Deliberately a BRANCH inside this
             // loop rather than a second loop: material resolution, the shadow
@@ -8483,7 +8858,7 @@ namespace OloEngine
                 const u32 skinnedLink =
                     animatedSurface.m_IsAnimated
                         ? StageGPUSceneSubmesh(stableEntityId, meshSource, static_cast<u32>(i), worldTransform,
-                                               overrideMaterial, importedMaterial,
+                                               overrideMaterial, patchedMaterial, importedMaterial,
                                                meshSource->GetSubmeshes()[i].m_MaterialIndex, material,
                                                GPUSceneDrawLinkRequest::Link, animatedSurface)
                         : GPUSceneDrawLinkNone;
@@ -8561,8 +8936,9 @@ namespace OloEngine
             // it, so the dispatcher takes this draw's current/previous transform
             // and its material slot from the record instead of the copies below.
             const u32 gpuSceneDrawLink = StageGPUSceneSubmesh(
-                stableEntityId, meshSource, static_cast<u32>(i), worldTransform, overrideMaterial, importedMaterial,
-                meshSource->GetSubmeshes()[i].m_MaterialIndex, material, GPUSceneDrawLinkRequest::Link);
+                stableEntityId, meshSource, static_cast<u32>(i), worldTransform, overrideMaterial, patchedMaterial,
+                importedMaterial, meshSource->GetSubmeshes()[i].m_MaterialIndex, material,
+                GPUSceneDrawLinkRequest::Link);
 
             // The expression stamp on the RIGID arm (issue #1395). A morph-only
             // entity -- a blend-shape face with no skeleton -- is deformed by the
@@ -8890,6 +9266,9 @@ namespace OloEngine
     void Scene::PublishGroomStrandRequests()
     {
         OLO_PROFILE_FUNCTION();
+        // In the editor's CPU-scope table (#1533): the coats' per-frame CPU -- selection,
+        // the roots the CPU still evaluates, the guide simulation.
+        OLO_PERF_SCOPE_AUTO("Scene::PublishGroomStrandRequests");
 
         TArray64<GroomStrandRequest> groomRequests;
         // Every root-UV map handle a groom asked for this frame; the tail of this
@@ -8916,6 +9295,7 @@ namespace OloEngine
             {
                 continue;
             }
+            OLO_PERF_SCOPE_AUTO("Groom::Request");
 
             auto groom = AssetManager::GetAsset<GroomAsset>(groomComponent.m_Groom);
             if (!groom)
@@ -8976,6 +9356,28 @@ namespace OloEngine
                 request.CoatKappa = MakeGroomCoatKappa(*coat);
                 request.CoatLod = MakeGroomCoatLodPolicy(*coat);
                 request.CoatStepVoxels = MakeGroomCoatStepVoxels(*coat);
+                request.CoatMultipleScattering = coat->m_MultipleScattering;
+                request.CoatBakeAtRest = coat->m_BakeAtRest;
+            }
+
+            // Scene-shadow routing, in both directions, if this groom asks for
+            // it (#1323). Its ABSENCE is the #1252 behaviour -- a coat that
+            // casts no shadow and is lit as if it stood in the open -- so a
+            // scene authored before this existed renders exactly as it did, and
+            // every capture the earlier groom issues committed still means what
+            // it meant.
+            //
+            // Through MakeGroomShadowWidthTexels, never the raw field, for the
+            // reason the coat-shadow block above gives: OLO_SERIALIZE guards
+            // scene YAML and the deserialisers, a direct MCP or native write
+            // reaches neither, and this is the one boundary that value crosses
+            // on its way to a DIVISOR in the shader's light-space widening.
+            if (const auto* sceneShadow = m_Registry.try_get<GroomSceneShadowComponent>(entity);
+                sceneShadow != nullptr)
+            {
+                request.CastsSceneShadow = sceneShadow->m_CastShadows;
+                request.ReceivesSceneShadow = sceneShadow->m_ReceiveShadows;
+                request.ShadowWidthTexels = MakeGroomShadowWidthTexels(*sceneShadow);
             }
 
             // Coat authoring, if this groom has any (#1251). Its ABSENCE is the
@@ -9143,7 +9545,10 @@ namespace OloEngine
             request.Build.CoatDigest = GroomCoatDigest(request.Coat);
 
             liveGrooms.insert(groomComponent.m_Groom);
-            DeformGroomAgainstSurface(groomEntity, *groom, request);
+            {
+                OLO_PERF_SCOPE_AUTO("Groom::Deform");
+                DeformGroomAgainstSurface(groomEntity, *groom, request);
+            }
 
             groomRequests.Add(std::move(request));
         }
@@ -9504,16 +9909,30 @@ namespace OloEngine
         // the target -- so a constant offset cancels to first order. Including it
         // would mean rebuilding the strand build's clump table here, which is a
         // second copy of a computation that must agree exactly with the first.
+        //
+        // CURL AND WAVE are not applied either (#1533), and for a stronger
+        // reason: only a DISPLACEMENT crosses from a guide to its strands, and
+        // every strand adds its OWN curl back in the strand build. A curled
+        // target would put one strand's helix into the guide's rest lengths and
+        // its phase into the displacement of every strand the guide drives. The
+        // guide solves the groomed centreline; the curl rides on top.
         const auto& points = groom.GetPoints();
         const auto& rootUVs = groom.GetRootUVs();
         const auto& groupIds = groom.GetCurveGroupIds();
 
-        state.m_Targets.Reset();
+        // Emptied, not Reset (which frees): refilled at the same size every frame.
+        state.m_Targets.Empty();
         TArray<u32> offsets;
         offsets.Reserve(state.m_SlotOfGuide.Num() + 1);
         offsets.Add(0u);
         TArray<u32> guideCurves;
         guideCurves.Reserve(state.m_SlotOfGuide.Num());
+        // Each guide's own group's stiffness scale (#1533), read from the ASSET's
+        // table whether or not the coat component is enabled -- how stiff a tail
+        // plume is against the undercoat is part of how the groom was groomed,
+        // the way the role the budget above reads is.
+        TArray<f32> stiffnessScales;
+        stiffnessScales.Reserve(state.m_SlotOfGuide.Num());
 
         // COUNTED, not folded into a single flag. A guide whose root has no
         // deformed frame is already handled per guide by
@@ -9545,6 +9964,7 @@ namespace OloEngine
             }
             offsets.Add(static_cast<u32>(state.m_Targets.Num()));
             guideCurves.Add(curve);
+            stiffnessScales.Add(coat.GroupDesc(groupIds[curve]).StiffnessScale);
         }
 
         // == The body proxy, re-fitted only when the surface's identity moved ==
@@ -9652,7 +10072,7 @@ namespace OloEngine
         // of that slot, which every slot has -- instead of at the groomed rest
         // shape the solver re-seeds a teleport to. Without it every simulation
         // budget step popped the whole coat back to its groomed shape.
-        state.m_Seeds.Reset();
+        state.m_Seeds.Empty();
         const bool guideSetChanges =
             state.m_Solver.Initialized &&
             !std::ranges::equal(state.m_Solver.GuideCurves,
@@ -9684,11 +10104,15 @@ namespace OloEngine
         inputs.GuideCurves = std::span{ guideCurves.GetData(), static_cast<sizet>(guideCurves.Num()) };
         inputs.TargetPoints = std::span{ state.m_Targets.GetData(), static_cast<sizet>(state.m_Targets.Num()) };
         inputs.Colliders = std::span{ state.m_Colliders.GetData(), static_cast<sizet>(state.m_Colliders.Num()) };
+        inputs.StiffnessScales = std::span{ stiffnessScales.GetData(), static_cast<sizet>(stiffnessScales.Num()) };
         inputs.Params = params;
         inputs.DeltaTime = m_GroomSimulationDeltaSeconds;
         inputs.HasHistory = hasHistory;
 
+        const auto solveStart = std::chrono::steady_clock::now();
         GroomSimulationStats stats = StepGroomGuideSimulation(inputs, state.m_Solver);
+        stats.SolveMicroseconds = static_cast<u64>(
+            std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - solveStart).count());
         // Counted here because this is the only place that holds the root
         // transforms; the solver never sees them.
         stats.GuidesWithHeldRoots = guidesWithHeldRoots;
@@ -9787,7 +10211,7 @@ namespace OloEngine
                                                      spanV(state.m_Displacements), state.m_PublishedOffsets,
                                                      state.m_PublishedDisplacements);
         }
-        state.m_PublishedPrevDisplacements.Reset();
+        state.m_PublishedPrevDisplacements.Empty();
         if (expanded && !state.m_PrevDisplacements.IsEmpty())
         {
             // All or nothing: a previous frame that does not expand publishes no
@@ -10133,18 +10557,61 @@ namespace OloEngine
         // hand-over distance is precisely the silent failure this issue's
         // confidence-0.5 rating is about.
         const GroomBuildSource buildSource = request.BuildSource();
-        SelectGroomStrandCurves(buildSource, request.Build, state.m_SelectedCurves, &coat);
-        // Mapped back to BASE curves, because everything downstream of here —
-        // the root-transform evaluation, the guide widening, the binding
-        // preview — is indexed by the base groom. The map is a bijection onto a
-        // subset (a cluster picks one of its own members, and clusters are
-        // disjoint), so this cannot produce duplicates.
-        if (!buildSource.SourceCurves.empty())
+        const auto selectStart = std::chrono::steady_clock::now();
+        // THE DRAWN ROOTS ON THE GPU (#1533 E1). Skinning every drawn strand's
+        // triangle here, then packing and sending its 64-byte record, was the
+        // largest CPU cost of the showcase dog's frame (~28 ms for ~300k roots).
+        // A coat whose drawn roots nothing on the CPU needs leaves them to
+        // GroomRenderPass's compute pass, handed the inputs below, and only the
+        // guides the simulation solves against are evaluated here. What needs
+        // them on the CPU keeps the CPU evaluation: a coat shadow baked from the
+        // pose, the binding preview drawn from these transforms, and a morphing
+        // body, whose positions the GPU is not sent. The pass evaluates them
+        // itself if it takes a CPU path after all (GroomCpuRootTransforms).
+        const auto& rendererSettings = Renderer3D::GetRendererSettings();
+        const bool coatBakesFromPose =
+            request.CoatShadow != GroomCoatShadow::CoatShadowMode::None && !request.CoatBakeAtRest;
+        const bool gpuRootFrames = rendererSettings.GroomGpuDeformation && rendererSettings.GroomGpuRootFrames &&
+                                   skeleton != nullptr && morph == nullptr && !coatBakesFromPose &&
+                                   !binding->m_ShowBindingPreview;
+        // Chosen again only when what it is chosen from changed (#1533 E1; see
+        // GroomBindingRuntimeState::m_DrawnSelection).
+        // A coat whose roots the GPU evaluates selects nothing here: the pass
+        // draws its own selection, and the guides are added below.
+        const bool selectionCurrent = gpuRootFrames ||
+                                      (state.m_DrawnSelectionValid && state.m_DrawnSelectionGroom == request.Groom.Raw() &&
+                                       state.m_DrawnSelectionLevel == static_cast<const void*>(request.LodLevel) &&
+                                       state.m_DrawnSelectionHandle == request.Handle && state.m_DrawnSelectionCurveCount == groom.GetCurveCount() &&
+                                       state.m_DrawnSelectionSettings == request.Build);
+        if (!selectionCurrent)
         {
-            for (u32& selected : state.m_SelectedCurves)
+            SelectGroomStrandCurves(buildSource, request.Build, state.m_DrawnSelection, &coat);
+            // Mapped back to BASE curves, because everything downstream of here —
+            // the root-transform evaluation, the guide widening, the binding
+            // preview — is indexed by the base groom. The map is a bijection onto a
+            // subset (a cluster picks one of its own members, and clusters are
+            // disjoint), so this cannot produce duplicates.
+            if (!buildSource.SourceCurves.empty())
             {
-                selected = buildSource.SourceCurve(selected);
+                for (u32& selected : state.m_DrawnSelection)
+                {
+                    selected = buildSource.SourceCurve(selected);
+                }
             }
+            state.m_DrawnSelectionSettings = request.Build;
+            state.m_DrawnSelectionGroom = request.Groom.Raw();
+            state.m_DrawnSelectionLevel = static_cast<const void*>(request.LodLevel);
+            state.m_DrawnSelectionHandle = request.Handle;
+            state.m_DrawnSelectionCurveCount = groom.GetCurveCount();
+            state.m_DrawnSelectionValid = true;
+        }
+        if (gpuRootFrames)
+        {
+            state.m_SelectedCurves.Reset();
+        }
+        else
+        {
+            state.m_SelectedCurves = state.m_DrawnSelection;
         }
         // ...WIDENED to cover every guide the simulation will solve (#1250).
         // A guide with no deformed root is a guide solved against the bind
@@ -10152,6 +10619,9 @@ namespace OloEngine
         // animation; SelectGroomSimulationGuides says so at more length.
         const bool simulating = SelectGroomSimulationGuides(groomEntity, groom, coat, request,
                                                             state.m_SelectedCurves);
+        const auto evaluateStart = std::chrono::steady_clock::now();
+        request.CurveSelectMicroseconds = static_cast<u64>(
+            std::chrono::duration_cast<std::chrono::microseconds>(evaluateStart - selectStart).count());
 
         GroomDeformationInputs inputs;
         inputs.Surface = view;
@@ -10170,9 +10640,27 @@ namespace OloEngine
         inputs.PrevSurfaceToGroom = hasHistory ? state.m_PrevSurfaceToGroom : inputs.SurfaceToGroom;
         inputs.HasHistory = hasHistory;
 
-        request.DeformationStats =
-            EvaluateGroomRootTransforms(groom, *bindingAsset, inputs,
-                                        std::span<const u32>{ state.m_SelectedCurves.GetData(), static_cast<sizet>(state.m_SelectedCurves.Num()) }, state.m_Transforms);
+        request.GpuRootFrames = gpuRootFrames;
+        if (gpuRootFrames)
+        {
+            request.GpuRootInputs = inputs;
+            // Identity, generation and size: the pass re-sends the surface it
+            // keeps on the GPU when any of them changes under the coat.
+            request.GpuRootSurfaceKey =
+                (static_cast<u64>(reinterpret_cast<std::uintptr_t>(surface.Raw())) * 1099511628211ull) ^
+                (static_cast<u64>(surface->GetGeneration()) << 20) ^ static_cast<u64>(view.VertexCount);
+        }
+        {
+            OLO_PERF_SCOPE_AUTO("Groom::RootEvaluate");
+            // Last frame's array back from the renderer, when the swap below left
+            // this one without an allocation (see TakePooledGroomRootTransforms).
+            Renderer3D::TakePooledGroomRootTransforms(state.m_Transforms, groom.GetCurveCount());
+            request.DeformationStats =
+                EvaluateGroomRootTransforms(groom, *bindingAsset, inputs,
+                                            std::span<const u32>{ state.m_SelectedCurves.GetData(), static_cast<sizet>(state.m_SelectedCurves.Num()) }, state.m_Transforms);
+        }
+        request.RootEvaluateMicroseconds = static_cast<u64>(
+            std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - evaluateStart).count());
         request.Binding = bindingAsset;
         request.BindingReject = GroomBindingRejectReason::None;
 
@@ -10182,6 +10670,7 @@ namespace OloEngine
         // buffer this reads.
         if (simulating)
         {
+            OLO_PERF_SCOPE_AUTO("Groom::Simulate");
             SimulateGroomGuides(groomEntity, groom, *bindingAsset, coat, view, inputs.Skinning,
                                 inputs.SurfaceToGroom, targetEntity.GetUUID(), surface->GetGeneration(),
                                 std::span{ state.m_Transforms.GetData(), static_cast<sizet>(state.m_Transforms.Num()) }, hasHistory, request);
@@ -10344,7 +10833,43 @@ namespace OloEngine
 
             // Collect directional lights
             auto dirLightView = m_Registry.view<TransformComponent, DirectionalLightComponent>();
+
+            // THE CASCADES' OWNER, chosen before anything is packed. The CSM and
+            // VSM cover ONE directional light, and every lit shader reads them
+            // for UBO index 0 alone (directional-shadow-ownership.md), so the
+            // light that owns them must BE index 0. It is the brightest light
+            // that casts, packed first. Handing them to whichever light the view
+            // yielded first gave them to a non-casting fill light as often as
+            // not — EnTT yields the newest entity first — and then nothing cast
+            // at all: a sun created before its rim light threw no shadow. With
+            // no casting light the order is the view's, as it always was.
+            entt::entity cascadeOwner = entt::null;
+            f32 cascadeOwnerIntensity = 0.0f;
             for (auto entity : dirLightView)
+            {
+                const auto& dirLight = dirLightView.get<DirectionalLightComponent>(entity);
+                if (dirLight.m_CastShadows &&
+                    (cascadeOwner == entt::null || dirLight.m_Intensity > cascadeOwnerIntensity))
+                {
+                    cascadeOwner = entity;
+                    cascadeOwnerIntensity = dirLight.m_Intensity;
+                }
+            }
+            TArray<entt::entity> directionalOrder;
+            directionalOrder.Reserve(static_cast<i32>(dirLightView.size_hint()));
+            if (cascadeOwner != entt::null)
+            {
+                directionalOrder.Add(cascadeOwner);
+            }
+            for (auto entity : dirLightView)
+            {
+                if (entity != cascadeOwner)
+                {
+                    directionalOrder.Add(entity);
+                }
+            }
+
+            for (auto entity : directionalOrder)
             {
                 const auto& [transform, dirLight] = dirLightView.get<TransformComponent, DirectionalLightComponent>(entity);
 
@@ -10396,8 +10921,9 @@ namespace OloEngine
                     }
                 }
 
-                // The first directional light drives the camera view position
-                // (used by shading/specular) and the directional CSM shadow setup.
+                // The first directional light — the cascades' owner whenever one
+                // casts — drives the camera view position (used by
+                // shading/specular) and the directional CSM shadow setup.
                 if (lightIndex == 0)
                 {
                     Renderer3D::SetViewPosition(cameraPosition);
@@ -12403,7 +12929,9 @@ namespace OloEngine
                             layer.IndirectBufferID, layer.IndirectOffsetBytes,
                             // LOD transitions + coverage-preserving density
                             // (issue #1237), packed by FoliageRenderer.
-                            layer.LodTransition0, layer.LodTransition1);
+                            layer.LodTransition0, layer.LodTransition1,
+                            // The far card's normal lane (#1533).
+                            layer.CardNormalLane);
                     }
                 }
             }
@@ -13734,11 +14262,14 @@ namespace OloEngine
                 // Draw each submesh with entity ID. Shared with the VirtualMeshComponent
                 // fallback path — see SubmitMeshSourceClassic.
                 // The morph component rides along for the expression stamp only
-                // (issue #1395): no palette, so this stays the rigid arm.
+                // (issue #1395): no palette, so this stays the rigid arm. The
+                // patches are prepared against the table the loop resolves
+                // (drawSource's), issue #1533.
                 SubmitMeshSourceClassic(drawSource, worldTransform, overrideMaterial, entityID, stableEntityId, lodGroup,
                                         meshHasActiveShadows, lightmapScaleOffset, /*boneMatrices*/ {},
                                         /*prevBoneMatrices*/ {}, /*skeleton*/ nullptr, /*animatedCensus*/ nullptr,
-                                        m_Registry.try_get<MorphTargetComponent>(entity));
+                                        m_Registry.try_get<MorphTargetComponent>(entity),
+                                        drawSource ? PrepareMaterialOverrides(entity, drawSource->GetImportedMaterials()) : nullptr);
             }
         }
 
@@ -13840,6 +14371,11 @@ namespace OloEngine
                 const Material* overrideMaterial = m_Registry.all_of<MaterialComponent>(entity)
                                                        ? &m_Registry.get<MaterialComponent>(entity).m_Material
                                                        : nullptr;
+                // The entity's patches of this source's imported materials (issue
+                // #1533) — handed to BOTH arms of the master switch below, so the
+                // A/B differs only in the renderer, as it must.
+                const MaterialOverrideCache* materialPatches =
+                    PrepareMaterialOverrides(entity, meshSource->GetImportedMaterials());
 
                 const glm::mat4 worldTransform = GetWorldTransform(entity);
                 const i32 entityID = static_cast<i32>(std::to_underlying(entity));
@@ -13913,7 +14449,7 @@ namespace OloEngine
                                             meshHasActiveShadows && virtualMesh.m_CastShadows,
                                             lightmapScaleOffset, boneMatrices, prevBoneMatrices,
                                             fallbackSkeleton, &animatedCensus,
-                                            m_Registry.try_get<MorphTargetComponent>(entity));
+                                            m_Registry.try_get<MorphTargetComponent>(entity), materialPatches);
                     continue;
                 }
 
@@ -13942,7 +14478,7 @@ namespace OloEngine
                 const bool queued = Renderer3D::SubmitVirtualMesh(
                     virtualMesh.m_MeshSource, meshSource, worldTransform, overrideMaterial,
                     GetDefaultMaterial(), entityID, stableEntityId, virtualMesh.m_ErrorThresholdPixels,
-                    castsShadow, lightmapScaleOffset, boneMatrices, prevBoneMatrices);
+                    castsShadow, lightmapScaleOffset, boneMatrices, prevBoneMatrices, materialPatches);
                 if (queued)
                 {
                     ++vgDiagnostics.Submitted;
@@ -14364,11 +14900,15 @@ namespace OloEngine
                 const glm::mat4 worldTransform = GetWorldTransform(entity);
 
                 // Same precedence as the MeshComponent loop: MaterialComponent override ->
-                // the material this submesh was imported with -> engine default (#629).
+                // this entity's patch of the submesh's imported material (#1533) -> the
+                // material this submesh was imported with -> engine default (#629).
                 const Material* overrideMaterial = m_Registry.all_of<MaterialComponent>(entity)
                                                        ? &m_Registry.get<MaterialComponent>(entity).m_Material
                                                        : nullptr;
-                const Material& material = ResolveSubmeshMaterial(overrideMaterial, submesh.m_Mesh->GetMeshSource().get(),
+                const Ref<MeshSource> submeshSource = submesh.m_Mesh->GetMeshSource();
+                const MaterialOverrideCache* materialPatches =
+                    submeshSource ? PrepareMaterialOverrides(entity, submeshSource->GetImportedMaterials()) : nullptr;
+                const Material& material = ResolveSubmeshMaterial(overrideMaterial, materialPatches, submeshSource.get(),
                                                                   submesh.m_Mesh->GetSubmeshIndex(), GetDefaultMaterial());
 
                 // Exclude alpha-masked/blended materials: see comment on the
@@ -14459,9 +14999,15 @@ namespace OloEngine
                     }
                 }
 
+                // The entity's patches of the MODEL's material table (issue
+                // #1533): the table the draw and the staging loop below both
+                // resolve against.
+                const MaterialOverrideCache* materialPatches =
+                    PrepareMaterialOverrides(entity, model.m_Model->GetMaterials());
+
                 model.m_Model->DrawParallel(modelTransform, overrideMaterial, GetDefaultMaterial(),
                                             static_cast<int>(std::to_underlying(entity)),
-                                            lightmapRegionForMesh);
+                                            lightmapRegionForMesh, materialPatches);
 
                 // ONE pass over the model's meshes, feeding three consumers:
                 // the canonical GPU Scene records, the DDGI capture, and the
@@ -14502,7 +15048,9 @@ namespace OloEngine
                     // Sponza submesh under the flat engine default.
                     const u32 matIdx = submesh->GetSubmesh().m_MaterialIndex;
                     const Material* imported = (matIdx < materials.size() && materials[matIdx]) ? materials[matIdx].get() : nullptr;
-                    const Material& submeshMaterial = ResolveSubmeshMaterial(overrideMaterial, imported, GetDefaultMaterial());
+                    const Material* patched = ResolveMaterialPatch(materialPatches, imported);
+                    const Material& submeshMaterial =
+                        ResolveSubmeshMaterial(overrideMaterial, patched, imported, GetDefaultMaterial());
 
                     // The model's node transforms are baked into its vertices
                     // (Assimp's aiProcess_PreTransformVertices) and
@@ -14522,7 +15070,7 @@ namespace OloEngine
                     // report a permanently unlinked draw every frame.
                     (void)StageGPUSceneSubmesh(stableEntityId, submesh->GetMeshSource(),
                                                submesh->GetSubmeshIndex(), modelTransform, overrideMaterial,
-                                               imported, matIdx, submeshMaterial,
+                                               patched, imported, matIdx, submeshMaterial,
                                                GPUSceneDrawLinkRequest::None);
 
                     if (!collectCasters)
@@ -14637,10 +15185,15 @@ namespace OloEngine
                 const glm::mat4 worldTransform = GetWorldTransform(entity);
 
                 // Same precedence as the static MeshComponent loop: MaterialComponent
-                // override -> the submesh's imported material -> engine default (#629).
+                // override -> the entity's patch of the submesh's imported material
+                // (#1533) -> the submesh's imported material -> engine default (#629).
+                // The patches are prepared against the surface this frame DRAWS
+                // (its LOD level's table), since that is the table resolved below.
                 const Material* overrideMaterial = m_Registry.all_of<MaterialComponent>(entity)
                                                        ? &m_Registry.get<MaterialComponent>(entity).m_Material
                                                        : nullptr;
+                const MaterialOverrideCache* materialPatches =
+                    PrepareMaterialOverrides(entity, surfaceSource->GetImportedMaterials());
 
                 // Get bone matrices from skeleton. Offer the previous pose ONLY
                 // when the skeleton actually has one (#1226): after a
@@ -14684,8 +15237,11 @@ namespace OloEngine
                     for (i32 i = 0; i < surfaceSource->GetSubmeshes().Num(); ++i)
                     {
                         auto submesh = Ref<Mesh>::Create(surfaceSource, i);
-                        const Material& material = ResolveSubmeshMaterial(overrideMaterial, surfaceSource.get(),
-                                                                          static_cast<u32>(i), GetDefaultMaterial());
+                        const Material* importedMaterial =
+                            surfaceSource->GetImportedMaterialPtrForSubmesh(static_cast<u32>(i));
+                        const Material* patchedMaterial = ResolveMaterialPatch(materialPatches, importedMaterial);
+                        const Material& material = ResolveSubmeshMaterial(overrideMaterial, patchedMaterial,
+                                                                          importedMaterial, GetDefaultMaterial());
 
                         // Exclude alpha-masked/blended materials (see MeshComponent
                         // branch comment above for the underlying shader limitation).
@@ -14699,9 +15255,8 @@ namespace OloEngine
                         // identity was already expressible.
                         const u32 gpuSceneDrawLink = StageGPUSceneSubmesh(
                             stableEntityId, surfaceSource, static_cast<u32>(i), worldTransform, overrideMaterial,
-                            surfaceSource->GetImportedMaterialPtrForSubmesh(static_cast<u32>(i)),
-                            surfaceSource->GetSubmeshes()[i].m_MaterialIndex, material,
-                            GPUSceneDrawLinkRequest::Link, animatedSurface);
+                            patchedMaterial, importedMaterial, surfaceSource->GetSubmeshes()[i].m_MaterialIndex,
+                            material, GPUSceneDrawLinkRequest::Link, animatedSurface);
                         if (gpuSceneDrawLink == GPUSceneDrawLinkNone)
                         {
                             ++animatedCensus.m_UnsupportedInstances;

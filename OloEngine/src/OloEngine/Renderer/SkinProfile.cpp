@@ -167,21 +167,29 @@ namespace OloEngine
              ok;
         ok = SanitizeUnitColor(IrisColor, defaults.IrisColor) && ok;
 
-        // THE ONE CROSS-FIELD RULE IN THIS STRUCT, and it is here rather than
-        // in the lane packers because a lane packer cannot report. Three of the
+        // THE CROSS-FIELD RULES IN THIS STRUCT, and they are here rather than
+        // in the lane packers because a lane packer cannot report. Four of the
         // lengths are RATIOS in disguise and each has a length it must not
-        // exceed:
+        // pass:
         //
         //   * an iris wider than the globe puts the limbus past the equator,
         //     where sin(limbus) leaves [0, 1] and the cosine goes imaginary;
         //   * a pupil wider than the iris leaves no iris;
         //   * a cornea FLATTER than the globe is not an eye, and its curvature
-        //     ratio would invert the normal bend.
+        //     ratio would invert the normal bend;
+        //   * an iris plane IN FRONT OF the limbus cuts the iris short. The
+        //     globe between the plane and the limbus lies behind the plane, so
+        //     a ray refracted there never reaches it (SkinIrisPlaneHit) and the
+        //     pixel shades as sclera: the eye renders a smaller iris than the
+        //     one authored, with nothing reported. The showcase dog's 8.6 mm
+        //     iris behind a 2.4 mm chamber drew as a 7.2 mm one (#1533).
         //
         // Clamped to the bounding length rather than to the default, because
         // the author's intent in every one of these cases is "as large as it
         // can be" and snapping to 5.85 mm when they typed 20 would be a
-        // different kind of wrong. Reported through the return value either way.
+        // different kind of wrong. The iris plane moves BACK, to the limbus,
+        // for the same reason: the authored iris is the intent, the chamber
+        // depth that hid it is not. Reported through the return value either way.
         if (IrisRadiusMM > EyeRadiusMM)
         {
             IrisRadiusMM = EyeRadiusMM;
@@ -195,6 +203,13 @@ namespace OloEngine
         if (CorneaRadiusMM > EyeRadiusMM)
         {
             CorneaRadiusMM = EyeRadiusMM;
+            ok = false;
+        }
+        const f32 limbusSine = IrisRadiusMM / EyeRadiusMM;
+        const f32 limbusDepthMM = EyeRadiusMM * (1.0f - std::sqrt(std::max(0.0f, 1.0f - (limbusSine * limbusSine))));
+        if (IrisPlaneDepthMM < limbusDepthMM)
+        {
+            IrisPlaneDepthMM = std::min(limbusDepthMM, kMaxSkinIrisPlaneDepthMM);
             ok = false;
         }
 

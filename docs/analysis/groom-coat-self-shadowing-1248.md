@@ -40,7 +40,9 @@ and they are disjoint by construction:
 | 2 | between the fibres of one coat — `tau` | `GroomCoatShadow.{h,cpp}` | #1248 |
 | 3 | everything else in the scene occluding the coat | the engine's shadow map | #1056/#702 |
 
-(2) is greyscale and sees no colour; (1) never leaves one fibre. The trap is that a groom which is
+(2) is greyscale and sees no colour; (1) never leaves one fibre. (**Since #1533**, what the crossed
+fibres forward on top of (2) carries THEIR pigment — dual scattering,
+`docs/agent-rules/groom-dual-scattering.md` — which is a different fibre on the path, not (1) again.) The trap is that a groom which is
 *also* a shadow-map caster appears in (3) as well as (2), so a strand reading both would be shadowed
 by its own coat twice. `GroomCoatShadowTechnique.h` owns that seam.
 

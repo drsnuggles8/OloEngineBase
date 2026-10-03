@@ -820,9 +820,17 @@ namespace OloEngine::Tests
         // same pixels. The only difference is the tint each strand carries —
         // which is exactly the mechanism under test, including its transport
         // through the packed vertex lane and the shader's unpack.
+        //
+        // UNDER THE FRONT LIGHT, because the tint is PIGMENT (#1533's dual
+        // scattering): it colours the paths that enter a fibre — TT, TRT, the
+        // residual and the forwarded light — and not R, the cuticle's surface
+        // reflection, which keeps the light's colour. Under the raking side light
+        // R carries most of this coat's luminance, and the same jitter widened the
+        // spread by 1% there (0.735 -> 0.742) against 8% under the front light
+        // (0.578 -> 0.623). The side light's R lobe is the control at the end.
         const glm::vec3 eye{ 0.0f, 0.6f, 5.2f };
         UseAnimal(/*longCoat*/ true);
-        SetLightDirection(glm::vec3(-1.0f, -0.20f, 0.0f));
+        SetLightDirection(glm::vec3(0.0f, -0.25f, -1.0f));
 
         GroomCoatComponent& coat = Coat();
         coat = GroomCoatComponent{};
@@ -860,8 +868,8 @@ namespace OloEngine::Tests
         const f64 flatSpread = CoatLuminanceRelativeSpread(flat, strandless);
         const f64 variedSpread = CoatLuminanceRelativeSpread(varied, strandless);
         const u32 differing = CountDifferingPixels(varied, flat);
-        std::printf("[fur-coat] shade jitter 0.0 -> 1.0: relative spread %.3f -> %.3f, %u px differ\n", flatSpread,
-                    variedSpread, differing);
+        std::printf("[fur-coat] shade jitter 0.0 -> 1.0, front light: relative spread %.3f -> %.3f, %u px differ\n",
+                    flatSpread, variedSpread, differing);
 
         EXPECT_GT(differing, 2000u)
             << "shade jitter changed nothing on screen: the per-strand tint is not reaching the shader, which is "
@@ -870,6 +878,30 @@ namespace OloEngine::Tests
         EXPECT_GT(variedSpread, flatSpread * 1.05)
             << "shade jitter did not widen the coat's relative luminance spread, so every strand is still the same "
                "colour";
+
+        // THE SHEEN CARRIES NO PIGMENT: the R lobe alone, under the side light
+        // where it is the coat's brightest term, is the same frame with and
+        // without the jitter. A tint that reached R again would colour a golden
+        // coat's white sheen and fail here, not only move the spread above.
+        SetLightDirection(glm::vec3(-1.0f, -0.20f, 0.0f));
+        auto& fibre = m_GroomEntity.GetComponent<GroomFibreComponent>();
+        fibre.m_DebugMode = static_cast<u8>(GroomFibreDebugMode::LobeR);
+        std::vector<u8> flatSheen;
+        Capture("", eye, 0.0f, 0.05f, flatSheen);
+        Coat().m_ShadeJitter = 1.0f;
+        std::vector<u8> variedSheen;
+        Capture("", eye, 0.0f, 0.05f, variedSheen);
+        Coat().m_ShadeJitter = 0.0f;
+        fibre.m_DebugMode = static_cast<u8>(GroomFibreDebugMode::Full);
+        if (::testing::Test::HasFatalFailure())
+        {
+            return;
+        }
+        EXPECT_GT(CountCoatPixels(flatSheen, strandless), 50000u)
+            << "the R lobe drew almost no coat, so the control below compares two empty frames";
+        EXPECT_EQ(CountDifferingPixels(variedSheen, flatSheen), 0u)
+            << "shade jitter changed the R lobe: the tint is colouring the cuticle's surface reflection, which is "
+               "the light's colour, not the pigment's";
     }
 
     // ── 3 + 5. The layers are separable, and whiskers survive ──────────────

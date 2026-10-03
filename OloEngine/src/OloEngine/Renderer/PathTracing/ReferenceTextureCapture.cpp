@@ -28,11 +28,11 @@ namespace OloEngine::PathTracing
         // pick an sRGB internal format, so the two tracers decode one image
         // identically.
         //
-        // Only 8-bit colour formats are handled. A float material map is not a
-        // thing this engine imports, and a BLOCK-COMPRESSED one (BC7 albedo
-        // from a packed asset) cannot be read back at all — OpenGLTexture2D::
-        // GetData rejects it. Both leave the slot factor-only and are counted
-        // by the caller rather than passed off as success.
+        // Only 8-bit colour formats are handled, and a BLOCK-COMPRESSED one
+        // (BC7 albedo from a packed asset), which GetData returns decoded to
+        // RGBA8 (#1533). A float material map is not a thing this engine
+        // imports; it leaves the slot factor-only and is counted by the caller
+        // rather than passed off as success.
         [[nodiscard]] bool DecodeTexture2D(const Ref<Texture2D>& texture, ReferenceTexture& out)
         {
             const TextureSpecification& spec = texture->GetSpecification();
@@ -46,7 +46,7 @@ namespace OloEngine::PathTracing
                 return false;
 
             const sizet texelCount = static_cast<sizet>(width) * height;
-            if (spec.Format == ImageFormat::RGBA8)
+            if (spec.Format == ImageFormat::RGBA8 || (IsCompressedFormat(spec.Format) && bytes.Num() == texelCount * 4u))
             {
                 if (bytes.Num() < texelCount * 4u)
                     return false;

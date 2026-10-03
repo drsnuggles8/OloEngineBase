@@ -45,9 +45,11 @@ namespace OloEngine
             m_SelectedSceneDepthTexture = blackboard.Post.UpscaledSceneDepthTexture.IsValid() ? blackboard.Post.UpscaledSceneDepthTexture : blackboard.Scene.SceneDepth;
             [[maybe_unused]] const auto sceneDepthRead = builder.Read(m_SelectedSceneDepthTexture, RGReadUsage::ShaderSample);
         }
-        if (blackboard.GBuffer.Velocity.IsValid())
+        // SceneVelocity: every surface's, forward passes included, on both
+        // paths (#1552) -- on Deferred the G-Buffer's alone left the groom out.
+        if (blackboard.Scene.SceneVelocity.IsValid())
         {
-            m_SelectedVelocityTexture = blackboard.Post.UpscaledVelocityTexture.IsValid() ? blackboard.Post.UpscaledVelocityTexture : blackboard.GBuffer.Velocity;
+            m_SelectedVelocityTexture = blackboard.Post.UpscaledVelocityTexture.IsValid() ? blackboard.Post.UpscaledVelocityTexture : blackboard.Scene.SceneVelocity;
             [[maybe_unused]] const auto velocityRead = builder.Read(m_SelectedVelocityTexture, RGReadUsage::ShaderSample);
 
             // Keep the exact RT3 this resolve sampled, so next frame compares

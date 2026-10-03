@@ -208,7 +208,8 @@ namespace OloEngine
         // A TLAS device address of zero means no TLAS has ever been built —
         // a DIFFERENT state from "no RT device", and conflating them is how "the
         // first frame is clustered" gets misread as "this GPU cannot ray trace".
-        const bool tlasReady = rayTracingAvailable && m_RayTracingScene->GetTlasDeviceAddress() != 0u;
+        // Shadow rays only (the caster lane): the shadow TLAS readiness (#1533).
+        const bool tlasReady = rayTracingAvailable && m_RayTracingScene->GetShadowTlasDeviceAddress() != 0u;
         const bool gpuSceneAvailable = m_GPUScene != nullptr && m_GPUScene->GetInstanceSlotCount() != 0u;
 
         // The emitter set, counted the way the shader's source pdf weights it:
@@ -427,7 +428,7 @@ namespace OloEngine
         params.InvProjection = RHI::AdjustedInverseForShaderReconstruction(m_Projection);
         params.View = relativeView;
 
-        const u64 tlasAddress = m_RayTracingScene != nullptr ? m_RayTracingScene->GetTlasDeviceAddressForTrace() : 0u;
+        const u64 tlasAddress = m_RayTracingScene != nullptr ? m_RayTracingScene->GetShadowTlasDeviceAddressForTrace() : 0u;
         params.TlasAddressAndFrame = glm::uvec4(static_cast<u32>(tlasAddress & 0xFFFFFFFFull),
                                                 static_cast<u32>(tlasAddress >> 32u),
                                                 // The .z lane is the cull mask of ONE ray in this pass:

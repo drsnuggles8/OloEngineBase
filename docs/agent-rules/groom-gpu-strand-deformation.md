@@ -65,6 +65,42 @@ deformation itself (root frames, previous poses, invalidation) is
    own CPU mesh from the request (#1253). Moving the raster deformation to the GPU neither breaks
    nor speeds it up.
 
+## The roots on the GPU (#1533)
+
+`compute/GroomRootFrames.comp` evaluates a bound coat's drawn roots when nothing on the CPU needs
+them: a skinned body with no morph, no coat shadow baked from the pose, no binding preview.
+`RendererSettings::GroomGpuRootFrames` is the lever, and `GroomRootFramesParityTest` holds the
+kernel to `EvaluateGroomRootTransforms` (1e-5 m, rotation dot 1 - 1e-6). The producer then
+evaluates only the simulation's guides.
+
+10. **Dispatch before anything is bound.** `GroomRenderPass::Execute` acquires every GPU-rooted
+    coat before it binds its framebuffer and shader. The kernel binds its own program, parameters
+    and buffer, and on Vulkan a dispatch ends the rendering scope. Reached from the draw loop, it
+    left the strand draw on the compute program and the coat was not drawn at all. The shadow pass
+    normally acquires a coat first, which hid the bug: only a coat that cast no shadow vanished.
+    To tell a wrong kernel from a wrong draw, read the root region back after the dispatch and
+    compare it with `GroomCpuRootTransforms`. Here the kernel matched to 1e-7 while the coat was
+    gone.
+
+11. **Code that needs posed roots on the CPU asks for them.** On a GPU-rooted coat,
+    `request.RootTransforms` holds valid entries for the guides only, and none at all on a coat
+    that is not simulated. Positions come from `GroomCpuRootTransforms`. The cull box comes from
+    `BuildGroomRootBoneBounds`: each bone's rest box of the corners the drawn roots sit on, posed
+    by the palette. Linear-blend skinning keeps a vertex inside its bones' images of it, so the
+    box is conservative. The old box came from the valid entries, so an unsimulated coat had none
+    and cast no shadow.
+
+12. **A surface rewritten in place must say so.** The kernel reads the rest surface sent at
+    relayout, keyed by identity, generation and vertex count. `MeshSource::Build()` on a built mesh
+    returns early without bumping the generation. A morphing body carries a `MorphTargetComponent`,
+    which keeps its coat on CPU roots. `AMorphedSurfaceCarriesTheCoatWithTheSkeletonStill` pins
+    that routing: without the component the coat stands still.
+
+13. **Count the roots where they are evaluated.** For a GPU-rooted coat the pass counts the roots
+    the kernel reaches as deformed, and the rest as held. The producer's counts describe the
+    guides. A triangle that collapses in one pose is not counted, because that would take a
+    readback.
+
 ## Measured
 
 `GroomAnimalsAcceptanceEvidenceTest.CostScalesAcrossAHerd`, Release, RTX 4090, 1280x720, Forward,
@@ -83,3 +119,6 @@ GPU times are about 3x the issue's table; the ratios are the finding):
 - **GPU and CPU paths render the same pixels**: 0 px differ on GL in all nine {Forward, Forward+,
   Deferred} x {front, oblique, side} cells and on Vulkan in the pass suite (second frame, i.e. a
   refill), against a 9 000-49 000 px negative control.
+- **The dog's CPU frame (#1533, live GL, 1920x1080)** fell from 22-28 ms to 11-12 ms with the
+  roots on the GPU, the guide solver and stand-in expansion in parallel, and the ~18 MB root array
+  recycled through `Renderer3D::TakePooledGroomRootTransforms` instead of allocated every frame.

@@ -1,0 +1,86 @@
+{
+  "units": "metres, glTF Y-up, the head faces +Z",
+  "eyeRadius": 0.0235,
+  "lidInnerRadius": 0.0245,
+  "socketRadius": 0.02625,
+  "eyes": {
+    "L": {
+      "bone": "eye_L",
+      "centre": [
+        0.052000001072883606,
+        0.5839999914169312,
+        0.4699999988079071
+      ],
+      "gaze": [
+        0.05988035723567009,
+        -0.01996012032032013,
+        0.9980059862136841
+      ],
+      "up": [
+        0.0011954572978897045,
+        0.9998007769510764,
+        0.019924288942719588
+      ]
+    },
+    "R": {
+      "bone": "eye_R",
+      "centre": [
+        -0.052000001072883606,
+        0.5839999914169312,
+        0.4699999988079071
+      ],
+      "gaze": [
+        -0.05988035723567009,
+        -0.01996012032032013,
+        0.9980059862136841
+      ],
+      "up": [
+        -0.0011954572978897045,
+        0.9998007769510764,
+        0.019924288942719588
+      ]
+    }
+  },
+  "clips": [
+    {
+      "name": "Idle",
+      "seconds": 4.0,
+      "loop": true
+    },
+    {
+      "name": "HeadTilt",
+      "seconds": 2.5,
+      "loop": false
+    },
+    {
+      "name": "Sit",
+      "seconds": 3.0,
+      "loop": false
+    },
+    {
+      "name": "Walk",
+      "seconds": 1.0,
+      "loop": true
+    },
+    {
+      "name": "Pant",
+      "seconds": 2.0,
+      "loop": true
+    },
+    {
+      "name": "Rest",
+      "seconds": 1.0,
+      "loop": true
+    }
+  ],
+  "materials": [
+    "DogSkin",
+    "DogNose",
+    "DogLip",
+    "DogGum",
+    "DogTongue",
+    "DogTeeth",
+    "DogPad",
+    "DogLid"
+  ]
+}

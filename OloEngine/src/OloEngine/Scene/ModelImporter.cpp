@@ -155,9 +155,16 @@ namespace OloEngine
             return {};
         }
 
-        const Ref<MeshSource> meshSource = model->GetMeshes().empty() ? nullptr : model->GetMeshes().front();
+        // Every mesh, as submeshes of one source (issue #1533; see GetEntityMeshSource).
+        const Ref<MeshSource> meshSource = model->GetEntityMeshSource();
         const Ref<Skeleton> skeleton = model->HasSkeleton() ? model->GetSkeleton() : nullptr;
-        const Material* material = model->GetMaterials().empty() ? nullptr : &model->GetMaterials().front();
+        // A MaterialComponent replaces the material of EVERY submesh, so it is
+        // added only for a one-mesh model. A multi-material model shades each
+        // submesh with its own imported material, and a MaterialOverridesComponent
+        // patches them one by one.
+        const Material* material = (model->GetMeshes().size() == 1 && !model->GetMaterials().empty())
+                                       ? &model->GetMaterials().front()
+                                       : nullptr;
 
         return PopulateAnimatedEntityFromParts(entity, meshSource, skeleton, model->GetAnimations(),
                                                material, sourcePath, resetPlaybackState);

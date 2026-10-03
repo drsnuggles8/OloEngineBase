@@ -85,6 +85,8 @@ layout(binding = 19) uniform sampler2D u_DepthTexture;
 // The separated history-rejection model (#1256). TAA uses only its
 // COVERAGE and MATERIAL-PROFILE terms — see the confidence block below.
 #include "include/SurfaceHistory.glsl"
+// RT3 .a's stochastic mark: a coverage that is one draw of an estimator.
+#include "include/SurfaceCoverageMark.glsl"
 
 layout(location = 0) in vec2 v_TexCoord;
 layout(location = 0) out vec4 o_Color;
@@ -94,6 +96,10 @@ layout(std140, binding = 8) uniform MotionBlurMatrices
 {
     mat4 u_InverseViewProjection;
     mat4 u_PrevViewProjection;
+    // xy this frame's TAA jitter offset, zw the previous frame's, in velocity
+    // units (MotionBlurUBOData::JitterUV): the reconstruction below takes them
+    // out as every velocity writer does, so a still camera reads zero (#1552).
+    vec4 u_MotionJitterUV;
 };
 
 layout(std140, binding = 32) uniform TAAParams
@@ -123,7 +129,8 @@ vec2 ReconstructCameraVelocity(vec2 uv)
     if (prevClip.w <= 0.0001)
         return vec2(0.0);
     vec2 prevUV = (prevClip.xy / prevClip.w) * 0.5 + 0.5;
-    return uv - prevUV; // current - prev (matches sign convention of RT3 velocity)
+    // current - prev, the jitter taken out (matches the convention of RT3 velocity)
+    return (uv - prevUV) - (u_MotionJitterUV.xy - u_MotionJitterUV.zw);
 }
 
 // Find closest-depth pixel in 3x3 neighborhood — standard velocity-dilation
@@ -147,6 +154,61 @@ vec2 GetDilatedVelocityUV(vec2 uv)
     }
     return bestUV;
 }
+
+// Whether any of four coverages is FRACTIONAL, strictly between empty and full.
+// An opaque surface writes 1 and a cleared texel reads 0; only a coverage
+// estimator writes in between: a widened strand's alpha, an alpha-tested leaf's.
+bool OloTaaAnyCoverageIsFractional(vec4 coverage)
+{
+    vec4 inside = step(vec4(0.001), coverage) * step(coverage, vec4(0.999));
+    return dot(inside, vec4(1.0)) > 0.0;
+}
+
+// Whether any of four material profiles holds the stochastic mark. A profile
+// is never negative; the mark is (include/SurfaceCoverageMark.glsl).
+bool OloTaaAnyProfileIsStochastic(vec4 profile)
+{
+    return dot(step(profile, vec4(0.5 * OLO_STOCHASTIC_COVERAGE_MARK)), vec4(1.0)) > 0.0;
+}
+
+// What the 4x4 texels around UV say about their coverage, in eight gathers:
+// whether any coverage (.b) is fractional, and whether any profile (.a) holds
+// the stochastic mark. A gather returns texels whatever the sampler's filter,
+// so a bilinear blend of an opaque edge cannot pass for an estimator's value.
+// SAMPLER is a name, not a value; see include/TemporalResolve.glsl for why.
+#define OLO_TAA_COVERAGE_KIND_4X4(SAMPLER, UV, TEXEL, OUT_FRACTIONAL, OUT_STOCHASTIC)                          \
+    {                                                                                                            \
+        OUT_FRACTIONAL = false;                                                                                  \
+        OUT_STOCHASTIC = false;                                                                                  \
+        for (int oloGy = 0; oloGy < 2; ++oloGy)                                                                  \
+        {                                                                                                        \
+            for (int oloGx = 0; oloGx < 2; ++oloGx)                                                              \
+            {                                                                                                    \
+                vec2 oloCorner = (UV) + (((vec2(float(oloGx), float(oloGy)) * 2.0) - 0.5) * (TEXEL));            \
+                OUT_FRACTIONAL = OUT_FRACTIONAL || OloTaaAnyCoverageIsFractional(textureGather(SAMPLER, oloCorner, 2)); \
+                OUT_STOCHASTIC = OUT_STOCHASTIC || OloTaaAnyProfileIsStochastic(textureGather(SAMPLER, oloCorner, 3)); \
+            }                                                                                                    \
+        }                                                                                                        \
+    }
+
+// The mean coverage (.b) of the 8x8 texels around UV, in sixteen gathers, each
+// on a texel corner and so returning the four texels that share it. The window
+// is the texel UV falls in, four texels back and three on, for both frames
+// compared. SAMPLER is a name, not a value.
+#define OLO_TAA_MEAN_COVERAGE_8X8(SAMPLER, UV, TEXEL, OUT_MEAN)                                       \
+    {                                                                                                  \
+        float oloCoverageSum = 0.0;                                                                    \
+        for (int oloGy = 0; oloGy < 4; ++oloGy)                                                        \
+        {                                                                                              \
+            for (int oloGx = 0; oloGx < 4; ++oloGx)                                                    \
+            {                                                                                          \
+                vec2 oloCorner = (UV) + (((vec2(float(oloGx), float(oloGy)) * 2.0) - 3.5) * (TEXEL));  \
+                vec4 oloLanes = textureGather(SAMPLER, oloCorner, 2);                                  \
+                oloCoverageSum += (oloLanes.x + oloLanes.y) + (oloLanes.z + oloLanes.w);               \
+            }                                                                                          \
+        }                                                                                              \
+        OUT_MEAN = oloCoverageSum * (1.0 / 64.0);                                                      \
+    }
 
 void main()
 {
@@ -194,17 +256,42 @@ void main()
 
     // 4) Feedback-weighted blend. Scale feedback down when velocity is large
     // to reduce ghosting around fast motion. The "motion" must be measured
-    // in *pixels*, not UV — and with a sub-pixel dead zone so the Halton
-    // jitter delta (always ~1 px frame-to-frame) doesn't keep dragging
-    // feedback toward 0.5 even when the camera is stationary. Without the
-    // dead zone TAA still half-converges, but ~10–15 % of the current
-    // jittered frame bleeds through every frame, visible as a faint shake.
+    // in *pixels*, not UV — and with a sub-pixel dead zone. It was written
+    // against the Halton jitter delta (always ~1 px frame-to-frame), which
+    // every velocity carried until #1552 took it out at the writers; a still
+    // camera now reads zero, and the dead zone keeps sub-pixel motion from
+    // dragging feedback toward 0.5.
     //
     // Velocity is in UV space; divide by TexelSize to get pixels. The dead
     // zone ramp starts at 1 px (anything sub-pixel = static, no ghosting
     // risk) and saturates at ~5 px (definitely real motion).
+    //
+    // A STOCHASTIC ESTIMATOR KEEPS ITS FEEDBACK IN MOTION (#1552). The ramp
+    // trades history for the current frame, which is a good trade where the
+    // current frame is exact. Where it is one draw of noise it is not: a
+    // stochastic coat's velocity is each strand's own, so lowering its
+    // feedback threw away the stable signal and kept the noise. On the dog's
+    // walk seen from behind the resolve kept 0.51 of what the samples alone
+    // shimmer between two draws of the same frames on the tail and the sparse
+    // fringe, and keeps 0.41 and 0.45 without the ramp there; how far it lags
+    // the walk went from 0.37 to 0.44 of the distance to four frames back. The
+    // colour clip and the coverage term below still bound the history.
+    //
+    // STOCHASTIC, NOT MERELY FRACTIONAL: an alpha-tested leaf writes
+    // fractional coverage too, and its current frame is exact. Exempting it
+    // left the meadow's over-blurred control ghosting where it should blur
+    // (TemporalSubjectSequence's detail test), so the exemption keys on the
+    // mark a stochastic writer leaves in the profile channel, read from the
+    // current frame's 4x4 as the coverage term reads its coverage.
+    bool estimatedCoverage = false;
+    bool stochasticCoverage = false;
+    if (u_HasVelocityTexture != 0 && u_HasSurfaceHistory)
+    {
+        OLO_TAA_COVERAGE_KIND_4X4(u_Velocity, uv, u_TexelSize, estimatedCoverage, stochasticCoverage);
+    }
     vec2 velocityPixels = velocity / u_TexelSize;
-    float effectiveFeedback = OloTemporalMotionFeedback(u_Feedback, velocityPixels, 1.0, 5.0, 0.5);
+    float effectiveFeedback =
+        stochasticCoverage ? u_Feedback : OloTemporalMotionFeedback(u_Feedback, velocityPixels, 1.0, 5.0, 0.5);
 
     // 4b) COVERAGE AND PROFILE CONFIDENCE (#1256).
     //
@@ -236,10 +323,13 @@ void main()
         // which is the subject changing:
         //
         //   * JITTER. TAA jitters the projection, so RT3 is rasterised at a
-        //     different sub-pixel offset every frame and `prevUV` lands
-        //     off-texel-centre. `texture()` then bilinearly mixes four texels
+        //     different sub-pixel offset every frame, and until #1552 every
+        //     velocity carried the jitter delta, so `prevUV` landed
+        //     off-texel-centre. `texture()` then bilinearly mixed four texels
         //     of a high-frequency coverage field, which at a blade edge is a
-        //     completely different number from the point sample at `uv`.
+        //     completely different number from the point sample at `uv`. The
+        //     raster still moves with the jitter, so the coverage at `uv`
+        //     does too.
         //   * MOTION. Wind moves a leaf, so the reprojected fetch legitimately
         //     lands on different coverage — but motion is ALREADY handled by
         //     `effectiveFeedback`, so letting it through here is the same
@@ -258,18 +348,51 @@ void main()
         // OUTSIDE the range, and zero inside it. The screen-space resampling
         // concern stays here, in the pass that owns the reprojection, instead
         // of being baked into the model every other consumer shares.
-        float prevCoverageMin = 1.0;
-        float prevCoverageMax = 0.0;
-        for (int cy = -1; cy <= 1; ++cy)
+        //
+        // ...UNLESS AN ESTIMATOR IS AT WORK: THEN COMPARE ITS MEAN (#1552).
+        //
+        // The range test assumes coverage is a field that only moves. A
+        // STOCHASTIC coat's is not: each frame a different strand survives at
+        // each pixel, or none does, so every pixel draws a fresh sample and the
+        // 3x3 range is a sample of nine draws. On TemporalSubjectSequence's
+        // still hair the range test fired on 1.8 % of the coat's pixels every
+        // frame (mean reactivity 0.014), mostly a hole whose nine neighbours
+        // all drew a strand, and each firing threw a converged pixel back to
+        // one sample: the resolve kept 7.5x of the 12x it reaches without the
+        // term. It is also blind to what it is for. The holes put 0 in every
+        // range, so halving every strand's width, which halves the coat's
+        // coverage, moved 15 % of its pixels out of range.
+        //
+        // What a LOD step changes is the estimator's MEAN, and an 8x8 box mean
+        // carries an eighth of its per-pixel noise. On the same capture the two
+        // frames' means crossed the dead band on 0.1 % of the coat's pixels at
+        // rest (mean reactivity under 0.0001), and on 92 % at that width step
+        // (0.40, against the range test's 0.07). A neighbourhood of only 0s and
+        // 1s, an opaque edge, keeps the range test: jitter moves its edge by up
+        // to a texel, which shifts a box mean by up to an eighth and fired on
+        // 0.6 % of a sphere's pixels, where the range test fires on none. The
+        // decision, made above with the feedback, reads the current frame,
+        // whose texels are exact.
+        if (estimatedCoverage)
         {
-            for (int cx = -1; cx <= 1; ++cx)
-            {
-                float c = texture(u_PrevSurface, prevUV + vec2(float(cx), float(cy)) * u_TexelSize).b;
-                prevCoverageMin = min(prevCoverageMin, c);
-                prevCoverageMax = max(prevCoverageMax, c);
-            }
+            OLO_TAA_MEAN_COVERAGE_8X8(u_Velocity, uv, u_TexelSize, currentSurface.b);
+            OLO_TAA_MEAN_COVERAGE_8X8(u_PrevSurface, prevUV, u_TexelSize, previousSurface.b);
         }
-        previousSurface.b = clamp(currentSurface.b, prevCoverageMin, prevCoverageMax);
+        else
+        {
+            float prevCoverageMin = 1.0;
+            float prevCoverageMax = 0.0;
+            for (int cy = -1; cy <= 1; ++cy)
+            {
+                for (int cx = -1; cx <= 1; ++cx)
+                {
+                    float c = texture(u_PrevSurface, prevUV + vec2(float(cx), float(cy)) * u_TexelSize).b;
+                    prevCoverageMin = min(prevCoverageMin, c);
+                    prevCoverageMax = max(prevCoverageMax, c);
+                }
+            }
+            previousSurface.b = clamp(currentSurface.b, prevCoverageMin, prevCoverageMax);
+        }
 
         OloSurfaceHistoryRecord currentRecord;
         currentRecord.LinearDepth = 0.0;
@@ -278,7 +401,9 @@ void main()
         currentRecord.Roughness = 0.0;
         currentRecord.MaterialClass = 0u;
         currentRecord.Coverage = currentSurface.b;
-        currentRecord.MaterialProfile = currentSurface.a;
+        // max(.a, 0): the stochastic mark is not a profile, and a coat pixel
+        // that shows what lies behind it next frame has not changed material.
+        currentRecord.MaterialProfile = max(currentSurface.a, 0.0);
         currentRecord.Motion = velocity;
         currentRecord.Instance = uvec2(0xffffffffu, 0u);
         currentRecord.Primitive = uvec2(0xffffffffu, 0u);
@@ -289,7 +414,7 @@ void main()
 
         OloSurfaceHistoryRecord previousRecord = currentRecord;
         previousRecord.Coverage = previousSurface.b;
-        previousRecord.MaterialProfile = previousSurface.a;
+        previousRecord.MaterialProfile = max(previousSurface.a, 0.0);
         previousRecord.Motion = previousSurface.rg;
 
         OloTemporalReactivitySettings reactivity;

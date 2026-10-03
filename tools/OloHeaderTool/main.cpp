@@ -2454,6 +2454,10 @@ static const std::set<std::string> kFieldsNotLiveEditable = {
     "AnimationStateComponent.BlendFactor",
     "AnimationStateComponent.BlendTime",
     "AnimationStateComponent.Blending",
+    // The blend target's loop flag (issue #1533): set by ApplyClipRequest with
+    // the target and moved into m_Loop when the blend completes. Written alone
+    // it describes a blend that was never started; RequestedLoop is the input.
+    "AnimationStateComponent.NextLoop",
     // Selects a clip out of m_AvailableClips, but m_CurrentClip is what the sampler
     // actually reads. Writing the index alone changes nothing and leaves the two
     // disagreeing — clip selection needs a node that sets both.

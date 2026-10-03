@@ -132,6 +132,10 @@ add_executable(OloEngine-Tests
 		# through the cook, the per-role budget that keeps the silhouette, and the
 		# pose-independence that makes a regional map stay attached.
 		Groom/GroomCoatAuthoringTest.cpp
+		# Coat authoring v4 (#1533): curl and wave measured on the emitted
+		# stream (helix radius and pitch, planar wave, exact root), the v3 stream
+		# bit for bit where nothing is authored, and the root-to-tip tint.
+		Groom/GroomCoatCurlTest.cpp
 		# Representation LOD (#1252). The strand/card/mesh ladder's selection and
 		# its two anti-thrash mechanisms, the coverage compensation's linear rule,
 		# and the card cook's determinism and density conservation.
@@ -147,6 +151,7 @@ add_executable(OloEngine-Tests
 		Groom/GroomBindingRoundTripTest.cpp
 		Groom/GroomDeformationTest.cpp
 		Groom/GroomGpuDeformationTest.cpp
+		Groom/GroomRootFramesParityTest.cpp
 		# Guide simulation and body collision (#1250). The length/rest-shape
 		# contract across frame rate, pause/resume and teleport; the fitted body
 		# proxy; and the guide-to-strand interpolation that turns a few hundred
@@ -154,6 +159,11 @@ add_executable(OloEngine-Tests
 		Groom/GroomGuideSimulationTest.cpp
 		Groom/GroomGuideInfluenceTest.cpp
 		Groom/GroomBodyColliderTest.cpp
+		# Scene-shadow routing (#1323). The light-space one-texel width floor and
+		# its authoring boundary: pure arithmetic, so the machine with no GPU is
+		# the machine that pins the measurement the caster family rests on.
+		Groom/GroomShadowWideningTest.cpp
+		Groom/GroomCasterCoverageTest.cpp
 		ComponentSerializerCoverageTest.cpp
 		ComponentTupleCoverageTest.cpp
 		ComponentHandlerCoverageTest.cpp
@@ -419,6 +429,7 @@ add_executable(OloEngine-Tests
 		Rendering/ClusteredLightingMathTest.cpp
 		Rendering/AtlasAllocatorTest.cpp
 		Rendering/ShadowAtlasPackingTest.cpp
+		Rendering/ShadowReceiverTexelRectTest.cpp
 		Rendering/VolumetricFogMathTest.cpp
 		Rendering/VolumetricShadowMapMathTest.cpp
 		Rendering/MotionVectorMathTest.cpp
@@ -721,6 +732,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/PlayerCameraRigVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VirtualGeometryVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SubmeshMaterialPathParityTest.cpp
+		Rendering/PropertyTests/MaterialOverridesVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ModelWarmCacheGeometryIdentityTest.cpp
 		Rendering/PropertyTests/MeshAssetBoneInfluenceImportTest.cpp
 		Rendering/PropertyTests/StaticMeshCoincidentCornerImportTest.cpp
@@ -755,9 +767,19 @@ add_executable(OloEngine-Tests
 		# Deferred} cells plus the MSAA and non-native-resolution ones, and the
 		# rebuild counters that answer criterion 4 as a number rather than a look.
 		Rendering/PropertyTests/GroomCoatShadowVisualEvidenceTest.cpp
+		# Scene-shadow routing, both directions (#1323). The GL x {Forward,
+		# Forward+, Deferred} cells, with the coat's own footprint DERIVED by
+		# toggling the strands rather than typed as a rectangle -- so "the coat's
+		# shadow landed on the ground" and "the ground's shadow landed on the
+		# coat" are measurements of two disjoint regions instead of of the
+		# background.
+		Rendering/PropertyTests/GroomSceneShadowVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomBindingVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomSimulationVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomAnimalsAcceptanceEvidenceTest.cpp
+		# The furred dog showcase (#1533): the coat grown region by region on
+		# the generated body, bound, lit and judged from every hero angle.
+		Rendering/PropertyTests/DogShowcaseEvidenceTest.cpp
 		# Criterion 4's pictures: both reference animals under front/side/backlight,
 		# on all three rendering paths, plus the silhouette-under-budget and
 		# layer-separability measurements a screenshot cannot make (#1251).
@@ -790,6 +812,9 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/VRCSPerfProbe.cpp
 		Rendering/PropertyTests/PCSSVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ShadowEarlyOutVisualEvidenceTest.cpp
+		# #1533: the directional cascades are the FIRST directional light's; a
+		# second sun must not be shadowed by them, on every path.
+		Rendering/PropertyTests/SecondSunShadowVisualEvidenceTest.cpp
 		Rendering/PropertyTests/TwoSidedShadowCastTest.cpp
 		Rendering/PropertyTests/WaterShoreVisualEvidenceTest.cpp
 		Rendering/PropertyTests/WaterShoreWaveTest.cpp
@@ -872,6 +897,10 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/AnimalBudgetVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomLodVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomFibrePropertyTests.cpp
+		# #1533: dual scattering -- what a fibre's neighbours pass on. The
+		# forward/back split, Zinke's A_b and the coloured coat transmittance,
+		# settled in arithmetic. CPU-only: it runs in CI.
+		Rendering/PropertyTests/GroomFibreDualScatteringTests.cpp
 		# The #1248 bake-off itself. Every number in
 		# docs/analysis/groom-coat-self-shadowing-1248.md is an assertion here,
 		# so the argument behind the selected representation fails loudly rather
@@ -882,6 +911,10 @@ add_executable(OloEngine-Tests
 		# bound and its stale detector, and the cadence sweep whose numbers the
 		# rule doc quotes. CPU-only and deterministic: it runs in CI.
 		Rendering/PropertyTests/GroomCoatShadowDeformedPropertyTests.cpp
+		# #1533: the body marked into the coat's volume. Coat voxels untouched,
+		# none beside the body, the casting march bit-identical, a ray into the
+		# body stopped. CPU-only and deterministic: it runs in CI.
+		Rendering/PropertyTests/GroomCoatBodyPropertyTests.cpp
 		Rendering/PropertyTests/ShaderCompilationTest.cpp
 		# Issue #691 Phase 3. BindlessShaderPipelineTest pins the toolchain
 		# constraint (bindless GLSL cannot enter the Vulkan-SPIR-V pipeline);
@@ -892,6 +925,9 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/BindlessShaderPipelineTest.cpp
 		Rendering/PropertyTests/BindlessHeapGpuTest.cpp
 		Rendering/PropertyTests/ShaderCompileFailureRecoveryTest.cpp
+		# The route a GL program takes to the driver (#1533): GLSL text for a
+		# shader that names OLO_GL_GLSL_ROUTE, glShaderBinary SPIR-V otherwise.
+		Rendering/PropertyTests/OpenGLShaderRouteTest.cpp
 		Rendering/PropertyTests/AssetPreviewRendererTest.cpp
 		Rendering/PropertyTests/RendererAttachedTest.cpp
 		Rendering/RendererMemoryTrackerTest.cpp
@@ -1021,6 +1057,7 @@ add_executable(OloEngine-Tests
 		Serialization/Vec3ClampSerializerCodegenTest.cpp
 		# SaveGame Tests
 		SaveGame/SaveGameFileTest.cpp
+		SaveGame/MaterialOverridesSaveLoadTest.cpp
 		SaveGame/SaveGameManagerTest.cpp
 		SaveGame/SaveGameIntegrationTest.cpp
 		SaveGame/SaveGameFormatGuardTest.cpp
@@ -1031,7 +1068,12 @@ add_executable(OloEngine-Tests
 		SaveGame/FoliageHabitatRulesSaveLoadTest.cpp
 		SaveGame/GroomFibreMaterialSaveLoadTest.cpp
 		SaveGame/GroomCoatShadowSaveLoadTest.cpp
+		SaveGame/GroomSceneShadowSaveLoadTest.cpp
+		SaveGame/AnimationClipRequestSaveLoadTest.cpp
+		SaveGame/BoneAttachmentSaveLoadTest.cpp
 		SaveGame/FoliageInteractionSaveLoadTest.cpp
+		# #1533: FoliageLayer::CastShadows round-trips, and an older file casts.
+		SaveGame/FoliageShadowCasterSaveLoadTest.cpp
 		SaveGame/FoliageLodTransitionSaveLoadTest.cpp
 		SaveGame/DestructibleComponentSaveLoadSanitizeTest.cpp
 		SaveGame/SaveFileWorldDatabaseTest.cpp
@@ -1100,6 +1142,8 @@ add_executable(OloEngine-Tests
 		# System scheduler dependency-graph derivation (issue #453)
 		Scene/SceneLightmapGatherTest.cpp
 		Scene/SceneLightmapStalenessTest.cpp
+		# What the editor's selection outline covers (#1533)
+		Scene/SelectionOutlineSetTest.cpp
 		Scene/AnimalSchedulerContractTest.cpp
 		Scene/AnimalSchedulingCensusTest.cpp
 		Scene/SystemSchedulerTest.cpp
@@ -1309,6 +1353,9 @@ add_executable(OloEngine-Tests
 		# the Distribution-build "unavailable" degradation). Header-only
 		# (MCP/McpCpuScopes.h), no extra editor TU pulled in.
 		MCP/McpCpuScopesTest.cpp
+		# The slowest-frames selection behind olo_perf_frame_history's worst list
+		# (#1533). Header-only (MCP/McpFrameHistory.h), no extra editor TU pulled in.
+		MCP/McpFrameHistoryTest.cpp
 		# Pure JSON / Mermaid topology shaping behind olo_render_graph_topology_export
 		# (#316 Part 4, LLM-analysis exports). Header-only (MCP/McpRenderGraphTopology.h),
 		# no extra editor TU pulled in.
@@ -1612,6 +1659,7 @@ add_executable(OloEngine-Tests
 		Functional/Scene/RuntimeSceneSwitchTest.cpp
 		Functional/Scene/HierarchyChildFollowsPhysicsParentTest.cpp
 		Functional/Scene/WorldTransformPropagationTest.cpp
+		Functional/Scene/BoneAttachmentFollowsBoneTest.cpp
 		Functional/AI/BehaviorTreeAdvancesViaSceneTickTest.cpp
 		Functional/AI/GoapAgentPlansViaSceneTickTest.cpp
 		Functional/AI/GoapAuthoredFromLuaViaSceneTickTest.cpp
@@ -1711,6 +1759,7 @@ add_executable(OloEngine-Tests
 		Functional/AI/PerceptionMatchesBruteForceViaSpatialIndexTest.cpp
 		Functional/AI/FlockingViaSceneTickTest.cpp
 		Functional/Rendering/AnimalPopulationViaSceneTickTest.cpp
+		Functional/Rendering/MaterialOverridesPatchImportedMaterialsTest.cpp
 		Functional/Scripting/LuaReadsTransformOfAnotherEntityTest.cpp
 		Functional/SaveGame/InventoryComponentSceneYAMLRoundTripTest.cpp
 		Functional/SaveGame/HierarchyPreservedAcrossSaveLoadTest.cpp

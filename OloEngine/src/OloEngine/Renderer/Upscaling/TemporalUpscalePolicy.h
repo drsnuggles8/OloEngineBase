@@ -275,6 +275,31 @@ namespace OloEngine::TemporalUpscalePolicy
         return -projectionJitterPixels;
     }
 
+    // The screen offset a frame's jitter adds to every vertex, in VELOCITY units
+    // -- the uploaded projection's NDC, times 0.5 -- given that projection as
+    // uploaded without the jitter and with it (#1552). Every velocity writer
+    // subtracts this frame's and the previous frame's from its difference of two
+    // jittered positions (CameraCommon.glsl, oloVelocityFromNdc), so static
+    // content writes exactly zero and the temporal resolves accumulate the
+    // jitter's sub-pixel samples instead of resampling their history by it.
+    //
+    // ONE POINT IS ENOUGH: a jittered projection moves every vertex by one
+    // constant NDC offset. A z-column jitter divides out of a perspective
+    // (x_ndc gains -P[2][0]); a translation-row jitter is added outright by an
+    // orthographic one. And the pair must be the UPLOADED one, which carries the
+    // backend's y flip, because the writers difference uploaded clip positions.
+    [[nodiscard]] inline glm::vec2 ProjectionJitterVelocityOffset(const glm::mat4& unjittered, const glm::mat4& jittered) noexcept
+    {
+        const glm::vec4 point(0.0f, 0.0f, -1.0f, 1.0f); // in front of a GL-convention camera
+        const glm::vec4 a = unjittered * point;
+        const glm::vec4 b = jittered * point;
+        if (!(std::abs(a.w) > 1.0e-6f) || !(std::abs(b.w) > 1.0e-6f))
+        {
+            return glm::vec2(0.0f);
+        }
+        return ((glm::vec2(b) / b.w) - (glm::vec2(a) / a.w)) * 0.5f;
+    }
+
     // The `motionVectorScale` handed to FSR2's dispatch description.
     //
     // Derived, not guessed. Two facts from FSR2's own sources pin it:

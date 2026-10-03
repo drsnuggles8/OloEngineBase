@@ -80,6 +80,14 @@ level (#1252) have all been applied to those vertices already. Rebuilding from t
 second evaluation of four features that then have to agree with the first, and the frame where they
 disagree is a coat whose shadow is at last frame's pose.
 
+**A bound coat refits from its rest stream; it is never rebuilt from the groom per frame (#1533).**
+`GroomSurfaceCache` keeps the coat's root-local stream (`BuildGroomStrandRestMesh`), rebuilt only
+when its shape, groom, binding or LOD level changes, and each frame evaluates that stream's roots
+alone, packs one `GroomDeformBuffer` frame and runs `DeformGroomRestStream`. That is
+`BuildGroomStrandMesh`'s output bit for bit (`GroomGpuDeformation`'s agreement tests), for a
+fraction of the cost. Rebuilding from the groom walked all of the showcase dog's 410k curves several
+times a frame, at ~26 ms a pass, and the RT shadow tier ran at 14 fps. The refit takes 7.8 ms.
+
 The conversion reads vertex `4s+0` as P0 and `4s+2` as P1. That is a claim about the emitter's
 corner order, and `GroomRayTracingProxyTest` asserts it against a real build — change the emitter
 and the test says so, rather than the renderer quietly building bowties.

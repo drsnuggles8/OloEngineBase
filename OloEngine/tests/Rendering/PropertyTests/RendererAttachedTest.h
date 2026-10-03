@@ -193,6 +193,11 @@ namespace OloEngine::Tests
         // above, and a test that leaves PCSS on softens every golden shadow
         // after it (FoliageWind/FoliageInteraction, SSIM 0.95 against 0.985).
         ShadowSettings m_SavedShadowSettings{};
+        // Fog is a third process-wide struct (Renderer3D::GetFogSettings), and a
+        // fixture that turns it on (the fog, atmosphere and weather evidence
+        // tests) would haze every test after it in the process (#1533: found
+        // while trying fog for the dog's lawn).
+        FogSettings m_SavedFogSettings{};
         bool m_SettingsSnapshotted = false;
     };
 } // namespace OloEngine::Tests

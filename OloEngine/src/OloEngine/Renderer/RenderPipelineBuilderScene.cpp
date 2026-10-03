@@ -46,7 +46,7 @@ namespace OloEngine::RenderPipelineBuilderInternal
         // calling builder.DependsOnPreviousWriter("SceneColor") — no
         // class-specific setter wiring is required here. The chain is:
         //   Scene (forward) OR DeferredLighting (deferred)
-        //     -> ForwardOverlay (deferred only) -> Foliage -> Groom -> Decal -> Water
+        //     -> SceneVelocitySeed + ForwardOverlay (deferred only) -> Foliage -> Groom -> Decal -> Water
         //     -> FluidComposite -> Particle -> OITResolve
         // BuildRenderPipelineGraph registers the SceneColor producer
         // (Scene / DeferredLighting) before this stage, so the modifier
@@ -54,6 +54,11 @@ namespace OloEngine::RenderPipelineBuilderInternal
         // resolves each predecessor.
         if (inputs.Deferred)
         {
+            // The G-Buffer's velocity into SceneColor RT3 first (#1552), so
+            // every forward pass below overwrites its own pixels and the
+            // resolves read SceneVelocity with every surface's motion in it.
+            if (inputs.Passes->SceneVelocitySeed)
+                AddExistingNode(graph, inputs.Passes->SceneVelocitySeed);
             AddExistingNode(graph, inputs.Passes->ForwardOverlay);
         }
 

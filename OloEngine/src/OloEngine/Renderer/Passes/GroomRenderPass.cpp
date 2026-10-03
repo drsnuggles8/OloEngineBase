@@ -1,12 +1,17 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/GroomRenderPass.h"
+#include "OloEngine/Core/PerformanceProfiler.h"
 
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Renderer/CameraRelative.h"
+#include "OloEngine/Renderer/ComputeShader.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
@@ -14,6 +19,7 @@
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/Texture3D.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
@@ -65,6 +71,7 @@ namespace OloEngine
         {
             cacheBytes -= std::min(cacheBytes, entry.CoatBytes);
             entry.CoatVolume = nullptr;
+            entry.CoatBody = nullptr;
             // The whole ring: its bytes are all in CoatBytes, so all of it goes.
             for (auto& slot : entry.CoatRing)
             {
@@ -73,9 +80,18 @@ namespace OloEngine
             entry.CoatSlot = 0;
             entry.CoatResolution = 0;
             entry.CoatBytes = 0;
-            entry.CoatBakedPose.clear();
+            // Its CPU inputs go with it, by capacity, not just by size (#1533):
+            // cleared, they kept a posed coat's captured pose and bake subset
+            // -- tens of MiB -- for a volume that no longer exists. No steady
+            // state releases a volume, so nothing reallocates every frame.
+            std::vector<glm::vec3>().swap(entry.CoatBakedPose);
+            std::vector<GroomRestPoseSegment>().swap(entry.CoatPoseSubset);
+            entry.CoatPoseSubsetStride = 0;
+            entry.CoatPoseSubsetSource = nullptr;
             entry.CoatBakedFromPose = false;
             entry.CoatDriftVoxels = 0.0f;
+            entry.CoatBodyVoxels = 0;
+            entry.CoatBakedWithSurface = false;
         }
 
         // Frames an unused cache entry survives before eviction is allowed to
@@ -149,6 +165,17 @@ namespace OloEngine
             const std::array<f32, 4> zero{ 0.0f, 0.0f, 0.0f, 0.0f };
             m_CoatPlaceholder->SetData(zero.data(), static_cast<u32>(zero.size() * sizeof(f32)));
         }
+        // The body's (#1533): no occupancy, and the sky open upward -- the
+        // encoded (0, 1, 0), which reads as all of every lobe open. A zero
+        // texel would read as a sky shut on every side.
+        Texture3DSpecification bodyPlaceholder = placeholder;
+        bodyPlaceholder.Format = Texture3DFormat::RGBA8;
+        m_CoatBodyPlaceholder = Texture3D::Create(bodyPlaceholder);
+        if (m_CoatBodyPlaceholder)
+        {
+            const std::array<u8, 4> open{ 128u, 255u, 128u, 0u };
+            m_CoatBodyPlaceholder->SetData(open.data(), static_cast<u32>(open.size()));
+        }
 
         // One zeroed record at SSBO_GROOM_DEFORMATION for every draw that reads
         // no frame buffer (#1427). Same discipline as the coat placeholder: the
@@ -196,7 +223,7 @@ namespace OloEngine
     {
         RenderGraphNode::Setup(builder, board);
 
-        if ((m_Requests.Num() == 0))
+        if (m_Requests.empty())
         {
             return;
         }
@@ -368,19 +395,17 @@ namespace OloEngine
         const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
         std::vector<GroomStrandVertex> vertices;
         std::vector<u32> indices;
+        std::vector<u32> strandFirstIndex;
+        std::vector<GroomCasterStrand> casterStrands;
         auto stream = Ref<GroomRestStream>::Create();
-        // The coat bake's centrelines come out of the same walk when the coat
-        // already asks for a self-shadow; otherwise AcquireDrawnPose builds
-        // them on first use.
-        const bool wantsPose = request.CoatShadow != GroomCoatShadowTechnique::None;
+        // NO POSE SEGMENTS HERE (#1533). Only a POSED coat bake reads them, and
+        // AcquireDrawnPose builds them on its first call, straight from the walk.
+        // Built with every stream whose coat asked for a self-shadow, they were
+        // 44 bytes a segment -- over 80 MiB on the showcase dog -- held for a
+        // coat baked at rest, which never reads them.
         const GroomStrandMeshStats stats =
             BuildGroomStrandRestMesh(source, request.Build, binding, vertices, indices, stream->RootCurves, &coat,
-                                     wantsPose ? &stream->PoseSegments : nullptr);
-        if (wantsPose)
-        {
-            ScaleRestPoseToCardFibre(request, stream->PoseSegments);
-        }
-        stream->PoseSegmentsBuilt = wantsPose;
+                                     nullptr, &strandFirstIndex, &casterStrands);
         m_Stats.DeformedBuildMicroseconds += static_cast<u64>(
             std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - buildStart)
                 .count());
@@ -393,6 +418,21 @@ namespace OloEngine
         stream->Stats = stats;
         stream->Bytes = stats.VertexBytes + stats.IndexBytes;
         stream->Binding = request.Binding;
+        // The stream's points are ROOT-RELATIVE (each root's bind frame), so the
+        // largest of their lengths is the farthest any drawn point sits from its
+        // own root. Measured once here, where the vertices are still on the CPU,
+        // for the posed bounds a caster is culled by (#1323).
+        {
+            f32 reachSq = 0.0f;
+            f32 widest = 0.0f;
+            for (const GroomStrandVertex& vertex : vertices)
+            {
+                reachSq = std::max(reachSq, glm::dot(vertex.Position, vertex.Position));
+                widest = std::max(widest, vertex.Radius);
+            }
+            stream->MaxReach = std::sqrt(reachSq);
+            stream->MaxRadius = widest;
+        }
         // IMMUTABLE buffers, like an unbound groom's: nothing ever refills the
         // stream. What moves every frame is each entity's frame buffer.
         stream->Vertices = VertexBuffer::Create(vertices.data(), static_cast<u32>(stats.VertexBytes));
@@ -401,14 +441,18 @@ namespace OloEngine
         stream->Array = VertexArray::Create();
         stream->Array->AddVertexBuffer(stream->Vertices);
         stream->Array->SetIndexBuffer(stream->Indices);
+        stream->Caster = BuildCasterStream(stream->Vertices, vertices, indices, strandFirstIndex, casterStrands);
+        stream->Bytes += stream->Caster.Bytes;
 
         m_CacheBytes += stream->Bytes;
         ++m_Stats.CacheBuilds;
 
         OLO_CORE_TRACE("GroomRenderPass: built REST strand geometry for bound groom {} — {} of {} strands (stride {}), "
-                       "{} segments, {:.2f} MiB, deformed on the GPU and shared by every entity wearing it",
+                       "{} segments, {:.2f} MiB, deformed on the GPU and shared by every entity wearing it; mean "
+                       "radius {:.1f} um",
                        static_cast<u64>(request.Handle), stats.StrandsSelected, stats.StrandsAvailable, stats.Stride,
-                       stats.SegmentCount, static_cast<f64>(stream->Bytes) / (1024.0 * 1024.0));
+                       stats.SegmentCount, static_cast<f64>(stream->Bytes) / (1024.0 * 1024.0),
+                       static_cast<f64>(stream->Caster.MeanRadius) * 1.0e6);
 
         m_RestStreams[key] = stream;
         return stream;
@@ -447,6 +491,7 @@ namespace OloEngine
             UploadDeformation(request, it->second);
             if (it->second.DeformGpu)
             {
+                it->second.DeformUploadedTick = m_CacheTick;
                 return &it->second;
             }
             if (!m_ReportedDeformBufferFailure)
@@ -481,6 +526,14 @@ namespace OloEngine
             if (entry.GpuDeformed && entry.Rest == stream)
             {
                 entry.LastUsedFrame = m_CacheTick;
+                // ONCE PER FRAME (#1323). A casting coat is acquired by the
+                // shadow pass and then by the strand pass; the pose did not move
+                // in between, so the second acquire draws the bytes the first
+                // uploaded instead of packing and uploading them again.
+                if (entry.DeformUploadedTick == m_CacheTick && entry.DeformGpu)
+                {
+                    return &entry;
+                }
                 return uploadOrRefuse(existing);
             }
             ReleaseCoatVolume(entry, m_CacheBytes);
@@ -511,8 +564,36 @@ namespace OloEngine
         return uploadOrRefuse(it);
     }
 
+    bool GroomRenderPass::EnsureRootFrameKernel()
+    {
+        if (m_RootFrameShaderFailed)
+        {
+            return false;
+        }
+        if (!m_RootFrameShader)
+        {
+            m_RootFrameShader = ComputeShader::Create("assets/shaders/compute/GroomRootFrames.comp");
+            m_RootFrameParams = UniformBuffer::Create(UBOStructures::GroomRootFrameParamsUBO::GetSize(),
+                                                      ShaderBindingLayout::UBO_USER_0);
+            if (!m_RootFrameShader || !m_RootFrameShader->IsValid() || !m_RootFrameParams)
+            {
+                // Said once; the drawn roots are then evaluated on the CPU, the
+                // path every coat took before, so the coat still follows its body.
+                m_RootFrameShaderFailed = true;
+                m_RootFrameShader = nullptr;
+                m_RootFrameParams = nullptr;
+                OLO_CORE_ERROR_TAG("Groom", "GroomRenderPass: GroomRootFrames.comp is unavailable; bound coats' roots "
+                                            "are evaluated on the CPU instead");
+                return false;
+            }
+        }
+        return true;
+    }
+
     void GroomRenderPass::UploadDeformation(const GroomStrandRequest& request, CacheEntry& entry)
     {
+        OLO_PROFILE_FUNCTION();
+        OLO_PERF_SCOPE_AUTO("Groom::UploadDeformation");
         const auto packStart = std::chrono::steady_clock::now();
 
         const u32 baseCurveCount = request.Groom->GetCurveCount();
@@ -523,23 +604,57 @@ namespace OloEngine
         const std::vector<u32>& rootCurves = entry.Rest->RootCurves;
         const u32 rootCount = static_cast<u32>(rootCurves.size());
 
+        // THE DRAWN ROOTS ON THE GPU (#1533 E1) when the producer left them there
+        // and the kernel runs: the buffer then carries the surface and the
+        // palette, and GroomRootFrames.comp writes the root region. Otherwise the
+        // roots are packed from CPU transforms -- evaluated here from the
+        // producer's inputs if it skipped them -- as every coat was before.
+        const GroomDeformationInputs& rootInputs = request.GpuRootInputs;
+        const bool rootsOnGpu = request.GpuRootFrames && rootInputs.Skinning.IsSkinned() &&
+                                rootInputs.Surface.IsUsable() && EnsureRootFrameKernel();
+        const u32 vertexCount = rootsOnGpu ? rootInputs.Surface.VertexCount : 0u;
+        const u32 boneCount = rootsOnGpu ? static_cast<u32>(rootInputs.Skinning.Palette.size()) : 0u;
+
         // The buffer is sized for the table it was laid out against. A coat
         // that starts being simulated, switches table, or somehow outgrows the
         // capacity (every point of every guide) gets a new layout — and a new
         // GPU buffer, because a Vulkan buffer the previous frame may still be
-        // reading is not resized in place.
+        // reading is not resized in place. So does a coat whose roots move
+        // between the CPU and the GPU, or whose bound surface changed.
         const GroomDeformBufferLayout& current = entry.DeformCpu.GetLayout();
         const bool tableChanged = simulated && request.Influence != entry.DeformWeightsFrom;
+        const bool surfaceChanged =
+            current.RootsOnGpu() != rootsOnGpu ||
+            (rootsOnGpu && (current.VertexCount != vertexCount || current.BoneCount != boneCount ||
+                            entry.RootSkinKey != request.GpuRootSurfaceKey));
         const bool relayout = !entry.DeformGpu || current.RootCount != rootCount || tableChanged ||
-                              displacementsThisFrame > current.DisplacementCapacity;
+                              displacementsThisFrame > current.DisplacementCapacity || surfaceChanged;
         if (relayout)
         {
             const GroomGuideInfluenceTable* table = simulated ? simulation.Influence : nullptr;
             const u32 capacity = std::max(GroomDeformDisplacementCapacity(*request.Groom, table), displacementsThisFrame);
-            const GroomDeformBufferLayout layout =
-                GroomDeformBufferLayout::Make(rootCount, table != nullptr ? table->GetGuideCount() : 0u, capacity);
+            const GroomDeformBufferLayout layout = GroomDeformBufferLayout::Make(
+                rootCount, table != nullptr ? table->GetGuideCount() : 0u, capacity, vertexCount, boneCount);
             entry.DeformCpu.Reset(layout, rootCurves, table);
             entry.DeformWeightsFrom = simulated ? request.Influence : Ref<GroomGuideInfluenceTable>{};
+            if (rootsOnGpu)
+            {
+                entry.RootsReached = entry.DeformCpu.WriteSurfaceSkin(rootCurves, *request.Binding, rootInputs.Surface,
+                                                                      rootInputs.Skinning, baseCurveCount);
+                entry.RootBoneBounds = BuildGroomRootBoneBounds(rootCurves, *request.Binding, rootInputs.Surface,
+                                                                rootInputs.Skinning, boneCount, baseCurveCount);
+                entry.SkinnedCasterPose = entry.Rest->Caster.Pose;
+                SkinGroomCasterPose(entry.SkinnedCasterPose, entry.Rest->Caster.StrandOrder, rootCurves,
+                                    entry.Rest->Caster.StrandBoxes, *request.Binding, rootInputs.Surface,
+                                    rootInputs.Skinning, boneCount, baseCurveCount);
+                entry.RootSkinKey = request.GpuRootSurfaceKey;
+            }
+            else
+            {
+                entry.RootBoneBounds = {};
+                entry.SkinnedCasterPose = {};
+                entry.RootsReached = 0;
+            }
 
             const u64 oldBytes = entry.DeformGpu ? static_cast<u64>(entry.DeformGpu->GetSize()) : 0u;
             entry.DeformGpu = StorageBuffer::Create(static_cast<u32>(layout.TotalBytes()),
@@ -552,10 +667,50 @@ namespace OloEngine
             m_CacheBytes = m_CacheBytes - std::min(m_CacheBytes, oldBytes) + newBytes;
         }
 
-        const std::span<const GroomRootTransform> transforms{ request.RootTransforms.GetData(),
-                                                              static_cast<sizet>(request.RootTransforms.Num()) };
-        (void)entry.DeformCpu.PackFrame(rootCurves, *request.Binding, transforms,
-                                        simulated ? &simulation : nullptr, baseCurveCount);
+        // Packed from the producer's transforms, which cover every drawn root
+        // unless it left them to the GPU -- and then only the guides, which is
+        // all PackFrame reads of them on the GPU layout.
+        const std::span<const GroomRootTransform> transforms =
+            rootsOnGpu ? std::span<const GroomRootTransform>{ request.RootTransforms.GetData(),
+                                                              static_cast<sizet>(request.RootTransforms.Num()) }
+                       : GroomCpuRootTransforms(request, rootCurves, m_CpuRootScratch);
+        const GroomDeformFrameStats packed = entry.DeformCpu.PackFrame(rootCurves, *request.Binding, transforms,
+                                                                       simulated ? &simulation : nullptr, baseCurveCount);
+        // THE CASTER'S RUNS IN THIS POSE (#1533), here because this is where the
+        // frame's root data is in hand: the palette when the kernel evaluates
+        // the drawn roots, the transforms PackFrame just read otherwise. The
+        // rest runs describe the bind pose, and a body that turns a run toward
+        // the light would have the views thin it into holes.
+        entry.PosedRunsTick = 0;
+        if (request.CastsSceneShadow)
+        {
+            const GroomCasterStream& caster = entry.Rest->Caster;
+            const GroomCasterPosePadding padding{ GroomGuideDisplacementReach(simulated ? &simulation : nullptr),
+                                                  entry.Rest->MaxRadius * std::max(request.WidthScale, 0.0f) };
+            const bool posed =
+                rootsOnGpu ? PoseGroomCasterRunsBySkeleton(caster.Runs, entry.SkinnedCasterPose, rootCurves,
+                                                           *request.Binding, rootInputs, padding, entry.PosedRuns)
+                           : PoseGroomCasterRunsByRoots(caster.Runs, caster.Pose, caster.StrandOrder, rootCurves,
+                                                        *request.Binding, transforms, padding, entry.PosedRuns);
+            entry.PosedRunsTick = posed ? m_CacheTick : 0u;
+        }
+        // THE DRAWN ROOTS' COUNTERS, for a coat whose producer left its roots to
+        // the pass (#1533 E1): the producer evaluated only its guides, so its
+        // counts describe the simulation, not the coat. On the kernel they are
+        // counted at the dispatch; here, where the pass fell back to evaluating
+        // them itself, from the pack.
+        if (request.GpuRootFrames && !rootsOnGpu)
+        {
+            m_Stats.RootsDeformed += rootCount - std::min(rootCount, packed.StrandsHeldAtRest);
+            m_Stats.RootsHeldAtRest += packed.StrandsHeldAtRest;
+        }
+        const bool usePreviousPose = rootsOnGpu && rootInputs.HasHistory && rootInputs.Skinning.HasPreviousPose &&
+                                     !rootInputs.Skinning.PrevPalette.empty();
+        if (rootsOnGpu)
+        {
+            entry.DeformCpu.WritePalette(rootInputs.Skinning.Palette,
+                                         usePreviousPose ? rootInputs.Skinning.PrevPalette : std::span<const glm::mat4>{});
+        }
 
         const auto uploadStart = std::chrono::steady_clock::now();
         m_Stats.DeformedBuildMicroseconds += static_cast<u64>(
@@ -563,28 +718,92 @@ namespace OloEngine
 
         if (entry.DeformGpu)
         {
-            // The WHOLE buffer after a relayout, because its static region —
-            // the guide weights — is new too; only the per-frame region after
-            // that. Never the displacement capacity the frame did not use: the
-            // shader is bounded by the count in GroomStrandParams, so bytes past
-            // it are never read.
+            // The WHOLE buffer after a relayout, because its static regions —
+            // the guide weights, and on the GPU layout the surface — are new
+            // too; only the per-frame regions after that. Never the displacement
+            // capacity the frame did not use: the shader is bounded by the count
+            // in GroomStrandParams, so bytes past it are never read. On the GPU
+            // layout the root region is not sent at all: the kernel writes it.
             const GroomDeformBufferLayout& layout = entry.DeformCpu.GetLayout();
-            const u64 usedEnd = (static_cast<u64>(layout.DisplacementBase) +
-                                 static_cast<u64>(entry.DeformCpu.GetFrameStats().DisplacementCount) * 2u) *
-                                16u;
-            const u64 begin = relayout ? 0u : layout.DynamicOffsetBytes();
             const std::span<const u8> bytes = entry.DeformCpu.GetBytes();
-            const u64 end = std::min<u64>(std::max(usedEnd, begin), bytes.size());
-            if (end > begin)
+            const auto send = [&](u64 begin, u64 end)
             {
-                entry.DeformGpu->SetData(bytes.data() + begin, static_cast<u32>(end - begin), static_cast<u32>(begin));
-                m_Stats.DeformedUploadBytes += end - begin;
+                end = std::min<u64>(end, bytes.size());
+                if (end > begin)
+                {
+                    entry.DeformGpu->SetData(bytes.data() + begin, static_cast<u32>(end - begin),
+                                             static_cast<u32>(begin));
+                    m_Stats.DeformedUploadBytes += end - begin;
+                }
+            };
+            if (relayout)
+            {
+                send(0u, bytes.size());
+            }
+            else
+            {
+                const u64 usedEnd = (static_cast<u64>(layout.DisplacementBase) +
+                                     static_cast<u64>(entry.DeformCpu.GetFrameStats().DisplacementCount) * 2u) *
+                                    16u;
+                const u64 begin = layout.RootsOnGpu() ? static_cast<u64>(layout.SlotBase) * 16u
+                                                      : layout.DynamicOffsetBytes();
+                send(begin, std::max(usedEnd, begin));
+                if (layout.RootsOnGpu())
+                {
+                    send(layout.PaletteOffsetBytes(), bytes.size());
+                }
+            }
+            if (layout.RootsOnGpu())
+            {
+                DispatchRootFrames(request, entry, usePreviousPose);
             }
         }
         ++m_Stats.DeformedRebuilds;
         m_Stats.DeformedUploadMicroseconds += static_cast<u64>(
             std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - uploadStart)
                 .count());
+    }
+
+    void GroomRenderPass::DispatchRootFrames(const GroomStrandRequest& request, CacheEntry& entry,
+                                             bool usePreviousPose)
+    {
+        const GroomDeformBufferLayout& layout = entry.DeformCpu.GetLayout();
+        const GroomDeformationInputs& inputs = request.GpuRootInputs;
+
+        UBOStructures::GroomRootFrameParamsUBO params;
+        params.SurfaceToGroom = inputs.SurfaceToGroom;
+        // Last frame's mapping with last frame's pose, exactly as
+        // EvaluateGroomRootTransforms pairs them; this frame's without history.
+        params.PrevSurfaceToGroom = (usePreviousPose && inputs.PrevSurfaceToGroom.has_value())
+                                        ? *inputs.PrevSurfaceToGroom
+                                        : inputs.SurfaceToGroom;
+        params.Counts = glm::ivec4(static_cast<i32>(layout.RootCount), static_cast<i32>(layout.BoneCount),
+                                   usePreviousPose ? 1 : 0, static_cast<i32>(layout.VertexCount));
+        params.Bases = glm::ivec4(static_cast<i32>(layout.RootBase), static_cast<i32>(layout.SkinBase),
+                                  static_cast<i32>(layout.VertexBase), static_cast<i32>(layout.PaletteBase));
+        params.Bind = glm::ivec4(static_cast<i32>(layout.BindBase), 0, 0, 0);
+        m_RootFrameParams->SetData(&params, UBOStructures::GroomRootFrameParamsUBO::GetSize());
+        m_RootFrameParams->Bind();
+        entry.DeformGpu->Bind();
+
+        // Before: the regions just sent are visible to the kernel, and last
+        // frame's draws have finished reading the root region it overwrites.
+        // After: every draw that reads the roots -- the casters and the strands
+        // -- sees them, as storage in the vertex stage.
+        RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::BufferUpdate);
+        m_RootFrameShader->Bind();
+        constexpr u32 kGroupSize = 64u; // GroomRootFrames.comp's local_size_x
+        RenderCommand::DispatchCompute((layout.RootCount + kGroupSize - 1u) / kGroupSize, 1u, 1u);
+        RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::VertexAttribArray);
+
+        ++m_Stats.GroomsRootsOnGpu;
+        m_Stats.RootsEvaluatedOnGpu += layout.RootCount;
+        // Deformed and held as the CPU would count them, with one exception: a
+        // triangle that collapses in THIS pose only is held by the kernel and
+        // counted as deformed here, since knowing it would take a readback.
+        const u32 reached = std::min(entry.RootsReached, layout.RootCount);
+        m_Stats.RootsDeformed += reached;
+        m_Stats.RootsHeldAtRest += layout.RootCount - reached;
     }
 
     std::span<const GroomCoatShadow::CoatSegment> GroomRenderPass::AcquireDrawnPose(const GroomStrandRequest& request,
@@ -595,24 +814,24 @@ namespace OloEngine
         {
             return {};
         }
+        m_PoseScratchUsedTick = m_CacheTick;
 
         const auto poseStart = std::chrono::steady_clock::now();
         if (entry.GpuDeformed)
         {
-            // The centrelines were not kept when the stream was built — the coat
-            // did not ask for a self-shadow then. The same walk again, once; its
-            // vertices are discarded, because the GPU already holds them.
+            // The stream is built without its centrelines (AcquireRestStream);
+            // the first posed bake of ANY entity sharing it builds them here,
+            // once, straight from the walk -- no ribbon vertices or indices,
+            // which the GPU already holds -- and every later one reuses them.
             GroomRestStream& stream = *entry.Rest;
             if (!stream.PoseSegmentsBuilt)
             {
                 const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
-                std::vector<GroomStrandVertex> vertices;
-                std::vector<u32> indices;
-                std::vector<u32> rootCurves;
-                (void)BuildGroomStrandRestMesh(request.BuildSource(), request.Build, *request.Binding, vertices,
-                                               indices, rootCurves, &coat, &stream.PoseSegments);
+                (void)BuildGroomRestPoseSegments(request.BuildSource(), request.Build, *request.Binding, &coat,
+                                                 stream.PoseSegments);
                 ScaleRestPoseToCardFibre(request, stream.PoseSegments);
                 stream.PoseSegmentsBuilt = true;
+                ++m_Stats.PoseSegmentBuilds;
             }
             // THE BAKE SUBSET (#1445), taken BEFORE the evaluation so the
             // evaluation, the drift and the binning all pay for the subset
@@ -654,7 +873,18 @@ namespace OloEngine
                 evaluate = entry.CoatPoseSubset;
             }
             // THE POSE THE GPU DRAWS: evaluated from the same packed bytes the
-            // vertex shader reads, by the CPU twin of its arithmetic.
+            // vertex shader reads, by the CPU twin of its arithmetic. On the GPU
+            // root layout (#1533 E1) the kernel writes the root region and it is
+            // never read back, so the CPU twin's records are packed from CPU
+            // transforms first -- the same frames, by the arithmetic the kernel
+            // twins.
+            if (entry.DeformCpu.GetLayout().RootsOnGpu())
+            {
+                (void)entry.DeformCpu.PackCpuRoots(entry.Rest->RootCurves, *request.Binding,
+                                                   GroomCpuRootTransforms(request, entry.Rest->RootCurves,
+                                                                          m_CpuRootScratch),
+                                                   request.Groom->GetCurveCount());
+            }
             EvaluateGroomDeformedPose(entry.DeformCpu, evaluate, m_DrawnPose);
         }
         else
@@ -777,6 +1007,10 @@ namespace OloEngine
         // never hand the coat bake the previous groom's pose.
         m_DeformedVertices.clear();
         const bool deformed = IsDeformed(request);
+        if (deformed)
+        {
+            m_PoseScratchUsedTick = m_CacheTick;
+        }
 
         // A BOUND COAT IS DEFORMED ON THE GPU (#1427): its stream is built once,
         // in each root's bind frame, and only a small per-frame buffer moves.
@@ -784,9 +1018,10 @@ namespace OloEngine
         // what a binding the rest stream cannot be built against gets.
         if (deformed && m_GpuDeformation)
         {
+            // GroomsGpuDeformed is counted where the coat is DRAWN, in Execute,
+            // not here: since #1323 a casting coat is acquired twice a frame.
             if (CacheEntry* entry = AcquireGpuDeformedGeometry(request, CacheKey(request, true)))
             {
-                ++m_Stats.GroomsGpuDeformed;
                 return entry;
             }
         }
@@ -831,7 +1066,9 @@ namespace OloEngine
         if (deformed)
         {
             deformation.Binding = request.Binding.Raw();
-            deformation.RootTransforms = std::span{ request.RootTransforms.GetData(), static_cast<sizet>(request.RootTransforms.Num()) };
+            // Evaluated here when the producer left the drawn roots to the GPU
+            // (#1533 E1) and this coat takes the CPU path after all.
+            deformation.RootTransforms = GroomCpuRootTransforms(request, std::nullopt, m_CpuRootScratch);
         }
 
         // A DEFORMED build writes straight into the caller's stream, because
@@ -842,6 +1079,9 @@ namespace OloEngine
         std::vector<GroomStrandVertex> restVertices;
         std::vector<GroomStrandVertex>& vertices = deformed ? outDeformedVertices : restVertices;
         std::vector<u32> indices;
+        std::vector<u32> strandFirstIndex;
+        std::vector<GroomCasterStrand> casterStrands;
+        std::vector<u32> strandCurves;
         // The coat context is assembled HERE, at the point of use, because it is
         // the only place both halves are certainly alive: the settings come from
         // the request and the per-group table belongs to the asset the request
@@ -868,7 +1108,8 @@ namespace OloEngine
         const GroomStrandMeshStats stats =
             BuildGroomStrandMesh(request.BuildSource(), request.Build, vertices, indices,
                                  deformed ? &deformation : nullptr, &coat,
-                                 simulation.IsUsable(request.Groom->GetCurveCount()) ? &simulation : nullptr);
+                                 simulation.IsUsable(request.Groom->GetCurveCount()) ? &simulation : nullptr,
+                                 &strandFirstIndex, &casterStrands, deformed ? &strandCurves : nullptr);
         if (deformed)
         {
             m_Stats.DeformedBuildMicroseconds += static_cast<u64>(
@@ -905,6 +1146,7 @@ namespace OloEngine
                 entry.Stats = stats;
                 entry.LastUsedFrame = m_CacheTick;
                 ++m_Stats.DeformedRebuilds;
+                PoseCpuCasterRuns(request, entry, strandCurves, deformation.RootTransforms);
                 return &entry;
             }
             ReleaseCoatVolume(entry, m_CacheBytes);
@@ -940,6 +1182,10 @@ namespace OloEngine
         entry.Array = VertexArray::Create();
         entry.Array->AddVertexBuffer(entry.Vertices);
         entry.Array->SetIndexBuffer(entry.Indices);
+        // Built once with the buffers: the refill above moves the vertices and
+        // keeps every index, so the caster's order stays valid with them.
+        entry.Caster = BuildCasterStream(entry.Vertices, vertices, indices, strandFirstIndex, casterStrands);
+        entry.Bytes += entry.Caster.Bytes;
 
         m_CacheBytes += entry.Bytes;
         ++m_Stats.CacheBuilds;
@@ -950,7 +1196,30 @@ namespace OloEngine
                        stats.SegmentCount, static_cast<f64>(entry.Bytes) / (1024.0 * 1024.0));
 
         const auto [it, inserted] = m_Cache.emplace(key, std::move(entry));
+        if (inserted && deformed)
+        {
+            PoseCpuCasterRuns(request, it->second, strandCurves, deformation.RootTransforms);
+        }
         return inserted ? &it->second : nullptr;
+    }
+
+    void GroomRenderPass::PoseCpuCasterRuns(const GroomStrandRequest& request, CacheEntry& entry,
+                                            std::span<const u32> strandCurves,
+                                            std::span<const GroomRootTransform> transforms)
+    {
+        entry.PosedRunsTick = 0;
+        if (!request.CastsSceneShadow || !request.Binding || !request.Groom)
+        {
+            return;
+        }
+        const GroomStrandSimulation simulation = request.Simulation();
+        const bool simulated = simulation.IsUsable(request.Groom->GetCurveCount());
+        const GroomCasterPosePadding padding{ GroomGuideDisplacementReach(simulated ? &simulation : nullptr), 0.0f };
+        if (PoseGroomCasterRunsByRoots(entry.Caster.Runs, entry.Caster.Pose, entry.Caster.StrandOrder, strandCurves,
+                                       *request.Binding, transforms, padding, entry.PosedRuns))
+        {
+            entry.PosedRunsTick = m_CacheTick;
+        }
     }
 
     u32 GroomRenderPass::CountResidentCoatVolumes() const noexcept
@@ -996,7 +1265,8 @@ namespace OloEngine
     }
 
     bool GroomRenderPass::BakeCoatVolume(CacheEntry& entry, std::span<const GroomCoatShadow::CoatSegment> segments,
-                                         u32 resolution, bool ring, u32* outOccupiedVoxels)
+                                         u32 resolution, bool ring, u32* outOccupiedVoxels,
+                                         const GroomDeformationInputs* body)
     {
         if (segments.empty())
         {
@@ -1006,6 +1276,7 @@ namespace OloEngine
         GroomCoatShadow::DensityVolumeSettings volumeSettings;
         volumeSettings.Resolution = resolution;
         GroomCoatShadow::DensityVolume& volume = m_CoatVolumeScratch;
+        m_BakeScratchUsedTick = m_CacheTick;
         GroomCoatShadow::DensityVolumeBuildStats volumeStats;
         const auto binStart = std::chrono::steady_clock::now();
         const bool binned = GroomCoatShadow::BuildDensityVolume(segments, volumeSettings, volume, &volumeStats);
@@ -1017,6 +1288,76 @@ namespace OloEngine
         if (outOccupiedVoxels != nullptr)
         {
             *outOccupiedVoxels = volumeStats.OccupiedVoxels;
+        }
+
+        // THE BODY (#1533), for a rest bake over a bound surface: marked where
+        // the coat is not, so the lights no shadow map answers for at the strand
+        // -- a light that does not cast, the sky, the VSM -- are stopped by it.
+        // A surface with no closed part says so: those lights then reach the
+        // fur through the body, as they did before the body was there.
+        u32 bodyVoxels = 0;
+        const bool haveSurface = body != nullptr && body->Surface.IsUsable();
+        if (haveSurface)
+        {
+            const auto bodyStart = std::chrono::steady_clock::now();
+            GroomCoatShadow::BodyVoxelStats bodyStats;
+            const bool marked = GroomCoatShadow::MarkBodyInDensityVolume(volume, body->Surface, body->SurfaceToGroom,
+                                                                         GroomCoatShadow::BodyVoxelSettings{},
+                                                                         &bodyStats);
+            const u64 bodyMicroseconds = MicrosecondsSince(bodyStart);
+            m_Stats.CoatShadow.BakeBodyMicroseconds += bodyMicroseconds;
+            if (marked)
+            {
+                bodyVoxels = bodyStats.MarkedVoxels;
+                OLO_CORE_INFO("GroomRenderPass: the coat volume holds its body, {} voxels ({} full) from {} closed of "
+                              "{} parts ({} open skipped, {} odd sub-columns) in {:.1f} ms: raster {:.1f}, sky {:.1f} "
+                              "({} of {} cells), fill {:.1f}",
+                              bodyStats.MarkedVoxels, bodyStats.FullVoxels, bodyStats.ClosedComponents,
+                              bodyStats.Components, bodyStats.OpenComponents, bodyStats.OddColumns,
+                              static_cast<f64>(bodyMicroseconds) / 1000.0,
+                              static_cast<f64>(bodyStats.RasterMicroseconds) / 1000.0,
+                              static_cast<f64>(bodyStats.SkyMicroseconds) / 1000.0, bodyStats.SkyCellsOutside,
+                              bodyStats.SkyCells, static_cast<f64>(bodyStats.FillMicroseconds) / 1000.0);
+            }
+            else
+            {
+                OLO_CORE_WARN("GroomRenderPass: the coat's bound surface has no closed part the volume can hold ({} "
+                              "parts, {} open, {} voxels past the floor): lights that do not cast, the sky and the "
+                              "VSM reach this fur through its body",
+                              bodyStats.Components, bodyStats.OpenComponents, bodyStats.MarkedVoxels);
+            }
+        }
+
+        // THE BODY'S OWN TEXTURE (#1533): RGBA8 on the coat's grid (occupancy
+        // and the sky it leaves), made new at every bake that marks one -- a
+        // rest bake, made once per resolution --
+        // so no recording still to be submitted can see it rewritten; the one
+        // it replaces outlives its frames in the deferred deletion, as a ring
+        // slot's does. A body whose texture cannot be made is no body, said
+        // loudly: those lights then reach the fur through it.
+        Ref<Texture3D> bodyTexture;
+        if (bodyVoxels > 0u)
+        {
+            Texture3DSpecification bodySpec;
+            bodySpec.Width = static_cast<u32>(volume.Dimensions.x);
+            bodySpec.Height = static_cast<u32>(volume.Dimensions.y);
+            bodySpec.Depth = static_cast<u32>(volume.Dimensions.z);
+            bodySpec.Format = Texture3DFormat::RGBA8;
+            bodySpec.Repeat = false; // clamped: the box's edge voxels hold no body
+            bodyTexture = Texture3D::Create(bodySpec);
+            if (bodyTexture)
+            {
+                const auto bodyUploadStart = std::chrono::steady_clock::now();
+                bodyTexture->SetData(volume.Body.data(), static_cast<u32>(volume.Body.size() * sizeof(glm::u8vec4)));
+                m_Stats.CoatShadow.BakeUploadMicroseconds += MicrosecondsSince(bodyUploadStart);
+            }
+            else
+            {
+                OLO_CORE_ERROR("GroomRenderPass: the coat's body texture ({} x {} x {} RGBA8) could not be made: lights "
+                               "that do not cast, the sky and the VSM reach this fur through its body",
+                               bodySpec.Width, bodySpec.Height, bodySpec.Depth);
+                bodyVoxels = 0;
+            }
         }
 
         // ONE RGBA texture: xyz = mean fibre direction * coherence,
@@ -1034,7 +1375,11 @@ namespace OloEngine
                              static_cast<sizet>(volume.Dimensions.z);
         const auto packStart = std::chrono::steady_clock::now();
         constexpr f32 kLargestHalf = 65504.0f;
-        const f32 densest = volume.Density.empty() ? 0.0f : *std::max_element(volume.Density.begin(), volume.Density.end());
+        f32 densest = 0.0f;
+        for (const f32 density : volume.Density)
+        {
+            densest = std::max(densest, density);
+        }
         const bool half = densest < kLargestHalf;
         const void* texels = nullptr;
         sizet texelBytes = 0;
@@ -1177,6 +1522,9 @@ namespace OloEngine
         entry.CoatBoundsMin = volume.BoundsMin;
         entry.CoatBoundsMax = volume.BoundsMax;
         entry.CoatResolution = resolution;
+        entry.CoatBody = bodyTexture;
+        entry.CoatBodyVoxels = bodyVoxels;
+        entry.CoatBakedWithSurface = haveSurface;
         // The REAL voxel size, carried rather than re-derived. The
         // grid's dimensions differ per axis (only the longest gets
         // `resolution`), so extent/resolution is the voxel size on
@@ -1201,6 +1549,11 @@ namespace OloEngine
                 ringBytes += static_cast<u64>(heldSpec.Width) * heldSpec.Height * heldSpec.Depth * texelBytes;
             }
         }
+        if (entry.CoatBody)
+        {
+            const Texture3DSpecification& bodySpec = entry.CoatBody->GetSpecification();
+            ringBytes += static_cast<u64>(bodySpec.Width) * bodySpec.Height * bodySpec.Depth * 4ull; // RGBA8
+        }
         m_CacheBytes -= std::min(m_CacheBytes, entry.CoatBytes);
         entry.CoatBytes = ringBytes;
         m_CacheBytes += entry.CoatBytes;
@@ -1219,7 +1572,8 @@ namespace OloEngine
     // bound in that same object space.
     GroomCoatShadowDecision GroomRenderPass::AcquireCoatVolume(const GroomStrandRequest& request, CacheEntry& entry,
                                                                u32& residentVolumes,
-                                                               std::span<const GroomCoatShadow::CoatSegment> drawnPose)
+                                                               std::span<const GroomCoatShadow::CoatSegment> drawnPose,
+                                                               bool bakeAtRest)
     {
         GroomCoatShadowInputs inputs;
         inputs.Requested = request.CoatShadow;
@@ -1258,7 +1612,10 @@ namespace OloEngine
         //
         // What is still refused is a deformed groom whose drawn pose is NOT in
         // hand, and that has its own reason rather than being assumed away.
-        inputs.GroomIsDeformed = IsDeformed(request);
+        // A coat BAKED AT REST (#1533) is baked like an undeformed one -- from
+        // its rest curves, once -- because its draw looks the volume up at each
+        // fragment's bind point: it needs no drawn pose and never drifts.
+        inputs.GroomIsDeformed = IsDeformed(request) && !bakeAtRest;
         inputs.DeformedPoseAvailable = !drawnPose.empty();
         if (inputs.GroomIsDeformed && !inputs.DeformedPoseAvailable &&
             request.CoatShadow != GroomCoatShadowTechnique::None)
@@ -1275,6 +1632,11 @@ namespace OloEngine
             // Nothing to do, and NOT a fallback: a coat that never asked must
             // not be counted as a failure, or the counter that explains a
             // missing shadow is saturated by coats working exactly as authored.
+            // A volume a coat STOPPED asking for is given back (#1533): it
+            // serves no draw, and kept it held every ring slot in the cache --
+            // counted, so nothing leaked, but held -- until the coat itself
+            // was evicted. Asking again bakes again, as a first request does.
+            ReleaseCoatVolume(entry, m_CacheBytes);
             entry.CoatRequestedLodStep = 0;
             entry.CoatLodStableFrames = 0;
             inputs.ResolvedResolution = request.CoatLod.BaseResolution;
@@ -1417,9 +1779,18 @@ namespace OloEngine
         // areal density the volume stores. Without it, dragging Width Scale in
         // the inspector changes every ribbon on screen and leaves the shadow
         // describing the coat's previous thickness.
+        // And an un-posed bake is the drawn walk at rest, which the coat
+        // authoring shapes: re-authoring the coat is a different volume.
+        const bool coatChanged = !deformed && entry.CoatBakedCoatDigest != request.Build.CoatDigest;
+        // A rest bake marks the body it grows on (#1533); one made before the
+        // bound surface arrived is made again once it has.
+        const GroomDeformationInputs* restBody =
+            !deformed && request.GpuRootInputs.Surface.IsUsable() ? &request.GpuRootInputs : nullptr;
+        const bool bodyArrived = restBody != nullptr && !entry.CoatBakedWithSurface;
         const bool needsRebuild = !entry.CoatVolume || !bakeSourceMatches || entry.CoatResolution != resolution ||
                                   entry.CoatLodStep != lodStep ||
-                                  !Math::BitwiseEqual(entry.CoatWidthScale, request.WidthScale) || poseMoved;
+                                  !Math::BitwiseEqual(entry.CoatWidthScale, request.WidthScale) || poseMoved ||
+                                  coatChanged || bodyArrived;
 
         if (needsRebuild && inputs.GrantedSlot != kNoGroomCoatShadowSlot &&
             resolution >= request.CoatLod.MinResolution)
@@ -1427,6 +1798,7 @@ namespace OloEngine
             const auto bakeStart = std::chrono::steady_clock::now();
 
             std::vector<GroomCoatShadow::CoatSegment>& segments = m_CoatSegments;
+            m_BakeScratchUsedTick = m_CacheTick;
             u32 emitted = 0;
             const auto segmentStart = std::chrono::steady_clock::now();
             if (deformed)
@@ -1442,6 +1814,31 @@ namespace OloEngine
                 // the drawn pose carries each card at its GROUP's fibre area
                 // already (CardFibreScales, applied where the pose is formed).
                 emitted = GroomCoatShadow::BuildCoatSegmentsFromPose(drawnPose, request.WidthScale, segments);
+            }
+            else if (const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() }; coat.IsActive())
+            {
+                // THE DRAWN COAT, AT REST (#1533). The strands on screen are the
+                // asset's curves through the coat's shape -- length and width
+                // jitter, clump, curl and wave -- and a coat baked at rest is looked
+                // up at each drawn point's REST position (GroomStrand.glsl). Baked
+                // from the raw curves, the volume described a different coat: a
+                // waved strand sampled it millimetres off its own fibre, and on the
+                // dog's fine, flat face coat the rest bake read paler than the pose
+                // bake at the bind pose itself, with nothing moving. So a coat with
+                // authoring bakes the same walk the draw takes, at the same budget;
+                // one without has nothing to shape and keeps the uniform sample.
+                (void)BuildGroomRestCentrelines(*request.Groom, request.Build, &coat, m_RestCentrelines);
+                segments.clear();
+                segments.reserve(m_RestCentrelines.size());
+                for (const GroomRestCentreline& line : m_RestCentrelines)
+                {
+                    // The walk's radii already carry the coat's width and each
+                    // role's stride compensation; the request's scale is the
+                    // per-groom unit lever, applied once, as the pose bake does.
+                    segments.push_back(GroomCoatShadow::CoatSegment{ line.P0, line.P1, line.Radius0 * request.WidthScale,
+                                                                     line.Radius1 * request.WidthScale });
+                }
+                emitted = static_cast<u32>(segments.size());
             }
             else
             {
@@ -1474,10 +1871,11 @@ namespace OloEngine
             m_Stats.CoatShadow.BakeSegmentMicroseconds += MicrosecondsSince(segmentStart);
 
             u32 occupiedVoxels = 0;
-            if (emitted > 0 && BakeCoatVolume(entry, segments, resolution, deformed, &occupiedVoxels))
+            if (emitted > 0 && BakeCoatVolume(entry, segments, resolution, deformed, &occupiedVoxels, restBody))
             {
                 entry.CoatLodStep = lodStep;
                 entry.CoatWidthScale = request.WidthScale;
+                entry.CoatBakedCoatDigest = deformed ? 0u : request.Build.CoatDigest;
                 entry.CoatMode = request.CoatShadow;
                 if (deformed)
                 {
@@ -1613,11 +2011,18 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        m_Stats.Reset();
-        m_Stats.GroomsSubmitted = static_cast<u32>(m_Requests.Num());
-        // One tick per executed frame, 64-bit and owned by this pass. See
-        // m_CacheTick for why GroomFrameState::FrameIndex cannot serve.
-        ++m_CacheTick;
+        // The frame this Execute draws was STARTED by BeginFrame -- by
+        // RenderPipeline, by the shadow pass's AcquireShadowCaster, or here when
+        // neither ran (a test driving the pass directly). Consumed here, before
+        // any early return, so the next consumer starts the next frame. Resetting
+        // the stats or advancing the tick in here instead would wipe the caster
+        // tallies the shadow pass wrote earlier this frame and hand it last
+        // frame's tick (see BeginFrame).
+        if (!m_FrameBegun)
+        {
+            StartFrame();
+        }
+        m_FrameBegun = false;
 
         if (const auto sceneHandle = GetPrimaryInputFramebufferHandle(); sceneHandle.IsValid())
         {
@@ -1627,18 +2032,17 @@ namespace OloEngine
             }
         }
 
-        if ((m_Requests.Num() == 0) || !m_SceneFramebuffer || !m_Shader || !m_ParamsUBO)
+        if (m_Requests.empty() || !m_SceneFramebuffer || !m_Shader || !m_ParamsUBO)
         {
-            m_Requests.Empty();
-            m_Stats.CachedBytes = m_CacheBytes;
-            m_Stats.CacheBudgetBytes = m_CacheBudgetBytes;
+            m_Requests = {};
+            ReleaseIdleScratch(true);
+            PublishCacheStats();
             // The cache can still be over budget on a frame that draws nothing.
             m_Stats.CacheOverBudgetBytes = m_CacheBytes > m_CacheBudgetBytes ? m_CacheBytes - m_CacheBudgetBytes : 0;
             // Back within budget (a raised budget, an emptied cache) re-arms the
             // warning here too, not only in EvictToBudget.
             if (m_Stats.CacheOverBudgetBytes == 0)
                 (void)m_CacheBudgetWarning.Observe(0);
-            m_Stats.CachedGrooms = static_cast<u32>(m_Cache.size());
             return;
         }
 
@@ -1657,17 +2061,39 @@ namespace OloEngine
             OLO_CORE_ERROR_TAG("Groom",
                                "GroomRenderPass has no coat-shadow placeholder volume or no deformation "
                                "placeholder buffer; skipping the strand draws rather than binding a null resource.");
-            m_Requests.Empty();
-            m_Stats.CachedBytes = m_CacheBytes;
-            m_Stats.CacheBudgetBytes = m_CacheBudgetBytes;
+            m_Requests = {};
+            ReleaseIdleScratch(true);
+            PublishCacheStats();
             // The cache can still be over budget on a frame that draws nothing.
             m_Stats.CacheOverBudgetBytes = m_CacheBytes > m_CacheBudgetBytes ? m_CacheBytes - m_CacheBudgetBytes : 0;
             // Back within budget (a raised budget, an emptied cache) re-arms the
             // warning here too, not only in EvictToBudget.
             if (m_Stats.CacheOverBudgetBytes == 0)
                 (void)m_CacheBudgetWarning.Observe(0);
-            m_Stats.CachedGrooms = static_cast<u32>(m_Cache.size());
             return;
+        }
+
+        // THE ROOT FRAMES ARE DISPATCHED BEFORE ANYTHING IS BOUND (#1533 E1). A
+        // GPU-rooted coat's upload ends in GroomRootFrames.comp, which binds its
+        // own program, parameters and buffer -- and on Vulkan a dispatch ends
+        // the rendering scope. Reached from the draw loop below, it left the
+        // strand draw with the compute program bound and drew no coat at all.
+        // The shadow pass usually acquires a coat first, which hid it: the coat
+        // that vanished was the one that casts no shadow. Acquired here, the
+        // loop's own acquire finds this frame's upload and only draws.
+        auto& gpuSubTimers = GPUPassTimerPool::GetInstance();
+        if (m_GpuDeformation)
+        {
+            gpuSubTimers.BeginSubPass("RootFrames");
+            for (const auto& request : m_Requests)
+            {
+                if (request.Groom && request.GpuRootFrames && request.BindingReject == GroomBindingRejectReason::None &&
+                    IsDeformed(request))
+                {
+                    (void)AcquireGpuDeformedGeometry(request, CacheKey(request, true));
+                }
+            }
+            gpuSubTimers.EndSubPass();
         }
 
         m_SceneFramebuffer->Bind();
@@ -1714,6 +2140,40 @@ namespace OloEngine
         // graph-owned, so its heap offset is worth memoising.
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_USER_0, Renderer3D::GetGlobalIrradianceMapHandle(),
                                         RHI::HeapSlotLifetime::Persistent, {}, RHI::NullSamplerKind::Cube);
+
+        // The frame's shadow inputs (#1323) -- the CSM array, the local-light
+        // atlas, their comparison-off raw views and the Virtual Shadow Map's
+        // sampling publish -- through the ONE function the queued PBR draws use,
+        // because every site that stages a shadow-map offset has to agree about
+        // the sampler state and the typed null kind or whichever pass ran last
+        // silently wins (issue #691). BindForSampling inside it is equally
+        // load-bearing: VirtualShadowResources.glsl is a shared header the
+        // strand shader includes, so its buffers must have an occupant even with
+        // VSM off, or the RHI substitutes a null block and logs per shader.
+        //
+        // UNCONDITIONAL, not gated on a groom asking to receive: it publishes
+        // into the same heap-offset table the flush below drains, and the
+        // shader's declarations are unconditional either way. The routing lane
+        // (u_GroomCoatModes.y), not the binding, decides whether any of it is
+        // sampled.
+        CommandDispatch::BindSceneShadowTextures();
+
+        // THE OPAQUE COPIES (#1533): the cascades and the local-light atlas as
+        // they stood before any groom cast into them, which ShadowRenderPass
+        // copied into the upper layers of the same arrays this frame
+        // (ShadowMap::OPAQUE_CSM_LAYER_BASE). A strand samples them WHERE IT IS,
+        // so the body it grows on and every other opaque caster shadow it, and
+        // the fur -- which the density volume already counts -- is not in them;
+        // the full maps in the lower layers stay bound beside them for another
+        // groom's fur, sampled at the coat's light-exit point.
+        ShadowMap& shadowMap = Renderer3D::GetShadowMap();
+        const bool opaqueCascades = shadowMap.IsOpaqueCopyWritten(ShadowMap::OpaqueCopy::Cascades);
+        const bool opaqueAtlas = shadowMap.IsOpaqueCopyWritten(ShadowMap::OpaqueCopy::Atlas);
+        // How many coats cast into the maps this frame: a receiver looks for
+        // another's fur only when there is one (#1533).
+        const auto castingGrooms = static_cast<u32>(std::ranges::count_if(
+            m_Requests, [](const GroomStrandRequest& request)
+            { return request.CastsSceneShadow; }));
         context.FlushHeapOffsets();
 
         // Camera-relative rendering (#429). Every world matrix the GPU sees is
@@ -1758,8 +2218,16 @@ namespace OloEngine
             if (IsDeformed(request))
             {
                 ++m_Stats.GroomsDeformed;
-                m_Stats.RootsDeformed += request.DeformationStats.RootsDeformed;
-                m_Stats.RootsHeldAtRest += request.DeformationStats.RootsHeldDegenerate;
+                m_Stats.CurveSelectMicroseconds += request.CurveSelectMicroseconds;
+                m_Stats.RootEvaluateMicroseconds += request.RootEvaluateMicroseconds;
+                // A coat whose roots the producer left to the pass is counted
+                // where the pass evaluates them (UploadDeformation): the
+                // producer's own counts cover only the simulation's guides.
+                if (!request.GpuRootFrames)
+                {
+                    m_Stats.RootsDeformed += request.DeformationStats.RootsDeformed;
+                    m_Stats.RootsHeldAtRest += request.DeformationStats.RootsHeldDegenerate;
+                }
                 if (!request.DeformationStats.HasHistory)
                 {
                     ++m_Stats.GroomsHistoryRejected;
@@ -1778,7 +2246,9 @@ namespace OloEngine
                 m_Stats.GuidePointsSimulated += simulation.PointsSimulated;
                 m_Stats.SimulationContacts += simulation.ContactsResolved;
                 m_Stats.GuidesWithHeldRoots += simulation.GuidesWithHeldRoots;
+                m_Stats.GuidesStiffnessCapped += simulation.GuidesStiffnessCapped;
                 m_Stats.SimulationSteps += simulation.StepsTaken;
+                m_Stats.SimulationMicroseconds += simulation.SolveMicroseconds;
                 m_Stats.SimulationStepsClamped =
                     m_Stats.SimulationStepsClamped || simulation.StepsClamped;
                 if (simulation.Reseeded)
@@ -1804,6 +2274,10 @@ namespace OloEngine
             {
                 continue;
             }
+            if (entry->GpuDeformed)
+            {
+                ++m_Stats.GroomsGpuDeformed;
+            }
 
             // Coat self-shadowing (#1248). The bake, the shadow LOD and the
             // decision all happen here because this is the only place that
@@ -1814,12 +2288,17 @@ namespace OloEngine
             // shadow the pass can make: on the GPU path it is a CPU evaluation
             // of every drawn segment (#1427), which a coat with no self-shadow
             // has no use for.
-            const bool wantsPose = IsDeformed(request) && request.CoatShadow != GroomCoatShadowTechnique::None &&
+            // BAKED AT REST (#1533): only the GPU-deformed stream carries each
+            // vertex's bind point, so only its draw can look a rest volume up;
+            // every other deformed coat keeps the pose bake, and its CPU pose.
+            const bool bakeAtRest = request.CoatBakeAtRest && entry->GpuDeformed;
+            const bool wantsPose = !bakeAtRest && IsDeformed(request) &&
+                                   request.CoatShadow != GroomCoatShadowTechnique::None &&
                                    GroomCoatShadowModeIsImplemented(request.CoatShadow);
             const std::span<const GroomCoatShadow::CoatSegment> drawnPose =
                 wantsPose ? AcquireDrawnPose(request, *entry) : std::span<const GroomCoatShadow::CoatSegment>{};
             const GroomCoatShadowDecision coatDecision =
-                AcquireCoatVolume(request, *entry, residentCoatVolumes, drawnPose);
+                AcquireCoatVolume(request, *entry, residentCoatVolumes, drawnPose, bakeAtRest);
             m_Stats.CoatShadow.Record(coatDecision);
             // From whatever applied the guides, not from the request: the
             // interpolation happens in BuildGroomStrandMesh on the CPU path and
@@ -1847,6 +2326,11 @@ namespace OloEngine
                 m_Stats.CoatShadow.MaxAgeFrames = std::max(
                     m_Stats.CoatShadow.MaxAgeFrames, static_cast<u32>(m_CacheTick - entry->CoatBuiltTick));
                 m_Stats.CoatShadow.MaxDriftVoxels = std::max(m_Stats.CoatShadow.MaxDriftVoxels, entry->CoatDriftVoxels);
+                if (bakeAtRest)
+                {
+                    m_Stats.CoatShadow.BodyVoxelsInForce = std::max(m_Stats.CoatShadow.BodyVoxelsInForce,
+                                                                    entry->CoatBodyVoxels);
+                }
             }
 
             // ALWAYS A REAL 3D TEXTURE, never a null handle. The shader
@@ -1868,6 +2352,13 @@ namespace OloEngine
             context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GROOM_COAT_VOLUME,
                                             coatActive ? entry->CoatVolume->GetRHIHandle()
                                                        : m_CoatPlaceholder->GetRHIHandle(),
+                                            RHI::HeapSlotLifetime::Persistent);
+            // The body (#1533), under the same precondition: its placeholder
+            // -- no body, open sky -- stands in whenever this draw's volume
+            // holds none.
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GROOM_COAT_BODY,
+                                            coatActive && entry->CoatBody ? entry->CoatBody->GetRHIHandle()
+                                                                          : m_CoatBodyPlaceholder->GetRHIHandle(),
                                             RHI::HeapSlotLifetime::Persistent);
             context.FlushHeapOffsets();
 
@@ -1967,14 +2458,54 @@ namespace OloEngine
                                              request.Fibre.Sin2kAlpha[2], 0.0f);
             params.FibreCosAlpha = glm::vec4(request.Fibre.Cos2kAlpha[0], request.Fibre.Cos2kAlpha[1],
                                              request.Fibre.Cos2kAlpha[2], 0.0f);
+            // .w: the cost matrix's DIAGNOSTIC substitutions (#1533), zero in
+            // every shipped frame -- 1 skips the coat march, 2 a constant fibre.
+            const i32 substitutions = (Levers::GroomNoCoatMarch() ? 1 : 0) | (Levers::GroomConstantFibre() ? 2 : 0);
             params.FibreModes = glm::ivec4(request.Lit ? 1 : 0, static_cast<i32>(request.Fibre.HSamples),
-                                           static_cast<i32>(request.FibreDebug), 0);
+                                           static_cast<i32>(request.FibreDebug), substitutions);
 
-            // The coat lanes. They stay at their INACTIVE defaults unless this
-            // draw actually has a built, bound volume -- the structural
-            // fallback technique-selection-seams.md asks for, rather than a
-            // flag someone has to remember to reset on each early return.
-            if (coatActive)
+            // THE RECEIVE LANE GOES UP ON EVERY DRAW (#1323), outside the block
+            // below: whether this coat samples the scene's shadow is a different
+            // question from whether it has a density volume.
+            // A BITFIELD (#1533): 1 receives, 2 the cascades bound are the
+            // OPAQUE copy, 4 the atlas bound is. Where a bit is set the strand
+            // samples that map at itself; a map without its bit (VSM, or a copy
+            // that could not be made) keeps the light-exit receiver.
+            // 8: another coat casts this frame, so the full map past this coat's
+            // light-exit point may hold its fur (#1533).
+            const bool otherFur =
+                !Levers::FaultGroomNoOtherFur() && castingGrooms > (request.CastsSceneShadow ? 1u : 0u);
+            params.CoatModes.y = !request.ReceivesSceneShadow
+                                     ? 0
+                                     : (1 | (opaqueCascades ? 2 : 0) | (opaqueAtlas ? 4 : 0) | (otherFur ? 8 : 0));
+            if (request.ReceivesSceneShadow)
+            {
+                m_Stats.GroomsShadowedByOpaqueCascades += opaqueCascades ? 1u : 0u;
+                m_Stats.GroomsShadowedByOpaqueAtlas += opaqueAtlas ? 1u : 0u;
+            }
+
+            // The coat's OBJECT BOX serves two independent consumers, so it is
+            // filled when EITHER wants it:
+            //
+            //   * the density march (#1248), gated by CoatModes.x, which needs a
+            //     built and bound volume; and
+            //   * the receiver OFFSET (#1323), gated by CoatModes.z, which needs
+            //     only that this groom is a CASTER.
+            //
+            // THE SECOND GATE IS CASTING AND NOT THE VOLUME, and #1380 measured
+            // it: with the offset tied to the volume, a caster with no volume kept
+            // the fragment as its receiver and the evidence coat fell from 44.98
+            // mean luma to 0.22. A shadow map is a BINARY visibility test and a
+            // coat is not binary, so every strand behind the outermost widened
+            // ribbon read as fully shadowed -- the black coat
+            // groom-coat-self-shadowing.md rule 10 forbids.
+            //
+            // Everything else stays at its INACTIVE default when neither consumer
+            // wants it -- the structural fallback technique-selection-seams.md
+            // asks for, rather than a flag someone has to remember to reset on
+            // each early return.
+            const bool wantsObjectBox = coatActive || request.CastsSceneShadow;
+            if (wantsObjectBox)
             {
                 // RIGID world -> object. Built from the RENDER-RELATIVE model
                 // matrix, because v_WorldPos in the shader is render-relative
@@ -2012,16 +2543,56 @@ namespace OloEngine
                     worldToObject[2] = glm::vec4(scaled[2], 0.0f);
                     worldToObject[3] = glm::vec4(-(scaled * translation), 1.0f);
 
-                    const glm::vec3 extent = entry->CoatBoundsMax - entry->CoatBoundsMin;
-                    if (extent.x > 0.0f && extent.y > 0.0f && extent.z > 0.0f)
+                    // THE VOLUME'S BOX WHEN THERE IS ONE, the coat's posed box
+                    // otherwise. Both are in the same object space and both bound
+                    // the same coat; the volume's is the one the march indexes, so
+                    // it has to win wherever a march is happening. The posed box
+                    // is the coat in THIS pose -- for a GPU-deformed coat it is
+                    // derived from the posed roots, because the stream's own
+                    // bounds are bind-local and describe no pose at all.
+                    glm::vec3 boundsMin = entry->CoatBoundsMin;
+                    glm::vec3 boundsMax = entry->CoatBoundsMax;
+                    const bool haveBox = coatActive || PosedObjectBounds(request, *entry, boundsMin, boundsMax);
+                    const glm::vec3 extent = boundsMax - boundsMin;
+                    if (haveBox && extent.x > 0.0f && extent.y > 0.0f && extent.z > 0.0f)
                     {
                         const f32 voxelLength = entry->CoatVoxelSize;
 
                         params.CoatWorldToObject = worldToObject;
-                        params.CoatBoundsMin = glm::vec4(entry->CoatBoundsMin, request.CoatKappa);
+                        params.CoatBoundsMin = glm::vec4(boundsMin, request.CoatKappa);
                         params.CoatInvExtent =
                             glm::vec4(1.0f / extent, voxelLength * request.CoatStepVoxels);
-                        params.CoatModes = glm::ivec4(static_cast<i32>(coatDecision.Effective), 0, 0, 0);
+                        // The box is usable, so the receiver may be offset by it.
+                        // Written from the SUCCESS path, like every other lane
+                        // here: a box that failed to resolve leaves this zero and
+                        // the receiver stays at the fragment.
+                        params.CoatModes.z = request.CastsSceneShadow ? 1 : 0;
+                        // .x ONLY, and only with a volume: .y and .z are the
+                        // scene-shadow lanes, and a whole-vector assign here would
+                        // silently clear them.
+                        if (coatActive)
+                        {
+                            params.CoatModes.x = static_cast<i32>(coatDecision.Effective);
+                            // The volume is the coat AT REST: march it from each
+                            // fragment's bind point (#1533, see the shader). Bit 2:
+                            // it holds the body too, which the shader counts for
+                            // every light no map answers for at the strand
+                            // (OLO_GROOM_NO_COAT_BODY leaves it out, the A/B).
+                            const bool holdsBody =
+                                bakeAtRest && entry->CoatBodyVoxels > 0u && !Levers::GroomNoCoatBody();
+                            params.CoatModes.w = (bakeAtRest ? 1 : 0) | (holdsBody ? 2 : 0);
+                            // Dual scattering counts the neighbours through the
+                            // volume, so it switches on here and nowhere else:
+                            // the density factors are the only lanes the
+                            // shader tests (#1533).
+                            if (request.CoatMultipleScattering)
+                            {
+                                const GroomFibreDualScattering& dual = request.Fibre.Dual;
+                                params.FibreForwardScatter = glm::vec4(dual.ForwardScatter, kGroomCoatDensityFactor);
+                                params.FibreBackScatter = glm::vec4(dual.MultipleBackScatter, kGroomCoatDensityFactor);
+                                params.FibreBackLobe = glm::vec4(dual.BackShift, dual.BackWidth, 0.0f, 0.0f);
+                            }
+                        }
                     }
                 }
             }
@@ -2077,11 +2648,44 @@ namespace OloEngine
                 m_DeformPlaceholder->Bind();
             }
 
+            entry->Array->Bind();
+
+            // THE DEPTH PREPASS (#1533 E1): coverage and depth first, colour
+            // writes off, then the shading draw at depth EQUAL with depth
+            // writes off -- one shaded fragment per covered pixel instead of
+            // one per overlapping strand. The same program in both draws (see
+            // the shader), so the two depths are the same numbers. Upload,
+            // then bind, before EACH draw: the lane differs and the Vulkan
+            // UBO is arena-versioned (see above).
+            //
+            // OLO_GROOM_NO_DEPTH_PREPASS draws the shading pass alone at LESS
+            // with depth writes on: the same fragments win, so it is the A/B
+            // for whether the prepass pays for its second raster.
+            const bool depthPrepass = !Levers::GroomNoDepthPrepass();
+            if (depthPrepass)
+            {
+                params.ModeFrame.w = 1;
+                m_ParamsUBO->SetData(&params, UBOStructures::GroomStrandParamsUBO::GetSize());
+                m_ParamsUBO->Bind();
+                RenderCommand::SetColorMask(false, false, false, false);
+                RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+                context.SetDepthMask(true);
+                // Timed apart (olo_perf_pass_timings sub-passes): what the
+                // strands cost to rasterise, and what they cost to shade.
+                gpuSubTimers.BeginSubPass("StrandPrepass");
+                context.DrawIndexed(entry->Array, entry->Stats.IndexCount);
+                gpuSubTimers.EndSubPass();
+            }
+
+            params.ModeFrame.w = 0;
             m_ParamsUBO->SetData(&params, UBOStructures::GroomStrandParamsUBO::GetSize());
             m_ParamsUBO->Bind();
-
-            entry->Array->Bind();
+            RenderCommand::SetColorMask(true, true, true, true);
+            RenderCommand::SetDepthFunc(depthPrepass ? RHI::CompareOp::Equal : RHI::CompareOp::Less);
+            context.SetDepthMask(!depthPrepass);
+            gpuSubTimers.BeginSubPass("StrandShade");
             context.DrawIndexed(entry->Array, entry->Stats.IndexCount);
+            gpuSubTimers.EndSubPass();
 
             ++m_Stats.GroomsDrawn;
             m_Stats.StrandsDrawn += entry->Stats.StrandsSelected;
@@ -2092,8 +2696,12 @@ namespace OloEngine
         // Leave the state as the next pass expects to find it. The depth func
         // is reset for the same reason FoliageRenderPass resets it: a pass
         // that leaves a non-default compare behind breaks a later one in a way
-        // that looks like the later one's bug.
+        // that looks like the later one's bug. The depth MASK too: the shading
+        // draws above end with depth writes off, and a later geometry pass
+        // that inherits that renders with no depth (see
+        // PreparedFullscreenPass).
         RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+        context.SetDepthMask(true);
         CommandDispatch::InvalidateRenderStateCache();
         // This pass bound TEX_USER_0 through the RGCommandContext seam, which
         // does not go through the dispatcher's redundant-bind cache — so that
@@ -2121,15 +2729,7 @@ namespace OloEngine
             }
         }
 
-        // The drawn-pose scratch keeps the capacity of the largest bound groom
-        // it has served, 256 bytes a segment. Given back on a frame with no
-        // bound groom, so a hero coat that left the scene does not pin its
-        // stream for the rest of the session outside every budget.
-        if (m_Stats.GroomsDeformed == 0)
-        {
-            std::vector<GroomStrandVertex>().swap(m_DeformedVertices);
-            std::vector<GroomCoatShadow::CoatSegment>().swap(m_DrawnPose);
-        }
+        ReleaseIdleScratch(m_Stats.GroomsDeformed == 0);
 
         // The bald case has its own latch and its own count (#1429), not the
         // dominant reason's: a groom that lost its resolve must be reported
@@ -2154,14 +2754,345 @@ namespace OloEngine
             }
         }
 
+        // ONE LINE, ON A CHANGE, for the casting half of #1323 -- written by
+        // ShadowRenderPass earlier in this frame into m_Stats.SceneShadow. The
+        // same discipline as the composition fallback above: the same numbers
+        // every frame are a log flood, and the thing worth knowing is that the
+        // answer moved. What makes it worth logging at all is that a caster
+        // family reaches a technique only if somebody wired it there and
+        // NOTHING else detects the gap -- so a zero in one of the three technique
+        // counters, beside a non-zero GroomsCasting, is the detector, and it has
+        // to be readable without the inspector.
+        const GroomShadowCasterStats& shadowStats = m_Stats.SceneShadow;
+        const bool tallyMoved =
+            shadowStats.GroomsAskedToCast != m_LastReportedShadowStats.GroomsAskedToCast ||
+            shadowStats.GroomsCasting != m_LastReportedShadowStats.GroomsCasting ||
+            shadowStats.GroomsWithoutGeometry != m_LastReportedShadowStats.GroomsWithoutGeometry ||
+            (shadowStats.CascadeDraws > 0u) != (m_LastReportedShadowStats.CascadeDraws > 0u) ||
+            (shadowStats.AtlasDraws > 0u) != (m_LastReportedShadowStats.AtlasDraws > 0u) ||
+            (shadowStats.VirtualShadowLevelDraws > 0u) != (m_LastReportedShadowStats.VirtualShadowLevelDraws > 0u) ||
+            shadowStats.VirtualShadowMapActive != m_LastReportedShadowStats.VirtualShadowMapActive;
+        if (tallyMoved)
+        {
+            m_LastReportedShadowStats = shadowStats;
+            if (shadowStats.GroomsAskedToCast > 0u)
+            {
+                OLO_CORE_INFO("GroomRenderPass: {} of {} groom(s) casting ({} had no geometry) — draws: {} cascade, "
+                              "{} virtual-shadow level, {} atlas, casting {} of {} segments; the frame's directional "
+                              "technique is {}",
+                              shadowStats.GroomsCasting, shadowStats.GroomsAskedToCast,
+                              shadowStats.GroomsWithoutGeometry, shadowStats.CascadeDraws,
+                              shadowStats.VirtualShadowLevelDraws, shadowStats.AtlasDraws, shadowStats.SegmentsCast,
+                              shadowStats.SegmentsWhole,
+                              shadowStats.VirtualShadowMapActive ? "the Virtual Shadow Map" : "the CSM cascades");
+            }
+        }
+
         EvictToBudget();
-        m_Stats.CachedBytes = m_CacheBytes;
-        m_Stats.CacheBudgetBytes = m_CacheBudgetBytes;
-        m_Stats.CachedGrooms = static_cast<u32>(m_Cache.size());
+        PublishCacheStats();
 
         // Requests are per-frame; holding them would draw last frame's grooms
         // on a frame that published none.
-        m_Requests.Empty();
+        m_Requests = {};
+    }
+
+    void GroomRenderPass::BeginFrame()
+    {
+        // A RENDER WITH NO REQUESTS STARTS NO FRAME, exactly as when Execute owned
+        // the reset and the tick: such a render culls this node and nothing
+        // acquires from the cache, so the stats keep describing the last render
+        // that drew grooms (the inspector's readout) and entries do not age.
+        // Resetting unconditionally would blank every groom readout whenever a
+        // second camera (a thumbnail, a game view) renders without grooms.
+        if (m_Requests.empty())
+        {
+            return;
+        }
+        StartFrame();
+    }
+
+    void GroomRenderPass::StartFrame()
+    {
+        m_Stats.Reset();
+        m_Stats.GroomsSubmitted = static_cast<u32>(m_Requests.size());
+        // One tick per frame, 64-bit and owned by this pass. See m_CacheTick
+        // for why GroomFrameState::FrameIndex cannot serve.
+        ++m_CacheTick;
+        m_FrameBegun = true;
+    }
+
+    void GroomRenderPass::ReleaseIdleScratch(bool noDeformedGroom)
+    {
+        // The drawn-pose scratch keeps the capacity of the largest bound groom
+        // it has served, 256 bytes a segment. Given back on a frame with no
+        // bound groom, so a hero coat that left the scene does not pin its
+        // stream for the rest of the session outside every budget -- and, like
+        // the bake scratch, once it has idled kScratchIdleFrames frames (#1533):
+        // a coat baked once, at rest, otherwise kept its bake's peak (the
+        // walk's centrelines, the binned volume, its packed texels) for good.
+        const auto idle = [this](u64 lastUsed)
+        { return m_CacheTick > lastUsed + kScratchIdleFrames; };
+        if (noDeformedGroom || idle(m_PoseScratchUsedTick))
+        {
+            std::vector<GroomStrandVertex>().swap(m_DeformedVertices);
+            std::vector<GroomCoatShadow::CoatSegment>().swap(m_DrawnPose);
+            std::vector<GroomCoatShadow::CoatSegment>().swap(m_DrawnPoseFull);
+            m_CpuRootScratch.Reset();
+        }
+        if (idle(m_BakeScratchUsedTick))
+        {
+            std::vector<GroomCoatShadow::CoatSegment>().swap(m_CoatSegments);
+            std::vector<GroomRestCentreline>().swap(m_RestCentrelines);
+            std::vector<f32>().swap(m_CoatVolumeScratch.Density);
+            std::vector<glm::vec3>().swap(m_CoatVolumeScratch.Direction);
+            std::vector<glm::u8vec4>().swap(m_CoatVolumeScratch.Body);
+            std::vector<u16>().swap(m_CoatPackHalf);
+            std::vector<f32>().swap(m_CoatPackFloat);
+        }
+    }
+
+    void GroomRenderPass::PublishCacheStats()
+    {
+        m_Stats.CachedBytes = m_CacheBytes;
+        m_Stats.CacheBudgetBytes = m_CacheBudgetBytes;
+        m_Stats.CachedGrooms = static_cast<u32>(m_Cache.size());
+        m_Stats.Memory = CollectMemoryBreakdown();
+    }
+
+    GroomRenderStats::MemoryBreakdown GroomRenderPass::CollectMemoryBreakdown() const
+    {
+        // WALKED, not kept as five more running totals beside m_CacheBytes: the
+        // walk visits each allocation's owner once, so its sum can be held to
+        // the budget's aggregate, and a counter forgotten on one release path
+        // cannot drift. A few entries a frame.
+        GroomRenderStats::MemoryBreakdown memory;
+        const auto capacityBytes = [](const auto& vector)
+        { return static_cast<u64>(vector.capacity()) * sizeof(typename std::decay_t<decltype(vector)>::value_type); };
+        // A shared rest stream is counted where m_CacheBytes counts it: once,
+        // while the map holds it, however many entities draw it.
+        for (const auto& [key, stream] : m_RestStreams)
+        {
+            if (!stream)
+            {
+                continue;
+            }
+            ++memory.RestStreams;
+            memory.StrandVertexBytes += stream->Stats.VertexBytes;
+            memory.StrandIndexBytes += stream->Stats.IndexBytes;
+            memory.CasterIndexBytes += stream->Caster.Bytes;
+            memory.CpuPoseSegmentBytes += capacityBytes(stream->PoseSegments);
+            memory.CpuRootTableBytes += capacityBytes(stream->RootCurves) + capacityBytes(stream->Caster.StrandOrder) +
+                                        capacityBytes(stream->Caster.StrandBoxes) + stream->Caster.Pose.CpuBytes();
+        }
+        for (const auto& [key, entry] : m_Cache)
+        {
+            ++memory.Entries;
+            // A GPU-deformed entry draws its rest stream, counted above; only
+            // its frame buffer is its own. Every other entry owns its stream.
+            if (!entry.GpuDeformed)
+            {
+                memory.StrandVertexBytes += entry.Stats.VertexBytes;
+                memory.StrandIndexBytes += entry.Stats.IndexBytes;
+                memory.CasterIndexBytes += entry.Caster.Bytes;
+                memory.CpuRootTableBytes += capacityBytes(entry.Caster.StrandOrder) + capacityBytes(entry.Caster.StrandBoxes) +
+                                            entry.Caster.Pose.CpuBytes();
+            }
+            memory.CpuRootTableBytes += entry.SkinnedCasterPose.CpuBytes() + capacityBytes(entry.PosedRuns);
+            memory.DeformBufferBytes += entry.DeformGpu ? static_cast<u64>(entry.DeformGpu->GetSize()) : 0u;
+            memory.CoatVolumeBytes += entry.CoatBytes;
+            memory.CpuDeformMirrorBytes += entry.DeformCpu.GetCpuBytes();
+            memory.CpuPoseSegmentBytes += capacityBytes(entry.CoatPoseSubset);
+            memory.CpuBakeInputBytes += capacityBytes(entry.CoatBakedPose) + capacityBytes(entry.CoatFibreScales);
+        }
+        for (const CardFibreTable& table : m_CardFibreTables)
+        {
+            memory.CpuBakeInputBytes += capacityBytes(table.ByGroup);
+        }
+        memory.CpuScratchBytes = capacityBytes(m_DeformedVertices) + capacityBytes(m_DrawnPose) +
+                                 capacityBytes(m_DrawnPoseFull) + capacityBytes(m_CoatSegments) +
+                                 capacityBytes(m_RestCentrelines) + capacityBytes(m_CoatVolumeScratch.Density) +
+                                 capacityBytes(m_CoatVolumeScratch.Direction) +
+                                 capacityBytes(m_CoatVolumeScratch.Body) + capacityBytes(m_CoatPackHalf) +
+                                 capacityBytes(m_CoatPackFloat) + static_cast<u64>(m_CpuRootScratch.GetAllocatedSize());
+        return memory;
+    }
+
+    bool GroomRenderPass::PosedObjectBounds(const GroomStrandRequest& request, const CacheEntry& entry,
+                                            glm::vec3& outMin, glm::vec3& outMax) const
+    {
+        if (entry.GpuDeformed && entry.Rest)
+        {
+            // THE POSED ROOTS, padded by the farthest a drawn point sits from its
+            // own root. The stream's own bounds are bind-local -- every strand
+            // measured in its own root's frame -- so they describe no pose, and
+            // a cull box or a receiver offset built from them is wrong for any
+            // pose but the one where every root frame is the identity.
+            glm::vec3 lo(std::numeric_limits<f32>::max());
+            glm::vec3 hi(std::numeric_limits<f32>::lowest());
+            bool any = false;
+            if (entry.DeformCpu.GetLayout().RootsOnGpu() && request.GpuRootFrames)
+            {
+                // The kernel evaluates the drawn roots, so the CPU holds only
+                // the simulation's guides -- none at all on a coat that is not
+                // simulated, which then cast no shadow. The skeleton bounds them
+                // instead (#1533 E1).
+                any = PoseGroomRootBoneBounds(entry.RootBoneBounds, request.GpuRootInputs.Skinning.Palette,
+                                              request.GpuRootInputs.SurfaceToGroom, lo, hi);
+            }
+            else
+            {
+                for (const GroomRootTransform& root : request.RootTransforms)
+                {
+                    if (!root.Valid)
+                    {
+                        continue;
+                    }
+                    lo = glm::min(lo, root.Origin);
+                    hi = glm::max(hi, root.Origin);
+                    any = true;
+                }
+            }
+            if (!any)
+            {
+                return false;
+            }
+            // A SIMULATED coat's strands also carry guide displacements, and a
+            // length-preserving guide pinned at its root cannot take a point
+            // further than twice its own length from where it rests -- the
+            // strand swung through to the opposite side. Padding by that bound
+            // keeps the box conservative for a cull, which is all it is for.
+            const bool simulated = request.Simulation().IsUsable(request.Groom ? request.Groom->GetCurveCount() : 0u);
+            const f32 reach = entry.Rest->MaxReach * (simulated ? 3.0f : 1.0f) +
+                              entry.Rest->MaxRadius * std::max(request.WidthScale, 0.0f);
+            if (!std::isfinite(reach))
+            {
+                return false;
+            }
+            outMin = lo - glm::vec3(reach);
+            outMax = hi + glm::vec3(reach);
+            return true;
+        }
+        if (!entry.Stats.BoundsValid)
+        {
+            return false;
+        }
+        // An unbound coat's build bounds, or the CPU-deformed reference path's,
+        // whose stream IS the posed coat. Either way the box already includes
+        // each strand's radius (BuildGroomStrandMesh expands by it).
+        outMin = entry.Stats.BoundsMin;
+        outMax = entry.Stats.BoundsMax;
+        return true;
+    }
+
+    GroomRenderPass::GroomCasterStream GroomRenderPass::BuildCasterStream(const Ref<VertexBuffer>& vertexBuffer,
+                                                                          std::span<const GroomStrandVertex> vertices,
+                                                                          std::span<const u32> indices,
+                                                                          std::span<const u32> strandFirstIndex,
+                                                                          std::span<const GroomCasterStrand> strands)
+    {
+        GroomCasterStream caster;
+        std::vector<u32> strandOrder;
+        GroomCasterOrder order = BuildGroomCasterOrder(vertices, indices, strandFirstIndex, strands, &strandOrder);
+        if (!vertexBuffer || order.Indices.size() != indices.size() || order.Runs.empty())
+        {
+            return caster;
+        }
+        // What a bound coat's runs are re-posed from (#1533); kept only where it
+        // describes them.
+        caster.Pose = BuildGroomCasterPose(order.Runs, strandOrder, strands);
+        if (caster.Pose.IsUsable())
+        {
+            caster.StrandOrder = std::move(strandOrder);
+            caster.StrandBoxes = CollectGroomCasterStrandBoxes(strands);
+        }
+        caster.Indices = IndexBuffer::Create(order.Indices.data(), static_cast<u32>(order.Indices.size()));
+        caster.Array = VertexArray::Create();
+        caster.Array->AddVertexBuffer(vertexBuffer);
+        caster.Array->SetIndexBuffer(caster.Indices);
+        caster.Runs = std::move(order.Runs);
+        caster.MeanRadius = order.MeanRadius;
+        caster.Bytes = static_cast<u64>(order.Indices.size()) * sizeof(u32);
+        return caster;
+    }
+
+    bool GroomRenderPass::AcquireShadowCaster(const GroomStrandRequest& request, ShadowCasterGeometry& out)
+    {
+        out = ShadowCasterGeometry{};
+        if (!request.Groom)
+        {
+            return false;
+        }
+        // The shadow pass runs BEFORE Execute, so it is usually the first
+        // consumer of the frame; a pipeline that did not call BeginFrame still
+        // gets a fresh tick here rather than last frame's.
+        if (!m_FrameBegun)
+        {
+            StartFrame();
+        }
+
+        CacheEntry* entry = AcquireGeometry(request);
+        if (entry == nullptr || !entry->Array || entry->Stats.IndexCount == 0u)
+        {
+            return false;
+        }
+
+        // THE CASTER'S ORDER when the stream has one (#1533) -- the same
+        // vertices and the same indices, regrouped run by run so a view can
+        // cast a prefix of each. A GPU-deformed entry draws its shared rest
+        // stream, so it casts that stream's order. Runs that do not end where
+        // the stream does describe some other stream, and are not trusted.
+        const GroomCasterStream& caster = (entry->GpuDeformed && entry->Rest) ? entry->Rest->Caster : entry->Caster;
+        const bool runsCoverStream =
+            !caster.Runs.empty() && caster.Runs.back().FirstIndex + caster.Runs.back().Prefix[kGroomCasterPrefixLevels] ==
+                                        entry->Stats.IndexCount;
+        if (caster.Array && runsCoverStream)
+        {
+            out.Vao = caster.Array->GetRHIHandle();
+            out.CasterRuns = caster.Runs;
+            // A bound coat's runs in this frame's pose, posed where the root
+            // data was (AcquireGpuDeformedGeometry, PoseCpuCasterRuns); without
+            // them it is cast from its rest runs, and counted.
+            if (IsDeformed(request))
+            {
+                if (entry->PosedRunsTick == m_CacheTick && entry->PosedRuns.size() == caster.Runs.size())
+                {
+                    out.CasterRuns = entry->PosedRuns;
+                    ++m_Stats.CastersPosed;
+                }
+                else
+                {
+                    ++m_Stats.CastersAtRest;
+                }
+            }
+        }
+        else
+        {
+            out.Vao = entry->Array->GetRHIHandle();
+        }
+        out.IndexCount = entry->Stats.IndexCount;
+        out.BoundsValid = PosedObjectBounds(request, *entry, out.BoundsMin, out.BoundsMax);
+
+        // THE SAME LANES THE STRAND DRAW UPLOADS, from the same entry, so the
+        // shadow is cast by the coat the camera sees. Mode 1 only with both the
+        // rest stream and this frame's buffer in hand; everything else is a
+        // final stream at mode 0 over the zeroed placeholder, which is the
+        // structural default the strand draw uses too.
+        if (entry->GpuDeformed && entry->DeformGpu)
+        {
+            const GroomDeformBufferLayout& layout = entry->DeformCpu.GetLayout();
+            const GroomDeformFrameStats& frame = entry->DeformCpu.GetFrameStats();
+            out.DeformBuffer = entry->DeformGpu.Raw();
+            out.DeformModes = glm::ivec4(1, frame.Simulated ? 1 : 0, static_cast<i32>(layout.RootCount),
+                                         static_cast<i32>(layout.SlotCount));
+            out.DeformBases = glm::ivec4(static_cast<i32>(layout.RootBase), static_cast<i32>(layout.SlotBase),
+                                         static_cast<i32>(layout.DisplacementBase),
+                                         static_cast<i32>(frame.DisplacementCount));
+        }
+        else
+        {
+            out.DeformBuffer = m_DeformPlaceholder.Raw();
+        }
+        return true;
     }
 
     Ref<Framebuffer> GroomRenderPass::GetTarget() const
@@ -2192,8 +3123,10 @@ namespace OloEngine
         std::vector<GroomStrandVertex>().swap(m_DeformedVertices);
         std::vector<GroomCoatShadow::CoatSegment>().swap(m_DrawnPose);
         m_CacheTick = 0;
-        m_Requests.Empty();
+        m_FrameBegun = false;
+        m_Requests = {};
         m_SceneFramebuffer = nullptr;
         m_LastReportedReason = GroomCompositionFallbackReason::None;
+        m_LastReportedShadowStats.Reset();
     }
 } // namespace OloEngine

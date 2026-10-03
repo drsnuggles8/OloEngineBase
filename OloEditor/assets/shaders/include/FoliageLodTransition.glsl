@@ -119,12 +119,13 @@ float foliageCoverageCompensation(float keepFraction, float fadeFraction, float 
 
 // p0.x is a BITFIELD carried as a float (a small exact integer), not a bool:
 //   1 — coverage-preserving density reduction is authored on
-//   2 — the alpha-less passes (G-Buffer, shadow depth) resolve a partial fade
-//       stochastically instead of with a hard alpha cut-off
+//   2 — the alpha-less passes (forward colour and its prepass, G-Buffer,
+//       shadow depth: every foliage pass draws with blending off) resolve a
+//       partial fade stochastically instead of with a hard cut-off
 // They are separate switches because they answer separate criteria and a layer
 // may want either alone: a layer with no density LOD still benefits from its
-// far fade dissolving rather than ending on a line, and a layer that thins may
-// be forward-only, where alpha blending already dissolves it.
+// far fade dissolving rather than ending on a line. (Until #1533 this said a
+// forward layer's alpha blending dissolved it; forward never blended.)
 bool foliageDensityEnabled(vec4 p0)
 {
     return (int(p0.x + 0.5) & 1) != 0;

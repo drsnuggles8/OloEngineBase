@@ -355,9 +355,16 @@ namespace OloEngine
      * Pure apart from the output: the same groom, binding and inputs always
      * produce the same transforms, which is what lets a headless test assert on
      * a deformed root position rather than on a picture of one.
+     *
+     * @param onlySelectedDefined (#1533) with a selection, reset and write the
+     *        selected records alone and leave every other one as it was. For a
+     *        caller that reads its selection and nothing else -- the ray-traced
+     *        proxy's few thousand roots, where clearing all ~300k records of the
+     *        showcase dog cost more than evaluating them.
      */
     GroomDeformationStats EvaluateGroomRootTransforms(const GroomAsset& groom, const GroomBindingAsset& binding,
                                                       const GroomDeformationInputs& inputs,
                                                       std::optional<std::span<const u32>> selectedCurves,
-                                                      TArray<GroomRootTransform>& outTransforms);
+                                                      TArray<GroomRootTransform>& outTransforms,
+                                                      bool onlySelectedDefined = false);
 } // namespace OloEngine

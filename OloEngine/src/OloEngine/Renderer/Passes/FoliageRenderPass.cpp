@@ -54,6 +54,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Taken and cleared here, before any early return: it describes THIS
+        // frame's prepass, and a frame without one must write its own depth.
+        const bool colourAfterPrepass = std::exchange(m_ColourAfterPrepass, false);
+
         // Per-pass command capture (issue #463): register this pass and snapshot its
         // submission-order bucket BEFORE any early-return below, so even an empty
         // foliage frame appears in the frame breakdown's per-pass list.
@@ -103,7 +107,22 @@ namespace OloEngine
             captureManager.OnPostSort(m_CommandBucket);
 
         auto& rendererAPI = RenderCommand::GetRendererAPI();
+        // AFTER THE FORWARD PREPASS the depth of every blade that survives its
+        // alpha test is already in the target, so the colour draws test LEqual
+        // and write nothing, the ScenePass colour mode. Writing depth from a
+        // program that discards forced the late depth test: every blade behind
+        // the front one was shaded -- lit, shadowed, IBL-sampled -- and only
+        // then rejected, 7.5 ms of the dog showcase's 21 ms frame on the lawn
+        // at 1080p (#1533). With writes off the discard no longer holds the
+        // test back, and a lawn is shaded about once a pixel.
+        if (colourAfterPrepass)
+            CommandDispatch::SetDepthPrepassColorPassActive(true);
         m_CommandBucket.ExecuteParallel(rendererAPI);
+        if (colourAfterPrepass)
+        {
+            CommandDispatch::SetDepthPrepassColorPassActive(false);
+            rendererAPI.SetDepthMask(true);
+        }
 
         // Restore defaults for subsequent passes
         RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
@@ -154,6 +173,13 @@ namespace OloEngine
         CommandDispatch::SetDepthPrepassActive(true, true);
         m_CommandBucket.ExecuteParallel(RenderCommand::GetRendererAPI());
         CommandDispatch::SetDepthPrepassActive(false);
+        // Every forward foliage program has a depth-normal twin unless one
+        // failed to load; a program without one skips the prepass (see
+        // ResolveFoliageDepthNormalPrepassShader), and then its colour draw is
+        // the only one that can write its depth.
+        const auto prepassPrograms = Renderer3D::GetDepthPrepassShaderIDs();
+        m_ColourAfterPrepass = prepassPrograms.FoliageInstanceDepthNormal.IsValid() &&
+                               prepassPrograms.FoliageImpostorDepthNormal.IsValid();
         // The prepass masked every colour write; the AO passes that follow
         // must not inherit that (see SceneRenderPass::RunDepthPrepass).
         RenderCommand::GetRendererAPI().SetColorMask(true, true, true, true);

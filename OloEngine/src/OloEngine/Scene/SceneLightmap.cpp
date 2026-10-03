@@ -370,8 +370,10 @@ namespace OloEngine
             const auto& submeshes = source->GetSubmeshes();
             for (i32 s = 0; s < submeshes.Num(); ++s)
             {
-                MixMaterial(hasher, ResolveSubmeshMaterial(receiver.OverrideMaterial, source.get(),
-                                                           static_cast<u32>(s), defaultMaterial));
+                // The entity's material patches take part (issue #1533): editing a
+                // patched roughness changes the bake exactly as it changes the draw.
+                MixMaterial(hasher, ResolveSubmeshMaterial(receiver.OverrideMaterial, receiver.MaterialPatches,
+                                                           source.get(), static_cast<u32>(s), defaultMaterial));
             }
         }
 

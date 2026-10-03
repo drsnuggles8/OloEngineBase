@@ -695,7 +695,7 @@ void main()
         o_ViewNormal = octEncode(normalize(mat3(u_View) * normal));
         vec4 clipCurrU = u_ViewProjection     * vec4(v_WorldPos,     1.0);
         vec4 clipPrevU = u_PrevViewProjection * vec4(v_PrevWorldPos, 1.0);
-        o_Velocity = vec4((clipCurrU.xy / clipCurrU.w - clipPrevU.xy / clipPrevU.w) * 0.5, 1.0, 0.0);
+        o_Velocity = vec4(oloVelocityFromNdc(clipCurrU.xy / clipCurrU.w, clipPrevU.xy / clipPrevU.w), 1.0, 0.0);
         o_SkinDiffuse = vec4(0.0); // not skin -- see the declaration above (#1241)
         return;
     }
@@ -1049,6 +1049,6 @@ void main()
     vec4 clipPrev = u_PrevViewProjection * vec4(v_PrevWorldPos, 1.0);
     vec2 ndcCurr = clipCurr.xy / clipCurr.w;
     vec2 ndcPrev = clipPrev.xy / clipPrev.w;
-    o_Velocity = vec4((ndcCurr - ndcPrev) * 0.5, 1.0, 0.0);
+    o_Velocity = vec4(oloVelocityFromNdc(ndcCurr, ndcPrev), 1.0, 0.0);
     o_SkinDiffuse = vec4(0.0); // not skin -- see the declaration above (#1241)
 }

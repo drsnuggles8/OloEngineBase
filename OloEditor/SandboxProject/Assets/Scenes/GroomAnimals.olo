@@ -310,45 +310,7 @@ LightmapSettings:
   MaxBounces: 4
   TexelsPerMeter: 8
 Entities:
-  - Entity: 216649799638179085
-    TagComponent:
-      Tag: Human
-    TransformComponent:
-      Translation: [0, 1.24, 3.6]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    MeshComponent:
-      {}
-    AnimationStateComponent:
-      State: 0
-      CurrentTime: 0
-      BlendDuration: 0.3
-      CurrentClipIndex: 0
-      IsPlaying: true
-      SourceFilePath: assets/models/InfiniteScanHead/HeadRigged.gltf
-      CurrentClipName: LookAround
-    SkeletonComponent:
-      {}
-  - Entity: 1723051039467636769
-    TagComponent:
-      Tag: ShortCoatHorse
-    TransformComponent:
-      Translation: [-1.4, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    MeshComponent:
-      {}
-    AnimationStateComponent:
-      State: 0
-      CurrentTime: 0
-      BlendDuration: 0.3
-      CurrentClipIndex: 0
-      IsPlaying: true
-      SourceFilePath: Assets/Models/Horse/Horse.gltf
-      CurrentClipName: Walk
-    SkeletonComponent:
-      {}
-  - Entity: 4545716108641243465
+  - Entity: 4138099514037142306
     TagComponent:
       Tag: LongCoatHorse
     TransformComponent:
@@ -367,130 +329,7 @@ Entities:
       CurrentClipName: Walk
     SkeletonComponent:
       {}
-  - Entity: 9545103567296032664
-    TagComponent:
-      Tag: LongCoatHorseCoat
-    TransformComponent:
-      Translation: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    GroomBindingComponent:
-      Binding: 15952688685437936318
-      TargetEntity: 4545716108641243465
-      TeleportDistance: 5
-      Enabled: true
-      ShowBindingPreview: false
-    GroomCoatComponent:
-      RegionMap: 0
-      ColorMap: 15952688685437936313
-      UndercoatDensity: 1
-      UndercoatLength: 1
-      UndercoatWidth: 1
-      UndercoatClump: 1
-      GuardDensity: 1
-      GuardLength: 1
-      GuardWidth: 1
-      GuardClump: 1
-      LengthJitter: 0.2
-      WidthJitter: 0
-      ShadeJitter: 0.1
-      ClumpCellSize: 0.03
-      VariationSeed: 0
-      RoleVisibilityMask: 31
-      Enabled: true
-    GroomCoatShadowComponent:
-      Kappa: 4
-      Resolution: 64
-      StepVoxels: 3
-      MaxLodSteps: 3
-      PixelSizeForLod0: 512
-      MinResolution: 8
-      Mode: 2
-      Enabled: true
-    GroomComponent:
-      Groom: 15952688685437936317
-      RootMarkerSize: 0.01
-      MaxPreviewStrands: 2000
-      MaxRenderStrands: 93727
-      WidthScale: 1
-      StrandColor: [1, 1, 1]
-      ShowPreview: false
-      ShowStrands: true
-      ShowRoots: true
-      ShowDirection: true
-      ColorByGroup: true
-      GuidesOnly: false
-      RenderStrands: true
-      CompositionMode: 1
-    GroomFibreComponent:
-      BaseColor: [0.92, 0.9, 0.88]
-      Absorption: [0.84, 1.39, 2.74]
-      Eumelanin: 1.3
-      Pheomelanin: 0
-      LongitudinalRoughness: 0.3
-      AzimuthalRoughness: 0.3
-      TiltDegrees: 2
-      IndexOfRefraction: 1.55
-      Intensity: 6
-      HSamples: 4
-      PigmentMode: 1
-      DebugMode: 0
-      Enabled: true
-    GroomLodComponent:
-      CardPixelSize: 256
-      MeshPixelSize: 48
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    GroomSimulationComponent:
-      Gravity: [0, -9.81, 0]
-      Stiffness: 90
-      Damping: 6
-      VelocityCorrection: 0.85
-      FixedHz: 60
-      StretchTolerance: 0.01
-      TeleportDistance: 1
-      ColliderRadiusScale: 1
-      ColliderPadding: 0
-      ColliderFriction: 0.35
-      MaxSubsteps: 4
-      Iterations: 4
-      MaxGuidesUnassigned: 256
-      MaxGuidesUndercoat: 128
-      MaxGuidesGuardHair: 512
-      MaxGuidesWhisker: 64
-      MaxGuidesLongHair: 512
-      ResetKey: 0
-      Model: 1
-      DebugView: 0
-      Enabled: true
-      Collide: true
-  - Entity: 11261822225598608977
-    TagComponent:
-      Tag: Sun
-    TransformComponent:
-      Translation: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    DirectionalLightComponent:
-      Direction: [-0.4056161, -0.7605302, -0.5070201]
-      Color: [1, 0.97, 0.92]
-      Intensity: 3
-      CastShadows: true
-      CascadeDebugVisualization: false
-      RayTracedShadows: false
-      ShadowDepthBiasTexels: 2
-      ShadowNormalBias: 0.01
-      MaxShadowDistance: 200
-      CascadeSplitLambda: 0.5
-  - Entity: 11418595729513181806
+  - Entity: 5460569215746109414
     TagComponent:
       Tag: HumanCoat
     TransformComponent:
@@ -499,7 +338,7 @@ Entities:
       Scale: [1, 1, 1]
     GroomBindingComponent:
       Binding: 15952688685437936320
-      TargetEntity: 216649799638179085
+      TargetEntity: 8600225018266145435
       TeleportDistance: 5
       Enabled: true
       ShowBindingPreview: false
@@ -595,40 +434,7 @@ Entities:
       DebugView: 0
       Enabled: true
       Collide: true
-  - Entity: 12266264342211104255
-    TagComponent:
-      Tag: Plinth
-    TransformComponent:
-      Translation: [0, 0.62, 3.6]
-      Rotation: [0, 0, 0]
-      Scale: [0.5, 1.24, 0.5]
-    MeshComponent:
-      Primitive: 1
-    MaterialComponent:
-      AlbedoColor: [0.35, 0.34, 0.33]
-      Metallic: 0
-      Roughness: 1
-  - Entity: 13372767590469035089
-    TagComponent:
-      Tag: RuntimeCamera
-    TransformComponent:
-      Translation: [0, 1.6, 5.5]
-      Rotation: [-0.12, 0, 0]
-      Scale: [1, 1, 1]
-    CameraComponent:
-      Camera:
-        ProjectionType: 0
-        PerspectiveFOV: 0.7853982
-        PerspectiveNear: 0.05
-        PerspectiveFar: 400
-        OrthographicSize: 10
-        OrthographicNear: -1
-        OrthographicFar: 1
-      Primary: true
-      FixedAspectRatio: false
-      RuntimeControl: false
-      FlySpeed: 5
-  - Entity: 14559626425865806185
+  - Entity: 6596418681441749868
     TagComponent:
       Tag: ShortCoatHorseCoat
     TransformComponent:
@@ -637,7 +443,7 @@ Entities:
       Scale: [1, 1, 1]
     GroomBindingComponent:
       Binding: 15952688685437936316
-      TargetEntity: 1723051039467636769
+      TargetEntity: 14178104066540321902
       TeleportDistance: 5
       Enabled: true
       ShowBindingPreview: false
@@ -733,7 +539,96 @@ Entities:
       DebugView: 0
       Enabled: true
       Collide: true
-  - Entity: 18050182937947693544
+  - Entity: 7991453581884179064
+    TagComponent:
+      Tag: RuntimeCamera
+    TransformComponent:
+      Translation: [0, 1.6, 5.5]
+      Rotation: [-0.12, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.7853982
+        PerspectiveNear: 0.05
+        PerspectiveFar: 400
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+      RuntimeControl: false
+      FlySpeed: 5
+  - Entity: 8600225018266145435
+    TagComponent:
+      Tag: Human
+    TransformComponent:
+      Translation: [0, 1.24, 3.6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 0
+      IsPlaying: true
+      SourceFilePath: assets/models/InfiniteScanHead/HeadRigged.gltf
+      CurrentClipName: LookAround
+    SkeletonComponent:
+      {}
+  - Entity: 10943514950864115681
+    TagComponent:
+      Tag: Plinth
+    TransformComponent:
+      Translation: [0, 0.62, 3.6]
+      Rotation: [0, 0, 0]
+      Scale: [0.5, 1.24, 0.5]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.34, 0.33]
+      Metallic: 0
+      Roughness: 1
+  - Entity: 14042463371932642115
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.4056161, -0.7605302, -0.5070201]
+      Color: [1, 0.97, 0.92]
+      Intensity: 3
+      CastShadows: true
+      CascadeDebugVisualization: false
+      RayTracedShadows: false
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
+      MaxShadowDistance: 200
+      CascadeSplitLambda: 0.5
+  - Entity: 14178104066540321902
+    TagComponent:
+      Tag: ShortCoatHorse
+    TransformComponent:
+      Translation: [-1.4, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      {}
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 0
+      IsPlaying: true
+      SourceFilePath: Assets/Models/Horse/Horse.gltf
+      CurrentClipName: Walk
+    SkeletonComponent:
+      {}
+  - Entity: 14213038852669345474
     TagComponent:
       Tag: Ground
     TransformComponent:
@@ -746,3 +641,108 @@ Entities:
       AlbedoColor: [0.23, 0.21, 0.18]
       Metallic: 0
       Roughness: 1
+  - Entity: 17041018584800719785
+    TagComponent:
+      Tag: LongCoatHorseCoat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    GroomBindingComponent:
+      Binding: 15952688685437936318
+      TargetEntity: 4138099514037142306
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 15952688685437936313
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.1
+      ClumpCellSize: 0.03
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 4
+      Resolution: 64
+      StepVoxels: 3
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+    GroomComponent:
+      Groom: 15952688685437936317
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 93727
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [0.92, 0.9, 0.88]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.3
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 6
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 256
+      MeshPixelSize: 48
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true

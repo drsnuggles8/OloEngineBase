@@ -69,6 +69,24 @@ Thirteen fields in the `.oloskin`'s `Ocular` block, read **only** at transport v
 | `IrisConcavity` | `0.0` | the iris dish's tilt — the depth response. |
 | `IrisColor` | `[1, 1, 1]` | the iris's own colour, **multiplied** into the albedo inside the disc. White is neutral. |
 
+### A painted iris
+
+An iris painted into the globe's **albedo map** is fetched at the refracted iris point, not at the
+surface's own UV: the four material stages add `oloSkinOcularIrisShift` (the step from the surface
+point's lateral coordinate to the iris point the masks use) to the albedo UV, converted by
+`oloSkinOcularUvShift` from the screen-space derivatives, so any smooth UV layout works. Before
+this, the painted pattern stayed on the globe while the model's pupil slid over it, by a fifth of
+the iris radius at a 30-degree view (#1533). The shift fades to zero over the disc band of the
+surface point's own radial, so the sample does not step where the pixel becomes sclera. Only the
+albedo map moves; the cornea's other maps describe the cornea.
+
+Paint the iris in **iris-plane coordinates** (lateral offset over the globe radius, the limbus at
+`IrisRadiusMM / EyeRadiusMM`), and paint the pupil too: a texture edge is mip-filtered, so it stays
+sharp at a close-up, and the model's own soft pupil band then reads as the pigment ruff. Keep the
+profile's `ScatterRadiusMM` in tenths of a millimetre: the screen-space diffusion blurs the whole
+globe, iris included. The dog's eye (`DogEye.oloskin`, `build_dog.py`'s `iris_albedo`) is the
+worked example.
+
 `OcularStrength` defaults to neutral, so **moving a profile to version 5 changes nothing** until a
 field is authored. That is the identity arm `SkinOcularSurfaceEvidenceTest` captures on all three
 raster paths, and the first thing to check if a head changes appearance on a version bump.
@@ -136,6 +154,17 @@ than a fitted number.
 
 An eye mesh **with** corneal geometry authors the clinical 3.6 here, together with
 `CorneaRadiusMM == EyeRadiusMM`.
+
+### The iris plane sits behind the limbus
+
+The plane must be at least `EyeRadiusMM * (1 - cos(asin(IrisRadiusMM / EyeRadiusMM)))` deep, and
+`SkinProfile` moves it back to that depth and reports the profile invalid when it is not. The globe
+between a shallower plane and the limbus lies behind the plane, so a ray refracted there never
+reaches it (`SkinIrisPlaneHit` returns false) and the pixel shades as sclera. The eye then draws a
+smaller iris than the authored one and nothing says so. The human 5.85 mm iris has its limbus
+1.52 mm deep, well in front of 2.48. A wide animal iris does not: the showcase dog's 8.6 mm iris
+behind 2.4 mm drew as a 7.2 mm one in a white surround (#1533), and `DogEye.oloskin` now authors
+5.0 mm behind its 9.6 mm iris.
 
 ## What the approximation costs, and where it runs
 

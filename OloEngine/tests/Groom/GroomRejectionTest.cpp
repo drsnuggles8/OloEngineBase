@@ -548,4 +548,93 @@ TEST(GroomRejection, AWidthsParamWithTheWrongValueCountIsRejected)
     EXPECT_TRUE(Mentions(result.Diagnostic, "widths")) << result.Diagnostic;
 }
 
+// Issue #1533: the `groom_` user properties Blender's export carries follow the
+// attribute route's rules -- the wrong count, an unknown name, and the same
+// data authored twice are each refused, by name.
+namespace
+{
+    [[nodiscard]] Tests::GroomFixture::CurvesPrim TwoStrandPrim(const char* name)
+    {
+        Tests::GroomFixture::CurvesPrim prim;
+        prim.Name = name;
+        prim.Positions = { { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 1.0f, 1.0f, 0.0f } };
+        prim.VertexCounts = { 2, 2 };
+        return prim;
+    }
+
+    [[nodiscard]] AlembicGroomImporter::Result ImportPrim(const Tests::GroomFixture::CurvesPrim& prim, const char* file)
+    {
+        const std::filesystem::path path = Tests::TempFile(file);
+        EXPECT_TRUE(Tests::GroomFixture::WriteArchive(path, { prim }));
+        return AlembicGroomImporter::Import(path);
+    }
+} // namespace
+
+TEST(GroomRejection, AUserPropertyWithTheWrongValueCountIsRejectedByName)
+{
+    auto guides = TwoStrandPrim("guides");
+    guides.UserInts = { { "groom_guide", { 1, 0, 1 } } };
+    const auto a = ImportPrim(guides, "userprop-guides.abc");
+    EXPECT_FALSE(a.Succeeded());
+    EXPECT_TRUE(Mentions(a.Diagnostic, "groom_guide")) << a.Diagnostic;
+
+    auto uvs = TwoStrandPrim("uvs");
+    uvs.UserDoubles = { { "groom_root_uv", { 0.1, 0.2, 0.3 } } };
+    const auto b = ImportPrim(uvs, "userprop-uvs.abc");
+    EXPECT_FALSE(b.Succeeded());
+    EXPECT_TRUE(Mentions(b.Diagnostic, "groom_root_uv")) << b.Diagnostic;
+
+    auto tint = TwoStrandPrim("tint");
+    tint.UserDoubles = { { "groom_tint", { 0.5, 0.5 } } };
+    const auto c = ImportPrim(tint, "userprop-tint.abc");
+    EXPECT_FALSE(c.Succeeded());
+    EXPECT_TRUE(Mentions(c.Diagnostic, "groom_tint")) << c.Diagnostic;
+
+    auto role = TwoStrandPrim("role");
+    role.UserInts = { { "groom_role", { 99 } } };
+    const auto d = ImportPrim(role, "userprop-role.abc");
+    EXPECT_FALSE(d.Succeeded());
+    EXPECT_TRUE(Mentions(d.Diagnostic, "groom_role")) << d.Diagnostic;
+}
+
+TEST(GroomRejection, AnUnsupportedGroomUserPropertyIsRejectedByName)
+{
+    auto prim = TwoStrandPrim("future");
+    prim.UserDoubles = { { "groom_frizz", { 0.5 } } };
+    const auto result = ImportPrim(prim, "userprop-unknown.abc");
+    EXPECT_FALSE(result.Succeeded());
+    EXPECT_TRUE(Mentions(result.Diagnostic, "groom_frizz")) << result.Diagnostic;
+
+    // A DCC's own property is its business, as its arbGeomParams are.
+    auto dcc = TwoStrandPrim("dcc");
+    dcc.UserInts = { { "blender_resolution", { 12 } } };
+    const auto ignored = ImportPrim(dcc, "userprop-dcc.abc");
+    EXPECT_TRUE(ignored.Succeeded()) << ignored.Diagnostic;
+}
+
+TEST(GroomRejection, GroomDataAuthoredTwiceIsRejectedRatherThanOneCopyDropped)
+{
+    auto guides = TwoStrandPrim("guides-twice");
+    guides.GuideFlags = { 1, 0 };
+    guides.UserInts = { { "groom_guide", { 0, 1 } } };
+    const auto a = ImportPrim(guides, "twice-guides.abc");
+    EXPECT_FALSE(a.Succeeded());
+    EXPECT_TRUE(Mentions(a.Diagnostic, "groom_guide")) << a.Diagnostic;
+
+    auto uvs = TwoStrandPrim("uvs-twice");
+    uvs.UVs = { { 0.1f, 0.2f }, { 0.3f, 0.4f } };
+    uvs.UVScope = Tests::GroomFixture::AbcG::kUniformScope;
+    uvs.UserDoubles = { { "groom_root_uv", { 0.1, 0.2, 0.3, 0.4 } } };
+    const auto b = ImportPrim(uvs, "twice-uvs.abc");
+    EXPECT_FALSE(b.Succeeded());
+    EXPECT_TRUE(Mentions(b.Diagnostic, "groom_root_uv")) << b.Diagnostic;
+
+    auto role = TwoStrandPrim("role-twice");
+    role.Roles = { 2, 2 };
+    role.UserInts = { { "groom_role", { 2 } } };
+    const auto c = ImportPrim(role, "twice-role.abc");
+    EXPECT_FALSE(c.Succeeded());
+    EXPECT_TRUE(Mentions(c.Diagnostic, "groom_role")) << c.Diagnostic;
+}
+
 #endif // OLO_WITH_ALEMBIC

@@ -83,7 +83,7 @@ struct FoliageDrawArgs
     uint FirstIndex;
     uint BaseVertex;
     uint BaseInstance;
-    uint Pad0;
+    uint MeshRegion; // 1 = this part draws the mesh region (#1533); past the command
     uint Pad1;
     uint Pad2;
 };
@@ -172,7 +172,9 @@ void main()
     // overflow would, under concurrency, hand two invocations the same slot and
     // turn a truncation into a duplicated-and-lost plant.
     uint outIdx = atomicAdd(s_ReserveCursor, 1u);
-    if (outIdx >= s_OutputCapacity)
+    // The all-survivor list ends where the mesh region starts (#1533).
+    uint listCapacity = (s_MeshRegionBase != 0u) ? min(s_OutputCapacity, s_MeshRegionBase) : s_OutputCapacity;
+    if (outIdx >= listCapacity)
     {
         // Bounded and LOUD, never a quiet short draw: the flag names the
         // condition and the counter says by how much. The CPU reads both back
@@ -184,8 +186,37 @@ void main()
     b_DstInstances[outIdx] = row;
     s_Tail[s_SourceRowOffset + outIdx] = idx;
 
+    // THE MESH REGION (#1533). A plant whose pivot is within the mesh band's
+    // reach is ALSO appended past s_MeshRegionBase, and a mesh part draws only
+    // that region (its BaseInstance is the base; FoliageGPUCuller seeded it).
+    // The card part still draws every survivor above, four vertices each. The
+    // reach is FoliageLod::MeshRegionReach, the farthest any plant can still
+    // have mesh coverage, so a plant left out is one the mesh draw would have
+    // placed and collapsed: ~1,400 vertices each, for nine plants in ten.
+    bool meshAppended = false;
+    if (s_MeshRegionBase != 0u && distance(row.PositionScale.xyz, s_DistanceOrigin.xyz) <= s_MeshReach)
+    {
+        uint meshIdx = atomicAdd(s_MeshCursor, 1u);
+        uint meshSlot = s_MeshRegionBase + meshIdx;
+        // The region holds s_MeshRegionBase rows (the layer's instance count),
+        // so it cannot fill unless every plant is in reach; the bound is still
+        // checked, and a row past it is counted rather than written.
+        if (meshIdx < s_MeshRegionBase && meshSlot < s_OutputCapacity)
+        {
+            b_DstInstances[meshSlot] = row;
+            s_Tail[s_SourceRowOffset + meshSlot] = idx;
+            meshAppended = true;
+        }
+        else
+        {
+            oloStatOverflow(OLO_STATFLAG_FoliageCullOutput, OLO_STAT_FoliageCullDropped, 1u);
+        }
+    }
     for (uint part = 0u; part < s_PartCount; ++part)
-        atomicAdd(b_DrawArgs[part].InstanceCount, 1u);
+    {
+        if (b_DrawArgs[part].MeshRegion == 0u || meshAppended)
+            atomicAdd(b_DrawArgs[part].InstanceCount, 1u);
+    }
 
     if (s_EmitStats != 0u)
         oloStatAdd(OLO_STAT_FoliageCullSubmitted, 1u);

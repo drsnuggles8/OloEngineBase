@@ -13,7 +13,10 @@ layout(std140, binding = 12) uniform FoliageParams
     float u_PrevTime;
     float u_WindHistoryValid;
     vec3 u_FoliageBaseColor;
-    float _foliagePad2;
+    // The dither's frame (#1533): an integer in [0, 64) that advances while a
+    // temporal resolve accumulates, 0 otherwise. Read only through
+    // OLO_FOLIAGE_DITHER_FRAME (include/FoliageInstanceGeometry.glsl).
+    float u_FoliageDitherFrame;
     vec4 u_ImpostorParams0;
     vec4 u_ImpostorParams1;
     vec4 u_MeshParams;

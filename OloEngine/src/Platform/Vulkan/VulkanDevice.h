@@ -196,6 +196,12 @@ namespace OloEngine
         {
             return m_MultiDrawIndirectEnabled;
         }
+        // drawIndirectFirstInstance (core feature, when supported): an indirect
+        // command may start its instance stream past instance 0 (#1533).
+        [[nodiscard]] bool IsDrawIndirectFirstInstanceEnabled() const
+        {
+            return m_DrawIndirectFirstInstanceEnabled;
+        }
         // samplerAnisotropy (core feature) and the device's maxSamplerAnisotropy
         // limit: VulkanSamplerHeap::CreateInfoFromDesc enables anisotropy only
         // when the feature is on and clamps the requested degree to the limit.
@@ -413,6 +419,7 @@ namespace OloEngine
         bool m_DrawIndirectCountEnabled = false;
         bool m_SampledImageNonUniformIndexingEnabled = false;
         bool m_MultiDrawIndirectEnabled = false;
+        bool m_DrawIndirectFirstInstanceEnabled = false;
         bool m_SamplerAnisotropyEnabled = false;
         f32 m_MaxSamplerAnisotropy = 1.0f;
         bool m_ShaderDrawParametersEnabled = false;

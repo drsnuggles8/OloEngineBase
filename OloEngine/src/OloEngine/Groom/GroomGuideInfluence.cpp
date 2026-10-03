@@ -4,6 +4,7 @@
 
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Math/Math.h"
+#include "OloEngine/Task/ParallelFor.h"
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/norm.hpp>
@@ -467,6 +468,35 @@ namespace OloEngine
             out = glm::mix(displacements[first + lower], displacements[first + upper], scaled - floored);
             return true;
         }
+
+        // THE NEIGHBOURS' LENGTH, NOT THEIR AVERAGE'S (#1533). A linear blend of
+        // displacements that point different ways averages away the part of
+        // each that points its own way, so a stand-in between guides sagging in
+        // different directions sagged LESS than any of them. Most of a coat is
+        // stand-ins -- 86% of the long-coat horse's slots at a full budget, 91%
+        // of the showcase dog's -- so the drawn coat draped less than its
+        // simulation, and halving the budget at range widened the gap: the long
+        // coat's strand tier read 14% less shadowed at 14 m than the full coat.
+        //
+        // So the blend keeps its direction and takes the neighbours' mean
+        // length where they agree. Where they cancel -- a part, a whorl -- no
+        // direction is right and the short linear blend stays, faded in by how
+        // coherent the neighbours are: the blend's length over their mean
+        // length, cos(angle / 2) for two equal guides. Restored in full up to
+        // ~106 degrees apart, not at all past ~150.
+        constexpr f32 kStandInIncoherent = 0.25f;
+        constexpr f32 kStandInCoherent = 0.6f;
+
+        [[nodiscard]] glm::vec3 KeepNeighbourLength(const glm::vec3& linear, f32 meanLength) noexcept
+        {
+            const f32 length = glm::length(linear);
+            if (!(length > 0.0f) || !(meanLength > length) || !std::isfinite(meanLength))
+            {
+                return linear;
+            }
+            const f32 restore = glm::smoothstep(kStandInIncoherent, kStandInCoherent, length / meanLength);
+            return linear * (glm::mix(length, meanLength, restore) / length);
+        }
     } // namespace
 
     bool ExpandGroomGuideDisplacements(std::span<const GroomGuideWeights> standIns,
@@ -474,8 +504,10 @@ namespace OloEngine
                                        std::span<const glm::vec3> displacements, TArray<u32>& outOffsets,
                                        TArray<glm::vec3>& outDisplacements)
     {
-        outOffsets.Reset();
-        outDisplacements.Reset();
+        // Emptied, not Reset: Reset frees the allocation, and these are refilled
+        // at the same size every frame.
+        outOffsets.Empty();
+        outDisplacements.Empty();
         if (standIns.size() != slotPointCounts.size() || guideOffsets.empty())
         {
             return false;
@@ -507,40 +539,60 @@ namespace OloEngine
             }
         }
 
+        // The offsets first, as a running sum of the slots' point counts, so
+        // every slot knows where its own entries go -- and then the slots in
+        // parallel (#1533 E1): each writes only its own range, from inputs no
+        // slot writes, so the result is the same bits on any number of threads.
+        // Serial, this was ~2.9 ms a call on the showcase dog's 16,580 slots, and
+        // a frame makes two calls (this frame and the previous one).
+        const sizet slotCount = standIns.size();
+        outOffsets.SetNumUninitialized(static_cast<i32>(slotCount + 1u));
+        outOffsets[0] = 0u;
         u64 total = 0;
-        for (const u32 count : slotPointCounts)
+        for (sizet slot = 0; slot < slotCount; ++slot)
         {
-            total += count;
-        }
-        outOffsets.Reserve(static_cast<i32>(standIns.size() + 1u));
-        outDisplacements.Reserve(static_cast<i32>(total));
-        outOffsets.Add(0u);
-
-        for (sizet slot = 0; slot < standIns.size(); ++slot)
-        {
-            const GroomGuideWeights& standIn = standIns[slot];
-            const u32 count = slotPointCounts[slot];
-            const f32 invSpan = count > 1u ? 1.0f / static_cast<f32>(count - 1u) : 0.0f;
-            for (u32 i = 0; i < count; ++i)
+            total += slotPointCounts[slot];
+            if (total > std::numeric_limits<u32>::max())
             {
-                const f32 t = static_cast<f32>(i) * invSpan;
-                glm::vec3 blended{ 0.0f };
-                f32 applied = 0.0f;
-                for (u32 k = 0; k < GroomGuideInfluenceCount; ++k)
-                {
-                    glm::vec3 sample;
-                    if (standIn.Guides[k] == GroomNoGuide || !(standIn.Weights[k] > 0.0f) ||
-                        !SampleGuideAt(guideOffsets, displacements, standIn.Guides[k], t, sample))
-                    {
-                        continue;
-                    }
-                    blended += sample * standIn.Weights[k];
-                    applied += standIn.Weights[k];
-                }
-                outDisplacements.Add(applied > 0.0f ? blended / applied : glm::vec3(0.0f));
+                outOffsets.Empty();
+                return false;
             }
-            outOffsets.Add(static_cast<u32>(outDisplacements.Num()));
+            outOffsets[static_cast<i32>(slot + 1u)] = static_cast<u32>(total);
         }
+        outDisplacements.SetNumUninitialized(static_cast<i32>(total));
+
+        const u32* const offsets = outOffsets.GetData();
+        glm::vec3* const written = outDisplacements.GetData();
+        ParallelFor("GroomExpandGuides", static_cast<i32>(slotCount), 64,
+                    [&](i32 index)
+                    {
+                        const sizet slot = static_cast<sizet>(index);
+                        const GroomGuideWeights& standIn = standIns[slot];
+                        const u32 count = slotPointCounts[slot];
+                        const u32 base = offsets[slot];
+                        const f32 invSpan = count > 1u ? 1.0f / static_cast<f32>(count - 1u) : 0.0f;
+                        for (u32 i = 0; i < count; ++i)
+                        {
+                            const f32 t = static_cast<f32>(i) * invSpan;
+                            glm::vec3 blended{ 0.0f };
+                            f32 lengths = 0.0f;
+                            f32 applied = 0.0f;
+                            for (u32 k = 0; k < GroomGuideInfluenceCount; ++k)
+                            {
+                                glm::vec3 sample;
+                                if (standIn.Guides[k] == GroomNoGuide || !(standIn.Weights[k] > 0.0f) ||
+                                    !SampleGuideAt(guideOffsets, displacements, standIn.Guides[k], t, sample))
+                                {
+                                    continue;
+                                }
+                                blended += sample * standIn.Weights[k];
+                                lengths += glm::length(sample) * standIn.Weights[k];
+                                applied += standIn.Weights[k];
+                            }
+                            written[base + i] = applied > 0.0f ? KeepNeighbourLength(blended / applied, lengths / applied)
+                                                               : glm::vec3(0.0f);
+                        }
+                    });
         return true;
     }
 } // namespace OloEngine

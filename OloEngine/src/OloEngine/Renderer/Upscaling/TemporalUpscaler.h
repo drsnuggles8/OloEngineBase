@@ -97,21 +97,23 @@ namespace OloEngine
         // back to its internal metering and the flag has no effect at all.
         bool AutoExposure = false;
 
-        // The engine's motion vectors already contain the projection JITTER.
+        // Whether the engine's motion vectors contain the projection JITTER.
         //
-        // True here, and it is not a detail. RenderPipeline bakes each frame's
-        // jitter into that frame's ProjectionMatrix and keeps the PREVIOUS
-        // frame's jitter in the previous ViewProjection, so a G-Buffer velocity
-        // of (ndcCurr - ndcPrev) * 0.5 carries the difference between two
-        // jitters — it is NOT zero even for a perfectly static camera. Engine TAA
-        // relies on exactly that (it needs no unjitter uniform).
+        // FALSE since #1552, and it is not a detail. RenderPipeline bakes each
+        // frame's jitter into that frame's ProjectionMatrix and keeps the
+        // previous frame's in the previous ViewProjection, so a difference of
+        // two jittered positions carries the difference between two jitters;
+        // every velocity writer now subtracts both (CameraUBO::JitterUV), and a
+        // static camera writes zero. Before #1552 the vectors carried it, this
+        // was true, and engine TAA resampled its history by the jitter delta
+        // every frame (a stochastic coat kept 3x of its 11x accumulation).
         //
-        // A temporal upscaler that is not told this reprojects every pixel by up
+        // A temporal upscaler told the wrong answer reprojects every pixel by up
         // to a pixel of pure jitter, every frame, forever. The frame does not
         // break: the first frame after a history reset is pixel-correct and every
         // frame after it is stably wrong, which is the least debuggable shape a
         // defect can take.
-        bool MotionVectorsIncludeJitter = true;
+        bool MotionVectorsIncludeJitter = false;
 
         [[nodiscard]] auto operator==(const TemporalUpscalerConfig&) const -> bool = default;
     };

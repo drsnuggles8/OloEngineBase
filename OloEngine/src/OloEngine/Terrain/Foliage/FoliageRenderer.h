@@ -12,6 +12,7 @@
 #include "OloEngine/Terrain/Foliage/FoliageLayer.h"
 #include "OloEngine/Terrain/Foliage/FoliageWind.h"
 #include "OloEngine/Renderer/Model.h"
+#include "OloEngine/Renderer/RayTracing/VegetationPolicy.h"
 
 #include <glm/glm.hpp>
 #include <array>
@@ -77,6 +78,10 @@ namespace OloEngine
         // covers everything, which is the pre-#1233 behaviour exactly.
         f32 MeshHandoverStartDistance = 0.0f;
         f32 MeshHandoverEndDistance = 0.0f;
+        // The far card's normal lane (#1533, FoliageLod::CardNormalLane): 0 for a
+        // legacy card; otherwise the card is the layer mesh's bake, which the
+        // vertex stage faces to the eye with the normal this lane carries.
+        f32 CardNormalLane = 0.0f;
         f32 ViewDistance = 100.0f;
         f32 FadeStartDistance = 80.0f;
         f32 WindStrength = 0.3f;
@@ -183,6 +188,10 @@ namespace OloEngine
         FoliageBoundsProfile BoundsProfile{};
         f32 MeshViewDistance = 0.0f;
         f32 MeshFadeStartDistance = 0.0f;
+        // The elevation of the mesh's mean front-facing normal (#1533), the far
+        // card's normal: the card is lit as the near plant is on average. Measured
+        // when the mesh loads; 0 for a layer with no mesh.
+        f32 CardNormalTilt = 0.0f;
 
         u32 InstanceCount = 0;
         u32 InstanceCapacity = 0;
@@ -217,6 +226,7 @@ namespace OloEngine
         f32 InteractionResponse = 1.0f;
         glm::vec3 BaseColor{ 1.0f };
         f32 AlphaCutoff = 0.5f;
+        bool CastShadows = true; // FoliageLayer::CastShadows (#1533); RenderShadows skips a layer without it
         Ref<Texture2D> AlbedoTexture;
         FString LoadedAlbedoPath; // What AlbedoTexture was opened from
 
@@ -327,6 +337,7 @@ namespace OloEngine
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::BoundsProfile)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshViewDistance)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshFadeStartDistance)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::CardNormalTilt)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::InstanceCount)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::InstanceCapacity)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::IndexCount)>::Value &&
@@ -392,6 +403,9 @@ namespace OloEngine
         // partition the screen rather than overlap. Zero end = no mesh.
         f32 HandoverStart = 0.0f;
         f32 HandoverEnd = 0.0f;
+        // The far card's normal lane (#1533): FoliageLod::CardNormalLane of the
+        // mesh's tilt when the card is that mesh's bake, 0 for a legacy card.
+        f32 CardNormalLane = 0.0f;
         // The layer's own distance fade-out, unchanged by #1233.
         f32 FadeStart = 80.0f;
         f32 ViewDistance = 100.0f;
@@ -414,6 +428,7 @@ namespace OloEngine
                                       TIsTriviallyRelocatable<decltype(FoliageLayerDraw::IsAuthoredMesh)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerDraw::HandoverStart)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerDraw::HandoverEnd)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerDraw::CardNormalLane)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerDraw::FadeStart)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerDraw::ViewDistance)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerDraw::LodTransition0)>::Value &&
@@ -643,6 +658,10 @@ namespace OloEngine
         // them decides what to draw.
         using LayerDraw = FoliageLayerDraw;
         void EnumerateLayerDraws(const LayerRenderData& data, TArray<LayerDraw>& out) const;
+        // u_MeshParams.w of the layer's far card (#1533): FoliageLod::CardNormalLane
+        // when the card is the mesh's bake, 0 for the legacy tuft. See the
+        // definition for when a card counts as a bake.
+        [[nodiscard]] static f32 MeshLayerCardLane(const LayerRenderData& data);
 
         // Run one view's cull over every layer. Returns true when at least one
         // layer produced a compacted draw.
@@ -673,6 +692,38 @@ namespace OloEngine
         // writes only the coverage fields.
         static void UpdateAlphaCoverage(LayerRenderData& data, const FoliageLayer& layer, bool meshDrawn,
                                         bool impostorDrawn);
+
+        // A reflection-only group of plants, one representation (#1533).
+        // Plain data; its plants are a run of ReflectionSplit::Records.
+        // MeshRepresentation 2 (cards) means the group has no mesh tier.
+        struct ReflectionCandidate
+        {
+            u32 LayerIndex = 0u;
+            u32 MeshRepresentation = 2u;
+            RayTracing::VegetationPolicy::ReflectionGroupCost Cost;
+            f32 Distance = 0.0f;
+            u64 FirstId = 0u;
+            u32 FirstRecord = 0u;
+            u32 RecordCount = 0u;
+        };
+        // The reflection-only layers' plants split into groups (#1533): a
+        // pass over every plant, 216k for the showcase lawn. Kept while the
+        // camera stays within kReflectionSplitTolerance of where it was taken
+        // and the records, the terrain and the layers are the ones it was
+        // taken from. Reflections need no exact distances; shadow casters,
+        // which must match the raster, are split every frame.
+        struct ReflectionSplit
+        {
+            TArray<ReflectionCandidate> Candidates;
+            TArray<const FoliageInstanceRecord*> Records;
+            glm::mat4 Terrain{ 1.0f };
+            glm::vec3 Camera{ 0.0f };
+            u64 RecordsEpoch = 0u;
+            u64 LayersKey = 0u;
+            bool Valid = false;
+        };
+        static constexpr f32 kReflectionSplitTolerance = 0.25f;
+        mutable ReflectionSplit m_ReflectionSplit;
 
         TArray<LayerRenderData> m_Layers;
         FoliageInstanceRegistry m_Registry;

@@ -15,6 +15,8 @@
 #include "OloEngine/Core/Log.h"
 #include <algorithm>
 #include <optional>
+#include <mutex>
+#include <unordered_set>
 
 namespace OloEngine::Animation
 {
@@ -123,6 +125,84 @@ namespace OloEngine::Animation
         }
     } // namespace
 
+    void AnimationSystem::ApplyClipRequest(AnimationStateComponent& animState)
+    {
+        if (animState.m_RequestedClip.empty())
+        {
+            return;
+        }
+        std::string requested;
+        requested.swap(animState.m_RequestedClip); // consumed whatever happens next
+        const bool loop = animState.m_RequestedLoop;
+
+        const auto found = std::ranges::find_if(animState.m_AvailableClips, [&requested](const Ref<AnimationClip>& clip)
+                                                { return clip && clip->Name == requested; });
+        if (found == animState.m_AvailableClips.end())
+        {
+            // LOUD, once per name: a mistyped clip name in a script would
+            // otherwise read as an animation system that ignores it.
+            static std::mutex s_ReportedMutex;
+            static std::unordered_set<std::string> s_Reported;
+            const std::scoped_lock lock(s_ReportedMutex);
+            if (s_Reported.insert(requested).second)
+            {
+                std::string available;
+                for (const Ref<AnimationClip>& clip : animState.m_AvailableClips)
+                {
+                    if (clip)
+                    {
+                        available += available.empty() ? clip->Name : (", " + clip->Name);
+                    }
+                }
+                OLO_CORE_WARN("AnimationSystem: no clip named '{}' on this model (clips: {}); the request is ignored",
+                              requested, available.empty() ? std::string("none") : available);
+            }
+            return;
+        }
+        const Ref<AnimationClip>& target = *found;
+        const i32 index = static_cast<i32>(std::distance(animState.m_AvailableClips.begin(), found));
+
+        // Already the current clip and not leaving it: only the loop flag moves.
+        // This is what lets a script write the request every frame.
+        if (animState.m_CurrentClip == target && !animState.m_Blending)
+        {
+            animState.m_Loop = loop;
+            return;
+        }
+        // Already on its way there: keep the blend, take the new loop flag.
+        if (animState.m_Blending && animState.m_NextClip == target)
+        {
+            animState.m_NextLoop = loop;
+            return;
+        }
+
+        animState.m_CurrentClipIndex = index;
+        if (!animState.m_CurrentClip)
+        {
+            // Nothing to blend from.
+            animState.m_CurrentClip = target;
+            animState.m_CurrentTime = 0.0f;
+            animState.m_Loop = loop;
+            return;
+        }
+        // Interrupting a blend that is more than half done: the pose is mostly
+        // the blend target already, so that clip is promoted to current before
+        // the new blend starts. Starting from the old current clip instead would
+        // snap the pose back towards where the blend began.
+        if (animState.m_Blending && animState.m_NextClip && animState.m_BlendFactor > 0.5f)
+        {
+            animState.m_CurrentClip = animState.m_NextClip;
+            animState.m_CurrentTime = animState.m_NextTime;
+            animState.m_Loop = animState.m_NextLoop;
+        }
+        animState.m_NextClip = target;
+        animState.m_NextTime = 0.0f;
+        animState.m_NextLoop = loop;
+        animState.m_BlendTime = 0.0f;
+        animState.m_BlendFactor = 0.0f;
+        animState.m_Blending = true;
+    }
+
     // Animation update: advances time, samples animation, computes bone transforms
     void AnimationSystem::Update(
         AnimationStateComponent& animState,
@@ -145,11 +225,21 @@ namespace OloEngine::Animation
         // entity animated, and a paused one would then emit last tick's delta
         // for as long as the pause lasted.
 
-        // Advance and loop animation time for current and next clips
-        auto LoopTime = [](f32 t, const Ref<AnimationClip>& clip)
+        // A clip requested from outside (issue #1533) starts its blend HERE, at
+        // the one place every pose update passes through, so the editor combo, a
+        // script and an MCP write behave the same way in edit mode and in Play.
+        ApplyClipRequest(animState);
+
+        // Advance animation time for current and next clips: a looping clip
+        // wraps, a non-looping one (issue #1533) holds its final pose.
+        auto LoopTime = [](f32 t, const Ref<AnimationClip>& clip, bool loop)
         {
             if (clip && clip->Duration > 0.0f)
             {
+                if (!loop)
+                {
+                    return std::clamp(t, 0.0f, clip->Duration);
+                }
                 while (t >= clip->Duration)
                     t -= clip->Duration;
                 while (t < 0.0f)
@@ -165,15 +255,21 @@ namespace OloEngine::Animation
         const bool wasBlending = animState.m_Blending && animState.m_NextClip;
         const Ref<AnimationClip> blendTargetClip = animState.m_NextClip; // survives the completion swap
 
-        animState.m_CurrentTime += deltaTime;
-        animState.m_CurrentTime = LoopTime(animState.m_CurrentTime, animState.m_CurrentClip);
+        // The clip clock runs at the entity's playback speed (issue #1533);
+        // the post passes below keep real time. A non-finite or negative speed
+        // (a corrupt write that bypassed every clamp) plays as authored.
+        const f32 playbackSpeed = std::isfinite(animState.m_PlaybackSpeed) ? std::clamp(animState.m_PlaybackSpeed, 0.0f, 10.0f) : 1.0f;
+        const f32 clipSeconds = deltaTime * playbackSpeed;
+
+        animState.m_CurrentTime += clipSeconds;
+        animState.m_CurrentTime = LoopTime(animState.m_CurrentTime, animState.m_CurrentClip, animState.m_Loop);
 
         f32 blendAlpha = 0.0f;
         if (wasBlending)
         {
-            animState.m_BlendTime += deltaTime;
-            animState.m_NextTime += deltaTime;
-            animState.m_NextTime = LoopTime(animState.m_NextTime, animState.m_NextClip);
+            animState.m_BlendTime += clipSeconds;
+            animState.m_NextTime += clipSeconds;
+            animState.m_NextTime = LoopTime(animState.m_NextTime, animState.m_NextClip, animState.m_NextLoop);
             blendAlpha = glm::clamp(animState.m_BlendTime / animState.m_BlendDuration, 0.0f, 1.0f);
             animState.m_BlendFactor = blendAlpha;
         }
@@ -181,8 +277,9 @@ namespace OloEngine::Animation
         // Extract this tick's root-motion delta (wrap-aware, per clip) before the
         // blend-completion swap discards the source clip. Each contributing clip
         // extracts against its own settings; the deltas blend with the same
-        // factor the pose blend uses. This path loops unconditionally (LoopTime),
-        // so extraction is always wrap-aware.
+        // factor the pose blend uses. Extraction is wrap-aware exactly when the
+        // clip loops (m_Loop / m_NextLoop, issue #1533); a clip that holds its
+        // final pose extracts no motion past its end.
         {
             const PoseEvalContext rootMotionCtx{
                 .BoneNames = skeleton.m_BoneNames,
@@ -195,12 +292,12 @@ namespace OloEngine::Animation
             if (animState.m_CurrentClip)
             {
                 delta = RootMotionUtils::ExtractConfiguredDelta(
-                    *animState.m_CurrentClip, rootMotionStartCurrent, deltaTime, true, rootMotionCtx);
+                    *animState.m_CurrentClip, rootMotionStartCurrent, clipSeconds, animState.m_Loop, rootMotionCtx);
             }
             if (wasBlending && blendTargetClip)
             {
                 const RootMotionDelta nextDelta = RootMotionUtils::ExtractConfiguredDelta(
-                    *blendTargetClip, rootMotionStartNext, deltaTime, true, rootMotionCtx);
+                    *blendTargetClip, rootMotionStartNext, clipSeconds, animState.m_NextLoop, rootMotionCtx);
                 delta = RootMotionUtils::Blend(delta, nextDelta, animState.m_BlendFactor);
             }
             animState.m_RootMotionTranslation = delta.Translation;
@@ -213,6 +310,7 @@ namespace OloEngine::Animation
             // Finish blend
             animState.m_CurrentClip = animState.m_NextClip;
             animState.m_CurrentTime = animState.m_NextTime;
+            animState.m_Loop = animState.m_NextLoop;
             animState.m_NextClip = nullptr;
             animState.m_Blending = false;
             animState.m_BlendTime = 0.0f;

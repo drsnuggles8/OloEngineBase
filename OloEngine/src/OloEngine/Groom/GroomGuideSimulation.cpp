@@ -2,7 +2,9 @@
 
 #include "OloEngine/Groom/GroomGuideSimulation.h"
 
+#include "OloEngine/Containers/Array.h"
 #include "OloEngine/Math/Math.h"
+#include "OloEngine/Task/ParallelFor.h"
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/norm.hpp>
@@ -113,7 +115,15 @@ namespace OloEngine
         const sizet pointCount = inputs.TargetPoints.size();
         const bool wellFormed = OffsetsAreWellFormed(inputs.GuideOffsets, pointCount) &&
                                 inputs.GuideCurves.size() + 1u == inputs.GuideOffsets.size();
-        if (!wellFormed || !ParamsAreFinite(inputs.Params) || !Math::IsFinite(inputs.DeltaTime) ||
+        // Per-guide stiffness scales (#1533): empty is every guide at 1, and
+        // anything else must name every guide finitely. A short span is a caller
+        // bug, refused like a malformed offset table rather than guessed at.
+        const bool scalesWellFormed =
+            inputs.StiffnessScales.empty() ||
+            (inputs.StiffnessScales.size() + 1u == inputs.GuideOffsets.size() &&
+             std::ranges::all_of(inputs.StiffnessScales, [](f32 scale)
+                                 { return Math::IsFinite(scale); }));
+        if (!wellFormed || !scalesWellFormed || !ParamsAreFinite(inputs.Params) || !Math::IsFinite(inputs.DeltaTime) ||
             inputs.DeltaTime < 0.0f)
         {
             state.Clear();
@@ -140,6 +150,38 @@ namespace OloEngine
         const GroomSimulationParams params = Sanitize(inputs.Params);
         stats.GuidesSimulated = guideCount;
         stats.PointsSimulated = static_cast<u32>(pointCount);
+
+        // ── Each guide's own stiffness (#1533) ─────────────────────────────
+        //
+        // The entity's stiffness times the guide's group scale, held PER GUIDE
+        // to the step's stability ceiling: Sanitize has already held the
+        // entity's number under it, and a scale above 1 can lift one guide back
+        // over — a whisker group scaled for 60 Hz and solved at 15 — where the
+        // explicit shape term never settles (MaxStiffnessTimesStepSquared).
+        // NOT held to MaxStiffness: that bounds the AUTHORED component value,
+        // and a stiff group on a stiff entity is a legitimate product the step
+        // can carry. Counted before the re-seed below can return, so the number
+        // is there on every frame.
+        const f32 step = 1.0f / params.FixedHz;
+        const f32 stiffnessCeiling = GroomSimulationLimits::MaxStiffnessTimesStepSquared / (step * step);
+        TArray<f32> guideStiffness;
+        guideStiffness.Init(params.Stiffness, static_cast<i32>(guideCount));
+        if (!inputs.StiffnessScales.empty())
+        {
+            for (u32 g = 0; g < guideCount; ++g)
+            {
+                const f32 scaled = std::max(0.0f, params.Stiffness * inputs.StiffnessScales[g]);
+                if (scaled > stiffnessCeiling)
+                {
+                    guideStiffness[static_cast<i32>(g)] = stiffnessCeiling;
+                    ++stats.GuidesStiffnessCapped;
+                }
+                else
+                {
+                    guideStiffness[static_cast<i32>(g)] = scaled;
+                }
+            }
+        }
 
         // ── Re-seed, or continue ────────────────────────────────────────────
         //
@@ -180,6 +222,7 @@ namespace OloEngine
             state.GuideCurves.assign(inputs.GuideCurves.begin(), inputs.GuideCurves.end());
             state.Curr.assign(start.begin(), start.end());
             state.Prev = state.Curr;
+            state.LastTargets.assign(inputs.TargetPoints.begin(), inputs.TargetPoints.end());
             stats.SeededFromCoat = seedFromCoat;
             state.Accumulator = 0.0f;
             state.Initialized = true;
@@ -192,8 +235,66 @@ namespace OloEngine
             return stats;
         }
 
+        // ── A call that runs no step carries the coat with the body (#1533) ──
+        //
+        // The clock can be zero while the body still moves. Edit mode is the
+        // case: an animation preview plays the skeleton there, and the
+        // simulation deliberately does not advance (Scene's
+        // m_GroomSimulationDeltaSeconds). Left where they were in WORLD space,
+        // the particles then stayed behind their own animal: a wagging tail's
+        // plume hung where the tail had been, root and all, since a root is
+        // only snapped to the body inside a step -- and a crown and a cheek went
+        // bald as the head turned out from under their fur. So a call that will
+        // run no step moves every particle by its own target's motion instead.
+        // The drape is held in the body's frame, a still body is held exactly
+        // (a paused frame's targets have not moved), and the first step after
+        // it continues from a coat that is where the animal is.
+        //
+        // Each particle moves by its OWN target's motion, which is not a rigid
+        // motion of the strand once the coat hangs far from its groom and the
+        // body turns under it -- so the length projection follows, root to tip,
+        // or a swinging coat seen at 144 Hz (a stepless frame every other frame)
+        // stretched to twice its length. Length is the invariant; the drape is
+        // carried as closely as keeping it allows.
+        //
+        // A still body is not touched at all -- not even re-projected, which
+        // would move a paused coat by the projection's rounding -- so a paused
+        // frame holds the state bit for bit.
+        bool bodyMoved = false;
+        if (state.Accumulator + inputs.DeltaTime < step && state.LastTargets.size() == pointCount)
+        {
+            for (sizet i = 0; i < pointCount; ++i)
+            {
+                const glm::vec3 moved = inputs.TargetPoints[i] - state.LastTargets[i];
+                bodyMoved = bodyMoved || glm::length2(moved) > 0.0f;
+                state.Curr[i] += moved;
+                state.Prev[i] += moved;
+            }
+        }
+        if (bodyMoved)
+        {
+            for (u32 g = 0; g < guideCount; ++g)
+            {
+                const u32 first = inputs.GuideOffsets[g];
+                const u32 last = inputs.GuideOffsets[g + 1u];
+                for (u32 i = first + 1u; i < last; ++i)
+                {
+                    const f32 rest = glm::length(inputs.TargetPoints[i] - inputs.TargetPoints[i - 1u]);
+                    const glm::vec3 delta = state.Curr[i] - state.Curr[i - 1u];
+                    const f32 length2 = glm::length2(delta);
+                    if (!(length2 > kSegmentEpsilon2))
+                    {
+                        continue;
+                    }
+                    const glm::vec3 placed = state.Curr[i - 1u] + (delta * (rest * glm::inversesqrt(length2)));
+                    state.Prev[i] += placed - state.Curr[i];
+                    state.Curr[i] = placed;
+                }
+            }
+        }
+        state.LastTargets.assign(inputs.TargetPoints.begin(), inputs.TargetPoints.end());
+
         // ── The fixed step, with a bounded catch-up ─────────────────────────
-        const f32 step = 1.0f / params.FixedHz;
         state.Accumulator += inputs.DeltaTime;
         if (const f32 maxArrears = static_cast<f32>(params.MaxSubsteps) * step; state.Accumulator > maxArrears)
         {
@@ -232,21 +333,46 @@ namespace OloEngine
         // its own range.
         std::vector<glm::vec3> corrections(pointCount, glm::vec3(0.0f));
 
+        // Per particle, this step: whether a collider held it, and the normal
+        // of the last one that did -- what the contact's friction is applied
+        // along at the END of the step. Same ownership as `corrections`.
+        std::vector<u8> touching(pointCount, 0u);
+        std::vector<glm::vec3> contactNormals(pointCount, glm::vec3(0.0f));
+
+        // The steps this call owes, counted before any runs: every guide takes
+        // the same number.
         u32 steps = 0;
         while (state.Accumulator >= step && steps < params.MaxSubsteps)
         {
             state.Accumulator -= step;
             ++steps;
-            stats.ContactsResolved = 0; // the LAST step's count is the reported one
+        }
 
-            for (u32 g = 0; g < guideCount; ++g)
+        // EVERY GUIDE IN PARALLEL, EACH THROUGH ALL OF THIS CALL'S STEPS (#1533
+        // E1). A step does nothing to one guide that reaches another: the roots,
+        // the targets and the colliders are fixed for the whole call, and a
+        // guide reads and writes only its own particle range (and its own range
+        // of the correction scratch). So the loops are swapped -- guides
+        // outside, steps inside -- and the guides split across workers: the same
+        // arithmetic in the same order for every particle, so the same bits on
+        // any number of threads. Serial, this was ~4 ms a step on the showcase
+        // dog, at one to two steps a frame. The contact count stays the LAST
+        // step's, summed over the workers.
+        struct GuideSolveContext
+        {
+            u32 ContactsResolved = 0;
+        };
+        const auto solveGuide = [&](const u32 g, GuideSolveContext& context)
+        {
+            const u32 first = inputs.GuideOffsets[g];
+            const u32 last = inputs.GuideOffsets[g + 1u];
+            if (last <= first)
             {
-                const u32 first = inputs.GuideOffsets[g];
-                const u32 last = inputs.GuideOffsets[g + 1u];
-                if (last <= first)
-                {
-                    continue;
-                }
+                return;
+            }
+            for (u32 stepIndex = 0; stepIndex < steps; ++stepIndex)
+            {
+                const bool lastStep = stepIndex + 1u == steps;
 
                 // The ROOT is kinematic: it is where the body put it, exactly,
                 // with no integration at all. A simulated root is a coat that
@@ -257,6 +383,7 @@ namespace OloEngine
                 corrections[first] = glm::vec3(0.0f);
 
                 // ── 1. Predict ──────────────────────────────────────
+                const f32 stiffness = guideStiffness[static_cast<i32>(g)];
                 for (u32 i = first + 1u; i < last; ++i)
                 {
                     const glm::vec3 curr = state.Curr[i];
@@ -264,10 +391,12 @@ namespace OloEngine
                     // The shape term is what makes this fur rather than hair:
                     // the strand is pulled back toward the position the GROOM
                     // put it in, so a coat holds its authored curl instead of
-                    // hanging off the body like a wet rope.
-                    const glm::vec3 accel = params.Stiffness * (inputs.TargetPoints[i] - curr) + params.Gravity;
+                    // hanging off the body like a wet rope. At THIS guide's
+                    // stiffness, which its group may scale (#1533).
+                    const glm::vec3 accel = stiffness * (inputs.TargetPoints[i] - curr) + params.Gravity;
                     state.Prev[i] = curr;
                     state.Curr[i] = curr + velocity + accel * dt2;
+                    touching[i] = 0u;
                 }
 
                 // ── 2. Collide, BEFORE the length pass ──────────────
@@ -281,13 +410,29 @@ namespace OloEngine
                 // failure criterion 1 names, while a strand whose tip grazes a
                 // capsule by a tenth of a millimetre is not visible at all. The
                 // shell (ColliderPadding) is what buys back the difference.
+                //
+                // THE GROOM'S OWN DEPTH IS ALLOWED (#1533). A fitted proxy is a
+                // capsule round a bone, and wherever the body is slimmer than it
+                // -- a dog's crown, the base of an ear -- the groom's own short
+                // fur lies INSIDE it. Pushing every particle out to the shell lifted
+                // that fur off the skin and bared it. So a particle is held out
+                // only as far as its TARGET is: the shell for a particle the groom
+                // put outside it, the rest depth for one it put inside. Gravity
+                // still cannot sink it deeper than the groom did, which is the
+                // whole job; it just stops being pushed further out than that.
                 if (collide)
                 {
                     for (u32 i = first + 1u; i < last; ++i)
                     {
                         for (const GroomCollider& collider : inputs.Colliders)
                         {
-                            const f32 radius = collider.Radius + params.ColliderPadding;
+                            const f32 shell = collider.Radius + params.ColliderPadding;
+                            if (!(shell > 0.0f))
+                            {
+                                continue;
+                            }
+                            const glm::vec3 restNearest = ClosestPointOnGroomCollider(collider, inputs.TargetPoints[i]);
+                            const f32 radius = std::min(shell, glm::length(inputs.TargetPoints[i] - restNearest));
                             if (!(radius > 0.0f))
                             {
                                 continue;
@@ -319,19 +464,13 @@ namespace OloEngine
                             }
 
                             state.Curr[i] = nearest + normal * radius;
-                            // FRICTION IS APPLIED TO THE PREVIOUS POSITION, not
-                            // to a velocity field, because this integrator's
-                            // velocity IS curr - prev. Moving `prev` toward the
-                            // contact point along the normal kills the inward
-                            // component and keeps the tangential one, scaled by
-                            // the friction coefficient — one expression for both
-                            // halves, so they cannot disagree about which is
-                            // which.
-                            const glm::vec3 relative = state.Prev[i] - state.Curr[i];
-                            const glm::vec3 alongNormal = normal * glm::dot(relative, normal);
-                            const glm::vec3 tangential = relative - alongNormal;
-                            state.Prev[i] = state.Curr[i] + tangential * params.ColliderFriction;
-                            ++stats.ContactsResolved;
+                            // The contact's FRICTION waits for the end of the
+                            // step (section 4): the length pass still moves
+                            // this particle, and what it leaves with is what
+                            // the friction must act on.
+                            touching[i] = 1u;
+                            contactNormals[i] = normal;
+                            context.ContactsResolved += lastStep ? 1u : 0u;
                         }
                     }
                 }
@@ -383,8 +522,25 @@ namespace OloEngine
                             // particle i. Handing it back through `Prev` —
                             // which is where this integrator keeps velocity —
                             // is what separates DFTL from FTL's syrup.
+                            //
+                            // NOT TO OR FROM A PARTICLE A COLLIDER HELD (#1533).
+                            // The momentum is a FREE chain's. Where i+1 sat on a
+                            // collider, its correction undoes the collider's
+                            // push, and handed to i as velocity it fed the
+                            // contact's reaction back into the strand every
+                            // step; where i sat on one, its velocity is the
+                            // contact's to decide. Handed back across contacts,
+                            // a coat lying on its body never came to rest: the
+                            // dog's long hair swung 0.4 mm for as long as it
+                            // stood, and with full stick (friction 0) a strand
+                            // across two capsules swung 13 mm
+                            // (StrandsAcrossTwoCollidersComeToRestAtAnyFriction).
                             for (u32 i = first + 1u; i + 1u < last; ++i)
                             {
+                                if ((touching[i] | touching[i + 1u]) != 0u)
+                                {
+                                    continue;
+                                }
                                 state.Prev[i] -= corrections[i + 1u] * params.VelocityCorrection;
                             }
                         }
@@ -431,6 +587,48 @@ namespace OloEngine
                     case GroomSolverModel::Count:
                         break;
                 }
+
+                // ── 4. The contact's friction, on what the step leaves ──
+                //
+                // FRICTION IS APPLIED TO THE PREVIOUS POSITION, not to a
+                // velocity field, because this integrator's velocity IS curr -
+                // prev: the approaching part of it along the contact normal is
+                // removed, a separating part kept, and the tangential part
+                // scaled by the friction coefficient. And it is applied LAST
+                // (#1533). Applied at the push, it acted on a velocity the
+                // length pass then replaced -- its displacement of the held
+                // particle became that particle's velocity unfiltered -- so full
+                // stick (friction 0) did not stick at all: a strand across two
+                // capsules swung 13 mm at rest.
+                if (collide)
+                {
+                    for (u32 i = first + 1u; i < last; ++i)
+                    {
+                        if (touching[i] == 0u)
+                        {
+                            continue;
+                        }
+                        const glm::vec3 normal = contactNormals[i];
+                        const glm::vec3 velocity = state.Curr[i] - state.Prev[i];
+                        const f32 alongNormal = glm::dot(velocity, normal);
+                        const glm::vec3 tangential = velocity - normal * alongNormal;
+                        const glm::vec3 kept = (alongNormal > 0.0f ? normal * alongNormal : glm::vec3(0.0f)) +
+                                               tangential * params.ColliderFriction;
+                        state.Prev[i] = state.Curr[i] - kept;
+                    }
+                }
+            }
+        };
+        if (steps > 0u)
+        {
+            TArray<GuideSolveContext> contexts;
+            ParallelForWithTaskContext("GroomGuideSolve", contexts, static_cast<i32>(guideCount), 16,
+                                       [&](GuideSolveContext& context, i32 index)
+                                       { solveGuide(static_cast<u32>(index), context); });
+            stats.ContactsResolved = 0;
+            for (const GuideSolveContext& context : contexts)
+            {
+                stats.ContactsResolved += context.ContactsResolved;
             }
         }
 

@@ -1683,6 +1683,7 @@ namespace OloEngine
                 layer.ImpostorAtlasResolution = layerNode["ImpostorAtlasResolution"].as<u32>(layer.ImpostorAtlasResolution);
                 layer.ImpostorHemiOctahedral = layerNode["ImpostorHemiOctahedral"].as<bool>(layer.ImpostorHemiOctahedral);
                 layer.Enabled = layerNode["Enabled"].as<bool>(layer.Enabled);
+                layer.CastShadows = layerNode["CastShadows"].as<bool>(layer.CastShadows);
                 foliage.m_Layers.Add(layer);
             }
         }
@@ -3617,6 +3618,13 @@ namespace OloEngine
             SanitizeFloat(anim.m_BlendDuration, 0.001f, 1.0e6f, 0.3f);
             anim.m_CurrentClipIndex = animComponent["CurrentClipIndex"].as<int>(anim.m_CurrentClipIndex);
             anim.m_IsPlaying = animComponent["IsPlaying"].as<bool>(anim.m_IsPlaying);
+            // Absent in scenes written before issue #1533, which all looped at
+            // the authored rate.
+            anim.m_Loop = animComponent["Loop"].as<bool>(anim.m_Loop);
+            anim.m_PlaybackSpeed = animComponent["PlaybackSpeed"].as<f32>(anim.m_PlaybackSpeed);
+            // The OLO_SERIALIZE(Clamp) on the field reaches the live-write
+            // registries, not this hand-written block, so the range is restated.
+            SanitizeFloat(anim.m_PlaybackSpeed, 0.0f, 10.0f, 1.0f);
 
             // Stored like every other content path (#1496): "Assets/..." for project
             // content, "assets/..." for engine content, resolved by ResolveContentPath.
@@ -5040,7 +5048,11 @@ namespace OloEngine
             out << YAML::Key << "Metallic" << YAML::Value << matComponent.m_Material.GetMetallicFactor();
             out << YAML::Key << "Roughness" << YAML::Value << matComponent.m_Material.GetRoughnessFactor();
             // Emissive + texture maps (issue #974): omitted at their defaults
-            // so pre-existing scenes stay byte-identical. Emissive is written
+            // so pre-existing scenes stay byte-identical. The map paths go
+            // through MakePortableSceneResourcePath: an asset-imported texture
+            // reports its project-relative path in the platform's spelling,
+            // and "Assets\Models\..." written on Windows names no file on
+            // Linux (#1533). Emissive is written
             // as the FULL vec4 — the save-game serializer and the C# binding
             // carry all four components, and scene YAML must not silently
             // truncate what they preserve.
@@ -5052,24 +5064,24 @@ namespace OloEngine
             }
             if (auto albedoMap = matComponent.m_Material.GetAlbedoMap(); albedoMap && !albedoMap->GetPath().empty())
             {
-                out << YAML::Key << "AlbedoMapPath" << YAML::Value << std::string(albedoMap->GetPath());
+                out << YAML::Key << "AlbedoMapPath" << YAML::Value << MakePortableSceneResourcePath(albedoMap->GetPath());
             }
             if (auto normalMap = matComponent.m_Material.GetNormalMap(); normalMap && !normalMap->GetPath().empty())
             {
-                out << YAML::Key << "NormalMapPath" << YAML::Value << std::string(normalMap->GetPath());
+                out << YAML::Key << "NormalMapPath" << YAML::Value << MakePortableSceneResourcePath(normalMap->GetPath());
             }
             if (auto mrMap = matComponent.m_Material.GetMetallicRoughnessMap(); mrMap && !mrMap->GetPath().empty())
             {
-                out << YAML::Key << "MetallicRoughnessMapPath" << YAML::Value << std::string(mrMap->GetPath());
+                out << YAML::Key << "MetallicRoughnessMapPath" << YAML::Value << MakePortableSceneResourcePath(mrMap->GetPath());
             }
             if (auto aoMap = matComponent.m_Material.GetAOMap(); aoMap && !aoMap->GetPath().empty())
             {
-                out << YAML::Key << "AOMapPath" << YAML::Value << std::string(aoMap->GetPath());
+                out << YAML::Key << "AOMapPath" << YAML::Value << MakePortableSceneResourcePath(aoMap->GetPath());
             }
             if (auto emissiveMap = matComponent.m_Material.GetEmissiveMap();
                 emissiveMap && !emissiveMap->GetPath().empty())
             {
-                out << YAML::Key << "EmissiveMapPath" << YAML::Value << std::string(emissiveMap->GetPath());
+                out << YAML::Key << "EmissiveMapPath" << YAML::Value << MakePortableSceneResourcePath(emissiveMap->GetPath());
             }
             // The thickness map (issue #1242) — KHR_materials_volume's thickness
             // texture, a per-pixel modulation of ThicknessFactor. Written only
@@ -5078,7 +5090,7 @@ namespace OloEngine
             if (auto thicknessMap = matComponent.m_Material.GetThicknessMap();
                 thicknessMap && !thicknessMap->GetPath().empty())
             {
-                out << YAML::Key << "ThicknessMapPath" << YAML::Value << std::string(thicknessMap->GetPath());
+                out << YAML::Key << "ThicknessMapPath" << YAML::Value << MakePortableSceneResourcePath(thicknessMap->GetPath());
             }
             if (const f32 normalScale = matComponent.m_Material.GetNormalScale(); std::abs(normalScale - 1.0f) > 1e-6f)
             {
@@ -5961,6 +5973,7 @@ namespace OloEngine
                     out << YAML::Key << "ImpostorAtlasResolution" << YAML::Value << layer.ImpostorAtlasResolution;
                     out << YAML::Key << "ImpostorHemiOctahedral" << YAML::Value << layer.ImpostorHemiOctahedral;
                     out << YAML::Key << "Enabled" << YAML::Value << layer.Enabled;
+                    out << YAML::Key << "CastShadows" << YAML::Value << layer.CastShadows;
                     out << YAML::EndMap;
                 }
                 out << YAML::EndSeq;
@@ -6123,11 +6136,11 @@ namespace OloEngine
 
             if (dc.m_AlbedoTexture)
             {
-                out << YAML::Key << "AlbedoTexturePath" << YAML::Value << std::string(dc.m_AlbedoTexture->GetPath());
+                out << YAML::Key << "AlbedoTexturePath" << YAML::Value << MakePortableSceneResourcePath(dc.m_AlbedoTexture->GetPath());
             }
             if (dc.m_NormalTexture)
             {
-                out << YAML::Key << "NormalTexturePath" << YAML::Value << std::string(dc.m_NormalTexture->GetPath());
+                out << YAML::Key << "NormalTexturePath" << YAML::Value << MakePortableSceneResourcePath(dc.m_NormalTexture->GetPath());
             }
             if (dc.m_RMATexture)
             {
@@ -6167,6 +6180,8 @@ namespace OloEngine
             out << YAML::Key << "BlendDuration" << YAML::Value << animComponent.m_BlendDuration;
             out << YAML::Key << "CurrentClipIndex" << YAML::Value << animComponent.m_CurrentClipIndex;
             out << YAML::Key << "IsPlaying" << YAML::Value << animComponent.m_IsPlaying;
+            out << YAML::Key << "Loop" << YAML::Value << animComponent.m_Loop;
+            out << YAML::Key << "PlaybackSpeed" << YAML::Value << animComponent.m_PlaybackSpeed;
             // Store source file path as relative path for portability
             if (!animComponent.m_SourceFilePath.empty())
             {

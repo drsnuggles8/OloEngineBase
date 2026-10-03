@@ -201,6 +201,9 @@ namespace OloEngine
         std::string m_DebugAllocationName;
         void* m_Mapped = nullptr; ///< Non-null when VMA gave a host-visible placement.
         bool m_NeedsFlush = false;
+        // The mapping is cached host memory: reading it back is cheap. Not so
+        // for write-combined memory, which a snapshot fill reads (#1533).
+        bool m_MappedIsCached = false;
         VkDeviceAddress m_DeviceAddress = 0;
         // Command-ordered draw-read snapshot (see GetRootDataAddress).
         // Valid only while m_SnapshotFrameGeneration matches the arena's

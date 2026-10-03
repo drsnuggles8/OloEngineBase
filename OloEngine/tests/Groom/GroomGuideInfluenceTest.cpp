@@ -704,6 +704,67 @@ TEST(GroomGuideInfluence, AStandInIsSampledByParameterAlongTheGuide)
     EXPECT_TRUE(out.IsEmpty());
 }
 
+TEST(GroomGuideInfluence, AStandInBetweenDivergingGuidesSagsAsFarAsTheyDo)
+{
+    // #1533: two guides whose tips moved the same distance, 90 degrees apart. A
+    // linear blend gives the stand-in between them 0.707 of that distance -- it
+    // sags less than either neighbour. They agree well enough (the blend keeps
+    // cos 45 of their length) that it takes their length, along the blend.
+    TArray<GroomGuideWeights> standIns;
+    standIns.SetNum(3);
+    standIns[0].Guides[0] = 0u;
+    standIns[0].Weights[0] = 1.0f;
+    standIns[1].Guides[0] = 1u;
+    standIns[1].Weights[0] = 1.0f;
+    standIns[2].Guides[0] = 0u;
+    standIns[2].Weights[0] = 0.5f;
+    standIns[2].Guides[1] = 1u;
+    standIns[2].Weights[1] = 0.5f;
+    const std::vector<u32> pointCounts{ 2u, 2u, 2u };
+    const std::vector<u32> offsets{ 0u, 2u, 4u };
+    const std::vector<glm::vec3> displacements{ { 0, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, { 0, -1, 0 } };
+    TArray<u32> outOffsets;
+    TArray<glm::vec3> out;
+    ASSERT_TRUE(ExpandGroomGuideDisplacements(std::span{ standIns.GetData(), 3u }, pointCounts, offsets, displacements,
+                                              outOffsets, out));
+    ASSERT_EQ(out.Num(), 6);
+    EXPECT_NEAR(glm::length(out[5]), 1.0f, 1.0e-5f) << "the stand-in sagged less than both of its guides";
+    EXPECT_NEAR(out[5].x, glm::sqrt(0.5f), 1.0e-5f) << "along the blend's direction";
+    EXPECT_NEAR(out[5].y, -glm::sqrt(0.5f), 1.0e-5f);
+    // The control: a slot with one guide takes it exactly, and roots stay put.
+    EXPECT_EQ(out[1], glm::vec3(1, 0, 0));
+    EXPECT_EQ(out[3], glm::vec3(0, -1, 0));
+    EXPECT_EQ(out[4], glm::vec3(0.0f));
+}
+
+TEST(GroomGuideInfluence, OpposedGuidesLeaveTheLinearBlend)
+{
+    // A part: two guides moved nearly opposite ways (175 degrees apart). No
+    // direction between them is right, so the stand-in keeps the short linear
+    // blend rather than inflating a near-zero vector to full length in
+    // whatever direction rounding left it.
+    TArray<GroomGuideWeights> standIns;
+    standIns.SetNum(1);
+    standIns[0].Guides[0] = 0u;
+    standIns[0].Weights[0] = 0.5f;
+    standIns[0].Guides[1] = 1u;
+    standIns[0].Weights[1] = 0.5f;
+    const f32 angle = glm::radians(175.0f);
+    const glm::vec3 other{ glm::cos(angle), glm::sin(angle), 0.0f };
+    const std::vector<u32> pointCounts{ 2u };
+    const std::vector<u32> offsets{ 0u, 2u, 4u };
+    const std::vector<glm::vec3> displacements{ { 0, 0, 0 }, { 1, 0, 0 }, { 0, 0, 0 }, other };
+    TArray<u32> outOffsets;
+    TArray<glm::vec3> out;
+    ASSERT_TRUE(ExpandGroomGuideDisplacements(std::span{ standIns.GetData(), 1u }, pointCounts, offsets, displacements,
+                                              outOffsets, out));
+    ASSERT_EQ(out.Num(), 2);
+    const glm::vec3 linear = (glm::vec3(1, 0, 0) + other) * 0.5f;
+    EXPECT_NEAR(out[1].x, linear.x, 1.0e-6f);
+    EXPECT_NEAR(out[1].y, linear.y, 1.0e-6f);
+    EXPECT_LT(glm::length(out[1]), 0.05f);
+}
+
 TEST(GroomGuideInfluence, AStandInNeverCrossesARoleEvenInsideItsGroup)
 {
     // One group holding slots of two roles. Role 0 is simulated (slot 0); role 1

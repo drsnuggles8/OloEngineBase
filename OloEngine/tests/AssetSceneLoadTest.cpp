@@ -70,6 +70,7 @@
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/RendererTypes.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 
@@ -864,6 +865,47 @@ namespace OloEngine::Tests
         EXPECT_GT(checked, 0u)
             << "FontRenderingTest.olo carries no TextComponent any more — this test is asserting nothing. "
                "Point it at another scene with a FontPath, or delete it.";
+    }
+
+    // A texture imported as a project asset reports its project-relative path in
+    // the platform's spelling, and the scene wrote it verbatim: the dog showcase
+    // exported "AlbedoMapPath: Assets\Models\Dog\DogIrisColor.png" on Windows, a
+    // name that is no file on Linux (#1533). The material maps and the decal
+    // textures are written with forward slashes. On Linux the platform spelling
+    // already is that, so this bites only where it was broken.
+    TEST(AssetSceneLoad, MaterialAndDecalTexturePathsAreWrittenWithForwardSlashes)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        if (!Renderer3D::IsInitialized())
+        {
+            Renderer::Init(RendererType::Renderer3D, /*loadingWindow=*/nullptr);
+        }
+
+        GLStateGuard glGuard("AssetSceneLoad.PortableTexturePaths", GLStateGuard::Policy::Restore);
+
+        const fs::path relative = fs::path("Assets") / "Textures" / "Checkerboard.png";
+        const fs::path file = fs::path(OLO_TEST_EDITOR_ROOT) / "SandboxProject" / relative;
+        ASSERT_TRUE(fs::exists(file)) << file.string();
+        // The identity TextureSerializer gives an imported texture: metadata.FilePath.string().
+        const Ref<Texture2D> texture = Texture2D::Create(file.string(), true, relative.string());
+        ASSERT_TRUE(texture && texture->IsLoaded());
+
+        auto scene = Scene::Create();
+        Entity eye = scene->CreateEntity("Material");
+        auto& material = eye.AddComponent<MaterialComponent>().m_Material;
+        material.SetAlbedoMap(texture);
+        material.SetNormalMap(texture);
+        Entity decal = scene->CreateEntity("Decal");
+        decal.AddComponent<DecalComponent>().m_AlbedoTexture = texture;
+
+        const std::string yaml = SceneSerializer(scene).SerializeToYAML();
+        for (const char* key : { "AlbedoMapPath", "NormalMapPath", "AlbedoTexturePath" })
+        {
+            EXPECT_NE(yaml.find(std::string(key) + ": Assets/Textures/Checkerboard.png"), std::string::npos)
+                << key << " was not written as a forward-slash project-relative path";
+        }
+        EXPECT_EQ(yaml.find("Assets\\"), std::string::npos) << "a texture path was written with backslashes";
     }
 
 } // namespace OloEngine::Tests

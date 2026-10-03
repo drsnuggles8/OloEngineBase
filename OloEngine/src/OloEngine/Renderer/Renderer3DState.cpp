@@ -220,6 +220,53 @@ namespace OloEngine
         s_Data.GroomStrandRequests = std::move(requests);
     }
 
+    void Renderer3D::RecycleGroomStrandRequests() noexcept
+    {
+        // The frame just drawn is done with its requests; their root-transform
+        // arrays go to the pool rather than back to the allocator (#1533 E1).
+        // Whatever the last frame's producers did not take is dropped here, so
+        // the pool is bounded by one frame's arrays.
+        s_Data.GroomRootTransformPool.Empty();
+        for (GroomStrandRequest& request : s_Data.GroomStrandRequests)
+        {
+            if (request.RootTransforms.Max() > 0)
+            {
+                s_Data.GroomRootTransformPool.Add(std::move(request.RootTransforms));
+            }
+        }
+        s_Data.GroomStrandRequests.Empty();
+    }
+
+    void Renderer3D::TakePooledGroomRootTransforms(TArray<GroomRootTransform>& storage, u32 needed) noexcept
+    {
+        auto& pool = s_Data.GroomRootTransformPool;
+        if (static_cast<u64>(storage.Max()) >= needed || pool.IsEmpty())
+        {
+            return;
+        }
+        // The smallest array that fits, so a herd's small coats do not take the
+        // big one's; none fits, the biggest, which then grows once.
+        i32 best = -1;
+        for (i32 i = 0; i < pool.Num(); ++i)
+        {
+            const u64 capacity = static_cast<u64>(pool[i].Max());
+            if (best < 0)
+            {
+                best = i;
+                continue;
+            }
+            const u64 bestCapacity = static_cast<u64>(pool[best].Max());
+            const bool fits = capacity >= needed;
+            const bool bestFits = bestCapacity >= needed;
+            if ((fits && (!bestFits || capacity < bestCapacity)) || (!fits && !bestFits && capacity > bestCapacity))
+            {
+                best = i;
+            }
+        }
+        storage = std::move(pool[best]);
+        pool.RemoveAtSwap(best);
+    }
+
     void Renderer3D::SetCameraClipPlanes(f32 nearClip, f32 farClip)
     {
         s_Data.CameraNearClip = nearClip;

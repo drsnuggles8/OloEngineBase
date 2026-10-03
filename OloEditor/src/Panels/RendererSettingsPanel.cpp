@@ -132,6 +132,7 @@ namespace OloEngine
             AppendChange(changes, "HonourSceneTemporalResolveRequests", before.HonourSceneTemporalResolveRequests,
                          after.HonourSceneTemporalResolveRequests);
             AppendChange(changes, "GroomGpuDeformation", before.GroomGpuDeformation, after.GroomGpuDeformation);
+            AppendChange(changes, "GroomGpuRootFrames", before.GroomGpuRootFrames, after.GroomGpuRootFrames);
             AppendChange(changes, "Deferred.GBufferDecalsEnabled", before.Deferred.GBufferDecalsEnabled, after.Deferred.GBufferDecalsEnabled);
             AppendChange(changes, "Deferred.EnableLightProbes", before.Deferred.EnableLightProbes, after.Deferred.EnableLightProbes);
 
@@ -487,10 +488,13 @@ namespace OloEngine
 
             if (ImGui::SliderFloat("Clip Selection Bias##vsm", &vsm.ClipSelectionBias, 0.25f, 4.0f, "%.2f"))
                 vsmChanged = true;
-            if (ImGui::SliderFloat("Depth Bias (m)##vsm", &vsm.DepthBiasMeters, 0.0f, 0.5f, "%.4f"))
-                vsmChanged = true;
-            if (ImGui::SliderFloat("Normal Bias (m)##vsm", &vsm.NormalBias, 0.0f, 0.5f, "%.4f"))
-                vsmChanged = true;
+            ImGui::TextDisabled("Receiver bias: the light's own (Shadow Depth Bias, Normal Bias)");
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("The sun's clip levels take the cascades' bias and a lamp's layers the\n"
+                                  "atlas's, each in texels of the level or mip sampled (#1533). A fixed\n"
+                                  "5 cm skipped contact shadows the cascades kept.");
+            }
 
             ImGui::Spacing();
             if (ImGui::Checkbox("Local Lights (point / spot)##vsm", &vsm.LocalLights))
@@ -515,11 +519,6 @@ namespace OloEngine
                                       "cheaper, <1 sharper. Changing it invalidates every cached page —\n"
                                       "the page MARKER and the SAMPLER both run this heuristic and must\n"
                                       "agree on it.");
-                }
-                if (ImGui::SliderFloat("Local Depth Bias (m)##vsm", &vsm.LocalDepthBiasMeters, 0.0f, 0.25f,
-                                       "%.4f"))
-                {
-                    vsmChanged = true;
                 }
             }
 
@@ -1242,6 +1241,17 @@ namespace OloEngine
                 ImGui::SetTooltip("A coat bound to an animating body is deformed in the strand vertex shader.\n"
                                   "Untick to rebuild and re-upload every deformed strand on the CPU each frame:\n"
                                   "the reference path, for an A/B. Same coat, a fraction of the frame rate.");
+            }
+
+            // Read by Scene per frame; nothing to apply (#1533).
+            ImGui::BeginDisabled(!settings.GroomGpuDeformation);
+            ImGui::Checkbox("Evaluate bound grooms' roots on the GPU", &settings.GroomGpuRootFrames);
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            {
+                ImGui::SetTooltip("Each drawn strand's root is skinned from the bone palette by a compute pass.\n"
+                                  "Untick to skin, pack and upload every root on the CPU each frame: the\n"
+                                  "reference path, for an A/B. Needs GPU deformation.");
             }
 
             ImGui::Unindent();

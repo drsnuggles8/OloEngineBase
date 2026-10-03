@@ -44,6 +44,15 @@ namespace OloEngine
                 t[i + 1] = static_cast<u64>(r.m_Children[i]);
             return t; }));
 
+        // --- BoneAttachmentComponent (issue #1533) ---
+        // A script can re-target a prop to another bone or switch the attachment
+        // off at runtime. The bone is resolved by name every frame, so an unknown
+        // name is not rejected here: it composes parent-relative and is reported
+        // by Scene::PropagateWorldTransforms, the same as an authored one.
+        lua.new_usertype<BoneAttachmentComponent>("BoneAttachmentComponent",
+                                                  "boneName", &BoneAttachmentComponent::m_BoneName,
+                                                  "enabled", &BoneAttachmentComponent::m_Enabled);
+
         // --- TagComponent ---
         lua.new_usertype<TagComponent>("TagComponent",
                                        "tag", &TagComponent::Tag);

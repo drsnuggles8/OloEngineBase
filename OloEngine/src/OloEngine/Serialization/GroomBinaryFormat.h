@@ -8,7 +8,7 @@
 namespace OloEngine
 {
     // ============================================================================
-    // .ologroom Binary Groom Format — Version 3 (issues #1232, #1251, #1252)
+    // .ologroom Binary Groom Format — Version 4 (issues #1232, #1251, #1252, #1533)
     //
     // The engine-native cooked groom. Produced from an Alembic ICurves archive
     // (or any other curve source) by GroomCooker::CookToBytes; read back by
@@ -41,8 +41,11 @@ namespace OloEngine
     //                            SourceFormat bytes (lengths in the header)
     //   Section 9 GroupCoats   — GroomCoatGroupDesc * GroupCount (issue #1251):
     //                            each group's coat role, density, length, width,
-    //                            clump and tint. Exactly GroupCount entries — a
-    //                            groom whose in-memory table is empty writes the
+    //                            clump and root tint and, since version 4 (issue
+    //                            #1533), its tip tint, curl, wave and simulation
+    //                            stiffness scale — 64 bytes an entry, explicitly
+    //                            padded. Exactly GroupCount entries — a groom
+    //                            whose in-memory table is empty writes the
     //                            identity description for every group, so the
     //                            section is fixed-size and the reader never has
     //                            to decide what a short table means.
@@ -79,20 +82,25 @@ namespace OloEngine
     {
         constexpr u32 MagicNumber = 0x4D524750; // "PGRM" in little-endian
         // Version 2 added section 9 (per-group coat authoring, issue #1251);
-        // version 3 added section 10 (cooked LOD levels, issue #1252).
+        // version 3 added section 10 (cooked LOD levels, issue #1252);
+        // version 4 grew each section-9 entry from 32 to 64 bytes for the tip
+        // tint, curl, wave and stiffness scale (coat authoring v4, issue #1533).
         // An older file is REJECTED BY VERSION rather than read without the new
         // section: a .ologroom is a derived artifact, so the minimum moves with
         // the current one and the fix is one re-import — the policy
         // docs/agent-rules/binary-format-versioning.md sets for this class of
-        // file, and the reason the reader has no migration branch.
+        // file, and the reason the reader has no migration branch. (A version-3
+        // file that reached the section reader would fail section 9's length
+        // check and blame a "malformed" section, which sends the reader looking
+        // for corruption instead of for a re-import.)
         //
         // WHAT THAT MEANS FOR A PROJECT WITH COOKED GROOMS ON DISK: every
         // .ologroom written before this change fails to load with a named
         // version error and must be re-imported. That is the deliberate cost of
         // this policy, and GroomLodRoundTripTest pins the refusal so the
         // failure is the readable one rather than a mis-parse.
-        constexpr u32 CurrentVersion = 3;
-        constexpr u32 MinSupportedVersion = 3; // == CurrentVersion, on purpose — see header comment
+        constexpr u32 CurrentVersion = 4;
+        constexpr u32 MinSupportedVersion = 4; // == CurrentVersion, on purpose — see header comment
 
         constexpr u32 FlagCompressed = 1; // Bit 0: payload is zlib-compressed
 

@@ -124,6 +124,23 @@ namespace OloEngine
                 if (slot.Bound && slot.LastBoundFrame == frame)
                     ringDemand += *bytes;
             }
+            // The body's texture (#1533) is bound with the coat's slot, so it
+            // is in demand exactly when that slot is.
+            if (entry.CoatBody)
+            {
+                const auto bytes = Texture3DBytes(*entry.CoatBody);
+                if (!bytes)
+                {
+                    ringComplete = false;
+                }
+                else
+                {
+                    ringCapacity += *bytes;
+                    const auto& bound = entry.CoatRing[entry.CoatSlot];
+                    if (bound.Bound && bound.LastBoundFrame == frame)
+                        ringDemand += *bytes;
+                }
+            }
 
             cpuBytes += entry.DeformCpu.GetCpuBytes();
             cpuBytes += VectorBytes(entry.CoatBakedPose) + VectorBytes(entry.CoatFibreScales) + VectorBytes(entry.CoatPoseSubset);
@@ -158,8 +175,10 @@ namespace OloEngine
                 cpuBytes += VectorBytes(stream->RootCurves) + VectorBytes(stream->PoseSegments);
         }
         cpuBytes += VectorBytes(m_DeformedVertices) + VectorBytes(m_DrawnPose) + VectorBytes(m_DrawnPoseFull) +
-                    VectorBytes(m_CoatSegments) + VectorBytes(m_CoatVolumeScratch.Density) +
-                    VectorBytes(m_CoatVolumeScratch.Direction) + VectorBytes(m_CoatPackHalf) + VectorBytes(m_CoatPackFloat);
+                    VectorBytes(m_CoatSegments) + VectorBytes(m_RestCentrelines) + VectorBytes(m_CoatVolumeScratch.Density) +
+                    VectorBytes(m_CoatVolumeScratch.Direction) + VectorBytes(m_CoatVolumeScratch.Body) +
+                    VectorBytes(m_CoatPackHalf) + VectorBytes(m_CoatPackFloat) +
+                    static_cast<u64>(m_CpuRootScratch.GetAllocatedSize());
         for (const auto& table : m_CardFibreTables)
             cpuBytes += VectorBytes(table.ByGroup);
         {

@@ -400,6 +400,11 @@ namespace OloEngine
         std::vector<glm::vec3> Curr;
         std::vector<glm::vec3> Prev;
 
+        /// The targets the previous call was handed, parallel to `Curr`: what a
+        /// call that runs no step carries the particles by (#1533). See
+        /// StepGroomGuideSimulation.
+        std::vector<glm::vec3> LastTargets;
+
         /// Seconds of un-simulated time carried into the next frame.
         f32 Accumulator = 0.0f;
 
@@ -421,6 +426,7 @@ namespace OloEngine
             GuideCurves.clear();
             Curr.clear();
             Prev.clear();
+            LastTargets.clear();
             Accumulator = 0.0f;
             Initialized = false;
         }
@@ -453,6 +459,14 @@ namespace OloEngine
         /// is a proxy that is too big, which is a fact about the authoring.
         u32 ContactsResolved = 0;
 
+        /// Guides whose group's StiffnessScale lifted them past the step's
+        /// stability ceiling (MaxStiffnessTimesStepSquared), so they were solved
+        /// at the ceiling instead (#1533). Such a guide is softer than authored
+        /// -- a whisker group scaled for 60 Hz and run at 15 -- and looks
+        /// exactly like one authored soft, so it is counted rather than left for
+        /// someone to notice.
+        u32 GuidesStiffnessCapped = 0;
+
         /// Worst |segment| / restLength over every simulated segment after the
         /// final step. THE criterion-1 number: 1.0 is exact, and the solve is
         /// in contract while |ratio - 1| <= StretchTolerance.
@@ -466,6 +480,11 @@ namespace OloEngine
 
         /// Seconds of arrears carried into the next frame.
         f32 Accumulator = 0.0f;
+
+        /// Wall-clock microseconds the solve took, stamped by the CALLER
+        /// around StepGroomGuideSimulation (#1533 E4: the simulation's cost
+        /// is CPU time, so it is reported as CPU time).
+        u64 SolveMicroseconds = 0;
 
         /// True when the catch-up bound dropped time this frame. Surfaced
         /// because a coat that is permanently in arrears looks fine in a still
@@ -524,6 +543,20 @@ namespace OloEngine
         /// out by `GuideOffsets`; ignored unless it matches `TargetPoints` in
         /// size and is finite, and ignored when `HasHistory` is false.
         std::span<const glm::vec3> SeedPoints{};
+
+        /// Per guide, parallel to `GuideCurves`: the factor on
+        /// `Params.Stiffness` for that guide (#1533) — its group's
+        /// GroomCoatGroupDesc::StiffnessScale. The entity's stiffness is one
+        /// number, and without this a body undercoat and a long tail plume sag
+        /// by the same g/k.
+        ///
+        /// EMPTY means 1 for every guide, bit for bit the solve that existed
+        /// before. Anything else must name every guide with a finite value, or
+        /// the solve is REFUSED like a malformed offset table: a short span is a
+        /// caller bug, and guessing the missing scales would stiffen or soften
+        /// guides nobody authored. Each guide's product is then held to the
+        /// step's stability ceiling on its own (GuidesStiffnessCapped).
+        std::span<const f32> StiffnessScales{};
     };
 
     /**

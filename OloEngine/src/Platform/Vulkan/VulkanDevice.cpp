@@ -829,6 +829,12 @@ namespace OloEngine
         // multiDrawIndirect: maxDrawCount > 1 on vkCmdDrawIndexedIndirectCount
         // requires the feature (#691, same when-supported rule).
         enabledFeatures.multiDrawIndirect = supported.multiDrawIndirect;
+        // drawIndirectFirstInstance: an indirect command's firstInstance must be
+        // 0 without it (VUID-VkDrawIndexedIndirectCommand-firstInstance-00554).
+        // The foliage cull draws a layer's mesh parts from a region of its
+        // compacted stream that starts at a non-zero instance (#1533). Same
+        // when-supported rule; FoliageGPUCuller keeps one region without it.
+        enabledFeatures.drawIndirectFirstInstance = supported.drawIndirectFirstInstance;
         // Vertex-stage SSBO writes (ShaderDebugDraw's channel buffers) and
         // fragment-stage storage images (VirtualGeometry's debug images) are
         // rejected at pipeline creation without these two core features
@@ -871,6 +877,7 @@ namespace OloEngine
         m_TessellationShaderEnabled = supported.tessellationShader == VK_TRUE;
         m_GeometryShaderEnabled = supported.geometryShader == VK_TRUE;
         m_MultiDrawIndirectEnabled = supported.multiDrawIndirect == VK_TRUE;
+        m_DrawIndirectFirstInstanceEnabled = supported.drawIndirectFirstInstance == VK_TRUE;
 
         // shaderBufferInt64Atomics: the facade REPORTS this capability
         // (SupportsInt64ShaderAtomics feeds the virtual-geometry software

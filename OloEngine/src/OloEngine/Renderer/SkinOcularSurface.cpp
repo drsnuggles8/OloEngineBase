@@ -399,6 +399,71 @@ namespace OloEngine
         return result;
     }
 
+    glm::vec3 SkinOcularIrisShift(const glm::vec3& normal, const glm::vec3& view, const glm::vec3& axis,
+                                  const glm::vec4& corneaLane, const glm::vec4& irisLane,
+                                  const glm::vec4& responseLane, const glm::vec4& tintLane) noexcept
+    {
+        const glm::vec3 none{ 0.0f };
+        if (!(irisLane.w > 0.0f))
+            return none;
+        if (!IsUsableDirection(normal) || !IsUsableDirection(view) || !IsUsableDirection(axis))
+            return none;
+
+        const glm::vec3 n = glm::normalize(normal);
+        const glm::vec3 v = glm::normalize(view);
+        const glm::vec3 a = glm::normalize(axis);
+        if (!(glm::dot(n, a) >= corneaLane.w))
+            return none;
+
+        glm::vec3 refracted{ 0.0f };
+        if (!SkinOcularRefract(-v, SkinCornealNormal(n, a, corneaLane.y), corneaLane.x, refracted))
+            return none;
+        glm::vec3 refractedHit{ 0.0f };
+        if (!SkinIrisPlaneHit(n, a, refracted, corneaLane.z, refractedHit))
+            return none;
+
+        const f32 irisRadius = irisLane.x;
+        if (!std::isfinite(irisRadius) || !(irisRadius > 0.0f))
+            return none;
+
+        const glm::vec3 paintedOffset = n - a * glm::dot(n, a);
+        const glm::vec3 refractedOffset = refractedHit - a * glm::dot(refractedHit, a);
+        const f32 ladder = std::clamp(responseLane.w, 0.0f, 1.0f);
+        const f32 limbusFade = SkinIrisDiscMask(glm::length(paintedOffset) / irisRadius, tintLane.w);
+        return (refractedOffset - paintedOffset) * (ladder * limbusFade);
+    }
+
+    glm::vec2 SkinOcularUvShift(const glm::vec3& shift, const glm::vec3& axis, const glm::vec2& uvDx,
+                                const glm::vec2& uvDy, const glm::vec3& offsetDx, const glm::vec3& offsetDy) noexcept
+    {
+        const glm::vec2 none{ 0.0f };
+        if (!IsUsableDirection(axis) || !Math::IsFinite(shift) || !Math::IsFinite(offsetDx) ||
+            !Math::IsFinite(offsetDy) || !std::isfinite(uvDx.x) || !std::isfinite(uvDx.y) || !std::isfinite(uvDy.x) ||
+            !std::isfinite(uvDy.y))
+            return none;
+        const glm::vec3 a = glm::normalize(axis);
+
+        // Any orthonormal basis across the gaze: the Jacobian absorbs its turn.
+        const glm::vec3 helper = (std::abs(a.z) < 0.9f) ? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(1.0f, 0.0f, 0.0f);
+        const glm::vec3 e1 = glm::normalize(glm::cross(helper, a));
+        const glm::vec3 e2 = glm::cross(a, e1);
+
+        const glm::vec2 colX(glm::dot(offsetDx, e1), glm::dot(offsetDx, e2));
+        const glm::vec2 colY(glm::dot(offsetDy, e1), glm::dot(offsetDy, e2));
+        const f32 det = (colX.x * colY.y) - (colY.x * colX.y);
+        const f32 scale = glm::length(colX) * glm::length(colY);
+        // The sine of the angle between the two columns, against 1e-3.
+        if (!(scale > 0.0f) || !(std::abs(det) > 1.0e-3f * scale))
+            return none;
+
+        // The screen step (p, q) whose lateral step is `shift`, by Cramer's
+        // rule, then the UV step the same screen step makes.
+        const glm::vec2 s(glm::dot(shift, e1), glm::dot(shift, e2));
+        const f32 p = ((s.x * colY.y) - (colY.x * s.y)) / det;
+        const f32 q = ((colX.x * s.y) - (s.x * colX.y)) / det;
+        return (uvDx * p) + (uvDy * q);
+    }
+
     // -------------------------------------------------------------------------
     // The lanes
     // -------------------------------------------------------------------------

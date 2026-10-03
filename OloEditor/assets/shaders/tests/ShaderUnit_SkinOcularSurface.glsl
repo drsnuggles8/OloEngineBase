@@ -87,6 +87,15 @@
 //  19  PUPIL RADIAL, OVER THE TOP      â€” 5 against kMaxSkinPupilRadialRatio 0.95.
 //  20  CONCAVITY, OVER THE TOP         â€” 9 against kMaxSkinIrisConcavity 0.5.
 //
+//  21  IRIS SHIFT PARITY   — oloSkinOcularIrisShift against SkinOcularIrisShift
+//                            at the oblique fixture: where a painted iris is
+//                            fetched (issue #1533).
+//  22  IRIS SHIFT FADES AT THE LIMBUS — the shift just inside the limbus cone
+//                            and on the sclera, so the sample never steps where
+//                            the pixel changes hands.
+//  23  UV SHIFT PARITY     — oloSkinOcularUvShift against SkinOcularUvShift for
+//                            fixed derivatives: the Jacobian solve.
+//
 //  16  REFRACTION MOVES THE IRIS â€” the same pixel with RefractionStrength 1 and
 //                            0 lands at DIFFERENT iris radials, and the
 //                            refracted one is nearer the axis (the corneal
@@ -290,6 +299,26 @@ void main()
         vec3 tilted = oloSkinIrisShadingNormal(kObliqueN, kAxis, vec3(kIrisRadius * 0.2, 0.0, 0.8),
                                                kIrisRadius, 9.0);
         result = vec4(tilted, 1.0);
+    }
+
+    else if (caseIndex == 21) // IRIS SHIFT PARITY
+    {
+        result = vec4(oloSkinOcularIrisShift(kObliqueN, V, kAxis, corneaLane, irisLane, responseLane, tintLane), 1.0);
+    }
+    else if (caseIndex == 22) // IRIS SHIFT FADES AT THE LIMBUS
+    {
+        float limbus = acos(kLimbusCos) - 1.0e-4;
+        vec3 atLimbus = vec3(sin(limbus), 0.0, cos(limbus));
+        vec3 scleraN = vec3(0.8660254, 0.0, 0.5);
+        result = vec4(length(oloSkinOcularIrisShift(atLimbus, V, kAxis, corneaLane, irisLane, responseLane, tintLane)),
+                      length(oloSkinOcularIrisShift(scleraN, V, kAxis, corneaLane, irisLane, responseLane, tintLane)),
+                      length(oloSkinOcularIrisShift(kObliqueN, V, kAxis, corneaLane, irisLane, responseLane, tintLane)), 1.0);
+    }
+    else if (caseIndex == 23) // UV SHIFT PARITY
+    {
+        vec2 step = oloSkinOcularUvShift(vec3(0.04, -0.025, 0.0), kAxis, vec2(0.0055, 0.001), vec2(-0.0015, 0.0065),
+                                         vec3(0.011, 0.002, 0.0), vec3(-0.003, 0.013, 0.0));
+        result = vec4(step, 0.0, 1.0);
     }
 
     o_Result = result;

@@ -21,47 +21,7 @@ namespace OloEngine
 
         m_Settings = settings;
 
-        // Create CSM texture array (4 cascades, depth-only, hardware comparison)
-        Texture2DArraySpecification csmSpec;
-        csmSpec.Width = m_Settings.Resolution;
-        csmSpec.Height = m_Settings.Resolution;
-        csmSpec.Layers = MAX_CSM_CASCADES;
-        csmSpec.Format = Texture2DArrayFormat::DEPTH_COMPONENT32F;
-        csmSpec.DepthComparisonMode = true;
-        m_CSMTextureArray = Texture2DArray::Create(csmSpec);
-
-        // Create the local-light shadow atlas (issue #435): one large 1-layer
-        // depth array holding every prioritised spot shadow / point-light cube
-        // face as a square sub-tile. A 1-layer ARRAY (not a plain 2D texture)
-        // so it shares the sampler2DArrayShadow sampling helpers, the
-        // AttachDepthTextureArrayLayer render path, and the CSM placeholders.
-        Texture2DArraySpecification atlasSpec;
-        atlasSpec.Width = m_Settings.AtlasResolution;
-        atlasSpec.Height = m_Settings.AtlasResolution;
-        atlasSpec.Layers = 1;
-        atlasSpec.Format = Texture2DArrayFormat::DEPTH_COMPONENT32F;
-        atlasSpec.DepthComparisonMode = true;
-        m_AtlasTexture = Texture2DArray::Create(atlasSpec);
-
-        // Persistent tile allocator (issue #718): a no-op when the resolution
-        // is unchanged from a prior Init() (e.g. a Resolution-only re-Init via
-        // SetSettings), so previously-held tile assignments survive it.
-        m_AtlasAllocator.SetAtlasResolution(m_Settings.AtlasResolution);
-
-        // Comparison-OFF raw-depth views aliasing the CSM / atlas textures,
-        // used by the PCSS blocker search (the hardware comparison sampler
-        // can't read raw occluder depth). These alias the same immutable
-        // storage, so the sampler2DArrayShadow bindings are unaffected.
-        //
-        // Created through the HANDLE form so each view carries an identity of
-        // its own (issue #691): the bind cache keys on it, while
-        // RenderPipeline still declares the graph resource by raw id. The two
-        // spellings name the same object — the native id is read back out of
-        // the registry rather than minted separately, so they cannot drift.
-        m_CSMRawViewHandle = RenderCommand::CreateDepthArrayCompareOffViewHandle(
-            m_CSMTextureArray->GetRHIHandle(), MAX_CSM_CASCADES);
-        m_AtlasRawViewHandle = RenderCommand::CreateDepthArrayCompareOffViewHandle(
-            m_AtlasTexture->GetRHIHandle(), 1);
+        CreateDepthArrays();
 
         // Create shadow UBO at binding 6
         m_ShadowUBO = UniformBuffer::Create(
@@ -89,7 +49,7 @@ namespace OloEngine
         m_UBOData.ShadowMapResolution = static_cast<i32>(m_Settings.Resolution);
         m_UBOData.AtlasResolution = static_cast<i32>(m_Settings.AtlasResolution);
         m_UBOData.SoftShadowMode = m_Settings.SoftShadows ? 1 : 0;
-        m_UBOData.AtlasDepthBias = m_Settings.AtlasBias;
+        m_UBOData.AtlasDepthBiasTexels = m_Settings.AtlasDepthBiasTexels;
 
         // The directional VSM (issue #702). Init is a no-op while disabled, so the
         // default path allocates nothing extra; when enabled it replaces the CSM
@@ -98,7 +58,7 @@ namespace OloEngine
         // Init can refuse (wrong backend, shader load failure) and clears its own
         // Enabled flag when it does. Mirror that back so the settings the editor
         // and the serializer see match what is actually running.
-        m_Settings.VSM.Enabled = m_VirtualShadowMap.IsActive();
+        m_Settings.VSM.Enabled = m_VirtualShadowMap.IsEnabledAndInitialized();
 
         m_Initialized = true;
         OLO_CORE_INFO("ShadowMap initialized: {}x{} CSM resolution ({} cascades), {}x{} shadow atlas ({} entry budget)",
@@ -106,10 +66,58 @@ namespace OloEngine
                       m_Settings.AtlasResolution, m_Settings.AtlasResolution, MAX_SHADOW_ATLAS_ENTRIES);
     }
 
-    void ShadowMap::Shutdown()
+    void ShadowMap::CreateDepthArrays()
     {
-        OLO_PROFILE_FUNCTION();
+        // The opaque copies' layers double each array (#1533), added once a
+        // groom casts; see OPAQUE_CSM_LAYER_BASE.
+        const u32 csmLayers = MAX_CSM_CASCADES * (m_OpaqueLayers ? 2u : 1u);
+        const u32 atlasLayers = m_OpaqueLayers ? 2u : 1u;
 
+        // Create CSM texture array (4 cascades, depth-only, hardware comparison)
+        Texture2DArraySpecification csmSpec;
+        csmSpec.Width = m_Settings.Resolution;
+        csmSpec.Height = m_Settings.Resolution;
+        csmSpec.Layers = csmLayers;
+        csmSpec.Format = Texture2DArrayFormat::DEPTH_COMPONENT32F;
+        csmSpec.DepthComparisonMode = true;
+        m_CSMTextureArray = Texture2DArray::Create(csmSpec);
+
+        // Create the local-light shadow atlas (issue #435): one large 1-layer
+        // depth array holding every prioritised spot shadow / point-light cube
+        // face as a square sub-tile. A 1-layer ARRAY (not a plain 2D texture)
+        // so it shares the sampler2DArrayShadow sampling helpers, the
+        // AttachDepthTextureArrayLayer render path, and the CSM placeholders.
+        Texture2DArraySpecification atlasSpec;
+        atlasSpec.Width = m_Settings.AtlasResolution;
+        atlasSpec.Height = m_Settings.AtlasResolution;
+        atlasSpec.Layers = atlasLayers;
+        atlasSpec.Format = Texture2DArrayFormat::DEPTH_COMPONENT32F;
+        atlasSpec.DepthComparisonMode = true;
+        m_AtlasTexture = Texture2DArray::Create(atlasSpec);
+
+        // Persistent tile allocator (issue #718): a no-op when the resolution
+        // is unchanged from a prior Init() (e.g. a Resolution-only re-Init via
+        // SetSettings), so previously-held tile assignments survive it.
+        m_AtlasAllocator.SetAtlasResolution(m_Settings.AtlasResolution);
+
+        // Comparison-OFF raw-depth views aliasing the CSM / atlas textures,
+        // used by the PCSS blocker search (the hardware comparison sampler
+        // can't read raw occluder depth). These alias the same immutable
+        // storage, so the sampler2DArrayShadow bindings are unaffected.
+        //
+        // Created through the HANDLE form so each view carries an identity of
+        // its own (issue #691): the bind cache keys on it, while
+        // RenderPipeline still declares the graph resource by raw id. The two
+        // spellings name the same object — the native id is read back out of
+        // the registry rather than minted separately, so they cannot drift.
+        m_CSMRawViewHandle = RenderCommand::CreateDepthArrayCompareOffViewHandle(m_CSMTextureArray->GetRHIHandle(),
+                                                                                 csmLayers);
+        m_AtlasRawViewHandle = RenderCommand::CreateDepthArrayCompareOffViewHandle(m_AtlasTexture->GetRHIHandle(),
+                                                                                   atlasLayers);
+    }
+
+    void ShadowMap::ReleaseDepthArrays()
+    {
         // Delete through the HANDLE form: it destroys the GL object AND
         // retires the registry entry. Deleting by raw id would leave the slot
         // live, so a stale handle would go on resolving to a name the driver
@@ -124,16 +132,53 @@ namespace OloEngine
             RenderCommand::DeleteTexture(m_AtlasRawViewHandle);
             m_AtlasRawViewHandle = {};
         }
-
-        m_VirtualShadowMap.Shutdown();
-
         m_CSMTextureArray.Reset();
         m_AtlasTexture.Reset();
+    }
+
+    bool ShadowMap::EnsureOpaqueCopy(const OpaqueCopy which)
+    {
+        static_cast<void>(which);
+        if (m_OpaqueLayers)
+        {
+            return true;
+        }
+        if (!m_OpaqueLayersRequested)
+        {
+            m_OpaqueLayersRequested = true;
+            OLO_CORE_INFO("ShadowMap: a groom casts and receives; the cascade and atlas arrays take the opaque "
+                          "copies' layers at the next frame");
+        }
+        return false;
+    }
+
+    void ShadowMap::Shutdown()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        ReleaseDepthArrays();
+        m_OpaqueWritten = {};
+
+        m_VirtualShadowMap.Shutdown();
 
         m_ShadowUBO.Reset();
         m_ShadowCameraUBO.Reset();
         m_ShadowAnimationUBO.Reset();
         m_Initialized = false;
+    }
+
+    void ShadowMap::ApplyPendingOpaqueLayers()
+    {
+        if (!m_OpaqueLayersRequested || m_OpaqueLayers || !m_Initialized)
+        {
+            return;
+        }
+        const RendererMemoryOwnerScope memoryOwner("ShadowMap", MemoryLifetime::Persistent);
+        m_OpaqueLayers = true;
+        ReleaseDepthArrays();
+        CreateDepthArrays();
+        OLO_CORE_INFO("ShadowMap: cascade and atlas arrays now carry the opaque copies' layers ({} + {}, 1 + 1)",
+                      MAX_CSM_CASCADES, MAX_CSM_CASCADES);
     }
 
     void ShadowMap::BeginFrame()
@@ -408,7 +453,7 @@ namespace OloEngine
         data.ShadowMapResolution = static_cast<i32>(m_Settings.Resolution);
         data.AtlasResolution = static_cast<i32>(m_Settings.AtlasResolution);
         data.SoftShadowMode = m_Settings.SoftShadows ? 1 : 0;
-        data.AtlasDepthBias = m_Settings.AtlasBias;
+        data.AtlasDepthBiasTexels = m_Settings.AtlasDepthBiasTexels;
 
         // The ray-traced routing goes up INACTIVE every frame (issue #1056).
         // This is what makes the fallback structural rather than a flag: the
@@ -473,7 +518,9 @@ namespace OloEngine
                                           m_CameraWorldPosition - renderOrigin,
                                           renderOrigin,
                                           m_UBOData.DirectionalShadowEnabled != 0);
-            m_VirtualShadowMap.SetSamplingParams(m_Settings.Softness, m_Settings.MaxShadowDistance);
+            m_VirtualShadowMap.SetSamplingParams(m_Settings.Softness, m_Settings.MaxShadowDistance,
+                                                 m_Settings.DepthBiasTexels, m_Settings.NormalBias,
+                                                 m_Settings.AtlasDepthBiasTexels);
         }
     }
 
@@ -634,8 +681,11 @@ namespace OloEngine
         // re-Inits the VSM through Init().
         if (m_Initialized)
         {
+            // The global switch reaches the VSM in BeginFrame; pass it on now too,
+            // so the state read right after this call is the state just set.
+            m_VirtualShadowMap.SetSuppressed(!m_Settings.Enabled);
             m_VirtualShadowMap.SetSettings(m_Settings.VSM);
-            m_Settings.VSM.Enabled = m_VirtualShadowMap.IsActive();
+            m_Settings.VSM.Enabled = m_VirtualShadowMap.IsEnabledAndInitialized();
         }
     }
 

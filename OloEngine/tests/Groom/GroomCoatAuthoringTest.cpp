@@ -52,6 +52,7 @@
 #include <bit>
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <limits>
 #include <span>
 #include <string>
@@ -74,6 +75,10 @@ namespace
         u32 GuardStrands = 100;
         u32 WhiskerStrands = 12;
         u32 PointsPerStrand = 4;
+        /// When set, each group's description is handed to this after the role
+        /// is inferred and before it is set on the builder — the one way to
+        /// author a curl, a wave or a tip tint on this fixture (#1533).
+        std::function<void(u16 groupId, GroomCoatGroupDesc& desc)> Author;
     };
 
     [[nodiscard]] Ref<GroomAsset> MakeCoatGroom(const CoatGroomSpec& spec = {})
@@ -104,6 +109,15 @@ namespace
                 return nullptr;
             }
             EXPECT_EQ(groupId, static_cast<u16>(layer)) << "group ids must come from first appearance";
+            if (spec.Author)
+            {
+                GroomCoatGroupDesc desc;
+                desc.Role = static_cast<u8>(InferGroomCoatRole(layers[layer].Name));
+                spec.Author(groupId, desc);
+                std::vector<std::string> repairs;
+                EXPECT_TRUE(builder.SetGroupCoat(groupId, desc, repairs));
+                EXPECT_TRUE(repairs.empty()) << "the fixture authors only legal values: " << repairs.front();
+            }
 
             for (u32 s = 0; s < layers[layer].Count; ++s)
             {
@@ -268,6 +282,15 @@ TEST(GroomCoatAuthoring, TheCoatTableSurvivesTheCook)
         desc.Width = 0.8f + (0.3f * static_cast<f32>(g));
         desc.Clump = 0.4f + (0.1f * static_cast<f32>(g));
         desc.Tint = glm::vec3(0.6f, 0.5f, 0.4f) + (0.05f * static_cast<f32>(g));
+        // Coat authoring v4 (#1533): every field section 9 grew, none of them at
+        // its default and each different per group, so an entry read at the old
+        // 32-byte stride — or a cook that dropped the tail of each entry — fails.
+        desc.TipTint = glm::vec3(0.9f, 0.8f, 0.7f) - (0.1f * static_cast<f32>(g));
+        desc.CurlRadius = 0.002f + (0.001f * static_cast<f32>(g));
+        desc.CurlFrequency = 40.0f + (15.0f * static_cast<f32>(g));
+        desc.WaveAmplitude = 0.003f + (0.0015f * static_cast<f32>(g));
+        desc.WaveFrequency = 12.0f + (4.0f * static_cast<f32>(g));
+        desc.StiffnessScale = 0.5f + (1.25f * static_cast<f32>(g));
         authored.push_back(desc);
     }
 
@@ -353,26 +376,35 @@ TEST(GroomCoatAuthoring, AFileFromBeforeTheCoatTableIsRejectedByVersion)
     std::vector<u8> cooked;
     std::string reason;
     ASSERT_TRUE(GroomCooker::CookToBytes(*groom, cooked, reason)) << reason;
-
-    // Rewrite the header's version to 1 — the format as it was before #1251.
-    // The payload is then a version-2 payload under a version-1 header, which is
-    // precisely the file a downgrade would produce, and the reader must refuse
-    // it by VERSION rather than parse nine sections and run off the end of the
-    // tenth.
     ASSERT_GE(cooked.size(), sizeof(OloGroomFormat::FileHeader));
-    OloGroomFormat::FileHeader header{};
-    std::memcpy(&header, cooked.data(), sizeof(header));
-    ASSERT_EQ(header.Version, OloGroomFormat::CurrentVersion);
-    header.Version = 1;
-    std::memcpy(cooked.data(), &header, sizeof(header));
+    OloGroomFormat::FileHeader current{};
+    std::memcpy(&current, cooked.data(), sizeof(current));
+    ASSERT_EQ(current.Version, OloGroomFormat::CurrentVersion);
 
-    Ref<GroomAsset> reloaded;
-    EXPECT_FALSE(GroomSerializer::DecodeFromBytes(cooked.data(), cooked.size(), reloaded, reason))
-        << "a version-1 .ologroom must be refused, not read without its coat table";
-    EXPECT_FALSE(reloaded);
-    // Named, not merely refused: the fix is a re-import, and the message is
-    // where that gets said.
-    EXPECT_NE(reason.find("version"), std::string::npos) << "the refusal must name the version: " << reason;
+    // EVERY version before the current one, each written over a current
+    // payload — precisely the file a downgrade would produce. Version 1 had no
+    // coat table at all (#1251); version 3 had the table at 32 bytes an entry,
+    // before the tip tint, curl, wave and stiffness scale (#1533). The reader
+    // must refuse each by VERSION rather than parse a section-9 entry at the
+    // wrong stride or run off the end of section 10. Walking the range keeps the
+    // case meaningful at every future bump instead of pinning one old number.
+    for (u32 version = 0; version < OloGroomFormat::CurrentVersion; ++version)
+    {
+        SCOPED_TRACE("version " + std::to_string(version));
+        std::vector<u8> forged = cooked;
+        OloGroomFormat::FileHeader header = current;
+        header.Version = version;
+        std::memcpy(forged.data(), &header, sizeof(header));
+
+        Ref<GroomAsset> reloaded;
+        reason.clear();
+        EXPECT_FALSE(GroomSerializer::DecodeFromBytes(forged.data(), forged.size(), reloaded, reason))
+            << "an older .ologroom must be refused, not read against the current section 9";
+        EXPECT_FALSE(reloaded);
+        // Named, not merely refused: the fix is a re-import, and the message is
+        // where that gets said.
+        EXPECT_NE(reason.find("version"), std::string::npos) << "the refusal must name the version: " << reason;
+    }
 }
 
 // ── Criterion 1: independent adjustment, and the silhouette ────────
@@ -591,7 +623,22 @@ TEST(GroomCoatAuthoring, AGroomWithNoRolesBehavesExactlyAsItDidBefore)
 
 TEST(GroomCoatAuthoring, TheCoatIsIdenticalUnderTwoDifferentPoses)
 {
-    Ref<GroomAsset> groom = MakeCoatGroom();
+    // WITH THE v4 SHAPE TERMS ON (#1533): a curl, a wave and a root-to-tip tint
+    // on every group, so the positions below are shaped by per-strand helix and
+    // wave draws and the tints run along each strand — and none of it may see
+    // anything but the strand's own keys. (That a curl rides the root frame
+    // through a real pose is GroomGpuDeformation.TheCurlRidesTheRootFrameUnderTwoPoses.)
+    CoatGroomSpec spec;
+    spec.PointsPerStrand = 12;
+    spec.Author = [](u16 groupId, GroomCoatGroupDesc& desc)
+    {
+        desc.CurlRadius = 0.002f * (1.0f + static_cast<f32>(groupId));
+        desc.CurlFrequency = 90.0f;
+        desc.WaveAmplitude = 0.0015f;
+        desc.WaveFrequency = 30.0f;
+        desc.TipTint = glm::vec3(0.9f, 0.6f, 0.3f);
+    };
+    Ref<GroomAsset> groom = MakeCoatGroom(spec);
     ASSERT_TRUE(groom);
 
     GroomCoatSettings settings = ActiveSettings();
@@ -626,10 +673,37 @@ TEST(GroomCoatAuthoring, TheCoatIsIdenticalUnderTwoDifferentPoses)
     std::vector<u32> againIndices;
     const GroomStrandMeshStats repeat = BuildGroomStrandMesh(*groom, build, again, againIndices, nullptr, &coat);
     ASSERT_EQ(repeat.VertexCount, stats.VertexCount);
+    u32 curledCorners = 0;
     for (sizet v = 0; v < vertices.size(); ++v)
     {
         EXPECT_FLOAT_EQ(vertices[v].Radius, again[v].Radius) << "vertex " << v;
         EXPECT_EQ(std::bit_cast<u32>(vertices[v].Tint), std::bit_cast<u32>(again[v].Tint)) << "vertex " << v;
+        // The curled REST positions too, bit for bit: they are the coat's
+        // output as much as the width is.
+        EXPECT_EQ(std::memcmp(&vertices[v].Position, &again[v].Position, sizeof(glm::vec3)), 0) << "vertex " << v;
+        curledCorners += vertices[v].Coords.x > 0.0f ? 1u : 0u;
+    }
+    ASSERT_GT(curledCorners, 0u);
+
+    // NEGATIVE CONTROL: the shape terms really moved the strands, so the
+    // agreement above is about curled points and not two copies of the cooked
+    // ones.
+    {
+        CoatGroomSpec straightSpec;
+        straightSpec.PointsPerStrand = spec.PointsPerStrand;
+        Ref<GroomAsset> straight = MakeCoatGroom(straightSpec);
+        ASSERT_TRUE(straight);
+        const GroomCoatContext straightCoat = ContextFor(*straight, settings);
+        std::vector<GroomStrandVertex> uncurled;
+        std::vector<u32> uncurledIndices;
+        (void)BuildGroomStrandMesh(*straight, build, uncurled, uncurledIndices, nullptr, &straightCoat);
+        ASSERT_EQ(uncurled.size(), vertices.size());
+        u32 moved = 0;
+        for (sizet v = 0; v < vertices.size(); ++v)
+        {
+            moved += glm::length(vertices[v].Position - uncurled[v].Position) > 1.0e-4f ? 1u : 0u;
+        }
+        EXPECT_GT(moved, static_cast<u32>(vertices.size() / 2u)) << "the authored curl and wave moved nothing";
     }
 
     // And the REGIONAL map really is regional: a strand at v == 0 and a strand
@@ -706,6 +780,30 @@ TEST(GroomCoatAuthoring, TheVariationHasNoPeriod)
     }
     const f32 agreementRate = static_cast<f32>(agreements) / static_cast<f32>(kSamples);
     EXPECT_NEAR(agreementRate, 0.5f, 0.05f) << "the length and width salts are correlated";
+
+    // Every salt, the seven v4 draws (#1533) included, against every other: no
+    // two may be the same number and no two may move together. A curl radius
+    // drawn on the length salt would make every long strand a loose curl.
+    const std::array<u32, 11> salts{ GroomCoatSalt::Density, GroomCoatSalt::Length,
+                                     GroomCoatSalt::Width, GroomCoatSalt::Shade,
+                                     GroomCoatSalt::CurlRadius, GroomCoatSalt::CurlFrequency,
+                                     GroomCoatSalt::CurlPhase, GroomCoatSalt::CurlAzimuth,
+                                     GroomCoatSalt::WaveAmplitude, GroomCoatSalt::WaveFrequency,
+                                     GroomCoatSalt::WavePhase };
+    for (sizet a = 0; a < salts.size(); ++a)
+    {
+        for (sizet b = a + 1u; b < salts.size(); ++b)
+        {
+            ASSERT_NE(salts[a], salts[b]) << "salts " << a << " and " << b << " are the same salt";
+            u32 agree = 0;
+            for (u32 i = 0; i < kSamples; ++i)
+            {
+                agree += ((GroomCoatHash01(i, salts[a]) > 0.5f) == (GroomCoatHash01(i, salts[b]) > 0.5f)) ? 1u : 0u;
+            }
+            EXPECT_NEAR(static_cast<f32>(agree) / static_cast<f32>(kSamples), 0.5f, 0.05f)
+                << "salts " << a << " and " << b << " are correlated";
+        }
+    }
 }
 
 TEST(GroomCoatAuthoring, TheDensityDrawIsSpatiallyUncorrelated)
@@ -810,6 +908,71 @@ TEST(GroomCoatAuthoring, EveryBoundIsEnforcedAtTheBoundary)
     EXPECT_TRUE(SanitizeGroomCoatGroupDesc(good, 0, noReasons));
     EXPECT_TRUE(noReasons.empty());
     EXPECT_FLOAT_EQ(good.Density, 0.5f);
+
+    // Coat authoring v4 (#1533): every new field, AT each bound (legal, left
+    // alone), one ulp PAST each bound, and at every non-finite value — the
+    // last two repaired to the field's no-change default and named, one reason
+    // for the one bad field.
+    struct FieldCase
+    {
+        const char* Name;
+        std::function<f32&(GroomCoatGroupDesc&)> Field;
+        f32 Min;
+        f32 Max;
+        f32 Default;
+    };
+    const std::array<FieldCase, 8> fields{ {
+        { "tip tint.r", [](GroomCoatGroupDesc& d) -> f32&
+          { return d.TipTint.x; }, GroomCoatLimits::MinTint,
+          GroomCoatLimits::MaxTint, 1.0f },
+        { "tip tint.g", [](GroomCoatGroupDesc& d) -> f32&
+          { return d.TipTint.y; }, GroomCoatLimits::MinTint,
+          GroomCoatLimits::MaxTint, 1.0f },
+        { "tip tint.b", [](GroomCoatGroupDesc& d) -> f32&
+          { return d.TipTint.z; }, GroomCoatLimits::MinTint,
+          GroomCoatLimits::MaxTint, 1.0f },
+        { "curl radius", [](GroomCoatGroupDesc& d) -> f32&
+          { return d.CurlRadius; }, GroomCoatLimits::MinCurlRadius,
+          GroomCoatLimits::MaxCurlRadius, 0.0f },
+        { "curl frequency", [](GroomCoatGroupDesc& d) -> f32&
+          { return d.CurlFrequency; },
+          GroomCoatLimits::MinCurlFrequency, GroomCoatLimits::MaxCurlFrequency, 0.0f },
+        { "wave amplitude", [](GroomCoatGroupDesc& d) -> f32&
+          { return d.WaveAmplitude; },
+          GroomCoatLimits::MinWaveAmplitude, GroomCoatLimits::MaxWaveAmplitude, 0.0f },
+        { "wave frequency", [](GroomCoatGroupDesc& d) -> f32&
+          { return d.WaveFrequency; },
+          GroomCoatLimits::MinWaveFrequency, GroomCoatLimits::MaxWaveFrequency, 0.0f },
+        { "stiffness scale", [](GroomCoatGroupDesc& d) -> f32&
+          { return d.StiffnessScale; },
+          GroomCoatLimits::MinStiffnessScale, GroomCoatLimits::MaxStiffnessScale, 1.0f },
+    } };
+    constexpr f32 kInf = std::numeric_limits<f32>::infinity();
+    for (const FieldCase& field : fields)
+    {
+        SCOPED_TRACE(field.Name);
+        for (const f32 atBound : { field.Min, field.Max })
+        {
+            GroomCoatGroupDesc d;
+            field.Field(d) = atBound;
+            std::vector<std::string> none;
+            EXPECT_TRUE(SanitizeGroomCoatGroupDesc(d, 5, none)) << "a value AT the bound " << atBound << " is legal";
+            EXPECT_TRUE(none.empty());
+            EXPECT_EQ(std::bit_cast<u32>(field.Field(d)), std::bit_cast<u32>(atBound));
+        }
+        for (const f32 bad : { std::nextafter(field.Min, -kInf), std::nextafter(field.Max, kInf),
+                               std::numeric_limits<f32>::quiet_NaN(), kInf, -kInf })
+        {
+            GroomCoatGroupDesc d;
+            field.Field(d) = bad;
+            std::vector<std::string> why;
+            EXPECT_FALSE(SanitizeGroomCoatGroupDesc(d, 5, why)) << "value " << bad;
+            ASSERT_EQ(why.size(), 1u) << "value " << bad << ": exactly the one bad field is repaired";
+            EXPECT_NE(why.front().find(field.Name), std::string::npos) << why.front();
+            EXPECT_NE(why.front().find("group 5"), std::string::npos) << why.front();
+            EXPECT_EQ(std::bit_cast<u32>(field.Field(d)), std::bit_cast<u32>(field.Default)) << "value " << bad;
+        }
+    }
 }
 
 TEST(GroomCoatAuthoring, ANonFiniteRootUvCannotReachACast)
@@ -1069,4 +1232,84 @@ TEST(GroomCoatAuthoring, ClumpCellsPartitionTheRootUvSpace)
     EXPECT_EQ(GroomCoatClumpCell({ 0.01f, 0.01f }, cell), GroomCoatClumpCell({ 0.04f, 0.04f }, cell));
     EXPECT_NE(GroomCoatClumpCell({ 0.01f, 0.01f }, cell), GroomCoatClumpCell({ 0.06f, 0.01f }, cell));
     EXPECT_NE(GroomCoatClumpCell({ -0.01f, 0.0f }, cell), GroomCoatClumpCell({ 0.01f, 0.0f }, cell));
+}
+
+TEST(GroomCoatAuthoring, TwoGroupsSharingACellClumpIndependently)
+{
+    // A clump is a patch of pelt IN ONE GROUP -- the (group, cell) key the card
+    // cook already clusters on. Keyed by the cell alone, a long guard coat and
+    // the short undercoat under it pulled toward ONE mean growth, so every guard
+    // tuft was bent toward the undercoat. Two groups here share a single root-UV
+    // cell and grow at right angles; at full clump each strand's tip must land
+    // on its own root plus its OWN group's mean growth.
+    GroomBuilder builder;
+    std::string reason;
+    u16 along = 0;
+    u16 across = 0;
+    ASSERT_TRUE(builder.AddGroup("tuft_along", along, reason)) << reason;
+    ASSERT_TRUE(builder.AddGroup("tuft_across", across, reason)) << reason;
+    GroomCoatGroupDesc clumped;
+    clumped.Clump = 1.0f;
+    std::vector<std::string> repairs;
+    ASSERT_TRUE(builder.SetGroupCoat(along, clumped, repairs));
+    ASSERT_TRUE(builder.SetGroupCoat(across, clumped, repairs));
+
+    constexpr u32 kPerGroup = 4;
+    const std::array<f32, 3> widths{ 1.0e-4f, 1.0e-4f, 1.0e-4f };
+    for (u32 s = 0; s < kPerGroup * 2u; ++s)
+    {
+        const bool isAlong = s < kPerGroup;
+        const auto k = static_cast<f32>(s % kPerGroup);
+        const glm::vec3 root(0.01f * static_cast<f32>(s), 0.0f, 0.0f);
+        // Group "along" grows 5 cm along +x, fanned a little in y; group
+        // "across" grows 1 cm along +z, fanned a little in x.
+        const glm::vec3 growth = isAlong ? glm::vec3(0.05f, 0.004f * k, 0.0f) : glm::vec3(0.002f * k, 0.0f, 0.01f);
+        const std::array<glm::vec3, 3> points{ root, root + (growth * 0.5f), root + growth };
+        GroomCurveInput curve;
+        curve.Points = points;
+        curve.Widths = widths;
+        curve.RootUV = { 0.5f, 0.5f }; // one cell for everything
+        curve.GroupId = isAlong ? along : across;
+        ASSERT_TRUE(builder.AddCurve(curve, reason)) << reason;
+    }
+    Ref<GroomAsset> groom = builder.Build(reason);
+    ASSERT_TRUE(groom) << reason;
+
+    // The mean growth of each group, and of both together -- the answer the
+    // cell-only key gave everyone.
+    glm::vec3 alongMean(0.0f);
+    glm::vec3 acrossMean(0.0f);
+    for (u32 curve = 0; curve < groom->GetCurveCount(); ++curve)
+    {
+        const u32 first = groom->GetCurveFirstPoint(curve);
+        const glm::vec3 growth = groom->GetPoints()[first + 2u] - groom->GetPoints()[first];
+        (groom->GetCurveGroupIds()[curve] == along ? alongMean : acrossMean) += growth;
+    }
+    const glm::vec3 jointMean = (alongMean + acrossMean) / static_cast<f32>(kPerGroup * 2u);
+    alongMean /= static_cast<f32>(kPerGroup);
+    acrossMean /= static_cast<f32>(kPerGroup);
+    ASSERT_GT(glm::length(alongMean - jointMean), 0.01f) << "the fixture's groups must disagree about the growth";
+
+    GroomCoatSettings settings = ActiveSettings();
+    const GroomCoatContext coat = ContextFor(*groom, settings);
+    GroomStrandBuildSettings build;
+    build.CoatDigest = GroomCoatDigest(settings);
+    std::vector<GroomStrandVertex> vertices;
+    std::vector<u32> indices;
+    const GroomStrandMeshStats stats = BuildGroomStrandMesh(*groom, build, vertices, indices, nullptr, &coat);
+    ASSERT_EQ(stats.StrandsSelected, kPerGroup * 2u);
+    ASSERT_EQ(vertices.size(), static_cast<sizet>(kPerGroup * 2u * 2u * 4u)) << "two segments of four corners each";
+
+    for (u32 curve = 0; curve < groom->GetCurveCount(); ++curve)
+    {
+        // Curve order, two segments each: the second segment's P1 corners are
+        // the tip, at t == 1, where a full clump lands exactly on the target.
+        const glm::vec3 root = groom->GetPoints()[groom->GetCurveFirstPoint(curve)];
+        const glm::vec3 tip = vertices[(static_cast<sizet>(curve) * 8u) + 4u + 2u].Position;
+        const bool isAlong = groom->GetCurveGroupIds()[curve] == along;
+        const glm::vec3 expected = isAlong ? alongMean : acrossMean;
+        EXPECT_LT(glm::length((tip - root) - expected), 1.0e-6f)
+            << "curve " << curve << " (" << (isAlong ? "along" : "across") << ") clumped toward ("
+            << (tip - root).x << ", " << (tip - root).y << ", " << (tip - root).z << "), not its own group's mean";
+    }
 }

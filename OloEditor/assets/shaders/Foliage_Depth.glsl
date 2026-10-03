@@ -116,8 +116,15 @@ void main()
     scale *= foliageDensityScaleAt(u_LodTransition0, u_LodTransition1, lodDist);
     v_LodSeedFade = vec2(instanceSeed, densityAlpha * a_RotationHeight.z);
 
-    vec3 rotatedPos = foliageInstanceRotation(rotation) *
-                      foliageInstanceLocalPos(a_Position, scale, height, isAuthoredMesh);
+    // A mesh layer's far card faces the MAIN view and is scaled like the mesh,
+    // exactly as the beauty stage places it (#1533), so it casts the shape the
+    // lit frame draws.
+    bool meshLayerCard = foliageIsMeshLayerCard(isAuthoredMesh, u_MeshParams);
+    float facing = meshLayerCard
+                       ? foliageCardFacingYaw(lodPivot, u_MeshViewPos.xyz, instances[0].Transform, rotation)
+                       : rotation;
+    vec3 rotatedPos = foliageInstanceRotation(facing) *
+                      foliageInstanceLocalPos(a_Position, scale, height, isAuthoredMesh || meshLayerCard);
 
     rotatedPos = foliageDeform(rotatedPos, a_Position, a_PositionScale.xyz, a_RotationHeight.w,
                                instances[0].Transform, instances[0].PrevTransform).Current;

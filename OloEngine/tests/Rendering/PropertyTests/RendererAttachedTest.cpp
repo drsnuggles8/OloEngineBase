@@ -122,6 +122,7 @@ namespace OloEngine::Tests
         m_SavedRendererSettings = Renderer3D::GetRendererSettings();
         m_SavedPostProcessSettings = Renderer3D::GetPostProcessSettings();
         m_SavedShadowSettings = Renderer3D::GetShadowMap().GetSettings();
+        m_SavedFogSettings = Renderer3D::GetFogSettings();
         m_SettingsSnapshotted = true;
 
         // Every test renders the frame sequence a fresh process would, so its
@@ -161,6 +162,7 @@ namespace OloEngine::Tests
             // Through SetSettings, which recreates the shadow textures on a
             // resolution change; a plain PCSS toggle only rewrites the flags.
             Renderer3D::GetShadowMap().SetSettings(m_SavedShadowSettings);
+            Renderer3D::GetFogSettings() = m_SavedFogSettings;
             Renderer3D::ApplyRendererSettings();
             m_SettingsSnapshotted = false;
         }

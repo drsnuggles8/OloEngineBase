@@ -129,6 +129,13 @@ namespace OloEngine
         {
             u32 IndexCount = 0;
             u32 BaseIndex = 0;
+            // This part is the layer's authored MESH (#1533). With a mesh region
+            // (see LodInputs::MeshReach) it draws only the survivors the mesh
+            // band can reach, from that region of the compacted stream, instead
+            // of every survivor: the mesh is ~1,400 vertices a plant and the
+            // vertex stage used to place it for every plant out to the view
+            // distance, then collapse nine in ten.
+            bool MeshRegion = false;
         };
 
         // The view being culled for. Everything TERRAIN-LOCAL: the instance rows
@@ -159,6 +166,12 @@ namespace OloEngine
         {
             glm::vec4 Transition0{ 0.0f, 30.0f, 80.0f, 0.25f };
             glm::vec4 Transition1{ 0.15f, 2.0f, 0.0f, 0.0f };
+            // The farthest a plant's pivot can be from the main view and still
+            // have mesh coverage (#1533): the hand-over band's end plus half its
+            // per-plant spread plus its largest hysteresis shift
+            // (FoliageLod::MeshRegionReach). 0 is no mesh region: every part
+            // draws every survivor, as before.
+            f32 MeshReach = 0.0f;
         };
 
         // Per-LAYER GPU data: group bounds + the row -> group table + the bounds
@@ -363,9 +376,13 @@ namespace OloEngine
         // FoliageCullCommon.glsl for why the ratio counters cannot be summed
         // over the frame's five culls.
         u32 EmitStats = 0;
-        u32 StatsPad0 = 0;
-        u32 StatsPad1 = 0;
-        u32 StatsPad2 = 0;
+        // The mesh region (#1533): where in the compacted stream it starts (0 =
+        // none; it is the layer's instance count when present, past every slot
+        // the all-survivor list can use), the pivot distance it admits up to,
+        // and its append cursor. See LodInputs::MeshReach.
+        u32 MeshRegionBase = 0;
+        f32 MeshReach = 0.0f;
+        u32 MeshCursor = 0;
         // Coverage-preserving density LOD (issue #1237), in exactly the two
         // lanes FoliageUBO::LodTransition0/1 carry and with the same packing —
         // FoliageLod::PackFlags for the first component. The cull drops a row
@@ -386,7 +403,9 @@ namespace OloEngine
         u32 FirstIndex = 0;
         u32 BaseVertex = 0;
         u32 BaseInstance = 0;
-        u32 Pad0 = 0;
+        // Past the command, so the draw never reads it: 1 when this part draws
+        // the mesh region (#1533), the flag the instance kernel counts by.
+        u32 MeshRegion = 0;
         u32 Pad1 = 0;
         u32 Pad2 = 0;
     };

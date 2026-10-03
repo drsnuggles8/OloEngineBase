@@ -1,0 +1,129 @@
+#version 460 core
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference2 : require
+#extension GL_EXT_buffer_reference_uvec2 : require
+
+// GroomProxyDeformToBuffer.comp -- a bound coat's ray-traced proxy, built on
+// the GPU (#1533).
+//
+// One invocation per segment of the coat's rest stream: P0 and P1 deformed
+// exactly as GroomStrand.glsl deforms the drawn strand (include/
+// GroomStrandDeform.glsl, the twin of EvaluateGroomDeformedPoint), then the
+// two crossed ribbons ConvertGroomProxySegments emits for them, written into
+// the vertex buffer the coat's BLAS refits from. The CPU path deformed and
+// converted the 44k segments of the showcase dog and uploaded 11 MB a frame.
+//
+// A degenerate or non-finite segment, which the CPU path drops, is written as
+// eight copies of one finite point here: a zero-area quad, never a NaN vertex
+// in front of a BLAS build. The quad count is therefore the segment count.
+
+layout(local_size_x = 64) in;
+
+#include "include/GroomQuat.glsl"
+#include "include/GroomStrandDeform.glsl"
+
+// Three vec4 a segment: (P0 local, t0), (P1 local, t1),
+// (root slot of P0, root slot of P1 as bits, R0, R1). Corners 0 and 2 of the
+// rest stream's quad, the corners the CPU conversion reads.
+layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer GroomProxyRestSegments
+{
+    vec4 Values[];
+};
+layout(buffer_reference, std430, buffer_reference_align = 4) buffer GroomProxyOutputStream
+{
+    float Values[];
+};
+
+// std140 twin of GroomSurfaceCache's GpuProxyParams. Shares UBO_RAY_TRACING
+// with the other ray-tracing producers: bound before every dispatch.
+layout(std140, binding = 65) uniform RayTracingGroomProxyParams
+{
+    uvec2 Rest;
+    uvec2 Output;
+    uint SegmentCount;
+    uint Ribbons;
+    float WidthScale;
+    uint Padding;
+    ivec4 DeformModes;
+    ivec4 DeformBases;
+} p;
+
+bool oloFinite3(vec3 v)
+{
+    return !any(isnan(v)) && !any(isinf(v));
+}
+
+// GroomRayTracingProxy.cpp's PerpendicularTo: the axis least aligned with the
+// tangent, never a fixed one.
+vec3 oloPerpendicularTo(vec3 tangent)
+{
+    vec3 magnitude = abs(tangent);
+    vec3 axis = vec3(0.0, 0.0, 1.0);
+    if (magnitude.x <= magnitude.y && magnitude.x <= magnitude.z)
+        axis = vec3(1.0, 0.0, 0.0);
+    else if (magnitude.y <= magnitude.z)
+        axis = vec3(0.0, 1.0, 0.0);
+    return normalize(cross(tangent, axis));
+}
+
+void oloWriteVertex(GroomProxyOutputStream dst, uint vertex, vec3 position, vec3 normal, vec2 uv)
+{
+    uint at = vertex * 8u;
+    dst.Values[at + 0u] = position.x;
+    dst.Values[at + 1u] = position.y;
+    dst.Values[at + 2u] = position.z;
+    dst.Values[at + 3u] = normal.x;
+    dst.Values[at + 4u] = normal.y;
+    dst.Values[at + 5u] = normal.z;
+    dst.Values[at + 6u] = uv.x;
+    dst.Values[at + 7u] = uv.y;
+}
+
+void main()
+{
+    uint segment = gl_GlobalInvocationID.x;
+    if (segment >= p.SegmentCount)
+        return;
+
+    GroomProxyRestSegments rest = GroomProxyRestSegments(p.Rest);
+    GroomProxyOutputStream dst = GroomProxyOutputStream(p.Output);
+    vec4 a = rest.Values[segment * 3u + 0u];
+    vec4 b = rest.Values[segment * 3u + 1u];
+    vec4 c = rest.Values[segment * 3u + 2u];
+    uint root0 = floatBitsToUint(c.x);
+    uint root1 = floatBitsToUint(c.y);
+
+    OloGroomDeformLayout deform = oloGroomDeformLayout(p.DeformModes, p.DeformBases);
+    vec3 p0 = oloGroomDeformPoint(deform, root0, a.xyz, a.w, false);
+    vec3 p1 = oloGroomDeformPoint(deform, root1, b.xyz, b.w, false);
+    float r0 = c.z * p.WidthScale;
+    float r1 = c.w * p.WidthScale;
+
+    vec3 delta = p1 - p0;
+    float len = length(delta);
+    bool keep = oloFinite3(p0) && oloFinite3(p1) && !isnan(r0) && !isinf(r0) && !isnan(r1) && !isinf(r1) &&
+                r0 >= 0.0 && r1 >= 0.0 && len > 0.0 && !isinf(len);
+    vec3 tangent = keep ? delta / len : vec3(0.0, 1.0, 0.0);
+    vec3 u = oloPerpendicularTo(tangent);
+    vec3 v = cross(tangent, u);
+    keep = keep && oloFinite3(u) && oloFinite3(v);
+
+    uint firstVertex = segment * p.Ribbons * 4u;
+    if (!keep)
+    {
+        vec3 anchor = oloFinite3(p0) ? p0 : (oloFinite3(p1) ? p1 : vec3(0.0));
+        for (uint k = 0u; k < p.Ribbons * 4u; ++k)
+            oloWriteVertex(dst, firstVertex + k, anchor, vec3(0.0, 1.0, 0.0), vec2(0.0));
+        return;
+    }
+    for (uint ribbon = 0u; ribbon < p.Ribbons; ++ribbon)
+    {
+        vec3 across = ribbon == 0u ? u : v;
+        vec3 normal = ribbon == 0u ? v : u;
+        uint base = firstVertex + ribbon * 4u;
+        oloWriteVertex(dst, base + 0u, p0 - across * r0, normal, vec2(0.0, 0.0));
+        oloWriteVertex(dst, base + 1u, p0 + across * r0, normal, vec2(1.0, 0.0));
+        oloWriteVertex(dst, base + 2u, p1 + across * r1, normal, vec2(1.0, 1.0));
+        oloWriteVertex(dst, base + 3u, p1 - across * r1, normal, vec2(0.0, 1.0));
+    }
+}

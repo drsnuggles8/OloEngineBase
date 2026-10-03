@@ -43,5 +43,13 @@ namespace OloEngine::Animation
             NoiseAnimationState* noiseState = nullptr,
             const FootIKComponent* footIK = nullptr,
             FootIKStateComponent* footIKState = nullptr);
+
+        // Consumes AnimationStateComponent::m_RequestedClip (issue #1533): starts
+        // a blend to the named clip from its first frame, over m_BlendDuration,
+        // with m_RequestedLoop as its loop flag, and clears the request. An
+        // unknown name is warned once per name and dropped. Update calls it
+        // first; exposed so a caller that switches clips without posing (a test,
+        // a tool) goes through the same rules.
+        static void ApplyClipRequest(AnimationStateComponent& animState);
     };
 } // namespace OloEngine::Animation

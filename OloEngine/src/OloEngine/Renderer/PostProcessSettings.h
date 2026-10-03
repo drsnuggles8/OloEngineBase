@@ -887,6 +887,10 @@ namespace OloEngine
     {
         glm::mat4 InverseViewProjection = glm::mat4(1.0f);
         glm::mat4 PrevViewProjection = glm::mat4(1.0f);
+        // xy this frame's TAA jitter offset, zw the previous frame's, in
+        // velocity units (CameraUBO::JitterUV): the camera-velocity
+        // reconstruction subtracts them, as every velocity writer does (#1552).
+        glm::vec4 JitterUV = glm::vec4(0.0f);
 
         static constexpr u32 GetSize()
         {

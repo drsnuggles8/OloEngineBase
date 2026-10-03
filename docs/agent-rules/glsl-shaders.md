@@ -266,11 +266,13 @@ Three gotchas for any **consumer** of this buffer:
   depth-gate: where `depth == 1.0` (far plane), fall back to camera-only
   reconstruction (`InverseViewProjection` + `PrevViewProjection` from binding 8)
   instead of sampling the velocity buffer.
-- **It carries TAA jitter.** Both `u_ViewProjection` and `u_PrevViewProjection`
-  bake in their frame's Halton jitter (so TAA history reprojection stays
-  self-consistent). Consumers inherit a sub-pixel (~1 px) jitter velocity on
-  static geometry — harmless for motion blur, deliberately kept for TAA; don't
-  "unjitter" it in one consumer without accounting for the other.
+- **It carries NO TAA jitter** (#1552). Both `u_ViewProjection` and
+  `u_PrevViewProjection` bake in their frame's Halton jitter, so every writer
+  takes it out: `oloVelocityFromNdc` where the camera block is in scope,
+  `oloUnjitterClip` in the vertex stage otherwise. Static geometry writes zero.
+  A new writer that differences two jittered positions raw puts up to a pixel
+  of false motion into every temporal resolve
+  ([velocity-convention.md](velocity-convention.md)).
 - **Gate optional velocity with a flag, don't assume it exists.** Forward and
   deferred both produce it today, but pass a `hasVelocity` flag (TAA's
   `TAAParams`, motion blur's `MotionBlurParams` at binding 42) so a path without

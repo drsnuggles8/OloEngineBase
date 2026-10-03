@@ -31,6 +31,7 @@ void main()
 	o_EntityID = v_EntityID;
 	o_ViewNormal = vec2(-2.0);
 
+	// The clip positions arrive unjittered (oloUnjitterClip in the vertex stage, #1552).
 	vec2 ndcCurr = v_ClipPosCurr.xy / v_ClipPosCurr.w;
 	vec2 ndcPrev = v_ClipPosPrev.xy / v_ClipPosPrev.w;
 	o_Velocity = vec4((ndcCurr - ndcPrev) * 0.5, 1.0, 0.0);

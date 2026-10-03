@@ -1,5 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/RayTracing/VegetationSurfaceCache.h"
+#include "OloEngine/Core/PerformanceProfiler.h"
+#include "OloEngine/Renderer/RayTracing/RayTracingTypes.h"
 #include "OloEngine/Renderer/RayTracing/VegetationDiagnostics.h"
 
 #include "OloEngine/Renderer/CameraRelative.h"
@@ -14,7 +16,8 @@
 #include "OloEngine/Terrain/Foliage/FoliageWind.h"
 
 #include <span>
-#include <unordered_set>
+#include <cstring>
+#include <type_traits>
 
 namespace OloEngine::RayTracing
 {
@@ -59,17 +62,39 @@ namespace OloEngine::RayTracing
             return { static_cast<u32>(value), static_cast<u32>(value >> 32u) };
         }
 
+        // Eight bytes a step (#1533). Byte-at-a-time FNV over every plant row
+        // cost 9.4 ms a frame once the showcase lawn's 216k plants were queued
+        // for reflections; the value only has to change when the state does.
         struct Hash
         {
             u64 Value = 1469598103934665603ull;
+            void MixBytes(const void* data, sizet size)
+            {
+                const auto* bytes = static_cast<const std::byte*>(data);
+                sizet offset = 0u;
+                for (; offset + sizeof(u64) <= size; offset += sizeof(u64))
+                {
+                    u64 word = 0u;
+                    std::memcpy(&word, bytes + offset, sizeof(u64));
+                    Step(word);
+                }
+                if (offset < size)
+                {
+                    u64 tail = 0u;
+                    std::memcpy(&tail, bytes + offset, size - offset);
+                    Step(tail ^ (static_cast<u64>(size - offset) << 56u));
+                }
+            }
             template<typename T>
             void Mix(const T& value)
             {
-                for (const std::byte byte : std::as_bytes(std::span(&value, 1u)))
-                {
-                    Value ^= std::to_integer<u8>(byte);
-                    Value *= 1099511628211ull;
-                }
+                static_assert(std::is_trivially_copyable_v<T>);
+                MixBytes(&value, sizeof(T));
+            }
+            void Step(u64 word)
+            {
+                Value = (Value ^ word) * 1099511628211ull;
+                Value ^= Value >> 29u;
             }
         };
 
@@ -81,10 +106,17 @@ namespace OloEngine::RayTracing
             return legacyField ? wind.WindClock.x : wind.Time;
         }
 
+        // The rows sent, or the count of the rows held for a keyed group.
+        u32 PlantCount(const VegetationSurfaceInput& input)
+        {
+            return input.Rows.IsEmpty() ? input.HeldPlantCount : static_cast<u32>(input.Rows.Num());
+        }
+
         bool ValidInput(const VegetationSurfaceInput& input)
         {
             if (!input.Rest || input.Rest->GetDeviceAddress() == 0u || input.VertexCount == 0u ||
-                input.Rows.IsEmpty() || static_cast<u32>(input.Rows.Num()) > VegetationPolicy::CardPlantsPerGroup ||
+                PlantCount(input) == 0u || PlantCount(input) > VegetationPolicy::CardPlantsPerGroup ||
+                (input.Rows.IsEmpty() && input.ContentKey == 0u) ||
                 input.Parts.IsEmpty() ||
                 !std::isfinite(WindTime(input)) || !std::isfinite(input.DistanceToView) ||
                 !std::isfinite(input.DetailedDistance) || !std::isfinite(input.VelocityBound) ||
@@ -99,10 +131,14 @@ namespace OloEngine::RayTracing
                 input.Wind.WindWeights.x < 0.0f || input.Wind.WindWeights.x > 1.0f)
                 return false;
             u64 sourceIndices = 0u;
-            std::unordered_set<u32> slots;
-            for (const auto& part : input.Parts)
+            for (i32 p = 0; p < input.Parts.Num(); ++p)
             {
-                if (part.Indices.IsEmpty() || part.Indices.Num() % 3u != 0u || !slots.insert(part.Slot).second ||
+                const auto& part = input.Parts[p];
+                // A handful of parts: a pairwise slot check, no set per group.
+                for (i32 earlier = 0; earlier < p; ++earlier)
+                    if (input.Parts[earlier].Slot == part.Slot)
+                        return false;
+                if (part.Indices.IsEmpty() || part.Indices.Num() % 3u != 0u ||
                     static_cast<u64>(part.Indices.Num()) > std::numeric_limits<u32>::max() - sourceIndices)
                     return false;
                 sourceIndices += part.Indices.Num();
@@ -149,6 +185,8 @@ namespace OloEngine::RayTracing
         m_StagedBytes = 0u;
         m_Enabled = false;
         m_PreviousComplete = true;
+        m_PreviousLeftOut = false;
+        m_BuildDebt = {};
     }
 
     void VegetationSurfaceCache::RollbackJobs()
@@ -165,6 +203,7 @@ namespace OloEngine::RayTracing
         ++m_Frame;
         m_Inputs.Reset();
         m_PreviousComplete = m_Stats.Complete;
+        m_PreviousLeftOut = m_Stats.BeyondReflectionBudget > 0u;
         m_StagedBytes = 0u;
         m_Stats = {};
         for (const auto& [key, entry] : m_Entries)
@@ -172,6 +211,34 @@ namespace OloEngine::RayTracing
             static_cast<void>(key);
             m_Stats.ResidentBytes += entry.Bytes;
         }
+    }
+
+    bool VegetationSurfaceCache::HoldsContent(u64 owner, u64 firstPlantId, const Ref<VertexBuffer>& rest, u64 contentKey) const
+    {
+        if (!rest || contentKey == 0u)
+            return false;
+        const auto found = m_Entries.find(Key{ owner, firstPlantId, RHI::HashKey(rest->GetRHIHandle()) });
+        return found != m_Entries.end() && found->second.ContentKey == contentKey;
+    }
+
+    void VegetationSurfaceCache::Refuse(bool castsShadows)
+    {
+        if (!m_Enabled)
+            return;
+        ++m_Stats.GroupsRequested;
+        ++m_Stats.Refused;
+        m_Stats.Complete = false;
+        m_Stats.CastersComplete = m_Stats.CastersComplete && !castsShadows;
+    }
+
+    void VegetationSurfaceCache::CountBeyondReflectionBudget(u32 groups, u32 plants, f32 reach, f32 detailReach)
+    {
+        if (!m_Enabled)
+            return;
+        m_Stats.BeyondReflectionBudget += groups;
+        m_Stats.PlantsBeyondReflectionBudget += plants;
+        m_Stats.ReflectionReach = std::max(m_Stats.ReflectionReach, reach);
+        m_Stats.ReflectionDetailReach = std::max(m_Stats.ReflectionDetailReach, detailReach);
     }
 
     void VegetationSurfaceCache::Queue(VegetationSurfaceInput input)
@@ -183,20 +250,24 @@ namespace OloEngine::RayTracing
         {
             ++m_Stats.Refused;
             m_Stats.Complete = false;
+            m_Stats.CastersComplete = m_Stats.CastersComplete && !input.CastShadows;
             return;
         }
         u64 sourceIndices = 0u;
         for (const auto& part : input.Parts)
             sourceIndices += part.Indices.Num();
-        const u64 stagedBytes = input.Rows.Num() * (static_cast<u64>(input.VertexCount) * sizeof(Vertex) +
-                                                    sourceIndices * sizeof(u32) + sizeof(FoliageInstanceData));
-        if (!HasQueueCapacity() || stagedBytes > VegetationPolicy::GeometryBytes - m_StagedBytes)
+        const u64 stagedBytes = PlantCount(input) * (static_cast<u64>(input.VertexCount) * sizeof(Vertex) +
+                                                     sourceIndices * sizeof(u32) + sizeof(FoliageInstanceData));
+        if (!HasQueueCapacity() || stagedBytes > VegetationPolicy::GeometryBytes - m_StagedBytes ||
+            input.AccelerationBytes > VegetationPolicy::AccelerationStructureBytes - m_Stats.StagedAccelerationBytes)
         {
             ++m_Stats.Refused;
             m_Stats.Complete = false;
+            m_Stats.CastersComplete = m_Stats.CastersComplete && !input.CastShadows;
             return;
         }
         m_StagedBytes += stagedBytes;
+        m_Stats.StagedAccelerationBytes += input.AccelerationBytes;
         m_Inputs.Add(std::move(input));
     }
 
@@ -215,6 +286,7 @@ namespace OloEngine::RayTracing
 
     void VegetationSurfaceCache::FinishExtraction(GPUScene& scene)
     {
+        OLO_PERF_SCOPE_AUTO("Vegetation::FinishExtraction");
         if (!m_Enabled)
             return;
         for (const auto& input : m_Inputs)
@@ -227,29 +299,60 @@ namespace OloEngine::RayTracing
             m_Stats.ResidentBytes -= item.second.Bytes;
             m_Stats.HistoryReset = true;
             return true; });
-        // New groups first, then oldest snapshots. Stable identity breaks ties
+        // Casting groups first: shadow rays need every one of them, and a
+        // reflection-only group can keep its snapshot when its refresh does not
+        // fit (below), so it must not take the budget a caster needs (#1533).
+        // Then new groups, then oldest snapshots. Stable identity breaks ties
         // so generator iteration order cannot decide which work gets a budget.
-        std::sort(m_Inputs.begin(), m_Inputs.end(), [this](const auto& a, const auto& b)
-                  {
-            const Key ak{ a.Owner, a.FirstPlantId, RHI::HashKey(a.Rest->GetRHIHandle()) }, bk{ b.Owner, b.FirstPlantId, RHI::HashKey(b.Rest->GetRHIHandle()) };
-            const auto ai = m_Entries.find(ak), bi = m_Entries.find(bk);
-            const f32 at = ai == m_Entries.end() || !ai->second.Valid ? -std::numeric_limits<f32>::infinity() : ai->second.SnapshotTime;
-            const f32 bt = bi == m_Entries.end() || !bi->second.Valid ? -std::numeric_limits<f32>::infinity() : bi->second.SnapshotTime;
-            return at < bt || (!(bt < at) && ak < bk); });
-        VegetationFrameBudget budget;
-        const bool shaderReady = m_Inputs.IsEmpty() || EnsureShader();
-        for (const auto& input : m_Inputs)
+        // Sorted as an index with each key read once: a comparator that looked
+        // up both entries, over inputs that are a kilobyte each to move, cost
+        // milliseconds at the showcase lawn's thousand groups.
+        struct Order
         {
+            Key Identity;
+            f32 SnapshotTime = 0.0f;
+            u32 Index = 0u;
+            bool Casts = false;
+        };
+        TArray<Order> order;
+        order.Reserve(m_Inputs.Num());
+        for (i32 i = 0; i < m_Inputs.Num(); ++i)
+        {
+            const auto& input = m_Inputs[i];
             const Key key{ input.Owner, input.FirstPlantId, RHI::HashKey(input.Rest->GetRHIHandle()) };
-            const u64 vertices = static_cast<u64>(input.VertexCount) * input.Rows.Num();
+            const auto found = m_Entries.find(key);
+            const f32 time = found == m_Entries.end() || !found->second.Valid ? -std::numeric_limits<f32>::infinity()
+                                                                              : found->second.SnapshotTime;
+            order.Add({ key, time, static_cast<u32>(i), input.CastShadows });
+        }
+        std::sort(order.GetData(), order.GetData() + order.Num(), [](const Order& a, const Order& b)
+                  {
+            if (a.Casts != b.Casts)
+                return a.Casts;
+            return a.SnapshotTime < b.SnapshotTime || (!(b.SnapshotTime < a.SnapshotTime) && a.Identity < b.Identity); });
+        VegetationFrameBudget budget;
+        budget.Charge(m_BuildDebt);
+        m_Stats.CarriedBuilds = m_BuildDebt.Builds;
+        m_BuildDebt = {};
+        const bool shaderReady = m_Inputs.IsEmpty() || EnsureShader();
+        for (const Order& next : order)
+        {
+            const auto& input = m_Inputs[static_cast<i32>(next.Index)];
+            const Key key{ input.Owner, input.FirstPlantId, RHI::HashKey(input.Rest->GetRHIHandle()) };
+            const u32 plants = PlantCount(input);
+            const u64 vertices = static_cast<u64>(input.VertexCount) * plants;
             u64 indexCount = 0u;
             for (const auto& part : input.Parts)
-                indexCount += static_cast<u64>(part.Indices.Num()) * input.Rows.Num();
-            const u64 bytes = vertices * sizeof(Vertex) + indexCount * sizeof(u32) + input.Rows.Num() * sizeof(FoliageInstanceData);
+                indexCount += static_cast<u64>(part.Indices.Num()) * plants;
+            const u64 bytes = vertices * sizeof(Vertex) + indexCount * sizeof(u32) + plants * sizeof(FoliageInstanceData);
             auto found = m_Entries.find(key);
             const u64 oldBytes = found == m_Entries.end() ? 0u : found->second.Bytes;
-            const auto refuse = [this]()
-            { ++m_Stats.Refused; m_Stats.Complete = false; };
+            const auto refuse = [this, casts = input.CastShadows]()
+            {
+                ++m_Stats.Refused;
+                m_Stats.Complete = false;
+                m_Stats.CastersComplete = m_Stats.CastersComplete && !casts;
+            };
             if (!shaderReady || (found == m_Entries.end() && m_Entries.size() >= VegetationPolicy::ResidentGroups) || bytes > VegetationPolicy::GeometryBytes - (m_Stats.ResidentBytes - oldBytes) ||
                 vertices > std::numeric_limits<u32>::max() / sizeof(Vertex) ||
                 indexCount > std::numeric_limits<u32>::max() / sizeof(u32))
@@ -261,17 +364,18 @@ namespace OloEngine::RayTracing
             Hash state;
             state.Mix(RHI::HashKey(input.Rest->GetRHIHandle()));
             state.Mix(input.VertexCount);
-            for (const auto& row : input.Rows)
-            {
-                state.Mix(row.PositionScale);
-                state.Mix(row.RotationHeight);
-            }
+            // The producer's key stands for the rows when it gives one;
+            // otherwise the whole rows, contiguous (their colour lane is state).
+            if (input.ContentKey != 0u)
+                state.Mix(input.ContentKey);
+            else
+                state.MixBytes(input.Rows.GetData(), static_cast<sizet>(input.Rows.Num()) * sizeof(FoliageInstanceData));
+            state.Mix(plants);
             for (const auto& part : input.Parts)
             {
                 state.Mix(part.Slot);
                 state.Mix(part.Indices.Num());
-                for (const auto index : part.Indices)
-                    state.Mix(index);
+                state.MixBytes(part.Indices.GetData(), static_cast<sizet>(part.Indices.Num()) * sizeof(u32));
             }
             Hash parameters;
             parameters.Mix(input.WorldTransform);
@@ -306,16 +410,38 @@ namespace OloEngine::RayTracing
                 proxy = false;
             const i64 bucket = proxy ? static_cast<i64>(bucketValue) : 0;
             const bool changed = found == m_Entries.end() || found->second.StateHash != state.Value;
+            // Rows held, not sent: only for a group resident under this key.
+            if (input.Rows.IsEmpty() && (changed || found->second.ContentKey != input.ContentKey))
+            {
+                OLO_CORE_WARN("[RayTracing] a vegetation group named rows the cache does not hold; refused");
+                refuse();
+                continue;
+            }
             const bool reset = changed || found->second.ParameterHash != parameters.Value ||
                                found->second.Proxy != proxy || !input.HistoryContinuous;
             const bool unchangedTime = !changed && Math::BitwiseEqual(time, found->second.SnapshotTime);
             const bool reuse = !reset && found->second.Valid &&
                                (unchangedTime || (proxy && found->second.SnapshotBucket == bucket &&
                                                   VegetationPolicy::CanReuseSnapshot(time, found->second.SnapshotTime, input.VelocityBound, true)));
-            if (!reuse && !budget.Reserve(vertices, indexCount / 3u))
+            // A REFLECTION-ONLY group whose refresh does not fit this frame keeps
+            // the snapshot it has (#1533): a reflection of grass a few frames old
+            // in its wind is a reflection of grass, and refusing it would take the
+            // TLAS from every pass. A casting group, or one with no snapshot, is
+            // refused as before.
+            bool stale = false;
+            // Charged as the backend will charge the builds: one per part, each
+            // with the group's whole vertex stream (VegetationFrameBudget).
+            const u32 parts = static_cast<u32>(input.Parts.Num());
+            if (!reuse && !budget.Reserve(vertices * parts, indexCount / 3u, parts))
             {
-                refuse();
-                continue;
+                const bool keepStale = !input.CastShadows && !changed && found->second.Valid &&
+                                       found->second.ParameterHash == parameters.Value && found->second.Proxy == proxy;
+                if (!keepStale)
+                {
+                    refuse();
+                    continue;
+                }
+                stale = true;
             }
             if (changed)
             {
@@ -326,7 +452,7 @@ namespace OloEngine::RayTracing
                 TArray<u32> indices;
                 indices.Reserve(static_cast<sizet>(indexCount));
                 for (const auto& part : input.Parts)
-                    for (u32 plant = 0u; plant < static_cast<u32>(input.Rows.Num()); ++plant)
+                    for (u32 plant = 0u; plant < plants; ++plant)
                         for (const u32 index : part.Indices)
                             indices.Add(index + plant * input.VertexCount);
                 replacement.Indices = IndexBuffer::Create(indices.GetData(), static_cast<u32>(indices.Num()));
@@ -338,6 +464,7 @@ namespace OloEngine::RayTracing
                     continue;
                 }
                 replacement.Bytes = bytes;
+                replacement.ContentKey = input.ContentKey;
                 m_Stats.ResidentBytes = m_Stats.ResidentBytes - oldBytes + bytes;
                 found = m_Entries.insert_or_assign(key, std::move(replacement)).first;
             }
@@ -351,7 +478,9 @@ namespace OloEngine::RayTracing
                 ++m_Stats.ProxyGroups;
             else
                 ++m_Stats.DetailedGroups;
-            if (reuse)
+            if (stale)
+                ++m_Stats.StaleReflectionSnapshots;
+            if (reuse || stale)
                 ++m_Stats.SnapshotsReused;
             else
             {
@@ -367,12 +496,12 @@ namespace OloEngine::RayTracing
                 entry.Valid = true;
                 m_Jobs.Add({ key, input.Wind,
                              MakeModelRelative(input.WorldTransform, scene.GetRenderOrigin()),
-                             input.VertexCount, static_cast<u32>(input.Rows.Num()) });
+                             input.VertexCount, plants });
             }
             u32 firstIndex = 0u;
             for (const auto& part : input.Parts)
             {
-                const u32 partIndices = static_cast<u32>(part.Indices.Num() * input.Rows.Num());
+                const u32 partIndices = static_cast<u32>(part.Indices.Num() * plants);
                 const GPUSceneGeometryKey geometryKey{ RHI::HashKey(entry.Output->GetRHIHandle()),
                                                        RHI::HashKey(entry.Indices->GetRHIHandle()), part.Slot };
                 const GPUSceneMaterialKey materialKey{ RHI::HashKey(input.Rest->GetRHIHandle()), part.Slot,
@@ -390,22 +519,37 @@ namespace OloEngine::RayTracing
                                                        .m_VertexCount = static_cast<u32>(vertices),
                                                        .m_Flags = GPUSceneGeometryFlagDeformed | GPUSceneGeometryFlagVegetation,
                                                    });
-                scene.ExtractInstance({ input.Owner, geometryKey, input.FirstPlantId }, {
-                                                                                            .m_WorldTransform = input.WorldTransform,
-                                                                                            .m_Material = materialKey,
-                                                                                            .m_Flags = GPUSceneInstanceFlagAnimated,
-                                                                                            .m_DeformedContentRevision = entry.Revision,
-                                                                                        });
+                scene.ExtractInstance({ input.Owner, geometryKey, input.FirstPlantId },
+                                      {
+                                          .m_WorldTransform = input.WorldTransform,
+                                          .m_Material = materialKey,
+                                          .m_VisibilityMask = input.CastShadows ? GPUSceneInstanceInput{}.m_VisibilityMask
+                                                                                : kVisibilityMaskNoShadowCast,
+                                          .m_Flags = GPUSceneInstanceFlagAnimated,
+                                          .m_DeformedContentRevision = entry.Revision,
+                                      });
                 firstIndex += partIndices;
             }
-            m_Stats.PlantsRepresented += static_cast<u32>(input.Rows.Num());
+            m_Stats.PlantsRepresented += plants;
         }
         m_Inputs.Reset();
         m_Stats.HistoryReset |= m_Stats.Complete != m_PreviousComplete;
+        const bool leftOut = m_Stats.BeyondReflectionBudget > 0u;
+        if (leftOut && !m_PreviousLeftOut)
+        {
+            OLO_CORE_INFO("[RayTracing] vegetation that casts no shadow is held for reflections out to {:.1f} m: {} "
+                          "groups ({} plants) past the vegetation budget are left out of the ray-traced scene",
+                          m_Stats.ReflectionReach, m_Stats.BeyondReflectionBudget, m_Stats.PlantsBeyondReflectionBudget);
+        }
+        else if (!leftOut && m_PreviousLeftOut)
+        {
+            OLO_CORE_INFO("[RayTracing] all the vegetation reflections read fits the vegetation budget again");
+        }
     }
 
     u32 VegetationSurfaceCache::Dispatch()
     {
+        OLO_PERF_SCOPE_AUTO("Vegetation::Dispatch");
         if (m_Jobs.IsEmpty())
             return 0u;
         if (!m_Enabled || !EnsureShader())

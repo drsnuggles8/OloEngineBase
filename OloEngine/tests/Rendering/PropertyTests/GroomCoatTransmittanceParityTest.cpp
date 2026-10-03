@@ -45,6 +45,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Groom/GroomCoatShadow.h"
+#include "OloEngine/Groom/GroomFibreScattering.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -131,6 +132,93 @@ namespace OloEngine::Tests
                 ReadbackRgbaFloat(m_OutputFB->GetColorAttachmentRendererID(0), kWidth, kHeight, out);
             }
         };
+
+        // ── Dual scattering (#1533) ─────────────────────────────────────────
+        //
+        // GroomDualScatteringParityProbe.glsl's 128 x 64 target: the left half
+        // is oloGroomCoatForwardTransmittance, the right half
+        // oloGroomFibreBackScatterProjected. Its grid, restated.
+        constexpr u32 kDualWidth = 128;
+        constexpr u32 kDualHeight = 64;
+
+        struct ForwardArgs
+        {
+            f64 Tau;
+            f32 Kappa;
+            glm::vec3 ForwardScatter;
+        };
+
+        [[nodiscard]] ForwardArgs ForwardArgsAt(u32 x, u32 y)
+        {
+            ForwardArgs args;
+            args.Tau = 0.125 * static_cast<f64>(x + 1u);
+            args.Kappa = 0.25f * static_cast<f32>(y + 1u);
+            args.ForwardScatter = glm::vec3(static_cast<f32>(x % 16u), static_cast<f32>(y % 16u),
+                                            static_cast<f32>((x + y) % 16u)) /
+                                  16.0f;
+            return args;
+        }
+
+        struct BackArgs
+        {
+            f32 SinThetaI;
+            f32 SinThetaO;
+            f32 CosPhi;
+        };
+
+        [[nodiscard]] BackArgs BackArgsAt(u32 x, u32 y)
+        {
+            BackArgs args;
+            args.SinThetaI = ((static_cast<f32>(x) + 0.5f) / 32.0f) - 1.0f;
+            args.SinThetaO = ((static_cast<f32>(y) + 0.5f) / 32.0f) - 1.0f;
+            args.CosPhi = 1.0f - (static_cast<f32>((x + (3u * y)) % 9u) / 4.0f);
+            return args;
+        }
+
+        [[nodiscard]] GroomFibreDualScattering ProbeLobe()
+        {
+            GroomFibreDualScattering dual;
+            dual.MultipleBackScatter = glm::vec3(0.6f, 0.3f, 0.1f);
+            dual.BackShift = 0.0625f;
+            dual.BackWidth = 0.375f;
+            return dual;
+        }
+
+        struct DualProbeHarness
+        {
+            Ref<Framebuffer> m_OutputFB;
+            Ref<Shader> m_Shader;
+            FullscreenPass m_Pass;
+
+            DualProbeHarness()
+            {
+                FramebufferSpecification spec{};
+                spec.Width = kDualWidth;
+                spec.Height = kDualHeight;
+                spec.Attachments = { FramebufferTextureFormat::RGBA32F };
+                m_OutputFB = Framebuffer::Create(spec);
+                m_Shader = Shader::Create("assets/shaders/tests/GroomDualScatteringParityProbe.glsl");
+            }
+
+            void Draw()
+            {
+                GLStateGuard guard("GroomDualScatteringParity::Draw", GLStateGuard::Policy::Restore);
+                m_OutputFB->Bind();
+                ::glViewport(0, 0, static_cast<GLsizei>(kDualWidth), static_cast<GLsizei>(kDualHeight));
+                ::glDisable(GL_BLEND);
+                ::glDisable(GL_DEPTH_TEST);
+                ::glDisable(GL_CULL_FACE);
+                m_Shader->Bind();
+                m_Pass.Draw(0);
+                ::glFinish();
+                m_OutputFB->Unbind();
+            }
+
+            void ReadOutput(std::vector<f32>& out) const
+            {
+                ReadbackRgbaFloat(m_OutputFB->GetColorAttachmentRendererID(0), kDualWidth, kDualHeight, out);
+            }
+        };
     } // namespace
 
     TEST(GroomCoatTransmittanceParity, TheCompiledShaderMatchesTheCppTwin)
@@ -200,6 +288,69 @@ namespace OloEngine::Tests
             << " samples disagree; GroomCoatShadow::CoatTransmittance and oloGroomCoatTransmittance are "
                "attenuating the coat differently, so the CPU comparison in "
                "docs/analysis/groom-coat-self-shadowing-1248.md describes a coat that is not on screen";
+    }
+
+    TEST(GroomCoatTransmittanceParity, TheDualScatteringTwinsMatchTheCompiledShader)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        DualProbeHarness harness;
+        harness.Draw();
+        std::vector<f32> pixels;
+        harness.ReadOutput(pixels);
+        ASSERT_EQ(pixels.size(), static_cast<sizet>(kDualWidth) * kDualHeight * 4u);
+
+        const GroomFibreDualScattering lobe = ProbeLobe();
+        u32 mismatches = 0;
+        u32 reported = 0;
+        f32 largestLobe = 0.0f;
+        for (u32 y = 0; y < kDualHeight; ++y)
+        {
+            for (u32 x = 0; x < kDualWidth; ++x)
+            {
+                const sizet i = (static_cast<sizet>(y) * kDualWidth + x) * 4u;
+                glm::vec3 expected(0.0f);
+                if (x < 64u)
+                {
+                    const ForwardArgs args = ForwardArgsAt(x, y);
+                    expected = GroomCoatShadow::CoatForwardTransmittance(args.Tau, args.Kappa, args.ForwardScatter);
+                    // The corrupt-input case rides alpha, as in the probe above.
+                    EXPECT_FLOAT_EQ(pixels[i + 3],
+                                    GroomCoatShadow::CoatForwardTransmittance(
+                                        std::numeric_limits<f64>::infinity(), args.Kappa, args.ForwardScatter)
+                                        .r)
+                        << "an infinite optical depth at kappa " << args.Kappa << " did not read fully lit";
+                }
+                else
+                {
+                    const BackArgs args = BackArgsAt(x - 64u, y);
+                    ASSERT_NEAR(pixels[i + 3], args.CosPhi, 1.0e-6f)
+                        << "the probe grid disagrees about cos(phi) at (" << x << ", " << y << ")";
+                    expected = GroomFibreBackScatterProjected(lobe, args.SinThetaO, args.SinThetaI, args.CosPhi);
+                    largestLobe = std::max(largestLobe, expected.r);
+                }
+                for (int c = 0; c < 3; ++c)
+                {
+                    if (WithinTolerance(pixels[i + static_cast<sizet>(c)], expected[c]))
+                    {
+                        continue;
+                    }
+                    ++mismatches;
+                    if (reported < 8u)
+                    {
+                        ++reported;
+                        ADD_FAILURE() << (x < 64u ? "forward transmittance" : "back-scatter lobe") << " drift at ("
+                                      << x << ", " << y << ") channel " << c << ": shader "
+                                      << pixels[i + static_cast<sizet>(c)] << " vs C++ " << expected[c];
+                    }
+                }
+            }
+        }
+        EXPECT_EQ(mismatches, 0u) << mismatches << " of " << (kDualWidth * kDualHeight * 3u)
+                                  << " samples disagree between the dual-scattering twins and the compiled shader";
+        // The lobe half has to have reached the lobe at all, or it compared
+        // zeros with zeros.
+        EXPECT_GT(largestLobe, 0.1f);
     }
 
     TEST(GroomCoatTransmittanceParity, TheGridWouldRejectTheFormulaThatWasReplaced)

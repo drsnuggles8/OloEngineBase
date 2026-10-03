@@ -11,6 +11,7 @@ namespace OloEngine
     {
         class RayTracingProbe;
         class RayTracingScene;
+        class GroomSurfaceCache;
         class VegetationSurfaceCache;
     } // namespace RayTracing
 
@@ -62,6 +63,11 @@ namespace OloEngine
         {
             m_Vegetation = cache;
         }
+        /// The coat proxies' GPU builds (#1533), dispatched beside vegetation's.
+        void SetGroomSurfaceCache(RayTracing::GroomSurfaceCache* cache) noexcept
+        {
+            m_Grooms = cache;
+        }
         // The live-frame ray probe behind olo_rt_trace_ray (#607). Borrowed,
         // never owned, like the two above.
         void SetRayTracingProbe(RayTracing::RayTracingProbe* probe) noexcept
@@ -77,6 +83,7 @@ namespace OloEngine
         RayTracing::RayTracingScene* m_Scene = nullptr;
         const GPUScene* m_GPUScene = nullptr;
         RayTracing::VegetationSurfaceCache* m_Vegetation = nullptr;
+        RayTracing::GroomSurfaceCache* m_Grooms = nullptr;
         RayTracing::RayTracingProbe* m_Probe = nullptr;
     };
 } // namespace OloEngine

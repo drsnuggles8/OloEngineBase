@@ -74,6 +74,9 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 _cameraPrevViewProjection;
     vec3 u_RenderOrigin;
     float _padding1;
+    mat4 _cameraProjectionForReconstruction;
+    vec4 _cameraScreenSpaceAOParams;
+    vec4 u_JitterUV; // the TAA jitter offsets, for the velocity (#1552)
 };
 
 // Model UBO (binding 3)
@@ -319,7 +322,11 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 _cameraPrevViewProjection;
     vec3 u_RenderOrigin;
     float _padding1;
+    mat4 _cameraProjectionForReconstruction;
+    vec4 _cameraScreenSpaceAOParams;
+    vec4 u_JitterUV; // the TAA jitter offsets, for the velocity (#1552)
 };
+#include "include/ScreenVelocity.glsl"
 
 
 // Canonical GPU Scene material record (issue #994). Included AFTER the
@@ -483,7 +490,18 @@ void main()
             discard;
     }
 
-    vec3 albedo = OLO_MAT_ALBEDO(u_AlbedoMap, v_TexCoord, matBaseColorFactor.rgb, matUseAlbedoMap);
+    // AN IRIS PAINTED INTO THE ALBEDO MAP is fetched where the cornea looks
+    // (issue #1533); see include/SkinOcularSurface.glsl, oloSkinOcularIrisShift.
+    // The material here is the INSTANCE's, which is uniform across a quad: a
+    // quad is one primitive of one instance.
+    vec2 albedoUV = v_TexCoord;
+    if (oloSkinEvaluatesOcularSurface(matMaterialKind, u_SkinEvaluationModel) && matUseAlbedoMap)
+    {
+        albedoUV = oloSkinOcularAlbedoUv(v_TexCoord, v_Normal, normalize(u_CameraPosition - v_WorldPos),
+                                         instances[v_InstanceIndex].Transform[2].xyz, u_SkinOcularCorneaLane,
+                                         u_SkinOcularIrisLane, u_SkinOcularResponseLane, u_SkinOcularTintLane);
+    }
+    vec3 albedo = OLO_MAT_ALBEDO(u_AlbedoMap, albedoUV, matBaseColorFactor.rgb, matUseAlbedoMap);
     vec2 metallicRoughness = OLO_MAT_METALLIC_ROUGHNESS(u_MetallicRoughnessMap, v_TexCoord,
                                                      matMetallicFactor, matRoughnessFactor,
                                                      matUseMRMap);
@@ -582,7 +600,7 @@ void main()
     // Screen-space velocity in [-1,1] NDC units.
     vec2 ndcCurr = v_ClipPosCurr.xy / max(v_ClipPosCurr.w, 1e-6);
     vec2 ndcPrev = v_ClipPosPrev.xy / max(v_ClipPosPrev.w, 1e-6);
-    vec2 velocity = (ndcCurr - ndcPrev) * 0.5; // convert [-2,2] -> [-1,1]
+    vec2 velocity = oloVelocityFromNdc(ndcCurr, ndcPrev); // convert [-2,2] -> [-1,1]
 
     o_GBufferAlbedo   = vec4(albedo, metallic);
     o_GBufferNormal   = vec4(octEncodeGB(N), roughness, ao);

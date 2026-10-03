@@ -69,7 +69,8 @@ namespace OloEngine
         // See OloEngine/src/OloEngine/Groom/GroomAsset.h. The SOURCE .abc maps
         // to MeshSource for polygon archives; a curve archive is routed to this
         // type by AlembicGroomImporter, because polygon Alembic import is not
-        // curve support.
+        // curve support, and a curves-only archive is not registered at all
+        // (EditorAssetManager::GetRegistrationType, #1542).
         Groom = 44,
         // Cooked groom-to-body binding (issue #1249) — the .ologroombinding
         // that says which triangle of an animated surface each curve of a groom

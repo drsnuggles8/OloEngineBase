@@ -40,6 +40,12 @@ namespace OloEngine
         // State tracking for current frame rendering
         static void ResetState();
         static void InvalidateRenderStateCache();
+        // A pass-wide ceiling on the colour attachments a draw may write, one bit
+        // per attachment, ANDed into every draw's colorAttachmentWriteMask until
+        // it is set back to 0xFF (and at ResetState). For a pass that keeps every
+        // attachment of its target in scope but must not write some of them:
+        // ForwardOverlayPass (#1533).
+        static void SetPassAttachmentWriteLimit(u8 attachmentMask);
 
         // Forget every "this is already bound" cache (shader, vertex array,
         // textures, UBOs, render state, material, GPU Scene table) without
@@ -83,6 +89,19 @@ namespace OloEngine
         // and every other attachment stays masked. Deferred never sets it: its
         // attachment 2 is the G-Buffer's emissive/flags RT.
         static void SetDepthPrepassActive(bool active, bool writeViewNormals = false);
+
+        // The frame's shadow inputs — the CSM array, the local-light atlas,
+        // their comparison-off raw views for the PCSS blocker search, and the
+        // Virtual Shadow Map's sampling publish — for a pass that draws OUTSIDE
+        // the command queue (issue #1323).
+        //
+        // EXPOSED RATHER THAN RE-IMPLEMENTED. The four units carry a specific
+        // sampler state and a specific typed null kind, and every site that
+        // stages a shadow-map offset has to agree about both or whichever pass
+        // ran last silently wins (issue #691). GroomRenderPass is the first
+        // consumer that is a render-graph node rather than a queued draw, and a
+        // second copy of these binds is exactly the drift this comment is about.
+        static void BindSceneShadowTextures();
         static void SetDepthPrepassColorPassActive(bool active);
         [[nodiscard]] static bool IsDepthPrepassActive();
         [[nodiscard]] static bool DoesDepthPrepassWriteNormals();
@@ -112,6 +131,10 @@ namespace OloEngine
         // (terrain / voxel / decal) can fill CameraUBO::PrevViewProjection
         // without aliasing the current-frame VP.
         static void SetPrevViewProjectionMatrix(const glm::mat4& prevVP);
+        // @brief The TAA jitter offsets those two matrices carry (#1552): xy
+        // this frame's, zw the previous frame's, in velocity units -- what the
+        // shared CameraUBO re-upload hands the velocity writers to subtract.
+        static void SetJitterUV(const glm::vec4& jitterUV);
         static void SetViewPosition(const glm::vec3& viewPos);
         // @brief Camera-relative render origin for this frame (issue #429). The
         // stored view / view-projection / position above remain *world*-space

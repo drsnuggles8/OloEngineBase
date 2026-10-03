@@ -44,6 +44,11 @@ namespace OloEngine
         void ExecuteForwardPrepass(RGCommandContext& context, const Ref<Framebuffer>& sceneTarget);
 
         [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
+        void ReleaseStaleFramebuffers(const std::function<bool(const Framebuffer*)>& isStale) override
+        {
+            RenderGraphNode::ReleaseStaleFramebuffers(isStale);
+            ReleaseIfStale(m_SceneFramebuffer, isStale);
+        }
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
@@ -59,5 +64,9 @@ namespace OloEngine
         // The prepass half's AO depth copy (#1474); SceneDepth and SceneNormals
         // are views of the scene target and need none (#1332).
         RGTextureHandle m_PrepassForwardAODepth;
+        // Whether this frame's forward prepass put every foliage draw's depth
+        // in the scene target. Then the colour draws test against it without
+        // writing, as ScenePass's do after its own prepass (see Execute).
+        bool m_ColourAfterPrepass = false;
     };
 } // namespace OloEngine
