@@ -291,6 +291,9 @@ namespace OloEngine
         /// share may thin a run its body turned toward the light.
         u32 CastersPosed = 0;
         u32 CastersAtRest = 0;
+        /// CPU time this frame spent re-posing those casters' runs (each root
+        /// triangle framed, each run's entries turned).
+        u64 CasterPoseMicroseconds = 0;
         /// Of those, the grooms whose drawn roots the GPU evaluated (#1533 E1;
         /// compute/GroomRootFrames.comp), and how many roots that was. The rest
         /// packed CPU-evaluated roots.
@@ -622,11 +625,9 @@ namespace OloEngine
             /// One run per group (GroomCasterOrder::Runs), covering the index
             /// buffer end to end.
             std::vector<GroomCasterRun> Runs;
-            /// Every strand in the order's order, and the sample a bound coat's
-            /// runs are re-posed from each frame (GroomCasterPose.h). Empty for
-            /// a stream built without strand summaries.
-            std::vector<u32> StrandOrder;
-            std::vector<GroomCasterStrandBox> StrandBoxes;
+            /// What a bound coat's runs are re-posed from each frame, exactly:
+            /// each run's strands by root triangle (GroomCasterPose.h). Empty
+            /// for a stream built without strand summaries or a binding.
             GroomCasterPose Pose;
             /// The whole stream's length-weighted mean radius, for the log.
             f32 MeanRadius = 0.0f;
@@ -637,11 +638,16 @@ namespace OloEngine
         /// The caster order of a stream just built, one run per group of
         /// `strands` (the builder's caster summaries), or an empty one when the
         /// stream gave none (the caster then casts the stream whole).
+        /// `strandCurves` and `binding`, for a bound coat, are what its runs'
+        /// pose is built from (each strand's base curve, the binding drawn with);
+        /// `restStream` says the vertices are in each root's bind frame.
         [[nodiscard]] static GroomCasterStream BuildCasterStream(const Ref<VertexBuffer>& vertexBuffer,
                                                                  std::span<const GroomStrandVertex> vertices,
                                                                  std::span<const u32> indices,
                                                                  std::span<const u32> strandFirstIndex,
-                                                                 std::span<const GroomCasterStrand> strands);
+                                                                 std::span<const GroomCasterStrand> strands,
+                                                                 std::span<const u32> strandCurves,
+                                                                 const GroomBindingAsset* binding, bool restStream);
 
         /// A bound coat's REST stream (#1427), shared by every entity that wears
         /// the same groom at the same budget, coat and binding. Unlike the frame
@@ -896,9 +902,9 @@ namespace OloEngine
             /// Where the kernel's roots can be, for the posed box while the
             /// CPU holds no drawn root (see BuildGroomRootBoneBounds).
             GroomRootBoneBounds RootBoneBounds;
-            /// The rest stream's caster pose with this body's skin
-            /// (SkinGroomCasterPose), built with RootBoneBounds.
-            GroomCasterPose SkinnedCasterPose;
+            /// The rest stream's caster pose on this body's surface
+            /// (BuildGroomCasterPoseSurface), built with RootBoneBounds.
+            GroomCasterPoseSurface CasterPoseSurface;
             /// This frame's caster runs, re-posed where the frame's root data
             /// was in hand (#1533), and the tick they were posed at; another
             /// tick means they describe no pose of this frame.
@@ -922,7 +928,7 @@ namespace OloEngine
         /// root transforms it was just built with; a coat that does not cast
         /// keeps none.
         void PoseCpuCasterRuns(const GroomStrandRequest& request, CacheEntry& entry,
-                               std::span<const u32> strandCurves, std::span<const GroomRootTransform> transforms);
+                               std::span<const GroomRootTransform> transforms);
         /// The shared rest stream this request draws, found or built. Null when
         /// it cannot be built (a binding that does not span the base groom, or
         /// a selection that emits nothing).

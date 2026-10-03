@@ -1707,7 +1707,9 @@ namespace OloEngine
                     {
                         bound = std::min(bound, GroomShadowProjectedLengthLowerBound(run.TotalLength, run.Moments, principal));
                     }
-                    projectedLength = bound * stretch;
+                    // The run's own loss (strands of unknown orientation, the
+                    // simulation's shortening; GroomCasterPose.h) comes off.
+                    projectedLength = std::max(bound - std::max(run.ProjectedLengthLoss, 0.0f), 0.0f) * stretch;
                 }
             }
         }

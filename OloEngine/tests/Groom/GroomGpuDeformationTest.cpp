@@ -31,6 +31,7 @@
 #include "GroomBindingFixture.h"
 
 #include "OloEngine/Groom/GroomBindingBuilder.h"
+#include "OloEngine/Groom/GroomBuilder.h"
 #include "OloEngine/Groom/GroomCasterPose.h"
 #include "OloEngine/Groom/GroomCoatShadow.h"
 #include "OloEngine/Groom/GroomDeformation.h"
@@ -38,6 +39,7 @@
 #include "OloEngine/Groom/GroomGuideInfluence.h"
 #include "OloEngine/Groom/GroomRayTracingProxy.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
+#include "OloEngine/Groom/GroomShadowWidening.h"
 #include "OloEngine/Groom/GroomStrandRequest.h"
 
 #include <glm/glm.hpp>
@@ -47,6 +49,7 @@
 #include <bit>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <numeric>
 #include <span>
 #include <string>
@@ -298,6 +301,206 @@ namespace
             EXPECT_TRUE(BitwiseEqual(gpu.PrevPosition, expected.PrevPosition)) << "previous position";
         }
         return static_cast<u32>(cpu.size());
+    }
+    // ── The caster pose's harness (#1533) ─────────────────────────────────────
+
+    struct StrandSpec
+    {
+        std::vector<glm::vec3> Points;
+        f32 Width = 1.0e-4f;
+        u16 Group = 0;
+    };
+
+    [[nodiscard]] std::vector<glm::vec3> Line(const glm::vec3& root, const glm::vec3& direction, f32 length,
+                                              u32 points = 6u)
+    {
+        std::vector<glm::vec3> out;
+        for (u32 p = 0; p < points; ++p)
+        {
+            out.push_back(root + direction * (length * static_cast<f32>(p) / static_cast<f32>(points - 1u)));
+        }
+        return out;
+    }
+
+    [[nodiscard]] Ref<GroomAsset> BuildCoatFrom(const std::vector<StrandSpec>& strands,
+                                                const std::vector<std::string>& groups)
+    {
+        GroomBuilder builder;
+        std::string reason;
+        std::vector<u16> ids;
+        for (const std::string& name : groups)
+        {
+            u16 id = 0;
+            EXPECT_TRUE(builder.AddGroup(name, id, reason)) << reason;
+            ids.push_back(id);
+        }
+        for (const StrandSpec& strand : strands)
+        {
+            const std::vector<f32> widths(strand.Points.size(), strand.Width);
+            GroomCurveInput input;
+            input.Points = strand.Points;
+            input.Widths = widths;
+            input.GroupId = ids[strand.Group];
+            EXPECT_TRUE(builder.AddCurve(input, reason)) << reason;
+        }
+        Ref<GroomAsset> groom = builder.Build(reason);
+        EXPECT_TRUE(groom) << reason;
+        return groom;
+    }
+
+    // What GroomRenderPass builds a bound coat's caster from: the rest stream,
+    // its caster order and the order's pose.
+    struct CasterSetup
+    {
+        GroomStrandBuildSettings Settings;
+        std::vector<GroomStrandVertex> Rest;
+        std::vector<u32> RestIndices;
+        std::vector<u32> RootCurves;
+        std::vector<u32> RestFirst;
+        std::vector<GroomCasterStrand> RestStrands;
+        std::vector<u32> StrandOrder;
+        GroomCasterOrder Order;
+        GroomCasterPose Pose;
+    };
+
+    [[nodiscard]] CasterSetup MakeCasterSetup(const GroomAsset& groom, const GroomBindingAsset& binding)
+    {
+        CasterSetup setup;
+        setup.Settings.MaxStrands = groom.GetCurveCount();
+        (void)BuildGroomStrandRestMesh(GroomBuildSource::FromAsset(groom), setup.Settings, binding, setup.Rest,
+                                       setup.RestIndices, setup.RootCurves, nullptr, nullptr, &setup.RestFirst,
+                                       &setup.RestStrands);
+        setup.Order = BuildGroomCasterOrder(setup.Rest, setup.RestIndices, setup.RestFirst, setup.RestStrands,
+                                            &setup.StrandOrder);
+        setup.Pose = BuildGroomCasterPose(setup.Order.Runs, setup.StrandOrder, setup.RestStrands, setup.RootCurves,
+                                          binding, CollectGroomCasterLocalBoxes(setup.Rest, setup.RestIndices, setup.RestFirst));
+        return setup;
+    }
+
+    // THE TRUTH, run by run: the coat the CPU deforms, segment by segment.
+    struct RunTruth
+    {
+        std::array<f64, 6> Moments{};
+        std::vector<glm::dvec3> Segments;
+        f64 Length = 0.0;
+        glm::vec3 Min{ std::numeric_limits<f32>::max() };
+        glm::vec3 Max{ std::numeric_limits<f32>::lowest() };
+    };
+
+    [[nodiscard]] std::vector<RunTruth> MeasureTruth(const GroomAsset& groom, const GroomBindingAsset& binding,
+                                                     const TArray<GroomRootTransform>& transforms,
+                                                     const CasterSetup& setup,
+                                                     const GroomStrandSimulation* simulation = nullptr)
+    {
+        GroomStrandDeformation deformation;
+        deformation.Binding = &binding;
+        deformation.RootTransforms = { transforms.GetData(), static_cast<sizet>(transforms.Num()) };
+        std::vector<GroomStrandVertex> cpu;
+        std::vector<u32> cpuIndices;
+        std::vector<u32> cpuFirst;
+        std::vector<u32> cpuCurves;
+        (void)BuildGroomStrandMesh(GroomBuildSource::FromAsset(groom), setup.Settings, cpu, cpuIndices, &deformation,
+                                   nullptr, simulation, &cpuFirst, nullptr, &cpuCurves);
+        EXPECT_EQ(cpuFirst, setup.RestFirst) << "the two walks must emit the same strands";
+        EXPECT_EQ(cpuCurves, setup.RootCurves) << "and report the same curve for each";
+        std::vector<RunTruth> truth(setup.Order.Runs.size());
+        for (sizet r = 0, first = 0; r < setup.Order.Runs.size(); first += setup.Order.Runs[r].Strands, ++r)
+        {
+            for (u32 k = 0; k < setup.Order.Runs[r].Strands; ++k)
+            {
+                const u32 strand = setup.StrandOrder[first + k];
+                const u32 end = strand + 1u < cpuFirst.size() ? cpuFirst[strand + 1u] : static_cast<u32>(cpuIndices.size());
+                for (u32 i = cpuFirst[strand]; i < end; i += 6u)
+                {
+                    const GroomStrandVertex& v = cpu[cpuIndices[i] / 4u * 4u];
+                    const glm::dvec3 segment(v.Other - v.Position);
+                    const f64 l = glm::length(segment);
+                    if (l > 0.0)
+                    {
+                        const glm::dvec3 t = segment / l;
+                        const std::array<f64, 6> outer{ t.x * t.x, t.y * t.y, t.z * t.z, t.x * t.y, t.x * t.z, t.y * t.z };
+                        for (sizet m = 0; m < 6u; ++m)
+                        {
+                            truth[r].Moments[m] += l * outer[m];
+                        }
+                        truth[r].Segments.push_back(segment);
+                        truth[r].Length += l;
+                    }
+                    truth[r].Min = glm::min(truth[r].Min, glm::min(v.Position, v.Other));
+                    truth[r].Max = glm::max(truth[r].Max, glm::max(v.Position, v.Other));
+                }
+            }
+        }
+        return truth;
+    }
+
+    // What the truth projects to across a unit direction: each segment's part
+    // perpendicular to it.
+    [[nodiscard]] f64 ProjectedAcross(const RunTruth& truth, const glm::dvec3& d)
+    {
+        f64 sum = 0.0;
+        for (const glm::dvec3& s : truth.Segments)
+        {
+            sum += glm::length(s - (glm::dot(s, d) * d));
+        }
+        return sum;
+    }
+
+    // What a posed run claims across a unit direction: DecideGroomCasterRun's
+    // orthographic bound, its loss taken off.
+    [[nodiscard]] f64 ClaimedAcross(const GroomCasterRun& run, const glm::vec3& d)
+    {
+        return std::max(0.0, static_cast<f64>(GroomShadowProjectedLengthLowerBound(run.TotalLength, run.Moments, d)) -
+                                 static_cast<f64>(run.ProjectedLengthLoss));
+    }
+
+    [[nodiscard]] bool Holds(const GroomCasterRun& run, const RunTruth& truth, f32 slack = 1.0e-5f)
+    {
+        return glm::all(glm::lessThanEqual(run.BoundsMin, truth.Min + glm::vec3(slack))) &&
+               glm::all(glm::greaterThanEqual(run.BoundsMax, truth.Max - glm::vec3(slack)));
+    }
+
+    [[nodiscard]] glm::vec3 UnitDirection(u32 a, u32 b)
+    {
+        const auto hash = [](u32 x, u32 y)
+        {
+            u32 h = x * 0x9E3779B9u ^ (y + 0x7F4A7C15u) * 0x85EBCA6Bu;
+            h ^= h >> 16u;
+            h *= 0x7FEB352Du;
+            h ^= h >> 15u;
+            return static_cast<f32>(h >> 8u) / static_cast<f32>(1u << 24u);
+        };
+        const f32 z = 2.0f * hash(a, b * 2u) - 1.0f;
+        const f32 phi = 6.2831853f * hash(a, b * 2u + 1u);
+        const f32 r = std::sqrt(std::max(0.0f, 1.0f - z * z));
+        return { r * std::cos(phi), r * std::sin(phi), z };
+    }
+
+    [[nodiscard]] glm::mat4 About(const glm::vec3& pivot, f32 degrees, const glm::vec3& axis)
+    {
+        return glm::translate(glm::mat4(1.0f), pivot) * glm::rotate(glm::mat4(1.0f), glm::radians(degrees), axis) *
+               glm::translate(glm::mat4(1.0f), -pivot);
+    }
+
+    // Both sources' posed runs: from the surface, as for a coat whose roots the
+    // GPU evaluates, and from the CPU's root transforms.
+    struct Posed
+    {
+        std::vector<GroomCasterRun> BySurface;
+        std::vector<GroomCasterRun> ByRoots;
+    };
+
+    [[nodiscard]] Posed PoseBothWays(const CasterSetup& setup, const GroomDeformationInputs& inputs,
+                                     const TArray<GroomRootTransform>& transforms,
+                                     const GroomCasterPosePadding& padding = {})
+    {
+        Posed posed;
+        const GroomCasterPoseSurface surface = BuildGroomCasterPoseSurface(setup.Pose, inputs.Surface);
+        EXPECT_TRUE(PoseGroomCasterRunsBySurface(setup.Order.Runs, setup.Pose, surface, inputs, padding, posed.BySurface));
+        EXPECT_TRUE(PoseGroomCasterRunsByRoots(setup.Order.Runs, setup.Pose,
+                                               { transforms.GetData(), static_cast<sizet>(transforms.Num()) }, padding,
+                                               posed.ByRoots));
+        return posed;
     }
 } // namespace
 
@@ -899,13 +1102,12 @@ TEST(GroomGpuDeformation, TheCasterRunsArePosedAsTheCpuDeformsTheCoat)
     // #1533: a bound coat's shadow views decide each run's share from its
     // moments and box, which the walk records at REST. They are re-posed every
     // frame -- from the root transforms when the CPU evaluated the roots, from
-    // the bone palette when the GPU did -- and both must describe the coat the
-    // CPU deforms: its posed segments' second moments, and a box holding every
+    // the surface when the GPU does -- and both must describe the coat the CPU
+    // deforms: its posed segments' second moments, and a box holding every
     // posed point. Half the hinge bent 55 degrees, under a groom mapping that is
     // not the identity.
     BoundScene scene = MakeBoundScene(48u, 6u, 55.0f);
     ASSERT_TRUE(scene.Groom && scene.Binding);
-    const u32 curves = scene.Groom->GetCurveCount();
     GroomDeformationInputs inputs;
     inputs.Surface = scene.Grid.View(2u);
     inputs.Skinning = scene.Grid.Skinning(scene.Palette, scene.PrevPalette, true);
@@ -913,102 +1115,389 @@ TEST(GroomGpuDeformation, TheCasterRunsArePosedAsTheCpuDeformsTheCoat)
     inputs.SurfaceToGroom = glm::rotate(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.02f, 0.01f)), 0.3f,
                                         glm::vec3(0.0f, 1.0f, 0.0f));
     (void)EvaluateGroomRootTransforms(*scene.Groom, *scene.Binding, inputs, std::nullopt, scene.Transforms);
-
-    const GroomBuildSource source = GroomBuildSource::FromAsset(*scene.Groom);
-    GroomStrandBuildSettings settings;
-    settings.MaxStrands = curves;
-    std::vector<GroomStrandVertex> rest;
-    std::vector<u32> restIndices;
-    std::vector<u32> rootCurves;
-    std::vector<u32> restFirst;
-    std::vector<GroomCasterStrand> restStrands;
-    (void)BuildGroomStrandRestMesh(source, settings, *scene.Binding, rest, restIndices, rootCurves, nullptr, nullptr,
-                                   &restFirst, &restStrands);
-    std::vector<u32> strandOrder;
-    const GroomCasterOrder order = BuildGroomCasterOrder(rest, restIndices, restFirst, restStrands, &strandOrder);
-    GroomCasterPose pose = BuildGroomCasterPose(order.Runs, strandOrder, restStrands);
-    ASSERT_TRUE(pose.IsUsable());
-
-    // THE TRUTH: the CPU-deformed coat, measured segment by segment, run by run.
-    GroomStrandDeformation deformation;
-    deformation.Binding = scene.Binding.Raw();
-    deformation.RootTransforms = { scene.Transforms.GetData(), static_cast<sizet>(scene.Transforms.Num()) };
-    std::vector<GroomStrandVertex> cpu;
-    std::vector<u32> cpuIndices;
-    std::vector<u32> cpuFirst;
-    std::vector<u32> cpuCurves;
-    (void)BuildGroomStrandMesh(source, settings, cpu, cpuIndices, &deformation, nullptr, nullptr, &cpuFirst, nullptr,
-                               &cpuCurves);
-    ASSERT_EQ(cpuFirst, restFirst) << "the two walks must emit the same strands";
-    ASSERT_EQ(cpuCurves, rootCurves) << "and report the same curve for each";
-    struct Truth
-    {
-        std::array<f64, 6> Moments{};
-        glm::vec3 Min{ std::numeric_limits<f32>::max() };
-        glm::vec3 Max{ std::numeric_limits<f32>::lowest() };
-    };
-    std::vector<Truth> truth(order.Runs.size());
-    for (sizet r = 0, first = 0; r < order.Runs.size(); first += order.Runs[r].Strands, ++r)
-    {
-        for (u32 k = 0; k < order.Runs[r].Strands; ++k)
-        {
-            const u32 strand = strandOrder[first + k];
-            const u32 end = strand + 1u < cpuFirst.size() ? cpuFirst[strand + 1u] : static_cast<u32>(cpuIndices.size());
-            for (u32 i = cpuFirst[strand]; i < end; i += 6u)
-            {
-                const GroomStrandVertex& v = cpu[cpuIndices[i] / 4u * 4u];
-                const glm::dvec3 segment(v.Other - v.Position);
-                const f64 l = glm::length(segment);
-                if (l > 0.0)
-                {
-                    const glm::dvec3 t = segment / l;
-                    const std::array<f64, 6> outer{ t.x * t.x, t.y * t.y, t.z * t.z, t.x * t.y, t.x * t.z, t.y * t.z };
-                    for (sizet m = 0; m < 6u; ++m)
-                    {
-                        truth[r].Moments[m] += l * outer[m];
-                    }
-                }
-                truth[r].Min = glm::min(truth[r].Min, glm::min(v.Position, v.Other));
-                truth[r].Max = glm::max(truth[r].Max, glm::max(v.Position, v.Other));
-            }
-        }
-    }
-
-    std::vector<GroomCasterRun> byRoots;
-    ASSERT_TRUE(PoseGroomCasterRunsByRoots(order.Runs, pose, strandOrder, rootCurves, *scene.Binding,
-                                           { scene.Transforms.GetData(), static_cast<sizet>(scene.Transforms.Num()) },
-                                           GroomCasterPosePadding{}, byRoots));
-    SkinGroomCasterPose(pose, strandOrder, rootCurves, CollectGroomCasterStrandBoxes(restStrands), *scene.Binding,
-                        inputs.Surface, inputs.Skinning, static_cast<u32>(scene.Palette.size()), curves);
-    ASSERT_TRUE(pose.Skinned);
-    std::vector<GroomCasterRun> bySkeleton;
-    ASSERT_TRUE(PoseGroomCasterRunsBySkeleton(order.Runs, pose, rootCurves, *scene.Binding, inputs,
-                                              GroomCasterPosePadding{}, bySkeleton));
-
-    constexpr f32 kSlack = 1.0e-5f;
-    for (sizet r = 0; r < order.Runs.size(); ++r)
+    const CasterSetup setup = MakeCasterSetup(*scene.Groom, *scene.Binding);
+    ASSERT_TRUE(setup.Pose.IsUsable());
+    const std::vector<RunTruth> truth = MeasureTruth(*scene.Groom, *scene.Binding, scene.Transforms, setup);
+    const Posed posed = PoseBothWays(setup, inputs, scene.Transforms);
+    for (sizet r = 0; r < setup.Order.Runs.size(); ++r)
     {
         SCOPED_TRACE("run " + std::to_string(r));
         const f64 trace = truth[r].Moments[0] + truth[r].Moments[1] + truth[r].Moments[2];
         f64 restError = 0.0;
         for (sizet m = 0; m < 6u; ++m)
         {
-            // Every strand of a 48-strand run is in its sample, and the CPU path
-            // turns each strand rigidly by its root: exact but for rounding.
-            EXPECT_NEAR(byRoots[r].Moments[m], truth[r].Moments[m], 1.0e-3 * trace) << "by roots, moment " << m;
-            // The skeleton frames each sampled root from its skinned triangle,
-            // as the reference does: exact but for rounding too.
-            EXPECT_NEAR(bySkeleton[r].Moments[m], truth[r].Moments[m], 1.0e-3 * trace) << "by skeleton, moment " << m;
-            restError = std::max(restError, std::abs(order.Runs[r].Moments[m] - truth[r].Moments[m]));
+            EXPECT_NEAR(posed.ByRoots[r].Moments[m], truth[r].Moments[m], 1.0e-4 * trace) << "by roots, moment " << m;
+            EXPECT_NEAR(posed.BySurface[r].Moments[m], truth[r].Moments[m], 1.0e-4 * trace) << "by surface, moment " << m;
+            restError = std::max(restError, std::abs(setup.Order.Runs[r].Moments[m] - truth[r].Moments[m]));
         }
         // THE CONTROL: the rest moments are not the bent coat's.
         EXPECT_GT(restError, 0.1 * trace) << "the bend left the run's moments where they were: nothing was tested";
-        for (const auto* posed : { &byRoots[r], &bySkeleton[r] })
+        EXPECT_TRUE(Holds(posed.ByRoots[r], truth[r])) << "the roots' posed box does not hold the posed coat";
+        EXPECT_TRUE(Holds(posed.BySurface[r], truth[r])) << "the surface's posed box does not hold the posed coat";
+        EXPECT_LT(posed.BySurface[r].ProjectedLengthLoss, 0.01f * posed.BySurface[r].TotalLength)
+            << "healthy triangles should cost the claim almost nothing";
+    }
+}
+
+TEST(GroomGpuDeformation, APosedRunsMomentsAreItsStrandsOwnNotASamplesEstimate)
+{
+    // #1533 review, finding 2. 128 short strands lying along x on the half of a
+    // hinged grid that folds up 90 degrees, so they end along y, and one strand
+    // nine times as long standing along y on the half that stays. Every posed
+    // strand lies along y: across x the run projects to its whole length.
+    // A 128-strand sample of the run that missed the long strand, its change
+    // scaled from the sample's length to the run's, gave a moment matrix with
+    // a negative eigenvalue and a "lower bound" across x above the run's whole
+    // length (146 against 137 in the review's units). The pose now turns every
+    // strand by its own root triangle's frame: its moments are the run's own.
+    GridSurface grid = MakeGrid(8u);
+    WeightAsHinge(grid);
+    constexpr f32 kShort = 0.01f;
+    std::vector<StrandSpec> strands;
+    for (u32 i = 0; i < 128u; ++i)
+    {
+        const glm::vec3 root{ 0.56f + 0.36f * static_cast<f32>(i % 16u) / 15.0f, 0.0f,
+                              0.06f + 0.88f * static_cast<f32>(i / 16u) / 7.0f };
+        strands.push_back({ Line(root, glm::vec3(1.0f, 0.0f, 0.0f), kShort) });
+    }
+    strands.push_back({ Line(glm::vec3(0.25f, 0.0f, 0.5f), glm::vec3(0.0f, 1.0f, 0.0f), 9.0f * kShort) });
+    const Ref<GroomAsset> groom = BuildCoatFrom(strands, { "leg_guard" });
+    ASSERT_TRUE(groom);
+    Ref<GroomBindingAsset> binding;
+    GroomBindingBuildStats stats;
+    std::string reason;
+    ASSERT_TRUE(GroomBindingBuilder::Build(*groom, grid.View(2u), "TestBody", GroomBindingBuildSettings{}, binding, stats,
+                                           reason))
+        << reason;
+    const std::vector<glm::mat4> palette{ glm::mat4(1.0f),
+                                          About(glm::vec3(0.5f, 0.0f, 0.0f), 90.0f, glm::vec3(0.0f, 0.0f, 1.0f)) };
+    GroomDeformationInputs inputs;
+    inputs.Surface = grid.View(2u);
+    inputs.Skinning = grid.Skinning(palette, palette, true);
+    TArray<GroomRootTransform> transforms;
+    (void)EvaluateGroomRootTransforms(*groom, *binding, inputs, std::nullopt, transforms);
+    const CasterSetup setup = MakeCasterSetup(*groom, *binding);
+    ASSERT_EQ(setup.Order.Runs.size(), 1u);
+    ASSERT_EQ(setup.Order.Runs[0].Strands, 129u);
+    const std::vector<RunTruth> truth = MeasureTruth(*groom, *binding, transforms, setup);
+    const Posed posed = PoseBothWays(setup, inputs, transforms);
+
+    const glm::vec3 x(1.0f, 0.0f, 0.0f);
+    const f64 actual = ProjectedAcross(truth[0], glm::dvec3(x));
+    const f64 trace = truth[0].Moments[0] + truth[0].Moments[1] + truth[0].Moments[2];
+    for (const auto* run : { &posed.BySurface[0], &posed.ByRoots[0] })
+    {
+        for (sizet m = 0; m < 6u; ++m)
         {
-            EXPECT_TRUE(glm::all(glm::lessThanEqual(posed->BoundsMin, truth[r].Min + glm::vec3(kSlack))) &&
-                        glm::all(glm::greaterThanEqual(posed->BoundsMax, truth[r].Max - glm::vec3(kSlack))))
-                << "a posed box does not hold the posed coat";
+            EXPECT_NEAR(run->Moments[m], truth[0].Moments[m], 1.0e-4 * trace) << "moment " << m;
         }
+        EXPECT_GE(run->Moments[0], -1.0e-6f * static_cast<f32>(trace)) << "a posed xx moment below zero";
+        EXPECT_LE(ClaimedAcross(*run, x), actual * (1.0 + 1.0e-5)) << "the claim across x exceeds what the run projects to";
+        EXPECT_GE(ClaimedAcross(*run, x), 0.98 * actual) << "the exact moments should claim nearly all of it";
+    }
+
+    // THE CONTROL: the sampled form the pose replaced, over the same run --
+    // the 128 short strands as the sample, their change scaled by L / L_s.
+    std::array<f64, 6> change{};
+    f64 sampleLength = 0.0;
+    for (u32 strand = 0; strand < static_cast<u32>(setup.RestStrands.size()); ++strand)
+    {
+        const GroomCasterStrand& summary = setup.RestStrands[strand];
+        if (summary.Length > 2.0f * kShort)
+        {
+            continue; // the long strand: outside the sample
+        }
+        const u32 curve = setup.RootCurves[strand];
+        const glm::mat3 turn = glm::mat3_cast(transforms[static_cast<i32>(curve)].Rotation *
+                                              glm::conjugate(binding->GetRoot(curve).RestRotation));
+        const std::array<f32, 6> turned = RotateGroomCasterMoments(summary.Moments, turn);
+        for (sizet m = 0; m < 6u; ++m)
+        {
+            change[m] += static_cast<f64>(turned[m]) - summary.Moments[m];
+        }
+        sampleLength += summary.Length;
+    }
+    const f64 scale = static_cast<f64>(setup.Order.Runs[0].TotalLength) / sampleLength;
+    const f64 sampledXX = setup.Order.Runs[0].Moments[0] + scale * change[0];
+    const f64 sampledClaim = setup.Order.Runs[0].TotalLength - sampledXX;
+    std::printf("[groom-gpu] posed run across x: actual %.5f, exact claim %.5f, sampled form %.5f (xx %.5f)\n", actual,
+                ClaimedAcross(posed.BySurface[0], x), sampledClaim, sampledXX);
+    EXPECT_LT(sampledXX, 0.0) << "the control: the sampled form should have a negative moment here";
+    EXPECT_GT(sampledClaim, 1.05 * actual) << "the control: the sampled form should over-credit the run";
+}
+
+TEST(GroomGpuDeformation, APosedRunIsExactUnderMixedBonesAndUnequalStrands)
+{
+    // #1533 review, finding 2: unequal lengths, mixed orientations and
+    // heterogeneous root motion -- three bones blended smoothly across the
+    // grid, each turned about its own pivot and axis, under a groom mapping
+    // that is neither a similarity nor the identity. Each run's posed moments
+    // must be the deformed coat's, its claim across every direction at most
+    // what it projects to, and its box must hold every deformed point.
+    GridSurface grid = MakeGrid(16u);
+    for (u32 v = 0; v < grid.VertexCount(); ++v)
+    {
+        const f32 x = grid.Positions[v].x;
+        const f32 a = glm::smoothstep(0.2f, 0.5f, x);
+        const f32 b = glm::smoothstep(0.5f, 0.8f, x);
+        // Two of the three bones at any point, blended.
+        if (x < 0.5f)
+        {
+            grid.SetInfluence(v, 0u, 1.0f - a, 1u, a);
+        }
+        else
+        {
+            grid.SetInfluence(v, 1u, 1.0f - b, 2u, b);
+        }
+    }
+    const std::vector<glm::mat4> palette{
+        About(glm::vec3(0.2f, 0.0f, 0.3f), 25.0f, glm::normalize(glm::vec3(0.3f, 0.2f, 1.0f))),
+        About(glm::vec3(0.5f, 0.1f, 0.6f), -50.0f, glm::normalize(glm::vec3(1.0f, 0.4f, 0.1f))),
+        glm::translate(glm::mat4(1.0f), glm::vec3(0.02f, 0.05f, -0.01f)) *
+            About(glm::vec3(0.8f, 0.0f, 0.2f), 70.0f, glm::normalize(glm::vec3(0.1f, 1.0f, 0.5f))) };
+    std::vector<StrandSpec> strands;
+    for (u32 i = 0; i < 600u; ++i)
+    {
+        const glm::vec3 root{ 0.05f + 0.9f * UnitDirection(11u, i).x * 0.5f + 0.45f, 0.0f,
+                              0.05f + 0.9f * (UnitDirection(13u, i).y * 0.5f + 0.5f) };
+        // Combed mostly along +x, out of the surface, with a spread: anisotropic,
+        // so the bones' turns move the moments.
+        const glm::vec3 u = UnitDirection(17u, i);
+        const glm::vec3 direction{ 1.0f, 0.2f + 0.5f * std::abs(u.y), 0.4f * u.z };
+        const f32 length = 0.005f + 0.055f * (UnitDirection(19u, i).z * 0.5f + 0.5f);
+        strands.push_back({ Line(glm::clamp(root, glm::vec3(0.02f), glm::vec3(0.98f)), glm::normalize(direction), length),
+                            1.0e-4f, static_cast<u16>(i % 2u) });
+    }
+    const Ref<GroomAsset> groom = BuildCoatFrom(strands, { "back_undercoat", "back_guard" });
+    ASSERT_TRUE(groom);
+    Ref<GroomBindingAsset> binding;
+    GroomBindingBuildStats stats;
+    std::string reason;
+    ASSERT_TRUE(GroomBindingBuilder::Build(*groom, grid.View(3u), "TestBody", GroomBindingBuildSettings{}, binding, stats,
+                                           reason))
+        << reason;
+    GroomDeformationInputs inputs;
+    inputs.Surface = grid.View(3u);
+    inputs.Skinning = grid.Skinning(palette, palette, true);
+    inputs.SurfaceToGroom = glm::translate(glm::mat4(1.0f), glm::vec3(0.01f, -0.02f, 0.03f)) *
+                            glm::rotate(glm::mat4(1.0f), 0.4f, glm::normalize(glm::vec3(1.0f, 1.0f, 0.0f))) *
+                            glm::scale(glm::mat4(1.0f), glm::vec3(1.2f, 0.9f, 1.05f));
+    TArray<GroomRootTransform> transforms;
+    (void)EvaluateGroomRootTransforms(*groom, *binding, inputs, std::nullopt, transforms);
+    const CasterSetup setup = MakeCasterSetup(*groom, *binding);
+    ASSERT_EQ(setup.Order.Runs.size(), 2u);
+    const std::vector<RunTruth> truth = MeasureTruth(*groom, *binding, transforms, setup);
+    const Posed posed = PoseBothWays(setup, inputs, transforms);
+    for (sizet r = 0; r < truth.size(); ++r)
+    {
+        SCOPED_TRACE("run " + std::to_string(r));
+        const f64 trace = truth[r].Moments[0] + truth[r].Moments[1] + truth[r].Moments[2];
+        f64 worst = 0.0;
+        f64 restError = 0.0;
+        for (sizet m = 0; m < 6u; ++m)
+        {
+            restError = std::max(restError, std::abs(setup.Order.Runs[r].Moments[m] - truth[r].Moments[m]));
+        }
+        for (const auto* run : { &posed.BySurface[r], &posed.ByRoots[r] })
+        {
+            for (sizet m = 0; m < 6u; ++m)
+            {
+                EXPECT_NEAR(run->Moments[m], truth[r].Moments[m], 1.0e-4 * trace) << "moment " << m;
+            }
+            EXPECT_TRUE(Holds(*run, truth[r])) << "a posed box does not hold the deformed coat";
+            for (u32 k = 0; k < 64u; ++k)
+            {
+                const glm::vec3 d = UnitDirection(23u, k);
+                const f64 actual = ProjectedAcross(truth[r], glm::dvec3(d));
+                EXPECT_LE(ClaimedAcross(*run, d), actual * (1.0 + 1.0e-5) + 1.0e-7) << "direction " << k;
+                worst = std::max(worst, ClaimedAcross(*run, d) / actual);
+            }
+        }
+        std::printf("[groom-gpu] mixed bones, run %zu: largest claim/actual %.4f, rest moments off by %.3f of the trace, "
+                    "loss %.5f of %.4f\n",
+                    r, worst, restError / trace, posed.BySurface[r].ProjectedLengthLoss, posed.BySurface[r].TotalLength);
+        // THE CONTROL: the pose moved the moments, so the exactness is not the
+        // rest numbers passing through.
+        EXPECT_GT(restError, 0.05 * trace) << "the pose left the run's moments where they were: nothing was tested";
+    }
+}
+
+TEST(GroomGpuDeformation, ABlendedRootTriangleKeepsItsFrameAndItsStrandsReach)
+{
+    // #1533 review, finding 3: a small root triangle in the yz-plane, every
+    // corner weighted half to a bone turned +60 degrees about x and half to one
+    // turned -60. The blend is diag(1, 0.5, 0.5): the triangle shrinks and its
+    // frame does not turn, so a strand of reach l along y keeps its tip at
+    // y = l, while each bone's image of the strand reaches only y = 0.5 l. The
+    // posed box -- the triangle's hull plus its turned offsets -- holds it.
+    GridSurface surface;
+    constexpr f32 kSide = 1.0e-3f;
+    surface.Positions = { { 0.0f, -kSide, -kSide }, { 0.0f, kSide, -kSide }, { 0.0f, 0.0f, kSide } };
+    surface.Indices = { 0u, 1u, 2u };
+    surface.Influences.assign(3u * 32u, std::byte{ 0 });
+    for (u32 v = 0; v < 3u; ++v)
+    {
+        surface.SetInfluence(v, 0u, 0.5f, 1u, 0.5f);
+    }
+    const std::vector<glm::mat4> palette{ glm::rotate(glm::mat4(1.0f), glm::radians(60.0f), glm::vec3(1.0f, 0.0f, 0.0f)),
+                                          glm::rotate(glm::mat4(1.0f), glm::radians(-60.0f), glm::vec3(1.0f, 0.0f, 0.0f)) };
+    constexpr f32 kReach = 0.1f;
+    const glm::vec3 root = (surface.Positions[0] + surface.Positions[1] + surface.Positions[2]) / 3.0f;
+    const Ref<GroomAsset> groom = BuildCoatFrom({ { Line(root, glm::vec3(0.0f, 1.0f, 0.0f), kReach), 1.0e-5f } },
+                                                { "ear_longhair" });
+    ASSERT_TRUE(groom);
+    Ref<GroomBindingAsset> binding;
+    GroomBindingBuildStats stats;
+    std::string reason;
+    ASSERT_TRUE(GroomBindingBuilder::Build(*groom, surface.View(2u), "TestBody", GroomBindingBuildSettings{}, binding,
+                                           stats, reason))
+        << reason;
+    GroomDeformationInputs inputs;
+    inputs.Surface = surface.View(2u);
+    inputs.Skinning = surface.Skinning(palette, palette, true);
+    TArray<GroomRootTransform> transforms;
+    (void)EvaluateGroomRootTransforms(*groom, *binding, inputs, std::nullopt, transforms);
+    ASSERT_TRUE(transforms[0].Valid) << "the shrunk triangle must still frame";
+    const CasterSetup setup = MakeCasterSetup(*groom, *binding);
+    const std::vector<RunTruth> truth = MeasureTruth(*groom, *binding, transforms, setup);
+    const Posed posed = PoseBothWays(setup, inputs, transforms);
+    std::printf("[groom-gpu] blended root: posed box y [%.4f, %.4f] (roots [%.4f, %.4f]), deformed strand y [%.4f, %.4f]\n",
+                posed.BySurface[0].BoundsMin.y, posed.BySurface[0].BoundsMax.y, posed.ByRoots[0].BoundsMin.y,
+                posed.ByRoots[0].BoundsMax.y, truth[0].Min.y, truth[0].Max.y);
+    EXPECT_GT(truth[0].Max.y, 0.9f * kReach) << "the blended frame should keep the strand upright";
+    EXPECT_TRUE(Holds(posed.BySurface[0], truth[0])) << "the surface's posed box does not hold the deformed strand";
+    EXPECT_TRUE(Holds(posed.ByRoots[0], truth[0])) << "the roots' posed box does not hold the deformed strand";
+
+    // THE CONTROL: the bones' images of the strand, padded by the 15% of its
+    // reach the replaced policy allowed, fall short of where it is.
+    f32 boneTipY = std::numeric_limits<f32>::lowest();
+    for (const glm::mat4& bone : palette)
+    {
+        boneTipY = std::max(boneTipY, glm::vec3(bone * glm::vec4(root + glm::vec3(0.0f, kReach, 0.0f), 1.0f)).y);
+    }
+    EXPECT_LT(boneTipY + 0.15f * kReach, truth[0].Max.y - 0.1f * kReach)
+        << "the control: the bones' images plus 15% should miss the blended strand's tip";
+}
+
+TEST(GroomGpuDeformation, AnIllConditionedRootTriangleEarnsNoCreditAndKeepsItsFullReach)
+{
+    // #1533 review: a root triangle that frames on the CPU but so thinly that
+    // the GPU's float arithmetic could frame it another way round. Its strands
+    // earn no projected length (their whole length is the run's loss) and its
+    // box is its hull padded by their full reach, joined with the rest box --
+    // while a healthy triangle beside it, in a run of its own, is credited.
+    GridSurface surface;
+    constexpr f32 kSliver = 2.0e-8f;
+    surface.Positions = { { 0.0f, 0.0f, 0.0f },  { 0.01f, 0.0f, 0.0f }, { 0.005f, 0.0f, kSliver },
+                          { 0.1f, 0.0f, 0.0f },  { 0.11f, 0.0f, 0.0f }, { 0.105f, 0.0f, 0.01f } };
+    surface.Indices = { 0u, 2u, 1u, 3u, 5u, 4u };
+    surface.Influences.assign(6u * 32u, std::byte{ 0 });
+    for (u32 v = 0; v < 6u; ++v)
+    {
+        surface.SetInfluence(v, 0u, 1.0f);
+    }
+    const std::vector<glm::mat4> palette{ glm::rotate(glm::mat4(1.0f), glm::radians(30.0f), glm::vec3(0.0f, 0.0f, 1.0f)) };
+    const glm::vec3 sliverRoot = (surface.Positions[0] + surface.Positions[1] + surface.Positions[2]) / 3.0f;
+    const glm::vec3 healthyRoot = (surface.Positions[3] + surface.Positions[4] + surface.Positions[5]) / 3.0f;
+    const glm::vec3 lean = glm::normalize(glm::vec3(0.3f, 1.0f, 0.2f));
+    const Ref<GroomAsset> groom =
+        BuildCoatFrom({ { Line(sliverRoot, lean, 0.05f), 1.0e-4f, 0u }, { Line(healthyRoot, lean, 0.05f), 1.0e-4f, 1u } },
+                      { "belly_longhair", "chest_longhair" });
+    ASSERT_TRUE(groom);
+    Ref<GroomBindingAsset> binding;
+    GroomBindingBuildStats stats;
+    std::string reason;
+    ASSERT_TRUE(GroomBindingBuilder::Build(*groom, surface.View(1u), "TestBody", GroomBindingBuildSettings{}, binding,
+                                           stats, reason))
+        << reason;
+    GroomDeformationInputs inputs;
+    inputs.Surface = surface.View(1u);
+    inputs.Skinning = surface.Skinning(palette, palette, true);
+    TArray<GroomRootTransform> transforms;
+    (void)EvaluateGroomRootTransforms(*groom, *binding, inputs, std::nullopt, transforms);
+    const CasterSetup setup = MakeCasterSetup(*groom, *binding);
+    ASSERT_EQ(setup.Order.Runs.size(), 2u);
+    const std::vector<RunTruth> truth = MeasureTruth(*groom, *binding, transforms, setup);
+    const Posed posed = PoseBothWays(setup, inputs, transforms);
+    const auto runOf = [&](u16 group)
+    {
+        for (sizet r = 0; r < setup.Order.Runs.size(); ++r)
+        {
+            if (setup.Order.Runs[r].Group == group)
+            {
+                return r;
+            }
+        }
+        return sizet{ 0 };
+    };
+    const sizet sliver = runOf(0u);
+    const sizet healthy = runOf(1u);
+    const glm::vec3 posedSliver[3] = { glm::vec3(palette[0] * glm::vec4(surface.Positions[0], 1.0f)),
+                                       glm::vec3(palette[0] * glm::vec4(surface.Positions[1], 1.0f)),
+                                       glm::vec3(palette[0] * glm::vec4(surface.Positions[2], 1.0f)) };
+    EXPECT_GT(GroomCasterFrameTolerance(posedSliver[0], posedSliver[1], posedSliver[2], kGroomCasterPositionTolerance),
+              kGroomCasterMaxFrameError)
+        << "the sliver should be too ill-conditioned to trust";
+    std::printf("[groom-gpu] sliver root: loss %.4f of %.4f; healthy root: loss %.6f of %.4f\n",
+                posed.BySurface[sliver].ProjectedLengthLoss, posed.BySurface[sliver].TotalLength,
+                posed.BySurface[healthy].ProjectedLengthLoss, posed.BySurface[healthy].TotalLength);
+    EXPECT_GE(posed.BySurface[sliver].ProjectedLengthLoss, 0.999f * posed.BySurface[sliver].TotalLength)
+        << "the sliver's strands earned projected length";
+    EXPECT_TRUE(Holds(posed.BySurface[sliver], truth[sliver])) << "the sliver's box does not hold its strand";
+    EXPECT_TRUE(glm::all(glm::lessThanEqual(posed.BySurface[sliver].BoundsMin, setup.Order.Runs[sliver].BoundsMin)) &&
+                glm::all(glm::greaterThanEqual(posed.BySurface[sliver].BoundsMax, setup.Order.Runs[sliver].BoundsMax)))
+        << "the sliver's box must hold its rest box, where the GPU may hold it";
+    EXPECT_LT(posed.BySurface[healthy].ProjectedLengthLoss, 0.01f * posed.BySurface[healthy].TotalLength)
+        << "the healthy triangle should be credited";
+    EXPECT_TRUE(Holds(posed.BySurface[healthy], truth[healthy]));
+}
+
+TEST(GroomGpuDeformation, TheCasterRunsHoldEverySimulatedPointAndPayForTheShortening)
+{
+    // #1533 review: the simulation moves points after the root transform. The
+    // posed box is padded by the farthest a guide was displaced, and the claim
+    // gives up, per strand, the most a guide's displacement varies from root to
+    // tip: a segment's projected length shrinks by at most the change in
+    // displacement between its ends.
+    BoundScene scene = MakeBoundScene(40u, 8u);
+    ASSERT_TRUE(scene.Groom && scene.Binding);
+    const Simulation simulation = MakeSimulation(*scene.Groom);
+    const GroomStrandSimulation view = simulation.View();
+    ASSERT_TRUE(view.IsUsable(scene.Groom->GetCurveCount()));
+    GroomDeformationInputs inputs;
+    inputs.Surface = scene.Grid.View(2u);
+    inputs.Skinning = scene.Grid.Skinning(scene.Palette, scene.PrevPalette, true);
+    const CasterSetup setup = MakeCasterSetup(*scene.Groom, *scene.Binding);
+    const std::vector<RunTruth> truth = MeasureTruth(*scene.Groom, *scene.Binding, scene.Transforms, setup, &view);
+    const GroomCasterPosePadding padding =
+        MeasureGroomCasterPosePadding(&view, scene.Groom->GetCurveGroupIds(), nullptr, 0.0f);
+    const Posed posed = PoseBothWays(setup, inputs, scene.Transforms, padding);
+    GroomCasterPosePadding noVariation = padding;
+    noVariation.Variation.fill(0.0f);
+    const Posed unpaid = PoseBothWays(setup, inputs, scene.Transforms, noVariation);
+    for (sizet r = 0; r < truth.size(); ++r)
+    {
+        SCOPED_TRACE("run " + std::to_string(r));
+        f64 unpaidWorst = 0.0;
+        for (const auto* run : { &posed.BySurface[r], &posed.ByRoots[r] })
+        {
+            EXPECT_TRUE(Holds(*run, truth[r])) << "a posed box does not hold the simulated coat";
+            for (u32 k = 0; k < 64u; ++k)
+            {
+                const glm::vec3 d = UnitDirection(29u, k);
+                EXPECT_LE(ClaimedAcross(*run, d), ProjectedAcross(truth[r], glm::dvec3(d)) * (1.0 + 1.0e-5) + 1.0e-7)
+                    << "direction " << k;
+            }
+        }
+        for (u32 k = 0; k < 64u; ++k)
+        {
+            const glm::vec3 d = UnitDirection(29u, k);
+            unpaidWorst = std::max(unpaidWorst, ClaimedAcross(unpaid.BySurface[r], d) / ProjectedAcross(truth[r], glm::dvec3(d)));
+        }
+        std::printf("[groom-gpu] simulated coat, run %zu: loss %.4f of %.4f; without the variation term the largest "
+                    "claim/actual is %.4f\n",
+                    r, posed.BySurface[r].ProjectedLengthLoss, posed.BySurface[r].TotalLength, unpaidWorst);
+        EXPECT_GT(unpaidWorst, 1.0) << "the control: without the variation term the claim should exceed the coat somewhere";
     }
 }
 

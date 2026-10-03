@@ -38,11 +38,11 @@ namespace OloEngine
             return static_cast<u64>(v.capacity()) * sizeof(T);
         }
 
-        // A caster stream's CPU tables: strand order, strand boxes, rest pose.
+        // A caster stream's CPU tables: its runs by root triangle.
         template<typename Caster>
         [[nodiscard]] u64 CasterTableBytes(const Caster& caster)
         {
-            return VectorBytes(caster.StrandOrder) + VectorBytes(caster.StrandBoxes) + caster.Pose.CpuBytes();
+            return caster.Pose.CpuBytes();
         }
 
         [[nodiscard]] std::optional<u64> Texture3DBytes(const Texture3D& texture)
@@ -153,10 +153,10 @@ namespace OloEngine
             cpuBytes += VectorBytes(entry.CoatBakedPose) + VectorBytes(entry.CoatFibreScales) + VectorBytes(entry.CoatPoseSubset);
             // The caster tables (#1533): a GPU-deformed entry draws its rest
             // stream's, counted with the stream below; every other entry owns
-            // its own. The posed runs and their skinned pose are per entity.
+            // its own. The posed runs and the pose's surface half are per entity.
             if (!entry.GpuDeformed)
                 cpuBytes += CasterTableBytes(entry.Caster);
-            cpuBytes += entry.SkinnedCasterPose.CpuBytes() + VectorBytes(entry.PosedRuns);
+            cpuBytes += entry.CasterPoseSurface.CpuBytes() + VectorBytes(entry.PosedRuns);
         }
         {
             MemoryCapacityRow row;

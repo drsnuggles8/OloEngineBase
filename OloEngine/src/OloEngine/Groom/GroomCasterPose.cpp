@@ -5,79 +5,255 @@
 #include "OloEngine/Groom/GroomDeformation.h"
 #include "OloEngine/Groom/GroomGuideInfluence.h"
 #include "OloEngine/Groom/GroomSurfaceFrame.h"
-
-#include <glm/gtc/quaternion.hpp>
+#include "OloEngine/Task/ParallelFor.h"
 
 #include <algorithm>
 #include <cmath>
-#include <cstring>
 #include <limits>
+#include <utility>
 
 namespace OloEngine
 {
-    u64 GroomCasterPose::CpuBytes() const noexcept
+    namespace
     {
-        u64 bytes = static_cast<u64>(Runs.capacity()) * sizeof(GroomCasterRunPose) +
-                    static_cast<u64>(Samples.capacity()) * sizeof(GroomCasterPoseSample);
-        for (const GroomCasterRunPose& run : Runs)
-        {
-            bytes += static_cast<u64>(run.Boxes.Min.capacity() + run.Boxes.Max.capacity()) * sizeof(glm::vec3);
-        }
-        return bytes;
-    }
+        constexpr f32 kBig = std::numeric_limits<f32>::max();
 
-    f32 GroomGuideDisplacementReach(const GroomStrandSimulation* simulation) noexcept
-    {
-        f32 reach = 0.0f;
-        if (simulation == nullptr)
+        template<typename T>
+        [[nodiscard]] u64 VectorBytes(const std::vector<T>& v) noexcept
         {
-            return reach;
+            return static_cast<u64>(v.capacity()) * sizeof(T);
         }
-        for (const glm::vec3& displacement : simulation->Displacements.Displacements)
+
+        [[nodiscard]] bool Finite(const glm::vec3& v) noexcept
         {
-            const f32 length = glm::length(displacement);
-            if (std::isfinite(length))
+            return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+        }
+
+        void Grow(glm::vec3& lo, glm::vec3& hi, const glm::vec3& boxMin, const glm::vec3& boxMax) noexcept
+        {
+            lo = glm::min(lo, boxMin);
+            hi = glm::max(hi, boxMax);
+        }
+
+        // The farthest a drawn point of an entry sits from its own root: the
+        // farthest corner of its offset box.
+        [[nodiscard]] f32 Reach(const GroomCasterPoseEntry& entry) noexcept
+        {
+            const glm::vec3 farthest = glm::max(glm::abs(entry.OffsetMin), glm::abs(entry.OffsetMax));
+            return glm::length(farthest);
+        }
+
+        // The entry's offset box turned by `rotation`, as a box: the centre
+        // turned, the half extents through |R|.
+        void TurnedOffsets(const GroomCasterPoseEntry& entry, const glm::mat3& rotation, glm::vec3& outMin,
+                           glm::vec3& outMax) noexcept
+        {
+            const glm::vec3 centre = 0.5f * (entry.OffsetMin + entry.OffsetMax);
+            const glm::vec3 half = 0.5f * (entry.OffsetMax - entry.OffsetMin);
+            const glm::mat3 absolute(glm::abs(rotation[0]), glm::abs(rotation[1]), glm::abs(rotation[2]));
+            const glm::vec3 turnedCentre = rotation * centre;
+            const glm::vec3 turnedHalf = absolute * half;
+            outMin = turnedCentre - turnedHalf;
+            outMax = turnedCentre + turnedHalf;
+        }
+
+        void AddMoments(std::array<f64, 6>& sum, const std::array<f32, 6>& moments) noexcept
+        {
+            for (sizet m = 0; m < 6u; ++m)
             {
-                reach = std::max(reach, length);
+                sum[m] += static_cast<f64>(moments[m]);
             }
         }
-        return reach;
+
+        [[nodiscard]] bool SamePose(std::span<const GroomCasterRun> restRuns, const GroomCasterPose& pose) noexcept
+        {
+            if (pose.Runs.size() != restRuns.size())
+            {
+                return false;
+            }
+            for (sizet r = 0; r < restRuns.size(); ++r)
+            {
+                if (pose.Runs[r].Strands != restRuns[r].Strands)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // One run's posed sums, built from its entries in pieces.
+        struct RunSums
+        {
+            std::array<f64, 6> Moments{};
+            f64 Length = 0.0;
+            f64 Loss = 0.0;
+            glm::vec3 Min{ kBig };
+            glm::vec3 Max{ -kBig };
+            bool AtRest = false; // some strand may be drawn at rest: the run's rest box joins
+        };
+
+        void Merge(RunSums& into, const RunSums& part) noexcept
+        {
+            for (sizet m = 0; m < 6u; ++m)
+            {
+                into.Moments[m] += part.Moments[m];
+            }
+            into.Length += part.Length;
+            into.Loss += part.Loss;
+            Grow(into.Min, into.Max, part.Min, part.Max);
+            into.AtRest = into.AtRest || part.AtRest;
+        }
+
+        // Each run's entries in pieces of at most kPiece, so one large run is
+        // spread across workers.
+        struct Piece
+        {
+            u32 Run = 0;
+            u32 First = 0;
+            u32 End = 0;
+        };
+        constexpr u32 kPiece = 2048;
+
+        [[nodiscard]] std::vector<Piece> Pieces(const GroomCasterPose& pose)
+        {
+            std::vector<Piece> pieces;
+            for (u32 r = 0; r < static_cast<u32>(pose.Runs.size()); ++r)
+            {
+                const GroomCasterRunPose& run = pose.Runs[r];
+                for (u32 first = run.FirstEntry; first < run.FirstEntry + run.EntryCount; first += kPiece)
+                {
+                    pieces.push_back({ r, first, std::min(first + kPiece, run.FirstEntry + run.EntryCount) });
+                }
+            }
+            return pieces;
+        }
+
+        // The pieces' sums into each run, the held strands and the padding:
+        // the posed runs. A run without moments keeps its rest numbers.
+        void FinishRuns(std::span<const GroomCasterRun> restRuns, const GroomCasterPose& pose,
+                        std::span<const Piece> pieces, std::span<const RunSums> sums,
+                        const GroomCasterPosePadding& padding, std::vector<GroomCasterRun>& outRuns)
+        {
+            std::vector<RunSums> runs(pose.Runs.size());
+            for (sizet p = 0; p < pieces.size(); ++p)
+            {
+                Merge(runs[pieces[p].Run], sums[p]);
+            }
+            outRuns.assign(restRuns.begin(), restRuns.end());
+            for (sizet r = 0; r < restRuns.size(); ++r)
+            {
+                GroomCasterRun& out = outRuns[r];
+                if (!out.MomentsKnown)
+                {
+                    continue; // measured against the caster's box, as at rest
+                }
+                const GroomCasterRunPose& part = pose.Runs[r];
+                RunSums& sum = runs[r];
+                if (part.HasHeld)
+                {
+                    AddMoments(sum.Moments, part.HeldMoments);
+                    sum.Length += part.HeldLength;
+                    Grow(sum.Min, sum.Max, part.HeldMin, part.HeldMax);
+                }
+                f32 displacement = 0.0f;
+                f32 variation = 0.0f;
+                for (u32 role = 0; role < GroomCoatRoleCount; ++role)
+                {
+                    if ((part.RoleMask & (1u << role)) != 0u)
+                    {
+                        displacement = std::max(displacement, padding.Displacement[role]);
+                        variation = std::max(variation, padding.Variation[role]);
+                    }
+                }
+                sum.Loss += static_cast<f64>(variation) * static_cast<f64>(part.Strands);
+                for (sizet m = 0; m < 6u; ++m)
+                {
+                    out.Moments[m] = static_cast<f32>(sum.Moments[m]);
+                }
+                out.TotalLength = static_cast<f32>(sum.Length);
+                out.ProjectedLengthLoss = static_cast<f32>(sum.Loss);
+                if (sum.AtRest)
+                {
+                    Grow(sum.Min, sum.Max, restRuns[r].BoundsMin, restRuns[r].BoundsMax);
+                }
+                if (sum.Min.x <= sum.Max.x)
+                {
+                    const f32 pad = std::max(displacement, 0.0f) + std::max(padding.Radius, 0.0f);
+                    out.BoundsMin = sum.Min - glm::vec3(pad);
+                    out.BoundsMax = sum.Max + glm::vec3(pad);
+                }
+            }
+        }
+    } // namespace
+
+    u64 GroomCasterPose::CpuBytes() const noexcept
+    {
+        return VectorBytes(Runs) + VectorBytes(Entries) + VectorBytes(Triangles) + VectorBytes(EntryCurves);
     }
 
-    std::vector<GroomCasterStrandBox> CollectGroomCasterStrandBoxes(std::span<const GroomCasterStrand> strands)
+    u64 GroomCasterPoseSurface::CpuBytes() const noexcept
     {
-        std::vector<GroomCasterStrandBox> boxes;
-        boxes.reserve(strands.size());
-        for (const GroomCasterStrand& strand : strands)
+        return VectorBytes(Vertices) + VectorBytes(Corners);
+    }
+
+    std::vector<GroomCasterLocalBox> CollectGroomCasterLocalBoxes(std::span<const GroomStrandVertex> restVertices,
+                                                                  std::span<const u32> indices,
+                                                                  std::span<const u32> strandFirstIndex)
+    {
+        std::vector<GroomCasterLocalBox> boxes(strandFirstIndex.size(), GroomCasterLocalBox{ glm::vec3(kBig), glm::vec3(-kBig) });
+        for (sizet s = 0; s < strandFirstIndex.size(); ++s)
         {
-            boxes.push_back({ strand.BoundsMin, strand.BoundsMax });
+            const sizet end = s + 1u < strandFirstIndex.size() ? strandFirstIndex[s + 1u] : indices.size();
+            if (strandFirstIndex[s] > end || end > indices.size())
+            {
+                return {};
+            }
+            for (sizet i = strandFirstIndex[s]; i < end; ++i)
+            {
+                if (indices[i] >= restVertices.size())
+                {
+                    return {};
+                }
+                const GroomStrandVertex& v = restVertices[indices[i]];
+                const glm::vec3 radius(std::max(v.Radius, 0.0f));
+                Grow(boxes[s].Min, boxes[s].Max, v.Position - radius, v.Position + radius);
+            }
         }
         return boxes;
     }
 
     GroomCasterPose BuildGroomCasterPose(std::span<const GroomCasterRun> runs, std::span<const u32> strandOrder,
-                                         std::span<const GroomCasterStrand> strands)
+                                         std::span<const GroomCasterStrand> strands, std::span<const u32> strandCurves,
+                                         const GroomBindingAsset& binding, std::span<const GroomCasterLocalBox> localBoxes)
     {
+        const bool exactBoxes = localBoxes.size() == strands.size();
         GroomCasterPose pose;
         u64 covered = 0;
         for (const GroomCasterRun& run : runs)
         {
             covered += run.Strands;
         }
-        // An order that is not these strands' is not trusted: no pose, and the
-        // views decide from the rest runs.
-        if (runs.empty() || covered != strandOrder.size() || strandOrder.size() != strands.size())
+        // An order or a table that is not these strands' is not trusted: no
+        // pose, and the views decide from the rest runs.
+        if (runs.empty() || covered != strandOrder.size() || strandOrder.size() != strands.size() ||
+            strandCurves.size() != strands.size())
         {
             return pose;
         }
+        const u32 roots = binding.GetRootCount();
+        std::vector<std::pair<u32, u32>> keyed; // (triangle, strand), one run at a time
+        std::vector<u32> slots;                 // triangle -> slot, grown as triangles appear
+        constexpr u32 kNoSlot = ~0u;
         pose.Runs.reserve(runs.size());
         u32 first = 0;
         for (const GroomCasterRun& run : runs)
         {
             GroomCasterRunPose part;
-            part.FirstStrand = first;
-            part.StrandCount = run.Strands;
-            part.FirstSample = static_cast<u32>(pose.Samples.size());
+            part.FirstEntry = static_cast<u32>(pose.Entries.size());
+            part.Strands = run.Strands;
+            part.HeldMin = glm::vec3(kBig);
+            part.HeldMax = glm::vec3(-kBig);
+            keyed.clear();
             for (u32 k = 0; k < run.Strands; ++k)
             {
                 const u32 strand = strandOrder[first + k];
@@ -86,139 +262,143 @@ namespace OloEngine
                     return {};
                 }
                 const GroomCasterStrand& summary = strands[strand];
+                if (summary.Role < GroomCoatRoleCount)
+                {
+                    part.RoleMask |= 1u << summary.Role;
+                }
+                else
+                {
+                    part.RoleMask = (1u << GroomCoatRoleCount) - 1u;
+                }
+                const u32 curve = strandCurves[strand];
+                if (curve < roots)
+                {
+                    keyed.emplace_back(binding.GetRoot(curve).TriangleIndex, strand);
+                    continue;
+                }
+                // No binding record: drawn at rest in every pose.
+                for (sizet m = 0; m < 6u; ++m)
+                {
+                    part.HeldMoments[m] += summary.Moments[m];
+                }
+                part.HeldLength += summary.Length;
                 if (summary.BoundsMin.x <= summary.BoundsMax.x)
                 {
-                    part.Reach = std::max(part.Reach, glm::length(summary.BoundsMax - summary.BoundsMin));
+                    Grow(part.HeldMin, part.HeldMax, summary.BoundsMin, summary.BoundsMax);
                 }
-                // The FIRST strands of the run's hashed order: a uniform random
-                // sample of it, whatever its size.
-                if (k < kGroomCasterPoseSamples)
-                {
-                    pose.Samples.push_back({ summary.Moments, summary.Length, strand });
-                    part.SampleLength += summary.Length;
-                }
+                part.HasHeld = true;
             }
-            part.SampleCount = static_cast<u32>(pose.Samples.size()) - part.FirstSample;
+            std::ranges::sort(keyed);
+            for (sizet i = 0; i < keyed.size();)
+            {
+                const u32 triangle = keyed[i].first;
+                if (triangle >= slots.size())
+                {
+                    slots.resize(static_cast<sizet>(triangle) + 1u, kNoSlot);
+                }
+                if (slots[triangle] == kNoSlot)
+                {
+                    slots[triangle] = static_cast<u32>(pose.Triangles.size());
+                    pose.Triangles.push_back(triangle);
+                }
+                // One entry per triangle AND bind frame: the binder frames every
+                // root of a triangle alike, and a record that does not is kept
+                // apart rather than turned by another's rotation.
+                GroomCasterPoseEntry entry;
+                entry.Slot = slots[triangle];
+                entry.FirstCurve = static_cast<u32>(pose.EntryCurves.size());
+                const glm::quat bind = binding.GetRoot(strandCurves[keyed[i].second]).RestRotation;
+                const glm::mat3 intoBind = glm::mat3_cast(glm::conjugate(bind));
+                entry.OffsetMin = glm::vec3(kBig);
+                entry.OffsetMax = glm::vec3(-kBig);
+                std::array<f64, 6> moments{};
+                f64 length = 0.0;
+                for (; i < keyed.size() && keyed[i].first == triangle; ++i)
+                {
+                    const u32 strand = keyed[i].second;
+                    const GroomRootBinding& record = binding.GetRoot(strandCurves[strand]);
+                    if (std::abs(glm::dot(record.RestRotation, bind)) < 1.0f - 1.0e-6f)
+                    {
+                        break; // a different bind frame on the same triangle: its own entry
+                    }
+                    const GroomCasterStrand& summary = strands[strand];
+                    AddMoments(moments, summary.Moments);
+                    length += summary.Length;
+                    if (exactBoxes)
+                    {
+                        if (localBoxes[strand].Min.x <= localBoxes[strand].Max.x)
+                        {
+                            Grow(entry.OffsetMin, entry.OffsetMax, localBoxes[strand].Min, localBoxes[strand].Max);
+                        }
+                    }
+                    else if (summary.BoundsMin.x <= summary.BoundsMax.x)
+                    {
+                        // The strand's box less its origin, each corner into the
+                        // bind frame.
+                        for (u32 c = 0; c < 8u; ++c)
+                        {
+                            const glm::vec3 p{ (c & 1u) != 0u ? summary.BoundsMax.x : summary.BoundsMin.x,
+                                               (c & 2u) != 0u ? summary.BoundsMax.y : summary.BoundsMin.y,
+                                               (c & 4u) != 0u ? summary.BoundsMax.z : summary.BoundsMin.z };
+                            const glm::vec3 local = intoBind * (p - record.RestOrigin);
+                            Grow(entry.OffsetMin, entry.OffsetMax, local, local);
+                        }
+                    }
+                    pose.EntryCurves.push_back(strandCurves[strand]);
+                    ++entry.Strands;
+                }
+                std::array<f32, 6> groomSpace{};
+                for (sizet m = 0; m < 6u; ++m)
+                {
+                    groomSpace[m] = static_cast<f32>(moments[m]);
+                }
+                entry.Moments = RotateGroomCasterMoments(groomSpace, intoBind);
+                entry.Length = static_cast<f32>(length);
+                if (!(entry.OffsetMin.x <= entry.OffsetMax.x))
+                {
+                    entry.OffsetMin = entry.OffsetMax = glm::vec3(0.0f); // strands that drew nothing
+                }
+                pose.Entries.push_back(entry);
+            }
+            part.EntryCount = static_cast<u32>(pose.Entries.size()) - part.FirstEntry;
             first += run.Strands;
             pose.Runs.push_back(part);
         }
         return pose;
     }
 
-    void SkinGroomCasterPose(GroomCasterPose& pose, std::span<const u32> strandOrder, std::span<const u32> rootCurves,
-                             std::span<const GroomCasterStrandBox> strandBoxes, const GroomBindingAsset& binding,
-                             const GroomSurfaceView& surface, const GroomSkinningView& skinning, u32 boneCount,
-                             u32 baseCurveCount)
+    GroomCasterPoseSurface BuildGroomCasterPoseSurface(const GroomCasterPose& pose, const GroomSurfaceView& surface)
     {
-        pose.Skinned = false;
-        if (!pose.IsUsable() || strandOrder.size() != rootCurves.size() || strandBoxes.size() != rootCurves.size())
+        GroomCasterPoseSurface out;
+        if (!pose.IsUsable() || !surface.IsUsable())
         {
-            return;
+            return out;
         }
-        const bool bindingSpans = binding.GetRootCount() == baseCurveCount;
-        const bool influences = skinning.BoneIds != nullptr && skinning.Weights != nullptr && skinning.Stride >= 32u &&
-                                skinning.VertexCount >= surface.VertexCount;
-        constexpr f32 kBig = std::numeric_limits<f32>::max();
-        const auto grow = [](glm::vec3& lo, glm::vec3& hi, const glm::vec3& boxMin, const glm::vec3& boxMax)
+        constexpr u32 kUnused = ~0u;
+        std::vector<u32> compact(surface.VertexCount, kUnused);
+        out.Corners.reserve(pose.Triangles.size());
+        for (const u32 triangle : pose.Triangles)
         {
-            lo = glm::min(lo, boxMin);
-            hi = glm::max(hi, boxMax);
-        };
-        for (GroomCasterRunPose& run : pose.Runs)
-        {
-            if (static_cast<u64>(run.FirstStrand) + run.StrandCount > strandOrder.size())
+            if (!surface.TriangleInRange(triangle))
             {
-                return;
+                out.Corners.emplace_back(GroomCasterPoseSurface::kNoCorners);
+                continue;
             }
-            GroomRootBoneBounds& boxes = run.Boxes;
-            boxes = {};
-            boxes.Min.assign(boneCount, glm::vec3(kBig));
-            boxes.Max.assign(boneCount, glm::vec3(-kBig));
-            boxes.RestMin = boxes.HeldMin = glm::vec3(kBig);
-            boxes.RestMax = boxes.HeldMax = glm::vec3(-kBig);
-            for (u32 k = 0; k < run.StrandCount; ++k)
+            const glm::uvec3 corners = surface.TriangleIndices(triangle);
+            glm::uvec3 local{ 0u };
+            for (i32 c = 0; c < 3; ++c)
             {
-                const u32 strand = strandOrder[run.FirstStrand + k];
-                if (strand >= rootCurves.size())
+                u32& slot = compact[corners[c]];
+                if (slot == kUnused)
                 {
-                    return;
+                    slot = static_cast<u32>(out.Vertices.size());
+                    out.Vertices.push_back(corners[c]);
                 }
-                const GroomCasterStrandBox& box = strandBoxes[strand];
-                if (!(box.Min.x <= box.Max.x))
-                {
-                    continue; // a strand that measured nothing
-                }
-                const u32 curve = rootCurves[strand];
-                const auto hold = [&]()
-                {
-                    // The kernel holds it at rest: it stays in the groom's space.
-                    grow(boxes.HeldMin, boxes.HeldMax, box.Min, box.Max);
-                    boxes.HasHeld = true;
-                };
-                if (!bindingSpans || curve >= baseCurveCount)
-                {
-                    hold();
-                    continue;
-                }
-                const GroomRootBinding& record = binding.GetRoot(curve);
-                if (!surface.TriangleInRange(record.TriangleIndex))
-                {
-                    hold();
-                    continue;
-                }
-                const glm::uvec3 corners = surface.TriangleIndices(record.TriangleIndex);
-                const GroomSurfaceFrame frame = MakeGroomSurfaceFrame(
-                    surface.Position(corners.x), surface.Position(corners.y), surface.Position(corners.z),
-                    record.Barycentric);
-                if (!frame.Valid)
-                {
-                    hold();
-                    continue;
-                }
-                // The strand's box in the SURFACE's rest space, through its own
-                // root's rigid bind map: its rest frame on the surface against
-                // its bind frame in the groom.
-                const glm::mat3 turn = glm::mat3_cast(frame.Rotation * glm::conjugate(record.RestRotation));
-                glm::vec3 lo(kBig);
-                glm::vec3 hi(-kBig);
-                for (u32 c = 0; c < 8u; ++c)
-                {
-                    const glm::vec3 p((c & 1u) != 0u ? box.Max.x : box.Min.x, (c & 2u) != 0u ? box.Max.y : box.Min.y,
-                                      (c & 4u) != 0u ? box.Max.z : box.Min.z);
-                    const glm::vec3 onSurface = frame.Origin + (turn * (p - record.RestOrigin));
-                    lo = glm::min(lo, onSurface);
-                    hi = glm::max(hi, onSurface);
-                }
-                bool moved = false;
-                if (influences)
-                {
-                    for (u32 c = 0; c < 3u; ++c)
-                    {
-                        const auto offset = static_cast<sizet>(corners[static_cast<i32>(c)]) * skinning.Stride;
-                        u32 ids[4] = { 0, 0, 0, 0 };
-                        f32 weights[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-                        std::memcpy(ids, reinterpret_cast<const std::byte*>(skinning.BoneIds) + offset, sizeof(ids));
-                        std::memcpy(weights, reinterpret_cast<const std::byte*>(skinning.Weights) + offset,
-                                    sizeof(weights));
-                        for (u32 w = 0; w < 4u; ++w)
-                        {
-                            if (!std::isfinite(weights[w]) || weights[w] <= 0.0f || ids[w] >= boneCount)
-                            {
-                                continue;
-                            }
-                            grow(boxes.Min[ids[w]], boxes.Max[ids[w]], lo, hi);
-                            moved = true;
-                        }
-                    }
-                }
-                if (!moved)
-                {
-                    grow(boxes.RestMin, boxes.RestMax, lo, hi);
-                    boxes.HasRest = true;
-                }
+                local[c] = slot;
             }
+            out.Corners.push_back(local);
         }
-        pose.Skinned = true;
+        return out;
     }
 
     std::array<f32, 6> RotateGroomCasterMoments(const std::array<f32, 6>& moments, const glm::mat3& rotation) noexcept
@@ -230,203 +410,331 @@ namespace OloEngine
         return { r[0][0], r[1][1], r[2][2], r[1][0], r[2][0], r[2][1] };
     }
 
-    namespace
+    GroomCasterPosePadding MeasureGroomCasterPosePadding(const GroomStrandSimulation* simulation,
+                                                         std::span<const u16> curveGroups, const GroomCoatContext* coat,
+                                                         f32 radius)
     {
-        // The run's posed moments: its rest moments plus the sample's change,
-        // scaled from the sample's length to the run's. At the bind pose the
-        // change is zero and the moments are exactly the rest ones; elsewhere
-        // the sample estimates the change, unbiased, because it is a uniform
-        // random share of the run.
-        [[nodiscard]] std::array<f32, 6>
-        PosedMoments(const GroomCasterRun& run, const GroomCasterRunPose& part, const GroomCasterPose& pose,
-                     const std::function<glm::mat3(const GroomCasterPoseSample&)>& rotationOf)
+        GroomCasterPosePadding padding;
+        padding.Radius = std::isfinite(radius) ? std::max(radius, 0.0f) : 0.0f;
+        if (simulation == nullptr || !simulation->Displacements.IsUsable())
         {
-            std::array<f64, 6> change{};
-            for (u32 s = 0; s < part.SampleCount; ++s)
+            return padding;
+        }
+        const GroomGuideDisplacements& d = simulation->Displacements;
+        const std::span<const u32> guideCurves = simulation->Influence != nullptr
+                                                     ? std::span<const u32>(simulation->Influence->GetGuideCurves())
+                                                     : std::span<const u32>{};
+        const bool roles = coat != nullptr && coat->IsActive();
+        for (u32 g = 0; g < d.GuideCount(); ++g)
+        {
+            f32 farthest = 0.0f;
+            f32 variation = 0.0f;
+            for (u32 p = d.GuideOffsets[g]; p < d.GuideOffsets[g + 1u]; ++p)
             {
-                const GroomCasterPoseSample& sample = pose.Samples[part.FirstSample + s];
-                const std::array<f32, 6> turned = RotateGroomCasterMoments(sample.Moments, rotationOf(sample));
-                for (sizet m = 0; m < 6u; ++m)
+                const f32 length = glm::length(d.Displacements[p]);
+                if (std::isfinite(length))
                 {
-                    change[m] += static_cast<f64>(turned[m]) - static_cast<f64>(sample.Moments[m]);
+                    farthest = std::max(farthest, length);
+                }
+                if (p + 1u < d.GuideOffsets[g + 1u])
+                {
+                    const f32 step = glm::length(d.Displacements[p + 1u] - d.Displacements[p]);
+                    if (std::isfinite(step))
+                    {
+                        variation += step;
+                    }
                 }
             }
-            const f64 scale = part.SampleLength > 0.0f ? static_cast<f64>(run.TotalLength) / part.SampleLength : 0.0;
-            std::array<f32, 6> out = run.Moments;
-            for (sizet m = 0; m < 6u; ++m)
+            // The guide's coat role, as CoatOfCurve resolves its curve's. A
+            // guide whose curve cannot be named counts for every role.
+            u32 role = static_cast<u32>(GroomCoatRole::Unassigned);
+            bool known = !roles;
+            const u32 slot = d.SlotOfGuide[g];
+            if (roles && slot < guideCurves.size() && guideCurves[slot] < curveGroups.size())
             {
-                const f64 value = static_cast<f64>(run.Moments[m]) + (change[m] * scale);
-                out[m] = std::isfinite(value) ? static_cast<f32>(value) : run.Moments[m];
+                role = static_cast<u32>(coat->GroupDesc(curveGroups[guideCurves[slot]]).GetRole());
+                known = role < GroomCoatRoleCount;
             }
-            return out;
-        }
-
-        [[nodiscard]] bool SamePose(std::span<const GroomCasterRun> restRuns, const GroomCasterPose& pose) noexcept
-        {
-            if (pose.Runs.size() != restRuns.size())
+            for (u32 r = 0; r < GroomCoatRoleCount; ++r)
             {
-                return false;
-            }
-            for (sizet r = 0; r < restRuns.size(); ++r)
-            {
-                if (pose.Runs[r].StrandCount != restRuns[r].Strands)
+                if (!known || r == role)
                 {
-                    return false;
+                    padding.Displacement[r] = std::max(padding.Displacement[r], farthest);
+                    padding.Variation[r] = std::max(padding.Variation[r], variation);
                 }
             }
-            return true;
         }
-    } // namespace
+        return padding;
+    }
 
-    bool PoseGroomCasterRuns(std::span<const GroomCasterRun> restRuns, const GroomCasterPose& pose,
-                             const std::function<glm::mat3(const GroomCasterPoseSample&)>& rotationOf,
-                             const std::function<bool(sizet run, glm::vec3& min, glm::vec3& max)>& posedBoxOf,
-                             f32 reachShare, const GroomCasterPosePadding& padding,
-                             std::vector<GroomCasterRun>& outRuns)
+    f32 GroomCasterFrameTolerance(const glm::vec3& v0, const glm::vec3& v1, const glm::vec3& v2,
+                                  f32 positionTolerance) noexcept
+    {
+        constexpr f32 kInfinite = std::numeric_limits<f32>::infinity();
+        const glm::vec3 edge1 = v1 - v0;
+        const glm::vec3 edge2 = v2 - v0;
+        const f32 area = glm::length(glm::cross(edge1, edge2));
+        const f32 first = glm::length(edge1);
+        if (!std::isfinite(area) || !(area >= 1.0e-12f) || !(first > 0.0f))
+        {
+            return kInfinite;
+        }
+        // Each corner may sit `epsilon` from where the GPU puts it, so each edge
+        // `2 epsilon` from its own. The normal, cross(e1, e2) / |...|, turns by
+        // at most |delta cross| / |cross| <= 2 epsilon (|e1| + |e2|) / |cross| to
+        // first order; the tangent, e1 less its normal part (e1 is already
+        // perpendicular to the normal), by 2 epsilon / |e1| more. The frame's
+        // rotation error is at most the sum of its columns' -- doubled, so the
+        // second-order terms dropped above stay inside it while the first
+        // order is small, and a triangle where it is not is reported as such.
+        const f32 epsilon = positionTolerance * (1.0f + std::max({ glm::length(v0), glm::length(v1), glm::length(v2) }));
+        const f32 normal = 2.0f * epsilon * (first + glm::length(edge2)) / area;
+        if (!(normal < 0.25f))
+        {
+            return kInfinite;
+        }
+        const f32 tangent = normal + (2.0f * epsilon / first);
+        return 2.0f * (normal + tangent);
+    }
+
+    bool PoseGroomCasterRunsBySurface(std::span<const GroomCasterRun> restRuns, const GroomCasterPose& pose,
+                                      const GroomCasterPoseSurface& surface, const GroomDeformationInputs& inputs,
+                                      const GroomCasterPosePadding& padding, std::vector<GroomCasterRun>& outRuns)
+    {
+        if (!pose.IsUsable() || !SamePose(restRuns, pose) || surface.Corners.size() != pose.Triangles.size() ||
+            !inputs.Surface.IsUsable())
+        {
+            return false;
+        }
+        const bool skinned = inputs.Skinning.IsSkinned();
+        const std::span<const glm::mat4> palette = inputs.Skinning.Palette;
+
+        // THE SURFACE, once per vertex: skinned (or as it stands), into the
+        // groom's space -- EvaluateGroomRootTransforms' corners, which
+        // GroomRootFrames.comp reproduces from the same inputs. Scratch,
+        // reused across frames; thread_local so two callers never share it.
+        thread_local std::vector<glm::vec3> s_Corners;
+        std::vector<glm::vec3>& corners = s_Corners;
+        corners.resize(surface.Vertices.size());
+        ParallelFor("GroomCasterPoseSurface", static_cast<i32>(surface.Vertices.size()), 2048,
+                    [&](i32 index)
+                    {
+                        const u32 v = surface.Vertices[static_cast<sizet>(index)];
+                        glm::vec3 p{ std::numeric_limits<f32>::quiet_NaN() };
+                        if (v < inputs.Surface.VertexCount)
+                        {
+                            p = inputs.Surface.Position(v);
+                            if (skinned)
+                            {
+                                bool weighted = false;
+                                p = SkinGroomSurfaceVertex(inputs.Skinning, v, p, palette, weighted);
+                            }
+                            p = glm::vec3(inputs.SurfaceToGroom * glm::vec4(p, 1.0f));
+                        }
+                        corners[static_cast<sizet>(index)] = p;
+                    },
+                    EParallelForFlags::BackgroundPriority);
+
+        // EACH TRIANGLE'S FRAME, and how far the GPU's can differ from it.
+        enum class Kind : u8
+        {
+            Framed,    // turned by Rotation, uncertain by Error
+            Unknown,   // a frame too ill-conditioned to trust, or none: no credit, full reach, maybe at rest
+            NotOnBody, // the surface has no such triangle: held at rest by every evaluation
+        };
+        struct Frame
+        {
+            glm::mat3 Rotation{ 1.0f }; // the triangle's frame: tangent, bitangent, normal
+            glm::vec3 HullMin{ 0.0f };
+            glm::vec3 HullMax{ 0.0f };
+            f32 Error = 0.0f;
+            f32 Slack = 0.0f;
+            Kind Is = Kind::NotOnBody;
+        };
+        thread_local std::vector<Frame> s_Frames;
+        std::vector<Frame>& frames = s_Frames;
+        frames.resize(pose.Triangles.size()); // every field a reader uses is written below
+        ParallelFor("GroomCasterPoseFrames", static_cast<i32>(pose.Triangles.size()), 1024,
+                    [&](i32 index)
+                    {
+                        Frame& frame = frames[static_cast<sizet>(index)];
+                        frame.Is = Kind::NotOnBody;
+                        frame.Error = 0.0f;
+                        const glm::uvec3 c = surface.Corners[static_cast<sizet>(index)];
+                        if (c.x == GroomCasterPoseSurface::kNoCorners)
+                        {
+                            return;
+                        }
+                        const glm::vec3 p0 = corners[c.x];
+                        const glm::vec3 p1 = corners[c.y];
+                        const glm::vec3 p2 = corners[c.z];
+                        frame.HullMin = glm::min(p0, glm::min(p1, p2));
+                        frame.HullMax = glm::max(p0, glm::max(p1, p2));
+                        frame.Is = Kind::Unknown;
+                        if (!Finite(frame.HullMin) || !Finite(frame.HullMax))
+                        {
+                            frame.Is = Kind::NotOnBody; // the kernel cannot read it either
+                            return;
+                        }
+                        // The farthest corner from the origin, bounded by the hull.
+                        const f32 radius = glm::length(glm::max(glm::abs(frame.HullMin), glm::abs(frame.HullMax)));
+                        frame.Slack = kGroomCasterPositionTolerance * (1.0f + radius);
+                        // MakeGroomSurfaceFrame's basis -- the normal, the first edge
+                        // without its normal part, their cross -- as a matrix, with
+                        // GroomCasterFrameTolerance's error from the same lengths.
+                        const glm::vec3 edge1 = p1 - p0;
+                        const glm::vec3 edge2 = p2 - p0;
+                        const glm::vec3 cross = glm::cross(edge1, edge2);
+                        const f32 area = glm::length(cross);
+                        const f32 first = glm::length(edge1);
+                        if (!std::isfinite(area) || !(area >= 1.0e-12f) || !(first > 0.0f))
+                        {
+                            return;
+                        }
+                        const glm::vec3 normal = cross / area;
+                        const glm::vec3 tangentRaw = edge1 - (normal * glm::dot(normal, edge1));
+                        const f32 tangentLength = glm::length(tangentRaw);
+                        if (!(tangentLength >= 1.0e-12f))
+                        {
+                            return;
+                        }
+                        const f32 epsilon = frame.Slack;
+                        const f32 normalError = 2.0f * epsilon * (first + glm::length(edge2)) / area;
+                        if (!(normalError < 0.25f))
+                        {
+                            return;
+                        }
+                        // The matrix and the GPU's quaternion are one rotation to
+                        // f32 rounding: 1e-6 rad covers it.
+                        const f32 error = (2.0f * (normalError + normalError + (2.0f * epsilon / first))) + 1.0e-6f;
+                        if (error > kGroomCasterMaxFrameError)
+                        {
+                            return;
+                        }
+                        const glm::vec3 tangent = tangentRaw / tangentLength;
+                        frame.Rotation = glm::mat3(tangent, glm::cross(normal, tangent), normal);
+                        frame.Error = error;
+                        frame.Is = Kind::Framed;
+                    },
+                    EParallelForFlags::BackgroundPriority);
+
+        // EACH ENTRY, turned by its triangle's frame, in pieces.
+        const std::vector<Piece> pieces = Pieces(pose);
+        thread_local std::vector<RunSums> s_Sums;
+        std::vector<RunSums>& sums = s_Sums;
+        sums.assign(pieces.size(), RunSums{});
+        ParallelFor("GroomCasterPoseEntries", static_cast<i32>(pieces.size()), 1,
+                    [&](i32 index)
+                    {
+                        const Piece& piece = pieces[static_cast<sizet>(index)];
+                        RunSums& sum = sums[static_cast<sizet>(index)];
+                        for (u32 e = piece.First; e < piece.End; ++e)
+                        {
+                            const GroomCasterPoseEntry& entry = pose.Entries[e];
+                            const Frame& frame = frames[entry.Slot];
+                            sum.Length += entry.Length;
+                            if (frame.Is == Kind::Framed)
+                            {
+                                const glm::mat3& turn = frame.Rotation;
+                                AddMoments(sum.Moments, RotateGroomCasterMoments(entry.Moments, turn));
+                                // Each segment's angle to any direction is uncertain
+                                // by the frame's error, its projected length by that
+                                // times its length.
+                                sum.Loss += static_cast<f64>(frame.Error) * entry.Length;
+                                glm::vec3 lo{ 0.0f };
+                                glm::vec3 hi{ 0.0f };
+                                TurnedOffsets(entry, turn, lo, hi);
+                                const glm::vec3 slack(frame.Slack + (frame.Error * Reach(entry)));
+                                Grow(sum.Min, sum.Max, frame.HullMin + lo - slack, frame.HullMax + hi + slack);
+                                continue;
+                            }
+                            // Unframed, or not on the body: drawn at rest, or framed
+                            // by the GPU some way round. No credit for its length
+                            // (its moments stay out, its length is the loss), the
+                            // rest box, and every direction its strands could point.
+                            sum.Loss += entry.Length;
+                            sum.AtRest = true;
+                            if (frame.Is == Kind::Unknown)
+                            {
+                                const glm::vec3 reach(Reach(entry) + frame.Slack);
+                                Grow(sum.Min, sum.Max, frame.HullMin - reach, frame.HullMax + reach);
+                            }
+                        }
+                    },
+                    EParallelForFlags::BackgroundPriority);
+        FinishRuns(restRuns, pose, pieces, sums, padding, outRuns);
+        return true;
+    }
+
+    bool PoseGroomCasterRunsByRoots(std::span<const GroomCasterRun> restRuns, const GroomCasterPose& pose,
+                                    std::span<const GroomRootTransform> transforms,
+                                    const GroomCasterPosePadding& padding, std::vector<GroomCasterRun>& outRuns)
     {
         if (!pose.IsUsable() || !SamePose(restRuns, pose))
         {
             return false;
         }
-        outRuns.assign(restRuns.begin(), restRuns.end());
-        for (sizet r = 0; r < restRuns.size(); ++r)
+        const auto rootOf = [&](u32 curve) -> const GroomRootTransform*
         {
-            GroomCasterRun& run = outRuns[r];
-            const GroomCasterRunPose& part = pose.Runs[r];
-            if (!run.MomentsKnown)
-            {
-                continue; // a run without moments is measured against the caster's box
-            }
-            run.Moments = PosedMoments(run, part, pose, rotationOf);
-            glm::vec3 lo{ 0.0f };
-            glm::vec3 hi{ 0.0f };
-            if (posedBoxOf(r, lo, hi) && lo.x <= hi.x)
-            {
-                const f32 pad = (part.Reach * std::max(reachShare, 0.0f)) + std::max(padding.Displacement, 0.0f) +
-                                std::max(padding.Radius, 0.0f);
-                run.BoundsMin = lo - glm::vec3(pad);
-                run.BoundsMax = hi + glm::vec3(pad);
-            }
-            // No posed root at all: the rest box stays, which is what a coat
-            // held at rest draws.
-        }
-        return true;
-    }
-
-    bool PoseGroomCasterRunsBySkeleton(std::span<const GroomCasterRun> restRuns, const GroomCasterPose& pose,
-                                       std::span<const u32> rootCurves, const GroomBindingAsset& binding,
-                                       const GroomDeformationInputs& inputs, const GroomCasterPosePadding& padding,
-                                       std::vector<GroomCasterRun>& outRuns)
-    {
-        if (!pose.Skinned || !inputs.Surface.IsUsable() || !inputs.Skinning.IsSkinned())
-        {
-            return false;
-        }
-        const u32 roots = binding.GetRootCount();
-        const std::span<const glm::mat4> palette = inputs.Skinning.Palette;
-        return PoseGroomCasterRuns(
-            restRuns, pose,
-            [&](const GroomCasterPoseSample& sample)
-            {
-                // The sampled root's frame this frame, built from its skinned
-                // triangle as EvaluateGroomRootTransforms builds it; a root that
-                // cannot be framed is held at rest.
-                const u32 curve = sample.Strand < rootCurves.size() ? rootCurves[sample.Strand] : roots;
-                if (curve >= roots)
-                {
-                    return glm::mat3(1.0f);
-                }
-                const GroomRootBinding& record = binding.GetRoot(curve);
-                if (!inputs.Surface.TriangleInRange(record.TriangleIndex))
-                {
-                    return glm::mat3(1.0f);
-                }
-                const glm::uvec3 corners = inputs.Surface.TriangleIndices(record.TriangleIndex);
-                std::array<glm::vec3, 3> posed{};
-                for (u32 c = 0; c < 3u; ++c)
-                {
-                    const u32 vertex = corners[static_cast<i32>(c)];
-                    bool weighted = false;
-                    const glm::vec3 skinned =
-                        SkinGroomSurfaceVertex(inputs.Skinning, vertex, inputs.Surface.Position(vertex), palette, weighted);
-                    posed[c] = glm::vec3(inputs.SurfaceToGroom * glm::vec4(skinned, 1.0f));
-                }
-                const GroomSurfaceFrame frame = MakeGroomSurfaceFrame(posed[0], posed[1], posed[2], record.Barycentric);
-                return frame.Valid ? glm::mat3_cast(frame.Rotation * glm::conjugate(record.RestRotation))
-                                   : glm::mat3(1.0f);
-            },
-            [&](sizet run, glm::vec3& lo, glm::vec3& hi)
-            { return PoseGroomRootBoneBounds(pose.Runs[run].Boxes, palette, inputs.SurfaceToGroom, lo, hi); },
-            kGroomCasterBlendAllowance, padding, outRuns);
-    }
-
-    bool PoseGroomCasterRunsByRoots(std::span<const GroomCasterRun> restRuns, const GroomCasterPose& pose,
-                                    std::span<const u32> strandOrder, std::span<const u32> rootCurves,
-                                    const GroomBindingAsset& binding, std::span<const GroomRootTransform> transforms,
-                                    const GroomCasterPosePadding& padding, std::vector<GroomCasterRun>& outRuns)
-    {
-        if (strandOrder.size() != rootCurves.size() ||
-            !std::ranges::all_of(strandOrder, [&](u32 strand)
-                                 { return strand < rootCurves.size(); }))
-        {
-            return false;
-        }
-        const u32 roots = binding.GetRootCount();
-        const auto rootOf = [&](u32 strand) -> const GroomRootTransform*
-        {
-            const u32 curve = rootCurves[strand];
-            return curve < transforms.size() && curve < roots && transforms[curve].Valid ? &transforms[curve] : nullptr;
+            return curve < transforms.size() && transforms[curve].Valid ? &transforms[curve] : nullptr;
         };
-        std::vector<u8> heldAtRest(restRuns.size(), 0u);
-        const bool posed = PoseGroomCasterRuns(
-            restRuns, pose,
-            [&](const GroomCasterPoseSample& sample)
-            {
-                const GroomRootTransform* transform = sample.Strand < rootCurves.size() ? rootOf(sample.Strand) : nullptr;
-                if (transform == nullptr)
-                {
-                    return glm::mat3(1.0f);
-                }
-                const GroomRootBinding& record = binding.GetRoot(rootCurves[sample.Strand]);
-                return glm::mat3_cast(transform->Rotation * glm::conjugate(record.RestRotation));
-            },
-            [&](sizet run, glm::vec3& lo, glm::vec3& hi)
-            {
-                // Every root of the run, posed.
-                lo = glm::vec3(std::numeric_limits<f32>::max());
-                hi = glm::vec3(std::numeric_limits<f32>::lowest());
-                const GroomCasterRunPose& part = pose.Runs[run];
-                if (static_cast<u64>(part.FirstStrand) + part.StrandCount > strandOrder.size())
-                {
-                    return false;
-                }
-                for (u32 k = 0; k < part.StrandCount; ++k)
-                {
-                    const GroomRootTransform* transform = rootOf(strandOrder[part.FirstStrand + k]);
-                    if (transform == nullptr)
+        const std::vector<Piece> pieces = Pieces(pose);
+        thread_local std::vector<RunSums> s_Sums;
+        std::vector<RunSums>& sums = s_Sums;
+        sums.assign(pieces.size(), RunSums{});
+        ParallelFor("GroomCasterPoseRoots", static_cast<i32>(pieces.size()), 1,
+                    [&](i32 index)
                     {
-                        heldAtRest[run] = 1u;
-                        continue;
-                    }
-                    lo = glm::min(lo, transform->Origin);
-                    hi = glm::max(hi, transform->Origin);
-                }
-                return lo.x <= hi.x;
-            },
-            1.0f, padding, outRuns);
-        if (!posed)
-        {
-            return false;
-        }
-        // A root at rest leaves its strand at rest, inside the run's rest box.
-        for (sizet r = 0; r < outRuns.size(); ++r)
-        {
-            if (heldAtRest[r] != 0u)
-            {
-                outRuns[r].BoundsMin = glm::min(outRuns[r].BoundsMin, restRuns[r].BoundsMin);
-                outRuns[r].BoundsMax = glm::max(outRuns[r].BoundsMax, restRuns[r].BoundsMax);
-            }
-        }
+                        const Piece& piece = pieces[static_cast<sizet>(index)];
+                        RunSums& sum = sums[static_cast<sizet>(index)];
+                        for (u32 e = piece.First; e < piece.End; ++e)
+                        {
+                            const GroomCasterPoseEntry& entry = pose.Entries[e];
+                            sum.Length += entry.Length;
+                            // The strands' posed origins, and the rotation they
+                            // share: every root of one triangle frames alike.
+                            const GroomRootTransform* turnedBy = nullptr;
+                            glm::vec3 lo{ kBig };
+                            glm::vec3 hi{ -kBig };
+                            u32 atRest = 0;
+                            for (u32 k = 0; k < entry.Strands; ++k)
+                            {
+                                const GroomRootTransform* transform = rootOf(pose.EntryCurves[entry.FirstCurve + k]);
+                                if (transform == nullptr)
+                                {
+                                    ++atRest; // that strand is drawn at rest
+                                    continue;
+                                }
+                                turnedBy = turnedBy != nullptr ? turnedBy : transform;
+                                lo = glm::min(lo, transform->Origin);
+                                hi = glm::max(hi, transform->Origin);
+                            }
+                            // The root's frame this frame turns the bind frame's data.
+                            const glm::mat3 turn = turnedBy != nullptr ? glm::mat3_cast(turnedBy->Rotation) : glm::mat3(1.0f);
+                            if (atRest > 0u)
+                            {
+                                // Some strand is drawn at rest: no credit for the
+                                // entry's length, and the rest box joins.
+                                sum.Loss += entry.Length;
+                                sum.AtRest = true;
+                            }
+                            else
+                            {
+                                AddMoments(sum.Moments, RotateGroomCasterMoments(entry.Moments, turn));
+                            }
+                            if (turnedBy == nullptr)
+                            {
+                                continue;
+                            }
+                            glm::vec3 offsetMin{ 0.0f };
+                            glm::vec3 offsetMax{ 0.0f };
+                            TurnedOffsets(entry, turn, offsetMin, offsetMax);
+                            Grow(sum.Min, sum.Max, lo + offsetMin, hi + offsetMax);
+                        }
+                    },
+                    EParallelForFlags::BackgroundPriority);
+        FinishRuns(restRuns, pose, pieces, sums, padding, outRuns);
         return true;
     }
 } // namespace OloEngine
+

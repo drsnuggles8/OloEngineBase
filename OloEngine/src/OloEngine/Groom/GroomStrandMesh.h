@@ -530,6 +530,11 @@ namespace OloEngine
         std::array<f32, 6> Moments{};
         glm::vec3 BoundsMin{ 0.0f };
         glm::vec3 BoundsMax{ 0.0f };
+        /// Object-space length the projected-length bound must give up for
+        /// what its moments cannot see (GroomCasterPose.h): strands whose
+        /// posed orientation is not known, and the shortening the simulation's
+        /// displacement can cause. Zero at rest.
+        f32 ProjectedLengthLoss = 0.0f;
     };
 
     /**

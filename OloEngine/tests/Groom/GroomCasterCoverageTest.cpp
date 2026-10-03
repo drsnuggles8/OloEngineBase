@@ -35,9 +35,14 @@
 // stops being adversarial is noticed rather than passing for the wrong reason.
 // =============================================================================
 
+#include "GroomBindingFixture.h"
+
 #include "OloEngine/Groom/GroomAsset.h"
+#include "OloEngine/Groom/GroomBinding.h"
+#include "OloEngine/Groom/GroomBindingBuilder.h"
 #include "OloEngine/Groom/GroomBuilder.h"
 #include "OloEngine/Groom/GroomCasterPose.h"
+#include "OloEngine/Groom/GroomDeformation.h"
 #include "OloEngine/Groom/GroomShadowWidening.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
 
@@ -149,7 +154,7 @@ namespace OloEngine::Tests
             u32 Groups = 0;
         };
 
-        [[nodiscard]] Cast BuildCast(const std::vector<Strand>& strands, const std::vector<std::string>& groups)
+        [[nodiscard]] Ref<GroomAsset> BuildGroom(const std::vector<Strand>& strands, const std::vector<std::string>& groups)
         {
             GroomBuilder builder;
             std::string reason;
@@ -171,21 +176,28 @@ namespace OloEngine::Tests
             }
             const Ref<GroomAsset> groom = builder.Build(reason);
             EXPECT_TRUE(groom) << reason;
+            return groom;
+        }
+
+        // The cast of `groom` as the strand pass builds it -- deformed by
+        // `deformation` when given, which moves the points and keeps the
+        // indices and the REST summaries -- with each strand's base curve.
+        [[nodiscard]] Cast BuildCastFrom(const GroomAsset& groom, u32 groups,
+                                         const GroomStrandDeformation* deformation = nullptr,
+                                         std::vector<u32>* outStrandCurves = nullptr)
+        {
             Cast cast;
-            cast.Groups = static_cast<u32>(groups.size());
-            if (!groom)
-            {
-                return cast;
-            }
+            cast.Groups = groups;
             GroomStrandBuildSettings settings;
-            settings.MaxStrands = static_cast<u32>(strands.size());
-            const GroomStrandMeshStats stats =
-                BuildGroomStrandMesh(GroomBuildSource::FromAsset(*groom), settings, cast.Vertices, cast.Indices, nullptr,
-                                     nullptr, nullptr, &cast.StrandFirstIndex, &cast.Summaries);
-            EXPECT_EQ(stats.StrandsSelected, static_cast<u32>(strands.size())) << "the cast must be the whole coat";
+            settings.MaxStrands = groom.GetCurveCount();
+            std::vector<u32> curves;
+            const GroomStrandMeshStats stats = BuildGroomStrandMesh(
+                GroomBuildSource::FromAsset(groom), settings, cast.Vertices, cast.Indices, deformation, nullptr, nullptr,
+                &cast.StrandFirstIndex, &cast.Summaries, deformation != nullptr ? &curves : nullptr);
+            EXPECT_EQ(stats.StrandsSelected, groom.GetCurveCount()) << "the cast must be the whole coat";
             cast.Runs = BuildGroomCasterOrder(cast.Vertices, cast.Indices, cast.StrandFirstIndex, cast.Summaries);
             cast.CoatWide = BuildGroomCasterOrder(cast.Vertices, cast.Indices, cast.StrandFirstIndex);
-            EXPECT_EQ(cast.Runs.Runs.size(), groups.size()) << "one run per group";
+            EXPECT_EQ(cast.Runs.Runs.size(), groups) << "one run per group";
             EXPECT_EQ(cast.CoatWide.Runs.size(), 1u);
             cast.BoundsMin = stats.BoundsMin;
             cast.BoundsMax = stats.BoundsMax;
@@ -196,10 +208,26 @@ namespace OloEngine::Tests
                 const sizet end = s + 1u < cast.StrandFirstIndex.size() ? cast.StrandFirstIndex[s + 1u] : cast.Indices.size();
                 for (sizet i = cast.StrandFirstIndex[s]; i < end; i += 6u)
                 {
-                    cast.SegmentGroup[cast.Indices[i] / 4u] = strands[s].Group;
+                    cast.SegmentGroup[cast.Indices[i] / 4u] = cast.Summaries[s].Group;
                 }
             }
+            if (outStrandCurves != nullptr)
+            {
+                *outStrandCurves = std::move(curves);
+            }
             return cast;
+        }
+
+        [[nodiscard]] Cast BuildCast(const std::vector<Strand>& strands, const std::vector<std::string>& groups)
+        {
+            const Ref<GroomAsset> groom = BuildGroom(strands, groups);
+            if (!groom)
+            {
+                Cast cast;
+                cast.Groups = static_cast<u32>(groups.size());
+                return cast;
+            }
+            return BuildCastFrom(*groom, static_cast<u32>(groups.size()));
         }
 
         struct LightView
@@ -677,55 +705,57 @@ namespace OloEngine::Tests
             << "the coat-wide rule let no light through the thick strands: the case no longer tests the widths";
     }
 
-    // #1533: the share follows the POSE. A run lying across an overhead light
-    // at rest, turned by its body part until it hangs within ten degrees of
-    // the light: its rest moments credit it with the layers it lays lying
-    // flat, and a view decided from them thins it into holes. Re-posed
-    // (PoseGroomCasterRuns -- its sample turned, its moments scaled to the run)
-    // the decision counts what the turned run projects to, holds the claim on
-    // the turned coat, and its moments agree with the turned coat's own.
+    // #1533: the share follows the POSE. A run standing up from its body, under
+    // a low light 80 degrees off the vertical: at rest it lays long shadows. The
+    // body turns it 80 degrees, onto the light: it lays almost none, over the
+    // whole patch, which now faces the light. Its rest moments credit it with
+    // the layers it lays standing, and a view decided from them thins it into
+    // holes. Re-posed (PoseGroomCasterRunsByRoots, each strand turned by its
+    // root triangle's frame) the decision counts what the turned run projects
+    // to and holds the claim on the coat the CPU deforms.
     TEST(GroomCasterCoverage, ARunItsBodyTurnsAlongTheLightIsDecidedFromItsPose)
     {
         std::vector<Strand> rest;
-        AddPatch(rest, 24000u, glm::vec3(0.0f), 0.12f, glm::normalize(glm::vec3(1.0f, 0.05f, 0.0f)), 0.05f, 0.03f,
-                 1.0e-4f, 0u, 71u);
-        const glm::mat3 turn = glm::mat3(glm::rotate(glm::mat4(1.0f), glm::radians(80.0f), glm::vec3(0.0f, 0.0f, 1.0f)));
-        const Cast restCast = BuildCast(rest, { "leg_guard" });
-        const Cast turnedCast = BuildCast(Turned(rest, turn), { "leg_guard" });
-        ASSERT_EQ(restCast.Indices, turnedCast.Indices) << "the turned coat must be the same strands, indexed alike";
+        AddPatch(rest, 24000u, glm::vec3(0.44f, 0.0f, 0.44f), 0.12f, glm::vec3(0.0f, 1.0f, 0.0f), 0.05f, 0.03f, 1.0e-4f, 0u,
+                 71u);
+        const Ref<GroomAsset> groom = BuildGroom(rest, { "leg_guard" });
+        ASSERT_TRUE(groom);
+        GroomBindingTest::GridSurface grid = GroomBindingTest::MakeGrid(4u);
+        GroomBindingTest::WeightAllToBone0(grid);
+        Ref<GroomBindingAsset> binding;
+        GroomBindingBuildStats stats;
+        std::string reason;
+        ASSERT_TRUE(GroomBindingBuilder::Build(*groom, grid.View(1u), "TestBody", GroomBindingBuildSettings{}, binding,
+                                               stats, reason))
+            << reason;
+        const glm::vec3 pivot(0.5f, 0.0f, 0.5f);
+        const std::vector<glm::mat4> palette{ glm::translate(glm::mat4(1.0f), pivot) *
+                                              glm::rotate(glm::mat4(1.0f), glm::radians(-80.0f), glm::vec3(0.0f, 0.0f, 1.0f)) *
+                                              glm::translate(glm::mat4(1.0f), -pivot) };
+        GroomDeformationInputs inputs;
+        inputs.Surface = grid.View(1u);
+        inputs.Skinning = grid.Skinning(palette, palette, true);
+        TArray<GroomRootTransform> transforms;
+        (void)EvaluateGroomRootTransforms(*groom, *binding, inputs, std::nullopt, transforms);
+        GroomStrandDeformation deformation;
+        deformation.Binding = binding.Raw();
+        deformation.RootTransforms = { transforms.GetData(), static_cast<sizet>(transforms.Num()) };
 
+        std::vector<u32> strandCurves;
+        const Cast turned = BuildCastFrom(*groom, 1u, &deformation, &strandCurves);
         std::vector<u32> strandOrder;
-        const GroomCasterOrder order = BuildGroomCasterOrder(restCast.Vertices, restCast.Indices,
-                                                             restCast.StrandFirstIndex, restCast.Summaries, &strandOrder);
-        const GroomCasterPose pose = BuildGroomCasterPose(order.Runs, strandOrder, restCast.Summaries);
+        const GroomCasterOrder order =
+            BuildGroomCasterOrder(turned.Vertices, turned.Indices, turned.StrandFirstIndex, turned.Summaries, &strandOrder);
+        const GroomCasterPose pose = BuildGroomCasterPose(order.Runs, strandOrder, turned.Summaries, strandCurves, *binding);
         ASSERT_TRUE(pose.IsUsable());
         std::vector<GroomCasterRun> posed;
-        ASSERT_TRUE(PoseGroomCasterRuns(
-            order.Runs, pose, [&turn](const GroomCasterPoseSample&)
-            { return turn; },
-            [&restCast](sizet, glm::vec3& lo, glm::vec3& hi)
-            {
-                // The roots stay where they are: the turn is about each root.
-                lo = glm::vec3(restCast.BoundsMin.x, 0.0f, restCast.BoundsMin.z);
-                hi = glm::vec3(restCast.BoundsMax.x, 0.0f, restCast.BoundsMax.z);
-                return true;
-            },
-            1.0f, GroomCasterPosePadding{}, posed));
+        ASSERT_TRUE(PoseGroomCasterRunsByRoots(order.Runs, pose, { transforms.GetData(), static_cast<sizet>(transforms.Num()) },
+                                               GroomCasterPosePadding{}, posed));
 
-        // The estimate against the turned coat's own moments, measured whole.
-        const GroomCasterOrder truth =
-            BuildGroomCasterOrder(turnedCast.Vertices, turnedCast.Indices, turnedCast.StrandFirstIndex, turnedCast.Summaries);
-        ASSERT_EQ(truth.Runs.size(), posed.size());
-        const f32 trace = truth.Runs[0].Moments[0] + truth.Runs[0].Moments[1] + truth.Runs[0].Moments[2];
-        for (sizet m = 0; m < 6u; ++m)
-        {
-            EXPECT_NEAR(posed[0].Moments[m], truth.Runs[0].Moments[m], 0.03f * trace)
-                << "moment " << m << ": the sample's estimate is not the turned run's";
-        }
-
-        const LightView light = MakeLight({ 0.0f, 1.0f, 0.0f }, glm::vec3(0.06f, 0.0f, 0.06f));
-        const RuleResult fromRest = MeasureDecision(turnedCast, order, DecideRuns(turnedCast, order.Runs, light), light);
-        const RuleResult fromPose = MeasureDecision(turnedCast, order, DecideRuns(turnedCast, posed, light), light);
+        const glm::vec3 centre = 0.5f * (turned.BoundsMin + turned.BoundsMax);
+        const LightView light = MakeLight({ std::sin(glm::radians(80.0f)), std::cos(glm::radians(80.0f)), 0.0f }, centre);
+        const RuleResult fromRest = MeasureDecision(turned, order, DecideRuns(turned, order.Runs, light), light);
+        const RuleResult fromPose = MeasureDecision(turned, order, DecideRuns(turned, posed, light), light);
         ReportRule("turned along the light", "rest", fromRest);
         ReportRule("turned along the light", "posed", fromPose);
         ExpectHoldsTheClaim(fromPose.All, "posed");
