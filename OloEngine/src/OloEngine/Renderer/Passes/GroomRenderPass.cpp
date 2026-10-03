@@ -643,11 +643,16 @@ namespace OloEngine
                                                                       rootInputs.Skinning, baseCurveCount);
                 entry.RootBoneBounds = BuildGroomRootBoneBounds(rootCurves, *request.Binding, rootInputs.Surface,
                                                                 rootInputs.Skinning, boneCount, baseCurveCount);
+                entry.SkinnedCasterPose = entry.Rest->Caster.Pose;
+                SkinGroomCasterPose(entry.SkinnedCasterPose, entry.Rest->Caster.StrandOrder, rootCurves,
+                                    entry.Rest->Caster.StrandBoxes, *request.Binding, rootInputs.Surface,
+                                    rootInputs.Skinning, boneCount, baseCurveCount);
                 entry.RootSkinKey = request.GpuRootSurfaceKey;
             }
             else
             {
                 entry.RootBoneBounds = {};
+                entry.SkinnedCasterPose = {};
                 entry.RootsReached = 0;
             }
 
@@ -671,6 +676,24 @@ namespace OloEngine
                        : GroomCpuRootTransforms(request, rootCurves, m_CpuRootScratch);
         const GroomDeformFrameStats packed = entry.DeformCpu.PackFrame(rootCurves, *request.Binding, transforms,
                                                                        simulated ? &simulation : nullptr, baseCurveCount);
+        // THE CASTER'S RUNS IN THIS POSE (#1533), here because this is where the
+        // frame's root data is in hand: the palette when the kernel evaluates
+        // the drawn roots, the transforms PackFrame just read otherwise. The
+        // rest runs describe the bind pose, and a body that turns a run toward
+        // the light would have the views thin it into holes.
+        entry.PosedRunsTick = 0;
+        if (request.CastsSceneShadow)
+        {
+            const GroomCasterStream& caster = entry.Rest->Caster;
+            const GroomCasterPosePadding padding{ GroomGuideDisplacementReach(simulated ? &simulation : nullptr),
+                                                  entry.Rest->MaxRadius * std::max(request.WidthScale, 0.0f) };
+            const bool posed =
+                rootsOnGpu ? PoseGroomCasterRunsBySkeleton(caster.Runs, entry.SkinnedCasterPose, rootCurves,
+                                                           *request.Binding, rootInputs, padding, entry.PosedRuns)
+                           : PoseGroomCasterRunsByRoots(caster.Runs, caster.Pose, caster.StrandOrder, rootCurves,
+                                                        *request.Binding, transforms, padding, entry.PosedRuns);
+            entry.PosedRunsTick = posed ? m_CacheTick : 0u;
+        }
         // THE DRAWN ROOTS' COUNTERS, for a coat whose producer left its roots to
         // the pass (#1533 E1): the producer evaluated only its guides, so its
         // counts describe the simulation, not the coat. On the kernel they are
@@ -1058,6 +1081,7 @@ namespace OloEngine
         std::vector<u32> indices;
         std::vector<u32> strandFirstIndex;
         std::vector<GroomCasterStrand> casterStrands;
+        std::vector<u32> strandCurves;
         // The coat context is assembled HERE, at the point of use, because it is
         // the only place both halves are certainly alive: the settings come from
         // the request and the per-group table belongs to the asset the request
@@ -1085,7 +1109,7 @@ namespace OloEngine
             BuildGroomStrandMesh(request.BuildSource(), request.Build, vertices, indices,
                                  deformed ? &deformation : nullptr, &coat,
                                  simulation.IsUsable(request.Groom->GetCurveCount()) ? &simulation : nullptr,
-                                 &strandFirstIndex, &casterStrands);
+                                 &strandFirstIndex, &casterStrands, deformed ? &strandCurves : nullptr);
         if (deformed)
         {
             m_Stats.DeformedBuildMicroseconds += static_cast<u64>(
@@ -1122,6 +1146,7 @@ namespace OloEngine
                 entry.Stats = stats;
                 entry.LastUsedFrame = m_CacheTick;
                 ++m_Stats.DeformedRebuilds;
+                PoseCpuCasterRuns(request, entry, strandCurves, deformation.RootTransforms);
                 return &entry;
             }
             ReleaseCoatVolume(entry, m_CacheBytes);
@@ -1171,7 +1196,30 @@ namespace OloEngine
                        stats.SegmentCount, static_cast<f64>(entry.Bytes) / (1024.0 * 1024.0));
 
         const auto [it, inserted] = m_Cache.emplace(key, std::move(entry));
+        if (inserted && deformed)
+        {
+            PoseCpuCasterRuns(request, it->second, strandCurves, deformation.RootTransforms);
+        }
         return inserted ? &it->second : nullptr;
+    }
+
+    void GroomRenderPass::PoseCpuCasterRuns(const GroomStrandRequest& request, CacheEntry& entry,
+                                            std::span<const u32> strandCurves,
+                                            std::span<const GroomRootTransform> transforms)
+    {
+        entry.PosedRunsTick = 0;
+        if (!request.CastsSceneShadow || !request.Binding || !request.Groom)
+        {
+            return;
+        }
+        const GroomStrandSimulation simulation = request.Simulation();
+        const bool simulated = simulation.IsUsable(request.Groom->GetCurveCount());
+        const GroomCasterPosePadding padding{ GroomGuideDisplacementReach(simulated ? &simulation : nullptr), 0.0f };
+        if (PoseGroomCasterRunsByRoots(entry.Caster.Runs, entry.Caster.Pose, entry.Caster.StrandOrder, strandCurves,
+                                       *request.Binding, transforms, padding, entry.PosedRuns))
+        {
+            entry.PosedRunsTick = m_CacheTick;
+        }
     }
 
     u32 GroomRenderPass::CountResidentCoatVolumes() const noexcept
@@ -2833,7 +2881,8 @@ namespace OloEngine
             memory.StrandIndexBytes += stream->Stats.IndexBytes;
             memory.CasterIndexBytes += stream->Caster.Bytes;
             memory.CpuPoseSegmentBytes += capacityBytes(stream->PoseSegments);
-            memory.CpuRootTableBytes += capacityBytes(stream->RootCurves);
+            memory.CpuRootTableBytes += capacityBytes(stream->RootCurves) + capacityBytes(stream->Caster.StrandOrder) +
+                                        capacityBytes(stream->Caster.StrandBoxes) + stream->Caster.Pose.CpuBytes();
         }
         for (const auto& [key, entry] : m_Cache)
         {
@@ -2845,7 +2894,10 @@ namespace OloEngine
                 memory.StrandVertexBytes += entry.Stats.VertexBytes;
                 memory.StrandIndexBytes += entry.Stats.IndexBytes;
                 memory.CasterIndexBytes += entry.Caster.Bytes;
+                memory.CpuRootTableBytes += capacityBytes(entry.Caster.StrandOrder) + capacityBytes(entry.Caster.StrandBoxes) +
+                                            entry.Caster.Pose.CpuBytes();
             }
+            memory.CpuRootTableBytes += entry.SkinnedCasterPose.CpuBytes() + capacityBytes(entry.PosedRuns);
             memory.DeformBufferBytes += entry.DeformGpu ? static_cast<u64>(entry.DeformGpu->GetSize()) : 0u;
             memory.CoatVolumeBytes += entry.CoatBytes;
             memory.CpuDeformMirrorBytes += entry.DeformCpu.GetCpuBytes();
@@ -2939,10 +2991,19 @@ namespace OloEngine
                                                                           std::span<const GroomCasterStrand> strands)
     {
         GroomCasterStream caster;
-        GroomCasterOrder order = BuildGroomCasterOrder(vertices, indices, strandFirstIndex, strands);
+        std::vector<u32> strandOrder;
+        GroomCasterOrder order = BuildGroomCasterOrder(vertices, indices, strandFirstIndex, strands, &strandOrder);
         if (!vertexBuffer || order.Indices.size() != indices.size() || order.Runs.empty())
         {
             return caster;
+        }
+        // What a bound coat's runs are re-posed from (#1533); kept only where it
+        // describes them.
+        caster.Pose = BuildGroomCasterPose(order.Runs, strandOrder, strands);
+        if (caster.Pose.IsUsable())
+        {
+            caster.StrandOrder = std::move(strandOrder);
+            caster.StrandBoxes = CollectGroomCasterStrandBoxes(strands);
         }
         caster.Indices = IndexBuffer::Create(order.Indices.data(), static_cast<u32>(order.Indices.size()));
         caster.Array = VertexArray::Create();
@@ -2988,6 +3049,21 @@ namespace OloEngine
         {
             out.Vao = caster.Array->GetRHIHandle();
             out.CasterRuns = caster.Runs;
+            // A bound coat's runs in this frame's pose, posed where the root
+            // data was (AcquireGpuDeformedGeometry, PoseCpuCasterRuns); without
+            // them it is cast from its rest runs, and counted.
+            if (IsDeformed(request))
+            {
+                if (entry->PosedRunsTick == m_CacheTick && entry->PosedRuns.size() == caster.Runs.size())
+                {
+                    out.CasterRuns = entry->PosedRuns;
+                    ++m_Stats.CastersPosed;
+                }
+                else
+                {
+                    ++m_Stats.CastersAtRest;
+                }
+            }
         }
         else
         {

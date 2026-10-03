@@ -49,6 +49,7 @@
 // =============================================================================
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Groom/GroomCasterPose.h"
 #include "OloEngine/Groom/GroomCoatShadowTechnique.h"
 #include "OloEngine/Groom/GroomGpuDeformation.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
@@ -224,7 +225,7 @@ namespace OloEngine
             u64 CpuPoseSegmentBytes = 0;  ///< rest streams' pose segments + entries' bake subsets
             u64 CpuDeformMirrorBytes = 0; ///< each GPU-deformed entity's packed frame buffer, host side
             u64 CpuBakeInputBytes = 0;    ///< a posed bake's captured pose, card fibre scales and their tables
-            u64 CpuRootTableBytes = 0;    ///< rest streams' root slot -> curve tables
+            u64 CpuRootTableBytes = 0;    ///< per-strand tables: root slot -> curve, caster strand orders and poses
             u64 CpuScratchBytes = 0;      ///< the pass's reusable bake, pose and CPU-stream scratch
             u32 RestStreams = 0;          ///< distinct rest streams counted
             u32 Entries = 0;              ///< cache entries counted
@@ -284,6 +285,12 @@ namespace OloEngine
         /// The same for the local-light atlas: grooms drawn with its opaque
         /// copy bound, so a shadowed spot or point light is stopped by the body.
         u32 GroomsShadowedByOpaqueAtlas = 0;
+        /// Bound casters whose runs the shadow views decided from THIS frame's
+        /// pose (#1533; GroomCasterPose.h), and bound casters cast from their
+        /// rest runs because no pose could be measured -- each one a coat whose
+        /// share may thin a run its body turned toward the light.
+        u32 CastersPosed = 0;
+        u32 CastersAtRest = 0;
         /// Of those, the grooms whose drawn roots the GPU evaluated (#1533 E1;
         /// compute/GroomRootFrames.comp), and how many roots that was. The rest
         /// packed CPU-evaluated roots.
@@ -615,6 +622,12 @@ namespace OloEngine
             /// One run per group (GroomCasterOrder::Runs), covering the index
             /// buffer end to end.
             std::vector<GroomCasterRun> Runs;
+            /// Every strand in the order's order, and the sample a bound coat's
+            /// runs are re-posed from each frame (GroomCasterPose.h). Empty for
+            /// a stream built without strand summaries.
+            std::vector<u32> StrandOrder;
+            std::vector<GroomCasterStrandBox> StrandBoxes;
+            GroomCasterPose Pose;
             /// The whole stream's length-weighted mean radius, for the log.
             f32 MeanRadius = 0.0f;
             /// GPU bytes of the index buffer, counted with the stream's.
@@ -883,6 +896,14 @@ namespace OloEngine
             /// Where the kernel's roots can be, for the posed box while the
             /// CPU holds no drawn root (see BuildGroomRootBoneBounds).
             GroomRootBoneBounds RootBoneBounds;
+            /// The rest stream's caster pose with this body's skin
+            /// (SkinGroomCasterPose), built with RootBoneBounds.
+            GroomCasterPose SkinnedCasterPose;
+            /// This frame's caster runs, re-posed where the frame's root data
+            /// was in hand (#1533), and the tick they were posed at; another
+            /// tick means they describe no pose of this frame.
+            std::vector<GroomCasterRun> PosedRuns;
+            u64 PosedRunsTick = 0;
             /// The root slots the kernel evaluates (WriteSurfaceSkin); the rest
             /// of the layout's roots are held at rest.
             u32 RootsReached = 0;
@@ -897,6 +918,11 @@ namespace OloEngine
         /// stream cannot be built for this request, so the caller can take the
         /// CPU path instead.
         [[nodiscard]] CacheEntry* AcquireGpuDeformedGeometry(const GroomStrandRequest& request, u64 key);
+        /// The CPU-deformed path's caster runs in this frame's pose, from the
+        /// root transforms it was just built with; a coat that does not cast
+        /// keeps none.
+        void PoseCpuCasterRuns(const GroomStrandRequest& request, CacheEntry& entry,
+                               std::span<const u32> strandCurves, std::span<const GroomRootTransform> transforms);
         /// The shared rest stream this request draws, found or built. Null when
         /// it cannot be built (a binding that does not span the base groom, or
         /// a selection that emits nothing).

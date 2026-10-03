@@ -226,6 +226,9 @@
 		"OloEngine/Groom/GroomStrandMesh.cpp"
 		"OloEngine/Groom/GroomGpuDeformation.h"
 		"OloEngine/Groom/GroomGpuDeformation.cpp"
+		# A bound coat's shadow caster runs re-posed every frame (#1533).
+		"OloEngine/Groom/GroomCasterPose.h"
+		"OloEngine/Groom/GroomCasterPose.cpp"
 		"OloEngine/Groom/GroomStrandRequest.h"
 		"OloEngine/Asset/Serializers/GroomSerializer.cpp"
 		"OloEngine/Serialization/GroomBinaryFormat.h"

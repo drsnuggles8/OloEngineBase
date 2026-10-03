@@ -9,6 +9,7 @@
 #include <array>
 #include <bit>
 #include <cmath>
+#include <functional>
 #include <limits>
 #include <unordered_map>
 
@@ -950,7 +951,8 @@ namespace OloEngine
                                               const GroomStrandDeformation* deformation, const GroomCoatContext* coat,
                                               const GroomStrandSimulation* simulation,
                                               std::vector<u32>* outStrandFirstIndex,
-                                              std::vector<GroomCasterStrand>* outCasterStrands)
+                                              std::vector<GroomCasterStrand>* outCasterStrands,
+                                              std::vector<u32>* outStrandCurves)
     {
         outVertices.clear();
         outIndices.clear();
@@ -961,6 +963,10 @@ namespace OloEngine
         if (outCasterStrands != nullptr)
         {
             outCasterStrands->clear();
+        }
+        if (outStrandCurves != nullptr)
+        {
+            outStrandCurves->clear();
         }
 
         // A deformation that does not span this groom is treated as ABSENT
@@ -1007,6 +1013,10 @@ namespace OloEngine
             if (outCasterStrands != nullptr)
             {
                 outCasterStrands->emplace_back();
+            }
+            if (outStrandCurves != nullptr)
+            {
+                outStrandCurves->push_back(sourceCurve);
             }
             record = nullptr;
             transform = nullptr;
@@ -1336,9 +1346,14 @@ namespace OloEngine
 
     GroomCasterOrder BuildGroomCasterOrder(std::span<const GroomStrandVertex> vertices, std::span<const u32> indices,
                                            std::span<const u32> strandFirstIndex,
-                                           std::span<const GroomCasterStrand> strandSummaries)
+                                           std::span<const GroomCasterStrand> strandSummaries,
+                                           std::vector<u32>* outStrandOrder)
     {
         GroomCasterOrder order;
+        if (outStrandOrder != nullptr)
+        {
+            outStrandOrder->clear();
+        }
         const sizet strands = strandFirstIndex.size();
         if (strands == 0u || indices.empty())
         {
@@ -1396,6 +1411,14 @@ namespace OloEngine
                                static_cast<u32>(strand));
         }
         std::ranges::sort(keyed);
+        if (outStrandOrder != nullptr)
+        {
+            outStrandOrder->reserve(keyed.size());
+            for (const auto& [key, strand] : keyed)
+            {
+                outStrandOrder->push_back(strand);
+            }
+        }
 
         // Each segment's four corners: two at P0 carrying Radius0 and two at P1
         // carrying Radius1, every one with Other - Position = the segment, in both
@@ -1508,6 +1531,68 @@ namespace OloEngine
         return prefix[level];
     }
 
+    namespace
+    {
+        // The eigenvalues of a symmetric 3x3, largest first (Smith's closed
+        // form, 1961): no iteration, and exact enough for a bound the share
+        // margin already doubles.
+        [[nodiscard]] glm::vec3 SymmetricEigenvalues(const glm::mat3& b) noexcept
+        {
+            const f32 p1 = (b[1][0] * b[1][0]) + (b[2][0] * b[2][0]) + (b[2][1] * b[2][1]);
+            if (!(p1 > 0.0f))
+            {
+                glm::vec3 diagonal{ b[0][0], b[1][1], b[2][2] };
+                std::sort(&diagonal.x, &diagonal.x + 3, std::greater<>());
+                return diagonal;
+            }
+            const f32 q = (b[0][0] + b[1][1] + b[2][2]) / 3.0f;
+            const f32 p2 = ((b[0][0] - q) * (b[0][0] - q)) + ((b[1][1] - q) * (b[1][1] - q)) +
+                           ((b[2][2] - q) * (b[2][2] - q)) + (2.0f * p1);
+            const f32 p = std::sqrt(p2 / 6.0f);
+            if (!(p > 0.0f))
+            {
+                return glm::vec3(q);
+            }
+            const glm::mat3 normalised = (b - (glm::mat3(1.0f) * q)) * (1.0f / p);
+            const f32 r = std::clamp(glm::determinant(normalised) * 0.5f, -1.0f, 1.0f);
+            const f32 phi = std::acos(r) / 3.0f;
+            const f32 largest = q + (2.0f * p * std::cos(phi));
+            const f32 smallest = q + (2.0f * p * std::cos(phi + (2.0943951f))); // + 2 pi / 3
+            return { largest, (3.0f * q) - largest - smallest, smallest };
+        }
+
+        // The smallest factor the linear part stretches any direction by:
+        // the square root of the smallest eigenvalue of A^T A.
+        [[nodiscard]] f32 SmallestStretch(const glm::mat3& linear) noexcept
+        {
+            const f32 smallest = SymmetricEigenvalues(glm::transpose(linear) * linear).z;
+            return std::sqrt(std::max(smallest, 0.0f));
+        }
+
+        // The unit eigenvector of a symmetric 3x3 for `eigenvalue`: the longest
+        // cross product of two rows of (M - eigenvalue I). Zero when none is.
+        [[nodiscard]] glm::vec3 SymmetricEigenvector(const glm::mat3& m, f32 eigenvalue) noexcept
+        {
+            const glm::mat3 shifted = m - (glm::mat3(1.0f) * eigenvalue);
+            const glm::vec3 r0{ shifted[0][0], shifted[1][0], shifted[2][0] };
+            const glm::vec3 r1{ shifted[0][1], shifted[1][1], shifted[2][1] };
+            const glm::vec3 r2{ shifted[0][2], shifted[1][2], shifted[2][2] };
+            const std::array<glm::vec3, 3> candidates{ glm::cross(r0, r1), glm::cross(r0, r2), glm::cross(r1, r2) };
+            glm::vec3 best{ 0.0f };
+            f32 bestLength = 0.0f;
+            for (const glm::vec3& candidate : candidates)
+            {
+                const f32 length = glm::length(candidate);
+                if (length > bestLength && std::isfinite(length))
+                {
+                    best = candidate;
+                    bestLength = length;
+                }
+            }
+            return bestLength > 0.0f ? best / bestLength : glm::vec3(0.0f);
+        }
+    } // namespace
+
     GroomCasterRunDecision DecideGroomCasterRun(const GroomCasterRun& run, const GroomCasterPlacement& caster,
                                                 const GroomCasterView& view) noexcept
     {
@@ -1566,26 +1651,71 @@ namespace OloEngine
         }
         const f32 footprintNdcArea = (ndcMax.x - ndcMin.x) * (ndcMax.y - ndcMin.y);
 
-        // THE PROJECTED LENGTH: bounded below from the run's moments across the
-        // direction this view projects along at the run's centre, carried into
-        // the groom's space by the transform's rotation; ASSUMED at half the
-        // length without moments, or where the view gives no direction.
-        f32 projectedLength = kGroomCasterProjectedLengthShare * run.TotalLength;
+        // THE PROJECTED LENGTH, in world metres: bounded below from the run's
+        // moments, ASSUMED at half the length (under the transform's mean axis)
+        // without them or where the view gives no direction.
+        //
+        // ANY LINEAR TRANSFORM, not a similarity: a world segment A v seen along
+        // d projects to |P_d A v| >= s_min(A) |P_u v|, with u = A^-1 d
+        // normalised and s_min A's smallest stretch -- the moment bound taken
+        // across u, in the groom's own space, times s_min. For a similarity
+        // that is A's rotation and its scale, as before.
+        //
+        // EVERY DIRECTION THE BOX SPANS, not the one at its centre: a
+        // perspective light's rays fan across the run, and a strand along any of
+        // them lays nothing there. So the bound is the smallest over the
+        // directions to the box's corners and centre, and over the run's
+        // principal direction when that lies inside the fan -- the bound's
+        // minimum on the sphere, where the run lies most along the light. An
+        // orthographic view has one direction and changes nothing.
+        f32 projectedLength = kGroomCasterProjectedLengthShare * run.TotalLength * caster.ObjectScale;
         if (run.MomentsKnown)
         {
-            const glm::vec3 direction = GroomShadowProjectionDirection(view.ViewProjection, centre - view.Origin);
-            const glm::vec3 local = glm::transpose(glm::mat3(caster.Transform)) * direction;
-            const f32 localLength = glm::length(local);
-            if (localLength > 0.0f && std::isfinite(localLength))
+            const glm::mat3 linear(caster.Transform);
+            const f32 det = glm::determinant(linear);
+            if (std::isfinite(det) && std::abs(det) > 1.0e-12f)
             {
-                projectedLength = GroomShadowProjectedLengthLowerBound(run.TotalLength, run.Moments, local / localLength);
+                const glm::mat3 toLocal = glm::inverse(linear);
+                const f32 stretch = SmallestStretch(linear);
+                const auto localDirection = [&](const glm::vec3& point) -> glm::vec3
+                {
+                    const glm::vec3 local = toLocal * GroomShadowProjectionDirection(view.ViewProjection, point - view.Origin);
+                    const f32 length = glm::length(local);
+                    return length > 0.0f && std::isfinite(length) ? local / length : glm::vec3(0.0f);
+                };
+                const glm::vec3 axis = localDirection(centre);
+                if (axis != glm::vec3(0.0f))
+                {
+                    f32 bound = GroomShadowProjectedLengthLowerBound(run.TotalLength, run.Moments, axis);
+                    f32 widest = 1.0f; // the smallest |cos| between the axis and a corner's direction
+                    for (u32 index = 0; index < 8u; ++index)
+                    {
+                        const glm::vec3 world = glm::vec3(caster.Transform * glm::vec4(corner(run.BoundsMin, run.BoundsMax, index), 1.0f));
+                        const glm::vec3 local = localDirection(world);
+                        if (local == glm::vec3(0.0f))
+                        {
+                            continue;
+                        }
+                        bound = std::min(bound, GroomShadowProjectedLengthLowerBound(run.TotalLength, run.Moments, local));
+                        widest = std::min(widest, std::abs(glm::dot(local, axis)));
+                    }
+                    const glm::mat3 moments(run.Moments[0], run.Moments[3], run.Moments[4], run.Moments[3],
+                                            run.Moments[1], run.Moments[5], run.Moments[4], run.Moments[5],
+                                            run.Moments[2]);
+                    const glm::vec3 principal = SymmetricEigenvector(moments, SymmetricEigenvalues(moments).x);
+                    if (widest < 1.0f && principal != glm::vec3(0.0f) && std::abs(glm::dot(principal, axis)) >= widest)
+                    {
+                        bound = std::min(bound, GroomShadowProjectedLengthLowerBound(run.TotalLength, run.Moments, principal));
+                    }
+                    projectedLength = bound * stretch;
+                }
             }
         }
 
         // The width the strands are drawn at: the run's radii under the
         // per-groom scale and the transform's mean axis, as the shader has it.
         const f32 meanRadiusWorld = run.MeanRadius * caster.WidthScale * caster.ObjectScale;
-        decision.ProjectedLength = projectedLength * caster.ObjectScale;
+        decision.ProjectedLength = projectedLength;
         decision.Layers = GroomShadowCasterLayersFromProjection(decision.ProjectedLength, meanRadiusWorld, sparsest,
                                                                 view.ResolutionTexels, caster.MinWidthTexels,
                                                                 footprintNdcArea);

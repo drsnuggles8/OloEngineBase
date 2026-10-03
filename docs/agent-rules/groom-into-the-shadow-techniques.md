@@ -50,7 +50,10 @@ the groom half of `Renderer/Passes/ShadowRenderPass.cpp`, `GroomStrandDepth.glsl
    group, each in its own hashed order -- as `DecideGroomCasterRun` allows: 2 / factor of the run's
    strands (at least 1/16), and never fewer than four of the run's ESTIMATED layers. The estimate is a
    run-wide mean, not a per-texel count: the projected length is the moment lower bound across the
-   light (the ribbon has no end caps, so a strand along the light lays none), over the run's box.
+   light (the ribbon has no end caps, so a strand along the light lays none), over the run's box. A
+   bound coat's runs are RE-POSED each frame (`GroomCasterPose.h`): moments from 128 sampled strands
+   turned by their roots' frames, the box from the posed roots. Any transform counts its smallest
+   stretch; a perspective light, every ray into the box.
    A coat-wide share thinned a sparse plume to a dense patch's share, thick guard hairs to the thin
    majority's, and light-aligned strands as if they lay flat; `GroomCasterCoverageTest` measures each
    against a raster model, with the coat-wide rule as the negative control. Strided subsets alias with
@@ -129,5 +132,4 @@ the groom half of `Renderer/Passes/ShadowRenderPass.cpp`, `GroomStrandDepth.glsl
 
 ## History
 
-#1380 landed this; the branch-side merge of #1382 restored the pre-#1380 files and deleted all of it
-while its PR body said otherwise (#1523). Re-landed by #1523 on the #1426-#1514 groom pass.
+#1380 landed this; a merge of #1382 deleted it while its PR body said otherwise. Re-landed by #1523.

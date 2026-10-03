@@ -37,6 +37,7 @@
 
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomBuilder.h"
+#include "OloEngine/Groom/GroomCasterPose.h"
 #include "OloEngine/Groom/GroomShadowWidening.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
 
@@ -238,10 +239,13 @@ namespace OloEngine::Tests
             u32 WholeCount = 0;
         };
 
-        [[nodiscard]] Decision Decide(const Cast& cast, const GroomCasterOrder& order, const LightView& light,
-                                      f32 resolution = kResolution)
+        [[nodiscard]] Decision DecideRuns(const Cast& cast, std::span<const GroomCasterRun> runs, const LightView& light,
+                                          f32 resolution = kResolution, const glm::mat4& transform = glm::mat4(1.0f),
+                                          f32 objectScale = 1.0f)
         {
             GroomCasterPlacement placement;
+            placement.Transform = transform;
+            placement.ObjectScale = objectScale;
             placement.MinWidthTexels = kMinWidthTexels;
             placement.CullMin = cast.BoundsMin;
             placement.CullMax = cast.BoundsMax;
@@ -249,7 +253,7 @@ namespace OloEngine::Tests
             view.ViewProjection = light.ViewProjection;
             view.ResolutionTexels = resolution;
             Decision d;
-            for (const GroomCasterRun& run : order.Runs)
+            for (const GroomCasterRun& run : runs)
             {
                 const GroomCasterRunDecision decision = DecideGroomCasterRun(run, placement, view);
                 d.Runs.push_back(decision);
@@ -258,6 +262,12 @@ namespace OloEngine::Tests
                 d.WholeCount += run.Prefix[kGroomCasterPrefixLevels];
             }
             return d;
+        }
+
+        [[nodiscard]] Decision Decide(const Cast& cast, const GroomCasterOrder& order, const LightView& light,
+                                      f32 resolution = kResolution)
+        {
+            return DecideRuns(cast, order.Runs, light, resolution);
         }
 
         // The model depth map, per group: how many ribbons cover each texel
@@ -495,6 +505,50 @@ namespace OloEngine::Tests
             return result;
         }
 
+        // The rule's subset of `drawn` (a coat built with the same strands, the
+        // same points and so the same indices as the one decided from) against
+        // the whole of it, per group: what one decision leaves of a coat it did
+        // not measure.
+        [[nodiscard]] RuleResult MeasureDecision(const Cast& drawn, const GroomCasterOrder& order, const Decision& decision,
+                                                 const LightView& view, f32 resolution = kResolution)
+        {
+            Grid whole = MakeGrid(drawn, view, resolution);
+            const Range everything{ 0u, static_cast<u32>(order.Indices.size()) };
+            Rasterize(drawn, order, std::span<const Range>(&everything, 1u), view, whole, resolution);
+            RuleResult result;
+            result.D = decision;
+            Grid subset = whole;
+            for (auto& count : subset.Count)
+            {
+                std::ranges::fill(count, u16{ 0 });
+            }
+            Rasterize(drawn, order, result.D.Ranges, view, subset, resolution);
+            result.All = Evaluate(whole, subset, -1);
+            for (u32 g = 0; g < drawn.Groups; ++g)
+            {
+                result.ByGroup.push_back(Evaluate(whole, subset, static_cast<i32>(g)));
+            }
+            return result;
+        }
+
+        // `strands` with every point turned by `rotation` about the strand's
+        // root -- a body part carrying its fur -- and widened by `widthScale`.
+        [[nodiscard]] std::vector<Strand> Turned(const std::vector<Strand>& strands, const glm::mat3& rotation,
+                                                 f32 widthScale = 1.0f)
+        {
+            std::vector<Strand> out = strands;
+            for (Strand& strand : out)
+            {
+                const glm::vec3 root = strand.Points.front();
+                for (glm::vec3& point : strand.Points)
+                {
+                    point = root + (rotation * (point - root));
+                }
+                strand.Diameter *= widthScale;
+            }
+            return out;
+        }
+
         [[nodiscard]] Measured Measure(const Cast& cast, const LightView& view, f32 resolution = kResolution)
         {
             Grid whole = MakeGrid(cast, view, resolution);
@@ -621,6 +675,161 @@ namespace OloEngine::Tests
         ExpectHoldsTheClaim(m.Runs.All, "runs, all");
         EXPECT_GT(m.CoatWide.ByGroup[1].Leak, kLeakBudget)
             << "the coat-wide rule let no light through the thick strands: the case no longer tests the widths";
+    }
+
+    // #1533: the share follows the POSE. A run lying across an overhead light
+    // at rest, turned by its body part until it hangs within ten degrees of
+    // the light: its rest moments credit it with the layers it lays lying
+    // flat, and a view decided from them thins it into holes. Re-posed
+    // (PoseGroomCasterRuns -- its sample turned, its moments scaled to the run)
+    // the decision counts what the turned run projects to, holds the claim on
+    // the turned coat, and its moments agree with the turned coat's own.
+    TEST(GroomCasterCoverage, ARunItsBodyTurnsAlongTheLightIsDecidedFromItsPose)
+    {
+        std::vector<Strand> rest;
+        AddPatch(rest, 24000u, glm::vec3(0.0f), 0.12f, glm::normalize(glm::vec3(1.0f, 0.05f, 0.0f)), 0.05f, 0.03f,
+                 1.0e-4f, 0u, 71u);
+        const glm::mat3 turn = glm::mat3(glm::rotate(glm::mat4(1.0f), glm::radians(80.0f), glm::vec3(0.0f, 0.0f, 1.0f)));
+        const Cast restCast = BuildCast(rest, { "leg_guard" });
+        const Cast turnedCast = BuildCast(Turned(rest, turn), { "leg_guard" });
+        ASSERT_EQ(restCast.Indices, turnedCast.Indices) << "the turned coat must be the same strands, indexed alike";
+
+        std::vector<u32> strandOrder;
+        const GroomCasterOrder order = BuildGroomCasterOrder(restCast.Vertices, restCast.Indices,
+                                                             restCast.StrandFirstIndex, restCast.Summaries, &strandOrder);
+        const GroomCasterPose pose = BuildGroomCasterPose(order.Runs, strandOrder, restCast.Summaries);
+        ASSERT_TRUE(pose.IsUsable());
+        std::vector<GroomCasterRun> posed;
+        ASSERT_TRUE(PoseGroomCasterRuns(
+            order.Runs, pose, [&turn](const GroomCasterPoseSample&) { return turn; },
+            [&restCast](sizet, glm::vec3& lo, glm::vec3& hi)
+            {
+                // The roots stay where they are: the turn is about each root.
+                lo = glm::vec3(restCast.BoundsMin.x, 0.0f, restCast.BoundsMin.z);
+                hi = glm::vec3(restCast.BoundsMax.x, 0.0f, restCast.BoundsMax.z);
+                return true;
+            },
+            1.0f, GroomCasterPosePadding{}, posed));
+
+        // The estimate against the turned coat's own moments, measured whole.
+        const GroomCasterOrder truth =
+            BuildGroomCasterOrder(turnedCast.Vertices, turnedCast.Indices, turnedCast.StrandFirstIndex, turnedCast.Summaries);
+        ASSERT_EQ(truth.Runs.size(), posed.size());
+        const f32 trace = truth.Runs[0].Moments[0] + truth.Runs[0].Moments[1] + truth.Runs[0].Moments[2];
+        for (sizet m = 0; m < 6u; ++m)
+        {
+            EXPECT_NEAR(posed[0].Moments[m], truth.Runs[0].Moments[m], 0.03f * trace)
+                << "moment " << m << ": the sample's estimate is not the turned run's";
+        }
+
+        const LightView light = MakeLight({ 0.0f, 1.0f, 0.0f }, glm::vec3(0.06f, 0.0f, 0.06f));
+        const RuleResult fromRest = MeasureDecision(turnedCast, order, DecideRuns(turnedCast, order.Runs, light), light);
+        const RuleResult fromPose = MeasureDecision(turnedCast, order, DecideRuns(turnedCast, posed, light), light);
+        ReportRule("turned along the light", "rest", fromRest);
+        ReportRule("turned along the light", "posed", fromPose);
+        ExpectHoldsTheClaim(fromPose.All, "posed");
+        EXPECT_FALSE(KeepsItsLayers(fromRest.All) && fromRest.All.Leak <= kLeakBudget)
+            << "the rest runs held the claim on the turned coat: the case no longer tests the pose";
+    }
+
+    // #1533: the share measures ANY linear transform by its smallest stretch.
+    // Strands combed along X under an overhead light, the caster squashed to a
+    // fifth along X: in the world they are a fifth as long and lay a fifth of
+    // the layers. The transform's transpose and mean axis -- what the decision
+    // used before -- credit them with nearly four times that length and thin
+    // them into holes; the smallest stretch, through the inverse, does not.
+    TEST(GroomCasterCoverage, ASquashedCasterIsMeasuredByItsSmallestStretch)
+    {
+        std::vector<Strand> local;
+        // Sparse enough that the squashed run lays a handful of layers: the
+        // share then rests on the layer estimate, not on the floor's.
+        AddPatch(local, 800u, glm::vec3(0.0f), 0.12f, glm::normalize(glm::vec3(1.0f, 0.04f, 0.0f)), 0.05f, 0.03f,
+                 1.0e-4f, 0u, 79u);
+        const glm::mat4 squash = glm::scale(glm::mat4(1.0f), glm::vec3(0.2f, 1.0f, 1.0f));
+        const f32 meanScale = (0.2f + 1.0f + 1.0f) / 3.0f;
+        // What the GPU draws: every point under the transform, every width under
+        // the shader's one mean scale.
+        std::vector<Strand> world = local;
+        for (Strand& strand : world)
+        {
+            for (glm::vec3& point : strand.Points)
+            {
+                point = glm::vec3(squash * glm::vec4(point, 1.0f));
+            }
+            strand.Diameter *= meanScale;
+        }
+        const Cast localCast = BuildCast(local, { "body_guard" });
+        const Cast worldCast = BuildCast(world, { "body_guard" });
+        ASSERT_EQ(localCast.Indices, worldCast.Indices);
+
+        const LightView light = MakeLight({ 0.0f, 1.0f, 0.0f }, glm::vec3(0.012f, 0.0f, 0.06f));
+        const Decision exact = DecideRuns(worldCast, localCast.Runs.Runs, light, kResolution, squash, meanScale);
+        // THE CONTROL: the same decision with the strands credited the mean
+        // scale's length -- what the transform's transpose and mean axis made
+        // of them -- over the same box.
+        std::vector<GroomCasterRun> credited = localCast.Runs.Runs;
+        for (GroomCasterRun& run : credited)
+        {
+            const f32 k = meanScale / 0.2f;
+            run.TotalLength *= k;
+            for (f32& moment : run.Moments)
+            {
+                moment *= k;
+            }
+        }
+        const Decision similar = DecideRuns(worldCast, credited, light, kResolution, squash, meanScale);
+        const RuleResult fromExact = MeasureDecision(worldCast, localCast.Runs, exact, light);
+        const RuleResult fromSimilar = MeasureDecision(worldCast, localCast.Runs, similar, light);
+        ReportRule("squashed to a fifth along X", "stretch", fromExact);
+        ReportRule("squashed to a fifth along X", "mean axis", fromSimilar);
+        EXPECT_NEAR(exact.Runs[0].ProjectedLength, 0.2f * localCast.Runs.Runs[0].TotalLength,
+                    0.05f * localCast.Runs.Runs[0].TotalLength)
+            << "strands along the squashed axis project to a fifth of their length";
+        ExpectHoldsTheClaim(fromExact.All, "smallest stretch");
+        EXPECT_FALSE(KeepsItsLayers(fromSimilar.All) && fromSimilar.All.Leak <= kLeakBudget)
+            << "crediting the mean axis held the claim: the case no longer tests the transform";
+    }
+
+    // #1533: under a PERSPECTIVE light the rays fan across a run, and a strand
+    // along any of them lays nothing there. Upright strands over a wide patch,
+    // a lamp just above one corner: the rays near it run along the strands,
+    // the ray to the patch's centre crosses them. The decision's projected
+    // length must be at most the moment bound along EVERY ray into the run's
+    // box, not just the centre's -- checked against a thousand of them.
+    TEST(GroomCasterCoverage, APerspectiveLightIsMeasuredAlongEveryRayIntoTheRun)
+    {
+        std::vector<Strand> strands;
+        AddPatch(strands, 6000u, glm::vec3(-1.0f, 0.0f, -1.0f), 2.0f, glm::vec3(0.0f, 1.0f, 0.0f), 0.02f, 0.05f, 1.0e-4f,
+                 0u, 83u);
+        const Cast cast = BuildCast(strands, { "back_undercoat" });
+        const glm::vec3 lamp(-0.9f, 0.8f, -0.9f);
+        LightView light;
+        light.ViewProjection = glm::perspective(glm::radians(150.0f), 1.0f, 0.05f, 20.0f) *
+                               glm::lookAt(lamp, glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+        light.NdcPerWorld = GroomShadowNdcPerWorld(light.ViewProjection, 1.0f);
+        const Decision d = DecideRuns(cast, cast.Runs.Runs, light);
+        const GroomCasterRun& run = cast.Runs.Runs[0];
+        ASSERT_TRUE(run.MomentsKnown);
+        ASSERT_GT(d.Runs[0].ProjectedLength, 0.0f) << "the box met the lamp's plane, so nothing was measured";
+
+        f32 alongEveryRay = std::numeric_limits<f32>::max();
+        for (u32 k = 0; k < 1000u; ++k)
+        {
+            const glm::vec3 t{ Hash01(97u, k * 3u), Hash01(97u, k * 3u + 1u), Hash01(97u, k * 3u + 2u) };
+            const glm::vec3 point = run.BoundsMin + (t * (run.BoundsMax - run.BoundsMin));
+            const glm::vec3 ray = GroomShadowProjectionDirection(light.ViewProjection, point);
+            alongEveryRay = std::min(alongEveryRay, GroomShadowProjectedLengthLowerBound(run.TotalLength, run.Moments, ray));
+        }
+        const glm::vec3 centreRay = GroomShadowProjectionDirection(light.ViewProjection, 0.5f * (run.BoundsMin + run.BoundsMax));
+        const f32 alongTheCentre = GroomShadowProjectedLengthLowerBound(run.TotalLength, run.Moments, centreRay);
+        std::printf("[caster-coverage] perspective lamp over a wide patch: decided %.4f, along every ray >= %.4f, along "
+                    "the centre's %.4f (of %.4f)\n",
+                    d.Runs[0].ProjectedLength, alongEveryRay, alongTheCentre, run.TotalLength);
+        std::fflush(stdout);
+        EXPECT_LE(d.Runs[0].ProjectedLength, alongEveryRay * 1.001f + 1.0e-6f)
+            << "the decision credited the run with more projected length than one of its own rays sees";
+        EXPECT_GT(alongTheCentre, 2.0f * alongEveryRay)
+            << "the centre's ray sees about what every ray does: the case no longer tests the fan";
     }
 
     // A slowly turning light changes each run's share a little each step, and

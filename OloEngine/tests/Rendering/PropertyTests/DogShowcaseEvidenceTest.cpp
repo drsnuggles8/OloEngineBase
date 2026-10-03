@@ -6701,6 +6701,13 @@ namespace OloEngine::Tests
 
             EXPECT_EQ(wholeStats.SegmentsCast, wholeStats.SegmentsWhole) << "the lever at 1 must cast every strand";
             EXPECT_LT(ruleStats.SegmentsCast, ruleStats.SegmentsWhole) << "the rule cast the whole coat at a hero view";
+            // The share was decided from this pose, not the bind pose (#1533;
+            // GroomCasterPose.h): the dog's roots are the GPU's, so its runs are
+            // re-posed from the skeleton every frame.
+            const GroomRenderPass* const pass = Renderer3D::GetGroomRenderPass();
+            ASSERT_NE(pass, nullptr);
+            EXPECT_GT(pass->GetStats().CastersPosed, 0u) << "the coat cast without its runs posed";
+            EXPECT_EQ(pass->GetStats().CastersAtRest, 0u) << "the coat cast from its rest runs";
         }
     }
 

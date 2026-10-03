@@ -426,6 +426,9 @@ namespace OloEngine
     // indices start in `outIndices`, in emission order (#1533): a strand's
     // segments are emitted contiguously, so strand s spans [first[s], first[s+1])
     // and the last one runs to the end. BuildGroomCasterOrder reads it.
+    // `outStrandCurves`, when not null, receives each emitted strand's BASE
+    // curve, in the same order: BuildGroomStrandRestMesh's root slots, for a
+    // stream that has none (#1533).
     GroomStrandMeshStats BuildGroomStrandMesh(const GroomBuildSource& source,
                                               const GroomStrandBuildSettings& settings,
                                               std::vector<GroomStrandVertex>& outVertices,
@@ -434,7 +437,8 @@ namespace OloEngine
                                               const GroomCoatContext* coat = nullptr,
                                               const GroomStrandSimulation* simulation = nullptr,
                                               std::vector<u32>* outStrandFirstIndex = nullptr,
-                                              std::vector<GroomCasterStrand>* outCasterStrands = nullptr);
+                                              std::vector<GroomCasterStrand>* outCasterStrands = nullptr,
+                                              std::vector<u32>* outStrandCurves = nullptr);
 
     /**
      * @brief The same strands as BuildGroomStrandMesh, in the GPU-deformed
@@ -566,10 +570,14 @@ namespace OloEngine
     /// group of `strands` (the builder's `outCasterStrands`; one run for the
     /// whole stream without them). Pure: the same stream always gives the same
     /// order. Empty when the stream is, or when the table does not describe it.
+    /// `outStrandOrder`, when not null, receives every strand in the order's
+    /// order, run by run -- what a bound coat's runs are re-posed from
+    /// (GroomCasterPose.h).
     [[nodiscard]] GroomCasterOrder BuildGroomCasterOrder(std::span<const GroomStrandVertex> vertices,
                                                          std::span<const u32> indices,
                                                          std::span<const u32> strandFirstIndex,
-                                                         std::span<const GroomCasterStrand> strands = {});
+                                                         std::span<const GroomCasterStrand> strands = {},
+                                                         std::vector<u32>* outStrandOrder = nullptr);
 
     /// The index count a run draws to cast `fraction` of its strands: the
     /// prefix at the next sixty-fourth up, so it never casts fewer.
@@ -620,19 +628,17 @@ namespace OloEngine
      *
      * The widening is measured at the DENSEST texels the caster's posed cull box
      * meets, which keeps the most strands. The layers are ESTIMATED from the
-     * run's projected length -- the moment lower bound across the view's
-     * projection direction at the run's centre, or the assumed half share
-     * without moments -- over the NDC area of the run's box under the caster's
-     * transform, at the SPARSEST texels that box meets. Both choices err toward
-     * keeping strands.
+     * run's projected length -- the moment lower bound, through any linear
+     * transform, at the smallest it takes over the directions the run's box
+     * spans, or the assumed half share without moments -- over the NDC area of
+     * the run's box under the caster's transform, at the SPARSEST texels that
+     * box meets. Each choice errs toward keeping strands.
      *
-     * ASSUMPTIONS, stated because they are not checked here: the transform is a
-     * similarity (the shader's one ObjectScale makes the same one); the run's
-     * rest box and moments still describe it in this pose, so a body part that
-     * swings a run toward the light thins it more than its rest shape would;
-     * and under a perspective view the direction is the one at the run's centre.
-     * A run whose box meets the light's plane, a caster with no cull box, or a
-     * run that measures nothing is cast whole.
+     * THE RUN IS TAKEN AS IT IS GIVEN: a bound coat's caller re-poses its runs
+     * first (GroomCasterPose.h), so their moments and box describe this frame's
+     * pose rather than the rest one. The width is the shader's: the
+     * transform's mean axis. A run whose box meets the light's plane, a caster
+     * with no cull box, or a run that measures nothing is cast whole.
      */
     [[nodiscard]] GroomCasterRunDecision DecideGroomCasterRun(const GroomCasterRun& run,
                                                               const GroomCasterPlacement& caster,
