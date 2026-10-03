@@ -658,7 +658,8 @@ namespace OloEngine
         m_Globals.Params1.y = maxShadowDistance;
         // Non-finite or negative is no bias, never a negative one: a bias that
         // lost its sign shadows every surface by its own depth.
-        const auto bias = [](f32 value) { return std::isfinite(value) ? std::max(value, 0.0f) : 0.0f; };
+        const auto bias = [](f32 value)
+        { return std::isfinite(value) ? std::max(value, 0.0f) : 0.0f; };
         m_Globals.Params0.z = bias(depthBiasTexels);
         m_Globals.Params0.w = bias(normalBias);
         m_Globals.Params5.y = bias(localDepthBiasTexels);

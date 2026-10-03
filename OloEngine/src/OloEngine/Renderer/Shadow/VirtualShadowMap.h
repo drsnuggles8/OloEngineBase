@@ -471,7 +471,6 @@ namespace OloEngine
         // from there.
         f32 LocalDetailBias = 2.0f;
 
-
         // 0 = off, 1 = clip level tint, 2 = page address, 3 = residency,
         // 4 = shadow test, 5 = stored depth, 6 = receiver depth,
         // 7 = final shadow factor. Consumed by the lit pass through

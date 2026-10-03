@@ -701,7 +701,8 @@ namespace OloEngine::Tests
         ASSERT_TRUE(pose.IsUsable());
         std::vector<GroomCasterRun> posed;
         ASSERT_TRUE(PoseGroomCasterRuns(
-            order.Runs, pose, [&turn](const GroomCasterPoseSample&) { return turn; },
+            order.Runs, pose, [&turn](const GroomCasterPoseSample&)
+            { return turn; },
             [&restCast](sizet, glm::vec3& lo, glm::vec3& hi)
             {
                 // The roots stay where they are: the turn is about each root.

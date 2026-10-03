@@ -1869,15 +1869,13 @@ namespace OloEngine::Tests
         // The old reach through the atlas's depth bias: a hundred texels of a
         // lamp 1.5 m away is about 7 cm. Process-wide, so put back on every exit.
         const f32 shipped = Renderer3D::GetShadowMap().GetSettings().AtlasDepthBiasTexels;
-        RunVsmNearOccluderCase("spot", "GroomSceneShadow_GL_Forward_SpotVsmNearOccluder",
-                               [this] { PlaceShortFurSpot({ 0.0f, 1.0f, 0.0f }); },
-                               [shipped](bool old)
+        RunVsmNearOccluderCase("spot", "GroomSceneShadow_GL_Forward_SpotVsmNearOccluder", [this]
+                               { PlaceShortFurSpot({ 0.0f, 1.0f, 0.0f }); }, [shipped](bool old)
                                {
                                    auto& shadowMap = Renderer3D::GetShadowMap();
                                    ShadowSettings settings = shadowMap.GetSettings();
                                    settings.AtlasDepthBiasTexels = old ? 100.0f : shipped;
-                                   shadowMap.SetSettings(settings);
-                               });
+                                   shadowMap.SetSettings(settings); });
     }
 
     // The opaque copies' layers, as the shadow map writes them and as the strand
@@ -1929,7 +1927,8 @@ namespace OloEngine::Tests
         Routing().m_CastShadows = false;
         Routing().m_ReceiveShadows = true;
 
-        const auto capture = [this](const std::string& saveAs, std::vector<u8>& out) { CaptureAlongTheStrip(saveAs, out); };
+        const auto capture = [this](const std::string& saveAs, std::vector<u8>& out)
+        { CaptureAlongTheStrip(saveAs, out); };
 
         PlaceShortFurSpot({ 0.0f, 1.0f, 0.0f });
         std::vector<u8> coatMask;

@@ -366,7 +366,8 @@ namespace OloEngine
                                     const GroomCasterPosePadding& padding, std::vector<GroomCasterRun>& outRuns)
     {
         if (strandOrder.size() != rootCurves.size() ||
-            !std::ranges::all_of(strandOrder, [&](u32 strand) { return strand < rootCurves.size(); }))
+            !std::ranges::all_of(strandOrder, [&](u32 strand)
+                                 { return strand < rootCurves.size(); }))
         {
             return false;
         }
