@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingProbe.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingScene.h"
+#include "OloEngine/Renderer/RayTracing/GroomSurfaceCache.h"
 #include "OloEngine/Renderer/RayTracing/VegetationSurfaceCache.h"
 
 namespace OloEngine
@@ -115,6 +116,15 @@ namespace OloEngine
             // and the TLAS — the same class of mistake the unconditional
             // RecordBlasBuilds call inside Update() exists to avoid.
             vegetationOutputTrusted = !m_Vegetation->GetStats().ProducerFailed;
+        }
+        // The coat proxies built on the GPU (#1533): their ribbons are written
+        // before the builds that refit from them, behind the same edge.
+        if (m_Grooms != nullptr && m_Grooms->HasGpuWork())
+        {
+            gpuTimers.BeginSubPass("GroomProxyDeformToBuffer");
+            if (m_Grooms->Dispatch() > 0u)
+                m_Scene->RecordDeformToBuildBarrier();
+            gpuTimers.EndSubPass();
         }
         gpuTimers.BeginSubPass("AccelerationStructureBuild");
         m_Scene->Update(*m_GPUScene, vegetationOutputTrusted);

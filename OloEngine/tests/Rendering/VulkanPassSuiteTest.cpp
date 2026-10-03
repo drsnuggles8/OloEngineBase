@@ -13502,6 +13502,18 @@ TEST_F(VulkanPassSuite, GroomProxyVerticesSurviveADelayedRead)
 {
     if (!m_Device->HasAsyncComputeQueue())
         GTEST_SKIP() << "A separate compute queue is needed to hold the old read.";
+    // The CPU build's contract: a fresh allocation per frame. The GPU build
+    // rewrites in place behind an all-commands barrier (#1533) and is pinned
+    // by GroomProxyBuiltOnTheGpuMatchesTheCpuBuild.
+    struct RestoreLever
+    {
+        bool Previous = Levers::GroomProxyOnCpu();
+        ~RestoreLever()
+        {
+            Levers::SetGroomProxyOnCpu(Previous);
+        }
+    } restoreLever;
+    Levers::SetGroomProxyOnCpu(true);
 
     using namespace OloEngine::GroomBindingTest;
     GridSurface grid = MakeGrid(8u);
@@ -13594,6 +13606,111 @@ TEST_F(VulkanPassSuite, GroomProxyVerticesSurviveADelayedRead)
     ASSERT_EQ(bytes.size(), static_cast<sizet>(probeBytes));
     EXPECT_EQ(bytes, expected) << "the delayed BLAS input read the NEXT frame's deformed strands";
     scene.Shutdown();
+}
+
+// #1533: the coat proxy built on the GPU (GroomProxyDeformToBuffer.comp) traces
+// the coat the CPU build traces. One coat, one bent pose, built both ways; the
+// ribbons' vertices compared to float rounding. Also pins that the GPU build
+// dispatches inside the recording and that a CPU build dispatches nothing.
+TEST_F(VulkanPassSuite, GroomProxyBuiltOnTheGpuMatchesTheCpuBuild)
+{
+    using namespace OloEngine::GroomBindingTest;
+    GridSurface grid = MakeGrid(8u);
+    WeightAsHinge(grid);
+    Ref<GroomAsset> groom = MakeCoat(96u, 8u, /*height*/ 0.6f);
+    ASSERT_TRUE(groom);
+    Ref<GroomBindingAsset> binding;
+    GroomBindingBuildStats bindStats;
+    std::string reason;
+    ASSERT_TRUE(GroomBindingBuilder::Build(*groom, grid.View(2u), "GpuProxyBody", GroomBindingBuildSettings{}, binding,
+                                           bindStats, reason))
+        << reason;
+
+    const glm::vec3 hinge{ 0.5f, 0.0f, 0.0f };
+    glm::mat4 bend = glm::translate(glm::mat4(1.0f), hinge);
+    bend = glm::rotate(bend, glm::radians(30.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    bend = glm::translate(bend, -hinge);
+    const std::vector<glm::mat4> palette{ glm::mat4(1.0f), bend };
+    GroomStrandRequest request;
+    request.Groom = groom;
+    request.Handle = 0x1533u;
+    request.EntityID = 14;
+    request.Transform = glm::mat4(1.0f);
+    request.PreviousTransform = glm::mat4(1.0f);
+    request.Color = glm::vec3(0.8f);
+    request.WidthScale = 24.0f;
+    request.ApparentPixelSize = 400.0f;
+    GroomDeformationInputs inputs;
+    inputs.Surface = grid.View(2u);
+    inputs.Skinning = grid.Skinning(palette, palette, true);
+    inputs.HasHistory = true;
+    request.DeformationStats =
+        EvaluateGroomRootTransforms(*groom, *binding, inputs, std::nullopt, request.RootTransforms);
+    request.Binding = binding;
+
+    struct RestoreLever
+    {
+        bool Previous = Levers::GroomProxyOnCpu();
+        ~RestoreLever()
+        {
+            Levers::SetGroomProxyOnCpu(Previous);
+        }
+    } restoreLever;
+    const GPUSceneGeometryKey geometryKey{ 14u, 0x1533u, std::numeric_limits<u32>::max() };
+    const auto build = [&](bool onCpu) -> std::vector<Vertex>
+    {
+        Levers::SetGroomProxyOnCpu(onCpu);
+        GPUScene scene;
+        scene.InitializeGPU(GPUSceneCapacities{ .m_Instances = 4, .m_Geometries = 4 });
+        RayTracing::GroomSurfaceCache cache;
+        cache.SetEnabled(true);
+        u32 dispatched = 0u;
+        SubmitFrame(
+            [&]
+            {
+                const std::array<GroomStrandRequest, 1> requests{ request };
+                scene.BeginExtraction(1u, glm::vec3(0.0f));
+                cache.Extract(scene, requests, true);
+                (void)scene.EndExtraction();
+                scene.Upload();
+                dispatched = cache.Dispatch();
+            });
+        EXPECT_EQ(dispatched, onCpu ? 0u : 1u) << (onCpu ? "the CPU build dispatched" : "the GPU build did not");
+        std::vector<Vertex> vertices;
+        if (const GPUSceneGeometry* record = scene.GetGeometryRecord(scene.FindGeometry(geometryKey)))
+        {
+            const auto* entry = VulkanRootObjectRegistry::Get().Lookup(
+                RHI::ResourceHandle{ record->VertexBufferIndex, record->VertexBufferGeneration });
+            if (entry != nullptr)
+            {
+                const VkDeviceSize bytes = static_cast<VkDeviceSize>(record->VertexCount) * sizeof(Vertex);
+                DelayedComputeRead read(*m_Device, static_cast<VulkanVertexBuffer*>(entry->Object)->GetVkBuffer(), 0,
+                                        bytes, ReadTiming::Immediate);
+                const std::vector<u8> raw = read.Release();
+                vertices.resize(raw.size() / sizeof(Vertex));
+                std::memcpy(vertices.data(), raw.data(), vertices.size() * sizeof(Vertex));
+            }
+        }
+        scene.Shutdown();
+        cache.Shutdown();
+        return vertices;
+    };
+
+    const std::vector<Vertex> cpu = build(true);
+    const std::vector<Vertex> gpu = build(false);
+    ASSERT_FALSE(cpu.empty()) << "the coat produced no ray-traced proxy";
+    ASSERT_EQ(gpu.size(), cpu.size()) << "a segment the CPU dropped was written on the GPU";
+    f32 worst = 0.0f;
+    u32 zeros = 0u;
+    for (sizet i = 0; i < cpu.size(); ++i)
+    {
+        worst = std::max(worst, glm::length(gpu[i].Position - cpu[i].Position));
+        worst = std::max(worst, glm::length(gpu[i].Normal - cpu[i].Normal));
+        worst = std::max(worst, glm::length(gpu[i].TexCoord - cpu[i].TexCoord));
+        zeros += glm::length(gpu[i].Position) < 1.0e-12f ? 1u : 0u;
+    }
+    EXPECT_LT(zeros, static_cast<u32>(cpu.size() / 2u)) << "the GPU build left its vertex buffer as it was allocated";
+    EXPECT_LT(worst, 1.0e-4f) << "the GPU build traces a different coat than the CPU build";
 }
 
 // L6 timing baselines for the per-dispatch staging allocations (issue #1526).

@@ -670,6 +670,11 @@ namespace OloEngine
         u32 RefreshDeferred = 0;
         u32 SegmentsConverted = 0;
         u32 TrianglesBuilt = 0;
+        /// Coat proxies built on the GPU this frame (GroomProxyDeformToBuffer.comp,
+        /// #1533), and builds queued but not recorded, which refit from last
+        /// frame's ribbons instead.
+        u32 GpuDispatched = 0;
+        u32 GpuDispatchFailures = 0;
 
         /// Geometry bytes and triangles resident across every proxy.
         ///

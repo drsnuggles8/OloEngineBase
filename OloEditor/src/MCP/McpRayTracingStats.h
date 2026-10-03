@@ -232,6 +232,8 @@ namespace OloEngine::MCP::RayTracingStats
             { "reused", grooms.Reused },
             { "refreshDeferred", grooms.RefreshDeferred },
             { "segmentsConverted", grooms.SegmentsConverted },
+            { "gpuDispatched", grooms.GpuDispatched },
+            { "gpuDispatchFailures", grooms.GpuDispatchFailures },
             { "trianglesBuilt", grooms.TrianglesBuilt },
             { "residentBytes", grooms.ResidentBytes },
             { "residentTriangles", grooms.ResidentTriangles },

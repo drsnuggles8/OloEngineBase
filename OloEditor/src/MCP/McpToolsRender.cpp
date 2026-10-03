@@ -10122,6 +10122,8 @@ namespace OloEngine::MCP
                                         .Prop("reused", Schema::Int().Min(0))
                                         .Prop("refreshDeferred", Schema::Int().Min(0).Desc("Coats that wanted a refresh, could not have one (per-frame budget spent), and KEPT the structure they had. Represented, not refused — but one of them may be a deforming coat a frame behind its raster twin."))
                                         .Prop("segmentsConverted", Schema::Int().Min(0))
+                                        .Prop("gpuDispatched", Schema::Int().Min(0).Desc("Coat proxies built by GroomProxyDeformToBuffer.comp this frame (#1533)."))
+                                        .Prop("gpuDispatchFailures", Schema::Int().Min(0).Desc("GPU proxy builds queued but not recorded; their structures refit from last frame's ribbons."))
                                         .Prop("trianglesBuilt", Schema::Int().Min(0).Desc("Triangles converted THIS FRAME. Correctly zero in a still scene — use residentTriangles for what the TLAS holds."))
                                         .Prop("residentBytes", Schema::Int().Min(0))
                                         .Prop("residentTriangles", Schema::Int().Min(0).Desc("Triangles resident across every proxy. The figure to read for what the ray-traced scene contains; trianglesBuilt is this frame's WORK."))

@@ -58,8 +58,11 @@
 
 namespace OloEngine
 {
+    class ComputeShader;
     class GPUScene;
     class IndexBuffer;
+    class StorageBuffer;
+    class UniformBuffer;
     class VertexBuffer;
 } // namespace OloEngine
 
@@ -100,6 +103,17 @@ namespace OloEngine::RayTracing
         /// CPU bytes held by allocated capacity: each bound coat's rest stream and
         /// deformation buffer, and the conversion scratch (the memory report).
         [[nodiscard]] u64 GetCpuBytes() const;
+
+        /// Records the GPU proxy builds Extract queued (#1533): one compute
+        /// dispatch a coat, writing the ribbons its BLAS refits from. Called by
+        /// RayTracingScenePass inside the recording, before the scene update;
+        /// returns the number dispatched. A coat whose dispatch fails keeps last
+        /// frame's ribbons (or zeros, for a fresh buffer): never unwritten memory.
+        u32 Dispatch();
+        [[nodiscard]] bool HasGpuWork() const noexcept
+        {
+            return !m_GpuJobs.IsEmpty();
+        }
 
       private:
         // Entity id and asset handle. The asset handle is in the key because a
@@ -153,6 +167,32 @@ namespace OloEngine::RayTracing
             GroomDeformBuffer DeformCpu;
             Ref<GroomGuideInfluenceTable> DeformWeightsFrom;
             bool DeformRelayout = true;
+            /// DeformCpu was laid out CPU-only (no byte image): the CPU build.
+            bool DeformCpuOnly = true;
+
+            /// THE GPU BUILD (#1533): the rest stream's segments as the compute
+            /// shader reads them, rebuilt with the rest stream; the deformation
+            /// buffer's bytes on the GPU, sent each frame; and how many segments
+            /// the vertex buffer is sized for.
+            Ref<VertexBuffer> RestSegments;
+            u64 RestSegmentsHash = 0;
+            Ref<StorageBuffer> DeformGpu;
+            u32 GpuSegments = 0;
+            u32 GpuRibbons = 0;
+        };
+
+        /// One queued GPU proxy build. Raw pointers into the entry, which no
+        /// Extract retires before this frame's Dispatch consumes the job.
+        struct GpuJob
+        {
+            StorageBuffer* Deform = nullptr;
+            u64 RestAddress = 0u;
+            u64 OutputAddress = 0u;
+            u32 SegmentCount = 0u;
+            u32 Ribbons = 0u;
+            f32 WidthScale = 1.0f;
+            glm::ivec4 DeformModes{ 0 };
+            glm::ivec4 DeformBases{ 0 };
         };
 
         /// Rebuilds one coat's ray-space geometry. Returns
@@ -167,6 +207,14 @@ namespace OloEngine::RayTracing
         [[nodiscard]] GroomProxyRefusalReason Refresh(Entry& entry, const GroomStrandRequest& request,
                                                       const GroomProxyDecision& decision, u64 shapeHash,
                                                       GroomProxyFrameBudget& budget);
+        /// The GPU build's half of Refresh for a bound coat whose frame is packed
+        /// into a GPU-layout DeformCpu: the bytes sent, the buffers sized, the
+        /// gates passed and the dispatch queued.
+        [[nodiscard]] GroomProxyRefusalReason RefreshOnGpu(Entry& entry, u64 shapeHash, f32 compensation,
+                                                           const GroomProxyConversionSettings& conversion,
+                                                           GroomProxyFrameBudget& budget);
+        /// Vulkan, the lever not forcing the CPU, and the shader compiled.
+        [[nodiscard]] bool GpuBuildAvailable();
 
         bool m_Enabled = false;
         u64 m_Frame = 0;
@@ -187,5 +235,10 @@ namespace OloEngine::RayTracing
         std::vector<u32> m_StrandIndices;
         std::vector<Vertex> m_ProxyVertices;
         std::vector<u32> m_ProxyIndices;
+
+        TArray<GpuJob> m_GpuJobs;
+        Ref<ComputeShader> m_GpuShader;
+        Ref<UniformBuffer> m_GpuParams;
+        bool m_GpuShaderFailed = false;
     };
 } // namespace OloEngine::RayTracing
