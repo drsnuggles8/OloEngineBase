@@ -450,8 +450,84 @@ namespace OloEngine::Tests
             }
         }
 
+        // THE LOOK UNDER TEST IS THE SHIPPED ONE. These variables retune the
+        // scene for look development (the grade, the lights, the lawn, the
+        // pelt, the lids, the fibre, the pose bake, the shadow, the simulation,
+        // a region debug view, the rest-settle A/B) or narrow a test to one
+        // arm. Evidence taken under any of them is evidence of another dog, so
+        // a case run with one set fails, naming it, as does one with a fault
+        // lever set from outside; the variables that only switch a record on
+        // (the footage, the cost and lighting exports, the scene export, the
+        // slices) do not change what is drawn and are only reported. Every one
+        // set is printed once.
+        static constexpr std::array<const char*, 14> kLookOverrides{
+            "OLO_DOG_POST", "OLO_DOG_LIGHT", "OLO_DOG_SUNDIR", "OLO_DOG_RIMDIR", "OLO_DOG_LAWN",
+            "OLO_DOG_PELT", "OLO_DOG_LID", "OLO_DOG_FIBRE", "OLO_DOG_POSEBAKE", "OLO_DOG_SHADOW",
+            "OLO_DOG_SIM", "OLO_DOG_ABC", "OLO_DOG_REGION_DEBUG", "OLO_DOG_REST_SETTLE_OFF"
+        };
+        static constexpr std::array<const char*, 21> kRecordSwitches{
+            "OLO_DOG_B6_ONLY", "OLO_DOG_B6_MOTION_FLOOR", "OLO_DOG_BODY_SLICES", "OLO_DOG_COST",
+            "OLO_DOG_COST_EXPORT", "OLO_DOG_COST_LAWN", "OLO_DOG_COST_SUB", "OLO_DOG_EXPORT",
+            "OLO_DOG_FOOTAGE", "OLO_DOG_FOOTAGE_ONLY", "OLO_DOG_LIGHTING", "OLO_DOG_LIGHTING_CLIP",
+            "OLO_DOG_LIGHTING_EXPORT", "OLO_DOG_LOOKDEV", "OLO_DOG_LOOKDEV_CLIP", "OLO_DOG_LOOKDEV_FRAMES",
+            "OLO_DOG_LOOKDEV_LAWN", "OLO_DOG_LOOKDEV_OFF", "OLO_DOG_LOOKDEV_ONLY", "OLO_DOG_LOOKDEV_WAG",
+            "OLO_DOG_REST_SETTLE"
+        };
+        static constexpr std::array<const char*, 8> kFaultLevers{
+            "OLO_FAULT_COUNT_ALIAS_AS_BACKING", "OLO_FAULT_GROOM_NO_OTHER_FUR",
+            "OLO_FAULT_GROOM_SHADOW_AT_COAT_EXIT", "OLO_FAULT_OMIT_OUT_OF_BAND_DECLARATION",
+            "OLO_FAULT_SHORTEN_TRANSIENT_LIFETIMES", "OLO_FAULT_SKIP_DISPATCH_BINDING_RESET",
+            "OLO_FAULT_SKIP_GROOM_VSM_INVALIDATION", "OLO_FAULT_STALE_DECLARATION_KEY"
+        };
+
+        [[nodiscard]] static const char* SetValue(const char* name)
+        {
+            const char* value = std::getenv(name);
+            return value != nullptr && value[0] != '\0' ? value : nullptr;
+        }
+
+        static void ReportOverrides()
+        {
+            static bool reported = false;
+            if (reported)
+            {
+                return;
+            }
+            reported = true;
+            std::string active;
+            const std::array<std::span<const char* const>, 3> lists{ kLookOverrides, kRecordSwitches, kFaultLevers };
+            for (const std::span<const char* const> list : lists)
+            {
+                for (const char* name : list)
+                {
+                    if (const char* value = SetValue(name); value != nullptr)
+                    {
+                        active += std::string(" ") + name + "=" + value;
+                    }
+                }
+            }
+            std::printf("[dog] environment overrides:%s\n", active.empty() ? " none" : active.c_str());
+            std::fflush(stdout);
+        }
+
         void BuildScene() override
         {
+            ReportOverrides();
+            for (const char* name : kLookOverrides)
+            {
+                if (const char* value = SetValue(name); value != nullptr)
+                {
+                    ADD_FAILURE() << name << "=" << value
+                                  << " retunes the dog for look development: this run is not evidence of the shipped look";
+                }
+            }
+            for (const char* name : kFaultLevers)
+            {
+                if (const char* value = SetValue(name); value != nullptr)
+                {
+                    ADD_FAILURE() << name << "=" << value << " breaks the renderer on purpose: this run is not evidence";
+                }
+            }
             Time::SetMockTime(kLawnClock);
             if (!Project::GetActive() || !Project::HasAssetManager())
             {
@@ -2788,7 +2864,34 @@ namespace OloEngine::Tests
             // Per frame: each simulated long-hair guide's tip, minus the target
             // its root carries it to (the solver's particle against LastTargets).
             std::vector<std::vector<glm::vec3>> LongHairTips;
+            // Per frame, the STATE the arm drew, each reduced to a digest (a
+            // position-weighted sum of every value and of its square, in f64):
+            // the body's bone palette, and every particle of the guide
+            // simulation with the targets its roots carried it to. Replays of
+            // the same frames must agree to the bit, which a matching clip time
+            // alone does not show.
+            std::vector<f64> PoseDigest;
+            std::vector<f64> GuideDigest;
         };
+
+        // A digest of `values`: position-weighted sums of each value and its
+        // square, so a change anywhere -- or a swap of two -- moves it.
+        [[nodiscard]] static f64 Digest(std::span<const f32> values)
+        {
+            f64 sum = 0.0;
+            for (sizet i = 0; i < values.size(); ++i)
+            {
+                const f64 v = values[i];
+                const f64 weight = 1.0 + (0.6180339887 * static_cast<f64>(i % 4096u));
+                sum += weight * (v + (v * v));
+            }
+            return sum;
+        }
+
+        [[nodiscard]] static bool SameDigests(const std::vector<f64>& a, const std::vector<f64>& b)
+        {
+            return a.size() == b.size() && (a.empty() || std::memcmp(a.data(), b.data(), a.size() * sizeof(f64)) == 0);
+        }
 
         // ADVANCES RUNTIME, and records. `clip` from its first frame (StartClip,
         // `warmup` frames in all), then `frames` measured runtime frames through
@@ -2870,6 +2973,18 @@ namespace OloEngine::Tests
                     }
                 }
                 s.LongHairTips.push_back(std::move(tips));
+                {
+                    const Skeleton& skeleton = *m_Dog.Body.GetComponent<SkeletonComponent>().m_Skeleton;
+                    s.PoseDigest.push_back(Digest({ reinterpret_cast<const f32*>(skeleton.m_FinalBoneMatrices.data()),
+                                                    skeleton.m_FinalBoneMatrices.size() * 16u }));
+                    f64 guides = 0.0;
+                    if (sim != nullptr && sim->Initialized)
+                    {
+                        guides = Digest({ reinterpret_cast<const f32*>(sim->Curr.data()), sim->Curr.size() * 3u }) +
+                                 (3.0 * Digest({ reinterpret_cast<const f32*>(sim->LastTargets.data()), sim->LastTargets.size() * 3u }));
+                    }
+                    s.GuideDigest.push_back(guides);
+                }
             }
             return s;
         }
@@ -4424,6 +4539,10 @@ namespace OloEngine::Tests
         const f32 shippedFeedback = Renderer3D::GetPostProcessSettings().TAAFeedback;
         const char* onlyEnv = std::getenv("OLO_DOG_B6_ONLY");
         const std::string only = onlyEnv != nullptr ? std::string(onlyEnv) : std::string();
+        if (!only.empty())
+        {
+            ADD_FAILURE() << "OLO_DOG_B6_ONLY=" << only << " runs one arm: B6 is only whole without it";
+        }
         for (const char* clip : { "Rest", "Walk" })
         {
             const bool moving = std::string_view(clip) == "Walk";
@@ -4457,11 +4576,30 @@ namespace OloEngine::Tests
                 // The same state in every arm, frame by frame.
                 EXPECT_TRUE(SameBits(resolved.ClipTime, raw.ClipTime)) << "the arms did not replay the same clip times";
                 EXPECT_EQ(resolved.SolverSteps, raw.SolverSteps) << "the arms did not replay the same solver steps";
+                EXPECT_TRUE(SameDigests(resolved.PoseDigest, raw.PoseDigest)) << "the arms did not replay the same body pose";
+                EXPECT_TRUE(SameDigests(resolved.GuideDigest, raw.GuideDigest))
+                    << "the arms did not replay the same guide simulation state";
                 if (moving)
                 {
                     EXPECT_TRUE(SameBits(resolved.ClipTime, resolvedAgain.ClipTime) && SameBits(raw.ClipTime, rawAgain.ClipTime))
                         << "the second draws did not replay the same clip times";
                     EXPECT_EQ(resolved.SolverSteps, resolvedAgain.SolverSteps) << "the second draws did not replay the same solver steps";
+                    EXPECT_TRUE(SameDigests(resolved.PoseDigest, resolvedAgain.PoseDigest) &&
+                                SameDigests(raw.PoseDigest, rawAgain.PoseDigest))
+                        << "the second draws did not replay the same body pose";
+                    EXPECT_TRUE(SameDigests(resolved.GuideDigest, resolvedAgain.GuideDigest) &&
+                                SameDigests(raw.GuideDigest, rawAgain.GuideDigest))
+                        << "the second draws did not replay the same guide simulation state";
+                }
+                // THE CONTROL: the digests see the states move -- a walk's pose and
+                // guides change from frame to frame, so equal digests are not two
+                // constants agreeing.
+                if (moving && resolved.PoseDigest.size() > 1u)
+                {
+                    EXPECT_FALSE(SameDigests({ resolved.PoseDigest.front() }, { resolved.PoseDigest.back() }))
+                        << "the pose digest did not change through the walk";
+                    EXPECT_FALSE(SameDigests({ resolved.GuideDigest.front() }, { resolved.GuideDigest.back() }))
+                        << "the guide digest did not change through the walk";
                 }
 
                 const Liveness live = JudgeLiveness(resolved);
