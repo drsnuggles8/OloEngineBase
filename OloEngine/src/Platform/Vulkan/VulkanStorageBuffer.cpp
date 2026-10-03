@@ -286,7 +286,9 @@ namespace OloEngine
             // Counted per binding and said at each power of two (#1533): this
             // write waits on a fence for the queue, so a buffer rewritten every
             // frame from here stalls the CPU every frame -- and its count climbs
-            // with the frame count.
+            // with the frame count. A WARNING only from the 64th write on: the
+            // first few are a system seeding its pool once at start-up, which
+            // stalls nothing that runs per frame.
             static std::mutex s_OneShotMutex;
             static std::map<u32, u64> s_OneShotByBinding;
             u64 count = 0u;
@@ -296,9 +298,20 @@ namespace OloEngine
             }
             if ((count & (count - 1u)) == 0u)
             {
-                OLO_CORE_WARN("[RHI/Vulkan] StorageBuffer::SetData (binding {}, {} of {} bytes): the allocation is not "
-                              "host-visible, so the write is a one-shot upload that waits on the queue ({} so far)",
-                              m_Binding, size, m_Size, count);
+                constexpr u64 kPerFrameSuspect = 64u;
+                if (count >= kPerFrameSuspect)
+                {
+                    OLO_CORE_WARN("[RHI/Vulkan] StorageBuffer::SetData (binding {}, {} of {} bytes): the allocation is "
+                                  "not host-visible, so the write is a one-shot upload that waits on the queue ({} so "
+                                  "far)",
+                                  m_Binding, size, m_Size, count);
+                }
+                else
+                {
+                    OLO_CORE_TRACE("[RHI/Vulkan] StorageBuffer::SetData (binding {}, {} of {} bytes): one-shot upload "
+                                   "to a device-local allocation ({} so far)",
+                                   m_Binding, size, m_Size, count);
+                }
             }
             VulkanOneShot::UploadToBuffer(m_Buffer, offset, data, size, "VulkanStorageBuffer::SetData");
         }
