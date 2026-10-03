@@ -740,7 +740,8 @@ float oloGroomCoatExitDistance(vec3 worldDir)
 // WHERE IT IS against maps with no fur in them: the body and every other opaque
 // caster shadow it, and the coat's own extinction stays the density volume's
 // alone (groom-into-the-shadow-techniques.md rule 8). The VSM keeps the exit
-// point: its cached pages still hold the fur.
+// point: its cached pages still hold the fur. It answers under the light's own
+// bias in its own texels, as the cascades do (VirtualShadowResources.glsl).
 //
 // ANOTHER GROOM'S FUR (#1533) IS IN THE FULL MAP, so where one casts this frame
 // (u_GroomCoatModes.y bit 8) the strand also samples the full map at its coat's

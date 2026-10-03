@@ -6347,11 +6347,14 @@ namespace OloEngine::Tests
         report += "#              against the volume's account (1 = they agree)\n";
         report += "#   env        ENV / ENV without the body: what the volume's body takes from the sky on this fur\n";
         report += "#   vsm/key    VSM / KEY: the sun on this fur under the VSM's exit point against the opaque cascades\n";
+        report += "#   exit/key   EXIT / KEY: the same sun through the cascades sampled at the coat's light-exit point\n";
+        report += "#              (OLO_FAULT_GROOM_SHADOW_AT_COAT_EXIT) -- the VSM's receiver on the cascades' map\n";
+        report += "#   vsm/exit   VSM / EXIT: the two maps at the same receiver (1 = they agree)\n";
         bool measurable = false;
         for (const View& view : views)
         {
             SCOPED_TRACE(view.Name);
-            LinearFrame key, rimOpen, rimAgain, rimBody, rimNoBody, vsm, vsmNoBody, env, envNoBody, domeFrame;
+            LinearFrame key, rimOpen, rimAgain, rimBody, rimNoBody, vsm, vsmNoBody, csmExit, env, envNoBody, domeFrame;
             lights(shippedSun.m_Intensity, true, 0.0f, false, 0.0f);
             capture(view, key);
             ASSERT_FALSE(HasFatalFailure());
@@ -6397,6 +6400,20 @@ namespace OloEngine::Tests
             capture(view, vsm);
             captureWithoutBody(view, vsmNoBody);
             ASSERT_TRUE(setVsm(false));
+            {
+                // The same sun through the cascades at the exit point (#1533):
+                // the VSM's receiver on the cascades' map, to say whether the
+                // VSM's excess is the receiver's or the map's.
+                struct ExitRestore
+                {
+                    ~ExitRestore()
+                    {
+                        Levers::SetFaultGroomShadowAtCoatExit(false);
+                    }
+                } exitRestore;
+                Levers::SetFaultGroomShadowAtCoatExit(true);
+                capture(view, csmExit);
+            }
             lights(0.0f, false, 0.0f, false, shippedIbl);
             capture(view, env);
             captureWithoutBody(view, envNoBody);
@@ -6435,6 +6452,7 @@ namespace OloEngine::Tests
                 f64 RimBody = 0.0;
                 f64 Vsm = 0.0;
                 f64 VsmNoBody = 0.0;
+                f64 CsmExit = 0.0;
                 f64 Env = 0.0;
                 f64 EnvNoBody = 0.0;
                 f64 DomeOpen = 0.0;
@@ -6466,6 +6484,7 @@ namespace OloEngine::Tests
                     s.RimBody += rimBody.Luminance[i];
                     s.Vsm += vsm.Luminance[i];
                     s.VsmNoBody += vsmNoBody.Luminance[i];
+                    s.CsmExit += csmExit.Luminance[i];
                     s.Env += env.Luminance[i];
                     s.EnvNoBody += envNoBody.Luminance[i];
                     s.DomeOpen += domeOpen[i];
@@ -6496,7 +6515,7 @@ namespace OloEngine::Tests
             const Sums& all = sums[kAll];
             char row[512];
             std::snprintf(row, sizeof(row),
-                          "\n%s\nregion        pixels      key      rim  rimLeak (before)  floor  leak/key (before)   skyVis (before)    env  vsm/key (before)\n",
+                          "\n%s\nregion        pixels      key      rim  rimLeak (before)  floor  leak/key (before)   skyVis (before)    env  vsm/key (before)  exit/key  vsm/exit\n",
                           view.Name);
             report += row;
             const auto ratio = [](f64 a, f64 b)
@@ -6511,12 +6530,13 @@ namespace OloEngine::Tests
                 const char* name = r < kCoatRegions ? kCoatRegionNames[r] : (r == kFringe ? "sparse fringe" : "all coat");
                 const f64 n = s.Pixels;
                 std::snprintf(row, sizeof(row),
-                              "%-12s %7.0f  %7.4f  %7.4f  %7.3f (%6.3f)  %5.3f  %8.3f (%6.3f)  %7.3f (%6.3f)  %5.3f  %7.3f (%6.3f)\n",
+                              "%-12s %7.0f  %7.4f  %7.4f  %7.3f (%6.3f)  %5.3f  %8.3f (%6.3f)  %7.3f (%6.3f)  %5.3f  %7.3f (%6.3f)  %8.3f  %8.3f\n",
                               name, n, s.Key / n, s.Rim / n, ratio(s.Rim - s.RimBody, s.Rim),
                               ratio(s.RimNoBody - s.RimBody, s.RimNoBody), ratio(std::abs(s.Rim - s.RimAgain), s.Rim),
                               ratio(s.Rim - s.RimBody, s.Key), ratio(s.RimNoBody - s.RimBody, s.Key),
                               ratio(s.DomeBody, s.DomeOpen), ratio(s.DomeBody, s.DomeOpenNoBody), ratio(s.Env, s.EnvNoBody),
-                              ratio(s.Vsm, s.Key), ratio(s.VsmNoBody, s.Key));
+                              ratio(s.Vsm, s.Key), ratio(s.VsmNoBody, s.Key), ratio(s.CsmExit, s.Key),
+                              ratio(s.Vsm, s.CsmExit));
                 report += row;
             }
             // Measurable: the rim reaches the coat, and the body's share of it
@@ -6539,6 +6559,12 @@ namespace OloEngine::Tests
             EXPECT_GT(all.Rim / std::max(all.Pixels, 1.0), 0.0) << "the rim does not reach the coat in this view";
             EXPECT_LT(all.DomeBody, all.DomeOpenNoBody)
                 << "a casting dome let as much light through the body as a non-casting one without the body";
+            // The VSM and the cascades answer the same exit point alike (#1533):
+            // under its own 5 cm + 2 cm bias the VSM read 5-7% brighter in the
+            // front views, the skin seen through the fur missing every contact
+            // shadow within ~7 cm (shadow-receiver-bias-is-texels-of-the-map-sampled.md).
+            EXPECT_NEAR(ratio(all.Vsm, all.CsmExit), 1.0, 0.03)
+                << "under the VSM the coat's sun differs from the cascades' at the same light-exit point";
             measurable = measurable || leakBefore > 4.0 * allFloor;
         }
         EXPECT_TRUE(measurable) << "in no view did the body's share of the rim rise above the rim's own repeat noise";

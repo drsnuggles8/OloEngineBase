@@ -518,7 +518,9 @@ namespace OloEngine
                                           m_CameraWorldPosition - renderOrigin,
                                           renderOrigin,
                                           m_UBOData.DirectionalShadowEnabled != 0);
-            m_VirtualShadowMap.SetSamplingParams(m_Settings.Softness, m_Settings.MaxShadowDistance);
+            m_VirtualShadowMap.SetSamplingParams(m_Settings.Softness, m_Settings.MaxShadowDistance,
+                                                 m_Settings.DepthBiasTexels, m_Settings.NormalBias,
+                                                 m_Settings.AtlasDepthBiasTexels);
         }
     }
 

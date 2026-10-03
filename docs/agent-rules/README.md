@@ -170,6 +170,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [lightmap-receiver-identity.md](lightmap-receiver-identity.md): a baked lightmap region is addressed by (entity UUID, sub-key), never by the entity alone.
 - [two-phase-occlusion-culling.md](two-phase-occlusion-culling.md): phase 1 tests the previous frame's final pyramid; pass order decides who sees old depth.
 - [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md): four page-cache invariants; a `Setup()` that branches on a runtime toggle is frozen by the fingerprint cache.
+- [shadow-receiver-bias-is-texels-of-the-map-sampled.md](shadow-receiver-bias-is-texels-of-the-map-sampled.md): bias a shadow receiver by the light's depth texels and normal metres, converted through the level or mip it samples; never give one technique its own bias constant in metres.
 - [virtual-geometry-into-a-second-shadow-technique.md](virtual-geometry-into-a-second-shadow-technique.md): a caster family reaches a shadow technique only if somebody wired it there, and the gap is invisible.
 - [cluster-lod-simplification.md](cluster-lod-simplification.md): a terminal group's boundary lock outlives the level that created it, and a terminal group is marked `FLT_MAX`, which is finite.
 - [deforming-geometry-conservative-bounds.md](deforming-geometry-conservative-bounds.md): a bound that only rejects may be tightened per cluster, but a bound a hierarchy's nesting or monotonicity invariants rest on grows by one uniform scalar, derived rather than estimated.
@@ -277,6 +278,7 @@ The dominant archetype here. If your change is in one of these areas, a passing 
 | Doc | What stayed green |
 |---|---|
 | [force-model-vehicles.md](force-model-vehicles.md) | A boat with no thrust still floats and an oscillating aircraft still has finite positions. |
+| [shadow-receiver-bias-is-texels-of-the-map-sampled.md](shadow-receiver-bias-is-texels-of-the-map-sampled.md) | The VSM-against-CSM floor test compared a 5 m cube's shadow, which the VSM's own 7 cm bias does not change, while every contact shadow within 7 cm went missing; a dog's chest under its chin read 9% brighter. |
 | [vulkan-software-driver-ci.md](vulkan-software-driver-ci.md) | A CI job that runs the Vulkan suite on a driver below the ADR 0010 contract: every device-gated test skips, gtest prints `[  PASSED  ]`, the job is green and nothing about Vulkan was verified. Mesa 26.1.8's lavapipe is the trap's live example — it clears the Vulkan 1.4 bar everyone checks and exposes none of the three extensions that actually decide it. |
 | [vulkan-support-matrix.md](vulkan-support-matrix.md) | A green `Windows.yml` while no runner can execute the Vulkan device suites or the L7 ray-query suites; the capability report and the coverage banner say which machine ran what. |
 | [renderer-pr-gpu-tests-run-after-merge.md](renderer-pr-gpu-tests-run-after-merge.md) | A GTAO fix merged green because every GPU test skips on PR CI; it had broken a Vulkan device test, a VRCS evidence test and a CrossPath row, two of them calibrated on the phantom occlusion it removed. |

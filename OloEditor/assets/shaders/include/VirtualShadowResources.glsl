@@ -41,7 +41,7 @@ layout(std140, binding = 81) uniform VirtualShadowGlobals
     mat4 u_VSMInverseViewProjection;
     vec4 u_VSMLightDirection;
     vec4 u_VSMCameraPosition;
-    vec4 u_VSMParams0; // x = clip0 half extent, y = clip selection bias, z = depth bias, w = normal bias
+    vec4 u_VSMParams0; // x = clip0 half extent, y = clip selection bias, z = depth bias (texels), w = normal bias (m)
     vec4 u_VSMParams1; // x = softness, y = max shadow distance, z = physical resolution, w = physical page table res
     ivec4 u_VSMParams2; // x = enabled, y = debug mode, z = full invalidate, w = frame index
     ivec4 u_VSMParams3; // x = depth width, y = depth height, z = marking stride, w = unused
@@ -50,12 +50,19 @@ layout(std140, binding = 81) uniform VirtualShadowGlobals
     // many entries of b_LocalLightHead are valid (what the MARKER walks) — the
     // two differ because a point light spends six layers on one light.
     ivec4 u_VSMParams4; // x = local enabled, y = local light count, z = local layer count, w = directional enabled
-    vec4 u_VSMParams5;  // x = local detail bias, y = local depth bias (metres), z/w unused
+    vec4 u_VSMParams5;  // x = local detail bias, y = local depth bias (texels), z/w unused
 };
 
 #define VSM_CLIP0_HALF_EXTENT      (u_VSMParams0.x)
 #define VSM_CLIP_SELECTION_BIAS    (u_VSMParams0.y)
-#define VSM_DEPTH_BIAS             (u_VSMParams0.z)
+// THE RECEIVER BIAS IS THE LIGHT'S, IN THIS MAP'S TEXELS (#1533): the sun's
+// clip levels take the cascades' pair (ShadowSettings::DepthBiasTexels and
+// NormalBias, which the scene sets from the light) and a lamp's layers the
+// atlas's depth texels, each converted through the level or mip sampled. A
+// constant 5 cm of depth and 2 cm of offset skipped every occluder within about
+// 7 cm of a receiver whose texels are a millimetre wide: contact shadows the
+// cascades kept went missing (a dog's chest under its chin read 9% brighter).
+#define VSM_DEPTH_BIAS_TEXELS      (u_VSMParams0.z)
 #define VSM_NORMAL_BIAS            (u_VSMParams0.w)
 #define VSM_SOFTNESS               (u_VSMParams1.x)
 #define VSM_MAX_SHADOW_DISTANCE    (u_VSMParams1.y)
@@ -69,7 +76,10 @@ layout(std140, binding = 81) uniform VirtualShadowGlobals
 #define VSM_LOCAL_LAYER_COUNT      (u_VSMParams4.z)
 #define VSM_DIRECTIONAL_ENABLED    (u_VSMParams4.w)
 #define VSM_LOCAL_DETAIL_BIAS      (u_VSMParams5.x)
-#define VSM_LOCAL_DEPTH_BIAS_METERS (u_VSMParams5.y)
+#define VSM_LOCAL_DEPTH_BIAS_TEXELS (u_VSMParams5.y)
+// The atlas's normal offset, in texels of the mip sampled: PBRCommon.glsl's
+// ATLAS_NORMAL_OFFSET_TEXELS, ShaderConstants::SHADOW_ATLAS_NORMAL_OFFSET_TEXELS.
+#define VSM_NORMAL_OFFSET_TEXELS   1.5
 
 // Per-dispatch / per-draw scratch. Refilled immediately before each use, which is
 // the documented pattern for this engine's compute parameter blocks (#691 Phase
@@ -272,12 +282,23 @@ ivec2 vsmLocalPhysicalTexel(vec2 uv, int mip, uint pageEntry)
 //
 //   depth01(d) = 0.5 + 0.5*((f+n)/(f-n) - 2fn/((f-n) d))
 //   d(depth01)/dd = f*n / ((f-n) d²)
-float vsmLocalDepthBias(int layer, float viewDistance)
+float vsmLocalDepthBias(int layer, float viewDistance, float metres)
 {
     float n = b_LocalLights[layer].Params.x;
     float f = b_LocalLights[layer].Params.y;
     float d = max(viewDistance, max(n, 1e-4));
-    return (f * n * max(VSM_LOCAL_DEPTH_BIAS_METERS, 0.0)) / (max(f - n, 1e-4) * d * d);
+    return (f * n * max(metres, 0.0)) / (max(f - n, 1e-4) * d * d);
+}
+
+// One clip level's depth bias in its [0,1] depth: VSM_DEPTH_BIAS_TEXELS texels
+// of the level. Row 2 of an orthographic view-projection is 2 / (far - near)
+// long, so a world metre along the light is half that in [0,1] depth -- the
+// same conversion the cascades make (PBRCommon.glsl, issue #1119).
+float vsmLevelDepthBias(int clipLevel)
+{
+    mat4 m = u_VSMClips[clipLevel].ViewProjection;
+    float depthPerMetre = 0.5 * length(vec3(m[0][2], m[1][2], m[2][2]));
+    return max(VSM_DEPTH_BIAS_TEXELS, 0.0) * u_VSMClips[clipLevel].TexelWorldSize * depthPerMetre;
 }
 
 #endif // OLO_VIRTUAL_SHADOW_RESOURCES_GLSL

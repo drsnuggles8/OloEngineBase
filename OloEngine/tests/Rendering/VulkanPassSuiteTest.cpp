@@ -13986,7 +13986,8 @@ TEST_F(VulkanPassSuite, VirtualShadowMapRunsAFullFrameOnVulkan)
             [&]
             {
                 vsm.BeginFrame(lightDirection, cameraPos, glm::vec3(0.0f));
-                vsm.SetSamplingParams(1.0f, 200.0f);
+                // The cascades' and the atlas's default receiver bias (#1533).
+                vsm.SetSamplingParams(1.0f, 200.0f, 2.0f, 0.01f, 2.0f);
                 vsm.SubmitDynamicInvalidations(meshCasters, skinnedCasters, glm::vec3(0.0f));
                 vsm.UpdatePages();
                 vsm.RenderCasters(meshCasters, skinnedCasters, glm::vec3(0.0f), noBones);

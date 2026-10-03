@@ -96,11 +96,12 @@ float vsmShadowFactor(vec3 worldPosRelative, vec3 normalRelative)
         // Normal offset scaled by THIS level's texel size — the standard cure for
         // the acne a constant depth bias cannot reach on grazing surfaces, and it
         // has to follow the level because a level-15 texel is 4 orders of
-        // magnitude larger than a level-0 one.
+        // magnitude larger than a level-0 one. The depth bias follows it for
+        // the same reason (vsmLevelDepthBias).
         vec3 offsetPos = worldPosRelative +
-                         normalRelative * (VSM_NORMAL_BIAS + u_VSMClips[level].TexelWorldSize * 1.5);
+                         normalRelative * (VSM_NORMAL_BIAS + u_VSMClips[level].TexelWorldSize * VSM_NORMAL_OFFSET_TEXELS);
 
-        float visibility = vsmSampleLevel(offsetPos, level, VSM_DEPTH_BIAS);
+        float visibility = vsmSampleLevel(offsetPos, level, vsmLevelDepthBias(level));
         if (visibility >= 0.0)
             return visibility;
 
@@ -141,7 +142,7 @@ float vsmShadowFactor(vec3 worldPosRelative, vec3 normalRelative)
 // crossing a page boundary lands in a different region of the physical pool, so
 // resolving once for the kernel centre would read a neighbouring page's texels
 // and draw a hard line along every page edge.
-float vsmSampleLocalMip(vec3 worldPosRelative, int layer, int mip)
+float vsmSampleLocalMip(vec3 worldPosRelative, int layer, int mip, float depthBiasMetres)
 {
     vec2 centreUV;
     float receiverDepth;
@@ -149,7 +150,7 @@ float vsmSampleLocalMip(vec3 worldPosRelative, int layer, int mip)
     if (!vsmProjectIntoLocal(worldPosRelative, layer, centreUV, receiverDepth, viewDistance))
         return -1.0;
 
-    float depthBias = vsmLocalDepthBias(layer, viewDistance);
+    float depthBias = vsmLocalDepthBias(layer, viewDistance, depthBiasMetres);
 
     // The filter width follows the MIP, not a constant: a mip-5 texel is 32x a
     // mip-0 one, so a fixed UV radius would be a 32-texel blur at one end and a
@@ -215,11 +216,13 @@ float vsmLocalShadowFactor(vec3 worldPosRelative, vec3 normalRelative, int layer
 
         // Normal offset scaled by THIS mip's texel size — the same cure for
         // grazing-surface acne the directional sampler applies per clip level,
-        // and it has to follow the mip for the same reason.
-        vec3 offsetPos = worldPosRelative +
-                         normalRelative * (VSM_NORMAL_BIAS + vsmLocalTexelWorldSize(distanceToLight, mip) * 1.5);
+        // and it has to follow the mip for the same reason. Both halves of the
+        // bias are the atlas's, in texels and nothing else: a lamp's texel near
+        // it is a fraction of a millimetre.
+        float texel = vsmLocalTexelWorldSize(distanceToLight, mip);
+        vec3 offsetPos = worldPosRelative + normalRelative * (texel * VSM_NORMAL_OFFSET_TEXELS);
 
-        float visibility = vsmSampleLocalMip(offsetPos, layer, mip);
+        float visibility = vsmSampleLocalMip(offsetPos, layer, mip, max(VSM_LOCAL_DEPTH_BIAS_TEXELS, 0.0) * texel);
         if (visibility >= 0.0)
             return visibility;
 
@@ -296,7 +299,7 @@ VSMProbe vsmProbe(vec3 worldPosRelative, vec3 normalRelative)
     {
         int level = min(baseLevel + attempt, VSM_CLIP_LEVELS - 1);
         vec3 offsetPos = worldPosRelative +
-                         normalRelative * (VSM_NORMAL_BIAS + u_VSMClips[level].TexelWorldSize * 1.5);
+                         normalRelative * (VSM_NORMAL_BIAS + u_VSMClips[level].TexelWorldSize * VSM_NORMAL_OFFSET_TEXELS);
 
         vec2 uv;
         float depth;
@@ -367,7 +370,7 @@ vec3 vsmDebugTint(vec3 worldPosRelative, vec3 normalRelative)
         // says shadowed, otherwise the stored-depth ramp — so pure white grey is
         // "the raster wrote nothing here" and mid-grey is "it wrote something,
         // just not nearer than the surface".
-        if (probe.Receiver - VSM_DEPTH_BIAS > probe.Stored)
+        if (probe.Receiver - vsmLevelDepthBias(probe.Level) > probe.Stored)
             return vec3(0.1, 0.9, 0.1);
         return vec3(vsmDebugDepthRamp(probe.Stored));
     }

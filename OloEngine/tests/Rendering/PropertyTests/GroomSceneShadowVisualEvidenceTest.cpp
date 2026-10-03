@@ -833,6 +833,275 @@ namespace OloEngine::Tests
             EXPECT_LT(kept, 0.85) << "where the second coat's shadow falls the first coat kept almost all of its light";
         }
 
+        // ── The short-fur patch the near-occluder cases share ──────────────
+        //
+        // Short fur, nearly upright, over a 30 cm square of a slab that is the
+        // BODY here (so SetBodyCasts switches it), a 1 mm strip `gap` above the
+        // fur tips running along the view, and nothing else: the sphere and the
+        // occluder go, and the light is the case's own.
+        static constexpr f32 kShortFurSkin = 2.0f;     // the slab's top
+        static constexpr f32 kShortFurLength = 0.004f; // short fur
+
+        void BuildShortFurUnderAStrip(f32 gap, f32 stripWidth, Entity& outStrip)
+        {
+            Scene& scene = GetScene();
+            scene.DestroyEntity(m_OccluderEntity);
+            m_OccluderEntity = {};
+            scene.DestroyEntity(m_BodyEntity);
+            const auto cube = [&](const char* name, const glm::vec3& centre, const glm::vec3& size, const glm::vec4& colour)
+            {
+                Entity entity = scene.CreateEntity(name);
+                auto& tc = entity.GetComponent<TransformComponent>();
+                tc.Translation = centre;
+                tc.Scale = size;
+                auto& mc = entity.AddComponent<MeshComponent>();
+                mc.m_Primitive = MeshPrimitive::Cube;
+                if (Ref<Mesh> mesh = MeshPrimitives::CreateCube())
+                {
+                    mc.m_MeshSource = mesh->GetMeshSource();
+                }
+                entity.AddComponent<MaterialComponent>().m_Material.SetBaseColorFactor(colour);
+                return entity;
+            };
+            m_BodyEntity = cube("Slab", { 0.0f, kShortFurSkin - 0.01f, 0.0f }, { 0.6f, 0.02f, 0.6f },
+                                { 0.06f, 0.055f, 0.05f, 1.0f });
+            outStrip = cube("Strip", { 0.0f, kShortFurSkin + kShortFurLength + gap + 0.0005f, 0.0f },
+                            { stripWidth, 0.001f, 0.5f }, { 0.25f, 0.25f, 0.28f, 1.0f });
+
+            GroomBuilder builder;
+            std::string reason;
+            u16 group = 0;
+            ASSERT_TRUE(builder.AddGroup("patch_undercoat", group, reason)) << reason;
+            constexpr u32 kSide = 80;
+            for (u32 i = 0; i < kSide * kSide; ++i)
+            {
+                const f32 jx = static_cast<f32>((i * 2654435761u) % 1000u) / 1000.0f;
+                const f32 jz = static_cast<f32>((i * 40503u + 17u) % 1000u) / 1000.0f;
+                const glm::vec3 root{ -0.15f + 0.3f * (static_cast<f32>(i % kSide) + jx) / kSide, kShortFurSkin,
+                                      -0.15f + 0.3f * (static_cast<f32>(i / kSide) + jz) / kSide };
+                const glm::vec3 lean = glm::normalize(glm::vec3(0.2f * (jx - 0.5f), 1.0f, 0.2f * (jz - 0.5f)));
+                std::array<glm::vec3, 4> points{};
+                std::array<f32, 4> widths{};
+                for (u32 p = 0; p < 4u; ++p)
+                {
+                    points[p] = root + lean * (kShortFurLength * static_cast<f32>(p) / 3.0f);
+                    widths[p] = 3.0e-4f;
+                }
+                GroomCurveInput input;
+                input.Points = points;
+                input.Widths = widths;
+                input.GroupId = group;
+                ASSERT_TRUE(builder.AddCurve(input, reason)) << reason;
+            }
+            builder.SetName("ShortFurPatch");
+            Ref<GroomAsset> patch = builder.Build(reason);
+            ASSERT_TRUE(patch) << reason;
+            Groom().m_Groom = AssetManager::AddMemoryOnlyAsset<GroomAsset>(patch);
+            Groom().m_MaxRenderStrands = kSide * kSide;
+            m_GroomEntity.GetComponent<TransformComponent>().Translation = glm::vec3(0.0f);
+        }
+
+        // A close spot 1.5 m from the patch, `towardsLight` from it, in place
+        // of the sun.
+        void PlaceShortFurSpot(const glm::vec3& towardsLight)
+        {
+            Scene& scene = GetScene();
+            scene.DestroyEntity(m_LightEntity);
+            m_LightEntity = scene.CreateEntity("Spot");
+            const glm::vec3 travels = -glm::normalize(towardsLight);
+            m_LightEntity.GetComponent<TransformComponent>().Translation =
+                glm::vec3(0.0f, kShortFurSkin, 0.0f) - (travels * 1.5f);
+            auto& spot = m_LightEntity.AddComponent<SpotLightComponent>();
+            spot.m_Direction = travels;
+            spot.m_Color = glm::vec3(1.0f);
+            spot.m_Intensity = 40.0f;
+            spot.m_Range = 5.0f;
+            spot.m_InnerCutoff = 9.0f;
+            spot.m_OuterCutoff = 12.0f;
+            spot.m_CastShadows = true;
+        }
+
+        // The patch's own pose: just above the fur tips, below the strip, along
+        // it, so the band of fur under the strip is a stripe nothing hides.
+        void CaptureAlongTheStrip(const std::string& saveAs, std::vector<u8>& out)
+        {
+            EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.01f, 100.0f);
+            camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+            camera.SetPose({ 0.0f, kShortFurSkin + kShortFurLength + 0.002f, 0.22f }, 0.0f, 0.06f);
+            RunEditorFrames(camera, 2);
+            auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite);
+            if (!fb)
+            {
+                fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ToneMapColor);
+            }
+            ASSERT_TRUE(fb);
+            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, out);
+            const sizet rowBytes = static_cast<sizet>(kWidth) * 4u;
+            std::vector<u8> row(rowBytes);
+            for (u32 y = 0; y < kHeight / 2u; ++y)
+            {
+                u8* top = out.data() + (static_cast<sizet>(y) * rowBytes);
+                u8* bottom = out.data() + (static_cast<sizet>(kHeight - 1u - y) * rowBytes);
+                std::memcpy(row.data(), top, rowBytes);
+                std::memcpy(top, bottom, rowBytes);
+                std::memcpy(bottom, row.data(), rowBytes);
+            }
+            if (!saveAs.empty())
+            {
+                WriteEvidenceAt(saveAs, kWidth, kHeight, out);
+            }
+        }
+
+        // The patch's fur pixels from its pose: the frame with the strands
+        // against the frame without them.
+        u32 ShortFurMask(std::vector<u8>& outMask)
+        {
+            std::vector<u8> withFur;
+            std::vector<u8> without;
+            CaptureAlongTheStrip({}, withFur);
+            Groom().m_RenderStrands = false;
+            CaptureAlongTheStrip({}, without);
+            Groom().m_RenderStrands = true;
+            if (::testing::Test::HasFatalFailure())
+            {
+                return 0u;
+            }
+            outMask = DeriveMask(withFur, without);
+            const u32 pixels = CountMask(outMask);
+            EXPECT_GT(pixels, 5000u) << "the short fur barely registers from this pose";
+            return pixels;
+        }
+
+        // The strip's shadow on the fur: captured with it casting and not, and
+        // the fur pixels it darkens and brightens. Returns the frame without it.
+        std::vector<u8> StripShadow(Entity strip, const std::vector<u8>& coatMask, const std::string& tag, u32& darkened,
+                                    u32& brightened)
+        {
+            auto& material = strip.GetComponent<MaterialComponent>().m_Material;
+            material.SetFlag(MaterialFlag::DisableShadowCasting, true);
+            std::vector<u8> without;
+            CaptureAlongTheStrip(tag + "Off", without);
+            material.SetFlag(MaterialFlag::DisableShadowCasting, false);
+            std::vector<u8> with;
+            CaptureAlongTheStrip(tag, with);
+            darkened = 0;
+            brightened = 0;
+            for (sizet i = 0, p = 0; i + 3 < with.size() && i + 3 < without.size() && p < coatMask.size(); i += 4, ++p)
+            {
+                if (coatMask[p] == 0u)
+                {
+                    continue;
+                }
+                const f64 delta = Luma(with, i) - Luma(without, i);
+                darkened += delta < -kMaskThreshold ? 1u : 0u;
+                brightened += delta > kMaskThreshold ? 1u : 0u;
+            }
+            return without;
+        }
+
+        // ── #1533: under the VSM a casting coat sees an occluder just past it ──
+        //
+        // The VSM answers a casting coat at its light-exit point, as the
+        // cascades' fallback does. It used to bias every receiver by its own
+        // constants (5 cm of depth and 2 cm of offset for the sun, 2 cm and 2 cm
+        // for a lamp), which skipped every occluder within a few centimetres of
+        // it; it now takes the light's bias in its own texels, as the cascades
+        // and the atlas do (VirtualShadowResources.glsl). A strip 2.5 cm past
+        // the short fur's tips, the coat casting so its lookup is the exit point:
+        //
+        //   * under the cascades, the reference: the strip darkens a band;
+        //   * under the VSM: the same band darkens;
+        //   * under the VSM with the light's bias at the old 7 cm reach
+        //     (`oldReach`), the negative control: the strip shadows none of it,
+        //     or this case could not see the defect;
+        //   * and the acne check: without the strip, the coat under the light's
+        //     bias is no darker than under the old reach -- its own fur in the
+        //     VSM does not shadow its exit point.
+        void RunVsmNearOccluderCase(const char* lightName, const std::string& tag, const std::function<void()>& placeLight,
+                                    const std::function<void(bool)>& oldReach)
+        {
+            Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+            Renderer3D::ApplyRendererSettings();
+            const auto setVsm = [](bool enabled)
+            {
+                auto& shadowMap = Renderer3D::GetShadowMap();
+                ShadowSettings settings = shadowMap.GetSettings();
+                settings.VSM.Enabled = enabled;
+                shadowMap.SetSettings(settings);
+                return shadowMap.IsVirtualShadowMapActive() == enabled;
+            };
+            struct Restore
+            {
+                std::function<bool(bool)> Set;
+                std::function<void(bool)> Reach;
+                ~Restore()
+                {
+                    Reach(false);
+                    (void)Set(false);
+                }
+            } restore{ setVsm, oldReach };
+
+            Entity strip;
+            BuildShortFurUnderAStrip(0.025f, 0.06f, strip);
+            if (::testing::Test::HasFatalFailure())
+            {
+                return;
+            }
+            placeLight();
+            SetBodyCasts(false); // the strip is the only thing that can shadow the fur
+            Routing().m_CastShadows = true;
+            Routing().m_ReceiveShadows = true;
+            std::vector<u8> coatMask;
+            const u32 coatPixels = ShortFurMask(coatMask);
+            if (::testing::Test::HasFatalFailure())
+            {
+                return;
+            }
+
+            u32 cascadesDark = 0;
+            u32 cascadesBright = 0;
+            (void)StripShadow(strip, coatMask, tag + "Cascades", cascadesDark, cascadesBright);
+            if (!setVsm(true))
+            {
+                GTEST_SKIP() << "the Virtual Shadow Map could not start on this device (VirtualShadowMap::Init refused)";
+            }
+            u32 vsmDark = 0;
+            u32 vsmBright = 0;
+            const std::vector<u8> vsmOff = StripShadow(strip, coatMask, tag + "Vsm", vsmDark, vsmBright);
+            oldReach(true);
+            u32 faultDark = 0;
+            u32 faultBright = 0;
+            const std::vector<u8> faultOff = StripShadow(strip, coatMask, tag + "VsmOldReach", faultDark, faultBright);
+            oldReach(false);
+            if (::testing::Test::HasFatalFailure())
+            {
+                return;
+            }
+            u32 darkerUnderTheSmallerBias = 0;
+            for (sizet i = 0, p = 0; i + 3 < vsmOff.size() && i + 3 < faultOff.size() && p < coatMask.size(); i += 4, ++p)
+            {
+                darkerUnderTheSmallerBias +=
+                    coatMask[p] != 0u && Luma(vsmOff, i) - Luma(faultOff, i) < -kMaskThreshold ? 1u : 0u;
+            }
+            std::printf("[groom-scene-shadow] %-9s VSM near occluder: %u fur px | the strip darkened %u under the "
+                        "cascades, %u under the VSM, %u under the VSM at the old 7 cm reach (negative control) | "
+                        "%u brighter | %u fur px darker under the light's bias without the strip\n",
+                        lightName, coatPixels, cascadesDark, vsmDark, faultDark,
+                        cascadesBright + vsmBright + faultBright, darkerUnderTheSmallerBias);
+            std::fflush(stdout);
+
+            ASSERT_GT(cascadesDark, coatPixels / 40u)
+                << "the cascades' strip shadow, the reference, darkened almost none of the fur";
+            ASSERT_LT(faultDark, coatPixels / 100u)
+                << "at the old 7 cm reach the VSM saw the strip anyway, so this case cannot tell the fix from the "
+                   "gap it closes";
+            EXPECT_GT(vsmDark, cascadesDark / 2u)
+                << "under the VSM a strip 2.5 cm past the coat shadowed far less of it than under the cascades";
+            EXPECT_LT(vsmBright, std::max(vsmDark / 100u, 1u)) << "an occluder can only remove light";
+            EXPECT_LT(darkerUnderTheSmallerBias, coatPixels / 100u)
+                << "under the light's bias the coat's own fur in the VSM shadowed its exit point: acne";
+        }
+
         [[nodiscard]] static const GroomShadowCasterStats& CasterStats()
         {
             static const GroomShadowCasterStats kEmpty{};
@@ -1579,6 +1848,38 @@ namespace OloEngine::Tests
                             });
     }
 
+    // ── #1533: under the VSM a casting coat sees an occluder just past it ──
+
+    TEST_F(GroomSceneShadowVisualEvidenceTest, UnderTheVsmAnOccluderJustPastTheCoatShadowsItAsUnderTheCascades)
+    {
+        // The old reach through the light's own normal bias: 7 cm.
+        RunVsmNearOccluderCase(
+            "sun", "GroomSceneShadow_GL_Forward_VsmNearOccluder",
+            [this]
+            {
+                m_LightEntity.GetComponent<DirectionalLightComponent>().m_Direction =
+                    glm::normalize(glm::vec3(0.05f, -1.0f, 0.02f));
+            },
+            [this](bool old)
+            { m_LightEntity.GetComponent<DirectionalLightComponent>().m_ShadowNormalBias = old ? 0.07f : 0.01f; });
+    }
+
+    TEST_F(GroomSceneShadowVisualEvidenceTest, UnderTheVsmAnOccluderJustPastTheCoatShadowsItUnderASpotLight)
+    {
+        // The old reach through the atlas's depth bias: a hundred texels of a
+        // lamp 1.5 m away is about 7 cm. Process-wide, so put back on every exit.
+        const f32 shipped = Renderer3D::GetShadowMap().GetSettings().AtlasDepthBiasTexels;
+        RunVsmNearOccluderCase("spot", "GroomSceneShadow_GL_Forward_SpotVsmNearOccluder",
+                               [this] { PlaceShortFurSpot({ 0.0f, 1.0f, 0.0f }); },
+                               [shipped](bool old)
+                               {
+                                   auto& shadowMap = Renderer3D::GetShadowMap();
+                                   ShadowSettings settings = shadowMap.GetSettings();
+                                   settings.AtlasDepthBiasTexels = old ? 100.0f : shipped;
+                                   shadowMap.SetSettings(settings);
+                               });
+    }
+
     // The opaque copies' layers, as the shadow map writes them and as the strand
     // shader reads them: two constants on two sides of the language boundary.
     TEST(ShadowMapOpaqueLayers, TheStrandShaderReadsTheLayersTheShadowMapWrites)
@@ -1619,155 +1920,27 @@ namespace OloEngine::Tests
     {
         Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
         Renderer3D::ApplyRendererSettings();
-        Scene& scene = GetScene();
-        scene.DestroyEntity(m_OccluderEntity);
-        m_OccluderEntity = {};
-        scene.DestroyEntity(m_BodyEntity);
-
-        constexpr f32 kSkin = 2.0f;  // the slab's top
-        constexpr f32 kFur = 0.004f; // short fur
         constexpr f32 kGap = 0.005f; // from the fur tips to the strip's underside
-        const auto cube = [&](const char* name, const glm::vec3& centre, const glm::vec3& size, const glm::vec4& colour)
-        {
-            Entity entity = scene.CreateEntity(name);
-            auto& tc = entity.GetComponent<TransformComponent>();
-            tc.Translation = centre;
-            tc.Scale = size;
-            auto& mc = entity.AddComponent<MeshComponent>();
-            mc.m_Primitive = MeshPrimitive::Cube;
-            if (Ref<Mesh> mesh = MeshPrimitives::CreateCube())
-            {
-                mc.m_MeshSource = mesh->GetMeshSource();
-            }
-            entity.AddComponent<MaterialComponent>().m_Material.SetBaseColorFactor(colour);
-            return entity;
-        };
-        // The slab is the BODY here, so SetBodyCasts switches it.
-        m_BodyEntity = cube("Slab", { 0.0f, kSkin - 0.01f, 0.0f }, { 0.6f, 0.02f, 0.6f }, { 0.06f, 0.055f, 0.05f, 1.0f });
         // The strip: 1 mm thick, 2 cm wide, running along the view.
-        Entity strip = cube("Strip", { 0.0f, kSkin + kFur + kGap + 0.0005f, 0.0f }, { 0.02f, 0.001f, 0.5f },
-                            { 0.25f, 0.25f, 0.28f, 1.0f });
-
-        // Short fur, nearly upright, over a 30 cm square.
-        {
-            GroomBuilder builder;
-            std::string reason;
-            u16 group = 0;
-            ASSERT_TRUE(builder.AddGroup("patch_undercoat", group, reason)) << reason;
-            constexpr u32 kSide = 80;
-            for (u32 i = 0; i < kSide * kSide; ++i)
-            {
-                const f32 jx = static_cast<f32>((i * 2654435761u) % 1000u) / 1000.0f;
-                const f32 jz = static_cast<f32>((i * 40503u + 17u) % 1000u) / 1000.0f;
-                const glm::vec3 root{ -0.15f + 0.3f * (static_cast<f32>(i % kSide) + jx) / kSide, kSkin,
-                                      -0.15f + 0.3f * (static_cast<f32>(i / kSide) + jz) / kSide };
-                const glm::vec3 lean = glm::normalize(glm::vec3(0.2f * (jx - 0.5f), 1.0f, 0.2f * (jz - 0.5f)));
-                std::array<glm::vec3, 4> points{};
-                std::array<f32, 4> widths{};
-                for (u32 p = 0; p < 4u; ++p)
-                {
-                    points[p] = root + lean * (kFur * static_cast<f32>(p) / 3.0f);
-                    widths[p] = 3.0e-4f;
-                }
-                GroomCurveInput input;
-                input.Points = points;
-                input.Widths = widths;
-                input.GroupId = group;
-                ASSERT_TRUE(builder.AddCurve(input, reason)) << reason;
-            }
-            builder.SetName("ShortFurPatch");
-            Ref<GroomAsset> patch = builder.Build(reason);
-            ASSERT_TRUE(patch) << reason;
-            Groom().m_Groom = AssetManager::AddMemoryOnlyAsset<GroomAsset>(patch);
-            Groom().m_MaxRenderStrands = kSide * kSide;
-            m_GroomEntity.GetComponent<TransformComponent>().Translation = glm::vec3(0.0f);
-        }
+        Entity strip;
+        BuildShortFurUnderAStrip(kGap, 0.02f, strip);
+        ASSERT_FALSE(HasFatalFailure());
         // Receive at the strand against a map with no fur of its own in it.
         Routing().m_CastShadows = false;
         Routing().m_ReceiveShadows = true;
 
-        const auto placeSpot = [&](const glm::vec3& towardsLight)
-        {
-            scene.DestroyEntity(m_LightEntity);
-            m_LightEntity = scene.CreateEntity("Spot");
-            const glm::vec3 travels = -glm::normalize(towardsLight);
-            m_LightEntity.GetComponent<TransformComponent>().Translation = glm::vec3(0.0f, kSkin, 0.0f) - travels * 1.5f;
-            auto& spot = m_LightEntity.AddComponent<SpotLightComponent>();
-            spot.m_Direction = travels;
-            spot.m_Color = glm::vec3(1.0f);
-            spot.m_Intensity = 40.0f;
-            spot.m_Range = 5.0f;
-            spot.m_InnerCutoff = 9.0f;
-            spot.m_OuterCutoff = 12.0f;
-            spot.m_CastShadows = true;
-        };
+        const auto capture = [this](const std::string& saveAs, std::vector<u8>& out) { CaptureAlongTheStrip(saveAs, out); };
 
-        // This case's pose: just above the fur tips, below the strip, along it.
-        const auto capture = [&](const std::string& saveAs, std::vector<u8>& out)
-        {
-            EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.01f, 100.0f);
-            camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
-            camera.SetPose({ 0.0f, kSkin + kFur + 0.002f, 0.22f }, 0.0f, 0.06f);
-            RunEditorFrames(camera, 2);
-            auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite);
-            if (!fb)
-            {
-                fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ToneMapColor);
-            }
-            ASSERT_TRUE(fb);
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, out);
-            const sizet rowBytes = static_cast<sizet>(kWidth) * 4u;
-            std::vector<u8> row(rowBytes);
-            for (u32 y = 0; y < kHeight / 2u; ++y)
-            {
-                u8* top = out.data() + (static_cast<sizet>(y) * rowBytes);
-                u8* bottom = out.data() + (static_cast<sizet>(kHeight - 1u - y) * rowBytes);
-                std::memcpy(row.data(), top, rowBytes);
-                std::memcpy(top, bottom, rowBytes);
-                std::memcpy(bottom, row.data(), rowBytes);
-            }
-            if (!saveAs.empty())
-            {
-                WriteEvidenceAt(saveAs, kWidth, kHeight, out);
-            }
-        };
-        const auto stripCasts = [&](bool casts)
-        {
-            strip.GetComponent<MaterialComponent>().m_Material.SetFlag(MaterialFlag::DisableShadowCasting, !casts);
-        };
-
-        placeSpot({ 0.0f, 1.0f, 0.0f });
-        std::vector<u8> withFur;
-        std::vector<u8> without;
-        capture({}, withFur);
-        Groom().m_RenderStrands = false;
-        capture({}, without);
-        Groom().m_RenderStrands = true;
+        PlaceShortFurSpot({ 0.0f, 1.0f, 0.0f });
+        std::vector<u8> coatMask;
+        const u32 coatPixels = ShortFurMask(coatMask);
         ASSERT_FALSE(HasFatalFailure());
-        const std::vector<u8> coatMask = DeriveMask(withFur, without);
-        const u32 coatPixels = CountMask(coatMask);
-        ASSERT_GT(coatPixels, 5000u) << "the short fur barely registers from this pose";
 
         // THE STRIP, casting or not.
-        stripCasts(false);
-        std::vector<u8> noStrip;
-        capture("GroomSceneShadow_GL_Forward_ThinOccluderOff", noStrip);
-        stripCasts(true);
-        std::vector<u8> withStrip;
-        capture("GroomSceneShadow_GL_Forward_ThinOccluder", withStrip);
-        ASSERT_FALSE(HasFatalFailure());
         u32 darkened = 0;
         u32 brightened = 0;
-        for (sizet i = 0, p = 0; i + 3 < withStrip.size() && p < coatMask.size(); i += 4, ++p)
-        {
-            if (coatMask[p] == 0u)
-            {
-                continue;
-            }
-            const f64 delta = Luma(withStrip, i) - Luma(noStrip, i);
-            darkened += delta < -kMaskThreshold ? 1u : 0u;
-            brightened += delta > kMaskThreshold ? 1u : 0u;
-        }
+        (void)StripShadow(strip, coatMask, "GroomSceneShadow_GL_Forward_ThinOccluder", darkened, brightened);
+        ASSERT_FALSE(HasFatalFailure());
 
         // THE ACNE CHECK, overhead and grazing: the slab casting or not.
         const auto slabMoves = [&](const char* name)
@@ -1784,7 +1957,7 @@ namespace OloEngine::Tests
             return moved;
         };
         const u32 overhead = slabMoves("spot overhead");
-        placeSpot(glm::vec3(0.0f, std::cos(glm::radians(75.0f)), std::sin(glm::radians(75.0f))));
+        PlaceShortFurSpot(glm::vec3(0.0f, std::cos(glm::radians(75.0f)), std::sin(glm::radians(75.0f))));
         const u32 grazing = slabMoves("spot at 75 degrees");
         std::printf("[groom-scene-shadow] thin occluder: %u fur px, the strip darkened %u (%u brighter)\n", coatPixels,
                     darkened, brightened);

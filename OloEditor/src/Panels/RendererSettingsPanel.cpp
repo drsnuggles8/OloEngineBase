@@ -488,10 +488,13 @@ namespace OloEngine
 
             if (ImGui::SliderFloat("Clip Selection Bias##vsm", &vsm.ClipSelectionBias, 0.25f, 4.0f, "%.2f"))
                 vsmChanged = true;
-            if (ImGui::SliderFloat("Depth Bias (m)##vsm", &vsm.DepthBiasMeters, 0.0f, 0.5f, "%.4f"))
-                vsmChanged = true;
-            if (ImGui::SliderFloat("Normal Bias (m)##vsm", &vsm.NormalBias, 0.0f, 0.5f, "%.4f"))
-                vsmChanged = true;
+            ImGui::TextDisabled("Receiver bias: the light's own (Shadow Depth Bias, Normal Bias)");
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("The sun's clip levels take the cascades' bias and a lamp's layers the\n"
+                                  "atlas's, each in texels of the level or mip sampled (#1533). A fixed\n"
+                                  "5 cm skipped contact shadows the cascades kept.");
+            }
 
             ImGui::Spacing();
             if (ImGui::Checkbox("Local Lights (point / spot)##vsm", &vsm.LocalLights))
@@ -516,11 +519,6 @@ namespace OloEngine
                                       "cheaper, <1 sharper. Changing it invalidates every cached page —\n"
                                       "the page MARKER and the SAMPLER both run this heuristic and must\n"
                                       "agree on it.");
-                }
-                if (ImGui::SliderFloat("Local Depth Bias (m)##vsm", &vsm.LocalDepthBiasMeters, 0.0f, 0.25f,
-                                       "%.4f"))
-                {
-                    vsmChanged = true;
                 }
             }
 

@@ -627,16 +627,12 @@ namespace OloEngine
         for (auto& clip : m_Globals.Clips)
             clip.ViewProjectionRaster = RHI::AdjustProjectionForBackend(clip.ViewProjection);
 
-        const f32 depthRange = std::max(m_Settings.DepthRange, 1.0f);
         m_Globals.LightDirection = glm::vec4(forward, 0.0f);
         m_Globals.CameraPosition = glm::vec4(cameraPositionRelative, 0.0f);
+        // The receiver bias (.z, .w) arrives through SetSamplingParams.
         m_Globals.Params0 = glm::vec4(std::max(m_Settings.Clip0HalfExtent, 0.01f),
-                                      std::max(m_Settings.ClipSelectionBias, 0.01f),
-                                      // Metres -> the [0,1] depth the ortho range maps to, so the
-                                      // authored value stays physically meaningful when the range
-                                      // is retuned.
-                                      m_Settings.DepthBiasMeters / (2.0f * depthRange),
-                                      m_Settings.NormalBias);
+                                      std::max(m_Settings.ClipSelectionBias, 0.01f), m_Globals.Params0.z,
+                                      m_Globals.Params0.w);
         // Softness / max distance are owned by ShadowSettings and arrive through
         // SetSamplingParams; preserve whatever it last wrote.
         m_Globals.Params1 = glm::vec4(m_Globals.Params1.x, m_Globals.Params1.y,
@@ -649,17 +645,23 @@ namespace OloEngine
         // belong to this frame's globals rebuild.
         m_Globals.Params4 = glm::ivec4(AreLocalLightsActive() ? 1 : 0, m_Globals.Params4.y,
                                        m_Globals.Params4.z, directionalEnabled ? 1 : 0);
-        m_Globals.Params5 = glm::vec4(std::max(m_Settings.LocalDetailBias, 0.01f),
-                                      std::max(m_Settings.LocalDepthBiasMeters, 0.0f), 0.0f, 0.0f);
+        m_Globals.Params5 = glm::vec4(std::max(m_Settings.LocalDetailBias, 0.01f), m_Globals.Params5.y, 0.0f, 0.0f);
 
         m_PrevLightDirection = forward;
         m_PrevRenderOrigin = renderOrigin;
     }
 
-    void VirtualShadowMap::SetSamplingParams(f32 softness, f32 maxShadowDistance)
+    void VirtualShadowMap::SetSamplingParams(f32 softness, f32 maxShadowDistance, f32 depthBiasTexels, f32 normalBias,
+                                             f32 localDepthBiasTexels)
     {
         m_Globals.Params1.x = softness;
         m_Globals.Params1.y = maxShadowDistance;
+        // Non-finite or negative is no bias, never a negative one: a bias that
+        // lost its sign shadows every surface by its own depth.
+        const auto bias = [](f32 value) { return std::isfinite(value) ? std::max(value, 0.0f) : 0.0f; };
+        m_Globals.Params0.z = bias(depthBiasTexels);
+        m_Globals.Params0.w = bias(normalBias);
+        m_Globals.Params5.y = bias(localDepthBiasTexels);
     }
 
     // -------------------------------------------------------------------------
