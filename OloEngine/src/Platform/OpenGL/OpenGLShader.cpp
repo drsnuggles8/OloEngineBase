@@ -2493,7 +2493,24 @@ namespace OloEngine
         glDeleteProgram(program);
         program = glCreateProgram();
 
-        std::array<u32, 2> glShadersIDs{};
+        // ONE SLOT PER STAGE, up to every graphics stage. It held two, and a
+        // tessellated program (the terrain, the water) wrote its third and
+        // fourth shader ids past the end of the array on the stack.
+        std::array<u32, kMaxGraphicsStages> glShadersIDs{};
+        // Detached AND deleted: a detached shader object nobody deletes lives
+        // until the context does.
+        const auto releaseShaders = [&]()
+        {
+            for (const u32 id : glShadersIDs)
+            {
+                if (id != 0u)
+                {
+                    glDetachShader(program, id);
+                    glDeleteShader(id);
+                }
+            }
+            glShadersIDs.fill(0u);
+        };
         if (!CompileOpenGLBinariesForAmd(program, glShadersIDs))
         {
             // CompileOpenGLBinariesForAmd already cleaned up any shaders it attached
@@ -2509,10 +2526,7 @@ namespace OloEngine
 
         if (!VerifyProgramLink(program, GetFilePath()))
         {
-            for (auto const& id : glShadersIDs)
-            {
-                glDetachShader(program, id);
-            }
+            releaseShaders();
             Shader::UnregisterProgram(program);
             glDeleteProgram(program);
             m_CompilationStatus = ShaderCompilationStatus::Failed;
@@ -2542,18 +2556,22 @@ namespace OloEngine
             }
         }
 
-        for (auto const& id : glShadersIDs)
-        {
-            glDetachShader(program, id);
-        }
+        releaseShaders();
 
         FinalizeProgram(program, m_VulkanSPIRV);
         m_CompilationStatus = ShaderCompilationStatus::Ready;
     }
 
-    bool OpenGLShader::CompileOpenGLBinariesForAmd(GLenum const& program, std::array<u32, 2>& glShadersIDs) const
+    bool OpenGLShader::CompileOpenGLBinariesForAmd(GLenum const& program,
+                                                   std::array<u32, kMaxGraphicsStages>& glShadersIDs) const
     {
         int glShaderIDIndex = 0;
+        if (m_VulkanSPIRV.size() > glShadersIDs.size())
+        {
+            OLO_CORE_CRITICAL("[OpenGL] '{}' has {} stages, more than a graphics program carries ({})", GetFilePath(),
+                              m_VulkanSPIRV.size(), glShadersIDs.size());
+            return false;
+        }
         for (auto&& [stage, spirv] : m_VulkanSPIRV)
         {
             spirv_cross::CompilerGLSL glslCompiler(spirv.GetData(), static_cast<sizet>(spirv.Num()));

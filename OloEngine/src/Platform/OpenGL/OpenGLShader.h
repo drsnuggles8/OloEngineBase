@@ -252,7 +252,11 @@ namespace OloEngine
         // Returns false if any stage failed to compile; any shader objects already
         // attached to |program| during this call are detached/deleted before
         // returning so the caller is left with a clean, empty program.
-        [[nodiscard]] bool CompileOpenGLBinariesForAmd(GLenum const& program, std::array<u32, 2>& glShadersIDs) const;
+        /// Every graphics stage a program can carry: vertex, the two tessellation
+        /// stages, geometry, fragment.
+        static constexpr sizet kMaxGraphicsStages = 5;
+        [[nodiscard]] bool CompileOpenGLBinariesForAmd(GLenum const& program,
+                                                       std::array<u32, kMaxGraphicsStages>& glShadersIDs) const;
         void CreateProgramForAmd();
 
         void Reflect(GLenum stage, const TArray<u32>& shaderData);
