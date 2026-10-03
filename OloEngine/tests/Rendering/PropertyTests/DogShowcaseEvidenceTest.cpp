@@ -3891,11 +3891,26 @@ namespace OloEngine::Tests
     //
     // AND WHERE: the shimmer per body part (face, ears, tail, the rest of the
     // coat) and at the coat's sparse fringe against the background, absolute and
-    // against the control. In motion, a LAG check: the resolved frame must match
-    // the no-history frame of its OWN instant better than the one four frames
-    // earlier (a smearing or ghosting resolve drags the past along). At rest, a
-    // DETAIL check: the resolved frame keeps the high-frequency detail of the
-    // converged no-history average (a resolve can beat shimmer by blurring).
+    // against the control. At rest, a DETAIL check: the resolved frame keeps the
+    // high-frequency detail of the converged no-history average (a resolve can
+    // beat shimmer by blurring).
+    //
+    // IN MOTION THE BAR IS THE INSTABILITY, whole frame and per part: two draws
+    // of the same frames, the samples shifted, must differ by at most half of
+    // what the samples alone make them differ (MeasureInstability). The
+    // frame-to-frame shimmer is defined on a still sequence, and in the walk it
+    // is mostly the walk: the frame-to-frame change of the mean of six
+    // no-history draws -- no lag, 2.4x less noise -- is 0.59 of one draw's at
+    // the rear view's sparse fringe and 0.52 on its tail, which puts a
+    // resolve that does not lag at about half there however little noise it
+    // keeps. So in motion it is printed with that floor beside it
+    // (OLO_DOG_B6_MOTION_FLOOR=1 measures it), and a LAG check stands in for
+    // what it would have caught: the resolved frame must match the no-history
+    // frame of its OWN instant better than the one four frames earlier (a
+    // smearing or ghosting resolve drags the past along).
+    //
+    // OLO_DOG_B6_ONLY=<clip>:<view> (e.g. Walk:RearTail) runs that one arm,
+    // for iterating on it; the test is only whole without it.
     // =========================================================================
     TEST_F(DogShowcaseEvidenceTest, TheResolveSettlesTheCoatAtRestAndInMotion)
     {
@@ -3906,11 +3921,17 @@ namespace OloEngine::Tests
         constexpr u32 kSequenceOffset = 7;                                 // a second draw: every jitter and stochastic sample shifted
         const std::array<View, 2> views{ HeroViews()[0], HeroViews()[3] }; // the face and ears; the tail
         const f32 shippedFeedback = Renderer3D::GetPostProcessSettings().TAAFeedback;
+        const char* onlyEnv = std::getenv("OLO_DOG_B6_ONLY");
+        const std::string only = onlyEnv != nullptr ? std::string(onlyEnv) : std::string();
         for (const char* clip : { "Rest", "Walk" })
         {
             const bool moving = std::string_view(clip) == "Walk";
             for (const View& view : views)
             {
+                if (!only.empty() && only != std::string(clip) + ":" + view.Name)
+                {
+                    continue;
+                }
                 SCOPED_TRACE(std::string(clip) + " " + view.Name);
                 SetTaa(shippedFeedback);
                 const RuntimeSequence resolved = RecordRuntime(clip, view, kWarmup, kFrames, &parts);
@@ -3975,7 +3996,8 @@ namespace OloEngine::Tests
                     EXPECT_LT(live.LongHairSwing, kRestJitterCeiling) << "the long hair jitters at rest";
                 }
 
-                // The bar, whole frame.
+                // The bar, whole frame: at rest. In motion a record (see the
+                // header): the walk's own frame-to-frame change is most of it.
                 const auto shimmer = TemporalSequenceMetrics::MeasureShimmer(resolved.Luma);
                 const auto control = TemporalSequenceMetrics::MeasureShimmer(raw.Luma);
                 ASSERT_GT(shimmer.ComparedPixels, 0u);
@@ -3985,7 +4007,10 @@ namespace OloEngine::Tests
                             clip, view.Name, shimmer.MeanFrameDelta, shimmer.MaxFrameDelta, shimmer.PeakPixelDelta,
                             control.MeanFrameDelta, control.MaxFrameDelta, control.PeakPixelDelta,
                             control.MeanFrameDelta > 0.0 ? shimmer.MeanFrameDelta / control.MeanFrameDelta : 0.0);
-                EXPECT_LT(shimmer.MeanFrameDelta, control.MeanFrameDelta * 0.5) << "the resolve must at least halve the shimmer";
+                if (!moving)
+                {
+                    EXPECT_LT(shimmer.MeanFrameDelta, control.MeanFrameDelta * 0.5) << "the resolve must at least halve the shimmer";
+                }
 
                 // Where: per part and at the fringe.
                 const RegionalShimmer regions = MeasureRegionalShimmer(resolved, raw);
@@ -3999,8 +4024,11 @@ namespace OloEngine::Tests
                     std::printf("[dog] B6 %s %s %-7s %8.0f px/frame: resolved %.5f, no history %.5f, ratio %.3f\n", clip,
                                 view.Name, kShimmerRegionNames[r], regions.Pixels[r], regions.Resolved[r], regions.Control[r],
                                 ratio);
-                    EXPECT_LT(regions.Resolved[r], regions.Control[r] * 0.5)
-                        << kShimmerRegionNames[r] << ": the resolve must at least halve the shimmer here too";
+                    if (!moving)
+                    {
+                        EXPECT_LT(regions.Resolved[r], regions.Control[r] * 0.5)
+                            << kShimmerRegionNames[r] << ": the resolve must at least halve the shimmer here too";
+                    }
                 }
                 if (moving)
                 {
@@ -4023,6 +4051,51 @@ namespace OloEngine::Tests
                                     instability.Regions.Control[r] > 0.0 ? instability.Regions.Resolved[r] / instability.Regions.Control[r] : 0.0);
                         EXPECT_LT(instability.Regions.Resolved[r], instability.Regions.Control[r] * 0.5)
                             << kShimmerRegionNames[r] << ": in motion the resolve must at least halve the samples' instability here";
+                    }
+                    // The floor the frame-to-frame shimmer has in motion, not an
+                    // assertion (OLO_DOG_B6_MOTION_FLOOR=1): four more no-history
+                    // draws of the same frames, and the frame-to-frame change of
+                    // the per-frame mean of 1, 2 and 6 of them. A mean has less of
+                    // the samples' noise and none of a resolve's lag, so what it
+                    // keeps is the walk.
+                    if (std::getenv("OLO_DOG_B6_MOTION_FLOOR") != nullptr)
+                    {
+                        std::vector<RuntimeSequence> draws;
+                        draws.push_back(raw);
+                        draws.push_back(rawAgain);
+                        SetTaa(0.0f);
+                        for (u32 k = 2u; k < 6u; ++k)
+                        {
+                            draws.push_back(RecordRuntime(clip, view, kWarmup, kFrames, nullptr, kSequenceOffset * k));
+                        }
+                        SetTaa(shippedFeedback);
+                        for (sizet n : { sizet(1), sizet(2), sizet(6) })
+                        {
+                            RuntimeSequence mean = raw;
+                            for (sizet f = 0; f < mean.Luma.size(); ++f)
+                            {
+                                for (sizet i = 0; i < mean.Luma[f].size(); ++i)
+                                {
+                                    f32 sum = 0.0f;
+                                    for (sizet d = 0; d < n; ++d)
+                                    {
+                                        sum += draws[d].Luma[f][i];
+                                    }
+                                    mean.Luma[f][i] = sum / static_cast<f32>(n);
+                                }
+                            }
+                            const RegionalShimmer floorRegions = MeasureRegionalShimmer(mean, raw);
+                            for (sizet r = 0; r < floorRegions.Resolved.size(); ++r)
+                            {
+                                if (floorRegions.Pixels[r] < kRegionPixels)
+                                {
+                                    continue;
+                                }
+                                std::printf("[dog] B6 %s %s floor %-7s mean of %zu draws: frame delta %.5f, one draw %.5f, ratio %.3f\n", clip,
+                                            view.Name, kShimmerRegionNames[r], n, floorRegions.Resolved[r], floorRegions.Control[r],
+                                            floorRegions.Control[r] > 0.0 ? floorRegions.Resolved[r] / floorRegions.Control[r] : 0.0);
+                            }
+                        }
                     }
                     const f64 lag = MeasureLag(resolved, raw, 4u);
                     std::printf("[dog] B6 %s %s lag: |resolved - its own instant| / |resolved - 4 frames earlier| = %.3f\n",

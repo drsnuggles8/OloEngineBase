@@ -35,7 +35,11 @@ history before each arm, so the arm is the only difference. The arm that ships g
 - **A frame-to-frame metric in motion measures the motion.** `MeasureShimmer` is defined on static
   sequences. In a walk, compare two draws of the same frames instead (the same clip times, every
   jitter and stochastic sample shifted by held frames before the clip starts) and check lag
-  separately. See `DogShowcaseEvidenceTest`.
+  separately. See `DogShowcaseEvidenceTest`. Measured on the dog's walk from behind: the
+  frame-to-frame change of the mean of six no-history draws, which has no lag and 2.4x less noise,
+  is 0.59 of one draw's at the sparse fringe (`OLO_DOG_B6_MOTION_FLOOR=1`), so no resolve that
+  keeps up with the walk gets that metric under half there. B6 asserted it in the walk anyway, and
+  passed only while the coat's motion never reached the resolve (#1552).
 
 See also [substituted-seams-compound.md](substituted-seams-compound.md) and
 [visual-quality-criteria.md](visual-quality-criteria.md).
