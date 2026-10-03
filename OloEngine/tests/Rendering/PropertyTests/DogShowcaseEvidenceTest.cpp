@@ -3765,8 +3765,8 @@ namespace OloEngine::Tests
             std::vector<std::string> Failures;     // confidently past a threshold
             std::vector<std::string> Insufficient; // the noise allows either answer
             std::vector<sizet> Transitions;
-            std::array<f64, 3> Noise{};            // robust sigma of a quiet window step: coverage, energy, displayed
-            f64 SpatialQuiet = 0.0;                // p95 of the spatial step where nothing changed
+            std::array<f64, 3> Noise{}; // robust sigma of a quiet window step: coverage, energy, displayed
+            f64 SpatialQuiet = 0.0;     // p95 of the spatial step where nothing changed
             std::array<f64, 3> WorstBand{};
             std::array<f64, 3> WorstStep{};
             f64 WorstSpatial = 0.0;
@@ -5639,7 +5639,8 @@ namespace OloEngine::Tests
         // cells across from it that differs from it most. A tuft moved; the
         // ladder's totals are exactly the held ones, so only the spatial step
         // can see it.
-        const auto firstChange = std::ranges::find_if(held, [](const HeldChange& c) { return !c.Quiet; });
+        const auto firstChange = std::ranges::find_if(held, [](const HeldChange& c)
+                                                      { return !c.Quiet; });
         if (firstChange != held.end())
         {
             std::vector<HeldChange> planted = held;
@@ -7513,6 +7514,8 @@ namespace OloEngine::Tests
             ASSERT_NE(pass, nullptr);
             EXPECT_GT(pass->GetStats().CastersPosed, 0u) << "the coat cast without its runs posed";
             EXPECT_EQ(pass->GetStats().CastersAtRest, 0u) << "the coat cast from its rest runs";
+            std::printf("[dog] caster subset %-12s posing the runs took %.3f ms of CPU this frame\n", view.Name,
+                        static_cast<f64>(pass->GetStats().CasterPoseMicroseconds) / 1000.0);
         }
     }
 

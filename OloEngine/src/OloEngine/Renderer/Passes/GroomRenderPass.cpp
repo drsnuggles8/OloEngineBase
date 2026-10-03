@@ -682,6 +682,7 @@ namespace OloEngine
         entry.PosedRunsTick = 0;
         if (request.CastsSceneShadow)
         {
+            OLO_PERF_SCOPE_AUTO("Groom::CasterPose");
             const auto poseStart = std::chrono::steady_clock::now();
             const GroomCasterStream& caster = entry.Rest->Caster;
             const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
@@ -1216,6 +1217,7 @@ namespace OloEngine
         }
         const GroomStrandSimulation simulation = request.Simulation();
         const bool simulated = simulation.IsUsable(request.Groom->GetCurveCount());
+        OLO_PERF_SCOPE_AUTO("Groom::CasterPose");
         const auto poseStart = std::chrono::steady_clock::now();
         const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
         const GroomCasterPosePadding padding = MeasureGroomCasterPosePadding(
