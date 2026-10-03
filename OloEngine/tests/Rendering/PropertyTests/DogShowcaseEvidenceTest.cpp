@@ -120,9 +120,12 @@
 #include <limits>
 #include <map>
 #include <numeric>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
+#include <utility>
 #include <vector>
 
 #ifndef OLO_TEST_EDITOR_ROOT
@@ -395,10 +398,56 @@ namespace OloEngine::Tests
         static constexpr f32 kCameraNear = 0.02f;
         static constexpr f32 kCameraFar = 2500.0f;
 
+        // EVERY ASSET A CASE ADDS LEAVES WITH IT. The project and its asset manager
+        // outlive the case (only the scene is reset), so the coat, its binding, the
+        // maps and the importer's LOD meshes stayed registered and resident: about
+        // 120 MB a case, and the suite crossed the 6 GB per-process ceiling 24 cases
+        // in. A case's memory-only assets are the ones its start did not hold; the
+        // files a case imports, it names (m_CaseImports). A case the base fixture
+        // skipped before BuildScene took no snapshot and removes nothing.
+        std::optional<std::unordered_set<AssetHandle>> m_MemoryAssetsAtStart;
+        std::vector<AssetHandle> m_CaseImports;
+
+        // Every memory-only asset the active manager holds, of every type
+        // (AssetTypes.h pins GroomBinding as the last one).
+        [[nodiscard]] static std::unordered_set<AssetHandle> MemoryAssets()
+        {
+            std::unordered_set<AssetHandle> handles;
+            if (!Project::HasAssetManager())
+            {
+                return handles;
+            }
+            for (u16 type = 1; type <= std::to_underlying(AssetType::GroomBinding); ++type)
+            {
+                for (const AssetHandle handle : Project::GetAssetManager()->GetAllAssetsWithType(static_cast<AssetType>(type)))
+                {
+                    if (AssetManager::IsMemoryAsset(handle))
+                    {
+                        handles.insert(handle);
+                    }
+                }
+            }
+            return handles;
+        }
+
         void TearDown() override
         {
             Time::ClearMockTime();
             RendererAttachedTest::TearDown();
+            if (m_MemoryAssetsAtStart && Project::HasAssetManager())
+            {
+                for (const AssetHandle handle : MemoryAssets())
+                {
+                    if (!m_MemoryAssetsAtStart->contains(handle))
+                    {
+                        AssetManager::RemoveAsset(handle);
+                    }
+                }
+                for (const AssetHandle handle : m_CaseImports)
+                {
+                    AssetManager::RemoveAsset(handle);
+                }
+            }
         }
 
         void BuildScene() override
@@ -427,6 +476,7 @@ namespace OloEngine::Tests
             {
                 m_ProjectDir = Project::GetProjectDirectory();
             }
+            m_MemoryAssetsAtStart = MemoryAssets();
 
             EnableRendering(kWidth, kHeight);
             // THE EDITOR'S QUALITY TIER. OloEditor reapplies the project's tier
@@ -7269,6 +7319,7 @@ namespace OloEngine::Tests
         const AssetHandle looseBinding = editorAssets->ImportAsset(assetsDir / "ShippedDog.ologroombinding");
         ASSERT_NE(static_cast<u64>(looseGroom), 0u);
         ASSERT_NE(static_cast<u64>(looseBinding), 0u);
+        m_CaseImports = { looseGroom, looseBinding };
         const auto loadedGroom = AssetManager::GetAsset<GroomAsset>(looseGroom);
         const auto loadedBinding = AssetManager::GetAsset<GroomBindingAsset>(looseBinding);
         ASSERT_TRUE(loadedGroom);
