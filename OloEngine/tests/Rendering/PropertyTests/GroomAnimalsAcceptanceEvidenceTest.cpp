@@ -1744,10 +1744,11 @@ namespace OloEngine::Tests
         Capture("", view, again);
         const u32 noise = CountDiffering(again, baseline);
         std::printf("[groom-animals] repeat floor: %u px differ (%.3f%%)\n", noise, 100.0 * Fraction(noise));
-        // 3 %, measured 2.04 %. Forward TAA reads the coat's own velocity and
-        // coverage since #1332; it was 4.06 % while that velocity carried the
-        // TAA jitter and the coverage term compared the coat's per-pixel
-        // samples instead of their mean (#1552).
+        // 3 %, measured 1.32 % (Release). Forward TAA reads the coat's own
+        // velocity and coverage since #1332; it was 4.06 % while that velocity
+        // carried the TAA jitter, the coverage term compared the coat's
+        // per-pixel samples instead of their mean, and the motion ramp cut a
+        // walking coat's history (#1552).
         EXPECT_LT(Fraction(noise), 0.03) << "an identical re-run must reproduce the frame up to stochastic noise";
 
         struct Lever
@@ -1836,7 +1837,7 @@ namespace OloEngine::Tests
             }
             else if (lever.ExpectChange)
             {
-                // 2x the floor; the lowest lever measures 2.74x (#1246).
+                // 2x the floor; the lowest lever it applies to measures 3.97x (#1251).
                 EXPECT_GT(changed, 2u * noise) << lever.Child << " " << lever.Name
                                                << ": switching the child off must change the frame past 2x the "
                                                   "repeat floor";
@@ -2083,7 +2084,7 @@ namespace OloEngine::Tests
                 // the two CANCEL in a summed luma (+25 532 against a 6 553
                 // drift). A net sum cannot score a view whose true answer has
                 // both signs, so the front views are printed and looked at,
-                // and hold only to the floor (the least of them measures 1.58x,
+                // and hold only to the floor (the least of them measures 2.13x,
                 // F45 Front).
                 EXPECT_GT(moved, floor) << "F" << frame << " " << angle;
                 if (std::string_view(angle) == "Side")
@@ -2798,9 +2799,9 @@ namespace OloEngine::Tests
                     raw.PeakPixelDelta, raw.ComparedPixels);
         ASSERT_GT(resolved.ComparedPixels, 0u);
         ASSERT_GT(raw.ComparedPixels, 0u);
-        // 0.5, measured 0.444; 0.527 while the coat's velocity carried the TAA
-        // jitter and the coverage term compared its per-pixel samples instead
-        // of their mean (#1552).
+        // 0.5, measured 0.368 (Release); 0.527 while the coat's velocity carried
+        // the TAA jitter, the coverage term compared its per-pixel samples
+        // instead of their mean, and the motion ramp cut its history (#1552).
         EXPECT_LT(resolved.MeanFrameDelta, raw.MeanFrameDelta * 0.5) << "the resolve must halve the shimmer";
     }
 

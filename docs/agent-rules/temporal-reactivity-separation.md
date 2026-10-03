@@ -165,7 +165,7 @@ The three subjects fill `.b` with their own quantity:
 
 | Subject | Coverage written | Why that quantity |
 |---|---|---|
-| Groom | the widened strand alpha | a sub-pixel strand is widened to one pixel and pays in alpha, so this IS coverage; it is also the value that moves every frame under stochastic composition |
+| Groom | the widened strand alpha | a sub-pixel strand is widened to one pixel and pays in alpha, so this IS coverage; it is also the value that moves every frame under stochastic composition, which `.a` marks with `OLO_STOCHASTIC_COVERAGE_MARK` (-1, #1552) |
 | Foliage, near | cutout alpha x LOD fade | a density LOD step moves it while instance, primitive, material and depth all hold still |
 | Foliage, impostor | `card.Coverage * card.DistFade` | so coverage does not jump across the impostor hand-over |
 

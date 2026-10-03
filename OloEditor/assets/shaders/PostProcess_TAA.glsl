@@ -85,6 +85,8 @@ layout(binding = 19) uniform sampler2D u_DepthTexture;
 // The separated history-rejection model (#1256). TAA uses only its
 // COVERAGE and MATERIAL-PROFILE terms — see the confidence block below.
 #include "include/SurfaceHistory.glsl"
+// RT3 .a's stochastic mark: a coverage that is one draw of an estimator.
+#include "include/SurfaceCoverageMark.glsl"
 
 layout(location = 0) in vec2 v_TexCoord;
 layout(location = 0) out vec4 o_Color;
@@ -162,21 +164,31 @@ bool OloTaaAnyCoverageIsFractional(vec4 coverage)
     return dot(inside, vec4(1.0)) > 0.0;
 }
 
-// Whether any of the 4x4 coverages (.b) around UV is fractional, in four
-// gathers. A gather returns texels whatever the sampler's filter, so a bilinear
-// blend of an opaque edge cannot pass for an estimator's value. SAMPLER is a
-// name, not a value; see include/TemporalResolve.glsl for why.
-#define OLO_TAA_ANY_FRACTIONAL_COVERAGE_4X4(SAMPLER, UV, TEXEL, OUT_ANY)                               \
-    {                                                                                                    \
-        OUT_ANY = false;                                                                                 \
-        for (int oloGy = 0; oloGy < 2; ++oloGy)                                                          \
-        {                                                                                                \
-            for (int oloGx = 0; oloGx < 2; ++oloGx)                                                      \
-            {                                                                                            \
-                vec2 oloCorner = (UV) + (((vec2(float(oloGx), float(oloGy)) * 2.0) - 0.5) * (TEXEL));    \
-                OUT_ANY = OUT_ANY || OloTaaAnyCoverageIsFractional(textureGather(SAMPLER, oloCorner, 2)); \
-            }                                                                                            \
-        }                                                                                                \
+// Whether any of four material profiles holds the stochastic mark. A profile
+// is never negative; the mark is (include/SurfaceCoverageMark.glsl).
+bool OloTaaAnyProfileIsStochastic(vec4 profile)
+{
+    return dot(step(profile, vec4(0.5 * OLO_STOCHASTIC_COVERAGE_MARK)), vec4(1.0)) > 0.0;
+}
+
+// What the 4x4 texels around UV say about their coverage, in eight gathers:
+// whether any coverage (.b) is fractional, and whether any profile (.a) holds
+// the stochastic mark. A gather returns texels whatever the sampler's filter,
+// so a bilinear blend of an opaque edge cannot pass for an estimator's value.
+// SAMPLER is a name, not a value; see include/TemporalResolve.glsl for why.
+#define OLO_TAA_COVERAGE_KIND_4X4(SAMPLER, UV, TEXEL, OUT_FRACTIONAL, OUT_STOCHASTIC)                          \
+    {                                                                                                            \
+        OUT_FRACTIONAL = false;                                                                                  \
+        OUT_STOCHASTIC = false;                                                                                  \
+        for (int oloGy = 0; oloGy < 2; ++oloGy)                                                                  \
+        {                                                                                                        \
+            for (int oloGx = 0; oloGx < 2; ++oloGx)                                                              \
+            {                                                                                                    \
+                vec2 oloCorner = (UV) + (((vec2(float(oloGx), float(oloGy)) * 2.0) - 0.5) * (TEXEL));            \
+                OUT_FRACTIONAL = OUT_FRACTIONAL || OloTaaAnyCoverageIsFractional(textureGather(SAMPLER, oloCorner, 2)); \
+                OUT_STOCHASTIC = OUT_STOCHASTIC || OloTaaAnyProfileIsStochastic(textureGather(SAMPLER, oloCorner, 3)); \
+            }                                                                                                    \
+        }                                                                                                        \
     }
 
 // The mean coverage (.b) of the 8x8 texels around UV, in sixteen gathers, each
@@ -253,8 +265,33 @@ void main()
     // Velocity is in UV space; divide by TexelSize to get pixels. The dead
     // zone ramp starts at 1 px (anything sub-pixel = static, no ghosting
     // risk) and saturates at ~5 px (definitely real motion).
+    //
+    // A STOCHASTIC ESTIMATOR KEEPS ITS FEEDBACK IN MOTION (#1552). The ramp
+    // trades history for the current frame, which is a good trade where the
+    // current frame is exact. Where it is one draw of noise it is not: a
+    // stochastic coat's velocity is each strand's own, so lowering its
+    // feedback threw away the stable signal and kept the noise. On the dog's
+    // walk seen from behind the resolve kept 0.51 of what the samples alone
+    // shimmer between two draws of the same frames on the tail and the sparse
+    // fringe, and keeps 0.41 and 0.45 without the ramp there; how far it lags
+    // the walk went from 0.37 to 0.44 of the distance to four frames back. The
+    // colour clip and the coverage term below still bound the history.
+    //
+    // STOCHASTIC, NOT MERELY FRACTIONAL: an alpha-tested leaf writes
+    // fractional coverage too, and its current frame is exact. Exempting it
+    // left the meadow's over-blurred control ghosting where it should blur
+    // (TemporalSubjectSequence's detail test), so the exemption keys on the
+    // mark a stochastic writer leaves in the profile channel, read from the
+    // current frame's 4x4 as the coverage term reads its coverage.
+    bool estimatedCoverage = false;
+    bool stochasticCoverage = false;
+    if (u_HasVelocityTexture != 0 && u_HasSurfaceHistory)
+    {
+        OLO_TAA_COVERAGE_KIND_4X4(u_Velocity, uv, u_TexelSize, estimatedCoverage, stochasticCoverage);
+    }
     vec2 velocityPixels = velocity / u_TexelSize;
-    float effectiveFeedback = OloTemporalMotionFeedback(u_Feedback, velocityPixels, 1.0, 5.0, 0.5);
+    float effectiveFeedback =
+        stochasticCoverage ? u_Feedback : OloTemporalMotionFeedback(u_Feedback, velocityPixels, 1.0, 5.0, 0.5);
 
     // 4b) COVERAGE AND PROFILE CONFIDENCE (#1256).
     //
@@ -334,9 +371,8 @@ void main()
         // 1s, an opaque edge, keeps the range test: jitter moves its edge by up
         // to a texel, which shifts a box mean by up to an eighth and fired on
         // 0.6 % of a sphere's pixels, where the range test fires on none. The
-        // decision reads the current frame, whose texels are exact.
-        bool estimatedCoverage = false;
-        OLO_TAA_ANY_FRACTIONAL_COVERAGE_4X4(u_Velocity, uv, u_TexelSize, estimatedCoverage);
+        // decision, made above with the feedback, reads the current frame,
+        // whose texels are exact.
         if (estimatedCoverage)
         {
             OLO_TAA_MEAN_COVERAGE_8X8(u_Velocity, uv, u_TexelSize, currentSurface.b);
@@ -365,7 +401,9 @@ void main()
         currentRecord.Roughness = 0.0;
         currentRecord.MaterialClass = 0u;
         currentRecord.Coverage = currentSurface.b;
-        currentRecord.MaterialProfile = currentSurface.a;
+        // max(.a, 0): the stochastic mark is not a profile, and a coat pixel
+        // that shows what lies behind it next frame has not changed material.
+        currentRecord.MaterialProfile = max(currentSurface.a, 0.0);
         currentRecord.Motion = velocity;
         currentRecord.Instance = uvec2(0xffffffffu, 0u);
         currentRecord.Primitive = uvec2(0xffffffffu, 0u);
@@ -376,7 +414,7 @@ void main()
 
         OloSurfaceHistoryRecord previousRecord = currentRecord;
         previousRecord.Coverage = previousSurface.b;
-        previousRecord.MaterialProfile = previousSurface.a;
+        previousRecord.MaterialProfile = max(previousSurface.a, 0.0);
         previousRecord.Motion = previousSurface.rg;
 
         OloTemporalReactivitySettings reactivity;

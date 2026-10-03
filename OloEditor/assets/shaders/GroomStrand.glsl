@@ -377,6 +377,7 @@ void main()
 #include "include/GroomFibreCommon.glsl"
 #include "include/GroomCoatShadowCommon.glsl"
 #include "include/GroomQuat.glsl"
+#include "include/SurfaceCoverageMark.glsl"
 
 #include "include/BindlessHeap.glsl"
 
@@ -1331,7 +1332,11 @@ void main()
 	// pays for it in alpha, so this is coverage by construction; see
 	// Groom/GroomCoverage.h. Under StochasticAlpha it is also the value that
 	// moves every frame, which the reactive term's dead band must ignore.
-	o_Velocity = vec4(oloVelocityFromNdc(ndcCurr, ndcPrev), alpha, 0.0);
+	// .a is the material profile, which a strand does not have: 0, or under
+	// StochasticAlpha the mark that says this coverage is one draw of an
+	// estimator, for TAA (include/SurfaceCoverageMark.glsl, #1552).
+	float profile = (u_GroomModeFrame.x == OLO_GROOM_MODE_STOCHASTIC_ALPHA) ? OLO_STOCHASTIC_COVERAGE_MARK : 0.0;
+	o_Velocity = vec4(oloVelocityFromNdc(ndcCurr, ndcPrev), alpha, profile);
 
 	// "No skin diffusion here." Attachment 4 is undefined unless written, and
 	// an unwritten one is blurred into scene colour by SkinDiffusion.glsl.

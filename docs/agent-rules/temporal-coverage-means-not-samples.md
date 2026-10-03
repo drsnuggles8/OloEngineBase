@@ -60,6 +60,25 @@ Before this change the coat's RT3 was the cleared value behind it, and setting
 recorded that null). It is no longer a null: in the estimator branch the band is what keeps the
 means' residual noise from firing, and at 0 the still coat's gain falls from 11.9x to 7.1x.
 
+## A stochastic estimator keeps its feedback in motion
+
+TAA's motion ramp halves the history weight above 5 px a frame, trading history for the current
+frame: a good trade where the current frame is exact. A stochastic coat's current frame is one draw of
+noise, and its velocity is each strand's own, so the ramp kept the noise and dropped the signal. On
+the dog's walk from behind, two draws of the same frames differed by 0.51 of what the samples alone
+make them differ on the tail and the fringe; 0.41 and 0.45 without the ramp. Lag rose from 0.37 to
+0.44 of the distance to four frames back. Removing the colour clip for these pixels (0.51 on both) or
+widening it to a 5x5 neighbourhood (0.50) did not help; the ramp was the cost.
+
+**Key the exemption on STOCHASTIC, not on fractional.** An alpha-tested leaf writes fractional coverage
+too, and its current frame is exact. Exempting every fractional pixel left the meadow's over-blurred
+control arm ghosting where it should blur: it retained 0.81 of the detail against the shipping arm's
+0.78, and `AMeadowInMotionKeepsItsDetailUnderTheResolve` failed its own instrument check. So the
+groom marks its pixels under `StochasticAlpha`: RT3 `.a`, the material profile a strand does not have,
+is `OLO_STOCHASTIC_COVERAGE_MARK` (-1, `include/SurfaceCoverageMark.glsl`). TAA reads the mark from the
+current 4x4 and takes `max(.a, 0)` as the profile, so a coat pixel that shows the lawn behind it next
+frame has not changed material.
+
 ## How the numbers were found
 
 A test hook after `TAAPass` read the RT3 texture back each frame, and the CPU re-ran candidate tests
