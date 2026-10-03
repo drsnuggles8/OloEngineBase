@@ -456,13 +456,13 @@ namespace OloEngine
         const auto recordRegionForGrooms =
             [&](const ShadowPassType type, const ShadowMap::OpaqueCopy which,
                 const std::function<void(const ActiveShadowView&)>& selectTarget, const bool clearPerItem,
-                const std::function<void(RHI::ResourceHandle)>& copyToOpaque)
+                const std::function<void()>& copyToOpaque)
         {
             if (splitForGrooms && casterShaders.Groom && m_ShadowMap->EnsureOpaqueCopy(which))
             {
                 RecordShadowRegion(type, casterShaders, recordingInstancedDraws, itemInstanceCapacity, selectTarget,
                                    clearPerItem, ShadowCasterFilter::NoGrooms);
-                copyToOpaque(m_ShadowMap->GetOpaqueCopyTexture(which)->GetRHIHandle());
+                copyToOpaque();
                 RecordShadowRegion(type, casterShaders, recordingInstancedDraws, itemInstanceCapacity, selectTarget,
                                    /*clearPerItem=*/false, ShadowCasterFilter::GroomsOnly);
                 m_ShadowMap->SetOpaqueCopyWritten(which, true);
@@ -562,8 +562,10 @@ namespace OloEngine
                 const u32 side = m_ShadowMap->GetResolution();
                 recordRegionForGrooms(ShadowPassType::CSM, ShadowMap::OpaqueCopy::Cascades, selectLayer,
                                       /*clearPerItem=*/true,
-                                      [&](const RHI::ResourceHandle opaque)
+                                      [&]()
                                       {
+                                          // Into the same array's opaque layers (#1533,
+                                          // ShadowMap::OPAQUE_CSM_LAYER_BASE).
                                           for (const ActiveShadowView& view : m_ActiveViews)
                                           {
                                               u32 x = 0;
@@ -575,11 +577,13 @@ namespace OloEngine
                                                   continue;
                                               }
                                               const auto layer = static_cast<i32>(view.Index);
+                                              const auto opaqueLayer =
+                                                  static_cast<i32>(view.Index + ShadowMap::OPAQUE_CSM_LAYER_BASE);
                                               RenderCommand::CopyImageSubDataRegion(
                                                   csmArray->GetRHIHandle(), RendererAPI::TextureTargetType::Texture2DArray,
-                                                  0, static_cast<i32>(x), static_cast<i32>(y), layer, opaque,
+                                                  0, static_cast<i32>(x), static_cast<i32>(y), layer, csmArray->GetRHIHandle(),
                                                   RendererAPI::TextureTargetType::Texture2DArray, 0, static_cast<i32>(x),
-                                                  static_cast<i32>(y), layer, width, height);
+                                                  static_cast<i32>(y), opaqueLayer, width, height);
                                           }
                                       });
             }
@@ -637,8 +641,9 @@ namespace OloEngine
                 // closed the scope.
                 recordRegionForGrooms(ShadowPassType::Atlas, ShadowMap::OpaqueCopy::Atlas, selectTile,
                                       /*clearPerItem=*/false,
-                                      [&](const RHI::ResourceHandle opaque)
+                                      [&]()
                                       {
+                                          // Into the atlas array's opaque layer (#1533).
                                           for (const ActiveShadowView& view : m_ActiveViews)
                                           {
                                               const auto& tile = m_ShadowMap->GetAtlasEntryRect(view.Index);
@@ -653,9 +658,10 @@ namespace OloEngine
                                               }
                                               RenderCommand::CopyImageSubDataRegion(
                                                   atlas->GetRHIHandle(), RendererAPI::TextureTargetType::Texture2DArray, 0,
-                                                  static_cast<i32>(x), static_cast<i32>(y), 0, opaque,
+                                                  static_cast<i32>(x), static_cast<i32>(y), 0, atlas->GetRHIHandle(),
                                                   RendererAPI::TextureTargetType::Texture2DArray, 0, static_cast<i32>(x),
-                                                  static_cast<i32>(y), 0, width, height);
+                                                  static_cast<i32>(y), static_cast<i32>(ShadowMap::OPAQUE_ATLAS_LAYER),
+                                                  width, height);
                                           }
                                           m_ShadowFramebuffer->AttachDepthTextureArrayLayer(atlas->GetRHIHandle(), 0);
                                       });

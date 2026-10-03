@@ -21,47 +21,7 @@ namespace OloEngine
 
         m_Settings = settings;
 
-        // Create CSM texture array (4 cascades, depth-only, hardware comparison)
-        Texture2DArraySpecification csmSpec;
-        csmSpec.Width = m_Settings.Resolution;
-        csmSpec.Height = m_Settings.Resolution;
-        csmSpec.Layers = MAX_CSM_CASCADES;
-        csmSpec.Format = Texture2DArrayFormat::DEPTH_COMPONENT32F;
-        csmSpec.DepthComparisonMode = true;
-        m_CSMTextureArray = Texture2DArray::Create(csmSpec);
-
-        // Create the local-light shadow atlas (issue #435): one large 1-layer
-        // depth array holding every prioritised spot shadow / point-light cube
-        // face as a square sub-tile. A 1-layer ARRAY (not a plain 2D texture)
-        // so it shares the sampler2DArrayShadow sampling helpers, the
-        // AttachDepthTextureArrayLayer render path, and the CSM placeholders.
-        Texture2DArraySpecification atlasSpec;
-        atlasSpec.Width = m_Settings.AtlasResolution;
-        atlasSpec.Height = m_Settings.AtlasResolution;
-        atlasSpec.Layers = 1;
-        atlasSpec.Format = Texture2DArrayFormat::DEPTH_COMPONENT32F;
-        atlasSpec.DepthComparisonMode = true;
-        m_AtlasTexture = Texture2DArray::Create(atlasSpec);
-
-        // Persistent tile allocator (issue #718): a no-op when the resolution
-        // is unchanged from a prior Init() (e.g. a Resolution-only re-Init via
-        // SetSettings), so previously-held tile assignments survive it.
-        m_AtlasAllocator.SetAtlasResolution(m_Settings.AtlasResolution);
-
-        // Comparison-OFF raw-depth views aliasing the CSM / atlas textures,
-        // used by the PCSS blocker search (the hardware comparison sampler
-        // can't read raw occluder depth). These alias the same immutable
-        // storage, so the sampler2DArrayShadow bindings are unaffected.
-        //
-        // Created through the HANDLE form so each view carries an identity of
-        // its own (issue #691): the bind cache keys on it, while
-        // RenderPipeline still declares the graph resource by raw id. The two
-        // spellings name the same object — the native id is read back out of
-        // the registry rather than minted separately, so they cannot drift.
-        m_CSMRawViewHandle = RenderCommand::CreateDepthArrayCompareOffViewHandle(
-            m_CSMTextureArray->GetRHIHandle(), MAX_CSM_CASCADES);
-        m_AtlasRawViewHandle = RenderCommand::CreateDepthArrayCompareOffViewHandle(
-            m_AtlasTexture->GetRHIHandle(), 1);
+        CreateDepthArrays();
 
         // Create shadow UBO at binding 6
         m_ShadowUBO = UniformBuffer::Create(
@@ -106,49 +66,58 @@ namespace OloEngine
                       m_Settings.AtlasResolution, m_Settings.AtlasResolution, MAX_SHADOW_ATLAS_ENTRIES);
     }
 
-    bool ShadowMap::EnsureOpaqueCopy(const OpaqueCopy which)
+    void ShadowMap::CreateDepthArrays()
     {
-        OLO_PROFILE_FUNCTION();
-        OpaqueShadowCopy& copy = m_OpaqueCopies[static_cast<sizet>(which)];
-        if (copy.Texture)
-        {
-            return true;
-        }
-        const bool cascades = which == OpaqueCopy::Cascades;
-        if (!(cascades ? m_CSMTextureArray : m_AtlasTexture))
-        {
-            return false;
-        }
-        // The map's own shape, so a layer copies onto a layer, and the same
-        // comparison sampler state, so the strands sample it exactly as every
-        // other receiver samples the full map.
-        const u32 resolution = cascades ? m_Settings.Resolution : m_Settings.AtlasResolution;
-        const u32 layers = cascades ? MAX_CSM_CASCADES : 1u;
-        Texture2DArraySpecification spec;
-        spec.Width = resolution;
-        spec.Height = resolution;
-        spec.Layers = layers;
-        spec.Format = Texture2DArrayFormat::DEPTH_COMPONENT32F;
-        spec.DepthComparisonMode = true;
-        copy.Texture = Texture2DArray::Create(spec);
-        const char* const what = cascades ? "cascade" : "local-light atlas";
-        if (!copy.Texture)
-        {
-            OLO_CORE_ERROR("ShadowMap: could not create the opaque {} copy ({}x{}, {} layers); grooms keep the "
-                           "light-exit receiver for it and the body does not shadow its own fur",
-                           what, resolution, resolution, layers);
-            return false;
-        }
-        copy.RawView = RenderCommand::CreateDepthArrayCompareOffViewHandle(copy.Texture->GetRHIHandle(), layers);
-        OLO_CORE_INFO("ShadowMap: opaque {} copy created for groom receivers ({}x{}, {} layers)", what, resolution,
-                      resolution, layers);
-        return true;
+        // The opaque copies' layers double each array (#1533), added once a
+        // groom casts; see OPAQUE_CSM_LAYER_BASE.
+        const u32 csmLayers = MAX_CSM_CASCADES * (m_OpaqueLayers ? 2u : 1u);
+        const u32 atlasLayers = m_OpaqueLayers ? 2u : 1u;
+
+        // Create CSM texture array (4 cascades, depth-only, hardware comparison)
+        Texture2DArraySpecification csmSpec;
+        csmSpec.Width = m_Settings.Resolution;
+        csmSpec.Height = m_Settings.Resolution;
+        csmSpec.Layers = csmLayers;
+        csmSpec.Format = Texture2DArrayFormat::DEPTH_COMPONENT32F;
+        csmSpec.DepthComparisonMode = true;
+        m_CSMTextureArray = Texture2DArray::Create(csmSpec);
+
+        // Create the local-light shadow atlas (issue #435): one large 1-layer
+        // depth array holding every prioritised spot shadow / point-light cube
+        // face as a square sub-tile. A 1-layer ARRAY (not a plain 2D texture)
+        // so it shares the sampler2DArrayShadow sampling helpers, the
+        // AttachDepthTextureArrayLayer render path, and the CSM placeholders.
+        Texture2DArraySpecification atlasSpec;
+        atlasSpec.Width = m_Settings.AtlasResolution;
+        atlasSpec.Height = m_Settings.AtlasResolution;
+        atlasSpec.Layers = atlasLayers;
+        atlasSpec.Format = Texture2DArrayFormat::DEPTH_COMPONENT32F;
+        atlasSpec.DepthComparisonMode = true;
+        m_AtlasTexture = Texture2DArray::Create(atlasSpec);
+
+        // Persistent tile allocator (issue #718): a no-op when the resolution
+        // is unchanged from a prior Init() (e.g. a Resolution-only re-Init via
+        // SetSettings), so previously-held tile assignments survive it.
+        m_AtlasAllocator.SetAtlasResolution(m_Settings.AtlasResolution);
+
+        // Comparison-OFF raw-depth views aliasing the CSM / atlas textures,
+        // used by the PCSS blocker search (the hardware comparison sampler
+        // can't read raw occluder depth). These alias the same immutable
+        // storage, so the sampler2DArrayShadow bindings are unaffected.
+        //
+        // Created through the HANDLE form so each view carries an identity of
+        // its own (issue #691): the bind cache keys on it, while
+        // RenderPipeline still declares the graph resource by raw id. The two
+        // spellings name the same object — the native id is read back out of
+        // the registry rather than minted separately, so they cannot drift.
+        m_CSMRawViewHandle = RenderCommand::CreateDepthArrayCompareOffViewHandle(m_CSMTextureArray->GetRHIHandle(),
+                                                                                 csmLayers);
+        m_AtlasRawViewHandle = RenderCommand::CreateDepthArrayCompareOffViewHandle(m_AtlasTexture->GetRHIHandle(),
+                                                                                   atlasLayers);
     }
 
-    void ShadowMap::Shutdown()
+    void ShadowMap::ReleaseDepthArrays()
     {
-        OLO_PROFILE_FUNCTION();
-
         // Delete through the HANDLE form: it destroys the GL object AND
         // retires the registry entry. Deleting by raw id would leave the slot
         // live, so a stale handle would go on resolving to a name the driver
@@ -163,24 +132,53 @@ namespace OloEngine
             RenderCommand::DeleteTexture(m_AtlasRawViewHandle);
             m_AtlasRawViewHandle = {};
         }
-        for (OpaqueShadowCopy& copy : m_OpaqueCopies)
-        {
-            if (copy.RawView.IsValid())
-            {
-                RenderCommand::DeleteTexture(copy.RawView);
-            }
-            copy = {};
-        }
-
-        m_VirtualShadowMap.Shutdown();
-
         m_CSMTextureArray.Reset();
         m_AtlasTexture.Reset();
+    }
+
+    bool ShadowMap::EnsureOpaqueCopy(const OpaqueCopy which)
+    {
+        static_cast<void>(which);
+        if (m_OpaqueLayers)
+        {
+            return true;
+        }
+        if (!m_OpaqueLayersRequested)
+        {
+            m_OpaqueLayersRequested = true;
+            OLO_CORE_INFO("ShadowMap: a groom casts and receives; the cascade and atlas arrays take the opaque "
+                          "copies' layers at the next frame");
+        }
+        return false;
+    }
+
+    void ShadowMap::Shutdown()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        ReleaseDepthArrays();
+        m_OpaqueWritten = {};
+
+        m_VirtualShadowMap.Shutdown();
 
         m_ShadowUBO.Reset();
         m_ShadowCameraUBO.Reset();
         m_ShadowAnimationUBO.Reset();
         m_Initialized = false;
+    }
+
+    void ShadowMap::ApplyPendingOpaqueLayers()
+    {
+        if (!m_OpaqueLayersRequested || m_OpaqueLayers || !m_Initialized)
+        {
+            return;
+        }
+        const RendererMemoryOwnerScope memoryOwner("ShadowMap", MemoryLifetime::Persistent);
+        m_OpaqueLayers = true;
+        ReleaseDepthArrays();
+        CreateDepthArrays();
+        OLO_CORE_INFO("ShadowMap: cascade and atlas arrays now carry the opaque copies' layers ({} + {}, 1 + 1)",
+                      MAX_CSM_CASCADES, MAX_CSM_CASCADES);
     }
 
     void ShadowMap::BeginFrame()

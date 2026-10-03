@@ -170,13 +170,20 @@ TEST(PCSSShadow, CSMNormalBiasOffsetsTheReceiverInWorldSpace)
     const std::string source = ReadPbrCommon();
     ASSERT_FALSE(source.empty()) << "PBRCommon.glsl was not found under OLO_TEST_EDITOR_ROOT";
 
-    const std::size_t csmBegin = source.find("float calculateCascadedShadowFactorCSM(");
+    const std::size_t csmBegin = source.find("float calculateCascadedShadowFactorCSMLayer(");
     const std::size_t csmEnd = source.find("// SHADOW ATLAS SAMPLING", csmBegin);
     ASSERT_NE(csmBegin, std::string::npos);
     ASSERT_NE(csmEnd, std::string::npos);
     const std::string csm = source.substr(csmBegin, csmEnd - csmBegin);
 
     EXPECT_NE(csm.find("vec3 surfaceNormal,"), std::string::npos);
+    // The body lives in the ...Layer variant since #1533 (a groom reads the
+    // opaque copies from the upper layers); the plain name is it at layer 0.
+    EXPECT_NE(source.find("return calculateCascadedShadowFactorCSMLayer(shadowMap, rawShadowMap, worldPos, surfaceNormal, "
+                          "viewDepth, lightSpaceMatrices, cascadePlaneDistances, shadowParams, shadowMapResolution, "
+                          "softMode, 0);"),
+              std::string::npos)
+        << "calculateCascadedShadowFactorCSM is no longer the layered lookup at layer 0";
     const std::size_t biasAssignment = csm.find("vec3 biasedWorldPos = worldPos + normalize(surfaceNormal) * shadowParams.y;");
     ASSERT_NE(biasAssignment, std::string::npos)
         << "CSM stopped consuming ShadowParams.y as a world-space normal offset";
@@ -214,7 +221,7 @@ TEST(PCSSShadow, CSMDepthBiasIsScaledByTheCascadeTexelSize)
     const std::string source = ReadPbrCommon();
     ASSERT_FALSE(source.empty()) << "PBRCommon.glsl was not found under OLO_TEST_EDITOR_ROOT";
 
-    const std::size_t csmBegin = source.find("float calculateCascadedShadowFactorCSM(");
+    const std::size_t csmBegin = source.find("float calculateCascadedShadowFactorCSMLayer(");
     const std::size_t csmEnd = source.find("// SHADOW ATLAS SAMPLING", csmBegin);
     ASSERT_NE(csmBegin, std::string::npos);
     ASSERT_NE(csmEnd, std::string::npos);
@@ -309,7 +316,7 @@ TEST(PCSSShadow, LocalLightAtlasConvertsItsBiasFromTexelsAtTheReceiver)
     // against ShadowAtlasBias.h, the C++ twin.
     const std::string source = ReadPbrCommon();
     ASSERT_FALSE(source.empty()) << "PBRCommon.glsl was not found under OLO_TEST_EDITOR_ROOT";
-    const std::size_t begin = source.find("float calculateAtlasEntryShadow(");
+    const std::size_t begin = source.find("float calculateAtlasEntryShadowLayer(");
     ASSERT_NE(begin, std::string::npos);
     const std::size_t end = source.find("\n}", begin);
     ASSERT_NE(end, std::string::npos);

@@ -149,6 +149,10 @@ OLO_LEVER_EXACT(FaultGroomShadowAtCoatExit, "OLO_FAULT_GROOM_SHADOW_AT_COAT_EXIT
                 "samples the sun's cascades and the local-light atlas at its coat's light-exit point -- outside the "
                 "body -- and the body it grows on shadows none of its fur. Re-creates the receiver #1323 shipped "
                 "with; GroomSceneShadowVisualEvidenceTest proves its body-shadow check sees it.")
+OLO_LEVER_EXACT(FaultGroomNoOtherFur, "OLO_FAULT_GROOM_NO_OTHER_FUR",
+                "FAULT (#1533 negative control): grooms that sample the opaque shadow copies never also sample the "
+                "full map at their coat's light-exit point, so one coat's fur does not shadow another coat -- the gap "
+                "the opaque copies left. GroomSceneShadowVisualEvidenceTest's coat-over-coat cases prove they see it.")
 OLO_LEVER_EXACT(FaultCountAliasAsBacking, "OLO_FAULT_COUNT_ALIAS_AS_BACKING",
                 "FAULT (#1342 negative control): book every view/alias RendererMemoryTracker::TrackAlias receives "
                 "as its own BACKING allocation, so a view onto an existing image is counted twice in the physical "

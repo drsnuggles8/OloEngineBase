@@ -2110,32 +2110,22 @@ namespace OloEngine
         // sampled.
         CommandDispatch::BindSceneShadowTextures();
 
-        // THE OPAQUE COPIES (#1533), over the shadow slots for this pass's draws
-        // alone: the cascades and the local-light atlas as they stood before
-        // any groom cast into them, which ShadowRenderPass copied out this
-        // frame. A strand samples them WHERE IT IS, so the body it grows on and
-        // every other opaque caster shadow it, and the fur -- which the density
-        // volume already counts -- is not in them. Handed back below, so the
-        // passes after this one sample the full maps with the fur's shadow in.
+        // THE OPAQUE COPIES (#1533): the cascades and the local-light atlas as
+        // they stood before any groom cast into them, which ShadowRenderPass
+        // copied into the upper layers of the same arrays this frame
+        // (ShadowMap::OPAQUE_CSM_LAYER_BASE). A strand samples them WHERE IT IS,
+        // so the body it grows on and every other opaque caster shadow it, and
+        // the fur -- which the density volume already counts -- is not in them;
+        // the full maps in the lower layers stay bound beside them for another
+        // groom's fur, sampled at the coat's light-exit point.
         ShadowMap& shadowMap = Renderer3D::GetShadowMap();
-        const auto bindOpaqueCopy = [&](const ShadowMap::OpaqueCopy which, const u32 compareSlot, const u32 rawSlot)
-        {
-            if (!shadowMap.IsOpaqueCopyWritten(which))
-            {
-                return false;
-            }
-            context.BindTextureOrHeapOffset(compareSlot, shadowMap.GetOpaqueCopyTexture(which)->GetRHIHandle(),
-                                            RHI::HeapSlotLifetime::FrameTransient, HeapBinding::ShadowDepthSampler(true),
-                                            RHI::NullSamplerKind::Texture2DArrayShadow);
-            context.BindTextureOrHeapOffset(rawSlot, shadowMap.GetOpaqueCopyRawHandle(which),
-                                            RHI::HeapSlotLifetime::FrameTransient, HeapBinding::ShadowDepthSampler(false),
-                                            RHI::NullSamplerKind::Texture2DArray);
-            return true;
-        };
-        const bool opaqueCascades = bindOpaqueCopy(ShadowMap::OpaqueCopy::Cascades, ShaderBindingLayout::TEX_SHADOW,
-                                                   ShaderBindingLayout::TEX_SHADOW_CSM_RAW);
-        const bool opaqueAtlas = bindOpaqueCopy(ShadowMap::OpaqueCopy::Atlas, ShaderBindingLayout::TEX_SHADOW_ATLAS,
-                                                ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW);
+        const bool opaqueCascades = shadowMap.IsOpaqueCopyWritten(ShadowMap::OpaqueCopy::Cascades);
+        const bool opaqueAtlas = shadowMap.IsOpaqueCopyWritten(ShadowMap::OpaqueCopy::Atlas);
+        // How many coats cast into the maps this frame: a receiver looks for
+        // another's fur only when there is one (#1533).
+        const auto castingGrooms = static_cast<u32>(std::ranges::count_if(
+            m_Requests, [](const GroomStrandRequest& request)
+            { return request.CastsSceneShadow; }));
         context.FlushHeapOffsets();
 
         // Camera-relative rendering (#429). Every world matrix the GPU sees is
@@ -2433,9 +2423,13 @@ namespace OloEngine
             // OPAQUE copy, 4 the atlas bound is. Where a bit is set the strand
             // samples that map at itself; a map without its bit (VSM, or a copy
             // that could not be made) keeps the light-exit receiver.
+            // 8: another coat casts this frame, so the full map past this coat's
+            // light-exit point may hold its fur (#1533).
+            const bool otherFur =
+                !Levers::FaultGroomNoOtherFur() && castingGrooms > (request.CastsSceneShadow ? 1u : 0u);
             params.CoatModes.y = !request.ReceivesSceneShadow
                                      ? 0
-                                     : (1 | (opaqueCascades ? 2 : 0) | (opaqueAtlas ? 4 : 0));
+                                     : (1 | (opaqueCascades ? 2 : 0) | (opaqueAtlas ? 4 : 0) | (otherFur ? 8 : 0));
             if (request.ReceivesSceneShadow)
             {
                 m_Stats.GroomsShadowedByOpaqueCascades += opaqueCascades ? 1u : 0u;
@@ -2669,17 +2663,6 @@ namespace OloEngine
         // irradiance cube. Telling the cache the slot was clobbered is the
         // documented way out (CommandDispatch::InvalidateTextureSlot).
         CommandDispatch::InvalidateTextureSlot(ShaderBindingLayout::TEX_USER_0);
-        // And the shadow slots, which held the opaque copies for these draws.
-        if (opaqueCascades)
-        {
-            CommandDispatch::InvalidateTextureSlot(ShaderBindingLayout::TEX_SHADOW);
-            CommandDispatch::InvalidateTextureSlot(ShaderBindingLayout::TEX_SHADOW_CSM_RAW);
-        }
-        if (opaqueAtlas)
-        {
-            CommandDispatch::InvalidateTextureSlot(ShaderBindingLayout::TEX_SHADOW_ATLAS);
-            CommandDispatch::InvalidateTextureSlot(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW);
-        }
         m_SceneFramebuffer->Unbind();
 
         // A change of dominant reason, not a per-frame line: the same warning

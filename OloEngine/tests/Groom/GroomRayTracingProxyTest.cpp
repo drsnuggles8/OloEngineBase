@@ -579,10 +579,15 @@ namespace OloEngine
             << "the light-exit offset moved out of oloGroomCoatExitDistance";
         EXPECT_EQ(count("oloGroomCoatExitDistance("), 2u)
             << "the light-exit offset is computed once, in oloGroomSceneShadow";
-        EXPECT_EQ(count("calculateCascadedShadowFactorCSM"), 1u) << "one CSM lookup, in oloGroomSceneShadow";
+        // Two of each since #1533: the strand's lookup, and the full map's at the
+        // coat's light-exit point for another coat's fur -- both in
+        // oloGroomSceneShadow, the second never at the fragment (below).
+        EXPECT_EQ(count("calculateCascadedShadowFactorCSM"), 2u)
+            << "the strand's CSM lookup and the exit point's, both in oloGroomSceneShadow";
         EXPECT_EQ(count("vsmShadowFactor"), 1u) << "one VSM directional lookup, in oloGroomSceneShadow";
-        EXPECT_EQ(count("calculateAtlasEntryShadow"), 2u)
-            << "two atlas lookups (spot, point face), both in oloGroomSceneShadow";
+        EXPECT_EQ(count("calculateAtlasEntryShadow"), 4u)
+            << "the strand's and the exit point's atlas lookups for the spot and the point face, all in "
+               "oloGroomSceneShadow";
 
         // THE FRAGMENT REACHES A LOOKUP ONLY AGAINST AN OPAQUE COPY (#1533).
         // The cascades and the atlas each have a copy made before any groom
@@ -612,6 +617,12 @@ namespace OloEngine
         EXPECT_EQ(count("OLO_GROOM_STRAND_ATLAS_BIAS"), 0u) << "the atlas' own strand bias is back";
         EXPECT_EQ(count("(u_GroomCoatModes.y & 2) != 0"), 1u) << "one gate on the opaque cascades' bit";
         EXPECT_EQ(count("(u_GroomCoatModes.y & 4) != 0"), 1u) << "one gate on the opaque atlas' bit";
+        // ANOTHER COAT'S FUR (#1533): the full map, sampled only at the light-exit
+        // point (shadowPos), only against an opaque copy, only where another coat
+        // casts -- one gate, three lookups (the cascades, the spot, the point face).
+        EXPECT_EQ(count("(u_GroomCoatModes.y & 8) != 0"), 1u) << "one gate on the other-fur bit";
+        EXPECT_EQ(count("otherFur && !atStrand"), 3u)
+            << "an exit-point lookup for another coat's fur outside the opaque copy's branch, or one too many";
 
         // `known` gates forwarded scattering on the BODY being in the answer,
         // and a lookup at the exit point answers for nothing inside the coat.

@@ -448,6 +448,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Any shadow array a groom asked to grow (#1533), before this frame
+        // reads a single shadow handle below.
+        data.Shadow.ApplyPendingOpaqueLayers();
+
         // Open the profiler bracket before any per-frame work so the wall
         // bracket covers the whole render section, including the fence wait
         // inside FrameResourceManager::BeginFrame below. The wait itself is

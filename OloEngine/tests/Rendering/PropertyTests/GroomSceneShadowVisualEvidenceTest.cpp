@@ -107,6 +107,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <functional>
 #include <string>
 #include <utility>
@@ -692,6 +693,144 @@ namespace OloEngine::Tests
             EXPECT_LT(routingMovedCoat, coatPixels / 100u)
                 << "with nothing but its own strands to shadow it, routing moved the coat: the opaque cascades hold "
                    "the fur, which counts the coat twice";
+        }
+
+        // ── #1533: one coat's fur shadows another coat ─────────────────────
+        //
+        // A second, smaller coat between the light and the first, casting, and
+        // nothing else to shadow the first: the occluder goes and the body
+        // does not cast. The first coat samples the opaque copies at its
+        // strands, which cannot hold the second coat's fur, and the full map
+        // at its light-exit point, which does. Judged on the first coat's
+        // pixels the second does not cover on screen: with the second coat
+        // casting, a band of the first darkens and nothing brightens; with its
+        // casting off, the first coat is as lit as with no second coat at all;
+        // and the negative control (OLO_FAULT_GROOM_NO_OTHER_FUR, the opaque
+        // copy alone) takes the band away again.
+        void RunCoatOverCoatCase(const char* lightName, const std::string& tag, const glm::vec3& travels,
+                                 ShadowMap::OpaqueCopy opaqueMap, const std::function<void()>& placeLight)
+        {
+            Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+            Renderer3D::ApplyRendererSettings();
+            GetScene().DestroyEntity(m_OccluderEntity);
+            m_OccluderEntity = {};
+            SetBodyCasts(false);
+            placeLight();
+
+            // The second coat: the first's asset and look, a little under half
+            // its size, 2.9 m back toward the light from the first's centre.
+            Entity upper = GetScene().CreateEntity("UpperGroom");
+            {
+                auto& tc = upper.GetComponent<TransformComponent>();
+                tc.Translation = glm::vec3(0.0f, 1.45f, 0.0f) - (travels * 2.9f);
+                tc.Scale = glm::vec3(0.45f);
+            }
+            auto& upperGroom = upper.AddComponent<GroomComponent>();
+            upperGroom = Groom();
+            auto& upperFibre = upper.AddComponent<GroomFibreComponent>();
+            upperFibre = m_GroomEntity.GetComponent<GroomFibreComponent>();
+            auto& upperRouting = upper.AddComponent<GroomSceneShadowComponent>();
+            upperRouting.m_CastShadows = false;
+            upperRouting.m_ReceiveShadows = false;
+            upperRouting.m_ShadowWidthTexels = 1.0f;
+
+            // The first coat's footprint with no second coat, and the second
+            // coat's own footprint (not casting, so toggling it moves only its
+            // own pixels); the judged pixels are the first's minus the second's.
+            Routing().m_CastShadows = false;
+            Routing().m_ReceiveShadows = false;
+            upperGroom.m_RenderStrands = false;
+            const std::vector<u8> firstMask = DeriveCoatMask();
+            upperGroom.m_RenderStrands = true;
+            std::vector<u8> withUpper;
+            Capture({}, withUpper);
+            upperGroom.m_RenderStrands = false;
+            std::vector<u8> withoutUpper;
+            Capture({}, withoutUpper);
+            upperGroom.m_RenderStrands = true;
+            if (::testing::Test::HasFatalFailure())
+            {
+                return;
+            }
+            const std::vector<u8> upperMask = DeriveMask(withUpper, withoutUpper);
+            std::vector<u8> judged(firstMask.size(), 0u);
+            for (sizet p = 0; p < judged.size() && p < upperMask.size(); ++p)
+            {
+                judged[p] = (firstMask[p] != 0u && upperMask[p] == 0u) ? 1u : 0u;
+            }
+            const u32 judgedPixels = CountMask(judged);
+            ASSERT_GT(judgedPixels, 20000u) << "too little of the first coat is left once the second coat's pixels go";
+
+            Routing().m_CastShadows = true;
+            Routing().m_ReceiveShadows = true;
+            upperGroom.m_RenderStrands = false;
+            std::vector<u8> noUpper;
+            Capture({}, noUpper);
+            upperGroom.m_RenderStrands = true;
+            std::vector<u8> upperQuiet;
+            Capture(tag + "UpperNotCasting", upperQuiet);
+            upperRouting.m_CastShadows = true;
+            std::vector<u8> upperCasts;
+            Capture(tag + "UpperCasts", upperCasts);
+            const GroomRenderPass* const groomPass = Renderer3D::GetGroomRenderPass();
+            const u32 opaqueGrooms = groomPass == nullptr                        ? 0u
+                                     : opaqueMap == ShadowMap::OpaqueCopy::Atlas ? groomPass->GetStats().GroomsShadowedByOpaqueAtlas
+                                                                                 : groomPass->GetStats().GroomsShadowedByOpaqueCascades;
+            struct FaultRestore
+            {
+                ~FaultRestore()
+                {
+                    Levers::SetFaultGroomNoOtherFur(false);
+                }
+            } faultRestore;
+            Levers::SetFaultGroomNoOtherFur(true);
+            std::vector<u8> faulted;
+            Capture(tag + "UpperCastsOpaqueCopyAlone", faulted);
+            Levers::SetFaultGroomNoOtherFur(false);
+            if (::testing::Test::HasFatalFailure())
+            {
+                return;
+            }
+
+            u32 touched = 0;
+            u32 brightened = 0;
+            f64 touchedCasting = 0.0;
+            f64 touchedQuiet = 0.0;
+            for (sizet i = 0, px = 0; i + 3 < upperCasts.size() && px < judged.size(); i += 4, ++px)
+            {
+                if (judged[px] == 0u)
+                {
+                    continue;
+                }
+                const f64 casting = Luma(upperCasts, i);
+                const f64 quiet = Luma(upperQuiet, i);
+                if (std::abs(casting - quiet) <= kMaskThreshold)
+                {
+                    continue;
+                }
+                ++touched;
+                brightened += casting > quiet ? 1u : 0u;
+                touchedCasting += casting;
+                touchedQuiet += quiet;
+            }
+            const f64 kept = touchedQuiet > 0.0 ? touchedCasting / touchedQuiet : 1.0;
+            const u32 quietMoved = CountDifferingIn(upperQuiet, noUpper, judged, /*inside=*/true);
+            const u32 faultMoved = CountDifferingIn(faulted, upperQuiet, judged, /*inside=*/true);
+            std::printf("[groom-scene-shadow] %-9s coat over coat: %u judged px | the second coat's shadow touched %u (%u "
+                        "brighter), keeping %.3f of their luma | not casting it moved %u | the opaque copy alone moved "
+                        "%u (negative control) | %u groom(s) on the opaque copy\n",
+                        lightName, judgedPixels, touched, brightened, kept, quietMoved, faultMoved, opaqueGrooms);
+
+            EXPECT_GT(opaqueGrooms, 0u) << "no groom sampled the opaque copy of the " << lightName
+                                        << "'s map, so this case measured the light-exit receiver alone";
+            ASSERT_LT(faultMoved, judgedPixels / 100u)
+                << "through the opaque copy alone the second coat shadowed the first anyway, so this case cannot tell "
+                   "the fix from the gap it closes";
+            EXPECT_LT(quietMoved, judgedPixels / 100u)
+                << "a second coat that does not cast changed the first coat's light";
+            EXPECT_GT(touched, judgedPixels / 50u) << "the second coat's fur shadowed almost none of the first coat";
+            EXPECT_LT(brightened, std::max(touched / 100u, 1u)) << "a coat's shadow BRIGHTENED the coat under it";
+            EXPECT_LT(kept, 0.85) << "where the second coat's shadow falls the first coat kept almost all of its light";
         }
 
         [[nodiscard]] static const GroomShadowCasterStats& CasterStats()
@@ -1407,6 +1546,59 @@ namespace OloEngine::Tests
                                spot.m_OuterCutoff = 26.0f;
                                spot.m_CastShadows = true;
                            });
+    }
+
+    // ── #1533: one coat's fur shadows another coat, sun and spot ───────────
+
+    TEST_F(GroomSceneShadowVisualEvidenceTest, OneCoatsFurShadowsAnotherCoatUnderTheSun)
+    {
+        const glm::vec3 travels = glm::normalize(glm::vec3(-0.45f, -0.78f, -0.44f));
+        RunCoatOverCoatCase("sun", "GroomSceneShadow_GL_Forward_CoatOverCoat", travels, ShadowMap::OpaqueCopy::Cascades,
+                            [this, travels]
+                            { m_LightEntity.GetComponent<DirectionalLightComponent>().m_Direction = travels; });
+    }
+
+    TEST_F(GroomSceneShadowVisualEvidenceTest, OneCoatsFurShadowsAnotherCoatUnderASpotLight)
+    {
+        const glm::vec3 travels = glm::normalize(glm::vec3(-0.45f, -0.78f, -0.44f));
+        RunCoatOverCoatCase("spot", "GroomSceneShadow_GL_Forward_SpotCoatOverCoat", travels, ShadowMap::OpaqueCopy::Atlas,
+                            [this, travels]
+                            {
+                                GetScene().DestroyEntity(m_LightEntity);
+                                m_LightEntity = GetScene().CreateEntity("Spot");
+                                m_LightEntity.GetComponent<TransformComponent>().Translation =
+                                    glm::vec3(0.0f, 1.45f, 0.0f) - (travels * 7.0f);
+                                auto& spot = m_LightEntity.AddComponent<SpotLightComponent>();
+                                spot.m_Direction = travels;
+                                spot.m_Color = glm::vec3(1.0f, 0.97f, 0.93f);
+                                spot.m_Intensity = 60.0f;
+                                spot.m_Range = 16.0f;
+                                spot.m_InnerCutoff = 20.0f;
+                                spot.m_OuterCutoff = 26.0f;
+                                spot.m_CastShadows = true;
+                            });
+    }
+
+    // The opaque copies' layers, as the shadow map writes them and as the strand
+    // shader reads them: two constants on two sides of the language boundary.
+    TEST(ShadowMapOpaqueLayers, TheStrandShaderReadsTheLayersTheShadowMapWrites)
+    {
+        std::ifstream file("assets/shaders/GroomStrand.glsl");
+        ASSERT_TRUE(file.good()) << "run from OloEditor/: assets/shaders/GroomStrand.glsl not found";
+        const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        const auto literalAfter = [&text](const std::string& declaration) -> std::string
+        {
+            const sizet at = text.find(declaration);
+            if (at == std::string::npos)
+                return {};
+            const sizet begin = at + declaration.size();
+            const sizet end = text.find(';', begin);
+            return end == std::string::npos ? std::string{} : text.substr(begin, end - begin);
+        };
+        EXPECT_EQ(literalAfter("const int OLO_GROOM_OPAQUE_CSM_LAYER_BASE = "),
+                  std::to_string(ShadowMap::OPAQUE_CSM_LAYER_BASE));
+        EXPECT_EQ(literalAfter("const float OLO_GROOM_OPAQUE_ATLAS_LAYER = "),
+                  std::to_string(ShadowMap::OPAQUE_ATLAS_LAYER) + ".0");
     }
 
     // ── #1533 follow-up: a strand's atlas offset is texels of its entry ──────

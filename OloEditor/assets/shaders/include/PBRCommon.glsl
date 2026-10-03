@@ -2094,7 +2094,7 @@ float sampleShadowLayer(sampler2DArrayShadow shadowMap, sampler2DArray rawMap,
 // shadowParams: x=csmDepthBiasTexels, y=normalBias (world metres),
 //               z=softness, w=maxShadowDistance
 // shadowMapResolution: shadow map size in pixels
-float calculateCascadedShadowFactorCSM(
+float calculateCascadedShadowFactorCSMLayer(
     sampler2DArrayShadow shadowMap,
     sampler2DArray rawShadowMap,
     vec3 worldPos,
@@ -2104,7 +2104,7 @@ float calculateCascadedShadowFactorCSM(
     vec4 cascadePlaneDistances,
     vec4 shadowParams,
     int shadowMapResolution,
-    int softMode)
+    int softMode, int layerBase)
 {
     float maxShadowDistance = shadowParams.w;
 
@@ -2191,7 +2191,7 @@ float calculateCascadedShadowFactorCSM(
     // transition).
     int layerSoftMode = (cascadeIndex < 2) ? softMode : 0;
 
-    float shadow = sampleShadowLayer(shadowMap, rawShadowMap, projCoords, float(cascadeIndex),
+    float shadow = sampleShadowLayer(shadowMap, rawShadowMap, projCoords, float(cascadeIndex + layerBase),
                                      cascadeBias, shadowMapResolution, layerSoftMode, softness, shadowRot);
 
     // Cascade blending: smooth cross-fade in the last 10% of each cascade
@@ -2212,7 +2212,7 @@ float calculateCascadedShadowFactorCSM(
             float nextLenRow2 = length(vec3(nextM[0][2], nextM[1][2], nextM[2][2]));
             float nextBias = shadowParams.x * nextLenRow2 / (float(shadowMapResolution) * nextLenRow0);
             int nextSoftMode = (cascadeIndex + 1 < 2) ? softMode : 0;
-            float nextShadow = sampleShadowLayer(shadowMap, rawShadowMap, nextProjCoords, float(cascadeIndex + 1),
+            float nextShadow = sampleShadowLayer(shadowMap, rawShadowMap, nextProjCoords, float(cascadeIndex + 1 + layerBase),
                                                  nextBias, shadowMapResolution, nextSoftMode, softness, shadowRot);
             shadow = mix(shadow, nextShadow, blendFactor);
         }
@@ -2242,6 +2242,21 @@ float calculateCascadedShadowFactorCSM(
     return shadow;
 }
 
+float calculateCascadedShadowFactorCSM(
+    sampler2DArrayShadow shadowMap,
+    sampler2DArray rawShadowMap,
+    vec3 worldPos,
+    vec3 surfaceNormal,
+    float viewDepth,
+    mat4 lightSpaceMatrices[4],
+    vec4 cascadePlaneDistances,
+    vec4 shadowParams,
+    int shadowMapResolution,
+    int softMode)
+{
+    return calculateCascadedShadowFactorCSMLayer(shadowMap, rawShadowMap, worldPos, surfaceNormal, viewDepth, lightSpaceMatrices, cascadePlaneDistances, shadowParams, shadowMapResolution, softMode, 0);
+}
+
 // =============================================================================
 // SHADOW ATLAS SAMPLING (issue #435)
 // =============================================================================
@@ -2268,8 +2283,13 @@ int atlasCubeFace(vec3 dir)
 
 // 3x3 PCF over an atlas tile. projCoords are the entry's light-space [0,1]
 // coords; scaleOffset (xy = scale, zw = offset) maps them into the atlas.
-float sampleShadowAtlasPCF(sampler2DArrayShadow atlas, vec3 projCoords, vec4 scaleOffset,
-                           float bias, int atlasResolution)
+// THE ...Layer VARIANTS (#1533) sample the map from a given array layer: a groom
+// reads the opaque copy ShadowRenderPass keeps in the upper layers of the same
+// cascade and atlas arrays (ShadowMap::OPAQUE_CSM_LAYER_BASE /
+// OPAQUE_ATLAS_LAYER) and the full map from the lower ones. The plain names are
+// these at layer 0, so every other receiver is unchanged.
+float sampleShadowAtlasPCFLayer(sampler2DArrayShadow atlas, vec3 projCoords, vec4 scaleOffset,
+                           float bias, int atlasResolution, float layer)
 {
     float texel = 1.0 / float(atlasResolution);
     vec2 tileMin = scaleOffset.zw + vec2(texel * 0.5);
@@ -2282,18 +2302,24 @@ float sampleShadowAtlasPCF(sampler2DArrayShadow atlas, vec3 projCoords, vec4 sca
         for (int y = -1; y <= 1; ++y)
         {
             vec2 uv = clamp(baseUV + vec2(float(x), float(y)) * texel, tileMin, tileMax);
-            shadow += texture(atlas, vec4(uv, 0.0, projCoords.z - bias));
+            shadow += texture(atlas, vec4(uv, layer, projCoords.z - bias));
         }
     }
     return shadow / 9.0;
 }
 
+float sampleShadowAtlasPCF(sampler2DArrayShadow atlas, vec3 projCoords, vec4 scaleOffset,
+                           float bias, int atlasResolution)
+{
+    return sampleShadowAtlasPCFLayer(atlas, projCoords, scaleOffset, bias, atlasResolution, 0.0);
+}
+
 // PCSS over an atlas tile (spot entries): the same two-stage blocker-search +
 // variable-radius Poisson PCF as the CSM path, with every tap clamped to the
 // entry's tile.
-float pcssShadowAtlasFactor(sampler2DArrayShadow atlas, sampler2DArray rawAtlas,
+float pcssShadowAtlasFactorLayer(sampler2DArrayShadow atlas, sampler2DArray rawAtlas,
                             vec3 projCoords, vec4 scaleOffset, float bias,
-                            float softness, int atlasResolution, mat2 rot)
+                            float softness, int atlasResolution, mat2 rot, float layer)
 {
     float texel = 1.0 / float(atlasResolution);
     vec2 tileMin = scaleOffset.zw + vec2(texel * 0.5);
@@ -2309,7 +2335,7 @@ float pcssShadowAtlasFactor(sampler2DArrayShadow atlas, sampler2DArray rawAtlas,
     for (int i = 0; i < 16; ++i)
     {
         vec2 uv = clamp(baseUV + (rot * POISSON_DISK_16[i]) * searchRadiusUV, tileMin, tileMax);
-        float d = texture(rawAtlas, vec3(uv, 0.0)).r;
+        float d = texture(rawAtlas, vec3(uv, layer)).r;
         if (d < zReceiver)
         {
             blockerSum += d;
@@ -2327,16 +2353,23 @@ float pcssShadowAtlasFactor(sampler2DArrayShadow atlas, sampler2DArray rawAtlas,
     float filterRadiusTexels = clamp(depthGap * lightSizeTexels * PCSS_PENUMBRA_GAIN,
                                      1.0, lightSizeTexels * 4.0);
     if (filterRadiusTexels <= 1.0)
-        return texture(atlas, vec4(clamp(baseUV, tileMin, tileMax), 0.0, zReceiver - bias));
+        return texture(atlas, vec4(clamp(baseUV, tileMin, tileMax), layer, zReceiver - bias));
 
     float filterRadiusUV = filterRadiusTexels * texel;
     float sum = 0.0;
     for (int i = 0; i < 16; ++i)
     {
         vec2 uv = clamp(baseUV + (rot * POISSON_DISK_16[i]) * filterRadiusUV, tileMin, tileMax);
-        sum += texture(atlas, vec4(uv, 0.0, zReceiver - bias));
+        sum += texture(atlas, vec4(uv, layer, zReceiver - bias));
     }
     return sum / 16.0;
+}
+
+float pcssShadowAtlasFactor(sampler2DArrayShadow atlas, sampler2DArray rawAtlas,
+                            vec3 projCoords, vec4 scaleOffset, float bias,
+                            float softness, int atlasResolution, mat2 rot)
+{
+    return pcssShadowAtlasFactorLayer(atlas, rawAtlas, projCoords, scaleOffset, bias, softness, atlasResolution, rot, 0.0);
 }
 
 // The receiver's offset along its normal, in texels of the entry at the
@@ -2365,9 +2398,9 @@ const float ATLAS_NORMAL_OFFSET_TEXELS = 1.5;
 // whose own plane a 3x3 kernel sees tan(theta) texels nearer per texel. Pass
 // vec3(0.0) where there is no surface (a volume tap) or the caller offsets its
 // own receiver.
-float calculateAtlasEntryShadow(vec3 worldPos, vec3 normal, mat4 entryMatrix, vec4 scaleOffset,
+float calculateAtlasEntryShadowLayer(vec3 worldPos, vec3 normal, mat4 entryMatrix, vec4 scaleOffset,
                                 sampler2DArrayShadow atlas, sampler2DArray rawAtlas,
-                                float biasTexels, int atlasResolution, int softMode, float softness)
+                                float biasTexels, int atlasResolution, int softMode, float softness, float layer)
 {
     vec4 receiverClip = entryMatrix * vec4(worldPos, 1.0);
     if (receiverClip.w <= 0.0)
@@ -2400,9 +2433,16 @@ float calculateAtlasEntryShadow(vec3 worldPos, vec3 normal, mat4 entryMatrix, ve
     {
         float rotAngle = pcssRotationAngle(worldPos);
         mat2 rot = mat2(cos(rotAngle), -sin(rotAngle), sin(rotAngle), cos(rotAngle));
-        return pcssShadowAtlasFactor(atlas, rawAtlas, projCoords, scaleOffset, bias, softness, atlasResolution, rot);
+        return pcssShadowAtlasFactorLayer(atlas, rawAtlas, projCoords, scaleOffset, bias, softness, atlasResolution, rot, layer);
     }
-    return sampleShadowAtlasPCF(atlas, projCoords, scaleOffset, bias, atlasResolution);
+    return sampleShadowAtlasPCFLayer(atlas, projCoords, scaleOffset, bias, atlasResolution, layer);
+}
+
+float calculateAtlasEntryShadow(vec3 worldPos, vec3 normal, mat4 entryMatrix, vec4 scaleOffset,
+                                sampler2DArrayShadow atlas, sampler2DArray rawAtlas,
+                                float biasTexels, int atlasResolution, int softMode, float softness)
+{
+    return calculateAtlasEntryShadowLayer(worldPos, normal, entryMatrix, scaleOffset, atlas, rawAtlas, biasTexels, atlasResolution, softMode, softness, 0.0);
 }
 
 // =============================================================================

@@ -736,12 +736,21 @@ float oloGroomCoatExitDistance(vec3 worldDir)
 // on never shadowed its own fur, and a chin over a chest, a leg against a belly
 // or a coat lit from behind took the light through the animal. ShadowRenderPass
 // now copies the cascades and the atlas after their opaque casters and before
-// their grooms, and GroomRenderPass binds the copies for these draws, so the
-// strand samples the light WHERE IT IS against maps with no fur in them: the
-// body and every other opaque caster shadow it, and the coat's own extinction
-// stays the density volume's alone. What a copy cannot hold is ANOTHER groom's
-// fur: a second coat does not shadow this one (groom-into-the-shadow-techniques.md
-// rule 8). The VSM keeps the exit point: its cached pages still hold the fur.
+// their grooms, into the arrays' upper layers, so the strand samples the light
+// WHERE IT IS against maps with no fur in them: the body and every other opaque
+// caster shadow it, and the coat's own extinction stays the density volume's
+// alone (groom-into-the-shadow-techniques.md rule 8). The VSM keeps the exit
+// point: its cached pages still hold the fur.
+//
+// ANOTHER GROOM'S FUR (#1533) IS IN THE FULL MAP, so where one casts this frame
+// (u_GroomCoatModes.y bit 8) the strand also samples the full map at its coat's
+// light-exit point and keeps the darker answer. Past the exit point toward the
+// light lies everything but this coat -- its own strands are all behind it,
+// inside its box -- so the full map there holds another coat's shadow and no
+// self-shadow. The opaque copies now live in the upper layers of the cascade
+// and atlas arrays themselves (OLO_GROOM_OPAQUE_*_LAYER, ShadowMap's
+// OPAQUE_CSM_LAYER_BASE / OPAQUE_ATLAS_LAYER), so both maps are bound at once.
+// With one coat the bit is clear and the strand pays for one lookup, as before.
 //
 // `known` says whether the BODY's occlusion of this light is in the answer,
 // which is not the same as a map having answered: a lookup at the exit point
@@ -768,6 +777,11 @@ float oloGroomCoatExitDistance(vec3 worldDir)
 // world-space offset against the cascades and the atlas. The exit-point fallback
 // keeps the surfaces' bias, no offset.
 const float OLO_GROOM_STRAND_RECEIVER_OFFSET = 0.001;
+// The opaque copies' layers in the cascade and atlas arrays (#1533). C++ twin:
+// ShadowMap::OPAQUE_CSM_LAYER_BASE and OPAQUE_ATLAS_LAYER, checked by
+// ShadowMapOpaqueLayers.TheStrandShaderReadsTheLayersTheShadowMapWrites.
+const int OLO_GROOM_OPAQUE_CSM_LAYER_BASE = 4;
+const float OLO_GROOM_OPAQUE_ATLAS_LAYER = 1.0;
 
 float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L, out bool known)
 {
@@ -784,6 +798,9 @@ float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L
 	bool atStrand = !(exitDistance > 0.0);
 	bool opaqueCascades = (u_GroomCoatModes.y & 2) != 0;
 	bool opaqueAtlas = (u_GroomCoatModes.y & 4) != 0;
+	// Another groom casts this frame, so the full map past the exit point can
+	// hold its fur (#1533).
+	bool otherFur = (u_GroomCoatModes.y & 8) != 0;
 
 	if (lightType == DIRECTIONAL_LIGHT)
 	{
@@ -808,9 +825,19 @@ float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L
 		known = opaqueCascades || atStrand;
 		vec4 receiverParams = known ? vec4(0.0, OLO_GROOM_STRAND_RECEIVER_OFFSET, u_ShadowParams.zw) : u_ShadowParams;
 		vec4 viewSpacePos = u_View * vec4(receiver, 1.0);
-		return calculateCascadedShadowFactorCSM(u_ShadowMapCSM, u_ShadowMapCSMRaw, receiver, L, viewSpacePos.z,
-		                                        u_DirectionalLightSpaceMatrices, u_CascadePlaneDistances,
-		                                        receiverParams, u_ShadowMapResolution, u_SoftShadowMode);
+		float shadow = calculateCascadedShadowFactorCSMLayer(
+		    u_ShadowMapCSM, u_ShadowMapCSMRaw, receiver, L, viewSpacePos.z, u_DirectionalLightSpaceMatrices,
+		    u_CascadePlaneDistances, receiverParams, u_ShadowMapResolution, u_SoftShadowMode,
+		    opaqueCascades ? OLO_GROOM_OPAQUE_CSM_LAYER_BASE : 0);
+		if (opaqueCascades && otherFur && !atStrand)
+		{
+			vec4 exitViewPos = u_View * vec4(shadowPos, 1.0);
+			shadow = min(shadow, calculateCascadedShadowFactorCSMLayer(
+			                         u_ShadowMapCSM, u_ShadowMapCSMRaw, shadowPos, L, exitViewPos.z,
+			                         u_DirectionalLightSpaceMatrices, u_CascadePlaneDistances, u_ShadowParams,
+			                         u_ShadowMapResolution, u_SoftShadowMode, 0));
+		}
+		return shadow;
 	}
 
 	if (lightType == SPOT_LIGHT)
@@ -829,9 +856,19 @@ float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L
 			vec3 offsetDirection = vec3(0.0);
 			float atlasBias = atlasAtStrand ? 0.0 : u_AtlasDepthBiasTexels;
 			known = atlasAtStrand;
-			return calculateAtlasEntryShadow(receiver, offsetDirection, u_AtlasEntryMatrices[atlasEntry],
-			                                 u_AtlasEntryScaleOffset[atlasEntry], u_ShadowAtlas, u_ShadowAtlasRaw,
-			                                 atlasBias, u_AtlasResolution, u_SoftShadowMode, u_ShadowParams.z);
+			float shadow = calculateAtlasEntryShadowLayer(
+			    receiver, offsetDirection, u_AtlasEntryMatrices[atlasEntry], u_AtlasEntryScaleOffset[atlasEntry],
+			    u_ShadowAtlas, u_ShadowAtlasRaw, atlasBias, u_AtlasResolution, u_SoftShadowMode, u_ShadowParams.z,
+			    opaqueAtlas ? OLO_GROOM_OPAQUE_ATLAS_LAYER : 0.0);
+			if (opaqueAtlas && otherFur && !atStrand)
+			{
+				shadow = min(shadow, calculateAtlasEntryShadowLayer(
+				                         shadowPos, offsetDirection, u_AtlasEntryMatrices[atlasEntry],
+				                         u_AtlasEntryScaleOffset[atlasEntry], u_ShadowAtlas, u_ShadowAtlasRaw,
+				                         u_AtlasDepthBiasTexels, u_AtlasResolution, u_SoftShadowMode,
+				                         u_ShadowParams.z, 0.0));
+			}
+			return shadow;
 		}
 		return 1.0;
 	}
@@ -856,11 +893,21 @@ float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L
 			float atlasBias = atlasAtStrand ? 0.0 : u_AtlasDepthBiasTexels;
 			known = atlasAtStrand;
 			int entry = baseEntry + atlasCubeFace(receiver - light.position.xyz);
-			return calculateAtlasEntryShadow(receiver, offsetDirection, u_AtlasEntryMatrices[entry],
-			                                 u_AtlasEntryScaleOffset[entry], u_ShadowAtlas, u_ShadowAtlasRaw,
-			                                 atlasBias, u_AtlasResolution,
-			                                 0, // PCF only on cube faces, matching the surface path
-			                                 u_ShadowParams.z);
+			float shadow = calculateAtlasEntryShadowLayer(receiver, offsetDirection, u_AtlasEntryMatrices[entry],
+			                                              u_AtlasEntryScaleOffset[entry], u_ShadowAtlas,
+			                                              u_ShadowAtlasRaw, atlasBias, u_AtlasResolution,
+			                                              0, // PCF only on cube faces, matching the surface path
+			                                              u_ShadowParams.z,
+			                                              opaqueAtlas ? OLO_GROOM_OPAQUE_ATLAS_LAYER : 0.0);
+			if (opaqueAtlas && otherFur && !atStrand)
+			{
+				int exitEntry = baseEntry + atlasCubeFace(shadowPos - light.position.xyz);
+				shadow = min(shadow, calculateAtlasEntryShadowLayer(
+				                         shadowPos, offsetDirection, u_AtlasEntryMatrices[exitEntry],
+				                         u_AtlasEntryScaleOffset[exitEntry], u_ShadowAtlas, u_ShadowAtlasRaw,
+				                         u_AtlasDepthBiasTexels, u_AtlasResolution, 0, u_ShadowParams.z, 0.0));
+			}
+			return shadow;
 		}
 		return 1.0;
 	}

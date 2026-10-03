@@ -56,33 +56,26 @@ the groom half of `Renderer/Passes/ShadowRenderPass.cpp`, `GroomStrandDepth.glsl
    against a raster model, with the coat-wide rule as the negative control. Strided subsets alias with
    periodic cooks; a subset never adds shadow (#1533).
 
-8. **A strand samples the OPAQUE copies at itself; without a copy its receiver is the coat's
-   LIGHT-EXIT POINT, gated on CASTING, not on the density volume.** A caster's strands are in the map,
-   so a strand sampling the full map at its own position is occluded by its own coat on top of the
-   volume's charge. Tied to the volume, a coat without one fell from **44.98 mean luma to 0.22** (#1380,
-   measured): a shadow map is binary and a coat is not. The exit point cures that, but it lies outside
-   the coat's box, so nothing inside the box -- the body included -- could shadow the fur. So the
-   cascades and the local-light atlas, when a groom casts, render their opaque casters, are copied into
-   `ShadowMap`'s opaque copies, and then take their grooms, uncleared (#1533). `GroomRenderPass` binds
-   the copies over the four shadow slots for its own draws and invalidates them after. `CoatModes.y` is
-   a bitfield (1 receives, 2 opaque cascades, 4 opaque atlas); a set bit samples that map at the strand:
-   the body shadows its fur, and fur is counted only by the volume. A copy cannot hold another groom's
-   fur, so one coat does not shadow a second. The VSM keeps the exit point: its cached pages hold the
-   fur. A copy covers only the receiving coats' texels (their posed box projected through each view,
-   padded 96 texels for the kernels): at the dog's 4096² cascades the whole-layer copy cost ~0.3 ms.
-   A strand sampled at itself moves 1 mm toward the light with no depth bias, against the cascades and
-   the atlas alike (`OLO_GROOM_STRAND_RECEIVER_OFFSET`). The shadow pass culls front faces, so a closed
-   body is stored by its far side, and fur on that far side lies a few millimetres behind the stored
-   skin; the surfaces' receiver bias (1 cm along the normal plus two texels of depth) carried it back
-   in front and lit it through the body (`GroomStrandShadowReceiver` in `ShadowMapTest.cpp`). 1 mm is
-   below any fur's stand-off and above the depth noise of a two-sided caster, whose near face is
-   stored. The exit-point fallback keeps the surfaces' bias. `GroomsShadowedByOpaqueCascades` / `...Atlas` say which coats got the opaque lookup, and
-   `OLO_FAULT_GROOM_SHADOW_AT_COAT_EXIT` brings the exit point back for a negative control. `known`
-   is true only where the lookup ran at the strand: an exit-point answer says nothing about the body.
-   Where it is false the coat's volume holds the body since #1533 and the march counts it, which also
-   opens forwarded dual scattering for that light ([groom-coat-body-in-the-volume.md](groom-coat-body-in-the-volume.md)). `CoatModes.z` gates the offset, `.x` the march, `.y` the
-   receive; a whole-vector assign to `u_GroomCoatModes` in the coat block clears the other two. The exit
-   distance stays in world metres because the direction is not normalised.
+8. **A strand samples the OPAQUE copy at itself and, where another coat casts, the full map at its
+   coat's LIGHT-EXIT POINT, keeping the darker.** The full map at the strand would self-shadow: a
+   shadow map is binary and a coat is not (a coat fell from **44.98 mean luma to 0.22**, #1380). The
+   exit point alone lies outside the coat's box, so the body never shadowed its fur. So a region with a
+   groom caster renders its opaque casters, copies them into the UPPER LAYERS of the same array
+   (`ShadowMap::OPAQUE_CSM_LAYER_BASE`, `OPAQUE_ATLAS_LAYER`; only the receivers' texels, ~0.3 ms saved
+   at 4096²), then draws its grooms on top (#1533). `CoatModes.y`: 1 receives, 2/4 the opaque cascades
+   / atlas are written (sample them at the strand), 8 another groom casts (also sample the full layers
+   at the exit point: past it lies everything but this coat). Layers, because both maps must be bound
+   at once and the texture namespace sits at GL 4.6's 80. The arrays grow in
+   `RenderPipeline::PrepareFrame`, before the frame reads a shadow handle; grown in the scene's
+   `BeginFrame` every receiver sampled the released array for a frame. Negative controls:
+   `OLO_FAULT_GROOM_SHADOW_AT_COAT_EXIT` (exit point only) and `OLO_FAULT_GROOM_NO_OTHER_FUR`. The VSM
+   keeps the exit point; its cached pages hold all the fur. A strand sampled at itself moves 1 mm toward
+   the light with no depth bias (`OLO_GROOM_STRAND_RECEIVER_OFFSET`): the shadow pass culls front faces,
+   so fur on a body's far side lies millimetres behind the stored skin, and the surfaces' bias (1 cm
+   plus two texels) lit it through the body (`GroomStrandShadowReceiver`). The exit point keeps the
+   surfaces' bias. `known` is true only for a lookup at the strand; where false the volume's body march
+   answers ([groom-coat-body-in-the-volume.md](groom-coat-body-in-the-volume.md)). `CoatModes.z` gates
+   the offset, `.x` the march; a whole-vector assign to `u_GroomCoatModes` clears the other lanes.
 
 9. **A strand has no surface normal, so the receiver bias is spent along `L`.** A ribbon's
    `v_ViewNormal` faces the camera. A zero vector is not an option: the CSM helper normalises it.
