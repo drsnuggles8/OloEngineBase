@@ -6350,11 +6350,16 @@ namespace OloEngine::Tests
         report += "#   exit/key   EXIT / KEY: the same sun through the cascades sampled at the coat's light-exit point\n";
         report += "#              (OLO_FAULT_GROOM_SHADOW_AT_COAT_EXIT) -- the VSM's receiver on the cascades' map\n";
         report += "#   vsm/exit   VSM / EXIT: the two maps at the same receiver (1 = they agree)\n";
+        report += "#   fineLeak   (RIM - RIM+BODY at a 4 m shadow range) / RIM: rimLeak against cascades whose texels are a\n";
+        report += "#              fraction of the shipped ones -- what of rimLeak is the cascades' own filtering\n";
+        report += "#   furLeak    rimLeak with the skin under the coat black: the fur's own share. A coat pixel also shows the\n";
+        report += "#              skin between its strands, which a non-casting light lights with no shadow at all\n";
         bool measurable = false;
         for (const View& view : views)
         {
             SCOPED_TRACE(view.Name);
-            LinearFrame key, rimOpen, rimAgain, rimBody, rimNoBody, vsm, vsmNoBody, csmExit, env, envNoBody, domeFrame;
+            LinearFrame key, rimOpen, rimAgain, rimBody, rimFine, rimFur, rimBodyFur, rimNoBody, vsm, vsmNoBody, csmExit,
+                env, envNoBody, domeFrame;
             lights(shippedSun.m_Intensity, true, 0.0f, false, 0.0f);
             capture(view, key);
             ASSERT_FALSE(HasFatalFailure());
@@ -6364,6 +6369,36 @@ namespace OloEngine::Tests
             captureWithoutBody(view, rimNoBody);
             lights(0.0f, false, shippedRim.m_Intensity, true, 0.0f);
             capture(view, rimBody);
+            // The same casting rim at a 4 m range: cascades with a fraction of
+            // the shipped texels, to say what of rimLeak is their filtering.
+            rim.m_MaxShadowDistance = 4.0f;
+            capture(view, rimFine);
+            {
+                // The two rim arms again with the skin under the coat black, so
+                // a coat pixel holds the fur's light alone (#1533).
+                MaterialOverride* pelt = nullptr;
+                for (MaterialOverride& patch : m_Dog.Body.GetComponent<MaterialOverridesComponent>().m_Overrides)
+                {
+                    pelt = patch.MaterialName == FString("DogSkin") ? &patch : pelt;
+                }
+                ASSERT_NE(pelt, nullptr);
+                const MaterialOverride shippedPelt = *pelt;
+                struct PeltRestore
+                {
+                    MaterialOverride* Patch;
+                    MaterialOverride Shipped;
+                    ~PeltRestore()
+                    {
+                        *Patch = Shipped;
+                    }
+                } peltRestore{ pelt, shippedPelt };
+                pelt->BaseColor = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+                pelt->Roughness = 1.0f;
+                lights(0.0f, false, shippedRim.m_Intensity, false, 0.0f);
+                capture(view, rimFur);
+                lights(0.0f, false, shippedRim.m_Intensity, true, 0.0f);
+                capture(view, rimBodyFur);
+            }
             {
                 // The rim's three arms side by side at one exposure -- shipped,
                 // casting, without the body -- then shipped against casting:
@@ -6453,6 +6488,9 @@ namespace OloEngine::Tests
                 f64 Vsm = 0.0;
                 f64 VsmNoBody = 0.0;
                 f64 CsmExit = 0.0;
+                f64 RimFine = 0.0;
+                f64 RimFur = 0.0;
+                f64 RimBodyFur = 0.0;
                 f64 Env = 0.0;
                 f64 EnvNoBody = 0.0;
                 f64 DomeOpen = 0.0;
@@ -6485,6 +6523,9 @@ namespace OloEngine::Tests
                     s.Vsm += vsm.Luminance[i];
                     s.VsmNoBody += vsmNoBody.Luminance[i];
                     s.CsmExit += csmExit.Luminance[i];
+                    s.RimFine += rimFine.Luminance[i];
+                    s.RimFur += rimFur.Luminance[i];
+                    s.RimBodyFur += rimBodyFur.Luminance[i];
                     s.Env += env.Luminance[i];
                     s.EnvNoBody += envNoBody.Luminance[i];
                     s.DomeOpen += domeOpen[i];
@@ -6515,7 +6556,7 @@ namespace OloEngine::Tests
             const Sums& all = sums[kAll];
             char row[512];
             std::snprintf(row, sizeof(row),
-                          "\n%s\nregion        pixels      key      rim  rimLeak (before)  floor  leak/key (before)   skyVis (before)    env  vsm/key (before)  exit/key  vsm/exit\n",
+                          "\n%s\nregion        pixels      key      rim  rimLeak (before)  floor  leak/key (before)   skyVis (before)    env  vsm/key (before)  exit/key  vsm/exit  fineLeak   furLeak\n",
                           view.Name);
             report += row;
             const auto ratio = [](f64 a, f64 b)
@@ -6530,13 +6571,14 @@ namespace OloEngine::Tests
                 const char* name = r < kCoatRegions ? kCoatRegionNames[r] : (r == kFringe ? "sparse fringe" : "all coat");
                 const f64 n = s.Pixels;
                 std::snprintf(row, sizeof(row),
-                              "%-12s %7.0f  %7.4f  %7.4f  %7.3f (%6.3f)  %5.3f  %8.3f (%6.3f)  %7.3f (%6.3f)  %5.3f  %7.3f (%6.3f)  %8.3f  %8.3f\n",
+                              "%-12s %7.0f  %7.4f  %7.4f  %7.3f (%6.3f)  %5.3f  %8.3f (%6.3f)  %7.3f (%6.3f)  %5.3f  %7.3f (%6.3f)  %8.3f  %8.3f  %8.3f  %8.3f\n",
                               name, n, s.Key / n, s.Rim / n, ratio(s.Rim - s.RimBody, s.Rim),
                               ratio(s.RimNoBody - s.RimBody, s.RimNoBody), ratio(std::abs(s.Rim - s.RimAgain), s.Rim),
                               ratio(s.Rim - s.RimBody, s.Key), ratio(s.RimNoBody - s.RimBody, s.Key),
                               ratio(s.DomeBody, s.DomeOpen), ratio(s.DomeBody, s.DomeOpenNoBody), ratio(s.Env, s.EnvNoBody),
                               ratio(s.Vsm, s.Key), ratio(s.VsmNoBody, s.Key), ratio(s.CsmExit, s.Key),
-                              ratio(s.Vsm, s.CsmExit));
+                              ratio(s.Vsm, s.CsmExit), ratio(s.Rim - s.RimFine, s.Rim),
+                              ratio(s.RimFur - s.RimBodyFur, s.RimFur));
                 report += row;
             }
             // Measurable: the rim reaches the coat, and the body's share of it
@@ -6565,6 +6607,11 @@ namespace OloEngine::Tests
             // shadow within ~7 cm (shadow-receiver-bias-is-texels-of-the-map-sampled.md).
             EXPECT_NEAR(ratio(all.Vsm, all.CsmExit), 1.0, 0.03)
                 << "under the VSM the coat's sun differs from the cascades' at the same light-exit point";
+            // The rim light the cascades stop and the coat lets through, on the
+            // fur alone (#1533): rimLeak also counts the skin between the
+            // strands, which a light that does not cast lights unshadowed.
+            EXPECT_LT(ratio(all.RimFur - all.RimBodyFur, all.RimFur), 0.05)
+                << "the coat's own fur lets through rim light the body stops";
             measurable = measurable || leakBefore > 4.0 * allFloor;
         }
         EXPECT_TRUE(measurable) << "in no view did the body's share of the rim rise above the rim's own repeat noise";

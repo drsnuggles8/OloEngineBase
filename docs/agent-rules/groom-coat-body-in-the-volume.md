@@ -68,13 +68,17 @@ From the fur itself (1,100 cooked strands, points a third, two thirds and all of
 volume misses 11 of the 1,721 points the mesh shades (9 on the neck) and shades 147 of the 1,631 it
 lights, every one within 3.8 mm of the skin, where two surfaces' bands add up in a crease.
 
-The light-by-region record (`Dog_Lighting.txt`) holds no bound. Against the cascades, the volume
-still lets through 0.12 of the rim light on the rear view's coat and up to 0.2 on the legs. That
-excess is not the body's, because the probe shows the volume shades at least what the skin does
-there. The record reads the same in the bind pose (`OLO_DOG_LIGHTING_CLIP=Rest`), so it is not the
-rest bake's pose either. What it can count is every opaque caster the volume never holds (the eyes,
-the teeth) and the cascades' own filtering on parts a few centimetres across; neither is measured
-on its own.
+**A coat pixel also shows the skin between its strands.** The light-by-region record
+(`Dog_Lighting.txt`) once read 0.12 of the rim light on the rear view's coat as let through where
+the cascades stop it. Two arms attribute it. At a 4 m shadow range (`fineLeak`) it moves by under
+0.01, so it is not the cascades' filtering. With the skin under the coat black (`furLeak`) it falls
+to 0.03 (torso 0.002, belly 0.025). The rest was the skin, which a light that does not cast lights
+unshadowed, by design. On the fur alone the volume and the cascades agree within 0.03 coat-wide in
+every view, and the test holds 0.05. The legs still differ both ways (0.14 front three-quarter,
+0.10 rear, -0.45 low hero), the same in the bind pose and at the finer range. A casting rim with
+the coat not casting, which reads the whole map at the strand with no opaque copy, lights them as
+the copy does: the two maps agree, and the difference is the volume's on parts a few centimetres
+across.
 
 ## Things that will bite
 
