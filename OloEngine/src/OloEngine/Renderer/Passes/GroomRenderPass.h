@@ -713,6 +713,11 @@ namespace OloEngine
             /// until the first successful bake. Always CoatRing[CoatSlot]'s
             /// texture.
             Ref<Texture3D> CoatVolume;
+            /// The body the resident rest bake marked (#1533), RGBA8 on the same
+            /// grid, or null: GroomCoatShadow::DensityVolume::Body, uploaded.
+            /// Made new at every bake that marks a body, never rewritten in
+            /// place, and counted in CoatBytes.
+            Ref<Texture3D> CoatBody;
             /// The volume's object-space box, needed to map a shading point
             /// into it.
             glm::vec3 CoatBoundsMin{ 0.0f };
@@ -1093,6 +1098,8 @@ namespace OloEngine
         /// binding — decides whether it is sampled. Same discipline, same
         /// reason, as VolumetricFogPass's density-volume placeholder.
         Ref<Texture3D> m_CoatPlaceholder;
+        /// The body's (#1533): no body, and the sky open on every side.
+        Ref<Texture3D> m_CoatBodyPlaceholder;
 
         // Last reported dominant fallback, so the log line fires on a CHANGE
         // of reason rather than once per frame.

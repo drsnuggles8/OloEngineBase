@@ -5,19 +5,20 @@
 // GroomCoatBodyPropertyTests — the body inside the coat volume (#1533).
 //
 // GroomCoatShadow::MarkBodyInDensityVolume puts the body a coat grows on into
-// that coat's density volume, as negative density, so the lights no shadow map
-// answers for at the strand -- a light that does not cast, the sky, the VSM at
-// the coat's exit point -- are stopped by it. These pin what the shader and the
-// shipped casting lights rely on:
+// that coat's density volume, in an array of its own (DensityVolume::Body), so
+// the lights no shadow map answers for at the strand -- a light that does not
+// cast, the sky, the VSM at the coat's exit point -- are stopped by it. These
+// pin what the shader and the shipped casting lights rely on:
 //
-//   * every coat voxel keeps its value, and no body voxel sits beside one, so a
-//     march that skips negative samples (every casting light's) is the same to
-//     the bit with the body in the volume;
-//   * a ray into the body is stopped and a ray out of it, or along the skin, is
-//     not;
+//   * the coat's arrays are never touched, so a march that does not count the
+//     body (every casting light's) is the same to the bit with it there;
+//   * the body is the closed parts' box-filtered occupancy, which adds up to
+//     their volume, reaching no further out than the floor allows and stopping
+//     every ray that dips a quarter of a voxel into them -- the shell the old
+//     erosion left is gone;
+//   * a part thinner than a voxel keeps its share;
 //   * only closed parts are filled, a seam-split mesh welds into one, and an
-//     open shell, a part too thin to survive the erosion or a corrupt surface
-//     leaves the volume untouched and says so.
+//     open shell or a corrupt surface leaves the volume untouched and says so.
 //
 // The fixture is a furred ball: a UV sphere, split at its seam and poles the way
 // a glTF splits vertices, under radial strands.
@@ -158,9 +159,16 @@ namespace
 
     [[nodiscard]] bool SameVolume(const DensityVolume& a, const DensityVolume& b)
     {
-        if (a.Density.size() != b.Density.size())
+        if (a.Density.size() != b.Density.size() || a.Body.size() != b.Body.size())
         {
             return false;
+        }
+        for (sizet i = 0; i < a.Body.size(); ++i)
+        {
+            if (a.Body[i] != b.Body[i])
+            {
+                return false;
+            }
         }
         for (sizet i = 0; i < a.Density.size(); ++i)
         {
@@ -183,6 +191,12 @@ namespace
     {
         return static_cast<sizet>(x) + (static_cast<sizet>(volume.Dimensions.x) *
                                         (static_cast<sizet>(y) + (static_cast<sizet>(volume.Dimensions.y) * static_cast<sizet>(z))));
+    }
+
+    // A voxel's occupancy: the texel's alpha.
+    [[nodiscard]] f64 Occupancy(const DensityVolume& volume, sizet index)
+    {
+        return static_cast<f64>(volume.Body[index].w) / 255.0;
     }
 
     // A deterministic scatter of rays starting in the coat, in every direction.
@@ -212,10 +226,11 @@ namespace
     }
 } // namespace
 
-TEST(GroomCoatBody, TheClosedBodyIsMarkedWhereTheCoatIsNot)
+TEST(GroomCoatBody, TheBodyHasItsOwnArrayAndLeavesTheCoatAlone)
 {
     const DensityVolume coat = FurredBallCoat();
     ASSERT_TRUE(coat.IsValid());
+    ASSERT_TRUE(coat.Body.empty());
     DensityVolume withBody = coat;
     const Mesh ball = UvSphere(kBodyRadius, 48, 96);
     BodyVoxelStats stats;
@@ -225,10 +240,26 @@ TEST(GroomCoatBody, TheClosedBodyIsMarkedWhereTheCoatIsNot)
     // every seam and pole edge has one face and nothing would be filled.
     EXPECT_EQ(stats.ClosedComponents, 1u);
     EXPECT_EQ(stats.OpenComponents, 0u);
-    EXPECT_EQ(stats.OddColumns, 0u) << "a closed sphere left columns whose crossings did not pair up";
-    EXPECT_GT(stats.MarkedVoxels, 0u);
+    EXPECT_EQ(stats.OddColumns, 0u) << "a closed sphere left sub-columns whose crossings did not pair up";
+    EXPECT_GT(stats.FullVoxels, 0u);
+    EXPECT_GE(stats.MarkedVoxels, stats.FullVoxels);
+    EXPECT_GE(stats.InsideVoxels, stats.MarkedVoxels);
+    ASSERT_TRUE(withBody.IsValid());
+    ASSERT_EQ(withBody.Body.size(), coat.Density.size());
 
+    // The coat's arrays to the bit: the body never takes a coat voxel's value.
+    for (sizet i = 0; i < coat.Density.size(); ++i)
+    {
+        ASSERT_TRUE(SameBits(withBody.Density[i], coat.Density[i]) && SameBits(withBody.Direction[i].x, coat.Direction[i].x) &&
+                    SameBits(withBody.Direction[i].y, coat.Direction[i].y) &&
+                    SameBits(withBody.Direction[i].z, coat.Direction[i].z))
+            << "a coat voxel changed: the body has an array of its own";
+    }
+
+    // The occupancy is the ball, box-filtered: whole a voxel inside the skin,
+    // empty a voxel outside it, and adding up to the ball's volume in voxels.
     const f32 h = coat.VoxelSize().x;
+    f64 occupied = 0.0;
     u32 marked = 0;
     for (i32 z = 0; z < coat.Dimensions.z; ++z)
     {
@@ -237,75 +268,29 @@ TEST(GroomCoatBody, TheClosedBodyIsMarkedWhereTheCoatIsNot)
             for (i32 x = 0; x < coat.Dimensions.x; ++x)
             {
                 const sizet i = Index(coat, x, y, z);
-                if (coat.Density[i] > 0.0f)
-                {
-                    ASSERT_TRUE(SameBits(withBody.Density[i], coat.Density[i]) &&
-                                SameBits(withBody.Direction[i].x, coat.Direction[i].x) &&
-                                SameBits(withBody.Direction[i].y, coat.Direction[i].y) &&
-                                SameBits(withBody.Direction[i].z, coat.Direction[i].z))
-                        << "a coat voxel changed: the body must only ever take empty voxels";
-                    continue;
-                }
-                if (!(withBody.Density[i] < 0.0f))
-                {
-                    continue;
-                }
-                ++marked;
-                // Inside the ball, and eroded from its skin.
+                const f64 o = Occupancy(withBody, i);
+                occupied += o;
+                marked += o > static_cast<f64>(kBodyOccupancyFloor) ? 1u : 0u;
                 const f32 distance = glm::length(VoxelCentre(coat, x, y, z));
-                EXPECT_LT(distance, kBodyRadius - (1.5f * h)) << "a body voxel at the skin: the erosion did not hold";
+                if (distance < kBodyRadius - (h * 0.9f))
+                {
+                    EXPECT_NEAR(o, 1.0, 1.0e-5) << "a voxel wholly inside the ball is not full";
+                }
+                else if (distance > kBodyRadius + (h * 0.9f))
+                {
+                    EXPECT_NEAR(o, 0.0, 1.0e-5) << "a voxel wholly outside the ball holds body";
+                }
             }
         }
     }
     EXPECT_EQ(marked, stats.MarkedVoxels);
-    // Most of the eroded core: (R - 2h)^3 of the ball's voxels, give or take
-    // the coat's roots that reach in and the voxelisation of a sphere.
-    const f64 core = (4.0 / 3.0) * glm::pi<f64>() * std::pow((kBodyRadius - (2.0 * h)) / h, 3.0);
-    EXPECT_GT(static_cast<f64>(marked), core * 0.7);
-    EXPECT_LT(static_cast<f64>(marked), core * 1.1);
+    // The UV sphere's own volume, a little under the round ball's.
+    const f64 ballVoxels = (4.0 / 3.0) * glm::pi<f64>() * std::pow(static_cast<f64>(kBodyRadius / h), 3.0);
+    std::printf("[coat-body] the ball's occupancy adds up to %.1f voxels of the round ball's %.1f\n", occupied, ballVoxels);
+    EXPECT_NEAR(occupied / ballVoxels, 1.0, 0.01) << "the box filter lost or invented body";
 }
 
-TEST(GroomCoatBody, NoBodyVoxelHasACoatVoxelBesideIt)
-{
-    DensityVolume volume = FurredBallCoat();
-    const Mesh ball = UvSphere(kBodyRadius, 48, 96);
-    ASSERT_TRUE(MarkBodyInDensityVolume(volume, ball.View(), glm::mat4(1.0f), BodyVoxelSettings{}));
-    const glm::ivec3 dims = volume.Dimensions;
-    for (i32 z = 0; z < dims.z; ++z)
-    {
-        for (i32 y = 0; y < dims.y; ++y)
-        {
-            for (i32 x = 0; x < dims.x; ++x)
-            {
-                if (!(volume.Density[Index(volume, x, y, z)] < 0.0f))
-                {
-                    continue;
-                }
-                for (i32 dz = -1; dz <= 1; ++dz)
-                {
-                    for (i32 dy = -1; dy <= 1; ++dy)
-                    {
-                        for (i32 dx = -1; dx <= 1; ++dx)
-                        {
-                            const i32 nx = x + dx;
-                            const i32 ny = y + dy;
-                            const i32 nz = z + dz;
-                            if (nx < 0 || ny < 0 || nz < 0 || nx >= dims.x || ny >= dims.y || nz >= dims.z)
-                            {
-                                continue;
-                            }
-                            ASSERT_FALSE(volume.Density[Index(volume, nx, ny, nz)] > 0.0f)
-                                << "a body voxel beside a coat voxel: trilinear filtering would mix them";
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// THE CASTING LIGHTS' MARCH IS UNCHANGED, to the bit: it skips a negative
-// sample exactly as an empty one, and no filtered sample mixes body and coat.
+// THE CASTING LIGHTS' MARCH IS UNCHANGED, to the bit: it never reads the body.
 TEST(GroomCoatBody, AMarchThatDoesNotCountTheBodyIsBitIdentical)
 {
     const DensityVolume coat = FurredBallCoat();
@@ -336,6 +321,7 @@ TEST(GroomCoatBody, ARayIntoTheBodyIsStoppedAndOneOutOfItIsNot)
     DensityVolume volume = FurredBallCoat();
     const Mesh ball = UvSphere(kBodyRadius, 48, 96);
     ASSERT_TRUE(MarkBodyInDensityVolume(volume, ball.View(), glm::mat4(1.0f), BodyVoxelSettings{}));
+    const f32 h = volume.VoxelSize().x;
 
     const glm::vec3 inCoat{ kBodyRadius + 0.005f, 0.0f, 0.0f };
     f64 inward = 0.0;
@@ -347,67 +333,135 @@ TEST(GroomCoatBody, ARayIntoTheBodyIsStoppedAndOneOutOfItIsNot)
     (void)SampleDensityVolume(volume, inCoat, glm::vec3(1.0f, 0.0f, 0.0f), true, 1.5f, nullptr, &outward);
     EXPECT_FALSE(outward > 0.0) << "a ray leaving the skin found body in front of it";
 
-    // Along the skin, a millimetre out: the body sits ErodeVoxels inside it,
-    // where the coat's roots already stop a grazing ray.
+    // Along the skin a voxel out -- a strand lit along its own tangent: the
+    // floor cuts the body off about 0.65 voxels from the skin, so no body.
     f64 grazing = 0.0;
-    (void)SampleDensityVolume(volume, glm::vec3(kBodyRadius + 0.001f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), true,
-                              1.5f, nullptr, &grazing);
-    EXPECT_FALSE(grazing > 0.0) << "a ray along the skin was stopped by the body";
+    (void)SampleDensityVolume(volume, glm::vec3(kBodyRadius + h, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), true, 1.5f,
+                              nullptr, &grazing);
+    EXPECT_FALSE(grazing > 0.0) << "a ray along the skin a voxel out was stopped by the body";
 }
 
-// THE VOLUME NEVER SHADOWS WHERE THE BODY DOES NOT, AND MISSES ONLY ITS SHELL
-// (#1533). Against the ball's exact geometry, from four thousand points in the
-// coat in every direction: a ray the volume stops must cross the ball, and a
-// ray that reaches deeper into the ball than the volume's inset must be
-// stopped. The inset is the representation's, derived rather than fitted: the
-// body is marked ErodeVoxels (2) inside the skin, cleared within one voxel of a
-// coat voxel, and a root's voxel reaches up to one voxel inside the skin -- four
-// voxels -- and the march may step one voxel over what is left. A chord that
-// only grazes that outer shell crosses no body voxel and is not stopped, which
-// is what the dog's rim measured too: its legs, face and torso lost the rays
-// that skim them, and its ears and tail tip, thinner than the inset, all of
-// theirs (DogShowcaseEvidenceTest.TheBodyInTheCoatVolumeIsSlicedForLooking).
-TEST(GroomCoatBody, TheVolumeNeverShadowsWhereTheBodyDoesNotAndMissesOnlyItsShell)
+// THE VOLUME NEVER SHADOWS PAST THE FLOOR'S REACH AND MISSES NO RAY THAT DIPS
+// INTO THE BODY (#1533). Against the ball's exact geometry, from four thousand
+// points in the coat in every direction, at the shipped step and at one voxel.
+// Both bounds are the representation's, derived rather than fitted:
+//   * outward: the filtered occupancy of a flat skin falls to the floor (0.1)
+//     0.66 voxels out, and a convex one sooner, so a ray whose closest approach
+//     is a voxel outside the ball crosses NO body at all -- not just too little
+//     to count;
+//   * inward: past the skin the filtered occupancy is at least about 0.5, an
+//     extinction of at least 0.44 * kBodyOpacityPerVoxel a voxel, so a ray that dips
+//     a quarter of a voxel into a ball 24 voxels across runs a chord of about 7
+//     voxels through it -- an optical depth of nearly 20, stopped many times
+//     over.
+// Between the two is the band a box filter at this voxel size cannot resolve:
+// rays that pass within a voxel of the skin may be stopped, and are counted.
+// The old erosion put the whole band inside the skin and left a shell four
+// voxels deep that let every grazing chord through
+// (DogShowcaseEvidenceTest.TheBodyInTheCoatVolumeIsSlicedForLooking).
+TEST(GroomCoatBody, TheVolumeShadowsNoFurtherThanTheFloorAndMissesNoRayIntoTheBody)
 {
     DensityVolume volume = FurredBallCoat();
     const Mesh ball = UvSphere(kBodyRadius, 48, 96);
-    const BodyVoxelSettings settings;
-    ASSERT_TRUE(MarkBodyInDensityVolume(volume, ball.View(), glm::mat4(1.0f), settings));
+    ASSERT_TRUE(MarkBodyInDensityVolume(volume, ball.View(), glm::mat4(1.0f), BodyVoxelSettings{}));
     const f32 voxel = volume.VoxelSize().x;
-    const f32 inset = (static_cast<f32>(settings.ErodeVoxels) + 3.0f) * voxel;
 
-    u32 crossing = 0;
-    u32 stopped = 0;
-    u32 falseShadow = 0;
-    u32 deepMisses = 0;
-    f32 deepestMiss = 0.0f;
-    for (const Ray& ray : CoatRays(4000))
+    for (const f32 stepScale : { 1.5f, 1.0f })
     {
-        // How deep the ray reaches into the ball: the radius less its closest
-        // approach to the centre, where that lies ahead of the origin.
-        const f32 along = std::max(0.0f, -glm::dot(ray.Origin, ray.Direction));
-        const f32 closest = glm::length(ray.Origin + ray.Direction * along);
-        const f32 reach = kBodyRadius - closest;
-        const bool crossesBall = reach > 0.0f;
-        f64 bodyTau = 0.0;
-        (void)SampleDensityVolume(volume, ray.Origin, ray.Direction, true, 1.0f, nullptr, &bodyTau);
-        const bool volumeStops = bodyTau > 3.0;
-        crossing += crossesBall ? 1u : 0u;
-        stopped += volumeStops ? 1u : 0u;
-        falseShadow += (volumeStops && !crossesBall) ? 1u : 0u;
-        if (crossesBall && !volumeStops)
+        SCOPED_TRACE(stepScale);
+        u32 crossing = 0;
+        u32 stopped = 0;
+        u32 bodyPastReach = 0;
+        u32 inBand = 0;
+        u32 bandStopped = 0;
+        u32 deepMisses = 0;
+        f32 deepestMiss = 0.0f;
+        for (const Ray& ray : CoatRays(4000))
         {
-            deepestMiss = std::max(deepestMiss, reach);
-            deepMisses += reach > inset ? 1u : 0u;
+            // How deep the ray reaches into the ball: the radius less its closest
+            // approach to the centre, where that lies ahead of the origin.
+            const f32 along = std::max(0.0f, -glm::dot(ray.Origin, ray.Direction));
+            const f32 closest = glm::length(ray.Origin + ray.Direction * along);
+            const f32 reach = kBodyRadius - closest;
+            f64 bodyTau = 0.0;
+            (void)SampleDensityVolume(volume, ray.Origin, ray.Direction, true, stepScale, nullptr, &bodyTau);
+            const bool volumeStops = bodyTau > 3.0;
+            crossing += reach > 0.0f ? 1u : 0u;
+            stopped += volumeStops ? 1u : 0u;
+            if (reach < -voxel)
+            {
+                bodyPastReach += bodyTau > 0.0 ? 1u : 0u;
+            }
+            else if (reach < 0.25f * voxel)
+            {
+                ++inBand;
+                bandStopped += volumeStops ? 1u : 0u;
+            }
+            else if (!volumeStops)
+            {
+                ++deepMisses;
+                deepestMiss = std::max(deepestMiss, reach);
+            }
         }
+        std::printf("[coat-body] step %.1f: %u of 4000 coat rays cross the ball, the volume stops %u; %u pass within a "
+                    "voxel of the skin or a quarter into it (%u stopped); %u reach deeper and are missed\n",
+                    static_cast<f64>(stepScale), crossing, stopped, inBand, bandStopped, deepMisses);
+        ASSERT_GT(crossing, 1000u) << "too few rays cross the ball to say anything";
+        EXPECT_EQ(bodyPastReach, 0u) << "rays passing a voxel or more outside the ball crossed body";
+        EXPECT_EQ(deepMisses, 0u) << "rays reaching a quarter voxel or more into the ball were let through; the deepest "
+                                     "reached "
+                                  << deepestMiss / voxel << " voxels";
     }
-    std::printf("[coat-body] %u of 4000 coat rays cross the ball, the volume stops %u; the deepest it missed reached %.2f "
-                "voxels in (inset %.1f)\n",
-                crossing, stopped, static_cast<f64>(deepestMiss / voxel), static_cast<f64>(inset / voxel));
-    ASSERT_GT(crossing, 1000u) << "too few rays cross the ball to say anything";
-    EXPECT_EQ(falseShadow, 0u) << "the volume stopped rays that never reach the body";
-    EXPECT_EQ(deepMisses, 0u) << "the volume let through rays that reach past its inset into the body; the deepest reached "
-                              << deepestMiss / voxel << " voxels";
+}
+
+// THE SKY THE BODY LEAVES (#1533), against the ball's geometry. From a point
+// at height h in the coat, the ball fills a cone of half-angle a around the
+// way in, sin a = R / (R + h): it shuts (1 - cos a) / 2 of the sphere of
+// directions, and a cosine lobe pointed straight at it loses sin^2 a. So at
+// h = 2 cm over the 10 cm ball: open share 0.777, a lobe pointed out sees all
+// of the sky, one pointed in 0.31 of it, and the open direction is straight
+// out. BodySkyVisibility's cap reading gives the lobe pointed in v - 2v(1 - v)
+// = 0.43 there, which is what the bound below allows for; the bake's 32 rays
+// and its cells, 1.7 cm apart, move the open share by a few hundredths.
+TEST(GroomCoatBody, TheSkyTheBodyLeavesIsTheBallsShare)
+{
+    DensityVolume volume = FurredBallCoat();
+    const Mesh ball = UvSphere(kBodyRadius, 48, 96);
+    BodyVoxelStats stats;
+    ASSERT_TRUE(MarkBodyInDensityVolume(volume, ball.View(), glm::mat4(1.0f), BodyVoxelSettings{}, &stats));
+    EXPECT_GT(stats.SkyCellsOutside, 0u);
+    EXPECT_LT(stats.SkyCellsOutside, stats.SkyCells) << "no sky cell lies inside the ball";
+
+    constexpr f32 kHeight = 0.02f;
+    const f32 sinA = kBodyRadius / (kBodyRadius + kHeight);
+    const f32 cosA = std::sqrt(1.0f - (sinA * sinA));
+    const f32 expectedOpen = 0.5f * (1.0f + cosA);
+    f32 worstOpen = 0.0f;
+    f32 worstAlign = 1.0f;
+    for (const Ray& ray : CoatRays(64))
+    {
+        const glm::vec3 out = glm::normalize(ray.Origin);
+        const glm::vec4 texel = SampleBody(volume, out * (kBodyRadius + kHeight));
+        const glm::vec3 skyVector(texel);
+        const f32 open = glm::length(skyVector);
+        worstOpen = std::max(worstOpen, std::abs(open - expectedOpen));
+        worstAlign = std::min(worstAlign, glm::dot(skyVector / std::max(open, 1.0e-6f), out));
+        EXPECT_FLOAT_EQ(texel.w, 0.0f) << "a point 2 cm out holds body";
+        EXPECT_GT(BodySkyVisibility(skyVector, out), 0.95f) << "a lobe pointed away from the ball lost sky to it";
+        const f32 inward = BodySkyVisibility(skyVector, -out);
+        EXPECT_GT(inward, 0.15f);
+        EXPECT_LT(inward, 0.55f) << "a lobe pointed at the ball kept most of the sky";
+    }
+    std::printf("[coat-body] the sky 2 cm out: open share within %.3f of the ball's %.3f, open direction within %.1f "
+                "degrees of straight out\n",
+                static_cast<f64>(worstOpen), static_cast<f64>(expectedOpen),
+                static_cast<f64>(glm::degrees(std::acos(std::clamp(worstAlign, -1.0f, 1.0f)))));
+    EXPECT_LT(worstOpen, 0.08f) << "the open share is not the ball's";
+    EXPECT_GT(worstAlign, 0.95f) << "the open direction does not point away from the ball";
+
+    // Deep inside the ball nothing is open; far outside it, nearly all is.
+    EXPECT_LT(glm::length(glm::vec3(SampleBody(volume, glm::vec3(0.0f)))), 0.05f);
+    EXPECT_GT(glm::length(glm::vec3(SampleBody(volume, glm::vec3(0.0f, kBodyRadius + 0.028f, 0.0f)))), 0.7f);
 }
 
 TEST(GroomCoatBody, AnOpenShellIsLeftOutAndSaysSo)
@@ -422,26 +476,57 @@ TEST(GroomCoatBody, AnOpenShellIsLeftOutAndSaysSo)
     EXPECT_TRUE(SameVolume(volume, coat)) << "a surface that was refused still changed the volume";
 }
 
-TEST(GroomCoatBody, APartTooThinForTheErosionMarksNothing)
+// A PART THINNER THAN A VOXEL KEEPS ITS SHARE. The erosion this replaced took
+// every part under five voxels -- the dog's ears and tail tip -- out of the
+// volume. A slab a voxel thick adds up to its volume and stops a ray across it;
+// half a voxel adds up to its volume too and stops a share of the light.
+// Derived: a voxel-thick slab centred on a voxel row filters to a tent of peak
+// 1, an optical depth of kBodyOpacityPerVoxel * 0.9^2 / 0.9 = 5.4 across it; half a
+// voxel peaks at 0.5, (0.4 / 0.5)^2 * 0.5 * 6 / 0.9 = 2.1, and less where it
+// straddles two rows. The march's samples move the sum either way.
+TEST(GroomCoatBody, APartThinnerThanAVoxelKeepsItsShare)
 {
     const DensityVolume coat = FurredBallCoat();
-    DensityVolume volume = coat;
-    // Three voxels thick, well inside the ball's coat-free core: the closed box
-    // is found and filled, and two voxels of erosion leave nothing of it.
     const f32 h = coat.VoxelSize().x;
-    const Mesh slab = SplitBox(glm::vec3(-0.03f, -0.03f, -1.5f * h), glm::vec3(0.03f, 0.03f, 1.5f * h));
-    BodyVoxelStats stats;
-    EXPECT_FALSE(MarkBodyInDensityVolume(volume, slab.View(), glm::mat4(1.0f), BodyVoxelSettings{}, &stats));
-    EXPECT_EQ(stats.ClosedComponents, 1u) << "the 24-vertex box did not weld into one closed part";
-    EXPECT_GT(stats.InsideVoxels, 0u);
-    EXPECT_EQ(stats.MarkedVoxels, 0u);
-    EXPECT_TRUE(SameVolume(volume, coat));
+    // A slab in the ball's coat-free core, centred on the voxel row nearest
+    // z = 0 so the derivation above holds as stated.
+    const f32 row = coat.BoundsMin.z + ((std::floor((0.0f - coat.BoundsMin.z) / h) + 0.5f) * h);
+    for (const f32 thickness : { 1.0f, 0.5f })
+    {
+        SCOPED_TRACE(thickness);
+        DensityVolume volume = coat;
+        const Mesh slab = SplitBox(glm::vec3(-0.03f, -0.03f, row - (0.5f * thickness * h)),
+                                   glm::vec3(0.03f, 0.03f, row + (0.5f * thickness * h)));
+        BodyVoxelStats stats;
+        ASSERT_TRUE(MarkBodyInDensityVolume(volume, slab.View(), glm::mat4(1.0f), BodyVoxelSettings{}, &stats));
+        EXPECT_EQ(stats.ClosedComponents, 1u) << "the 24-vertex box did not weld into one closed part";
+        f64 occupied = 0.0;
+        for (sizet i = 0; i < volume.Body.size(); ++i)
+        {
+            occupied += Occupancy(volume, i);
+        }
+        // Exact through its thickness; across, the sub-columns sample its four
+        // edges a quarter voxel apart, up to 2 * 0.25 / 14 of each side.
+        const f64 slabVoxels = (0.06 / h) * (0.06 / h) * thickness;
+        EXPECT_NEAR(occupied / slabVoxels, 1.0, 0.04) << "the slab's occupancy is not its volume";
 
-    // The same box, thick, is kept: the erosion is what removed the thin one.
-    DensityVolume thick = coat;
-    const Mesh block = SplitBox(glm::vec3(-0.03f), glm::vec3(0.03f));
-    EXPECT_TRUE(MarkBodyInDensityVolume(thick, block.View(), glm::mat4(1.0f), BodyVoxelSettings{}, &stats));
-    EXPECT_GT(stats.MarkedVoxels, 0u);
+        f64 across = 0.0;
+        (void)SampleDensityVolume(volume, glm::vec3(0.003f, 0.002f, row - 0.04f), glm::vec3(0.0f, 0.0f, 1.0f), true, 1.5f,
+                                  nullptr, &across);
+        f64 beside = 0.0;
+        (void)SampleDensityVolume(volume, glm::vec3(-0.05f, 0.002f, row + (2.0f * h)), glm::vec3(1.0f, 0.0f, 0.0f), true,
+                                  1.5f, nullptr, &beside);
+        std::printf("[coat-body] a slab %.1f voxels thick: optical depth %.2f across it\n", static_cast<f64>(thickness), across);
+        EXPECT_FALSE(beside > 0.0) << "a ray two voxels above the slab crossed body";
+        if (thickness >= 1.0f)
+        {
+            EXPECT_GT(across, 3.0) << "a slab a voxel thick did not stop a ray across it";
+        }
+        else
+        {
+            EXPECT_GT(across, 1.0) << "a slab half a voxel thick stopped almost none of the light";
+        }
+    }
 }
 
 TEST(GroomCoatBody, ACorruptSurfaceIsRefusedWithTheVolumeUntouched)
@@ -459,10 +544,13 @@ TEST(GroomCoatBody, ACorruptSurfaceIsRefusedWithTheVolumeUntouched)
     EXPECT_FALSE(MarkBodyInDensityVolume(volume, empty, glm::mat4(1.0f), BodyVoxelSettings{}));
     EXPECT_TRUE(SameVolume(volume, coat));
 
-    BodyVoxelSettings bad;
-    bad.OpacityPerVoxel = -1.0f;
-    EXPECT_FALSE(MarkBodyInDensityVolume(volume, ball.View(), glm::mat4(1.0f), bad));
-    EXPECT_TRUE(SameVolume(volume, coat));
+    for (const f32 tolerance : { -1.0f, 0.0f, std::numeric_limits<f32>::quiet_NaN() })
+    {
+        BodyVoxelSettings bad;
+        bad.WeldTolerance = tolerance;
+        EXPECT_FALSE(MarkBodyInDensityVolume(volume, ball.View(), glm::mat4(1.0f), bad));
+        EXPECT_TRUE(SameVolume(volume, coat));
+    }
 }
 
 // The body is placed through the transform it is given, as a bound body is

@@ -1824,6 +1824,21 @@ namespace OloEngine::Tests
         {
             auto& shadow = m_Dog.Coat.GetComponent<GroomCoatShadowComponent>();
             auto& anim = m_Dog.Body.GetComponent<AnimationStateComponent>();
+            // THE COAT AGAINST THE COAT. Only a rest bake carries the body
+            // (groom-coat-body-in-the-volume.md rule 4), so with it in, the rest
+            // arm differs from the pose arm by the body's own shadow -- 7-15% of
+            // the sky's light on the dog's fur since the body sits at the skin --
+            // and the comparison measures the body, not the bake. Every
+            // arm runs without it (the shader-side lever, no rebake); what the
+            // body does is TheLightTheBodyCannotStopIsMeasuredRegionByRegion's.
+            struct BodyBack
+            {
+                ~BodyBack()
+                {
+                    Levers::SetGroomNoCoatBody(false);
+                }
+            } bodyBack;
+            Levers::SetGroomNoCoatBody(true);
             const auto arm = [&](bool atRest, bool enabled, LinearFrame& out, const std::string& png)
             {
                 shadow.m_BakeAtRest = atRest;
@@ -4229,9 +4244,10 @@ namespace OloEngine::Tests
         GroomCoatShadow::BodyVoxelStats stats;
         ASSERT_TRUE(GroomCoatShadow::MarkBodyInDensityVolume(volume, surface, glm::mat4(1.0f), GroomCoatShadow::BodyVoxelSettings{},
                                                              &stats));
-        std::printf("[dog] body slices: %u x %u x %u voxels of %.2f mm, %u body voxels, %u closed of %u parts\n",
+        std::printf("[dog] body slices: %u x %u x %u voxels of %.2f mm, %u body voxels (%u full), %u closed of %u parts, "
+                    "%u odd sub-columns\n",
                     volume.Dimensions.x, volume.Dimensions.y, volume.Dimensions.z, 1000.0 * volume.VoxelSize().x,
-                    stats.MarkedVoxels, stats.ClosedComponents, stats.Components);
+                    stats.MarkedVoxels, stats.FullVoxels, stats.ClosedComponents, stats.Components, stats.OddColumns);
 
         f32 densest = 0.0f;
         for (const f32 d : volume.Density)
@@ -4239,18 +4255,24 @@ namespace OloEngine::Tests
             densest = std::max(densest, d);
         }
         const glm::ivec3 dims = volume.Dimensions;
-        const auto at = [&](i32 x, i32 y, i32 z)
-        { return volume.Density[static_cast<sizet>(x) + (static_cast<sizet>(dims.x) * (static_cast<sizet>(y) + (static_cast<sizet>(dims.y) * static_cast<sizet>(z))))]; };
-        const auto paint = [&](f32 d, u8* px)
+        const auto index = [&](i32 x, i32 y, i32 z)
+        { return static_cast<sizet>(x) + (static_cast<sizet>(dims.x) * (static_cast<sizet>(y) + (static_cast<sizet>(dims.y) * static_cast<sizet>(z)))); };
+        // The body where its occupancy passes the floor, red by how full;
+        // the coat's density everywhere else, green.
+        const auto occupancy = [&](sizet i) { return static_cast<f32>(volume.Body[i].w) / 255.0f; };
+        const auto paint = [&](i32 x, i32 y, i32 z, u8* px)
         {
-            if (d < 0.0f)
+            const sizet i = index(x, y, z);
+            if (occupancy(i) > GroomCoatShadow::kBodyOccupancyFloor)
             {
-                px[0] = 255u;
+                const f32 r = std::sqrt(occupancy(i));
+                px[0] = static_cast<u8>(80.0f + (175.0f * r));
                 px[1] = 40u;
                 px[2] = 40u;
             }
             else
             {
+                const f32 d = volume.Density[i];
                 const f32 g = densest > 0.0f ? std::sqrt(std::min(1.0f, d / (0.25f * densest))) : 0.0f;
                 px[0] = 0u;
                 px[1] = static_cast<u8>(255.0f * g);
@@ -4266,7 +4288,7 @@ namespace OloEngine::Tests
             {
                 for (i32 z = 0; z < dims.z; ++z)
                 {
-                    paint(at(x, y, z), &img[(static_cast<sizet>(dims.y - 1 - y) * dims.z + static_cast<sizet>(z)) * 4u]);
+                    paint(x, y, z, &img[(static_cast<sizet>(dims.y - 1 - y) * dims.z + static_cast<sizet>(z)) * 4u]);
                 }
             }
             WritePng("DogBodySlice_Midline", img, static_cast<u32>(dims.z), static_cast<u32>(dims.y));
@@ -4280,17 +4302,19 @@ namespace OloEngine::Tests
             {
                 for (i32 x = 0; x < dims.x; ++x)
                 {
-                    paint(at(x, y, z), &img[(static_cast<sizet>(dims.y - 1 - y) * dims.x + static_cast<sizet>(x)) * 4u]);
+                    paint(x, y, z, &img[(static_cast<sizet>(dims.y - 1 - y) * dims.x + static_cast<sizet>(x)) * 4u]);
                 }
             }
             WritePng(std::string("DogBodySlice_") + name, img, static_cast<u32>(dims.x), static_cast<u32>(dims.y));
         }
 
-        // The rim, cast from 3 mm off the skin of each part through this volume,
-        // against the bind-pose body mesh itself (every triangle, as the shadow
-        // map holds it): where the volume's body says "blocked" and the mesh
-        // agrees, where only the mesh does, and where only the volume does.
+        // The rim, cast from 3 mm off the skin of each part through this volume
+        // at the shipped march step, against the bind-pose body mesh itself
+        // (every triangle, as the shadow map holds it): where the volume's body
+        // says "blocked" and the mesh agrees, where only the mesh does, and
+        // where only the volume does.
         const glm::vec3 toLight = -glm::normalize(m_Rim.GetComponent<DirectionalLightComponent>().m_Direction);
+        const f32 stepVoxels = MakeGroomCoatStepVoxels(m_Dog.Coat.GetComponent<GroomCoatShadowComponent>());
         const BodyParts parts = BuildBodyParts();
         const auto& vertices = body.GetVertices();
         const auto& indices = body.GetIndices();
@@ -4324,6 +4348,65 @@ namespace OloEngine::Tests
             }
             return false;
         };
+        // How close a ray passes to the skin: the nearest point of any triangle
+        // to its samples every half millimetre over its first 6 cm (Ericson's
+        // closest point on a triangle), triangles whose box is farther than
+        // the best so far skipped.
+        const auto closestPoint = [](const glm::vec3& p, const glm::vec3& a, const glm::vec3& b, const glm::vec3& c)
+        {
+            const glm::vec3 ab = b - a;
+            const glm::vec3 ac = c - a;
+            const glm::vec3 ap = p - a;
+            const f32 d1 = glm::dot(ab, ap);
+            const f32 d2 = glm::dot(ac, ap);
+            if (d1 <= 0.0f && d2 <= 0.0f)
+                return a;
+            const glm::vec3 bp = p - b;
+            const f32 d3 = glm::dot(ab, bp);
+            const f32 d4 = glm::dot(ac, bp);
+            if (d3 >= 0.0f && d4 <= d3)
+                return b;
+            const f32 vc = (d1 * d4) - (d3 * d2);
+            if (vc <= 0.0f && d1 >= 0.0f && d3 <= 0.0f)
+                return a + ab * (d1 / (d1 - d3));
+            const glm::vec3 cp = p - c;
+            const f32 d5 = glm::dot(ab, cp);
+            const f32 d6 = glm::dot(ac, cp);
+            if (d6 >= 0.0f && d5 <= d6)
+                return c;
+            const f32 vb = (d5 * d2) - (d1 * d6);
+            if (vb <= 0.0f && d2 >= 0.0f && d6 <= 0.0f)
+                return a + ac * (d2 / (d2 - d6));
+            const f32 va = (d3 * d6) - (d5 * d4);
+            if (va <= 0.0f && (d4 - d3) >= 0.0f && (d5 - d6) >= 0.0f)
+                return b + (c - b) * ((d4 - d3) / ((d4 - d3) + (d5 - d6)));
+            const f32 denom = 1.0f / (va + vb + vc);
+            return a + ab * (vb * denom) + ac * (vc * denom);
+        };
+        const auto closestApproach = [&](const glm::vec3& origin)
+        {
+            f32 best = 0.01f;
+            for (i32 t = 0; t + 2 < static_cast<i32>(indices.Num()); t += 3)
+            {
+                const glm::vec3 a = vertices[static_cast<i32>(indices[t])].Position;
+                const glm::vec3 b = vertices[static_cast<i32>(indices[t + 1])].Position;
+                const glm::vec3 c = vertices[static_cast<i32>(indices[t + 2])].Position;
+                const glm::vec3 lo = glm::min(a, glm::min(b, c)) - glm::vec3(best);
+                const glm::vec3 hi = glm::max(a, glm::max(b, c)) + glm::vec3(best);
+                const glm::vec3 segmentEnd = origin + toLight * 0.06f;
+                if (glm::any(glm::lessThan(glm::max(origin, segmentEnd), lo)) ||
+                    glm::any(glm::greaterThan(glm::min(origin, segmentEnd), hi)))
+                    continue;
+                for (f32 s = 0.0f; s <= 0.06f; s += 0.0005f)
+                {
+                    const glm::vec3 p = origin + toLight * s;
+                    best = std::min(best, glm::length(closestPoint(p, a, b, c) - p));
+                }
+            }
+            return best;
+        };
+        f32 falseShadowClosest = 0.0f;
+        u32 falseShadows = 0;
         for (sizet partIndex = 0; partIndex < kBodyParts; ++partIndex)
         {
             std::vector<u32> members;
@@ -4346,7 +4429,7 @@ namespace OloEngine::Tests
                 const glm::vec3 origin =
                     vertices[static_cast<i32>(v)].Position + 0.003f * glm::normalize(vertices[static_cast<i32>(v)].Normal);
                 f64 bodyTau = 0.0;
-                (void)GroomCoatShadow::SampleDensityVolume(volume, origin, toLight, false, 1.0f, nullptr, &bodyTau);
+                (void)GroomCoatShadow::SampleDensityVolume(volume, origin, toLight, false, stepVoxels, nullptr, &bodyTau);
                 const bool volumeBlocks = bodyTau > 3.0;
                 const bool meshBlocks = rayHitsBody(origin);
                 both += (volumeBlocks && meshBlocks) ? 1u : 0u;
@@ -4354,7 +4437,7 @@ namespace OloEngine::Tests
                 if (!volumeBlocks && meshBlocks)
                 {
                     // Walk the same ray at 1 mm through the voxels: is any of the
-                    // body on it at all, or did the erosion take it?
+                    // body on it at all?
                     const glm::vec3 voxel = volume.VoxelSize();
                     bool onRay = false;
                     for (f32 t = 0.0f; t < 2.0f && !onRay; t += 0.001f)
@@ -4363,18 +4446,93 @@ namespace OloEngine::Tests
                         const glm::ivec3 c = glm::ivec3(glm::floor(q));
                         if (glm::any(glm::lessThan(c, glm::ivec3(0))) || glm::any(glm::greaterThanEqual(c, dims)))
                             break;
-                        onRay = at(c.x, c.y, c.z) < 0.0f;
+                        onRay = occupancy(index(c.x, c.y, c.z)) > GroomCoatShadow::kBodyOccupancyFloor;
                     }
                     meshOnlyButVoxelOnRay += onRay ? 1u : 0u;
                 }
-                volumeOnly += (volumeBlocks && !meshBlocks) ? 1u : 0u;
+                if (volumeBlocks && !meshBlocks)
+                {
+                    ++volumeOnly;
+                    ++falseShadows;
+                    falseShadowClosest = std::max(falseShadowClosest, closestApproach(origin));
+                }
                 neither += (!volumeBlocks && !meshBlocks) ? 1u : 0u;
             }
-            std::printf("[dog] body rim probe %-12s blocked by both %3u, the mesh only %3u (%3u with body voxels on the ray), "
+            std::printf("[dog] body rim probe %-12s blocked by both %3u, the mesh only %3u (%3u with body on the ray), "
                         "the volume only %3u, neither %3u\n",
                         kBodyPartNames[partIndex], both, meshOnly, meshOnlyButVoxelOnRay, volumeOnly, neither);
         }
+        std::printf("[dog] body rim probe: the %u rays only the volume stops all pass within %.2f mm (%.2f voxels) of the skin\n",
+                    falseShadows, 1000.0 * falseShadowClosest, static_cast<f64>(falseShadowClosest / volume.VoxelSize().x));
         std::fflush(stdout);
+
+        // The same rim from the FUR, which is what a frame shades: points a third,
+        // two thirds and all of the way along a spread of strands (the cooked
+        // curves, unshaped), each strand in the part of the furred skin vertex
+        // nearest its root.
+        {
+            const std::vector<glm::vec3>& points = groom.GetPoints();
+            const u32 curves = groom.GetCurveCount();
+            std::vector<u32> furred;
+            for (u32 v = 0; v < static_cast<u32>(parts.Part.size()); ++v)
+            {
+                if (parts.Furred[v] != 0u)
+                    furred.push_back(v);
+            }
+            constexpr u32 kStrands = 1100u;
+            std::array<std::array<u32, 4>, kBodyParts> counts{};
+            f32 furFalseClosest = 0.0f;
+            u32 furFalse = 0;
+            for (u32 k = 0; k < kStrands && curves > 0u && !furred.empty(); ++k)
+            {
+                const u32 curve = static_cast<u32>((static_cast<u64>(k) * curves) / kStrands);
+                const u32 first = groom.GetCurveFirstPoint(curve);
+                const u32 count = groom.GetCurvePointCount(curve);
+                if (count < 2u)
+                    continue;
+                const glm::vec3 root = points[first];
+                u32 nearest = furred.front();
+                f32 nearestDistance = std::numeric_limits<f32>::max();
+                for (const u32 v : furred)
+                {
+                    const f32 d = glm::length(vertices[static_cast<i32>(v)].Position - root);
+                    if (d < nearestDistance)
+                    {
+                        nearestDistance = d;
+                        nearest = v;
+                    }
+                }
+                const sizet part = static_cast<sizet>(parts.Part[nearest]);
+                if (part >= kBodyParts)
+                    continue;
+                for (const u32 third : { 1u, 2u, 3u })
+                {
+                    const u32 index = first + ((third * (count - 1u)) + 1u) / 3u;
+                    const glm::vec3 origin = points[std::min(index, first + count - 1u)];
+                    f64 bodyTau = 0.0;
+                    (void)GroomCoatShadow::SampleDensityVolume(volume, origin, toLight, false, stepVoxels, nullptr, &bodyTau);
+                    const bool volumeBlocks = bodyTau > 3.0;
+                    const bool meshBlocks = rayHitsBody(origin);
+                    ++counts[part][(volumeBlocks ? 1u : 0u) + (meshBlocks ? 2u : 0u)];
+                    if (volumeBlocks && !meshBlocks)
+                    {
+                        ++furFalse;
+                        furFalseClosest = std::max(furFalseClosest, closestApproach(origin));
+                    }
+                }
+            }
+            for (sizet part = 0; part < kBodyParts; ++part)
+            {
+                const auto& c = counts[part];
+                if (c[0] + c[1] + c[2] + c[3] == 0u)
+                    continue;
+                std::printf("[dog] fur rim probe %-14s blocked by both %3u, the mesh only %3u, the volume only %3u, neither %3u\n",
+                            kBodyPartNames[part], c[3], c[2], c[1], c[0]);
+            }
+            std::printf("[dog] fur rim probe: the %u fur points only the volume stops all pass within %.2f mm of the skin\n",
+                        furFalse, 1000.0 * furFalseClosest);
+            std::fflush(stdout);
+        }
     }
 
     // =========================================================================
@@ -6054,7 +6212,7 @@ namespace OloEngine::Tests
     // A RECORD. It asserts only its instruments: the rim reaches the coat, the
     // body's share of the rim rises above the rim's repeat noise in some view,
     // and a casting dome lets less through the body than a non-casting one
-    // without it. How much of the rim the volume stops is the shell's business
+    // without it. How much of the rim the volume stops is recorded, not bounded
     // (see the note at the end); OLO_DOG_LIGHTING=1 runs it (about 6,000 frames);
     // OLO_DOG_LIGHTING_EXPORT=1 also rewrites assets/tests/visual/Dog_Lighting.txt.
     // =========================================================================
@@ -6068,8 +6226,14 @@ namespace OloEngine::Tests
             GTEST_SKIP() << "set OLO_DOG_LIGHTING=1 to measure (OLO_DOG_LIGHTING_EXPORT=1 also rewrites "
                             "Dog_Lighting.txt)";
         }
+        // OLO_DOG_LIGHTING_CLIP picks the pose, frame 40 of Idle by default. "Rest" is the bind pose
+        // the coat's volume holds its body in, so the two split what the pose costs from the rest.
+        // Only the default is exported.
+        const char* clipFlag = std::getenv("OLO_DOG_LIGHTING_CLIP");
+        const std::string clip = clipFlag != nullptr && clipFlag[0] != '\0' ? clipFlag : "Idle";
+        ASSERT_TRUE(!exporting || clip == "Idle") << "Dog_Lighting.txt is the Idle record; export without OLO_DOG_LIGHTING_CLIP";
         SetPath(RenderingPath::Forward);
-        (void)StartClip("Idle", true, 40);
+        (void)StartClip(clip.c_str(), true, 40);
         auto& anim = m_Dog.Body.GetComponent<AnimationStateComponent>();
         anim.m_IsPlaying = false; // one pose, one coat, for every arm
         auto& simulation = m_Dog.Coat.GetComponent<GroomSimulationComponent>();
@@ -6171,7 +6335,7 @@ namespace OloEngine::Tests
         std::string report;
         report += "# DogShowcaseEvidenceTest.TheLightTheBodyCannotStopIsMeasuredRegionByRegion (#1533 review, section 6)\n";
         report += "# Linear scene colour (Rec.709 luminance, before tone mapping), GL Forward, the editor's quality tier,\n";
-        report += "# Idle frame 40, simulation off, multiple scattering off in every arm; 24 settle + 8 averaged frames\n";
+        report += "# " + clip + " frame 40, simulation off, multiple scattering off in every arm; 24 settle + 8 averaged frames\n";
         report += "# per arm (dome: 12 + 4 per direction). Means over each region's coat pixels.\n";
         report += "# Each column is shipped / without the body in the coat's volume (OLO_GROOM_NO_COAT_BODY, before #1533).\n";
         report += "#   rimLeak    (RIM - RIM+BODY) / RIM: the share of the rim's light on this fur the cascades say the body\n";
@@ -6357,16 +6521,18 @@ namespace OloEngine::Tests
             // Measurable: the rim reaches the coat, and the body's share of it
             // without the body in the volume rises above the arm's own repeat
             // noise. How much of that share the volume stops is recorded, not
-            // bounded, because the share holds more than the volume claims: what
-            // it leaves transparent by design (the eroded outer shell the rim's
-            // grazing paths cross, parts too thin to keep a core such as the tail
-            // and the ears), and every opaque caster the cascades hold and the
-            // volume never does (the lawn, the eyes, the teeth). One view kept
-            // 0.135 of its 0.136, another 0.042 of 0.061. What the volume
-            // promises -- never a shadow the body does not cast, and no miss
-            // deeper than the shell -- is held on an analytic sphere by
-            // GroomCoatBody.TheVolumeNeverShadowsWhereTheBodyDoesNotAndMissesOnlyItsShell
-            // (groom-coat-body-in-the-volume.md, "What the volume misses").
+            // bounded, because the share holds more than the volume claims: the
+            // band about a voxel wide along the skin that a box filter at this
+            // voxel size cannot resolve (a ray grazing it may pass or be
+            // stopped), and every opaque caster the cascades hold and the volume
+            // never does (the lawn, the eyes, the teeth). What the volume
+            // promises -- no body a voxel outside the skin, and every ray that
+            // dips a quarter of a voxel in stopped -- is held on an analytic
+            // sphere by
+            // GroomCoatBody.TheVolumeShadowsNoFurtherThanTheFloorAndMissesNoRayIntoTheBody
+            // and measured on the dog's own skin by
+            // TheBodyInTheCoatVolumeIsSlicedForLooking (groom-coat-body-in-the-volume.md,
+            // "What the volume misses").
             const f64 allFloor = all.Rim > 0.0 ? std::abs(all.Rim - all.RimAgain) / all.Rim : 1.0;
             const f64 leakBefore = ratio(all.RimNoBody - all.RimBody, all.RimNoBody);
             EXPECT_GT(all.Rim / std::max(all.Pixels, 1.0), 0.0) << "the rim does not reach the coat in this view";

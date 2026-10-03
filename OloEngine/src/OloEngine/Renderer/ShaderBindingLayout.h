@@ -3654,6 +3654,25 @@ namespace OloEngine
         // criterion is that the thickness source survives a round-trip.
         static constexpr u32 TEX_SKIN_THICKNESS = 76;
 
+        // The BODY inside a groom's coat-shadow volume (issue #1533) — a
+        // sampler3D RGBA8 on TEX_GROOM_COAT_VOLUME's grid, in the same groom
+        // object space: A the body the coat grows on as box-filtered
+        // occupancy, marched by GroomStrand.glsl for the lights no shadow map
+        // answers at the strand; RGB the share of the sky it leaves, for the
+        // environment term. CPU twin: GroomCoatShadow::DensityVolume::Body.
+        //
+        // ITS OWN SLOT because the coat volume's texture could not hold it at
+        // the skin: trilinear filtering mixes coat and body in a shared cell, so
+        // the body rode there as negative density eroded a centimetre clear of
+        // every coat voxel, and the dog's ears, legs and tail tip had no core.
+        //
+        // 77 WAS FREE between the skin thickness map and TEX_SHADER_GRAPH_0, so
+        // claiming it moves neither TEX_SHADER_GRAPH_0 nor HEAP_IMAGE_SLOT_BASE:
+        // the heap's offset table already had an entry for it. Binding 77 is
+        // also UBO_REFLECTION_PROBE_CULL's and SSBO_VSM_STATS's number, in other
+        // namespaces and only in compute shaders that never sample this.
+        static constexpr u32 TEX_GROOM_COAT_BODY = 77; // sampler3D RGBA8 — a = body occupancy, rgb = the sky it leaves
+
         // First shader graph user texture slot — must stay after every
         // engine-reserved slot, which is why it MOVES when one is added rather
         // than the new slot being wedged in above it. It has moved four times
@@ -4863,6 +4882,13 @@ namespace OloEngine
                     // ShaderReflectionBinding.AllProductionShaderBindingsMatchCppLayout
                     // and makes ValidateStandardBindings trace every skin draw.
                     return name == "u_ThicknessMap";
+                case TEX_GROOM_COAT_BODY:
+                    // The body inside a groom's coat volume (issue #1533).
+                    // Declared once, in GroomStrand.glsl, and passed to
+                    // include/GroomCoatShadowCommon.glsl as a parameter, as the
+                    // coat volume is. Required for the same reason as the arm
+                    // above: 77 is outside the default's ranges.
+                    return name == "u_GroomCoatBody";
                 default:
                     // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_WATER_SSR, i.e. 10–42)
                     // and shader graph user texture slots (TEX_SHADER_GRAPH_0+)

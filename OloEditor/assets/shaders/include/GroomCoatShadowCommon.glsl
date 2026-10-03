@@ -48,13 +48,15 @@
 // only): the march takes angles in that space, and a scale in it would tilt
 // every fibre direction by an amount that depends on which way the ray points.
 //
-// A NEGATIVE DENSITY IS THE BODY (#1533). A coat baked at rest over a bound
-// body carries that body too, as -extinction in 1/m, eroded from the skin and
-// kept a voxel clear of every coat voxel (GroomCoatShadow::
-// MarkBodyInDensityVolume). The march skips a sample at or below zero, so a
-// march that does not count the body reads exactly the coat it always did;
-// oloGroomCoatOpticalDepthAndBodyObject counts it, for the lights no shadow map
-// answers at the strand.
+// THE BODY HAS A VOLUME OF ITS OWN (#1533). A coat baked at rest over a bound
+// body carries that body in a second texture, the same grid and the same
+// object space (TEX_GROOM_COAT_BODY, GroomCoatShadow::MarkBodyInDensityVolume):
+// RGBA8, A the body's box-filtered occupancy, RGB the sky it leaves. Its own
+// texture is what lets it sit AT the skin beside the coat's roots; in the
+// coat's texture it had to be eroded a centimetre clear of them.
+// oloGroomCoatOpticalDepthAndBodyObject reads it only when it counts the body,
+// for the lights no shadow map answers at the strand, so every other march is
+// the coat it always was.
 // =============================================================================
 
 #ifndef OLO_GROOM_COAT_SHADOW_COMMON_GLSL
@@ -87,8 +89,8 @@ const float OLO_GROOM_COAT_ISOTROPIC_MEAN_SINE = 0.78539816339744830961;
 // ONE RGBA texture rather than a separate density and direction pair, and that
 // is a bandwidth decision rather than a packing convenience: the march is the
 // hot loop, and two fetches per step would double its bandwidth for a channel
-// the isotropic arm does not even read. It also costs ONE sampler slot, and the
-// sampler namespace has exactly one index left (ShaderBindingLayout.h).
+// the isotropic arm does not even read. The body is the one exception, a
+// second fetch only in the marches that count it.
 //
 // RGBA16F on the wire, 8 bytes a voxel (#1445: Texture3D's RGBA16F upload takes
 // half-float client data). GroomRenderPass's bake falls back to RGBA32F only for
@@ -203,15 +205,58 @@ bool oloGroomCoatIntersectUnitBox(vec3 originUvw, vec3 dirUvw, out float tEnter,
 // the direction turned back through its root, and calls this directly.
 //
 // Returns (tau, bodyTau): the expected fibre crossings and, when `countBody`,
-// the body's optical depth along the same samples (zero otherwise), whose
-// transmittance is oloGroomBodyTransmittance. A march that has gone this deep
-// into the body stops: what is left of the light is under 1e-5, and the
-// remaining coat cannot matter. GroomCoatShadow::SampleDensityVolume with a
-// body output is the twin, down to the stop.
+// the body's optical depth along the same samples from `bodyVolume` (zero
+// otherwise), whose transmittance is oloGroomBodyTransmittance. A march that
+// has gone this deep into the body stops: what is left of the light is under
+// 1e-5, and the remaining coat cannot matter. GroomCoatShadow::
+// SampleDensityVolume with a body output is the twin, down to the stop.
 const float OLO_GROOM_BODY_OPAQUE_TAU = 12.0;
 
-vec2 oloGroomCoatOpticalDepthAndBodyObject(sampler3D coatVolume, vec3 boundsMin, vec3 invExtent, vec3 originObject,
-                                           vec3 dirObject, float stepWorld, int mode, bool countBody)
+// GroomCoatShadow::kBodyOpacityPerVoxel and kBodyOccupancyFloor: one voxel of
+// full body stops e^-6 of the light, and a filtered occupancy under the floor --
+// the smear outside the skin -- stops none.
+const float OLO_GROOM_BODY_OPACITY_PER_VOXEL = 6.0;
+const float OLO_GROOM_BODY_OCCUPANCY_FLOOR = 0.1;
+
+// The body's extinction in 1/m from a FILTERED occupancy. The twin of
+// GroomCoatShadow::BodyExtinction.
+float oloGroomBodyExtinction(float occupancy, float voxelLength)
+{
+	if (!(voxelLength > 0.0))
+	{
+		return 0.0;
+	}
+	float above = max(occupancy - OLO_GROOM_BODY_OCCUPANCY_FLOOR, 0.0);
+	return (OLO_GROOM_BODY_OPACITY_PER_VOXEL / voxelLength) * (above / (1.0 - OLO_GROOM_BODY_OCCUPANCY_FLOOR));
+}
+
+// The body volume's voxel, from its own size and the box: DensityVolume::
+// VoxelSize's smallest axis.
+float oloGroomBodyVoxelLength(sampler3D bodyVolume, vec3 invExtent)
+{
+	vec3 voxel = 1.0 / (invExtent * vec3(textureSize(bodyVolume, 0)));
+	return min(voxel.x, min(voxel.y, voxel.z));
+}
+
+// The share of a cosine lobe around `dirObject` the body leaves open, from a
+// body texel: rgb * 2 - 1 is the open direction times the open share v, read as
+// a cap of that share, whose lobe sees v + 2 v (1 - v) cos. The twin of
+// GroomCoatShadow::BodySkyVisibility.
+float oloGroomBodySkyVisibility(vec4 bodyTexel, vec3 dirObject)
+{
+	vec3 sky = (bodyTexel.rgb * 2.0) - 1.0;
+	float open = clamp(length(sky), 0.0, 1.0);
+	if (!(open > 1.0e-4))
+	{
+		return 0.0;
+	}
+	vec3 towards = sky / open;
+	return clamp(open + (2.0 * open * (1.0 - open) * dot(towards, dirObject)), 0.0, 1.0);
+}
+
+vec2 oloGroomCoatOpticalDepthAndBodyObject(sampler3D coatVolume, sampler3D bodyVolume, vec3 boundsMin,
+                                           vec3 invExtent, vec3 originObject, vec3 dirObject, float stepWorld,
+                                           int mode, bool countBody)
 {
 	if (mode == OLO_GROOM_COAT_MODE_NONE || stepWorld <= 0.0)
 	{
@@ -248,6 +293,7 @@ vec2 oloGroomCoatOpticalDepthAndBodyObject(sampler3D coatVolume, vec3 boundsMin,
 
 	float tau = 0.0;
 	float bodyTau = 0.0;
+	float bodyVoxel = countBody ? oloGroomBodyVoxelLength(bodyVolume, invExtent) : 0.0;
 	for (int i = 0; i < OLO_GROOM_COAT_MAX_STEPS; ++i)
 	{
 		if (i >= stepCount)
@@ -260,17 +306,23 @@ vec2 oloGroomCoatOpticalDepthAndBodyObject(sampler3D coatVolume, vec3 boundsMin,
 		float t = tEnter + dt * (float(i) + 0.5);
 		vec3 uvw = originUvw + dirUvw * t;
 
-		OloGroomCoatVolumeSample sampled = oloGroomCoatSampleVolume(coatVolume, uvw);
-		if (sampled.Density <= 0.0)
+		// The body, at the coat's own samples.
+		if (countBody)
 		{
-			if (countBody && sampled.Density < 0.0)
+			float body = oloGroomBodyExtinction(texture(bodyVolume, uvw).a, bodyVoxel);
+			if (body > 0.0)
 			{
-				bodyTau -= sampled.Density * dt;
+				bodyTau += body * dt;
 				if (bodyTau > OLO_GROOM_BODY_OPAQUE_TAU)
 				{
 					break;
 				}
 			}
+		}
+
+		OloGroomCoatVolumeSample sampled = oloGroomCoatSampleVolume(coatVolume, uvw);
+		if (sampled.Density <= 0.0)
+		{
 			continue;
 		}
 
@@ -282,12 +334,13 @@ vec2 oloGroomCoatOpticalDepthAndBodyObject(sampler3D coatVolume, vec3 boundsMin,
 }
 
 // The coat alone: every light a shadow map answers for at the strand, whose
-// body is already in that answer.
+// body is already in that answer. The coat's sampler stands in for the body's,
+// which a march that does not count the body never reads.
 float oloGroomCoatOpticalDepthObject(sampler3D coatVolume, vec3 boundsMin, vec3 invExtent, vec3 originObject,
                                      vec3 dirObject, float stepWorld, int mode)
 {
-	return oloGroomCoatOpticalDepthAndBodyObject(coatVolume, boundsMin, invExtent, originObject, dirObject, stepWorld,
-	                                             mode, false)
+	return oloGroomCoatOpticalDepthAndBodyObject(coatVolume, coatVolume, boundsMin, invExtent, originObject, dirObject,
+	                                             stepWorld, mode, false)
 	    .x;
 }
 

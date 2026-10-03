@@ -64,6 +64,7 @@
 #include "OloEngine/Math/Math.h"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/type_precision.hpp>
 
 #include <span>
 #include <string_view>
@@ -564,16 +565,23 @@ namespace OloEngine
             glm::vec3 BoundsMin{ 0.0f };
             glm::vec3 BoundsMax{ 0.0f };
             /// Areal density per voxel, `Dimensions.x*y*z` entries, x fastest.
-            /// NEGATIVE where the body is (MarkBodyInDensityVolume, #1533): an
-            /// extinction in 1/m, never beside a positive voxel.
             std::vector<f32> Density;
             /// Mean fibre direction times coherence, same indexing.
             std::vector<glm::vec3> Direction;
+            /// The BODY the coat grows on (#1533, MarkBodyInDensityVolume), same
+            /// indexing, or empty for a coat with none: the RGBA8 texels the GPU
+            /// samples. A is the body's box-filtered occupancy (BodyExtinction
+            /// turns it into light stopped); RGB is the sky the body leaves,
+            /// its open direction times the share open, stored as 0.5 + 0.5 v
+            /// (BodySkyVisibility reads it). Its own array, and its own texture
+            /// on the GPU, so it can sit at the skin beside the coat.
+            std::vector<glm::u8vec4> Body;
 
             [[nodiscard]] bool IsValid() const noexcept;
             /// Bytes the GPU copy occupies: ONE RGBA16F 3D texture at 8 bytes a
-            /// voxel, which is what GroomRenderPass uploads (#1445). The pass
-            /// falls back to RGBA32F only for a density that overflows a half.
+            /// voxel, which is what GroomRenderPass uploads (#1445), and an RGBA8
+            /// one at 4 for the body when there is one. The pass falls back to
+            /// RGBA32F only for a density that overflows a half.
             [[nodiscard]] u64 GpuBytes() const noexcept;
             [[nodiscard]] glm::vec3 VoxelSize() const noexcept;
         };
@@ -626,13 +634,13 @@ namespace OloEngine
         // would drift.
         //
         // `outBodyTau`, when given, receives the BODY's optical depth along the
-        // same samples (MarkBodyInDensityVolume): the integral of the negated
-        // negative density, so the body passes BodyTransmittance(*outBodyTau).
-        // The returned crossings never see the body -- a negative sample is
-        // skipped exactly as an empty one is -- which is what keeps a march
-        // that does not ask for the body identical with or without it. Asked
-        // for, the march stops once the body's depth passes kBodyOpaqueTau, as
-        // the shader's does. The twin of include/GroomCoatShadowCommon.glsl's
+        // same samples (MarkBodyInDensityVolume): the integral of BodyExtinction
+        // of the filtered occupancy, so the body passes
+        // BodyTransmittance(*outBodyTau). The returned
+        // crossings never read the body array, which is what keeps a march that
+        // does not ask for it identical with or without it. Asked for, the
+        // march stops once the body's depth passes kBodyOpaqueTau, as the
+        // shader's does. The twin of include/GroomCoatShadowCommon.glsl's
         // oloGroomCoatOpticalDepthAndBodyObject.
         [[nodiscard]] f64 SampleDensityVolume(const DensityVolume& volume, const glm::vec3& origin,
                                               const glm::vec3& direction, bool anisotropic, f32 stepScale = 1.0f,
@@ -646,35 +654,53 @@ namespace OloEngine
         // and the VSM (which answers at the coat's light-exit point) saw the
         // coat's own volume and nothing else, so the rim lit a face through the
         // head and the sky lit a belly through the back. This puts the body in
-        // that volume, marked where the coat is not.
+        // that volume's array beside the coat (DensityVolume::Body).
         //
-        // NEGATIVE DENSITY, IN THE SAME TEXTURE. The march already skips a
-        // sample at or below zero, so a march that does not ask for the body
-        // reads it as empty -- and the sampler namespace has one index left.
-        // A marked voxel holds -OpacityPerVoxel / voxelSize, an extinction in
-        // 1/m, so the body's optical depth is the plain integral of the negated
-        // value and one voxel of body passes exp(-OpacityPerVoxel) of the light.
+        // ITS OWN ARRAY AND ITS OWN TEXTURE, so it sits AT the skin. It was
+        // negative density in the coat's texture until the shell this left
+        // was measured: trilinear filtering mixes a cell's eight corners, so a
+        // body sharing the coat's texture had to be eroded two voxels from the
+        // skin and cleared a voxel from every coat voxel, and that took about a
+        // centimetre off every part -- the ears, the legs and the tail tip had
+        // no core left, and the rim lit their far side's fur through them. A
+        // march that does not ask for the body never reads its array, so the
+        // casting lights' march is unchanged by construction.
         //
-        // NEVER BESIDE A COAT VOXEL, and that is what makes it free for the
-        // casting lights. Trilinear filtering mixes a cell's eight corners; a
-        // body corner in a cell with a coat corner would turn coat into body
-        // and change every march through it. So the body is eroded from the
-        // skin by `ErodeVoxels` and then cleared from every voxel within one
-        // voxel (26-neighbourhood) of any coat density: no cell holds both,
-        // every positive sample is the value it was before, and a march that
-        // skips negative samples is bit-identical with the body in the volume.
-        // The body's surface sits about ErodeVoxels inside the skin, where the
-        // roots' own coat already stops a ray that grazes it.
+        // OCCUPANCY, BOX-FILTERED. Each voxel holds the fraction of it the
+        // closed parts fill, from parity along 4 x 4 sub-columns per voxel
+        // column with exact depths, so a part thinner than a voxel keeps its
+        // share instead of vanishing between voxel centres. That fraction o,
+        // filtered trilinearly, rises from 0 about 1.5 voxels outside the skin
+        // to 0.5 at it; the smear outside is what would shadow the fur on the
+        // lit side. So the extinction is kBodyOpacityPerVoxel / voxelSize times
+        // max(o - kBodyOccupancyFloor, 0) / (1 - kBodyOccupancyFloor): nothing
+        // where the filtered fraction is under the floor (about 0.65 voxels
+        // out), all of it where a voxel is full. One voxel of full body passes
+        // exp(-kBodyOpacityPerVoxel) of the light. Stored in eight bits -- the
+        // filtered occupancy is what is read, and 1/255 of it is nothing a
+        // shadow shows.
+        //
+        // AND THE SKY IT HIDES, in the same texel. No map answers for the sky,
+        // and one ray along the direction the environment term samples hardly
+        // ever crosses the body: that direction faces the viewer, and the fur a
+        // viewer sees is on the near side. What the body takes is a share of
+        // the HEMISPHERE around it -- half of it at the silhouette, most of the
+        // one behind. So the bake marches kBodySkyDirections rays through the
+        // occupancy from every kBodySkyCellVoxels-th voxel and keeps the share
+        // that gets out and its mean open direction, and every voxel takes them
+        // from the nearby cells that lie outside the body (a cell inside sees
+        // nothing, and fur never grows there). BodySkyVisibility turns them
+        // into the share of a cosine lobe the body leaves.
         //
         // ONLY CLOSED PARTS ARE FILLED. The surface is welded by position
         // (glTF splits vertices at every UV seam) and split into connected
         // components; a component is filled only if every edge has an even
         // number of faces, which is what makes "inside" well defined. Open
         // shells -- the dog's eyelids and teeth -- are skipped and counted.
-        // Inside is decided by parity along each z column of voxel centres,
-        // in exact fixed point with a top-left rule on shared edges, so a centre
-        // on an edge or a vertex is counted once; a column that still ends odd
-        // is left empty and counted, never filled to the far side of the box.
+        // Inside is decided by parity along each sub-column, in exact fixed
+        // point with a top-left rule on shared edges, so a centre on an edge
+        // or a vertex is counted once; a sub-column that still ends odd is left
+        // empty and counted, never filled to the far side of the box.
         //
         // A REST BAKE'S BODY IS THE BIND POSE, like its coat: the shader marches
         // it from each strand's rest point along the light turned back through
@@ -691,12 +717,40 @@ namespace OloEngine
         /// oloGroomBodyTransmittance.
         [[nodiscard]] f64 BodyTransmittance(f64 bodyTau) noexcept;
 
+        /// Optical depth of one voxel the body fills: e^-6 passes 0.25%.
+        /// OLO_GROOM_BODY_OPACITY_PER_VOXEL in include/GroomCoatShadowCommon.glsl.
+        inline constexpr f32 kBodyOpacityPerVoxel = 6.0f;
+        /// The filtered occupancy below which the body stops nothing: where the
+        /// trilinear smear outside the skin is cut off. 0.1 is reached about 0.65
+        /// voxels out, so a strand that far from the skin, lit along its outward
+        /// side, sees no body at all. OLO_GROOM_BODY_OCCUPANCY_FLOOR.
+        inline constexpr f32 kBodyOccupancyFloor = 0.1f;
+        /// Sub-columns per voxel side in the occupancy raster: 4 x 4 a voxel.
+        inline constexpr u32 kBodySubColumns = 4;
+        /// The sky bake's cell, in voxels a side, and its rays per cell.
+        inline constexpr u32 kBodySkyCellVoxels = 4;
+        inline constexpr u32 kBodySkyDirections = 32;
+
+        /// The body's extinction in 1/m from a FILTERED occupancy and the
+        /// volume's voxel size. The twin of oloGroomBodyExtinction.
+        [[nodiscard]] f32 BodyExtinction(f32 occupancy, f32 voxelLength) noexcept;
+
+        /// The share of a cosine lobe around `direction` (unit, the volume's
+        /// space) the body leaves open, from a decoded sky texel: `sky` is the
+        /// open direction times the open share. Modelled as a cap of that share
+        /// around that direction, whose first moment has length v(1 - v): the
+        /// cosine lobe then sees v + 2 v (1 - v) cos. Half at a flat skin's
+        /// tangent, all of it straight out, none straight in. The twin of
+        /// oloGroomBodySkyVisibility.
+        [[nodiscard]] f32 BodySkyVisibility(const glm::vec3& sky, const glm::vec3& direction) noexcept;
+
+        /// The body texel at `position` (the volume's space), trilinear as the
+        /// GPU samples it and decoded: rgb the sky in [-1, 1], a the
+        /// occupancy. Zero (no body, no sky) for a volume without one.
+        [[nodiscard]] glm::vec4 SampleBody(const DensityVolume& volume, const glm::vec3& position) noexcept;
+
         struct BodyVoxelSettings
         {
-            /// Voxels between the skin and the body's marked core.
-            u32 ErodeVoxels = 2;
-            /// Optical depth of one voxel of body: e^-6 passes 0.25%.
-            f32 OpacityPerVoxel = 6.0f;
             /// Positions closer than this (object units) are one vertex.
             f32 WeldTolerance = 1.0e-5f;
         };
@@ -707,23 +761,32 @@ namespace OloEngine
             u32 ClosedComponents = 0;
             u32 OpenComponents = 0;
             u32 FilledTriangles = 0;
-            /// Voxel centres inside a closed component, before erosion.
+            /// Voxels a closed component reaches into at all.
             u32 InsideVoxels = 0;
-            /// What the volume ends up holding.
+            /// Voxels whose occupancy passes the floor: where the body has an
+            /// extinction.
             u32 MarkedVoxels = 0;
-            /// Eroded body voxels cleared because coat density was beside them:
-            /// large only where strands run inside the body.
-            u32 ClearedBesideCoat = 0;
-            /// Columns whose crossings did not pair up (left empty).
+            /// Voxels the body fills completely.
+            u32 FullVoxels = 0;
+            /// Sub-columns whose crossings did not pair up (left empty).
             u32 OddColumns = 0;
+            /// Sky cells in the grid, and the ones baked: outside the body and
+            /// within a cell of the coat, the only place fur reads the sky.
+            u32 SkyCells = 0;
+            u32 SkyCellsOutside = 0;
+            /// Wall time of the three stages: the occupancy raster (weld,
+            /// parity, quantise), the sky rays, and the per-voxel fill.
+            u64 RasterMicroseconds = 0;
+            u64 SkyMicroseconds = 0;
+            u64 FillMicroseconds = 0;
         };
 
         // Marks `surface` -- positions in its own object space, taken to the
-        // volume's by `surfaceToVolume` -- into `volume`, which must already
-        // hold the coat (BuildDensityVolume). Returns false, with the volume
-        // untouched, when the surface has no closed part or nothing survives
-        // the erosion and the coat gap; the coat then keeps its old picture
-        // and the caller says it has no body.
+        // volume's by `surfaceToVolume` -- into `volume.Body`, occupancy and
+        // sky; `volume` must already hold the coat (BuildDensityVolume), whose
+        // arrays are never touched. Returns false, with the volume untouched,
+        // when the surface has no closed part or no voxel passes the floor; the
+        // caller then says the coat has no body.
         [[nodiscard]] bool MarkBodyInDensityVolume(DensityVolume& volume, const GroomSurfaceView& surface,
                                                    const glm::mat4& surfaceToVolume, const BodyVoxelSettings& settings,
                                                    BodyVoxelStats* outStats = nullptr);

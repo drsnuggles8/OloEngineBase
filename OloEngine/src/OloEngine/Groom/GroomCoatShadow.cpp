@@ -1,11 +1,16 @@
+#include "OloEnginePCH.h"
+
 #include "OloEngine/Groom/GroomCoatShadow.h"
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
 #include "OloEngine/Groom/GroomSurfaceFrame.h"
+#include "OloEngine/Task/ParallelFor.h"
 
 #include <algorithm>
+#include <array>
+#include <chrono>
 #include <cmath>
 #include <limits>
 #include <numbers>
@@ -1059,7 +1064,7 @@ namespace OloEngine::GroomCoatShadow
         }
         const sizet expected = static_cast<sizet>(Dimensions.x) * static_cast<sizet>(Dimensions.y) *
                                static_cast<sizet>(Dimensions.z);
-        if (Density.size() != expected || Direction.size() != expected)
+        if (Density.size() != expected || Direction.size() != expected || (!Body.empty() && Body.size() != expected))
         {
             return false;
         }
@@ -1084,7 +1089,9 @@ namespace OloEngine::GroomCoatShadow
         // BOTH volume modes cost the same bytes, and the isotropic arm is a
         // COMPUTE saving rather than a memory one. The memory lever at runtime
         // is the shadow LOD, which is cubic in the resolution.
-        return voxels * 8ull;
+        //
+        // The body (#1533) is a second texture, RGBA8, 4 bytes a voxel.
+        return (voxels * 8ull) + (Body.empty() ? 0ull : voxels * 4ull);
     }
 
     glm::vec3 DensityVolume::VoxelSize() const noexcept
@@ -1101,12 +1108,15 @@ namespace OloEngine::GroomCoatShadow
     {
         // Reset field by field rather than by assignment, so a caller that
         // rebakes into the same volume every frame (a walking coat, #1445)
-        // keeps the two arrays' capacity instead of reallocating them.
+        // keeps the arrays' capacity instead of reallocating them. The body
+        // goes too: it belongs to the bake it was marked into, and a rest bake
+        // marks it again (MarkBodyInDensityVolume).
         outVolume.Dimensions = glm::ivec3(0);
         outVolume.BoundsMin = glm::vec3(0.0f);
         outVolume.BoundsMax = glm::vec3(0.0f);
         outVolume.Density.clear();
         outVolume.Direction.clear();
+        outVolume.Body.clear();
         if (outStats != nullptr)
         {
             *outStats = DensityVolumeBuildStats{};
@@ -1320,6 +1330,41 @@ namespace OloEngine::GroomCoatShadow
             }
         }
 
+        // The body's texel (#1533), trilinear as SampleVolumeAt is and decoded:
+        // the shader's texture(bodyVolume, uvw) with rgb * 2 - 1. A corner
+        // outside the grid is the edge texel, as the clamping sampler reads it.
+        [[nodiscard]] glm::vec4 DecodeBodyTexel(const glm::u8vec4& texel) noexcept
+        {
+            const glm::vec4 unorm = glm::vec4(texel) * (1.0f / 255.0f);
+            return glm::vec4((glm::vec3(unorm) * 2.0f) - 1.0f, unorm.w);
+        }
+
+        [[nodiscard]] glm::vec4 SampleBodyAt(const DensityVolume& volume, const glm::vec3& local) noexcept
+        {
+            const glm::ivec3& dims = volume.Dimensions;
+            const glm::vec3 p = local - glm::vec3(0.5f);
+            const glm::vec3 base = glm::floor(p);
+            const glm::vec3 frac = p - base;
+            glm::vec4 body(0.0f);
+            for (i32 dz = 0; dz < 2; ++dz)
+            {
+                for (i32 dy = 0; dy < 2; ++dy)
+                {
+                    for (i32 dx = 0; dx < 2; ++dx)
+                    {
+                        const i32 x = std::clamp(static_cast<i32>(base.x) + dx, 0, dims.x - 1);
+                        const i32 y = std::clamp(static_cast<i32>(base.y) + dy, 0, dims.y - 1);
+                        const i32 z = std::clamp(static_cast<i32>(base.z) + dz, 0, dims.z - 1);
+                        const f32 wx = dx == 0 ? 1.0f - frac.x : frac.x;
+                        const f32 wy = dy == 0 ? 1.0f - frac.y : frac.y;
+                        const f32 wz = dz == 0 ? 1.0f - frac.z : frac.z;
+                        body += DecodeBodyTexel(volume.Body[VoxelIndex(dims, x, y, z)]) * (wx * wy * wz);
+                    }
+                }
+            }
+            return body;
+        }
+
     } // namespace
 
     f64 SampleDensityVolume(const DensityVolume& volume, const glm::vec3& origin, const glm::vec3& direction,
@@ -1374,6 +1419,7 @@ namespace OloEngine::GroomCoatShadow
         const f32 dt = span / static_cast<f32>(steps);
 
         const glm::vec3 invVoxel = 1.0f / voxel;
+        const bool countBody = outBodyTau != nullptr && !volume.Body.empty();
 
         f64 tau = 0.0;
         f64 bodyTau = 0.0;
@@ -1383,21 +1429,27 @@ namespace OloEngine::GroomCoatShadow
             const glm::vec3 p = origin + dir * t;
             const glm::vec3 local = (p - volume.BoundsMin) * invVoxel;
 
-            f32 density = 0.0f;
-            glm::vec3 meanDirection(0.0f);
-            SampleVolumeAt(volume, local, density, meanDirection);
-            if (density <= 0.0f)
+            // The body (#1533), counted only when asked for, at the coat's own
+            // samples, and stopped where the shader stops: past kBodyOpaqueTau
+            // nothing is left for the coat to take.
+            if (countBody)
             {
-                // The body (#1533), counted only when asked for, and stopped
-                // where the shader stops: past kBodyOpaqueTau nothing is left.
-                if (outBodyTau != nullptr && density < 0.0f)
+                const f32 body = BodyExtinction(SampleBodyAt(volume, local).w, voxelLength);
+                if (body > 0.0f)
                 {
-                    bodyTau -= static_cast<f64>(density) * static_cast<f64>(dt);
+                    bodyTau += static_cast<f64>(body) * static_cast<f64>(dt);
                     if (bodyTau > kBodyOpaqueTau)
                     {
                         break;
                     }
                 }
+            }
+
+            f32 density = 0.0f;
+            glm::vec3 meanDirection(0.0f);
+            SampleVolumeAt(volume, local, density, meanDirection);
+            if (density <= 0.0f)
+            {
                 continue;
             }
 
@@ -1433,6 +1485,36 @@ namespace OloEngine::GroomCoatShadow
             *outBodyTau = std::isfinite(bodyTau) ? bodyTau : 0.0;
         }
         return std::isfinite(tau) ? tau : 0.0;
+    }
+
+    f32 BodyExtinction(f32 occupancy, f32 voxelLength) noexcept
+    {
+        if (!(voxelLength > 0.0f) || !std::isfinite(occupancy))
+        {
+            return 0.0f;
+        }
+        const f32 above = std::max(occupancy - kBodyOccupancyFloor, 0.0f);
+        return (kBodyOpacityPerVoxel / voxelLength) * (above / (1.0f - kBodyOccupancyFloor));
+    }
+
+    f32 BodySkyVisibility(const glm::vec3& sky, const glm::vec3& direction) noexcept
+    {
+        const f32 open = std::clamp(glm::length(sky), 0.0f, 1.0f);
+        if (!(open > 1.0e-4f))
+        {
+            return 0.0f;
+        }
+        const glm::vec3 towards = sky / open;
+        return std::clamp(open + (2.0f * open * (1.0f - open) * glm::dot(towards, direction)), 0.0f, 1.0f);
+    }
+
+    glm::vec4 SampleBody(const DensityVolume& volume, const glm::vec3& position) noexcept
+    {
+        if (!volume.IsValid() || volume.Body.empty() || !IsFiniteVec(position))
+        {
+            return glm::vec4(0.0f);
+        }
+        return SampleBodyAt(volume, (position - volume.BoundsMin) / volume.VoxelSize());
     }
 
     f64 BodyTransmittance(f64 bodyTau) noexcept
@@ -1510,41 +1592,6 @@ namespace OloEngine::GroomCoatShadow
             }
         };
 
-        // One separable pass of a 3x3x3 min (erode) or max (dilate) over a
-        // 0/1 mask: run along `axis` with radius 1, out of the grid counting as
-        // `outside`. Three passes, one per axis, are the full 26-neighbourhood.
-        void MorphologyPass(const std::vector<u8>& in, std::vector<u8>& out, const glm::ivec3& dims, i32 axis,
-                            bool erode)
-        {
-            out.resize(in.size());
-            const u8 outside = 0u;
-            const i32 stride = axis == 0 ? 1 : (axis == 1 ? dims.x : dims.x * dims.y);
-            const i32 length = dims[axis];
-            for (i32 z = 0; z < dims.z; ++z)
-            {
-                for (i32 y = 0; y < dims.y; ++y)
-                {
-                    for (i32 x = 0; x < dims.x; ++x)
-                    {
-                        const i32 coordinate = axis == 0 ? x : (axis == 1 ? y : z);
-                        const sizet index = VoxelIndex(dims, x, y, z);
-                        const u8 here = in[index];
-                        const u8 before = coordinate > 0 ? in[index - static_cast<sizet>(stride)] : outside;
-                        const u8 after = coordinate + 1 < length ? in[index + static_cast<sizet>(stride)] : outside;
-                        out[index] = erode ? std::min({ here, before, after }) : std::max({ here, before, after });
-                    }
-                }
-            }
-        }
-
-        void Morphology(std::vector<u8>& mask, std::vector<u8>& scratch, const glm::ivec3& dims, bool erode)
-        {
-            for (i32 axis = 0; axis < 3; ++axis)
-            {
-                MorphologyPass(mask, scratch, dims, axis, erode);
-                mask.swap(scratch);
-            }
-        }
     } // namespace
 
     bool MarkBodyInDensityVolume(DensityVolume& volume, const GroomSurfaceView& surface,
@@ -1552,6 +1599,12 @@ namespace OloEngine::GroomCoatShadow
                                  BodyVoxelStats* outStats)
     {
         BodyVoxelStats stats;
+        const auto stageStart = std::chrono::steady_clock::now();
+        const auto microsecondsSince = [](std::chrono::steady_clock::time_point start)
+        {
+            return static_cast<u64>(
+                std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count());
+        };
         const auto finish = [&](bool marked)
         {
             if (outStats != nullptr)
@@ -1561,8 +1614,7 @@ namespace OloEngine::GroomCoatShadow
             return marked;
         };
 
-        if (!volume.IsValid() || !surface.IsUsable() || !std::isfinite(settings.OpacityPerVoxel) ||
-            settings.OpacityPerVoxel <= 0.0f || !std::isfinite(settings.WeldTolerance) ||
+        if (!volume.IsValid() || !surface.IsUsable() || !std::isfinite(settings.WeldTolerance) ||
             settings.WeldTolerance <= 0.0f)
         {
             return finish(false);
@@ -1699,7 +1751,12 @@ namespace OloEngine::GroomCoatShadow
             return finish(false);
         }
 
-        // ── Parity along every z column of voxel centres ─────────────────
+        // ── Parity along 4 x 4 sub-columns per voxel column ──────────────
+        // A sub-column's inside runs are exact in z, so a voxel's share of a
+        // run is the overlap of [enter, exit) with its own [z, z + 1), and its
+        // occupancy is the mean of its sixteen sub-columns' shares: the closed
+        // parts box-filtered at the voxel's own size. A part thinner than a
+        // voxel keeps its share wherever it lies between the voxel centres.
         struct Crossing
         {
             u32 Column;
@@ -1717,7 +1774,12 @@ namespace OloEngine::GroomCoatShadow
             y = std::llround(local.y * static_cast<f64>(kRasterSteps));
             z = local.z;
         };
-        constexpr i64 kHalf = kRasterSteps / 2;
+        constexpr i64 kSub = static_cast<i64>(kBodySubColumns);
+        constexpr i64 kSubSteps = kRasterSteps / kSub;
+        constexpr i64 kSubHalf = kSubSteps / 2;
+        static_assert(kRasterSteps % (2 * kSub) == 0, "a sub-column centre must be an exact fixed-point integer");
+        const i64 subWidth = static_cast<i64>(dims.x) * kSub;
+        const i64 subHeight = static_cast<i64>(dims.y) * kSub;
         for (const glm::uvec3& t : triangles)
         {
             if (openComponent[components.Find(weldOf[t.x])] != 0u)
@@ -1752,21 +1814,22 @@ namespace OloEngine::GroomCoatShadow
             const bool topLeftA = IsTopLeftEdge(bx, by, cx, cy); // the edge opposite a
             const bool topLeftB = IsTopLeftEdge(cx, cy, ax, ay);
             const bool topLeftC = IsTopLeftEdge(ax, ay, bx, by);
-            // The columns whose centre (i * steps + steps / 2) can fall inside.
+            // The sub-columns whose centre (i * subSteps + subSteps / 2) can
+            // fall inside.
             const auto firstColumn = [](i64 low)
-            { return static_cast<i64>(std::ceil(static_cast<f64>(low - kHalf) / static_cast<f64>(kRasterSteps))); };
+            { return static_cast<i64>(std::ceil(static_cast<f64>(low - kSubHalf) / static_cast<f64>(kSubSteps))); };
             const auto lastColumn = [](i64 high)
-            { return static_cast<i64>(std::floor(static_cast<f64>(high - kHalf) / static_cast<f64>(kRasterSteps))); };
+            { return static_cast<i64>(std::floor(static_cast<f64>(high - kSubHalf) / static_cast<f64>(kSubSteps))); };
             const i64 i0 = std::max<i64>(0, firstColumn(std::min({ ax, bx, cx })));
-            const i64 i1 = std::min<i64>(dims.x - 1, lastColumn(std::max({ ax, bx, cx })));
+            const i64 i1 = std::min<i64>(subWidth - 1, lastColumn(std::max({ ax, bx, cx })));
             const i64 j0 = std::max<i64>(0, firstColumn(std::min({ ay, by, cy })));
-            const i64 j1 = std::min<i64>(dims.y - 1, lastColumn(std::max({ ay, by, cy })));
+            const i64 j1 = std::min<i64>(subHeight - 1, lastColumn(std::max({ ay, by, cy })));
             for (i64 j = j0; j <= j1; ++j)
             {
-                const i64 py = (j * kRasterSteps) + kHalf;
+                const i64 py = (j * kSubSteps) + kSubHalf;
                 for (i64 i = i0; i <= i1; ++i)
                 {
-                    const i64 px = (i * kRasterSteps) + kHalf;
+                    const i64 px = (i * kSubSteps) + kSubHalf;
                     const i64 wa = EdgeFunction(bx, by, cx, cy, px, py);
                     const i64 wb = EdgeFunction(cx, cy, ax, ay, px, py);
                     const i64 wc = EdgeFunction(ax, ay, bx, by, px, py);
@@ -1776,7 +1839,7 @@ namespace OloEngine::GroomCoatShadow
                     }
                     const f64 z = ((static_cast<f64>(wa) * az) + (static_cast<f64>(wb) * bz) + (static_cast<f64>(wc) * cz)) /
                                   static_cast<f64>(area);
-                    crossings.push_back(Crossing{ static_cast<u32>((j * dims.x) + i), z });
+                    crossings.push_back(Crossing{ static_cast<u32>((j * subWidth) + i), z });
                 }
             }
         }
@@ -1785,7 +1848,9 @@ namespace OloEngine::GroomCoatShadow
                   { return std::tie(a.Column, a.Z) < std::tie(b.Column, b.Z); });
 
         const sizet voxelCount = static_cast<sizet>(dims.x) * static_cast<sizet>(dims.y) * static_cast<sizet>(dims.z);
-        std::vector<u8> body(voxelCount, 0u);
+        std::vector<f32> occupancy(voxelCount, 0.0f);
+        constexpr f64 kShare = 1.0 / static_cast<f64>(kSub * kSub);
+        const f64 depth = static_cast<f64>(dims.z);
         for (sizet i = 0; i < crossings.size();)
         {
             sizet j = i;
@@ -1799,64 +1864,247 @@ namespace OloEngine::GroomCoatShadow
                 i = j;
                 continue;
             }
-            const i32 x = static_cast<i32>(crossings[i].Column % static_cast<u32>(dims.x));
-            const i32 y = static_cast<i32>(crossings[i].Column / static_cast<u32>(dims.x));
+            const i64 column = static_cast<i64>(crossings[i].Column);
+            const i32 x = static_cast<i32>((column % subWidth) / kSub);
+            const i32 y = static_cast<i32>((column / subWidth) / kSub);
             for (sizet k = i; k + 1 < j; k += 2)
             {
-                // Voxel centres (z + 0.5) in [enter, exit).
-                const i32 first = std::max(0, static_cast<i32>(std::ceil(crossings[k].Z - 0.5)));
-                const i32 last = std::min(dims.z, static_cast<i32>(std::ceil(crossings[k + 1].Z - 0.5)));
-                for (i32 z = first; z < last; ++z)
+                const f64 enter = std::max(0.0, crossings[k].Z);
+                const f64 exit = std::min(depth, crossings[k + 1].Z);
+                if (!(exit > enter))
                 {
-                    body[VoxelIndex(dims, x, y, z)] = 1u;
+                    continue;
+                }
+                const i32 first = static_cast<i32>(std::floor(enter));
+                const i32 last = std::min(dims.z - 1, static_cast<i32>(std::floor(exit)));
+                for (i32 z = first; z <= last; ++z)
+                {
+                    const f64 overlap = std::min(exit, static_cast<f64>(z) + 1.0) - std::max(enter, static_cast<f64>(z));
+                    if (overlap > 0.0)
+                    {
+                        occupancy[VoxelIndex(dims, x, y, z)] += static_cast<f32>(overlap * kShare);
+                    }
                 }
             }
             i = j;
         }
-        stats.InsideVoxels = static_cast<u32>(std::count(body.begin(), body.end(), u8{ 1 }));
 
-        // ── Erode from the skin, then keep clear of the coat ─────────────
-        std::vector<u8> scratch;
-        for (u32 pass = 0; pass < settings.ErodeVoxels; ++pass)
-        {
-            Morphology(body, scratch, dims, /*erode*/ true);
-        }
-        std::vector<u8> coat(voxelCount, 0u);
+        // ── Eight bits, as the GPU holds it ──────────────────────────────
+        // Quantised here, so the march and the sky bake below read exactly the
+        // occupancy the shader does.
+        std::vector<u8> quantised(voxelCount, 0u);
         for (sizet i = 0; i < voxelCount; ++i)
         {
-            coat[i] = volume.Density[i] > 0.0f ? 1u : 0u;
+            const f32 o = std::clamp(occupancy[i], 0.0f, 1.0f); // overlapping closed parts, and rounding
+            quantised[i] = static_cast<u8>(std::lround(o * 255.0f));
+            occupancy[i] = static_cast<f32>(quantised[i]) * (1.0f / 255.0f);
+            stats.InsideVoxels += quantised[i] > 0u ? 1u : 0u;
+            stats.MarkedVoxels += occupancy[i] > kBodyOccupancyFloor ? 1u : 0u;
+            stats.FullVoxels += quantised[i] == 255u ? 1u : 0u;
         }
-        Morphology(coat, scratch, dims, /*erode*/ false);
-        u32 marked = 0;
-        for (sizet i = 0; i < voxelCount; ++i)
-        {
-            if (body[i] == 0u)
-            {
-                continue;
-            }
-            if (coat[i] != 0u)
-            {
-                body[i] = 0u;
-                ++stats.ClearedBesideCoat;
-                continue;
-            }
-            ++marked;
-        }
-        stats.MarkedVoxels = marked;
-        if (marked == 0u)
+        if (stats.MarkedVoxels == 0u)
         {
             return finish(false);
         }
+        stats.RasterMicroseconds = microsecondsSince(stageStart);
+        const auto skyStart = std::chrono::steady_clock::now();
 
-        const f32 extinction = settings.OpacityPerVoxel / voxelLength;
-        for (sizet i = 0; i < voxelCount; ++i)
+        // ── The sky the body hides ────────────────────────────────────────
+        // In voxel units throughout: positions are continuous voxel
+        // coordinates (centres at i + 0.5) and the extinction is per voxel.
+        const auto occupancyAt = [&](const glm::vec3& p) noexcept
         {
-            if (body[i] != 0u)
+            const glm::vec3 q = p - glm::vec3(0.5f);
+            const glm::vec3 base = glm::floor(q);
+            const glm::vec3 frac = q - base;
+            f32 o = 0.0f;
+            for (i32 c = 0; c < 8; ++c)
             {
-                volume.Density[i] = -extinction;
-                volume.Direction[i] = glm::vec3(0.0f);
+                const i32 dx = c & 1;
+                const i32 dy = (c >> 1) & 1;
+                const i32 dz = (c >> 2) & 1;
+                const i32 x = std::clamp(static_cast<i32>(base.x) + dx, 0, dims.x - 1);
+                const i32 y = std::clamp(static_cast<i32>(base.y) + dy, 0, dims.y - 1);
+                const i32 z = std::clamp(static_cast<i32>(base.z) + dz, 0, dims.z - 1);
+                const f32 w = (dx == 0 ? 1.0f - frac.x : frac.x) * (dy == 0 ? 1.0f - frac.y : frac.y) *
+                              (dz == 0 ? 1.0f - frac.z : frac.z);
+                o += occupancy[VoxelIndex(dims, x, y, z)] * w;
+            }
+            return o;
+        };
+        constexpr i32 kCell = static_cast<i32>(kBodySkyCellVoxels);
+        const glm::ivec3 cells = (dims + glm::ivec3(kCell - 1)) / kCell;
+        const sizet cellCount = static_cast<sizet>(cells.x) * static_cast<sizet>(cells.y) * static_cast<sizet>(cells.z);
+        std::array<glm::vec3, kBodySkyDirections> directions{};
+        for (u32 k = 0; k < kBodySkyDirections; ++k)
+        {
+            const f32 up = 1.0f - (2.0f * (static_cast<f32>(k) + 0.5f) / static_cast<f32>(kBodySkyDirections));
+            const f32 across = std::sqrt(std::max(0.0f, 1.0f - (up * up)));
+            const f32 phi = static_cast<f32>(k) * 2.39996323f; // the golden angle
+            directions[k] = glm::vec3(across * std::cos(phi), up, across * std::sin(phi));
+        }
+        const glm::vec3 extent = glm::vec3(dims);
+        const f32 perVoxel = kBodyOpacityPerVoxel / (1.0f - kBodyOccupancyFloor);
+        std::vector<glm::vec3> cellSky(cellCount, glm::vec3(0.0f));
+        std::vector<u8> cellOutside(cellCount, 0u);
+        // Only the cells within one of the coat: fur is the sky's only reader,
+        // and a voxel of fur interpolates between the cells around it.
+        std::vector<u8> nearCoat(cellCount, 0u);
+        for (i32 z = 0; z < dims.z; ++z)
+        {
+            for (i32 y = 0; y < dims.y; ++y)
+            {
+                for (i32 x = 0; x < dims.x; ++x)
+                {
+                    if (!(volume.Density[VoxelIndex(dims, x, y, z)] > 0.0f))
+                    {
+                        continue;
+                    }
+                    const glm::ivec3 home(x / kCell, y / kCell, z / kCell);
+                    for (i32 dz = -1; dz <= 1; ++dz)
+                    {
+                        for (i32 dy = -1; dy <= 1; ++dy)
+                        {
+                            for (i32 dx = -1; dx <= 1; ++dx)
+                            {
+                                const glm::ivec3 c = home + glm::ivec3(dx, dy, dz);
+                                if (glm::all(glm::greaterThanEqual(c, glm::ivec3(0))) && glm::all(glm::lessThan(c, cells)))
+                                {
+                                    nearCoat[static_cast<sizet>(c.x) +
+                                             (static_cast<sizet>(cells.x) * (static_cast<sizet>(c.y) + (static_cast<sizet>(cells.y) * static_cast<sizet>(c.z))))] = 1u;
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
+        ParallelFor("GroomBodySky", static_cast<i32>(cellCount), 16,
+                    [&](i32 index)
+                    {
+                        const sizet c = static_cast<sizet>(index);
+                        if (nearCoat[c] == 0u)
+                        {
+                            return;
+                        }
+                        const i32 cx = static_cast<i32>(c % static_cast<sizet>(cells.x));
+                        const i32 cy = static_cast<i32>((c / static_cast<sizet>(cells.x)) % static_cast<sizet>(cells.y));
+                        const i32 cz = static_cast<i32>(c / (static_cast<sizet>(cells.x) * static_cast<sizet>(cells.y)));
+                        const glm::vec3 centre = glm::min(glm::vec3(static_cast<f32>((cx * kCell) + (kCell / 2)),
+                                                                    static_cast<f32>((cy * kCell) + (kCell / 2)),
+                                                                    static_cast<f32>((cz * kCell) + (kCell / 2))),
+                                                          extent - glm::vec3(0.5f));
+                        // A cell inside the body sees nothing and holds no fur;
+                        // the voxels near it take their sky from the cells out.
+                        if (occupancyAt(centre) >= 0.5f)
+                        {
+                            return;
+                        }
+                        cellOutside[c] = 1u;
+                        f32 open = 0.0f;
+                        glm::vec3 moment(0.0f);
+                        for (const glm::vec3& d : directions)
+                        {
+                            // Steps growing from 3/4 of a voxel to 2, so the body
+                            // next to the cell is resolved and a far part is not
+                            // stepped over; out of the box is open sky.
+                            f32 tau = 0.0f;
+                            f32 t = 0.0f;
+                            f32 dt = 0.75f;
+                            for (u32 step = 0; step < 128u && tau < 8.0f; ++step)
+                            {
+                                const glm::vec3 q = centre + d * (t + (0.5f * dt));
+                                if (glm::any(glm::lessThan(q, glm::vec3(0.0f))) || glm::any(glm::greaterThan(q, extent)))
+                                {
+                                    break;
+                                }
+                                tau += perVoxel * std::max(occupancyAt(q) - kBodyOccupancyFloor, 0.0f) * dt;
+                                t += dt;
+                                dt = std::min(dt * 1.12f, 2.0f);
+                            }
+                            const f32 through = std::exp(-tau);
+                            open += through;
+                            moment += d * through;
+                        }
+                        open /= static_cast<f32>(kBodySkyDirections);
+                        const f32 momentLength = glm::length(moment);
+                        // Fully open has no direction of its own; up stands in,
+                        // and v + 2 v (1 - v) cos reads 1 whatever it is.
+                        const glm::vec3 towards = momentLength > 1.0e-6f ? moment / momentLength : glm::vec3(0.0f, 1.0f, 0.0f);
+                        cellSky[c] = towards * open;
+                    });
+        for (sizet c = 0; c < cellCount; ++c)
+        {
+            stats.SkyCellsOutside += cellOutside[c];
+        }
+        stats.SkyCells = static_cast<u32>(cellCount);
+        stats.SkyMicroseconds = microsecondsSince(skyStart);
+        const auto fillStart = std::chrono::steady_clock::now();
+
+        const auto encode = [](f32 v) { return static_cast<u8>(std::lround(std::clamp((v * 0.5f) + 0.5f, 0.0f, 1.0f) * 255.0f)); };
+
+        // ── Every voxel's sky from the cells around it that lie outside ───
+        // Trilinear over the eight nearest cell centres, the ones inside the
+        // body left out and the rest renormalised; a voxel with none outside
+        // keeps no sky (it is deep in the body). Only in the cells near the
+        // coat: a strand's texel and its trilinear neighbours lie there, and
+        // the rest of the box is never read.
+        const u8 noSky = encode(0.0f);
+        std::vector<glm::u8vec4> texels(voxelCount);
+        // A slice per task: each writes only its own texels.
+        ParallelFor("GroomBodySkyFill", dims.z, 1, [&](i32 z)
+        {
+            for (i32 y = 0; y < dims.y; ++y)
+            {
+                for (i32 x = 0; x < dims.x; ++x)
+                {
+                    const sizet i = VoxelIndex(dims, x, y, z);
+                    const sizet home = static_cast<sizet>(x / kCell) +
+                                       (static_cast<sizet>(cells.x) * (static_cast<sizet>(y / kCell) +
+                                                                       (static_cast<sizet>(cells.y) * static_cast<sizet>(z / kCell))));
+                    if (nearCoat[home] == 0u)
+                    {
+                        texels[i] = glm::u8vec4(noSky, noSky, noSky, quantised[i]);
+                        continue;
+                    }
+                    // The cell grid's own coordinate of this voxel's centre:
+                    // cell c's centre sits at voxel coordinate c * kCell + kCell / 2.
+                    const glm::vec3 g = (glm::vec3(static_cast<f32>(x), static_cast<f32>(y), static_cast<f32>(z)) +
+                                         glm::vec3(0.5f - (0.5f * static_cast<f32>(kCell)))) /
+                                        static_cast<f32>(kCell);
+                    const glm::vec3 base = glm::floor(g);
+                    const glm::vec3 frac = g - base;
+                    glm::vec3 sky(0.0f);
+                    f32 weight = 0.0f;
+                    for (i32 c = 0; c < 8; ++c)
+                    {
+                        const i32 dx = c & 1;
+                        const i32 dy = (c >> 1) & 1;
+                        const i32 dz = (c >> 2) & 1;
+                        const i32 ix = std::clamp(static_cast<i32>(base.x) + dx, 0, cells.x - 1);
+                        const i32 iy = std::clamp(static_cast<i32>(base.y) + dy, 0, cells.y - 1);
+                        const i32 iz = std::clamp(static_cast<i32>(base.z) + dz, 0, cells.z - 1);
+                        const sizet ci = static_cast<sizet>(ix) +
+                                         (static_cast<sizet>(cells.x) * (static_cast<sizet>(iy) + (static_cast<sizet>(cells.y) * static_cast<sizet>(iz))));
+                        if (cellOutside[ci] == 0u)
+                        {
+                            continue;
+                        }
+                        const f32 w = (dx == 0 ? 1.0f - frac.x : frac.x) * (dy == 0 ? 1.0f - frac.y : frac.y) *
+                                      (dz == 0 ? 1.0f - frac.z : frac.z);
+                        sky += cellSky[ci] * w;
+                        weight += w;
+                    }
+                    if (weight > 1.0e-6f)
+                    {
+                        sky /= weight;
+                    }
+                    texels[i] = glm::u8vec4(encode(sky.x), encode(sky.y), encode(sky.z), quantised[i]);
+                }
+            }
+        });
+        volume.Body = std::move(texels);
+        stats.FillMicroseconds = microsecondsSince(fillStart);
         return finish(true);
     }
 

@@ -71,6 +71,7 @@ namespace OloEngine
         {
             cacheBytes -= std::min(cacheBytes, entry.CoatBytes);
             entry.CoatVolume = nullptr;
+            entry.CoatBody = nullptr;
             // The whole ring: its bytes are all in CoatBytes, so all of it goes.
             for (auto& slot : entry.CoatRing)
             {
@@ -163,6 +164,17 @@ namespace OloEngine
         {
             const std::array<f32, 4> zero{ 0.0f, 0.0f, 0.0f, 0.0f };
             m_CoatPlaceholder->SetData(zero.data(), static_cast<u32>(zero.size() * sizeof(f32)));
+        }
+        // The body's (#1533): no occupancy, and the sky open upward -- the
+        // encoded (0, 1, 0), which reads as all of every lobe open. A zero
+        // texel would read as a sky shut on every side.
+        Texture3DSpecification bodyPlaceholder = placeholder;
+        bodyPlaceholder.Format = Texture3DFormat::RGBA8;
+        m_CoatBodyPlaceholder = Texture3D::Create(bodyPlaceholder);
+        if (m_CoatBodyPlaceholder)
+        {
+            const std::array<u8, 4> open{ 128u, 255u, 128u, 0u };
+            m_CoatBodyPlaceholder->SetData(open.data(), static_cast<u32>(open.size()));
         }
 
         // One zeroed record at SSBO_GROOM_DEFORMATION for every draw that reads
@@ -1249,18 +1261,54 @@ namespace OloEngine
             if (marked)
             {
                 bodyVoxels = bodyStats.MarkedVoxels;
-                OLO_CORE_INFO("GroomRenderPass: the coat volume holds its body, {} voxels from {} closed of {} parts "
-                              "({} open skipped, {} cleared beside the coat, {} odd columns) in {:.1f} ms",
-                              bodyStats.MarkedVoxels, bodyStats.ClosedComponents, bodyStats.Components,
-                              bodyStats.OpenComponents, bodyStats.ClearedBesideCoat, bodyStats.OddColumns,
-                              static_cast<f64>(bodyMicroseconds) / 1000.0);
+                OLO_CORE_INFO("GroomRenderPass: the coat volume holds its body, {} voxels ({} full) from {} closed of "
+                              "{} parts ({} open skipped, {} odd sub-columns) in {:.1f} ms: raster {:.1f}, sky {:.1f} "
+                              "({} of {} cells), fill {:.1f}",
+                              bodyStats.MarkedVoxels, bodyStats.FullVoxels, bodyStats.ClosedComponents,
+                              bodyStats.Components, bodyStats.OpenComponents, bodyStats.OddColumns,
+                              static_cast<f64>(bodyMicroseconds) / 1000.0,
+                              static_cast<f64>(bodyStats.RasterMicroseconds) / 1000.0,
+                              static_cast<f64>(bodyStats.SkyMicroseconds) / 1000.0, bodyStats.SkyCellsOutside,
+                              bodyStats.SkyCells, static_cast<f64>(bodyStats.FillMicroseconds) / 1000.0);
             }
             else
             {
                 OLO_CORE_WARN("GroomRenderPass: the coat's bound surface has no closed part the volume can hold ({} "
-                              "parts, {} open, {} voxels left after the erosion): lights that do not cast, the sky "
-                              "and the VSM reach this fur through its body",
+                              "parts, {} open, {} voxels past the floor): lights that do not cast, the sky and the "
+                              "VSM reach this fur through its body",
                               bodyStats.Components, bodyStats.OpenComponents, bodyStats.MarkedVoxels);
+            }
+        }
+
+        // THE BODY'S OWN TEXTURE (#1533): RGBA8 on the coat's grid (occupancy
+        // and the sky it leaves), made new at every bake that marks one -- a
+        // rest bake, made once per resolution --
+        // so no recording still to be submitted can see it rewritten; the one
+        // it replaces outlives its frames in the deferred deletion, as a ring
+        // slot's does. A body whose texture cannot be made is no body, said
+        // loudly: those lights then reach the fur through it.
+        Ref<Texture3D> bodyTexture;
+        if (bodyVoxels > 0u)
+        {
+            Texture3DSpecification bodySpec;
+            bodySpec.Width = static_cast<u32>(volume.Dimensions.x);
+            bodySpec.Height = static_cast<u32>(volume.Dimensions.y);
+            bodySpec.Depth = static_cast<u32>(volume.Dimensions.z);
+            bodySpec.Format = Texture3DFormat::RGBA8;
+            bodySpec.Repeat = false; // clamped: the box's edge voxels hold no body
+            bodyTexture = Texture3D::Create(bodySpec);
+            if (bodyTexture)
+            {
+                const auto bodyUploadStart = std::chrono::steady_clock::now();
+                bodyTexture->SetData(volume.Body.data(), static_cast<u32>(volume.Body.size() * sizeof(glm::u8vec4)));
+                m_Stats.CoatShadow.BakeUploadMicroseconds += MicrosecondsSince(bodyUploadStart);
+            }
+            else
+            {
+                OLO_CORE_ERROR("GroomRenderPass: the coat's body texture ({} x {} x {} RGBA8) could not be made: lights "
+                               "that do not cast, the sky and the VSM reach this fur through its body",
+                               bodySpec.Width, bodySpec.Height, bodySpec.Depth);
+                bodyVoxels = 0;
             }
         }
 
@@ -1279,11 +1327,10 @@ namespace OloEngine
                              static_cast<sizet>(volume.Dimensions.z);
         const auto packStart = std::chrono::steady_clock::now();
         constexpr f32 kLargestHalf = 65504.0f;
-        // The largest MAGNITUDE: the body is negative (#1533) and must fit too.
         f32 densest = 0.0f;
         for (const f32 density : volume.Density)
         {
-            densest = std::max(densest, std::abs(density));
+            densest = std::max(densest, density);
         }
         const bool half = densest < kLargestHalf;
         const void* texels = nullptr;
@@ -1427,6 +1474,7 @@ namespace OloEngine
         entry.CoatBoundsMin = volume.BoundsMin;
         entry.CoatBoundsMax = volume.BoundsMax;
         entry.CoatResolution = resolution;
+        entry.CoatBody = bodyTexture;
         entry.CoatBodyVoxels = bodyVoxels;
         entry.CoatBakedWithSurface = haveSurface;
         // The REAL voxel size, carried rather than re-derived. The
@@ -1452,6 +1500,11 @@ namespace OloEngine
                                                                                      : 4ull; // R32F, RGBA8
                 ringBytes += static_cast<u64>(heldSpec.Width) * heldSpec.Height * heldSpec.Depth * texelBytes;
             }
+        }
+        if (entry.CoatBody)
+        {
+            const Texture3DSpecification& bodySpec = entry.CoatBody->GetSpecification();
+            ringBytes += static_cast<u64>(bodySpec.Width) * bodySpec.Height * bodySpec.Depth * 4ull; // RGBA8
         }
         m_CacheBytes -= std::min(m_CacheBytes, entry.CoatBytes);
         entry.CoatBytes = ringBytes;
@@ -2262,6 +2315,13 @@ namespace OloEngine
                                             coatActive ? entry->CoatVolume->GetRHIHandle()
                                                        : m_CoatPlaceholder->GetRHIHandle(),
                                             RHI::HeapSlotLifetime::Persistent);
+            // The body (#1533), under the same precondition: its placeholder
+            // -- no body, open sky -- stands in whenever this draw's volume
+            // holds none.
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GROOM_COAT_BODY,
+                                            coatActive && entry->CoatBody ? entry->CoatBody->GetRHIHandle()
+                                                                          : m_CoatBodyPlaceholder->GetRHIHandle(),
+                                            RHI::HeapSlotLifetime::Persistent);
             context.FlushHeapOffsets();
 
             // ── The coverage compensation (#1252) ───────────────────
@@ -2754,6 +2814,7 @@ namespace OloEngine
             std::vector<GroomRestCentreline>().swap(m_RestCentrelines);
             std::vector<f32>().swap(m_CoatVolumeScratch.Density);
             std::vector<glm::vec3>().swap(m_CoatVolumeScratch.Direction);
+            std::vector<glm::u8vec4>().swap(m_CoatVolumeScratch.Body);
             std::vector<u16>().swap(m_CoatPackHalf);
             std::vector<f32>().swap(m_CoatPackFloat);
         }
@@ -2815,7 +2876,8 @@ namespace OloEngine
         memory.CpuScratchBytes = capacityBytes(m_DeformedVertices) + capacityBytes(m_DrawnPose) +
                                  capacityBytes(m_DrawnPoseFull) + capacityBytes(m_CoatSegments) +
                                  capacityBytes(m_RestCentrelines) + capacityBytes(m_CoatVolumeScratch.Density) +
-                                 capacityBytes(m_CoatVolumeScratch.Direction) + capacityBytes(m_CoatPackHalf) +
+                                 capacityBytes(m_CoatVolumeScratch.Direction) +
+                                 capacityBytes(m_CoatVolumeScratch.Body) + capacityBytes(m_CoatPackHalf) +
                                  capacityBytes(m_CoatPackFloat) + static_cast<u64>(m_CpuRootScratch.GetAllocatedSize());
         return memory;
     }

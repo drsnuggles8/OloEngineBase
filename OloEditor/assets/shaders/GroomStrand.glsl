@@ -485,6 +485,17 @@ layout(binding = 10) uniform samplerCube u_IrradianceMap; // TEX_USER_0
 layout(binding = 75) uniform sampler3D u_GroomCoatVolume; // TEX_GROOM_COAT_VOLUME
 #endif
 
+// The body the coat grows on (#1533), TEX_GROOM_COAT_BODY: the coat volume's
+// grid and object space, RGBA8 -- A the body's occupancy, RGB the sky it
+// leaves. Read only when u_GroomCoatModes.w says the volume holds a body, and
+// bound like the coat volume, to a placeholder of no body and open sky,
+// whenever it does not.
+#ifdef OLO_BINDLESS
+#define u_GroomCoatBody OLO_HEAP_TEX_3D(77) // TEX_GROOM_COAT_BODY
+#else
+layout(binding = 77) uniform sampler3D u_GroomCoatBody; // TEX_GROOM_COAT_BODY
+#endif
+
 layout(location = 0) out vec4 o_Color;
 layout(location = 1) out int o_EntityID;
 layout(location = 2) out vec2 o_ViewNormal;
@@ -668,8 +679,9 @@ float oloGroomCoatTauAndBody(vec3 worldDir, bool countBody, out float bodyTau)
 	{
 		vec3 dirObject = normalize(oloGroomQuatRotate(v_CoatRestFrame, mat3(u_GroomCoatWorldToObject) * worldDir));
 		vec2 depths = oloGroomCoatOpticalDepthAndBodyObject(
-		    u_GroomCoatVolume, u_GroomCoatBoundsMin.xyz, u_GroomCoatInvExtent.xyz, v_CoatRestPos + dirObject * tube,
-		    dirObject, u_GroomCoatInvExtent.w, u_GroomCoatModes.x, countBody && oloGroomCoatHoldsBody());
+		    u_GroomCoatVolume, u_GroomCoatBody, u_GroomCoatBoundsMin.xyz, u_GroomCoatInvExtent.xyz,
+		    v_CoatRestPos + dirObject * tube, dirObject, u_GroomCoatInvExtent.w, u_GroomCoatModes.x,
+		    countBody && oloGroomCoatHoldsBody());
 		bodyTau = depths.y;
 		return depths.x;
 	}
@@ -1104,13 +1116,33 @@ OloGroomShading oloGroomShadeFibre()
 		// direction it is sampled from — so this is the one extra march that is
 		// consistent with the term it attenuates rather than an invented
 		// ambient-occlusion factor. A strand buried in the coat sees the sky
-		// through the coat; one on the surface sees it directly. No map answers
-		// for the sky, so the body the volume holds stops it (#1533).
+		// through the coat; one on the surface sees it directly.
+		//
+		// THE BODY TAKES A SHARE OF THE LOBE, not of one ray (#1533). No map
+		// answers for the sky, and a ray along the eye-facing normal hardly ever
+		// crosses the body -- the fur a viewer sees is on its near side -- yet
+		// at the silhouette the body fills half the lobe and behind the fibre
+		// most of it. The body texel holds the sky it leaves, baked from every
+		// direction, and that share scales each side's light. Each side reads it
+		// where that side's march starts, the tube's radius out along it: a
+		// card's tube is its lock's half-width, and at the lock's axis the body
+		// hides more of the sky than at the strands a viewer sees of it (the
+		// card guide's rule 6).
 		bool envBody = oloGroomCoatHoldsBody();
+		float envBodyShadow = 1.0;
+		float behindBodyShadow = 1.0;
+		if (envBody)
+		{
+			vec3 envObject = normalize(oloGroomQuatRotate(v_CoatRestFrame, mat3(u_GroomCoatWorldToObject) * envDir));
+			float envTube = max(v_TubeRadius, 0.0);
+			vec3 frontUvw = (v_CoatRestPos + (envObject * envTube) - u_GroomCoatBoundsMin.xyz) * u_GroomCoatInvExtent.xyz;
+			vec3 behindUvw = (v_CoatRestPos - (envObject * envTube) - u_GroomCoatBoundsMin.xyz) * u_GroomCoatInvExtent.xyz;
+			envBodyShadow = oloGroomBodySkyVisibility(texture(u_GroomCoatBody, frontUvw), envObject);
+			behindBodyShadow = oloGroomBodySkyVisibility(texture(u_GroomCoatBody, behindUvw), -envObject);
+		}
 		float envBodyTau = 0.0;
-		float envTau = oloGroomCoatTauAndBody(envDir, envBody, envBodyTau);
+		float envTau = oloGroomCoatTauAndBody(envDir, false, envBodyTau);
 		float envShadow = oloGroomCoatTransmittance(envTau, u_GroomCoatBoundsMin.w);
-		float envBodyShadow = oloGroomBodyTransmittance(envBodyTau);
 		OloGroomFibreLobes ambient = oloGroomFibreConstantLobes();
 		if ((u_GroomFibreModes.w & OLO_GROOM_SUBSTITUTE_CONSTANT_FIBRE) == 0)
 		{
@@ -1146,7 +1178,7 @@ OloGroomShading oloGroomShadeFibre()
 
 			vec3 behindDir = -envDir;
 			float behindBodyTau = 0.0;
-			float behindTau = oloGroomCoatTauAndBody(behindDir, envBody, behindBodyTau);
+			float behindTau = oloGroomCoatTauAndBody(behindDir, false, behindBodyTau);
 			float behindShadow = oloGroomCoatTransmittance(behindTau, u_GroomCoatBoundsMin.w);
 			vec3 behindArriving = vec3(behindShadow);
 			if (envBody)
@@ -1157,7 +1189,7 @@ OloGroomShading oloGroomShadeFibre()
 				                  densityForward;
 			}
 			vec3 behind = oloGroomFibreEnvironmentRadiance(u_IrradianceMap, behindDir, u_GroomFibreLobe.w) *
-			              behindArriving * oloGroomBodyTransmittance(behindBodyTau);
+			              behindArriving * behindBodyShadow;
 
 			total.R += ambient.R * front;
 			total.TRT += ambient.TRT * front;
