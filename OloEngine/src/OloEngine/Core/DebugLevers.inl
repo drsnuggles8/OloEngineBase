@@ -25,6 +25,18 @@
 // olo_debug_levers_set. TEXT levers deliberately are not.
 // =============================================================================
 
+// --- OpenGL shader route ----------------------------------------------------
+OLO_LEVER_TRISTATE(GLShadersFromGlsl, "OLO_GL_SHADERS_FROM_GLSL",
+                   "Which route an OpenGL program takes to the driver. Unset, each shader's own "
+                   "OLO_GL_GLSL_ROUTE token decides: SPIRV-Cross GLSL text through glShaderSource for a shader "
+                   "that names it, glShaderBinary SPIR-V for every other. 1 puts every program on the text "
+                   "route (narrowed by OLO_GL_SHADERS_FROM_GLSL_MATCH), 0 none. Read as each program is "
+                   "created, so set it before launch: the A/B for what the driver's SPIR-V ingestion costs.")
+OLO_LEVER_TEXT(GLShadersFromGlslMatch, "OLO_GL_SHADERS_FROM_GLSL_MATCH",
+               "With OLO_GL_SHADERS_FROM_GLSL=1, take the GLSL-text route only for shaders whose path contains "
+               "one of these comma-separated substrings (e.g. 'Foliage_'), so one shader family can be A/B'd "
+               "against the rest of the frame.")
+
 // --- Render graph -----------------------------------------------------------
 OLO_LEVER_TOGGLE(RenderGraphDiagnostics, "OLO_RENDERGRAPH_DIAGNOSTICS",
                  "Verbose render-graph build/execute tracing, plus the registration-order-sensitivity diagnostic.")

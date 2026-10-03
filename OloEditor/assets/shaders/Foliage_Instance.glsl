@@ -33,6 +33,12 @@
 #type vertex
 #version 460 core
 
+// THE GLSL TEXT ROUTE ON OPENGL (#1533): this program reaches a GL driver as
+// SPIRV-Cross GLSL text, not glShaderBinary SPIR-V, because NVIDIA's GLSL front
+// end runs the lawn and the terrain several times faster than its SPIR-V
+// ingestion. Vulkan is unaffected. docs/agent-rules/gl-shader-route.md.
+#define OLO_GL_GLSL_ROUTE 1
+
 // This shader's consuming stage never reads v_InstanceIndex — declare no
 // varying (a written-but-unconsumed output is a per-pipeline Vulkan
 // validation interface warning).

@@ -67,6 +67,14 @@ namespace OloEngine
 
         bool Reload() override;
 
+        /// True when the program reached the driver as SPIRV-Cross GLSL text
+        /// (CreateProgramFromGlslText) rather than glShaderBinary SPIR-V: old AMD
+        /// drivers, and every shader that names OLO_GL_GLSL_ROUTE.
+        [[nodiscard]] bool IsGlslTextRoute() const
+        {
+            return m_IsGlslTextRoute;
+        }
+
         // --- Async compilation status (override base class) ---
         [[nodiscard]] ShaderCompilationStatus GetCompilationStatus() const override
         {
@@ -255,9 +263,12 @@ namespace OloEngine
         /// Every graphics stage a program can carry: vertex, the two tessellation
         /// stages, geometry, fragment.
         static constexpr sizet kMaxGraphicsStages = 5;
-        [[nodiscard]] bool CompileOpenGLBinariesForAmd(GLenum const& program,
+        [[nodiscard]] bool CompileGlslTextStages(GLenum const& program,
                                                        std::array<u32, kMaxGraphicsStages>& glShadersIDs) const;
-        void CreateProgramForAmd();
+        void CreateProgramFromGlslText();
+        /// Whether this program takes the GLSL text route: OLO_GL_SHADERS_FROM_GLSL
+        /// when set, the shader's own OLO_GL_GLSL_ROUTE token otherwise.
+        [[nodiscard]] bool TakesGlslTextRoute() const;
 
         void Reflect(GLenum stage, const TArray<u32>& shaderData);
 
@@ -270,7 +281,7 @@ namespace OloEngine
         // |contentHash| identifies the INPUT that produced this program (issue
         // #906) — the caller computes it once per route (m_OpenGLSPIRV for the
         // ordinary GL path via FinalizeAfterLink, m_VulkanSPIRV for
-        // CreateProgramForAmd, the raw pre-patch GLSL text for
+        // CreateProgramFromGlslText, the raw pre-patch GLSL text for
         // CreateProgramFromRawGLSL) and MUST pass the same value to both the
         // Load and the Save for one compile — the two must agree on what the
         // key represents, or a save writes a filename the next load never
@@ -281,7 +292,7 @@ namespace OloEngine
         // object) and verifies it links. Returns true only on a fresh, well-framed cache that
         // links cleanly; returns false — without asserting — on a missing/disabled cache, a
         // corrupt or truncated file, or a soft link failure, leaving the caller to recompile.
-        // Shared by CreateProgram() and CreateProgramForAmd() so the on-disk framing is parsed
+        // Shared by CreateProgram() and CreateProgramFromGlslText() so the on-disk framing is parsed
         // in exactly one place (see issue #267). No staleness check: |contentHash| already
         // identifies the exact input, so existence alone is validity (issue #906).
         [[nodiscard("Check the result — a false return means the caller must recompile")]] bool LoadProgramBinaryCache(GLenum program, const std::string& contentHash) const;
@@ -350,6 +361,8 @@ namespace OloEngine
         // exposed so a pass can assert it is not writing heap offsets at a
         // program that has no heap in it.
         bool m_IsBindlessVariant = false;
+        // True when CreateProgramFromGlslText built the program (IsGlslTextRoute).
+        bool m_IsGlslTextRoute = false;
         // True when this program declares u_MaterialHeapOffsets, i.e. reads its
         // MATERIAL textures from the material UBO rather than from sampler
         // bindings. NOT the same as m_IsBindlessVariant — see
@@ -378,6 +391,11 @@ namespace OloEngine
         // branch the old single-phase constructor took, without redoing GL-
         // free work FinalizeGL() has no business repeating.
         bool m_WantsBindless = false;   // WantsBindlessVariant(m_OriginalSourceCode) — decided in PrepareCPU() (no GL call), acted on in FinalizeGL()
+        // The shader names OLO_GL_GLSL_ROUTE outside comments: it reaches the driver
+        // as SPIRV-Cross GLSL text (CreateProgramFromGlslText), not glShaderBinary
+        // SPIR-V. Decided in PrepareCPU() and on every reload; TakesGlslTextRoute()
+        // folds in the A/B lever.
+        bool m_WantsGlslRoute = false;
         bool m_VulkanCompileOk = false; // CompileOrGetVulkanBinaries() result (skipped when m_WantsBindless — see PrepareCPU())
         bool m_OpenGLCompileOk = false; // CompileOrGetOpenGLBinaries() result (same)
 

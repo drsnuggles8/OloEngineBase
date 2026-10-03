@@ -925,6 +925,9 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/BindlessShaderPipelineTest.cpp
 		Rendering/PropertyTests/BindlessHeapGpuTest.cpp
 		Rendering/PropertyTests/ShaderCompileFailureRecoveryTest.cpp
+		# The route a GL program takes to the driver (#1533): GLSL text for a
+		# shader that names OLO_GL_GLSL_ROUTE, glShaderBinary SPIR-V otherwise.
+		Rendering/PropertyTests/OpenGLShaderRouteTest.cpp
 		Rendering/PropertyTests/AssetPreviewRendererTest.cpp
 		Rendering/PropertyTests/RendererAttachedTest.cpp
 		Rendering/RendererMemoryTrackerTest.cpp
