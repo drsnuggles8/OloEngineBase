@@ -54,14 +54,23 @@ namespace OloEngine::PathTracing
             }
             else if (spec.Format == ImageFormat::RGB8)
             {
-                if (bytes.Num() < texelCount * 3u)
+                // Follow what the readback RETURNED, as the groom region map
+                // does (#1223): OpenGL hands back three bytes per texel, but
+                // Vulkan stores RGB8 widened to RGBA8 and reads back four. Read
+                // at three, a Vulkan texture's colours walked one channel per
+                // texel, and the reference tracer used a tinted albedo. Any
+                // other size is refused rather than reinterpreted.
+                const sizet stride = bytes.Num() == texelCount * 3u   ? 3u
+                                     : bytes.Num() == texelCount * 4u ? 4u
+                                                                      : 0u;
+                if (stride == 0u)
                     return false;
                 TArray64<u8> rgba(texelCount * 4u);
                 for (sizet i = 0; i < texelCount; ++i)
                 {
-                    rgba[i * 4 + 0] = bytes[i * 3 + 0];
-                    rgba[i * 4 + 1] = bytes[i * 3 + 1];
-                    rgba[i * 4 + 2] = bytes[i * 3 + 2];
+                    rgba[i * 4 + 0] = bytes[i * stride + 0];
+                    rgba[i * 4 + 1] = bytes[i * stride + 1];
+                    rgba[i * 4 + 2] = bytes[i * stride + 2];
                     rgba[i * 4 + 3] = 255;
                 }
                 out = ReferenceTexture::FromRgba8(width, height, std::span<const u8>(rgba.GetData(), static_cast<sizet>(rgba.Num())), spec.SRGB);

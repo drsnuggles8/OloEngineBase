@@ -141,9 +141,10 @@ namespace
         {
             return m_Name;
         }
-        void Reload() override
+        bool Reload() override
         {
             ++m_ReloadCount;
+            return true;
         }
 
         [[nodiscard]] int ReloadCount() const
@@ -269,6 +270,129 @@ TEST(McpShaderReload, PassOwnedComputeReloadIsLabelledAndOk)
     EXPECT_EQ("ready", j.at("status").get<std::string>());
     ASSERT_EQ(1u, j.at("libraries").size());
     EXPECT_EQ("PassOwned", j.at("libraries").at(0).get<std::string>());
+}
+
+// --- issue #607: on a PSO backend, `ready` means a pipeline was rebuilt -------
+//
+// Vulkan used to answer `ready` once the shader MODULES rebuilt, before any
+// pipeline built from them existed. ResolveStatus is the rule that replaced it.
+
+namespace
+{
+    using OloEngine::MCP::ShaderReload::Pipelines;
+    using OloEngine::MCP::ShaderReload::ResolveStatus;
+
+    Pipelines VulkanInvalidated(u32 invalidated)
+    {
+        Pipelines p;
+        p.Tracked = true;
+        p.Invalidated = invalidated;
+        p.CopiesInvalidated = invalidated > 0 ? 1u : 0u; // one copy unless a test says otherwise
+        p.SettleFrames = 3;
+        return p;
+    }
+} // namespace
+
+TEST(McpShaderReload, OpenGLStatusIsTheModuleStatus)
+{
+    const Pipelines untracked; // OpenGL: Tracked = false
+    EXPECT_EQ(ResolveStatus(ShaderCompilationStatus::Ready, untracked).Status, ShaderCompilationStatus::Ready);
+    EXPECT_TRUE(ResolveStatus(ShaderCompilationStatus::Ready, untracked).Note.empty());
+    EXPECT_EQ(ResolveStatus(ShaderCompilationStatus::Failed, untracked).Status, ShaderCompilationStatus::Failed);
+}
+
+TEST(McpShaderReload, RebuiltPipelinesAreReady)
+{
+    auto p = VulkanInvalidated(4);
+    p.Live = 2;
+    p.CopiesRebuilt = 1;
+    const auto resolution = ResolveStatus(ShaderCompilationStatus::Ready, p);
+    EXPECT_EQ(resolution.Status, ShaderCompilationStatus::Ready);
+    EXPECT_NE(resolution.Note.find("2 pipeline(s) rebuilt"), std::string::npos) << resolution.Note;
+    // Ready per copy, not per variant: the two variants not redrawn are named,
+    // not counted as a failure (an occasional render target is not redrawn in
+    // three frames).
+    EXPECT_NE(resolution.Note.find("other variants"), std::string::npos) << resolution.Note;
+}
+
+// CodeRabbit review of #1551: Live summed across copies let one copy's rebuild
+// answer for another that drew nothing, so the frame could still show the old
+// program where that copy draws.
+TEST(McpShaderReload, EveryCopyMustRebuildBeforeReady)
+{
+    auto p = VulkanInvalidated(2);
+    p.CopiesInvalidated = 2; // a library copy and a pass-owned copy
+    p.Live = 2;              // both live pipelines belong to ONE copy
+    p.CopiesRebuilt = 1;
+    const auto partial = ResolveStatus(ShaderCompilationStatus::Ready, p);
+    EXPECT_EQ(partial.Status, ShaderCompilationStatus::Pending) << "Live == Invalidated must not hide a copy that drew nothing";
+    EXPECT_NE(partial.Note.find("1 of 2 copies"), std::string::npos) << partial.Note;
+
+    p.CopiesRebuilt = 2;
+    EXPECT_EQ(ResolveStatus(ShaderCompilationStatus::Ready, p).Status, ShaderCompilationStatus::Ready);
+}
+
+// THE ONE THAT MATTERS: the old answer. Modules rebuilt, pipelines invalidated,
+// nothing rebuilt yet: that is not `ready`.
+TEST(McpShaderReload, InvalidatedButNotRebuiltIsPendingNotReady)
+{
+    const auto resolution = ResolveStatus(ShaderCompilationStatus::Ready, VulkanInvalidated(3));
+    EXPECT_EQ(resolution.Status, ShaderCompilationStatus::Pending);
+    EXPECT_NE(resolution.Note.find("no draw used this shader"), std::string::npos) << resolution.Note;
+
+    auto stalled = VulkanInvalidated(3);
+    stalled.FrameRendered = false;
+    EXPECT_NE(ResolveStatus(ShaderCompilationStatus::Ready, stalled).Note.find("no frame rendered"), std::string::npos);
+
+    // A host with no frame hooks waited for nothing; it must not claim it did.
+    auto hookless = VulkanInvalidated(3);
+    hookless.SettleFrames = 0;
+    hookless.FrameRendered = false;
+    const auto unobserved = ResolveStatus(ShaderCompilationStatus::Ready, hookless);
+    EXPECT_EQ(unobserved.Status, ShaderCompilationStatus::Pending);
+    EXPECT_NE(unobserved.Note.find("cannot render frames"), std::string::npos) << unobserved.Note;
+}
+
+TEST(McpShaderReload, PipelineCreationFailureIsFailed)
+{
+    auto p = VulkanInvalidated(1);
+    p.CreationFailed = true;
+    p.CreationFailure = "vkCreateGraphicsPipelines returned VkResult -13 for 'Broken'";
+    const auto resolution = ResolveStatus(ShaderCompilationStatus::Ready, p);
+    EXPECT_EQ(resolution.Status, ShaderCompilationStatus::Failed);
+    EXPECT_NE(resolution.Note.find("VkResult -13"), std::string::npos);
+}
+
+TEST(McpShaderReload, NothingToRebuildIsReady)
+{
+    const auto resolution = ResolveStatus(ShaderCompilationStatus::Ready, VulkanInvalidated(0));
+    EXPECT_EQ(resolution.Status, ShaderCompilationStatus::Ready);
+    EXPECT_NE(resolution.Note.find("none was stale"), std::string::npos);
+}
+
+TEST(McpShaderReload, ModuleFailureWinsOverPipelines)
+{
+    auto p = VulkanInvalidated(2);
+    p.Live = 2;
+    p.CopiesRebuilt = 1;
+    EXPECT_EQ(ResolveStatus(ShaderCompilationStatus::Failed, p).Status, ShaderCompilationStatus::Failed);
+}
+
+TEST(McpShaderReload, PipelineBlockIsReportedOnlyWhenTracked)
+{
+    Result r;
+    r.Name = "PBR_MultiLight";
+    r.Found = true;
+    EXPECT_FALSE(ToJson(r).contains("pipelines")) << "OpenGL has no PSO to report";
+
+    r.PipelineState = VulkanInvalidated(3);
+    r.PipelineState.Live = 3;
+    r.Note = "3 pipeline(s) rebuilt";
+    const Json j = ToJson(r);
+    ASSERT_TRUE(j.contains("pipelines"));
+    EXPECT_EQ(j.at("pipelines").at("invalidated").get<u32>(), 3u);
+    EXPECT_EQ(j.at("pipelines").at("rebuilt").get<u32>(), 3u);
+    EXPECT_EQ(j.at("note").get<std::string>(), "3 pipeline(s) rebuilt");
 }
 
 TEST_F(ShaderRegistryTest, StartsEmpty)

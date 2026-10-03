@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Renderer/ShaderPipelineState.h"
 #include <glm/glm.hpp>
 #include "OloEngine/Asset/AssetTypes.h"
 #include "RendererResource.h"
@@ -171,6 +172,13 @@ namespace OloEngine
         [[nodiscard]] virtual bool IsDeferredCapable() const
         {
             return false;
+        }
+
+        // The backend's pipeline objects built from this shader (issue #607);
+        // see ShaderPipelineState.h. OpenGL keeps the untracked default.
+        [[nodiscard]] virtual ShaderPipelineState GetPipelineState() const
+        {
+            return {};
         }
 
         // Resource registry access (safe interface)

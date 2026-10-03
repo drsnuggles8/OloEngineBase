@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -238,16 +239,74 @@ namespace OloEngine::MCP
         //   1. the Renderer3D / Renderer2D ShaderLibrary (mirrors the editor's own
         //      "Recompile" action in ShaderEditorPanel, which reloads the shader in
         //      both libraries);
-        //   2. otherwise the engine's process-wide ShaderRegistry, which every
-        //      file-backed shader — including pass-owned ones like
-        //      VirtualMeshGBuffer and every .comp — registers itself in from its
-        //      constructor. Those used to be un-reloadable even though
-        //      olo_shader_list reported them, which forced an editor restart per
-        //      shader edit.
+        //   2. AND the engine's process-wide ShaderRegistry, which every
+        //      file-backed shader (including pass-owned ones like
+        //      VirtualMeshGBuffer and every .comp) registers itself in from its
+        //      constructor, on both backends. Consulted even when a library held
+        //      the name: a pass that creates its own copy of a library shader
+        //      draws with that copy, and reloading only the library one changed
+        //      nothing on screen. Copies are de-duplicated by address, so the
+        //      library copy (registered too) is not reloaded twice.
         //
-        // Shader::Reload() re-reads the file and recompiles+links synchronously
-        // (force-finishing any async link), so the post-reload status is
-        // authoritative. GL work is main-thread-only, so it runs inside MarshalRead.
+        // A copy reloaded only if Reload() RETURNED true; IsReady()/IsValid() is
+        // an additional check on top, never the verdict on its own. A backend may
+        // keep the previous program and its status after a failed compile (Vulkan
+        // does), so the status alone reported a broken edit as `ready` (#607).
+        // The return value is the contract (#1131).
+        //
+        // On a backend with a PSO cache (Vulkan) a successful module rebuild is
+        // not yet a visible change: the reload invalidates every pipeline built
+        // from the old modules and the next draw or dispatch rebuilds them. So
+        // there the handler renders a few frames and reports `ready` only once a
+        // pipeline was rebuilt (ShaderReload::ResolveStatus). GL work is
+        // main-thread-only, so every touch of a shader runs inside MarshalRead.
+
+        // Shared between the reload job and the post-settle job. The Refs must
+        // be released on the main thread: a render-path switch in between could
+        // make ours the last reference, and a shader destructor deletes GPU
+        // objects. ReleaseOnMainThread is the only way they are dropped.
+        struct ReloadState
+        {
+            ShaderReload::Result Result;
+            ShaderCompilationStatus ModuleStatus = ShaderCompilationStatus::Ready;
+            std::vector<Ref<Shader>> Copies;
+            std::vector<Ref<ComputeShader>> ComputeCopies;
+            u64 BaseFrame = 0;
+        };
+
+        // (main thread) Sum the pipeline state of every reloaded copy.
+        template<typename TFn>
+        void ForEachPipelineState(const ReloadState& state, TFn&& fn)
+        {
+            for (const Ref<Shader>& copy : state.Copies)
+                fn(copy->GetPipelineState());
+            for (const Ref<ComputeShader>& copy : state.ComputeCopies)
+                fn(copy->GetPipelineState());
+        }
+
+        // Drop the Refs on the main thread. If the editor is so stalled that even
+        // this cannot be marshaled, the Refs are deliberately leaked: a leaked
+        // shader costs memory, a shader destroyed on this thread deletes GL/Vulkan
+        // objects off the render thread.
+        void ReleaseOnMainThread(IAutomationHost& host, const std::shared_ptr<ReloadState>& state)
+        {
+            try
+            {
+                (void)host.MarshalRead([state]() -> Json
+                                       {
+                    state->Copies.clear();
+                    state->ComputeCopies.clear();
+                    return Json::object(); });
+            }
+            catch (...)
+            {
+                auto* leaked = new ReloadState();
+                leaked->Copies = std::move(state->Copies);
+                leaked->ComputeCopies = std::move(state->ComputeCopies);
+                (void)leaked;
+            }
+        }
+
         ToolResult Handle_ShaderReload(IAutomationHost& host, const Json& args)
         {
             std::string name;
@@ -256,86 +315,85 @@ namespace OloEngine::MCP
             if (name.empty())
                 return ToolResult::Error("Provide a shader 'name' to reload (see olo_shader_list).");
 
-            const Json result = host.MarshalRead([name]() -> Json
-                                                 {
-                ShaderReload::Result r;
+            // Frames a PSO backend gets to rebuild the invalidated pipelines.
+            constexpr int kPipelineSettleFrames = 3;
+
+            auto state = std::make_shared<ReloadState>();
+            const auto reloadJob = [name, state, &host]() -> Json
+            {
+                ShaderReload::Result& r = state->Result;
                 r.Name = name;
 
                 // The reported status aggregates ALL reloaded copies: r.Ok is true
-                // only if every copy is Ready, and the representative used for the
+                // only if every copy reloaded, and the representative used for the
                 // status / program-id / log is the first copy that FAILED (so a
                 // failure isn't masked by a sibling that linked) — otherwise the
                 // first copy.
                 Ref<Shader> representative;
+                bool representativeReloaded = true;
                 bool allReady = true;
-                const auto adopt = [&allReady, &representative](const Ref<Shader>& shader, bool ready)
+                const auto reload = [&r, &representative, &representativeReloaded, &allReady, &state](Ref<Shader> shader, std::string_view label)
                 {
-                    allReady = allReady && ready;
-                    if (!representative || (!ready && representative->IsReady()))
+                    if (std::ranges::any_of(state->Copies, [&shader](const Ref<Shader>& done)
+                                            { return done.Raw() == shader.Raw(); }))
+                        return;
+                    const bool reloaded = shader->Reload() && shader->IsReady();
+                    r.Found = true;
+                    r.Libraries.emplace_back(label);
+                    state->Copies.push_back(shader);
+                    allReady = allReady && reloaded;
+                    if (!representative || (!reloaded && representativeReloaded))
+                    {
                         representative = shader;
+                        representativeReloaded = reloaded;
+                    }
                 };
-
-                const auto reloadIn = [&name, &r, &adopt](ShaderLibrary& lib, std::string_view label)
+                const auto reloadIn = [&name, &reload](ShaderLibrary& lib, std::string_view label)
                 {
                     if (!lib.Exists(name))
                         return;
-                    Ref<Shader> shader = lib.Get(name);
-                    if (!shader)
-                        return;
-                    shader->Reload();
-                    r.Found = true;
-                    r.Libraries.emplace_back(label);
-                    adopt(shader, shader->IsReady());
+                    if (Ref<Shader> shader = lib.Get(name))
+                        reload(shader, label);
                 };
                 reloadIn(Renderer3D::GetShaderLibrary(), "Renderer3D");
                 reloadIn(Renderer2D::GetShaderLibrary(), "Renderer2D");
+                for (const Ref<Shader>& shader : ShaderRegistry::Get().FindShaders(name))
+                    reload(shader, ShaderReload::kPassOwnedLabel);
 
-                // Pass-owned graphics shaders (VirtualMeshGBuffer, the fluid splat
-                // shaders, ...). Only consulted when no library held the name — a
-                // library shader is registered here too, and reloading it twice
-                // would needlessly churn its GL program.
-                if (!r.Found)
-                {
-                    auto passOwned = ShaderRegistry::Get().FindShaders(name);
-                    for (Ref<Shader>& shader : passOwned)
-                    {
-                        shader->Reload();
-                        r.Found = true;
-                        r.Libraries.emplace_back(ShaderReload::kPassOwnedLabel);
-                        adopt(shader, shader->IsReady());
-                    }
-                }
+                constexpr const char* kKeptPreviousNote =
+                    "The reload failed and the previous program is still live; the compiler error is in the editor log.";
 
                 // Pass-owned COMPUTE shaders (GTAO/SSAO/SSR/VirtualCluster*/...).
-                // ComputeShader has no ShaderCompilationStatus — IsValid() is the
-                // whole contract — so map it onto Ready/Failed and flag the kind.
+                // ComputeShader has no ShaderCompilationStatus, so Reload()'s result
+                // (and IsValid()) map onto Ready/Failed, and the kind is flagged.
                 if (!r.Found)
                 {
-                    auto computeShaders = ShaderRegistry::Get().FindComputeShaders(name);
-                    if (!computeShaders.empty())
+                    Ref<ComputeShader> computeRep;
+                    bool computeRepReloaded = true;
+                    for (Ref<ComputeShader>& shader : ShaderRegistry::Get().FindComputeShaders(name))
                     {
+                        const bool reloaded = shader->Reload() && shader->IsValid();
+                        r.Found = true;
                         r.Kind = ShaderReload::ShaderKind::Compute;
-                        Ref<ComputeShader> computeRep;
-                        for (Ref<ComputeShader>& shader : computeShaders)
+                        r.Libraries.emplace_back(ShaderReload::kPassOwnedLabel);
+                        state->ComputeCopies.push_back(shader);
+                        allReady = allReady && reloaded;
+                        if (!computeRep || (!reloaded && computeRepReloaded))
                         {
-                            shader->Reload();
-                            r.Found = true;
-                            r.Libraries.emplace_back(ShaderReload::kPassOwnedLabel);
-                            const bool valid = shader->IsValid();
-                            allReady = allReady && valid;
-                            if (!computeRep || (!valid && computeRep->IsValid()))
-                                computeRep = shader;
+                            computeRep = shader;
+                            computeRepReloaded = reloaded;
                         }
-                        r.Status = computeRep->IsValid() ? ShaderCompilationStatus::Ready
-                                                         : ShaderCompilationStatus::Failed;
-                        r.Ok = allReady;
+                    }
+                    if (computeRep)
+                    {
+                        state->ModuleStatus = computeRepReloaded ? ShaderCompilationStatus::Ready : ShaderCompilationStatus::Failed;
+                        if (!computeRepReloaded && computeRep->IsValid())
+                            r.Note = kKeptPreviousNote;
                         r.RendererId = computeRep->GetRendererID();
-                        r.Log = ReadShaderLog(name, r.RendererId);
-                        return ShaderReload::ToJson(r);
                     }
                 }
 
-                if (!r.Found || !representative)
+                if (!r.Found)
                 {
                     // Every file-backed shader registers itself, so this list is
                     // the complete set of reloadable names — a shader that appears
@@ -357,18 +415,113 @@ namespace OloEngine::MCP
                                        list } };
                 }
 
-                // Authoritative, build-independent status (does not rely on the
-                // debug-only ShaderDebugger).
-                r.Status = representative->GetCompilationStatus();
+                if (representative)
+                {
+                    // Authoritative, build-independent status (does not rely on the
+                    // debug-only ShaderDebugger).
+                    state->ModuleStatus = representativeReloaded ? representative->GetCompilationStatus()
+                                                                 : ShaderCompilationStatus::Failed;
+                    if (!representativeReloaded && representative->IsReady())
+                        r.Note = kKeptPreviousNote;
+                    r.RendererId = representative->GetRendererID();
+                }
+                r.Status = state->ModuleStatus;
                 r.Ok = allReady;
-                r.RendererId = representative->GetRendererID();
                 r.Log = ReadShaderLog(name, r.RendererId);
 
-                return ShaderReload::ToJson(r); });
+                // Only after a successful reload: a failed one invalidated nothing,
+                // and the counts left from the previous reload would mislead.
+                if (allReady)
+                {
+                    ForEachPipelineState(*state, [&r](const ShaderPipelineState& pipelines)
+                                         {
+                        r.PipelineState.Tracked = r.PipelineState.Tracked || pipelines.Tracked;
+                        r.PipelineState.Invalidated += pipelines.InvalidatedByLastReload; });
+                }
+                const bool settle = allReady && r.PipelineState.Tracked && r.PipelineState.Invalidated > 0;
+                if (!settle)
+                {
+                    state->Copies.clear(); // released here, on the main thread
+                    state->ComputeCopies.clear();
+                }
+                else if (host.Context().GetFrameIndex)
+                {
+                    state->BaseFrame = host.Context().GetFrameIndex();
+                }
+                return Json{ { "settle", settle } }; };
 
-            if (result.is_object() && result.contains("__error"))
-                return ToolResult::Error(result["__error"].get<std::string>());
-            return ToolResult::Structured(result);
+            // The job stores Refs in `state` before it can fail. If the marshal
+            // throws (the job threw, or the editor never picked it up), `state`
+            // would otherwise unwind here with ours possibly the last reference.
+            Json first;
+            try
+            {
+                first = host.MarshalRead(reloadJob);
+            }
+            catch (...)
+            {
+                ReleaseOnMainThread(host, state);
+                throw;
+            }
+
+            if (first.is_object() && first.contains("__error"))
+                return ToolResult::Error(first["__error"].get<std::string>());
+
+            if (first.value("settle", false))
+            {
+                ShaderReload::Pipelines& pipelines = state->Result.PipelineState;
+                bool frameRendered = false;
+                try
+                {
+                    // A host that cannot report frames cannot be waited on: say no
+                    // frame was waited rather than claim three were.
+                    if (host.Context().GetFrameIndex && host.Context().IsCaptureUnready)
+                    {
+                        frameRendered = AwaitRenderedFrames(host, state->BaseFrame, kPipelineSettleFrames);
+                        pipelines.SettleFrames = kPipelineSettleFrames;
+                    }
+                    if (host.IsCurrentCallCancelled())
+                    {
+                        ReleaseOnMainThread(host, state);
+                        return ToolResult::Error("Cancelled while waiting for the reloaded pipelines to rebuild; the "
+                                                 "modules did reload.");
+                    }
+                    pipelines.FrameRendered = frameRendered;
+                    (void)host.MarshalRead([state]() -> Json
+                                           {
+                        ShaderReload::Pipelines& p = state->Result.PipelineState;
+                        ForEachPipelineState(*state, [&p](const ShaderPipelineState& after)
+                                             {
+                            p.Live += after.Live;
+                            if (after.InvalidatedByLastReload > 0)
+                            {
+                                ++p.CopiesInvalidated;
+                                if (after.Live > 0)
+                                    ++p.CopiesRebuilt;
+                            }
+                            if (after.CreationFailed && !p.CreationFailed)
+                            {
+                                p.CreationFailed = true;
+                                p.CreationFailure = after.CreationFailure.ToStdString();
+                            } });
+                        state->Copies.clear();
+                        state->ComputeCopies.clear();
+                        return Json::object(); });
+                }
+                catch (...)
+                {
+                    ReleaseOnMainThread(host, state);
+                    throw;
+                }
+            }
+
+            ShaderReload::Result& r = state->Result;
+            const ShaderReload::Resolution resolution = ShaderReload::ResolveStatus(state->ModuleStatus, r.PipelineState);
+            r.Status = resolution.Status;
+            r.Ok = r.Ok && resolution.Status == ShaderCompilationStatus::Ready;
+            if (!resolution.Note.empty())
+                r.Note = resolution.Note;
+            return ToolResult::Structured(ShaderReload::ToJson(r));
         }
 
     } // namespace
@@ -506,8 +659,13 @@ namespace OloEngine::MCP
                 "Renderer3D / Renderer2D / PassOwned), and the compile/link error log (empty on a clean reload; "
                 "populated from the shader debugger in debug builds). A GLSL compile or link error returns "
                 "status 'failed' with the log and leaves the editor running (#568); only a malformed #type "
-                "directive still trips a debug assert. To inspect a shader's existing errors without "
-                "recompiling, use olo_shader_errors / olo_shader_get instead.";
+                "directive still trips a debug assert. On Vulkan a module rebuild is not yet visible: every "
+                "pipeline built from the old modules is invalidated and the next draw rebuilds it, so the tool "
+                "renders a few frames and answers 'ready' only once a pipeline was rebuilt ('pipelines' says how "
+                "many), 'failed' when pipeline creation failed, and 'pending' with a 'note' when no draw used the "
+                "shader (it may belong to the other render path). Every copy is reloaded, including a pass's own "
+                "copy of a library shader. To inspect a shader's existing errors without recompiling, use "
+                "olo_shader_errors / olo_shader_get instead.";
             tool.InputSchema = Schema::Object()
                                    .Prop("name", Schema::String().Desc("Shader name to reload (as shown by olo_shader_list)."))
                                    .Required({ "name" })
@@ -522,6 +680,16 @@ namespace OloEngine::MCP
                                     .Prop("ok", Schema::Bool().Desc("True only when every reloaded copy is ready/valid."))
                                     .Prop("rendererId", Schema::Int().Min(0).Desc("Current GL program id of the primary copy; 0 when a link failed."))
                                     .Prop("log", Schema::String().Desc("Compile/link error log; empty on a clean reload (best-effort, debug builds)."))
+                                    .Prop("pipelines", Schema::Object()
+                                                           .Prop("invalidated", Schema::Int().Min(0).Desc("Pipelines the reload invalidated."))
+                                                           .Prop("rebuilt", Schema::Int().Min(0).Desc("Pipelines built from the new modules since."))
+                                                           .Prop("copiesInvalidated", Schema::Int().Min(0).Desc("Copies of the shader whose reload invalidated a pipeline."))
+                                                           .Prop("copiesRebuilt", Schema::Int().Min(0).Desc("Of those, copies that rebuilt at least one; ready needs all of them."))
+                                                           .Prop("creationFailed", Schema::Bool())
+                                                           .Prop("settleFrames", Schema::Int().Min(0).Desc("Frames waited for a draw to rebuild them."))
+                                                           .Prop("frameRendered", Schema::Bool().Desc("False when no frame rendered during that wait."))
+                                                           .Desc("Vulkan only (a PSO-cache backend); absent on OpenGL, which relinks the program in place."))
+                                    .Prop("note", Schema::String().Desc("Why the status is what it is, when the pipelines decided it."))
                                     .Required({ "name", "found", "libraries", "kind", "status", "ok", "rendererId", "log" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_ShaderReload;

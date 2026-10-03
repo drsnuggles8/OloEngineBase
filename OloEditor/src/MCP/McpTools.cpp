@@ -220,6 +220,7 @@ namespace OloEngine::MCP
         RegisterPerfTools(registry);
         RegisterRenderTools(registry);
         RegisterShaderTools(registry);
+        RegisterResourceTools(registry);
         RegisterAssetTools(registry);
         Automation::RegisterAssetAuthoringCommands(registry);
         RegisterScriptingTools(registry);

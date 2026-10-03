@@ -336,7 +336,7 @@ namespace OloEngine
         OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::Mat4);
     }
 
-    void OpenGLComputeShader::Reload()
+    bool OpenGLComputeShader::Reload()
     {
         OLO_PROFILE_FUNCTION();
 
@@ -347,7 +347,7 @@ namespace OloEngine
         {
             OLO_CORE_ERROR("Failed to reload compute shader '{0}': empty source", GetName());
             OLO_SHADER_RELOAD_END(m_RendererID, false);
-            return;
+            return false;
         }
 
         // Extract directory for resolving #include paths
@@ -359,7 +359,7 @@ namespace OloEngine
         {
             OLO_CORE_ERROR("Compute shader '{0}': include processing returned empty source during reload", GetName());
             OLO_SHADER_RELOAD_END(m_RendererID, false);
-            return;
+            return false;
         }
 
         // Clean up old program
@@ -387,5 +387,6 @@ namespace OloEngine
 
         Compile(source);
         OLO_SHADER_RELOAD_END(m_RendererID, m_IsValid);
+        return m_IsValid;
     }
 } // namespace OloEngine

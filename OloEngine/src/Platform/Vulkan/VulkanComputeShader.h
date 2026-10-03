@@ -93,7 +93,9 @@ namespace OloEngine
             return m_FilePath.ToStdString();
         }
 
-        void Reload() override;
+        bool Reload() override;
+        // Reads VulkanPipelineBuilder's entries for this shader (issue #607).
+        [[nodiscard]] ShaderPipelineState GetPipelineState() const override;
 
         // Context teardown releases native modules even when a Ref survives.
         void ReleaseDeviceObjects()
@@ -140,6 +142,8 @@ namespace OloEngine
         mutable std::atomic<u64> m_RecordedDispatches{ 0u };
         std::mutex m_RootLayoutMutex;
         RHI::ScopedResourceHandle m_RHIHandle;
+        // What the last successful Reload() invalidated, for GetPipelineState.
+        u32 m_PipelinesInvalidatedByLastReload = 0;
 
         inline static VulkanComputeShader* s_CurrentlyBound = nullptr;
     };

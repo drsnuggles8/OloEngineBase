@@ -5,6 +5,7 @@
 #include "OloEngine/Debug/Instrumentor.h"
 #include "OloEngine/Renderer/AlphaCoverageMips.h"
 #include "OloEngine/Renderer/BC6HEncoder.h"
+#include "OloEngine/Renderer/ColorTransfer.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/TextureImportSettings.h"
 
@@ -95,15 +96,8 @@ namespace OloEngine
 
         // sRGB transfer function, both directions (IEC 61966-2-1). Only used to build a
         // mip chain in linear light; the stored texels stay sRGB-encoded either way.
-        f32 SRGBToLinear(f32 encoded)
-        {
-            return encoded <= 0.04045f ? (encoded / 12.92f) : std::pow((encoded + 0.055f) / 1.055f, 2.4f);
-        }
-
-        f32 LinearToSRGB(f32 linear)
-        {
-            return linear <= 0.0031308f ? (linear * 12.92f) : (1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f);
-        }
+        using ColorTransfer::LinearToSrgb;
+        using ColorTransfer::SrgbToLinear;
 
         // 256-entry sRGB -> linear table. Building the table once and indexing it turns
         // the per-texel std::pow into a load; the inverse still needs the real function
@@ -114,7 +108,7 @@ namespace OloEngine
             {
                 std::array<f32, 256> values{};
                 for (u32 i = 0; i < 256; ++i)
-                    values[i] = SRGBToLinear(static_cast<f32>(i) / 255.0f);
+                    values[i] = SrgbToLinear(static_cast<f32>(i) / 255.0f);
                 return values;
             }();
             return table;
@@ -158,7 +152,7 @@ namespace OloEngine
                         if (srgb && c < 3)
                         {
                             const f32 average = (decode[p00[c]] + decode[p01[c]] + decode[p10[c]] + decode[p11[c]]) * 0.25f;
-                            const f32 encoded = std::clamp(LinearToSRGB(average), 0.0f, 1.0f);
+                            const f32 encoded = std::clamp(LinearToSrgb(average), 0.0f, 1.0f);
                             d[c] = static_cast<u8>(std::lround(encoded * 255.0f));
                         }
                         else

@@ -43,7 +43,7 @@ namespace OloEngine
         // Real paths (#691): mapped write-through (BAR/UMA) or a
         // staged one-shot copy; readback via a one-shot copy to host memory.
         void SetData(const void* data, u32 size, u32 offset = 0) override;
-        void GetData(void* outData, u32 size, u32 offset = 0) const override;
+        bool GetData(void* outData, u32 size, u32 offset = 0) const override;
         void ClearData() override;
         void ClearData(u32 offset, u32 size) override;
 

@@ -50,7 +50,7 @@ namespace OloEngine
             return m_FilePath.ToStdString();
         }
 
-        void Reload() override;
+        bool Reload() override;
 
       private:
         void Compile(const std::string& source);

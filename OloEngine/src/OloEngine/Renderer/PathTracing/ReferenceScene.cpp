@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 
 #include "OloEngine/Renderer/PathTracing/ReferenceScene.h"
+#include "OloEngine/Renderer/ColorTransfer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -58,7 +59,7 @@ namespace OloEngine::PathTracing
             const f32 c = static_cast<f32>(value) / 255.0f;
             if (!srgb)
                 return c;
-            return c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f);
+            return ColorTransfer::SrgbToLinear(c);
         };
         for (sizet i = 0; i < texture.Texels.Num(); ++i)
         {

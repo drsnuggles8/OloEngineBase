@@ -23,7 +23,12 @@
 // (debug builds), per the validation bar.
 // =============================================================================
 
+// Initialize the HAL before gtest or Base.h can introduce the Windows Yield /
+// MemoryBarrier macros: the PathTracing headers below reach the task system.
+#include "OloEnginePCH.h"
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/PathTracing/ReferenceScene.h"
+#include "OloEngine/Renderer/PathTracing/ReferenceTextureCapture.h"
 
 #include <gtest/gtest.h>
 
@@ -703,6 +708,40 @@ TEST_F(VulkanResourceFactory, RgbUploadWidensToRgbaWithOpaqueAlpha)
         EXPECT_EQ(readback[pixel * 4 + 1], rgb[pixel * 3 + 1]);
         EXPECT_EQ(readback[pixel * 4 + 2], rgb[pixel * 3 + 2]);
         EXPECT_EQ(readback[pixel * 4 + 3], 0xFFu);
+    }
+}
+
+// The reference path tracer's texture captor read an RGB8 readback at three
+// bytes per texel. Vulkan reads RGB8 back widened (the test above), so every
+// texel after the first was decoded one channel out of phase: a red texture
+// came back red, green, blue, red... This uploads four distinct colours and
+// requires the captor to return them in place (found while building
+// olo_texture_probe, issue #607).
+TEST_F(VulkanResourceFactory, ReferenceTextureCaptorDecodesWidenedRgb8)
+{
+    ScopedVulkanApiSelection vulkanApi;
+
+    TextureSpecification spec;
+    spec.Width = 2;
+    spec.Height = 2;
+    spec.Format = ImageFormat::RGB8;
+    spec.GenerateMips = false;
+    auto texture = Texture2D::Create(spec);
+    ASSERT_NE(texture, nullptr);
+    const u8 rgb[2 * 2 * 3] = { 255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 0 };
+    texture->SetData(const_cast<u8*>(rgb), sizeof(rgb));
+
+    PathTracing::ReferenceTextureCaptor captor;
+    const auto captured = captor.Capture(texture);
+    ASSERT_NE(captured, nullptr) << "a 4-byte RGB8 readback must be decoded, not refused";
+    ASSERT_EQ(captured->Texels.Num(), 4u);
+    for (u32 texel = 0; texel < 4; ++texel)
+    {
+        const glm::vec4& value = captured->Texels[texel];
+        EXPECT_NEAR(value.r, rgb[texel * 3 + 0] / 255.0f, 1e-3f) << "texel " << texel;
+        EXPECT_NEAR(value.g, rgb[texel * 3 + 1] / 255.0f, 1e-3f) << "texel " << texel;
+        EXPECT_NEAR(value.b, rgb[texel * 3 + 2] / 255.0f, 1e-3f) << "texel " << texel;
+        EXPECT_FLOAT_EQ(value.a, 1.0f);
     }
 }
 
