@@ -6531,6 +6531,8 @@ namespace OloEngine::Tests
     // reach), so a plume left at rest while the tail wags stays within reach of
     // the moving tail and shows only as a partial coverage loss (measured while
     // this was developed: the tail's coverage fell from 0.92-0.96 to 0.75-0.90).
+    // TheCoatsRootsStayOnTheSkinThroughEveryClip closes it at the roots: the
+    // coat cut to stubs, whose reach is a couple of centimetres.
     // =========================================================================
     TEST_F(DogShowcaseEvidenceTest, TheAttachmentCheckSeesALocalFailure)
     {
@@ -6649,6 +6651,159 @@ namespace OloEngine::Tests
             EXPECT_TRUE(NamesPart(plantedFailures, plant.Part))
                 << "the attachment check missed a planted " << plant.Name << " in the " << kBodyPartNames[static_cast<sizet>(plant.Part)];
         }
+    }
+
+    // =========================================================================
+    // B3 AT THE ROOTS: the shipped coat cut to stubs. The attachment check
+    // judges a coat against each part's REACH, how far its strands stand off
+    // the skin, and long loose hair reaches far: a tail plume left at rest
+    // while the tail wags stays inside its 24 cm and shows only as a partial
+    // coverage loss (the limit TheAttachmentCheckSeesALocalFailure states).
+    // Every strand scaled toward its root to kStub stands within millimetres
+    // of where it is bound, so the reach shrinks to the stub and the pad, and
+    // a root that does not follow its skin floats past it at once. The stubs,
+    // bound by their own cooked binding, through every clip from both views:
+    // no part's stubs float. The negative control: the tail's stubs on a coat
+    // bound to nothing, through Idle's wag, float in the tail. Only floating
+    // is judged -- stubs leave the skin showing everywhere, so baldness says
+    // nothing here.
+    // =========================================================================
+    TEST_F(DogShowcaseEvidenceTest, TheCoatsRootsStayOnTheSkinThroughEveryClip)
+    {
+        SetPath(RenderingPath::Forward);
+        BodyParts parts = BuildBodyParts();
+        constexpr f32 kStub = 0.005f;
+        constexpr f64 kStubPartPixels = 100.0;
+        for (sizet p = 0; p < kBodyParts; ++p)
+        {
+            parts.Reach[p] = (1.3f * kStub) + 0.015f;
+        }
+        const GroomAsset& shipped = *m_Dog.CoatAsset.Groom;
+        std::vector<f32> scale(shipped.GetCurveCount(), 1.0f);
+        for (u32 c = 0; c < shipped.GetCurveCount(); ++c)
+        {
+            const u32 first = shipped.GetCurveFirstPoint(c);
+            f32 length = 0.0f;
+            for (u32 i = 1; i < shipped.GetCurvePointCount(c); ++i)
+            {
+                length += glm::length(shipped.GetPoints()[first + i] - shipped.GetPoints()[first + i - 1u]);
+            }
+            scale[c] = length > kStub ? kStub / length : 1.0f;
+        }
+        const auto stub = [&](u32 c, const glm::vec3& p)
+        {
+            const glm::vec3 root = shipped.GetPoints()[shipped.GetCurveFirstPoint(c)];
+            return root + ((p - root) * scale[c]);
+        };
+        const auto judgeRoots = [&](const std::vector<FrameParts>& steps, const std::string& what)
+        {
+            std::vector<std::string> failures;
+            char line[256];
+            for (sizet s = 0; s < steps.size(); ++s)
+            {
+                for (sizet p = 0; p < kBodyParts; ++p)
+                {
+                    const PartCounts& part = steps[s].Parts[p];
+                    if (part.Coat >= kStubPartPixels && part.FloatingShare() > kFloatingCeiling)
+                    {
+                        std::snprintf(line, sizeof(line), "%s step %zu: %.3f of the %s stubs stand off the skin past %.1f cm",
+                                      what.c_str(), s, part.FloatingShare(), kBodyPartNames[p], 100.0 * parts.Reach[p]);
+                        failures.emplace_back(line);
+                    }
+                }
+                if (steps[s].CoatPixels > 0.0 && steps[s].Lost / steps[s].CoatPixels > kFloatingCeiling)
+                {
+                    std::snprintf(line, sizeof(line), "%s step %zu: %.3f of the stubs have no body within 30 cm", what.c_str(), s,
+                                  steps[s].Lost / steps[s].CoatPixels);
+                    failures.emplace_back(line);
+                }
+            }
+            return failures;
+        };
+        struct Restore
+        {
+            std::function<void()> Undo;
+            ~Restore()
+            {
+                Undo();
+            }
+        } restore{ [&]
+                   { RestoreShippedCoat(); } };
+
+        const Ref<GroomAsset> stubs = CopyGroom(shipped, [](u32)
+                                                { return true; }, stub);
+        ASSERT_TRUE(stubs);
+        InstallCoat(m_Dog.Coat, stubs);
+        ASSERT_FALSE(HasFatalFailure());
+        const std::vector<i32> coat{ static_cast<i32>(static_cast<u32>(m_Dog.Coat)) };
+        struct ClipCase
+        {
+            const char* Name;
+            bool Loop;
+            f32 Seconds;
+        };
+        constexpr u32 kSteps = 6;
+        const std::array<View, 2> views{ HeroViews()[5], HeroViews()[3] };
+        for (const ClipCase& clip : { ClipCase{ "Idle", true, 4.0f }, ClipCase{ "HeadTilt", false, 2.5f },
+                                      ClipCase{ "Sit", false, 3.0f }, ClipCase{ "Walk", true, 1.0f },
+                                      ClipCase{ "Pant", true, 2.0f } })
+        {
+            SCOPED_TRACE(clip.Name);
+            const u32 framesPerStep = std::max(1u, static_cast<u32>(clip.Seconds * 60.0f / kSteps));
+            for (const View& view : views)
+            {
+                SCOPED_TRACE(view.Name);
+                MotionResult motion;
+                const std::vector<FrameParts> steps =
+                    AttachmentThroughClip(parts, clip.Name, clip.Loop, kSteps, framesPerStep, view, coat, &motion);
+                ASSERT_FALSE(HasFatalFailure());
+                EXPECT_EQ(motion.MaxBindingRefused, 0u) << "the stubs' binding was refused mid-clip";
+                const std::string what = std::string("stubs ") + clip.Name + " " + view.Name;
+                for (sizet s = 0; s < steps.size(); ++s)
+                {
+                    ReportAttachment(what, s, steps[s]);
+                }
+                for (const std::string& failure : judgeRoots(steps, what))
+                {
+                    ADD_FAILURE() << failure;
+                }
+            }
+        }
+
+        // The negative control: the tail's stubs (those rooted on the tail's
+        // skin) on a second coat bound to nothing, through Idle's wag.
+        std::vector<u32> bindTree;
+        BodyParts::BuildTree(parts.Bind, bindTree);
+        const auto isTail = [&](u32 c)
+        {
+            f32 distance = 0.0f;
+            const u32 v = BodyParts::Nearest(parts.Bind, bindTree, shipped.GetPoints()[shipped.GetCurveFirstPoint(c)], distance);
+            return v != ~0u && parts.Part[v] == BodyPart::Tail;
+        };
+        InstallCoat(m_Dog.Coat, CopyGroom(shipped, [&](u32 c)
+                                          { return !isTail(c); }, stub));
+        ASSERT_FALSE(HasFatalFailure());
+        const Ref<GroomAsset> tailStubs = CopyGroom(shipped, isTail, stub);
+        ASSERT_TRUE(tailStubs);
+        Entity unbound = MakeCoat("DogTailStubsUnbound", AssetManager::AddMemoryOnlyAsset<GroomAsset>(tailStubs), AssetHandle(0),
+                                  m_Dog.Body, m_Dog.ColorMap, tailStubs->GetCurveCount());
+        unbound.GetComponent<GroomBindingComponent>().m_Enabled = false;
+        unbound.GetComponent<GroomSimulationComponent>().m_Enabled = false;
+        const std::vector<i32> plantedIds{ coat[0], static_cast<i32>(static_cast<u32>(unbound)) };
+        const std::vector<FrameParts> planted = AttachmentThroughClip(parts, "Idle", true, kSteps, 40u, HeroViews()[3], plantedIds);
+        GetScene().DestroyEntity(unbound);
+        ASSERT_FALSE(HasFatalFailure());
+        for (sizet s = 0; s < planted.size(); ++s)
+        {
+            ReportAttachment("stale tail stubs", s, planted[s]);
+        }
+        const std::vector<std::string> plantedFailures = judgeRoots(planted, "stale tail stubs");
+        for (const std::string& failure : plantedFailures)
+        {
+            std::printf("[dog] attach stale tail stubs caught: %s\n", failure.c_str());
+        }
+        std::fflush(stdout);
+        EXPECT_TRUE(NamesPart(plantedFailures, BodyPart::Tail)) << "the stubs left at rest while the tail wagged did not float in the tail";
     }
 
     // =========================================================================
