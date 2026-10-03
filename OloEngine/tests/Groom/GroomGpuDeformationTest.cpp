@@ -577,6 +577,47 @@ TEST(GroomGpuDeformation, TheRayTracedProxyRefitsFromItsRestStreamExactly)
     EXPECT_EQ(std::memcmp(refitProxy.data(), rebuiltProxy.data(), rebuiltProxy.size() * sizeof(Vertex)), 0)
         << "the refit traces a different coat than the rebuild";
     EXPECT_EQ(refitProxyIndices, rebuiltProxyIndices);
+
+    // #1533: the proxy's own path. Roots reset and written for the selection
+    // alone are the same records; the two points a segment's ribbons need,
+    // converted in parallel, are the same bytes as the whole stream deformed
+    // and converted one segment at a time.
+    TArray<GroomRootTransform> selectedScratch;
+    const std::span<const GroomRootTransform> selectedRoots =
+        GroomCpuRootTransforms(request, std::span<const u32>{ rootCurves }, selectedScratch, /*onlyCurvesDefined*/ true);
+    for (const u32 curve : rootCurves)
+    {
+        // Field by field: the record's tail after its two flags is padding.
+        const GroomRootTransform& a = selectedRoots[curve];
+        const GroomRootTransform& b = roots[curve];
+        EXPECT_TRUE(Math::BitwiseEqual(a.Origin, b.Origin) && Math::BitwiseEqual(a.Rotation, b.Rotation) &&
+                    Math::BitwiseEqual(a.PrevOrigin, b.PrevOrigin) && Math::BitwiseEqual(a.PrevRotation, b.PrevRotation) &&
+                    a.Valid == b.Valid && a.Held == b.Held)
+            << "curve " << curve << " evaluated differently for its selection alone";
+    }
+    std::vector<GroomProxySegment> segments;
+    DeformGroomRestStreamSegments(buffer, rest, segments);
+    std::vector<Vertex> fusedProxy;
+    std::vector<u32> fusedProxyIndices;
+    const GroomProxyMeshStats fusedStats = ConvertGroomProxySegments(segments, conversion, fusedProxy, fusedProxyIndices);
+    ASSERT_EQ(fusedProxy.size(), refitProxy.size());
+    EXPECT_EQ(std::memcmp(fusedProxy.data(), refitProxy.data(), refitProxy.size() * sizeof(Vertex)), 0)
+        << "the proxy's two-point deform traces a different coat than the whole stream";
+    EXPECT_EQ(fusedProxyIndices, refitProxyIndices);
+    EXPECT_EQ(fusedStats.SegmentCount, segments.size());
+
+    // A CPU-only buffer (no byte image) gives the evaluator the same records.
+    GroomDeformBuffer cpuOnly;
+    cpuOnly.Reset(GroomDeformBufferLayout::Make(static_cast<u32>(rootCurves.size()), view.Influence->GetGuideCount(),
+                                                static_cast<u32>(view.Displacements.Displacements.size())),
+                  rootCurves, view.Influence, /*cpuOnly*/ true);
+    (void)cpuOnly.PackFrame(rootCurves, *scene.Binding, selectedRoots, &view, scene.Groom->GetCurveCount());
+    EXPECT_TRUE(cpuOnly.GetBytes().empty()) << "a CPU-only buffer still built a byte image";
+    std::vector<GroomProxySegment> cpuOnlySegments;
+    DeformGroomRestStreamSegments(cpuOnly, rest, cpuOnlySegments);
+    ASSERT_EQ(cpuOnlySegments.size(), segments.size());
+    EXPECT_EQ(std::memcmp(cpuOnlySegments.data(), segments.data(), segments.size() * sizeof(GroomProxySegment)), 0)
+        << "the CPU-only buffer deforms the proxy differently";
 }
 
 TEST(GroomGpuDeformation, AHeldRootRestsWhereTheCpuPathHoldsIt)

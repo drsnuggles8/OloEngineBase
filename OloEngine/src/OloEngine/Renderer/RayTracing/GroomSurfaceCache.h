@@ -180,6 +180,8 @@ namespace OloEngine::RayTracing
         /// allocate. The strand mesh is built into the first pair and converted
         /// into the second; neither is read outside one Extract call.
         std::vector<GroomStrandVertex> m_StrandVertices;
+        // A bound coat's deformed segments, the conversion's input (#1533).
+        std::vector<GroomProxySegment> m_ProxySegments;
         /// Drawn roots evaluated for a request that left them to the GPU.
         TArray<GroomRootTransform> m_RootScratch;
         std::vector<u32> m_StrandIndices;

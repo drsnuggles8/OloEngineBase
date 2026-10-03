@@ -237,8 +237,13 @@ namespace OloEngine
       public:
         /// Sizes the buffer and writes its STATIC region: the guide weights of
         /// every root slot, read from `influence` (all-zero when null).
+        ///
+        /// `cpuOnly` (#1533): the records alone, no byte image. For a reader
+        /// on the CPU (EvaluateGroomDeformedPoint reads the records), such as
+        /// the ray-traced proxy, which copied every region into an image no
+        /// GPU ever received.
         void Reset(const GroomDeformBufferLayout& layout, std::span<const u32> rootCurves,
-                   const GroomGuideInfluenceTable* influence);
+                   const GroomGuideInfluenceTable* influence, bool cpuOnly = false);
 
         /**
          * @brief Writes the per-frame region.
@@ -341,6 +346,8 @@ namespace OloEngine
         // PackFrame after it writes them, into the region the relayout upload
         // sends whole.
         bool m_BindFramesWritten = false;
+        bool m_CpuOnly = false;
+        bool m_HasLayout = false;
         TArray<GroomDeformRootRecord> m_Roots;
         TArray<GroomDeformSlotRecord> m_Slots;
         TArray<GroomDeformDisplacementRecord> m_Displacements;

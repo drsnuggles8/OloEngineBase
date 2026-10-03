@@ -112,7 +112,7 @@ namespace OloEngine
     GroomDeformationStats EvaluateGroomRootTransforms(const GroomAsset& groom, const GroomBindingAsset& binding,
                                                       const GroomDeformationInputs& inputs,
                                                       std::optional<std::span<const u32>> selectedCurves,
-                                                      TArray<GroomRootTransform>& outTransforms)
+                                                      TArray<GroomRootTransform>& outTransforms, bool onlySelectedDefined)
     {
         GroomDeformationStats stats;
 
@@ -123,6 +123,14 @@ namespace OloEngine
         // on the showcase dog that is ~300k records every frame, and one thread
         // adding them one at a time cost more than evaluating the roots it kept.
         outTransforms.SetNumUninitialized(static_cast<i32>(curveCount), EAllowShrinking::No);
+        if (onlySelectedDefined && selectedCurves.has_value())
+        {
+            GroomRootTransform* const records = outTransforms.GetData();
+            for (const u32 curve : *selectedCurves)
+                if (curve < curveCount)
+                    records[curve] = GroomRootTransform{};
+        }
+        else
         {
             static constexpr u32 kClearChunk = 16384;
             GroomRootTransform* const records = outTransforms.GetData();

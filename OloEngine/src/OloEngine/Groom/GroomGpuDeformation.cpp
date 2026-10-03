@@ -59,11 +59,12 @@ namespace OloEngine
             return glm::quat(v.w, v.x, v.y, v.z);
         }
 
-        // Copies `records` into the byte image at `baseUnit`.
+        // Copies `records` into the byte image at `baseUnit`; nothing for a
+        // CPU-only buffer, which has no image.
         template<typename T>
-        void WriteRegion(TArray64<u8>& bytes, u32 baseUnit, std::span<const T> records) noexcept
+        void WriteRegion(bool cpuOnly, TArray64<u8>& bytes, u32 baseUnit, std::span<const T> records) noexcept
         {
-            if (records.empty())
+            if (cpuOnly || records.empty())
             {
                 return;
             }
@@ -194,9 +195,11 @@ namespace OloEngine
     }
 
     void GroomDeformBuffer::Reset(const GroomDeformBufferLayout& layout, std::span<const u32> rootCurves,
-                                  const GroomGuideInfluenceTable* influence)
+                                  const GroomGuideInfluenceTable* influence, bool cpuOnly)
     {
         m_Layout = layout;
+        m_CpuOnly = cpuOnly;
+        m_HasLayout = layout.TotalBytes() > 0u;
         m_Frame = {};
         m_Weights.Init(GroomGuideWeights{}, static_cast<i32>(layout.RootCount));
         m_BindFrames.Init(GroomDeformBindRecord{}, static_cast<i32>(layout.RootCount));
@@ -204,7 +207,7 @@ namespace OloEngine
         m_Roots.Init(GroomDeformRootRecord{}, static_cast<i32>(layout.RootCount));
         m_Slots.Init(GroomDeformSlotRecord{}, static_cast<i32>(layout.SlotCount));
         m_Displacements.Init(GroomDeformDisplacementRecord{}, static_cast<i32>(layout.DisplacementCapacity));
-        m_Bytes.Init(u8{ 0 }, static_cast<i64>(layout.TotalBytes()));
+        m_Bytes.Init(u8{ 0 }, cpuOnly ? 0 : static_cast<i64>(layout.TotalBytes()));
         m_CountsValid = false;
 
         // The STATIC region: each drawn strand's guide weights, in root-slot
@@ -223,7 +226,7 @@ namespace OloEngine
                 }
             }
         }
-        WriteRegion(m_Bytes, 0u, AsSpan(m_Weights, layout.RootCount));
+        WriteRegion(m_CpuOnly, m_Bytes, 0u, AsSpan(m_Weights, layout.RootCount));
     }
 
     GroomDeformFrameStats GroomDeformBuffer::PackFrame(std::span<const u32> rootCurves,
@@ -234,7 +237,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         OLO_PERF_SCOPE_AUTO("Groom::PackFrame");
         m_Frame = {};
-        if (m_Bytes.Num() == 0)
+        if (!m_HasLayout)
         {
             return m_Frame;
         }
@@ -259,7 +262,7 @@ namespace OloEngine
                     m_BindFrames[slot].Rotation = PackQuat(rest.RestRotation);
                 }
             }
-            WriteRegion(m_Bytes, m_Layout.BindBase, AsSpan(m_BindFrames, m_Layout.RootCount));
+            WriteRegion(m_CpuOnly, m_Bytes, m_Layout.BindBase, AsSpan(m_BindFrames, m_Layout.RootCount));
             m_BindFramesWritten = true;
         }
         // THE GPU WRITES THE ROOTS (#1533 E1) when the layout carries the surface
@@ -270,7 +273,7 @@ namespace OloEngine
         if (!m_Layout.RootsOnGpu())
         {
             m_Frame.StrandsHeldAtRest += PackRootRecords(rootCurves, binding, rootTransforms, baseCurveCount);
-            WriteRegion(m_Bytes, m_Layout.RootBase, AsSpan(m_Roots, m_Layout.RootCount));
+            WriteRegion(m_CpuOnly, m_Bytes, m_Layout.RootBase, AsSpan(m_Roots, m_Layout.RootCount));
         }
 
         // ── Guides ───────────────────────────────────────────────────────────
@@ -284,7 +287,7 @@ namespace OloEngine
             slot = GroomDeformSlotRecord{};
         }
         const auto finishSlots = [this]()
-        { WriteRegion(m_Bytes, m_Layout.SlotBase, AsSpan(m_Slots, m_Layout.SlotCount)); };
+        { WriteRegion(m_CpuOnly, m_Bytes, m_Layout.SlotBase, AsSpan(m_Slots, m_Layout.SlotCount)); };
 
         if (simulation == nullptr || !simulation->IsUsable(baseCurveCount))
         {
@@ -323,16 +326,21 @@ namespace OloEngine
         finishSlots();
 
         const bool hasPrevious = !guides.PrevDisplacements.empty();
-        for (u32 i = 0; i < displacementCount; ++i)
-        {
-            GroomDeformDisplacementRecord& record = m_Displacements[i];
-            record.Current = glm::vec4(guides.Displacements[i], 0.0f);
-            // "No previous frame" is "the same as current", resolved here
-            // rather than per read — the velocity it produces is then exactly
-            // zero, as SampleGroomGuideDisplacement's is.
-            record.Previous = hasPrevious ? glm::vec4(guides.PrevDisplacements[i], 0.0f) : record.Current;
-        }
-        WriteRegion(m_Bytes, m_Layout.DisplacementBase, AsSpan(m_Displacements, displacementCount));
+        // In parallel (#1533): every guide point of the coat, every frame, for
+        // the raster pass and again for the ray-traced proxy.
+        GroomDeformDisplacementRecord* const records = &m_Displacements[0];
+        ParallelFor("GroomPackDisplacements", static_cast<i32>(displacementCount), 8192,
+                    [records, &guides, hasPrevious](i32 index)
+                    {
+                        const auto i = static_cast<sizet>(index);
+                        GroomDeformDisplacementRecord& record = records[i];
+                        record.Current = glm::vec4(guides.Displacements[i], 0.0f);
+                        // "No previous frame" is "the same as current", resolved here
+                        // rather than per read — the velocity it produces is then exactly
+                        // zero, as SampleGroomGuideDisplacement's is.
+                        record.Previous = hasPrevious ? glm::vec4(guides.PrevDisplacements[i], 0.0f) : record.Current;
+                    });
+        WriteRegion(m_CpuOnly, m_Bytes, m_Layout.DisplacementBase, AsSpan(m_Displacements, displacementCount));
 
         m_Frame.Simulated = true;
         m_Frame.DisplacementCount = displacementCount;
@@ -471,7 +479,7 @@ namespace OloEngine
             skins[slot].Barycentric = glm::vec4(record.Barycentric, 0.0f);
             ++reached;
         }
-        WriteRegion(m_Bytes, m_Layout.SkinBase, AsSpan(skins, m_Layout.RootCount));
+        WriteRegion(m_CpuOnly, m_Bytes, m_Layout.SkinBase, AsSpan(skins, m_Layout.RootCount));
 
         // The surface: rest positions and influences, read exactly as
         // SkinGroomSurfaceVertex reads them. An unskinned vertex keeps zero
@@ -497,7 +505,7 @@ namespace OloEngine
                 out.Weights = glm::vec4(weights[0], weights[1], weights[2], weights[3]);
             }
         }
-        WriteRegion(m_Bytes, m_Layout.VertexBase, AsSpan(vertices, m_Layout.VertexCount));
+        WriteRegion(m_CpuOnly, m_Bytes, m_Layout.VertexBase, AsSpan(vertices, m_Layout.VertexCount));
         return reached;
     }
 
@@ -651,7 +659,7 @@ namespace OloEngine
             palette[static_cast<i32>(b)] = current[b];
             palette[static_cast<i32>(bones + b)] = history ? previous[b] : current[b];
         }
-        WriteRegion(m_Bytes, m_Layout.PaletteBase, AsSpan(palette, bones * 2u));
+        WriteRegion(m_CpuOnly, m_Bytes, m_Layout.PaletteBase, AsSpan(palette, bones * 2u));
     }
 
     std::span<const GroomDeformRootRecord> GroomDeformBuffer::Roots() const noexcept

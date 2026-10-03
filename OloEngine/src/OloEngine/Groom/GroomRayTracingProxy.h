@@ -83,6 +83,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Groom/GroomCoatShadow.h"
+#include "OloEngine/Groom/GroomGpuDeformation.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/Vertex.h"
@@ -548,6 +549,34 @@ namespace OloEngine
                                                       std::vector<Vertex>& outVertices, std::vector<u32>& outIndices,
                                                       glm::vec3* outBoundsMin = nullptr,
                                                       glm::vec3* outBoundsMax = nullptr);
+
+    /// One segment as the conversion reads it (#1533): its two end points and
+    /// cooked radii, corners 0 and 2 of the strand mesh's quad.
+    struct GroomProxySegment
+    {
+        glm::vec3 P0{ 0.0f };
+        f32 R0 = 0.0f;
+        glm::vec3 P1{ 0.0f };
+        f32 R1 = 0.0f;
+    };
+
+    /// ConvertGroomStrandMeshToProxy's conversion over segments already taken
+    /// out of a mesh: the same bytes for the same segments, in parallel.
+    /// `outVertices` is overwritten. `outIndices` is the quad pattern, a pure
+    /// function of the quad count, and is rewritten only when its length
+    /// changes: pass the vector the last call filled, or an empty one.
+    GroomProxyMeshStats ConvertGroomProxySegments(std::span<const GroomProxySegment> segments,
+                                                  const GroomProxyConversionSettings& settings,
+                                                  std::vector<Vertex>& outVertices, std::vector<u32>& outIndices,
+                                                  glm::vec3* outBoundsMin = nullptr, glm::vec3* outBoundsMax = nullptr);
+
+    /// The proxy's segments of a rest stream deformed through `buffer`: P0 and
+    /// P1 are exactly the Position DeformGroomRestStream gives corners 0 and 2,
+    /// the radii their own -- the two of that function's twelve point
+    /// evaluations per segment that a proxy reads (#1533). `outSegments` is
+    /// resized to the stream's segment count.
+    void DeformGroomRestStreamSegments(const GroomDeformBuffer& buffer, std::span<const GroomStrandVertex> rest,
+                                       std::vector<GroomProxySegment>& outSegments);
 
     // -------------------------------------------------------------------------
     // The error metric — criterion 1's "compare detailed vs proxy", as a number

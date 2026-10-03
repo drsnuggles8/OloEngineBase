@@ -474,15 +474,20 @@ namespace OloEngine
     /// passes them; one that would have to walk the groom to find them passes
     /// std::nullopt, because on a 410k-curve coat that walk costs more than
     /// evaluating every root in parallel.
+    ///
+    /// `onlyCurvesDefined`: the caller reads `curves` alone, so only those
+    /// entries of `scratch` are reset and written (EvaluateGroomRootTransforms).
     [[nodiscard]] inline std::span<const GroomRootTransform> GroomCpuRootTransforms(const GroomStrandRequest& request,
                                                                                     std::optional<std::span<const u32>> curves,
-                                                                                    TArray<GroomRootTransform>& scratch)
+                                                                                    TArray<GroomRootTransform>& scratch,
+                                                                                    bool onlyCurvesDefined = false)
     {
         if (!request.GpuRootFrames || !request.Groom || !request.Binding)
         {
             return { request.RootTransforms.GetData(), static_cast<sizet>(request.RootTransforms.Num()) };
         }
-        (void)EvaluateGroomRootTransforms(*request.Groom, *request.Binding, request.GpuRootInputs, curves, scratch);
+        (void)EvaluateGroomRootTransforms(*request.Groom, *request.Binding, request.GpuRootInputs, curves, scratch,
+                                          onlyCurvesDefined);
         return { scratch.GetData(), static_cast<sizet>(scratch.Num()) };
     }
 

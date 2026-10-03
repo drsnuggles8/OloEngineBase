@@ -122,6 +122,7 @@ namespace OloEngine::RayTracing
     u64 GroomSurfaceCache::GetCpuBytes() const
     {
         u64 bytes = static_cast<u64>(m_StrandVertices.capacity()) * sizeof(GroomStrandVertex) +
+                    static_cast<u64>(m_ProxySegments.capacity()) * sizeof(GroomProxySegment) +
                     static_cast<u64>(m_StrandIndices.capacity()) * sizeof(u32) +
                     static_cast<u64>(m_ProxyVertices.capacity()) * sizeof(Vertex) +
                     static_cast<u64>(m_ProxyIndices.capacity()) * sizeof(u32) +
@@ -141,6 +142,8 @@ namespace OloEngine::RayTracing
         m_TierState.clear();
         m_StrandVertices.clear();
         m_StrandVertices.shrink_to_fit();
+        m_ProxySegments.clear();
+        m_ProxySegments.shrink_to_fit();
         m_StrandIndices.clear();
         m_StrandIndices.shrink_to_fit();
         m_ProxyVertices.clear();
@@ -233,19 +236,32 @@ namespace OloEngine::RayTracing
             {
                 const GroomGuideInfluenceTable* table = simulated ? simulation.Influence : nullptr;
                 const u32 capacity = std::max(GroomDeformDisplacementCapacity(*request.Groom, table), displacements);
+                // CPU-only (#1533): the proxy reads the records; no GPU sees an image.
                 entry.DeformCpu.Reset(
                     GroomDeformBufferLayout::Make(rootCount, table != nullptr ? table->GetGuideCount() : 0u, capacity),
-                    entry.RootCurves, table);
+                    entry.RootCurves, table, /*cpuOnly*/ true);
                 entry.DeformWeightsFrom = weightsFrom;
                 entry.DeformRelayout = false;
             }
             // This stream's roots only: the producer left the drawn ones to the
             // raster pass's GPU evaluation (#1533 E1).
-            const std::span<const GroomRootTransform> roots =
-                GroomCpuRootTransforms(request, std::span<const u32>{ entry.RootCurves }, m_RootScratch);
-            (void)entry.DeformCpu.PackFrame(entry.RootCurves, *request.Binding, roots, simulated ? &simulation : nullptr,
-                                            baseCurveCount);
-            DeformGroomRestStream(entry.DeformCpu, entry.Rest, m_StrandVertices);
+            std::span<const GroomRootTransform> roots;
+            {
+                OLO_PERF_SCOPE_AUTO("GroomProxy::Roots");
+                roots = GroomCpuRootTransforms(request, std::span<const u32>{ entry.RootCurves }, m_RootScratch,
+                                               /*onlyCurvesDefined*/ true);
+            }
+            {
+                OLO_PERF_SCOPE_AUTO("GroomProxy::Pack");
+                (void)entry.DeformCpu.PackFrame(entry.RootCurves, *request.Binding, roots,
+                                                simulated ? &simulation : nullptr, baseCurveCount);
+            }
+            {
+                // The two points a segment's ribbons need, not DeformGroomRestStream's
+                // twelve (#1533).
+                OLO_PERF_SCOPE_AUTO("GroomProxy::DeformStream");
+                DeformGroomRestStreamSegments(entry.DeformCpu, entry.Rest, m_ProxySegments);
+            }
             strandStats = entry.RestStats;
         }
         else
@@ -292,7 +308,9 @@ namespace OloEngine::RayTracing
         GroomProxyMeshStats proxyStats;
         {
             OLO_PERF_SCOPE_AUTO("GroomProxy::Convert");
-            proxyStats = ConvertGroomStrandMeshToProxy(m_StrandVertices, conversion, m_ProxyVertices, m_ProxyIndices);
+            proxyStats = deformed && request.Binding
+                             ? ConvertGroomProxySegments(m_ProxySegments, conversion, m_ProxyVertices, m_ProxyIndices)
+                             : ConvertGroomStrandMeshToProxy(m_StrandVertices, conversion, m_ProxyVertices, m_ProxyIndices);
         }
         if (proxyStats.VertexCount == 0u || proxyStats.IndexCount == 0u)
         {
@@ -344,11 +362,14 @@ namespace OloEngine::RayTracing
             }
             if (reallocate || RendererAPI::GetAPI() == RendererAPI::API::Vulkan)
             {
-                auto replacement = VertexBuffer::Create(static_cast<u32>(proxyStats.VertexBytes));
+                // Created WITH its data (#1533): on Vulkan a buffer created empty
+                // and then written also keeps a CPU shadow copy of every byte
+                // as a streamed buffer, 11 MB a frame for the showcase coat.
+                auto replacement = VertexBuffer::Create(static_cast<const void*>(m_ProxyVertices.data()),
+                                                        static_cast<u32>(proxyStats.VertexBytes));
                 if (!replacement)
                     return GroomProxyRefusalReason::BuildFailed;
                 replacement->SetLayout(Vertex::GetLayout());
-                replacement->SetData({ m_ProxyVertices.data(), static_cast<u32>(proxyStats.VertexBytes) });
                 // Publish the pair only after both allocations and the upload succeed.
                 entry.Vertices = std::move(replacement);
                 if (reallocate)
