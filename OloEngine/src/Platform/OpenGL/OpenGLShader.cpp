@@ -2623,7 +2623,7 @@ namespace OloEngine
     }
 
     bool OpenGLShader::CompileGlslTextStages(GLenum const& program,
-                                                   std::array<u32, kMaxGraphicsStages>& glShadersIDs) const
+                                             std::array<u32, kMaxGraphicsStages>& glShadersIDs) const
     {
         int glShaderIDIndex = 0;
         if (m_VulkanSPIRV.size() > glShadersIDs.size())

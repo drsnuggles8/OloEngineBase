@@ -264,7 +264,7 @@ namespace OloEngine
         /// stages, geometry, fragment.
         static constexpr sizet kMaxGraphicsStages = 5;
         [[nodiscard]] bool CompileGlslTextStages(GLenum const& program,
-                                                       std::array<u32, kMaxGraphicsStages>& glShadersIDs) const;
+                                                 std::array<u32, kMaxGraphicsStages>& glShadersIDs) const;
         void CreateProgramFromGlslText();
         /// Whether this program takes the GLSL text route: OLO_GL_SHADERS_FROM_GLSL
         /// when set, the shader's own OLO_GL_GLSL_ROUTE token otherwise.
@@ -390,7 +390,7 @@ namespace OloEngine
         // Set by PrepareCPU(); read by FinalizeGL() to reproduce the exact
         // branch the old single-phase constructor took, without redoing GL-
         // free work FinalizeGL() has no business repeating.
-        bool m_WantsBindless = false;   // WantsBindlessVariant(m_OriginalSourceCode) — decided in PrepareCPU() (no GL call), acted on in FinalizeGL()
+        bool m_WantsBindless = false; // WantsBindlessVariant(m_OriginalSourceCode) — decided in PrepareCPU() (no GL call), acted on in FinalizeGL()
         // The shader names OLO_GL_GLSL_ROUTE outside comments: it reaches the driver
         // as SPIRV-Cross GLSL text (CreateProgramFromGlslText), not glShaderBinary
         // SPIR-V. Decided in PrepareCPU() and on every reload; TakesGlslTextRoute()
