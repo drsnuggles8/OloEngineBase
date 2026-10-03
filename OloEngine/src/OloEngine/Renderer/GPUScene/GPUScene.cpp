@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/GPUScene/GPUScene.h"
+#include "OloEngine/Core/PerformanceProfiler.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
 
 #include "OloEngine/Renderer/CameraRelative.h"
@@ -319,8 +320,14 @@ namespace OloEngine
             {
                 const RendererMemoryOwnerScope memoryOwner("GPUScene", MemoryLifetime::Persistent); // #1342
                 m_BufferCapacity = std::max(capacity, 1u);
+                // Exact upload (#1533): every consumer indexes below the record
+                // count, so the capacity past it is never read, and Vulkan's
+                // draw snapshot copies the written prefix alone. As DynamicDraw
+                // the snapshot filled that unused capacity by READING the mapped
+                // allocation -- write-combined memory, a few tens of MB/s -- and
+                // a thousand-instance scene spent 4.7 ms a frame on it.
                 m_Buffer = StorageBuffer::Create(BytesForRecords<Record>(m_BufferCapacity), m_Binding,
-                                                 StorageBufferUsage::DynamicDraw);
+                                                 StorageBufferUsage::DynamicDrawExactUpload);
                 m_Buffer->Unbind();
 
                 // Fresh storage has undefined contents, including after a
@@ -355,7 +362,7 @@ namespace OloEngine
                                                 ? GPUSceneAllocationPolicy::GrowCapacity(m_BufferCapacity, required)
                                                 : m_BufferCapacity;
                     auto replacement = StorageBuffer::Create(BytesForRecords<Record>(newCapacity), m_Binding,
-                                                             StorageBufferUsage::DynamicDraw);
+                                                             StorageBufferUsage::DynamicDrawExactUpload);
                     if (!replacement)
                     {
                         throw std::runtime_error("GPUScene replacement allocation failed");
@@ -640,6 +647,7 @@ namespace OloEngine
 
     GPUSceneFrameUpdate GPUScene::EndExtraction()
     {
+        OLO_PERF_SCOPE_AUTO("GPUScene::EndExtraction");
         auto& impl = *m_Impl;
         OLO_CORE_ASSERT(impl.m_Extracting, "GPUScene::EndExtraction requires BeginExtraction");
 
@@ -771,6 +779,7 @@ namespace OloEngine
 
     void GPUScene::Upload()
     {
+        OLO_PERF_SCOPE_AUTO("GPUScene::Upload");
         auto& impl = *m_Impl;
         OLO_CORE_ASSERT(HasGPUResources(), "GPUScene::Upload requires InitializeGPU");
         OLO_CORE_ASSERT(!impl.m_Extracting, "GPUScene::Upload cannot run during extraction");
@@ -782,12 +791,21 @@ namespace OloEngine
         auto& update = impl.m_LastFrameUpdate;
         auto& stats = update.m_Stats;
         u32 growthEvents = 0;
-        stats.m_Geometries.m_UploadBytes = impl.m_Geometries.Upload(update.m_GeometryDirtyRanges, growthEvents);
-        stats.m_Materials.m_UploadBytes = impl.m_Materials.Upload(update.m_MaterialDirtyRanges, growthEvents);
+        {
+            OLO_PERF_SCOPE_AUTO("GPUScene::UploadGeometries");
+            stats.m_Geometries.m_UploadBytes = impl.m_Geometries.Upload(update.m_GeometryDirtyRanges, growthEvents);
+        }
+        {
+            OLO_PERF_SCOPE_AUTO("GPUScene::UploadMaterials");
+            stats.m_Materials.m_UploadBytes = impl.m_Materials.Upload(update.m_MaterialDirtyRanges, growthEvents);
+        }
         stats.m_Lights.m_UploadBytes = impl.m_Lights.Upload(update.m_LightDirtyRanges, growthEvents);
         stats.m_Environments.m_UploadBytes =
             impl.m_Environments.Upload(update.m_EnvironmentDirtyRanges, growthEvents);
-        stats.m_Instances.m_UploadBytes = impl.m_Instances.Upload(update.m_InstanceDirtyRanges, growthEvents);
+        {
+            OLO_PERF_SCOPE_AUTO("GPUScene::UploadInstances");
+            stats.m_Instances.m_UploadBytes = impl.m_Instances.Upload(update.m_InstanceDirtyRanges, growthEvents);
+        }
         stats.m_UploadBytes = stats.m_Instances.m_UploadBytes + stats.m_Geometries.m_UploadBytes +
                               stats.m_Materials.m_UploadBytes + stats.m_Lights.m_UploadBytes +
                               stats.m_Environments.m_UploadBytes;
