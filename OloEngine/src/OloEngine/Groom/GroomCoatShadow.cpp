@@ -2041,7 +2041,8 @@ namespace OloEngine::GroomCoatShadow
         stats.SkyMicroseconds = microsecondsSince(skyStart);
         const auto fillStart = std::chrono::steady_clock::now();
 
-        const auto encode = [](f32 v) { return static_cast<u8>(std::lround(std::clamp((v * 0.5f) + 0.5f, 0.0f, 1.0f) * 255.0f)); };
+        const auto encode = [](f32 v)
+        { return static_cast<u8>(std::lround(std::clamp((v * 0.5f) + 0.5f, 0.0f, 1.0f) * 255.0f)); };
 
         // ── Every voxel's sky from the cells around it that lie outside ───
         // Trilinear over the eight nearest cell centres, the ones inside the
@@ -2053,7 +2054,7 @@ namespace OloEngine::GroomCoatShadow
         std::vector<glm::u8vec4> texels(voxelCount);
         // A slice per task: each writes only its own texels.
         ParallelFor("GroomBodySkyFill", dims.z, 1, [&](i32 z)
-        {
+                    {
             for (i32 y = 0; y < dims.y; ++y)
             {
                 for (i32 x = 0; x < dims.x; ++x)
@@ -2101,8 +2102,7 @@ namespace OloEngine::GroomCoatShadow
                     }
                     texels[i] = glm::u8vec4(encode(sky.x), encode(sky.y), encode(sky.z), quantised[i]);
                 }
-            }
-        });
+            } });
         volume.Body = std::move(texels);
         stats.FillMicroseconds = microsecondsSince(fillStart);
         return finish(true);

@@ -4259,7 +4259,8 @@ namespace OloEngine::Tests
         { return static_cast<sizet>(x) + (static_cast<sizet>(dims.x) * (static_cast<sizet>(y) + (static_cast<sizet>(dims.y) * static_cast<sizet>(z)))); };
         // The body where its occupancy passes the floor, red by how full;
         // the coat's density everywhere else, green.
-        const auto occupancy = [&](sizet i) { return static_cast<f32>(volume.Body[i].w) / 255.0f; };
+        const auto occupancy = [&](sizet i)
+        { return static_cast<f32>(volume.Body[i].w) / 255.0f; };
         const auto paint = [&](i32 x, i32 y, i32 z, u8* px)
         {
             const sizet i = index(x, y, z);
