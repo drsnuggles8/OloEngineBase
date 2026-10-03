@@ -3367,6 +3367,8 @@ namespace OloEngine::Tests
             u32 FramesEachWay = 240;
         };
 
+        static constexpr u32 kDollyCells = 16;
+
         struct DollyFrame
         {
             f32 Distance = 0.0f;
@@ -3375,6 +3377,12 @@ namespace OloEngine::Tests
             u32 VisibilityStep = 0;
             u32 SimulationStep = 0;
             u32 ShadowStep = 0;
+            // What the policy asked for this frame; a request is applied once it
+            // has held for the policy's hold frames.
+            GroomRepresentation RequestedRepresentation = GroomRepresentation::Strand;
+            u32 RequestedVisibilityStep = 0;
+            u32 RequestedSimulationStep = 0;
+            u32 RequestedShadowStep = 0;
             u32 Strands = 0;
             u32 Segments = 0;
             f32 WidthCompensation = 1.0f;
@@ -3383,6 +3391,11 @@ namespace OloEngine::Tests
             f64 Displayed = 0.0;                      // mean displayed luma over them, after the resolve; -1 when not read
             std::array<f64, kBodyParts> PartEnergy{}; // on every fourth frame (HasParts)
             bool HasParts = false;
+            // WHERE the coat's light is: its linear energy summed over a
+            // kDollyCells^2 grid laid over the dolly's crop (DollySide), which
+            // keeps the dog's size, so a cell is the same part of the dog
+            // through the whole dolly.
+            std::array<f32, kDollyCells * kDollyCells> EnergyMap{};
         };
 
         struct DollyTile
@@ -3413,10 +3426,15 @@ namespace OloEngine::Tests
         // The middle of the composite (top row first), cropped to a side that
         // shrinks with distance so the dog keeps its size, and box-resampled to a
         // tile.
+        [[nodiscard]] static u32 DollySide(u32 height, f32 distance)
+        {
+            return std::clamp(static_cast<u32>(static_cast<f32>(height) * std::min(1.0f, 1.2f / std::max(distance, 0.6f))), 64u,
+                              height);
+        }
+
         [[nodiscard]] static std::vector<u8> DollyCrop(const std::vector<u8>& rgba, u32 width, u32 height, f32 distance)
         {
-            const u32 side = std::clamp(static_cast<u32>(static_cast<f32>(height) * std::min(1.0f, 1.2f / std::max(distance, 0.6f))),
-                                        64u, height);
+            const u32 side = DollySide(height, distance);
             const u32 x0 = (width - side) / 2u;
             const u32 y0 = (height - side) / 2u;
             std::vector<u8> tile(static_cast<sizet>(kDollyTile) * kDollyTile * 4u, 0u);
@@ -3497,12 +3515,19 @@ namespace OloEngine::Tests
                     f.VisibilityStep = lod->VisibilityStep;
                     f.SimulationStep = lod->SimulationStep;
                     f.ShadowStep = lod->ShadowStep;
+                    f.RequestedRepresentation = lod->RequestedRepresentation;
+                    f.RequestedVisibilityStep = lod->RequestedVisibilityStep;
+                    f.RequestedSimulationStep = lod->RequestedSimulationStep;
+                    f.RequestedShadowStep = lod->RequestedShadowStep;
                 }
                 previousComposite.swap(composite);
                 const bool read = ReadbackComposite(composite, compositeWidth, compositeHeight) &&
                                   compositeWidth == frame.Width && compositeHeight == frame.Height;
                 f64 displayed = 0.0;
                 const bool regional = (k % 4u) == 0u;
+                const u32 side = DollySide(frame.Height, f.Distance);
+                const u32 cropX = (frame.Width - side) / 2u;
+                const u32 cropY = (frame.Height - side) / 2u;
                 for (u32 y = 0; y < frame.Height; ++y)
                 {
                     for (u32 x = 0; x < frame.Width; ++x)
@@ -3514,6 +3539,12 @@ namespace OloEngine::Tests
                         }
                         f.Coverage += 1.0;
                         f.Energy += frame.Luminance[p];
+                        if (x >= cropX && x < cropX + side && y >= cropY && y < cropY + side)
+                        {
+                            const u32 cx = ((x - cropX) * kDollyCells) / side;
+                            const u32 cy = ((y - cropY) * kDollyCells) / side;
+                            f.EnergyMap[(cy * kDollyCells) + cx] += static_cast<f32>(frame.Luminance[p]);
+                        }
                         if (read)
                         {
                             // The composite is bottom row first.
@@ -3574,63 +3605,128 @@ namespace OloEngine::Tests
             return dolly;
         }
 
-        // THE DOLLY'S JUDGE. Per frame, the ladder over the reference for the
-        // coverage, the linear energy and the displayed brightness (mean luma
-        // per coat pixel, after the resolve). Over a 9-frame window:
-        //   - coverage and energy within kDollyBand of 1 (the criterion);
-        //   - at every frame where the ladder's tier or a budget step changed,
-        //     the step in the light the coat sends -- the linear energy and the
-        //     displayed brightness, the 4-frame window after against the 4
-        //     before -- no larger than kDollyStep, or 3x the same step's noise
-        //     where nothing changed, whichever is larger. kDollyStep is half the
-        //     criterion's band: one transition may not spend more than half of
-        //     what the whole ladder is allowed. A POP is a jump in that light.
-        //     Coverage's own step is recorded, not judged: it counts a pixel the
-        //     coat wins in one frame's id buffer as wholly coat, so at a distant
-        //     dog's sub-pixel fringe it moves without the image moving (the
-        //     visibility halving at 11 m steps it 4-5% while the energy moves
-        //     1-1.5% and the displayed brightness 0.5%); the band still holds it.
-        // Frames where the reference covers fewer than kDollyMinCoverage pixels
-        // say nothing and are skipped.
+        // THE DOLLY'S JUDGE, over one or more recordings of the same dolly
+        // (repeats are pooled frame by frame: their sums, then the ratios). Per
+        // frame, the ladder over the reference for the coverage, the linear
+        // energy and the displayed brightness (mean luma per coat pixel, after
+        // the resolve), and WHERE the energy is (DollyFrame::EnergyMap). Over a
+        // 9-frame window:
+        //   - THE BAND (the criterion): coverage and energy within kDollyBand
+        //     of 1.
+        //   - THE STEP at every frame where the ladder's tier or a budget step
+        //     changed: the linear energy and the displayed brightness, the
+        //     4-frame window after against the 4 before, held to kDollyStep,
+        //     half the band -- one transition may not spend more than half of
+        //     what the whole ladder may. A POP is a jump in the light.
+        //   - THE SPATIAL STEP at every change, RECORDED here: the ladder's
+        //     energy map less the reference's, each cell over the reference's
+        //     total, and the summed |change| of that difference across the
+        //     change. Single stochastic frames make it noisy (noise only adds to
+        //     a sum of |differences|), so it is JUDGED on converged maps held
+        //     either side of each change (JudgeHeldChanges).
+        // UNCERTAINTY IS NOT AN ALLOWANCE. Each step is measured against the
+        // same step taken where nothing changed: a robust sigma (1.4826 x the
+        // median absolute deviation) for the signed light steps, the 95th
+        // percentile for the spatial step. A step clears its threshold by kDollyConfidence
+        // sigmas to PASS, exceeds it by as much to FAIL, and anything between
+        // is INSUFFICIENT EVIDENCE -- the caller records the dolly again and
+        // pools, and reports what is still undecided. Coverage's own step is
+        // recorded, not judged: it counts a pixel the coat wins in one frame's
+        // id buffer as wholly coat, so at a distant dog's sub-pixel fringe it
+        // moves without the image moving (the band still holds it, and the
+        // spatial step sees a fringe that really moves). Frames where the
+        // reference covers fewer than kDollyMinCoverage pixels say nothing and
+        // are skipped.
         static constexpr sizet kDollyWindow = 4;
         static constexpr f64 kDollyBand = 0.10;
         static constexpr f64 kDollyStep = 0.05;
+        static constexpr f64 kDollySpatialStep = 0.05;
+        static constexpr f64 kDollyConfidence = 2.0;
+        static constexpr u32 kDollyMaxRepeats = 3;
         static constexpr f64 kDollyMinCoverage = 200.0;
 
         struct DollyVerdict
         {
-            std::vector<std::string> Failures;
+            std::vector<std::string> Failures;     // confidently past a threshold
+            std::vector<std::string> Insufficient; // the noise allows either answer
             std::vector<sizet> Transitions;
-            std::array<f64, 3> NoiseFloor{}; // p95 |window step| away from any change: coverage, energy, displayed
+            std::array<f64, 3> Noise{};            // robust sigma of a quiet window step: coverage, energy, displayed
+            f64 SpatialQuiet = 0.0;                // p95 of the spatial step where nothing changed
             std::array<f64, 3> WorstBand{};
             std::array<f64, 3> WorstStep{};
-            std::array<std::vector<f64>, 3> Ratio; // per frame
+            f64 WorstSpatial = 0.0;
+            std::vector<f64> SpatialAtChange;      // per transition
+            std::array<std::vector<f64>, 3> Ratio; // per frame, pooled
+            u32 Repeats = 0;
         };
 
-        [[nodiscard]] static DollyVerdict JudgeDolly(const Dolly& ladder, const Dolly& reference, const std::string& what)
+        [[nodiscard]] static DollyVerdict JudgeDolly(std::span<const Dolly> ladders, std::span<const Dolly> references,
+                                                     const std::string& what)
         {
             static constexpr std::array<const char*, 3> kMetric{ "coverage", "linear energy", "displayed brightness" };
             DollyVerdict v;
-            const sizet n = std::min(ladder.Frames.size(), reference.Frames.size());
+            v.Repeats = static_cast<u32>(std::min(ladders.size(), references.size()));
+            if (v.Repeats == 0u)
+            {
+                return v;
+            }
+            sizet n = std::numeric_limits<sizet>::max();
+            for (u32 r = 0; r < v.Repeats; ++r)
+            {
+                n = std::min({ n, ladders[r].Frames.size(), references[r].Frames.size() });
+            }
             for (auto& r : v.Ratio)
             {
                 r.assign(n, std::numeric_limits<f64>::quiet_NaN());
             }
+            std::vector<std::array<f64, kCells>> difference(n); // (ladder - reference) / reference energy, per cell
+            std::vector<u8> measured(n, 0u);
             for (sizet f = 0; f < n; ++f)
             {
-                const DollyFrame& l = ladder.Frames[f];
-                const DollyFrame& r = reference.Frames[f];
-                if (r.Coverage < kDollyMinCoverage)
+                f64 lc = 0.0, rc = 0.0, le = 0.0, re = 0.0, ld = 0.0, rd = 0.0;
+                bool displayed = true;
+                bool enough = true;
+                std::array<f64, kCells> lm{};
+                std::array<f64, kCells> rm{};
+                for (u32 r = 0; r < v.Repeats; ++r)
+                {
+                    const DollyFrame& l = ladders[r].Frames[f];
+                    const DollyFrame& ref = references[r].Frames[f];
+                    enough = enough && ref.Coverage >= kDollyMinCoverage;
+                    lc += l.Coverage;
+                    rc += ref.Coverage;
+                    le += l.Energy;
+                    re += ref.Energy;
+                    displayed = displayed && l.Displayed > 0.0 && ref.Displayed > 0.0;
+                    ld += l.Displayed;
+                    rd += ref.Displayed;
+                    for (sizet c = 0; c < kCells; ++c)
+                    {
+                        lm[c] += l.EnergyMap[c];
+                        rm[c] += ref.EnergyMap[c];
+                    }
+                }
+                if (!enough)
                 {
                     continue;
                 }
-                v.Ratio[0][f] = l.Coverage / r.Coverage;
-                v.Ratio[1][f] = r.Energy > 0.0 ? l.Energy / r.Energy : std::numeric_limits<f64>::quiet_NaN();
-                v.Ratio[2][f] = (l.Displayed > 0.0 && r.Displayed > 0.0) ? l.Displayed / r.Displayed
-                                                                         : std::numeric_limits<f64>::quiet_NaN();
+                measured[f] = 1u;
+                v.Ratio[0][f] = lc / rc;
+                v.Ratio[1][f] = re > 0.0 ? le / re : std::numeric_limits<f64>::quiet_NaN();
+                v.Ratio[2][f] = displayed ? ld / rd : std::numeric_limits<f64>::quiet_NaN();
+                f64 total = 0.0;
+                for (const f64 e : rm)
+                {
+                    total += e;
+                }
+                for (sizet c = 0; c < kCells; ++c)
+                {
+                    difference[f][c] = total > 0.0 ? (lm[c] - rm[c]) / total : 0.0;
+                }
                 if (f > 0u)
                 {
-                    const DollyFrame& p = ladder.Frames[f - 1u];
+                    const DollyFrame& p = ladders[0].Frames[f - 1u];
+                    const DollyFrame& l = ladders[0].Frames[f];
                     if (p.Representation != l.Representation || p.VisibilityStep != l.VisibilityStep ||
                         p.ShadowStep != l.ShadowStep || p.SimulationStep != l.SimulationStep)
                     {
@@ -3657,7 +3753,39 @@ namespace OloEngine::Tests
                 return std::ranges::any_of(v.Transitions, [&](sizet t)
                                            { return (f > t ? f - t : t - f) <= 2u * kDollyWindow; });
             };
-            char line[320];
+            const auto spatialStep = [&](sizet f)
+            {
+                // The summed |change| of the window-mean difference map, or NaN
+                // where a window has too few measured frames.
+                std::array<f64, kCells> before{};
+                std::array<f64, kCells> after{};
+                f64 nb = 0.0;
+                f64 na = 0.0;
+                for (sizet g = f - kDollyWindow; g < f + kDollyWindow && g < n; ++g)
+                {
+                    if (measured[g] == 0u)
+                    {
+                        continue;
+                    }
+                    auto& into = g < f ? before : after;
+                    (g < f ? nb : na) += 1.0;
+                    for (sizet c = 0; c < kCells; ++c)
+                    {
+                        into[c] += difference[g][c];
+                    }
+                }
+                if (nb < 3.0 || na < 3.0)
+                {
+                    return std::numeric_limits<f64>::quiet_NaN();
+                }
+                f64 sum = 0.0;
+                for (sizet c = 0; c < kCells; ++c)
+                {
+                    sum += std::abs((after[c] / na) - (before[c] / nb));
+                }
+                return sum;
+            };
+            char line[384];
             for (sizet m = 0; m < 3u; ++m)
             {
                 const std::vector<f64>& r = v.Ratio[m];
@@ -3674,23 +3802,30 @@ namespace OloEngine::Tests
                     const f64 step = mean(r, f, f + kDollyWindow) - mean(r, f - kDollyWindow, f);
                     if (!std::isnan(step) && !nearTransition(f))
                     {
-                        quiet.push_back(std::abs(step));
+                        quiet.push_back(step);
                     }
                 }
-                if (!quiet.empty())
+                if (quiet.size() >= 8u)
                 {
-                    std::ranges::sort(quiet);
-                    v.NoiseFloor[m] = quiet[std::min(quiet.size() - 1u, static_cast<sizet>(0.95 * static_cast<f64>(quiet.size())))];
+                    std::vector<f64> sorted = quiet;
+                    std::ranges::sort(sorted);
+                    const f64 median = sorted[sorted.size() / 2u];
+                    for (f64& q : sorted)
+                    {
+                        q = std::abs(q - median);
+                    }
+                    std::ranges::sort(sorted);
+                    v.Noise[m] = 1.4826 * sorted[sorted.size() / 2u];
                 }
                 if (m < 2u && v.WorstBand[m] > kDollyBand)
                 {
                     std::snprintf(line, sizeof(line), "%s: the ladder's %s leaves the reference by %.3f at %.2f m (%s)",
-                                  what.c_str(), kMetric[m], v.WorstBand[m], ladder.Frames[worstBandFrame].Distance,
-                                  ladder.Frames[worstBandFrame].Outbound ? "out" : "in");
+                                  what.c_str(), kMetric[m], v.WorstBand[m], ladders[0].Frames[worstBandFrame].Distance,
+                                  ladders[0].Frames[worstBandFrame].Outbound ? "out" : "in");
                     v.Failures.emplace_back(line);
                 }
-                const f64 allowed = std::max(kDollyStep, 3.0 * v.NoiseFloor[m]);
                 const bool judged = m > 0u; // the energy and the brightness; coverage is recorded
+                const f64 margin = kDollyConfidence * v.Noise[m];
                 for (const sizet t : v.Transitions)
                 {
                     if (t < kDollyWindow || t + kDollyWindow > n)
@@ -3703,17 +3838,310 @@ namespace OloEngine::Tests
                         continue;
                     }
                     v.WorstStep[m] = std::max(v.WorstStep[m], std::abs(step));
-                    if (judged && std::abs(step) > allowed)
+                    if (!judged || std::abs(step) + margin <= kDollyStep)
                     {
-                        std::snprintf(line, sizeof(line), "%s: the %s steps by %+.3f across the change at %.2f m (%s), "
-                                                          "allowed %.3f (noise %.3f)",
-                                      what.c_str(), kMetric[m], step, ladder.Frames[t].Distance,
-                                      ladder.Frames[t].Outbound ? "out" : "in", allowed, v.NoiseFloor[m]);
-                        v.Failures.emplace_back(line);
+                        continue;
+                    }
+                    std::snprintf(line, sizeof(line), "%s: the %s steps by %+.3f across the change at %.2f m (%s), threshold %.3f, "
+                                                      "noise sigma %.4f over %u recording(s)",
+                                  what.c_str(), kMetric[m], step, ladders[0].Frames[t].Distance,
+                                  ladders[0].Frames[t].Outbound ? "out" : "in", kDollyStep, v.Noise[m], v.Repeats);
+                    (std::abs(step) - margin > kDollyStep ? v.Failures : v.Insufficient).emplace_back(line);
+                }
+            }
+            // THE SPATIAL STEP.
+            std::vector<f64> quietSpatial;
+            for (sizet f = kDollyWindow; f + kDollyWindow < n; ++f)
+            {
+                const f64 s = spatialStep(f);
+                if (!std::isnan(s) && !nearTransition(f))
+                {
+                    quietSpatial.push_back(s);
+                }
+            }
+            if (!quietSpatial.empty())
+            {
+                std::ranges::sort(quietSpatial);
+                v.SpatialQuiet =
+                    quietSpatial[std::min(quietSpatial.size() - 1u, static_cast<sizet>(0.95 * static_cast<f64>(quietSpatial.size())))];
+            }
+            for (const sizet t : v.Transitions)
+            {
+                if (t < kDollyWindow || t + kDollyWindow > n)
+                {
+                    v.SpatialAtChange.push_back(std::numeric_limits<f64>::quiet_NaN());
+                    continue;
+                }
+                const f64 s = spatialStep(t);
+                v.SpatialAtChange.push_back(s);
+                if (std::isnan(s))
+                {
+                    continue;
+                }
+                v.WorstSpatial = std::max(v.WorstSpatial, s);
+            }
+            return v;
+        }
+
+        [[nodiscard]] static DollyVerdict JudgeDolly(const Dolly& ladder, const Dolly& reference, const std::string& what)
+        {
+            return JudgeDolly(std::span<const Dolly>(&ladder, 1u), std::span<const Dolly>(&reference, 1u), what);
+        }
+
+        // ── B7's spatial step on CONVERGED maps (#1533 review, section 5) ──
+        //
+        // At each change the dolly recorded, both arms -- the ladder and the
+        // reference -- are brought to the change the way the dolly came (from
+        // its near end outward, or from its far end inward), held where the
+        // policy still asked for the old steps and then where the new ones
+        // apply, and each held position's energy map averaged over
+        // kHeldFrames frames: the stochastic samples and the jitter converge,
+        // so what remains of the difference is the change. The spatial step is
+        // the summed |change| of (ladder - reference) / reference energy, per
+        // cell of the dolly's grid, across the change. The same held pair
+        // where nothing changes gives the noise that is left.
+        static constexpr u32 kHeldFrames = 32;
+        static constexpr u32 kHeldSettle = 12; // past the policy's 4 hold frames
+        static constexpr sizet kCells = static_cast<sizet>(kDollyCells) * kDollyCells;
+
+        struct HeldMaps
+        {
+            std::array<f64, kCells> Before{};
+            std::array<f64, kCells> After{};
+            DollyFrame StateBefore;
+            DollyFrame StateAfter;
+        };
+
+        struct HeldChange
+        {
+            f32 Before = 0.0f;
+            f32 After = 0.0f;
+            bool Outbound = true;
+            bool Quiet = false; // a pair with no change between: the noise
+            HeldMaps Ladder;
+            HeldMaps Reference;
+            f64 Spatial = 0.0;
+        };
+
+        // The coat's linear energy over the dolly's grid in one frame.
+        static void AccumulateDollyMap(const LinearFrame& frame, f32 distance, i32 coatId, std::array<f64, kCells>& into)
+        {
+            const u32 side = DollySide(frame.Height, distance);
+            const u32 cropX = (frame.Width - side) / 2u;
+            const u32 cropY = (frame.Height - side) / 2u;
+            for (u32 y = cropY; y < cropY + side; ++y)
+            {
+                for (u32 x = cropX; x < cropX + side; ++x)
+                {
+                    const sizet p = (static_cast<sizet>(y) * frame.Width) + x;
+                    if (frame.Ids[p] == coatId)
+                    {
+                        into[(((y - cropY) * kDollyCells) / side * kDollyCells) + (((x - cropX) * kDollyCells) / side)] +=
+                            frame.Luminance[p];
                     }
                 }
             }
+        }
+
+        // One arm of a held pair: approach from `from` to `before` in the
+        // dolly's direction, hold and average, step to `after`, settle past the
+        // policy's hold, average again.
+        HeldMaps HoldPair(f32 from, f32 before, f32 after, u32 frames)
+        {
+            HeldMaps out;
+            const i32 coatId = static_cast<i32>(static_cast<u32>(m_Dog.Coat));
+            Renderer3D::ResetFrameSequences();
+            ColdHistory();
+            AimRuntimeCamera(DollyView(from));
+            HoldRuntime(16);
+            constexpr u32 kApproach = 24;
+            for (u32 i = 1; i <= kApproach; ++i)
+            {
+                AimRuntimeCamera(DollyView(from * std::pow(before / from, static_cast<f32>(i) / kApproach)));
+                HoldRuntime(1);
+            }
+            LinearFrame frame;
+            const auto state = [&](DollyFrame& f)
+            {
+                if (const GroomLodState* lod = GetScene().FindGroomLodState(m_Dog.Coat.GetUUID()); lod != nullptr)
+                {
+                    f.Representation = lod->Representation;
+                    f.VisibilityStep = lod->VisibilityStep;
+                    f.SimulationStep = lod->SimulationStep;
+                    f.ShadowStep = lod->ShadowStep;
+                }
+            };
+            const auto average = [&](f32 distance, std::array<f64, kCells>& into)
+            {
+                HoldRuntime(kHeldSettle);
+                for (u32 k = 0; k < frames; ++k)
+                {
+                    HoldRuntime(1);
+                    ReadbackLinear(RuntimeViewProjection(), frame, true);
+                    if (HasFatalFailure())
+                    {
+                        return;
+                    }
+                    AccumulateDollyMap(frame, distance, coatId, into);
+                }
+                for (f64& e : into)
+                {
+                    e /= static_cast<f64>(frames);
+                }
+            };
+            average(before, out.Before);
+            state(out.StateBefore);
+            AimRuntimeCamera(DollyView(after));
+            average(after, out.After);
+            state(out.StateAfter);
+            return out;
+        }
+
+        [[nodiscard]] static f64 HeldSpatialStep(const HeldChange& c)
+        {
+            const auto total = [](const std::array<f64, kCells>& m)
+            {
+                f64 sum = 0.0;
+                for (const f64 e : m)
+                {
+                    sum += e;
+                }
+                return sum;
+            };
+            const f64 before = total(c.Reference.Before);
+            const f64 after = total(c.Reference.After);
+            if (!(before > 0.0) || !(after > 0.0))
+            {
+                return std::numeric_limits<f64>::quiet_NaN();
+            }
+            f64 sum = 0.0;
+            for (sizet i = 0; i < kCells; ++i)
+            {
+                const f64 dAfter = (c.Ladder.After[i] - c.Reference.After[i]) / after;
+                const f64 dBefore = (c.Ladder.Before[i] - c.Reference.Before[i]) / before;
+                sum += std::abs(dAfter - dBefore);
+            }
+            return sum;
+        }
+
+        // Every change of `ladder` (its first recording), held both ways, and
+        // `quietAt` held pairs one dolly step apart where nothing changes.
+        std::vector<HeldChange> HoldEveryChange(const DollyPath& path, const Dolly& ladder, std::span<const sizet> transitions,
+                                                std::span<const f32> quietAt, const GroomLodComponent& shippedLod, u32 frames)
+        {
+            std::vector<HeldChange> changes;
+            auto& lodComponent = m_Dog.Coat.GetComponent<GroomLodComponent>();
+            const auto bothArms = [&](HeldChange& c, f32 from)
+            {
+                lodComponent = shippedLod;
+                c.Ladder = HoldPair(from, c.Before, c.After, frames);
+                lodComponent = shippedLod;
+                lodComponent.m_Enabled = false;
+                c.Reference = HoldPair(from, c.Before, c.After, frames);
+                lodComponent = shippedLod;
+                c.Spatial = HeldSpatialStep(c);
+            };
+            for (const sizet t : transitions)
+            {
+                // Before: the last frame whose REQUEST was still the old state's,
+                // so holding there never applies the change.
+                const DollyFrame& old = ladder.Frames[t - 1u];
+                sizet b = t - 1u;
+                while (b > 0u && ladder.Frames[b].Outbound == ladder.Frames[t].Outbound &&
+                       (ladder.Frames[b].RequestedVisibilityStep != old.VisibilityStep ||
+                        ladder.Frames[b].RequestedSimulationStep != old.SimulationStep ||
+                        ladder.Frames[b].RequestedShadowStep != old.ShadowStep ||
+                        ladder.Frames[b].RequestedRepresentation != old.Representation))
+                {
+                    --b;
+                }
+                HeldChange c;
+                c.Before = ladder.Frames[b].Distance;
+                c.After = ladder.Frames[t].Distance;
+                c.Outbound = ladder.Frames[t].Outbound;
+                bothArms(c, c.Outbound ? path.Near : path.Far);
+                if (HasFatalFailure())
+                {
+                    return changes;
+                }
+                changes.push_back(c);
+            }
+            const f32 step = std::pow(path.Far / path.Near, 1.0f / static_cast<f32>(path.FramesEachWay - 1u));
+            for (const f32 at : quietAt)
+            {
+                HeldChange c;
+                c.Before = at;
+                c.After = at * step;
+                c.Quiet = true;
+                bothArms(c, path.Near);
+                if (HasFatalFailure())
+                {
+                    return changes;
+                }
+                changes.push_back(c);
+            }
+            return changes;
+        }
+
+        struct HeldVerdict
+        {
+            std::vector<std::string> Failures;
+            std::vector<std::string> Insufficient;
+            f64 Quiet = 0.0; // the largest quiet pair's step
+            f64 Worst = 0.0;
+        };
+
+        [[nodiscard]] static HeldVerdict JudgeHeldChanges(std::span<const HeldChange> changes, const std::string& what)
+        {
+            HeldVerdict v;
+            for (const HeldChange& c : changes)
+            {
+                if (c.Quiet && !std::isnan(c.Spatial))
+                {
+                    v.Quiet = std::max(v.Quiet, c.Spatial);
+                }
+            }
+            char line[320];
+            for (const HeldChange& c : changes)
+            {
+                if (c.Quiet || std::isnan(c.Spatial))
+                {
+                    continue;
+                }
+                v.Worst = std::max(v.Worst, c.Spatial);
+                if (c.Spatial <= kDollySpatialStep)
+                {
+                    continue; // noise only adds to a sum of |differences|: below the threshold is a pass
+                }
+                std::snprintf(line, sizeof(line), "%s: the held spatial step moves %.3f of the coat's light across the change "
+                                                  "%.2f -> %.2f m (%s), threshold %.3f, quiet %.4f",
+                              what.c_str(), c.Spatial, c.Before, c.After, c.Outbound ? "out" : "in", kDollySpatialStep, v.Quiet);
+                (c.Spatial - v.Quiet > kDollySpatialStep ? v.Failures : v.Insufficient).emplace_back(line);
+            }
             return v;
+        }
+
+        static void ReportHeldChanges(const std::string& what, std::span<const HeldChange> changes, const HeldVerdict& v)
+        {
+            static constexpr std::array<const char*, 3> kTier{ "strand", "card", "mesh" };
+            const auto tier = [](GroomRepresentation r)
+            {
+                const auto i = static_cast<sizet>(r);
+                return i < kTier.size() ? kTier[i] : "?";
+            };
+            for (const HeldChange& c : changes)
+            {
+                std::printf("[dog] held %s %5.2f -> %5.2f m %-3s %s: %s vis %u sim %u shadow %u -> %s vis %u sim %u shadow %u | "
+                            "spatial step %.4f\n",
+                            what.c_str(), c.Before, c.After, c.Outbound ? "out" : "in", c.Quiet ? "quiet " : "change",
+                            tier(c.Ladder.StateBefore.Representation), c.Ladder.StateBefore.VisibilityStep,
+                            c.Ladder.StateBefore.SimulationStep, c.Ladder.StateBefore.ShadowStep,
+                            tier(c.Ladder.StateAfter.Representation), c.Ladder.StateAfter.VisibilityStep,
+                            c.Ladder.StateAfter.SimulationStep, c.Ladder.StateAfter.ShadowStep, c.Spatial);
+            }
+            std::printf("[dog] held %s: worst %.4f, quiet %.4f; %zu failing, %zu undecided\n", what.c_str(), v.Worst,
+                        v.Quiet, v.Failures.size(), v.Insufficient.size());
+            std::fflush(stdout);
         }
 
         static void ReportDolly(const std::string& what, const Dolly& ladder, const Dolly& reference, const DollyVerdict& v)
@@ -3724,10 +4152,18 @@ namespace OloEngine::Tests
                 const auto i = static_cast<sizet>(r);
                 return i < kTier.size() ? kTier[i] : "?";
             };
-            std::printf("[dog] dolly %s: %zu frames, %zu changes; noise (cov/energy/displayed) %.3f/%.3f/%.3f; worst band "
-                        "%.3f/%.3f; worst step at a change %.3f/%.3f/%.3f\n",
-                        what.c_str(), ladder.Frames.size(), v.Transitions.size(), v.NoiseFloor[0], v.NoiseFloor[1],
-                        v.NoiseFloor[2], v.WorstBand[0], v.WorstBand[1], v.WorstStep[0], v.WorstStep[1], v.WorstStep[2]);
+            std::printf("[dog] dolly %s: %zu frames, %zu changes, %u recording(s); noise sigma (cov/energy/displayed) "
+                        "%.4f/%.4f/%.4f, spatial quiet p95 %.4f; worst band %.3f/%.3f; worst step at a change "
+                        "%.3f/%.3f/%.3f, spatial %.4f; %zu failing, %zu undecided\n",
+                        what.c_str(), ladder.Frames.size(), v.Transitions.size(), v.Repeats, v.Noise[0], v.Noise[1],
+                        v.Noise[2], v.SpatialQuiet, v.WorstBand[0], v.WorstBand[1], v.WorstStep[0], v.WorstStep[1],
+                        v.WorstStep[2], v.WorstSpatial, v.Failures.size(), v.Insufficient.size());
+            for (sizet i = 0; i < v.Transitions.size() && i < v.SpatialAtChange.size(); ++i)
+            {
+                std::printf("[dog] dolly %s change at %.2f m (%s): spatial step %.4f\n", what.c_str(),
+                            ladder.Frames[v.Transitions[i]].Distance, ladder.Frames[v.Transitions[i]].Outbound ? "out" : "in",
+                            v.SpatialAtChange[i]);
+            }
             const auto row = [&](sizet f, const char* tag)
             {
                 const DollyFrame& l = ladder.Frames[f];
@@ -4980,15 +5416,39 @@ namespace OloEngine::Tests
         };
         const f32 shippedCompensation = shippedLod.m_MaxWidthCompensation;
 
-        const Dolly ladder = record(out, true, shippedCompensation);
+        // Recorded again and pooled while a verdict is undecided, up to
+        // kDollyMaxRepeats recordings; what is still undecided then fails as
+        // insufficient evidence rather than passing.
+        const auto judgeWithRepeats = [&](const DollyPath& path, const char* what, std::vector<Dolly>& ladders,
+                                          std::vector<Dolly>& references)
+        {
+            ladders.push_back(record(path, true, shippedCompensation));
+            references.push_back(record(path, false, shippedCompensation, &ladders.front()));
+            DollyVerdict v = JudgeDolly(ladders, references, what);
+            while (!v.Insufficient.empty() && ladders.size() < kDollyMaxRepeats && !HasFatalFailure())
+            {
+                std::printf("[dog] dolly %s: %zu verdict(s) undecided after %zu recording(s); recording again\n", what,
+                            v.Insufficient.size(), ladders.size());
+                ladders.push_back(record(path, true, shippedCompensation, &ladders.front()));
+                references.push_back(record(path, false, shippedCompensation, &ladders.front()));
+                v = JudgeDolly(ladders, references, what);
+            }
+            return v;
+        };
+        std::vector<Dolly> ladders;
+        std::vector<Dolly> references;
+        const DollyVerdict verdict = judgeWithRepeats(out, "0.6-15 m", ladders, references);
         ASSERT_FALSE(HasFatalFailure());
-        const Dolly reference = record(out, false, shippedCompensation, &ladder);
-        ASSERT_FALSE(HasFatalFailure());
-        const DollyVerdict verdict = JudgeDolly(ladder, reference, "0.6-15 m");
+        const Dolly& ladder = ladders.front();
+        const Dolly& reference = references.front();
         ReportDolly("0.6-15 m", ladder, reference, verdict);
         for (const std::string& failure : verdict.Failures)
         {
             ADD_FAILURE() << failure;
+        }
+        for (const std::string& undecided : verdict.Insufficient)
+        {
+            ADD_FAILURE() << "INSUFFICIENT EVIDENCE: " << undecided;
         }
         EXPECT_FALSE(verdict.Transitions.empty()) << "the ladder never changed over 0.6-15 m: the dolly tests nothing";
         WriteDollyStrip("DogLodDolly_GL_Forward_Out", ladder, reference);
@@ -5000,18 +5460,128 @@ namespace OloEngine::Tests
         ReportDolly("0.6-15 m, no width compensation", thinned, reference, caught);
         EXPECT_FALSE(caught.Failures.empty()) << "the dolly's judge passed a ladder with no width compensation";
 
+        // THE SPATIAL STEP, judged on converged maps held either side of every
+        // change, against quiet pairs where nothing changes (between the
+        // changes: at 3 m, 9 m and 12.5 m).
+        const std::array<f32, 3> quietAt{ 3.0f, 9.0f, 12.5f };
+        std::vector<HeldChange> held = HoldEveryChange(out, ladder, verdict.Transitions, quietAt, shippedLod, kHeldFrames);
+        ASSERT_FALSE(HasFatalFailure());
+        for (const HeldChange& c : held)
+        {
+            if (c.Quiet)
+            {
+                EXPECT_TRUE(c.Ladder.StateBefore.VisibilityStep == c.Ladder.StateAfter.VisibilityStep &&
+                            c.Ladder.StateBefore.SimulationStep == c.Ladder.StateAfter.SimulationStep &&
+                            c.Ladder.StateBefore.ShadowStep == c.Ladder.StateAfter.ShadowStep)
+                    << "a quiet pair at " << c.Before << " m crossed a change";
+            }
+        }
+        HeldVerdict heldVerdict = JudgeHeldChanges(held, "0.6-15 m");
+        if (!heldVerdict.Insufficient.empty())
+        {
+            std::printf("[dog] held 0.6-15 m: %zu undecided at %u frames; holding %u frames each\n",
+                        heldVerdict.Insufficient.size(), kHeldFrames, 4u * kHeldFrames);
+            held = HoldEveryChange(out, ladder, verdict.Transitions, quietAt, shippedLod, 4u * kHeldFrames);
+            ASSERT_FALSE(HasFatalFailure());
+            heldVerdict = JudgeHeldChanges(held, "0.6-15 m");
+        }
+        ReportHeldChanges("0.6-15 m", held, heldVerdict);
+        for (const std::string& failure : heldVerdict.Failures)
+        {
+            ADD_FAILURE() << failure;
+        }
+        for (const std::string& undecided : heldVerdict.Insufficient)
+        {
+            ADD_FAILURE() << "INSUFFICIENT EVIDENCE: " << undecided;
+        }
+
+        // THE PLANTED RELOCATION, the spatial step's negative control: the held
+        // maps of the first change with, after it, two 4x4 blocks of the
+        // ladder's map traded -- its brightest block and the 4x4 block four
+        // cells across from it that differs from it most. A tuft moved; the
+        // ladder's totals are exactly the held ones, so only the spatial step
+        // can see it.
+        const auto firstChange = std::ranges::find_if(held, [](const HeldChange& c) { return !c.Quiet; });
+        if (firstChange != held.end())
+        {
+            std::vector<HeldChange> planted = held;
+            HeldChange& p = planted[static_cast<sizet>(firstChange - held.begin())];
+            auto& map = p.Ladder.After;
+            const auto block = [&](u32 bx, u32 by)
+            {
+                f64 sum = 0.0;
+                for (u32 y = by; y < by + 4u; ++y)
+                {
+                    for (u32 x = bx; x < bx + 4u; ++x)
+                    {
+                        sum += map[(y * kDollyCells) + x];
+                    }
+                }
+                return sum;
+            };
+            u32 ax = 0;
+            u32 ay = 0;
+            for (u32 by = 0; by + 4u <= kDollyCells; by += 2u)
+            {
+                for (u32 bx = 0; bx + 4u <= kDollyCells; bx += 2u)
+                {
+                    if (block(bx, by) > block(ax, ay))
+                    {
+                        ax = bx;
+                        ay = by;
+                    }
+                }
+            }
+            u32 bx = ax;
+            u32 by = ay;
+            f64 widest = -1.0;
+            for (const glm::ivec2 offset : { glm::ivec2(4, 0), glm::ivec2(-4, 0), glm::ivec2(0, 4), glm::ivec2(0, -4) })
+            {
+                const i32 x = static_cast<i32>(ax) + offset.x;
+                const i32 y = static_cast<i32>(ay) + offset.y;
+                if (x < 0 || y < 0 || x + 4 > static_cast<i32>(kDollyCells) || y + 4 > static_cast<i32>(kDollyCells))
+                {
+                    continue;
+                }
+                const f64 gap = std::abs(block(ax, ay) - block(static_cast<u32>(x), static_cast<u32>(y)));
+                if (gap > widest)
+                {
+                    widest = gap;
+                    bx = static_cast<u32>(x);
+                    by = static_cast<u32>(y);
+                }
+            }
+            for (u32 y = 0; y < 4u; ++y)
+            {
+                for (u32 x = 0; x < 4u; ++x)
+                {
+                    std::swap(map[((ay + y) * kDollyCells) + ax + x], map[((by + y) * kDollyCells) + bx + x]);
+                }
+            }
+            p.Spatial = HeldSpatialStep(p);
+            const HeldVerdict relocated = JudgeHeldChanges(planted, "0.6-15 m, planted relocation");
+            ReportHeldChanges("0.6-15 m, planted relocation", planted, relocated);
+            EXPECT_FALSE(relocated.Failures.empty()) << "the held spatial step did not catch a tuft moved across the change";
+        }
+
         // Past 15 m, labelled as such: where the cards take over.
-        const Dolly farLadder = record(extended, true, shippedCompensation);
+        std::vector<Dolly> farLadders;
+        std::vector<Dolly> farReferences;
+        const DollyVerdict extendedVerdict = judgeWithRepeats(extended, "EXTENDED 15-45 m", farLadders, farReferences);
         ASSERT_FALSE(HasFatalFailure());
-        const Dolly farReference = record(extended, false, shippedCompensation, &farLadder);
-        ASSERT_FALSE(HasFatalFailure());
-        const DollyVerdict extendedVerdict = JudgeDolly(farLadder, farReference, "EXTENDED 15-45 m");
-        ReportDolly("EXTENDED 15-45 m", farLadder, farReference, extendedVerdict);
+        ReportDolly("EXTENDED 15-45 m", farLadders.front(), farReferences.front(), extendedVerdict);
         for (const std::string& failure : extendedVerdict.Failures)
         {
             ADD_FAILURE() << failure;
         }
-        WriteDollyStrip("DogLodDolly_GL_Forward_Extended", farLadder, farReference);
+        // Past the criterion's 15 m and at a few dozen pixels of dog, the
+        // noise is the size of the steps: what it cannot decide is reported,
+        // not counted for or against B7.
+        for (const std::string& undecided : extendedVerdict.Insufficient)
+        {
+            std::printf("[dog] dolly EXTENDED, undecided at this resolution: %s\n", undecided.c_str());
+        }
+        WriteDollyStrip("DogLodDolly_GL_Forward_Extended", farLadders.front(), farReferences.front());
     }
 
     // =========================================================================
