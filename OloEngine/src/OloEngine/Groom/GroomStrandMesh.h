@@ -618,8 +618,11 @@ namespace OloEngine
     /// What one view casts of one run, and why.
     struct GroomCasterRunDecision
     {
-        /// The projected length the layers were estimated from, world metres.
+        /// The projected length the layers were estimated from, world metres,
+        /// and the NDC per world metre it was converted at: their product is a
+        /// lower bound on the run's projected centreline length in NDC.
         f32 ProjectedLength = 0.0f;
+        f32 LengthNdcPerWorld = 0.0f;
         /// The run's estimated layers whole (GroomShadowCasterLayersFromProjection).
         f32 Layers = 0.0f;
         f32 Fraction = 1.0f;
@@ -633,11 +636,12 @@ namespace OloEngine
      *
      * The widening is measured at the DENSEST texels the caster's posed cull box
      * meets, which keeps the most strands. The layers are ESTIMATED from the
-     * run's projected length -- the moment lower bound, through any linear
-     * transform, at the smallest it takes over the directions the run's box
-     * spans, or the assumed half share without moments -- over the NDC area of
-     * the run's box under the caster's transform, at the SPARSEST texels that
-     * box meets. Each choice errs toward keeping strands.
+     * run's projected length -- a LOWER BOUND from its moments along the ray to
+     * its box's centre, less the box's angular spread seen from the light
+     * times its length, through any linear transform; or the assumed half
+     * share without moments -- over the NDC area of the run's box under the
+     * caster's transform, at the SPARSEST texels that box meets. Each choice
+     * errs toward keeping strands.
      *
      * THE RUN IS TAKEN AS IT IS GIVEN: a bound coat's caller re-poses its runs
      * first (GroomCasterPose.h), so their moments and box describe this frame's

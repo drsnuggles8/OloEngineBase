@@ -1568,29 +1568,6 @@ namespace OloEngine
             const f32 smallest = SymmetricEigenvalues(glm::transpose(linear) * linear).z;
             return std::sqrt(std::max(smallest, 0.0f));
         }
-
-        // The unit eigenvector of a symmetric 3x3 for `eigenvalue`: the longest
-        // cross product of two rows of (M - eigenvalue I). Zero when none is.
-        [[nodiscard]] glm::vec3 SymmetricEigenvector(const glm::mat3& m, f32 eigenvalue) noexcept
-        {
-            const glm::mat3 shifted = m - (glm::mat3(1.0f) * eigenvalue);
-            const glm::vec3 r0{ shifted[0][0], shifted[1][0], shifted[2][0] };
-            const glm::vec3 r1{ shifted[0][1], shifted[1][1], shifted[2][1] };
-            const glm::vec3 r2{ shifted[0][2], shifted[1][2], shifted[2][2] };
-            const std::array<glm::vec3, 3> candidates{ glm::cross(r0, r1), glm::cross(r0, r2), glm::cross(r1, r2) };
-            glm::vec3 best{ 0.0f };
-            f32 bestLength = 0.0f;
-            for (const glm::vec3& candidate : candidates)
-            {
-                const f32 length = glm::length(candidate);
-                if (length > bestLength && std::isfinite(length))
-                {
-                    best = candidate;
-                    bestLength = length;
-                }
-            }
-            return bestLength > 0.0f ? best / bestLength : glm::vec3(0.0f);
-        }
     } // namespace
 
     GroomCasterRunDecision DecideGroomCasterRun(const GroomCasterRun& run, const GroomCasterPlacement& caster,
@@ -1625,10 +1602,11 @@ namespace OloEngine
             densest = std::max(densest, GroomShadowNdcPerWorld(view.ViewProjection, clip.w));
         }
 
-        // THE RUN'S FOOTPRINT: its rest box under the caster's transform,
-        // projected and bounded in NDC, and the SPARSEST texels over it, which
-        // keep the layer estimate low. A run without moments has no box of its
-        // own and is measured against the caster's.
+        // THE RUN'S FOOTPRINT: its box under the caster's transform, projected
+        // and bounded in NDC, and the SPARSEST texels over it, which keep the
+        // layer estimate low -- the smaller row scale at the box's deepest
+        // corner (w is affine, so its largest is at a corner). A run without
+        // moments has no box of its own and is measured against the caster's.
         f32 sparsest = std::numeric_limits<f32>::max();
         glm::vec2 ndcMin{ std::numeric_limits<f32>::max() };
         glm::vec2 ndcMax{ std::numeric_limits<f32>::lowest() };
@@ -1643,7 +1621,7 @@ namespace OloEngine
             {
                 return decision;
             }
-            sparsest = std::min(sparsest, GroomShadowNdcPerWorld(view.ViewProjection, clip.w));
+            sparsest = std::min(sparsest, GroomShadowMinNdcPerWorld(view.ViewProjection, clip.w));
             const glm::vec2 ndc = glm::vec2(clip) / clip.w;
             ndcMin = glm::min(ndcMin, ndc);
             ndcMax = glm::max(ndcMax, ndc);
@@ -1659,57 +1637,76 @@ namespace OloEngine
         // d projects to |P_d A v| >= s_min(A) |P_u v|, with u = A^-1 d
         // normalised and s_min A's smallest stretch -- the moment bound taken
         // across u, in the groom's own space, times s_min. For a similarity
-        // that is A's rotation and its scale, as before.
+        // that is A's rotation and its scale.
         //
-        // EVERY DIRECTION THE BOX SPANS, not the one at its centre: a
-        // perspective light's rays fan across the run, and a strand along any of
-        // them lays nothing there. So the bound is the smallest over the
-        // directions to the box's corners and centre, and over the run's
-        // principal direction when that lies inside the fan -- the bound's
-        // minimum on the sphere, where the run lies most along the light. An
-        // orthographic view has one direction and changes nothing.
+        // A PERSPECTIVE LIGHT gives each segment its own ray, and aggregate
+        // moments cannot be read along more than one direction: a fan of
+        // strands each on its own ray projects to nothing, while every single
+        // direction sees most of it across (#1533 review). So the moments are
+        // read along u_c, the ray to the box's centre, and every segment pays
+        // for the angle between its own ray and u_c. A line's angle to a ray
+        // differs from its angle to u_c by at most the angle between the two
+        // rays, and |sin a - sin b| <= |a - b|, so
+        //     sum l sin(t, u_i) >= (L - u_c^T M u_c) - alpha L,
+        // with alpha the largest angle between u_c and the ray to any point of
+        // the box. Seen from the light (a point, in the groom's space too) the
+        // rays within an angle of u_c below 90 degrees fill a convex cone, so
+        // when every corner's ray -- oriented away from the light -- is inside
+        // it, so is the box, and alpha is the corners' largest. An
+        // orthographic view's rays are parallel: alpha is zero and the bound
+        // is the moments'.
+        // A spread at or past 90 degrees, or a corner with no ray, credits
+        // nothing. The run's own loss (strands of unknown orientation, the
+        // simulation's shortening; GroomCasterPose.h) comes off last.
+        //
+        // In NDC the bound holds at the smaller row scale over the deepest
+        // corner: an offset of length s across the ray at clip w moves NDC by
+        // at least that scale times s, for the views shadows use (orthographic
+        // or a symmetric perspective).
         f32 projectedLength = kGroomCasterProjectedLengthShare * run.TotalLength * caster.ObjectScale;
         if (run.MomentsKnown)
         {
+            projectedLength = 0.0f;
             const glm::mat3 linear(caster.Transform);
             const f32 det = glm::determinant(linear);
             if (std::isfinite(det) && std::abs(det) > 1.0e-12f)
             {
                 const glm::mat3 toLocal = glm::inverse(linear);
                 const f32 stretch = SmallestStretch(linear);
+                // Each ray oriented AWAY from the light -- along which clip w
+                // grows -- so two rays' angle is theirs, not their lines'. An
+                // orthographic view's w does not change; its rays are one line.
+                const glm::vec3 wGradient{ view.ViewProjection[0][3], view.ViewProjection[1][3], view.ViewProjection[2][3] };
+                const bool perspective = glm::length(wGradient) > 1.0e-12f;
                 const auto localDirection = [&](const glm::vec3& point) -> glm::vec3
                 {
-                    const glm::vec3 local = toLocal * GroomShadowProjectionDirection(view.ViewProjection, point - view.Origin);
+                    glm::vec3 ray = GroomShadowProjectionDirection(view.ViewProjection, point - view.Origin);
+                    if (perspective && glm::dot(ray, wGradient) < 0.0f)
+                    {
+                        ray = -ray;
+                    }
+                    const glm::vec3 local = toLocal * ray;
                     const f32 length = glm::length(local);
                     return length > 0.0f && std::isfinite(length) ? local / length : glm::vec3(0.0f);
                 };
                 const glm::vec3 axis = localDirection(centre);
                 if (axis != glm::vec3(0.0f))
                 {
-                    f32 bound = GroomShadowProjectedLengthLowerBound(run.TotalLength, run.Moments, axis);
-                    f32 widest = 1.0f; // the smallest |cos| between the axis and a corner's direction
+                    f32 spread = 0.0f;
                     for (u32 index = 0; index < 8u; ++index)
                     {
                         const glm::vec3 world = glm::vec3(caster.Transform * glm::vec4(corner(run.BoundsMin, run.BoundsMax, index), 1.0f));
                         const glm::vec3 local = localDirection(world);
-                        if (local == glm::vec3(0.0f))
-                        {
-                            continue;
-                        }
-                        bound = std::min(bound, GroomShadowProjectedLengthLowerBound(run.TotalLength, run.Moments, local));
-                        widest = std::min(widest, std::abs(glm::dot(local, axis)));
+                        const f32 cosine = perspective ? glm::dot(local, axis) : std::abs(glm::dot(local, axis));
+                        spread = local == glm::vec3(0.0f) ? 1.5707964f
+                                                          : std::max(spread, std::acos(std::clamp(cosine, -1.0f, 1.0f)));
                     }
-                    const glm::mat3 moments(run.Moments[0], run.Moments[3], run.Moments[4], run.Moments[3],
-                                            run.Moments[1], run.Moments[5], run.Moments[4], run.Moments[5],
-                                            run.Moments[2]);
-                    const glm::vec3 principal = SymmetricEigenvector(moments, SymmetricEigenvalues(moments).x);
-                    if (widest < 1.0f && principal != glm::vec3(0.0f) && std::abs(glm::dot(principal, axis)) >= widest)
+                    if (spread < 1.5707964f)
                     {
-                        bound = std::min(bound, GroomShadowProjectedLengthLowerBound(run.TotalLength, run.Moments, principal));
+                        const f32 bound = GroomShadowProjectedLengthLowerBound(run.TotalLength, run.Moments, axis) -
+                                          (spread * run.TotalLength) - std::max(run.ProjectedLengthLoss, 0.0f);
+                        projectedLength = std::isfinite(bound) ? std::max(bound, 0.0f) * stretch : 0.0f;
                     }
-                    // The run's own loss (strands of unknown orientation, the
-                    // simulation's shortening; GroomCasterPose.h) comes off.
-                    projectedLength = std::max(bound - std::max(run.ProjectedLengthLoss, 0.0f), 0.0f) * stretch;
                 }
             }
         }
@@ -1718,6 +1715,7 @@ namespace OloEngine
         // per-groom scale and the transform's mean axis, as the shader has it.
         const f32 meanRadiusWorld = run.MeanRadius * caster.WidthScale * caster.ObjectScale;
         decision.ProjectedLength = projectedLength;
+        decision.LengthNdcPerWorld = sparsest;
         decision.Layers = GroomShadowCasterLayersFromProjection(decision.ProjectedLength, meanRadiusWorld, sparsest,
                                                                 view.ResolutionTexels, caster.MinWidthTexels,
                                                                 footprintNdcArea);

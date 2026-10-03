@@ -44,6 +44,20 @@ namespace OloEngine
         return 0.5f * (sx + sy) / safeW;
     }
 
+    /// The SMALLER of the two NDC-per-metre row scales at clip w `clipW`: the
+    /// least an offset across the view's ray moves NDC by, for an
+    /// orthographic or a symmetric perspective view (every shadow view's
+    /// kind). CPU only: what a lower bound on a projected NDC length is
+    /// converted at (DecideGroomCasterRun), where GroomShadowNdcPerWorld's
+    /// mean of the two would overstate a non-square view.
+    [[nodiscard]] inline f32 GroomShadowMinNdcPerWorld(const glm::mat4& viewProjection, f32 clipW) noexcept
+    {
+        const f32 safeW = std::max(std::abs(clipW), 1.0e-6f);
+        const f32 sx = glm::length(glm::vec3(viewProjection[0][0], viewProjection[1][0], viewProjection[2][0]));
+        const f32 sy = glm::length(glm::vec3(viewProjection[0][1], viewProjection[1][1], viewProjection[2][1]));
+        return std::min(sx, sy) / safeW;
+    }
+
     /// The half width, in NDC, a strand of `radiusWorld` metres is rasterised
     /// at against a `resolutionTexels`-wide target, floored at
     /// `minWidthTexels` texels of FULL width.
@@ -139,6 +153,10 @@ namespace OloEngine
     /// overstates -- and, with only second moments known, the tightest bound
     /// there is: a run split between strands exactly along and exactly across d
     /// meets it. Never negative.
+    ///
+    /// A bound ONLY for the actual moments of the geometry, with ONE direction
+    /// for every segment: an estimate of M, or a light whose rays fan across
+    /// the run, needs its own correction (DecideGroomCasterRun).
     [[nodiscard]] inline f32 GroomShadowProjectedLengthLowerBound(f32 totalLength, const std::array<f32, 6>& moments,
                                                                   const glm::vec3& direction) noexcept
     {

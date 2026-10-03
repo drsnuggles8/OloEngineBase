@@ -53,6 +53,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <limits>
+#include <numeric>
 #include <span>
 #include <string>
 #include <vector>
@@ -821,48 +823,6 @@ namespace OloEngine::Tests
             << "crediting the mean axis held the claim: the case no longer tests the transform";
     }
 
-    // #1533: under a PERSPECTIVE light the rays fan across a run, and a strand
-    // along any of them lays nothing there. Upright strands over a wide patch,
-    // a lamp just above one corner: the rays near it run along the strands,
-    // the ray to the patch's centre crosses them. The decision's projected
-    // length must be at most the moment bound along EVERY ray into the run's
-    // box, not just the centre's -- checked against a thousand of them.
-    TEST(GroomCasterCoverage, APerspectiveLightIsMeasuredAlongEveryRayIntoTheRun)
-    {
-        std::vector<Strand> strands;
-        AddPatch(strands, 6000u, glm::vec3(-1.0f, 0.0f, -1.0f), 2.0f, glm::vec3(0.0f, 1.0f, 0.0f), 0.02f, 0.05f, 1.0e-4f,
-                 0u, 83u);
-        const Cast cast = BuildCast(strands, { "back_undercoat" });
-        const glm::vec3 lamp(-0.9f, 0.8f, -0.9f);
-        LightView light;
-        light.ViewProjection = glm::perspective(glm::radians(150.0f), 1.0f, 0.05f, 20.0f) *
-                               glm::lookAt(lamp, glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-        light.NdcPerWorld = GroomShadowNdcPerWorld(light.ViewProjection, 1.0f);
-        const Decision d = DecideRuns(cast, cast.Runs.Runs, light);
-        const GroomCasterRun& run = cast.Runs.Runs[0];
-        ASSERT_TRUE(run.MomentsKnown);
-        ASSERT_GT(d.Runs[0].ProjectedLength, 0.0f) << "the box met the lamp's plane, so nothing was measured";
-
-        f32 alongEveryRay = std::numeric_limits<f32>::max();
-        for (u32 k = 0; k < 1000u; ++k)
-        {
-            const glm::vec3 t{ Hash01(97u, k * 3u), Hash01(97u, k * 3u + 1u), Hash01(97u, k * 3u + 2u) };
-            const glm::vec3 point = run.BoundsMin + (t * (run.BoundsMax - run.BoundsMin));
-            const glm::vec3 ray = GroomShadowProjectionDirection(light.ViewProjection, point);
-            alongEveryRay = std::min(alongEveryRay, GroomShadowProjectedLengthLowerBound(run.TotalLength, run.Moments, ray));
-        }
-        const glm::vec3 centreRay = GroomShadowProjectionDirection(light.ViewProjection, 0.5f * (run.BoundsMin + run.BoundsMax));
-        const f32 alongTheCentre = GroomShadowProjectedLengthLowerBound(run.TotalLength, run.Moments, centreRay);
-        std::printf("[caster-coverage] perspective lamp over a wide patch: decided %.4f, along every ray >= %.4f, along "
-                    "the centre's %.4f (of %.4f)\n",
-                    d.Runs[0].ProjectedLength, alongEveryRay, alongTheCentre, run.TotalLength);
-        std::fflush(stdout);
-        EXPECT_LE(d.Runs[0].ProjectedLength, alongEveryRay * 1.001f + 1.0e-6f)
-            << "the decision credited the run with more projected length than one of its own rays sees";
-        EXPECT_GT(alongTheCentre, 2.0f * alongEveryRay)
-            << "the centre's ray sees about what every ray does: the case no longer tests the fan";
-    }
-
     // A slowly turning light changes each run's share a little each step, and
     // a prefix count moves in sixty-fourths. At EVERY step the claim holds, and
     // no step opens or closes more of a group's solid interior than the
@@ -940,5 +900,153 @@ namespace OloEngine::Tests
             }
         }
         std::fflush(stdout);
+    }
+
+    namespace
+    {
+        // A lamp at `lamp` looking down -y, its frustum 90 degrees wide.
+        [[nodiscard]] LightView MakeLamp(const glm::vec3& lamp, const glm::vec3& centre)
+        {
+            LightView view;
+            view.ViewProjection = glm::perspective(glm::radians(90.0f), 1.0f, 0.05f, 20.0f) *
+                                  glm::lookAt(lamp, lamp + glm::vec3(0.0f, -1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+            const glm::vec4 clip = view.ViewProjection * glm::vec4(centre, 1.0f);
+            view.NdcPerWorld = GroomShadowNdcPerWorld(view.ViewProjection, clip.w);
+            return view;
+        }
+
+        // The cast's centrelines as the view projects them: the summed NDC
+        // length of every segment, which is what a ribbon with no end caps
+        // covers along its length.
+        [[nodiscard]] f64 ProjectedNdcLength(const Cast& cast, const LightView& view)
+        {
+            f64 length = 0.0;
+            for (sizet base = 0; base + 3u < cast.Vertices.size(); base += 4u)
+            {
+                const glm::vec4 a = view.ViewProjection * glm::vec4(cast.Vertices[base].Position, 1.0f);
+                const glm::vec4 b = view.ViewProjection * glm::vec4(cast.Vertices[base].Other, 1.0f);
+                length += glm::length(glm::dvec2(glm::vec2(b) / b.w) - glm::dvec2(glm::vec2(a) / a.w));
+            }
+            return length;
+        }
+
+        // Strands along the lamp's rays, rooted `from` metres from it, in a cone
+        // of `halfAngleDegrees` about straight down.
+        void AddRadialFan(std::vector<Strand>& strands, const glm::vec3& lamp, u32 count, f32 halfAngleDegrees, f32 from,
+                          f32 length, u16 group, u32 salt)
+        {
+            for (u32 i = 0; i < count; ++i)
+            {
+                const f32 theta = glm::radians(halfAngleDegrees) * std::sqrt(Hash01(salt, i * 2u));
+                const f32 phi = 6.2831853f * Hash01(salt, i * 2u + 1u);
+                const glm::vec3 ray{ std::sin(theta) * std::cos(phi), -std::cos(theta), std::sin(theta) * std::sin(phi) };
+                strands.push_back(MakeStrand(lamp + ray * from, ray, length, 1.0e-4f, group));
+            }
+        }
+    } // namespace
+
+    // #1533 review, finding 4: strands along a lamp's own rays each
+    // project to a point, so their projected centreline length is zero; no
+    // direction common to the run sees that from its aggregate moments.
+    TEST(GroomCasterCoverage, ARadialFanUnderALampProjectsToNothing)
+    {
+        const glm::vec3 lamp(0.0f, 0.8f, 0.0f);
+        std::vector<Strand> strands;
+        AddRadialFan(strands, lamp, 2000u, 30.0f, 0.6f, 0.05f, 0u, 101u);
+        const Cast cast = BuildCast(strands, { "chest_longhair" });
+        const LightView light = MakeLamp(lamp, glm::vec3(0.0f, 0.18f, 0.0f));
+        const Decision d = DecideRuns(cast, cast.Runs.Runs, light, 2048.0f);
+        const f64 actual = ProjectedNdcLength(cast, light);
+        const f32 sparsest = d.Runs[0].LengthNdcPerWorld;
+        std::printf("[caster-coverage] radial fan under a lamp: decided %.4f m (%.5f NDC at the sparsest texels), actual "
+                    "%.5f NDC, of %.3f m\n",
+                    d.Runs[0].ProjectedLength, d.Runs[0].ProjectedLength * sparsest, actual, cast.Runs.Runs[0].TotalLength);
+        std::fflush(stdout);
+        EXPECT_LE(static_cast<f64>(d.Runs[0].ProjectedLength) * sparsest, actual * 1.0001 + 1.0e-6)
+            << "the decision credits a fan along the rays with projected length it does not have";
+    }
+
+    // #1533 review, finding 4: the fan's fictitious length must not
+    // thin the few strands lying ACROSS the rays, which do cast. Measured on
+    // the rasterised model map, and against the share the actual projected
+    // length asks for.
+    TEST(GroomCasterCoverage, ARadialFanDoesNotThinTheStrandsAcrossItsRays)
+    {
+        const glm::vec3 lamp(0.0f, 0.8f, 0.0f);
+        std::vector<Strand> strands;
+        AddRadialFan(strands, lamp, 60000u, 30.0f, 0.6f, 0.12f, 0u, 103u);
+        // Across the rays: along each root's circle of the cone.
+        for (u32 i = 0; i < 60u; ++i)
+        {
+            const f32 theta = glm::radians(30.0f) * std::sqrt(Hash01(107u, i * 2u));
+            const f32 phi = 6.2831853f * Hash01(107u, i * 2u + 1u);
+            const glm::vec3 ray{ std::sin(theta) * std::cos(phi), -std::cos(theta), std::sin(theta) * std::sin(phi) };
+            const glm::vec3 across{ -std::sin(phi), 0.0f, std::cos(phi) };
+            strands.push_back(MakeStrand(lamp + ray * 0.64f, across, 0.04f, 1.0e-4f, 0u));
+        }
+        const Cast cast = BuildCast(strands, { "chest_longhair" });
+        const LightView light = MakeLamp(lamp, glm::vec3(0.0f, 0.18f, 0.0f));
+        constexpr f32 kLampResolution = 96.0f;
+        const Decision d = DecideRuns(cast, cast.Runs.Runs, light, kLampResolution);
+        const GroomCasterRunDecision& run = d.Runs[0];
+        const f64 actual = ProjectedNdcLength(cast, light);
+        const f32 sparsest = run.LengthNdcPerWorld;
+        // The layers the actual projected length lays over the same box, and
+        // the share they ask for.
+        const f64 actualLayers = run.ProjectedLength > 0.0f
+                                     ? static_cast<f64>(run.Layers) * actual / (static_cast<f64>(run.ProjectedLength) * sparsest)
+                                     : 0.0;
+        f32 densest = 0.0f;
+        for (u32 c = 0; c < 8u; ++c)
+        {
+            const glm::vec3 p{ (c & 1u) ? cast.BoundsMax.x : cast.BoundsMin.x, (c & 2u) ? cast.BoundsMax.y : cast.BoundsMin.y,
+                               (c & 4u) ? cast.BoundsMax.z : cast.BoundsMin.z };
+            const glm::vec4 clip = light.ViewProjection * glm::vec4(p, 1.0f);
+            densest = std::max(densest, GroomShadowNdcPerWorld(light.ViewProjection, clip.w));
+        }
+        const f32 needed = GroomShadowCasterFraction(cast.Runs.Runs[0].MeanRadius, densest, kLampResolution, kMinWidthTexels,
+                                                     kGroomCasterCoverageMargin, kGroomCasterMinFraction,
+                                                     static_cast<f32>(actualLayers), kGroomCasterMinLayers);
+        const RuleResult measured = MeasureDecision(cast, cast.Runs, d, light, kLampResolution);
+        ReportRule("radial fan with strands across it", "runs", measured);
+        std::printf("[caster-coverage] radial fan with strands across it: decided %.4f m, layers %.2f, fraction %.3f; "
+                    "actual %.5f NDC, layers %.2f, fraction needed %.3f\n",
+                    run.ProjectedLength, run.Layers, run.Fraction, actual, actualLayers, needed);
+        std::fflush(stdout);
+        EXPECT_GE(run.Fraction, needed * 0.999f) << "the fan's fictitious length thinned the strands across it";
+        ExpectHoldsTheClaim(measured.All, "the strands across the fan");
+    }
+    // #1533: under a PERSPECTIVE light the rays fan across a run, and a strand
+    // along any of them lays nothing there. Upright strands over a wide patch,
+    // a lamp just above one corner: the rays near it run along the strands,
+    // the ray to the patch's centre crosses them. The decision's projected
+    // length, at the scale it converts at, must be at most what the patch's
+    // centrelines actually project to -- and the moments read along the
+    // centre's ray alone, which the fan correction pays for, would claim more.
+    TEST(GroomCasterCoverage, APerspectiveLightIsMeasuredAlongEveryRayIntoTheRun)
+    {
+        std::vector<Strand> strands;
+        AddPatch(strands, 6000u, glm::vec3(-1.0f, 0.0f, -1.0f), 2.0f, glm::vec3(0.0f, 1.0f, 0.0f), 0.02f, 0.05f, 1.0e-4f,
+                 0u, 83u);
+        const Cast cast = BuildCast(strands, { "back_undercoat" });
+        const glm::vec3 lamp(-0.9f, 0.8f, -0.9f);
+        LightView light;
+        light.ViewProjection = glm::perspective(glm::radians(150.0f), 1.0f, 0.05f, 20.0f) *
+                               glm::lookAt(lamp, glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+        light.NdcPerWorld = GroomShadowNdcPerWorld(light.ViewProjection, 1.0f);
+        const Decision d = DecideRuns(cast, cast.Runs.Runs, light);
+        const GroomCasterRun& run = cast.Runs.Runs[0];
+        ASSERT_TRUE(run.MomentsKnown);
+        const f64 actual = ProjectedNdcLength(cast, light);
+        const f64 claimed = static_cast<f64>(d.Runs[0].ProjectedLength) * d.Runs[0].LengthNdcPerWorld;
+        const glm::vec3 centreRay = GroomShadowProjectionDirection(light.ViewProjection, 0.5f * (run.BoundsMin + run.BoundsMax));
+        const f64 centreOnly = static_cast<f64>(GroomShadowProjectedLengthLowerBound(run.TotalLength, run.Moments, centreRay)) *
+                               d.Runs[0].LengthNdcPerWorld;
+        std::printf("[caster-coverage] perspective lamp over a wide patch: claimed %.4f NDC, actual %.4f NDC, the centre's "
+                    "ray alone %.4f NDC\n",
+                    claimed, actual, centreOnly);
+        std::fflush(stdout);
+        EXPECT_LE(claimed, actual * 1.0001 + 1.0e-6) << "the decision claims more projected length than the run has";
+        EXPECT_GT(centreOnly, claimed) << "the fan correction took nothing off: the case no longer tests the fan";
     }
 } // namespace OloEngine::Tests
