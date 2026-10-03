@@ -283,13 +283,13 @@ namespace OloEngine::Tests
         ASSERT_TRUE(ReadVelocityTarget(texels)) << "the scene framebuffer carries no velocity attachment";
         WriteCoveragePng("GL_Forward_Strands", texels);
 
-        u32 untouched = 0u;      // coverage == 0 — nothing drew here
-        u32 fullyCovered = 0u;   // coverage == 1 — an opaque surface
-        u32 fractional = 0u;     // 0 < coverage < 1 — THE CLAIM
-        u32 outOfRange = 0u;     // anything else is a lane carrying rubbish
-        u32 marked = 0u;         // .a holds the stochastic mark: a StochasticAlpha strand drew here (#1552)
+        u32 untouched = 0u;       // coverage == 0 — nothing drew here
+        u32 fullyCovered = 0u;    // coverage == 1 — an opaque surface
+        u32 fractional = 0u;      // 0 < coverage < 1 — THE CLAIM
+        u32 outOfRange = 0u;      // anything else is a lane carrying rubbish
+        u32 marked = 0u;          // .a holds the stochastic mark: a StochasticAlpha strand drew here (#1552)
         u32 markedUntouched = 0u; // ...where nothing drew: a writer that leaves .a undefined
-        u32 otherProfile = 0u;   // .a neither 0 nor the mark: no shader in this scene writes a profile
+        u32 otherProfile = 0u;    // .a neither 0 nor the mark: no shader in this scene writes a profile
         f32 minFractional = 1.0f;
         f32 maxFractional = 0.0f;
 

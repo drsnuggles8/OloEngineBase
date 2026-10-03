@@ -516,8 +516,7 @@ namespace OloEngine
         thread_local std::vector<glm::vec3> s_Corners;
         std::vector<glm::vec3>& corners = s_Corners;
         corners.resize(surface.Vertices.size());
-        ParallelFor("GroomCasterPoseSurface", static_cast<i32>(surface.Vertices.size()), 2048,
-                    [&](i32 index)
+        ParallelFor("GroomCasterPoseSurface", static_cast<i32>(surface.Vertices.size()), 2048, [&](i32 index)
                     {
                         const u32 v = surface.Vertices[static_cast<sizet>(index)];
                         glm::vec3 p{ std::numeric_limits<f32>::quiet_NaN() };
@@ -531,9 +530,7 @@ namespace OloEngine
                             }
                             p = glm::vec3(inputs.SurfaceToGroom * glm::vec4(p, 1.0f));
                         }
-                        corners[static_cast<sizet>(index)] = p;
-                    },
-                    EParallelForFlags::BackgroundPriority);
+                        corners[static_cast<sizet>(index)] = p; }, EParallelForFlags::BackgroundPriority);
 
         // EACH TRIANGLE'S FRAME, and how far the GPU's can differ from it.
         enum class Kind : u8
@@ -554,8 +551,7 @@ namespace OloEngine
         thread_local std::vector<Frame> s_Frames;
         std::vector<Frame>& frames = s_Frames;
         frames.resize(pose.Triangles.size()); // every field a reader uses is written below
-        ParallelFor("GroomCasterPoseFrames", static_cast<i32>(pose.Triangles.size()), 1024,
-                    [&](i32 index)
+        ParallelFor("GroomCasterPoseFrames", static_cast<i32>(pose.Triangles.size()), 1024, [&](i32 index)
                     {
                         Frame& frame = frames[static_cast<sizet>(index)];
                         frame.Is = Kind::NotOnBody;
@@ -614,17 +610,14 @@ namespace OloEngine
                         const glm::vec3 tangent = tangentRaw / tangentLength;
                         frame.Rotation = glm::mat3(tangent, glm::cross(normal, tangent), normal);
                         frame.Error = error;
-                        frame.Is = Kind::Framed;
-                    },
-                    EParallelForFlags::BackgroundPriority);
+                        frame.Is = Kind::Framed; }, EParallelForFlags::BackgroundPriority);
 
         // EACH ENTRY, turned by its triangle's frame, in pieces.
         const std::vector<Piece> pieces = Pieces(pose);
         thread_local std::vector<RunSums> s_Sums;
         std::vector<RunSums>& sums = s_Sums;
         sums.assign(pieces.size(), RunSums{});
-        ParallelFor("GroomCasterPoseEntries", static_cast<i32>(pieces.size()), 1,
-                    [&](i32 index)
+        ParallelFor("GroomCasterPoseEntries", static_cast<i32>(pieces.size()), 1, [&](i32 index)
                     {
                         const Piece& piece = pieces[static_cast<sizet>(index)];
                         RunSums& sum = sums[static_cast<sizet>(index)];
@@ -659,9 +652,7 @@ namespace OloEngine
                                 const glm::vec3 reach(Reach(entry) + frame.Slack);
                                 Grow(sum.Min, sum.Max, frame.HullMin - reach, frame.HullMax + reach);
                             }
-                        }
-                    },
-                    EParallelForFlags::BackgroundPriority);
+                        } }, EParallelForFlags::BackgroundPriority);
         FinishRuns(restRuns, pose, pieces, sums, padding, outRuns);
         return true;
     }
@@ -682,8 +673,7 @@ namespace OloEngine
         thread_local std::vector<RunSums> s_Sums;
         std::vector<RunSums>& sums = s_Sums;
         sums.assign(pieces.size(), RunSums{});
-        ParallelFor("GroomCasterPoseRoots", static_cast<i32>(pieces.size()), 1,
-                    [&](i32 index)
+        ParallelFor("GroomCasterPoseRoots", static_cast<i32>(pieces.size()), 1, [&](i32 index)
                     {
                         const Piece& piece = pieces[static_cast<sizet>(index)];
                         RunSums& sum = sums[static_cast<sizet>(index)];
@@ -730,11 +720,8 @@ namespace OloEngine
                             glm::vec3 offsetMax{ 0.0f };
                             TurnedOffsets(entry, turn, offsetMin, offsetMax);
                             Grow(sum.Min, sum.Max, lo + offsetMin, hi + offsetMax);
-                        }
-                    },
-                    EParallelForFlags::BackgroundPriority);
+                        } }, EParallelForFlags::BackgroundPriority);
         FinishRuns(restRuns, pose, pieces, sums, padding, outRuns);
         return true;
     }
 } // namespace OloEngine
-

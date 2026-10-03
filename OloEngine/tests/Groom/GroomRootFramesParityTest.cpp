@@ -295,7 +295,7 @@ namespace OloEngine::Tests
         {
             const glm::vec3 centre{ -0.46f + 0.04f * static_cast<f32>(t % kSide), 0.3f * hash(t, 1u),
                                     -0.46f + 0.04f * static_cast<f32>(t / kSide) };
-            const f32 size = 3.0e-4f * std::pow(33.0f, hash(t, 2u));                 // 0.3 mm .. 1 cm
+            const f32 size = 3.0e-4f * std::pow(33.0f, hash(t, 2u));                      // 0.3 mm .. 1 cm
             const f32 height = size * std::pow(10.0f, -6.0f * hash(t, 3u) * hash(t, 3u)); // equilateral-ish .. 1e-6
             const f32 a = 6.2831853f * hash(t, 4u);
             const glm::vec3 along{ std::cos(a), 0.3f * (hash(t, 5u) - 0.5f), std::sin(a) };

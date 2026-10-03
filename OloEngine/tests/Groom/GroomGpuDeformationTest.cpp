@@ -1254,7 +1254,8 @@ TEST(GroomGpuDeformation, APosedRunIsExactUnderMixedBonesAndUnequalStrands)
         About(glm::vec3(0.2f, 0.0f, 0.3f), 25.0f, glm::normalize(glm::vec3(0.3f, 0.2f, 1.0f))),
         About(glm::vec3(0.5f, 0.1f, 0.6f), -50.0f, glm::normalize(glm::vec3(1.0f, 0.4f, 0.1f))),
         glm::translate(glm::mat4(1.0f), glm::vec3(0.02f, 0.05f, -0.01f)) *
-            About(glm::vec3(0.8f, 0.0f, 0.2f), 70.0f, glm::normalize(glm::vec3(0.1f, 1.0f, 0.5f))) };
+            About(glm::vec3(0.8f, 0.0f, 0.2f), 70.0f, glm::normalize(glm::vec3(0.1f, 1.0f, 0.5f)))
+    };
     std::vector<StrandSpec> strands;
     for (u32 i = 0; i < 600u; ++i)
     {
@@ -1388,8 +1389,7 @@ TEST(GroomGpuDeformation, AnIllConditionedRootTriangleEarnsNoCreditAndKeepsItsFu
     // while a healthy triangle beside it, in a run of its own, is credited.
     GridSurface surface;
     constexpr f32 kSliver = 2.0e-8f;
-    surface.Positions = { { 0.0f, 0.0f, 0.0f },  { 0.01f, 0.0f, 0.0f }, { 0.005f, 0.0f, kSliver },
-                          { 0.1f, 0.0f, 0.0f },  { 0.11f, 0.0f, 0.0f }, { 0.105f, 0.0f, 0.01f } };
+    surface.Positions = { { 0.0f, 0.0f, 0.0f }, { 0.01f, 0.0f, 0.0f }, { 0.005f, 0.0f, kSliver }, { 0.1f, 0.0f, 0.0f }, { 0.11f, 0.0f, 0.0f }, { 0.105f, 0.0f, 0.01f } };
     surface.Indices = { 0u, 2u, 1u, 3u, 5u, 4u };
     surface.Influences.assign(6u * 32u, std::byte{ 0 });
     for (u32 v = 0; v < 6u; ++v)
