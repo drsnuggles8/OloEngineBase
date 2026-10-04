@@ -5,16 +5,16 @@
 # GPU ms are means of VALID GPUPassTimerPool samples; a sub-pass (Parent/Child) is INSIDE its parent.
 # CPU ms per frame: solver (guide simulation), bake (coat-shadow volume), deform (strand build + upload).
 # Headless: the live editor's p50/p95 are the E1/E2 gate; this file is the regression record.
-# Build 0.0.1+83c9230925, driver 4.6.0 NVIDIA 617.14.
+# Build 0.0.1+a2fd7467ba, driver 4.6.0 NVIDIA 617.14.
 # The editor's quality tier: 4096^2 cascades, PCF, AO technique 2, bloom on, FXAA on.
 # Strands, segments and castShare are what the frame ACHIEVED (strides and caps apply), not what was asked.
 # cacheMiB is the groom cache's budget aggregate, coat volumes INCLUDED; the memory table breaks it
 # down. Logical bytes requested, not a driver VRAM reading; CPU rows are retained host arrays by
 # allocated capacity, outside the cache budget.
 framing      wallP50  wallP95  gpuFrame  gpuP50  gpuP95  strands  segments  triangles  castShare  solverMs  bakeMs  rebakes  deformMs  cacheMiB
-FaceCloseUp    16.17    17.50     16.22   16.19   16.76   280666   1943314    3886628      0.638      0.73    0.00        0      4.38     667.1
-FullBody       13.93    15.96     13.81   13.86   14.43   280666   1943314    3886628      0.625      0.75    0.00        0      4.72     667.1
-WalkMidShot    13.22    15.00     13.12   13.23   13.72   280666   1943314    3886628      0.666      0.73    0.00        0      4.41     667.1
+FaceCloseUp    16.17    17.35     16.20   16.20   16.53   280666   1943314    3886628      0.638      0.62    0.00        0      3.95     667.1
+FullBody       13.97    14.84     13.97   13.98   14.12   280666   1943314    3886628      0.625      0.58    0.00        0      3.94     667.1
+WalkMidShot    13.45    14.58     13.46   13.46   13.60   280666   1943314    3886628      0.753      0.58    0.00        0      3.87     667.1
 
 memory MiB (GPU rows sum to cacheMiB)      FaceCloseUp     FullBody  WalkMidShot
 gpu strand vertices                             474.4        474.4        474.4
@@ -27,36 +27,37 @@ cpu deformation mirrors                          96.8         96.8         96.8
 cpu bake inputs                                   0.0          0.0          0.0
 cpu root tables                                  18.1         18.1         18.1
 cpu scratch                                       0.0          0.0          0.0
+cpu evaluation scratch (the pass's own)          10.7         10.7         10.7
 
 pass GPU ms per frame                      FaceCloseUp     FullBody  WalkMidShot
 SkeletalDeformPass                              0.001        0.001        0.001
 RayTracingScenePass                             0.001        0.001        0.001
-ShadowPass                                      3.765        3.521        3.612
-ShadowPass/FoliageCasters                       0.010        0.010        0.008
-ShadowPass/GroomCasters                         1.674        1.640        1.724
+ShadowPass                                      3.766        3.738        4.040
+ShadowPass/FoliageCasters                       0.009        0.009        0.009
+ShadowPass/GroomCasters                         1.669        1.636        1.944
 DDGIProbeUpdatePass                             0.001        0.001        0.001
-ScenePrepassPass                                1.094        1.098        1.213
-ScenePrepassPass/DepthPrepass                   1.055        1.055        1.173
+ScenePrepassPass                                1.116        1.108        1.215
+ScenePrepassPass/DepthPrepass                   1.078        1.068        1.176
 GPUDrivenOcclusionPrepassPass                   0.001        0.001        0.001
-FoliagePrepassPass                              0.385        0.406        0.427
-GTAOPass                                        0.429        0.421        0.433
-GTAOPass/HZB                                    0.049        0.049        0.049
-GTAOPass/GTAO                                   0.288        0.278        0.289
-GTAOPass/GTAO_Denoise                           0.066        0.068        0.067
-ScenePass                                       1.657        1.416        1.462
-ScenePass/Color                                 1.654        1.413        1.459
+FoliagePrepassPass                              0.359        0.387        0.402
+GTAOPass                                        0.428        0.420        0.428
+GTAOPass/HZB                                    0.050        0.050        0.050
+GTAOPass/GTAO                                   0.286        0.276        0.284
+GTAOPass/GTAO_Denoise                           0.067        0.066        0.068
+ScenePass                                       1.655        1.406        1.448
+ScenePass/Color                                 1.651        1.403        1.444
 GPUDrivenOcclusionPass                          0.001        0.001        0.001
 VirtualShadowMapMarkPass                        0.001        0.001        0.001
-FoliagePass                                     1.203        1.426        1.787
-GroomPass                                       7.174        5.042        3.700
+FoliagePass                                     1.204        1.416        1.798
+GroomPass                                       7.157        5.022        3.650
 GroomPass/RootFrames                            0.001        0.001        0.001
-GroomPass/StrandPrepass                         1.417        1.420        1.416
-GroomPass/StrandShade                           5.724        3.586        2.259
+GroomPass/StrandPrepass                         1.415        1.426        1.404
+GroomPass/StrandShade                           5.727        3.584        2.234
 SkinDiffusionPass                               0.066        0.040        0.039
-ParticlePass                                    0.004        0.005        0.004
-BloomPass                                       0.079        0.079        0.079
-TAAPass                                         0.138        0.131        0.133
-ToneMapPass                                     0.017        0.016        0.016
-FXAAPass                                        0.029        0.028        0.030
+ParticlePass                                    0.004        0.004        0.004
+BloomPass                                       0.079        0.078        0.078
+TAAPass                                         0.140        0.133        0.133
+ToneMapPass                                     0.017        0.017        0.017
+FXAAPass                                        0.028        0.028        0.026
 UICompositePass                                 0.010        0.010        0.010
 FinalPass                                       0.005        0.005        0.005
