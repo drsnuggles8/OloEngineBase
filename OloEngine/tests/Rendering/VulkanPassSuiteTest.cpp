@@ -4566,6 +4566,134 @@ TEST_F(VulkanPassSuite, TaaResolvesIdentityAndBlendsTheImportedHistory)
 }
 
 // =============================================================================
+// TAA's sharpen stays inside the range it sharpens (#1533). The unsharp mask
+// ran unbounded on linear colour, so beside one bright sample a dark pixel's
+// 3x3 mean was far above its own value and the mask drove it below zero: the
+// black ring a sun glint printed in its bloom. One frame (history == current,
+// so the resolve is the input and only the sharpen acts), sharpness 1:
+//   - TOP HALF, a dark field (13) with isolated white pixels: no pixel may
+//     fall below its own 3x3 minimum. Unbounded, a white pixel's neighbours
+//     read 13 - 40 and print 0.
+//   - BOTTOM HALF, a soft edge 64 | 96 | 160 | 192: the mask must still
+//     steepen it (96 down, 160 up), so the bound has not switched it off.
+// =============================================================================
+TEST_F(VulkanPassSuite, TaaSharpenStaysInsideTheRangeItSharpens)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    constexpr u8 kDark = 13;
+    const auto valueAt = [](u32 x, u32 y) -> u8
+    {
+        if (y < kSize / 2u)
+        {
+            return ((x % 8u) == 4u && (y % 8u) == 4u) ? u8{ 255 } : kDark;
+        }
+        return x <= 60u ? u8{ 64 } : x == 61u ? u8{ 96 } : x == 62u ? u8{ 160 } : u8{ 192 };
+    };
+    TArray64<u8> pixels(static_cast<sizet>(kSize) * kSize * 4);
+    for (u32 y = 0; y < kSize; ++y)
+    {
+        for (u32 x = 0; x < kSize; ++x)
+        {
+            const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+            pixels[i + 0] = pixels[i + 1] = pixels[i + 2] = valueAt(x, y);
+            pixels[i + 3] = 255;
+        }
+    }
+    TextureSpecification spec;
+    spec.Width = kSize;
+    spec.Height = kSize;
+    spec.Format = ImageFormat::RGBA8;
+    spec.GenerateMips = false;
+    auto input = Texture2D::Create(spec);
+    ASSERT_NE(input, nullptr);
+    input->SetData(pixels.GetData(), static_cast<u32>(pixels.Num()));
+
+    auto depthTexture = MakeSolidTexture(kSize, 0, 0, 0, 255);
+    ASSERT_NE(depthTexture, nullptr);
+    auto velocityTexture = MakeSolidTexture(kSize, 0, 0, 0, 255); // zero motion
+    ASSERT_NE(velocityTexture, nullptr);
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+    MotionBlurUBOData motionData{};
+    auto motionUbo = UniformBuffer::Create(sizeof(MotionBlurUBOData), 8);
+    motionUbo->SetData(&motionData, sizeof(motionData));
+
+    auto historyTexture = MakeSolidTexture(kSize, 0, 0, 0, 255);
+    ASSERT_NE(historyTexture, nullptr);
+    bool historyValid = false;
+    m_ExtraSetup = [&](RenderGraph& graph, FrameBlackboard& blackboard)
+    {
+        RGResourceDesc auxDesc;
+        auxDesc.Kind = RGResourceHandle::Kind::Texture2D;
+        auxDesc.Format = RGResourceFormat::RGBA8UNorm;
+        auxDesc.Width = kSize;
+        auxDesc.Height = kSize;
+        blackboard.Scene.SceneDepth =
+            graph.ImportTextureHandle(ResourceNames::SceneDepth, depthTexture->GetRHIHandle(), auxDesc);
+        blackboard.Scene.SceneVelocity =
+            graph.ImportTextureHandle(ResourceNames::Velocity, velocityTexture->GetRHIHandle(), auxDesc);
+        graph.RegisterHistoryTextureSink(ResourceNames::TAAHistory, historyTexture->GetRHIHandle(), kSize, kSize,
+                                         &historyValid);
+    };
+    m_OutputBarrierBefore = RHI::Access::TransferRead;
+
+    auto taa = Ref<TAARenderPass>::Create();
+    FramebufferSpecification initSpec;
+    initSpec.Width = kSize;
+    initSpec.Height = kSize;
+    initSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+    taa->Init(initSpec);
+    taa->SetEnabled(true);
+    PostProcessSettings settings{};
+    settings.TAAFeedback = 0.9f;
+    settings.TAASharpness = 1.0f;
+    taa->SetSettings(settings);
+    auto producer = Ref<PatternProducerPass>::Create(input, blitShader);
+    const auto frame = RunSinglePassChain(kSize, producer, taa, "TAAPass", ResourceNames::TAAColor,
+                                          [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
+                                          { blackboard.Post.TAAColor = handle; });
+    ASSERT_EQ(frame.Num(), static_cast<sizet>(kSize) * kSize * 4);
+    const auto out = [&](u32 x, u32 y) { return static_cast<int>(frame[(static_cast<sizet>(y) * kSize + x) * 4]); };
+
+    int worstUndershoot = 0;
+    u32 below = 0;
+    for (u32 y = 4; y < kSize / 2u - 4u; ++y)
+    {
+        for (u32 x = 4; x < kSize - 4u; ++x)
+        {
+            int lowest = 255;
+            for (int dy = -1; dy <= 1; ++dy)
+                for (int dx = -1; dx <= 1; ++dx)
+                    lowest = std::min(lowest, static_cast<int>(valueAt(x + dx, y + dy)));
+            const int undershoot = lowest - out(x, y);
+            worstUndershoot = std::max(worstUndershoot, undershoot);
+            below += undershoot > 2 ? 1u : 0u;
+        }
+    }
+    EXPECT_EQ(below, 0u) << "the sharpen pushed " << below << " pixels below their 3x3 minimum (worst by "
+                         << worstUndershoot << " of 255): an unbounded unsharp mask prints a dark ring round a bright "
+                                               "sample";
+    const int soft = out(61, 96);
+    const int hard = out(62, 96);
+    EXPECT_LT(soft, 96 - 5) << "the soft edge's low side was not sharpened: the bound switched the sharpen off";
+    EXPECT_GT(hard, 160 + 5) << "the soft edge's high side was not sharpened: the bound switched the sharpen off";
+    EXPECT_GE(soft, 64 - 2) << "the soft edge undershot its own range";
+    EXPECT_LE(hard, 192 + 2) << "the soft edge overshot its own range";
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
+    m_ExtraSetup = nullptr;
+    m_OutputBarrierBefore = RHI::Access::ColorAttachmentWrite;
+}
+
+// =============================================================================
 // OITResolve: the in-place read-modify-write pass — it renames SceneColor
 // (WriteNewVersion) and composites INTO the framebuffer the producer just
 // drew, with per-attachment blend: attachment 0 enabled via

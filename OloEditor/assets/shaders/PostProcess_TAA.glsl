@@ -433,15 +433,33 @@ void main()
 
     vec3 resolved = OloTemporalBlend(currentColor, clampedHistory, effectiveFeedback, confidence);
 
-    // 5) Optional sharpen (unsharp mask on luma) to offset TAA blur
+    // 5) Optional sharpen (an unsharp mask on the current frame) to offset TAA
+    //    blur, HELD INSIDE THE 3x3 RANGE IT SHARPENS (#1533). The mask runs on
+    //    linear HDR, so beside one very bright sample (a sun glint, a few
+    //    hundred where the surface reads about one) a pixel's 3x3 mean is far
+    //    above its own value: unbounded, the mask drove it below zero and the
+    //    clamp below printed it black, a black ring in the glint's bloom. The
+    //    bound is the neighbourhood's range widened to hold the resolved value,
+    //    so the sharpen can neither overshoot nor undershoot and a zero delta
+    //    leaves the resolve untouched.
     if (u_Sharpness > 0.001)
     {
         vec3 blurred = vec3(0.0);
+        vec3 lowest = currentColor;
+        vec3 highest = currentColor;
         for (int y = -1; y <= 1; ++y)
+        {
             for (int x = -1; x <= 1; ++x)
-                blurred += texture(u_Current, uv + vec2(x, y) * u_TexelSize).rgb;
+            {
+                vec3 neighbour = texture(u_Current, uv + vec2(x, y) * u_TexelSize).rgb;
+                blurred += neighbour;
+                lowest = min(lowest, neighbour);
+                highest = max(highest, neighbour);
+            }
+        }
         blurred /= 9.0;
-        resolved += (currentColor - blurred) * u_Sharpness;
+        resolved = clamp(resolved + (currentColor - blurred) * u_Sharpness, min(lowest, resolved),
+                         max(highest, resolved));
     }
 
     o_Color = vec4(max(resolved, vec3(0.0)), 1.0);

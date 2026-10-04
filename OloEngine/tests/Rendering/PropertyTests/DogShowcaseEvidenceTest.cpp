@@ -8526,6 +8526,10 @@ namespace OloEngine::Tests
             f32 Worst = 0.0f;
             u32 FramesOver = 0;
             u32 SkinPixels = 0;
+            // The darkest presented pixel within 3 of a firefly, over its frames
+            // (255 when there was none): TAA's sharpen, unbounded, printed a black
+            // ring there (PostProcess_TAA.glsl's step 5).
+            u32 DarkestBesideAFirefly = 255;
         };
         const auto measure = [&](const char* png)
         {
@@ -8545,18 +8549,39 @@ namespace OloEngine::Tests
                     RunEditorFrames(camera, 1);
                     ReadbackLinear(camera.GetViewProjection(), frame);
                     f32 frameWorst = 0.0f;
+                    sizet worstAt = 0;
                     u32 pixels = 0;
                     for (sizet i = 0; i < frame.Ids.size(); ++i)
                     {
                         if (std::ranges::find(skin, frame.Ids[i]) != skin.end() && std::isfinite(frame.Luminance[i]))
                         {
-                            frameWorst = std::max(frameWorst, frame.Luminance[i]);
+                            if (frame.Luminance[i] > frameWorst)
+                            {
+                                frameWorst = frame.Luminance[i];
+                                worstAt = i;
+                            }
                             ++pixels;
                         }
                     }
                     peaks.Worst = std::max(peaks.Worst, frameWorst);
                     peaks.FramesOver += frameWorst > kFireflyCeiling ? 1u : 0u;
                     peaks.SkinPixels = std::max(peaks.SkinPixels, pixels);
+                    if (frameWorst > kFireflyCeiling)
+                    {
+                        std::vector<u8> presented;
+                        ReadbackFrame(presented);
+                        const u32 cx = static_cast<u32>(worstAt % frame.Width);
+                        const u32 cy = static_cast<u32>(worstAt / frame.Width);
+                        for (u32 y = std::max(cy, 3u) - 3u; y <= std::min(cy + 3u, kHeight - 1u); ++y)
+                        {
+                            for (u32 x = std::max(cx, 3u) - 3u; x <= std::min(cx + 3u, kWidth - 1u); ++x)
+                            {
+                                const sizet o = ((static_cast<sizet>(y) * kWidth) + x) * 4u;
+                                const u32 luma = (static_cast<u32>(presented[o]) + presented[o + 1u] + presented[o + 2u]) / 3u;
+                                peaks.DarkestBesideAFirefly = std::min(peaks.DarkestBesideAFirefly, luma);
+                            }
+                        }
+                    }
                 }
             }
             std::vector<u8> ldr;
@@ -8596,6 +8621,14 @@ namespace OloEngine::Tests
                "the profiles' NormalVarianceStrength)";
         EXPECT_GT(control.Worst, kFireflyCeiling)
             << "the control: with every strength at 0 the glints should break the ceiling, or the test measures nothing";
+        // AND A FIREFLY DOES NOT PRINT BLACK. The control's glints stand in for
+        // any bright sample; the sharpen held inside its 3x3 range leaves the
+        // pixels round one in its bloom (190-255 measured), where unbounded it
+        // drove them to 0.
+        std::printf("[dog] darkest presented pixel within 3 of a firefly (strength 0): %u of 255\n",
+                    control.DarkestBesideAFirefly);
+        EXPECT_GE(control.DarkestBesideAFirefly, 64u)
+            << "a pixel beside a firefly printed (near-)black: TAA's sharpen undershot its neighbourhood";
         m_Dog.Body.GetComponent<AnimationStateComponent>().m_IsPlaying = true;
     }
 
