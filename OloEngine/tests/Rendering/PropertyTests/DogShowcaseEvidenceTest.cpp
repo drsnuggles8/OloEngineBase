@@ -8485,6 +8485,201 @@ namespace OloEngine::Tests
     }
 
     // =========================================================================
+    // The teeth stay out of the tongue (A4, #1533). Every clip on runtime
+    // frames, the mouth skinned on the CPU as the shader skins it: no tooth
+    // vertex may sit inside the tongue by more than kPierceTolerance. Inside is
+    // judged at the closest point of the tongue's surface, by its triangle's
+    // outward normal, over the triangles around the nearest tongue vertex (a
+    // tooth more than a centimetre from every tongue vertex is not touching).
+    // Pant is the clip that puts the tongue over the teeth: its tip must bend
+    // in front of the lower incisors (build_dog.py's clip_pant), and a bend
+    // behind them drives the tongue through the whole tooth row.
+    // =========================================================================
+    TEST_F(DogShowcaseEvidenceTest, TheTeethStayOutOfTheTongueThroughEveryClip)
+    {
+        constexpr f32 kPierceTolerance = 0.0005f; // half a millimetre
+        constexpr f32 kTouching = 0.01f;
+        constexpr u32 kFrames = 150; // two and a half seconds of each clip
+        SetPath(RenderingPath::Forward);
+        BodyParts parts = BuildBodyParts();
+        const MeshSource& surface = *m_Dog.Body.GetComponent<MeshComponent>().m_MeshSource;
+        const auto& indices = surface.GetIndices();
+        std::vector<std::array<u32, 3>> tongue;
+        std::vector<std::vector<u32>> trianglesOf(parts.Bind.size());
+        for (i32 t = 0; t + 2 < indices.Num(); t += 3)
+        {
+            const std::array<u32, 3> tri{ indices[t], indices[t + 1], indices[t + 2] };
+            if (std::ranges::all_of(tri, [&](u32 v) { return v < parts.Bind.size() && parts.Material[v] == "DogTongue"; }))
+            {
+                for (const u32 v : tri)
+                {
+                    trianglesOf[v].push_back(static_cast<u32>(tongue.size()));
+                }
+                tongue.push_back(tri);
+            }
+        }
+        std::vector<u32> tongueVertices;
+        std::vector<u32> teeth;
+        for (u32 v = 0; v < static_cast<u32>(parts.Bind.size()); ++v)
+        {
+            if (parts.Material[v] == "DogTongue" && !trianglesOf[v].empty())
+            {
+                tongueVertices.push_back(v);
+            }
+            else if (parts.Material[v] == "DogTeeth")
+            {
+                teeth.push_back(v);
+            }
+        }
+        ASSERT_FALSE(tongue.empty()) << "the body has no DogTongue triangles";
+        ASSERT_FALSE(teeth.empty()) << "the body has no DogTeeth vertices";
+        // Inside is read off the triangles' winding, so the tongue must face out:
+        // at the bind pose, nearly every triangle's normal leans away from the
+        // tongue's centre.
+        {
+            glm::dvec3 centre(0.0);
+            for (const u32 v : tongueVertices)
+            {
+                centre += glm::dvec3(parts.Bind[v]);
+            }
+            centre /= static_cast<f64>(tongueVertices.size());
+            u32 outward = 0;
+            for (const auto& tri : tongue)
+            {
+                const glm::vec3 a = parts.Bind[tri[0]];
+                const glm::vec3 n = glm::cross(parts.Bind[tri[1]] - a, parts.Bind[tri[2]] - a);
+                const glm::vec3 mid = (a + parts.Bind[tri[1]] + parts.Bind[tri[2]]) / 3.0f;
+                outward += glm::dot(n, mid - glm::vec3(centre)) > 0.0f ? 1u : 0u;
+            }
+            const f64 share = static_cast<f64>(outward) / static_cast<f64>(tongue.size());
+            std::printf("[dog] tongue: %zu triangles, %.1f%% facing away from its centre\n", tongue.size(), 100.0 * share);
+            ASSERT_GT(share, 0.9) << "the tongue's triangles do not face outward, so inside cannot be read off them";
+        }
+
+        // The closest point of triangle abc to p (Ericson, Real-Time Collision Detection 5.1.5).
+        const auto closest = [](const glm::vec3& p, const glm::vec3& a, const glm::vec3& b, const glm::vec3& c)
+        {
+            const glm::vec3 ab = b - a;
+            const glm::vec3 ac = c - a;
+            const glm::vec3 ap = p - a;
+            const f32 d1 = glm::dot(ab, ap);
+            const f32 d2 = glm::dot(ac, ap);
+            if (d1 <= 0.0f && d2 <= 0.0f)
+                return a;
+            const glm::vec3 bp = p - b;
+            const f32 d3 = glm::dot(ab, bp);
+            const f32 d4 = glm::dot(ac, bp);
+            if (d3 >= 0.0f && d4 <= d3)
+                return b;
+            const f32 vc = d1 * d4 - d3 * d2;
+            if (vc <= 0.0f && d1 >= 0.0f && d3 <= 0.0f)
+                return a + ab * (d1 / (d1 - d3));
+            const glm::vec3 cp = p - c;
+            const f32 d5 = glm::dot(ab, cp);
+            const f32 d6 = glm::dot(ac, cp);
+            if (d6 >= 0.0f && d5 <= d6)
+                return c;
+            const f32 vb = d5 * d2 - d1 * d6;
+            if (vb <= 0.0f && d2 >= 0.0f && d6 <= 0.0f)
+                return a + ac * (d2 / (d2 - d6));
+            const f32 va = d3 * d6 - d5 * d4;
+            if (va <= 0.0f && (d4 - d3) >= 0.0f && (d5 - d6) >= 0.0f)
+                return b + (c - b) * ((d4 - d3) / ((d4 - d3) + (d5 - d6)));
+            const f32 denom = 1.0f / (va + vb + vc);
+            return a + ab * (vb * denom) + ac * (vc * denom);
+        };
+
+        struct Worst
+        {
+            f32 Depth = 0.0f;
+            const char* Clip = "";
+            u32 Frame = 0;
+            u32 Pierced = 0;
+            u32 Frames = 0;     // frames with any tooth inside
+            u32 FirstFrame = 0; // the first and last of them
+            u32 LastFrame = 0;
+        };
+        std::vector<Worst> perClip;
+        std::vector<glm::vec3> tonguePosed(tongueVertices.size());
+        std::vector<u32> tree;
+        for (const char* clip : { "Idle", "HeadTilt", "Sit", "Walk", "Pant", "Rest" })
+        {
+            SCOPED_TRACE(clip);
+            Worst worst;
+            worst.Clip = clip;
+            (void)StartClip(clip, true, 1u);
+            for (u32 frame = 1; frame <= kFrames; ++frame)
+            {
+                if (frame > 1u)
+                {
+                    (void)AdvanceRuntime(1u);
+                }
+                PoseBody(parts);
+                for (sizet i = 0; i < tongueVertices.size(); ++i)
+                {
+                    tonguePosed[i] = parts.Posed[tongueVertices[i]];
+                }
+                BodyParts::BuildTree(tonguePosed, tree);
+                u32 pierced = 0;
+                for (const u32 v : teeth)
+                {
+                    const glm::vec3 p = parts.Posed[v];
+                    f32 distance = 0.0f;
+                    const u32 nearest = BodyParts::Nearest(tonguePosed, tree, p, distance);
+                    if (nearest == ~0u || distance > kTouching)
+                    {
+                        continue;
+                    }
+                    f32 bestSquared = std::numeric_limits<f32>::max();
+                    f32 signedDistance = 0.0f;
+                    for (const u32 t : trianglesOf[tongueVertices[nearest]])
+                    {
+                        const glm::vec3 a = parts.Posed[tongue[t][0]];
+                        const glm::vec3 b = parts.Posed[tongue[t][1]];
+                        const glm::vec3 c = parts.Posed[tongue[t][2]];
+                        const glm::vec3 q = closest(p, a, b, c);
+                        const f32 squared = glm::dot(p - q, p - q);
+                        const glm::vec3 n = glm::cross(b - a, c - a);
+                        if (squared < bestSquared && glm::dot(n, n) > 0.0f)
+                        {
+                            bestSquared = squared;
+                            signedDistance = glm::dot(p - q, glm::normalize(n));
+                        }
+                    }
+                    if (signedDistance < -kPierceTolerance)
+                    {
+                        ++pierced;
+                        if (-signedDistance > worst.Depth)
+                        {
+                            worst.Depth = -signedDistance;
+                            worst.Frame = frame;
+                        }
+                    }
+                }
+                worst.Pierced = std::max(worst.Pierced, pierced);
+                if (pierced > 0u)
+                {
+                    worst.FirstFrame = worst.Frames == 0u ? frame : worst.FirstFrame;
+                    worst.LastFrame = frame;
+                    ++worst.Frames;
+                }
+            }
+            perClip.push_back(worst);
+            std::printf("[dog] teeth in the tongue, %-8s: deepest %.2f mm at runtime frame %u, at most %u tooth vertices "
+                        "inside a frame, in %u of %u frames (%u to %u)\n",
+                        clip, 1000.0f * worst.Depth, worst.Frame, worst.Pierced, worst.Frames, kFrames, worst.FirstFrame,
+                        worst.LastFrame);
+        }
+        std::fflush(stdout);
+        for (const Worst& w : perClip)
+        {
+            EXPECT_EQ(w.Pierced, 0u) << w.Clip << ": a tooth is inside the tongue, " << 1000.0f * w.Depth
+                                     << " mm deep at runtime frame " << w.Frame;
+        }
+        m_Dog.Body.GetComponent<AnimationStateComponent>().m_IsPlaying = true;
+    }
+
+    // =========================================================================
     // The wet surfaces' glints are filtered, not point-sampled (#1533). The tear
     // film and the saliva coats are GGX lobes at roughness 0.04-0.14 under the
     // sun, a delta light. On a curved surface a few dozen pixels wide the glint
