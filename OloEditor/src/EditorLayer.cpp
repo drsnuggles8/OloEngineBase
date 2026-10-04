@@ -4056,7 +4056,10 @@ namespace OloEngine
             {
                 return;
             }
-            Renderer2D::BeginScene(camera.GetComponent<CameraComponent>().Camera, camera.GetComponent<TransformComponent>().GetTransform());
+            // The camera's WORLD pose, as RenderRuntime draws through it: a camera
+            // riding a parent (the dog scene's) is offset from it (#1533).
+            Renderer2D::BeginScene(camera.GetComponent<CameraComponent>().Camera,
+                                   m_ActiveScene->GetWorldTransform(static_cast<entt::entity>(camera)));
         }
         else
         {

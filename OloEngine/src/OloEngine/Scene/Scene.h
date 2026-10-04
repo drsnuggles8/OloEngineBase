@@ -387,6 +387,13 @@ namespace OloEngine
 
         [[nodiscard("Store this!")]] Entity GetPrimaryCameraEntity() const;
 
+        // The view-projection the last runtime render drew through (the primary
+        // camera's world pose; UI world anchors project through it).
+        [[nodiscard]] const glm::mat4& GetCameraViewProjection() const
+        {
+            return m_CameraViewProjection;
+        }
+
         // Bone entity management (Hazel-style)
         std::vector<glm::mat4> GetModelSpaceBoneTransforms(const std::vector<UUID>& boneEntityIds, const MeshSource& meshSource) const;
         std::vector<UUID> FindBoneEntityIds(Entity rootEntity, const Skeleton& skeleton) const;

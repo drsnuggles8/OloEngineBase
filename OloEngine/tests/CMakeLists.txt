@@ -1681,6 +1681,7 @@ add_executable(OloEngine-Tests
 		Functional/Scene/FixedTimestepDeterminismTest.cpp
 		Functional/Scene/RenderInterpolationSmoothsMotionTest.cpp
 		Functional/Scene/PrimaryCameraResolutionTest.cpp
+		Functional/Scene/ParentedCameraFollowsItsParentTest.cpp
 		Functional/Scene/EntityCreateWithUUIDTest.cpp
 		Functional/AnimationPhysics/AnimationContinuesAfterPauseResumeTest.cpp
 		Functional/AnimationPhysics/SkeletalDeformationHistoryTest.cpp

@@ -5849,6 +5849,22 @@ namespace OloEngine
             }
         }
 
+        // A PARENTED camera renders from its world pose (#1533): cameraTransform
+        // is its local transform (live, interpolated or flown), and a camera
+        // riding a character -- the dog scene's, which follows the walking dog
+        // -- was drawn from its parent-relative offset as if it were a world
+        // position. The parent's world matrix is current here: the tick composes
+        // world matrices after every local-transform mover, root motion
+        // included, and the interpolation above recomposes them from the
+        // blended locals.
+        if (mainCamera)
+        {
+            if (const Entity parent = Entity{ primaryCameraEntity, this }.GetParent(); parent)
+            {
+                cameraTransform = GetWorldTransform(static_cast<entt::entity>(parent)) * cameraTransform;
+            }
+        }
+
         // Update camera VP matrix before resolving UI layout so world-anchor
         // projections use the current frame's camera, not the previous one.
         if (mainCamera)
