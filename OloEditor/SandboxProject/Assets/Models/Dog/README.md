@@ -93,8 +93,10 @@ pelt and regrow every clump of the coat; grown on the resized mouth, the coat is
 strand. The tongue, gums, lips and teeth are then re-unwrapped into their own squares
 (`unwrap_material`) and get their maps (`bake_mouth`): colour painted in 3D from the baked surface,
 the tongue's papillae as a Cycles normal bake, and occlusion from the whole head in the Pant pose,
-the only clip that shows the inside of the mouth. In Pant the tongue lifts 7 mm as it slides out,
-over the incisors.
+the only clip that shows the inside of the mouth. In Pant the tongue slides out 45 mm and lifts
+10 mm, so its tip bends in front of the lower incisors and it lies over them; a bend behind them
+drives the tongue through the tooth row. `TheTeethStayOutOfTheTongueThroughEveryClip` holds every
+clip to it.
 
 ## The coat
 

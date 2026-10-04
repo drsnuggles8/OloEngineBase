@@ -3295,14 +3295,16 @@ def clip_pant(r, t):
     """2 s loop: the mouth open, the tongue out over the lower lip, the chest heaving, one blink."""
     s = math.sin(2 * math.pi * 4 * t)
     r.rot("jaw", AX_X, 22.0 + 3.0 * s)
-    # The tongue SLIDES out over the lower incisors first (its bend pivots sit behind the lip,
-    # so bending in place drove the tip through the chin), then hangs over the lip. Lifted 7 mm
-    # as it goes: the incisors stand clear of the gum (_teeth_layout), and at the
-    # first 3 mm the tongue slid through them.
-    r.move("tongue_01", (0.0, -0.030, 0.007))
-    r.rot("tongue_01", AX_X, -4.0)
+    # The tongue SLIDES out 45 mm and lifts 10 mm, so tongue_03's bend pivot lands in front of the
+    # lower incisors: the tongue lies over them and hangs past the lip from there. A bend pivot
+    # behind the incisors drives the tongue down through them (they stand 5.5 mm clear of the gum,
+    # _teeth_layout), and bending in place drives the tip through the chin. At 30 fps the closest
+    # frame leaves 1.7 mm over the incisors, 2.5 mm over the canines and 4.6 mm over the lower lip;
+    # DogShowcaseEvidenceTest's TheTeethStayOutOfTheTongueThroughEveryClip holds every clip to it.
+    r.move("tongue_01", (0.0, -0.045, 0.010))
+    r.rot("tongue_01", AX_X, -6.0)
     r.rot("tongue_02", AX_X, 6.0 + 2.0 * s)
-    r.rot("tongue_03", AX_X, 28.0 + 5.0 * s)
+    r.rot("tongue_03", AX_X, 35.0 + 5.0 * s)
     breathe(r, t, 4, 2.2)
     brows(r, 0.35 + 0.1 * s)
     blink(r, _pulse(t, 0.62, 0.03, 0.01, 0.04))
