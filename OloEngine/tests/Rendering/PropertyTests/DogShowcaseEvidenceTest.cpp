@@ -344,7 +344,7 @@ namespace OloEngine::Tests
             const char* Profile; // under Assets/Materials
             f32 Thickness;
         };
-        // The teeth since round 4 (#1533): enamel, now that the open mouth shows them.
+        // The teeth: enamel, because the open mouth shows them.
         constexpr std::array<SkinPatch, 5> kSkinPatches{ { { "DogNose", "DogNose.oloskin", 0.003f },
                                                            { "DogLip", "DogLip.oloskin", 0.003f },
                                                            { "DogGum", "DogGum.oloskin", 0.004f },
@@ -920,7 +920,7 @@ namespace OloEngine::Tests
                 EXPECT_TRUE(nose->GetNormalMap()) << "the nose leather lost its cobblestone normal map";
                 EXPECT_TRUE(nose->GetAOMap()) << "the nose leather's occlusion map was dropped on import";
             }
-            // The mouth's maps (build_dog.py, bake_mouth; round 4): the tongue's
+            // The mouth's maps (build_dog.py, bake_mouth): the tongue's
             // colour, papillae and occlusion, the gums' colour and occlusion, and
             // the lips' and teeth's occlusion, which keeps the open mouth dark
             // inside instead of reflecting the sky off the palate.
@@ -4764,7 +4764,7 @@ namespace OloEngine::Tests
     // second after 1.5 s of warm-up -- and how far each second's mean offset has
     // moved since the second before. A coat that settles shows both falling; one
     // that hovers shows the swing flat and the mean still; one that creeps shows
-    // the mean moving. Measured in round 4 of #1533: 0.90, 0.46, 0.43, 0.37, 0.34,
+    // the mean moving. Before 7515c7bde (a contact's friction on the stepped velocity): 0.90, 0.46, 0.43, 0.37, 0.34,
     // 0.37 mm, the mean nearly still -- and with OLO_DOG_REST_SETTLE_OFF=collide
     // 0.87, 0.016, then under a micrometre: the body's colliders kept it moving,
     // through the solver's contact (StrandsAcrossTwoCollidersComeToRestAtAnyFriction).
