@@ -242,6 +242,15 @@ namespace OloEngine
         // many times over.
         OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 10.0f)
         float m_PlaybackSpeed = 1.0f;
+        // Root motion for the model's own clips (issue #1533). Set, a clip with no
+        // root-motion settings of its own -- every clip a glTF brings -- gives its
+        // ROOT BONE's translation (the first bone with no parent) to the entity
+        // instead of the mesh: the pose keeps the root where the clip starts and
+        // Scene::UpdateRootMotion moves the entity, on the runtime path only (the
+        // editor's preview walks in place). A clip that travels must carry that
+        // travel in its root bone, as the dog's Walk does. Scene-serialized as
+        // `RootMotion`.
+        bool m_RootMotion = false;
 
         // Bone entity management
         /**

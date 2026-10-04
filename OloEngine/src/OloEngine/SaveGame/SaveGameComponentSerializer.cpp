@@ -3504,11 +3504,12 @@ namespace OloEngine
         ar << c.m_RootBoneTransform;
         // Ref<AnimationClip> members are runtime — not serialized
 
-        // The loop flags, the pending clip request and the playback speed
-        // (issue #1533). The speed is untrusted input like every other field.
+        // The loop flags, the pending clip request, the playback speed and the
+        // root-motion switch (issue #1533). The speed is untrusted input like every other field.
         ar << c.m_Loop << c.m_NextLoop;
         ar << c.m_RequestedClip << c.m_RequestedLoop;
         ar << c.m_PlaybackSpeed;
+        ar << c.m_RootMotion;
         if (ar.IsLoading() && !(std::isfinite(c.m_PlaybackSpeed) && c.m_PlaybackSpeed >= 0.0f && c.m_PlaybackSpeed <= 10.0f))
         {
             c.m_PlaybackSpeed = 1.0f;

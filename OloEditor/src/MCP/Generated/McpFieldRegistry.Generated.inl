@@ -92,6 +92,7 @@ registry.push_back(OLO_GFW_FIELD(AnimationStateComponent, "RequestedClip", m_Req
 registry.push_back(OLO_GFW_FIELD(AnimationStateComponent, "RequestedLoop", m_RequestedLoop));
 registry.push_back(OLO_GFW_FIELD(AnimationStateComponent, "Loop", m_Loop));
 registry.push_back(OLO_GFW_FIELD_RANGE(AnimationStateComponent, "PlaybackSpeed", m_PlaybackSpeed, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(10.0f)));
+registry.push_back(OLO_GFW_FIELD(AnimationStateComponent, "RootMotion", m_RootMotion));
 
 // AudioListenerComponent
 registry.push_back(OLO_GFW_FIELD(AudioListenerComponent, "Active", Active));
@@ -147,6 +148,10 @@ registry.push_back(OLO_GFW_FIELD_RANGE(BoidObstacleComponent, "Radius", m_Radius
 registry.push_back(OLO_GFW_FIELD(BoneAttachmentComponent, "BoneName", m_BoneName));
 registry.push_back(OLO_GFW_FIELD(BoneAttachmentComponent, "Enabled", m_Enabled));
 
+}
+
+static void BuildRegistryChunk2(std::vector<FieldEntry>& registry)
+{
 // BoxCollider2DComponent
 registry.push_back(OLO_GFW_FIELD(BoxCollider2DComponent, "Offset", Offset));
 registry.push_back(OLO_GFW_FIELD(BoxCollider2DComponent, "Size", Size));
@@ -155,10 +160,6 @@ registry.push_back(OLO_GFW_FIELD(BoxCollider2DComponent, "Friction", Friction));
 registry.push_back(OLO_GFW_FIELD(BoxCollider2DComponent, "Restitution", Restitution));
 registry.push_back(OLO_GFW_FIELD(BoxCollider2DComponent, "RestitutionThreshold", RestitutionThreshold));
 
-}
-
-static void BuildRegistryChunk2(std::vector<FieldEntry>& registry)
-{
 // BoxCollider3DComponent
 registry.push_back(OLO_GFW_FIELD(BoxCollider3DComponent, "HalfExtents", m_HalfExtents));
 registry.push_back(OLO_GFW_FIELD(BoxCollider3DComponent, "Offset", m_Offset));
@@ -220,15 +221,15 @@ registry.push_back(OLO_GFW_FIELD(CircleCollider2DComponent, "Friction", Friction
 registry.push_back(OLO_GFW_FIELD(CircleCollider2DComponent, "Restitution", Restitution));
 registry.push_back(OLO_GFW_FIELD(CircleCollider2DComponent, "RestitutionThreshold", RestitutionThreshold));
 
+}
+
+static void BuildRegistryChunk3(std::vector<FieldEntry>& registry)
+{
 // CircleRendererComponent
 registry.push_back(OLO_GFW_FIELD(CircleRendererComponent, "Color", Color));
 registry.push_back(OLO_GFW_FIELD(CircleRendererComponent, "Thickness", Thickness));
 registry.push_back(OLO_GFW_FIELD(CircleRendererComponent, "Fade", Fade));
 
-}
-
-static void BuildRegistryChunk3(std::vector<FieldEntry>& registry)
-{
 // ClothComponent
 registry.push_back(OLO_GFW_FIELD(ClothComponent, "Columns", m_Columns));
 registry.push_back(OLO_GFW_FIELD(ClothComponent, "Rows", m_Rows));
@@ -280,15 +281,15 @@ registry.push_back(OLO_GFW_FIELD(ConvexMeshCollider3DComponent, "Scale", m_Scale
 registry.push_back(OLO_GFW_FIELD(ConvexMeshCollider3DComponent, "ConvexRadius", m_ConvexRadius));
 registry.push_back(OLO_GFW_FIELD(ConvexMeshCollider3DComponent, "MaxVertices", m_MaxVertices));
 
+}
+
+static void BuildRegistryChunk4(std::vector<FieldEntry>& registry)
+{
 // DebrisComponent
 registry.push_back(OLO_GFW_FIELD(DebrisComponent, "RemainingLifetime", m_RemainingLifetime));
 registry.push_back(OLO_GFW_FIELD(DebrisComponent, "TotalLifetime", m_TotalLifetime));
 registry.push_back(OLO_GFW_FIELD(DebrisComponent, "Age", m_Age));
 
-}
-
-static void BuildRegistryChunk4(std::vector<FieldEntry>& registry)
-{
 // DecalComponent
 registry.push_back(OLO_GFW_FIELD(DecalComponent, "Color", m_Color));
 registry.push_back(OLO_GFW_FIELD(DecalComponent, "Size", m_Size));
@@ -350,6 +351,10 @@ registry.push_back(OLO_GFW_FIELD(EnvironmentMapComponent, "IBLIntensity", m_IBLI
 registry.push_back(OLO_GFW_FIELD(EnvironmentMapComponent, "UseSphericalHarmonics", m_UseSphericalHarmonics));
 registry.push_back(OLO_GFW_FIELD(EnvironmentMapComponent, "Tint", m_Tint));
 
+}
+
+static void BuildRegistryChunk5(std::vector<FieldEntry>& registry)
+{
 // FluidComponent
 registry.push_back(OLO_GFW_FIELD(FluidComponent, "Enabled", m_Enabled));
 registry.push_back(OLO_GFW_FIELD(FluidComponent, "Settings", m_Settings));
@@ -358,10 +363,6 @@ registry.push_back(OLO_GFW_FIELD_RANGE(FluidComponent, "MaxParticles", m_MaxPart
 registry.push_back(OLO_GFW_FIELD_RANGE(FluidComponent, "SolverMode", m_SolverMode, OLO_GFW_BOUND(0), OLO_GFW_BOUND(2)));
 registry.push_back(OLO_GFW_FIELD_RANGE(FluidComponent, "PrefillFraction", m_PrefillFraction, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
 
-}
-
-static void BuildRegistryChunk5(std::vector<FieldEntry>& registry)
-{
 // FluidEmitterComponent
 registry.push_back(OLO_GFW_FIELD(FluidEmitterComponent, "Enabled", m_Enabled));
 registry.push_back(OLO_GFW_FIELD_RANGE(FluidEmitterComponent, "Rate", m_Rate, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(200000.0f)));

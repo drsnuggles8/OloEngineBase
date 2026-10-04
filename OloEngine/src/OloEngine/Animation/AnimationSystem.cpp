@@ -50,19 +50,20 @@ namespace OloEngine::Animation
         // SampleClipTRS + root-motion in-place pinning: when this bone is the
         // clip's extraction root, the extracted (masked) motion is removed from
         // the sample so the mesh doesn't double-move once the delta is applied
-        // to the entity (issue #631). boneIndex is the skeleton bone index.
-        TRSFrame SampleClipTRSPinned(const Ref<AnimationClip>& clip, f32 timeSeconds, const std::string& boneName,
+        // to the entity (issue #631). boneIndex is the skeleton bone index;
+        // settings are the clip's on this entity (RootMotionUtils::EffectiveSettings).
+        TRSFrame SampleClipTRSPinned(const Ref<AnimationClip>& clip, const AnimationRootMotionSettings& settings,
+                                     f32 timeSeconds, const std::string& boneName,
                                      const BoneAnimation* cachedBoneAnim, sizet boneIndex)
         {
             TRSFrame frame = SampleClipTRS(clip, timeSeconds, boneName, cachedBoneAnim);
-            if (clip && clip->RootMotion.ExtractRootMotion &&
-                boneIndex == static_cast<sizet>(clip->RootMotion.RootBoneIndex))
+            if (clip && settings.ExtractRootMotion && boneIndex == static_cast<sizet>(settings.RootBoneIndex))
             {
                 const TRSFrame reference = SampleClipTRS(clip, 0.0f, boneName, cachedBoneAnim);
                 const BoneTransform pinned = RootMotionUtils::MakeInPlaceRootPose(
                     { frame.translation, frame.rotation, frame.scale },
                     { reference.translation, reference.rotation, reference.scale },
-                    clip->RootMotion.RootTranslationMask, clip->RootMotion.RootRotationMask);
+                    settings.RootTranslationMask, settings.RootRotationMask);
                 frame.translation = pinned.Translation;
                 frame.rotation = pinned.Rotation;
             }
@@ -79,8 +80,11 @@ namespace OloEngine::Animation
         // Compute the animated local transform for a single bone, blending the
         // current/next clip as needed. Returns nullopt when no active clip
         // animates this bone (the caller keeps the bind-pose transform).
-        // boneIndex feeds per-clip root-motion pinning (issue #631).
-        std::optional<glm::mat4> EvaluateBoneLocalTransform(const AnimationStateComponent& animState, const std::string& boneName, sizet boneIndex)
+        // boneIndex feeds per-clip root-motion pinning (issue #631), against
+        // each clip's settings on this entity.
+        std::optional<glm::mat4> EvaluateBoneLocalTransform(const AnimationStateComponent& animState, const std::string& boneName,
+                                                            sizet boneIndex, const AnimationRootMotionSettings& currentSettings,
+                                                            const AnimationRootMotionSettings& nextSettings)
         {
             if (animState.m_Blending && animState.m_NextClip)
             {
@@ -91,8 +95,10 @@ namespace OloEngine::Animation
 
                 if (boneAnimA && boneAnimB)
                 {
-                    TRSFrame trsA = SampleClipTRSPinned(animState.m_CurrentClip, animState.m_CurrentTime, boneName, boneAnimA, boneIndex);
-                    TRSFrame trsB = SampleClipTRSPinned(animState.m_NextClip, animState.m_NextTime, boneName, boneAnimB, boneIndex);
+                    TRSFrame trsA = SampleClipTRSPinned(animState.m_CurrentClip, currentSettings, animState.m_CurrentTime, boneName,
+                                                        boneAnimA, boneIndex);
+                    TRSFrame trsB = SampleClipTRSPinned(animState.m_NextClip, nextSettings, animState.m_NextTime, boneName, boneAnimB,
+                                                        boneIndex);
 
                     TRSFrame blendedTRS;
                     blendedTRS.translation = glm::mix(trsA.translation, trsB.translation, animState.m_BlendFactor);
@@ -103,11 +109,13 @@ namespace OloEngine::Animation
                 }
                 if (boneAnimA)
                 {
-                    return TRSToMatrix(SampleClipTRSPinned(animState.m_CurrentClip, animState.m_CurrentTime, boneName, boneAnimA, boneIndex));
+                    return TRSToMatrix(SampleClipTRSPinned(animState.m_CurrentClip, currentSettings, animState.m_CurrentTime,
+                                                           boneName, boneAnimA, boneIndex));
                 }
                 if (boneAnimB)
                 {
-                    return TRSToMatrix(SampleClipTRSPinned(animState.m_NextClip, animState.m_NextTime, boneName, boneAnimB, boneIndex));
+                    return TRSToMatrix(SampleClipTRSPinned(animState.m_NextClip, nextSettings, animState.m_NextTime, boneName,
+                                                           boneAnimB, boneIndex));
                 }
                 // Neither clip animates this bone — keep bind-pose local transform.
                 return std::nullopt;
@@ -117,7 +125,8 @@ namespace OloEngine::Animation
             {
                 if (const auto* boneAnim = animState.m_CurrentClip->FindBoneAnimation(boneName); boneAnim)
                 {
-                    return TRSToMatrix(SampleClipTRSPinned(animState.m_CurrentClip, animState.m_CurrentTime, boneName, boneAnim, boneIndex));
+                    return TRSToMatrix(SampleClipTRSPinned(animState.m_CurrentClip, currentSettings, animState.m_CurrentTime,
+                                                           boneName, boneAnim, boneIndex));
                 }
             }
             // No current clip / bone not animated — keep bind-pose local transform.
@@ -292,12 +301,16 @@ namespace OloEngine::Animation
             if (animState.m_CurrentClip)
             {
                 delta = RootMotionUtils::ExtractConfiguredDelta(
-                    *animState.m_CurrentClip, rootMotionStartCurrent, clipSeconds, animState.m_Loop, rootMotionCtx);
+                    *animState.m_CurrentClip,
+                    RootMotionUtils::EffectiveSettings(*animState.m_CurrentClip, animState.m_RootMotion, skeleton.m_ParentIndices),
+                    rootMotionStartCurrent, clipSeconds, animState.m_Loop, rootMotionCtx);
             }
             if (wasBlending && blendTargetClip)
             {
                 const RootMotionDelta nextDelta = RootMotionUtils::ExtractConfiguredDelta(
-                    *blendTargetClip, rootMotionStartNext, clipSeconds, animState.m_NextLoop, rootMotionCtx);
+                    *blendTargetClip,
+                    RootMotionUtils::EffectiveSettings(*blendTargetClip, animState.m_RootMotion, skeleton.m_ParentIndices),
+                    rootMotionStartNext, clipSeconds, animState.m_NextLoop, rootMotionCtx);
                 delta = RootMotionUtils::Blend(delta, nextDelta, animState.m_BlendFactor);
             }
             animState.m_RootMotionTranslation = delta.Translation;
@@ -329,10 +342,19 @@ namespace OloEngine::Animation
         // channels in the active clip(s) keep their bind-pose local transform
         // (e.g. b_Root_00 carries a -90° X rotation in the fox.gltf model but has
         // no keyframes in the animation).
+        const AnimationRootMotionSettings currentSettings =
+            animState.m_CurrentClip
+                ? RootMotionUtils::EffectiveSettings(*animState.m_CurrentClip, animState.m_RootMotion, skeleton.m_ParentIndices)
+                : AnimationRootMotionSettings{};
+        const AnimationRootMotionSettings nextSettings =
+            animState.m_NextClip
+                ? RootMotionUtils::EffectiveSettings(*animState.m_NextClip, animState.m_RootMotion, skeleton.m_ParentIndices)
+                : AnimationRootMotionSettings{};
         auto boneNameCount = skeleton.m_BoneNames.size();
         for (sizet i = 0; i < boneNameCount; ++i)
         {
-            if (auto animatedLocal = EvaluateBoneLocalTransform(animState, skeleton.m_BoneNames[i], i); animatedLocal)
+            if (auto animatedLocal = EvaluateBoneLocalTransform(animState, skeleton.m_BoneNames[i], i, currentSettings, nextSettings);
+                animatedLocal)
             {
                 skeleton.m_LocalTransforms[i] = *animatedLocal;
             }

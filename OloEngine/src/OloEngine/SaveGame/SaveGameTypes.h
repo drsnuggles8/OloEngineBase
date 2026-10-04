@@ -56,7 +56,7 @@ namespace OloEngine
     // are no migrations and no per-field version gates (docs/agent-rules/
     // binary-format-versioning.md, #1498). Bump it when the payload layout
     // changes, once per PR. The history of past layouts is in git.
-    static constexpr u32 kSaveGameFormatVersion = 41; // 41: animation loop flags, clip request and speed; the coat
+    static constexpr u32 kSaveGameFormatVersion = 41; // 41: animation loop flags, clip request, speed and root motion; the coat
                                                       // shadow's dual-scattering and rest-bake switches; FoliageLayer::CastShadows (#1533)
     static constexpr u32 kSaveGameHeaderSize = 128;
 

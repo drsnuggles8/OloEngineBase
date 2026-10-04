@@ -78,6 +78,14 @@ Core math lives in `Animation/RootMotion.{h,cpp}` (`RootMotionUtils`):
 - Masks: a component of **1 extracts** that channel to the entity (and removes
   it from the pose); **0 leaves it in the pose**. Typical: translation mask
   (1,0,1) keeps hip bob in the pose while XZ drives the character.
+- **A model's own clips** (#1533): a glTF carries no root-motion settings, so
+  its clips cannot extract on their own. `AnimationStateComponent::m_RootMotion`
+  (scene key `RootMotion`, the inspector's "Root Motion") gives every clip
+  without settings of its own the root bone's translation: the first bone with
+  no parent, all three axes, none of its rotation
+  (`RootMotionUtils::EffectiveSettings`). A clip's own settings win. A clip
+  that should travel carries the travel in that bone; the dog's Walk does, at
+  the speed its stance paws move back (`build_dog.py`'s `WALK_SPEED`).
 - Blends: each contributing clip extracts against its own settings/duration;
   deltas combine with the **same weights the pose blend uses** (legacy blend
   factor, transition factor, 1D bracket weight, 2D IDW weights — the 2D weight

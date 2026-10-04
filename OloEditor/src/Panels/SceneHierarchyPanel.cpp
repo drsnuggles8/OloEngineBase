@@ -5703,6 +5703,9 @@ namespace OloEngine
 
             ImGui::DragFloat("Current Time##AnimationState", &component.m_CurrentTime, 0.01f, 0.0f, 100.0f);
             ImGui::DragFloat("Blend Duration##AnimationState", &component.m_BlendDuration, 0.01f, 0.0f, 5.0f);
+            ImGui::Checkbox("Root Motion##AnimationState", &component.m_RootMotion);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("In Play, a clip's root-bone travel moves the entity (a walk walks).\nThe editor preview stays in place.");
 
             if (component.m_Blending)
             {

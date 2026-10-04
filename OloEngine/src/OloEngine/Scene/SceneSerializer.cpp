@@ -3625,6 +3625,9 @@ namespace OloEngine
             // The OLO_SERIALIZE(Clamp) on the field reaches the live-write
             // registries, not this hand-written block, so the range is restated.
             SanitizeFloat(anim.m_PlaybackSpeed, 0.0f, 10.0f, 1.0f);
+            // Absent in scenes written before the root-motion switch: their clips
+            // moved the mesh (#1533).
+            anim.m_RootMotion = animComponent["RootMotion"].as<bool>(anim.m_RootMotion);
 
             // Stored like every other content path (#1496): "Assets/..." for project
             // content, "assets/..." for engine content, resolved by ResolveContentPath.
@@ -6182,6 +6185,7 @@ namespace OloEngine
             out << YAML::Key << "IsPlaying" << YAML::Value << animComponent.m_IsPlaying;
             out << YAML::Key << "Loop" << YAML::Value << animComponent.m_Loop;
             out << YAML::Key << "PlaybackSpeed" << YAML::Value << animComponent.m_PlaybackSpeed;
+            out << YAML::Key << "RootMotion" << YAML::Value << animComponent.m_RootMotion;
             // Store source file path as relative path for portability
             if (!animComponent.m_SourceFilePath.empty())
             {

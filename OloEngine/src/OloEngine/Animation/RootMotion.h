@@ -111,6 +111,27 @@ namespace OloEngine::Animation
             bool looping,
             const PoseEvalContext& ctx);
 
+        // The same against explicit settings (EffectiveSettings').
+        [[nodiscard("extracted delta must be used")]] RootMotionDelta ExtractConfiguredDelta(
+            const AnimationClip& clip,
+            const AnimationRootMotionSettings& settings,
+            f32 startTime,
+            f32 deltaSeconds,
+            bool looping,
+            const PoseEvalContext& ctx);
+
+        // The settings `clip` plays with on one entity (#1533): its own when it
+        // extracts (an AnimationAsset stamps them); otherwise, when the entity
+        // asks for root motion (AnimationStateComponent::m_RootMotion), the
+        // ROOT BONE's translation -- the first bone with no parent -- and none of
+        // its rotation. A glTF clip carries no settings of its own, so this is
+        // how the travel authored into its root bone reaches the entity. Returns
+        // the clip's own settings unchanged when neither applies.
+        [[nodiscard("effective settings must be used")]] AnimationRootMotionSettings EffectiveSettings(
+            const AnimationClip& clip,
+            bool entityRootMotion,
+            std::span<const int> parentIndices);
+
         // In-place-ification of the sampled root pose: returns `sampled` with the
         // extracted (masked) motion removed, so the mesh no longer double-moves
         // when the delta is applied to the entity. reference is the clip's t=0

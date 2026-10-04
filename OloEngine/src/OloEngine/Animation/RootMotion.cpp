@@ -230,7 +230,40 @@ namespace OloEngine::Animation::RootMotionUtils
         bool looping,
         const PoseEvalContext& ctx)
     {
-        const AnimationRootMotionSettings& settings = clip.RootMotion;
+        return ExtractConfiguredDelta(clip, clip.RootMotion, startTime, deltaSeconds, looping, ctx);
+    }
+
+    AnimationRootMotionSettings EffectiveSettings(
+        const AnimationClip& clip,
+        bool entityRootMotion,
+        std::span<const int> parentIndices)
+    {
+        if (clip.RootMotion.ExtractRootMotion || !entityRootMotion)
+        {
+            return clip.RootMotion;
+        }
+        const auto root = std::ranges::find_if(parentIndices, [](int parent)
+                                               { return parent < 0; });
+        if (root == parentIndices.end())
+        {
+            return clip.RootMotion;
+        }
+        AnimationRootMotionSettings settings;
+        settings.ExtractRootMotion = true;
+        settings.RootBoneIndex = static_cast<u32>(std::distance(parentIndices.begin(), root));
+        settings.RootTranslationMask = glm::vec3(1.0f);
+        settings.RootRotationMask = glm::vec3(0.0f);
+        return settings;
+    }
+
+    RootMotionDelta ExtractConfiguredDelta(
+        const AnimationClip& clip,
+        const AnimationRootMotionSettings& settings,
+        f32 startTime,
+        f32 deltaSeconds,
+        bool looping,
+        const PoseEvalContext& ctx)
+    {
         if (!settings.ExtractRootMotion || settings.DiscardRootMotion)
         {
             // Discard: the pose is still pinned in place by the samplers, but the
