@@ -104,8 +104,12 @@ shows. The grass holds still in those frames; it sways in the editor.
   hair swings against its root-following targets. With the solver switched off, that life check
   must fail. Every pair of arms compared must replay the same states, not only the same clip
   times: the body's bone palette and every guide particle (with its target) agree to the bit,
-  frame by frame. These ratios measure sampling instability; they are evidence against shimmer,
-  not proof that none is visible, which is what the footage is for.
+  frame by frame. Each measured frame is read back through the camera it was drawn with (the walk
+  carries the dog and the camera riding it), places its coat on the body, and measures every region
+  its view frames: a region never passes by falling under its floor
+  ([measure-in-the-frame-the-pixels-came-from.md](../agent-rules/measure-in-the-frame-the-pixels-came-from.md)).
+  These ratios measure sampling instability; they are evidence against shimmer, not proof that none
+  is visible, which is what the footage is for.
 - **The clips** (C1, B4): the scene starts on Idle; Idle and the walk loop without a pop; Idle to
   the walk blends without one; the ears, the tail and the leg feathering swing where their clip
   moves them, with body contacts resolved.
@@ -163,16 +167,16 @@ Blender without exporting it.
 
 The performance gate is the live editor: Release `OloEditor`, Play, a 1920×1080 viewport, the
 scene's own settings (the coat requests TAA; the editor's tier draws 4096² PCF cascades), every
-wall-clock frame of a 1,024-frame ring after a 10 s warm-up. Measured at `0c8fd793d` on an RTX 4090
-with driver 617.14, the editor the only process on the GPU:
+wall-clock frame of a 1,024-frame ring after a 10 s warm-up, the walk travelling with the camera on
+it. Measured at `a2fd7467b` on an RTX 4090 with driver 617.14, the editor the only process on the GPU:
 
 | p50 / p95 ms | face close-up | full body | walk mid-shot |
 |---|---|---|---|
-| GL Forward | 16.4 / 17.2 | 14.6 / 15.4 | 13.8 / 14.7 |
-| Vulkan Forward | 12.5 / 13.1 | 10.9 / 12.0 | 10.3 / 11.2 |
+| GL Forward | 16.4 / 17.1 | 14.6 / 15.3 | 14.0 / 14.7 |
+| Vulkan Forward | 12.5 / 13.1 | 10.8 / 11.4 | 10.2 / 11.0 |
 
 E1 (p95 under 33.3 ms) and E2 (p50 under 16.7 ms) hold at every framing on both backends; the GL face
-close-up has 0.3 ms of E2's margin. Both frames are GPU-bound (CPU 9.5–10.0 ms a frame, the coat's caster posing about 2 ms of it). `Dog_Cost.txt` is the headless per-pass record
+close-up has 0.34 ms of E2's margin. CPU 9.3–10.0 ms a frame, the coat's caster posing about 2 ms of it. `Dog_Cost.txt` is the headless per-pass record
 of the same three framings on runtime frames (GL); `Dog_Cost_Matrix.txt` attributes it by one
 substitution per run against three baselines. In both, a sub-pass (`Parent/Child`) is inside its
 parent: never add the two.
@@ -195,10 +199,5 @@ parent: never add the two.
 - **Scene-level Vulkan is checked live.** The headless fixture renders GL, by policy
   ([testing-architecture.md](../agent-rules/testing-architecture.md) §9–§10); #1556 proposes a
   windowless Vulkan fixture. The groom passes have pass-level Vulkan tenants.
-- **B6 in motion misses its bar in two regions**: the walk's front three-quarter face (0.511) and the
-  rear view's fringe (0.521) against 0.5; the whole frame (0.468, 0.458), every other region
-  (0.42-0.46) and the rest arms (0.29-0.39) pass. They crossed when TAA's sharpen was bounded: the
-  resolved instability stayed level while the no-history control, which keeps the same sharpen, lost
-  10-14% of its raw-sample excursions to the bound. Clearing it means more accumulation for a
-  stochastic coat in motion, where the 3x3 variance clip re-injects the current frame's noise.
-- **The look itself (F3) is a human call.** No test above settles it.
+- **The look (F3) is a human call, signed off on 2026-10-04.** No test above settles it; a change to
+  what the screen shows needs the look again.
