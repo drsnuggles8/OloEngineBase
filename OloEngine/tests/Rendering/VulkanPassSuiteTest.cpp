@@ -4520,7 +4520,8 @@ TEST_F(VulkanPassSuite, TaaResolvesIdentityAndBlendsTheImportedHistory)
         auto producer = Ref<PatternProducerPass>::Create(input, blitShader);
         return RunSinglePassChain(
             kSize, producer, taa, "TAAPass", ResourceNames::TAAColor,
-            [](FrameBlackboard& blackboard, RGFramebufferHandle handle) { blackboard.Post.TAAColor = handle; }, 2u, 2u);
+            [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
+            { blackboard.Post.TAAColor = handle; }, 2u, 2u);
     };
 
     const auto valueAt = [&](u32 x, u32 y, u32 flip) -> int
@@ -4688,7 +4689,8 @@ TEST_F(VulkanPassSuite, TaaSharpenStaysInsideItsRangeAndOutOfTheHistory)
     auto producer = Ref<PatternProducerPass>::Create(input, blitShader);
     const auto frame = RunSinglePassChain(
         kSize, producer, taa, "TAAPass", ResourceNames::TAAColor,
-        [](FrameBlackboard& blackboard, RGFramebufferHandle handle) { blackboard.Post.TAAColor = handle; }, 2u, 2u);
+        [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
+        { blackboard.Post.TAAColor = handle; }, 2u, 2u);
     m_AfterExecute = nullptr;
     ASSERT_EQ(frame.Num(), static_cast<sizet>(kSize) * kSize * 4);
     const auto out = [&](u32 x, u32 y)
