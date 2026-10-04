@@ -2018,6 +2018,15 @@ namespace OloEngine
                     break;
             }
         }
+        // A viewport with no area has nothing to render into: the first frame,
+        // before the dockspace has laid the panel out, and a minimised window.
+        // Rendering then put a 0x0 scene through the passes, and the UI overlay
+        // logged a warning on every launch, which a scene-open check (#1533 D1)
+        // read as the scene's.
+        if (!(m_ViewportSize.x > 0.0f) || !(m_ViewportSize.y > 0.0f))
+        {
+            skipRender = true;
+        }
         m_ViewportRenderSkipped = skipRender;
 
         // Tell the scene whether it should execute render calls.
