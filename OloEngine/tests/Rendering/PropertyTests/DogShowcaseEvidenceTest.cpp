@@ -1846,11 +1846,16 @@ namespace OloEngine::Tests
             out.Luminance = std::move(sum);
         }
 
-        // The parts of the dog the review names. Boxes in the dog's own frame --
-        // standing at the origin facing +Z, 0.70 m to the ear tips, 1.08 m nose to
-        // tail tip (Dog.gltf), the eyes where Dog.rig.json puts them -- applied to
-        // a PAUSED pose, so each coat pixel lands in the part of the dog its world
-        // point is in. Not a segmentation; a stable partition for a record.
+        // The parts of the dog the review names. Boxes in the DOG'S OWN FRAME --
+        // the entity standing at its origin facing +Z, 0.70 m to the ear tips,
+        // 1.08 m nose to tail tip (Dog.gltf), the eyes where Dog.rig.json puts
+        // them (rig-local, the same frame) -- applied to a PAUSED pose. A world
+        // point is carried into that frame first (WorldToDog, MaskCoat): the walk
+        // moves the entity by root motion, and a world point classified as if
+        // the dog still stood at the origin changes part as the dog walks. A
+        // COARSE partition for a record, not a segmentation: the boxes do not
+        // follow a sit's or a stride's articulation. What must name the part
+        // through articulation takes the nearest skinned body vertex (BodyParts).
         enum class CoatRegion : u8
         {
             Face,
@@ -1868,7 +1873,7 @@ namespace OloEngine::Tests
             "face", "eye sockets", "chin/chest", "torso", "underside", "tail base", "tail", "legs"
         };
 
-        [[nodiscard]] CoatRegion ClassifyCoat(const glm::vec3& p) const
+        [[nodiscard]] CoatRegion ClassifyCoatDogLocal(const glm::vec3& p) const
         {
             const f32 socket = 1.8f * m_Dog.Rig.SocketRadius; // the fur round each eye, lids included
             for (const auto& eye : m_Dog.Rig.Eyes)
@@ -1905,6 +1910,46 @@ namespace OloEngine::Tests
             return CoatRegion::Torso;
         }
 
+        // World to the dog's own frame, from the dog entity's world matrix for
+        // the captured state: nothing when that matrix cannot be inverted (not
+        // finite, or a scale near zero), so no label is made from coordinates
+        // that mean nothing.
+        [[nodiscard]] static std::optional<glm::mat4> WorldToDog(const glm::mat4& dogWorld)
+        {
+            for (glm::length_t c = 0; c < 4; ++c)
+            {
+                for (glm::length_t r = 0; r < 4; ++r)
+                {
+                    if (!std::isfinite(dogWorld[c][r]))
+                    {
+                        return std::nullopt;
+                    }
+                }
+            }
+            if (!(std::abs(glm::determinant(glm::mat3(dogWorld))) > 1.0e-9f))
+            {
+                return std::nullopt;
+            }
+            return glm::inverse(dogWorld);
+        }
+
+        // The dog entity's world matrix as the scene stores it now.
+        [[nodiscard]] glm::mat4 DogWorld()
+        {
+            return GetScene().GetWorldTransform(static_cast<entt::entity>(m_Dog.Body));
+        }
+
+        // A view in the dog's own frame (HeroViews' convention: the dog standing
+        // at the origin facing +Z) placed where the dog stands in `dogWorld`, so
+        // an editor capture frames the dog wherever root motion carried it.
+        [[nodiscard]] static View DogRelative(const View& local, const glm::mat4& dogWorld)
+        {
+            View placed = local;
+            placed.Eye = glm::vec3(dogWorld * glm::vec4(local.Eye, 1.0f));
+            placed.Target = glm::vec3(dogWorld * glm::vec4(local.Target, 1.0f));
+            return placed;
+        }
+
         // Each coat pixel's region (Count where the pixel is not coat), and the
         // coat's SPARSE FRINGE: coat pixels with something that is not the dog
         // within two pixels, where the coat thins out against the background.
@@ -1914,7 +1959,9 @@ namespace OloEngine::Tests
             std::vector<u8> Fringe;
         };
 
-        [[nodiscard]] CoatMask MaskCoat(const LinearFrame& frame) const
+        // `worldToDog` is WorldToDog of the dog's world matrix in the state
+        // `frame` shows: its world points are classified in the dog's frame.
+        [[nodiscard]] CoatMask MaskCoat(const LinearFrame& frame, const glm::mat4& worldToDog) const
         {
             const i32 coatId = static_cast<i32>(static_cast<u32>(m_Dog.Coat));
             const auto isDog = [&](i32 id)
@@ -1944,7 +1991,7 @@ namespace OloEngine::Tests
                     {
                         continue;
                     }
-                    mask.Region[i] = static_cast<u8>(ClassifyCoat(frame.World[i]));
+                    mask.Region[i] = static_cast<u8>(ClassifyCoatDogLocal(glm::vec3(worldToDog * glm::vec4(frame.World[i], 1.0f))));
                     for (i32 dy = -2; dy <= 2 && mask.Fringe[i] == 0u; ++dy)
                     {
                         for (i32 dx = -2; dx <= 2; ++dx)
@@ -1994,7 +2041,17 @@ namespace OloEngine::Tests
 
         struct BakeComparison
         {
+            // By the COARSE partition in the dog's frame (ClassifyCoatDogLocal):
+            // a record. Face and eye sockets are the face; the tail is the tail.
             std::array<BakeRegion, 4> Regions{}; // kBakeRegionNames
+            // By the nearest skinned body vertex (BodyParts), when CompareRestBake
+            // was given the parts: the face, the tail and the rest of the body
+            // through any articulation -- what an acceptance check reads.
+            std::array<BakeRegion, 4> Anatomical{};
+            bool HasAnatomical = false;
+            f64 AnatomicalLost = 0.0; // coat pixels with no body vertex within 30 cm
+            f64 CoatPixels = 0.0;     // every coat pixel the mask placed: how much of the dog is framed
+            glm::vec3 DogPosition{ 0.0f };
             // LOCAL error, in units of the coat's own mean effect: over the
             // 16x16 tiles with enough coat in them, each tile's difference past
             // its noise divided by the COAT-WIDE effect -- its 95th percentile
@@ -2006,13 +2063,20 @@ namespace OloEngine::Tests
             u32 Tiles = 0;
         };
 
+        struct BodyParts; // below, with the parts it names
+
         // Four arms in ONE IDENTICAL STATE each: the clip replayed from its start
         // with the solver reset (StartClip), paused at `frames`, the frame
         // sequences reset and the history cold -- so the bake is the only thing
         // that differs. POSE, POSE again (the noise), REST, and OFF (no
-        // self-shadow). Linear scene colour throughout.
+        // self-shadow). Linear scene colour throughout. `where` is in the dog's
+        // own frame and placed where the dog stands (DogRelative): the walk
+        // carries it 0.31 m a second, and a camera left at the origin would
+        // frame less and less of it. The coarse regions are classified in the
+        // dog's frame; `parts`, when given, also classifies each coat pixel by
+        // its nearest skinned body vertex (BakeComparison::Anatomical).
         BakeComparison CompareRestBake(const char* clip, u32 frames, const View& where, const std::string& pngStem,
-                                       bool writeOff)
+                                       bool writeOff, BodyParts* parts = nullptr)
         {
             auto& shadow = m_Dog.Coat.GetComponent<GroomCoatShadowComponent>();
             auto& anim = m_Dog.Body.GetComponent<AnimationStateComponent>();
@@ -2031,6 +2095,8 @@ namespace OloEngine::Tests
                 }
             } bodyBack;
             Levers::SetGroomNoCoatBody(true);
+            std::array<glm::mat4, 4> dogWorlds{};
+            u32 arms = 0;
             const auto arm = [&](bool atRest, bool enabled, LinearFrame& out, const std::string& png)
             {
                 shadow.m_BakeAtRest = atRest;
@@ -2039,7 +2105,13 @@ namespace OloEngine::Tests
                 anim.m_IsPlaying = false;
                 Renderer3D::ResetFrameSequences();
                 ColdHistory();
-                CaptureLinear(where, out);
+                const glm::mat4 dogWorld = DogWorld();
+                dogWorlds[arms] = dogWorld;
+                CaptureLinear(DogRelative(where, dogWorld), out);
+                if (arms++ == 0u && parts != nullptr)
+                {
+                    PoseBody(*parts); // the pose arm's state: the mask is made from its frame
+                }
                 if (!png.empty())
                 {
                     std::vector<u8> ldr;
@@ -2062,7 +2134,44 @@ namespace OloEngine::Tests
             {
                 return result;
             }
-            const CoatMask mask = MaskCoat(pose);
+            // One state in every arm: the same clip frame puts the dog in the
+            // same place, or the arms did not replay it.
+            for (u32 a = 1; a < 4u; ++a)
+            {
+                EXPECT_TRUE(glm::all(glm::equal(dogWorlds[a][3], dogWorlds[0][3])))
+                    << "arm " << a << " found the dog somewhere else: the arms did not replay one state";
+            }
+            const std::optional<glm::mat4> worldToDog = WorldToDog(dogWorlds[0]);
+            if (!worldToDog)
+            {
+                ADD_FAILURE() << "the dog's world matrix cannot be inverted: no part can be named";
+                return result;
+            }
+            result.DogPosition = glm::vec3(dogWorlds[0][3]);
+            const CoatMask mask = MaskCoat(pose, *worldToDog);
+            std::vector<u8> anatomical;
+            if (parts != nullptr)
+            {
+                // By the nearest skinned vertex of the body posed in this state.
+                result.HasAnatomical = true;
+                anatomical.assign(pose.Ids.size(), static_cast<u8>(4u));
+                for (sizet i = 0; i < pose.Ids.size(); ++i)
+                {
+                    if (mask.Region[i] == static_cast<u8>(CoatRegion::Count))
+                    {
+                        continue;
+                    }
+                    f32 distance = 0.0f;
+                    const u32 nearest = BodyParts::Nearest(parts->Posed, parts->Tree, pose.World[i], distance);
+                    if (nearest == ~0u)
+                    {
+                        result.AnatomicalLost += 1.0;
+                        continue;
+                    }
+                    const auto part = static_cast<BodyPart>(parts->Part[nearest]);
+                    anatomical[i] = static_cast<u8>(part == BodyPart::Face ? 0u : (part == BodyPart::Tail ? 2u : 1u));
+                }
+            }
             const auto regionOf = [](u8 region) -> sizet
             {
                 switch (static_cast<CoatRegion>(region))
@@ -2092,6 +2201,17 @@ namespace OloEngine::Tests
                     const f64 effect = std::abs(static_cast<f64>(pose.Luminance[i]) - off.Luminance[i]);
                     const f64 diff = std::abs(static_cast<f64>(pose.Luminance[i]) - rest.Luminance[i]);
                     const f64 noise = std::abs(static_cast<f64>(pose.Luminance[i]) - poseAgain.Luminance[i]);
+                    result.CoatPixels += 1.0;
+                    if (!anatomical.empty() && anatomical[i] < 4u)
+                    {
+                        for (BakeRegion* region : { &result.Anatomical[anatomical[i]], &result.Anatomical[3] })
+                        {
+                            region->Pixels += 1.0;
+                            region->Effect += effect;
+                            region->Diff += diff;
+                            region->Floor += noise;
+                        }
+                    }
                     for (BakeRegion* region : { &result.Regions[regionOf(mask.Region[i])], &result.Regions[3],
                                                 &tiles[(static_cast<sizet>(y / kTile) * tilesX) + (x / kTile)] })
                     {
@@ -2115,6 +2235,15 @@ namespace OloEngine::Tests
             {
                 normalise(region);
             }
+            for (BakeRegion& region : result.Anatomical)
+            {
+                normalise(region);
+            }
+            if (result.HasAnatomical)
+            {
+                EXPECT_LE(result.AnatomicalLost, kLostCoatShare * result.CoatPixels)
+                    << result.AnatomicalLost << " of " << result.CoatPixels << " coat pixels have no body within 30 cm";
+            }
             std::vector<f64> ratios;
             const f64 coatEffect = result.Regions[3].Effect;
             for (BakeRegion& tile : tiles)
@@ -2137,19 +2266,29 @@ namespace OloEngine::Tests
 
         static void ReportRestBake(const char* name, u32 frames, const BakeComparison& c)
         {
-            std::printf("[dog] rest bake %-9s frame %3u |", name, frames);
-            for (sizet r = 0; r < c.Regions.size(); ++r)
+            const auto regions = [](const std::array<BakeRegion, 4>& set)
             {
-                const BakeRegion& region = c.Regions[r];
-                if (region.Measurable())
+                for (sizet r = 0; r < set.size(); ++r)
                 {
-                    std::printf(" %s %.3f (effect %.4f, floor %.4f, %.0f px) |", kBakeRegionNames[r], region.Ratio(),
-                                region.Effect, region.Floor, region.Pixels);
+                    const BakeRegion& region = set[r];
+                    if (region.Measurable())
+                    {
+                        std::printf(" %s %.3f (effect %.4f, floor %.4f, %.0f px) |", kBakeRegionNames[r], region.Ratio(),
+                                    region.Effect, region.Floor, region.Pixels);
+                    }
+                    else
+                    {
+                        std::printf(" %s below its floor (%.0f px) |", kBakeRegionNames[r], region.Pixels);
+                    }
                 }
-                else
-                {
-                    std::printf(" %s below its floor (%.0f px) |", kBakeRegionNames[r], region.Pixels);
-                }
+            };
+            std::printf("[dog] rest bake %-9s frame %3u, the dog at %.3f %.3f %.3f, %.0f coat px | coarse, dog frame:", name,
+                        frames, c.DogPosition.x, c.DogPosition.y, c.DogPosition.z, c.CoatPixels);
+            regions(c.Regions);
+            if (c.HasAnatomical)
+            {
+                std::printf(" by the nearest body vertex (%.0f px lost):", c.AnatomicalLost);
+                regions(c.Anatomical);
             }
             std::printf(" local, tile difference over the coat's effect: p95 %.3f, worst %.3f of %u tiles\n", c.TileP95,
                         c.TileWorst, c.Tiles);
@@ -7625,7 +7764,9 @@ namespace OloEngine::Tests
                 }
             }
 
-            const CoatMask mask = MaskCoat(key);
+            const std::optional<glm::mat4> worldToDog = WorldToDog(DogWorld());
+            ASSERT_TRUE(worldToDog.has_value()) << "the dog's world matrix cannot be inverted: no part can be named";
+            const CoatMask mask = MaskCoat(key, *worldToDog);
             struct Sums
             {
                 f64 Pixels = 0.0;
@@ -7910,6 +8051,98 @@ namespace OloEngine::Tests
     }
 
     // =========================================================================
+    // #1533 review: the coarse coat partition is the dog's own frame. A world
+    // point is carried into it through the inverse of the dog entity's world
+    // matrix (WorldToDog), so a face, an eye socket or a tail point keeps its
+    // part wherever the dog stands -- moved by root motion, turned, scaled --
+    // where classifying the world point itself (what MaskCoat did, unnoticed
+    // while the dog stood at the origin) renames it as soon as the dog walks.
+    // Points of the dog's own frame are carried out by a transform and the
+    // labels compared, by ClassifyCoatDogLocal and through MaskCoat's own path;
+    // THE NEGATIVE CONTROL classifies the carried points without the inverse.
+    // =========================================================================
+    TEST_F(DogShowcaseEvidenceTest, TheCoatRegionsAreTheDogsOwnWhereverItStands)
+    {
+        const glm::vec3 eye = m_Dog.Rig.Eyes[0].Centre;
+        struct Sample
+        {
+            const char* Name;
+            glm::vec3 Local;
+            CoatRegion Expected;
+        };
+        const std::array<Sample, 7> samples{ {
+            { "face", { 0.0f, 0.56f, 0.44f }, CoatRegion::Face },
+            { "eye socket", eye + glm::vec3(0.0f, 0.004f, 0.0f), CoatRegion::EyeSockets },
+            { "chin/chest", { 0.0f, 0.30f, 0.30f }, CoatRegion::ChinChest },
+            { "torso", { 0.0f, 0.45f, 0.0f }, CoatRegion::Torso },
+            { "tail base", { 0.0f, 0.40f, -0.28f }, CoatRegion::TailBase },
+            { "tail", { 0.0f, 0.42f, -0.48f }, CoatRegion::Tail },
+            { "legs", { 0.08f, 0.10f, 0.20f }, CoatRegion::Legs },
+        } };
+        // The samples name what they say in the dog's own frame.
+        for (const Sample& s : samples)
+        {
+            ASSERT_EQ(ClassifyCoatDogLocal(s.Local), s.Expected) << s.Name << ": the sample is not where its name says";
+        }
+        const glm::quat yaw = glm::angleAxis(glm::radians(63.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        const glm::quat slope = glm::angleAxis(glm::radians(10.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+        struct Placement
+        {
+            const char* Name;
+            glm::mat4 World;
+        };
+        const std::array<Placement, 4> placements{ {
+            { "walked 0.47 m", glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.47f)) },
+            { "turned", glm::mat4_cast(yaw) },
+            { "turned on a slope and moved", glm::translate(glm::mat4(1.0f), glm::vec3(1.7f, 0.2f, -2.3f)) * glm::mat4_cast(slope * yaw) },
+            { "scaled and moved", glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(-0.6f, 0.0f, 0.9f)), glm::vec3(1.25f)) },
+        } };
+        const i32 coatId = static_cast<i32>(static_cast<u32>(m_Dog.Coat));
+        std::array<bool, 7> everRenamed{}; // one per sample
+        for (const Placement& placement : placements)
+        {
+            SCOPED_TRACE(placement.Name);
+            const std::optional<glm::mat4> worldToDog = WorldToDog(placement.World);
+            ASSERT_TRUE(worldToDog.has_value());
+            // Through MaskCoat's own path: a frame of coat pixels at the carried points.
+            LinearFrame frame;
+            frame.Width = static_cast<u32>(samples.size());
+            frame.Height = 1u;
+            frame.Ids.assign(samples.size(), coatId);
+            for (const Sample& s : samples)
+            {
+                frame.World.push_back(glm::vec3(placement.World * glm::vec4(s.Local, 1.0f)));
+            }
+            const CoatMask mask = MaskCoat(frame, *worldToDog);
+            const CoatMask control = MaskCoat(frame, glm::mat4(1.0f)); // the world point as if dog-local
+            u32 renamed = 0;
+            for (sizet i = 0; i < samples.size(); ++i)
+            {
+                EXPECT_EQ(static_cast<CoatRegion>(mask.Region[i]), samples[i].Expected)
+                    << samples[i].Name << ": the dog's own part changed when the dog moved";
+                const bool changed = static_cast<CoatRegion>(control.Region[i]) != samples[i].Expected;
+                renamed += changed ? 1u : 0u;
+                everRenamed[i] = everRenamed[i] || changed;
+            }
+            // THE CONTROL: the world points classified as they are rename the
+            // dog's parts.
+            std::printf("[dog] coat regions, %s: %u of %zu samples renamed without the dog's frame\n", placement.Name,
+                        renamed, samples.size());
+            EXPECT_GE(renamed, 2u) << "classifying world points directly renamed almost nothing: the check sees nothing";
+        }
+        // ...among them the face, an eye socket and the tail.
+        for (const sizet named : { sizet(0), sizet(1), sizet(5) })
+        {
+            EXPECT_TRUE(everRenamed[named]) << samples[named].Name << " kept its part without the dog's frame in every placement";
+        }
+        // A matrix that cannot be inverted names no part at all.
+        EXPECT_FALSE(WorldToDog(glm::scale(glm::mat4(1.0f), glm::vec3(1.0f, 0.0f, 1.0f))).has_value());
+        glm::mat4 broken(1.0f);
+        broken[3][0] = std::numeric_limits<f32>::quiet_NaN();
+        EXPECT_FALSE(WorldToDog(broken).has_value());
+    }
+
+    // =========================================================================
     // #1533 E1: the coat baked at rest shadows the moving dog as the per-frame
     // pose bake does. Idle is motion the body carries -- breathing, a head
     // drift, a wag -- where looking the rest volume up at each strand's bind
@@ -7922,18 +8155,24 @@ namespace OloEngine::Tests
     TEST_F(DogShowcaseEvidenceTest, TheRestBakeShadowsTheMovingCoatAsThePoseBakeDoes)
     {
         SetPath(RenderingPath::Forward);
-        const BakeComparison c =
-            CompareRestBake("Idle", 120, HeroViews()[2], "DogShowcaseCoatBake_GL_Forward_", true); // the face close-up
+        BodyParts parts = BuildBodyParts();
+        const BakeComparison c = CompareRestBake("Idle", 120, HeroViews()[2], "DogShowcaseCoatBake_GL_Forward_", true,
+                                                 &parts); // the face close-up
         ASSERT_FALSE(HasFatalFailure());
         m_Dog.Body.GetComponent<AnimationStateComponent>().m_IsPlaying = true;
         ReportRestBake("IdleHead", 120, c);
         const BakeRegion& all = c.Regions[3];
-        const BakeRegion& face = c.Regions[0];
         ASSERT_TRUE(all.Measurable()) << "the self-shadow must rise above the arms' own noise to measure anything";
         EXPECT_LT(all.Ratio(), 0.25) << "the rest bake shadows the moving coat unlike the pose bake";
-        if (face.Measurable())
+        // The face close-up frames the face: it is measured, never skipped --
+        // by the body's own parts (through the head's drift), and by the coarse
+        // partition in the dog's frame.
+        ASSERT_TRUE(c.HasAnatomical);
+        for (const BakeRegion* face : { &c.Anatomical[0], &c.Regions[0] })
         {
-            EXPECT_LT(face.Ratio(), 0.25) << "the face, which moves most in Idle, strays from the pose bake";
+            const char* how = face == &c.Regions[0] ? "coarse" : "by the body's parts";
+            EXPECT_TRUE(face->Measurable()) << "the face close-up did not measure the face (" << how << ")";
+            EXPECT_LT(face->Ratio(), 0.25) << "the face, which moves most in Idle, strays from the pose bake (" << how << ")";
         }
         EXPECT_LT(c.TileP95, 1.0) << "one tile in twenty strays from the pose bake by more than the coat's mean self-shadow";
     }
@@ -7968,35 +8207,51 @@ namespace OloEngine::Tests
             { "WalkLegs", "Walk", 45, { "WalkLegs", { 1.45f, 0.30f, 0.20f }, { 0.0f, 0.26f, 0.0f }, 35.0f } },
             { "SitFolded", "Sit", 150, { "SitFolded", { 1.30f, 0.30f, -0.35f }, { 0.0f, 0.22f, -0.10f }, 35.0f } },
         } };
+        BodyParts parts = BuildBodyParts();
         for (const Case& c : cases)
         {
             SCOPED_TRACE(c.Name);
             std::array<f64, 4> worst{};
+            std::array<f64, 4> worstAnatomical{};
             f64 worstTile = 0.0;
+            f64 firstCoatPixels = 0.0;
             for (u32 instant = 0; instant < 3u; ++instant)
             {
                 const u32 frames = c.Frames + (20u * instant);
                 const BakeComparison comparison =
                     CompareRestBake(c.Clip, frames, c.Where,
                                     instant == 0u ? std::string("DogCoatBakeLimits_GL_Forward_") + c.Name : std::string(),
-                                    false);
+                                    false, &parts);
                 ASSERT_FALSE(HasFatalFailure());
                 ReportRestBake(c.Name, frames, comparison);
                 const BakeRegion& all = comparison.Regions[3];
                 EXPECT_TRUE(all.Measurable()) << "frame " << frames << ": the self-shadow is lost in the noise here";
                 EXPECT_LT(all.Ratio(), 0.5) << "frame " << frames << ": the rest bake stopped tracking this motion";
+                // The dog stays framed through the instants: the view rides
+                // the dog (CompareRestBake), so a walk that carried it out of
+                // frame shows here as a coat that shrank.
+                firstCoatPixels = instant == 0u ? comparison.CoatPixels : firstCoatPixels;
+                EXPECT_GT(comparison.CoatPixels, 0.7 * firstCoatPixels)
+                    << "frame " << frames << ": the dog left the frame (" << comparison.CoatPixels << " coat px against "
+                    << firstCoatPixels << ")";
                 for (sizet r = 0; r < worst.size(); ++r)
                 {
                     if (comparison.Regions[r].Measurable())
                     {
                         worst[r] = std::max(worst[r], comparison.Regions[r].Ratio());
                     }
+                    if (comparison.Anatomical[r].Measurable())
+                    {
+                        worstAnatomical[r] = std::max(worstAnatomical[r], comparison.Anatomical[r].Ratio());
+                    }
                 }
                 worstTile = std::max(worstTile, comparison.TileWorst);
             }
-            std::printf("[dog] rest bake %-9s over three instants: worst face %.3f, torso %.3f, tail %.3f, all %.3f; worst "
-                        "local tile %.3f of the coat's effect\n",
-                        c.Name, worst[0], worst[1], worst[2], worst[3], worstTile);
+            std::printf("[dog] rest bake %-9s over three instants: worst face %.3f, torso %.3f, tail %.3f, all %.3f "
+                        "(coarse, dog frame); face %.3f, body %.3f, tail %.3f (by the body's parts); worst local tile "
+                        "%.3f of the coat's effect\n",
+                        c.Name, worst[0], worst[1], worst[2], worst[3], worstAnatomical[0], worstAnatomical[1],
+                        worstAnatomical[2], worstTile);
             std::fflush(stdout);
         }
         m_Dog.Body.GetComponent<AnimationStateComponent>().m_IsPlaying = true;
