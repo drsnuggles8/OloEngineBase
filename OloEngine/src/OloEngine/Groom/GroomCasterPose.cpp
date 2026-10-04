@@ -156,16 +156,34 @@ namespace OloEngine
                     Grow(sum.Min, sum.Max, part.HeldMin, part.HeldMax);
                 }
                 f32 displacement = 0.0f;
-                f32 variation = 0.0f;
-                for (u32 role = 0; role < GroomCoatRoleCount; ++role)
+                if (pose.SlotWeightsKnown && padding.SlotsComplete)
                 {
-                    if ((part.RoleMask & (1u << role)) != 0u)
+                    // Each strand's weighted sum of its slots' variation, summed
+                    // over the run: the slots' summed weights against their
+                    // variation. No slot: the run is not simulated.
+                    for (u32 k = 0; k < part.SlotWeightCount; ++k)
                     {
-                        displacement = std::max(displacement, padding.Displacement[role]);
-                        variation = std::max(variation, padding.Variation[role]);
+                        const GroomCasterSlotWeight& w = pose.SlotWeights[part.FirstSlotWeight + k];
+                        if (w.Slot < padding.SlotVariation.size())
+                        {
+                            sum.Loss += static_cast<f64>(w.Weight) * padding.SlotVariation[w.Slot];
+                            displacement = std::max(displacement, padding.SlotDisplacement[w.Slot]);
+                        }
                     }
                 }
-                sum.Loss += static_cast<f64>(variation) * static_cast<f64>(part.Strands);
+                else
+                {
+                    f32 variation = 0.0f;
+                    for (u32 role = 0; role < GroomCoatRoleCount; ++role)
+                    {
+                        if ((part.RoleMask & (1u << role)) != 0u)
+                        {
+                            displacement = std::max(displacement, padding.Displacement[role]);
+                            variation = std::max(variation, padding.Variation[role]);
+                        }
+                    }
+                    sum.Loss += static_cast<f64>(variation) * static_cast<f64>(part.Strands);
+                }
                 for (sizet m = 0; m < 6u; ++m)
                 {
                     out.Moments[m] = static_cast<f32>(sum.Moments[m]);
@@ -188,7 +206,8 @@ namespace OloEngine
 
     u64 GroomCasterPose::CpuBytes() const noexcept
     {
-        return VectorBytes(Runs) + VectorBytes(Entries) + VectorBytes(Triangles) + VectorBytes(EntryCurves);
+        return VectorBytes(Runs) + VectorBytes(Entries) + VectorBytes(Triangles) + VectorBytes(EntryCurves) +
+               VectorBytes(SlotWeights);
     }
 
     u64 GroomCasterPoseSurface::CpuBytes() const noexcept
@@ -224,9 +243,15 @@ namespace OloEngine
 
     GroomCasterPose BuildGroomCasterPose(std::span<const GroomCasterRun> runs, std::span<const u32> strandOrder,
                                          std::span<const GroomCasterStrand> strands, std::span<const u32> strandCurves,
-                                         const GroomBindingAsset& binding, std::span<const GroomCasterLocalBox> localBoxes)
+                                         const GroomBindingAsset& binding, std::span<const GroomCasterLocalBox> localBoxes,
+                                         const GroomGuideInfluenceTable* influence)
     {
         const bool exactBoxes = localBoxes.size() == strands.size();
+        const std::span<const GroomGuideWeights> weights = influence != nullptr
+                                                               ? std::span<const GroomGuideWeights>(influence->GetWeights())
+                                                               : std::span<const GroomGuideWeights>{};
+        std::vector<f64> slotSum(influence != nullptr ? influence->GetGuideCount() : 0u, 0.0);
+        std::vector<u32> slotsTouched;
         GroomCasterPose pose;
         u64 covered = 0;
         for (const GroomCasterRun& run : runs)
@@ -271,6 +296,32 @@ namespace OloEngine
                     part.RoleMask = (1u << GroomCoatRoleCount) - 1u;
                 }
                 const u32 curve = strandCurves[strand];
+                if (curve < weights.size())
+                {
+                    // The blend divides by the weight it applies, so each
+                    // strand's weights count normalised to one.
+                    const GroomGuideWeights& blend = weights[curve];
+                    f64 applied = 0.0;
+                    for (u32 k = 0; k < GroomGuideInfluenceCount; ++k)
+                    {
+                        if (blend.Guides[k] < slotSum.size() && blend.Weights[k] > 0.0f)
+                        {
+                            applied += blend.Weights[k];
+                        }
+                    }
+                    for (u32 k = 0; k < GroomGuideInfluenceCount && applied > 0.0; ++k)
+                    {
+                        const u32 slot = blend.Guides[k];
+                        if (slot < slotSum.size() && blend.Weights[k] > 0.0f)
+                        {
+                            if (!(slotSum[slot] > 0.0))
+                            {
+                                slotsTouched.push_back(slot);
+                            }
+                            slotSum[slot] += static_cast<f64>(blend.Weights[k]) / applied;
+                        }
+                    }
+                }
                 if (curve < roots)
                 {
                     keyed.emplace_back(binding.GetRoot(curve).TriangleIndex, strand);
@@ -361,9 +412,19 @@ namespace OloEngine
                 pose.Entries.push_back(entry);
             }
             part.EntryCount = static_cast<u32>(pose.Entries.size()) - part.FirstEntry;
+            part.FirstSlotWeight = static_cast<u32>(pose.SlotWeights.size());
+            std::ranges::sort(slotsTouched);
+            for (const u32 slot : slotsTouched)
+            {
+                pose.SlotWeights.push_back({ slot, static_cast<f32>(slotSum[slot]) });
+                slotSum[slot] = 0.0;
+            }
+            part.SlotWeightCount = static_cast<u32>(slotsTouched.size());
+            slotsTouched.clear();
             first += run.Strands;
             pose.Runs.push_back(part);
         }
+        pose.SlotWeightsKnown = influence != nullptr;
         return pose;
     }
 
@@ -425,6 +486,14 @@ namespace OloEngine
                                                      ? std::span<const u32>(simulation->Influence->GetGuideCurves())
                                                      : std::span<const u32>{};
         const bool roles = coat != nullptr && coat->IsActive();
+        // Per slot, what the strands blend: complete when every slot has a
+        // displacement this frame (no strand's weights are renormalised).
+        const sizet slots = simulation->GuideOfSlot.size();
+        padding.SlotDisplacement.assign(slots, 0.0f);
+        padding.SlotVariation.assign(slots, 0.0f);
+        padding.SlotsComplete = slots > 0u;
+        std::vector<f32> guideDisplacement(d.GuideCount(), 0.0f);
+        std::vector<f32> guideVariation(d.GuideCount(), 0.0f);
         for (u32 g = 0; g < d.GuideCount(); ++g)
         {
             f32 farthest = 0.0f;
@@ -463,6 +532,21 @@ namespace OloEngine
                     padding.Variation[r] = std::max(padding.Variation[r], variation);
                 }
             }
+            guideDisplacement[g] = farthest;
+            guideVariation[g] = variation;
+        }
+        for (sizet s = 0; s < slots; ++s)
+        {
+            const u32 g = simulation->GuideOfSlot[s];
+            if (g >= d.GuideCount() || d.GuideOffsets[g + 1u] <= d.GuideOffsets[g])
+            {
+                // Left out with no stand-in, or a guide with no points: the
+                // blend skips it and renormalises its strands' weights.
+                padding.SlotsComplete = false;
+                continue;
+            }
+            padding.SlotDisplacement[s] = guideDisplacement[g];
+            padding.SlotVariation[s] = guideVariation[g];
         }
         return padding;
     }

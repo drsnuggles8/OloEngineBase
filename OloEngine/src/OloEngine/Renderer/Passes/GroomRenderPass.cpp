@@ -442,7 +442,7 @@ namespace OloEngine
         stream->Array->AddVertexBuffer(stream->Vertices);
         stream->Array->SetIndexBuffer(stream->Indices);
         stream->Caster = BuildCasterStream(stream->Vertices, vertices, indices, strandFirstIndex, casterStrands,
-                                           stream->RootCurves, &binding, true);
+                                           stream->RootCurves, &binding, true, request.Influence.Raw());
         stream->Bytes += stream->Caster.Bytes;
 
         m_CacheBytes += stream->Bytes;
@@ -1188,7 +1188,7 @@ namespace OloEngine
         // Built once with the buffers: the refill above moves the vertices and
         // keeps every index, so the caster's order stays valid with them.
         entry.Caster = BuildCasterStream(entry.Vertices, vertices, indices, strandFirstIndex, casterStrands, strandCurves,
-                                         deformed ? request.Binding.Raw() : nullptr, false);
+                                         deformed ? request.Binding.Raw() : nullptr, false, request.Influence.Raw());
         entry.Bytes += entry.Caster.Bytes;
 
         m_CacheBytes += entry.Bytes;
@@ -2996,7 +2996,8 @@ namespace OloEngine
                                                                           std::span<const u32> strandFirstIndex,
                                                                           std::span<const GroomCasterStrand> strands,
                                                                           std::span<const u32> strandCurves,
-                                                                          const GroomBindingAsset* binding, bool restStream)
+                                                                          const GroomBindingAsset* binding, bool restStream,
+                                                                          const GroomGuideInfluenceTable* influence)
     {
         GroomCasterStream caster;
         std::vector<u32> strandOrder;
@@ -3014,7 +3015,7 @@ namespace OloEngine
             const std::vector<GroomCasterLocalBox> localBoxes =
                 restStream ? CollectGroomCasterLocalBoxes(vertices, indices, strandFirstIndex)
                            : std::vector<GroomCasterLocalBox>{};
-            caster.Pose = BuildGroomCasterPose(order.Runs, strandOrder, strands, strandCurves, *binding, localBoxes);
+            caster.Pose = BuildGroomCasterPose(order.Runs, strandOrder, strands, strandCurves, *binding, localBoxes, influence);
         }
         caster.Indices = IndexBuffer::Create(order.Indices.data(), static_cast<u32>(order.Indices.size()));
         caster.Array = VertexArray::Create();

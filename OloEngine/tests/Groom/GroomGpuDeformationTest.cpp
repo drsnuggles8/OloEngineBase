@@ -363,7 +363,8 @@ namespace
         GroomCasterPose Pose;
     };
 
-    [[nodiscard]] CasterSetup MakeCasterSetup(const GroomAsset& groom, const GroomBindingAsset& binding)
+    [[nodiscard]] CasterSetup MakeCasterSetup(const GroomAsset& groom, const GroomBindingAsset& binding,
+                                              const GroomGuideInfluenceTable* influence = nullptr)
     {
         CasterSetup setup;
         setup.Settings.MaxStrands = groom.GetCurveCount();
@@ -373,7 +374,8 @@ namespace
         setup.Order = BuildGroomCasterOrder(setup.Rest, setup.RestIndices, setup.RestFirst, setup.RestStrands,
                                             &setup.StrandOrder);
         setup.Pose = BuildGroomCasterPose(setup.Order.Runs, setup.StrandOrder, setup.RestStrands, setup.RootCurves,
-                                          binding, CollectGroomCasterLocalBoxes(setup.Rest, setup.RestIndices, setup.RestFirst));
+                                          binding, CollectGroomCasterLocalBoxes(setup.Rest, setup.RestIndices, setup.RestFirst),
+                                          influence);
         return setup;
     }
 
@@ -1456,9 +1458,11 @@ TEST(GroomGpuDeformation, TheCasterRunsHoldEverySimulatedPointAndPayForTheShorte
 {
     // #1533 review: the simulation moves points after the root transform. The
     // posed box is padded by the farthest a guide was displaced, and the claim
-    // gives up, per strand, the most a guide's displacement varies from root to
-    // tip: a segment's projected length shrinks by at most the change in
-    // displacement between its ends.
+    // gives up what the displacement can shorten: a segment's projected length
+    // shrinks by at most the change in displacement between its ends. Two
+    // ways, both held to the simulated coat: per strand the largest variation
+    // of any guide (a pose built without the influence table), and per strand
+    // its own slots' variation, blended by its weights (built with it).
     BoundScene scene = MakeBoundScene(40u, 8u);
     ASSERT_TRUE(scene.Groom && scene.Binding);
     const Simulation simulation = MakeSimulation(*scene.Groom);
@@ -1498,6 +1502,105 @@ TEST(GroomGpuDeformation, TheCasterRunsHoldEverySimulatedPointAndPayForTheShorte
                     "claim/actual is %.4f\n",
                     r, posed.BySurface[r].ProjectedLengthLoss, posed.BySurface[r].TotalLength, unpaidWorst);
         EXPECT_GT(unpaidWorst, 1.0) << "the control: without the variation term the claim should exceed the coat somewhere";
+    }
+
+    // PER SLOT: the strands' own guides' variation, blended by their weights.
+    // On a gentler copy of the same motion (a tenth of it), so the claim stays
+    // above zero and holding it to the coat means something: at full strength
+    // either loss exceeds the run's length and the claim is zero.
+    Simulation gentle = simulation;
+    for (glm::vec3& p : gentle.Displacements)
+    {
+        p *= 0.1f;
+    }
+    for (glm::vec3& p : gentle.PrevDisplacements)
+    {
+        p *= 0.1f;
+    }
+    const GroomStrandSimulation gentleView = gentle.View();
+    const std::vector<RunTruth> gentleTruth = MeasureTruth(*scene.Groom, *scene.Binding, scene.Transforms, setup, &gentleView);
+    const GroomCasterPosePadding gentlePadding =
+        MeasureGroomCasterPosePadding(&gentleView, scene.Groom->GetCurveGroupIds(), nullptr, 0.0f);
+    ASSERT_TRUE(gentlePadding.SlotsComplete) << "every guide is simulated: every slot has a displacement";
+    const CasterSetup slotted = MakeCasterSetup(*scene.Groom, *scene.Binding, simulation.Table.Raw());
+    ASSERT_TRUE(slotted.Pose.SlotWeightsKnown);
+    const Posed byRole = PoseBothWays(setup, inputs, scene.Transforms, gentlePadding);
+    const Posed bySlot = PoseBothWays(slotted, inputs, scene.Transforms, gentlePadding);
+    GroomCasterPosePadding halfSlots = gentlePadding;
+    for (f32& v : halfSlots.SlotVariation)
+    {
+        v *= 0.5f;
+    }
+    const Posed halfPaid = PoseBothWays(slotted, inputs, scene.Transforms, halfSlots);
+    f64 slotTotal = 0.0;
+    f64 roleTotal = 0.0;
+    f64 halfWorst = 0.0;
+    for (sizet r = 0; r < gentleTruth.size(); ++r)
+    {
+        SCOPED_TRACE("per slot, run " + std::to_string(r));
+        ASSERT_LT(bySlot.BySurface[r].ProjectedLengthLoss, bySlot.BySurface[r].TotalLength)
+            << "the per-slot claim should stay above zero, or holding it to the coat proves nothing";
+        for (const auto* run : { &bySlot.BySurface[r], &bySlot.ByRoots[r] })
+        {
+            EXPECT_TRUE(Holds(*run, gentleTruth[r])) << "a per-slot posed box does not hold the simulated coat";
+            for (u32 k = 0; k < 64u; ++k)
+            {
+                const glm::vec3 d = UnitDirection(29u, k);
+                EXPECT_LE(ClaimedAcross(*run, d), ProjectedAcross(gentleTruth[r], glm::dvec3(d)) * (1.0 + 1.0e-5) + 1.0e-7)
+                    << "direction " << k;
+            }
+        }
+        for (u32 k = 0; k < 64u; ++k)
+        {
+            const glm::vec3 d = UnitDirection(29u, k);
+            halfWorst =
+                std::max(halfWorst, ClaimedAcross(halfPaid.BySurface[r], d) / ProjectedAcross(gentleTruth[r], glm::dvec3(d)));
+        }
+        slotTotal += bySlot.BySurface[r].ProjectedLengthLoss;
+        roleTotal += byRole.BySurface[r].ProjectedLengthLoss;
+        std::printf("[groom-gpu] gentle coat, run %zu: per-slot loss %.4f, per-role %.4f, of %.4f\n", r,
+                    bySlot.BySurface[r].ProjectedLengthLoss, byRole.BySurface[r].ProjectedLengthLoss,
+                    bySlot.BySurface[r].TotalLength);
+        EXPECT_LE(bySlot.BySurface[r].ProjectedLengthLoss, byRole.BySurface[r].ProjectedLengthLoss * 1.0001f)
+            << "the per-slot loss should never exceed the per-role one";
+    }
+    std::printf("[groom-gpu] gentle coat: per-slot loss %.4f against per-role %.4f; with half the per-slot "
+                "variation the largest claim/actual is %.4f\n",
+                slotTotal, roleTotal, halfWorst);
+    // Each guide here is displaced by a different amount, so a strand's own
+    // guides vary less than the largest of the coat's: a per-slot pose that
+    // pays the per-role loss has fallen back without saying so.
+    EXPECT_LT(slotTotal, roleTotal) << "the per-slot bound should be tighter than the per-role one on this coat";
+    EXPECT_GT(halfWorst, 1.0) << "the control: half the per-slot variation should let the claim exceed the coat somewhere";
+
+    // A slot the budget left out renormalises its strands' weights: the
+    // per-slot bound no longer describes the blend, and the pose pays the
+    // per-role bound instead.
+    const Simulation dropped = MakeSimulation(*scene.Groom, 3u);
+    const GroomStrandSimulation droppedView = dropped.View();
+    ASSERT_TRUE(droppedView.IsUsable(scene.Groom->GetCurveCount()));
+    const GroomCasterPosePadding droppedPadding =
+        MeasureGroomCasterPosePadding(&droppedView, scene.Groom->GetCurveGroupIds(), nullptr, 0.0f);
+    EXPECT_FALSE(droppedPadding.SlotsComplete);
+    const std::vector<RunTruth> droppedTruth =
+        MeasureTruth(*scene.Groom, *scene.Binding, scene.Transforms, slotted, &droppedView);
+    const Posed droppedBySlot = PoseBothWays(slotted, inputs, scene.Transforms, droppedPadding);
+    const Posed droppedByRole = PoseBothWays(setup, inputs, scene.Transforms, droppedPadding);
+    for (sizet r = 0; r < droppedTruth.size(); ++r)
+    {
+        SCOPED_TRACE("dropped slots, run " + std::to_string(r));
+        for (const auto* run : { &droppedBySlot.BySurface[r], &droppedBySlot.ByRoots[r] })
+        {
+            EXPECT_TRUE(Holds(*run, droppedTruth[r])) << "a posed box does not hold the renormalised coat";
+            for (u32 k = 0; k < 64u; ++k)
+            {
+                const glm::vec3 d = UnitDirection(29u, k);
+                EXPECT_LE(ClaimedAcross(*run, d), ProjectedAcross(droppedTruth[r], glm::dvec3(d)) * (1.0 + 1.0e-5) + 1.0e-7)
+                    << "direction " << k;
+            }
+        }
+        EXPECT_FLOAT_EQ(droppedBySlot.BySurface[r].ProjectedLengthLoss, droppedByRole.BySurface[r].ProjectedLengthLoss)
+            << "with a slot left out the pose should pay the per-role bound";
     }
 }
 

@@ -45,12 +45,16 @@
 //     a frame too ill-conditioned to trust gets no projected-length credit at
 //     all (ProjectedLengthLoss) and a box of its hull padded by its full reach,
 //     joined with the run's rest box;
-//   * the guide simulation moves points after the root transform: the box is
-//     padded by the farthest any guide of the run's coat roles was displaced,
-//     and the bound gives up, per strand, the most any such guide's
-//     displacement varies from root to tip (its total variation along the
-//     guide): a segment's projected length can shrink by no more than the
-//     change in displacement between its ends.
+//   * the guide simulation moves points after the root transform, by a blend
+//     of guide displacements whose weights sum to one. The box is padded by
+//     the farthest any guide slot the run's strands draw on was displaced, and
+//     the bound gives up each strand's weighted sum of those slots' total
+//     variation from root to tip: a segment's projected length shrinks by no
+//     more than the change in displacement between its ends, and a blend's
+//     variation is at most the blend of its parts'. When the frame leaves a
+//     slot out without a stand-in (its strands' weights are renormalised), or
+//     the pose was built without the influence table, each strand gives up the
+//     largest variation of any guide of its coat roles instead.
 // =============================================================================
 
 #include "OloEngine/Core/Base.h"
@@ -67,6 +71,7 @@
 namespace OloEngine
 {
     class GroomBindingAsset;
+    class GroomGuideInfluenceTable;
     struct GroomDeformationInputs;
     struct GroomRootTransform;
     struct GroomStrandSimulation;
@@ -110,6 +115,18 @@ namespace OloEngine
         /// The coat roles of the run's strands, as bits: the guides whose
         /// displacement can reach them.
         u32 RoleMask = 0;
+        /// The guide slots the run's strands are displaced by, with their
+        /// influence weights summed over the strands
+        /// (GroomCasterPose::SlotWeights[FirstSlotWeight, + SlotWeightCount)).
+        u32 FirstSlotWeight = 0;
+        u32 SlotWeightCount = 0;
+    };
+
+    /// One guide slot's summed influence on a run's strands.
+    struct GroomCasterSlotWeight
+    {
+        u32 Slot = 0;
+        f32 Weight = 0.0f;
     };
 
     /// A caster stream's runs, kept so any pose can be evaluated exactly. Built
@@ -122,6 +139,10 @@ namespace OloEngine
         /// The distinct root triangles the entries name (surface triangle ids).
         std::vector<u32> Triangles;
         std::vector<u32> EntryCurves;
+        std::vector<GroomCasterSlotWeight> SlotWeights;
+        /// True when the pose was built with the groom's influence table, so a
+        /// run's slot weights are known (none: its strands are not simulated).
+        bool SlotWeightsKnown = false;
 
         [[nodiscard]] bool IsUsable() const noexcept
         {
@@ -169,12 +190,15 @@ namespace OloEngine
     /// binding is all held. `localBoxes`, from a rest stream, gives each
     /// strand's exact box in its bind frame; without it a strand's rest box is
     /// turned into the frame, which holds the same points more loosely.
+    /// `influence`, the groom's guide influence table, gives each run's slot
+    /// weights for the simulation's per-slot bound.
     [[nodiscard]] GroomCasterPose BuildGroomCasterPose(std::span<const GroomCasterRun> runs,
                                                        std::span<const u32> strandOrder,
                                                        std::span<const GroomCasterStrand> strands,
                                                        std::span<const u32> strandCurves,
                                                        const GroomBindingAsset& binding,
-                                                       std::span<const GroomCasterLocalBox> localBoxes = {});
+                                                       std::span<const GroomCasterLocalBox> localBoxes = {},
+                                                       const GroomGuideInfluenceTable* influence = nullptr);
 
     /// The surface half for `pose` on `surface`.
     [[nodiscard]] GroomCasterPoseSurface BuildGroomCasterPoseSurface(const GroomCasterPose& pose,
@@ -197,6 +221,13 @@ namespace OloEngine
         /// summed along it (its total variation): the most the simulation can
         /// shorten one strand's projected length.
         std::array<f32, GroomCoatRoleCount> Variation{};
+        /// Per guide SLOT, its displacement's farthest point and total
+        /// variation this frame; SlotsComplete when every slot has a
+        /// displacement (every guide simulated, or the stand-ins expanded), so
+        /// every strand blends its own slots with its table weights.
+        std::vector<f32> SlotDisplacement;
+        std::vector<f32> SlotVariation;
+        bool SlotsComplete = false;
     };
 
     /// This frame's padding: each simulated guide's displacement and variation

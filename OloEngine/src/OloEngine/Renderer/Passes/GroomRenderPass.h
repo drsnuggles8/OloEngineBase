@@ -647,7 +647,8 @@ namespace OloEngine
                                                                  std::span<const u32> strandFirstIndex,
                                                                  std::span<const GroomCasterStrand> strands,
                                                                  std::span<const u32> strandCurves,
-                                                                 const GroomBindingAsset* binding, bool restStream);
+                                                                 const GroomBindingAsset* binding, bool restStream,
+                                                                 const GroomGuideInfluenceTable* influence);
 
         /// A bound coat's REST stream (#1427), shared by every entity that wears
         /// the same groom at the same budget, coat and binding. Unlike the frame
