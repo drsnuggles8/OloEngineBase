@@ -343,12 +343,15 @@ namespace OloEngine::Tests
             const char* Material;
             const char* Profile; // under Assets/Materials
             f32 Thickness;
+            f32 Roughness = -1.0f; // the base lobe's; negative keeps the glTF's
         };
-        // The teeth: enamel, because the open mouth shows them.
+        // The teeth: enamel, because the open mouth shows them. The tongue's
+        // base is rough (#1533): its papillae scatter the specular, and at the
+        // glTF's 0.30 under a strong film it read lacquered (DogTongue.oloskin).
         constexpr std::array<SkinPatch, 5> kSkinPatches{ { { "DogNose", "DogNose.oloskin", 0.003f },
                                                            { "DogLip", "DogLip.oloskin", 0.003f },
                                                            { "DogGum", "DogGum.oloskin", 0.004f },
-                                                           { "DogTongue", "DogTongue.oloskin", 0.006f },
+                                                           { "DogTongue", "DogTongue.oloskin", 0.006f, 0.6f },
                                                            { "DogTeeth", "DogTeeth.oloskin", 0.005f } } };
     } // namespace
 
@@ -1024,6 +1027,11 @@ namespace OloEngine::Tests
                 patch.Kind = MaterialKind::Skin;
                 patch.SkinProfile = m_SkinHandles[i];
                 patch.ThicknessFactor = kSkinPatches[i].Thickness;
+                if (kSkinPatches[i].Roughness >= 0.0f)
+                {
+                    patch.OverrideRoughness = true;
+                    patch.Roughness = kSkinPatches[i].Roughness;
+                }
                 overrides.m_Overrides.Add(patch);
             }
 

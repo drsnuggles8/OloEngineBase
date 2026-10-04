@@ -391,8 +391,8 @@ Entities:
           ThicknessFactor: 0.006
           OverrideBaseColor: false
           BaseColor: [1, 1, 1, 1]
-          OverrideRoughness: false
-          Roughness: 0.5
+          OverrideRoughness: true
+          Roughness: 0.6
           OverrideMetallic: false
           Metallic: 0
         - MaterialName: DogTeeth

@@ -1,8 +1,15 @@
 SkinProfile:
   Name: Dog Tongue
   # The showcase dog's tongue (issue #1533), the surface the pant pose puts in
-  # front of the camera. TRANSPORT VERSION 4, like OralTongue.oloskin, but pinker
-  # and wetter: a panting dog's tongue is the wettest thing in the frame.
+  # front of the camera. TRANSPORT VERSION 4, like OralTongue.oloskin, but pinker.
+  #
+  # MOIST SATIN, NOT LACQUER. A tongue's top is a field of papillae: they scatter
+  # the specular and the saliva film follows them, so the highlights are broad
+  # and soft. With the glTF's base roughness 0.30 and a film of 0.75 at 0.06 the
+  # tongue read as varnished. The scene overrides the base
+  # to 0.60 (Dog.olo's DogTongue override, and the fixture's skin patch), half of
+  # it in the broad lobe, under a film of 0.30 at 0.25: wet, with soft highlights
+  # and a light sparkle on the papillae.
   EvaluationModel: 4
   Units: "colours: linear Rec.709 (unitless 0..1); lengths: millimetres"
   ScatterColor: [0.9, 0.44, 0.46]
@@ -14,7 +21,7 @@ SkinProfile:
     Anisotropy: 0.7
     Power: 4
   Specular:
-    LobeMix: 0.4
+    LobeMix: 0.5
     LobeRoughnessScale: 2.2
     # The pixel's normal spread widens the base lobe and the saliva coat (#1533):
     # at 0 the mouth's coats point-sampled a delta light's glint and read up to
@@ -23,8 +30,8 @@ SkinProfile:
     DetailStrength: 0
     ExpressionDetailGain: 0
   Oral:
-    CoatStrength: 0.75
-    CoatRoughness: 0.06
+    CoatStrength: 0.3
+    CoatRoughness: 0.25
     CoatIor: 1.33
     # Out of the mouth in the pant pose it is lit from outside; inside the mouth
     # its transmission is spent on the cavity's own occlusion, as OralTongue's is.
