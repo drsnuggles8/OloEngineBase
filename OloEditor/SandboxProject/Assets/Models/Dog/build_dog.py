@@ -1441,7 +1441,7 @@ def build_tongue_mesh(log=print):
 
 # teeth: (base point in the head frame, direction, length, base radii (mesio-distal, labio-lingual), jaw)
 #
-# TWO SIZES, and the split is about the coat, not the teeth (#1533, round 4). The body's UVs are one
+# TWO SIZES, and the split is about the coat, not the teeth (#1533). The body's UVs are one
 # smart projection over the whole mesh, teeth included, and the groom keys its colour map and clump
 # cells on the pelt's root UVs: an island that changes shape repacks the pelt and regrows every clump.
 # So the teeth enter the projection at their FIRST size (final=False), and reshape_teeth puts them at
@@ -2595,8 +2595,8 @@ def bake_nose_occlusion(ob, out_path, log=print):
 
 
 # ----------------------------------------------------------------------------
-# The mouth's own maps (#1533, round 4). The tongue, gums, lips and teeth were flat glTF colour and
-# roughness: the tongue read as smooth pink plastic, and with no occlusion the wet film on the palate
+# The mouth's own maps (#1533). As flat glTF colour and roughness the tongue, gums, lips and teeth
+# read wrong: the tongue as smooth pink plastic, and with no occlusion the wet film on the palate
 # reflected the sky's sun as a white blaze. Each part is re-unwrapped into its own UV square after
 # the coat map is baked (the pelt's islands are not touched), then gets
 #   * a COLOUR map painted from its own surface (position and normal baked per texel, the pattern
@@ -3297,7 +3297,7 @@ def clip_pant(r, t):
     r.rot("jaw", AX_X, 22.0 + 3.0 * s)
     # The tongue SLIDES out over the lower incisors first (its bend pivots sit behind the lip,
     # so bending in place drove the tip through the chin), then hangs over the lip. Lifted 7 mm
-    # as it goes: the incisors stand clear of the gum since round 4 (_teeth_layout), and at the
+    # as it goes: the incisors stand clear of the gum (_teeth_layout), and at the
     # first 3 mm the tongue slid through them.
     r.move("tongue_01", (0.0, -0.030, 0.007))
     r.rot("tongue_01", AX_X, -4.0)

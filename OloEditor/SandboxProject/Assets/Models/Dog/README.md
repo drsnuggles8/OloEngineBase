@@ -38,8 +38,8 @@ node's scale twice.
 
 **Materials.** `DogSkin` (the pelt), `DogNose`, `DogLip`, `DogGum`, `DogTongue`, `DogTeeth`, `DogPad`
 and `DogLid` (the outer skin of the eyelid shells). The scene patches skin profiles over the bare
-skins by name through a `MaterialOverridesComponent` (the nose, lips, gums, tongue and, since round 4
-of #1533, the teeth's enamel), and the coat grows only on `DogSkin` and `DogLid`. Each nostril's inside, past 1.5 mm into the leather, is `DogPad`: matte, dark, with no wet
+skins by name through a `MaterialOverridesComponent` (the nose, lips, gums, tongue and the teeth's
+enamel), and the coat grows only on `DogSkin` and `DogLid`. Each nostril's inside, past 1.5 mm into the leather, is `DogPad`: matte, dark, with no wet
 film to catch the light, which read as a pair of glass beads.
 
 **Eyes.** Not in the glTF. `SkinOcularSurface` needs each eye to be its own uniformly scaled sphere

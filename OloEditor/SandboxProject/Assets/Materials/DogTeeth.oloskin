@@ -1,9 +1,9 @@
 SkinProfile:
   Name: Dog Teeth
-  # The showcase dog's teeth (issue #1533, round 4). TRANSPORT VERSION 4, the
-  # human OralEnamel.oloskin's enamel with the dog's sizes. Until round 4 the
-  # teeth were bare glTF PBR and half the size a golden retriever's are; with
-  # the mouth open they now show, so they need what makes a tooth read as a
+  # The showcase dog's teeth (issue #1533). TRANSPORT VERSION 4, the human
+  # OralEnamel.oloskin's enamel with the dog's sizes. Bare glTF PBR teeth at
+  # half a golden retriever's size read as white beads; with the mouth open
+  # they show, so they need what makes a tooth read as a
   # tooth rather than a white bead: a near-achromatic scatter, enamel's own wet
   # film at its own index, and the cavity weight that keeps a tooth inside a
   # shut mouth from glowing through the lip.
