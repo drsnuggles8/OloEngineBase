@@ -67,6 +67,9 @@ shows. The grass holds still in those frames; it sways in the editor.
   a catch-light. The head tilt moves the brow.
 - **The nose and the panting mouth** (A4): the nose leather is dark against the coat with a
   specular highlight; at the Pant clip's widest jaw the tongue, gums and lips are on screen.
+- **The teeth stay out of the tongue** (A4): every clip on 150 runtime frames, the mouth skinned on
+  the CPU; no tooth vertex is more than 0.5 mm inside the tongue. Pant's tongue bends in front of
+  the lower incisors; a bend behind them put 1,137 tooth vertices up to 5.6 mm deep in every frame.
 - **The wet surfaces catch the sun without fireflies**: at the low hero view, at 128 sample
   positions per pixel, no skin or eye pixel reads above 100 (shipped: 10); with every dog profile's
   variance strength at 0, the frame before the fix, the eye's and the mouth's coats point-sample the
