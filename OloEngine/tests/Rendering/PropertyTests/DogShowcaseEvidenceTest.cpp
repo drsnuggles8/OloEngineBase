@@ -1389,10 +1389,10 @@ namespace OloEngine::Tests
         // same state: the clip time, the pose and the particles are a function of
         // it alone (StepGroomGuideSimulation is deterministic), which is what a
         // replayed arm stands on.
-        MotionResult StartClip(const char* clip, bool loop, u32 frames)
+        MotionResult StartClip(const char* clip, bool loop, u32 frames, const glm::vec3& origin = glm::vec3(0.0f))
         {
             // From where every replay starts: the walk carries the dog off it.
-            m_Dog.Body.GetComponent<TransformComponent>().Translation = glm::vec3(0.0f);
+            m_Dog.Body.GetComponent<TransformComponent>().Translation = origin;
             auto& anim = m_Dog.Body.GetComponent<AnimationStateComponent>();
             anim.m_RequestedClip = clip;
             anim.m_RequestedLoop = loop;
@@ -1505,20 +1505,55 @@ namespace OloEngine::Tests
             camera.GetComponent<CameraComponent>().Camera.SetPerspective(glm::radians(view.Fov), kCameraNear, kCameraFar);
         }
 
-        // The runtime camera's world-to-clip transform, unjittered: what a held
-        // frame's depth is unprojected through (the jitter is a fraction of a
-        // pixel, a fraction of a millimetre at these distances). As RenderRuntime
-        // composes it: the dog's world matrix (the camera rides the dog) times
-        // the camera's OWN transform. Not the camera's cached world matrix: the
-        // runtime tick propagates it, which a held frame skips, so after a
-        // camera move on held frames it still holds the last runtime frame's
-        // pose -- and depth unprojected through it lands nowhere near the dog.
+        // The runtime camera's world-to-clip transform as the scene STORES it,
+        // unjittered (the jitter is a fraction of a pixel, a fraction of a
+        // millimetre at these distances): the camera's own transform under its
+        // parent's world matrix (the camera rides the dog), as RenderRuntime
+        // composes it. Not the camera's cached world matrix: the runtime tick
+        // propagates it, which a held frame skips, so after a camera move on
+        // held frames it still holds the last runtime frame's pose -- and depth
+        // unprojected through it lands nowhere near the dog.
         [[nodiscard]] glm::mat4 RuntimeViewProjection()
         {
             Entity camera = RuntimeCamera();
-            const glm::mat4 dog = GetScene().GetWorldTransform(static_cast<entt::entity>(m_Dog.Body));
-            return camera.GetComponent<CameraComponent>().Camera.GetProjection() *
-                   glm::inverse(dog * camera.GetComponent<TransformComponent>().GetTransform());
+            glm::mat4 world = camera.GetComponent<TransformComponent>().GetTransform();
+            if (const Entity parent = camera.GetParent(); parent)
+            {
+                world = GetScene().GetWorldTransform(static_cast<entt::entity>(parent)) * world;
+            }
+            return camera.GetComponent<CameraComponent>().Camera.GetProjection() * glm::inverse(world);
+        }
+
+        // THE MATRIX A RUNTIME READBACK UNPROJECTS THROUGH (#1533 review): the
+        // one the LAST runtime frame was drawn with -- RenderRuntime's own,
+        // composed after the render interpolation and the camera's parent
+        // (Scene::GetCameraViewProjection), unjittered as above -- taken AFTER
+        // that frame, for every frame. The walk carries the dog, and the camera
+        // riding it, 5.2 mm a frame: a matrix taken before a measured sequence
+        // puts frame 60's points 31 cm from where its depth says, as far as the
+        // classifier searches for the body. It must also be the pose the scene
+        // STORES (RuntimeViewProjection), which PoseBody skins the reference body
+        // into: a frame drawn from an interpolated pose, or a camera moved after
+        // the frame, would put the depth and the body in different places, and
+        // fails here instead of misplacing every pixel.
+        [[nodiscard]] glm::mat4 RenderedViewProjection()
+        {
+            const glm::mat4 rendered = GetScene().GetCameraViewProjection();
+            const glm::mat4 stored = RuntimeViewProjection();
+            f32 scale = 0.0f;
+            f32 difference = 0.0f;
+            for (glm::length_t c = 0; c < 4; ++c)
+            {
+                for (glm::length_t r = 0; r < 4; ++r)
+                {
+                    scale = std::max(scale, std::abs(stored[c][r]));
+                    difference = std::max(difference, std::abs(rendered[c][r] - stored[c][r]));
+                }
+            }
+            EXPECT_LE(difference, 1.0e-5f * scale)
+                << "the last frame was drawn through a camera the scene no longer stores: its depth, the camera and "
+                   "the posed body would describe different states";
+            return rendered;
         }
 
         [[nodiscard]] EditorCamera MakeEditorCamera(const View& view) const
@@ -1785,7 +1820,7 @@ namespace OloEngine::Tests
             ColdHistory();
             HoldRuntime(settleFrames);
             AverageLinear([&]
-                          { HoldRuntime(1); }, RuntimeViewProjection(), out, averageFrames);
+                          { HoldRuntime(1); }, RenderedViewProjection(), out, averageFrames);
         }
 
         static void AverageLinear(const std::function<void()>& renderOne, const glm::mat4& viewProjection,
@@ -2713,11 +2748,10 @@ namespace OloEngine::Tests
             // Per tile and part: coat and furred-skin pixels over every frame.
             std::vector<std::array<f64, 2>> tiles;
             u32 tilesX = 0;
-            const glm::mat4 viewProjection = RuntimeViewProjection();
             for (u32 f = 0; f < frames; ++f)
             {
                 HoldRuntime(1);
-                ReadbackLinear(viewProjection, frame, false);
+                ReadbackLinear(RenderedViewProjection(), frame, false);
                 if (HasFatalFailure())
                 {
                     return sum;
@@ -2887,6 +2921,7 @@ namespace OloEngine::Tests
         {
             std::vector<std::vector<f32>> Luma; // the composite's luma per measured frame, [0, 1]
             std::vector<PixelParts> Parts;      // per measured frame, when RecordRuntime was given parts
+            std::vector<FrameParts> Placed;     // with them: the coat pixels placed on the body, and those lost
             std::vector<f32> ClipTime;          // the clip's time after each measured frame
             std::vector<u32> SolverSteps;       // the solver's fixed steps in each
             f32 ClipDuration = 0.0f;
@@ -2955,7 +2990,6 @@ namespace OloEngine::Tests
             s.ClipDuration = anim.m_CurrentClip ? anim.m_CurrentClip->Duration : 0.0f;
             const GroomAsset& groom = *m_Dog.CoatAsset.Groom;
             const std::vector<i32> coat{ static_cast<i32>(static_cast<u32>(m_Dog.Coat)) };
-            const glm::mat4 viewProjection = RuntimeViewProjection();
             std::vector<u8> ldr;
             std::vector<u8> previous;
             for (u32 f = 0; f < frames; ++f)
@@ -2979,13 +3013,17 @@ namespace OloEngine::Tests
                 std::swap(previous, ldr);
                 if (parts != nullptr)
                 {
+                    // The body, the camera and the depth of THIS frame: the
+                    // matrix it was drawn with, taken after it -- the walk has
+                    // moved the dog and the camera riding it since the last.
                     PoseBody(*parts);
                     LinearFrame frame;
-                    ReadbackLinear(viewProjection, frame, false);
+                    ReadbackLinear(RenderedViewProjection(), frame, false);
                     FrameParts counts;
                     PixelParts pixels;
                     ClassifyFrame(*parts, frame, coat, counts, &pixels);
                     s.Parts.push_back(std::move(pixels));
+                    s.Placed.push_back(counts);
                 }
                 std::vector<glm::vec3> tips;
                 const GroomGuideSimulationState* sim = GetScene().FindGroomGuideSimulation(m_Dog.Coat.GetUUID());
@@ -3107,6 +3145,85 @@ namespace OloEngine::Tests
             std::array<f64, kShimmerRegions> Control{};
             std::array<f64, kShimmerRegions> Pixels{}; // compared per frame pair
         };
+
+        // A measured frame's coat pixels by shimmer region (the fringe counted
+        // as well as its part, as RegionalMeans counts it).
+        [[nodiscard]] static std::array<f64, kShimmerRegions> RegionPixels(const PixelParts& parts)
+        {
+            std::array<f64, kShimmerRegions> pixels{};
+            for (sizet i = 0; i < parts.Coat.size(); ++i)
+            {
+                if (parts.Coat[i] == 0u)
+                {
+                    continue;
+                }
+                pixels[ShimmerRegionOf(parts.Part[i])] += 1.0;
+                pixels[4] += parts.Fringe[i] != 0u ? 1.0 : 0.0;
+            }
+            return pixels;
+        }
+
+        // The regions a B6 view frames, which it must therefore measure: the
+        // front three-quarter view the face, the ears and the body, the rear
+        // view the tail and the body, both the coat's fringe. A region a view
+        // does not frame (the face from behind) may fall under the floor.
+        [[nodiscard]] static std::array<bool, kShimmerRegions> RequiredShimmerRegions(const View& view)
+        {
+            const std::string_view name(view.Name);
+            if (name == "FrontThreeQuarter")
+            {
+                return { true, true, false, true, true };
+            }
+            if (name == "RearTail")
+            {
+                return { false, false, true, true, true };
+            }
+            ADD_FAILURE() << "B6 names no required regions for the view " << name;
+            return {};
+        }
+
+        // The share of a frame's coat pixels with no body vertex within 30 cm:
+        // a coat drawn on the body has none, so a share above this is a depth
+        // unprojected through the wrong camera, or a body posed for another
+        // state, and the frame's regions would be measuring less than they say.
+        static constexpr f64 kLostCoatShare = 0.001;
+
+        // A recorded sequence measures what it claims on EVERY frame: its coat
+        // is placed on the body, and each region the view frames has at least
+        // kRegionPixels of it.
+        static void ExpectPlacedEveryFrame(const RuntimeSequence& s, const std::array<bool, kShimmerRegions>& required,
+                                           const std::string& label)
+        {
+            const char* arm = label.c_str();
+            ASSERT_EQ(s.Placed.size(), s.Parts.size()) << arm;
+            ASSERT_FALSE(s.Parts.empty()) << arm << ": nothing was classified";
+            f64 worstLost = 0.0;
+            std::array<f64, kShimmerRegions> fewest{};
+            fewest.fill(std::numeric_limits<f64>::max());
+            for (sizet f = 0; f < s.Parts.size(); ++f)
+            {
+                const FrameParts& placed = s.Placed[f];
+                const f64 lost = placed.CoatPixels > 0.0 ? placed.Lost / placed.CoatPixels : 1.0;
+                worstLost = std::max(worstLost, lost);
+                EXPECT_LE(lost, kLostCoatShare) << arm << " frame " << f << ": " << placed.Lost << " of " << placed.CoatPixels
+                                                << " coat pixels have no body within 30 cm";
+                const std::array<f64, kShimmerRegions> pixels = RegionPixels(s.Parts[f]);
+                for (sizet r = 0; r < kShimmerRegions; ++r)
+                {
+                    fewest[r] = std::min(fewest[r], pixels[r]);
+                    if (required[r])
+                    {
+                        EXPECT_GE(pixels[r], kRegionPixels)
+                            << arm << " frame " << f << ": the view frames the " << kShimmerRegionNames[r]
+                            << ", and it measured " << pixels[r] << " px of it";
+                    }
+                }
+            }
+            std::printf("[dog] B6 %s placement: worst lost share %.5f; fewest px per frame: face %.0f, ears %.0f, tail %.0f, "
+                        "body %.0f, fringe %.0f\n",
+                        arm, worstLost, fewest[0], fewest[1], fewest[2], fewest[3], fewest[4]);
+            std::fflush(stdout);
+        }
 
         [[nodiscard]] static sizet ShimmerRegionOf(u8 part)
         {
@@ -3646,7 +3763,7 @@ namespace OloEngine::Tests
                 f.Distance = path.Near * std::pow(path.Far / path.Near, s);
                 AimRuntimeCamera(DollyView(f.Distance));
                 HoldRuntime(1);
-                ReadbackLinear(RuntimeViewProjection(), frame, true);
+                ReadbackLinear(RenderedViewProjection(), frame, true);
                 if (HasFatalFailure())
                 {
                     return dolly;
@@ -4123,7 +4240,7 @@ namespace OloEngine::Tests
                 for (u32 k = 0; k < frames; ++k)
                 {
                     HoldRuntime(1);
-                    ReadbackLinear(RuntimeViewProjection(), frame, true);
+                    ReadbackLinear(RenderedViewProjection(), frame, true);
                     if (HasFatalFailure())
                     {
                         return;
@@ -4556,6 +4673,13 @@ namespace OloEngine::Tests
     // frame of its OWN instant better than the one four frames earlier (a
     // smearing or ghosting resolve drags the past along).
     //
+    // EVERY FRAME'S OWN CAMERA (#1533 review): the walk carries the dog and the
+    // camera riding it, so each measured frame is unprojected through the
+    // camera it was drawn with (RenderedViewProjection), and every frame must
+    // place its coat on the body and measure each region its view frames
+    // (ExpectPlacedEveryFrame): a region never passes by falling under its
+    // floor. TheRuntimeReadbackFollowsTheTravellingDog holds the readback to it.
+    //
     // OLO_DOG_B6_ONLY=<clip>:<view> (e.g. Walk:RearTail) runs that one arm,
     // for iterating on it; the test is only whole without it.
     // =========================================================================
@@ -4590,6 +4714,13 @@ namespace OloEngine::Tests
                 SetTaa(0.0f);
                 const RuntimeSequence raw = RecordRuntime(clip, view, kWarmup, kFrames, &parts);
                 ASSERT_FALSE(HasFatalFailure());
+                // NOT VACUOUS WHERE IT LOOKS (#1533 review): every measured
+                // frame's coat is placed on the body and every region the view
+                // frames is measured, so a region cannot pass by falling under
+                // its floor.
+                const std::array<bool, kShimmerRegions> required = RequiredShimmerRegions(view);
+                ExpectPlacedEveryFrame(resolved, required, std::string(clip) + " " + view.Name + " resolved");
+                ExpectPlacedEveryFrame(raw, required, std::string(clip) + " " + view.Name + " no history");
                 // In motion, a second draw of the same frames for each arm (see
                 // MeasureInstability).
                 RuntimeSequence resolvedAgain;
@@ -4688,6 +4819,7 @@ namespace OloEngine::Tests
                 {
                     if (regions.Pixels[r] < kRegionPixels)
                     {
+                        EXPECT_FALSE(required[r]) << kShimmerRegionNames[r] << ": a framed region fell under its floor";
                         continue;
                     }
                     const f64 ratio = regions.Control[r] > 0.0 ? regions.Resolved[r] / regions.Control[r] : 0.0;
@@ -4713,6 +4845,7 @@ namespace OloEngine::Tests
                     {
                         if (instability.Regions.Pixels[r] < kRegionPixels)
                         {
+                            EXPECT_FALSE(required[r]) << kShimmerRegionNames[r] << ": a framed region fell under its floor";
                             continue;
                         }
                         std::printf("[dog] B6 %s %s instability %-7s %8.0f px/frame: resolved %.5f, no history %.5f, ratio %.3f\n",
@@ -4786,6 +4919,219 @@ namespace OloEngine::Tests
                     WriteSequenceStrip(std::string("DogShimmer_GL_Forward_") + clip, resolved, raw);
                 }
             }
+        }
+    }
+
+    // =========================================================================
+    // #1533 review: a runtime readback is unprojected through the camera of the
+    // frame it reads. The walk carries the dog -- and the runtime camera, its
+    // child -- 0.312 m a second, so a matrix taken before a measured sequence
+    // (RecordRuntime's, until the review) puts frame N's points N x 5.2 mm from
+    // where its depth says: past 60 frames, farther than the classifier
+    // searches for the body. From ONE recording, each frame read back and
+    // unprojected twice -- through its own camera (RenderedViewProjection) and,
+    // the negative control, through the first measured frame's -- with the dog
+    // where it ships, and turned and moved off the origin, so its parent
+    // translates AND rotates the camera.
+    //
+    // THE CHECKS, every frame: the eyes' pixels lie on the eyes (each a sphere
+    // of the rig's radius about its world centre: an exact place, which a point
+    // carried along the body would leave); the skin's pixels lie on the posed
+    // body; no coat pixel is lost (no body vertex within 30 cm). And the coat's
+    // parts keep their shares a walk cycle on (60 frames, the same gait phase,
+    // 0.31 m farther): the gait moves the legs' share within a cycle, and only
+    // a label that drifted with the travel moves it between two frames of one
+    // phase. The control -- every fifth frame and the last through the first
+    // frame's camera -- must fail the eye check, by about as far as the camera
+    // moved, and the phase check.
+    // =========================================================================
+    TEST_F(DogShowcaseEvidenceTest, TheRuntimeReadbackFollowsTheTravellingDog)
+    {
+        SetPath(RenderingPath::Forward);
+        BodyParts parts = BuildBodyParts();
+        constexpr u32 kWarmup = 30;
+        constexpr u32 kFrames = 90;       // 0.47 m of travel, past the classifier's 30 cm
+        constexpr f32 kEyeSlack = 0.003f; // m past the eye's radius: the jitter's half pixel at a silhouette
+        constexpr f32 kOnBody = 0.01f;    // m: the skin pixels' median distance to the nearest posed vertex
+        constexpr u32 kCycle = 60;        // the walk's loop, 1 s: one gait phase to the next
+        constexpr f64 kPhaseDrift = 0.03; // the coat's part shares a cycle apart, summed |difference|
+        const std::vector<i32> coat{ static_cast<i32>(static_cast<u32>(m_Dog.Coat)) };
+        const i32 body = static_cast<i32>(static_cast<u32>(m_Dog.Body));
+        auto& transform = m_Dog.Body.GetComponent<TransformComponent>();
+        const glm::quat shippedRotation = transform.GetRotation();
+        struct Restore
+        {
+            TransformComponent& Transform;
+            glm::quat Rotation;
+            ~Restore()
+            {
+                Transform.SetRotation(Rotation);
+                Transform.Translation = glm::vec3(0.0f);
+            }
+        } restore{ transform, shippedRotation };
+
+        struct Check
+        {
+            f32 EyeWorst = 0.0f;  // the farthest eye pixel from its eye's centre, less the radius
+            f32 EyeMedian = 0.0f; // the eye pixels' median distance from their eye's centre
+            u32 EyePixels = 0;
+            f32 SkinMedian = 0.0f;
+            FrameParts Placed;
+        };
+        const auto check = [&](const LinearFrame& frame)
+        {
+            Check c;
+            std::vector<f32> eye;
+            std::vector<f32> skin;
+            for (sizet i = 0; i < frame.Ids.size(); ++i)
+            {
+                if (std::isnan(frame.World[i].x))
+                {
+                    continue;
+                }
+                for (const Entity& e : m_Dog.Eyes)
+                {
+                    if (e && frame.Ids[i] == static_cast<i32>(static_cast<u32>(e)))
+                    {
+                        const glm::vec3 centre(GetScene().GetWorldTransform(static_cast<entt::entity>(e))[3]);
+                        eye.push_back(glm::distance(frame.World[i], centre));
+                    }
+                }
+                if (frame.Ids[i] == body && (i % 4u) == 0u)
+                {
+                    f32 distance = 0.0f;
+                    const u32 v = BodyParts::Nearest(parts.Posed, parts.Tree, frame.World[i], distance);
+                    skin.push_back(v == ~0u ? 0.30f : distance);
+                }
+            }
+            const auto median = [](std::vector<f32>& v)
+            {
+                if (v.empty())
+                {
+                    return 0.0f;
+                }
+                std::nth_element(v.begin(), v.begin() + static_cast<std::ptrdiff_t>(v.size() / 2u), v.end());
+                return v[v.size() / 2u];
+            };
+            c.EyePixels = static_cast<u32>(eye.size());
+            c.EyeWorst = eye.empty() ? 0.0f : (*std::ranges::max_element(eye) - m_Dog.Rig.EyeRadius);
+            c.EyeMedian = median(eye);
+            c.SkinMedian = median(skin);
+            ClassifyFrame(parts, frame, coat, c.Placed);
+            return c;
+        };
+        const auto shares = [](const FrameParts& f)
+        {
+            std::array<f64, kBodyParts> s{};
+            f64 total = 0.0;
+            for (sizet p = 0; p < kBodyParts; ++p)
+            {
+                total += f.Parts[p].Coat;
+            }
+            for (sizet p = 0; p < kBodyParts; ++p)
+            {
+                s[p] = total > 0.0 ? f.Parts[p].Coat / total : 0.0;
+            }
+            return s;
+        };
+
+        struct Placement
+        {
+            const char* Name;
+            glm::vec3 Origin;
+            f32 Yaw;
+        };
+        for (const Placement& placement : { Placement{ "as shipped", glm::vec3(0.0f), 0.0f },
+                                            Placement{ "turned and moved", glm::vec3(1.6f, 0.0f, -2.2f), 57.0f } })
+        {
+            SCOPED_TRACE(placement.Name);
+            transform.SetRotation(glm::angleAxis(glm::radians(placement.Yaw), glm::vec3(0.0f, 1.0f, 0.0f)) * shippedRotation);
+            AimRuntimeCamera(HeroViews()[0]); // in the dog's frame: the camera rides it
+            HoldRuntime(8);
+            Renderer3D::ResetFrameSequences();
+            ColdHistory();
+            (void)StartClip("Walk", true, kWarmup, placement.Origin);
+            const glm::vec3 start(GetScene().GetWorldTransform(static_cast<entt::entity>(m_Dog.Body))[3]);
+            glm::mat4 firstCamera(1.0f);
+            std::vector<Check> own;
+            std::vector<std::optional<Check>> frozen(kFrames);
+            LinearFrame frame;
+            for (u32 f = 0; f < kFrames; ++f)
+            {
+                (void)AdvanceRuntime(1u);
+                PoseBody(parts);
+                const glm::mat4 matched = RenderedViewProjection();
+                firstCamera = f == 0u ? matched : firstCamera;
+                ReadbackLinear(matched, frame, false);
+                ASSERT_FALSE(HasFatalFailure());
+                own.push_back(check(frame));
+                if ((f % 5u) == 0u || f + 1u == kFrames)
+                {
+                    ReadbackLinear(firstCamera, frame, false);
+                    frozen[f] = check(frame);
+                }
+            }
+            const glm::vec3 end(GetScene().GetWorldTransform(static_cast<entt::entity>(m_Dog.Body))[3]);
+            const glm::vec3 heading = glm::normalize(transform.GetRotation() * glm::vec3(0.0f, 0.0f, 1.0f));
+            const f32 travel = glm::distance(start, end);
+            std::printf("[dog] travelling readback, %s: the dog moved %.3f m from (%.2f, %.2f, %.2f), heading (%.3f, %.3f, "
+                        "%.3f), along it %.4f\n",
+                        placement.Name, travel, start.x, start.y, start.z, heading.x, heading.y, heading.z,
+                        travel > 0.0f ? glm::dot(glm::normalize(end - start), heading) : 0.0f);
+            // Not vacuous: the dog walked past the classifier's reach, along
+            // its own heading -- the turned parent carried the camera with it.
+            ASSERT_GT(travel, 0.40f) << "the walk did not carry the dog, so this measures nothing";
+            EXPECT_GT(glm::dot(glm::normalize(end - start), heading), 0.99f) << "the dog did not walk where it faces";
+
+            for (u32 f = 0; f < kFrames; ++f)
+            {
+                SCOPED_TRACE("frame " + std::to_string(f));
+                const Check& c = own[f];
+                ASSERT_GE(c.EyePixels, 20u) << "the eyes are not in view, so the exact check measures nothing";
+                EXPECT_LE(c.EyeWorst, kEyeSlack) << "an eye pixel unprojected off the eye: the depth and the camera disagree";
+                EXPECT_LE(c.SkinMedian, kOnBody) << "the skin's pixels unprojected off the posed body";
+                const f64 lost = c.Placed.CoatPixels > 0.0 ? c.Placed.Lost / c.Placed.CoatPixels : 1.0;
+                EXPECT_LE(lost, kLostCoatShare) << "coat pixels lost the body";
+            }
+            // The coat's part shares a cycle apart, at the frames the control
+            // also read.
+            const auto phaseDrift = [&](const auto& at)
+            {
+                f64 worst = 0.0;
+                for (u32 f = 0; f + kCycle < kFrames; f += 5u)
+                {
+                    const std::array<f64, kBodyParts> a = shares(at(f).Placed);
+                    const std::array<f64, kBodyParts> b = shares(at(f + kCycle).Placed);
+                    f64 drift = 0.0;
+                    for (sizet p = 0; p < kBodyParts; ++p)
+                    {
+                        drift += std::abs(a[p] - b[p]);
+                    }
+                    worst = std::max(worst, drift);
+                }
+                return worst;
+            };
+            const f64 ownDrift = phaseDrift([&](u32 f) -> const Check&
+                                            { return own[f]; });
+            const f64 frozenDrift = phaseDrift([&](u32 f) -> const Check&
+                                               { return *frozen[f]; });
+            EXPECT_LE(ownDrift, kPhaseDrift) << "the coat's parts changed shares between two frames of one gait phase: labels drifted";
+
+            // THE NEGATIVE CONTROL: the first frame's camera reads the first
+            // frame exactly, and the last one off by about the camera's travel.
+            const Check& last = *frozen.back();
+            std::printf("[dog] travelling readback, %s: own camera -- eye worst %.2f mm past the radius, skin median %.2f "
+                        "mm, lost %.5f, shares a cycle apart %.4f | first frame's camera -- last frame's eye median %.1f mm "
+                        "from its centre, skin median %.1f mm, lost %.4f, shares a cycle apart %.4f\n",
+                        placement.Name, 1000.0f * own.back().EyeWorst, 1000.0f * own.back().SkinMedian,
+                        own.back().Placed.CoatPixels > 0.0 ? own.back().Placed.Lost / own.back().Placed.CoatPixels : 0.0,
+                        ownDrift, 1000.0f * last.EyeMedian, 1000.0f * last.SkinMedian,
+                        last.Placed.CoatPixels > 0.0 ? last.Placed.Lost / last.Placed.CoatPixels : 0.0, frozenDrift);
+            std::fflush(stdout);
+            EXPECT_LE(frozen.front()->EyeWorst, kEyeSlack) << "the control's first frame is its own, and must pass";
+            EXPECT_GT(last.EyeWorst, 10.0f * kEyeSlack) << "the frozen camera passed the eye check: the check sees nothing";
+            EXPECT_GT(last.EyeMedian, 0.8f * travel) << "the frozen camera's error is not the camera's travel";
+            EXPECT_GT(frozenDrift, kPhaseDrift) << "the frozen camera kept the coat's shares: the phase check sees nothing";
         }
     }
 
@@ -5438,7 +5784,7 @@ namespace OloEngine::Tests
             for (u32 k = 0; k < kFrames; ++k)
             {
                 HoldRuntime(1);
-                ReadbackLinear(RuntimeViewProjection(), frame, true);
+                ReadbackLinear(RenderedViewProjection(), frame, true);
                 for (sizet p = 0; p < frame.Ids.size(); ++p)
                 {
                     if (frame.Ids[p] == coatId)
