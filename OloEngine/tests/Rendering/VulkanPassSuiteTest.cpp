@@ -691,7 +691,8 @@ class VulkanPassSuite : public ::testing::Test
                                     const char* finalPassName,
                                     std::string_view outputResourceName,
                                     const std::function<void(FrameBlackboard&, RGFramebufferHandle)>& assignOutput,
-                                    u32 expectedDraws = 2u)
+                                    u32 expectedDraws = 2u,
+                                    u32 outputAttachments = 1u)
     {
         TArray64<u8> rendered;
 
@@ -717,17 +718,25 @@ class VulkanPassSuite : public ::testing::Test
         if (m_ExtraSetup)
             m_ExtraSetup(graph, blackboard);
 
+        // The output as the pass's production declaration has it: TAA's has a
+        // second attachment, the resolve its history keeps (#1533).
         FramebufferSpecification outputSpec;
         outputSpec.Width = size;
         outputSpec.Height = size;
-        outputSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+        RGResourceDesc outputDesc = fbDesc;
+        for (u32 a = 0; a < outputAttachments; ++a)
+        {
+            outputSpec.Attachments.Attachments.Add(FramebufferTextureSpecification(FramebufferTextureFormat::RGBA8));
+            if (outputAttachments > 1u)
+                outputDesc.Attachments.Add(RGResourceFormat::RGBA8UNorm);
+        }
         Ref<Framebuffer> outputFramebuffer = Framebuffer::Create(outputSpec);
         if (!outputFramebuffer)
         {
             ADD_FAILURE() << "backed output framebuffer creation failed";
             return rendered;
         }
-        assignOutput(blackboard, graph.DeclareTransientFramebuffer(outputResourceName, fbDesc, outputFramebuffer));
+        assignOutput(blackboard, graph.DeclareTransientFramebuffer(outputResourceName, outputDesc, outputFramebuffer));
 
         graph.AddNode(producer);
         graph.AddNode(passNode);
@@ -748,6 +757,8 @@ class VulkanPassSuite : public ::testing::Test
             [&]()
             {
                 graph.Execute();
+                if (m_AfterExecute)
+                    m_AfterExecute();
 
                 auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
                 RHI::Barrier toSampled{};
@@ -908,11 +919,14 @@ class VulkanPassSuite : public ::testing::Test
     std::function<void(RenderGraph&, FrameBlackboard&)> m_ExtraSetup;
     // The LAST access the chain performs on the output attachment before the
     // harness's readback barrier. ColorAttachmentWrite for a plain
-    // draw-terminated chain; a pass whose Setup EXTRACTS the output (TAA's
-    // history copy) leaves it transfer-READ, and lowering the barrier's src
-    // scope from the wrong access is a WRITE_AFTER_READ hazard the sync
-    // validation names (the layout half is tracker-exact either way).
+    // draw-terminated chain; a pass whose Setup EXTRACTS attachment 0 leaves
+    // it transfer-READ, and lowering the barrier's src scope from the wrong
+    // access is a WRITE_AFTER_READ hazard the sync validation names (the
+    // layout half is tracker-exact either way). TAA extracts its attachment 1.
     RHI::Access m_OutputBarrierBefore = RHI::Access::ColorAttachmentWrite;
+    // Runs inside the frame right after the graph executes (barriers a tenant
+    // needs before reading back a resource the chain wrote); reset it after.
+    std::function<void()> m_AfterExecute;
     // Restore flags — see TearDown. A tenant that shuts down a
     // production (GL-currency) renderer static to re-home it on Vulkan sets
     // its flag IMMEDIATELY (before its own Init), so the restore happens even
@@ -4392,8 +4406,9 @@ TEST_F(VulkanPassSuite, FogFogsTheFarFieldAnalyticallyAndPassesThroughAtZeroDens
 
 // =============================================================================
 // TAA: the history pass — two frames through the RunSinglePassChain harness.
-// Frame 1 declares builder.ExtractHistoryTexture(TAAHistory, output): the
-// graph's FlushExtractions copies the frame's output into the fixture-owned
+// Frame 1 declares builder.ExtractHistoryTexture(TAAHistory, output, 1): the
+// graph's FlushExtractions copies the frame's resolve (the output's second
+// attachment, as the pipeline declares it) into the fixture-owned
 // history texture (RegisterHistoryTextureSink — CopyImageSubData on this
 // backend) and flips the sink's valid flag; frame 1's own history bind falls
 // back to the current input (the pass's documented history=current path).
@@ -4488,10 +4503,6 @@ TEST_F(VulkanPassSuite, TaaResolvesIdentityAndBlendsTheImportedHistory)
                 graph.ImportHistoryHandle(ResourceNames::TAAHistory, historyTexture->GetRHIHandle());
         }
     };
-    // The history extract READS the output attachment last — the readback
-    // barrier's source scope must name the copy, not the raster.
-    m_OutputBarrierBefore = RHI::Access::TransferRead;
-
     const auto runFrame = [&](const Ref<Texture2D>& input) -> TArray64<u8>
     {
         auto taa = Ref<TAARenderPass>::Create();
@@ -4507,9 +4518,9 @@ TEST_F(VulkanPassSuite, TaaResolvesIdentityAndBlendsTheImportedHistory)
         taa->SetSettings(settings);
 
         auto producer = Ref<PatternProducerPass>::Create(input, blitShader);
-        return RunSinglePassChain(kSize, producer, taa, "TAAPass", ResourceNames::TAAColor,
-                                  [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
-                                  { blackboard.Post.TAAColor = handle; });
+        return RunSinglePassChain(
+            kSize, producer, taa, "TAAPass", ResourceNames::TAAColor,
+            [](FrameBlackboard& blackboard, RGFramebufferHandle handle) { blackboard.Post.TAAColor = handle; }, 2u, 2u);
     };
 
     const auto valueAt = [&](u32 x, u32 y, u32 flip) -> int
@@ -4562,7 +4573,6 @@ TEST_F(VulkanPassSuite, TaaResolvesIdentityAndBlendsTheImportedHistory)
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
     EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
     m_ExtraSetup = nullptr;
-    m_OutputBarrierBefore = RHI::Access::ColorAttachmentWrite;
 }
 
 // =============================================================================
@@ -4570,14 +4580,22 @@ TEST_F(VulkanPassSuite, TaaResolvesIdentityAndBlendsTheImportedHistory)
 // ran unbounded on linear colour, so beside one bright sample a dark pixel's
 // 3x3 mean was far above its own value and the mask drove it below zero: the
 // black ring a sun glint printed in its bloom. One frame (history == current,
-// so the resolve is the input and only the sharpen acts), sharpness 1:
+// so the resolve is the input, except at an isolated white pixel, whose own
+// history the variance clip pulls toward its dark field), sharpness 1:
 //   - TOP HALF, a dark field (13) with isolated white pixels: no pixel may
 //     fall below its own 3x3 minimum. Unbounded, a white pixel's neighbours
 //     read 13 - 40 and print 0.
 //   - BOTTOM HALF, a soft edge 64 | 96 | 160 | 192: the mask must still
 //     steepen it (96 down, 160 up), so the bound has not switched it off.
+//   - THE HISTORY: the sink the graph fills for next frame holds the resolve
+//     (the input, wherever the clip leaves it), not the sharpened frame: at
+//     the soft edge the shown frame is steepened, the history is not. Kept in
+//     the history, the
+//     sharpen's current-frame high-pass piled up frame after frame: a
+//     stochastic coat's sample noise, the dog's walk resolved to only half of
+//     what its samples shimmer (B6).
 // =============================================================================
-TEST_F(VulkanPassSuite, TaaSharpenStaysInsideTheRangeItSharpens)
+TEST_F(VulkanPassSuite, TaaSharpenStaysInsideItsRangeAndOutOfTheHistory)
 {
     constexpr u32 kSize = 128;
     VulkanFrameArena::Get().BeginFrame(0);
@@ -4644,7 +4662,17 @@ TEST_F(VulkanPassSuite, TaaSharpenStaysInsideTheRangeItSharpens)
         graph.RegisterHistoryTextureSink(ResourceNames::TAAHistory, historyTexture->GetRHIHandle(), kSize, kSize,
                                          &historyValid);
     };
-    m_OutputBarrierBefore = RHI::Access::TransferRead;
+    // TRANSFER_DST after the history copy; GetData's one-shot readback assumes
+    // the SHADER_READ_ONLY steady state.
+    m_AfterExecute = [&]()
+    {
+        auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+        RHI::Barrier toSampled{};
+        toSampled.Resource = historyTexture->GetRHIHandle();
+        toSampled.Before = RHI::Access::TransferWrite;
+        toSampled.After = RHI::Access::ShaderSampleRead;
+        api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+    };
 
     auto taa = Ref<TAARenderPass>::Create();
     FramebufferSpecification initSpec;
@@ -4658,9 +4686,10 @@ TEST_F(VulkanPassSuite, TaaSharpenStaysInsideTheRangeItSharpens)
     settings.TAASharpness = 1.0f;
     taa->SetSettings(settings);
     auto producer = Ref<PatternProducerPass>::Create(input, blitShader);
-    const auto frame = RunSinglePassChain(kSize, producer, taa, "TAAPass", ResourceNames::TAAColor,
-                                          [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
-                                          { blackboard.Post.TAAColor = handle; });
+    const auto frame = RunSinglePassChain(
+        kSize, producer, taa, "TAAPass", ResourceNames::TAAColor,
+        [](FrameBlackboard& blackboard, RGFramebufferHandle handle) { blackboard.Post.TAAColor = handle; }, 2u, 2u);
+    m_AfterExecute = nullptr;
     ASSERT_EQ(frame.Num(), static_cast<sizet>(kSize) * kSize * 4);
     const auto out = [&](u32 x, u32 y)
     { return static_cast<int>(frame[(static_cast<sizet>(y) * kSize + x) * 4]); };
@@ -4690,10 +4719,29 @@ TEST_F(VulkanPassSuite, TaaSharpenStaysInsideTheRangeItSharpens)
     EXPECT_GE(soft, 64 - 2) << "the soft edge undershot its own range";
     EXPECT_LE(hard, 192 + 2) << "the soft edge overshot its own range";
 
+    // The history holds the resolve: the input everywhere but the isolated white
+    // pixels (the variance clip's, see the header), the steepened edge included.
+    ASSERT_TRUE(historyValid) << "the pass did not extract its history";
+    TArray64<u8> history;
+    ASSERT_TRUE(historyTexture->GetData(history, 0)) << "history readback failed";
+    ASSERT_EQ(history.Num(), static_cast<sizet>(kSize) * kSize * 4);
+    u32 historyDiff = 0;
+    for (u32 y = 0; y < kSize; ++y)
+    {
+        for (u32 x = 0; x < kSize; ++x)
+        {
+            if (valueAt(x, y) == 255u)
+                continue;
+            const int kept = static_cast<int>(history[(static_cast<sizet>(y) * kSize + x) * 4]);
+            historyDiff = std::max(historyDiff, static_cast<u32>(std::abs(kept - static_cast<int>(valueAt(x, y)))));
+        }
+    }
+    EXPECT_LE(historyDiff, 2u) << "the history differs from the resolve by up to " << historyDiff
+                               << " of 255: the sharpened frame went into the history";
+
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
     EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
     m_ExtraSetup = nullptr;
-    m_OutputBarrierBefore = RHI::Access::ColorAttachmentWrite;
 }
 
 // =============================================================================

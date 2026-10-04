@@ -20,7 +20,8 @@ namespace OloEngine
     //   * TAA parameters UBO at binding 32
     //
     // Writes the current-frame `TAAColor` output through the setup-selected
-    // graph-owned framebuffer target.
+    // graph-owned framebuffer target: two attachments, the shown frame and the
+    // unsharpened resolve the history keeps (kHistoryAttachment).
     //
     // Inputs (selected during `Setup()`):
     //   * Post-process colour input framebuffer
@@ -34,6 +35,11 @@ namespace OloEngine
     class TAARenderPass : public RenderGraphNode
     {
       public:
+        // The output framebuffer's attachments: 0 the frame the chain shows
+        // (the resolve, sharpened), 1 the resolve before the sharpen, which
+        // becomes next frame's `TAAHistory` (#1533).
+        static constexpr u32 kHistoryAttachment = 1;
+
         TAARenderPass();
         ~TAARenderPass() override = default;
 

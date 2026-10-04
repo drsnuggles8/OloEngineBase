@@ -1038,6 +1038,14 @@ drove it below zero, a black ring in the sample's bloom. The bound also clips ra
 excursions, which a linear mask scaled instead; a temporal-stability control arm that keeps the
 sharpen is quieter for it.
 
+**The sharpen stays out of the history.** The pass writes two attachments: the sharpened frame the
+chain shows, and the resolve before the sharpen, which becomes `TAAHistory`
+(`TAARenderPass::kHistoryAttachment`). Kept in the history, the mask's current-frame high-pass is
+blended back in every frame and accumulates: on a stochastic coat that is sample noise, and the dog's
+resolved coat held six times the converged estimate's high-frequency variance while its walk kept
+half of what the samples alone shimmer (B6, #1533).
+`VulkanPassSuite.TaaSharpenStaysInsideItsRangeAndOutOfTheHistory` reads the history sink back.
+
 Future FSR1 EASU/RCAS *spatial upscale* (render below display res, then upscale) is
 the opposite: EASU must run **early** (before display-res post), so when it lands it
 splits — EASU pre-post, RCAS/CAS sharpen post-tonemap.

@@ -37,7 +37,7 @@ With a strength of 0.25 the glint became a steady catch-light of 6-12 in every f
 The black core was a second fault: TAA's post-resolve sharpen ran unbounded on linear HDR, so next to
 a 460 sample a pixel's 3x3 mean was about 50 against its own value of 1, and the mask drove it below
 zero. It is now clamped to the 3x3 range it sharpens (`PostProcess_TAA.glsl`, step 5;
-`VulkanPassSuite.TaaSharpenStaysInsideTheRangeItSharpens`). Any bright sample, not only an eye's,
+`VulkanPassSuite.TaaSharpenStaysInsideItsRangeAndOutOfTheHistory`). Any bright sample, not only an eye's,
 printed that ring.
 
 ## How to look for it

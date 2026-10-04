@@ -12,10 +12,11 @@
 // Motion-blur UBO (binding 8) supplies InverseViewProjection + PrevViewProjection
 // so camera-only reprojection works even when RT3 is unavailable.
 //
-// Output is blended back into the ping-pong chain and also written into the
-// persistent history FB by the pass wrapper (via glBlitFramebuffer, no extra
-// shader pass needed). On first frame (history == black) TAA decays back to
-// the current frame automatically via the neighborhood clip.
+// Two outputs (#1533): o_Color, the frame the chain shows (the resolve,
+// sharpened), and o_History, the resolve before the sharpen, which the graph
+// copies into the persistent history for next frame (TAARenderPass::Setup).
+// On first frame (history == black) TAA decays back to the current frame
+// automatically via the neighborhood clip.
 // =============================================================================
 
 #type vertex
@@ -90,6 +91,7 @@ layout(binding = 19) uniform sampler2D u_DepthTexture;
 
 layout(location = 0) in vec2 v_TexCoord;
 layout(location = 0) out vec4 o_Color;
+layout(location = 1) out vec4 o_History;
 
 
 layout(std140, binding = 8) uniform MotionBlurMatrices
@@ -239,6 +241,7 @@ void main()
     if (!OloTemporalHistoryUVValid(prevUV))
     {
         o_Color = vec4(currentColor, 1.0);
+        o_History = o_Color;
         return;
     }
 
@@ -432,6 +435,12 @@ void main()
     }
 
     vec3 resolved = OloTemporalBlend(currentColor, clampedHistory, effectiveFeedback, confidence);
+
+    // The history keeps the resolve, not the sharpened frame (#1533): the
+    // sharpen below adds the current frame's high-pass, and fed back into the
+    // history a stochastic coat's sample noise accumulated there. Only the
+    // shown frame is sharpened.
+    o_History = vec4(max(resolved, vec3(0.0)), 1.0);
 
     // 5) Optional sharpen (an unsharp mask on the current frame) to offset TAA
     //    blur, HELD INSIDE THE 3x3 RANGE IT SHARPENS (#1533). The mask runs on

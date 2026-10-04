@@ -5101,12 +5101,21 @@ namespace OloEngine
         if (pipeline.PostProcessPasses.TAA && config.EngineTAA &&
             pipeline.PostProcessPasses.TAA->IsReadyForExecution())
         {
-            const auto taaOutput = declareGraphOnlyPostProcessOutput(
-                ResourceNames::TAAColor,
-                ResourceNames::TAAColorTexture,
-                RGResourceFormat::RGBA16Float);
-            board.Post.TAAColor = taaOutput.Framebuffer;
-            board.Post.TAAColorTexture = taaOutput.Texture;
+            // Two attachments (#1533): 0 is the frame the chain shows, sharpened;
+            // 1 is the resolve before the sharpen, the one TAAHistory keeps
+            // (TAARenderPass::Setup says why the history must not be sharpened).
+            RGResourceDesc taaDesc;
+            taaDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+            taaDesc.Width = postProcessWidth;
+            taaDesc.Height = postProcessHeight;
+            taaDesc.Format = RGResourceFormat::RGBA16Float;
+            taaDesc.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RGBA16Float };
+            taaDesc.DebugName = ResourceNames::TAAColor;
+            board.Post.TAAColor = declareGraphOnlyFramebuffer(ResourceNames::TAAColor, taaDesc);
+            board.Post.TAAColorTexture =
+                board.Post.TAAColor.IsValid()
+                    ? graph.CreateFramebufferAttachmentView(ResourceNames::TAAColorTexture, board.Post.TAAColor, 0u)
+                    : RGTextureHandle{};
         }
 
         // CloudsColor is declared only when the cloudscape is enabled (issue
