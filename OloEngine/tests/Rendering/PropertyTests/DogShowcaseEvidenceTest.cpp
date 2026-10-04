@@ -8477,6 +8477,129 @@ namespace OloEngine::Tests
     }
 
     // =========================================================================
+    // The wet surfaces' glints are filtered, not point-sampled (#1533). The tear
+    // film and the saliva coats are GGX lobes at roughness 0.04-0.14 under the
+    // sun, a delta light. On a curved surface a few dozen pixels wide the glint
+    // is far smaller than a sample, and with the profiles' variance strength at
+    // 0 the frames whose jitter landed on it read hundreds where the surface
+    // around reads about one: live at the LowHero view, up to 845 on the eye and
+    // 810 in the mouth on GL and on Vulkan, and the bloom drew a white disc over
+    // the eye. The variance strength widens base and coat by the pixel's normal
+    // spread (SkinVarianceKernel), so the glint becomes a catch-light the frame
+    // can hold. Held to: no skin or eye pixel of the dog reads above
+    // kFireflyCeiling at any of 128 sample positions per pixel; with every dog
+    // profile's strength at 0 (the frame before the fix) some sample does --
+    // one threshold both ways.
+    //
+    // THE SAMPLE POSITIONS. The resolve's jitter has 8 phases here, and the
+    // unfiltered glint's core is about a hundredth of a pixel wide, so 8
+    // positions per pixel can miss it at a given pose (they did: the control
+    // read 13.9). The camera is also shifted, eye and target together, over a
+    // 4 x 4 grid a quarter of a pixel apart at the eye's depth: the view
+    // direction, and with it the glint's place on the cornea, stays put while
+    // the pixel grid moves under it.
+    // =========================================================================
+    TEST_F(DogShowcaseEvidenceTest, TheWetSurfacesCatchTheSunWithoutFireflies)
+    {
+        // Between the filtered catch-lights (live: 12 on the eye, 50 in the
+        // mouth) and the unfiltered glints (770-845), an order under the latter.
+        constexpr f32 kFireflyCeiling = 100.0f;
+        constexpr u32 kJitterPhases = 8;
+        constexpr u32 kShifts = 4; // per axis
+        SetPath(RenderingPath::Forward);
+        // Idle's first frame, the pose the live package holds.
+        (void)StartClip("Idle", false, 1);
+        m_Dog.Body.GetComponent<AnimationStateComponent>().m_IsPlaying = false;
+        const View low{ "LowHero", { 0.55f, 0.14f, 1.05f }, { 0.0f, 0.42f, 0.10f }, 40.0f };
+        // A pixel at the eye: 40 degrees over kHeight rows, at the eye's distance.
+        const glm::vec3 eyeCentre(m_Dog.Eyes[0].GetComponent<WorldTransformComponent>().WorldMatrix[3]);
+        const f32 pixel = 2.0f * glm::distance(low.Eye, eyeCentre) * std::tan(glm::radians(0.5f * low.Fov)) /
+                          static_cast<f32>(kHeight);
+        const glm::vec3 forward = glm::normalize(low.Target - low.Eye);
+        const glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
+        const glm::vec3 up = glm::cross(right, forward);
+        const std::array<i32, 3> skin{ static_cast<i32>(static_cast<u32>(m_Dog.Body)),
+                                       static_cast<i32>(static_cast<u32>(m_Dog.Eyes[0])),
+                                       static_cast<i32>(static_cast<u32>(m_Dog.Eyes[1])) };
+        struct Peaks
+        {
+            f32 Worst = 0.0f;
+            u32 FramesOver = 0;
+            u32 SkinPixels = 0;
+        };
+        const auto measure = [&](const char* png)
+        {
+            Peaks peaks;
+            LinearFrame frame;
+            for (u32 s = 0; s < kShifts * kShifts; ++s)
+            {
+                const f32 dx = (static_cast<f32>(s % kShifts) - 1.5f) * 0.25f * pixel;
+                const f32 dy = (static_cast<f32>(s / kShifts) - 1.5f) * 0.25f * pixel;
+                View shifted = low;
+                shifted.Eye += (dx * right) + (dy * up);
+                shifted.Target += (dx * right) + (dy * up);
+                const EditorCamera camera = MakeEditorCamera(shifted);
+                RunEditorFrames(camera, s == 0 ? 16u : 2u);
+                for (u32 f = 0; f < kJitterPhases; ++f)
+                {
+                    RunEditorFrames(camera, 1);
+                    ReadbackLinear(camera.GetViewProjection(), frame);
+                    f32 frameWorst = 0.0f;
+                    u32 pixels = 0;
+                    for (sizet i = 0; i < frame.Ids.size(); ++i)
+                    {
+                        if (std::ranges::find(skin, frame.Ids[i]) != skin.end() && std::isfinite(frame.Luminance[i]))
+                        {
+                            frameWorst = std::max(frameWorst, frame.Luminance[i]);
+                            ++pixels;
+                        }
+                    }
+                    peaks.Worst = std::max(peaks.Worst, frameWorst);
+                    peaks.FramesOver += frameWorst > kFireflyCeiling ? 1u : 0u;
+                    peaks.SkinPixels = std::max(peaks.SkinPixels, pixels);
+                }
+            }
+            std::vector<u8> ldr;
+            ReadbackFrame(ldr);
+            WritePng(png, ldr, kWidth, kHeight);
+            return peaks;
+        };
+
+        const Peaks shipped = measure("DogWetGlints_GL_Forward_Filtered");
+
+        // THE CONTROL: every dog profile's strength at 0, then back.
+        std::vector<std::pair<Ref<SkinProfile>, SkinProfileParameters>> authored;
+        for (const AssetHandle handle : m_SkinHandles)
+        {
+            Ref<SkinProfile> profile = AssetManager::GetAsset<SkinProfile>(handle);
+            ASSERT_TRUE(profile);
+            authored.emplace_back(profile, profile->GetParameters());
+            SkinProfileParameters unfiltered = profile->GetParameters();
+            unfiltered.Specular.NormalVarianceStrength = 0.0f;
+            (void)profile->SetParameters(unfiltered);
+        }
+        const Peaks control = measure("DogWetGlints_GL_Forward_Unfiltered");
+        for (auto& [profile, parameters] : authored)
+        {
+            (void)profile->SetParameters(parameters);
+        }
+
+        std::printf("[dog] wet glints at LowHero over %u sample positions per pixel (%.2f mm pixel at the eye): "
+                    "shipped worst %.2f (%u frames over %.0f), strength 0 worst %.2f (%u frames over); %u skin and eye "
+                    "pixels in view\n",
+                    kShifts * kShifts * kJitterPhases, 1000.0f * pixel, shipped.Worst, shipped.FramesOver,
+                    kFireflyCeiling, control.Worst, control.FramesOver, shipped.SkinPixels);
+        std::fflush(stdout);
+        ASSERT_GT(shipped.SkinPixels, 1000u) << "the eyes and the mouth are not in view: nothing was measured";
+        EXPECT_LE(shipped.Worst, kFireflyCeiling)
+            << "a skin or eye pixel read a firefly: a coat's glint is point-sampled again (SkinVarianceKernel, "
+               "the profiles' NormalVarianceStrength)";
+        EXPECT_GT(control.Worst, kFireflyCeiling)
+            << "the control: with every strength at 0 the glints should break the ceiling, or the test measures nothing";
+        m_Dog.Body.GetComponent<AnimationStateComponent>().m_IsPlaying = true;
+    }
+
+    // =========================================================================
     // C1 + B4: the clips play, loop, switch and move the long hair (#1533
     // acceptance review, section 5). On RUNTIME frames:
     //   - THE SCENE PLAYS IDLE: the shipped Dog.olo starts the dog's Idle,

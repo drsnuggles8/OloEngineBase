@@ -17,7 +17,10 @@ SkinProfile:
   Specular:
     LobeMix: 0.35
     LobeRoughnessScale: 2.0
-    NormalVarianceStrength: 0.0
+    # The pixel's normal spread widens the base lobe and the saliva coat (#1533):
+    # at 0 the mouth's coats point-sampled a delta light's glint and read up to
+    # 810 in the frames whose jitter landed on it. DogEye.oloskin says why 0.25.
+    NormalVarianceStrength: 0.25
     DetailStrength: 0
     ExpressionDetailGain: 0
   Oral:

@@ -52,7 +52,14 @@ SkinProfile:
   Specular:
     LobeMix: 0.2
     LobeRoughnessScale: 2
-    NormalVarianceStrength: 0
+    # Tokuyoshi & Kaplanyan's published sigma^2 (#1533). It widens the base lobe
+    # and the tear film below by the pixel's normal spread. The globe is a smooth
+    # sphere a few dozen pixels wide at a distance, and at 0 the film's glint
+    # fell inside one sample: the frames whose jitter landed on it read up to
+    # 845 where the eye reads about one, and bloomed white on Vulkan. At 0.25 the
+    # glint is a steady catch-light of 6-12 in every frame (1/12, a box pixel's
+    # variance, still reached 32).
+    NormalVarianceStrength: 0.25
     DetailStrength: 0
     ExpressionDetailGain: 0
   # The tear film: a wet eye is the one surface the catch-light has to read on.
