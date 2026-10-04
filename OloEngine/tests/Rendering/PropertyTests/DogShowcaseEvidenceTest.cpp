@@ -8509,7 +8509,8 @@ namespace OloEngine::Tests
         for (i32 t = 0; t + 2 < indices.Num(); t += 3)
         {
             const std::array<u32, 3> tri{ indices[t], indices[t + 1], indices[t + 2] };
-            if (std::ranges::all_of(tri, [&](u32 v) { return v < parts.Bind.size() && parts.Material[v] == "DogTongue"; }))
+            if (std::ranges::all_of(tri, [&](u32 v)
+                                    { return v < parts.Bind.size() && parts.Material[v] == "DogTongue"; }))
             {
                 for (const u32 v : tri)
                 {
