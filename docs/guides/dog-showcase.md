@@ -67,6 +67,11 @@ shows. The grass holds still in those frames; it sways in the editor.
   a catch-light. The head tilt moves the brow.
 - **The nose and the panting mouth** (A4): the nose leather is dark against the coat with a
   specular highlight; at the Pant clip's widest jaw the tongue, gums and lips are on screen.
+- **The wet surfaces catch the sun without fireflies**: at the low hero view, at 128 sample
+  positions per pixel, no skin or eye pixel reads above 100 (shipped: 10); with every dog profile's
+  variance strength at 0, the frame before the fix, the eye's and the mouth's coats point-sample the
+  sun's glint and break that ceiling (460). See
+  [every-specular-lobe-takes-the-pixel-filter.md](../agent-rules/every-specular-lobe-takes-the-pixel-filter.md).
 - **Every layer is load-bearing**: fur, the coat's self-shadow, dual scattering and the scene
   shadow each switched off change the frame by several times the repeat floor.
 - **The coat stays on the body through every clip** (B3): every clip on runtime frames, read at six
@@ -123,6 +128,13 @@ the refracted iris point, so it moves behind the cornea with the pupil, and the 
 radii are tenths of a millimetre so the fibres and the pupil's edge are not blurred
 ([eye-cornea-iris.md](eye-cornea-iris.md#a-painted-iris)).
 
+The tear film is a coat at roughness 0.04, and the sun is a delta light, so its glint on the cornea
+is far smaller than a pixel at any distance past a close-up. `DogEye.oloskin` (and the mouth's
+profiles) set `NormalVarianceStrength` to 0.25, which widens the base lobe and the coat by the
+pixel's normal spread: at the low hero view the catch-light holds at 6-12 every frame, where at 0
+the frames whose jitter landed on the glint read up to 845 and bloomed into a white disc on both
+backends.
+
 ## Look development
 
 `OLO_DOG_LOOKDEV=1 --gtest_filter=DogShowcaseEvidenceTest.LookDevelopmentFrames` writes ten views,
@@ -168,4 +180,10 @@ parent: never add the two.
 - **Scene-level Vulkan is checked live.** The headless fixture renders GL, by policy
   ([testing-architecture.md](../agent-rules/testing-architecture.md) §9–§10); #1556 proposes a
   windowless Vulkan fixture. The groom passes have pass-level Vulkan tenants.
+- **B6 in motion misses its bar in two regions**: the walk's front three-quarter face (0.511) and the
+  rear view's fringe (0.521) against 0.5; the whole frame (0.468, 0.458), every other region
+  (0.42-0.46) and the rest arms (0.29-0.39) pass. They crossed when TAA's sharpen was bounded: the
+  resolved instability stayed level while the no-history control, which keeps the same sharpen, lost
+  10-14% of its raw-sample excursions to the bound. Clearing it means more accumulation for a
+  stochastic coat in motion, where the 3x3 variance clip re-injects the current frame's noise.
 - **The look itself (F3) is a human call.** No test above settles it.

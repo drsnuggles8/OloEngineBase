@@ -1031,6 +1031,13 @@ above `ToneMapColor` in `VignettePass`/`FXAAPass`/`SelectionOutlinePass`/`UIComp
 or the chain falls back past it and the stage's output is dropped. Placing CAS late
 also means **fewer** candidate-list edits than the HDR band (5 consumers vs 11).
 
+**The one sharpen that stays in HDR is TAA's own** (`PostProcess_TAA.glsl`, step 5), an
+unsharp mask on the resolve. It is clamped to the current frame's 3x3 range (#1533): unbounded on
+linear HDR, a pixel beside one bright sample has a 3x3 mean far above its own value, and the mask
+drove it below zero, a black ring in the sample's bloom. The bound also clips raw-sample noise
+excursions, which a linear mask scaled instead; a temporal-stability control arm that keeps the
+sharpen is quieter for it.
+
 Future FSR1 EASU/RCAS *spatial upscale* (render below display res, then upscale) is
 the opposite: EASU must run **early** (before display-res post), so when it lands it
 splits — EASU pre-post, RCAS/CAS sharpen post-tonemap.
