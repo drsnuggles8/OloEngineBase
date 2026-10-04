@@ -3253,13 +3253,29 @@ SIT_HOCK = -81.0
 SIT_TOES = 47.0
 
 
+WALK_SPEED = 0.312  # m/s: how fast a planted paw moves back under the body through its stance
+
+
 def clip_walk(r, t):
-    """~1 s four-beat walk: LH, LF, RH, RF a quarter stride apart; head bob, tail sway."""
+    """~1 s four-beat walk: LH, LF, RH, RF a quarter stride apart; head bob, tail sway.
+
+    THE WALK TRAVELS (#1533). The root moves forward at WALK_SPEED, the speed a stance paw's contact
+    point moves back relative to the body (measured on this clip in Blender: 13 mm a frame at 24 fps),
+    so the paws stay where they land: within 3 mm through the middle of a stance. The engine takes
+    that travel out of the pose and moves the dog's entity with it (root motion, Dog.olo's
+    AnimationStateComponent), so the editor's preview still walks in place.
+
+    THE SWING LIFTS EACH PAW CLEAR OF THE GROUND: the elbow flexes the forearm forward, the carpus folds
+    the paw back, the hip and stifle lift the hind leg and the hock and toes flex a little. Its lowest
+    point stays 1 mm (front) and 9 mm (hind) above where the pad stands; the earlier swing bent every
+    joint the other way and dragged the toes 20 mm and 32 mm through the ground."""
     duty = 0.62
     offsets = {("L", "h"): 0.0, ("L", "f"): 0.75, ("R", "h"): 0.5, ("R", "f"): 0.25}
     for (side, kind), off in offsets.items():
         ph = (t + off) % 1.0
-        swing = 20.0 if kind == "f" else 18.0
+        # The front legs sweep 19 degrees each way so their stance carries the body as fast as the
+        # hind legs' 18 do: at 20 the front paws slid 7 mm through a stance.
+        swing = 19.0 if kind == "f" else 18.0
         if ph < duty:
             u = ph / duty
             ang = swing * (1.0 - 2.0 * u)
@@ -3273,17 +3289,20 @@ def clip_walk(r, t):
         # flat on the ground instead of rocking its toes into it.
         plant = (1.0 - lift) * ang
         if kind == "f":
-            r.rot(f"upperarm_{side}", AX_X, -ang)
-            r.rot(f"forearm_{side}", AX_X, 50.0 * lift)
-            r.rot(f"paw_front_{side}", AX_X, 30.0 * lift + plant)
+            r.rot(f"upperarm_{side}", AX_X, -ang + 5.0 * lift)
+            r.rot(f"forearm_{side}", AX_X, -45.0 * lift)
+            r.rot(f"paw_front_{side}", AX_X, 40.0 * lift + plant)
         else:
-            r.rot(f"thigh_{side}", AX_X, -ang)
-            r.rot(f"shin_{side}", AX_X, -28.0 * lift)
-            r.rot(f"hock_{side}", AX_X, 40.0 * lift)
-            r.rot(f"paw_rear_{side}", AX_X, -30.0 * lift + plant)
+            r.rot(f"thigh_{side}", AX_X, -ang - 10.0 * lift)
+            r.rot(f"shin_{side}", AX_X, 25.0 * lift)
+            r.rot(f"hock_{side}", AX_X, -15.0 * lift)
+            r.rot(f"paw_rear_{side}", AX_X, -20.0 * lift + plant)
     bob = math.sin(4.0 * math.pi * t)
+    r.move("root", (0.0, -WALK_SPEED * t, 0.0))  # the clip lasts 1 s, so t is also seconds
     r.move("pelvis", (0.0, 0.0, 0.005 * bob))
-    r.rot("spine_02", AX_Z, 2.0 * math.sin(2 * math.pi * t))
+    # A half-degree chest sway: the chest yaws about spine_02 and carries the planted front paws
+    # sideways with it, 12 mm a stance at 2 degrees.
+    r.rot("spine_02", AX_Z, 0.5 * math.sin(2 * math.pi * t))
     r.rot("neck_02", AX_X, 2.5 * bob)
     r.rot("head", AX_X, -2.0 * bob)
     for side in ("L", "R"):

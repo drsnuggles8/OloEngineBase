@@ -964,6 +964,19 @@ namespace OloEngine::Tests
                 anim.m_RequestedLoop = true;
                 anim.m_IsPlaying = true;
                 anim.m_BlendDuration = 0.35f;
+                // The walk travels (#1533): its root bone's travel moves the
+                // entity, as in the live scene.
+                anim.m_RootMotion = true;
+            }
+            // The runtime camera rides the dog, as the live scene's does: every
+            // view is framed around the dog (HeroViews), so it stays framed
+            // while the walk carries the dog across the ground.
+            for (auto e : scene.GetAllEntitiesWith<CameraComponent>())
+            {
+                if (Entity camera{ e, &scene }; camera.GetComponent<CameraComponent>().Primary)
+                {
+                    camera.SetParent(d.Body);
+                }
             }
 
             // The bare skins, every value inside its documented range: a clamp on
@@ -1371,6 +1384,8 @@ namespace OloEngine::Tests
         // replayed arm stands on.
         MotionResult StartClip(const char* clip, bool loop, u32 frames)
         {
+            // From where every replay starts: the walk carries the dog off it.
+            m_Dog.Body.GetComponent<TransformComponent>().Translation = glm::vec3(0.0f);
             auto& anim = m_Dog.Body.GetComponent<AnimationStateComponent>();
             anim.m_RequestedClip = clip;
             anim.m_RequestedLoop = loop;
@@ -1485,17 +1500,18 @@ namespace OloEngine::Tests
 
         // The runtime camera's world-to-clip transform, unjittered: what a held
         // frame's depth is unprojected through (the jitter is a fraction of a
-        // pixel, a fraction of a millimetre at these distances). From the
-        // camera's OWN transform, as RenderRuntime reads it: its cached world
-        // matrix is propagated by the runtime tick, which a held frame skips,
-        // so after a camera move on held frames it still holds the last
-        // runtime frame's pose -- and depth unprojected through it lands
-        // nowhere near the dog.
+        // pixel, a fraction of a millimetre at these distances). As RenderRuntime
+        // composes it: the dog's world matrix (the camera rides the dog) times
+        // the camera's OWN transform. Not the camera's cached world matrix: the
+        // runtime tick propagates it, which a held frame skips, so after a
+        // camera move on held frames it still holds the last runtime frame's
+        // pose -- and depth unprojected through it lands nowhere near the dog.
         [[nodiscard]] glm::mat4 RuntimeViewProjection()
         {
             Entity camera = RuntimeCamera();
+            const glm::mat4 dog = GetScene().GetWorldTransform(static_cast<entt::entity>(m_Dog.Body));
             return camera.GetComponent<CameraComponent>().Camera.GetProjection() *
-                   glm::inverse(camera.GetComponent<TransformComponent>().GetTransform());
+                   glm::inverse(dog * camera.GetComponent<TransformComponent>().GetTransform());
         }
 
         [[nodiscard]] EditorCamera MakeEditorCamera(const View& view) const

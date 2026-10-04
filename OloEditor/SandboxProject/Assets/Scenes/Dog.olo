@@ -329,6 +329,7 @@ Entities:
       IsPlaying: true
       Loop: true
       PlaybackSpeed: 1
+      RootMotion: true
       SourceFilePath: Assets/Models/Dog/Dog.gltf
       CurrentClipName: Idle
     SkeletonComponent:
@@ -408,6 +409,7 @@ Entities:
     RelationshipComponent:
       ParentHandle: 0
       Children:
+        - 6585740634619327673
         - 13962845770024567391
         - 5115306550982845187
   - Entity: 5115306550982845187
@@ -608,6 +610,10 @@ Entities:
       FixedAspectRatio: false
       RuntimeControl: false
       FlySpeed: 5
+    RelationshipComponent:
+      ParentHandle: 193513189554010833
+      Children:
+        []
   - Entity: 9944571689279452715
     TagComponent:
       Tag: Sky

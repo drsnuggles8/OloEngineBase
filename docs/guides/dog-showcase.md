@@ -28,6 +28,11 @@ The clips are `Idle`, `HeadTilt`, `Sit`, `Walk`, `Pant` and `Rest`. Switch them 
 `AnimationStateComponent`'s requested clip (the editor's Animation panel, `olo_entity_set_field`,
 or `PlayClip` from Lua).
 
+In Play the walk travels: 0.312 m/s straight ahead, the speed its planted paws move back, by root
+motion (the dog's `RootMotion` switch; see `docs/design/locomotion.md`). The scene's runtime camera
+is a child of the dog, so it follows; the editor's preview walks in place. The evidence does the
+same: the fixture's camera rides the dog, and `StartClip` puts the dog back at the origin.
+
 ## Regenerating it
 
 1. **The body and the coat**: `build_dog.py` (Blender 5.x, headless); see `Models/Dog/README.md`.

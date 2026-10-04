@@ -54,7 +54,7 @@ centre that rotate about each eye's own lid axis, so a blink can never cut into 
 | `Idle` | 4 s, loops | breathing, two blinks, an ear twitch, a gentle wag, a small head drift |
 | `HeadTilt` | 2.5 s, once | the head rolls about 16°, brows raise, the ears flop with it, back |
 | `Sit` | 3 s, holds | the pelvis pitches up and drops onto the rump, the hind legs fold flat |
-| `Walk` | 1 s, loops | a four-beat walk, pads planted through the stance |
+| `Walk` | 1 s, loops | a four-beat walk, pads planted through the stance; the root travels 0.312 m a loop, which the engine gives to the entity (root motion) |
 | `Pant` | 2 s, loops | the mouth open, the tongue slid out over the lip, the chest heaving |
 | `Rest` | 1 s, loops | the rest pose held, for look development and evidence frames |
 
