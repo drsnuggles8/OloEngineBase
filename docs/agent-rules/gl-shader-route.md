@@ -24,7 +24,9 @@ Rules for how an OpenGL program reaches the driver (#1533, E2). Read before touc
    | the groom (`GroomStrand*`) | GroomPass 7.3 -> 9.0 ms, **slower** |
    | depth, depth-normal and G-Buffer foliage, mesh PBR, post passes | no change |
 
-   So the route is per shader, not global: only the first two rows carry the token.
+   So the route is per shader, not global: the first two rows carry the token, and so do the
+   depth-normal prepass twins of the first, which must share its route (rule 5) and cost the same on
+   either.
 
 3. **The text route emits only the resources a stage uses.** The GLSL front end counts every
    DECLARED uniform block against `GL_MAX_<stage>_UNIFORM_BLOCKS` (14 on NVIDIA), and the terrain's
@@ -37,6 +39,17 @@ Rules for how an OpenGL program reaches the driver (#1533, E2). Read before touc
    program on the text route (narrowed by `OLO_GL_SHADERS_FROM_GLSL_MATCH=Foliage_,Terrain`);
    `0` puts none. It is read as each program is created, so set it before launch; `Reload()`
    re-decides, so a test can swap routes in one process.
+
+5. **A colour program and the prepass it depth-tests against take one route.** `invariant
+   gl_Position` holds only within one compiler. The forward foliage colour pass draws at `GL_LEQUAL`
+   against its depth-normal prepass, and with `Foliage_Instance` on the text route and
+   `Foliage_Instance_DepthNormal` on SPIR-V, NVIDIA's two front ends rounded the same position
+   apart: with AO on (which runs the prepass) 30158 pixels of `AOFoliageParityTest`'s stand got
+   brighter instead of darker, because the colour pass lost leaf fragments to the prepass's depth.
+   With both twins on the text route the count is 131. The pairs are `Foliage_Instance` /
+   `Foliage_Instance_DepthNormal`, `Foliage_Impostor` / `Foliage_Impostor_DepthNormal` and
+   `Terrain_PBR` / `Terrain_Depth`; `OpenGLShaderRouteTest` holds each pair to one route. Shadow
+   programs are not twins: a shadow map is never depth-tested against the main view.
 
 ## What was ruled out
 

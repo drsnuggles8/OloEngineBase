@@ -90,6 +90,22 @@ namespace OloEngine::Tests
             EXPECT_TRUE(std::ranges::find(opted, std::string(expected)) != opted.end())
                 << expected << " no longer names OLO_GL_GLSL_ROUTE";
         }
+        // A colour program and the prepass it depth-tests against take ONE
+        // route (rule 5): `invariant gl_Position` holds only within one
+        // compiler, and with the foliage twins on different routes the forward
+        // colour pass lost leaf fragments to the prepass's depth.
+        const std::array<std::pair<const char*, const char*>, 3> twins{ {
+            { "assets/shaders/Foliage_Instance.glsl", "assets/shaders/Foliage_Instance_DepthNormal.glsl" },
+            { "assets/shaders/Foliage_Impostor.glsl", "assets/shaders/Foliage_Impostor_DepthNormal.glsl" },
+            { "assets/shaders/Terrain_PBR.glsl", "assets/shaders/Terrain_Depth.glsl" },
+        } };
+        for (const auto& [colour, prepass] : twins)
+        {
+            const bool colourOpted = std::ranges::find(opted, std::string(colour)) != opted.end();
+            const bool prepassOpted = std::ranges::find(opted, std::string(prepass)) != opted.end();
+            EXPECT_EQ(colourOpted, prepassOpted)
+                << colour << " and its prepass twin " << prepass << " take different GL routes";
+        }
         for (const std::string& path : opted)
         {
             SCOPED_TRACE(path);

@@ -20,6 +20,14 @@
 #type vertex
 #version 460 core
 
+// THE GLSL TEXT ROUTE ON OPENGL, because the colour program takes it
+// (docs/agent-rules/gl-shader-route.md, rule 5). The colour pass draws these
+// leaves at GL_LEQUAL against this prepass's depth, and `invariant gl_Position`
+// holds only within one compiler: on different routes NVIDIA's two front ends
+// rounded the same position apart and the colour pass lost leaf fragments to
+// this depth.
+#define OLO_GL_GLSL_ROUTE 1
+
 #define OLO_INSTANCE_NO_FORWARD 1
 #include "include/FoliageImpostorVertexStage.glsl"
 
