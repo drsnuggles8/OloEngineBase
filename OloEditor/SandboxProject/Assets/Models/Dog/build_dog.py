@@ -2267,6 +2267,19 @@ def fill_empty_texels(rgb, mask):
     return np.where(mask[..., None], rgb, colour)
 
 
+def erode(mask, texels):
+    """`mask` with every texel within `texels` (4-neighbourhood steps) of an uncovered one cleared."""
+    m = mask.copy()
+    for _ in range(texels):
+        e = m.copy()
+        e[1:, :] &= m[:-1, :]
+        e[:-1, :] &= m[1:, :]
+        e[:, 1:] &= m[:, :-1]
+        e[:, :-1] &= m[:, 1:]
+        m = e
+    return m
+
+
 def bake_coat_map(ob, out_path, log=print):
     """Bake the per-vertex coat colour into a UV texture with Cycles (EMIT pass)."""
     import bpy
@@ -2317,18 +2330,28 @@ def bake_coat_map(ob, out_path, log=print):
     scene.render.engine = "CYCLES"
     scene.cycles.device = "CPU"
     scene.cycles.samples = 1
-    scene.render.bake.margin = 12
+    # NO MARGIN: what the bake covers is then exactly the islands, and the gutters are filled
+    # below from the islands' interiors. Blender's margin copied each island's edge texels
+    # outward -- some of them darkened where a texel straddles the island's edge -- and the fill
+    # then counted those as coat, so the gutters held blocks down to near black, which mipmaps
+    # and bilinear taps at every seam averaged back into the coat and the skin (#1533 review).
+    scene.render.bake.margin = 0
     for o in bpy.context.view_layer.objects:
         o.select_set(False)
     ob.select_set(True)
     bpy.context.view_layer.objects.active = ob
     t0 = time.time()
-    bpy.ops.object.bake(type="EMIT", margin=12, use_clear=True)
+    bpy.ops.object.bake(type="EMIT", margin=0, use_clear=True)
     log(f"[coat] baked {COLOR_MAP_SIZE}^2 colour map in {time.time() - t0:.1f}s")
     px = np.zeros(COLOR_MAP_SIZE * COLOR_MAP_SIZE * 4, dtype=np.float32)
     img.pixels.foreach_get(px)
     px = px.reshape(COLOR_MAP_SIZE, COLOR_MAP_SIZE, 4)
-    px[..., :3] = fill_empty_texels(px[..., :3], px[..., :3].sum(axis=2) > 1e-4)
+    # The islands less the two texels at their edges, which can straddle it; everything else is
+    # filled from what is left.
+    covered = erode(px[..., :3].sum(axis=2) > 1e-4, 2)
+    px[..., :3] = fill_empty_texels(px[..., :3], covered)
+    darkest = float(px[..., :3].min())
+    log(f"[coat] colour map: {int(covered.sum())} interior texels kept, darkest channel {darkest:.3f}")
     img.pixels.foreach_set(px.ravel())
     img.filepath_raw = out_path
     img.file_format = "PNG"
