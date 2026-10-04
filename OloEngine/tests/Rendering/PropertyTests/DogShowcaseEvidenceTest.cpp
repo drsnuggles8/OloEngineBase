@@ -1159,6 +1159,13 @@ namespace OloEngine::Tests
             d.ColorMap = AssetManager::AddMemoryOnlyAsset<Texture2D>(colorMap);
 
             d.Coat = MakeCoat("DogCoat", d.GroomHandle, d.BindingHandle, d.Body, d.ColorMap, d.CoatAsset.Strands);
+            // The coat rides the dog, as the live scene's does: its space follows
+            // the body it is bound to. Left at the world origin while the walk
+            // carried the body away, its caster frames were trusted to a
+            // tolerance that grows with the roots' distance from the coat's own
+            // origin, and its shadow views cast 99% of it instead of 75%
+            // (a-bound-coat-rides-its-body.md).
+            d.Coat.SetParent(d.Body);
         }
 
         // Every groom component, as the shipping scene authors the coat.
@@ -5995,6 +6002,10 @@ namespace OloEngine::Tests
         //   nofibre      the fibre scattering a constant lobe, every attenuation
         //                still evaluated (OLO_GROOM_CONSTANT_FIBRE)
         //   res720       1280x720 instead of 1920x1080 (res1440: 2560x1440)
+        //   inplace      the walk on the spot: the dog's entity put back at its
+        //                start before every frame (root motion still pins the pose)
+        //   fixedcamera  the runtime camera stays where it is instead of riding
+        //                the dog
         const std::string subs = []
         { const char* v = std::getenv("OLO_DOG_COST_SUB"); return std::string(v ? v : ""); }();
         const auto sub = [&subs](std::string_view name)
@@ -6063,6 +6074,10 @@ namespace OloEngine::Tests
             camera = Entity{ e, &GetScene() };
         }
         ASSERT_TRUE(camera);
+        if (sub("fixedcamera"))
+        {
+            camera.SetParent(Entity{});
+        }
 
         struct Framing
         {
@@ -6149,6 +6164,10 @@ namespace OloEngine::Tests
             u64 rootUs = 0;
             for (u32 f = 0; f < kFrames; ++f)
             {
+                if (sub("inplace"))
+                {
+                    m_Dog.Body.GetComponent<TransformComponent>().Translation = glm::vec3(0.0f);
+                }
                 const auto t0 = std::chrono::steady_clock::now();
                 RunFrames(1, 1.0f / 60.0f);
                 wall.push_back(std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count());

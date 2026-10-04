@@ -412,6 +412,7 @@ Entities:
         - 6585740634619327673
         - 13962845770024567391
         - 5115306550982845187
+        - 11047392561502437989
   - Entity: 5115306550982845187
     TagComponent:
       Tag: DogEyeR
@@ -743,6 +744,10 @@ Entities:
       DebugView: 0
       Enabled: true
       Collide: true
+    RelationshipComponent:
+      ParentHandle: 193513189554010833
+      Children:
+        []
   - Entity: 12846372569550906031
     TagComponent:
       Tag: Sun
