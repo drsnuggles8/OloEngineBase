@@ -219,6 +219,43 @@ namespace OloEngine
 
     namespace
     {
+        // What a LIGHTMAPPED skin draw loses on the deferred path, counted at
+        // submission (issues #1242, #1533): RT5 holds the draw's baked
+        // irradiance, so neither of the skin lanes that ride it -- the per-pixel
+        // thickness in red, the coat's variance kernel in green -- reaches the
+        // lighting pass. Called from both submission branches; #1242 first
+        // reported from the serial one only, and a batch that crossed the
+        // parallel threshold stopped reporting a conflict that was still there.
+        //
+        // SkinProfileTable::Resolve and ReportTransmissionFallback are
+        // documented thread-safe, which is what makes this callable from inside
+        // the parallel lambda.
+        void ReportSkinDeferredLaneFallbacks(const Material& mat)
+        {
+            if (mat.GetMaterialKind() != MaterialKind::Skin)
+            {
+                return;
+            }
+            const SkinProfileResolution profile = Renderer3D::GetSkinProfileTable().Resolve(mat.GetSkinProfileHandle());
+            // BOTH TRANSMITTING VERSIONS (issue #1243 appended the second). The
+            // versions are cumulative, so a version-3 profile transmits too --
+            // reporting only version 2 would stop counting the conflict the
+            // moment an author moved a head forward.
+            if (mat.HasAuthoredThickness() && SkinEvaluatesThicknessTransmission(profile.Parameters.EvaluationModel))
+            {
+                Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
+                    SkinTransmissionFallbackReason::DeferredThicknessLaneUnavailable, mat.GetSkinProfileHandle());
+            }
+            // The coat is filtered only when there is a coat to filter and a
+            // strength to filter it by; without either the lane carries nothing.
+            if (SkinEvaluatesOralSurface(profile.Parameters.EvaluationModel) &&
+                profile.Parameters.Oral.CoatStrength > 0.0f && profile.Parameters.Specular.NormalVarianceStrength > 0.0f)
+            {
+                Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
+                    SkinTransmissionFallbackReason::DeferredCoatFilterLaneUnavailable, mat.GetSkinProfileHandle());
+            }
+        }
+
         // Stage ONE virtual-mesh part's ray-tracing proxy into the canonical
         // GPU Scene (issue #1144), and count the outcome either way.
         //
@@ -2137,25 +2174,7 @@ namespace OloEngine
                         // the cost is one asset-manager lookup per skin
                         // submission, and this site only reaches it for a
                         // lightmapped skin draw.
-                        if (const Material& mat = desc.MaterialData;
-                            mat.GetMaterialKind() == MaterialKind::Skin && mat.HasAuthoredThickness())
-                        {
-                            const SkinProfileResolution profile =
-                                Renderer3D::GetSkinProfileTable().Resolve(mat.GetSkinProfileHandle());
-                            // BOTH TRANSMITTING VERSIONS (issue #1243 appended
-                            // the second). The versions are cumulative, so a
-                            // version-3 profile transmits too — reporting only
-                            // version 2 here would make the lightmap conflict
-                            // stop being counted the moment an author moved a
-                            // head forward, and this diagnostic exists precisely
-                            // because the failure is otherwise invisible.
-                            if (SkinEvaluatesThicknessTransmission(profile.Parameters.EvaluationModel))
-                            {
-                                Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
-                                    SkinTransmissionFallbackReason::DeferredThicknessLaneUnavailable,
-                                    mat.GetSkinProfileHandle());
-                            }
-                        }
+                        ReportSkinDeferredLaneFallbacks(desc.MaterialData);
                     }
                     SubmitPacket(packet);
                     ++totalSubmitted;
@@ -2239,25 +2258,7 @@ namespace OloEngine
                         // are both documented thread-safe (mesh submission runs
                         // on more than one thread), which is what makes this
                         // callable from inside the parallel lambda.
-                        if (const Material& mat = desc.MaterialData;
-                            mat.GetMaterialKind() == MaterialKind::Skin && mat.HasAuthoredThickness())
-                        {
-                            const SkinProfileResolution profile =
-                                Renderer3D::GetSkinProfileTable().Resolve(mat.GetSkinProfileHandle());
-                            // BOTH TRANSMITTING VERSIONS (issue #1243 appended
-                            // the second). The versions are cumulative, so a
-                            // version-3 profile transmits too — reporting only
-                            // version 2 here would make the lightmap conflict
-                            // stop being counted the moment an author moved a
-                            // head forward, and this diagnostic exists precisely
-                            // because the failure is otherwise invisible.
-                            if (SkinEvaluatesThicknessTransmission(profile.Parameters.EvaluationModel))
-                            {
-                                Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
-                                    SkinTransmissionFallbackReason::DeferredThicknessLaneUnavailable,
-                                    mat.GetSkinProfileHandle());
-                            }
-                        }
+                        ReportSkinDeferredLaneFallbacks(desc.MaterialData);
                     }
                     Renderer3D::SubmitPacketParallel(stats.Context, packet);
                     ++stats.Submitted;

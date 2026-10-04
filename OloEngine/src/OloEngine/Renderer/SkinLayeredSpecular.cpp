@@ -27,6 +27,24 @@ namespace OloEngine
         return std::clamp(filtered, 0.0f, 1.0f);
     }
 
+    f32 SkinVarianceKernel(f32 dNdxLengthSq, f32 dNdyLengthSq, f32 varianceStrength) noexcept
+    {
+        // SkinFilteredAlpha's first two lines, in their order.
+        const f32 variance = varianceStrength * (dNdxLengthSq + dNdyLengthSq);
+        return std::min(2.0f * variance, kSkinVarianceKernelClamp);
+    }
+
+    f32 SkinWidenedRoughness(f32 roughness, f32 kernel) noexcept
+    {
+        // `!(kernel > 0)`: zero, and a NaN, leave the roughness as authored.
+        if (!(kernel > 0.0f))
+        {
+            return roughness;
+        }
+        const f32 alpha = roughness * roughness;
+        return std::sqrt(std::clamp(std::sqrt(alpha * alpha + kernel), 0.0f, 1.0f));
+    }
+
     SkinSpecularLobePair SkinSpecularLobesFor(f32 filteredRoughness,
                                               const SkinSpecularParameters& parameters) noexcept
     {

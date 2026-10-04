@@ -571,8 +571,14 @@ void main()
     // A zero strength — which is what every non-skin material and every profile
     // below transport version 3 uploads — returns `roughness` unchanged and
     // costs one compare. See oloSkinFilteredRoughness.
+    // The same kernel widens the coat below (#1533); taken here, off the same
+    // normal, in the same uniform branch.
+    float skinVarianceKernel = 0.0;
     if (u_MaterialKind == OLO_MATERIAL_KIND_SKIN)
+    {
         roughness = oloSkinFilteredRoughness(roughness, N, u_SkinSpecularLane.z);
+        skinVarianceKernel = oloSkinVarianceKernelAt(N, u_SkinSpecularLane.z);
+    }
 
     // ---- THE CORNEA AND THE IRIS (issue #1244) ---------------------------
     //
@@ -628,6 +634,9 @@ void main()
     // and costs one compare per light rather than a GGX evaluation.
     vec4 skinOralLane = oloSkinEvaluatesOralSurface(u_MaterialKind, u_SkinEvaluationModel)
                             ? u_SkinOralLane : vec4(0.0);
+    // The coat widened by the pixel's normal spread (#1533), for every light
+    // and the environment below, and for the clustered loop it is passed to.
+    skinOralLane.y = oloSkinWidenedRoughness(skinOralLane.y, skinVarianceKernel);
 
     // Cloud shadow (issue #633): the cloudscape occludes the directional body
     // regardless of the CSM gate below — evaluated once, applied per

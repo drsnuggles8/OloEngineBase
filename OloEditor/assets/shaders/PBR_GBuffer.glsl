@@ -551,8 +551,14 @@ void main()
     // It also means MSAA does the right thing for free: this runs per SAMPLE,
     // so each sample's roughness reflects its own footprint before the resolve
     // averages them.
+    // The kernel also widens the coat at lighting time (#1533): it rides RT5's
+    // green channel to the deferred pass, written at the end of this shader.
+    float skinVarianceKernel = 0.0;
     if (matMaterialKind == OLO_MATERIAL_KIND_SKIN)
+    {
         roughness = oloSkinFilteredRoughness(roughness, N, u_SkinSpecularLane.z);
+        skinVarianceKernel = oloSkinVarianceKernelAt(N, u_SkinSpecularLane.z);
+    }
 
     // ---- THE CORNEA AND THE IRIS (issue #1244) ---------------------------
     //
@@ -657,7 +663,10 @@ void main()
     // The irradiance WINS wherever there is any: taking a lightmapped surface's
     // indirect light away to make room for a transmission term would trade a
     // visible lighting regression for a subtle gain. The CPU counts that case as
-    // SkinTransmissionFallbackReason::DeferredThicknessLaneUnavailable, so the
-    // lost per-pixel thickness is reported rather than silently dropped.
-    o_GBufferBakedGI = oloSkinPackGBufferThickness(bakedGI, skinThicknessMM > 0.0, skinThicknessMM);
+    // SkinTransmissionFallbackReason::DeferredThicknessLaneUnavailable (and the
+    // coat's kernel as DeferredCoatFilterLaneUnavailable), so the lost lanes are
+    // reported rather than silently dropped.
+    o_GBufferBakedGI = oloSkinPackGBufferLanes(
+        bakedGI, matMaterialKind == OLO_MATERIAL_KIND_SKIN && matSkinProfileSlot < OLO_SKIN_PROFILE_SLOT_NONE,
+        skinThicknessMM, skinVarianceKernel);
 }

@@ -439,6 +439,13 @@ vec3 ComputeDeferredLitSplit(
     // through the writer. Identical discipline to the leaf thickness above.
     float skinThicknessMM = oloSkinUnpackGBufferThickness(bakedGI, skinProfileSlot < OLO_SKIN_PROFILE_SLOT_NONE);
 
+    // THE COAT'S KERNEL (#1533), RT5's green channel: the writer's measure of
+    // this pixel's normal spread, which widens the coat here as the forward
+    // paths widen theirs. A fullscreen pass cannot take that derivative itself
+    // without straddling silhouettes (include/SkinLayeredSpecular.glsl).
+    skinOralLane.y = oloSkinWidenedRoughness(
+        skinOralLane.y, oloSkinUnpackGBufferCoatKernel(bakedGI, skinProfileSlot < OLO_SKIN_PROFILE_SLOT_NONE));
+
     // THE VERSION TEST, HERE AND NOT IN THE G-BUFFER. The writer publishes a
     // thickness for every skin pixel that names a profile, because it has no
     // SkinEvaluationModel to test; the version lives in the slot table, which

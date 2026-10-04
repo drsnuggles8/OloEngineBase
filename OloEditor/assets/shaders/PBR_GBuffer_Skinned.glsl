@@ -437,8 +437,14 @@ void main()
     // It also means MSAA does the right thing for free: this runs per SAMPLE,
     // so each sample's roughness reflects its own footprint before the resolve
     // averages them.
+    // The kernel also widens the coat at lighting time (#1533): it rides RT5's
+    // green channel to the deferred pass, written at the end of this shader.
+    float skinVarianceKernel = 0.0;
     if (u_MaterialKind == OLO_MATERIAL_KIND_SKIN)
+    {
         roughness = oloSkinFilteredRoughness(roughness, N, u_SkinSpecularLane.z);
+        skinVarianceKernel = oloSkinVarianceKernelAt(N, u_SkinSpecularLane.z);
+    }
 
     // ---- THE CORNEA AND THE IRIS (issue #1244) ---------------------------
     //
@@ -533,5 +539,7 @@ void main()
     // MATTERS for the demonstrating case: the backlit animated ear is a skinned
     // mesh, and it is exactly the surface that cannot lose its thickness to a
     // lightmap.
-    o_GBufferBakedGI = oloSkinPackGBufferThickness(vec4(0.0), skinThicknessMM > 0.0, skinThicknessMM);
+    o_GBufferBakedGI = oloSkinPackGBufferLanes(
+        vec4(0.0), u_MaterialKind == OLO_MATERIAL_KIND_SKIN && u_SkinProfileSlot < OLO_SKIN_PROFILE_SLOT_NONE,
+        skinThicknessMM, skinVarianceKernel);
 }

@@ -74,6 +74,20 @@
 //                             acquiring someone else's lobe.
 //  14  LOBE GATE, RIGHT VERSION — and returns the lane's xy for a version-3 skin
 //                             pixel, so case 13 is not passing by being broken.
+//  15  KERNEL PARITY       — oloSkinVarianceKernel against the CPU's
+//                             SkinVarianceKernel (#1533): the kernel the coat is
+//                             widened by is the one the base filter adds.
+//  16  COAT WIDENING PARITY— oloSkinWidenedRoughness at the coat's 0.04 floor
+//                             against the CPU's SkinWidenedRoughness, and against
+//                             the base filter applied to the same roughness: a
+//                             coat widened by the kernel IS the filtered coat.
+//  17  ZERO KERNEL IS EXACT— a zero kernel, and a NaN one, return the coat's
+//                             roughness bit for bit, so a profile with no strength
+//                             shades its coat as before.
+//  18  RT5 LANES ROUND TRIP— the kernel and the thickness written together come
+//                             back out of RT5; a lightmapped texel keeps its light
+//                             and carries no kernel; a zero kernel packs exactly
+//                             what the thickness-only writer packs.
 // =============================================================================
 
 #type vertex
@@ -118,6 +132,10 @@ const vec3 kCoarseTangent = vec3(0.08, -0.05, 0.9955);
 
 // The lane a version-3 profile packs, mirroring SkinSpecularLane.
 const vec4 kLane = vec4(kLobeMix, kLobeRoughnessScale, kVarianceStrength, 0.0);
+
+// The coat's floor (kMinSkinOralCoatRoughness) and a thickness for the RT5 case.
+const float kCoatRoughness = 0.04;
+const float kThicknessMM = 2.5;
 
 void main()
 {
@@ -235,6 +253,40 @@ void main()
     {
         vec2 lobe = oloSkinLobeFor(OLO_MATERIAL_KIND_SKIN, OLO_SKIN_MODEL_LAYERED_SPECULAR, kLane);
         result = vec4(lobe, 0.0, 1.0);
+    }
+    else if (caseIndex == 15) // KERNEL PARITY
+    {
+        result = vec4(oloSkinVarianceKernel(kdNdx, kdNdy, kVarianceStrength), 0.0, 0.0, 1.0);
+    }
+    else if (caseIndex == 16) // COAT WIDENING PARITY
+    {
+        float kernel = oloSkinVarianceKernel(kdNdx, kdNdy, kVarianceStrength);
+        float widened = oloSkinWidenedRoughness(kCoatRoughness, kernel);
+        float filtered = sqrt(oloSkinFilteredAlpha(kCoatRoughness * kCoatRoughness, kdNdx, kdNdy, kVarianceStrength));
+        // red = the widened coat, green = the base filter on the same roughness,
+        // blue = the floor it must not go below.
+        result = vec4(widened, filtered, kCoatRoughness, 1.0);
+    }
+    else if (caseIndex == 17) // ZERO KERNEL IS EXACT
+    {
+        float nanKernel = uintBitsToFloat(0x7fc00000u);
+        result = vec4(oloSkinWidenedRoughness(kCoatRoughness, 0.0), kCoatRoughness,
+                      oloSkinWidenedRoughness(kCoatRoughness, nanKernel), 1.0);
+    }
+    else if (caseIndex == 18) // RT5 LANES ROUND TRIP
+    {
+        float kernel = oloSkinVarianceKernel(kdNdx, kdNdy, kVarianceStrength);
+        vec4 packed = oloSkinPackGBufferLanes(vec4(0.0), true, kThicknessMM, kernel);
+        vec4 lightmapped = oloSkinPackGBufferLanes(vec4(0.3, 0.2, 0.1, 1.0), true, kThicknessMM, kernel);
+        vec4 noKernel = oloSkinPackGBufferLanes(vec4(0.0), true, kThicknessMM, 0.0);
+        vec4 thicknessOnly = oloSkinPackGBufferThickness(vec4(0.0), true, kThicknessMM);
+        // red = the kernel read back, green = the thickness read back,
+        // blue = the lightmapped texel's kernel (0) plus how far its light moved,
+        // alpha = how far the zero-kernel pack is from the thickness-only one.
+        result = vec4(oloSkinUnpackGBufferCoatKernel(packed, true), oloSkinUnpackGBufferThickness(packed, true),
+                      oloSkinUnpackGBufferCoatKernel(lightmapped, true) +
+                          distance(lightmapped, vec4(0.3, 0.2, 0.1, 1.0)),
+                      distance(noKernel, thicknessOnly));
     }
 
     o_Result = result;
