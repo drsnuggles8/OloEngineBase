@@ -8501,6 +8501,153 @@ namespace OloEngine::Tests
     }
 
     // =========================================================================
+    // The walk travels with its paws planted (C1, #1533). Runtime frames, two
+    // loops of Walk from the origin, the body skinned on the CPU as the shader
+    // skins it, in world space:
+    //   - the dog travels straight ahead (+Z) at the speed the clip's stance
+    //     paws move back under it (build_dog.py's WALK_SPEED), by root motion;
+    //   - each paw, through the middle eight tenths of every stance, stays
+    //     where it landed: its contact point (the mean of its pad's points
+    //     within 2 mm of the lowest) moves less than kSlide;
+    //   - through every swing the paw's lowest point stays above the ground
+    //     its stance stood on.
+    // THE CONTROL: the same frames measured in the dog's own frame -- what a
+    // walk on the spot shows -- slide every stance paw back by most of its
+    // stance's share of a stride.
+    // =========================================================================
+    TEST_F(DogShowcaseEvidenceTest, TheWalkTravelsWithItsPawsPlanted)
+    {
+        constexpr f32 kWalkSpeed = 0.312f; // m/s, build_dog.py's WALK_SPEED
+        constexpr f32 kSlide = 0.008f;
+        constexpr f32 kDuty = 0.62f; // clip_walk's stance share of the stride
+        constexpr u32 kFrames = 120; // two loops at 60 Hz
+        // clip_walk's phase offsets: LH, LF, RH, RF a quarter stride apart.
+        const std::array<std::pair<const char*, f32>, 4> paws{ { { "paw_rear_L", 0.0f },
+                                                                 { "paw_front_L", 0.75f },
+                                                                 { "paw_rear_R", 0.5f },
+                                                                 { "paw_front_R", 0.25f } } };
+        SetPath(RenderingPath::Forward);
+        BodyParts parts = BuildBodyParts();
+        const Skeleton& skeleton = *m_Dog.Body.GetComponent<SkeletonComponent>().m_Skeleton;
+        std::array<std::vector<u32>, 4> pads;
+        for (sizet p = 0; p < paws.size(); ++p)
+        {
+            const auto bone = std::ranges::find(skeleton.m_BoneNames, std::string(paws[p].first));
+            ASSERT_NE(bone, skeleton.m_BoneNames.end()) << "the dog has no " << paws[p].first;
+            const auto index = static_cast<u32>(std::distance(skeleton.m_BoneNames.begin(), bone));
+            for (u32 v = 0; v < static_cast<u32>(parts.Bind.size()); ++v)
+            {
+                if (parts.Dominant[v] == index)
+                {
+                    pads[p].push_back(v);
+                }
+            }
+            ASSERT_GT(pads[p].size(), 100u) << paws[p].first << " has no vertices of its own";
+        }
+
+        struct Walked
+        {
+            glm::vec3 Travel{ 0.0f };
+            f32 Seconds = 0.0f;
+            std::array<f32, 4> WorstSlide{};  // the largest move of a contact point through one stance
+            std::array<f32, 4> SwingLowest{}; // the lowest swing point below its last stance's ground (negative: above)
+        };
+        // `ownFrame` measures the contact points relative to the dog's entity,
+        // which is what a walk on the spot would show.
+        const auto walk = [&](bool ownFrame) -> Walked
+        {
+            Walked w;
+            w.SwingLowest.fill(-1.0f);
+            auto& anim = m_Dog.Body.GetComponent<AnimationStateComponent>();
+            (void)StartClip("Walk", true, 1u);
+            const glm::vec3 start = m_Dog.Body.GetComponent<TransformComponent>().Translation;
+            std::array<std::vector<glm::vec3>, 4> stance; // the current stance's contact points
+            std::array<f32, 4> ground{};                  // the last stance's median contact height
+            std::array<bool, 4> grounded{};
+            for (u32 frame = 1; frame <= kFrames; ++frame)
+            {
+                (void)AdvanceRuntime(1u);
+                PoseBody(parts);
+                const glm::vec3 offset = ownFrame ? m_Dog.Body.GetComponent<TransformComponent>().Translation : glm::vec3(0.0f);
+                const f32 t = anim.m_CurrentTime / std::max(anim.m_CurrentClip->Duration, 1.0e-6f);
+                for (sizet p = 0; p < paws.size(); ++p)
+                {
+                    f32 lowest = std::numeric_limits<f32>::max();
+                    for (const u32 v : pads[p])
+                    {
+                        lowest = std::min(lowest, parts.Posed[v].y);
+                    }
+                    glm::vec3 contact(0.0f);
+                    u32 n = 0;
+                    for (const u32 v : pads[p])
+                    {
+                        if (parts.Posed[v].y < lowest + 0.002f)
+                        {
+                            contact += parts.Posed[v];
+                            ++n;
+                        }
+                    }
+                    contact = contact / static_cast<f32>(n) - offset;
+                    const f32 phase = std::fmod(t + paws[p].second, 1.0f);
+                    if (phase >= 0.1f * kDuty && phase <= 0.9f * kDuty)
+                    {
+                        stance[p].push_back(contact);
+                        continue;
+                    }
+                    if (stance[p].size() > 3u)
+                    {
+                        glm::vec2 lo(std::numeric_limits<f32>::max());
+                        glm::vec2 hi(std::numeric_limits<f32>::lowest());
+                        std::vector<f32> heights;
+                        for (const glm::vec3& c : stance[p])
+                        {
+                            lo = glm::min(lo, glm::vec2(c.x, c.z));
+                            hi = glm::max(hi, glm::vec2(c.x, c.z));
+                            heights.push_back(c.y);
+                        }
+                        w.WorstSlide[p] = std::max(w.WorstSlide[p], glm::length(hi - lo));
+                        std::ranges::nth_element(heights, heights.begin() + static_cast<std::ptrdiff_t>(heights.size() / 2u));
+                        ground[p] = heights[heights.size() / 2u];
+                        grounded[p] = true;
+                    }
+                    stance[p].clear();
+                    if (phase > kDuty && grounded[p])
+                    {
+                        w.SwingLowest[p] = std::max(w.SwingLowest[p], ground[p] - lowest);
+                    }
+                }
+            }
+            w.Travel = m_Dog.Body.GetComponent<TransformComponent>().Translation - start;
+            w.Seconds = static_cast<f32>(kFrames) / 60.0f;
+            return w;
+        };
+
+        const Walked walked = walk(false);
+        std::printf("[dog] walk: travelled (%.3f, %.3f, %.3f) m in %.2f s, %.3f m/s forward\n", walked.Travel.x, walked.Travel.y,
+                    walked.Travel.z, walked.Seconds, walked.Travel.z / walked.Seconds);
+        EXPECT_NEAR(walked.Travel.z / walked.Seconds, kWalkSpeed, 0.03f * kWalkSpeed) << "the dog does not walk at its stride's speed";
+        EXPECT_LT(std::abs(walked.Travel.x) + std::abs(walked.Travel.y), 0.01f) << "the walk drifts off its line";
+        for (sizet p = 0; p < paws.size(); ++p)
+        {
+            std::printf("[dog] walk %-11s: slides %.1f mm over a stance, swing lowest %+.1f mm under its ground\n", paws[p].first,
+                        1000.0f * walked.WorstSlide[p], 1000.0f * walked.SwingLowest[p]);
+            EXPECT_LT(walked.WorstSlide[p], kSlide) << paws[p].first << " slides through its stance";
+            EXPECT_GT(walked.WorstSlide[p], 0.0f) << paws[p].first << ": no stance was measured";
+            EXPECT_LT(walked.SwingLowest[p], 0.001f) << paws[p].first << " drags through the ground in its swing";
+        }
+
+        // THE CONTROL: the same frames in the dog's own frame, a walk on the spot.
+        const Walked onTheSpot = walk(true);
+        std::printf("[dog] walk on the spot: the paws slide %.0f, %.0f, %.0f, %.0f mm\n", 1000.0f * onTheSpot.WorstSlide[0],
+                    1000.0f * onTheSpot.WorstSlide[1], 1000.0f * onTheSpot.WorstSlide[2], 1000.0f * onTheSpot.WorstSlide[3]);
+        for (sizet p = 0; p < paws.size(); ++p)
+        {
+            EXPECT_GT(onTheSpot.WorstSlide[p], 0.1f) << paws[p].first << ": the slide check did not see a walk on the spot";
+        }
+        (void)StartClip("Idle", true, 1u);
+    }
+
+    // =========================================================================
     // The teeth stay out of the tongue (A4, #1533). Every clip on runtime
     // frames, the mouth skinned on the CPU as the shader skins it: no tooth
     // vertex may sit inside the tongue by more than kPierceTolerance. Inside is

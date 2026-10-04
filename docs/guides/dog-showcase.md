@@ -75,6 +75,10 @@ shows. The grass holds still in those frames; it sways in the editor.
 - **The teeth stay out of the tongue** (A4): every clip on 150 runtime frames, the mouth skinned on
   the CPU; no tooth vertex is more than 0.5 mm inside the tongue. Pant's tongue bends in front of
   the lower incisors; a bend behind them put 1,137 tooth vertices up to 5.6 mm deep in every frame.
+- **The walk travels with its paws planted** (C1): two loops of Walk on runtime frames, the body
+  skinned on the CPU. The dog goes 0.312 m/s straight ahead, each paw stays within 8 mm of where it
+  landed through the middle of its stance, and every swing clears the ground; measured in the dog's
+  own frame (a walk on the spot) the same paws slide 150 mm.
 - **The wet surfaces catch the sun without fireflies**: at the low hero view, at 128 sample
   positions per pixel, no skin or eye pixel reads above 100 (shipped: 10); with every dog profile's
   variance strength at 0, the frame before the fix, the eye's and the mouth's coats point-sample the
