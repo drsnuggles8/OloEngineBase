@@ -257,6 +257,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [non-recursive-lock-self-locking-helper.md](non-recursive-lock-self-locking-helper.md): fix the callee that locks internally; don't wrap a self-synchronised member in an outer lock.
 - [spinlock-payload-cache-line-separation.md](spinlock-payload-cache-line-separation.md): keep a lock off its payload's cache line.
 - [per-frame-scratch-reuse.md](per-frame-scratch-reuse.md): three checks before promoting a per-tick scratch vector to persistent state.
+- [retained-scratch-has-an-owner-and-a-ledger.md](retained-scratch-has-an-owner-and-a-ledger.md): retained scratch is passed in by an owner that gives it back, and counted once in the memory report; a function-local `thread_local` vector is neither.
 - [bump-allocator-rollover-padding.md](bump-allocator-rollover-padding.md): a rollover must not reserve padding computed for the block it is leaving; over-align the blocks instead.
 - [cancel-a-load-by-removing-its-record.md](cancel-a-load-by-removing-its-record.md): a cancelled async load is dropped by removing its pending record, abandoned tasks are waited out at shutdown, and a re-request of the same key is the test that proves it.
 
@@ -512,6 +513,7 @@ The check passes for a correct implementation and for a broken one.
 
 | Doc | The instrument that failed |
 |---|---|
+| [retained-scratch-has-an-owner-and-a-ledger.md](retained-scratch-has-an-owner-and-a-ledger.md) | The groom memory report looked complete while seven function-local `thread_local` scratch vectors (the caster pose's and the root skinning's) held the largest coat's working set outside it until their threads exited. |
 | [caster-bounds-come-from-the-geometry.md](caster-bounds-come-from-the-geometry.md) | The caster share's "lower bound" took a scaled 128-strand sample for the moments, bones' images plus 15% for the box and corner rays for a lamp's fan: 146 claimed of 137, a blended strand's tip outside its box, 19.8 NDC credited of 0.0002. |
 | [editor-input-coordinates-and-imgui-viewports.md](editor-input-coordinates-and-imgui-viewports.md) | `olo_input_inject` refused the whole right-hand dock as "outside the editor window (1280x720)": the bound was a window size cached before `GLFW_SCALE_TO_MONITOR` resized the window to 1920x1080. |
 | [live-verification-noise-floor.md](live-verification-noise-floor.md) | A crop check that a mirrored, wrong position scored better on; read tools that answer 200 with a stale frame from an iconified window. |

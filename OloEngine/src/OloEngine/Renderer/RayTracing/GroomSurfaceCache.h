@@ -232,6 +232,10 @@ namespace OloEngine::RayTracing
         std::vector<GroomProxySegment> m_ProxySegments;
         /// Drawn roots evaluated for a request that left them to the GPU.
         TArray<GroomRootTransform> m_RootScratch;
+        /// Their evaluation's skinned surface (#1533 review): this cache's own,
+        /// counted in the evaluation-scratch ledger (GroomEvaluationScratch.h)
+        /// and not in GetCpuBytes, given back at Shutdown.
+        GroomSurfaceSkinScratch m_SkinScratch;
         std::vector<u32> m_StrandIndices;
         std::vector<Vertex> m_ProxyVertices;
         std::vector<u32> m_ProxyIndices;

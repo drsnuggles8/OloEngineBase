@@ -866,6 +866,10 @@ namespace OloEngine
         // removed after it was last deformed — which is precisely when the
         // state is stale (#1249).
         m_GroomBindingRuntime.erase(entityUUID);
+        if (m_GroomBindingRuntime.empty())
+        {
+            m_GroomSkinScratch.Release();
+        }
         // The same for the simulation's particles, and for the same reason at a
         // larger scale: a simulated coat holds two frames of displacement plus a
         // solver state plus a fitted body proxy, which on a long-coated animal is
@@ -10673,7 +10677,8 @@ namespace OloEngine
             Renderer3D::TakePooledGroomRootTransforms(state.m_Transforms, groom.GetCurveCount());
             request.DeformationStats =
                 EvaluateGroomRootTransforms(groom, *bindingAsset, inputs,
-                                            std::span<const u32>{ state.m_SelectedCurves.GetData(), static_cast<sizet>(state.m_SelectedCurves.Num()) }, state.m_Transforms);
+                                            std::span<const u32>{ state.m_SelectedCurves.GetData(), static_cast<sizet>(state.m_SelectedCurves.Num()) }, state.m_Transforms,
+                                            m_GroomSkinScratch);
         }
         request.RootEvaluateMicroseconds = static_cast<u64>(
             std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - evaluateStart).count());

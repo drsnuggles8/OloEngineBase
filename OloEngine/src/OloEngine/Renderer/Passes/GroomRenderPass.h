@@ -227,8 +227,14 @@ namespace OloEngine
             u64 CpuBakeInputBytes = 0;    ///< a posed bake's captured pose, card fibre scales and their tables
             u64 CpuRootTableBytes = 0;    ///< per-strand tables: root slot -> curve, caster strand orders and poses
             u64 CpuScratchBytes = 0;      ///< the pass's reusable bake, pose and CPU-stream scratch
-            u32 RestStreams = 0;          ///< distinct rest streams counted
-            u32 Entries = 0;              ///< cache entries counted
+            /// The caster pose's and the CPU root evaluation's scratch the pass
+            /// owns (#1533 review). NOT in CpuBytes(): the memory report gives
+            /// it, with every other owner's, in the evaluation-scratch ledger's
+            /// row (GroomEvaluationScratch.h), and CpuBytes() is the pass's
+            /// CPU row.
+            u64 CpuEvaluationScratchBytes = 0;
+            u32 RestStreams = 0; ///< distinct rest streams counted
+            u32 Entries = 0;     ///< cache entries counted
 
             [[nodiscard]] u64 GpuBytes() const noexcept
             {
@@ -958,6 +964,17 @@ namespace OloEngine
         /// Gives back each scratch group that has idled kScratchIdleFrames
         /// frames, and the pose scratch at once on a frame with no bound groom.
         void ReleaseIdleScratch(bool noDeformedGroom);
+        /// The evaluations' scratch, marked used this tick (ReleaseIdleScratch).
+        [[nodiscard]] GroomCasterPoseScratch& CasterPoseScratch() noexcept
+        {
+            m_EvaluationScratchUsedTick = m_CacheTick;
+            return m_CasterPoseScratch;
+        }
+        [[nodiscard]] GroomSurfaceSkinScratch& CpuSkinScratch() noexcept
+        {
+            m_EvaluationScratchUsedTick = m_CacheTick;
+            return m_CpuSkinScratch;
+        }
         /// The breakdown, walked from the cache: each rest stream in
         /// m_RestStreams once, each entry once. Its GPU categories sum to
         /// m_CacheBytes, which tests hold it to.
@@ -1073,8 +1090,9 @@ namespace OloEngine
         /// peak for the session, outside every budget. A group unused for this
         /// many frames is released (see Execute's end).
         static constexpr u64 kScratchIdleFrames = 120;
-        u64 m_BakeScratchUsedTick = 0; ///< m_CoatSegments, m_RestCentrelines, the volume and its packing
-        u64 m_PoseScratchUsedTick = 0; ///< m_DrawnPose(Full), m_DeformedVertices, m_CpuRootScratch
+        u64 m_BakeScratchUsedTick = 0;       ///< m_CoatSegments, m_RestCentrelines, the volume and its packing
+        u64 m_PoseScratchUsedTick = 0;       ///< m_DrawnPose(Full), m_DeformedVertices, m_CpuRootScratch
+        u64 m_EvaluationScratchUsedTick = 0; ///< m_CasterPoseScratch, m_CpuSkinScratch
 
         GroomCoatShadow::CoatRebakePolicy m_CoatRebakePolicy;
         bool m_GpuDeformation = true;
@@ -1097,6 +1115,14 @@ namespace OloEngine
         /// The drawn roots evaluated on the CPU for a request that left them to
         /// the GPU, when the pass takes a CPU path after all.
         TArray<GroomRootTransform> m_CpuRootScratch;
+        /// The per-frame evaluations' working storage (#1533 review): the
+        /// caster pose's, and the CPU root evaluation's skinned surface. Each
+        /// keeps the capacity of the largest coat it served, so a coat posed
+        /// every frame allocates nothing; both are given back with the pass and
+        /// once unused for kScratchIdleFrames frames, and counted once in the
+        /// evaluation-scratch ledger (GroomEvaluationScratch.h).
+        GroomCasterPoseScratch m_CasterPoseScratch;
+        GroomSurfaceSkinScratch m_CpuSkinScratch;
 
         /// Set by BeginFrame, consumed at the top of Execute (#1323). While it
         /// is set a lazy BeginFrame is a no-op, so the shadow pass and the

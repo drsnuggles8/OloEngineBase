@@ -229,6 +229,10 @@
 		# A bound coat's shadow caster runs re-posed every frame (#1533).
 		"OloEngine/Groom/GroomCasterPose.h"
 		"OloEngine/Groom/GroomCasterPose.cpp"
+		# The per-frame evaluations' retained scratch, owned by their callers and
+		# counted once in one ledger (#1533 review).
+		"OloEngine/Groom/GroomEvaluationScratch.h"
+		"OloEngine/Groom/GroomEvaluationScratch.cpp"
 		"OloEngine/Groom/GroomStrandRequest.h"
 		"OloEngine/Asset/Serializers/GroomSerializer.cpp"
 		"OloEngine/Serialization/GroomBinaryFormat.h"

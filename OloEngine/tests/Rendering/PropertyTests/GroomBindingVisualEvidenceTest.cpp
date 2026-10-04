@@ -1098,6 +1098,90 @@ namespace OloEngine::Tests
         m_GroomEntity.RemoveComponent<GroomCoatShadowComponent>();
     }
 
+    TEST_F(GroomBindingVisualEvidenceTest, TheEvaluationScratchIsReportedOnceAndGivenBackWhenItIdles)
+    {
+        // #1533 review: a coat that casts into the scene's shadows has its
+        // caster runs posed every frame, in the pass's own scratch. It is kept
+        // while in use (a steady frame grows nothing), shared by every coat the
+        // pass poses and counted once -- in the pass's breakdown, and in the
+        // memory report's evaluation-scratch row, which reads the ledger every
+        // owner publishes to -- and given back once no coat has needed it for
+        // the pass's idle window. The GPU cache's accounting does not move.
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        SetBodyPose(55.0f);
+        SetBindingEnabled(true);
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 1000.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose({ 0.0f, 0.9f, 4.6f }, 0.0f, 0.10f);
+        const auto run = [&](u32 frames)
+        { RunEditorFrames(camera, frames); };
+        const auto scratchRow = []() -> u64
+        {
+            const RendererMemoryReport report = RendererMemoryTracker::GetInstance().BuildReport();
+            for (const MemoryCapacityRow& candidate : report.Capacity)
+            {
+                if (candidate.Owner.ToView() == "GroomRenderPass" &&
+                    candidate.Category.ToView().starts_with("Groom evaluation scratch"))
+                {
+                    return candidate.CapacityBytes.value_or(~u64{ 0 });
+                }
+            }
+            ADD_FAILURE() << "the memory report has no evaluation-scratch row";
+            return ~u64{ 0 };
+        };
+
+        EvictUnused(run);
+        // The idle window (GroomRenderPass::kScratchIdleFrames, 120) and two.
+        run(122u);
+        const GroomRenderStats quiet = PassStats();
+        EXPECT_EQ(quiet.Memory.CpuEvaluationScratchBytes, 0u) << "a coat casting no shadow left the pass holding pose scratch";
+        const u64 ledgerQuiet = GroomEvaluationScratchRetainedBytes();
+
+        auto& shadow = m_GroomEntity.AddComponent<GroomSceneShadowComponent>();
+        shadow.m_CastShadows = true;
+        run(3u);
+        const GroomRenderStats casting = PassStats();
+        ASSERT_GT(casting.CastersPosed, 0u) << "the coat's runs were never posed, so this measures nothing";
+        const u64 held = casting.Memory.CpuEvaluationScratchBytes;
+        ASSERT_GT(held, 0u) << "posing the runs retained no scratch";
+        EXPECT_EQ(GroomEvaluationScratchRetainedBytes(), ledgerQuiet + held) << "the ledger and the pass name different bytes";
+        EXPECT_EQ(scratchRow(), GroomEvaluationScratchRetainedBytes()) << "the report's row is not the ledger";
+        EXPECT_EQ(casting.Memory.GpuBytes(), casting.CachedBytes);
+
+        // Steady: the same pose for more frames grows nothing.
+        run(8u);
+        EXPECT_EQ(PassStats().Memory.CpuEvaluationScratchBytes, held) << "a steady frame grew the pose scratch";
+
+        // Shared: a twin wearing the same coat is posed through the same
+        // scratch, which the report counts once.
+        const GroomComponent groomCopy = m_GroomEntity.GetComponent<GroomComponent>();
+        const GroomBindingComponent bindingCopy = m_GroomEntity.GetComponent<GroomBindingComponent>();
+        const GroomSceneShadowComponent shadowCopy = shadow;
+        Entity twin = GetScene().CreateEntity("GroomTwin");
+        twin.AddComponent<GroomComponent>(groomCopy);
+        twin.AddComponent<GroomBindingComponent>(bindingCopy);
+        twin.AddComponent<GroomSceneShadowComponent>(shadowCopy);
+        run(3u);
+        const GroomRenderStats pair = PassStats();
+        ASSERT_GT(pair.CastersPosed, casting.CastersPosed) << "the twin's runs were not posed";
+        EXPECT_EQ(pair.Memory.CpuEvaluationScratchBytes, held) << "two coats through one scratch were counted twice";
+        EXPECT_EQ(GroomEvaluationScratchRetainedBytes(), ledgerQuiet + held);
+        EXPECT_EQ(scratchRow(), GroomEvaluationScratchRetainedBytes());
+        GetScene().DestroyEntity(twin);
+
+        // Given back: nothing poses for the idle window.
+        m_GroomEntity.GetComponent<GroomSceneShadowComponent>().m_CastShadows = false;
+        run(122u);
+        const GroomRenderStats after = PassStats();
+        EXPECT_EQ(after.CastersPosed, 0u);
+        EXPECT_EQ(after.Memory.CpuEvaluationScratchBytes, 0u) << "the pose scratch outlived its use";
+        EXPECT_EQ(GroomEvaluationScratchRetainedBytes(), ledgerQuiet) << "the given-back scratch stayed in the ledger";
+        EXPECT_EQ(scratchRow(), GroomEvaluationScratchRetainedBytes());
+        EXPECT_EQ(after.Memory.GpuBytes(), after.CachedBytes);
+        m_GroomEntity.RemoveComponent<GroomSceneShadowComponent>();
+    }
+
     TEST_F(GroomBindingVisualEvidenceTest, TheCpuPoseIsBuiltOnlyForAPosedBakeAndOncePerStream)
     {
         Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;

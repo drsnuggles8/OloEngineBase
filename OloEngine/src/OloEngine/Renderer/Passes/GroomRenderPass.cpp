@@ -671,7 +671,7 @@ namespace OloEngine
         const std::span<const GroomRootTransform> transforms =
             rootsOnGpu ? std::span<const GroomRootTransform>{ request.RootTransforms.GetData(),
                                                               static_cast<sizet>(request.RootTransforms.Num()) }
-                       : GroomCpuRootTransforms(request, rootCurves, m_CpuRootScratch);
+                       : GroomCpuRootTransforms(request, rootCurves, m_CpuRootScratch, CpuSkinScratch());
         const GroomDeformFrameStats packed = entry.DeformCpu.PackFrame(rootCurves, *request.Binding, transforms,
                                                                        simulated ? &simulation : nullptr, baseCurveCount);
         // THE CASTER'S RUNS IN THIS POSE (#1533), here because this is where the
@@ -689,10 +689,12 @@ namespace OloEngine
             const GroomCasterPosePadding padding = MeasureGroomCasterPosePadding(
                 simulated ? &simulation : nullptr, request.Groom->GetCurveGroupIds(), &coat,
                 entry.Rest->MaxRadius * std::max(request.WidthScale, 0.0f));
+            GroomCasterPoseScratch& scratch = CasterPoseScratch();
             const bool posed =
                 rootsOnGpu ? PoseGroomCasterRunsBySurface(caster.Runs, caster.Pose, entry.CasterPoseSurface, rootInputs,
-                                                          padding, entry.PosedRuns)
-                           : PoseGroomCasterRunsByRoots(caster.Runs, caster.Pose, transforms, padding, entry.PosedRuns);
+                                                          padding, scratch, entry.PosedRuns)
+                           : PoseGroomCasterRunsByRoots(caster.Runs, caster.Pose, transforms, padding, scratch,
+                                                        entry.PosedRuns);
             entry.PosedRunsTick = posed ? m_CacheTick : 0u;
             m_Stats.CasterPoseMicroseconds += static_cast<u64>(
                 std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - poseStart).count());
@@ -885,7 +887,7 @@ namespace OloEngine
             {
                 (void)entry.DeformCpu.PackCpuRoots(entry.Rest->RootCurves, *request.Binding,
                                                    GroomCpuRootTransforms(request, entry.Rest->RootCurves,
-                                                                          m_CpuRootScratch),
+                                                                          m_CpuRootScratch, CpuSkinScratch()),
                                                    request.Groom->GetCurveCount());
             }
             EvaluateGroomDeformedPose(entry.DeformCpu, evaluate, m_DrawnPose);
@@ -1071,7 +1073,7 @@ namespace OloEngine
             deformation.Binding = request.Binding.Raw();
             // Evaluated here when the producer left the drawn roots to the GPU
             // (#1533 E1) and this coat takes the CPU path after all.
-            deformation.RootTransforms = GroomCpuRootTransforms(request, std::nullopt, m_CpuRootScratch);
+            deformation.RootTransforms = GroomCpuRootTransforms(request, std::nullopt, m_CpuRootScratch, CpuSkinScratch());
         }
 
         // A DEFORMED build writes straight into the caller's stream, because
@@ -1222,7 +1224,8 @@ namespace OloEngine
         const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
         const GroomCasterPosePadding padding = MeasureGroomCasterPosePadding(
             simulated ? &simulation : nullptr, request.Groom->GetCurveGroupIds(), &coat, 0.0f);
-        if (PoseGroomCasterRunsByRoots(entry.Caster.Runs, entry.Caster.Pose, transforms, padding, entry.PosedRuns))
+        if (PoseGroomCasterRunsByRoots(entry.Caster.Runs, entry.Caster.Pose, transforms, padding, CasterPoseScratch(),
+                                       entry.PosedRuns))
         {
             entry.PosedRunsTick = m_CacheTick;
         }
@@ -2847,6 +2850,16 @@ namespace OloEngine
             std::vector<GroomCoatShadow::CoatSegment>().swap(m_DrawnPoseFull);
             m_CpuRootScratch.Reset();
         }
+        // The evaluations' scratch (#1533 review) by the same rule: a coat
+        // posed or evaluated on the CPU every frame keeps it; once none has
+        // been for kScratchIdleFrames frames, or no bound groom is drawn, it is
+        // given back -- it would otherwise hold the largest coat's pose until
+        // the pass went away.
+        if (noDeformedGroom || idle(m_EvaluationScratchUsedTick))
+        {
+            m_CasterPoseScratch.Release();
+            m_CpuSkinScratch.Release();
+        }
         if (idle(m_BakeScratchUsedTick))
         {
             std::vector<GroomCoatShadow::CoatSegment>().swap(m_CoatSegments);
@@ -2920,6 +2933,7 @@ namespace OloEngine
                                  capacityBytes(m_CoatVolumeScratch.Direction) +
                                  capacityBytes(m_CoatVolumeScratch.Body) + capacityBytes(m_CoatPackHalf) +
                                  capacityBytes(m_CoatPackFloat) + static_cast<u64>(m_CpuRootScratch.GetAllocatedSize());
+        memory.CpuEvaluationScratchBytes = m_CasterPoseScratch.RetainedBytes() + m_CpuSkinScratch.RetainedBytes();
         return memory;
     }
 

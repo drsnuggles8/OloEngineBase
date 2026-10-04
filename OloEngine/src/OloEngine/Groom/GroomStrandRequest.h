@@ -477,9 +477,11 @@ namespace OloEngine
     ///
     /// `onlyCurvesDefined`: the caller reads `curves` alone, so only those
     /// entries of `scratch` are reset and written (EvaluateGroomRootTransforms).
+    /// `skinScratch` is the caller's own (GroomEvaluationScratch.h).
     [[nodiscard]] inline std::span<const GroomRootTransform> GroomCpuRootTransforms(const GroomStrandRequest& request,
                                                                                     std::optional<std::span<const u32>> curves,
                                                                                     TArray<GroomRootTransform>& scratch,
+                                                                                    GroomSurfaceSkinScratch& skinScratch,
                                                                                     bool onlyCurvesDefined = false)
     {
         if (!request.GpuRootFrames || !request.Groom || !request.Binding)
@@ -487,7 +489,7 @@ namespace OloEngine
             return { request.RootTransforms.GetData(), static_cast<sizet>(request.RootTransforms.Num()) };
         }
         (void)EvaluateGroomRootTransforms(*request.Groom, *request.Binding, request.GpuRootInputs, curves, scratch,
-                                          onlyCurvesDefined);
+                                          skinScratch, onlyCurvesDefined);
         return { scratch.GetData(), static_cast<sizet>(scratch.Num()) };
     }
 

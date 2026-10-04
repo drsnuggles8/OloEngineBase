@@ -1609,6 +1609,12 @@ namespace OloEngine
             GroomBindingRejectReason m_LastReportedReject = GroomBindingRejectReason::None;
         };
         std::unordered_map<UUID, GroomBindingRuntimeState> m_GroomBindingRuntime;
+        /// The root evaluation's skinned surface (#1533 review), shared by every
+        /// bound groom this scene evaluates, one at a time: it keeps the largest
+        /// body's capacity across frames, is counted in the evaluation-scratch
+        /// ledger (GroomEvaluationScratch.h), and is given back when the last
+        /// bound groom's state goes, and with the scene.
+        GroomSurfaceSkinScratch m_GroomSkinScratch;
 
         // == Groom guide simulation runtime (issue #1250) ==
         //

@@ -25,7 +25,9 @@
 //   * per-entity geometry and deformation state;
 //   * every slot of every coat-volume ring as capacity (the pass counts them too), with
 //     only the slots bound this frame as demand;
-//   * the CPU pose and shadow storage (CPU bytes, reported separately from GPU bytes).
+//   * the CPU pose and shadow storage (CPU bytes, reported separately from GPU bytes);
+//   * the per-frame evaluations' retained scratch, from its ledger: every owner's -- this
+//     pass's, the scene's, the RT proxy cache's -- once each (GroomEvaluationScratch.h).
 // Old buffers a rebuild or a ring-slot resize replaced are NOT here: they are retiring
 // allocations in the physical totals, which is where in-flight bytes belong.
 namespace OloEngine
@@ -203,6 +205,21 @@ namespace OloEngine
             row.IsGpu = false;
             row.CapacityBytes = cpuBytes;
             row.UnknownReason = "active demand: reused scratch and retained poses have no per-frame demand figure";
+            rows.Add(std::move(row));
+        }
+
+        // --- The evaluations' scratch, every owner's, once each (#1533 review) -----------
+        // Read from the ledger every instance publishes to, never summed from the owners:
+        // no owner's row above adds its own, so none is counted twice or missed.
+        {
+            MemoryCapacityRow row;
+            row.Owner = "GroomRenderPass";
+            row.Category = "Groom evaluation scratch: caster pose and root skinning (every owner, CPU)";
+            row.Lifetime = MemoryLifetime::Persistent;
+            row.Source = MemorySizeSource::Committed;
+            row.IsGpu = false;
+            row.CapacityBytes = GroomEvaluationScratchRetainedBytes();
+            row.UnknownReason = "active demand: reused scratch has no per-frame demand figure";
             rows.Add(std::move(row));
         }
     }

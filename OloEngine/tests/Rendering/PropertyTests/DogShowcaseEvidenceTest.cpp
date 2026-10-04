@@ -6353,6 +6353,7 @@ namespace OloEngine::Tests
         memoryRow("cpu bake inputs", &MB::CpuBakeInputBytes);
         memoryRow("cpu root tables", &MB::CpuRootTableBytes);
         memoryRow("cpu scratch", &MB::CpuScratchBytes);
+        memoryRow("cpu evaluation scratch (the pass's own)", &MB::CpuEvaluationScratchBytes);
         report += "\npass GPU ms per frame                      FaceCloseUp     FullBody  WalkMidShot\n";
         for (const std::string& name : passOrder)
         {

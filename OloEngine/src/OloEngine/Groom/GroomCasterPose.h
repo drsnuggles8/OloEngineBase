@@ -59,12 +59,14 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Groom/GroomCoat.h"
+#include "OloEngine/Groom/GroomEvaluationScratch.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
 #include <array>
+#include <memory>
 #include <span>
 #include <vector>
 
@@ -250,6 +252,32 @@ namespace OloEngine
     inline constexpr f32 kGroomCasterPositionTolerance = 1.0e-6f;
     inline constexpr f32 kGroomCasterMaxFrameError = 0.05f;
 
+    /// The pose evaluation's working storage: the skinned corners, each
+    /// triangle's frame, and each piece's and run's sums. It keeps the capacity
+    /// of the largest pose it served, so a coat posed every frame allocates
+    /// nothing; who owns it, when it is given back and how it is counted are
+    /// GroomEvaluationScratch.h's.
+    class GroomCasterPoseScratch : public GroomEvaluationScratchLedgerEntry
+    {
+      public:
+        GroomCasterPoseScratch();
+        ~GroomCasterPoseScratch();
+        GroomCasterPoseScratch(const GroomCasterPoseScratch&) = delete;
+        GroomCasterPoseScratch& operator=(const GroomCasterPoseScratch&) = delete;
+
+        /// Gives every byte back.
+        void Release() noexcept;
+
+        /// The evaluation's own arrays (GroomCasterPose.cpp's types).
+        struct Storage;
+        [[nodiscard]] Storage& Arrays();
+        /// Publishes the capacity it holds now. The evaluation calls it.
+        void Account() noexcept;
+
+      private:
+        std::unique_ptr<Storage> m_Storage;
+    };
+
     /// This frame's runs from the SURFACE the GPU evaluates the drawn roots
     /// from: each of the pose's triangles skinned by `inputs`' palette (or as
     /// the surface holds it, unskinned), carried by its SurfaceToGroom and
@@ -258,7 +286,8 @@ namespace OloEngine
     /// runs or the surface half is not this surface's.
     bool PoseGroomCasterRunsBySurface(std::span<const GroomCasterRun> restRuns, const GroomCasterPose& pose,
                                       const GroomCasterPoseSurface& surface, const GroomDeformationInputs& inputs,
-                                      const GroomCasterPosePadding& padding, std::vector<GroomCasterRun>& outRuns);
+                                      const GroomCasterPosePadding& padding, GroomCasterPoseScratch& scratch,
+                                      std::vector<GroomCasterRun>& outRuns);
 
     /// This frame's runs from the ROOTS the CPU evaluated, which are exactly
     /// what the CPU-deformed stream draws: each entry turned by its first
@@ -267,5 +296,6 @@ namespace OloEngine
     /// rest. `transforms` is indexed by base curve.
     bool PoseGroomCasterRunsByRoots(std::span<const GroomCasterRun> restRuns, const GroomCasterPose& pose,
                                     std::span<const GroomRootTransform> transforms,
-                                    const GroomCasterPosePadding& padding, std::vector<GroomCasterRun>& outRuns);
+                                    const GroomCasterPosePadding& padding, GroomCasterPoseScratch& scratch,
+                                    std::vector<GroomCasterRun>& outRuns);
 } // namespace OloEngine

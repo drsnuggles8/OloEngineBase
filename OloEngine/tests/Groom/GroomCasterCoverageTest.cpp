@@ -751,8 +751,9 @@ namespace OloEngine::Tests
         const GroomCasterPose pose = BuildGroomCasterPose(order.Runs, strandOrder, turned.Summaries, strandCurves, *binding);
         ASSERT_TRUE(pose.IsUsable());
         std::vector<GroomCasterRun> posed;
+        GroomCasterPoseScratch scratch;
         ASSERT_TRUE(PoseGroomCasterRunsByRoots(order.Runs, pose, { transforms.GetData(), static_cast<sizet>(transforms.Num()) },
-                                               GroomCasterPosePadding{}, posed));
+                                               GroomCasterPosePadding{}, scratch, posed));
 
         const glm::vec3 centre = 0.5f * (turned.BoundsMin + turned.BoundsMax);
         const LightView light = MakeLight({ std::sin(glm::radians(80.0f)), std::cos(glm::radians(80.0f)), 0.0f }, centre);

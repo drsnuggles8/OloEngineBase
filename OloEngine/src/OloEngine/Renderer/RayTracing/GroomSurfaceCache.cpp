@@ -158,6 +158,7 @@ namespace OloEngine::RayTracing
         m_ProxyIndices.clear();
         m_ProxyIndices.shrink_to_fit();
         m_RootScratch.Reset();
+        m_SkinScratch.Release();
         m_GpuJobs.Reset();
         m_GpuShader.Reset();
         m_GpuParams.Reset();
@@ -310,7 +311,7 @@ namespace OloEngine::RayTracing
             {
                 OLO_PERF_SCOPE_AUTO("GroomProxy::Roots");
                 roots = GroomCpuRootTransforms(request, std::span<const u32>{ entry.RootCurves }, m_RootScratch,
-                                               /*onlyCurvesDefined*/ true);
+                                               m_SkinScratch, /*onlyCurvesDefined*/ true);
             }
             {
                 OLO_PERF_SCOPE_AUTO("GroomProxy::Pack");

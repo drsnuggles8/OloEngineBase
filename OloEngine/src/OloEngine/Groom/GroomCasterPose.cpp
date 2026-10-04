@@ -114,9 +114,9 @@ namespace OloEngine
         };
         constexpr u32 kPiece = 2048;
 
-        [[nodiscard]] std::vector<Piece> Pieces(const GroomCasterPose& pose)
+        void Pieces(const GroomCasterPose& pose, std::vector<Piece>& pieces)
         {
-            std::vector<Piece> pieces;
+            pieces.clear();
             for (u32 r = 0; r < static_cast<u32>(pose.Runs.size()); ++r)
             {
                 const GroomCasterRunPose& run = pose.Runs[r];
@@ -125,16 +125,35 @@ namespace OloEngine
                     pieces.push_back({ r, first, std::min(first + kPiece, run.FirstEntry + run.EntryCount) });
                 }
             }
-            return pieces;
         }
 
-        // The pieces' sums into each run, the held strands and the padding:
-        // the posed runs. A run without moments keeps its rest numbers.
+        // A root triangle's frame in this pose, and how far the GPU's can
+        // differ from it.
+        enum class FrameKind : u8
+        {
+            Framed,    // turned by Rotation, uncertain by Error
+            Unknown,   // a frame too ill-conditioned to trust, or none: no credit, full reach, maybe at rest
+            NotOnBody, // the surface has no such triangle: held at rest by every evaluation
+        };
+        struct TriangleFrame
+        {
+            glm::mat3 Rotation{ 1.0f }; // the triangle's frame: tangent, bitangent, normal
+            glm::vec3 HullMin{ 0.0f };
+            glm::vec3 HullMax{ 0.0f };
+            f32 Error = 0.0f;
+            f32 Slack = 0.0f;
+            FrameKind Is = FrameKind::NotOnBody;
+        };
+
+        // The pieces' sums into each run (`runs`, scratch), the held strands
+        // and the padding: the posed runs. A run without moments keeps its
+        // rest numbers.
         void FinishRuns(std::span<const GroomCasterRun> restRuns, const GroomCasterPose& pose,
                         std::span<const Piece> pieces, std::span<const RunSums> sums,
-                        const GroomCasterPosePadding& padding, std::vector<GroomCasterRun>& outRuns)
+                        const GroomCasterPosePadding& padding, std::vector<RunSums>& runs,
+                        std::vector<GroomCasterRun>& outRuns)
         {
-            std::vector<RunSums> runs(pose.Runs.size());
+            runs.assign(pose.Runs.size(), RunSums{});
             for (sizet p = 0; p < pieces.size(); ++p)
             {
                 Merge(runs[pieces[p].Run], sums[p]);
@@ -213,6 +232,48 @@ namespace OloEngine
     u64 GroomCasterPoseSurface::CpuBytes() const noexcept
     {
         return VectorBytes(Vertices) + VectorBytes(Corners);
+    }
+
+    struct GroomCasterPoseScratch::Storage
+    {
+        std::vector<glm::vec3> Corners;    // the surface's vertices, skinned into the groom's space
+        std::vector<TriangleFrame> Frames; // per pose triangle
+        std::vector<Piece> Pieces;         // the runs' entries, in pieces for the workers
+        std::vector<RunSums> PieceSums;    // per piece
+        std::vector<RunSums> Runs;         // per run, the pieces merged
+
+        [[nodiscard]] u64 Bytes() const noexcept
+        {
+            return VectorBytes(Corners) + VectorBytes(Frames) + VectorBytes(Pieces) + VectorBytes(PieceSums) +
+                   VectorBytes(Runs);
+        }
+    };
+
+    GroomCasterPoseScratch::GroomCasterPoseScratch() = default;
+
+    GroomCasterPoseScratch::~GroomCasterPoseScratch()
+    {
+        Release();
+    }
+
+    void GroomCasterPoseScratch::Release() noexcept
+    {
+        m_Storage.reset();
+        Publish(0);
+    }
+
+    GroomCasterPoseScratch::Storage& GroomCasterPoseScratch::Arrays()
+    {
+        if (!m_Storage)
+        {
+            m_Storage = std::make_unique<Storage>();
+        }
+        return *m_Storage;
+    }
+
+    void GroomCasterPoseScratch::Account() noexcept
+    {
+        Publish(m_Storage ? sizeof(Storage) + m_Storage->Bytes() : 0u);
     }
 
     std::vector<GroomCasterLocalBox> CollectGroomCasterLocalBoxes(std::span<const GroomStrandVertex> restVertices,
@@ -583,7 +644,8 @@ namespace OloEngine
 
     bool PoseGroomCasterRunsBySurface(std::span<const GroomCasterRun> restRuns, const GroomCasterPose& pose,
                                       const GroomCasterPoseSurface& surface, const GroomDeformationInputs& inputs,
-                                      const GroomCasterPosePadding& padding, std::vector<GroomCasterRun>& outRuns)
+                                      const GroomCasterPosePadding& padding, GroomCasterPoseScratch& scratch,
+                                      std::vector<GroomCasterRun>& outRuns)
     {
         if (!pose.IsUsable() || !SamePose(restRuns, pose) || surface.Corners.size() != pose.Triangles.size() ||
             !inputs.Surface.IsUsable())
@@ -595,10 +657,10 @@ namespace OloEngine
 
         // THE SURFACE, once per vertex: skinned (or as it stands), into the
         // groom's space -- EvaluateGroomRootTransforms' corners, which
-        // GroomRootFrames.comp reproduces from the same inputs. Scratch,
-        // reused across frames; thread_local so two callers never share it.
-        thread_local std::vector<glm::vec3> s_Corners;
-        std::vector<glm::vec3>& corners = s_Corners;
+        // GroomRootFrames.comp reproduces from the same inputs. In the
+        // caller's scratch, which keeps its capacity across frames.
+        GroomCasterPoseScratch::Storage& arrays = scratch.Arrays();
+        std::vector<glm::vec3>& corners = arrays.Corners;
         corners.resize(surface.Vertices.size());
         ParallelFor("GroomCasterPoseSurface", static_cast<i32>(surface.Vertices.size()), 2048, [&](i32 index)
                     {
@@ -617,23 +679,9 @@ namespace OloEngine
                         corners[static_cast<sizet>(index)] = p; }, EParallelForFlags::BackgroundPriority);
 
         // EACH TRIANGLE'S FRAME, and how far the GPU's can differ from it.
-        enum class Kind : u8
-        {
-            Framed,    // turned by Rotation, uncertain by Error
-            Unknown,   // a frame too ill-conditioned to trust, or none: no credit, full reach, maybe at rest
-            NotOnBody, // the surface has no such triangle: held at rest by every evaluation
-        };
-        struct Frame
-        {
-            glm::mat3 Rotation{ 1.0f }; // the triangle's frame: tangent, bitangent, normal
-            glm::vec3 HullMin{ 0.0f };
-            glm::vec3 HullMax{ 0.0f };
-            f32 Error = 0.0f;
-            f32 Slack = 0.0f;
-            Kind Is = Kind::NotOnBody;
-        };
-        thread_local std::vector<Frame> s_Frames;
-        std::vector<Frame>& frames = s_Frames;
+        using Kind = FrameKind;
+        using Frame = TriangleFrame;
+        std::vector<Frame>& frames = arrays.Frames;
         frames.resize(pose.Triangles.size()); // every field a reader uses is written below
         ParallelFor("GroomCasterPoseFrames", static_cast<i32>(pose.Triangles.size()), 1024, [&](i32 index)
                     {
@@ -697,9 +745,9 @@ namespace OloEngine
                         frame.Is = Kind::Framed; }, EParallelForFlags::BackgroundPriority);
 
         // EACH ENTRY, turned by its triangle's frame, in pieces.
-        const std::vector<Piece> pieces = Pieces(pose);
-        thread_local std::vector<RunSums> s_Sums;
-        std::vector<RunSums>& sums = s_Sums;
+        std::vector<Piece>& pieces = arrays.Pieces;
+        Pieces(pose, pieces);
+        std::vector<RunSums>& sums = arrays.PieceSums;
         sums.assign(pieces.size(), RunSums{});
         ParallelFor("GroomCasterPoseEntries", static_cast<i32>(pieces.size()), 1, [&](i32 index)
                     {
@@ -737,13 +785,15 @@ namespace OloEngine
                                 Grow(sum.Min, sum.Max, frame.HullMin - reach, frame.HullMax + reach);
                             }
                         } }, EParallelForFlags::BackgroundPriority);
-        FinishRuns(restRuns, pose, pieces, sums, padding, outRuns);
+        FinishRuns(restRuns, pose, pieces, sums, padding, arrays.Runs, outRuns);
+        scratch.Account();
         return true;
     }
 
     bool PoseGroomCasterRunsByRoots(std::span<const GroomCasterRun> restRuns, const GroomCasterPose& pose,
                                     std::span<const GroomRootTransform> transforms,
-                                    const GroomCasterPosePadding& padding, std::vector<GroomCasterRun>& outRuns)
+                                    const GroomCasterPosePadding& padding, GroomCasterPoseScratch& scratch,
+                                    std::vector<GroomCasterRun>& outRuns)
     {
         if (!pose.IsUsable() || !SamePose(restRuns, pose))
         {
@@ -753,9 +803,10 @@ namespace OloEngine
         {
             return curve < transforms.size() && transforms[curve].Valid ? &transforms[curve] : nullptr;
         };
-        const std::vector<Piece> pieces = Pieces(pose);
-        thread_local std::vector<RunSums> s_Sums;
-        std::vector<RunSums>& sums = s_Sums;
+        GroomCasterPoseScratch::Storage& arrays = scratch.Arrays();
+        std::vector<Piece>& pieces = arrays.Pieces;
+        Pieces(pose, pieces);
+        std::vector<RunSums>& sums = arrays.PieceSums;
         sums.assign(pieces.size(), RunSums{});
         ParallelFor("GroomCasterPoseRoots", static_cast<i32>(pieces.size()), 1, [&](i32 index)
                     {
@@ -805,7 +856,8 @@ namespace OloEngine
                             TurnedOffsets(entry, turn, offsetMin, offsetMax);
                             Grow(sum.Min, sum.Max, lo + offsetMin, hi + offsetMax);
                         } }, EParallelForFlags::BackgroundPriority);
-        FinishRuns(restRuns, pose, pieces, sums, padding, outRuns);
+        FinishRuns(restRuns, pose, pieces, sums, padding, arrays.Runs, outRuns);
+        scratch.Account();
         return true;
     }
 } // namespace OloEngine

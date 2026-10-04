@@ -114,6 +114,18 @@ namespace OloEngine
                                                       std::optional<std::span<const u32>> selectedCurves,
                                                       TArray<GroomRootTransform>& outTransforms, bool onlySelectedDefined)
     {
+        // A one-off call's scratch is its own, and gone with it.
+        GroomSurfaceSkinScratch scratch;
+        return EvaluateGroomRootTransforms(groom, binding, inputs, selectedCurves, outTransforms, scratch,
+                                           onlySelectedDefined);
+    }
+
+    GroomDeformationStats EvaluateGroomRootTransforms(const GroomAsset& groom, const GroomBindingAsset& binding,
+                                                      const GroomDeformationInputs& inputs,
+                                                      std::optional<std::span<const u32>> selectedCurves,
+                                                      TArray<GroomRootTransform>& outTransforms,
+                                                      GroomSurfaceSkinScratch& skinScratch, bool onlySelectedDefined)
+    {
         GroomDeformationStats stats;
 
         const u32 curveCount = groom.GetCurveCount();
@@ -194,22 +206,20 @@ namespace OloEngine
             selectedCurves.has_value() ? static_cast<u32>(selectedCurves->size()) : curveCount;
         const u32 vertexCount = inputs.Surface.VertexCount;
         const bool preSkin = skinned && (static_cast<u64>(rootsToEvaluate) > vertexCount);
-        // Scratch, reused across frames and grooms; thread_local so two callers
-        // on two threads never share one.
-        thread_local std::vector<glm::vec3> s_Current;
-        thread_local std::vector<glm::vec3> s_Previous;
-        thread_local std::vector<u8> s_Weighted;
+        // In the caller's scratch, which keeps its capacity across frames and
+        // grooms (GroomEvaluationScratch.h).
         if (preSkin)
         {
-            s_Current.resize(vertexCount);
-            s_Weighted.resize(vertexCount);
+            skinScratch.Current.resize(vertexCount);
+            skinScratch.Weighted.resize(vertexCount);
             if (usePrevPose)
             {
-                s_Previous.resize(vertexCount);
+                skinScratch.Previous.resize(vertexCount);
             }
-            std::vector<glm::vec3>& current = s_Current;
-            std::vector<glm::vec3>& previous = s_Previous;
-            std::vector<u8>& weightedFlags = s_Weighted;
+            skinScratch.Account();
+            std::vector<glm::vec3>& current = skinScratch.Current;
+            std::vector<glm::vec3>& previous = skinScratch.Previous;
+            std::vector<u8>& weightedFlags = skinScratch.Weighted;
             ParallelFor("GroomSkinSurface", static_cast<i32>(vertexCount), 2048,
                         [&](i32 index)
                         {
@@ -226,11 +236,10 @@ namespace OloEngine
                         });
         }
 
-        // The workers read the CALLING thread's scratch through these: a
-        // thread_local named inside the body would be each worker's own, empty.
-        const glm::vec3* const skinnedCurrent = preSkin ? s_Current.data() : nullptr;
-        const glm::vec3* const skinnedPrevious = (preSkin && usePrevPose) ? s_Previous.data() : nullptr;
-        const u8* const skinnedWeighted = preSkin ? s_Weighted.data() : nullptr;
+        // The workers read the caller's scratch through these.
+        const glm::vec3* const skinnedCurrent = preSkin ? skinScratch.Current.data() : nullptr;
+        const glm::vec3* const skinnedPrevious = (preSkin && usePrevPose) ? skinScratch.Previous.data() : nullptr;
+        const u8* const skinnedWeighted = preSkin ? skinScratch.Weighted.data() : nullptr;
 
         const auto evaluateOne = [&](u32 curve, GroomDeformationStats& rootStats)
         {

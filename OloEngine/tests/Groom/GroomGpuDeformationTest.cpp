@@ -498,10 +498,12 @@ namespace
     {
         Posed posed;
         const GroomCasterPoseSurface surface = BuildGroomCasterPoseSurface(setup.Pose, inputs.Surface);
-        EXPECT_TRUE(PoseGroomCasterRunsBySurface(setup.Order.Runs, setup.Pose, surface, inputs, padding, posed.BySurface));
+        GroomCasterPoseScratch scratch;
+        EXPECT_TRUE(PoseGroomCasterRunsBySurface(setup.Order.Runs, setup.Pose, surface, inputs, padding, scratch,
+                                                 posed.BySurface));
         EXPECT_TRUE(PoseGroomCasterRunsByRoots(setup.Order.Runs, setup.Pose,
                                                { transforms.GetData(), static_cast<sizet>(transforms.Num()) }, padding,
-                                               posed.ByRoots));
+                                               scratch, posed.ByRoots));
         return posed;
     }
 } // namespace
@@ -757,8 +759,9 @@ TEST(GroomGpuDeformation, TheRayTracedProxyRefitsFromItsRestStreamExactly)
     request.GpuRootInputs.Skinning = scene.Grid.Skinning(scene.Palette, scene.PrevPalette, true);
     request.GpuRootInputs.HasHistory = true;
     TArray<GroomRootTransform> scratch;
+    GroomSurfaceSkinScratch skinScratch;
     const std::span<const GroomRootTransform> roots =
-        GroomCpuRootTransforms(request, std::span<const u32>{ rootCurves }, scratch);
+        GroomCpuRootTransforms(request, std::span<const u32>{ rootCurves }, scratch, skinScratch);
     const auto evaluated = std::count_if(roots.begin(), roots.end(), [](const GroomRootTransform& t)
                                          { return t.Valid; });
     EXPECT_EQ(static_cast<sizet>(evaluated), rootCurves.size()) << "only the stream's own roots are evaluated";
@@ -790,7 +793,8 @@ TEST(GroomGpuDeformation, TheRayTracedProxyRefitsFromItsRestStreamExactly)
     // and converted one segment at a time.
     TArray<GroomRootTransform> selectedScratch;
     const std::span<const GroomRootTransform> selectedRoots =
-        GroomCpuRootTransforms(request, std::span<const u32>{ rootCurves }, selectedScratch, /*onlyCurvesDefined*/ true);
+        GroomCpuRootTransforms(request, std::span<const u32>{ rootCurves }, selectedScratch, skinScratch,
+                               /*onlyCurvesDefined*/ true);
     for (const u32 curve : rootCurves)
     {
         // Field by field: the record's tail after its two flags is padding.
@@ -1662,4 +1666,162 @@ TEST(GroomGpuDeformation, TheSkeletonBoundsEveryRootTheKernelWrites)
         outsideRest += inside(root.Origin, restLo, restHi) ? 0u : 1u;
     }
     EXPECT_GT(outsideRest, 0u);
+}
+
+TEST(GroomGpuDeformation, TheCasterPosesScratchIsTheCallersCountedOnceAndGivenBack)
+{
+    // #1533 review: the pose evaluation's working storage -- the skinned
+    // corners, each triangle's frame, each piece's and run's sums -- is the
+    // caller's, kept across frames and published to the evaluation-scratch
+    // ledger the memory report reads. It used to live in function-local
+    // thread_locals no report saw, held until the thread exited.
+    BoundScene small = MakeBoundScene(24u, 6u, 55.0f);
+    BoundScene large = MakeBoundScene(160u, 6u, 55.0f);
+    ASSERT_TRUE(small.Groom && small.Binding && large.Groom && large.Binding);
+    const auto inputsOf = [](const BoundScene& scene)
+    {
+        GroomDeformationInputs inputs;
+        inputs.Surface = scene.Grid.View(2u);
+        inputs.Skinning = scene.Grid.Skinning(scene.Palette, scene.PrevPalette, true);
+        inputs.HasHistory = true;
+        return inputs;
+    };
+    const GroomDeformationInputs smallInputs = inputsOf(small);
+    const GroomDeformationInputs largeInputs = inputsOf(large);
+    const CasterSetup smallSetup = MakeCasterSetup(*small.Groom, *small.Binding);
+    const CasterSetup largeSetup = MakeCasterSetup(*large.Groom, *large.Binding);
+    ASSERT_TRUE(smallSetup.Pose.IsUsable() && largeSetup.Pose.IsUsable());
+    const GroomCasterPoseSurface smallSurface = BuildGroomCasterPoseSurface(smallSetup.Pose, smallInputs.Surface);
+    const GroomCasterPoseSurface largeSurface = BuildGroomCasterPoseSurface(largeSetup.Pose, largeInputs.Surface);
+    const auto poseLarge = [&](GroomCasterPoseScratch& scratch, std::vector<GroomCasterRun>& out)
+    { return PoseGroomCasterRunsBySurface(largeSetup.Order.Runs, largeSetup.Pose, largeSurface, largeInputs, {}, scratch, out); };
+    const auto poseSmall = [&](GroomCasterPoseScratch& scratch, std::vector<GroomCasterRun>& out)
+    {
+        return PoseGroomCasterRunsBySurface(smallSetup.Order.Runs, smallSetup.Pose, smallSurface, smallInputs, {}, scratch, out) &&
+               PoseGroomCasterRunsByRoots(smallSetup.Order.Runs, smallSetup.Pose,
+                                          { small.Transforms.GetData(), static_cast<sizet>(small.Transforms.Num()) }, {},
+                                          scratch, out);
+    };
+    const auto sameRuns = [](const std::vector<GroomCasterRun>& a, const std::vector<GroomCasterRun>& b)
+    { return a.size() == b.size() && std::memcmp(a.data(), b.data(), a.size() * sizeof(GroomCasterRun)) == 0; };
+
+    const u64 before = GroomEvaluationScratchRetainedBytes();
+    {
+        GroomCasterPoseScratch scratch;
+        EXPECT_EQ(scratch.RetainedBytes(), 0u);
+        std::vector<GroomCasterRun> first;
+        ASSERT_TRUE(poseLarge(scratch, first));
+        // GROWN: what the pose needed is retained, and the ledger holds it.
+        const u64 grown = scratch.RetainedBytes();
+        EXPECT_GT(grown, sizeof(glm::vec3) * largeSurface.Vertices.size()) << "the scratch kept less than the corners alone";
+        EXPECT_EQ(GroomEvaluationScratchRetainedBytes(), before + grown) << "the ledger must hold what the scratch retains";
+
+        // REUSED: the same coat again grows nothing and poses the same runs.
+        const u64 growths = scratch.Growths();
+        std::vector<GroomCasterRun> again;
+        for (u32 frame = 0; frame < 3u; ++frame)
+        {
+            ASSERT_TRUE(poseLarge(scratch, again));
+        }
+        EXPECT_EQ(scratch.Growths(), growths) << "a steady frame grew the scratch";
+        EXPECT_EQ(scratch.RetainedBytes(), grown);
+        EXPECT_TRUE(sameRuns(again, first)) << "a reused scratch posed different runs";
+
+        // SHARED: a second coat through the same scratch (one owner, many
+        // grooms) costs nothing more and is counted once.
+        std::vector<GroomCasterRun> smallRuns;
+        ASSERT_TRUE(poseSmall(scratch, smallRuns));
+        EXPECT_EQ(scratch.RetainedBytes(), grown) << "a smaller coat grew a scratch the larger one had sized";
+        EXPECT_EQ(GroomEvaluationScratchRetainedBytes(), before + grown) << "two coats through one scratch were counted twice";
+        {
+            // A second OWNER's scratch is its own, and counted as such.
+            GroomCasterPoseScratch other;
+            std::vector<GroomCasterRun> fresh;
+            ASSERT_TRUE(poseSmall(other, fresh));
+            EXPECT_TRUE(sameRuns(fresh, smallRuns)) << "a scratch the large coat had used posed the small one differently";
+            EXPECT_GT(other.RetainedBytes(), 0u);
+            EXPECT_EQ(GroomEvaluationScratchRetainedBytes(), before + grown + other.RetainedBytes());
+        }
+        EXPECT_EQ(GroomEvaluationScratchRetainedBytes(), before + grown) << "a destroyed scratch stayed in the ledger";
+
+        // GIVEN BACK: Release frees every byte; the scratch then serves again.
+        scratch.Release();
+        EXPECT_EQ(scratch.RetainedBytes(), 0u);
+        EXPECT_EQ(GroomEvaluationScratchRetainedBytes(), before) << "Release left bytes in the ledger";
+        ASSERT_TRUE(poseLarge(scratch, again));
+        EXPECT_TRUE(sameRuns(again, first));
+        EXPECT_EQ(scratch.RetainedBytes(), grown);
+    }
+    EXPECT_EQ(GroomEvaluationScratchRetainedBytes(), before) << "the scratch's destructor left its bytes in the ledger";
+}
+
+TEST(GroomGpuDeformation, TheRootEvaluationsSkinScratchIsTheCallersCountedOnceAndGivenBack)
+{
+    // #1533 review: the root evaluation skins the surface once per vertex when
+    // the roots outnumber the vertices (160 roots on an 81-vertex grid here),
+    // into the caller's scratch -- retained, counted in the ledger, given back
+    // by Release -- where it used to fill thread_locals no report saw.
+    BoundScene scene = MakeBoundScene(160u, 6u, 55.0f);
+    ASSERT_TRUE(scene.Groom && scene.Binding);
+    ASSERT_GT(scene.Groom->GetCurveCount(), scene.Grid.VertexCount()) << "the surface must be skinned once, or nothing is held";
+    GroomDeformationInputs inputs;
+    inputs.Surface = scene.Grid.View(2u);
+    inputs.Skinning = scene.Grid.Skinning(scene.Palette, scene.PrevPalette, true);
+    inputs.HasHistory = true;
+    const auto sameTransforms = [](const TArray<GroomRootTransform>& a, const TArray<GroomRootTransform>& b)
+    {
+        if (a.Num() != b.Num())
+        {
+            return false;
+        }
+        for (i32 i = 0; i < a.Num(); ++i)
+        {
+            // Field by field: the record's tail after its two flags is padding.
+            if (a[i].Valid != b[i].Valid || !Math::BitwiseEqual(a[i].Origin, b[i].Origin) ||
+                !Math::BitwiseEqual(a[i].Rotation, b[i].Rotation) || !Math::BitwiseEqual(a[i].PrevOrigin, b[i].PrevOrigin) ||
+                !Math::BitwiseEqual(a[i].PrevRotation, b[i].PrevRotation))
+            {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    const u64 before = GroomEvaluationScratchRetainedBytes();
+    // A ONE-OFF call (the overload without a scratch) retains nothing.
+    TArray<GroomRootTransform> oneOff;
+    (void)EvaluateGroomRootTransforms(*scene.Groom, *scene.Binding, inputs, std::nullopt, oneOff);
+    EXPECT_EQ(GroomEvaluationScratchRetainedBytes(), before) << "a one-off evaluation left its scratch behind";
+    {
+        GroomSurfaceSkinScratch scratch;
+        TArray<GroomRootTransform> transforms;
+        (void)EvaluateGroomRootTransforms(*scene.Groom, *scene.Binding, inputs, std::nullopt, transforms, scratch);
+        const u64 grown = scratch.RetainedBytes();
+        EXPECT_GE(grown, static_cast<u64>(scene.Grid.VertexCount()) * ((2u * sizeof(glm::vec3)) + sizeof(u8)))
+            << "the scratch must hold this frame's and last frame's skinned surface";
+        EXPECT_EQ(GroomEvaluationScratchRetainedBytes(), before + grown);
+        EXPECT_TRUE(sameTransforms(transforms, oneOff)) << "the owned scratch changed what the roots evaluate to";
+
+        const u64 growths = scratch.Growths();
+        for (u32 frame = 0; frame < 3u; ++frame)
+        {
+            (void)EvaluateGroomRootTransforms(*scene.Groom, *scene.Binding, inputs, std::nullopt, transforms, scratch);
+        }
+        EXPECT_EQ(scratch.Growths(), growths) << "a steady frame grew the scratch";
+        EXPECT_EQ(scratch.RetainedBytes(), grown);
+        EXPECT_TRUE(sameTransforms(transforms, oneOff));
+
+        // A FEW roots evaluate one at a time and need no skinned surface: the
+        // scratch keeps what it has and grows nothing.
+        const std::vector<u32> few{ 0u, 1u, 2u };
+        (void)EvaluateGroomRootTransforms(*scene.Groom, *scene.Binding, inputs, std::span<const u32>{ few }, transforms, scratch);
+        EXPECT_EQ(scratch.Growths(), growths);
+
+        scratch.Release();
+        EXPECT_EQ(scratch.RetainedBytes(), 0u);
+        EXPECT_EQ(GroomEvaluationScratchRetainedBytes(), before) << "Release left bytes in the ledger";
+        (void)EvaluateGroomRootTransforms(*scene.Groom, *scene.Binding, inputs, std::nullopt, transforms, scratch);
+        EXPECT_EQ(scratch.RetainedBytes(), grown);
+    }
+    EXPECT_EQ(GroomEvaluationScratchRetainedBytes(), before) << "the scratch's destructor left its bytes in the ledger";
 }
