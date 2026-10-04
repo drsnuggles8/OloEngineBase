@@ -75,13 +75,18 @@ shows. The grass holds still in those frames; it sways in the editor.
   coverage stays steady, nothing floats off the skin past the part's reach. Three planted local
   faults are each caught in their own part while the whole frame's coat moves by under 25%: a
   missing ear patch, face fur grown 8 cm off the skin, hind-leg fur left standing through a sit.
+  Cut to 5 mm stubs, the coat's roots stay on their skin through every clip, and a tail plume left
+  on a coat bound to nothing floats off the wagging tail (`TheCoatsRootsStayOnTheSkinThroughEveryClip`).
 - **The resolve settles the coat** (B6): runtime frames at rest and in the walk. The resolved
   shimmer must be under half the no-history control, over the whole frame and per region (face,
   ears, tail, body, the sparse fringe). In the walk it is also measured as the difference between
   two draws of the same frames, plus a lag check against ghosting; at rest there is a detail check
   against blurring. The frames must show life: the clip advances, the solver steps, and the long
   hair swings against its root-following targets. With the solver switched off, that life check
-  must fail.
+  must fail. Every pair of arms compared must replay the same states, not only the same clip
+  times: the body's bone palette and every guide particle (with its target) agree to the bit,
+  frame by frame. These ratios measure sampling instability; they are evidence against shimmer,
+  not proof that none is visible, which is what the footage is for.
 - **The clips** (C1, B4): the scene starts on Idle; Idle and the walk loop without a pop; Idle to
   the walk blends without one; the ears, the tail and the leg feathering swing where their clip
   moves them, with body contacts resolved.
@@ -98,6 +103,11 @@ shows. The grass holds still in those frames; it sways in the editor.
 `OLO_DOG_FOOTAGE=<dir> --gtest_filter=DogShowcaseEvidenceTest.RecordsTheReviewFootage` writes the
 review footage: every runtime frame of each clip and every frame of both dollies, at 1920×1080 on
 the lawn, as PNGs with a manifest.
+
+Evidence is of the shipped look only. A run with a look-development variable set (`OLO_DOG_POST`,
+`_LIGHT`, `_SUNDIR`, `_RIMDIR`, `_LAWN`, `_PELT`, `_LID`, `_FIBRE`, `_POSEBAKE`, `_SHADOW`, `_SIM`,
+`_ABC`, `_REGION_DEBUG`, `_REST_SETTLE_OFF`) or any `OLO_FAULT_*` lever fails every dog case, and
+`OLO_DOG_B6_ONLY` fails B6. Each run prints the variables it saw as `[dog] environment overrides:`.
 
 ## The eyes
 
@@ -142,34 +152,20 @@ parent: never add the two.
 
 ## Known gaps
 
-- **60 fps on GL.** The GL frame misses 16.7 ms by 1.4–3.1 ms; Vulkan holds it. The same lawn's
-  grass costs GL 2.5–4.3 ms more than Vulkan in `FoliagePass`, which alone covers the full-body and
-  walk gaps. Of the coat's own costs, the self-shadow march is the largest at close range: removing
-  it saves 3.7 / 1.7 / 0.4 ms headless (`Dog_Cost_Matrix.txt`), enough for the face close-up and the
-  full body.
-- **The card hand-over is past 15 m** (out at about 22.5 m, back in at about 16 m). The 15 m ladder
-  never reaches it; the extended 15–45 m dolly does, but judges it loosely: a step there may be 3x
-  the leg's frame-to-frame noise, which at that size (a 25–80 px dog) allows 16% for energy. The
-  worst step at a change is 6.5%.
+- **The card hand-over is past 15 m** (out at about 22.5 m, back in at about 16 m). Held where it
+  happens, the step is 0.9–1.6% in coverage and 3.6–4.8% in energy, inside the near ladder's 5%
+  (`TheCardHandOverStepsTheCoatWithinTheNearLaddersBar`). The remaining 4% is the cards' fibre model:
+  a card shades at its kept strand's one tangent while its members spread around it
+  ([groom-card-coverage.md](../agent-rules/groom-card-coverage.md)).
 - **The 11 m visibility step moves coverage by up to 4.7%** while energy moves 1.0% and brightness
   0.5%. The dolly judges pops on energy and brightness, at half the 10% band.
-- **The sparse fringe seen from behind in the walk sits at B6's bar**: its resolved shimmer is
-  0.4997 of the no-history control against "under half".
-- **At rest the long hair still swings**: the tips' RMS offset about their mean is 0.41 mm over the
-  first half-second and 0.38 mm over the second, under the 0.5 mm jitter ceiling.
-- **B3 cannot see a stale tail plume.** A plume left standing stays inside its own 24 cm reach, so
-  the planted stale fault is the hind legs through a sit instead.
 - **About 12–14% of the leg skin is groomed sparsely on purpose** (the inner legs) and is not judged
   for bald patches.
-- **Under the VSM the body does not shadow its fur** (the fur reads 4–7% brighter, 23% on the legs).
-  The editor's tier uses CSM.
-- **Lights that do not cast, and the environment, see no body** inside the coat (the rim light,
-  the sky). **One groom's fur does not shadow another groom's coat.**
-- **RT reflections with this lawn withhold the TLAS** (its near field overruns the vegetation
-  budget), and the RT shadow tier costs about 5 ms, mostly the coat proxy's CPU refit.
-- **Debug lines and spheres draw before the groom pass**, so fur hides a gizmo inside the coat.
-- **One Vulkan validation warning**, `ShaderOutputNotConsumed`, from editor overlays on Deferred
-  only; Play and packaged games draw no overlays.
-- **The headless fixture renders GL only.** Vulkan's look is checked live; the opaque shadow copy's
-  Vulkan row order is pinned on the CPU (`ShadowReceiverTexelRectTest`).
+- **Under a light that does not cast, the coat's volume and the cascades disagree on the legs.** On
+  the fur alone they agree within 0.03 coat-wide in every view; the legs differ both ways (0.14 front
+  three-quarter, 0.10 rear, -0.45 low hero). The skin between the strands is lit unshadowed by such
+  a light, by design ([groom-coat-body-in-the-volume.md](../agent-rules/groom-coat-body-in-the-volume.md)).
+- **Scene-level Vulkan is checked live.** The headless fixture renders GL, by policy
+  ([testing-architecture.md](../agent-rules/testing-architecture.md) §9–§10); #1556 proposes a
+  windowless Vulkan fixture. The groom passes have pass-level Vulkan tenants.
 - **The look itself (F3) is a human call.** No test above settles it.
