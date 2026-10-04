@@ -413,8 +413,7 @@ namespace OloEngine::Tests
             << "A COAT WIDENED BY THE KERNEL IS NOT THE FILTERED COAT. The two must be one expression: the coat's "
                "lobe and the base's take the same variance.";
         EXPECT_GT(coat.r, coat.b) << "the widened coat should be rougher than its floor for this derivative pair";
-        EXPECT_NEAR(cpuCoat, std::sqrt(SkinFilteredAlpha(kCoatRoughness * kCoatRoughness, glm::dot(kdNdx, kdNdx),
-                                                         glm::dot(kdNdy, kdNdy), kVarianceStrength)),
+        EXPECT_NEAR(cpuCoat, std::sqrt(SkinFilteredAlpha(kCoatRoughness * kCoatRoughness, glm::dot(kdNdx, kdNdx), glm::dot(kdNdy, kdNdy), kVarianceStrength)),
                     1.0e-6f)
             << "the CPU's widening and its filter disagree";
 

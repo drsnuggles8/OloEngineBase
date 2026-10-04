@@ -4589,7 +4589,9 @@ TEST_F(VulkanPassSuite, TaaSharpenStaysInsideTheRangeItSharpens)
         {
             return ((x % 8u) == 4u && (y % 8u) == 4u) ? u8{ 255 } : kDark;
         }
-        return x <= 60u ? u8{ 64 } : x == 61u ? u8{ 96 } : x == 62u ? u8{ 160 } : u8{ 192 };
+        return x <= 60u ? u8{ 64 } : x == 61u ? u8{ 96 }
+                                 : x == 62u   ? u8{ 160 }
+                                              : u8{ 192 };
     };
     TArray64<u8> pixels(static_cast<sizet>(kSize) * kSize * 4);
     for (u32 y = 0; y < kSize; ++y)
@@ -4660,7 +4662,8 @@ TEST_F(VulkanPassSuite, TaaSharpenStaysInsideTheRangeItSharpens)
                                           [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
                                           { blackboard.Post.TAAColor = handle; });
     ASSERT_EQ(frame.Num(), static_cast<sizet>(kSize) * kSize * 4);
-    const auto out = [&](u32 x, u32 y) { return static_cast<int>(frame[(static_cast<sizet>(y) * kSize + x) * 4]); };
+    const auto out = [&](u32 x, u32 y)
+    { return static_cast<int>(frame[(static_cast<sizet>(y) * kSize + x) * 4]); };
 
     int worstUndershoot = 0;
     u32 below = 0;
