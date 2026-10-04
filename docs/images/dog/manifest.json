@@ -7,58 +7,58 @@
    ],
    "codec": "JPEG quality 92, 4:4:4",
    "operation": "each 1920x1080 still scaled to 640x360; labels drawn on top",
-   "bytes": 1148379,
+   "bytes": 1082142,
    "sources": [
     {
-     "file": "package-final2/gl/hero/FrontThreeQuarter.png",
-     "sha256": "3b3e39d8f4c2e50d38ca58778d40ed483e89fa3e57df8ce9637dd80a61543c30"
+     "file": "final-96675309c/package/gl/hero/FrontThreeQuarter.png",
+     "sha256": "abeec76c7113173bb7f22810b80a719e489ac3e6979a5de93b171f271db8fdf0"
     },
     {
-     "file": "package-final2/gl/hero/Profile.png",
-     "sha256": "d0c09273509f364ac73dedd889bd755508cf775cec836e96e551d8680eab5aa4"
+     "file": "final-96675309c/package/gl/hero/Profile.png",
+     "sha256": "ed76c6d9fe22aa651851b913880e8ca85d0c0dfadc5329ceebbe53c4db23ef8e"
     },
     {
-     "file": "package-final2/gl/hero/FaceCloseUp.png",
-     "sha256": "8addd57707f315439609adf7de372af0ec24467b41cb68d86cae9bf65e944988"
+     "file": "final-96675309c/package/gl/hero/FaceCloseUp.png",
+     "sha256": "27a83728b7f69e71246340eb1a02b4c5087a7420877954394faf1b0fa86d2b8b"
     },
     {
-     "file": "package-final2/gl/hero/RearTail.png",
-     "sha256": "f304bb0d5f9fa6a0ad0854c4c5b2be3be43848cb8c55d39c0fcbc61ff882979c"
+     "file": "final-96675309c/package/gl/hero/RearTail.png",
+     "sha256": "fe5cfd12086374fe24efb501216b6139fdf6e47db46fb462382db460a14d79cb"
     },
     {
-     "file": "package-final2/gl/hero/LowHero.png",
-     "sha256": "8adab7f71ed60dd12b6c1d8fe00bb76afbe754ed0440e48b57b8bd7717482e6a"
+     "file": "final-96675309c/package/gl/hero/LowHero.png",
+     "sha256": "b964a04e86151844e84a96edf3fb7ae730d15d25414a657f2b598abf857eed2a"
     },
     {
-     "file": "package-final2/gl/hero/FullBody.png",
-     "sha256": "24453dbcba05eeb99956e98ce9d3b282aa33d44143912319edc7b185c8594bd2"
+     "file": "final-96675309c/package/gl/hero/FullBody.png",
+     "sha256": "15239e01cb06b14b1345d79e0fc0164d6cc71e7fb68d5ecf2f5a6ac32e5a5772"
     },
     {
-     "file": "package-final2/vk/hero/FrontThreeQuarter.png",
-     "sha256": "2744f2c8e93af6535dd348a7f5c733ce01a14624cba4d8f3bb2886ac337f0dcc"
+     "file": "final-96675309c/package/vk/hero/FrontThreeQuarter.png",
+     "sha256": "41fbf21af0f42d37ddcc8994f50bf2c92f59ec90d16ad5d6050882156eb7d836"
     },
     {
-     "file": "package-final2/vk/hero/Profile.png",
-     "sha256": "8643564fa01088c79d9fd9e1f04681a23002eb433318318a22c0acaed5d2dad6"
+     "file": "final-96675309c/package/vk/hero/Profile.png",
+     "sha256": "01274b14af0a524ba75e24af5c9ad05643ce2ee435f9e01b69a150c8889d49ad"
     },
     {
-     "file": "package-final2/vk/hero/FaceCloseUp.png",
-     "sha256": "880660fac8dcf27eccd564b5accf820a03aa99722957c82d089ae25f751a98c3"
+     "file": "final-96675309c/package/vk/hero/FaceCloseUp.png",
+     "sha256": "767f995e6d5a534ea376a0d4afee5fb94db2cdd1851201d151b75b5533a0441a"
     },
     {
-     "file": "package-final2/vk/hero/RearTail.png",
-     "sha256": "360cada6386b388c514000f62e1100503081922fd27ebdcb311d227d78d8d036"
+     "file": "final-96675309c/package/vk/hero/RearTail.png",
+     "sha256": "3089e09cd53d2df60ab56f4773dd8bba382706738cdacb3c37e09e26da9c459d"
     },
     {
-     "file": "package-final2/vk/hero/LowHero.png",
-     "sha256": "9ab53e5806467a8461ecf6e84d11d6733a8559fa420223505901317cec9d1e93"
+     "file": "final-96675309c/package/vk/hero/LowHero.png",
+     "sha256": "942e8d95fb65fe5881924b9ac353323ad2a50cecae888144bea7b9cfd93629f2"
     },
     {
-     "file": "package-final2/vk/hero/FullBody.png",
-     "sha256": "cdf455d2e717327ab6576d2190dc85e329f058139c0031a3648de3533bf2f5d8"
+     "file": "final-96675309c/package/vk/hero/FullBody.png",
+     "sha256": "3681eabfacfb6e674658eebb5e123aeb6f72436a0de8976020e5ebca473d8a2d"
     }
    ],
-   "sha256": "22dad2cb8d1aa6a308fe27f606d1f2cde33c527136654aa24dde1a6c08b1fb42"
+   "sha256": "c16d64a272eeda7f1b336df9e628c01219bd27bfc47b09fce516d5d807d98be8"
   },
   "contact-sheet-gl.png": {
    "size": [
@@ -67,34 +67,34 @@
    ],
    "codec": "PNG (lossless)",
    "operation": "each still scaled to 960x540 (half size); labels drawn on top",
-   "bytes": 4548930,
+   "bytes": 4601398,
    "sources": [
     {
-     "file": "package-final2/gl/hero/FrontThreeQuarter.png",
-     "sha256": "3b3e39d8f4c2e50d38ca58778d40ed483e89fa3e57df8ce9637dd80a61543c30"
+     "file": "final-96675309c/package/gl/hero/FrontThreeQuarter.png",
+     "sha256": "abeec76c7113173bb7f22810b80a719e489ac3e6979a5de93b171f271db8fdf0"
     },
     {
-     "file": "package-final2/gl/hero/Profile.png",
-     "sha256": "d0c09273509f364ac73dedd889bd755508cf775cec836e96e551d8680eab5aa4"
+     "file": "final-96675309c/package/gl/hero/Profile.png",
+     "sha256": "ed76c6d9fe22aa651851b913880e8ca85d0c0dfadc5329ceebbe53c4db23ef8e"
     },
     {
-     "file": "package-final2/gl/hero/FaceCloseUp.png",
-     "sha256": "8addd57707f315439609adf7de372af0ec24467b41cb68d86cae9bf65e944988"
+     "file": "final-96675309c/package/gl/hero/FaceCloseUp.png",
+     "sha256": "27a83728b7f69e71246340eb1a02b4c5087a7420877954394faf1b0fa86d2b8b"
     },
     {
-     "file": "package-final2/gl/hero/RearTail.png",
-     "sha256": "f304bb0d5f9fa6a0ad0854c4c5b2be3be43848cb8c55d39c0fcbc61ff882979c"
+     "file": "final-96675309c/package/gl/hero/RearTail.png",
+     "sha256": "fe5cfd12086374fe24efb501216b6139fdf6e47db46fb462382db460a14d79cb"
     },
     {
-     "file": "package-final2/gl/hero/LowHero.png",
-     "sha256": "8adab7f71ed60dd12b6c1d8fe00bb76afbe754ed0440e48b57b8bd7717482e6a"
+     "file": "final-96675309c/package/gl/hero/LowHero.png",
+     "sha256": "b964a04e86151844e84a96edf3fb7ae730d15d25414a657f2b598abf857eed2a"
     },
     {
-     "file": "package-final2/gl/hero/FullBody.png",
-     "sha256": "24453dbcba05eeb99956e98ce9d3b282aa33d44143912319edc7b185c8594bd2"
+     "file": "final-96675309c/package/gl/hero/FullBody.png",
+     "sha256": "15239e01cb06b14b1345d79e0fc0164d6cc71e7fb68d5ecf2f5a6ac32e5a5772"
     }
    ],
-   "sha256": "489eea981929875c054758b7c970a8a1be9e1311d39316df1d27029ef51becb5"
+   "sha256": "343386e2aff4b795f8e5b485146398b92282af25a1e0c1a9025856405588f199"
   },
   "contact-sheet-vk.png": {
    "size": [
@@ -103,34 +103,34 @@
    ],
    "codec": "PNG (lossless)",
    "operation": "each still scaled to 960x540 (half size); labels drawn on top",
-   "bytes": 4567726,
+   "bytes": 4606599,
    "sources": [
     {
-     "file": "package-final2/vk/hero/FrontThreeQuarter.png",
-     "sha256": "2744f2c8e93af6535dd348a7f5c733ce01a14624cba4d8f3bb2886ac337f0dcc"
+     "file": "final-96675309c/package/vk/hero/FrontThreeQuarter.png",
+     "sha256": "41fbf21af0f42d37ddcc8994f50bf2c92f59ec90d16ad5d6050882156eb7d836"
     },
     {
-     "file": "package-final2/vk/hero/Profile.png",
-     "sha256": "8643564fa01088c79d9fd9e1f04681a23002eb433318318a22c0acaed5d2dad6"
+     "file": "final-96675309c/package/vk/hero/Profile.png",
+     "sha256": "01274b14af0a524ba75e24af5c9ad05643ce2ee435f9e01b69a150c8889d49ad"
     },
     {
-     "file": "package-final2/vk/hero/FaceCloseUp.png",
-     "sha256": "880660fac8dcf27eccd564b5accf820a03aa99722957c82d089ae25f751a98c3"
+     "file": "final-96675309c/package/vk/hero/FaceCloseUp.png",
+     "sha256": "767f995e6d5a534ea376a0d4afee5fb94db2cdd1851201d151b75b5533a0441a"
     },
     {
-     "file": "package-final2/vk/hero/RearTail.png",
-     "sha256": "360cada6386b388c514000f62e1100503081922fd27ebdcb311d227d78d8d036"
+     "file": "final-96675309c/package/vk/hero/RearTail.png",
+     "sha256": "3089e09cd53d2df60ab56f4773dd8bba382706738cdacb3c37e09e26da9c459d"
     },
     {
-     "file": "package-final2/vk/hero/LowHero.png",
-     "sha256": "9ab53e5806467a8461ecf6e84d11d6733a8559fa420223505901317cec9d1e93"
+     "file": "final-96675309c/package/vk/hero/LowHero.png",
+     "sha256": "942e8d95fb65fe5881924b9ac353323ad2a50cecae888144bea7b9cfd93629f2"
     },
     {
-     "file": "package-final2/vk/hero/FullBody.png",
-     "sha256": "cdf455d2e717327ab6576d2190dc85e329f058139c0031a3648de3533bf2f5d8"
+     "file": "final-96675309c/package/vk/hero/FullBody.png",
+     "sha256": "3681eabfacfb6e674658eebb5e123aeb6f72436a0de8976020e5ebca473d8a2d"
     }
    ],
-   "sha256": "cab6d3724cfdfc0d15f342752efcbaff2a4a21eef556dd467ed09cba54e036d2"
+   "sha256": "651736ff46865ba9f23a8697a2460aacce63d2d4fa19977004182e40ec48f4fe"
   },
   "live-paths.jpg": {
    "size": [
@@ -139,34 +139,34 @@
    ],
    "codec": "JPEG quality 92, 4:4:4",
    "operation": "each still scaled to 640x360; labels drawn on top",
-   "bytes": 611731,
+   "bytes": 551164,
    "sources": [
     {
-     "file": "package-final2/gl/paths/forward.png",
-     "sha256": "8ca65e7dc98ed8bd6f1e701756cb9f61116d75785a14cc95da0f986b8726217f"
+     "file": "final-96675309c/package/gl/paths/forward.png",
+     "sha256": "1a5b81deba7d22ad3fa5e657f76f8fffb51db4bfc1305bb6ef75ba50c334febe"
     },
     {
-     "file": "package-final2/gl/paths/forwardplus.png",
-     "sha256": "4beda27dbd29beb780782060e081d13a48c030286e81f98b01c02a67cfee8eb0"
+     "file": "final-96675309c/package/gl/paths/forwardplus.png",
+     "sha256": "441d2e2611c5c449a30164903caac8d08ce5ffe2ac7213d8c176f5dbe930686f"
     },
     {
-     "file": "package-final2/gl/paths/deferred.png",
-     "sha256": "e0775cf4c347638770a9aeb8064c2b0c4f4049e885ff6f485b8b87d35a5f504a"
+     "file": "final-96675309c/package/gl/paths/deferred.png",
+     "sha256": "69096b26a7dea6eb2cbc2231c2d27d7b828e4efd73fc5f09b63bc03413ab0300"
     },
     {
-     "file": "package-final2/vk/paths/forward.png",
-     "sha256": "187e2aab1c18f38fdc94690ebd6b3083df2a72892fa64911f3f928f4261a0898"
+     "file": "final-96675309c/package/vk/paths/forward.png",
+     "sha256": "abece42c1a1164241d11d6bcdfd5f326b2733c187db8a8ea12eccd062ba1b37b"
     },
     {
-     "file": "package-final2/vk/paths/forwardplus.png",
-     "sha256": "99b9c4dd99ceef3aac11d76121f7189c4e104b86b49f962e12df094550053f0a"
+     "file": "final-96675309c/package/vk/paths/forwardplus.png",
+     "sha256": "f458c38abc4a3b833ba4a682712e50b875de630ae48d9f4985254e06b43e0c6a"
     },
     {
-     "file": "package-final2/vk/paths/deferred.png",
-     "sha256": "678683cb2020531edcc6a32d11266db26d407a00a13ae4dfe48ac76be0e91395"
+     "file": "final-96675309c/package/vk/paths/deferred.png",
+     "sha256": "5a4124e882e88c5ca006282333617d8e98e21a10b83f528cbb16ae2febab445f"
     }
    ],
-   "sha256": "3ce3da37d3ae51ed31173dfdef3fdb27420b03cc2000c60d67313c64872ac740"
+   "sha256": "c8135cc4759cdefff3da4422b5139517c33dc4ae15b320bbd215ee8e667a1a4c"
   },
   "closeup.jpg": {
    "size": [
@@ -175,34 +175,34 @@
    ],
    "codec": "JPEG quality 92, 4:4:4",
    "operation": "native pixels: a 960x540 crop of each 1920x1080 still, not scaled; labels on top",
-   "bytes": 1391383,
+   "bytes": 1697092,
    "sources": [
     {
-     "file": "package-final2/gl/closeup/Face.png",
-     "sha256": "4bdf67dc3bf37d3a97c57e3fcd2d0124611f6cb1710ac8bccb7e279fe33a5200"
+     "file": "final-96675309c/package/gl/closeup/Face.png",
+     "sha256": "b8e70712c6252431e12b97eb672b1d68df847985bcd9d394945cb473e37c5808"
     },
     {
-     "file": "package-final2/gl/closeup/EyeLeft.png",
-     "sha256": "5b08231d6ac7bbb6259c095e4232b8c6aa09941689be5dc51dabc13bf8036817"
+     "file": "final-96675309c/package/gl/closeup/EyeLeft.png",
+     "sha256": "a3f92a252b494e13b3da14f9398b384c3a2f86170121e8de8c567b7cb551dd89"
     },
     {
-     "file": "package-final2/gl/closeup/Nose.png",
-     "sha256": "f6e9f2fda1cb34abff90e2991c2ff0db32e5666fb23a7e6661ffe159183aef0f"
+     "file": "final-96675309c/package/gl/closeup/Nose.png",
+     "sha256": "0e201a834306a78952f4fcd5b3d1b39b72384d984da07a43e1526a973d96707f"
     },
     {
-     "file": "package-final2/vk/closeup/Face.png",
-     "sha256": "cc725a021b8ee72345624b0a2f0c24bc2c0038bd51e74b0a345822166131b7d3"
+     "file": "final-96675309c/package/vk/closeup/Face.png",
+     "sha256": "c9fd96df1dace53bcfdf57e39e38e3a98d986efc1ec6122f382fe73d5da2f2f0"
     },
     {
-     "file": "package-final2/vk/closeup/EyeLeft.png",
-     "sha256": "a152f4ae7d16c1488ac895c65ff2b4bcdbdec75b9b7c69287f4383b53eed5d78"
+     "file": "final-96675309c/package/vk/closeup/EyeLeft.png",
+     "sha256": "39886e25d023a55876cef68e9c2ad909eeac0bd4448d15c5dfccd1dd3fd1eefa"
     },
     {
-     "file": "package-final2/vk/closeup/Nose.png",
-     "sha256": "2205e21b1b41638613b995b5144edf4fbfda0ff75cbda2dbbf18695bc308bd65"
+     "file": "final-96675309c/package/vk/closeup/Nose.png",
+     "sha256": "ccbfa4371f04c3ee3d2312db6f5cc9cb7045505bb19ef8a2596fb2434604f26f"
     }
    ],
-   "sha256": "69d7a06bc7c23ccd7c4a7441254d5cefcee58424af4148b34704a0c11fd478e5"
+   "sha256": "eecf4fdbeb1c753a1c34723ecc33ba7e35ec0c193bf82b83958438c439976389"
   },
   "blink.jpg": {
    "size": [
@@ -211,34 +211,34 @@
    ],
    "codec": "JPEG quality 92, 4:4:4",
    "operation": "native pixels: a 720x270 crop around both eyes, not scaled; labels on top",
-   "bytes": 627958,
+   "bytes": 623535,
    "sources": [
     {
-     "file": "footage-final/Idle_FaceCloseUp/0000.png",
-     "sha256": "b46c1fc6fae4689892fa1e3e2b54acd41325bd7c19e3bd8b0e3f520e8fb67345"
+     "file": "final-96675309c/footage/Idle_FaceCloseUp/0000.png",
+     "sha256": "3321cb36e8e8e9741dbb81ba6cfda4b97e3db605e8b38332a8faf9cc8fcfdc0a"
     },
     {
-     "file": "footage-final/Idle_FaceCloseUp/0052.png",
-     "sha256": "728beceb7d35dbedd3652ce6679581e786808113f8bf5d2704c529bff0cadcbd"
+     "file": "final-96675309c/footage/Idle_FaceCloseUp/0052.png",
+     "sha256": "389f405d3d2c75b7ff16f495c46f2d91c6b2465c32457388d1eb453ccae2628d"
     },
     {
-     "file": "footage-final/Idle_FaceCloseUp/0062.png",
-     "sha256": "4a87dde21d53900371158ac02e0a8ac427b7d13cb755792fc526e712d9109f69"
+     "file": "final-96675309c/footage/Idle_FaceCloseUp/0062.png",
+     "sha256": "f04b7930b7cd11d68feb094c395b3abd2dd015d3f43a968af0798dac094275e1"
     },
     {
-     "file": "footage-final/Idle_FaceCloseUp/0066.png",
-     "sha256": "efc276e0e597ff71e7b6e4e7403a2f581e80cb9fc1f54a639ae92d09de353a7c"
+     "file": "final-96675309c/footage/Idle_FaceCloseUp/0066.png",
+     "sha256": "d0bbe913bdda31e96974e74d39fdb77b4713e51e1a29862130368aaf8d404db2"
     },
     {
-     "file": "footage-final/Idle_FaceCloseUp/0072.png",
-     "sha256": "39585ff848005814483e081f0c4028f3d976289bc3fe676bfc591d78c18e342c"
+     "file": "final-96675309c/footage/Idle_FaceCloseUp/0072.png",
+     "sha256": "e9ea4aa1bf6084c502d0a92bba621ac4d52cdff6182d5ae9114e1a259bbdb72c"
     },
     {
-     "file": "footage-final/Idle_FaceCloseUp/0080.png",
-     "sha256": "8dfe9b6d73da3b72f8c5ef20ae550f5291114a0b3692036697ff8d23b4f61522"
+     "file": "final-96675309c/footage/Idle_FaceCloseUp/0080.png",
+     "sha256": "5a7759cdb236af6f2ee9047be797154675979641e694e63d6a8710cbd7504c22"
     }
    ],
-   "sha256": "51954a10e396275dacf700f8dce582f0a2b84c06b129ab18ecd0e9cdfaadf3aa"
+   "sha256": "6a2593873f4555b7aa8b9312902be6f249a413a484051f1c2e6f57b1b161e91c"
   },
   "mouth.jpg": {
    "size": [
@@ -247,18 +247,18 @@
    ],
    "codec": "JPEG quality 92, 4:4:4",
    "operation": "native pixels: a 960x540 crop around the muzzle, not scaled; labels on top",
-   "bytes": 579897,
+   "bytes": 605382,
    "sources": [
     {
-     "file": "footage-final/Pant_FaceCloseUp/0000.png",
-     "sha256": "90c6d9158865549796beff4d72b19df9f6681cb53e1ec1ba1faf3d7a9b14824c"
+     "file": "final-96675309c/footage/Pant_FaceCloseUp/0000.png",
+     "sha256": "f775da705381f3000b5417c2a9bdaec0f18d2267be9e0c5acb91d1a9172f8d49"
     },
     {
-     "file": "footage-final/Pant_FaceCloseUp/0038.png",
-     "sha256": "75519b08c48c3c033c3f33502ee6d74e6e628f57581baea6a9fafa1f1dcde8ee"
+     "file": "final-96675309c/footage/Pant_FaceCloseUp/0038.png",
+     "sha256": "6267231512bddb7f316a10c67b2031dc4bf891a0c9ec060cbaccd3d0873204e4"
     }
    ],
-   "sha256": "633de32c977e80a93328684e60b1934c48b27a598c9cd893dca778ac6b9cd741"
+   "sha256": "89cf0d128cf9fd0a84a2f68eb8865f5c28ce900322153a4117de38de612fd92d"
   },
   "clips.jpg": {
    "size": [
@@ -267,34 +267,34 @@
    ],
    "codec": "JPEG quality 92, 4:4:4",
    "operation": "each runtime frame scaled to 640x360; labels on top",
-   "bytes": 590267,
+   "bytes": 548700,
    "sources": [
     {
-     "file": "footage-final/Idle_FullBody/0120.png",
-     "sha256": "dd9206b2856ae58c86002fc936bb5820608f27d765915abab260a9adc82e9a80"
+     "file": "final-96675309c/footage/Idle_FullBody/0120.png",
+     "sha256": "a0e86c76dce189cfc21ec0af1c39de9300fe81fe2e5e710916bcb7c59ec643a1"
     },
     {
-     "file": "footage-final/HeadTilt_FaceCloseUp/0090.png",
-     "sha256": "692417bbe7755015b2205df3b0eba735dc26144cbb2c898e55f01b0cebb943b1"
+     "file": "final-96675309c/footage/HeadTilt_FaceCloseUp/0090.png",
+     "sha256": "e9bb193f9521e5588dfd0126461f0213942b33f740b0a18d93c2667438aa977e"
     },
     {
-     "file": "footage-final/Sit_FullBody/0179.png",
-     "sha256": "1d877b1fff4067e3085af58a57e43340ddc8f9ccb8c62536be4d8336632e406d"
+     "file": "final-96675309c/footage/Sit_FullBody/0179.png",
+     "sha256": "39cbe972c357b4431e6623f939292232c40155cc7a7afd56f553713b13c090b3"
     },
     {
-     "file": "footage-final/Walk_MidShot/0060.png",
-     "sha256": "5fb0b0e5a66e129a52d32635005a22b087549f102035467966161b141a478b64"
+     "file": "final-96675309c/footage/Walk_MidShot/0060.png",
+     "sha256": "9c1905e81a693a37d0f259a6de451d2032ce6724250dd2cae6505bbd0084fa7b"
     },
     {
-     "file": "footage-final/Walk_RearTail/0060.png",
-     "sha256": "7ab961e11037861a4e30edd41bd3cbb098d42fffa318f9f8159946c03abd061f"
+     "file": "final-96675309c/footage/Walk_RearTail/0060.png",
+     "sha256": "59ebb79dba4bc34f4df25f9e482595a4defc0907045b878aaa3866f7079b8ad9"
     },
     {
-     "file": "footage-final/Pant_RearTail/0060.png",
-     "sha256": "a41e156260b6d1da3c689bbe85b21d5b1e912abf9f58380b1e10fd4647bbdfb1"
+     "file": "final-96675309c/footage/Pant_RearTail/0060.png",
+     "sha256": "4fe871ee5623a6478d02ac0b7989d6c35f997fa1172e4d98f9242c799473d9b2"
     }
    ],
-   "sha256": "44ed1e88204aba4e6c1a64f04c59234c169a1785692cb7462e01474afe44f8c9"
+   "sha256": "af82af272ec06dbf19c595cf67d5754fc3c71902873fbd79f7d9715ad353d1ab"
   },
   "dolly.jpg": {
    "size": [
@@ -303,107 +303,110 @@
    ],
    "codec": "JPEG quality 92, 4:4:4",
    "operation": "each frame cropped to a square around the dog sized to its distance, then scaled to 300x300: far tiles are ENLARGED (a 45 m dog is ~25 px tall in the real frame); labels on top",
-   "bytes": 462728,
+   "bytes": 459347,
    "sources": [
     {
-     "file": "footage-final/Dolly_0.6-15m/0000.png",
-     "sha256": "7489f2878a67d338bddbf0ef7d1be47f47915bc3073289594b029610ec65c3bc"
+     "file": "final-96675309c/footage/Dolly_0.6-15m/0000.png",
+     "sha256": "ac065398a26fa8c9e74b1789e51bb1e4e991d8cddd919e8bd6583765fc54d29b"
     },
     {
-     "file": "footage-final/Dolly_0.6-15m/0057.png",
-     "sha256": "5063db2465ae2b2edc5aed9d57eb69802e967963010c0c1762ce7c001f3d0a19"
+     "file": "final-96675309c/footage/Dolly_0.6-15m/0057.png",
+     "sha256": "b794db8aec910fad79d20ac319a9c2bf49bb24774bb24a92c60c252faaf66b9f"
     },
     {
-     "file": "footage-final/Dolly_0.6-15m/0099.png",
-     "sha256": "193e5445631f60eb1361c5359cef5cd6f020aa170e497d6e8916a6a1c9070417"
+     "file": "final-96675309c/footage/Dolly_0.6-15m/0099.png",
+     "sha256": "e7d280bc2d0973ad1bbe639c44e54cb53043aa624fc8c85527a7a07fa3055c76"
     },
     {
-     "file": "footage-final/Dolly_0.6-15m/0142.png",
-     "sha256": "159f6e7f1be054b2b7a57c55c288a4edffde676aced4083630ba2f7d9ba2701e"
+     "file": "final-96675309c/footage/Dolly_0.6-15m/0142.png",
+     "sha256": "27b90841971ae094f0a062df090e67ea8a876cb5eaee48d0a26af22a640e4a58"
     },
     {
-     "file": "footage-final/Dolly_0.6-15m/0179.png",
-     "sha256": "ca968a642986b6343f7e8ce2a91a0664c61b89fda76b168d1000a71dbf00e7a7"
+     "file": "final-96675309c/footage/Dolly_0.6-15m/0179.png",
+     "sha256": "5abda0fe34b8eec28e212f21ebdda6397e7de7a849d7158c0ebc6e3d43f92529"
     },
     {
-     "file": "footage-final/Dolly_0.6-15m/0181.png",
-     "sha256": "496cfbff9d8a468aa7e7a92c875ae7430476e2b6ab7d951cdbb75974e7ed09e4"
+     "file": "final-96675309c/footage/Dolly_0.6-15m/0181.png",
+     "sha256": "4ca1c386919965ff24d2ae0ebfe6aff21ab48a93fd3fde0b27de985e0c05e72c"
     },
     {
-     "file": "footage-final/Dolly_0.6-15m/0199.png",
-     "sha256": "41931c1dc295d04daaed888303e9501057fff530f6ec0b6b8e6edd2849b89753"
+     "file": "final-96675309c/footage/Dolly_0.6-15m/0199.png",
+     "sha256": "672db589da2ae97e067e5a00672fcc39b353721e6b27d9b5018aeca14e65bd59"
     },
     {
-     "file": "footage-final/Dolly_0.6-15m/0219.png",
-     "sha256": "719add8e4aa45c557669ec780c94d8409d4047cd5fa43a9feacbbc569fd577de"
+     "file": "final-96675309c/footage/Dolly_0.6-15m/0219.png",
+     "sha256": "7317578e9e7bd725a586bba58ca67b28626b364911ab800c16b00c87a59e0176"
     },
     {
-     "file": "footage-final/Dolly_0.6-15m/0280.png",
-     "sha256": "39efb66e3557924a8c0d5beb4b6ac5b3a17a0b7e6638cf5c0bea6270479fb8d4"
+     "file": "final-96675309c/footage/Dolly_0.6-15m/0280.png",
+     "sha256": "976659b0a55b7650af1124dbb3c9760c2c0829e2529c9d53f511717aea4e3661"
     },
     {
-     "file": "footage-final/Dolly_Extended_15-45m/0031.png",
-     "sha256": "35b9094cfbb05035866d22fbf277cb39de8d13f3bb7804ad38411f1aa9a17037"
+     "file": "final-96675309c/footage/Dolly_Extended_15-45m/0031.png",
+     "sha256": "0ade87a3af13d65e1d9eb4cb29772b1ba08e15820478e3405edd950d047a884e"
     },
     {
-     "file": "footage-final/Dolly_Extended_15-45m/0043.png",
-     "sha256": "b5b2977704f102e405062d3643e366af2a4de0c239f1b3326fbf1bfbc1410886"
+     "file": "final-96675309c/footage/Dolly_Extended_15-45m/0043.png",
+     "sha256": "112839f3d5b54979ce548607d54482bd95d8f4786bbbf51fac16d40d5dd10580"
     },
     {
-     "file": "footage-final/Dolly_Extended_15-45m/0044.png",
-     "sha256": "bc200744d09f20ed5deea08b1ac3e26704cc8ad1b65bb363a5a04207c290280a"
+     "file": "final-96675309c/footage/Dolly_Extended_15-45m/0044.png",
+     "sha256": "6a75b91a4375f96d05ad0554f0655800085ddc82ba0015ea17eb6b5bc2b82448"
     },
     {
-     "file": "footage-final/Dolly_Extended_15-45m/0075.png",
-     "sha256": "1fec4052e0f115c8ca56e0f5e19d43217ca3ec8926f6285f4334dcd294616248"
+     "file": "final-96675309c/footage/Dolly_Extended_15-45m/0075.png",
+     "sha256": "93f51a51074a6e085d61f28b9b9c69bfb3307484f0ab7a87a5ca98f0ab839273"
     },
     {
-     "file": "footage-final/Dolly_Extended_15-45m/0119.png",
-     "sha256": "5f8daaa29e487ef18589475be0087175aab1676d7fa06ff2b4b4d3f2811555af"
+     "file": "final-96675309c/footage/Dolly_Extended_15-45m/0119.png",
+     "sha256": "8be1adc4fdd70f11762299997cf5f76b7124c0032ef5c04ace3c627c1f058038"
     }
    ],
-   "sha256": "4cd43965805b1bc3edf53adae3889939622987476a66ac6f3094aa3a19c94ab8"
+   "sha256": "861b969e7b808fd7b5b332508168a9242d6164848a929c362b84de934a810c06"
   }
  },
  "originals": {
-  "package-final2/gl/closeup/EyeLeft.png": "5b08231d6ac7bbb6259c095e4232b8c6aa09941689be5dc51dabc13bf8036817",
-  "package-final2/gl/closeup/Face.png": "4bdf67dc3bf37d3a97c57e3fcd2d0124611f6cb1710ac8bccb7e279fe33a5200",
-  "package-final2/gl/closeup/Nose.png": "f6e9f2fda1cb34abff90e2991c2ff0db32e5666fb23a7e6661ffe159183aef0f",
-  "package-final2/gl/hero/FaceCloseUp.png": "8addd57707f315439609adf7de372af0ec24467b41cb68d86cae9bf65e944988",
-  "package-final2/gl/hero/FrontThreeQuarter.png": "3b3e39d8f4c2e50d38ca58778d40ed483e89fa3e57df8ce9637dd80a61543c30",
-  "package-final2/gl/hero/FullBody.png": "24453dbcba05eeb99956e98ce9d3b282aa33d44143912319edc7b185c8594bd2",
-  "package-final2/gl/hero/LowHero.png": "8adab7f71ed60dd12b6c1d8fe00bb76afbe754ed0440e48b57b8bd7717482e6a",
-  "package-final2/gl/hero/Profile.png": "d0c09273509f364ac73dedd889bd755508cf775cec836e96e551d8680eab5aa4",
-  "package-final2/gl/hero/RearTail.png": "f304bb0d5f9fa6a0ad0854c4c5b2be3be43848cb8c55d39c0fcbc61ff882979c",
-  "package-final2/gl/paths/deferred.png": "e0775cf4c347638770a9aeb8064c2b0c4f4049e885ff6f485b8b87d35a5f504a",
-  "package-final2/gl/paths/forward.png": "8ca65e7dc98ed8bd6f1e701756cb9f61116d75785a14cc95da0f986b8726217f",
-  "package-final2/gl/paths/forwardplus.png": "4beda27dbd29beb780782060e081d13a48c030286e81f98b01c02a67cfee8eb0",
-  "package-final2/vk/closeup/EyeLeft.png": "a152f4ae7d16c1488ac895c65ff2b4bcdbdec75b9b7c69287f4383b53eed5d78",
-  "package-final2/vk/closeup/Face.png": "cc725a021b8ee72345624b0a2f0c24bc2c0038bd51e74b0a345822166131b7d3",
-  "package-final2/vk/closeup/Nose.png": "2205e21b1b41638613b995b5144edf4fbfda0ff75cbda2dbbf18695bc308bd65",
-  "package-final2/vk/hero/FaceCloseUp.png": "880660fac8dcf27eccd564b5accf820a03aa99722957c82d089ae25f751a98c3",
-  "package-final2/vk/hero/FrontThreeQuarter.png": "2744f2c8e93af6535dd348a7f5c733ce01a14624cba4d8f3bb2886ac337f0dcc",
-  "package-final2/vk/hero/FullBody.png": "cdf455d2e717327ab6576d2190dc85e329f058139c0031a3648de3533bf2f5d8",
-  "package-final2/vk/hero/LowHero.png": "9ab53e5806467a8461ecf6e84d11d6733a8559fa420223505901317cec9d1e93",
-  "package-final2/vk/hero/Profile.png": "8643564fa01088c79d9fd9e1f04681a23002eb433318318a22c0acaed5d2dad6",
-  "package-final2/vk/hero/RearTail.png": "360cada6386b388c514000f62e1100503081922fd27ebdcb311d227d78d8d036",
-  "package-final2/vk/paths/deferred.png": "678683cb2020531edcc6a32d11266db26d407a00a13ae4dfe48ac76be0e91395",
-  "package-final2/vk/paths/forward.png": "187e2aab1c18f38fdc94690ebd6b3083df2a72892fa64911f3f928f4261a0898",
-  "package-final2/vk/paths/forwardplus.png": "99b9c4dd99ceef3aac11d76121f7189c4e104b86b49f962e12df094550053f0a"
+  "final-96675309c/package/gl/closeup/EyeLeft.png": "a3f92a252b494e13b3da14f9398b384c3a2f86170121e8de8c567b7cb551dd89",
+  "final-96675309c/package/gl/closeup/Face.png": "b8e70712c6252431e12b97eb672b1d68df847985bcd9d394945cb473e37c5808",
+  "final-96675309c/package/gl/closeup/Nose.png": "0e201a834306a78952f4fcd5b3d1b39b72384d984da07a43e1526a973d96707f",
+  "final-96675309c/package/gl/hero/FaceCloseUp.png": "27a83728b7f69e71246340eb1a02b4c5087a7420877954394faf1b0fa86d2b8b",
+  "final-96675309c/package/gl/hero/FrontThreeQuarter.png": "abeec76c7113173bb7f22810b80a719e489ac3e6979a5de93b171f271db8fdf0",
+  "final-96675309c/package/gl/hero/FullBody.png": "15239e01cb06b14b1345d79e0fc0164d6cc71e7fb68d5ecf2f5a6ac32e5a5772",
+  "final-96675309c/package/gl/hero/LowHero.png": "b964a04e86151844e84a96edf3fb7ae730d15d25414a657f2b598abf857eed2a",
+  "final-96675309c/package/gl/hero/Profile.png": "ed76c6d9fe22aa651851b913880e8ca85d0c0dfadc5329ceebbe53c4db23ef8e",
+  "final-96675309c/package/gl/hero/RearTail.png": "fe5cfd12086374fe24efb501216b6139fdf6e47db46fb462382db460a14d79cb",
+  "final-96675309c/package/gl/paths/deferred.png": "69096b26a7dea6eb2cbc2231c2d27d7b828e4efd73fc5f09b63bc03413ab0300",
+  "final-96675309c/package/gl/paths/forward.png": "1a5b81deba7d22ad3fa5e657f76f8fffb51db4bfc1305bb6ef75ba50c334febe",
+  "final-96675309c/package/gl/paths/forwardplus.png": "441d2e2611c5c449a30164903caac8d08ce5ffe2ac7213d8c176f5dbe930686f",
+  "final-96675309c/package/vk/closeup/EyeLeft.png": "39886e25d023a55876cef68e9c2ad909eeac0bd4448d15c5dfccd1dd3fd1eefa",
+  "final-96675309c/package/vk/closeup/Face.png": "c9fd96df1dace53bcfdf57e39e38e3a98d986efc1ec6122f382fe73d5da2f2f0",
+  "final-96675309c/package/vk/closeup/Nose.png": "ccbfa4371f04c3ee3d2312db6f5cc9cb7045505bb19ef8a2596fb2434604f26f",
+  "final-96675309c/package/vk/hero/FaceCloseUp.png": "767f995e6d5a534ea376a0d4afee5fb94db2cdd1851201d151b75b5533a0441a",
+  "final-96675309c/package/vk/hero/FrontThreeQuarter.png": "41fbf21af0f42d37ddcc8994f50bf2c92f59ec90d16ad5d6050882156eb7d836",
+  "final-96675309c/package/vk/hero/FullBody.png": "3681eabfacfb6e674658eebb5e123aeb6f72436a0de8976020e5ebca473d8a2d",
+  "final-96675309c/package/vk/hero/LowHero.png": "942e8d95fb65fe5881924b9ac353323ad2a50cecae888144bea7b9cfd93629f2",
+  "final-96675309c/package/vk/hero/Profile.png": "01274b14af0a524ba75e24af5c9ad05643ce2ee435f9e01b69a150c8889d49ad",
+  "final-96675309c/package/vk/hero/RearTail.png": "3089e09cd53d2df60ab56f4773dd8bba382706738cdacb3c37e09e26da9c459d",
+  "final-96675309c/package/vk/paths/deferred.png": "5a4124e882e88c5ca006282333617d8e98e21a10b83f528cbb16ae2febab445f",
+  "final-96675309c/package/vk/paths/forward.png": "abece42c1a1164241d11d6bcdfd5f326b2733c187db8a8ea12eccd062ba1b37b",
+  "final-96675309c/package/vk/paths/forwardplus.png": "f458c38abc4a3b833ba4a682712e50b875de630ae48d9f4985254e06b43e0c6a"
  },
- "commit": "653723ae2c60fee7cc72dd2602ed7b9450a41e1a",
+ "commit": "96675309c86b955092040f77068217dbeb1f50f2",
  "observations": [
   "Darker brown streaks run across the crown in every view, on both backends.",
   "A dark brown patch sits at the side of the neck in the three-quarter and full-body views. It is the floppy ear, which B2 asks to be darker than the coat.",
-  "From the low hero angle a pale band runs along the lower lip line, and the tips of the front teeth show at the chin.",
+  "From the low hero angle a thin pale line runs along the lower lip's edge, and a small white highlight sits at the front of the closed mouth, where the front teeth are.",
   "At the extreme eye and nose close-ups (a 20 degree field a few tens of centimetres away) the face and muzzle strands read as flat, hard-edged ribbons radiating from the skin. From the face close-up outward they read as fur.",
   "Stray hairs stand out of the head's outline against the sky in the face close-up.",
-  "OpenGL and Vulkan show the same pose and the same coat; the visible differences are the wind-blown grass blades in front of the camera.",
-  "The first Vulkan capture of the full-body view showed near-black, straight-edged patches on the muzzle and flank. They came from the opaque shadow copy reading the wrong rows on Vulkan, fixed in f90243d9e; every Vulkan picture here is after that fix."
+  "In the rear views the tail's pale tip glows white where the sun shines through it, blown out to a soft white patch (the runtime rear footage and the RearTail still, both backends).",
+  "Through the dolly, from the 11 m step outward, the coat reads as clumped curls in the enlarged crops; at native size the dog is a few dozen pixels tall there. At the 22.5 m card hand-over the coat is blotchier than the strands just before it.",
+  "In the panting footage the tongue lies over the lower teeth and hangs past the lip; no tooth shows through it. Its highlights are broad and soft rather than lacquered, and the lower canine shows white at the corner of the mouth.",
+  "The eye's catch-light is a small steady highlight in every view on both backends, including the low hero view where a white bloom used to appear.",
+  "OpenGL and Vulkan show the same pose and the same coat in all six hero views and on all three paths; the visible differences are the wind-blown grass blades in front of the camera."
  ],
  "live-gl": {
   "backend": "OpenGL",
-  "editorBuild": "0.0.1+773eccf93a",
+  "editorBuild": "0.0.1+96675309c8",
   "softShadows": "pcf",
   "viewport": {
    "height": 1080,
@@ -638,7 +641,7 @@
  },
  "live-vk": {
   "backend": "Vulkan",
-  "editorBuild": "0.0.1+773eccf93a",
+  "editorBuild": "0.0.1+96675309c8",
   "softShadows": "pcf",
   "viewport": {
    "height": 1080,
@@ -874,7 +877,7 @@
  "footage": {
   "backend": "OpenGL",
   "bloom": true,
-  "build": "0.0.1+653723ae2c",
+  "build": "0.0.1+96675309c8",
   "driver": "4.6.0 NVIDIA 617.14",
   "frameStep": "1/60 s",
   "fxaa": true,
@@ -902,6 +905,24 @@
   },
   "tonemap": 2,
   "upscale": 0,
+  "comparedWith": {
+   "build": "0.0.1+83c9230925",
+   "identicalFrames": 0,
+   "differentFrames": 1930,
+   "missingFrames": 0,
+   "firstDifferentFramePerSequence": {
+    "Dolly_0.6-15m": "0000.png",
+    "Dolly_Extended_15-45m": "0000.png",
+    "HeadTilt_FaceCloseUp": "0000.png",
+    "Idle_FaceCloseUp": "0000.png",
+    "Idle_FullBody": "0000.png",
+    "Pant_FaceCloseUp": "0000.png",
+    "Pant_RearTail": "0000.png",
+    "Sit_FullBody": "0000.png",
+    "Walk_MidShot": "0000.png",
+    "Walk_RearTail": "0000.png"
+   }
+  },
   "sequences": {
    "Dolly_0.6-15m": {
     "advance": "held: the scene paused, the camera moving, the history never reset",
@@ -1072,193 +1093,208 @@
    "source": "Dolly_0.6-15m/ (400 frames)",
    "operation": "native pixels: the 960x540 window at (480, 270) of each 1920x1080 frame, not scaled",
    "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
-   "bytes": 19972417,
+   "bytes": 15175309,
    "ok": true
   },
   "Dolly_0.6-15m_overview.mp4": {
    "source": "Dolly_0.6-15m/ (400 frames)",
    "operation": "each 1920x1080 frame scaled to 640x360 (Lanczos)",
    "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
-   "bytes": 4266418,
+   "bytes": 2802176,
    "ok": true
   },
   "Dolly_Extended_15-45m_crop.mp4": {
    "source": "Dolly_Extended_15-45m/ (240 frames)",
    "operation": "native pixels: the 960x540 window at (480, 270) of each 1920x1080 frame, not scaled",
    "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
-   "bytes": 4438767,
+   "bytes": 5352331,
    "ok": true
   },
   "Dolly_Extended_15-45m_overview.mp4": {
    "source": "Dolly_Extended_15-45m/ (240 frames)",
    "operation": "each 1920x1080 frame scaled to 640x360 (Lanczos)",
    "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
-   "bytes": 1384241,
+   "bytes": 699919,
    "ok": true
   },
   "HeadTilt_FaceCloseUp_crop.mp4": {
    "source": "HeadTilt_FaceCloseUp/ (150 frames)",
    "operation": "native pixels: the 960x540 window at (440, 300) of each 1920x1080 frame, not scaled",
    "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
-   "bytes": 5457519,
+   "bytes": 5151698,
    "ok": true
   },
   "HeadTilt_FaceCloseUp_overview.mp4": {
    "source": "HeadTilt_FaceCloseUp/ (150 frames)",
    "operation": "each 1920x1080 frame scaled to 640x360 (Lanczos)",
    "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
-   "bytes": 616529,
+   "bytes": 593493,
    "ok": true
   },
   "Idle_FaceCloseUp_crop.mp4": {
    "source": "Idle_FaceCloseUp/ (240 frames)",
    "operation": "native pixels: the 960x540 window at (440, 300) of each 1920x1080 frame, not scaled",
    "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
-   "bytes": 8017190,
+   "bytes": 7725496,
    "ok": true
   },
   "Idle_FaceCloseUp_overview.mp4": {
    "source": "Idle_FaceCloseUp/ (240 frames)",
    "operation": "each 1920x1080 frame scaled to 640x360 (Lanczos)",
    "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
-   "bytes": 871923,
+   "bytes": 876542,
    "ok": true
   },
   "Idle_FullBody_crop.mp4": {
    "source": "Idle_FullBody/ (240 frames)",
    "operation": "native pixels: the 960x540 window at (440, 170) of each 1920x1080 frame, not scaled",
    "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
-   "bytes": 6009956,
+   "bytes": 6616925,
    "ok": true
   },
   "Idle_FullBody_overview.mp4": {
    "source": "Idle_FullBody/ (240 frames)",
    "operation": "each 1920x1080 frame scaled to 640x360 (Lanczos)",
    "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
-   "bytes": 550256,
+   "bytes": 443553,
    "ok": true
   },
   "Pant_FaceCloseUp_crop.mp4": {
    "source": "Pant_FaceCloseUp/ (120 frames)",
    "operation": "native pixels: the 960x540 window at (440, 470) of each 1920x1080 frame, not scaled",
    "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
-   "bytes": 3792757,
+   "bytes": 4074744,
    "ok": true
   },
   "Pant_FaceCloseUp_overview.mp4": {
    "source": "Pant_FaceCloseUp/ (120 frames)",
    "operation": "each 1920x1080 frame scaled to 640x360 (Lanczos)",
    "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
-   "bytes": 437971,
+   "bytes": 444964,
    "ok": true
   },
   "Pant_RearTail_crop.mp4": {
    "source": "Pant_RearTail/ (120 frames)",
    "operation": "native pixels: the 960x540 window at (520, 250) of each 1920x1080 frame, not scaled",
    "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
-   "bytes": 4547801,
+   "bytes": 3877010,
    "ok": true
   },
   "Pant_RearTail_overview.mp4": {
    "source": "Pant_RearTail/ (120 frames)",
    "operation": "each 1920x1080 frame scaled to 640x360 (Lanczos)",
    "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
-   "bytes": 392202,
+   "bytes": 296035,
    "ok": true
   },
   "Sit_FullBody_crop.mp4": {
    "source": "Sit_FullBody/ (180 frames)",
    "operation": "native pixels: the 960x540 window at (440, 170) of each 1920x1080 frame, not scaled",
    "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
-   "bytes": 4448615,
+   "bytes": 4570080,
    "ok": true
   },
   "Sit_FullBody_overview.mp4": {
    "source": "Sit_FullBody/ (180 frames)",
    "operation": "each 1920x1080 frame scaled to 640x360 (Lanczos)",
    "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
-   "bytes": 447486,
+   "bytes": 343686,
    "ok": true
   },
   "Walk_MidShot_crop.mp4": {
    "source": "Walk_MidShot/ (120 frames)",
    "operation": "native pixels: the 960x540 window at (480, 270) of each 1920x1080 frame, not scaled",
    "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
-   "bytes": 3334867,
+   "bytes": 3161320,
    "ok": true
   },
   "Walk_MidShot_overview.mp4": {
    "source": "Walk_MidShot/ (120 frames)",
    "operation": "each 1920x1080 frame scaled to 640x360 (Lanczos)",
    "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
-   "bytes": 327797,
+   "bytes": 224322,
    "ok": true
   },
   "Walk_RearTail_crop.mp4": {
    "source": "Walk_RearTail/ (120 frames)",
    "operation": "native pixels: the 960x540 window at (480, 250) of each 1920x1080 frame, not scaled",
    "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
-   "bytes": 4937055,
+   "bytes": 3683636,
    "ok": true
   },
   "Walk_RearTail_overview.mp4": {
    "source": "Walk_RearTail/ (120 frames)",
    "operation": "each 1920x1080 frame scaled to 640x360 (Lanczos)",
    "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
-   "bytes": 530879,
+   "bytes": 396679,
    "ok": true
   }
  },
- "footageComparedWith": null,
+ "footageComparedWith": {
+  "build": "0.0.1+83c9230925",
+  "identicalFrames": 0,
+  "differentFrames": 1930,
+  "missingFrames": 0,
+  "firstDifferentFramePerSequence": {
+   "Dolly_0.6-15m": "0000.png",
+   "Dolly_Extended_15-45m": "0000.png",
+   "HeadTilt_FaceCloseUp": "0000.png",
+   "Idle_FaceCloseUp": "0000.png",
+   "Idle_FullBody": "0000.png",
+   "Pant_FaceCloseUp": "0000.png",
+   "Pant_RearTail": "0000.png",
+   "Sit_FullBody": "0000.png",
+   "Walk_MidShot": "0000.png",
+   "Walk_RearTail": "0000.png"
+  }
+ },
  "artifact": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j",
  "assets": {
-  "data/e1-raw-653723ae2.json": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/7765a93466bc932271638ed86011db80",
-  "data/e1-raw-95a80bcd2.json": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/5e92b7d0db70b41d6e81f64cc1469daf",
-  "data/vk-validation-773eccf93a.txt": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/2dd3c1b0a0866162f2be3da4c671e888",
-  "footage-mp4/Dolly_0.6-15m_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/13409873634748afbe7a503b544cffb2",
-  "footage-mp4/Dolly_0.6-15m_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/745efbd8a276933170477372412fcd0b",
-  "footage-mp4/Dolly_Extended_15-45m_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/752a45734460839b6d5ef05922aae2d8",
-  "footage-mp4/Dolly_Extended_15-45m_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/76513fdb800e9d3b6469d2d2c0cd4205",
-  "footage-mp4/HeadTilt_FaceCloseUp_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/1a8167200d5abf05b147a727a84ead25",
-  "footage-mp4/HeadTilt_FaceCloseUp_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/6f8c4e6b043c5c4214bc317da8379750",
-  "footage-mp4/Idle_FaceCloseUp_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/e3f3bab925e61a10dbb18704c3d98e97",
-  "footage-mp4/Idle_FaceCloseUp_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/58b5fd707aa730a818ee1fe3648672b3",
-  "footage-mp4/Idle_FullBody_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/c88b98981ab98e4b23533aa42d3c3d53",
-  "footage-mp4/Idle_FullBody_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/1495273d0f9b3929e413318da55977dc",
-  "footage-mp4/Pant_FaceCloseUp_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/ece075253643b937e841504228175e9d",
-  "footage-mp4/Pant_FaceCloseUp_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/f1f1ffe9252f61bf62109bc42941dbba",
-  "footage-mp4/Pant_RearTail_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/05443b596130aa93b4a20007a5a92f5e",
-  "footage-mp4/Pant_RearTail_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/d1b63ce07b8a9eadd882147d7d2690da",
-  "footage-mp4/Sit_FullBody_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/fb5bd5dae714aafd00e0015711911efb",
-  "footage-mp4/Sit_FullBody_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/adf659e792c68e74e55d9088d768c6d6",
-  "footage-mp4/Walk_MidShot_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/92deed7e4868426061f6faa80562364d",
-  "footage-mp4/Walk_MidShot_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/243116b7365e727e538a49683aa44145",
-  "footage-mp4/Walk_RearTail_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/ac59f49be2b8cb125ccad849f056faab",
-  "footage-mp4/Walk_RearTail_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/c86d5970a47d6f57aaea9ecd79368447",
-  "package-final2/gl/closeup/EyeLeft.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/2e0b43ce296d4a20e9ee54752e09dcb4",
-  "package-final2/gl/closeup/Face.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/d384863225c3a059db0528a20781ff49",
-  "package-final2/gl/closeup/Nose.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/d642d78ce90ce915e66fe9981355833e",
-  "package-final2/gl/hero/FaceCloseUp.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/aea8c9478252aa317a7ab1a336a47cc4",
-  "package-final2/gl/hero/FrontThreeQuarter.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/4e3b756d434a5132dfb4ccf3d3131292",
-  "package-final2/gl/hero/FullBody.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/927766ec6a5ec8e6b9478b531d303e21",
-  "package-final2/gl/hero/LowHero.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/04e5bf96f37e9524cc6df1cf089db53a",
-  "package-final2/gl/hero/Profile.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/95c2442208630843d5b1f20a77d67f83",
-  "package-final2/gl/hero/RearTail.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/7a2412502fe33ad1240aa55039b0c7b5",
-  "package-final2/gl/paths/deferred.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/4798dd1e98fa04679ab4fd2cf7556e4b",
-  "package-final2/gl/paths/forward.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/c81ae6867382abb1384cb8606666a9ba",
-  "package-final2/gl/paths/forwardplus.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/35b1a9a4d32f85f02a0b03f3ce5e3881",
-  "package-final2/vk/closeup/EyeLeft.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/68634b319baac29db2e03c12e27161f6",
-  "package-final2/vk/closeup/Face.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/699e749b60736c8b045770a2b8f919b3",
-  "package-final2/vk/closeup/Nose.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/d9509af41e3617cd4b90dddf430f90e7",
-  "package-final2/vk/hero/FaceCloseUp.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/c74ea8be71b77e754a1161f01c5e533e",
-  "package-final2/vk/hero/FrontThreeQuarter.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/9c8f87893264a1d8c84ac6d9efaf79c9",
-  "package-final2/vk/hero/FullBody.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/d4a8bf35fab1af6b0c84fd70af64e36b",
-  "package-final2/vk/hero/LowHero.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/a6c55bc47ba5fbee4e355c05b8b8572f",
-  "package-final2/vk/hero/Profile.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/031738bdacfdde8c4a05625b7a158a40",
-  "package-final2/vk/hero/RearTail.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/02e4f4bc38e1db062e3ff08c58466ab8",
-  "package-final2/vk/paths/deferred.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/1ac9875de75168cdfb3a01a7d294100c",
-  "package-final2/vk/paths/forward.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/67c1894e66690ba8b0bbc4eaae0695d1",
-  "package-final2/vk/paths/forwardplus.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/9d5153aa69613f740541e9d3ea4fca29"
+  "data/e1-raw-0c8fd793d.json": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/230eda8216da762301d1b59ce8a6f6be",
+  "final-96675309c/package/gl/closeup/EyeLeft.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/bbed55e1e2b587c8698cd2928f4bbe5b",
+  "final-96675309c/package/gl/closeup/Face.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/41c520b966204d38a245c11a1cee152e",
+  "final-96675309c/package/gl/closeup/Nose.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/ab19c77a676cbe4b94da245227308ad8",
+  "final-96675309c/package/gl/hero/FaceCloseUp.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/f207a58c74a0c22080a7b9b2b715150f",
+  "final-96675309c/package/gl/hero/FrontThreeQuarter.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/e49ba4a57392146bfcf52d8fbe245447",
+  "final-96675309c/package/gl/hero/FullBody.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/75f658d47afd1d1595432af3d4a3a415",
+  "final-96675309c/package/gl/hero/LowHero.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/81ccf6c2536686ab0240ed6c426e9c04",
+  "final-96675309c/package/gl/hero/Profile.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/0ab3539a08079df77b9cc2824ce56c26",
+  "final-96675309c/package/gl/hero/RearTail.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/96d0ecc40e6f971c19a41b16cdf6d121",
+  "final-96675309c/package/gl/paths/deferred.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/0b13026f3c48b74910dfc5f2f287504e",
+  "final-96675309c/package/gl/paths/forward.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/7e58479ea1ad3037f80e80d324c23f3d",
+  "final-96675309c/package/gl/paths/forwardplus.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/26d1777a989ef75deb0187c08b9440f3",
+  "final-96675309c/package/vk/closeup/EyeLeft.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/2f808dce527c8f08f52239e8e20dba71",
+  "final-96675309c/package/vk/closeup/Face.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/580e73f99286931fed2432c2a3df1887",
+  "final-96675309c/package/vk/closeup/Nose.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/99715db583e5ea3bd3089f01f51aa4f9",
+  "final-96675309c/package/vk/hero/FaceCloseUp.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/44ca4ab777ca2e8d784c9d5d97af2a24",
+  "final-96675309c/package/vk/hero/FrontThreeQuarter.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/4599c884ee892f696b8e09f24e6ae3fb",
+  "final-96675309c/package/vk/hero/FullBody.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/07e04e8ae9c516ca129aaf96cd15dce2",
+  "final-96675309c/package/vk/hero/LowHero.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/1151826ed1f5f79792e4897bc8cb063e",
+  "final-96675309c/package/vk/hero/Profile.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/28984427facfb416e412f7a77a259f7e",
+  "final-96675309c/package/vk/hero/RearTail.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/4c9ca51ba456cef2e67b09a2b7705599",
+  "final-96675309c/package/vk/paths/deferred.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/b87b3d389db3f074f3e78603411444f8",
+  "final-96675309c/package/vk/paths/forward.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/c384019b188f7b871a6c58a03b8e1776",
+  "final-96675309c/package/vk/paths/forwardplus.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/67c2ad69e4bdd0bc305a352a0e273723",
+  "footage-mp4/Dolly_0.6-15m_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/506382453d4dc7a25dd271f02f429922",
+  "footage-mp4/Dolly_0.6-15m_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/9d8f791803297835a6cd154d6c496dea",
+  "footage-mp4/Dolly_Extended_15-45m_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/da78b7265e7f3c83f6d3fcacfc98d78d",
+  "footage-mp4/Dolly_Extended_15-45m_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/3bd08454e426c0cc823086c223aba7fd",
+  "footage-mp4/HeadTilt_FaceCloseUp_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/c8c9b9dc4f3e4d54dac679603e9ad855",
+  "footage-mp4/HeadTilt_FaceCloseUp_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/b2a691fb4526b568dda20fd8a8d6df4b",
+  "footage-mp4/Idle_FaceCloseUp_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/1c6ea17bbf58965763a3beb52456fc53",
+  "footage-mp4/Idle_FaceCloseUp_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/92effc302dfb6b5bcbfe4f1a6ce0d4d8",
+  "footage-mp4/Idle_FullBody_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/674e0d1ae47e4facf542f41c8484266c",
+  "footage-mp4/Idle_FullBody_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/571177aff374840da97a788ddff9ed04",
+  "footage-mp4/Pant_FaceCloseUp_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/d1980b92da3ce83d29b4043f8281cb59",
+  "footage-mp4/Pant_FaceCloseUp_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/8e9bfb6be3db43549d6981a61cf200ba",
+  "footage-mp4/Pant_RearTail_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/77d15c4d4c8dd7bb8bec5531e54db683",
+  "footage-mp4/Pant_RearTail_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/09d2e50a36e1b18fbd173a359eac67d6",
+  "footage-mp4/Sit_FullBody_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/2965c339a5820dbe3a5566cbc7346f20",
+  "footage-mp4/Sit_FullBody_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/563d2c7b13e789548d11fdfc21fc61c8",
+  "footage-mp4/Walk_MidShot_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/dc8ed95f41fbe2c91df4741c0f7fe0b6",
+  "footage-mp4/Walk_MidShot_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/4cb12ae3654e18e98a2fa708c5825449",
+  "footage-mp4/Walk_RearTail_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/b11dc5040b16dd26965f7a3717afb1e0",
+  "footage-mp4/Walk_RearTail_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/56dc4cbc0063dd2600a669ffaa66a881"
  },
  "assetsNote": "asset URLs resolve inside the artifact page (relative /_blob/ paths); the absolute form here is the artifact URL joined with that path. Each original's SHA-256 is under \"originals\"; each footage frame's under \"footageSha256\".",
  "committedComposites": [
