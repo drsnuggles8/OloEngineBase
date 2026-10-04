@@ -149,15 +149,16 @@ Blender without exporting it.
 
 The performance gate is the live editor: Release `OloEditor`, Play, a 1920×1080 viewport, the
 scene's own settings (the coat requests TAA; the editor's tier draws 4096² PCF cascades), every
-wall-clock frame of a 1,024-frame ring after a 10 s warm-up. Measured at `95a80bcd2` on an RTX 4090
-with driver 617.14, nothing else running:
+wall-clock frame of a 1,024-frame ring after a 10 s warm-up. Measured at `0c8fd793d` on an RTX 4090
+with driver 617.14, the editor the only process on the GPU:
 
 | p50 / p95 ms | face close-up | full body | walk mid-shot |
 |---|---|---|---|
-| GL Forward | 19.8 / 21.1 | 18.4 / 19.5 | 18.1 / 19.3 |
-| Vulkan Forward | 14.3 / 14.8 | 12.3 / 12.9 | 10.7 / 11.2 |
+| GL Forward | 16.4 / 17.2 | 14.6 / 15.4 | 13.8 / 14.7 |
+| Vulkan Forward | 12.5 / 13.1 | 10.9 / 12.0 | 10.3 / 11.2 |
 
-Both frames are GPU-bound (CPU 7.9–8.7 ms a frame). `Dog_Cost.txt` is the headless per-pass record
+E1 (p95 under 33.3 ms) and E2 (p50 under 16.7 ms) hold at every framing on both backends; the GL face
+close-up has 0.3 ms of E2's margin. Both frames are GPU-bound (CPU 9.5–10.0 ms a frame, the coat's caster posing about 2 ms of it). `Dog_Cost.txt` is the headless per-pass record
 of the same three framings on runtime frames (GL); `Dog_Cost_Matrix.txt` attributes it by one
 substitution per run against three baselines. In both, a sub-pass (`Parent/Child`) is inside its
 parent: never add the two.
