@@ -33,6 +33,7 @@
 
 #include "OloEngine/Renderer/Shadow/ShadowFamilyCache.h"
 #include "OloEngine/Renderer/Shadow/ShadowInvalidationQueue.h"
+#include "OloEngine/Renderer/Shadow/TerrainShadowRevision.h"
 
 using namespace OloEngine;
 
@@ -664,6 +665,42 @@ TEST(ShadowFamilyCache, StaticPagesAreReusedAndRemovalInvalidatesTheOldFootprint
     cache.Update({}, invalidate);
     ASSERT_EQ(dirty.Num(), 1);
     EXPECT_FLOAT_EQ(dirty[0].Max.y, 4.0f);
+}
+
+TEST(ShadowFamilyCache, TerrainFeedbackAndMaterialChangesReuseTheSilhouette)
+{
+    ShaderBindingLayout::TerrainUBO terrain{};
+    terrain.WorldSizeAndHeightScale = { 8, 8, 4, 4 };
+    terrain.HeightmapResolution = 65;
+    terrain.TessFactors = glm::vec4(4.0f);
+    terrain.TessFactors2 = { 4, 0, 0, 1 };
+    const u64 revision = TerrainShadowRevision(7, terrain);
+    ShadowFamilyCache cache;
+    std::array<ShadowFamilyFootprint, 1> caster{ ShadowFamilyFootprint{ 7, BoundingBox({ 0, 0, 0 }, { 8, 4, 8 }), glm::mat4(1.0f), revision } };
+    cache.Update(caster, [](const BoundingBox&) {});
+    terrain.VTParams2.y = 3.0f;
+    terrain.VTSectors[0] = glm::vec4(2.0f);
+    terrain.LayerTilingScales0 = glm::vec4(5.0f);
+    caster[0].Revision = TerrainShadowRevision(7, terrain);
+    EXPECT_EQ(caster[0].Revision, revision);
+    u32 dirty = 0;
+    cache.Update(caster, [&](const BoundingBox&)
+                 { ++dirty; });
+    EXPECT_EQ(dirty, 0u);
+
+    for (u32 change = 0; change < 4; ++change)
+    {
+        auto edited = terrain;
+        if (change == 0)
+            edited.WorldSizeAndHeightScale.z += 1.0f;
+        else if (change == 1)
+            edited.TessFactors2.y = 0.5f;
+        else if (change == 2)
+            edited.TessFactors.x += 1.0f;
+        else
+            ++edited.HeightmapResolution;
+        EXPECT_NE(TerrainShadowRevision(7, edited), revision) << change;
+    }
 }
 
 TEST(ShadowFamilyCache, MotionInvalidatesBothOldAndNewPositions)

@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
+#include "OloEngine/Renderer/Shadow/TerrainShadowRevision.h"
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/Frustum.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -2022,9 +2023,7 @@ namespace OloEngine
             // Tessellation/morph and authored height-content revisions both
             // change the silhouette without moving the model matrix.
             u64 revision = caster.Revision ^ (static_cast<u64>(caster.heightmapTextureID.Generation) << 32) ^ caster.heightmapTextureID.Index;
-            const auto* bytes = reinterpret_cast<const u8*>(&caster.terrainUBO);
-            for (sizet i = 0; i < sizeof(caster.terrainUBO); ++i)
-                revision = (revision ^ bytes[i]) * 1099511628211ull;
+            revision = TerrainShadowRevision(revision, caster.terrainUBO);
             footprints.Add({ key(caster), caster.WorldBounds, caster.transform, revision,
                              Renderer3D::GetSnowAccumulationSettings().Enabled || caster.WorldBounds.Min.x >= std::numeric_limits<f32>::max() });
         }
