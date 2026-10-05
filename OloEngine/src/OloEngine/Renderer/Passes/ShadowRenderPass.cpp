@@ -1206,6 +1206,9 @@ namespace OloEngine
             if (terrainDepthShader)
             {
                 terrainDepthShader->Bind();
+                // A heightfield is an open surface: front-face culling removes
+                // its entire upper side under an overhead light.
+                RenderCommand::DisableCulling();
                 if (familyVsm)
                     familyVsm->BindPhysicalPoolImage();
                 auto terrainUBO = Renderer3D::GetTerrainUBO();
@@ -1240,6 +1243,8 @@ namespace OloEngine
                     HeapBinding::FlushOffsets();
                     RenderCommand::DrawIndexedPatchesRaw(caster.vaoID, caster.indexCount, caster.patchVertexCount);
                 }
+                RenderCommand::EnableCulling();
+                RenderCommand::FrontCull();
             }
         }
 
@@ -1251,6 +1256,8 @@ namespace OloEngine
                                   : nullptr;
         if (foliageTimers)
             foliageTimers->BeginSubPass("FoliageCasters");
+        if (drawOpaque && !m_FoliageCasters.IsEmpty())
+            RenderCommand::DisableCulling();
         for (const auto& caster : m_FoliageCasters)
         {
             if (drawOpaque && caster.renderer && caster.depthShader)
@@ -1267,6 +1274,11 @@ namespace OloEngine
         }
         if (foliageTimers)
             foliageTimers->EndSubPass();
+        if (drawOpaque && !m_FoliageCasters.IsEmpty())
+        {
+            RenderCommand::EnableCulling();
+            RenderCommand::FrontCull();
+        }
 
         // ── Virtualized geometry (#629): GPU-driven cluster casters ──
         // CSM cascades AND local-light atlas entries (spot tiles / point-light
