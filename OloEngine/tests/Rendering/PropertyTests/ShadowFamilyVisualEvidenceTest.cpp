@@ -730,6 +730,38 @@ namespace OloEngine::Tests
         Evidence(Family::FoliageMesh);
     }
 
+    TEST_F(ShadowFamilyVisualEvidence, OffscreenTerrainStillCastsOntoTheVisibleReceiver)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        AddFamily(Family::Terrain);
+        SetLight(0);
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+        Renderer3D::ApplyRendererSettings();
+        EditorCamera camera(20.0f, static_cast<f32>(kWidth) / kHeight, 0.1f, 200.0f);
+        camera.SetViewportSize(kWidth, kHeight);
+        camera.SetPose({ 12, 14, 26 }, 0.0f, 0.45f);
+        std::array<ShadowMoment, 2> moments;
+        for (u32 mode = 0; mode < 2; ++mode)
+        {
+            auto settings = Renderer3D::GetShadowMap().GetSettings();
+            settings.Enabled = true;
+            settings.VSM.Enabled = mode != 0;
+            Renderer3D::GetShadowMap().SetSettings(settings);
+            const std::string cell = std::string("TerrainOffscreen_GL_Deferred_") + (mode ? "VSM" : "CSM");
+            Cast(false);
+            const auto lit = Capture(camera, cell + "_lit");
+            Cast(true);
+            const auto shadow = Capture(camera, cell + "_shadow");
+            moments[mode] = Measure(camera, lit, shadow);
+            Record(cell, moments[mode]);
+            EXPECT_GT(moments[mode].Pixels, 30u);
+            EXPECT_FALSE(std::ranges::contains(shadow.EntityIDs, static_cast<i32>(static_cast<u32>(m_Caster))))
+                << "caster must actually be outside the main view";
+        }
+        EXPECT_LT(glm::length(moments[0].Position - moments[1].Position), 1.5);
+        GetScene().DestroyEntity(m_Caster);
+    }
+
     TEST_F(ShadowFamilyVisualEvidence, TerrainReceivesVirtualShadowsInsteadOfTheClearedCascade)
     {
         OLO_ENSURE_GPU_OR_SKIP();

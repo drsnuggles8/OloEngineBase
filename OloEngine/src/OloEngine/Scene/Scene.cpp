@@ -12718,7 +12718,7 @@ namespace OloEngine
                             if (hasActiveShadows)
                             {
                                 TArray<const TerrainChunk*> shadowChunks;
-                                chunkMgr.GetVisibleChunks(tileCull.ViewFrustum, shadowChunks);
+                                chunkMgr.GetAllChunks(shadowChunks);
                                 std::unordered_map<const TerrainChunk*, TerrainChunkLODData> shadowLODs;
                                 if (useTess && !gpuDriven)
                                 {
