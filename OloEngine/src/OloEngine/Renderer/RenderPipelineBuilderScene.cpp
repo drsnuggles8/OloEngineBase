@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 
 #include "OloEngine/Renderer/PostProcessSettings.h"
+#include "OloEngine/Renderer/Passes/SceneAttachmentSnapshotPass.h"
 
 namespace OloEngine::RenderPipelineBuilderInternal
 {
@@ -93,6 +94,7 @@ namespace OloEngine::RenderPipelineBuilderInternal
         // joins the SceneColor RMW chain AFTER Water — registering it before
         // Water would compose the fluid under the water surface.
         AddExistingNode(graph, inputs.Passes->FluidIntermediates);
+        graph.AddNode(Ref<SceneAttachmentSnapshotPass>::Create(nullptr, SceneAttachmentSnapshotPass::Attachment::FluidDepth));
         AddExistingNode(graph, inputs.Passes->FluidComposite);
     }
 

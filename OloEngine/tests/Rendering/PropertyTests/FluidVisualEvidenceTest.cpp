@@ -24,6 +24,7 @@
 
 #include "RenderPropertyTest.h"
 #include "RendererAttachedTest.h"
+#include "AttachmentFeedbackEvidence.h"
 
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -256,6 +257,36 @@ namespace OloEngine::Tests
             EXPECT_GT(instance->Gpu->GetParticleUpperBound(), 0u);
         }
         EXPECT_TRUE(std::isfinite(crate.GetComponent<TransformComponent>().Translation.y));
+    }
+
+    TEST_F(FluidVisualEvidenceTest, AttachmentSnapshotsValidateAcrossPathsMsaaAndReconstruction)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        RunFrames(30);
+        for (const auto& [path, name] : std::array{
+                 std::pair{ RenderingPath::Forward, "Forward" },
+                 std::pair{ RenderingPath::ForwardPlus, "ForwardPlus" },
+                 std::pair{ RenderingPath::Deferred, "Deferred" } })
+        {
+            ForEachAttachmentFeedbackCell(path, name, [&](const std::string& cell, u32 settleFrames)
+                                          {
+                RunFrames(settleFrames);
+                std::vector<u8> pixels;
+                ASSERT_TRUE(Capture(kPoses[1], pixels));
+                WritePng("AttachmentFluid_GL_" + cell, pixels, kWidth, kHeight);
+                EXPECT_GT(MeanChannel(pixels), 5.0);
+                ExpectAttachmentFeedbackGraphClean("FluidIntermediatesPass");
+                ExpectAttachmentFeedbackGraphClean("FluidCompositePass");
+                ExpectAttachmentSnapshotSamplingMatchesSource("SceneDepthAttachment", "FluidSceneDepthSnapshot");
+                m_Fluid.GetComponent<FluidComponent>().m_Enabled = false;
+                RunFrames(settleFrames);
+                std::vector<u8> control;
+                ASSERT_TRUE(Capture(kPoses[1], control));
+                WritePng("AttachmentFluidOff_GL_" + cell, control, kWidth, kHeight);
+                EXPECT_GT(MeanAbsDiff(pixels, control), 0.3);
+                m_Fluid.GetComponent<FluidComponent>().m_Enabled = true;
+                RunFrames(30); });
+        }
     }
 
     TEST_F(FluidVisualEvidenceTest, PoolRendersFromMultipleAnglesAndChangesTheFrame)

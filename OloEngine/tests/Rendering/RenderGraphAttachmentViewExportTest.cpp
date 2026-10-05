@@ -29,6 +29,7 @@
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
+#include "OloEngine/Renderer/RendererAPI.h"
 
 #include <algorithm>
 #include <array>
@@ -320,4 +321,335 @@ TEST(RenderGraphAttachmentViewExports, AHistoryExtractedFromAViewKeepsItsFramebu
     EXPECT_NE(a->AliasSlot, b->AliasSlot)
         << "SceneA's velocity view is copied into a history AFTER every pass ran, so SceneA's backing must not be "
            "handed to SceneB; the copy would read SceneB's texels and the history would be silently wrong";
+}
+
+namespace
+{
+    [[nodiscard]] bool HasFeedback(RenderGraph& graph, std::string_view resource = {})
+    {
+        const auto hazards = graph.ValidateCompiledResourceHazards();
+        return std::ranges::any_of(hazards, [resource](const RenderGraph::Hazard& hazard)
+                                   { return hazard.Kind == RenderGraph::HazardKind::FeedbackWithoutDeclaration &&
+                                            (resource.empty() || hazard.Resource.ToView() == resource); });
+    }
+} // namespace
+
+TEST(RenderGraphAttachmentFeedback, AFramebufferRenameCannotHideTheHistoricalWaterNormalFeedback)
+{
+    RenderGraph graph;
+    const auto scene = graph.DeclareTransientFramebuffer("SceneColor", SceneTargetDesc());
+    const auto normals = graph.CreateFramebufferAttachmentView("SceneViewNormals", scene, 2u);
+    Add(graph, "Water", [scene, normals](RGBuilder& builder)
+        {
+        [[maybe_unused]] const auto read = builder.Read(normals);
+        [[maybe_unused]] const auto next = builder.WriteNewVersion(scene, RGWriteUsage::RenderTarget, "Water"); });
+    graph.SetFinalPass("Water");
+    graph.BuildFrameGraph();
+    EXPECT_TRUE(HasFeedback(graph, "SceneViewNormals"));
+}
+
+TEST(RenderGraphAttachmentFeedback, IndependentlyNamedViewsOfOneAttachmentConflict)
+{
+    RenderGraph graph;
+    const auto scene = graph.DeclareTransientFramebuffer("SceneColor", SceneTargetDesc());
+    const auto readView = graph.CreateFramebufferAttachmentView("ReadView", scene, 2u);
+    const auto writeView = graph.CreateFramebufferAttachmentView("WriteView", scene, 2u);
+    Add(graph, "Feedback", [readView, writeView](RGBuilder& builder)
+        {
+        [[maybe_unused]] const auto read = builder.Read(readView);
+        builder.Write(writeView); });
+    graph.SetFinalPass("Feedback");
+    graph.BuildFrameGraph();
+    EXPECT_TRUE(HasFeedback(graph, "ReadView"));
+}
+
+TEST(RenderGraphAttachmentFeedback, AttachmentIndicesAndDepthAreDistinctPhysicalImages)
+{
+    for (const bool depthRead : { false, true })
+    {
+        SCOPED_TRACE(depthRead);
+        RenderGraph graph;
+        const auto scene = graph.DeclareTransientFramebuffer("SceneColor", SceneTargetDesc());
+        const auto readView = depthRead ? graph.CreateFramebufferDepthAttachmentView("ReadView", scene)
+                                        : graph.CreateFramebufferAttachmentView("ReadView", scene, 4u);
+        const auto writeView = graph.CreateFramebufferAttachmentView("WriteView", scene, 0u);
+        Add(graph, "Disjoint", [readView, writeView](RGBuilder& builder)
+            {
+            [[maybe_unused]] const auto read = builder.Read(readView);
+            builder.Write(writeView); });
+        graph.SetFinalPass("Disjoint");
+        graph.BuildFrameGraph();
+        EXPECT_FALSE(HasFeedback(graph));
+    }
+}
+
+TEST(RenderGraphAttachmentFeedback, IdenticalAttachmentIndicesOnDifferentFramebuffersDoNotConflict)
+{
+    RenderGraph graph;
+    const auto lhs = graph.DeclareTransientFramebuffer("Lhs", SceneTargetDesc());
+    const auto rhs = graph.DeclareTransientFramebuffer("Rhs", SceneTargetDesc());
+    const auto readView = graph.CreateFramebufferAttachmentView("ReadView", lhs, 2u);
+    Add(graph, "Disjoint", [readView, rhs](RGBuilder& builder)
+        {
+        [[maybe_unused]] const auto read = builder.Read(readView);
+        builder.Write(rhs); });
+    graph.SetFinalPass("Disjoint");
+    graph.BuildFrameGraph();
+    EXPECT_FALSE(HasFeedback(graph));
+}
+
+TEST(RenderGraphAttachmentFeedback, TransitiveFramebufferAndTextureVersionsKeepTheirPhysicalIdentity)
+{
+    RenderGraph graph;
+    const auto scene = graph.DeclareTransientFramebuffer("SceneColor", SceneTargetDesc());
+    const auto depth = graph.CreateFramebufferDepthAttachmentView("Depth", scene);
+    Add(graph, "Feedback", [scene, depth](RGBuilder& builder)
+        {
+        const auto next = builder.WriteNewVersion(scene, RGWriteUsage::RenderTarget, "First");
+        [[maybe_unused]] const auto last = builder.WriteNewVersion(next, RGWriteUsage::RenderTarget, "Second");
+        const auto depthVersion = builder.WriteNewVersion(depth, RGWriteUsage::DepthStencil, "DepthFirst");
+        [[maybe_unused]] const auto read = builder.Read(depthVersion); });
+    graph.SetFinalPass("Feedback");
+    graph.BuildFrameGraph();
+    EXPECT_TRUE(HasFeedback(graph, "Depth@DepthFirst"));
+}
+
+TEST(RenderGraphAttachmentFeedback, DeclaredIterationIsMatchedByPhysicalAttachmentAndCannotCoverAnother)
+{
+    for (const bool correctAttachment : { false, true })
+    {
+        SCOPED_TRACE(correctAttachment);
+        RenderGraph graph;
+        const auto scene = graph.DeclareTransientFramebuffer("SceneColor", SceneTargetDesc());
+        const auto readView = graph.CreateFramebufferAttachmentView("ReadView", scene, 2u);
+        const auto declaration = graph.CreateFramebufferAttachmentView("Declaration", scene, correctAttachment ? 2u : 0u);
+        Add(graph, "Iteration", [scene, readView, declaration](RGBuilder& builder)
+            {
+            [[maybe_unused]] const auto read = builder.Read(readView);
+            [[maybe_unused]] const auto next = builder.WriteNewVersion(scene, RGWriteUsage::RenderTarget, "Iteration");
+            builder.AllowSamePassReadWrite(declaration); });
+        graph.SetFinalPass("Iteration");
+        graph.BuildFrameGraph();
+        EXPECT_EQ(HasFeedback(graph), !correctAttachment);
+    }
+}
+
+TEST(RenderGraphAttachmentFeedback, AttachmentLoadAndBlendReadsAreLegalAcrossRenames)
+{
+    RenderGraph graph;
+    const auto scene = graph.DeclareTransientFramebuffer("SceneColor", SceneTargetDesc());
+    [[maybe_unused]] const auto normals = graph.CreateFramebufferAttachmentView("Normals", scene, 2u);
+    Add(graph, "Blend", [scene](RGBuilder& builder)
+        {
+        [[maybe_unused]] const auto read = builder.Read(scene, RGReadUsage::RenderTargetRead);
+        [[maybe_unused]] const auto next = builder.WriteNewVersion(scene, RGWriteUsage::RenderTarget, "Blend"); });
+    graph.SetFinalPass("Blend");
+    graph.BuildFrameGraph();
+    EXPECT_FALSE(HasFeedback(graph));
+}
+
+TEST(RenderGraphAttachmentFeedback, VersionedMipAndLayerViewsConflictOnlyWhenTheirParentRangesOverlap)
+{
+    for (const bool layerView : { false, true })
+    {
+        for (const bool overlap : { false, true })
+        {
+            SCOPED_TRACE(layerView);
+            SCOPED_TRACE(overlap);
+            RenderGraph graph;
+            auto desc = TextureDesc(RGResourceFormat::RGBA16Float);
+            desc.MipLevels = 4;
+            desc.DepthOrLayers = 4;
+            if (layerView)
+                desc.Kind = RGResourceHandle::Kind::Texture2DArray;
+            const auto parent = graph.DeclareTransientTexture("Parent", desc);
+            const auto view = layerView ? graph.CreateTextureArrayLayerView("View", parent, 1u)
+                                        : graph.CreateTextureMipView("View", parent, 1u);
+            ASSERT_TRUE(view.IsValid());
+            Add(graph, "Range", [parent, view, layerView, overlap](RGBuilder& builder)
+                {
+                [[maybe_unused]] const auto read = builder.Read(view);
+                const auto range = layerView ? RGSubresourceRange::Layer(overlap ? 1u : 2u)
+                                             : RGSubresourceRange::Mip(overlap ? 1u : 2u);
+                [[maybe_unused]] const auto next = builder.WriteNewVersion(parent, RGWriteUsage::ShaderImage, "Write", range); });
+            graph.SetFinalPass("Range");
+            graph.BuildFrameGraph();
+            EXPECT_EQ(HasFeedback(graph), overlap);
+        }
+    }
+}
+
+TEST(RenderGraphAttachmentFeedback, APartialFeedbackDeclarationDoesNotAuthorizeTheWholeOverlap)
+{
+    RenderGraph graph;
+    auto desc = TextureDesc(RGResourceFormat::RGBA16Float);
+    desc.MipLevels = 4;
+    const auto texture = graph.DeclareTransientTexture("Texture", desc);
+    Add(graph, "Partial", [texture](RGBuilder& builder)
+        {
+        [[maybe_unused]] const auto read = builder.Read(texture);
+        [[maybe_unused]] const auto next = builder.WriteNewVersion(texture, RGWriteUsage::ShaderImage, "Write");
+        builder.AllowSamePassReadWrite(texture, RGSubresourceRange::Mip(1u)); });
+    graph.SetFinalPass("Partial");
+    graph.BuildFrameGraph();
+    EXPECT_TRUE(HasFeedback(graph));
+}
+
+TEST(RenderGraphAttachmentFeedback, ATransferBeforeWriteDeclarationCannotAuthorizeShaderSampling)
+{
+    for (const bool sampleAttachedImage : { false, true })
+    {
+        SCOPED_TRACE(sampleAttachedImage);
+        RenderGraph graph;
+        const auto scene = graph.DeclareTransientFramebuffer("SceneColor", SceneTargetDesc());
+        const auto color = graph.CreateFramebufferAttachmentView("Color", scene, 0u);
+        Add(graph, "CopyThenDraw", [scene, color, sampleAttachedImage](RGBuilder& builder)
+            {
+            [[maybe_unused]] const auto copy = builder.ReadTransferSourceBeforeWrite(color);
+            if (sampleAttachedImage)
+            {
+                [[maybe_unused]] const auto read = builder.Read(color);
+            }
+            [[maybe_unused]] const auto next = builder.WriteNewVersion(scene, RGWriteUsage::RenderTarget, "Draw"); });
+        graph.SetFinalPass("CopyThenDraw");
+        graph.BuildFrameGraph();
+        EXPECT_EQ(HasFeedback(graph), sampleAttachedImage);
+    }
+}
+
+TEST(RenderGraphAttachmentFeedback, ASeparateSnapshotOrdersBeforeTheAliasedWriterAndRemovesFeedback)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+    const auto scene = graph.DeclareTransientFramebuffer("SceneColor", SceneTargetDesc());
+    const auto normals = graph.CreateFramebufferAttachmentView("Normals", scene, 2u);
+    const auto snapshot = graph.DeclareTransientTexture("Snapshot", TextureDesc(RGResourceFormat::RG16Float));
+    Add(graph, "Opaque", [scene](RGBuilder& builder)
+        { builder.Write(scene); });
+    Add(graph, "Snapshot", [normals, snapshot](RGBuilder& builder)
+        {
+        [[maybe_unused]] const auto read = builder.Read(normals, RGReadUsage::TransferSource);
+        builder.Write(snapshot, RGWriteUsage::TransferDest); });
+    Add(graph, "Water", [scene, snapshot](RGBuilder& builder)
+        {
+        [[maybe_unused]] const auto read = builder.Read(snapshot);
+        [[maybe_unused]] const auto next = builder.WriteNewVersion(scene, RGWriteUsage::RenderTarget, "Water"); });
+    graph.SetFinalPass("Water");
+    graph.BuildFrameGraph();
+    graph.Execute();
+    EXPECT_LT(IndexOf(graph, "Opaque"), IndexOf(graph, "Snapshot"));
+    EXPECT_LT(IndexOf(graph, "Snapshot"), IndexOf(graph, "Water"));
+    EXPECT_FALSE(HasFeedback(graph));
+}
+
+TEST(RenderGraphAttachmentFeedback, CubeFacesAndUnboundedRangesRespectTheirBaseAndEmptySpans)
+{
+    for (const u32 writeFace : { 0u, 1u })
+    {
+        RenderGraph graph;
+        auto desc = TextureDesc(RGResourceFormat::RGBA16Float);
+        desc.Kind = RGResourceHandle::Kind::TextureCube;
+        desc.DepthOrLayers = 6u;
+        const auto cube = graph.DeclareTransientTexture("Cube", desc);
+        const auto face = graph.CreateTextureCubeFaceView("Face", cube, 1u);
+        ASSERT_TRUE(face.IsValid());
+        Add(graph, "FaceAccess", [cube, face, writeFace](RGBuilder& builder)
+            {
+            [[maybe_unused]] const auto read = builder.Read(face);
+            RGSubresourceRange range;
+            range.BaseSlice = writeFace;
+            range.SliceCount = 1u;
+            [[maybe_unused]] const auto next = builder.WriteNewVersion(cube, RGWriteUsage::ShaderImage, "Write", range); });
+        graph.SetFinalPass("FaceAccess");
+        graph.BuildFrameGraph();
+        EXPECT_EQ(HasFeedback(graph), writeFace == 1u);
+    }
+    for (const u32 readCount : { 0u, ~0u })
+    {
+        RenderGraph graph;
+        auto desc = TextureDesc(RGResourceFormat::RGBA16Float);
+        desc.MipLevels = 4u;
+        const auto texture = graph.DeclareTransientTexture("Texture", desc);
+        Add(graph, "EmptyOrDisjoint", [texture, readCount](RGBuilder& builder)
+            {
+            RGSubresourceRange readRange;
+            readRange.BaseMip = 1u;
+            readRange.MipCount = readCount;
+            [[maybe_unused]] const auto read = builder.Read(texture, RGReadUsage::ShaderSample, readRange);
+            [[maybe_unused]] const auto next = builder.WriteNewVersion(texture, RGWriteUsage::ShaderImage, "Write", RGSubresourceRange::Mip(0u)); });
+        graph.SetFinalPass("EmptyOrDisjoint");
+        graph.BuildFrameGraph();
+        EXPECT_FALSE(HasFeedback(graph));
+    }
+}
+
+TEST(RenderGraphAttachmentFeedback, AResolveViewNamesTheSeparateSingleSampleBacking)
+{
+    for (const bool writeResolveBacking : { false, true })
+    {
+        SCOPED_TRACE(writeResolveBacking);
+        RenderGraph graph;
+        auto desc = TextureDesc(RGResourceFormat::RGBA16Float);
+        const auto backing = graph.DeclareTransientTexture("Resolved", desc);
+        desc.Samples = 4u;
+        const auto multisample = graph.DeclareTransientTexture("Multisample", desc);
+        const auto view = graph.CreateTextureMultisampleResolveView("ResolveView", multisample, backing);
+        ASSERT_TRUE(view.IsValid());
+        Add(graph, "ResolveAccess", [view, multisample, backing, writeResolveBacking](RGBuilder& builder)
+            {
+            [[maybe_unused]] const auto read = builder.Read(view);
+            [[maybe_unused]] const auto next = builder.WriteNewVersion(writeResolveBacking ? backing : multisample,
+                                                                       RGWriteUsage::RenderTarget, "Write"); });
+        graph.SetFinalPass("ResolveAccess");
+        graph.BuildFrameGraph();
+        EXPECT_EQ(HasFeedback(graph), writeResolveBacking);
+    }
+}
+
+TEST(RenderGraphAttachmentFeedback, ShaderDepthSamplingWhileWritingTheFramebufferRequiresASnapshotOnBothBackends)
+{
+    struct RestoreAPI
+    {
+        RendererAPI::API Previous = RendererAPI::GetAPI();
+        ~RestoreAPI()
+        {
+            RendererAPI::SetAPI(Previous);
+        }
+    } const restore;
+    // This is a declaration policy test, with no GPU/backend recreation. The
+    // current Vulkan target binds writable depth/stencil; neither backend gets
+    // an implicit exemption merely because a pass disables depth writes.
+    for (const auto backend : { RendererAPI::API::OpenGL, RendererAPI::API::Vulkan })
+    {
+        RendererAPI::SetAPI(backend);
+        RenderGraph graph;
+        graph.SetRuntimeBarrierExecutionEnabled(false);
+        const auto scene = graph.DeclareTransientFramebuffer("SceneColor", SceneTargetDesc());
+        const auto depth = graph.CreateFramebufferDepthAttachmentView("Depth", scene);
+        Add(graph, "DepthSample", [scene, depth](RGBuilder& builder)
+            {
+            [[maybe_unused]] const auto read = builder.Read(depth, RGReadUsage::ShaderSample);
+            [[maybe_unused]] const auto next = builder.WriteNewVersion(scene, RGWriteUsage::RenderTarget, "Draw"); });
+        graph.SetFinalPass("DepthSample");
+        graph.BuildFrameGraph();
+        EXPECT_TRUE(HasFeedback(graph, "Depth"));
+    }
+}
+
+TEST(RenderGraphAttachmentViewExports, AViewCreatedInConsumerSetupRetainsTheEarlierFramebufferWriter)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+    const auto scene = graph.DeclareTransientFramebuffer("SceneColor", SceneTargetDesc());
+    Add(graph, "Opaque", [scene](RGBuilder& builder)
+        { builder.Write(scene); });
+    Add(graph, "Consumer", [scene](RGBuilder& builder)
+        {
+        const auto lateView = builder.CreateFramebufferAttachmentView("LateNormals", scene, 2u);
+        [[maybe_unused]] const auto read = builder.Read(lateView); });
+    graph.SetFinalPass("Consumer");
+    graph.BuildFrameGraph();
+    EXPECT_GE(IndexOf(graph, "Opaque"), 0);
+    EXPECT_LT(IndexOf(graph, "Opaque"), IndexOf(graph, "Consumer"));
+    EXPECT_FALSE(HasFeedback(graph));
 }

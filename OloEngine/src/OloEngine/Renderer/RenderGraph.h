@@ -30,6 +30,11 @@
 
 namespace OloEngine
 {
+    namespace RenderGraphHazardValidator
+    {
+        struct PhysicalAccess;
+    }
+
     // Lightweight string-interner used by RenderGraph to convert resource and
     // pass names into stable u32 IDs. Hot-path maps store IDs as keys so
     // lookups avoid the per-call string hashing + comparison cost that
@@ -1590,6 +1595,8 @@ namespace OloEngine
         [[nodiscard]] bool IsGraphEntryAsyncComputeCandidate(std::string_view name) const;
         [[nodiscard]] bool IsGraphEntrySideEffecting(std::string_view name) const;
         [[nodiscard]] RenderGraphPassWorkType GetGraphEntryWorkType(std::string_view name) const;
+        [[nodiscard]] RenderGraphHazardValidator::PhysicalAccess ResolvePhysicalAccessForValidation(
+            std::string_view name, const RGSubresourceRange& range) const;
         [[nodiscard]] TArray64<Hazard> ValidateResourceHazardsInternal();
         // Out-of-band declaration rules (#1331): registered boundary of the
         // declared kind; writers ordered; every writer before a current-frame
@@ -1637,6 +1644,7 @@ namespace OloEngine
 
         // Barrier planning/execution
         RGTransparentStringMap<TArray64<RGAccessDeclaration>> m_PassAccessDeclarations;
+        RGTransparentStringMap<TArray64<RGAccessDeclaration>> m_PassSetupAccessDeclarations;
         RGTransparentStringMap<TArray64<RGFeedbackDeclaration>> m_PassFeedbackDeclarations;
         // Parent framebuffers whose transient lifetime a pass extends via an
         // attachment-view write (RGBuilder::GetDeclaredLifetimeExtensions).

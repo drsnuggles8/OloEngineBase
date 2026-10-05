@@ -15,8 +15,9 @@ evidence of a shared cause.
 
 `RGBuilder::WriteNewVersion(handle, usage, tag)` exists for RMW dependency
 bookkeeping — "the state of `SceneColor` after this pass wrote it" — so the
-hazard validator doesn't see a same-pass feedback loop and downstream
-name-based readers trace to the right producer. The versioned name
+downstream name-based readers trace to the right producer. Renaming does not
+authorize sampling an attachment while writing it: [physical feedback validation](render-graph-attachment-feedback.md)
+still diagnoses that overlap. The versioned name
 (`SceneColor@GPUDrivenOcclusionPass`) refers to the **same physical
 resource** as its source:
 

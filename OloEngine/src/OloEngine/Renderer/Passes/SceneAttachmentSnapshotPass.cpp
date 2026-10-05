@@ -12,7 +12,24 @@ namespace OloEngine
     SceneAttachmentSnapshotPass::SceneAttachmentSnapshotPass(SceneRenderPass* scene, const Attachment attachment)
         : m_Scene(scene), m_Attachment(attachment)
     {
-        SetName(attachment == Attachment::Depth ? "SceneDepthSnapshotPass" : "SceneViewNormalsSnapshotPass");
+        switch (attachment)
+        {
+            case Attachment::Depth:
+                SetName("SceneDepthSnapshotPass");
+                break;
+            case Attachment::ViewNormals:
+                SetName("SceneViewNormalsSnapshotPass");
+                break;
+            case Attachment::FluidDepth:
+                SetName("FluidSceneDepthSnapshotPass");
+                break;
+            case Attachment::DiffusionDepth:
+                SetName("DiffusionDepthSnapshotPass");
+                break;
+            case Attachment::DiffusionHandoff:
+                SetName("DiffusionHandoffSnapshotPass");
+                break;
+        }
     }
 
     void SceneAttachmentSnapshotPass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
@@ -20,11 +37,33 @@ namespace OloEngine
         RenderGraphNode::Setup(builder, blackboard);
         m_Source = {};
         m_Snapshot = {};
+        m_SceneFramebuffer = blackboard.Scene.SceneColor;
 
-        const RGTextureHandle source = m_Attachment == Attachment::Depth ? blackboard.Scene.SceneDepth
-                                                                         : blackboard.Scene.SceneViewNormals;
-        const RGTextureHandle snapshot = m_Attachment == Attachment::Depth ? blackboard.Scene.SceneDepthSnapshot
-                                                                           : blackboard.Scene.SceneViewNormalsSnapshot;
+        RGTextureHandle source;
+        RGTextureHandle snapshot;
+        switch (m_Attachment)
+        {
+            case Attachment::Depth:
+                source = blackboard.Scene.SceneDepth;
+                snapshot = blackboard.Scene.SceneDepthSnapshot;
+                break;
+            case Attachment::ViewNormals:
+                source = blackboard.Scene.SceneViewNormals;
+                snapshot = blackboard.Scene.SceneViewNormalsSnapshot;
+                break;
+            case Attachment::FluidDepth:
+                source = blackboard.Scene.SceneDepthAttachment;
+                snapshot = blackboard.Scene.FluidSceneDepthSnapshot;
+                break;
+            case Attachment::DiffusionDepth:
+                source = blackboard.Scene.SceneDepthAttachment;
+                snapshot = blackboard.Scene.DiffusionDepthSnapshot;
+                break;
+            case Attachment::DiffusionHandoff:
+                source = blackboard.Scene.SkinDiffuse;
+                snapshot = blackboard.Scene.DiffusionHandoffSnapshot;
+                break;
+        }
         // The same handle means the source already is a texture the readers
         // may sample while drawing (Deferred's G-Buffer depth): nothing to copy.
         if (!source.IsValid() || !snapshot.IsValid() || source == snapshot)
@@ -39,10 +78,13 @@ namespace OloEngine
     void SceneAttachmentSnapshotPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
-        if (!m_Scene || !m_Source.IsValid() || !m_Snapshot.IsValid())
+        if (!m_Source.IsValid() || !m_Snapshot.IsValid())
             return;
 
-        const auto& spec = m_Scene->GetFramebufferSpecification();
+        const auto framebuffer = context.ResolveFramebuffer(m_SceneFramebuffer);
+        if (!framebuffer)
+            return;
+        const auto& spec = m_Scene ? m_Scene->GetFramebufferSpecification() : framebuffer->GetSpecification();
         const RHI::ResourceHandle source = context.ResolveTextureHandle(m_Source);
         const RHI::ResourceHandle snapshot = context.ResolveTextureHandle(m_Snapshot);
         if (!source.IsValid() || !snapshot.IsValid() || spec.Width == 0u || spec.Height == 0u)

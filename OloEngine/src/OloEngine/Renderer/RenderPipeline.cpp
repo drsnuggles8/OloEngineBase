@@ -3433,6 +3433,26 @@ namespace OloEngine
                 board.Scene.SceneDepthAttachment = graph.CreateFramebufferDepthAttachmentView(ResourceNames::SceneDepthAttachment, board.Scene.SceneColor);
             }
 
+            // Attachment-backed snapshots preserve the source's linear,
+            // clamp-to-edge sampling on both backends. Bare Texture2D pool
+            // allocations default to repeat, and GL bindless residency freezes
+            // texture parameters before a copy could correct them.
+            const auto allocateAttachmentSnapshot = [&graph, &sceneSpec](std::string_view name, RGResourceFormat format)
+            {
+                const FString backingName = FString(name) + "Backing";
+                RGResourceDesc desc;
+                desc.Kind = RGResourceHandle::Kind::Framebuffer;
+                desc.Format = format;
+                desc.Width = sceneSpec.Width;
+                desc.Height = sceneSpec.Height;
+                desc.Attachments = { format };
+                desc.DebugName = backingName;
+                const auto backing = graph.DeclareTransientFramebuffer(backingName.ToView(), desc);
+                return format == RGResourceFormat::Depth24Stencil8
+                           ? graph.CreateFramebufferDepthAttachmentView(name, backing)
+                           : graph.CreateFramebufferAttachmentView(name, backing, 0u);
+            };
+
             // AO/Deferred consumers need true geometric depth + view-space
             // normals. In Deferred mode these come from the prepared
             // G-Buffer resolved attachments (not from ScenePass target
@@ -3458,8 +3478,8 @@ namespace OloEngine
                 // it a second time.
                 board.Scene.SceneNormalsAreViewSpace = true;
 
-                // The ONE copy of the depth the forward paths keep: decals and
-                // water sample depth while drawing into SceneColor, which a view
+                // Decals and water use this pre-modifier depth snapshot on
+                // forward paths while drawing into SceneColor, which a view
                 // cannot serve (SceneAttachmentSnapshotPass).
                 RGResourceDesc depthDesc;
                 depthDesc.Kind = RGResourceHandle::Kind::Texture2D;
@@ -3468,6 +3488,17 @@ namespace OloEngine
                 depthDesc.Height = sceneSpec.Height;
                 depthDesc.DebugName = ResourceNames::SceneDepthSnapshot;
                 board.Scene.SceneDepthSnapshot = graph.AllocateTransientTextureHandle(ResourceNames::SceneDepthSnapshot, depthDesc);
+            }
+
+            // Issue #1554: same-framebuffer shader sampling needs independent
+            // storage on Vulkan even with depth writes disabled. Keep these
+            // snapshots distinct: fluid and diffusion observe different points
+            // in the geometry/modifier chain. Unused copies are culled.
+            if (sceneSpec.Width > 0u && sceneSpec.Height > 0u)
+            {
+                board.Scene.FluidSceneDepthSnapshot = allocateAttachmentSnapshot("FluidSceneDepthSnapshot", RGResourceFormat::Depth24Stencil8);
+                board.Scene.DiffusionDepthSnapshot = allocateAttachmentSnapshot("DiffusionDepthSnapshot", RGResourceFormat::Depth24Stencil8);
+                board.Scene.DiffusionHandoffSnapshot = allocateAttachmentSnapshot("DiffusionHandoffSnapshot", RGResourceFormat::RGBA16Float);
             }
 
             // Water also marches the view normals it writes: a copy on every path.

@@ -55,12 +55,12 @@ namespace OloEngine
         // degraded version — a diffusion with no depth cannot tell a cheek from
         // the wall behind it — so the pass simply does not claim its resources
         // and the graph culls it.
-        if (!blackboard.Scene.SkinDiffuse.IsValid() || !blackboard.Scene.SceneDepthAttachment.IsValid() ||
+        if (!blackboard.Scene.DiffusionHandoffSnapshot.IsValid() || !blackboard.Scene.DiffusionDepthSnapshot.IsValid() ||
             !blackboard.Scene.SceneColor.IsValid() || !blackboard.Post.SkinDiffusionScratch.IsValid())
             return;
 
-        m_SkinDiffuseTexture = blackboard.Scene.SkinDiffuse;
-        m_SceneDepthTexture = blackboard.Scene.SceneDepthAttachment;
+        m_SkinDiffuseTexture = blackboard.Scene.DiffusionHandoffSnapshot;
+        m_SceneDepthTexture = blackboard.Scene.DiffusionDepthSnapshot;
         [[maybe_unused]] const auto diffuseRead = builder.Read(m_SkinDiffuseTexture, RGReadUsage::ShaderSample);
         [[maybe_unused]] const auto depthRead = builder.Read(m_SceneDepthTexture, RGReadUsage::ShaderSample);
 
@@ -73,29 +73,12 @@ namespace OloEngine
             std::string(ResourceNames::SkinDiffusionScratchTexture) + "@" + std::string(versionTag),
             m_ScratchFramebuffer, 0u);
 
-        // Scene colour is written IN PLACE, by an additive blend. The graph is
-        // told about the write so ordering and barriers are right; it is not a
-        // new version, because the pass does not replace the image, it adds to
-        // it — and a new version would make every downstream consumer rebind.
+        // The inputs are independent snapshots made immediately before the
+        // diffusion band. No sampled image remains attached to this target,
+        // including Vulkan's writable depth/stencil attachment.
         m_SceneColorFramebuffer = blackboard.Scene.SceneColor;
         SetPrimaryInputFramebufferHandle(blackboard.Scene.SceneColor);
         builder.Write(blackboard.Scene.SceneColor, RGWriteUsage::RenderTarget);
-        // A DECLARED same-framebuffer read/write, not an accident. The two
-        // resources this pass reads off the scene framebuffer -- the skin-diffuse
-        // hand-off (attachment 4) and depth -- live in the same framebuffer as
-        // the colour attachment it blends into, so the hazard validator sees a
-        // feedback loop unless it is told the overlap is intentional. It IS
-        // intentional and it is safe: the draw writes attachment 0 ONLY (the
-        // draw-attachment list in Execute is exactly {0}) and samples 4 and
-        // depth, which are disjoint subresources that nothing in this pass
-        // writes.
-        //
-        // WriteNewVersion -- the construct the comment on AllowSamePassReadWrite
-        // points read-modify-write passes at -- is the wrong tool here for the
-        // reason above: renaming scene colour would make every downstream
-        // consumer rebind for a pass whose whole design is that it adds to the
-        // image in place and leaves the handle alone.
-        builder.AllowSamePassReadWrite(blackboard.Scene.SceneColor);
     }
 
     void SkinDiffusionPass::Init(const FramebufferSpecification& spec)

@@ -102,6 +102,11 @@ namespace OloEngine
             // SceneColor (decals, water): see ResourceNames::SceneDepthSnapshot.
             // SceneDepthSnapshot == SceneDepth on Deferred.
             RGTextureHandle SceneDepthSnapshot;
+            // Copies made immediately before the affected writer, on every
+            // path: writable Vulkan depth attachments cannot also be sampled.
+            RGTextureHandle FluidSceneDepthSnapshot;
+            RGTextureHandle DiffusionDepthSnapshot;
+            RGTextureHandle DiffusionHandoffSnapshot;
             RGTextureHandle SceneViewNormalsSnapshot;
             // The velocity AFTER every writer (#1552): what the temporal
             // resolves and the late post-process read (TAA, motion blur, FSR2,

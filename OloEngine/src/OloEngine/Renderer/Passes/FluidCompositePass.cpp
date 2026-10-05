@@ -58,7 +58,7 @@ namespace OloEngine
         if (!m_Enabled || !m_IntermediatesPass || !m_IntermediatesPass->HasPendingDraws())
             return;
         if (!board.Scene.SceneColor.IsValid() || !board.Scene.SceneColorTexture.IsValid() ||
-            !board.Scene.SceneDepthAttachment.IsValid() || !board.Scratch.FluidRefraction.IsValid())
+            !board.Scene.FluidSceneDepthSnapshot.IsValid() || !board.Scratch.FluidRefraction.IsValid())
         {
             return;
         }
@@ -73,11 +73,13 @@ namespace OloEngine
 
         m_SelectedSceneColorTexture = board.Scene.SceneColorTexture;
         [[maybe_unused]] const auto sceneColorRead =
-            builder.Read(board.Scene.SceneColorTexture, RGReadUsage::ShaderSample);
+            builder.ReadTransferSourceBeforeWrite(board.Scene.SceneColorTexture);
+        // This source is copied before the composite draw, never sampled while
+        // attached. Authorize only this ordered transfer, not the whole target.
 
-        m_SelectedSceneDepthTexture = board.Scene.SceneDepthAttachment;
+        m_SelectedSceneDepthTexture = board.Scene.FluidSceneDepthSnapshot;
         [[maybe_unused]] const auto sceneDepthRead =
-            builder.Read(board.Scene.SceneDepthAttachment, RGReadUsage::ShaderSample);
+            builder.Read(board.Scene.FluidSceneDepthSnapshot, RGReadUsage::ShaderSample);
 
         // Refraction scratch: intra-pass copy-then-sample. glCopyImageSubData
         // SceneColor -> FluidRefraction, then sampled in the composite draw —

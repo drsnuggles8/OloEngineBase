@@ -82,7 +82,8 @@ namespace OloEngine
         return derivedName;
     }
 
-    void RGBuilder::RecordFeedback(std::string_view resourceName, const RGSubresourceRange& range)
+    void RGBuilder::RecordFeedback(std::string_view resourceName, const RGSubresourceRange& range,
+                                   const std::optional<RGReadUsage> readUsage)
     {
         if (resourceName.empty())
             return;
@@ -98,9 +99,9 @@ namespace OloEngine
         };
 
         if (const auto existingIt = std::ranges::find_if(m_DeclaredFeedbacks,
-                                                         [resourceName, &sameRange](const RGFeedbackDeclaration& declaration)
+                                                         [resourceName, &sameRange, readUsage](const RGFeedbackDeclaration& declaration)
                                                          {
-                                                             return declaration.ResourceName.ToView() == resourceName &&
+                                                             return declaration.ResourceName.ToView() == resourceName && declaration.ReadUsage == readUsage &&
                                                                     sameRange(declaration);
                                                          });
             existingIt != m_DeclaredFeedbacks.end())
@@ -111,6 +112,7 @@ namespace OloEngine
         m_DeclaredFeedbacks.Add(RGFeedbackDeclaration{
             .ResourceName = resourceName,
             .Range = range,
+            .ReadUsage = readUsage,
         });
     }
 
@@ -198,6 +200,13 @@ namespace OloEngine
     // Read operations
     // -------------------------------------------------------------------
 
+    RGTextureHandle RGBuilder::ReadTransferSourceBeforeWrite(const RGTextureHandle handle)
+    {
+        const auto result = Read(handle, RGReadUsage::TransferSource);
+        RecordFeedback(m_Graph.GetResourceName(handle).ToView(), RGSubresourceRange::Full(), RGReadUsage::TransferSource);
+        return result;
+    }
+
     RGTextureHandle RGBuilder::Read(
         RGTextureHandle handle,
         RGReadUsage usage,
@@ -217,19 +226,16 @@ namespace OloEngine
         {
             RecordRead(resourceName.ToView(), usage, range);
 
-            // When the read targets a framebuffer attachment view, also record
-            // the access against the parent framebuffer. The transient planner
-            // tracks lifetimes per registered transient resource, and an
-            // attachment-view name lives in a separate registry from the
-            // parent framebuffer. Without this propagation the parent's
-            // lifetime ends at its writer, letting the transient allocator
-            // alias the parent's storage onto another transient (e.g. the
-            // next pass's output) — producing a same-FB feedback loop when
-            // the reading pass also writes the aliased downstream resource.
+            // Keep the parent storage alive without claiming a read of every
+            // sibling attachment. Framebuffer writes expand to their views for
+            // dependency tracking, including a synthetic parent dependency for
+            // views created after their writer. The lifetime extension also
+            // protects storage (as for Write(view)). A whole-FBO read here makes
+            // a depth read conflict with an unrelated colour-attachment write.
             if (auto parent = m_Graph.FindAttachmentViewParent(resourceName.ToView());
                 !parent.IsEmpty() && parent != resourceName)
             {
-                RecordRead(parent.ToView(), usage, range);
+                RecordLifetimeExtension(parent.ToView());
             }
         }
 
@@ -310,23 +316,11 @@ namespace OloEngine
             // transient allocator alias its storage while the attachment is
             // still logically live.
             //
-            // This deliberately does NOT mirror Read's propagation by
-            // calling RecordWrite(parent, ...): that would declare a real
-            // write access under the parent's name, which (a) collides with
-            // this same pass's propagated Read(parent) whenever it also
-            // reads a *different* attachment view of the same framebuffer
-            // (a legitimate RMW pattern, e.g. DecalRenderPass/ParticleRender
-            // Pass sampling one OIT attachment while rewriting another) —
-            // producing a false same-pass feedback hazard on the parent's
-            // name even though the individual views involved never overlap
-            // and are correctly declared via AllowSamePassReadWrite; and (b)
-            // gets expanded by expandTextureViewAccesses back down onto
-            // *every* sibling attachment view of the parent, falsely
-            // implying this pass wrote attachments it never touched (e.g.
-            // marking OITDepthAttachment written just because OITAccum was).
-            // RecordLifetimeExtension sidesteps both by feeding only the
-            // transient planner, not hazard validation or the view-expansion
-            // pass.
+            // Reads and writes of attachment views retain their exact aspect
+            // and index. Recording an access to the whole parent would expand
+            // back onto every sibling and invent feedback on untouched images.
+            // The lifetime extension protects storage without declaring those
+            // extra accesses.
             if (auto parent = m_Graph.FindAttachmentViewParent(resourceName.ToView());
                 !parent.IsEmpty() && parent != resourceName)
             {

@@ -457,6 +457,7 @@ namespace OloEngine
         m_CulledPasses.Reset();
         m_LastBuildStats = {};
         m_PassAccessDeclarations.clear();
+        m_PassSetupAccessDeclarations.clear();
         m_PassFeedbackDeclarations.clear();
         m_PassLifetimeExtensions.clear();
         // Out-of-band state (#1331): the epilogue objects are pooled
@@ -564,6 +565,7 @@ namespace OloEngine
         m_CulledPasses.Reset();
         m_LastBuildStats = {};
         m_PassAccessDeclarations.clear();
+        m_PassSetupAccessDeclarations.clear();
         m_PassFeedbackDeclarations.clear();
         m_PassLifetimeExtensions.clear();
         // Out-of-band state (#1331): the epilogue objects are pooled
@@ -5630,6 +5632,61 @@ namespace OloEngine
         return ValidateResourceHazardsInternal();
     }
 
+    RenderGraphHazardValidator::PhysicalAccess RenderGraph::ResolvePhysicalAccessForValidation(
+        std::string_view name, const RGSubresourceRange& range) const
+    {
+        using PhysicalAccess = RenderGraphHazardValidator::PhysicalAccess;
+        PhysicalAccess result{ .Resource = FString(name), .Range = range };
+        for (u32 depth = 0; depth < kMaxVersionAliasDepth; ++depth)
+        {
+            if (const auto alias = m_VersionAliasTargets.find(result.Resource.ToView());
+                alias != m_VersionAliasTargets.end())
+            {
+                result.Resource = alias->second;
+                continue;
+            }
+            const auto view = m_TextureViewDefinitions.find(result.Resource.ToView());
+            if (view == m_TextureViewDefinitions.end())
+                break;
+            const auto& definition = view->second;
+            if (definition.Kind == TextureViewKind::TextureMultisampleResolve)
+            {
+                // A resolve is separate storage, never the MSAA source.
+                result.Resource = definition.BackingResource;
+                continue;
+            }
+            if (definition.Kind == TextureViewKind::FramebufferColorAttachment)
+            {
+                result.AttachmentAspect = PhysicalAccess::Aspect::Color;
+                result.AttachmentIndex = definition.AttachmentIndex;
+            }
+            else if (definition.Kind == TextureViewKind::FramebufferDepthAttachment)
+            {
+                result.AttachmentAspect = PhysicalAccess::Aspect::Depth;
+            }
+            else
+            {
+                // Subresource views select ranges in the parent image.
+                // Clamp the access to that selection rather than widening
+                // a one-mip/layer read to the entire parent.
+                const auto mapSpan = [](u32& base, u32& count, u32 parentBase, u32 parentCount)
+                {
+                    const u64 mappedBase = static_cast<u64>(parentBase) + base;
+                    base = static_cast<u32>(std::min(mappedBase, static_cast<u64>(~0u)));
+                    if (parentCount != ~0u)
+                        count = std::min(count, mappedBase < static_cast<u64>(parentBase) + parentCount
+                                                    ? static_cast<u32>(static_cast<u64>(parentBase) + parentCount - mappedBase)
+                                                    : 0u);
+                };
+                mapSpan(result.Range.BaseMip, result.Range.MipCount, definition.ParentRange.BaseMip, definition.ParentRange.MipCount);
+                mapSpan(result.Range.BaseLayer, result.Range.LayerCount, definition.ParentRange.BaseLayer, definition.ParentRange.LayerCount);
+                mapSpan(result.Range.BaseSlice, result.Range.SliceCount, definition.ParentRange.BaseSlice, definition.ParentRange.SliceCount);
+            }
+            result.Resource = definition.ParentResource;
+        }
+        return result;
+    }
+
     TArray64<RenderGraph::Hazard> RenderGraph::ValidateResourceHazardsInternal()
     {
         OLO_PROFILE_FUNCTION();
@@ -5677,10 +5734,13 @@ namespace OloEngine
                 return registry.IsLive(identity) && registry.KindOf(identity) == RHI::ResourceKind::Buffer; },
             .ResolveFramebuffer = [this](RGFramebufferHandle handle)
             { return ResolveFramebuffer(handle); },
+            .ResolvePhysicalAccess = [this](std::string_view name, const RGSubresourceRange& range)
+            { return ResolvePhysicalAccessForValidation(name, range); },
             .ExecutionOrder = { m_ExecutionOrder.GetData(), static_cast<sizet>(m_ExecutionOrder.Num()) },
             .Dependencies = m_Dependencies,
             .PassAccessDeclarations = m_PassAccessDeclarations,
             .PassFeedbackDeclarations = m_PassFeedbackDeclarations,
+            .PassSetupAccessDeclarations = &m_PassSetupAccessDeclarations,
             .RegistryDiagnostics = { m_ResourceRegistryDiagnostics.GetData(), static_cast<sizet>(m_ResourceRegistryDiagnostics.Num()) },
             .RegisteredResources = { m_RegisteredResources.GetData(), static_cast<sizet>(m_RegisteredResources.Num()) },
         });
@@ -7477,6 +7537,7 @@ namespace OloEngine
         m_Dependencies = m_ExplicitDependencies;
         m_DependencyGraphDirty = true;
         m_PassAccessDeclarations.clear();
+        m_PassSetupAccessDeclarations.clear();
         m_PassFeedbackDeclarations.clear();
         m_PassLifetimeExtensions.clear();
         m_PassOutOfBandDeclarations.clear();
@@ -7579,18 +7640,6 @@ namespace OloEngine
                    lhs.Range.SliceCount == rhs.Range.SliceCount;
         };
 
-        auto feedbackDeclarationsEqual = [](const RGFeedbackDeclaration& lhs,
-                                            const RGFeedbackDeclaration& rhs) -> bool
-        {
-            return lhs.ResourceName == rhs.ResourceName &&
-                   lhs.Range.BaseMip == rhs.Range.BaseMip &&
-                   lhs.Range.MipCount == rhs.Range.MipCount &&
-                   lhs.Range.BaseLayer == rhs.Range.BaseLayer &&
-                   lhs.Range.LayerCount == rhs.Range.LayerCount &&
-                   lhs.Range.BaseSlice == rhs.Range.BaseSlice &&
-                   lhs.Range.SliceCount == rhs.Range.SliceCount;
-        };
-
         auto appendUniqueAccessDeclaration = [&accessDeclarationsEqual](TArray64<RGAccessDeclaration>& declarations,
                                                                         const RGAccessDeclaration& declaration)
         {
@@ -7601,22 +7650,6 @@ namespace OloEngine
                                      [&declaration, &accessDeclarationsEqual](const RGAccessDeclaration& existing)
                                      {
                                          return accessDeclarationsEqual(existing, declaration);
-                                     }) == declarations.end())
-            {
-                declarations.Add(declaration);
-            }
-        };
-
-        auto appendUniqueFeedbackDeclaration = [&feedbackDeclarationsEqual](TArray64<RGFeedbackDeclaration>& declarations,
-                                                                            const RGFeedbackDeclaration& declaration)
-        {
-            if (declaration.ResourceName.IsEmpty())
-                return;
-
-            if (std::ranges::find_if(declarations,
-                                     [&declaration, &feedbackDeclarationsEqual](const RGFeedbackDeclaration& existing)
-                                     {
-                                         return feedbackDeclarationsEqual(existing, declaration);
                                      }) == declarations.end())
             {
                 declarations.Add(declaration);
@@ -7661,9 +7694,18 @@ namespace OloEngine
                         expandedAccess.Range = RGSubresourceRange::Full();
                         appendUniqueAccessDeclaration(expandedAccesses, expandedAccess);
                     }
-                    else
+                    else if (!access.IsWrite &&
+                             (viewIt->second.Kind == TextureViewKind::FramebufferColorAttachment ||
+                              viewIt->second.Kind == TextureViewKind::FramebufferDepthAttachment))
                     {
-                        // No additional handling required.
+                        // A view can be created in a consumer's Setup, after
+                        // the parent writer was expanded. Retain that writer
+                        // dependency even when it never saw this view name.
+                        // This synthetic access is not a physical shader read;
+                        // same-pass feedback uses the unexpanded declarations.
+                        auto expandedAccess = access;
+                        expandedAccess.ResourceName = viewIt->second.ParentResource;
+                        appendUniqueAccessDeclaration(expandedAccesses, expandedAccess);
                     }
 
                     continue;
@@ -7690,75 +7732,6 @@ namespace OloEngine
             }
 
             return expandedAccesses;
-        };
-
-        auto expandTextureViewFeedbacks =
-            [this, &appendUniqueFeedbackDeclaration, &depSubresourceRangesOverlap](const TArray64<RGFeedbackDeclaration>& feedbacks)
-        {
-            TArray64<RGFeedbackDeclaration> expandedFeedbacks;
-            expandedFeedbacks.Reserve(feedbacks.Num() * 3);
-
-            const auto isTextureSubresourceView = [](const TextureViewKind kind)
-            {
-                return kind == TextureViewKind::TextureMip ||
-                       kind == TextureViewKind::TextureArrayLayer ||
-                       kind == TextureViewKind::TextureCubeFace;
-            };
-
-            for (const auto& feedback : feedbacks)
-            {
-                appendUniqueFeedbackDeclaration(expandedFeedbacks, feedback);
-                if (feedback.ResourceName.IsEmpty())
-                    continue;
-
-                const auto resourceKey = std::string(feedback.ResourceName);
-                if (const auto viewIt = m_TextureViewDefinitions.find(resourceKey);
-                    viewIt != m_TextureViewDefinitions.end())
-                {
-                    if (isTextureSubresourceView(viewIt->second.Kind))
-                    {
-                        auto expandedFeedback = feedback;
-                        expandedFeedback.ResourceName = viewIt->second.ParentResource;
-                        expandedFeedback.Range = viewIt->second.ParentRange;
-                        appendUniqueFeedbackDeclaration(expandedFeedbacks, expandedFeedback);
-                    }
-                    else if (viewIt->second.Kind == TextureViewKind::TextureMultisampleResolve &&
-                             !viewIt->second.BackingResource.IsEmpty())
-                    {
-                        auto expandedFeedback = feedback;
-                        expandedFeedback.ResourceName = viewIt->second.BackingResource;
-                        expandedFeedback.Range = RGSubresourceRange::Full();
-                        appendUniqueFeedbackDeclaration(expandedFeedbacks, expandedFeedback);
-                    }
-                    else
-                    {
-                        // No additional handling required.
-                    }
-
-                    continue;
-                }
-
-                for (const auto& [viewName, viewDef] : m_TextureViewDefinitions)
-                {
-                    if (viewDef.ParentResource != feedback.ResourceName)
-                        continue;
-
-                    if (isTextureSubresourceView(viewDef.Kind) &&
-                        !depSubresourceRangesOverlap(feedback.Range, viewDef.ParentRange))
-                    {
-                        continue;
-                    }
-
-                    auto expandedFeedback = feedback;
-                    expandedFeedback.ResourceName = viewName;
-                    if (isTextureSubresourceView(viewDef.Kind) ||
-                        viewDef.Kind == TextureViewKind::TextureMultisampleResolve)
-                        expandedFeedback.Range = RGSubresourceRange::Full();
-                    appendUniqueFeedbackDeclaration(expandedFeedbacks, expandedFeedback);
-                }
-            }
-
-            return expandedFeedbacks;
         };
 
         // `orderingOnly`: the edge orders the two passes but carries no data
@@ -7834,7 +7807,7 @@ namespace OloEngine
             return true;
         };
 
-        auto processGraphNode = [this, &builder, &expandTextureViewAccesses, &expandTextureViewFeedbacks,
+        auto processGraphNode = [this, &builder, &expandTextureViewAccesses,
                                  &declaredPassDependenciesByPass, &tryAddDerivedDependency, &lastWriterByResource,
                                  &liveReadersByResource, &depSubresourceRangesOverlap, &processedNodeNames](RenderGraphNode& node)
         {
@@ -7873,9 +7846,10 @@ namespace OloEngine
             const auto& accesses = builder.GetDeclaredAccesses();
             const auto expandedAccesses = expandTextureViewAccesses(accesses);
             m_PassAccessDeclarations[nodeName] = expandedAccesses;
+            m_PassSetupAccessDeclarations[nodeName] = accesses;
 
             const auto& feedbacks = builder.GetDeclaredFeedbacks();
-            m_PassFeedbackDeclarations[nodeName] = expandTextureViewFeedbacks(feedbacks);
+            m_PassFeedbackDeclarations[nodeName] = feedbacks;
 
             m_PassLifetimeExtensions[nodeName] = builder.GetDeclaredLifetimeExtensions();
             if (const auto& outOfBand = builder.GetDeclaredOutOfBandAccesses(); !outOfBand.IsEmpty())
@@ -8736,13 +8710,27 @@ namespace OloEngine
             }
             if (const auto feedbackIt = m_PassFeedbackDeclarations.find(name); feedbackIt != m_PassFeedbackDeclarations.end())
             {
-                std::vector<std::string_view> feedbacks;
+                TArray64<const RGFeedbackDeclaration*> feedbacks;
                 for (const RGFeedbackDeclaration& feedback : feedbackIt->second)
-                    feedbacks.push_back(feedback.ResourceName.ToView());
-                std::ranges::sort(feedbacks);
-                key.Add(static_cast<u64>(feedbacks.size()));
-                for (const std::string_view feedback : feedbacks)
-                    key.Add(feedback);
+                    feedbacks.Add(&feedback);
+                const auto feedbackKey = [](const RGFeedbackDeclaration* feedback)
+                {
+                    return std::tuple(feedback->ResourceName.ToView(), feedback->ReadUsage,
+                                      feedback->Range.BaseMip, feedback->Range.MipCount,
+                                      feedback->Range.BaseLayer, feedback->Range.LayerCount,
+                                      feedback->Range.BaseSlice, feedback->Range.SliceCount);
+                };
+                std::ranges::sort(feedbacks, [&](const auto* lhs, const auto* rhs)
+                                  { return feedbackKey(lhs) < feedbackKey(rhs); });
+                key.Add(static_cast<u64>(feedbacks.Num()));
+                for (const auto* feedback : feedbacks)
+                {
+                    key.Add(feedback->ResourceName.ToView());
+                    key.Add(feedback->ReadUsage.has_value());
+                    if (feedback->ReadUsage)
+                        key.Add(*feedback->ReadUsage);
+                    addRange(key, feedback->Range);
+                }
             }
             if (const auto dependencyIt = m_Dependencies.find(name); dependencyIt != m_Dependencies.end())
             {

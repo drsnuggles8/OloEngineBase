@@ -30,6 +30,7 @@
 #include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSSRenderPass.h"
+#include "OloEngine/Renderer/Passes/SceneAttachmentSnapshotPass.h"
 #include "OloEngine/Renderer/Passes/TAARenderPass.h"
 #include "OloEngine/Renderer/Passes/ToneMapRenderPass.h"
 #include "OloEngine/Renderer/Passes/UICompositeRenderPass.h"
@@ -2153,6 +2154,13 @@ TEST(RenderGraph, SSSBlursSceneColorInPlaceAndPublishesNoOutputOfItsOwn)
     blackboard.Scene.SceneColorTexture = sceneTexture;
     blackboard.Scene.SkinDiffuse = handoff;
     blackboard.Scene.SceneDepthAttachment = depth;
+    auto snapshotDesc = sceneDesc;
+    snapshotDesc.Kind = RGResourceHandle::Kind::Texture2D;
+    snapshotDesc.Attachments.Reset();
+    snapshotDesc.Format = RGResourceFormat::Depth24Stencil8;
+    blackboard.Scene.DiffusionDepthSnapshot = graph.DeclareTransientTexture("DiffusionDepthSnapshot", snapshotDesc);
+    snapshotDesc.Format = RGResourceFormat::RGBA16Float;
+    blackboard.Scene.DiffusionHandoffSnapshot = graph.DeclareTransientTexture("DiffusionHandoffSnapshot", snapshotDesc);
     blackboard.Post.BloomColor = bloomHandle;
     blackboard.Post.BloomColorTexture = bloomTexture;
 
@@ -2168,6 +2176,8 @@ TEST(RenderGraph, SSSBlursSceneColorInPlaceAndPublishesNoOutputOfItsOwn)
     bloomPass->SetName("BloomPass");
     bloomPass->SetEnabled(false);
 
+    graph.AddNode(Ref<SceneAttachmentSnapshotPass>::Create(nullptr, SceneAttachmentSnapshotPass::Attachment::DiffusionDepth));
+    graph.AddNode(Ref<SceneAttachmentSnapshotPass>::Create(nullptr, SceneAttachmentSnapshotPass::Attachment::DiffusionHandoff));
     AddPassNode(graph, sssPass);
     AddPassNode(graph, bloomPass);
     graph.SetFinalPass("BloomPass");
