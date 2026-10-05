@@ -62,3 +62,17 @@ capture native, dynamic bilinear, and requested FSR2 frames with requested 1x/4x
 MSAA. Forward paths retain a single-sample target; Deferred MSAA forces FSR2's
 spatial fallback. Deferred dynamic scaling retains the explicit #1537 capture
 rejection. Vulkan FSR2 requests use the existing backend fallback.
+
+## Diagnostics must handle the snapshot storage contract
+
+Inspect a framebuffer's attachment specification before requesting colour
+attachment zero. A depth-only snapshot backing has no colour slot: probing it
+and then falling back to depth already accesses an empty array. The live
+`olo_render_validate` sweep exposed this as a Release OpenGL crash; the shared
+MCP resolver now selects depth directly and has headless selection contracts.
+
+Report the active framebuffer viewport as the render size. Dynamic resolution
+keeps the allocation at display size, so `GetSpecification().Width/Height`
+describes storage, while `GetActiveViewportWidth/Height` describes the region
+actually drawn. The live 0.75-scale checks caught this distinction in
+`olo_perf_snapshot`: 640x360 storage contains a 480x270 rendered region.
