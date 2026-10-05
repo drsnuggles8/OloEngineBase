@@ -16,11 +16,16 @@ below.
   link, or delete any Codex state outside the repository.
 - Keep `HANDOVER.md` as the cross-agent handover artifact, but quote the
   guardrails from `AGENTS.md`, not `CLAUDE.md`.
-- Map the source's model rubric to Codex recommendations: `gpt-5.6-sol` with
-  high or xhigh effort for subtle/high-blast-radius work; `gpt-5.6-terra` with
-  medium effort for normal, well-scoped engine work; and `gpt-5.6-luna` with
-  low effort for mechanical, strongly patterned work. Recommendations do not
-  authorize changing a task's model.
+- Use Codex recommendations verified against the
+  [official GPT-6 guidance](https://developers.openai.com/api/docs/guides/latest-model?model=gpt-6.1-sol)
+  on 2026-10-05: `gpt-6.1-sol` is the default, with medium effort for normal,
+  well-scoped engine work and high effort for subtle correctness, concurrency,
+  architecture or demanding runtime/visual verification. Recommend `gpt-6-astra`
+  with high effort for the most demanding whole epics or a demonstrated reasoning
+  ceiling; use `gpt-6-luna` with low effort for mechanical, strongly patterned
+  work. Higher effort needs task-specific evidence. Recheck official guidance
+  when model availability changes, and preserve an explicitly requested model.
+  Recommendations do not authorize changing a task's model.
 - The source's "fresh Claude session" means a new Codex task rooted at the new
   worktree. Create it only when the user explicitly asked to create task(s).
   Otherwise, stop after writing the handover brief and report the path, branch,
