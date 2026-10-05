@@ -77,6 +77,56 @@ namespace
 #endif
 } // namespace
 
+TEST(GameBuildPipelineTest, ManagedAssemblyStagesMatchingSymbols)
+{
+    const auto root = OloEngine::Tests::TempDir("managed-assembly-symbols");
+    const auto source = root / "Game.dll";
+    const auto destination = root / "package" / "Game.dll";
+    std::ofstream(source, std::ios::binary) << "managed DLL";
+    std::ofstream(root / "Game.pdb", std::ios::binary) << "BSJB portable PDB";
+    std::string error;
+    ASSERT_TRUE(StageManagedAssembly(source, destination, error)) << error;
+    EXPECT_EQ(ReadTextFile(destination), "managed DLL");
+    EXPECT_EQ(ReadTextFile(root / "package" / "Game.pdb"), "BSJB portable PDB");
+}
+
+TEST(GameBuildPipelineTest, ManagedAssemblyWithoutSymbolsRemovesStalePdb)
+{
+    const auto root = OloEngine::Tests::TempDir("managed-assembly-no-symbols");
+    const auto source = root / "Game.dll";
+    const auto destination = root / "package" / "Game.dll";
+    std::filesystem::create_directories(destination.parent_path());
+    std::ofstream(source, std::ios::binary) << "new managed DLL";
+    std::ofstream(root / "package" / "Game.pdb", std::ios::binary) << "stale PDB";
+    std::string error;
+    ASSERT_TRUE(StageManagedAssembly(source, destination, error)) << error;
+    EXPECT_EQ(ReadTextFile(destination), "new managed DLL");
+    EXPECT_FALSE(std::filesystem::exists(root / "package" / "Game.pdb"));
+    // Missing optional symbols remain a success on a fresh/repeated staging run.
+    EXPECT_TRUE(StageManagedAssembly(source, destination, error)) << error;
+}
+
+TEST(GameBuildPipelineTest, ManagedAssemblyReportsSymbolCopyFailure)
+{
+    const auto root = OloEngine::Tests::TempDir("managed-assembly-symbol-failure");
+    const auto source = root / "Game.dll";
+    const auto destination = root / "package" / "Game.dll";
+    std::ofstream(source, std::ios::binary) << "managed DLL";
+    std::ofstream(root / "Game.pdb", std::ios::binary) << "BSJB portable PDB";
+    std::filesystem::create_directories(root / "package" / "Game.pdb");
+    std::string error;
+    EXPECT_FALSE(StageManagedAssembly(source, destination, error));
+    EXPECT_NE(error.find("managed symbols"), std::string::npos) << error;
+}
+
+TEST(GameBuildPipelineTest, ManagedAssemblyReportsMissingDll)
+{
+    const auto root = OloEngine::Tests::TempDir("managed-assembly-missing");
+    std::string error;
+    EXPECT_FALSE(StageManagedAssembly(root / "Missing.dll", root / "package" / "Missing.dll", error));
+    EXPECT_NE(error.find("managed assembly"), std::string::npos) << error;
+}
+
 TEST(GameBuildPipelineTest, LinuxLauncherAndIconStayInsideAMovedPackage)
 {
     const auto testRoot = OloEngine::Tests::TempDir("linux-launcher-relocation");
