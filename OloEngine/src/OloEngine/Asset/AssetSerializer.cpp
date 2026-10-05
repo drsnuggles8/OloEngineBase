@@ -1840,12 +1840,9 @@ namespace OloEngine
     // PrefabSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    // AssetMetadata::FilePath is PROJECT-relative, as every other serializer here
-    // reads it. This one used to hand it to std::ifstream / std::ofstream raw, so
-    // it resolved against the process working directory instead -- which for the
-    // editor is OloEditor/, one level above the project -- and a prefab asset
-    // could therefore never be loaded back from disk at all.
-    static std::filesystem::path ResolvePrefabPath(const AssetMetadata& metadata)
+    // Registry paths are project-relative. Absolute paths and callers without
+    // an active project retain their existing filesystem path.
+    static std::filesystem::path ResolveProjectAssetPath(const AssetMetadata& metadata)
     {
         if (Project::GetActive())
         {
@@ -1865,7 +1862,7 @@ namespace OloEngine
 
         std::string yamlString = SerializeToYAML(prefab);
 
-        const std::filesystem::path path = ResolvePrefabPath(metadata);
+        const std::filesystem::path path = ResolveProjectAssetPath(metadata);
         std::ofstream fout(path);
         if (!fout.is_open())
         {
@@ -1879,7 +1876,7 @@ namespace OloEngine
 
     bool PrefabSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
-        const std::filesystem::path path = ResolvePrefabPath(metadata);
+        const std::filesystem::path path = ResolveProjectAssetPath(metadata);
         std::ifstream stream(path);
         if (!stream.is_open())
         {
@@ -2028,13 +2025,13 @@ namespace OloEngine
         }
 
         SceneSerializer serializer(scene);
-        serializer.Serialize(metadata.FilePath);
+        serializer.Serialize(ResolveProjectAssetPath(metadata));
     }
 
     bool SceneAssetSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
         Ref<Scene> scene = Ref<Scene>(new Scene());
-        if (SceneSerializer serializer(scene); serializer.Deserialize(metadata.FilePath))
+        if (SceneSerializer serializer(scene); serializer.Deserialize(ResolveProjectAssetPath(metadata)))
         {
             scene->m_Handle = metadata.Handle;
             asset = scene; // Direct assignment - Ref<Scene> should convert to Ref<Asset>
