@@ -258,7 +258,10 @@ Keep stable scene instance/part keys in `ShadowCasterFootprint`. The footprint
 cache invalidates arrivals, old/new bounds on movement or silhouette revision,
 and departures before page allocation. Terrain also hashes tessellation/morph
 parameters and tracks height content; greedy voxel uploads increment their
-geometry revision. Wind, interactions and camera-facing foliage dirty their
+geometry revision. Hash only inputs consumed by the depth stages: virtual-texture
+feedback slots and material parameters must not invalidate an unchanged silhouette.
+`ShadowFamilyCache.TerrainFeedbackAndMaterialChangesReuseTheSilhouette` pins this
+boundary. Wind, interactions and camera-facing foliage dirty their
 bounded footprint each frame. Legacy callers without bounds conservatively
 dirty the complete domain; callers without keys use geometry/transform identity.
 
