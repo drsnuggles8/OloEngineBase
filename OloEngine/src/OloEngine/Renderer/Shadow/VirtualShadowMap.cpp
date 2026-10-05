@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Shadow/VirtualShadowMap.h"
+#include "OloEngine/Renderer/Shadow/ShadowInvalidationQueue.h"
 
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/ComputeShader.h"
@@ -1101,10 +1102,9 @@ namespace OloEngine
 
     void VirtualShadowMap::AddDynamicInvalidation(const glm::vec3& boundsMin, const glm::vec3& boundsMax)
     {
-        if (!IsActive() || static_cast<sizet>(m_PendingInvalidations.Num()) >= 2 * kMaxInvalidations)
+        if (!IsActive())
             return;
-        m_PendingInvalidations.Emplace_GetRef(boundsMin, 0.0f);
-        m_PendingInvalidations.Emplace_GetRef(boundsMax, 0.0f);
+        AppendBoundedShadowInvalidation(m_PendingInvalidations, boundsMin, boundsMax, kMaxInvalidations);
     }
 
     void VirtualShadowMap::SubmitDynamicInvalidations(std::span<const ShadowMeshCaster> meshCasters,

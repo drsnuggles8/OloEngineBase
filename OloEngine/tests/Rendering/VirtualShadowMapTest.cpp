@@ -16,6 +16,7 @@
 #include <gtest/gtest.h>
 
 #include "OloEngine/Renderer/Shadow/VirtualShadowMap.h"
+#include "OloEngine/Renderer/Shadow/ShadowInvalidationQueue.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <glm/glm.hpp>
@@ -645,4 +646,20 @@ TEST(VirtualShadowMap, PhysicalResolutionIsClampedToAWholeNumberOfPages)
     EXPECT_EQ(4096u, defaults.PhysicalResolution);
     EXPECT_GT(defaults.DepthRange, 0.0f);
     EXPECT_GT(defaults.Clip0HalfExtent, 0.0f);
+}
+
+TEST(VirtualShadowMap, SaturatedInvalidationsStillCoverEveryChangedFootprint)
+{
+    TArray64<glm::vec4> pending;
+    AppendBoundedShadowInvalidation(pending, { -10, 0, 0 }, { -9, 1, 1 }, 2);
+    AppendBoundedShadowInvalidation(pending, { 0, 0, 0 }, { 1, 1, 1 }, 2);
+    AppendBoundedShadowInvalidation(pending, { 10, -2, -3 }, { 11, 2, 3 }, 2);
+    AppendBoundedShadowInvalidation(pending, { -5, 0, 0 }, { -4, 1, 1 }, 2);
+    ASSERT_EQ(pending.Num(), 4);
+    EXPECT_FLOAT_EQ(pending[0].x, -10.0f);
+    EXPECT_FLOAT_EQ(pending[1].x, -9.0f);
+    EXPECT_FLOAT_EQ(pending[2].x, -5.0f);
+    EXPECT_FLOAT_EQ(pending[2].y, -2.0f);
+    EXPECT_FLOAT_EQ(pending[3].x, 11.0f);
+    EXPECT_FLOAT_EQ(pending[3].z, 3.0f);
 }
