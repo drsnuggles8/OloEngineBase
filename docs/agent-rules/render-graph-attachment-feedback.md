@@ -16,6 +16,13 @@ depth aspect, and mip/layer/cube-face range. A multisample resolve view names it
 single-sample backing, not the source image. Declaration ranges must cover the
 entire read/write intersection.
 
+Keep synthetic parent ordering reads out of barrier and resource-access planning.
+A transfer into a snapshot attachment produces the view, so adding a shader read
+of its unwritten parent invents a missing producer and an Undefined transition.
+Re-expand physical accesses after every Setup has completed: a view created by a
+later consumer must still inherit the earlier framebuffer writer. Replay the
+original dependency accesses when checking registration-order sensitivity.
+
 An attachment load, blend, or depth-test read (`RenderTargetRead`) is the ordinary
 attachment RMW contract. It does not authorize shader sampling. A pass that copies
 scene colour before drawing declares `ReadTransferSourceBeforeWrite`; that permits

@@ -7625,6 +7625,8 @@ namespace OloEngine
 
         RGTransparentStringMap<TArray64<FString>> declaredPassDependenciesByPass;
         declaredPassDependenciesByPass.reserve(graphEntryCount);
+        RGTransparentStringMap<TArray64<RGAccessDeclaration>> dependencyAccessesByPass;
+        dependencyAccessesByPass.reserve(graphEntryCount);
         std::vector<std::string> processedNodeNames;
         processedNodeNames.reserve(graphEntryCount);
 
@@ -7674,7 +7676,8 @@ namespace OloEngine
         };
 
         auto expandTextureViewAccesses =
-            [this, &appendUniqueAccessDeclaration, &depSubresourceRangesOverlap](const TArray64<RGAccessDeclaration>& accesses)
+            [this, &appendUniqueAccessDeclaration, &depSubresourceRangesOverlap](const TArray64<RGAccessDeclaration>& accesses,
+                                                                                 TArray64<RGAccessDeclaration>& dependencyParentReads)
         {
             TArray64<RGAccessDeclaration> expandedAccesses;
             expandedAccesses.Reserve(accesses.Num() * 3);
@@ -7718,11 +7721,12 @@ namespace OloEngine
                         // A view can be created in a consumer's Setup, after
                         // the parent writer was expanded. Retain that writer
                         // dependency even when it never saw this view name.
-                        // This synthetic access is not a physical shader read;
-                        // same-pass feedback uses the unexpanded declarations.
+                        // This is only an ordering access. Feeding it to the
+                        // barrier planner would invent a first-use parent read
+                        // even when a copy already produced the attachment.
                         auto expandedAccess = access;
                         expandedAccess.ResourceName = viewIt->second.ParentResource;
-                        appendUniqueAccessDeclaration(expandedAccesses, expandedAccess);
+                        appendUniqueAccessDeclaration(dependencyParentReads, expandedAccess);
                     }
 
                     continue;
@@ -7824,8 +7828,8 @@ namespace OloEngine
             return true;
         };
 
-        auto processGraphNode = [this, &builder, &expandTextureViewAccesses,
-                                 &declaredPassDependenciesByPass, &tryAddDerivedDependency, &lastWriterByResource,
+        auto processGraphNode = [this, &builder, &expandTextureViewAccesses, &appendUniqueAccessDeclaration,
+                                 &declaredPassDependenciesByPass, &dependencyAccessesByPass, &tryAddDerivedDependency, &lastWriterByResource,
                                  &liveReadersByResource, &depSubresourceRangesOverlap, &processedNodeNames](RenderGraphNode& node)
         {
             const std::string nodeName(node.GetName());
@@ -7861,9 +7865,14 @@ namespace OloEngine
             m_LastBuildStats.DeclaredReads += static_cast<u32>(reads.Num());
 
             const auto& accesses = builder.GetDeclaredAccesses();
-            const auto expandedAccesses = expandTextureViewAccesses(accesses);
+            TArray64<RGAccessDeclaration> dependencyParentReads;
+            auto expandedAccesses = expandTextureViewAccesses(accesses, dependencyParentReads);
             m_PassAccessDeclarations[nodeName] = expandedAccesses;
             m_PassSetupAccessDeclarations[nodeName] = accesses;
+            auto dependencyAccesses = std::move(expandedAccesses);
+            for (const auto& parentRead : dependencyParentReads)
+                appendUniqueAccessDeclaration(dependencyAccesses, parentRead);
+            dependencyAccessesByPass[nodeName] = dependencyAccesses;
 
             const auto& feedbacks = builder.GetDeclaredFeedbacks();
             m_PassFeedbackDeclarations[nodeName] = feedbacks;
@@ -7883,7 +7892,7 @@ namespace OloEngine
                     ++m_LastBuildStats.DerivedEdges;
             }
 
-            for (const auto& access : expandedAccesses)
+            for (const auto& access : dependencyAccesses)
             {
                 if (access.ResourceName.IsEmpty())
                     continue;
@@ -8078,6 +8087,16 @@ namespace OloEngine
             }
         }
 
+        // A later Setup can create a view of an earlier framebuffer writer.
+        // Expand physical accesses again with the complete view registry so
+        // barrier and lifetime planning see that view's actual producer.
+        // Parent reads stay confined to dependency derivation and its replay.
+        for (const auto& [passName, accesses] : m_PassSetupAccessDeclarations)
+        {
+            TArray64<RGAccessDeclaration> dependencyParentReads;
+            m_PassAccessDeclarations[passName] = expandTextureViewAccesses(accesses, dependencyParentReads);
+        }
+
         // Out-of-band edges (#1331). A boundary names ONE datum per frame, so
         // every writer precedes every current-frame reader and every
         // previous-frame reader precedes every writer, wherever each pass was
@@ -8180,7 +8199,7 @@ namespace OloEngine
         }
 
         auto simulateDerivedDependencies =
-            [this, &declaredPassDependenciesByPass, &depSubresourceRangesOverlap, &collectOutOfBandEdges](const std::vector<std::string>& visitOrder) -> SimulatedDependencyResult
+            [this, &declaredPassDependenciesByPass, &dependencyAccessesByPass, &depSubresourceRangesOverlap, &collectOutOfBandEdges](const std::vector<std::string>& visitOrder) -> SimulatedDependencyResult
         {
             SimulatedDependencyResult result{};
             result.Dependencies = m_ExplicitDependencies;
@@ -8248,8 +8267,8 @@ namespace OloEngine
                     }
                 }
 
-                const auto accessIt = m_PassAccessDeclarations.find(nodeName);
-                if (accessIt == m_PassAccessDeclarations.end())
+                const auto accessIt = dependencyAccessesByPass.find(nodeName);
+                if (accessIt == dependencyAccessesByPass.end())
                     continue;
 
                 for (const auto& access : accessIt->second)

@@ -680,4 +680,67 @@ TEST(RenderGraphAttachmentViewExports, AViewCreatedInConsumerSetupRetainsTheEarl
     EXPECT_GE(IndexOf(graph, "Opaque"), 0);
     EXPECT_LT(IndexOf(graph, "Opaque"), IndexOf(graph, "Consumer"));
     EXPECT_FALSE(HasFeedback(graph));
+    graph.Execute();
+    EXPECT_FALSE(std::ranges::any_of(graph.GetBarrierDiagnostics(), [](const auto& diagnostic)
+                                     { return diagnostic.Kind == RenderGraph::BarrierDiagnosticKind::MissingProducer &&
+                                              diagnostic.Resource == "LateNormals"; }));
+    EXPECT_TRUE(std::ranges::any_of(graph.GetResourceTransitions(), [](const auto& transition)
+                                    { return transition.ResourceName == "LateNormals" &&
+                                             transition.ProducerPass == "Opaque" &&
+                                             transition.ConsumerPass == "Consumer" &&
+                                             transition.FromAccess == RHI::Access::ColorAttachmentWrite &&
+                                             transition.ToAccess == RHI::Access::ShaderSampleRead; }));
+}
+
+TEST(RenderGraphAttachmentFeedback, SnapshotViewCopiesKeepTheirTransitionWithoutAParentFirstUseRead)
+{
+    for (const bool depthSnapshot : { false, true })
+    {
+        for (const bool produced : { false, true })
+        {
+            SCOPED_TRACE(depthSnapshot);
+            SCOPED_TRACE(produced);
+            RenderGraph graph;
+            graph.SetRuntimeBarrierExecutionEnabled(false);
+            auto desc = SceneTargetDesc();
+            desc.Attachments = { depthSnapshot ? RGResourceFormat::Depth32Float : RGResourceFormat::RGBA16Float };
+            const auto backing = graph.DeclareTransientFramebuffer("SnapshotBacking", desc);
+            const auto snapshot = depthSnapshot ? graph.CreateFramebufferDepthAttachmentView("Snapshot", backing)
+                                                : graph.CreateFramebufferAttachmentView("Snapshot", backing, 0u);
+            ASSERT_TRUE(snapshot.IsValid());
+            if (produced)
+            {
+                Add(graph, "Copy", [snapshot](RGBuilder& builder)
+                    { builder.Write(snapshot, RGWriteUsage::TransferDest); });
+            }
+            Add(graph, "Consumer", [snapshot](RGBuilder& builder)
+                { [[maybe_unused]] const auto read = builder.Read(snapshot); });
+            graph.SetFinalPass("Consumer");
+            graph.BuildFrameGraph();
+            graph.Execute();
+
+            const auto missingProducer = [&graph](std::string_view resource)
+            {
+                return std::ranges::any_of(graph.GetBarrierDiagnostics(), [resource](const auto& diagnostic)
+                                           { return diagnostic.Kind == RenderGraph::BarrierDiagnosticKind::MissingProducer &&
+                                                    diagnostic.Resource.ToView() == resource; });
+            };
+            EXPECT_FALSE(missingProducer("SnapshotBacking"));
+            EXPECT_EQ(missingProducer("Snapshot"), !produced);
+            const auto transitions = graph.GetResourceTransitions();
+            EXPECT_FALSE(std::ranges::any_of(transitions, [](const auto& transition)
+                                             { return transition.ResourceName == "SnapshotBacking" &&
+                                                      transition.ConsumerPass == "Consumer"; }));
+            if (produced)
+            {
+                EXPECT_LT(IndexOf(graph, "Copy"), IndexOf(graph, "Consumer"));
+                EXPECT_TRUE(std::ranges::any_of(transitions, [](const auto& transition)
+                                                { return transition.ResourceName == "Snapshot" &&
+                                                         transition.ProducerPass == "Copy" &&
+                                                         transition.ConsumerPass == "Consumer" &&
+                                                         transition.FromAccess == RHI::Access::TransferWrite &&
+                                                         transition.ToAccess == RHI::Access::ShaderSampleRead; }));
+            }
+        }
+    }
 }
