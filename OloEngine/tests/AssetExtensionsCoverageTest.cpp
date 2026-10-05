@@ -36,6 +36,13 @@
 
 namespace OloEngine::Tests
 {
+    TEST(AssetExtensionsCoverage, NativeEditorScenesCanBeImportedForCooking)
+    {
+        for (const char* path : { "Scenes/Sandbox.olo", "Scenes/Level.SCENE", "Scenes/Cooked.oloscene" })
+            EXPECT_EQ(AssetExtensions::GetAssetTypeFromPath(path), AssetType::Scene) << path;
+        EXPECT_EQ(AssetExtensions::GetAssetTypeFromPath("Scenes/Notes.txt"), AssetType::None);
+    }
+
     TEST(AssetExtensionsCoverage, EveryAssetTypeHasAtLeastOneRegisteredExtension)
     {
         // AssetType values that legitimately have no on-disk extension:
