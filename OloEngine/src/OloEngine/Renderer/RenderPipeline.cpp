@@ -3481,13 +3481,7 @@ namespace OloEngine
                 // Decals and water use this pre-modifier depth snapshot on
                 // forward paths while drawing into SceneColor, which a view
                 // cannot serve (SceneAttachmentSnapshotPass).
-                RGResourceDesc depthDesc;
-                depthDesc.Kind = RGResourceHandle::Kind::Texture2D;
-                depthDesc.Format = RGResourceFormat::Depth24Stencil8;
-                depthDesc.Width = sceneSpec.Width;
-                depthDesc.Height = sceneSpec.Height;
-                depthDesc.DebugName = ResourceNames::SceneDepthSnapshot;
-                board.Scene.SceneDepthSnapshot = graph.AllocateTransientTextureHandle(ResourceNames::SceneDepthSnapshot, depthDesc);
+                board.Scene.SceneDepthSnapshot = allocateAttachmentSnapshot(ResourceNames::SceneDepthSnapshot, RGResourceFormat::Depth24Stencil8);
             }
 
             // Issue #1554: same-framebuffer shader sampling needs independent
@@ -3504,14 +3498,8 @@ namespace OloEngine
             // Water also marches the view normals it writes: a copy on every path.
             if (sceneSpec.Width > 0u && sceneSpec.Height > 0u && board.Scene.SceneViewNormals.IsValid())
             {
-                RGResourceDesc normalsDesc;
-                normalsDesc.Kind = RGResourceHandle::Kind::Texture2D;
-                normalsDesc.Format = RGResourceFormat::RG16Float;
-                normalsDesc.Width = sceneSpec.Width;
-                normalsDesc.Height = sceneSpec.Height;
-                normalsDesc.DebugName = ResourceNames::SceneViewNormalsSnapshot;
                 board.Scene.SceneViewNormalsSnapshot =
-                    graph.AllocateTransientTextureHandle(ResourceNames::SceneViewNormalsSnapshot, normalsDesc);
+                    allocateAttachmentSnapshot(ResourceNames::SceneViewNormalsSnapshot, RGResourceFormat::RG16Float);
             }
         }
 

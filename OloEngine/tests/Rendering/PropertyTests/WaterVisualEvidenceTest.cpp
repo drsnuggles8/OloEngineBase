@@ -46,6 +46,7 @@
 #include "../../TestOptions.h"
 
 #include "RendererAttachedTest.h"
+#include "AttachmentFeedbackEvidence.h"
 #include "RenderPropertyTest.h"
 
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -222,7 +223,7 @@ namespace OloEngine::Tests
         // yaw/pitch (radians), render the scene through the full pipeline, and
         // read back + save the final composited frame.
         void Capture(const std::string& poseName, const glm::vec3& position, f32 yaw, f32 pitch,
-                     std::vector<u8>& outPixels)
+                     std::vector<u8>& outPixels, bool compareGolden = true)
         {
             EditorCamera camera(60.0f,
                                 static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 1000.0f);
@@ -287,7 +288,7 @@ namespace OloEngine::Tests
             // rendered frame against it and never write — so a passing run leaves
             // the tracked PNG untouched (no churn). Pass --olo-golden-rebase
             // to update the goldens after a deliberate visual change.
-            if (GoldenRebaseRequested())
+            if (!compareGolden || GoldenRebaseRequested())
             {
                 std::error_code ec;
                 fs::create_directories(dir, ec);
@@ -319,6 +320,47 @@ namespace OloEngine::Tests
                 << "--olo-golden-rebase to update " << path;
         }
     };
+
+    TEST_F(WaterVisualEvidenceTest, AttachmentSnapshotsValidateAcrossPathsMsaaAndReconstruction)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        struct RestoreClock
+        {
+            ~RestoreClock()
+            {
+                Time::ClearMockTime();
+            }
+        } const restore;
+        Time::SetMockTime(kCaptureTime);
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / kHeight, 0.05f, 1000.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        const glm::vec3 eye{ 0.0f, 16.0f, 38.0f };
+        camera.SetPose(eye, 0.0f, 0.40f);
+        Entity ocean = GetScene().FindEntityByName("Ocean");
+        const WaterComponent water = ocean.GetComponent<WaterComponent>();
+        for (const auto& [path, name] : std::array{
+                 std::pair{ RenderingPath::Forward, "Forward" },
+                 std::pair{ RenderingPath::ForwardPlus, "ForwardPlus" },
+                 std::pair{ RenderingPath::Deferred, "Deferred" } })
+        {
+            ForEachAttachmentFeedbackCell(path, name, [&](const std::string& cell, u32 settleFrames)
+                                          {
+                ocean.RemoveComponent<WaterComponent>();
+                RunEditorFrames(camera, settleFrames);
+                std::vector<u8> control;
+                Capture("AttachmentOff_GL_" + cell, eye, 0.0f, 0.40f, control, false);
+                ASSERT_FALSE(HasFatalFailure());
+                ocean.AddComponent<WaterComponent>(water);
+                RunEditorFrames(camera, settleFrames);
+                std::vector<u8> pixels;
+                Capture("Attachment_GL_" + cell, eye, 0.0f, 0.40f, pixels, false);
+                ASSERT_FALSE(HasFatalFailure());
+                EXPECT_GT(Rgba8Rmse(control, pixels), 0.1);
+                ExpectAttachmentFeedbackGraphClean("WaterPass");
+                ExpectAttachmentSnapshotSamplingMatchesSource("SceneDepth", "SceneDepthSnapshot");
+                ExpectAttachmentSnapshotSamplingMatchesSource("SceneViewNormals", "SceneViewNormalsSnapshot"); });
+        }
+    }
 
     // Runs in the normal suite (SKIPs without a GL 4.6 context — see the file
     // header). The render is frozen (kCaptureTime) so each pose is deterministic
