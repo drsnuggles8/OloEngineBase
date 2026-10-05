@@ -22,6 +22,8 @@ of its unwritten parent invents a missing producer and an Undefined transition.
 Re-expand physical accesses after every Setup has completed: a view created by a
 later consumer must still inherit the earlier framebuffer writer. Replay the
 original dependency accesses when checking registration-order sensitivity.
+Invalidate the resource registry after this refresh: a lookup during Setup can
+cache producer/consumer metadata before the complete access map exists.
 
 An attachment load, blend, or depth-test read (`RenderTargetRead`) is the ordinary
 attachment RMW contract. It does not authorize shader sampling. A pass that copies

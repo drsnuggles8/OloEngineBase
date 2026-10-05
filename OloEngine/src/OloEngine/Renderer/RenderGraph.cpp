@@ -8096,6 +8096,7 @@ namespace OloEngine
             TArray64<RGAccessDeclaration> dependencyParentReads;
             m_PassAccessDeclarations[passName] = expandTextureViewAccesses(accesses, dependencyParentReads);
         }
+        m_ResourceRegistryDirty = true;
 
         // Out-of-band edges (#1331). A boundary names ONE datum per frame, so
         // every writer precedes every current-frame reader and every

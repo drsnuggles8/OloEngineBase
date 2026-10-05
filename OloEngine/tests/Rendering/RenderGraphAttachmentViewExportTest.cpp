@@ -671,15 +671,22 @@ TEST(RenderGraphAttachmentViewExports, AViewCreatedInConsumerSetupRetainsTheEarl
     const auto scene = graph.DeclareTransientFramebuffer("SceneColor", SceneTargetDesc());
     Add(graph, "Opaque", [scene](RGBuilder& builder)
         { builder.Write(scene); });
-    Add(graph, "Consumer", [scene](RGBuilder& builder)
+    Add(graph, "Consumer", [&graph, scene](RGBuilder& builder)
         {
         const auto lateView = builder.CreateFramebufferAttachmentView("LateNormals", scene, 2u);
+        // Setup lookups can populate the registry before the final access
+        // refresh. Its producer/consumer metadata must be refreshed too.
+        ASSERT_NE(graph.FindRegisteredResource("LateNormals"), nullptr);
         [[maybe_unused]] const auto read = builder.Read(lateView); });
     graph.SetFinalPass("Consumer");
     graph.BuildFrameGraph();
     EXPECT_GE(IndexOf(graph, "Opaque"), 0);
     EXPECT_LT(IndexOf(graph, "Opaque"), IndexOf(graph, "Consumer"));
     EXPECT_FALSE(HasFeedback(graph));
+    const auto* registered = graph.FindRegisteredResource("LateNormals");
+    ASSERT_NE(registered, nullptr);
+    EXPECT_NE(std::ranges::find(registered->Producers, FString("Opaque")), registered->Producers.end());
+    EXPECT_NE(std::ranges::find(registered->Consumers, FString("Consumer")), registered->Consumers.end());
     graph.Execute();
     EXPECT_FALSE(std::ranges::any_of(graph.GetBarrierDiagnostics(), [](const auto& diagnostic)
                                      { return diagnostic.Kind == RenderGraph::BarrierDiagnosticKind::MissingProducer &&
