@@ -248,6 +248,9 @@ void main()
     v_Radius = radius; // world-space half-size, needed by the fragment's virtual-plane UV
 
     gl_Position = u_ViewProjection * vec4(cardWorld, 1.0);
+#ifdef OLO_VSM_FAMILY
+    gl_Position = vsmFamilyPosition(gl_Position);
+#endif
 
     // A plant the density LOD has thinned all the way out costs nothing past
     // here (issue #1237) — the same collapse idiom the flat-card and mesh

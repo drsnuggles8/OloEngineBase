@@ -7,6 +7,7 @@
 
 #include <glm/glm.hpp>
 #include <string>
+#include <optional>
 #include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
@@ -86,6 +87,9 @@ namespace OloEngine
         {
             return m_HeightRevision;
         }
+        // No range while GPU content awaits CPU sync; callers must cull conservatively.
+        [[nodiscard]] std::optional<glm::vec2> GetHeightRange() const;
+
         // ── The CPU/GPU height sync point (issue #716) ──
         //
         // Since the sculpt brush and hydraulic erosion became GPU-resident, the
@@ -120,6 +124,7 @@ namespace OloEngine
         void MarkGPUModified()
         {
             m_CPUMirrorStale = true;
+            ++m_HeightRevision; // GPU content changed immediately, before deferred CPU sync
         }
 
         // Pull the GPU heightmap back into the CPU mirror if it is stale. This is
@@ -164,9 +169,11 @@ namespace OloEngine
         // Mutable because SyncFromGPU() refreshes them from a const read
         // accessor — see the sync-point comment above.
         mutable TArray<f32> m_Heights; // Row-major CPU MIRROR of the heightmap, [0, 1]
-        // Bumped at the three points height CONTENT changes — see
+        // Bumped whenever CPU or GPU height CONTENT changes — see
         // GetHeightRevision(). Mutable because SyncFromGPU() is const.
         mutable u64 m_HeightRevision = 0;
+        mutable glm::vec2 m_CachedHeightRange{ 0.0f };
+        mutable u64 m_CachedHeightRevision = ~u64{ 0 };
         mutable bool m_CPUMirrorStale = false;
         Ref<Texture2D> m_GPUHeightmap; // R32F GPU texture — authoritative while authoring
     };

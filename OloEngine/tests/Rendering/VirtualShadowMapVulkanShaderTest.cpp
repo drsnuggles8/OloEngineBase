@@ -161,7 +161,10 @@ namespace OloEngine::Tests
                 const std::size_t bodyEnd =
                     (next == end) ? src.size() : static_cast<std::size_t>(next->position());
 
-                stages.push_back({ kind == "vertex" ? shaderc_glsl_vertex_shader : shaderc_glsl_fragment_shader,
+                const auto shaderKind = kind == "vertex" ? shaderc_glsl_vertex_shader : kind == "tess_control"  ? shaderc_glsl_tess_control_shader
+                                                                                    : kind == "tess_evaluation" ? shaderc_glsl_tess_evaluation_shader
+                                                                                                                : shaderc_glsl_fragment_shader;
+                stages.push_back({ shaderKind,
                                    src.substr(bodyStart, bodyEnd - bodyStart), name + " [" + kind + "]" });
             }
             return stages;
@@ -195,7 +198,7 @@ namespace OloEngine::Tests
                            .Message = module.GetErrorMessage() };
         }
 
-        constexpr std::array<std::string_view, 15> kVsmShaders{ {
+        constexpr std::array<std::string_view, 20> kVsmShaders{ {
             "VSM_Depth.glsl",
             "VSM_DepthSkinned.glsl",
             // The LOCAL-light rasters (issue #703). Their OLO_VULKAN branches are
@@ -210,6 +213,11 @@ namespace OloEngine::Tests
             // rather than a vertex stream, which on Vulkan is the branch that
             // decides whether virtual geometry casts a shadow at all.
             "VSM_VirtualMeshDepth.glsl",
+            "VSM_Terrain_Depth.glsl",
+            "VSM_Terrain_VoxelDepth.glsl",
+            "VSM_Terrain_VoxelGreedyDepth.glsl",
+            "VSM_Foliage_Depth.glsl",
+            "VSM_Foliage_Impostor_Depth.glsl",
             "compute/VSM_AllocatePages.comp",
             "compute/VSM_BuildHPB.comp",
             "compute/VSM_ClearDirtyPages.comp",
@@ -302,12 +310,12 @@ void main() {}
         }
 
         // The harness must have compiled EXACTLY the expected stage set: the TEN
-        // compute kernels are one stage each and the FIVE graphics shaders are two
+        // compute kernels are one stage each and the NINE ordinary graphics shaders are two
         // each (issue #703 added VSM_CullLocalCasters and the two local rasters;
         // issue #1149 added VSM_VirtualMeshDepth). A >= floor would let a broken
         // #type splitter silently drop a fragment stage — which is precisely the
         // stage carrying the y-flip this file exists to keep parsed.
-        constexpr u32 kExpectedStages = 10u + 5u * 2u;
+        constexpr u32 kExpectedStages = 10u + 9u * 2u + 4u; // terrain has VS/TCS/TES/FS
         EXPECT_EQ(stagesCompiled, kExpectedStages)
             << "compiled " << stagesCompiled << " stages from " << kVsmShaders.size()
             << " shaders (expected " << kExpectedStages
@@ -320,11 +328,11 @@ void main() {}
     // compiled, and the GL suite would stay green through it.
     TEST(VirtualShadowMapVulkanShaders, TheRasterStageStillCarriesItsSingleBackendFork)
     {
-        const std::string src = ReadWholeFile(ShaderRoot() / "include" / "VirtualShadowRasterStage.glsl");
+        const std::string src = ReadWholeFile(ShaderRoot() / "include" / "VirtualShadowRasterWrite.glsl");
         ASSERT_FALSE(src.empty());
 
         EXPECT_NE(src.find("#ifdef OLO_VULKAN"), std::string::npos)
-            << "VirtualShadowRasterStage.glsl no longer has an OLO_VULKAN branch. gl_FragCoord's origin "
+            << "VirtualShadowRasterWrite.glsl no longer has an OLO_VULKAN branch. gl_FragCoord's origin "
                "differs between the backends and the clip projection carries a y flip on Vulkan; without "
                "the compensation here the physical pool holds vertically mirrored pages on Vulkan only, "
                "and every consumer — the page lookup, the sampler, any golden — reads them silently wrong.";
@@ -341,11 +349,11 @@ void main() {}
     // — writing nothing at all, on Vulkan only.
     TEST(VirtualShadowMapVulkanShaders, TheLocalRasterStageFlipsAboutItsOwnMipResolution)
     {
-        const std::string src = ReadWholeFile(ShaderRoot() / "include" / "VirtualShadowLocalRasterStage.glsl");
+        const std::string src = ReadWholeFile(ShaderRoot() / "include" / "VirtualShadowLocalRasterWrite.glsl");
         ASSERT_FALSE(src.empty());
 
         EXPECT_NE(src.find("#ifdef OLO_VULKAN"), std::string::npos)
-            << "VirtualShadowLocalRasterStage.glsl no longer has an OLO_VULKAN branch";
+            << "VirtualShadowLocalRasterWrite.glsl no longer has an OLO_VULKAN branch";
         EXPECT_NE(src.find("(rasterRes - 1) - texel.y"), std::string::npos)
             << "the local y-flip compensation changed shape — if that is deliberate, update this test and "
                "say in the commit what the new composition is";

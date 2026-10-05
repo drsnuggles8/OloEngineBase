@@ -17,6 +17,7 @@
 #include <glm/glm.hpp>
 #include <array>
 #include <span>
+#include <functional>
 #include <string>
 #include "OloEngine/Containers/Array.h"
 
@@ -489,7 +490,11 @@ namespace OloEngine
         // ShadowRenderPass's RecordParallel region, where a buffer written by
         // two items is a hard Vulkan error. Every write happens earlier, in
         // DispatchShadowViewCulling.
-        void RenderShadows(const Ref<Shader>& depthShader, f32 time, u32 shadowViewIndex) const;
+        void RenderShadows(const Ref<Shader>& depthShader, f32 time, u32 shadowViewIndex,
+                           const Ref<Shader>& impostorDepthOverride = {},
+                           const std::function<void()>& afterProgramBind = {}) const;
+
+        [[nodiscard]] BoundingBox GetShadowBounds() const;
 
         // Cull ONE shadow view into its own slot. Call once per active view,
         // BEFORE the region's parallel recording starts; `shadowViewIndex` is

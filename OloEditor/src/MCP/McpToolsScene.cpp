@@ -7,6 +7,7 @@
 #include "MCP/McpSchedulerGraph.h"
 #include "MCP/McpSelectEntity.h"
 #include "MCP/McpStreamingStats.h"
+#include "MCP/McpVoxelImport.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/ReflectionProbeBaker.h"
@@ -17,6 +18,7 @@
 #include "OloEngine/Scene/SystemScheduler.h"
 
 #include <algorithm>
+#include <fstream>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -253,6 +255,58 @@ namespace OloEngine::MCP
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Structured(result);
+        }
+
+        ToolResult Handle_TerrainVoxelLoad(IAutomationHost& host, const Json& args)
+        {
+            u64 uuid = 0;
+            if (!args.contains("entity") || !ParseUuid(args["entity"], uuid) ||
+                !args.contains("path") || !args["path"].is_string())
+                return ToolResult::Error("Expected entity UUID and VOX1 file path.");
+            std::ifstream file(args["path"].get<std::string>(), std::ios::binary | std::ios::ate);
+            if (!file)
+                return ToolResult::Error("Cannot open voxel override file.");
+            const auto length = file.tellg();
+            if (length < 12 || length > 64 * 1024 * 1024)
+                return ToolResult::Error("VOX1 import requires a file between 12 bytes and 64 MiB.");
+            TArray<u8> bytes;
+            bytes.SetNum(static_cast<sizet>(length));
+            file.seekg(0);
+            if (!file.read(reinterpret_cast<char*>(bytes.GetData()), static_cast<std::streamsize>(bytes.Num())))
+                return ToolResult::Error("Cannot read complete voxel override file.");
+            if (!VoxelImportWithinBudget({ bytes.GetData(), static_cast<sizet>(bytes.Num()) }))
+                return ToolResult::Error("VOX1 import exceeds the decoded budget of 1024 chunks (160 MiB).");
+            const Json result = host.MarshalRead([&host, uuid, bytes = std::move(bytes)]() -> Json
+                                                 {
+                const auto scene = host.Context().GetActiveScene ? host.Context().GetActiveScene() : nullptr;
+                if (!scene)
+                    return {{"error", "No active scene."}};
+                const Entity entity = scene->GetEntityByUUID(UUID(uuid));
+                if (!entity || !entity.HasComponent<TerrainComponent>())
+                    return {{"error", "Target has no terrain component."}};
+                const auto& terrain = entity.GetComponent<TerrainComponent>();
+                if (!terrain.m_VoxelEnabled)
+                    return {{"error", "Enable the terrain voxel mesher before importing."}};
+                const bool playing = host.Context().IsPlaying && host.Context().IsPlaying();
+                auto* history = host.Context().GetCommandHistory ? host.Context().GetCommandHistory() : nullptr;
+                if (!playing && !history)
+                    return {{"error", "No editor command history available."}};
+                auto volume = Ref<VoxelOverride>::Create();
+                volume->Initialize(terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale, terrain.m_VoxelSize);
+                if (!volume->DeserializeRLE(bytes))
+                    return {{"error", "Invalid or unsupported VOX1 data; existing volume preserved."}};
+                const auto chunks = volume->GetChunkCount();
+                if (chunks == 0 && terrain.m_VoxelMesher == VoxelMesherKind::GreedyCubic)
+                    return {{"error", "Empty greedy volumes are unsupported: the mesher auto-seeds empty terrain from its heightmap."}};
+                auto command = std::make_unique<VoxelImportCommand>(scene, UUID(uuid), std::move(volume));
+                if (playing)
+                    command->Execute();
+                else
+                    history->Execute(std::move(command));
+                return {{"entity", std::to_string(uuid)}, {"chunks", chunks}, {"undoable", !playing}, {"scenePersisted", false}}; });
+            if (result.contains("error"))
+                return ToolResult::Error(result["error"].get<std::string>());
             return ToolResult::Structured(result);
         }
 
@@ -832,6 +886,25 @@ namespace OloEngine::MCP
                                     .Required({ "entity", "component", "field", "type", "previousValue", "value", "changed", "undoable", "clamped" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_EntitySetField;
+            registry.Register(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_terrain_voxel_load";
+            tool.Undo = Automation::AutomationUndo::EditorUndoStack;
+            tool.Toolset = "scene";
+            tool.Title = "Import voxel override";
+            tool.ProjectWrite = true;
+            tool.Annotations = MutatingAnnotations(false);
+            tool.Description = "Replace an enabled terrain's voxel override from an existing VOX1 file. Uses the real decoder and mesher, is undoable in Edit mode, and rejects invalid data without changing the volume. This authored resource is in memory: scene YAML does not currently persist voxel override data.";
+            tool.InputSchema = Schema::Object()
+                                   .Prop("entity", Schema::EntityId())
+                                   .Prop("path", Schema::String().Desc("VOX1 file path, absolute or relative to the editor working directory."))
+                                   .Required({ "entity", "path" })
+                                   .NoAdditional();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_TerrainVoxelLoad;
             registry.Register(std::move(tool));
         }
 

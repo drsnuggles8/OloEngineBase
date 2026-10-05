@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Renderer/Shadow/ShadowCasterFootprint.h"
+
 #include "OloEngine/Containers/Array.h"
 
 #include "OloEngine/Core/Base.h"
@@ -9,11 +11,13 @@
 #include "OloEngine/Renderer/Instancing/InstanceBuffer.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
+#include "OloEngine/Renderer/Shadow/ShadowFamilyCache.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualGeometryShadow.h"
 
 #include <functional>
+#include <array>
 #include <glm/glm.hpp>
 #include <span>
 #include <unordered_map>
@@ -83,6 +87,9 @@ namespace OloEngine
         glm::mat4 transform = glm::mat4(1.0f);
         RHI::ResourceHandle heightmapTextureID{};
         ShaderBindingLayout::TerrainUBO terrainUBO{};
+        BoundingBox WorldBounds = NoBounds;
+        u64 Revision = 0;
+        u64 Key = 0;
     };
 
     struct ShadowVoxelCaster
@@ -95,6 +102,9 @@ namespace OloEngine
         // why the two paths carry different depth shaders rather than sharing.
         u32 instanceCount = 0;
         glm::mat4 transform = glm::mat4(1.0f);
+        BoundingBox WorldBounds = NoBounds;
+        u64 Revision = 0;
+        u64 Key = 0;
     };
 
     struct GroomCasterRun;
@@ -270,9 +280,10 @@ namespace OloEngine
                               u32 boneBufferOffset, u32 boneCount, const BoundingBox& worldBounds = NoBounds);
         void AddTerrainCaster(RHI::ResourceHandle vaoID, u32 indexCount, u32 patchVertexCount,
                               const glm::mat4& transform, RHI::ResourceHandle heightmapTextureID,
-                              const ShaderBindingLayout::TerrainUBO& terrainUBO);
+                              const ShaderBindingLayout::TerrainUBO& terrainUBO,
+                              const ShadowCasterFootprint& footprint = {});
         void AddVoxelCaster(RHI::ResourceHandle vaoID, u32 indexCount, const glm::mat4& transform,
-                            u32 instanceCount = 0);
+                            u32 instanceCount = 0, const ShadowCasterFootprint& footprint = {});
         void AddFoliageCaster(FoliageRenderer* renderer, const Ref<Shader>& depthShader, f32 time);
 
       private:
@@ -369,6 +380,8 @@ namespace OloEngine
             Ref<Shader> Voxel;     // Renderer3D::GetVoxelDepthShader()
             Ref<Shader> VoxelQuad; // Renderer3D::GetVoxelGreedyDepthShader()
             Ref<Shader> Terrain;
+            Ref<Shader> Foliage;
+            Ref<Shader> FoliageImpostor;
             Ref<Shader> Groom; // "GroomStrandDepth" — null when no groom casts
         };
 
@@ -441,7 +454,19 @@ namespace OloEngine
                                  ItemProfilerTally* tally, VirtualGeometryShadow::ViewResources* virtualResources,
                                  // This view's item index in the region, so the foliage draw can pick the
                                  // cull slot RecordShadowRegion filled for it (issue #1235).
-                                 u32 shadowViewIndex) const;
+                                 u32 shadowViewIndex, VirtualShadowMap* familyVsm = nullptr) const;
+
+        void SubmitFamilyDynamicInvalidations(VirtualShadowMap& vsm);
+        u32 RenderFamilyVirtualViews(VirtualShadowMap& vsm, bool local);
+        std::array<ShadowFamilyCache, 3> m_FamilyCaches;
+        struct FamilyViewParams
+        {
+            glm::ivec4 View{ 0 }; // domain, level/layer, unbounded
+            glm::vec4 BoundsMin{ 0.0f };
+            glm::vec4 BoundsMax{ 0.0f };
+        };
+        Ref<UniformBuffer> m_FamilyViewUBO;
+        ShadowCasterShaders m_FamilyVsmShaders;
 
         // Grow the per-item pool to `count` entries. Render thread, before the
         // fork: rule 7 refuses resource creation on an item context.

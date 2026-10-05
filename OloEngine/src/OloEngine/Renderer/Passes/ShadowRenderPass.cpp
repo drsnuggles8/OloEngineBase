@@ -128,6 +128,12 @@ namespace OloEngine
         // The cascade region forks, which is the only reason that one is a
         // per-item pool.
         m_GroomVsmDepthShader = Shader::Create("assets/shaders/VSM_GroomDepth.glsl");
+        m_FamilyViewUBO = UniformBuffer::Create(sizeof(FamilyViewParams), ShaderBindingLayout::UBO_USER_0);
+        m_FamilyVsmShaders.Terrain = Shader::Create("assets/shaders/VSM_Terrain_Depth.glsl");
+        m_FamilyVsmShaders.Voxel = Shader::Create("assets/shaders/VSM_Terrain_VoxelDepth.glsl");
+        m_FamilyVsmShaders.VoxelQuad = Shader::Create("assets/shaders/VSM_Terrain_VoxelGreedyDepth.glsl");
+        m_FamilyVsmShaders.Foliage = Shader::Create("assets/shaders/VSM_Foliage_Depth.glsl");
+        m_FamilyVsmShaders.FoliageImpostor = Shader::Create("assets/shaders/VSM_Foliage_Impostor_Depth.glsl");
         m_GroomVsmParamsUBO = UniformBuffer::Create(UBOStructures::GroomShadowParamsUBO::GetSize(),
                                                     ShaderBindingLayout::UBO_USER_0);
     }
@@ -190,7 +196,10 @@ namespace OloEngine
                                 !m_FoliageCasters.IsEmpty() || !m_GroomCasters.IsEmpty() ||
                                 AnyVirtualShadowCaster();
 
-        if (!m_ShadowMap || !m_ShadowMap->IsEnabled() || !shadowsRequested || !hasCasters)
+        const bool retireFamilyPages = m_ShadowMap && m_ShadowMap->IsVirtualShadowMapActive() &&
+                                       std::ranges::any_of(m_FamilyCaches, [](const ShadowFamilyCache& cache)
+                                                           { return cache.HasPreviousCasters(); });
+        if (!m_ShadowMap || !m_ShadowMap->IsEnabled() || !shadowsRequested || (!hasCasters && !retireFamilyPages))
         {
             // Only warn about the genuinely suspicious case: shadows enabled AND
             // requested by a light, yet nothing was submitted to cast them.
@@ -267,13 +276,9 @@ namespace OloEngine
         {
             // Clear the CSM cascades anyway, before doing any VSM work.
             //
-            // Not defensive tidying: VSM covers static and skinned MESH casters,
-            // so terrain and voxel surfaces still sample the CSM path — and with
-            // VSM on, nothing renders into those cascades. Left uncleared they
-            // hold whatever the texture last contained, and terrain then reads a
-            // garbage occluder depth that crawls as the camera moves. Clearing to
-            // far makes those surfaces read FULLY LIT instead, which is the
-            // documented limitation rather than a new artefact.
+            // VSM receivers use the physical pool. Clear unused CSM depth so
+            // consumers that explicitly request legacy cascades see defined far
+            // depth while VSM owns the directional light.
             //
             // Done here, while m_ShadowFramebuffer is still the bound target: the
             // VSM raster binds a framebuffer of its own.
@@ -315,6 +320,7 @@ namespace OloEngine
             // Grooms too (#1523), and unconditionally for the same departure
             // reason: m_GroomCasters was collected at the top of Execute.
             SubmitGroomDynamicInvalidations(vsm);
+            SubmitFamilyDynamicInvalidations(vsm);
             vsm.UpdatePages();
 
             const bool vsmVirtualCasters =
@@ -359,9 +365,12 @@ namespace OloEngine
             const bool groomLevelsToDraw = !m_GroomCasters.IsEmpty() && m_GroomVsmDepthShader &&
                                            m_GroomVsmDepthShader->IsReady() && m_GroomVsmParamsUBO;
             VirtualShadowMap::ExternalCasterRenderer renderVirtualCasters;
-            if (virtualLevelsToDraw || groomLevelsToDraw)
+            const bool familyViewsToDraw = !m_TerrainCasters.IsEmpty() || !m_VoxelCasters.IsEmpty() || !m_FoliageCasters.IsEmpty();
+            if (familyViewsToDraw)
+                EnsureItemResources(1, 64);
+            if (virtualLevelsToDraw || groomLevelsToDraw || familyViewsToDraw)
             {
-                renderVirtualCasters = [this, &vsm, virtualLevelsToDraw, groomLevelsToDraw]()
+                renderVirtualCasters = [this, &vsm, virtualLevelsToDraw, groomLevelsToDraw, familyViewsToDraw]()
                 {
                     u32 drawn = 0;
                     if (virtualLevelsToDraw)
@@ -375,12 +384,16 @@ namespace OloEngine
                     {
                         drawn += RenderGroomVirtualShadowLevels(vsm);
                     }
+                    if (familyViewsToDraw)
+                        drawn += RenderFamilyVirtualViews(vsm, false);
                     return drawn;
                 };
             }
 
             vsm.RenderCasters({ m_MeshCasters.GetData(), static_cast<sizet>(m_MeshCasters.Num()) }, { m_SkinnedCasters.GetData(), static_cast<sizet>(m_SkinnedCasters.Num()) }, Renderer3D::GetRenderOrigin(), uploadBones,
-                              renderVirtualCasters);
+                              renderVirtualCasters, familyViewsToDraw ? VirtualShadowMap::ExternalCasterRenderer([this, &vsm]()
+                                                                                                                 { return RenderFamilyVirtualViews(vsm, true); })
+                                                                      : VirtualShadowMap::ExternalCasterRenderer{});
             vsm.EndFrame();
 
             // RenderCasters binds a framebuffer of its own (the virtual-resolution
@@ -891,7 +904,7 @@ namespace OloEngine
                                                const Frustum* cullFrustum,
                                                const ShadowCasterShaders& shaders, ItemResources& resources,
                                                ItemProfilerTally* tally, VirtualGeometryShadow::ViewResources* virtualResources,
-                                               u32 shadowViewIndex) const
+                                               u32 shadowViewIndex, VirtualShadowMap* familyVsm) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -1127,6 +1140,8 @@ namespace OloEngine
 
             for (const auto& caster : m_VoxelCasters)
             {
+                if (cullFrustum && ShouldCull(caster.WorldBounds, *cullFrustum))
+                    continue;
                 const Ref<Shader>& depthShader = (caster.instanceCount > 0) ? voxelQuadDepthShader : voxelDepthShader;
                 if (!depthShader)
                 {
@@ -1135,6 +1150,8 @@ namespace OloEngine
                 if (depthShader.get() != boundDepthShader)
                 {
                     depthShader->Bind();
+                    if (familyVsm)
+                        familyVsm->BindPhysicalPoolImage();
                     boundDepthShader = depthShader.get();
                 }
 
@@ -1189,10 +1206,14 @@ namespace OloEngine
             if (terrainDepthShader)
             {
                 terrainDepthShader->Bind();
+                if (familyVsm)
+                    familyVsm->BindPhysicalPoolImage();
                 auto terrainUBO = Renderer3D::GetTerrainUBO();
 
                 for (const auto& caster : m_TerrainCasters)
                 {
+                    if (cullFrustum && ShouldCull(caster.WorldBounds, *cullFrustum))
+                        continue;
                     uploadShadowModelUBO(caster.transform);
 
                     if (caster.heightmapTextureID.IsValid())
@@ -1234,10 +1255,14 @@ namespace OloEngine
         {
             if (drawOpaque && caster.renderer && caster.depthShader)
             {
-                caster.depthShader->Bind();
+                const auto& foliageShader = shaders.Foliage ? shaders.Foliage : caster.depthShader;
+                foliageShader->Bind();
                 // Draws from the slot RecordShadowRegion culled for THIS item.
                 // Read-only — see FoliageRenderer::RenderShadows.
-                caster.renderer->RenderShadows(caster.depthShader, caster.time, shadowViewIndex);
+                caster.renderer->RenderShadows(foliageShader, caster.time, shadowViewIndex, shaders.FoliageImpostor,
+                                               familyVsm ? std::function<void()>([familyVsm]()
+                                                                                 { familyVsm->BindPhysicalPoolImage(); })
+                                                         : std::function<void()>{});
             }
         }
         if (foliageTimers)
@@ -1253,11 +1278,13 @@ namespace OloEngine
         // VPs, but the DAG cut is watertight at any threshold, so shadows stay
         // crack-free; a distance-accurate perspective error scale is a refinement.
         auto& shadowMap = Renderer3D::GetShadowMap();
-        u32 const shadowViewResolution = (type == ShadowPassType::CSM)
-                                             ? shadowMap.GetResolution()
-                                             : shadowMap.GetAtlasEntryRect(layerOrLight).Size;
         if (drawOpaque && virtualResources)
+        {
+            u32 const shadowViewResolution = (type == ShadowPassType::CSM)
+                                                 ? shadowMap.GetResolution()
+                                                 : shadowMap.GetAtlasEntryRect(layerOrLight).Size;
             VirtualGeometryShadow::RenderCascade(lightVPRel, shadowViewResolution, *virtualResources);
+        }
     }
 
     f32 ShadowRenderPass::WidestShadowTexelMetres() const
@@ -1955,17 +1982,147 @@ namespace OloEngine
         m_SkinnedCasters.Add({ vaoID, indexCount, baseIndex, transform, boneBufferOffset, boneCount, worldBounds });
     }
 
+    void ShadowRenderPass::SubmitFamilyDynamicInvalidations(VirtualShadowMap& vsm)
+    {
+        const auto key = [](const auto& caster)
+        {
+            if (caster.Key != 0)
+                return caster.Key;
+            u64 value = (static_cast<u64>(caster.vaoID.Generation) << 32) | caster.vaoID.Index;
+            const auto* bytes = reinterpret_cast<const u8*>(&caster.transform);
+            for (sizet i = 0; i < sizeof(caster.transform); ++i)
+                value = (value ^ bytes[i]) * 1099511628211ull;
+            return value;
+        };
+        const auto invalidate = [&vsm](const BoundingBox& bounds)
+        {
+            const glm::vec3 origin = Renderer3D::GetRenderOrigin();
+            if (bounds.Min.x < std::numeric_limits<f32>::max())
+                vsm.AddDynamicInvalidation(bounds.Min - origin, bounds.Max - origin);
+            else
+                // Legacy external submissions can omit a box. Include every
+                // page conservatively rather than retain an unknown silhouette.
+                vsm.AddDynamicInvalidation(glm::vec3(-1e20f), glm::vec3(1e20f));
+        };
+        TArray64<ShadowFamilyFootprint> footprints;
+        for (const auto& caster : m_TerrainCasters)
+        {
+            // Tessellation/morph and authored height-content revisions both
+            // change the silhouette without moving the model matrix.
+            u64 revision = caster.Revision ^ (static_cast<u64>(caster.heightmapTextureID.Generation) << 32) ^ caster.heightmapTextureID.Index;
+            const auto* bytes = reinterpret_cast<const u8*>(&caster.terrainUBO);
+            for (sizet i = 0; i < sizeof(caster.terrainUBO); ++i)
+                revision = (revision ^ bytes[i]) * 1099511628211ull;
+            footprints.Add({ key(caster), caster.WorldBounds, caster.transform, revision,
+                             Renderer3D::GetSnowAccumulationSettings().Enabled || caster.WorldBounds.Min.x >= std::numeric_limits<f32>::max() });
+        }
+        m_FamilyCaches[0].Update({ footprints.GetData(), static_cast<sizet>(footprints.Num()) }, invalidate);
+        footprints.Reset();
+        for (const auto& caster : m_VoxelCasters)
+        {
+            footprints.Add({ key(caster), caster.WorldBounds, caster.transform, caster.Revision ^ caster.indexCount,
+                             (caster.instanceCount > 0 && caster.Revision == 0) || caster.WorldBounds.Min.x >= std::numeric_limits<f32>::max() });
+        }
+        m_FamilyCaches[1].Update({ footprints.GetData(), static_cast<sizet>(footprints.Num()) }, invalidate);
+        footprints.Reset();
+        for (const auto& caster : m_FoliageCasters)
+        {
+            if (!caster.renderer)
+                continue;
+            const auto bounds = caster.renderer->GetShadowBounds();
+            if (bounds.Min.x >= std::numeric_limits<f32>::max())
+                continue;
+            // Wind, interactions, card facing and density/mesh LOD depend on
+            // time and the main eye even when the terrain itself is stationary.
+            footprints.Add({ static_cast<u64>(reinterpret_cast<uintptr_t>(caster.renderer)), bounds,
+                             glm::mat4(1.0f), caster.renderer->GetInstanceRegistry().GetGeneration(), true });
+        }
+        m_FamilyCaches[2].Update({ footprints.GetData(), static_cast<sizet>(footprints.Num()) }, invalidate);
+    }
+
+    u32 ShadowRenderPass::RenderFamilyVirtualViews(VirtualShadowMap& vsm, bool local)
+    {
+        const glm::vec3 origin = Renderer3D::GetRenderOrigin();
+        const glm::mat4 toWorld = glm::translate(glm::mat4(1.0f), -origin);
+        const u32 count = local ? vsm.GetLocalLayerCount() : VSM::kClipLevels;
+        BoundingBox bounds = NoBounds;
+        bool unbounded = false;
+        const auto include = [&](const BoundingBox& box)
+        {
+            if (box.Min.x >= std::numeric_limits<f32>::max())
+                unbounded = true;
+            else
+                bounds = bounds.Min.x >= std::numeric_limits<f32>::max() ? box : bounds.Union(box);
+        };
+        for (const auto& caster : m_TerrainCasters)
+            include(caster.WorldBounds);
+        for (const auto& caster : m_VoxelCasters)
+            include(caster.WorldBounds);
+        for (const auto& caster : m_FoliageCasters)
+        {
+            if (caster.renderer)
+            {
+                const auto foliageBounds = caster.renderer->GetShadowBounds();
+                if (foliageBounds.Min.x < std::numeric_limits<f32>::max())
+                    include(foliageBounds);
+            }
+        }
+        if (!unbounded && bounds.Min.x >= std::numeric_limits<f32>::max())
+            return 0;
+        u32 drawn = 0;
+        for (u32 view = 0; view < count; ++view)
+        {
+            glm::mat4 vp;
+            if (local)
+            {
+                const auto& layer = vsm.GetLocalLayer(view);
+                if (layer.Params.w < 0.5f)
+                    continue;
+                vp = layer.ViewProjection;
+            }
+            else
+                vp = vsm.GetClipProjections()[view].ViewProjection;
+            const glm::mat4 worldVP = vp * toWorld;
+            const Frustum frustum(worldVP);
+            if (!unbounded && ShouldCull(bounds, frustum))
+                continue;
+            FamilyViewParams params;
+            params.View = glm::ivec4(local ? 1 : 0, static_cast<i32>(view), unbounded ? 1 : 0, 0);
+            params.BoundsMin = glm::vec4(bounds.Min - origin, 0.0f);
+            params.BoundsMax = glm::vec4(bounds.Max - origin, 0.0f);
+            m_FamilyViewUBO->SetData(&params, sizeof(params));
+            m_FamilyViewUBO->Bind();
+            for (const auto& caster : m_FoliageCasters)
+            {
+                if (!caster.renderer)
+                    continue;
+                caster.renderer->ResetShadowViewCulling();
+                caster.renderer->DispatchShadowViewCulling(0, caster.renderer->MakeCullInputs(worldVP, CommandDispatch::GetViewPosition()));
+            }
+            RenderCascadeOrFace(worldVP, local ? ShadowPassType::Atlas : ShadowPassType::CSM, view, &frustum,
+                                m_FamilyVsmShaders, m_ItemResources[0], nullptr, nullptr, 0, &vsm);
+            // The next view rewrites the foliage compacted streams and draw
+            // args the previous draw reads. Views are sequential, with explicit
+            // GPU ordering as well as command-ordered UBO uploads.
+            RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::Command |
+                                         MemoryBarrierFlags::VertexAttribArray);
+            ++drawn;
+        }
+        return drawn;
+    }
+
     void ShadowRenderPass::AddTerrainCaster(RHI::ResourceHandle vaoID, u32 indexCount, u32 patchVertexCount,
                                             const glm::mat4& transform, RHI::ResourceHandle heightmapTextureID,
-                                            const ShaderBindingLayout::TerrainUBO& terrainUBO)
+                                            const ShaderBindingLayout::TerrainUBO& terrainUBO,
+                                            const ShadowCasterFootprint& footprint)
     {
-        m_TerrainCasters.Add({ vaoID, indexCount, patchVertexCount, transform, heightmapTextureID, terrainUBO });
+        m_TerrainCasters.Add({ vaoID, indexCount, patchVertexCount, transform, heightmapTextureID, terrainUBO, footprint.Bounds, footprint.Revision, footprint.Key });
     }
 
     void ShadowRenderPass::AddVoxelCaster(RHI::ResourceHandle vaoID, u32 indexCount, const glm::mat4& transform,
-                                          u32 instanceCount)
+                                          u32 instanceCount, const ShadowCasterFootprint& footprint)
     {
-        m_VoxelCasters.Add({ vaoID, indexCount, instanceCount, transform });
+        m_VoxelCasters.Add({ vaoID, indexCount, instanceCount, transform, footprint.Bounds, footprint.Revision, footprint.Key });
     }
 
     void ShadowRenderPass::AddFoliageCaster(FoliageRenderer* renderer, const Ref<Shader>& depthShader, f32 time)

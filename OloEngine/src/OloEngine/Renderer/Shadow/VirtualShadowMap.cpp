@@ -1222,16 +1222,17 @@ namespace OloEngine
         // sites, and this is the sanctioned spelling).
         //
         // MUST BE CALLED WITH THE CONSUMING SHADER ALREADY BOUND.
-        // BindImageOrOffset forks on Shader::IsBoundProgramBindless() — the
-        // program currently in flight — and every VSM shader declares the pool
-        // slot-based (`layout(r32ui, binding = 0) uniform coherent uimage2D`). So
-        // the fork must be allowed to see a VSM program, take the fallback, and
-        // issue a real bind. Called with some other program bound it would ask
-        // about that one instead, and a bindless answer would stage an offset and
-        // bind NOTHING — every imageAtomicMin in the pass silently discarded, with
-        // the pool left full of the far sentinel and the frame simply unshadowed.
+        // Bindless raster programs consume a heap image on GL; unconverted
+        // programs and other backends consume image unit 0. The shared physical-image include
+        // declares the matching route, so this publishes the offset or binds
+        // the real image according to that consuming program.
         HeapBinding::BindImageOrOffset(0, m_PhysicalPool, 0, false, 0, RHI::Access::StorageReadWrite,
                                        RHI::Format::R32UInt, RHI::HeapSlotLifetime::Persistent);
+        // Mesh/skinned/VG consumers issue raw draws, without CommandDispatch's
+        // offset flush. Publish before those draws as well as family draws.
+        // Slot-based Vulkan recording must not allocate a heap UBO in a fork.
+        if (Shader::IsBoundProgramBindless())
+            HeapBinding::FlushOffsets();
     }
 
     void VirtualShadowMap::DispatchKernel(const Ref<ComputeShader>& shader, u32 threadCount, u32 groupSize) const
@@ -1397,7 +1398,8 @@ namespace OloEngine
                                          std::span<const ShadowSkinnedCaster> skinnedCasters,
                                          const glm::vec3& renderOrigin,
                                          const BoneUploader& uploadBones,
-                                         const ExternalCasterRenderer& renderExternalCasters)
+                                         const ExternalCasterRenderer& renderExternalCasters,
+                                         const ExternalCasterRenderer& renderExternalLocalCasters)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -1408,7 +1410,7 @@ namespace OloEngine
         // whose only shadow casters were virtualized simply returned here, which
         // is the same shape of silent hole ShadowRenderPass's CSM cascade gate
         // had for exactly the same reason.
-        const bool haveExternal = static_cast<bool>(renderExternalCasters);
+        const bool haveExternal = static_cast<bool>(renderExternalCasters) || static_cast<bool>(renderExternalLocalCasters);
         if (meshCasters.empty() && skinnedCasters.empty() && !haveExternal)
             return false;
 
@@ -1707,7 +1709,7 @@ namespace OloEngine
         // BEFORE the local-light block below, which changes the viewport to the
         // LOCAL virtual resolution — a route that projects into the clip levels
         // must run while the viewport still is the clip levels'.
-        if (haveExternal)
+        if (renderExternalCasters)
             drawnBatches += renderExternalCasters();
 
         // ---- Local-light raster (issue #703) ---------------------------------
@@ -1719,6 +1721,11 @@ namespace OloEngine
         {
             RenderCommand::SetViewport(0, 0, VSM::kLocalVirtualResolution, VSM::kLocalVirtualResolution);
             drawnBatches += RenderLocalCasters(skinnedCasters, renderOrigin, m_LocalInstanceBase, uploadBones);
+        }
+        if (localActive && renderExternalLocalCasters)
+        {
+            RenderCommand::SetViewport(0, 0, VSM::kLocalVirtualResolution, VSM::kLocalVirtualResolution);
+            drawnBatches += renderExternalLocalCasters();
         }
 
         // Restore. The physical pool is read by the lit pass as a texture, so the

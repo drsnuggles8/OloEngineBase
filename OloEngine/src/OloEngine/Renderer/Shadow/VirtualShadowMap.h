@@ -382,14 +382,11 @@ namespace OloEngine
     // rest of the shadow configuration.
     struct VirtualShadowMapSettings
     {
-        // Off by default: VSM covers static + skinned MESH casters, and since
-        // issue #1149 VIRTUALIZED-GEOMETRY casters too — the last go in through
-        // ExternalCasterRenderer, one cull + replay per clip level, gated on the
-        // dirty-page pyramid. Terrain, foliage and voxel casters have only CSM
-        // and atlas routes, so a scene that relies on THOSE must keep VSM off
-        // (#1524). Turning this on replaces the directional CSM; with
-        // LocalLights on (the default) it also replaces the local-light atlas,
-        // which is then not rendered at all.
+        // Opt-in. Static/skinned meshes, terrain, both voxel geometry forms,
+        // and foliage have directional and local-layer routes. Virtual geometry
+        // and grooms use the external directional-caster seam.
+        // Turning this on replaces directional CSM; LocalLights additionally
+        // replaces the local-light atlas.
         //
         // Virtual geometry reaches the CLIP LEVELS only, not the local-light
         // LAYERS below: a layer is a perspective projection with a per-texel mip,
@@ -733,7 +730,13 @@ namespace OloEngine
                            std::span<const ShadowSkinnedCaster> skinnedCasters,
                            const glm::vec3& renderOrigin,
                            const BoneUploader& uploadBones,
-                           const ExternalCasterRenderer& renderExternalCasters = {});
+                           const ExternalCasterRenderer& renderExternalCasters = {},
+                           const ExternalCasterRenderer& renderExternalLocalCasters = {});
+
+        [[nodiscard]] const VSM::LocalLight& GetLocalLayer(u32 layer) const
+        {
+            return m_LocalLayers.at(layer);
+        }
 
         // This frame's clip projections, for an external caster route that has to
         // project into the same levels (issue #1149). Valid after BeginFrame().

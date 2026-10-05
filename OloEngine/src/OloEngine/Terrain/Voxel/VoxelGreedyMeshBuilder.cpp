@@ -275,5 +275,6 @@ namespace OloEngine
 
         mesh.InstanceVBO->SetData({ quads.GetData(), dataSize });
         mesh.QuadCount = quadCount;
+        ++mesh.GeometryRevision;
     }
 } // namespace OloEngine

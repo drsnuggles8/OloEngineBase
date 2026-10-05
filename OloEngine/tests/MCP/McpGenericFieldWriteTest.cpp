@@ -26,6 +26,7 @@
 // =============================================================================
 
 #include "MCP/McpGenericFieldWrite.h"
+#include "MCP/McpVoxelImport.h"
 #include "MCP/McpServer.h"
 #include "UndoRedo/EditorCommand.h"
 
@@ -38,6 +39,7 @@
 #include <algorithm>
 #include <limits>
 #include <optional>
+
 #include <string>
 
 // OLO_TEST_LAYER: unit
@@ -832,4 +834,46 @@ TEST(McpGenericFieldWriteSchema, DeclaresRequiredFieldsAndValueUnion)
     ASSERT_TRUE(valueType.is_array());
     for (const char* t : { "boolean", "number", "string", "array" })
         EXPECT_NE(std::find(valueType.begin(), valueType.end(), t), valueType.end()) << "value type union should contain " << t;
+}
+
+TEST(McpVoxelImport, UndoRestoresTheOriginalVolumeAndRebuildsItsMeshes)
+{
+    using namespace OloEngine;
+    auto scene = Scene::Create();
+    auto entity = scene->CreateEntity("Voxel import");
+    auto& terrain = entity.AddComponent<TerrainComponent>();
+    terrain.m_VoxelEnabled = true;
+    terrain.m_VoxelOverride = Ref<VoxelOverride>::Create();
+    terrain.m_VoxelOverride->Initialize(4, 4, 8, 0.25f);
+    terrain.m_VoxelOverride->AddSphere({ 2, 2, 2 }, 1.0f);
+    terrain.m_VoxelAutoSeeded = true;
+    auto original = terrain.m_VoxelOverride;
+    for (auto& entry : original->GetChunks())
+        entry.second.Dirty = false;
+    auto replacement = Ref<VoxelOverride>::Create();
+    replacement->Initialize(4, 4, 8, 0.25f);
+    replacement->AddSphere({ 2, 5, 2 }, 1.8f);
+    CommandHistory history;
+    history.Execute(std::make_unique<MCP::VoxelImportCommand>(scene, entity.GetUUID(), replacement));
+    EXPECT_EQ(terrain.m_VoxelOverride, replacement);
+    EXPECT_FALSE(terrain.m_VoxelAutoSeeded);
+    history.Undo();
+    EXPECT_EQ(terrain.m_VoxelOverride, original);
+    EXPECT_TRUE(terrain.m_VoxelAutoSeeded);
+    for (const auto& entry : original->GetChunks())
+        EXPECT_TRUE(entry.second.Dirty) << "a restored volume must regenerate discarded marching-cubes meshes";
+    history.Redo();
+    EXPECT_EQ(terrain.m_VoxelOverride, replacement);
+    EXPECT_FALSE(terrain.m_VoxelAutoSeeded);
+}
+
+TEST(McpVoxelImport, RejectsCompressedVolumesExceedingTheDecodedBudget)
+{
+    OloEngine::TArray<u8> header;
+    header.SetNumZeroed(12);
+    header[9] = 4; // 1024 chunks, including optional materials: at most 160 MiB
+    EXPECT_TRUE(OloEngine::MCP::VoxelImportWithinBudget({ header.GetData(), static_cast<sizet>(header.Num()) }));
+    header[8] = 1; // 1025 chunks, regardless of the small encoded file size
+    EXPECT_FALSE(OloEngine::MCP::VoxelImportWithinBudget({ header.GetData(), static_cast<sizet>(header.Num()) }));
+    EXPECT_FALSE(OloEngine::MCP::VoxelImportWithinBudget({}));
 }

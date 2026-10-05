@@ -43,7 +43,8 @@ namespace OloEngine
 
     void Renderer3D::AddTerrainShadowCaster(RHI::ResourceHandle vaoID, u32 indexCount, u32 patchVertexCount,
                                             const glm::mat4& transform, RHI::ResourceHandle heightmapTextureID,
-                                            const ShaderBindingLayout::TerrainUBO& terrainUBO)
+                                            const ShaderBindingLayout::TerrainUBO& terrainUBO,
+                                            const ShadowCasterFootprint& footprint)
     {
         if (auto shadowPass = s_Data.Pipeline->FrameCorePasses.Shadow; shadowPass)
         {
@@ -54,16 +55,16 @@ namespace OloEngine
             // block it shares with the lit shaders (issue #715).
             ShaderBindingLayout::TerrainUBO depthUBO = terrainUBO;
             depthUBO.VTParams2 = glm::vec4(0.0f);
-            shadowPass->AddTerrainCaster(vaoID, indexCount, patchVertexCount, transform, heightmapTextureID, depthUBO);
+            shadowPass->AddTerrainCaster(vaoID, indexCount, patchVertexCount, transform, heightmapTextureID, depthUBO, footprint);
         }
     }
 
     void Renderer3D::AddVoxelShadowCaster(RHI::ResourceHandle vaoID, u32 indexCount, const glm::mat4& transform,
-                                          u32 instanceCount)
+                                          u32 instanceCount, const ShadowCasterFootprint& footprint)
     {
         if (auto shadowPass = s_Data.Pipeline->FrameCorePasses.Shadow; shadowPass)
         {
-            shadowPass->AddVoxelCaster(vaoID, indexCount, transform, instanceCount);
+            shadowPass->AddVoxelCaster(vaoID, indexCount, transform, instanceCount, footprint);
         }
     }
 

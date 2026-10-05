@@ -57,6 +57,8 @@ namespace OloEngine::Tests
 
         [[nodiscard]] std::string VertexStageOf(const char* name)
         {
+            if (std::string_view(name) == "Foliage_Depth.glsl")
+                return ReadShader("include/FoliageDepthVertexStage.glsl");
             for (const auto& [kind, stage] : SH::SplitByType(ReadShader(name)))
             {
                 if (kind == shaderc_glsl_vertex_shader)

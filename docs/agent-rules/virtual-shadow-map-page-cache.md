@@ -233,22 +233,41 @@ Three deliberate departures, each of which reads as a mistake until you know why
 
 ---
 
-## 7. What VSM does NOT cover yet
+## 7. Caster coverage
 
-Static and skinned **mesh** casters, plus **virtualized geometry** since issue
-#1149. Terrain, foliage and voxel casters have only CSM and atlas routes,
-because each needs its own VSM depth variant (the fragment stage is a shared
-include — `VirtualShadowRasterStage.glsl` — so adding one is small, but the clip
-level has to reach the vertex stage and those paths do not use the instance
-buffer).
+Select the technique against this matrix; enabling VSM replaces CSM, and
+`LocalLights` also replaces the local atlas. VSM remains off by default.
 
-`VirtualShadowMapSettings::Enabled` is therefore **off by default**, and a scene
-that relies on those caster types must leave it off. This is not a soft
-limitation you can ignore: with VSM on, the CSM cascades are cleared and skipped,
-and with `LocalLights` on (its default) the local-light atlas is not rendered
-either, so terrain, foliage and voxels cast no sun shadow and no lamp shadow. A
-terrain-heavy scene renders the terrain completely unshadowed, and it looks like
-the light is wrong rather than like a missing feature. Owner: #1524.
+| Caster | CSM / atlas | VSM directional | VSM point / spot |
+|---|---|---|---|
+| Static / skinned mesh | Yes | Yes | Yes |
+| Terrain patches | Yes | Yes | Yes |
+| Marching-cubes / greedy voxel mesh | Yes | Yes | Yes |
+| Foliage cards / authored meshes / impostors | Yes | Yes | Yes |
+| Virtual geometry | Yes | Yes | No |
+| Groom ribbons | Yes | Yes | No |
+
+Terrain, voxel and foliage depth stages share their deformation and discard
+bodies between ordinary and VSM wrappers. `VirtualShadowFamilyVertex.glsl`
+selects the directional level or local layer/mip; the fragment stage writes the
+same sparse physical pool as the mesh routes. Each family is culled from the
+shadow view, independently of main-eye survivors. Local layers include all six
+point-light faces and spot projections.
+
+Keep stable scene instance/part keys in `ShadowCasterFootprint`. The footprint
+cache invalidates arrivals, old/new bounds on movement or silhouette revision,
+and departures before page allocation. Terrain also hashes tessellation/morph
+parameters and tracks height content; greedy voxel uploads increment their
+geometry revision. Wind, interactions and camera-facing foliage dirty their
+bounded footprint each frame. Legacy callers without bounds conservatively
+dirty the complete domain; callers without keys use geometry/transform identity.
+
+`ShadowFamilyVisualEvidence` measures isolated family shadow contribution and
+world-space centroid against casting disabled and CSM/atlas, with removal,
+movement, foliage cast flags and stable-page reuse controls. It covers multiple
+angles, all three render paths, LocalLights off/on and presentation variants.
+Shader compilation alone does not establish backend visual parity; retain the
+per-backend live captures and measurements with the PR evidence.
 
 **Virtual geometry reaches the clip levels only, not the local-light layers.**
 A layer is a perspective projection with a per-texel mip, and the cluster cull is
@@ -271,13 +290,12 @@ VSM WORKS on Vulkan, confirmed two ways:
     settles the y-flip composition below, a claim about two conventions
     cancelling that only a rendered frame could confirm.
 
-THE CAVEAT, and it will bite the next person: the Vulkan editor's **deferred**
-path renders a FROZEN frame — light edits (intensity, CastShadows) never reach
-the screen, with VSM out of the picture entirely (issue #823). Verifying any
-lighting feature live on Vulkan therefore means `renderpath=forward` first. A
-CSM-vs-VSM comparison run on Vulkan-deferred returns byte-identical frames and
-reads as "VSM does nothing"; it cost this task a full verification round before
-the per-pose CSM==VSM hash check exposed it.
+The original investigation encountered frozen Vulkan deferred frames
+([#823](https://github.com/drsnuggles8/OloEngineBase/issues/823), closed on
+2026-08-20). That historical failure is not a reason to skip Deferred now.
+Verify Forward, Forward+ and Deferred with fresh-frame captures, light-casting
+controls and advancing frame indices; byte-identical A/B captures alone do not
+establish that a shadow route works.
 
 GETTING THERE COST TWO ENGINE FIXES, both invisible to every GL test:
 

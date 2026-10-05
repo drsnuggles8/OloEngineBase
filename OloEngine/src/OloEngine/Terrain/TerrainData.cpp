@@ -9,6 +9,26 @@
 
 namespace OloEngine
 {
+    std::optional<glm::vec2> TerrainData::GetHeightRange() const
+    {
+        // Erosion can move heights outside the authored normalized range.
+        // Do not force the editor's intentionally deferred stroke-end readback;
+        // pending GPU edits have unknown bounds until another consumer syncs.
+        if (m_CPUMirrorStale)
+            return std::nullopt;
+        if (m_CachedHeightRevision != m_HeightRevision)
+        {
+            m_CachedHeightRange = glm::vec2(0.0f);
+            if (!m_Heights.IsEmpty())
+            {
+                const auto range = std::minmax_element(m_Heights.begin(), m_Heights.end());
+                m_CachedHeightRange = glm::vec2(*range.first, *range.second);
+            }
+            m_CachedHeightRevision = m_HeightRevision;
+        }
+        return m_CachedHeightRange;
+    }
+
     bool TerrainData::LoadFromFile(const std::string& path)
     {
         OLO_PROFILE_FUNCTION();
