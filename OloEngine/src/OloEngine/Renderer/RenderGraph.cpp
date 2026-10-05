@@ -1041,9 +1041,23 @@ namespace OloEngine
                 };
                 std::vector<PendingVersionedView> pending;
                 pending.reserve(8u);
+                const auto physicalParent = [this](FString resource)
+                {
+                    for (u32 depth = 0; depth < kMaxVersionAliasDepth; ++depth)
+                    {
+                        const auto alias = m_VersionAliasTargets.find(resource.ToView());
+                        if (alias == m_VersionAliasTargets.end())
+                            break;
+                        resource = alias->second;
+                    }
+                    return resource;
+                };
+                const auto sourceParent = physicalParent(sourceResource);
                 for (const auto& [viewName, def] : m_TextureViewDefinitions)
                 {
-                    if (def.ParentResource != sourceResource)
+                    // A rename of a rename still publishes the canonical
+                    // attachment views of the original physical framebuffer.
+                    if (physicalParent(def.ParentResource) != sourceParent)
                         continue;
                     if (def.Kind != TextureViewKind::FramebufferColorAttachment &&
                         def.Kind != TextureViewKind::FramebufferDepthAttachment)
@@ -1489,7 +1503,10 @@ namespace OloEngine
         m_TextureViewResourceDescs[stableName] = viewDesc;
         m_ResourceRegistryDirty = true;
 
-        return AllocateTextureHandle(name, 0u, /*isHistory=*/false, viewDesc.IsPlaceholder, viewDesc.PlaceholderReason.ToView());
+        const auto handle = AllocateTextureHandle(name, 0u, /*isHistory=*/false, viewDesc.IsPlaceholder, viewDesc.PlaceholderReason.ToView());
+        if (handle.IsValid() && HasExplicitVersionQualifier(stableName))
+            m_LatestTextureHandlesByBaseName[std::string(GetVersionLookupBaseName(stableName))] = handle;
+        return handle;
     }
 
     RGTextureHandle RenderGraph::CreateTextureMipView(std::string_view name,

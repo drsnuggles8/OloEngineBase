@@ -636,6 +636,34 @@ TEST(RenderGraphAttachmentFeedback, ShaderDepthSamplingWhileWritingTheFramebuffe
     }
 }
 
+TEST(RenderGraphAttachmentViewExports, ATransitiveFramebufferRenameRepublishesTheCanonicalViews)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+    const auto scene = graph.DeclareTransientFramebuffer("SceneColor", SceneTargetDesc());
+    const auto depth = graph.CreateFramebufferDepthAttachmentView("Depth", scene);
+    ASSERT_TRUE(graph.CreateFramebufferAttachmentView("Color", scene, 0u).IsValid());
+    RGFramebufferHandle first;
+    Add(graph, "First", [scene, &first](RGBuilder& builder)
+        { first = builder.WriteNewVersion(scene, RGWriteUsage::RenderTarget, "First"); });
+    Add(graph, "Second", [&first](RGBuilder& builder)
+        {
+        [[maybe_unused]] const auto load = builder.Read(first, RGReadUsage::RenderTargetRead);
+        [[maybe_unused]] const auto second = builder.WriteNewVersion(first, RGWriteUsage::RenderTarget, "Second"); });
+    FString lastWriter;
+    Add(graph, "Consumer", [&graph, &lastWriter, depth](RGBuilder& builder)
+        {
+        lastWriter = graph.GetLastWriterPassName("Depth");
+        EXPECT_EQ(graph.GetResourceName(graph.GetTextureHandle("Depth")), "Depth@First@Second");
+        EXPECT_EQ(graph.GetResourceName(graph.GetTextureHandle("Color")), "Color@First@Second");
+        [[maybe_unused]] const auto read = builder.Read(depth); });
+    graph.SetFinalPass("Consumer");
+    graph.BuildFrameGraph();
+    EXPECT_EQ(lastWriter, "Second");
+    EXPECT_GE(IndexOf(graph, "Second"), 0);
+    EXPECT_LT(IndexOf(graph, "Second"), IndexOf(graph, "Consumer"));
+}
+
 TEST(RenderGraphAttachmentViewExports, AViewCreatedInConsumerSetupRetainsTheEarlierFramebufferWriter)
 {
     RenderGraph graph;
