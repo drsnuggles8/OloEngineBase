@@ -84,6 +84,7 @@
 #include "OloEngine/Core/InputActionSerializer.h"
 #include "OloEngine/Physics3D/Physics3DSystem.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Scene/SelectionOutlineSet.h"
 #include "OloEngine/Task/Task.h"
 #include "OloEngine/SaveGame/SaveGameManager.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
@@ -2017,6 +2018,15 @@ namespace OloEngine
                     break;
             }
         }
+        // A viewport with no area has nothing to render into: the first frame,
+        // before the dockspace has laid the panel out, and a minimised window.
+        // Rendering then put a 0x0 scene through the passes, and the UI overlay
+        // logged a warning on every launch, which a scene-open check (#1533 D1)
+        // read as the scene's.
+        if (!(m_ViewportSize.x > 0.0f) || !(m_ViewportSize.y > 0.0f))
+        {
+            skipRender = true;
+        }
         m_ViewportRenderSkipped = skipRender;
 
         // Tell the scene whether it should execute render calls.
@@ -2058,17 +2068,11 @@ namespace OloEngine
         if (m_Is3DMode && m_SceneState == SceneState::Edit &&
             editorDebug.EditorDebugDrawsEnabled && editorDebug.ShowSelectionOutline)
         {
-            auto& selectedEntities = m_SceneHierarchyPanel.GetSelectedEntities();
-            std::vector<i32> ids;
-            ids.reserve(selectedEntities.size());
-            for (auto& entity : selectedEntities)
-            {
-                if (entity)
-                {
-                    ids.push_back(static_cast<i32>(static_cast<u32>(entity)));
-                }
-            }
-
+            // The selection as it looks: its children and the coats bound to
+            // it too, or a furred animal's outline breaks up into a band round
+            // every gap in its fur (see CollectSelectionOutlineIds).
+            const std::vector<i32> ids =
+                CollectSelectionOutlineIds(*m_ActiveScene, m_SceneHierarchyPanel.GetSelectedEntities());
             Renderer3D::SetSelectionOutlineEntityIDs(ids);
         }
         else
@@ -2989,12 +2993,10 @@ namespace OloEngine
                         {
                             bool wired = false;
                             auto animatedModel = Ref<AnimatedModel>::Create(filepath);
-                            // The FIRST mesh, because that is the one PopulateAnimatedEntity
-                            // wires; asking about any mesh would take the animated route for a
-                            // model whose morph targets sit on a mesh the importer never uses.
-                            const bool hasMorphTargets = animatedModel && !animatedModel->GetMeshes().empty() &&
-                                                         animatedModel->GetMeshes().front() &&
-                                                         animatedModel->GetMeshes().front()->HasMorphTargets();
+                            // The mesh PopulateAnimatedEntity wires: every mesh, combined
+                            // (issue #1533), so a morph target on any of them counts.
+                            const Ref<MeshSource> entityMesh = animatedModel ? animatedModel->GetEntityMeshSource() : nullptr;
+                            const bool hasMorphTargets = entityMesh && entityMesh->HasMorphTargets();
                             if (animatedModel && !animatedModel->GetMeshes().empty() &&
                                 (animatedModel->HasSkeleton() || animatedModel->HasAnimations() || hasMorphTargets))
                             {
@@ -4054,7 +4056,10 @@ namespace OloEngine
             {
                 return;
             }
-            Renderer2D::BeginScene(camera.GetComponent<CameraComponent>().Camera, camera.GetComponent<TransformComponent>().GetTransform());
+            // The camera's WORLD pose, as RenderRuntime draws through it: a camera
+            // riding a parent (the dog scene's) is offset from it (#1533).
+            Renderer2D::BeginScene(camera.GetComponent<CameraComponent>().Camera,
+                                   m_ActiveScene->GetWorldTransform(static_cast<entt::entity>(camera)));
         }
         else
         {

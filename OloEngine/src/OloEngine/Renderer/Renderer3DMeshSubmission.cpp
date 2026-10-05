@@ -219,6 +219,43 @@ namespace OloEngine
 
     namespace
     {
+        // What a LIGHTMAPPED skin draw loses on the deferred path, counted at
+        // submission (issues #1242, #1533): RT5 holds the draw's baked
+        // irradiance, so neither of the skin lanes that ride it -- the per-pixel
+        // thickness in red, the coat's variance kernel in green -- reaches the
+        // lighting pass. Called from both submission branches; #1242 first
+        // reported from the serial one only, and a batch that crossed the
+        // parallel threshold stopped reporting a conflict that was still there.
+        //
+        // SkinProfileTable::Resolve and ReportTransmissionFallback are
+        // documented thread-safe, which is what makes this callable from inside
+        // the parallel lambda.
+        void ReportSkinDeferredLaneFallbacks(const Material& mat)
+        {
+            if (mat.GetMaterialKind() != MaterialKind::Skin)
+            {
+                return;
+            }
+            const SkinProfileResolution profile = Renderer3D::GetSkinProfileTable().Resolve(mat.GetSkinProfileHandle());
+            // BOTH TRANSMITTING VERSIONS (issue #1243 appended the second). The
+            // versions are cumulative, so a version-3 profile transmits too --
+            // reporting only version 2 would stop counting the conflict the
+            // moment an author moved a head forward.
+            if (mat.HasAuthoredThickness() && SkinEvaluatesThicknessTransmission(profile.Parameters.EvaluationModel))
+            {
+                Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
+                    SkinTransmissionFallbackReason::DeferredThicknessLaneUnavailable, mat.GetSkinProfileHandle());
+            }
+            // The coat is filtered only when there is a coat to filter and a
+            // strength to filter it by; without either the lane carries nothing.
+            if (SkinEvaluatesOralSurface(profile.Parameters.EvaluationModel) &&
+                profile.Parameters.Oral.CoatStrength > 0.0f && profile.Parameters.Specular.NormalVarianceStrength > 0.0f)
+            {
+                Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
+                    SkinTransmissionFallbackReason::DeferredCoatFilterLaneUnavailable, mat.GetSkinProfileHandle());
+            }
+        }
+
         // Stage ONE virtual-mesh part's ray-tracing proxy into the canonical
         // GPU Scene (issue #1144), and count the outcome either way.
         //
@@ -231,7 +268,7 @@ namespace OloEngine
         void StageVirtualProxy(VirtualMeshRegistry& registry, u32 entryIndex, u32 partIndex, AssetHandle meshHandle,
                                const Ref<MeshSource>& meshSource, u32 submeshIndex, u64 stableEntityId,
                                const glm::mat4& modelMatrix, const Material* overrideMaterial,
-                               const Material& resolvedMaterial, bool castShadows,
+                               const Material* patchedMaterial, const Material& resolvedMaterial, bool castShadows,
                                VirtualMeshRegistry::SubmissionDiagnostics& diagnostics)
         {
             if (!registry.EnsureProxyGeometry(entryIndex))
@@ -247,8 +284,15 @@ namespace OloEngine
             }
 
             const VirtualMeshRegistry::MeshEntry& entry = registry.GetEntry(entryIndex);
-            const GPUSceneMaterialKey materialKey =
-                Renderer3D::ResolveGPUSceneMaterialKey(overrideMaterial, stableEntityId, meshSource, submeshIndex);
+            // The imported material and its slot exactly as the 4-argument key
+            // overload derives them, spelled out here because the entity's patch
+            // of that material (issue #1533) joins the decision.
+            const Material* imported = meshSource ? meshSource->GetImportedMaterialPtrForSubmesh(submeshIndex) : nullptr;
+            const u32 slot = (meshSource && submeshIndex < static_cast<u32>(meshSource->GetSubmeshes().Num()))
+                                 ? meshSource->GetSubmeshes()[static_cast<i32>(submeshIndex)].m_MaterialIndex
+                                 : 0u;
+            const GPUSceneMaterialKey materialKey = Renderer3D::ResolveGPUSceneMaterialKey(
+                overrideMaterial, patchedMaterial, stableEntityId, meshSource, imported, slot);
             Renderer3D::ExtractGPUSceneMaterial(materialKey, resolvedMaterial);
 
             // The registry's own caster rule, applied to the proxy so the two
@@ -299,7 +343,8 @@ namespace OloEngine
                                        f32 errorThresholdPixels, bool castShadows,
                                        const glm::vec4& lightmapScaleOffset,
                                        std::span<const glm::mat4> boneMatrices,
-                                       std::span<const glm::mat4> prevBoneMatrices)
+                                       std::span<const glm::mat4> prevBoneMatrices,
+                                       const MaterialOverrideCache* materialPatches)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -413,7 +458,8 @@ namespace OloEngine
         const bool stageProxies = s_Data.GPUSceneExtractionActive;
 
         // One material slot per part. Precedence: an explicit MaterialComponent overrides
-        // everything, else the material the SUBMESH was imported with (so a multi-material
+        // everything, else the entity's patch of the submesh's imported material (issue
+        // #1533), else the material the SUBMESH was imported with (so a multi-material
         // mesh like Sponza shades each part correctly), else the caller's default.
         submission.MaterialDataIndices.Reserve(parts.Count);
         submission.PartAlphaMasked.Reserve(parts.Count);
@@ -422,7 +468,11 @@ namespace OloEngine
         {
             const auto& entry = registry.GetEntry(parts.FirstEntry + partIndex);
 
-            const Material& resolved = ResolveSubmeshMaterial(overrideMaterial, meshSource.get(), entry.SubmeshIndex, defaultMaterial);
+            // One (override, patched, imported) triple feeds both the draw's
+            // material and the proxy's record key below.
+            const Material* imported = meshSource->GetImportedMaterialPtrForSubmesh(entry.SubmeshIndex);
+            const Material* patched = ResolveMaterialPatch(materialPatches, imported);
+            const Material& resolved = ResolveSubmeshMaterial(overrideMaterial, patched, imported, defaultMaterial);
             const Material* material = &resolved;
 
             PODMaterialData const materialData = CreatePODMaterialDataForMaterial(*material, RHI::NullResource);
@@ -481,8 +531,8 @@ namespace OloEngine
                 else
                 {
                     StageVirtualProxy(registry, parts.FirstEntry + partIndex, partIndex, meshHandle, meshSource,
-                                      entry.SubmeshIndex, stableEntityId, modelMatrix, overrideMaterial, *material,
-                                      castShadows, vgDiagnostics);
+                                      entry.SubmeshIndex, stableEntityId, modelMatrix, overrideMaterial, patched,
+                                      *material, castShadows, vgDiagnostics);
                 }
             }
         }
@@ -798,7 +848,18 @@ namespace OloEngine
         // lit deferred image unscathed. Mirrors the same pattern DrawSkybox
         // uses for the skybox-on-deferred fallback.
         bool overlayRoute = false;
-        if (material.GetShader())
+        // A see-through debug draw (DrawLine / DrawSphere, #1533) goes to the
+        // late DebugOverlayPass on every path, after every scene-colour writer:
+        // drawn in ScenePass (or ForwardOverlayPass on Deferred) it came before
+        // the foliage, the fur and the water, which painted over it. Shaded by
+        // the forward PBR program, since that pass binds the scene framebuffer.
+        const bool debugRoute = Renderer3DDetail::t_DebugDraw.Active &&
+                                s_Data.Pipeline->RenderStreamPasses.DebugOverlay && s_Data.PBRShader;
+        if (debugRoute)
+        {
+            shaderToUse = s_Data.PBRShader;
+        }
+        else if (material.GetShader())
         {
             shaderToUse = material.GetShader();
             // Forward-only override on the Deferred path would alias its
@@ -818,7 +879,8 @@ namespace OloEngine
             // top of this file.
             const bool deferred = s_Data.Settings.Path == RenderingPath::Deferred;
             const bool hasForwardOverlay = s_Data.Pipeline->RenderStreamPasses.ForwardOverlay != nullptr;
-            // A see-through debug draw (DrawLine / DrawSphere) — see
+            // A see-through debug draw with no DebugOverlayPass to take it (a
+            // pipeline built without one) keeps the old route on Deferred — see
             // Renderer3DDetail::DebugDrawRequest.
             const bool debugOverlay = deferred && Renderer3DDetail::t_DebugDraw.Active && hasForwardOverlay &&
                                       s_Data.PBRShader;
@@ -850,9 +912,9 @@ namespace OloEngine
             return nullptr;
 
         // Create POD command using asset handles and renderer IDs.
-        CommandPacket* packet = overlayRoute
-                                    ? CreateForwardOverlayDrawCall<DrawMeshCommand>()
-                                    : CreateDrawCall<DrawMeshCommand>();
+        CommandPacket* packet = debugRoute     ? CreateDebugOverlayDrawCall<DrawMeshCommand>()
+                                : overlayRoute ? CreateForwardOverlayDrawCall<DrawMeshCommand>()
+                                               : CreateDrawCall<DrawMeshCommand>();
         if (!packet)
             return nullptr;
         auto* cmd = packet->GetCommandData<DrawMeshCommand>();
@@ -941,7 +1003,7 @@ namespace OloEngine
             // and entity ID.
             constexpr u8 kSceneColourOnly = 0x01;
             constexpr u8 kGBufferSurfaceLanes = (1u << 0) | (1u << 1) | (1u << 2) | (1u << 5);
-            const bool intoGBuffer = s_Data.Settings.Path == RenderingPath::Deferred && !overlayRoute;
+            const bool intoGBuffer = s_Data.Settings.Path == RenderingPath::Deferred && !overlayRoute && !debugRoute;
             debugState.colorAttachmentWriteMask = intoGBuffer ? kGBufferSurfaceLanes : kSceneColourOnly;
             if (debugDraw.TwoSided)
                 debugState.cullingEnabled = false;
@@ -950,6 +1012,13 @@ namespace OloEngine
         }
         packet->SetMetadata(metadata);
 
+        if (debugRoute)
+        {
+            // Straight to the late debug bucket, returning nullptr for the same
+            // reason the overlay route below does.
+            SubmitDebugOverlayPacket(packet);
+            return nullptr;
+        }
         if (overlayRoute)
         {
             // Submit to the overlay bucket directly; return nullptr so the
@@ -2105,25 +2174,7 @@ namespace OloEngine
                         // the cost is one asset-manager lookup per skin
                         // submission, and this site only reaches it for a
                         // lightmapped skin draw.
-                        if (const Material& mat = desc.MaterialData;
-                            mat.GetMaterialKind() == MaterialKind::Skin && mat.HasAuthoredThickness())
-                        {
-                            const SkinProfileResolution profile =
-                                Renderer3D::GetSkinProfileTable().Resolve(mat.GetSkinProfileHandle());
-                            // BOTH TRANSMITTING VERSIONS (issue #1243 appended
-                            // the second). The versions are cumulative, so a
-                            // version-3 profile transmits too — reporting only
-                            // version 2 here would make the lightmap conflict
-                            // stop being counted the moment an author moved a
-                            // head forward, and this diagnostic exists precisely
-                            // because the failure is otherwise invisible.
-                            if (SkinEvaluatesThicknessTransmission(profile.Parameters.EvaluationModel))
-                            {
-                                Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
-                                    SkinTransmissionFallbackReason::DeferredThicknessLaneUnavailable,
-                                    mat.GetSkinProfileHandle());
-                            }
-                        }
+                        ReportSkinDeferredLaneFallbacks(desc.MaterialData);
                     }
                     SubmitPacket(packet);
                     ++totalSubmitted;
@@ -2207,25 +2258,7 @@ namespace OloEngine
                         // are both documented thread-safe (mesh submission runs
                         // on more than one thread), which is what makes this
                         // callable from inside the parallel lambda.
-                        if (const Material& mat = desc.MaterialData;
-                            mat.GetMaterialKind() == MaterialKind::Skin && mat.HasAuthoredThickness())
-                        {
-                            const SkinProfileResolution profile =
-                                Renderer3D::GetSkinProfileTable().Resolve(mat.GetSkinProfileHandle());
-                            // BOTH TRANSMITTING VERSIONS (issue #1243 appended
-                            // the second). The versions are cumulative, so a
-                            // version-3 profile transmits too — reporting only
-                            // version 2 here would make the lightmap conflict
-                            // stop being counted the moment an author moved a
-                            // head forward, and this diagnostic exists precisely
-                            // because the failure is otherwise invisible.
-                            if (SkinEvaluatesThicknessTransmission(profile.Parameters.EvaluationModel))
-                            {
-                                Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
-                                    SkinTransmissionFallbackReason::DeferredThicknessLaneUnavailable,
-                                    mat.GetSkinProfileHandle());
-                            }
-                        }
+                        ReportSkinDeferredLaneFallbacks(desc.MaterialData);
                     }
                     Renderer3D::SubmitPacketParallel(stats.Context, packet);
                     ++stats.Submitted;

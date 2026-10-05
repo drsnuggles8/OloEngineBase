@@ -1545,6 +1545,13 @@ namespace OloEngine
         return device != nullptr && device->IsWeightedBlendedOITSupported();
     }
 
+    bool VulkanRendererAPI::SupportsIndirectFirstInstance() const
+    {
+        // ENABLED, not merely supported (the SupportsInt64ShaderAtomics rule).
+        const auto* device = VulkanDevice::Get();
+        return device != nullptr && device->IsDrawIndirectFirstInstanceEnabled();
+    }
+
     bool VulkanRendererAPI::SupportsMeshShaders() const
     {
         // ENABLED on the logical device, not merely supported by the physical
@@ -4445,14 +4452,29 @@ namespace OloEngine
             dstAspect, 0u, std::max(dstInfo->MipLevels, 1u), 0u,
             dstInfo->ViewType == VK_IMAGE_VIEW_TYPE_3D ? 1u : std::max(dstInfo->ArrayLayers, 1u)
         };
+        // EACH RUN'S SOURCE SCOPE IS WHAT LAST TOUCHED IT, not the copy alone
+        // (#1533). Only the copied range was last written by the copy; the
+        // rest of a whole-image settle is whatever wrote it before -- and when
+        // the source and the destination are ONE image (a shadow array copying
+        // a cascade into its own upper layer), that includes layers last
+        // written as depth attachments and the copy's own TRANSFER_SRC range.
+        // Scoped to the copy, their layout transitions raced those writes: a
+        // write-after-write hazard per copy under synchronization validation.
+        // The same all-stages source the transfer transitions above take.
         std::vector<VkImageMemoryBarrier2> toResting;
         ctx.Tracker.ForEachLayoutRun(dstImage, dstWholeRange,
                                      [&](const VkImageSubresourceRange& run, const VkImageLayout trackedLayout)
                                      {
+                                         const bool written = trackedLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                                         const bool undefined = trackedLayout == VK_IMAGE_LAYOUT_UNDEFINED;
                                          VkImageMemoryBarrier2 b{};
                                          b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-                                         b.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
-                                         b.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+                                         b.srcStageMask = written     ? VK_PIPELINE_STAGE_2_COPY_BIT
+                                                          : undefined ? VK_PIPELINE_STAGE_2_NONE
+                                                                      : kAllStages;
+                                         b.srcAccessMask = written     ? VK_ACCESS_2_TRANSFER_WRITE_BIT
+                                                           : undefined ? VK_ACCESS_2_NONE
+                                                                       : kAllAccess;
                                          b.dstStageMask = kAllStages;
                                          b.dstAccessMask = kAllAccess;
                                          b.oldLayout = trackedLayout;

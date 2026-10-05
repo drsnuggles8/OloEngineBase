@@ -116,6 +116,13 @@ namespace OloEngine
         // (skybox / terrain / voxel / custom shaders) is skipped so its full
         // material shader can't pollute the counter.
         bool OverdrawActive = false;
+        // A pass-wide ceiling on which colour attachments a draw may write, ANDed
+        // into every draw's colorAttachmentWriteMask (#1533). ForwardOverlayPass
+        // keeps every scene attachment in its scope -- so the overlay shaders'
+        // velocity and skin-diffuse outputs land on a real attachment rather than
+        // on none, which the Vulkan validation layer reports as unconsumed -- and
+        // stops them being written with this instead of narrowing the draw list.
+        u8 PassAttachmentWriteLimit = 0xFF;
         // Water surface-depth capture: forces depth-only state even for the blended
         // water draw so the nearest water surface is written to its own depth target.
         bool WaterDepthCaptureActive = false;
@@ -148,6 +155,9 @@ namespace OloEngine
         // for any later shader reading the full CameraUBO (TAA velocity
         // reconstruction, motion blur).
         glm::mat4 PrevViewProjectionMatrix = glm::mat4(1.0f);
+        // The jitter offsets of ViewProjectionMatrix and PrevViewProjectionMatrix
+        // (#1552), mirrored like the matrices, for the camera re-upload.
+        glm::vec4 JitterUV = glm::vec4(0.0f);
         glm::vec3 ViewPos = glm::vec3(0.0f);
         // Camera-relative render origin for this frame (issue #429). The view /
         // view-projection / position above stay world-space; camera-UBO packing
@@ -611,13 +621,15 @@ namespace OloEngine
         //     state stood.
         //   * colorAttachmentChannelMask -- one NIBBLE per attachment, which
         //     channels of it. Default 0xF per attachment, i.e. no refinement.
-        if (state.colorAttachmentWriteMask != 0xFF || state.colorAttachmentChannelMask != COLOR_CHANNEL_MASK_ALL)
+        // ...and the pass-wide ceiling (SetPassAttachmentWriteLimit), ANDed in.
+        const u8 attachmentWriteMask = static_cast<u8>(state.colorAttachmentWriteMask & s_FrameData.PassAttachmentWriteLimit);
+        if (attachmentWriteMask != 0xFF || state.colorAttachmentChannelMask != COLOR_CHANNEL_MASK_ALL)
         {
             const u8 globalChannels =
                 MakeColorChannelMask(state.colorMaskR, state.colorMaskG, state.colorMaskB, state.colorMaskA);
             for (u32 i = 0; i < MAX_MASKED_COLOR_ATTACHMENTS; ++i)
             {
-                const bool attachmentEnabled = (state.colorAttachmentWriteMask & (1u << i)) != 0u;
+                const bool attachmentEnabled = (attachmentWriteMask & (1u << i)) != 0u;
                 const u8 channels =
                     attachmentEnabled
                         ? static_cast<u8>(globalChannels & GetColorChannelMask(state.colorAttachmentChannelMask, i))
@@ -1257,6 +1269,13 @@ namespace OloEngine
         ++Data().Stats.TextureBinds;
     }
 
+    static void BindShadowTextures(RendererAPI& api);
+
+    void CommandDispatch::BindSceneShadowTextures()
+    {
+        BindShadowTextures(RenderCommand::GetRendererAPI());
+    }
+
     // Helper: Bind per-frame shadow and snow depth textures (only relevant for PBR paths).
     // Relies on BoundTextureIDs tracking to avoid redundant binds.
     static void BindShadowTextures(RendererAPI& api)
@@ -1860,12 +1879,22 @@ namespace OloEngine
         s_FrameData.DepthPrepassWritesNormals = false;
         s_FrameData.DepthPrepassColorPassActive = false;
         s_FrameData.OverdrawActive = false;
+        s_FrameData.PassAttachmentWriteLimit = 0xFF;
         Data().Stats.Reset();
     }
 
     void CommandDispatch::InvalidateRenderStateCache()
     {
         Data().LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
+    }
+
+    void CommandDispatch::SetPassAttachmentWriteLimit(u8 attachmentMask)
+    {
+        OLO_CORE_ASSERT(!s_RecordingData, "Frame state is frozen during recording");
+        s_FrameData.PassAttachmentWriteLimit = attachmentMask;
+        // The ceiling is part of every applied state, so a cached state
+        // index from before it changed no longer describes the context.
+        InvalidateRenderStateCache();
     }
 
     void CommandDispatch::InvalidateBindingCaches()
@@ -1983,6 +2012,11 @@ namespace OloEngine
         Data().PrevViewProjectionMatrix = prevVP;
     }
 
+    void CommandDispatch::SetJitterUV(const glm::vec4& jitterUV)
+    {
+        Data().JitterUV = jitterUV;
+    }
+
     const glm::mat4& CommandDispatch::GetViewMatrix()
     {
         return Data().ViewMatrix;
@@ -2056,6 +2090,8 @@ namespace OloEngine
         cameraData.Pad0 = 0.0f;
         cameraData.PrevViewProjection = RHI::AdjustProjectionForBackend(
             MakeViewProjectionRelative(Data().PrevViewProjectionMatrix, origin));
+        // The jitter those two carry, which every velocity writer subtracts (#1552).
+        cameraData.JitterUV = Data().JitterUV;
         cameraData.RenderOrigin = origin; // for pattern shaders (triplanar/noise/etc.)
         // Reconstruction flavour (#691): terrain tessellation scale,
         // water depth math and the culling compute read this member.
@@ -3560,7 +3596,15 @@ namespace OloEngine
             foliageData.FadeStart = cmd->fadeStart;
             foliageData.AlphaCutoff = cmd->alphaCutoff;
             foliageData.PrevTime = cmd->prevTime;
-            foliageData.BaseColor = cmd->baseColor;
+            // The dither's frame rides BaseColor.w (#1533): it advances only while
+            // a temporal resolve accumulates the foliage dither, and the main-view
+            // programs fold it into their keep/discard pattern, so a half-faded
+            // plant averages to its fade instead of standing as a screen door.
+            // See OLO_FOLIAGE_DITHER_FRAME in include/FoliageInstanceGeometry.glsl.
+            const bool temporalResolve = Renderer3D::IsEngineTAAWanted() || Renderer3D::IsTemporalUpscaleActive();
+            const f32 ditherFrame =
+                temporalResolve ? static_cast<f32>(Renderer3D::GetStochasticFrameIndex() & 63u) : 0.0f;
+            foliageData.BaseColor = glm::vec4(glm::vec3(cmd->baseColor), ditherFrame);
             // Octahedral impostor params (issue #433) — zero on the billboard path.
             foliageData.ImpostorParams0 = glm::vec4(cmd->impostorFramesPerAxis, cmd->impostorHemi, cmd->impostorStartDistance, cmd->impostorBand);
             foliageData.ImpostorParams1 = glm::vec4(cmd->impostorEnabled, cmd->impostorRadius, cmd->impostorParallaxScale, 0.0f);
@@ -3569,7 +3613,8 @@ namespace OloEngine
             // because the shadow pass's camera is the LIGHT — see
             // ShaderBindingLayout::FoliageUBO::MeshViewPos. Same expression the
             // camera UBO uses for its own Position, so the two agree exactly.
-            foliageData.MeshParams = glm::vec4(cmd->isAuthoredMesh, cmd->meshHandoverStart, cmd->meshHandoverEnd, 0.0f);
+            foliageData.MeshParams =
+                glm::vec4(cmd->isAuthoredMesh, cmd->meshHandoverStart, cmd->meshHandoverEnd, cmd->cardNormalLane);
             foliageData.MeshViewPos =
                 glm::vec4(MakePositionRelative(Data().ViewPos, Data().RenderOrigin), 0.0f);
             // LOD transition + coverage-preserving density (issue #1237).

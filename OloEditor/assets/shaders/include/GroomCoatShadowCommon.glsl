@@ -22,11 +22,13 @@
 // WHAT IT COMPUTES. tau = the expected number of fibre crossings between a
 // point and the light, from which transmittance is exp(-tau * (1 - exp(-kappa)))
 // — the MEAN of the per-ray transmittances rather than the transmittance of the
-// mean crossing count, which is the Jensen correction #1360 made. Purely
+// mean crossing count, which is the Jensen correction #1360 made. tau is purely
 // geometric — fibre areal density times the sine of the angle between the ray
-// and the local fibre direction, integrated along the ray. It sees NO colour:
-// the pigment already attenuates inside each fibre in GroomFibreCommon.glsl,
-// and applying it twice is the double-count the issue's scope note forbids.
+// and the local fibre direction, integrated along the ray — and sees NO colour:
+// the pigment attenuates inside the SHADED fibre in GroomFibreCommon.glsl.
+// oloGroomCoatForwardTransmittance (#1533) is the one place colour enters, and
+// it is the pigment of the fibres CROSSED, which is a different fibre on the
+// same path rather than the same absorption counted twice.
 //
 // THE SAMPLER IS A PARAMETER, not a declaration in this header. That is the
 // FogVolumeCommon.glsl pattern (evaluateFogVolumesAtPointVDB takes its
@@ -45,6 +47,16 @@
 // u_GroomCoatWorldToObject must therefore be RIGID (rotation + translation
 // only): the march takes angles in that space, and a scale in it would tilt
 // every fibre direction by an amount that depends on which way the ray points.
+//
+// THE BODY HAS A VOLUME OF ITS OWN (#1533). A coat baked at rest over a bound
+// body carries that body in a second texture, the same grid and the same
+// object space (TEX_GROOM_COAT_BODY, GroomCoatShadow::MarkBodyInDensityVolume):
+// RGBA8, A the body's box-filtered occupancy, RGB the sky it leaves. Its own
+// texture is what lets it sit AT the skin beside the coat's roots; in the
+// coat's texture it had to be eroded a centimetre clear of them.
+// oloGroomCoatOpticalDepthAndBodyObject reads it only when it counts the body,
+// for the lights no shadow map answers at the strand, so every other march is
+// the coat it always was.
 // =============================================================================
 
 #ifndef OLO_GROOM_COAT_SHADOW_COMMON_GLSL
@@ -77,13 +89,12 @@ const float OLO_GROOM_COAT_ISOTROPIC_MEAN_SINE = 0.78539816339744830961;
 // ONE RGBA texture rather than a separate density and direction pair, and that
 // is a bandwidth decision rather than a packing convenience: the march is the
 // hot loop, and two fetches per step would double its bandwidth for a channel
-// the isotropic arm does not even read. It also costs ONE sampler slot, and the
-// sampler namespace has exactly one index left (ShaderBindingLayout.h).
+// the isotropic arm does not even read. The body is the one exception, a
+// second fetch only in the marches that count it.
 //
-// RGBA32F on the wire, 16 bytes a voxel. RGBA16F would halve that and is what
-// the packing wants, but Texture3D's RGBA16F declares 8 bytes a texel while
-// uploading its client data as GL_FLOAT, so SetData rejects the only buffer it
-// could be handed. See GroomRenderPass's bake.
+// RGBA16F on the wire, 8 bytes a voxel (#1445: Texture3D's RGBA16F upload takes
+// half-float client data). GroomRenderPass's bake falls back to RGBA32F only for
+// a volume whose density would overflow a half.
 struct OloGroomCoatVolumeSample
 {
 	vec3 Direction; // mean direction * coherence, object space
@@ -176,7 +187,7 @@ bool oloGroomCoatIntersectUnitBox(vec3 originUvw, vec3 dirUvw, out float tEnter,
 // Expected fibre crossings between `worldPos` and the light, along `L` (the
 // direction TOWARDS the light, already normalised).
 //
-//   coatVolume      the packed RGBA32F volume
+//   coatVolume      the packed volume (RGBA16F, RGBA32F on overflow)
 //   worldToObject   RIGID render-relative-world -> groom object space
 //   boundsMin       the volume's object-space minimum corner
 //   invExtent       1 / (boundsMax - boundsMin), object space
@@ -188,17 +199,69 @@ bool oloGroomCoatIntersectUnitBox(vec3 originUvw, vec3 dirUvw, out float tEnter,
 // fully shadowed one. The failure mode of a missing lookup has to be a bright
 // coat, which reads as "this did not run", rather than a black one, which is
 // indistinguishable from a correct silhouette.
-float oloGroomCoatOpticalDepth(sampler3D coatVolume, mat4 worldToObject, vec3 boundsMin, vec3 invExtent,
-                               vec3 worldPos, vec3 L, float stepWorld, int mode)
+// The march itself, from a point and a UNIT direction already in the volume's
+// object space. oloGroomCoatOpticalDepth below takes them there from the world;
+// a coat baked AT REST (#1533) starts from the fragment's bind-pose point with
+// the direction turned back through its root, and calls this directly.
+//
+// Returns (tau, bodyTau): the expected fibre crossings and, when `countBody`,
+// the body's optical depth along the same samples from `bodyVolume` (zero
+// otherwise), whose transmittance is oloGroomBodyTransmittance. A march that
+// has gone this deep into the body stops: what is left of the light is under
+// 1e-5, and the remaining coat cannot matter. GroomCoatShadow::
+// SampleDensityVolume with a body output is the twin, down to the stop.
+const float OLO_GROOM_BODY_OPAQUE_TAU = 12.0;
+
+// GroomCoatShadow::kBodyOpacityPerVoxel and kBodyOccupancyFloor: one voxel of
+// full body stops e^-6 of the light, and a filtered occupancy under the floor --
+// the smear outside the skin -- stops none.
+const float OLO_GROOM_BODY_OPACITY_PER_VOXEL = 6.0;
+const float OLO_GROOM_BODY_OCCUPANCY_FLOOR = 0.1;
+
+// The body's extinction in 1/m from a FILTERED occupancy. The twin of
+// GroomCoatShadow::BodyExtinction.
+float oloGroomBodyExtinction(float occupancy, float voxelLength)
 {
-	if (mode == OLO_GROOM_COAT_MODE_NONE || stepWorld <= 0.0)
+	if (!(voxelLength > 0.0))
 	{
 		return 0.0;
 	}
+	float above = max(occupancy - OLO_GROOM_BODY_OCCUPANCY_FLOOR, 0.0);
+	return (OLO_GROOM_BODY_OPACITY_PER_VOXEL / voxelLength) * (above / (1.0 - OLO_GROOM_BODY_OCCUPANCY_FLOOR));
+}
 
-	vec3 originObject = (worldToObject * vec4(worldPos, 1.0)).xyz;
-	// The rigid rotation, so the direction keeps its angles with the fibres.
-	vec3 dirObject = normalize(mat3(worldToObject) * L);
+// The body volume's voxel, from its own size and the box: DensityVolume::
+// VoxelSize's smallest axis.
+float oloGroomBodyVoxelLength(sampler3D bodyVolume, vec3 invExtent)
+{
+	vec3 voxel = 1.0 / (invExtent * vec3(textureSize(bodyVolume, 0)));
+	return min(voxel.x, min(voxel.y, voxel.z));
+}
+
+// The share of a cosine lobe around `dirObject` the body leaves open, from a
+// body texel: rgb * 2 - 1 is the open direction times the open share v, read as
+// a cap of that share, whose lobe sees v + 2 v (1 - v) cos. The twin of
+// GroomCoatShadow::BodySkyVisibility.
+float oloGroomBodySkyVisibility(vec4 bodyTexel, vec3 dirObject)
+{
+	vec3 sky = (bodyTexel.rgb * 2.0) - 1.0;
+	float open = clamp(length(sky), 0.0, 1.0);
+	if (!(open > 1.0e-4))
+	{
+		return 0.0;
+	}
+	vec3 towards = sky / open;
+	return clamp(open + (2.0 * open * (1.0 - open) * dot(towards, dirObject)), 0.0, 1.0);
+}
+
+vec2 oloGroomCoatOpticalDepthAndBodyObject(sampler3D coatVolume, sampler3D bodyVolume, vec3 boundsMin,
+                                           vec3 invExtent, vec3 originObject, vec3 dirObject, float stepWorld,
+                                           int mode, bool countBody)
+{
+	if (mode == OLO_GROOM_COAT_MODE_NONE || stepWorld <= 0.0)
+	{
+		return vec2(0.0);
+	}
 
 	vec3 originUvw = (originObject - boundsMin) * invExtent;
 	// NOT normalised: the UVW direction has to carry the per-axis scale, or a
@@ -209,11 +272,11 @@ float oloGroomCoatOpticalDepth(sampler3D coatVolume, mat4 worldToObject, vec3 bo
 	float tExit;
 	if (!oloGroomCoatIntersectUnitBox(originUvw, dirUvw, tEnter, tExit))
 	{
-		return 0.0;
+		return vec2(0.0);
 	}
 	if (tExit <= tEnter)
 	{
-		return 0.0;
+		return vec2(0.0);
 	}
 
 	// tEnter / tExit are in OBJECT-SPACE metres, because dirUvw was built from
@@ -229,6 +292,8 @@ float oloGroomCoatOpticalDepth(sampler3D coatVolume, mat4 worldToObject, vec3 bo
 	int stepCount = int(steps);
 
 	float tau = 0.0;
+	float bodyTau = 0.0;
+	float bodyVoxel = countBody ? oloGroomBodyVoxelLength(bodyVolume, invExtent) : 0.0;
 	for (int i = 0; i < OLO_GROOM_COAT_MAX_STEPS; ++i)
 	{
 		if (i >= stepCount)
@@ -241,6 +306,20 @@ float oloGroomCoatOpticalDepth(sampler3D coatVolume, mat4 worldToObject, vec3 bo
 		float t = tEnter + dt * (float(i) + 0.5);
 		vec3 uvw = originUvw + dirUvw * t;
 
+		// The body, at the coat's own samples.
+		if (countBody)
+		{
+			float body = oloGroomBodyExtinction(texture(bodyVolume, uvw).a, bodyVoxel);
+			if (body > 0.0)
+			{
+				bodyTau += body * dt;
+				if (bodyTau > OLO_GROOM_BODY_OPAQUE_TAU)
+				{
+					break;
+				}
+			}
+		}
+
 		OloGroomCoatVolumeSample sampled = oloGroomCoatSampleVolume(coatVolume, uvw);
 		if (sampled.Density <= 0.0)
 		{
@@ -251,7 +330,105 @@ float oloGroomCoatOpticalDepth(sampler3D coatVolume, mat4 worldToObject, vec3 bo
 		tau += sampled.Density * meanSine * dt;
 	}
 
-	return tau;
+	return vec2(tau, bodyTau);
+}
+
+// The coat alone: every light a shadow map answers for at the strand, whose
+// body is already in that answer. The coat's sampler stands in for the body's,
+// which a march that does not count the body never reads.
+float oloGroomCoatOpticalDepthObject(sampler3D coatVolume, vec3 boundsMin, vec3 invExtent, vec3 originObject,
+                                     vec3 dirObject, float stepWorld, int mode)
+{
+	return oloGroomCoatOpticalDepthAndBodyObject(coatVolume, coatVolume, boundsMin, invExtent, originObject, dirObject,
+	                                             stepWorld, mode, false)
+	    .x;
+}
+
+float oloGroomCoatOpticalDepth(sampler3D coatVolume, mat4 worldToObject, vec3 boundsMin, vec3 invExtent,
+                               vec3 worldPos, vec3 L, float stepWorld, int mode)
+{
+	vec3 originObject = (worldToObject * vec4(worldPos, 1.0)).xyz;
+	// The rigid rotation, so the direction keeps its angles with the fibres.
+	vec3 dirObject = normalize(mat3(worldToObject) * L);
+	return oloGroomCoatOpticalDepthObject(coatVolume, boundsMin, invExtent, originObject, dirObject, stepWorld, mode);
+}
+
+// How far along `L` this point is from LEAVING the coat, in WORLD metres.
+// Issue #1323.
+//
+// WHY IT EXISTS: THE DOUBLE COUNT. Once a groom is a shadow CASTER its own
+// strands are in the cascade map, and a strand that also SAMPLES that map is
+// occluded by its own coat -- on top of whatever the density volume above
+// already charged it. The fix is to move the receiver to the point where the
+// light LEAVES the coat, so the map answers "is the coat's surface lit", which
+// is the only part of the question the coat's own terms did not answer.
+//
+// THE GATE IS CASTING, NOT THE VOLUME, and that distinction was measured
+// rather than reasoned. With the offset tied to the volume, a coat with no
+// volume -- the commonest authoring -- kept the fragment as its receiver and
+// the evidence coat fell from 44.98 mean luma to 0.22: a shadow map is a
+// BINARY visibility test and a coat is not binary, so every strand behind the
+// outermost widened ribbon reads as fully shadowed. A black coat is the silent
+// failure groom-coat-self-shadowing.md rule 10 forbids. The occlusion the
+// offset removes is the map's; replacing it with a graded one is the density
+// volume's job, and a coat without one is simply #1247's unshadowed picture.
+//
+// WHAT IT COSTS: nothing inside the coat's own box can shadow it any more --
+// including the body it grows on. The criterion's case, a character standing
+// in shade, is an occluder OUTSIDE the box and is unaffected.
+//
+// A STRAND HAS NO SURFACE NORMAL, so the usual normal-offset receiver bias
+// does not apply and this replaces it rather than joining it.
+//
+// IN WORLD METRES, AND THAT IS WHY THE DIRECTION IS NOT NORMALISED. The march
+// above normalises `mat3(worldToObject) * L`, which makes its `t` an
+// OBJECT-space distance -- consistent there, because its step is an
+// object-space voxel size. Here the result is added to a WORLD position, so
+// the direction keeps the transform's 1/scale and `t` comes out in world
+// metres by construction. Normalising and using the value anyway would offset
+// the receiver by the coat's object scale, which is 1.0 in every test scene
+// and wrong in any scene that scales its animals.
+//
+// Returns 0 for a ray that misses -- NO offset, which degrades to the
+// unshadowed-by-its-own-coat reading rather than to a receiver flung somewhere
+// arbitrary.
+//
+// The object-space core takes the point in object space and the direction
+// through the transform's linear part UNNORMALISED, for the reason above; a coat
+// baked at rest (#1533) turns that direction back through its root, which keeps
+// its length.
+float oloGroomCoatLightExitDistanceObject(vec3 boundsMin, vec3 invExtent, vec3 originObject, vec3 dirWorldScaled,
+                                          int boxIsValid)
+{
+	if (boxIsValid == 0)
+	{
+		return 0.0;
+	}
+
+	vec3 originUvw = (originObject - boundsMin) * invExtent;
+	vec3 dirUvw = dirWorldScaled * invExtent;
+
+	float tEnter;
+	float tExit;
+	if (!oloGroomCoatIntersectUnitBox(originUvw, dirUvw, tEnter, tExit))
+	{
+		return 0.0;
+	}
+	// Also catches NaN, because a NaN fails every comparison. An unbiased
+	// receiver is the loud failure here; a receiver at infinity is the silent
+	// one, because it samples outside the cascade and reads FULLY LIT.
+	if (!(tExit > 0.0) || isinf(tExit))
+	{
+		return 0.0;
+	}
+	return tExit;
+}
+
+float oloGroomCoatLightExitDistance(mat4 worldToObject, vec3 boundsMin, vec3 invExtent, vec3 worldPos, vec3 L,
+                                    int boxIsValid)
+{
+	vec3 originObject = (worldToObject * vec4(worldPos, 1.0)).xyz;
+	return oloGroomCoatLightExitDistanceObject(boundsMin, invExtent, originObject, mat3(worldToObject) * L, boxIsValid);
 }
 
 // exp(-tau * (1 - exp(-kappa))), clamped. THE TWIN OF
@@ -291,6 +468,40 @@ float oloGroomCoatTransmittance(float opticalDepth, float kappa)
 	// the exp() it feeds.
 	float perCrossing = 1.0 - exp(-kappa);
 	return clamp(exp(-perCrossing * opticalDepth), 0.0, 1.0);
+}
+
+// exp(-bodyTau): what the body lets through (#1533). Twin of
+// GroomCoatShadow::BodyTransmittance. The guards are oloGroomCoatTransmittance's:
+// a corrupt depth reads as no body -- a lit coat, the loud failure -- because
+// the march cannot produce an infinite or NaN depth from a finite volume.
+float oloGroomBodyTransmittance(float bodyTau)
+{
+	if (!(bodyTau > 0.0) || isinf(bodyTau))
+	{
+		return 1.0;
+	}
+	return clamp(exp(-bodyTau), 0.0, 1.0);
+}
+
+// THE SAME CROSSINGS, WITH WHAT EACH ONE PASSES ON (dual scattering, #1533).
+// Twin of GroomCoatShadow::CoatForwardTransmittance; the formula and why it is
+// the generating function above at a coloured per-crossing survival are there.
+// oloGroomCoatTransmittance is the part of this that arrives UNSCATTERED, and
+// the strand pass shades the two parts differently, so both are kept.
+//
+// The guards are oloGroomCoatTransmittance's, in its order: a corrupt tau or
+// kappa reads fully lit in every channel. isnan on forwardScatter rather than
+// trusting clamp(), which returns an unspecified value for a NaN.
+vec3 oloGroomCoatForwardTransmittance(float opticalDepth, float kappa, vec3 forwardScatter)
+{
+	if (!(opticalDepth > 0.0) || !(kappa > 0.0) || isinf(opticalDepth) || isinf(kappa))
+	{
+		return vec3(1.0);
+	}
+	vec3 forwarded = clamp(forwardScatter, vec3(0.0), vec3(1.0));
+	forwarded = mix(forwarded, vec3(0.0), bvec3(isnan(forwardScatter)));
+	float perCrossing = 1.0 - exp(-kappa);
+	return clamp(exp(-(perCrossing * opticalDepth) * (vec3(1.0) - forwarded)), vec3(0.0), vec3(1.0));
 }
 
 #endif // OLO_GROOM_COAT_SHADOW_COMMON_GLSL

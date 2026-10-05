@@ -678,7 +678,10 @@ namespace OloEngine
         std::unordered_map<std::string, PerformanceCounter> m_CustomTimings;
 
         // History tracking
-        static constexpr u32 OLO_FRAME_HISTORY_SIZE = 300; // 5 seconds at 60fps
+        // 17 s at 60 fps. The E1 gates (#1533) are percentiles over 600+ frames,
+        // which olo_perf_frame_history computes from this ring, so it must hold
+        // more than that at the frame rates being judged.
+        static constexpr u32 OLO_FRAME_HISTORY_SIZE = 1024;
         TArray<FrameData> m_FrameHistory;
         u32 m_HistoryIndex = 0;
         u32 m_LastWrittenHistoryIndex = 0; // slot EndFrame() last wrote; patched in place by the next BeginFrame()

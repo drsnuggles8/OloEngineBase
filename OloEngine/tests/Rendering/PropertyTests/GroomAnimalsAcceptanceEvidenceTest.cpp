@@ -30,6 +30,7 @@
 #include "../../TestOptions.h"
 
 #include "RendererAttachedTest.h"
+#include "RenderPropertyTest.h"
 #include "TestTempDir.h"
 #include "../../MemoryCeiling.h"
 
@@ -58,6 +59,7 @@
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Passes/TAARenderPass.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Scene/Components.h"
@@ -66,7 +68,10 @@
 #include "OloEngine/Scene/SceneCamera.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Scene/AnimalScheduler.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
+#include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
+#include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/TemporalHistoryRegistry.h"
 #include "OloEngine/Renderer/TemporalSequenceMetrics.h"
 #include "OloEngine/Serialization/AssetPackFile.h"
@@ -278,6 +283,25 @@ namespace OloEngine::Tests
             return (y > hairline && facesOut) ? Region::Scalp : Region::Bare;
         }
 
+        // Whether triangle `t` of `surface` belongs to a submesh a coat may grow
+        // on. The entity draws EVERY mesh of its model since #1533, so the
+        // horse's surface carries its eyes too, and a coat grown on them would
+        // put fur on the eyeballs.
+        [[nodiscard]] bool GrowsFur(const MeshSource& surface, u32 t)
+        {
+            const auto& submeshes = surface.GetSubmeshes();
+            for (i32 i = 0; i < submeshes.Num(); ++i)
+            {
+                const Submesh& sm = submeshes[i];
+                if (t * 3u >= sm.m_BaseIndex && t * 3u < sm.m_BaseIndex + sm.m_IndexCount)
+                {
+                    const Material* material = surface.GetImportedMaterialPtrForSubmesh(static_cast<u32>(i));
+                    return material == nullptr || !material->GetName().Contains("Eye");
+                }
+            }
+            return true;
+        }
+
         [[nodiscard]] std::vector<SurfaceTriangle> CollectSurface(const MeshSource& surface, const Skeleton& skeleton,
                                                                   const glm::mat4& surfaceToGroom, BodyFrame& frame,
                                                                   Subject subject = Subject::Horse)
@@ -316,6 +340,10 @@ namespace OloEngine::Tests
 
             for (u32 t = 0; t < triangles; ++t)
             {
+                if (!GrowsFur(surface, t))
+                {
+                    continue;
+                }
                 SurfaceTriangle tri;
                 glm::vec3 shading(0.0f);
                 for (u32 c = 0; c < 3; ++c)
@@ -1116,6 +1144,12 @@ namespace OloEngine::Tests
             // the refusal count.
             auto& coatShadow = coatEntity.AddComponent<GroomCoatShadowComponent>();
             coatShadow.m_Enabled = true;
+            // Dual scattering (#1533) off: this fixture's self-shadow evidence
+            // -- the coat shadow darkens the moving coat, a frozen bake is
+            // caught -- is #1248's, measured on the crossings as occluders, and
+            // the coats were graded without the transport. The #1533 lever in
+            // ActiveVisualLeversChangeTheMovingLongCoat switches it on alone.
+            coatShadow.m_MultipleScattering = false;
 
             auto& lod = coatEntity.AddComponent<GroomLodComponent>(); // #1252, engine defaults
             lod.m_Enabled = true;
@@ -1710,11 +1744,12 @@ namespace OloEngine::Tests
         Capture("", view, again);
         const u32 noise = CountDiffering(again, baseline);
         std::printf("[groom-animals] repeat floor: %u px differ (%.3f%%)\n", noise, 100.0 * Fraction(noise));
-        // 4 % since #1332, measured 3.1 % (1.1 % before). Forward TAA now reads
-        // the coat's own velocity instead of the cleared zero behind it, and
-        // reprojects it by the jitter delta every surface's velocity carries,
-        // so less of the stochastic noise accumulates away (#1552).
-        EXPECT_LT(Fraction(noise), 0.04) << "an identical re-run must reproduce the frame up to stochastic noise";
+        // 3 %, measured 1.32 % (Release). Forward TAA reads the coat's own
+        // velocity and coverage since #1332; it was 4.06 % while that velocity
+        // carried the TAA jitter, the coverage term compared the coat's
+        // per-pixel samples instead of their mean, and the motion ramp cut a
+        // walking coat's history (#1552).
+        EXPECT_LT(Fraction(noise), 0.03) << "an identical re-run must reproduce the frame up to stochastic noise";
 
         struct Lever
         {
@@ -1745,6 +1780,13 @@ namespace OloEngine::Tests
             { "#1249", "Binding",
               [coat](bool on) mutable
               { coat.GetComponent<GroomBindingComponent>().m_Enabled = on; }, true },
+            // #1533's transport, as a lever of its own. The fixture's SHIPPED
+            // state is occluders only (see MakeCoat), so this row's "off" arm
+            // switches dual scattering ON and must change the frame like any
+            // other child.
+            { "#1533", "OccludersOnly",
+              [coat](bool on) mutable
+              { coat.GetComponent<GroomCoatShadowComponent>().m_MultipleScattering = !on; }, true },
             { "#1250", "Simulation",
               [coat](bool on) mutable
               { coat.GetComponent<GroomSimulationComponent>().m_Enabled = on; }, true },
@@ -1795,12 +1837,10 @@ namespace OloEngine::Tests
             }
             else if (lever.ExpectChange)
             {
-                // 1.5x the floor since #1332 (2x before): the floor tripled with
-                // the coat's own velocity in Forward TAA (see the repeat floor
-                // above), the lowest lever measured 1.9x of it (#1552).
-                EXPECT_GT(2u * changed, 3u * noise) << lever.Child << " " << lever.Name
-                                                    << ": switching the child off must change the frame past 1.5x the "
-                                                       "repeat floor";
+                // 2x the floor; the lowest lever it applies to measures 3.97x (#1251).
+                EXPECT_GT(changed, 2u * noise) << lever.Child << " " << lever.Name
+                                               << ": switching the child off must change the frame past 2x the "
+                                                  "repeat floor";
             }
         }
     }
@@ -2044,20 +2084,9 @@ namespace OloEngine::Tests
                 // the two CANCEL in a summed luma (+25 532 against a 6 553
                 // drift). A net sum cannot score a view whose true answer has
                 // both signs, so the front views are printed and looked at,
-                // and hold only to the floor.
-                // The FRONT views hold to three quarters of the floor since #1332:
-                // Forward TAA now reprojects the coat by its own velocity, which
-                // tripled the floor (10 347 -> 30 830 px) while the A/B moved
-                // 30 461 px at F30 Front. The luma assertions carry the claim
-                // (#1552).
-                if (std::string_view(angle) == "Side")
-                {
-                    EXPECT_GT(moved, floor) << "F" << frame << " " << angle;
-                }
-                else
-                {
-                    EXPECT_GT(4u * moved, 3u * floor) << "F" << frame << " " << angle;
-                }
+                // and hold only to the floor (the least of them measures 2.13x,
+                // F45 Front).
+                EXPECT_GT(moved, floor) << "F" << frame << " " << angle;
                 if (std::string_view(angle) == "Side")
                 {
                     EXPECT_LT(delta, -5.0 * repeatLuma)
@@ -2076,11 +2105,10 @@ namespace OloEngine::Tests
 
         // ── MSAA and upscale, one moving pose each, on Deferred ─────────
         SetPath(RenderingPath::Deferred);
-        // The floor and the drift of THIS path. They used to be the Forward
-        // path's, which only worked while the two drifted alike; since #1332
-        // Forward TAA reprojects the coat by its own velocity and drifts three
-        // times as much, while Deferred's resolve still never sees the coat's
-        // velocity (#1552).
+        // The floor and the drift of THIS path, measured here rather than
+        // borrowed from Forward's: the two paths reach TAA through different
+        // velocity targets (SceneVelocity is seeded from the G-Buffer on
+        // Deferred, #1552) and need not drift alike.
         (void)PlayFromStart(30);
         ColdHistory();
         Capture("", side, first);
@@ -2771,9 +2799,74 @@ namespace OloEngine::Tests
                     raw.PeakPixelDelta, raw.ComparedPixels);
         ASSERT_GT(resolved.ComparedPixels, 0u);
         ASSERT_GT(raw.ComparedPixels, 0u);
-        // 0.6 since #1332 (0.5 before), measured 0.52: Forward TAA now reads the
-        // coat's own velocity instead of the cleared zero behind it (#1552).
-        EXPECT_LT(resolved.MeanFrameDelta, raw.MeanFrameDelta * 0.6) << "the resolve must cut the shimmer by 40 %";
+        // 0.5, measured 0.368 (Release); 0.527 while the coat's velocity carried
+        // the TAA jitter, the coverage term compared its per-pixel samples
+        // instead of their mean, and the motion ramp cut its history (#1552).
+        EXPECT_LT(resolved.MeanFrameDelta, raw.MeanFrameDelta * 0.5) << "the resolve must halve the shimmer";
+    }
+
+    // =========================================================================
+    // #1552: on Deferred the resolve samples the walking coat's OWN motion.
+    // The opaque scene writes the G-Buffer's velocity there and the groom,
+    // drawn over the lit frame, writes SceneColor RT3, which TAA did not read:
+    // it reprojected a walking coat by the velocity of the body and the ground
+    // behind it. TAA now samples SceneVelocity -- SceneColor RT3, seeded with
+    // the G-Buffer's velocity before the forward passes draw -- so where a coat
+    // stands, what the resolve reprojects by is the coat's, not the G-Buffer's.
+    // On the old source the two are one texture and this counts nothing.
+    // =========================================================================
+    TEST_F(GroomAnimalsAcceptanceEvidenceTest, TheDeferredResolveSamplesTheWalkingCoatsOwnMotion)
+    {
+        SetPath(RenderingPath::Deferred);
+        SetTaa(0.9f);
+        (void)PlayFromStart(24);
+        RenderGraph* graph = const_cast<RenderGraph*>(RenderGraphDebugRuntime::GetActiveGraph().Raw());
+        ASSERT_NE(graph, nullptr);
+        std::vector<f32> sampled;
+        std::vector<f32> opaque;
+        u32 width = 0;
+        u32 height = 0;
+        constexpr std::string_view kHook = "DeferredCoatVelocity";
+        graph->AddPostPassHook(kHook, [&](std::string_view pass, RenderGraph& g)
+                               {
+                                   if (pass != "TAAPass" || !sampled.empty())
+                                       return;
+                                   const RGTextureHandle velocityHandle = g.GetTextureHandle("SceneVelocity");
+                                   const u32 velocity = g.ResolveTexture(velocityHandle);
+                                   const u32 gbuffer = g.ResolveTexture(g.GetTextureHandle("Velocity"));
+                                   if (velocity == 0u || gbuffer == 0u)
+                                       return;
+                                   GLint w = 0;
+                                   GLint h = 0;
+                                   glGetTextureLevelParameteriv(velocity, 0, GL_TEXTURE_WIDTH, &w);
+                                   glGetTextureLevelParameteriv(velocity, 0, GL_TEXTURE_HEIGHT, &h);
+                                   width = static_cast<u32>(w);
+                                   height = static_cast<u32>(h);
+                                   ReadbackRgbaFloat(velocity, width, height, sampled);
+                                   ReadbackRgbaFloat(gbuffer, width, height, opaque); });
+        (void)Play(1);
+        graph->RemovePostPassHook(kHook);
+
+        // What TAA selected to sample: SceneVelocity, not the G-Buffer's.
+        const Ref<TAARenderPass> taa = graph->GetNode<TAARenderPass>("TAAPass");
+        ASSERT_TRUE(taa) << "no TAAPass in the graph";
+        const FString selected = graph->GetResourceName(taa->GetSelectedVelocityTexture());
+        EXPECT_EQ(selected.ToView().substr(0, selected.ToView().find('@')), "SceneVelocity")
+            << "TAA does not sample SceneVelocity on Deferred";
+        SetPath(RenderingPath::Forward);
+
+        ASSERT_FALSE(sampled.empty()) << "the hook never saw TAAPass sample SceneVelocity on Deferred";
+        ASSERT_EQ(sampled.size(), opaque.size());
+        sizet ownMotion = 0;
+        for (sizet i = 0; i + 3 < sampled.size(); i += 4)
+        {
+            ownMotion += (!Math::BitwiseEqual(sampled[i], opaque[i]) || !Math::BitwiseEqual(sampled[i + 1], opaque[i + 1])) ? 1u : 0u;
+        }
+        const f64 share = static_cast<f64>(ownMotion) / static_cast<f64>(std::max<sizet>(1u, static_cast<sizet>(width) * height));
+        std::printf("[groom-animals] Deferred TAA velocity: %zu of %u x %u texels carry motion the G-Buffer does not (%.2f%%)\n",
+                    ownMotion, width, height, 100.0 * share);
+        EXPECT_GT(share, 0.005) << "the Deferred resolve sees none of the walking coats' own motion: it still samples the "
+                                   "G-Buffer's velocity";
     }
 
     // =========================================================================
@@ -3008,7 +3101,7 @@ namespace OloEngine::Tests
                 const Ref<AnimatedModel> reloaded = Ref<AnimatedModel>::Create(modelPath.string());
                 ASSERT_TRUE(reloaded);
                 ASSERT_FALSE(reloaded->GetMeshes().empty());
-                const MeshSource& body = *reloaded->GetMeshes().front();
+                const MeshSource& body = *reloaded->GetEntityMeshSource();
                 const GroomSurfaceView view = MakeSurfaceView(body, reloaded->GetSkeleton().Raw());
                 EXPECT_EQ(subject->Binding->CheckCompatibility(GroomBindingBuilder::SignGroom(*subject->Grown.Groom),
                                                                GroomBindingBuilder::SignTarget(view)),

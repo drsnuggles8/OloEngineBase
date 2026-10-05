@@ -19,6 +19,10 @@
 #include "OloEngine/Threading/UniqueLock.h"
 #include "OloEngine/Threading/SharedLock.h"
 
+#if defined(OLO_WITH_ALEMBIC)
+#include "OloEngine/Asset/Interchange/Alembic/AlembicGroomImporter.h"
+#endif
+
 #include <algorithm>
 #include <cctype>
 #include <future>
@@ -80,6 +84,7 @@ namespace OloEngine
                 if (m_AssetRegistry.Deserialize(registryPath))
                 {
                     OLO_CORE_INFO("Loaded asset registry from {}", registryPath.string());
+                    UnregisterGroomSourceArchives();
                 }
                 else
                 {
@@ -819,6 +824,25 @@ namespace OloEngine
         return result;
     }
 
+    AssetType EditorAssetManager::GetRegistrationType(const std::filesystem::path& absolutePath)
+    {
+        const AssetType type = AssetExtensions::GetAssetTypeFromPath(absolutePath.string());
+#if defined(OLO_WITH_ALEMBIC)
+        std::string extension = absolutePath.extension().string();
+        std::ranges::transform(extension, extension.begin(), [](unsigned char c)
+                               { return static_cast<char>(std::tolower(c)); });
+        if (type == AssetType::MeshSource && extension == ".abc")
+        {
+            const AlembicGroomImporter::ArchiveContent content = AlembicGroomImporter::InspectArchive(absolutePath);
+            if (content.Curves && !content.Polygons)
+            {
+                return AssetType::None;
+            }
+        }
+#endif
+        return type;
+    }
+
     AssetHandle EditorAssetManager::ImportAsset(const std::filesystem::path& filepath)
     {
         OLO_PROFILER_SCOPE("EditorAssetManager::ImportAsset");
@@ -874,6 +898,13 @@ namespace OloEngine
         if (type == AssetType::None)
         {
             OLO_CORE_ERROR("Cannot import asset: unsupported file type: {}", filepath.string());
+            return 0;
+        }
+        if (GetRegistrationType(absolutePath) == AssetType::None)
+        {
+            OLO_CORE_INFO("Not registering {}: it holds only curves, so it is a groom source; Import as Groom "
+                          "cooks it into the .ologroom the registry holds",
+                          filepath.string());
             return 0;
         }
 
@@ -1444,6 +1475,25 @@ namespace OloEngine
                 decision.ExistsAsRegularFile = std::filesystem::is_regular_file(absolutePath, statEc) && !statEc;
             }
 
+            // A curves-only Alembic archive is a groom source, not an asset
+            // (GetRegistrationType): one appearing is not auto-imported, and a
+            // tracked one re-exported as curves only stops being a MeshSource.
+            if (decision.ExistsAsRegularFile && GetRegistrationType(absolutePath) == AssetType::None)
+            {
+                if (alreadyTracked)
+                {
+                    RemoveAsset(assetHandle);
+                    m_RegistryFlushPending.store(true, std::memory_order_relaxed);
+                    OLO_CORE_INFO("Unregistered {}: it now holds only curves, so it is a groom source, not a MeshSource",
+                                  filePath.generic_string());
+                }
+                else
+                {
+                    OLO_CORE_TRACE("File change ignored: {} holds only curves (a groom source)", filePath.generic_string());
+                }
+                return;
+            }
+
             switch (DecideFileWatchAction(decision))
             {
                 case FileWatchAction::Reload:
@@ -1556,6 +1606,22 @@ namespace OloEngine
         {
             metadata.Status = status;
             m_AssetRegistry.UpdateMetadata(handle, metadata);
+        }
+    }
+
+    void EditorAssetManager::UnregisterGroomSourceArchives()
+    {
+        // Only a MeshSource can stop being one: GetRegistrationType reads nothing
+        // for any other type, so this opens exactly the registered Alembic archives.
+        for (const AssetMetadata& metadata : m_AssetRegistry.GetAssetsOfType(AssetType::MeshSource))
+        {
+            if (GetRegistrationType(GetFileSystemPath(metadata)) == AssetType::None)
+            {
+                m_AssetRegistry.RemoveAsset(metadata.Handle);
+                OLO_CORE_INFO("Unregistered {} (handle {}): it holds only curves, so it is a groom source, not a "
+                              "MeshSource",
+                              metadata.FilePath.generic_string(), static_cast<u64>(metadata.Handle));
+            }
         }
     }
 

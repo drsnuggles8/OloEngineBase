@@ -691,7 +691,8 @@ class VulkanPassSuite : public ::testing::Test
                                     const char* finalPassName,
                                     std::string_view outputResourceName,
                                     const std::function<void(FrameBlackboard&, RGFramebufferHandle)>& assignOutput,
-                                    u32 expectedDraws = 2u)
+                                    u32 expectedDraws = 2u,
+                                    u32 outputAttachments = 1u)
     {
         TArray64<u8> rendered;
 
@@ -717,17 +718,25 @@ class VulkanPassSuite : public ::testing::Test
         if (m_ExtraSetup)
             m_ExtraSetup(graph, blackboard);
 
+        // The output as the pass's production declaration has it: TAA's has a
+        // second attachment, the resolve its history keeps (#1533).
         FramebufferSpecification outputSpec;
         outputSpec.Width = size;
         outputSpec.Height = size;
-        outputSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+        RGResourceDesc outputDesc = fbDesc;
+        for (u32 a = 0; a < outputAttachments; ++a)
+        {
+            outputSpec.Attachments.Attachments.Add(FramebufferTextureSpecification(FramebufferTextureFormat::RGBA8));
+            if (outputAttachments > 1u)
+                outputDesc.Attachments.Add(RGResourceFormat::RGBA8UNorm);
+        }
         Ref<Framebuffer> outputFramebuffer = Framebuffer::Create(outputSpec);
         if (!outputFramebuffer)
         {
             ADD_FAILURE() << "backed output framebuffer creation failed";
             return rendered;
         }
-        assignOutput(blackboard, graph.DeclareTransientFramebuffer(outputResourceName, fbDesc, outputFramebuffer));
+        assignOutput(blackboard, graph.DeclareTransientFramebuffer(outputResourceName, outputDesc, outputFramebuffer));
 
         graph.AddNode(producer);
         graph.AddNode(passNode);
@@ -748,6 +757,8 @@ class VulkanPassSuite : public ::testing::Test
             [&]()
             {
                 graph.Execute();
+                if (m_AfterExecute)
+                    m_AfterExecute();
 
                 auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
                 RHI::Barrier toSampled{};
@@ -908,11 +919,14 @@ class VulkanPassSuite : public ::testing::Test
     std::function<void(RenderGraph&, FrameBlackboard&)> m_ExtraSetup;
     // The LAST access the chain performs on the output attachment before the
     // harness's readback barrier. ColorAttachmentWrite for a plain
-    // draw-terminated chain; a pass whose Setup EXTRACTS the output (TAA's
-    // history copy) leaves it transfer-READ, and lowering the barrier's src
-    // scope from the wrong access is a WRITE_AFTER_READ hazard the sync
-    // validation names (the layout half is tracker-exact either way).
+    // draw-terminated chain; a pass whose Setup EXTRACTS attachment 0 leaves
+    // it transfer-READ, and lowering the barrier's src scope from the wrong
+    // access is a WRITE_AFTER_READ hazard the sync validation names (the
+    // layout half is tracker-exact either way). TAA extracts its attachment 1.
     RHI::Access m_OutputBarrierBefore = RHI::Access::ColorAttachmentWrite;
+    // Runs inside the frame right after the graph executes (barriers a tenant
+    // needs before reading back a resource the chain wrote); reset it after.
+    std::function<void()> m_AfterExecute;
     // Restore flags — see TearDown. A tenant that shuts down a
     // production (GL-currency) renderer static to re-home it on Vulkan sets
     // its flag IMMEDIATELY (before its own Init), so the restore happens even
@@ -2152,7 +2166,8 @@ TEST_F(VulkanPassSuite, MotionBlurSmearsAlongTheVelocityAndPassesThroughAtZero)
         auxDesc.Height = kSize;
         blackboard.Scene.SceneDepth =
             graph.ImportTextureHandle(ResourceNames::SceneDepth, depthTexture->GetRHIHandle(), auxDesc);
-        blackboard.GBuffer.Velocity =
+        // Motion blur reads SceneVelocity, every surface's motion (#1552).
+        blackboard.Scene.SceneVelocity =
             graph.ImportTextureHandle(ResourceNames::Velocity, currentVelocity->GetRHIHandle(), auxDesc);
     };
 
@@ -4391,8 +4406,9 @@ TEST_F(VulkanPassSuite, FogFogsTheFarFieldAnalyticallyAndPassesThroughAtZeroDens
 
 // =============================================================================
 // TAA: the history pass — two frames through the RunSinglePassChain harness.
-// Frame 1 declares builder.ExtractHistoryTexture(TAAHistory, output): the
-// graph's FlushExtractions copies the frame's output into the fixture-owned
+// Frame 1 declares builder.ExtractHistoryTexture(TAAHistory, output, 1): the
+// graph's FlushExtractions copies the frame's resolve (the output's second
+// attachment, as the pipeline declares it) into the fixture-owned
 // history texture (RegisterHistoryTextureSink — CopyImageSubData on this
 // backend) and flips the sink's valid flag; frame 1's own history bind falls
 // back to the current input (the pass's documented history=current path).
@@ -4476,7 +4492,8 @@ TEST_F(VulkanPassSuite, TaaResolvesIdentityAndBlendsTheImportedHistory)
         auxDesc.Height = kSize;
         blackboard.Scene.SceneDepth =
             graph.ImportTextureHandle(ResourceNames::SceneDepth, depthTexture->GetRHIHandle(), auxDesc);
-        blackboard.GBuffer.Velocity =
+        // TAA reads SceneVelocity, every surface's motion (#1552).
+        blackboard.Scene.SceneVelocity =
             graph.ImportTextureHandle(ResourceNames::Velocity, velocityTexture->GetRHIHandle(), auxDesc);
         graph.RegisterHistoryTextureSink(ResourceNames::TAAHistory, historyTexture->GetRHIHandle(), kSize, kSize,
                                          &historyValid);
@@ -4486,10 +4503,6 @@ TEST_F(VulkanPassSuite, TaaResolvesIdentityAndBlendsTheImportedHistory)
                 graph.ImportHistoryHandle(ResourceNames::TAAHistory, historyTexture->GetRHIHandle());
         }
     };
-    // The history extract READS the output attachment last — the readback
-    // barrier's source scope must name the copy, not the raster.
-    m_OutputBarrierBefore = RHI::Access::TransferRead;
-
     const auto runFrame = [&](const Ref<Texture2D>& input) -> TArray64<u8>
     {
         auto taa = Ref<TAARenderPass>::Create();
@@ -4505,9 +4518,10 @@ TEST_F(VulkanPassSuite, TaaResolvesIdentityAndBlendsTheImportedHistory)
         taa->SetSettings(settings);
 
         auto producer = Ref<PatternProducerPass>::Create(input, blitShader);
-        return RunSinglePassChain(kSize, producer, taa, "TAAPass", ResourceNames::TAAColor,
-                                  [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
-                                  { blackboard.Post.TAAColor = handle; });
+        return RunSinglePassChain(
+            kSize, producer, taa, "TAAPass", ResourceNames::TAAColor,
+            [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
+            { blackboard.Post.TAAColor = handle; }, 2u, 2u);
     };
 
     const auto valueAt = [&](u32 x, u32 y, u32 flip) -> int
@@ -4560,7 +4574,176 @@ TEST_F(VulkanPassSuite, TaaResolvesIdentityAndBlendsTheImportedHistory)
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
     EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
     m_ExtraSetup = nullptr;
-    m_OutputBarrierBefore = RHI::Access::ColorAttachmentWrite;
+}
+
+// =============================================================================
+// TAA's sharpen stays inside the range it sharpens (#1533). The unsharp mask
+// ran unbounded on linear colour, so beside one bright sample a dark pixel's
+// 3x3 mean was far above its own value and the mask drove it below zero: the
+// black ring a sun glint printed in its bloom. One frame (history == current,
+// so the resolve is the input, except at an isolated white pixel, whose own
+// history the variance clip pulls toward its dark field), sharpness 1:
+//   - TOP HALF, a dark field (13) with isolated white pixels: no pixel may
+//     fall below its own 3x3 minimum. Unbounded, a white pixel's neighbours
+//     read 13 - 40 and print 0.
+//   - BOTTOM HALF, a soft edge 64 | 96 | 160 | 192: the mask must still
+//     steepen it (96 down, 160 up), so the bound has not switched it off.
+//   - THE HISTORY: the sink the graph fills for next frame holds the resolve
+//     (the input, wherever the clip leaves it), not the sharpened frame: at
+//     the soft edge the shown frame is steepened, the history is not. Kept in
+//     the history, the
+//     sharpen's current-frame high-pass piled up frame after frame: a
+//     stochastic coat's sample noise, the dog's walk resolved to only half of
+//     what its samples shimmer (B6).
+// =============================================================================
+TEST_F(VulkanPassSuite, TaaSharpenStaysInsideItsRangeAndOutOfTheHistory)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    constexpr u8 kDark = 13;
+    const auto valueAt = [](u32 x, u32 y) -> u8
+    {
+        if (y < kSize / 2u)
+        {
+            return ((x % 8u) == 4u && (y % 8u) == 4u) ? u8{ 255 } : kDark;
+        }
+        return x <= 60u ? u8{ 64 } : x == 61u ? u8{ 96 }
+                                 : x == 62u   ? u8{ 160 }
+                                              : u8{ 192 };
+    };
+    TArray64<u8> pixels(static_cast<sizet>(kSize) * kSize * 4);
+    for (u32 y = 0; y < kSize; ++y)
+    {
+        for (u32 x = 0; x < kSize; ++x)
+        {
+            const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+            pixels[i + 0] = pixels[i + 1] = pixels[i + 2] = valueAt(x, y);
+            pixels[i + 3] = 255;
+        }
+    }
+    TextureSpecification spec;
+    spec.Width = kSize;
+    spec.Height = kSize;
+    spec.Format = ImageFormat::RGBA8;
+    spec.GenerateMips = false;
+    auto input = Texture2D::Create(spec);
+    ASSERT_NE(input, nullptr);
+    input->SetData(pixels.GetData(), static_cast<u32>(pixels.Num()));
+
+    auto depthTexture = MakeSolidTexture(kSize, 0, 0, 0, 255);
+    ASSERT_NE(depthTexture, nullptr);
+    auto velocityTexture = MakeSolidTexture(kSize, 0, 0, 0, 255); // zero motion
+    ASSERT_NE(velocityTexture, nullptr);
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+    MotionBlurUBOData motionData{};
+    auto motionUbo = UniformBuffer::Create(sizeof(MotionBlurUBOData), 8);
+    motionUbo->SetData(&motionData, sizeof(motionData));
+
+    auto historyTexture = MakeSolidTexture(kSize, 0, 0, 0, 255);
+    ASSERT_NE(historyTexture, nullptr);
+    bool historyValid = false;
+    m_ExtraSetup = [&](RenderGraph& graph, FrameBlackboard& blackboard)
+    {
+        RGResourceDesc auxDesc;
+        auxDesc.Kind = RGResourceHandle::Kind::Texture2D;
+        auxDesc.Format = RGResourceFormat::RGBA8UNorm;
+        auxDesc.Width = kSize;
+        auxDesc.Height = kSize;
+        blackboard.Scene.SceneDepth =
+            graph.ImportTextureHandle(ResourceNames::SceneDepth, depthTexture->GetRHIHandle(), auxDesc);
+        blackboard.Scene.SceneVelocity =
+            graph.ImportTextureHandle(ResourceNames::Velocity, velocityTexture->GetRHIHandle(), auxDesc);
+        graph.RegisterHistoryTextureSink(ResourceNames::TAAHistory, historyTexture->GetRHIHandle(), kSize, kSize,
+                                         &historyValid);
+    };
+    // TRANSFER_DST after the history copy; GetData's one-shot readback assumes
+    // the SHADER_READ_ONLY steady state.
+    m_AfterExecute = [&]()
+    {
+        auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+        RHI::Barrier toSampled{};
+        toSampled.Resource = historyTexture->GetRHIHandle();
+        toSampled.Before = RHI::Access::TransferWrite;
+        toSampled.After = RHI::Access::ShaderSampleRead;
+        api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+    };
+
+    auto taa = Ref<TAARenderPass>::Create();
+    FramebufferSpecification initSpec;
+    initSpec.Width = kSize;
+    initSpec.Height = kSize;
+    initSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+    taa->Init(initSpec);
+    taa->SetEnabled(true);
+    PostProcessSettings settings{};
+    settings.TAAFeedback = 0.9f;
+    settings.TAASharpness = 1.0f;
+    taa->SetSettings(settings);
+    auto producer = Ref<PatternProducerPass>::Create(input, blitShader);
+    const auto frame = RunSinglePassChain(
+        kSize, producer, taa, "TAAPass", ResourceNames::TAAColor,
+        [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
+        { blackboard.Post.TAAColor = handle; }, 2u, 2u);
+    m_AfterExecute = nullptr;
+    ASSERT_EQ(frame.Num(), static_cast<sizet>(kSize) * kSize * 4);
+    const auto out = [&](u32 x, u32 y)
+    { return static_cast<int>(frame[(static_cast<sizet>(y) * kSize + x) * 4]); };
+
+    int worstUndershoot = 0;
+    u32 below = 0;
+    for (u32 y = 4; y < kSize / 2u - 4u; ++y)
+    {
+        for (u32 x = 4; x < kSize - 4u; ++x)
+        {
+            int lowest = 255;
+            for (int dy = -1; dy <= 1; ++dy)
+                for (int dx = -1; dx <= 1; ++dx)
+                    lowest = std::min(lowest, static_cast<int>(valueAt(x + dx, y + dy)));
+            const int undershoot = lowest - out(x, y);
+            worstUndershoot = std::max(worstUndershoot, undershoot);
+            below += undershoot > 2 ? 1u : 0u;
+        }
+    }
+    EXPECT_EQ(below, 0u) << "the sharpen pushed " << below << " pixels below their 3x3 minimum (worst by "
+                         << worstUndershoot << " of 255): an unbounded unsharp mask prints a dark ring round a bright "
+                                               "sample";
+    const int soft = out(61, 96);
+    const int hard = out(62, 96);
+    EXPECT_LT(soft, 96 - 5) << "the soft edge's low side was not sharpened: the bound switched the sharpen off";
+    EXPECT_GT(hard, 160 + 5) << "the soft edge's high side was not sharpened: the bound switched the sharpen off";
+    EXPECT_GE(soft, 64 - 2) << "the soft edge undershot its own range";
+    EXPECT_LE(hard, 192 + 2) << "the soft edge overshot its own range";
+
+    // The history holds the resolve: the input everywhere but the isolated white
+    // pixels (the variance clip's, see the header), the steepened edge included.
+    ASSERT_TRUE(historyValid) << "the pass did not extract its history";
+    TArray64<u8> history;
+    ASSERT_TRUE(historyTexture->GetData(history, 0)) << "history readback failed";
+    ASSERT_EQ(history.Num(), static_cast<sizet>(kSize) * kSize * 4);
+    u32 historyDiff = 0;
+    for (u32 y = 0; y < kSize; ++y)
+    {
+        for (u32 x = 0; x < kSize; ++x)
+        {
+            if (valueAt(x, y) == 255u)
+                continue;
+            const int kept = static_cast<int>(history[(static_cast<sizet>(y) * kSize + x) * 4]);
+            historyDiff = std::max(historyDiff, static_cast<u32>(std::abs(kept - static_cast<int>(valueAt(x, y)))));
+        }
+    }
+    EXPECT_LE(historyDiff, 2u) << "the history differs from the resolve by up to " << historyDiff
+                               << " of 255: the sharpened frame went into the history";
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
+    m_ExtraSetup = nullptr;
 }
 
 // =============================================================================
@@ -4742,7 +4925,8 @@ TEST_F(VulkanPassSuite, DepthVelocityUpscaleNearestUpsamplesExactValues)
     importDesc.Height = kReduced;
     blackboard.Scene.SceneDepth =
         graph.ImportTextureHandle(ResourceNames::SceneDepth, depthTexture->GetRHIHandle(), importDesc);
-    blackboard.GBuffer.Velocity =
+    // The upscale reads SceneVelocity, every surface's motion (#1552).
+    blackboard.Scene.SceneVelocity =
         graph.ImportTextureHandle(ResourceNames::Velocity, velocityTexture->GetRHIHandle(), importDesc);
 
     FramebufferSpecification outputSpec;
@@ -10585,6 +10769,289 @@ TEST_F(VulkanPassSuite, ShadowCascadesRenderIntoTheirOwnDepthArrayLayers)
            "would leave the quad here";
 }
 
+// THE GROOM SPLIT OF A CASCADE (#1533), the sequence ShadowRenderPass records
+// when a groom casts: the layer's opaque casters, a copy of the layer into the
+// opaque cascades, then the grooms on top of the SAME layer, UNCLEARED. A
+// strand samples the copy at itself so the body shadows it and its own fur
+// does not; every other receiver samples the full layer. Three things must
+// hold on Vulkan, and each failure lands somewhere the samples below read:
+//
+//   * the copy must take the DEPTH aspect of the right LAYER (layer 1 here,
+//     so a copy that ignores the z offset reads layer 0's clear);
+//   * the copy must land BEFORE the second half -- a copy recorded after it,
+//     or one that reads the image mid-scope, carries the "fur" into the copy;
+//   * the second half must LOAD the layer, not clear it: the opaque quad has
+//     to survive in the full map where the fur quad does not cover it.
+TEST_F(VulkanPassSuite, AGroomSplitCascadeCopiesItsOpaqueHalfAndLoadsItUnderTheGrooms)
+{
+    constexpr u32 kSize = 64;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const u64 stubsBefore = api.GetUnimplementedStubHitCount();
+
+    auto shadowShader = Shader::Create("assets/shaders/ShadowDepth.glsl");
+    ASSERT_TRUE(shadowShader);
+    ASSERT_EQ(shadowShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    ShaderBindingLayout::CameraUBO cameraData{};
+    cameraData.ViewProjection = glm::mat4(1.0f);
+    cameraData.View = glm::mat4(1.0f);
+    cameraData.Projection = glm::mat4(1.0f);
+    cameraData.PrevViewProjection = glm::mat4(1.0f);
+    auto cameraUbo = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+    cameraUbo->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
+    const InstanceData identityInstance{};
+    auto instanceSSBO = StorageBuffer::Create(sizeof(InstanceData), ShaderBindingLayout::SSBO_INSTANCE_DATA);
+    instanceSSBO->SetData(&identityInstance, sizeof(identityInstance));
+    instanceSSBO->Bind();
+
+    // The OPAQUE caster covers the left half at 0.5; the "fur" covers the
+    // middle half, NEARER, at 0.25 -- over part of the opaque quad and part of
+    // the cleared right half.
+    constexpr f32 kOpaqueDepth = 0.5f;
+    constexpr f32 kFurDepth = 0.25f;
+    auto opaqueQuad = MakeV1Quad(-1.0f, 0.0f, -1.0f, 1.0f, kOpaqueDepth);
+    auto furQuad = MakeV1Quad(-0.5f, 0.5f, -1.0f, 1.0f, kFurDepth);
+    ASSERT_TRUE(opaqueQuad && furQuad);
+
+    Texture2DArraySpecification arraySpec;
+    arraySpec.Width = kSize;
+    arraySpec.Height = kSize;
+    arraySpec.Layers = 2;
+    arraySpec.Format = Texture2DArrayFormat::DEPTH_COMPONENT32F;
+    arraySpec.DepthComparisonMode = true;
+    auto cascades = Texture2DArray::Create(arraySpec);
+    auto opaqueCopy = Texture2DArray::Create(arraySpec);
+    ASSERT_TRUE(cascades && opaqueCopy);
+
+    FramebufferSpecification shadowSpec;
+    shadowSpec.Width = kSize;
+    shadowSpec.Height = kSize;
+    shadowSpec.Attachments = { FramebufferTextureFormat::ShadowDepth };
+    Ref<Framebuffer> shadowFramebuffer = Framebuffer::Create(shadowSpec);
+    ASSERT_TRUE(shadowFramebuffer);
+
+    constexpr u32 kLayer = 1u;
+    SubmitFrame(
+        [&]()
+        {
+            shadowFramebuffer->Bind();
+            RenderCommand::SetViewport(0, 0, kSize, kSize);
+            RenderCommand::SetBlendState(false);
+            RenderCommand::DisableCulling();
+            RenderCommand::SetDepthTest(true);
+            RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+            RenderCommand::SetDepthMask(true);
+            shadowShader->Bind();
+
+            // The opaque half.
+            shadowFramebuffer->AttachDepthTextureArrayLayer(cascades->GetRHIHandle(), kLayer);
+            RenderCommand::ClearDepthOnly();
+            opaqueQuad->Bind();
+            RenderCommand::DrawIndexed(opaqueQuad, 6);
+
+            // The copy, between the halves -- a RECT, as the pass copies only
+            // the receivers' texels: offset on both axes so a backend that
+            // dropped the offsets would leave the sampled row uninitialised.
+            RenderCommand::CopyImageSubDataRegion(cascades->GetRHIHandle(), RendererAPI::TextureTargetType::Texture2DArray,
+                                                  0, 4, 16, static_cast<i32>(kLayer), opaqueCopy->GetRHIHandle(),
+                                                  RendererAPI::TextureTargetType::Texture2DArray, 0, 4, 16,
+                                                  static_cast<i32>(kLayer), 48u, 32u);
+
+            // The groom half: the same layer, uncleared.
+            shadowFramebuffer->AttachDepthTextureArrayLayer(cascades->GetRHIHandle(), kLayer);
+            furQuad->Bind();
+            RenderCommand::DrawIndexed(furQuad, 6);
+
+            std::array<RHI::Barrier, 2> toSampled{};
+            for (u32 i = 0; i < 2u; ++i)
+            {
+                toSampled[i].Resource = i == 0 ? cascades->GetRHIHandle() : opaqueCopy->GetRHIHandle();
+                toSampled[i].Range.BaseMip = 0u;
+                toSampled[i].Range.MipCount = 1u;
+                toSampled[i].Range.BaseLayer = kLayer;
+                toSampled[i].Range.LayerCount = 1u;
+                toSampled[i].Before = i == 0 ? RHI::Access::DepthStencilAttachmentWrite : RHI::Access::TransferWrite;
+                toSampled[i].After = RHI::Access::ShaderSampleRead;
+            }
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span<const RHI::Barrier>{ toSampled });
+        });
+
+    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 2u) << "one draw per half";
+    EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u) << "a half's draw dropped silently";
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore) << "the copy or the attach hit a stub";
+
+    std::vector<f32> full;
+    std::vector<f32> opaque;
+    ASSERT_TRUE(ReadDepthArrayLayer(cascades, kLayer, full)) << "full-layer readback failed";
+    ASSERT_TRUE(ReadDepthArrayLayer(opaqueCopy, kLayer, opaque)) << "opaque-copy readback failed";
+    ASSERT_EQ(full.size(), static_cast<sizet>(kSize) * kSize);
+    ASSERT_EQ(opaque.size(), static_cast<sizet>(kSize) * kSize);
+
+    const auto sample = [&](const std::vector<f32>& layer, u32 x)
+    { return layer[static_cast<sizet>(kSize / 2u) * kSize + x]; };
+    constexpr u32 kOpaqueOnlyX = kSize / 8;  // NDC -0.75: opaque, no fur
+    constexpr u32 kBothX = 3 * kSize / 8;    // NDC -0.25: fur over opaque
+    constexpr u32 kFurOnlyX = 5 * kSize / 8; // NDC +0.25: fur, nothing under it
+    constexpr u32 kNeitherX = 7 * kSize / 8; // NDC +0.75: cleared
+
+    // The FULL layer holds both halves: the opaque quad survived the groom
+    // half, so it was loaded, not cleared.
+    EXPECT_NEAR(sample(full, kOpaqueOnlyX), kOpaqueDepth, 1e-4f)
+        << "the opaque quad is gone from the full layer: the groom half CLEARED the layer instead of loading it";
+    EXPECT_NEAR(sample(full, kBothX), kFurDepth, 1e-4f) << "the fur did not draw over the opaque caster";
+    EXPECT_NEAR(sample(full, kFurOnlyX), kFurDepth, 1e-4f) << "the fur is missing from the full layer";
+    EXPECT_NEAR(sample(full, kNeitherX), 1.0f, 1e-4f) << "the full layer's uncovered quarter is not the clear value";
+
+    // The COPY holds the opaque half and nothing of the fur.
+    EXPECT_NEAR(sample(opaque, kOpaqueOnlyX), kOpaqueDepth, 1e-4f)
+        << "the opaque copy does not hold the opaque caster: the copy missed the layer or its depth aspect";
+    EXPECT_NEAR(sample(opaque, kBothX), kOpaqueDepth, 1e-4f)
+        << "the fur reached the opaque copy: the copy landed after the groom half";
+    EXPECT_NEAR(sample(opaque, kFurOnlyX), 1.0f, 1e-4f)
+        << "the fur reached the opaque copy where nothing opaque is: the copy landed after the groom half";
+}
+
+// The production shape since #1533: the opaque copy lives in the UPPER layers of
+// the same depth array (ShadowMap::OPAQUE_CSM_LAYER_BASE), so the copy's source
+// and destination are one image. Two cascades draw their opaque casters, one is
+// copied into its upper layer, and the grooms draw on top. Beyond the contents
+// -- the copy holds the opaque half, the cascade both halves, the cascade that
+// was never copied its own caster -- the copy must synchronise against every
+// layer it touches: after a region copy the backend settles the whole
+// destination image, and with source and destination one image that includes
+// layers last written as depth attachments. The settle once scoped them to the
+// copy alone, a write-after-write hazard per frame under synchronization
+// validation (14,217 of them in a live Vulkan session of the dog). TearDown
+// counts validation errors.
+TEST_F(VulkanPassSuite, AGroomCascadeCopiesItsOpaqueHalfIntoItsOwnArraysUpperLayer)
+{
+    constexpr u32 kSize = 64;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const u64 stubsBefore = api.GetUnimplementedStubHitCount();
+
+    auto shadowShader = Shader::Create("assets/shaders/ShadowDepth.glsl");
+    ASSERT_TRUE(shadowShader);
+    ASSERT_EQ(shadowShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    ShaderBindingLayout::CameraUBO cameraData{};
+    cameraData.ViewProjection = glm::mat4(1.0f);
+    cameraData.View = glm::mat4(1.0f);
+    cameraData.Projection = glm::mat4(1.0f);
+    cameraData.PrevViewProjection = glm::mat4(1.0f);
+    auto cameraUbo = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+    cameraUbo->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
+    const InstanceData identityInstance{};
+    auto instanceSSBO = StorageBuffer::Create(sizeof(InstanceData), ShaderBindingLayout::SSBO_INSTANCE_DATA);
+    instanceSSBO->SetData(&identityInstance, sizeof(identityInstance));
+    instanceSSBO->Bind();
+
+    constexpr f32 kOtherCascadeDepth = 0.7f;
+    constexpr f32 kOpaqueDepth = 0.5f;
+    constexpr f32 kFurDepth = 0.25f;
+    auto otherQuad = MakeV1Quad(-1.0f, 1.0f, -1.0f, 1.0f, kOtherCascadeDepth);
+    auto opaqueQuad = MakeV1Quad(-1.0f, 0.0f, -1.0f, 1.0f, kOpaqueDepth);
+    auto furQuad = MakeV1Quad(-0.5f, 0.5f, -1.0f, 1.0f, kFurDepth);
+    ASSERT_TRUE(otherQuad && opaqueQuad && furQuad);
+
+    // Cascades 0 and 1, and their opaque layers 2 and 3.
+    constexpr u32 kOpaqueBase = 2u;
+    Texture2DArraySpecification arraySpec;
+    arraySpec.Width = kSize;
+    arraySpec.Height = kSize;
+    arraySpec.Layers = 4;
+    arraySpec.Format = Texture2DArrayFormat::DEPTH_COMPONENT32F;
+    arraySpec.DepthComparisonMode = true;
+    auto cascades = Texture2DArray::Create(arraySpec);
+    ASSERT_TRUE(cascades);
+
+    FramebufferSpecification shadowSpec;
+    shadowSpec.Width = kSize;
+    shadowSpec.Height = kSize;
+    shadowSpec.Attachments = { FramebufferTextureFormat::ShadowDepth };
+    Ref<Framebuffer> shadowFramebuffer = Framebuffer::Create(shadowSpec);
+    ASSERT_TRUE(shadowFramebuffer);
+
+    constexpr u32 kOther = 0u;
+    constexpr u32 kLayer = 1u;
+    SubmitFrame(
+        [&]()
+        {
+            shadowFramebuffer->Bind();
+            RenderCommand::SetViewport(0, 0, kSize, kSize);
+            RenderCommand::SetBlendState(false);
+            RenderCommand::DisableCulling();
+            RenderCommand::SetDepthTest(true);
+            RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+            RenderCommand::SetDepthMask(true);
+            shadowShader->Bind();
+
+            // The other cascade's opaque casters: written, never copied here.
+            shadowFramebuffer->AttachDepthTextureArrayLayer(cascades->GetRHIHandle(), kOther);
+            RenderCommand::ClearDepthOnly();
+            otherQuad->Bind();
+            RenderCommand::DrawIndexed(otherQuad, 6);
+
+            // This cascade's opaque half, its copy into its upper layer, then
+            // the groom half on top, uncleared.
+            shadowFramebuffer->AttachDepthTextureArrayLayer(cascades->GetRHIHandle(), kLayer);
+            RenderCommand::ClearDepthOnly();
+            opaqueQuad->Bind();
+            RenderCommand::DrawIndexed(opaqueQuad, 6);
+            RenderCommand::CopyImageSubDataRegion(cascades->GetRHIHandle(), RendererAPI::TextureTargetType::Texture2DArray,
+                                                  0, 4, 16, static_cast<i32>(kLayer), cascades->GetRHIHandle(),
+                                                  RendererAPI::TextureTargetType::Texture2DArray, 0, 4, 16,
+                                                  static_cast<i32>(kLayer + kOpaqueBase), 48u, 32u);
+            shadowFramebuffer->AttachDepthTextureArrayLayer(cascades->GetRHIHandle(), kLayer);
+            furQuad->Bind();
+            RenderCommand::DrawIndexed(furQuad, 6);
+
+            std::array<RHI::Barrier, 2> toSampled{};
+            for (u32 i = 0; i < 2u; ++i)
+            {
+                toSampled[i].Resource = cascades->GetRHIHandle();
+                toSampled[i].Range.BaseMip = 0u;
+                toSampled[i].Range.MipCount = 1u;
+                toSampled[i].Range.BaseLayer = i == 0 ? kOther : kLayer;
+                toSampled[i].Range.LayerCount = 1u;
+                toSampled[i].Before = RHI::Access::DepthStencilAttachmentWrite;
+                toSampled[i].After = RHI::Access::ShaderSampleRead;
+            }
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span<const RHI::Barrier>{ toSampled });
+        });
+
+    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 3u) << "one draw for the other cascade, one per half";
+    EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u) << "a draw dropped silently";
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore) << "the copy or the attach hit a stub";
+
+    std::vector<f32> other;
+    std::vector<f32> full;
+    std::vector<f32> opaque;
+    ASSERT_TRUE(ReadDepthArrayLayer(cascades, kOther, other)) << "other-cascade readback failed";
+    ASSERT_TRUE(ReadDepthArrayLayer(cascades, kLayer, full)) << "full-layer readback failed";
+    ASSERT_TRUE(ReadDepthArrayLayer(cascades, kLayer + kOpaqueBase, opaque)) << "opaque-layer readback failed";
+
+    const auto sample = [&](const std::vector<f32>& layer, u32 x)
+    { return layer[static_cast<sizet>(kSize / 2u) * kSize + x]; };
+    constexpr u32 kOpaqueOnlyX = kSize / 8;  // NDC -0.75: opaque, no fur
+    constexpr u32 kBothX = 3 * kSize / 8;    // NDC -0.25: fur over opaque
+    constexpr u32 kFurOnlyX = 5 * kSize / 8; // NDC +0.25: fur, nothing under it
+
+    EXPECT_NEAR(sample(other, kOpaqueOnlyX), kOtherCascadeDepth, 1e-4f)
+        << "the cascade that was never copied lost its caster";
+    EXPECT_NEAR(sample(full, kOpaqueOnlyX), kOpaqueDepth, 1e-4f) << "the groom half cleared the cascade";
+    EXPECT_NEAR(sample(full, kBothX), kFurDepth, 1e-4f) << "the fur did not draw over the opaque caster";
+    EXPECT_NEAR(sample(opaque, kOpaqueOnlyX), kOpaqueDepth, 1e-4f)
+        << "the opaque layer does not hold the opaque caster";
+    EXPECT_NEAR(sample(opaque, kBothX), kOpaqueDepth, 1e-4f)
+        << "the fur reached the opaque layer: the copy landed after the groom half";
+    EXPECT_NEAR(sample(opaque, kFurOnlyX), 1.0f, 1e-4f)
+        << "the fur reached the opaque layer where nothing opaque is";
+}
+
 // =============================================================================
 // The INSTANCED skinned draw (#1031).
 //
@@ -11715,8 +12182,14 @@ TEST_F(VulkanPassSuite, WaterTessellatedPipelineBuildsAndRasterizesAPatchDraw)
 // the feedback block the only possible unfed binding. Three arms per shader:
 //   1. VT off: exactly one unfed binding, and it is not a required one;
 //   2. feedback buffer bound (VT on): nothing unfed — arm 1 was binding 79;
-//   3. negative control: drop the visible-node list as well, and the required
-//      counter moves — so arm 1's zero is not a counter that never counts.
+//   3. drop the visible-node list as well: the unfed counter moves to two, so
+//      arm 1's one is not a counter that never counts, and the required
+//      counter still does not -- since #1533 the list is a reviewed, gated
+//      absence too (every chunk draw runs without it; ClassifyMissingVulkanBuffer).
+//      The required counter increments in the same branch as the unfed one,
+//      gated only on that classification, whose Error cases
+//      VulkanBufferBindingDiagnosticsTest pins; these terrain shaders declare
+//      no other storage block for a draw to starve.
 // Nothing here checks shading; the tessellation factors are all zero, and the
 // draw only has to reach the root-data writer.
 // =============================================================================
@@ -11866,7 +12339,8 @@ TEST_F(VulkanPassSuite, TerrainDrawWithTheVirtualTextureOffLeavesNoRequiredStora
         }
         submitAndCount(unfed, required);
         EXPECT_EQ(unfed, 2u) << "negative control: feedback AND visible nodes unfed";
-        EXPECT_EQ(required, 1u) << "the unfed TerrainVisibleNodes must count as required";
+        EXPECT_EQ(required, 0u) << "TerrainVisibleNodes is a reviewed absence in the terrain vertex stages (#1533): "
+                                   "every chunk draw runs without the list";
 
         for (const auto& buffer : fed)
             buffer->Unbind();
@@ -13351,6 +13825,18 @@ TEST_F(VulkanPassSuite, GroomProxyVerticesSurviveADelayedRead)
 {
     if (!m_Device->HasAsyncComputeQueue())
         GTEST_SKIP() << "A separate compute queue is needed to hold the old read.";
+    // The CPU build's contract: a fresh allocation per frame. The GPU build
+    // rewrites in place behind an all-commands barrier (#1533) and is pinned
+    // by GroomProxyBuiltOnTheGpuMatchesTheCpuBuild.
+    struct RestoreLever
+    {
+        bool Previous = Levers::GroomProxyOnCpu();
+        ~RestoreLever()
+        {
+            Levers::SetGroomProxyOnCpu(Previous);
+        }
+    } restoreLever;
+    Levers::SetGroomProxyOnCpu(true);
 
     using namespace OloEngine::GroomBindingTest;
     GridSurface grid = MakeGrid(8u);
@@ -13443,6 +13929,111 @@ TEST_F(VulkanPassSuite, GroomProxyVerticesSurviveADelayedRead)
     ASSERT_EQ(bytes.size(), static_cast<sizet>(probeBytes));
     EXPECT_EQ(bytes, expected) << "the delayed BLAS input read the NEXT frame's deformed strands";
     scene.Shutdown();
+}
+
+// #1533: the coat proxy built on the GPU (GroomProxyDeformToBuffer.comp) traces
+// the coat the CPU build traces. One coat, one bent pose, built both ways; the
+// ribbons' vertices compared to float rounding. Also pins that the GPU build
+// dispatches inside the recording and that a CPU build dispatches nothing.
+TEST_F(VulkanPassSuite, GroomProxyBuiltOnTheGpuMatchesTheCpuBuild)
+{
+    using namespace OloEngine::GroomBindingTest;
+    GridSurface grid = MakeGrid(8u);
+    WeightAsHinge(grid);
+    Ref<GroomAsset> groom = MakeCoat(96u, 8u, /*height*/ 0.6f);
+    ASSERT_TRUE(groom);
+    Ref<GroomBindingAsset> binding;
+    GroomBindingBuildStats bindStats;
+    std::string reason;
+    ASSERT_TRUE(GroomBindingBuilder::Build(*groom, grid.View(2u), "GpuProxyBody", GroomBindingBuildSettings{}, binding,
+                                           bindStats, reason))
+        << reason;
+
+    const glm::vec3 hinge{ 0.5f, 0.0f, 0.0f };
+    glm::mat4 bend = glm::translate(glm::mat4(1.0f), hinge);
+    bend = glm::rotate(bend, glm::radians(30.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    bend = glm::translate(bend, -hinge);
+    const std::vector<glm::mat4> palette{ glm::mat4(1.0f), bend };
+    GroomStrandRequest request;
+    request.Groom = groom;
+    request.Handle = 0x1533u;
+    request.EntityID = 14;
+    request.Transform = glm::mat4(1.0f);
+    request.PreviousTransform = glm::mat4(1.0f);
+    request.Color = glm::vec3(0.8f);
+    request.WidthScale = 24.0f;
+    request.ApparentPixelSize = 400.0f;
+    GroomDeformationInputs inputs;
+    inputs.Surface = grid.View(2u);
+    inputs.Skinning = grid.Skinning(palette, palette, true);
+    inputs.HasHistory = true;
+    request.DeformationStats =
+        EvaluateGroomRootTransforms(*groom, *binding, inputs, std::nullopt, request.RootTransforms);
+    request.Binding = binding;
+
+    struct RestoreLever
+    {
+        bool Previous = Levers::GroomProxyOnCpu();
+        ~RestoreLever()
+        {
+            Levers::SetGroomProxyOnCpu(Previous);
+        }
+    } restoreLever;
+    const GPUSceneGeometryKey geometryKey{ 14u, 0x1533u, std::numeric_limits<u32>::max() };
+    const auto build = [&](bool onCpu) -> std::vector<Vertex>
+    {
+        Levers::SetGroomProxyOnCpu(onCpu);
+        GPUScene scene;
+        scene.InitializeGPU(GPUSceneCapacities{ .m_Instances = 4, .m_Geometries = 4 });
+        RayTracing::GroomSurfaceCache cache;
+        cache.SetEnabled(true);
+        u32 dispatched = 0u;
+        SubmitFrame(
+            [&]
+            {
+                const std::array<GroomStrandRequest, 1> requests{ request };
+                scene.BeginExtraction(1u, glm::vec3(0.0f));
+                cache.Extract(scene, requests, true);
+                (void)scene.EndExtraction();
+                scene.Upload();
+                dispatched = cache.Dispatch();
+            });
+        EXPECT_EQ(dispatched, onCpu ? 0u : 1u) << (onCpu ? "the CPU build dispatched" : "the GPU build did not");
+        std::vector<Vertex> vertices;
+        if (const GPUSceneGeometry* record = scene.GetGeometryRecord(scene.FindGeometry(geometryKey)))
+        {
+            const auto* entry = VulkanRootObjectRegistry::Get().Lookup(
+                RHI::ResourceHandle{ record->VertexBufferIndex, record->VertexBufferGeneration });
+            if (entry != nullptr)
+            {
+                const VkDeviceSize bytes = static_cast<VkDeviceSize>(record->VertexCount) * sizeof(Vertex);
+                DelayedComputeRead read(*m_Device, static_cast<VulkanVertexBuffer*>(entry->Object)->GetVkBuffer(), 0,
+                                        bytes, ReadTiming::Immediate);
+                const std::vector<u8> raw = read.Release();
+                vertices.resize(raw.size() / sizeof(Vertex));
+                std::memcpy(vertices.data(), raw.data(), vertices.size() * sizeof(Vertex));
+            }
+        }
+        scene.Shutdown();
+        cache.Shutdown();
+        return vertices;
+    };
+
+    const std::vector<Vertex> cpu = build(true);
+    const std::vector<Vertex> gpu = build(false);
+    ASSERT_FALSE(cpu.empty()) << "the coat produced no ray-traced proxy";
+    ASSERT_EQ(gpu.size(), cpu.size()) << "a segment the CPU dropped was written on the GPU";
+    f32 worst = 0.0f;
+    u32 zeros = 0u;
+    for (sizet i = 0; i < cpu.size(); ++i)
+    {
+        worst = std::max(worst, glm::length(gpu[i].Position - cpu[i].Position));
+        worst = std::max(worst, glm::length(gpu[i].Normal - cpu[i].Normal));
+        worst = std::max(worst, glm::length(gpu[i].TexCoord - cpu[i].TexCoord));
+        zeros += glm::length(gpu[i].Position) < 1.0e-12f ? 1u : 0u;
+    }
+    EXPECT_LT(zeros, static_cast<u32>(cpu.size() / 2u)) << "the GPU build left its vertex buffer as it was allocated";
+    EXPECT_LT(worst, 1.0e-4f) << "the GPU build traces a different coat than the CPU build";
 }
 
 // L6 timing baselines for the per-dispatch staging allocations (issue #1526).
@@ -13718,7 +14309,8 @@ TEST_F(VulkanPassSuite, VirtualShadowMapRunsAFullFrameOnVulkan)
             [&]
             {
                 vsm.BeginFrame(lightDirection, cameraPos, glm::vec3(0.0f));
-                vsm.SetSamplingParams(1.0f, 200.0f);
+                // The cascades' and the atlas's default receiver bias (#1533).
+                vsm.SetSamplingParams(1.0f, 200.0f, 2.0f, 0.01f, 2.0f);
                 vsm.SubmitDynamicInvalidations(meshCasters, skinnedCasters, glm::vec3(0.0f));
                 vsm.UpdatePages();
                 vsm.RenderCasters(meshCasters, skinnedCasters, glm::vec3(0.0f), noBones);

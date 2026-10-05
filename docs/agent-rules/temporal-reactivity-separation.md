@@ -65,12 +65,17 @@ settled screenshot of both arms looks identical.
 exactly the frames that move the output most, so that band measures **worse than no term at all**.
 For a `±0.06` estimator a `0.08` band gives a predicted shimmer ratio of **1.15** against the
 no-band control, and a `0.13` band gives **0.315**. Compute this before choosing the constant; the
-shipped `CoverageNoiseDeadBand` default of `0.12` clears the `±0.06` the strand compositor shows,
-and a noisier estimator needs it raised.
+shipped `CoverageNoiseDeadBand` default of `0.12` clears a `±0.06` estimator, and a noisier one
+needs it raised.
 
 What matters is not one frame's delta but whether the **mean** shifted: below the band the
 estimator is converging, above it a LOD step or a leaf turning edge-on genuinely moved it. Same
 reasoning as the sub-pixel dead zone already in `OloTemporalMotionFeedback`.
+
+**A real stochastic coat's per-pixel coverage is not a `±0.06` estimator.** Each frame a different
+strand wins each pixel or none does, so the value jumps between a strand's alpha and whatever is
+behind it, and no per-pixel band absorbs that. Compare the frames' neighbourhood means instead:
+[temporal-coverage-means-not-samples.md](temporal-coverage-means-not-samples.md).
 
 `TemporalReconstructionSequenceTest.StochasticCoverageNoiseMustNotDriveTheReactiveTerm` pins it in
 the direction that matters — shimmer — and asserts its no-dead-band control actually shimmers
@@ -160,7 +165,7 @@ The three subjects fill `.b` with their own quantity:
 
 | Subject | Coverage written | Why that quantity |
 |---|---|---|
-| Groom | the widened strand alpha | a sub-pixel strand is widened to one pixel and pays in alpha, so this IS coverage; it is also the value that moves every frame under stochastic composition |
+| Groom | the widened strand alpha | a sub-pixel strand is widened to one pixel and pays in alpha, so this IS coverage; it is also the value that moves every frame under stochastic composition, which `.a` marks with `OLO_STOCHASTIC_COVERAGE_MARK` (-1, #1552) |
 | Foliage, near | cutout alpha x LOD fade | a density LOD step moves it while instance, primitive, material and depth all hold still |
 | Foliage, impostor | `card.Coverage * card.DistFade` | so coverage does not jump across the impostor hand-over |
 

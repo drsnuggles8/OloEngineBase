@@ -89,6 +89,7 @@ namespace OloEngine
         }
 
         m_Records.Reset();
+        ++m_RecordsEpoch;
         m_ById.clear();
         m_ByPlacement.clear();
         m_BufferRows.Reset();
@@ -397,6 +398,10 @@ namespace OloEngine
         for (auto& group : m_Groups)
         {
             std::sort(group.m_Instances.GetData(), group.m_Instances.GetData() + group.m_Instances.Num());
+            group.m_RecordIndices.Reset();
+            group.m_RecordIndices.Reserve(group.m_Instances.Num());
+            for (const FoliageInstanceId id : group.m_Instances)
+                group.m_RecordIndices.Add(m_ById.at(id));
         }
 
         RecomputeWorldBounds();
@@ -423,6 +428,7 @@ namespace OloEngine
         }
 
         m_Records.Reset();
+        ++m_RecordsEpoch;
         m_ById.clear();
         m_ByPlacement.clear();
         m_Groups.Reset();

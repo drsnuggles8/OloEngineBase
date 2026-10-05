@@ -9,6 +9,7 @@
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
+#include <array>
 #include <span>
 
 namespace OloEngine
@@ -45,9 +46,11 @@ namespace OloEngine
             m_SelectedSceneDepthTexture = blackboard.Post.UpscaledSceneDepthTexture.IsValid() ? blackboard.Post.UpscaledSceneDepthTexture : blackboard.Scene.SceneDepth;
             [[maybe_unused]] const auto sceneDepthRead = builder.Read(m_SelectedSceneDepthTexture, RGReadUsage::ShaderSample);
         }
-        if (blackboard.GBuffer.Velocity.IsValid())
+        // SceneVelocity: every surface's, forward passes included, on both
+        // paths (#1552) -- on Deferred the G-Buffer's alone left the groom out.
+        if (blackboard.Scene.SceneVelocity.IsValid())
         {
-            m_SelectedVelocityTexture = blackboard.Post.UpscaledVelocityTexture.IsValid() ? blackboard.Post.UpscaledVelocityTexture : blackboard.GBuffer.Velocity;
+            m_SelectedVelocityTexture = blackboard.Post.UpscaledVelocityTexture.IsValid() ? blackboard.Post.UpscaledVelocityTexture : blackboard.Scene.SceneVelocity;
             [[maybe_unused]] const auto velocityRead = builder.Read(m_SelectedVelocityTexture, RGReadUsage::ShaderSample);
 
             // Keep the exact RT3 this resolve sampled, so next frame compares
@@ -82,7 +85,14 @@ namespace OloEngine
                                                             std::string(taaVersionTag),
                                                         outputHandle,
                                                         0u));
-            builder.ExtractHistoryTexture(ResourceNames::TAAHistory, outputHandle);
+            // THE HISTORY IS THE RESOLVE, NOT THE SHARPENED FRAME (#1533). The
+            // sharpen adds the current frame's high-pass; kept in the history, a
+            // stochastic coat's sample noise piled up there frame after frame (the
+            // dog's resolved coat held six times the converged estimate's
+            // high-frequency variance) and the walk's resolve kept half of what
+            // the samples alone shimmer. So the shader writes the resolve to
+            // attachment 1 and the chain sees the sharpened frame in attachment 0.
+            builder.ExtractHistoryTexture(ResourceNames::TAAHistory, outputHandle, kHistoryAttachment);
         }
     }
 
@@ -172,8 +182,8 @@ namespace OloEngine
         RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
         RenderCommand::SetColorMask(true, true, true, true);
 
-        constexpr u32 colorAttachment = 0;
-        context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
+        constexpr std::array<u32, 2> colorAttachments{ 0u, kHistoryAttachment };
+        context.SetDrawBuffers(std::span<const u32>(colorAttachments));
 
         context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
         context.Clear();

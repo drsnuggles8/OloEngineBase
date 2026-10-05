@@ -586,3 +586,92 @@ TEST(FSR2PolicyTest, ProjectionJitterDisplacesTheImageByTheNegatedJitter)
     EXPECT_NEAR(handedToFsr2.x, displacementPixels.x, 1e-3f);
     EXPECT_NEAR(handedToFsr2.y, displacementPixels.y, 1e-3f);
 }
+
+// THE VELOCITY WRITERS' JITTER OFFSET (#1552). Every writer differences two
+// jittered clip positions and subtracts each frame's offset, so static content
+// writes zero; the offset is read off ONE point of the uploaded projection pair
+// (ProjectionJitterVelocityOffset). That is only right if the jitter moves every
+// vertex by one constant amount -- in a perspective AND an orthographic camera,
+// with the backend's y flip -- and if the offset carries the image's sign, not
+// the projection's. Each is pinned here at depths other than the one the
+// helper reads.
+TEST(FSR2PolicyTest, TheVelocityJitterOffsetIsTheImagesConstantDisplacement)
+{
+    constexpr u32 kWidth = 1280u;
+    constexpr u32 kHeight = 720u;
+    const glm::vec2 ndc = TemporalUpscalePolicy::JitterPixelsToNDC({ 0.3f, -0.2f }, kWidth, kHeight);
+    const glm::mat4 perspective =
+        glm::perspective(glm::radians(50.0f), static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 400.0f);
+    const glm::mat4 orthographic = glm::ortho(-4.0f, 4.0f, -2.25f, 2.25f, 0.05f, 400.0f);
+    // Exactly what RenderPipeline::PrepareFrame does to each kind.
+    glm::mat4 perspectiveJittered = perspective;
+    perspectiveJittered[2][0] += ndc.x;
+    perspectiveJittered[2][1] += ndc.y;
+    glm::mat4 orthographicJittered = orthographic;
+    orthographicJittered[3][0] += ndc.x;
+    orthographicJittered[3][1] += ndc.y;
+    // Vulkan's rasterizer flavour flips y (RHI::AdjustProjectionForBackend);
+    // mirrored here so the test runs with no backend selected.
+    const auto flipY = [](glm::mat4 m)
+    {
+        for (int column = 0; column < 4; ++column)
+        {
+            m[column][1] = -m[column][1];
+        }
+        return m;
+    };
+    const auto velocityUnits = [](const glm::mat4& m, const glm::vec4& point)
+    {
+        const glm::vec4 clip = m * point;
+        return glm::vec2(clip.x / clip.w, clip.y / clip.w) * 0.5f;
+    };
+    struct Case
+    {
+        const char* Name;
+        glm::mat4 Unjittered;
+        glm::mat4 Jittered;
+        glm::vec2 Expected; // the image's displacement, in velocity units
+    };
+    const std::array<Case, 4> cases{ {
+        { "perspective", perspective, perspectiveJittered, -ndc * 0.5f },
+        { "orthographic", orthographic, orthographicJittered, ndc * 0.5f },
+        { "perspective, y flipped", flipY(perspective), flipY(perspectiveJittered), glm::vec2(-ndc.x, ndc.y) * 0.5f },
+        { "orthographic, y flipped", flipY(orthographic), flipY(orthographicJittered), glm::vec2(ndc.x, -ndc.y) * 0.5f },
+    } };
+    for (const Case& c : cases)
+    {
+        SCOPED_TRACE(c.Name);
+        const glm::vec2 offset = TemporalUpscalePolicy::ProjectionJitterVelocityOffset(c.Unjittered, c.Jittered);
+        EXPECT_NEAR(offset.x, c.Expected.x, 1.0e-7f);
+        EXPECT_NEAR(offset.y, c.Expected.y, 1.0e-7f);
+        // The same at every depth and off axis: what lets one point stand for all.
+        for (const glm::vec4 point : { glm::vec4(0.7f, -0.4f, -0.3f, 1.0f), glm::vec4(-12.0f, 5.0f, -90.0f, 1.0f),
+                                       glm::vec4(40.0f, 22.0f, -380.0f, 1.0f) })
+        {
+            const glm::vec2 moved = velocityUnits(c.Jittered, point) - velocityUnits(c.Unjittered, point);
+            EXPECT_NEAR(moved.x, offset.x, 1.0e-6f) << point.z;
+            EXPECT_NEAR(moved.y, offset.y, 1.0e-6f) << point.z;
+        }
+    }
+    // A static point seen through two frames' jittered matrices: subtracting
+    // each frame's offset, as oloVelocityFromNdc does, leaves exactly nothing.
+    glm::mat4 previous = perspective;
+    const glm::vec2 previousNdc = TemporalUpscalePolicy::JitterPixelsToNDC({ -0.45f, 0.35f }, kWidth, kHeight);
+    previous[2][0] += previousNdc.x;
+    previous[2][1] += previousNdc.y;
+    const glm::vec4 still(1.5f, 0.8f, -6.0f, 1.0f);
+    const glm::vec2 raw = velocityUnits(perspectiveJittered, still) - velocityUnits(previous, still);
+    const glm::vec2 corrected = raw - (TemporalUpscalePolicy::ProjectionJitterVelocityOffset(perspective, perspectiveJittered) -
+                                       TemporalUpscalePolicy::ProjectionJitterVelocityOffset(perspective, previous));
+    EXPECT_GT(glm::length(raw), 1.0e-4f) << "not vacuous: two jitters do move a still point";
+    EXPECT_NEAR(corrected.x, 0.0f, 1.0e-6f);
+    EXPECT_NEAR(corrected.y, 0.0f, 1.0e-6f);
+}
+
+// The engine's motion vectors no longer carry the jitter (#1552), and FSR2 must
+// not be told they do: it would cancel a jitter that is not there, which is a
+// pixel of reprojection error every frame on a still camera.
+TEST(FSR2PolicyTest, FSR2IsToldTheMotionVectorsCarryNoJitter)
+{
+    EXPECT_FALSE(TemporalUpscalerConfig{}.MotionVectorsIncludeJitter);
+}

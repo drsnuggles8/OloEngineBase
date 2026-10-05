@@ -1,0 +1,90 @@
+SkinProfile:
+  Name: Dog Eye
+  # The showcase dog's globes (issue #1533). TRANSPORT VERSION 5 with the eye ON,
+  # the same model EyeIris.oloskin uses for the human reference eye, re-proportioned
+  # for a dog seen close up in a stylised-realistic film look.
+  #
+  # WHAT IS DIFFERENT FROM THE HUMAN EYE, and why:
+  #   * THE IRIS FILLS MOST OF THE VISIBLE GLOBE. A dog shows almost no white; the
+  #     iris radius is 0.8 of the globe radius (9.6 / 12) against the human 0.49, so
+  #     the limbus sits at 53 degrees off the gaze: the lids' outer corner (46, see
+  #     build_dog.py's LID_FISSURE_OUTER) cuts into the iris and the inner one (58)
+  #     leaves a sliver of white, not a triangle.
+  #   * THE PUPIL IS LARGE (0.45 of the iris), the soft, dilated look that reads as
+  #     warm rather than alert.
+  #   * THE CORNEA IS FLATTER (11.5 mm against 7.8). The corneal bend multiplies the
+  #     limbus's sin(theta) = 0.8 by EyeRadius / CorneaRadius; at the human 7.8 mm
+  #     the product would pass the sin(phi) = 1 clamp in SkinCornealNormal. At 11.5
+  #     it is 0.83, inside the range a clinical eye occupies.
+  #   * THE IRIS IS PAINTED, not tinted: DogIrisColor.png, the globe's albedo on a planar
+  #     UV across the gaze (build_dog.py, iris_albedo), carries a golden retriever's
+  #     dark warm brown with its structure -- a lighter, finer zone inside the
+  #     collarette, fibres, crypts and furrows across the ciliary zone, a near-black
+  #     rim, and a crisp painted pupil. The material stages FETCH it at the refracted
+  #     iris point (oloSkinOcularIrisShift), so it moves behind the cornea with the
+  #     pupil and ring the model draws. The model multiplies the albedo by IrisColor
+  #     inside the iris, so IrisColor is white. One flat colour read as a glass bead
+  #     at any brightness (Ole's review, #1533); the amber first painting, glued to
+  #     the globe and blurred by the diffusion below, read as a toy's eye (the
+  #     second review).
+  #
+  # The ocular maths uses RATIOS of these lengths (SkinOcularSurface.h), so the
+  # 12 mm globe is a reference size; the scene scales the sphere to the dog's eye.
+  EvaluationModel: 5
+  Units: "colours: linear Rec.709 (unitless 0..1); lengths: millimetres"
+  # The sclera's scatter, warm rather than white: an eye white is collagen. Kept
+  # below the coat's own brightness, or the sliver at a corner is the brightest
+  # thing in a close-up.
+  #
+  # TENTHS OF A MILLIMETRE. The screen-space diffusion blurs the whole globe, iris
+  # and pupil included, and at the human eye's [0.9, 0.62, 0.5] it smeared the
+  # painted fibres (cells of 0.2-0.4 mm on this 18.8 mm iris) and the pupil's edge
+  # into an orange gradient. The iris stroma's own scattering is far below what a
+  # frame resolves; the sclera keeps a trace of softness.
+  ScatterColor: [0.80, 0.72, 0.66]
+  ScatterRadiusMM: [0.15, 0.1, 0.08]
+  ThicknessScale: 1000
+  SpecularTint: [1, 1, 1]
+  Transmission:
+    Strength: 0.25
+    Anisotropy: 0.7
+    Power: 4
+  Specular:
+    LobeMix: 0.2
+    LobeRoughnessScale: 2
+    # Tokuyoshi & Kaplanyan's published sigma^2 (#1533). It widens the base lobe
+    # and the tear film below by the pixel's normal spread. The globe is a smooth
+    # sphere a few dozen pixels wide at a distance, and at 0 the film's glint
+    # fell inside one sample: the frames whose jitter landed on it read up to
+    # 845 where the eye reads about one, and bloomed white on Vulkan. At 0.25 the
+    # glint is a steady catch-light of 6-12 in every frame (1/12, a box pixel's
+    # variance, still reached 32).
+    NormalVarianceStrength: 0.25
+    DetailStrength: 0
+    ExpressionDetailGain: 0
+  # The tear film: a wet eye is the one surface the catch-light has to read on.
+  # 0.04 is the coat's floor (kMinSkinOralCoatRoughness, #1421): smoother, the
+  # unclamped GGX lobe turns a delta light into a one-pixel firefly.
+  Oral:
+    CoatStrength: 0.55
+    CoatRoughness: 0.04
+    CoatIor: 1.337
+    CavityOcclusion: 0
+  Ocular:
+    OcularStrength: 1
+    RefractionStrength: 1
+    EyeRadiusMM: 12
+    CorneaRadiusMM: 11.5
+    IrisRadiusMM: 9.6
+    PupilRadiusMM: 4.3
+    # Behind the limbus (12 - 12 cos 53 = 4.8 mm), or SkinProfile's sanitizer moves it
+    # there: a plane in front of the limbus leaves the outer iris unreachable, and at
+    # 2.4 mm the eye drew a 7.2 mm iris in a white surround.
+    IrisPlaneDepthMM: 5.0
+    CorneaIor: 1.336
+    LimbalRingWidthMM: 0.9
+    # The painting's own rim is near-black already; the ring only deepens it.
+    LimbalRingStrength: 0.6
+    PupilDarkening: 1
+    IrisConcavity: 0.25
+    IrisColor: [1.0, 1.0, 1.0]

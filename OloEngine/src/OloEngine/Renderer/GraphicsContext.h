@@ -63,6 +63,15 @@ namespace OloEngine
             return {};
         }
 
+        // Present pacing (#1533): vsync on or off, as Window::SetVSync asks.
+        // GL's swap interval belongs to the window, so the default does
+        // nothing; a backend whose present mode lives in its swapchain
+        // (Vulkan) applies it there.
+        virtual void SetVSync(bool enabled)
+        {
+            (void)enabled;
+        }
+
         static Scope<GraphicsContext> Create(void* window);
     };
 } // namespace OloEngine

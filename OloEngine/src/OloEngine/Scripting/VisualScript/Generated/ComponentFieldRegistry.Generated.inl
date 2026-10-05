@@ -94,6 +94,11 @@ registry.push_back(OLO_VSF_FIELD(AnimationGraphComponent, "AnimationGraphAssetHa
 // AnimationStateComponent
 registry.push_back(OLO_VSF_FIELD_RANGE(AnimationStateComponent, "BlendDuration", m_BlendDuration, Float, OLO_VSF_BOUND(0.001f), OLO_VSF_NO_BOUND));
 registry.push_back(OLO_VSF_FIELD(AnimationStateComponent, "IsPlaying", m_IsPlaying, Bool));
+registry.push_back(OLO_VSF_FIELD(AnimationStateComponent, "RequestedClip", m_RequestedClip, String));
+registry.push_back(OLO_VSF_FIELD(AnimationStateComponent, "RequestedLoop", m_RequestedLoop, Bool));
+registry.push_back(OLO_VSF_FIELD(AnimationStateComponent, "Loop", m_Loop, Bool));
+registry.push_back(OLO_VSF_FIELD_RANGE(AnimationStateComponent, "PlaybackSpeed", m_PlaybackSpeed, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(10.0f)));
+registry.push_back(OLO_VSF_FIELD(AnimationStateComponent, "RootMotion", m_RootMotion, Bool));
 
 // AudioListenerComponent
 registry.push_back(OLO_VSF_FIELD(AudioListenerComponent, "Active", Active, Bool));
@@ -145,6 +150,14 @@ registry.push_back(OLO_VSF_FIELD(BoidComponent, "Velocity", m_Velocity, Vec3));
 // BoidObstacleComponent
 registry.push_back(OLO_VSF_FIELD_RANGE(BoidObstacleComponent, "Radius", m_Radius, Float, OLO_VSF_BOUND(0.01f), OLO_VSF_BOUND(10000.0f)));
 
+// BoneAttachmentComponent
+registry.push_back(OLO_VSF_FIELD(BoneAttachmentComponent, "BoneName", m_BoneName, String));
+registry.push_back(OLO_VSF_FIELD(BoneAttachmentComponent, "Enabled", m_Enabled, Bool));
+
+}
+
+static void BuildRegistryChunk2(std::vector<ComponentFieldEntry>& registry)
+{
 // BoxCollider2DComponent
 registry.push_back(OLO_VSF_FIELD(BoxCollider2DComponent, "Offset", Offset, Vec2));
 registry.push_back(OLO_VSF_FIELD(BoxCollider2DComponent, "Size", Size, Vec2));
@@ -157,10 +170,6 @@ registry.push_back(OLO_VSF_FIELD(BoxCollider2DComponent, "RestitutionThreshold",
 registry.push_back(OLO_VSF_FIELD(BoxCollider3DComponent, "HalfExtents", m_HalfExtents, Vec3));
 registry.push_back(OLO_VSF_FIELD(BoxCollider3DComponent, "Offset", m_Offset, Vec3));
 
-}
-
-static void BuildRegistryChunk2(std::vector<ComponentFieldEntry>& registry)
-{
 // BuoyancyComponent
 registry.push_back(OLO_VSF_FIELD(BuoyancyComponent, "Enabled", m_Enabled, Bool));
 registry.push_back(OLO_VSF_FIELD_RANGE(BuoyancyComponent, "ProbeExtents", m_ProbeExtents, Vec3, OLO_VSF_BOUND(0.01f), OLO_VSF_BOUND(1000.0f)));
@@ -218,6 +227,10 @@ registry.push_back(OLO_VSF_FIELD(CircleCollider2DComponent, "Friction", Friction
 registry.push_back(OLO_VSF_FIELD(CircleCollider2DComponent, "Restitution", Restitution, Float));
 registry.push_back(OLO_VSF_FIELD(CircleCollider2DComponent, "RestitutionThreshold", RestitutionThreshold, Float));
 
+}
+
+static void BuildRegistryChunk3(std::vector<ComponentFieldEntry>& registry)
+{
 // CircleRendererComponent
 registry.push_back(OLO_VSF_FIELD(CircleRendererComponent, "Color", Color, Vec4));
 registry.push_back(OLO_VSF_FIELD(CircleRendererComponent, "Thickness", Thickness, Float));
@@ -240,10 +253,6 @@ registry.push_back(OLO_VSF_FIELD(ClothComponent, "Enabled", m_Enabled, Bool));
 registry.push_back(OLO_VSF_FIELD(ClothComponent, "AttachmentEntity", m_AttachmentEntity, Entity));
 registry.push_back(OLO_VSF_FIELD(ClothComponent, "AttachmentBone", m_AttachmentBone, String));
 
-}
-
-static void BuildRegistryChunk3(std::vector<ComponentFieldEntry>& registry)
-{
 // CloudscapeComponent
 registry.push_back(OLO_VSF_FIELD(CloudscapeComponent, "Enabled", m_Enabled, Bool));
 registry.push_back(OLO_VSF_FIELD_RANGE(CloudscapeComponent, "LayerBottom", m_LayerBottom, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(20000.0f)));
@@ -278,6 +287,10 @@ registry.push_back(OLO_VSF_FIELD(ConvexMeshCollider3DComponent, "Scale", m_Scale
 registry.push_back(OLO_VSF_FIELD(ConvexMeshCollider3DComponent, "ConvexRadius", m_ConvexRadius, Float));
 registry.push_back(OLO_VSF_FIELD(ConvexMeshCollider3DComponent, "MaxVertices", m_MaxVertices, Int));
 
+}
+
+static void BuildRegistryChunk4(std::vector<ComponentFieldEntry>& registry)
+{
 // DebrisComponent
 registry.push_back(OLO_VSF_FIELD(DebrisComponent, "RemainingLifetime", m_RemainingLifetime, Float));
 registry.push_back(OLO_VSF_FIELD(DebrisComponent, "TotalLifetime", m_TotalLifetime, Float));
@@ -304,10 +317,6 @@ registry.push_back(OLO_VSF_FIELD_RANGE(DestructibleComponent, "DebrisLifetime", 
 registry.push_back(OLO_VSF_FIELD(DestructibleComponent, "BreakOnJointBreak", m_BreakOnJointBreak, Bool));
 registry.push_back(OLO_VSF_FIELD(DestructibleComponent, "DestroyOnBreak", m_DestroyOnBreak, Bool));
 
-}
-
-static void BuildRegistryChunk4(std::vector<ComponentFieldEntry>& registry)
-{
 // DialogueComponent
 registry.push_back(OLO_VSF_FIELD(DialogueComponent, "DialogueTree", m_DialogueTree, Asset));
 registry.push_back(OLO_VSF_FIELD(DialogueComponent, "AutoTrigger", m_AutoTrigger, Bool));
@@ -348,6 +357,10 @@ registry.push_back(OLO_VSF_FIELD(EnvironmentMapComponent, "IBLIntensity", m_IBLI
 registry.push_back(OLO_VSF_FIELD(EnvironmentMapComponent, "UseSphericalHarmonics", m_UseSphericalHarmonics, Bool));
 registry.push_back(OLO_VSF_FIELD(EnvironmentMapComponent, "Tint", m_Tint, Vec3));
 
+}
+
+static void BuildRegistryChunk5(std::vector<ComponentFieldEntry>& registry)
+{
 // FluidComponent
 registry.push_back(OLO_VSF_FIELD(FluidComponent, "Enabled", m_Enabled, Bool));
 registry.push_back(OLO_VSF_FIELD(FluidComponent, "Settings", m_Settings, Asset));
@@ -378,10 +391,6 @@ registry.push_back(OLO_VSF_FIELD(FogVolumeComponent, "Enabled", m_Enabled, Bool)
 registry.push_back(OLO_VSF_FIELD(FogVolumeComponent, "AffectTransparent", m_AffectTransparent, Bool));
 registry.push_back(OLO_VSF_FIELD(FogVolumeComponent, "DensityVolume", m_DensityVolume, Asset));
 
-}
-
-static void BuildRegistryChunk5(std::vector<ComponentFieldEntry>& registry)
-{
 // FoliageComponent
 registry.push_back(OLO_VSF_FIELD(FoliageComponent, "Enabled", m_Enabled, Bool));
 
@@ -427,6 +436,10 @@ registry.push_back(OLO_VSF_FIELD(FootIKComponent, "AlignFootToSlope", AlignFootT
 registry.push_back(OLO_VSF_FIELD(FootIKComponent, "LeftHandEnabled", LeftHandEnabled, Bool));
 registry.push_back(OLO_VSF_FIELD(FootIKComponent, "RightHandEnabled", RightHandEnabled, Bool));
 
+}
+
+static void BuildRegistryChunk6(std::vector<ComponentFieldEntry>& registry)
+{
 // GoapAgentComponent
 registry.push_back(OLO_VSF_FIELD(GoapAgentComponent, "Enabled", Enabled, Bool));
 
@@ -456,10 +469,6 @@ registry.push_back(OLO_VSF_FIELD(GroomCoatComponent, "VariationSeed", m_Variatio
 registry.push_back(OLO_VSF_FIELD_RANGE(GroomCoatComponent, "RoleVisibilityMask", m_RoleVisibilityMask, Int, OLO_VSF_BOUND(0), OLO_VSF_BOUND(31)));
 registry.push_back(OLO_VSF_FIELD(GroomCoatComponent, "Enabled", m_Enabled, Bool));
 
-}
-
-static void BuildRegistryChunk6(std::vector<ComponentFieldEntry>& registry)
-{
 // GroomCoatShadowComponent
 registry.push_back(OLO_VSF_FIELD_RANGE(GroomCoatShadowComponent, "Kappa", m_Kappa, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(16.0f)));
 registry.push_back(OLO_VSF_FIELD_RANGE(GroomCoatShadowComponent, "Resolution", m_Resolution, Int, OLO_VSF_BOUND(8), OLO_VSF_BOUND(256)));
@@ -469,6 +478,8 @@ registry.push_back(OLO_VSF_FIELD_RANGE(GroomCoatShadowComponent, "PixelSizeForLo
 registry.push_back(OLO_VSF_FIELD_RANGE(GroomCoatShadowComponent, "MinResolution", m_MinResolution, Int, OLO_VSF_BOUND(4), OLO_VSF_BOUND(64)));
 registry.push_back(OLO_VSF_FIELD_RANGE(GroomCoatShadowComponent, "Mode", m_Mode, Int, OLO_VSF_BOUND(0), OLO_VSF_BOUND(3)));
 registry.push_back(OLO_VSF_FIELD(GroomCoatShadowComponent, "Enabled", m_Enabled, Bool));
+registry.push_back(OLO_VSF_FIELD(GroomCoatShadowComponent, "MultipleScattering", m_MultipleScattering, Bool));
+registry.push_back(OLO_VSF_FIELD(GroomCoatShadowComponent, "BakeAtRest", m_BakeAtRest, Bool));
 
 // GroomComponent
 registry.push_back(OLO_VSF_FIELD(GroomComponent, "Groom", m_Groom, Asset));
@@ -498,9 +509,13 @@ registry.push_back(OLO_VSF_FIELD_RANGE(GroomFibreComponent, "IndexOfRefraction",
 registry.push_back(OLO_VSF_FIELD_RANGE(GroomFibreComponent, "Intensity", m_Intensity, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(64.0f)));
 registry.push_back(OLO_VSF_FIELD_RANGE(GroomFibreComponent, "HSamples", m_HSamples, Int, OLO_VSF_BOUND(1), OLO_VSF_BOUND(32)));
 registry.push_back(OLO_VSF_FIELD_RANGE(GroomFibreComponent, "PigmentMode", m_PigmentMode, Int, OLO_VSF_BOUND(0), OLO_VSF_BOUND(2)));
-registry.push_back(OLO_VSF_FIELD_RANGE(GroomFibreComponent, "DebugMode", m_DebugMode, Int, OLO_VSF_BOUND(0), OLO_VSF_BOUND(5)));
+registry.push_back(OLO_VSF_FIELD_RANGE(GroomFibreComponent, "DebugMode", m_DebugMode, Int, OLO_VSF_BOUND(0), OLO_VSF_BOUND(6)));
 registry.push_back(OLO_VSF_FIELD(GroomFibreComponent, "Enabled", m_Enabled, Bool));
 
+}
+
+static void BuildRegistryChunk7(std::vector<ComponentFieldEntry>& registry)
+{
 // GroomLodComponent
 registry.push_back(OLO_VSF_FIELD_RANGE(GroomLodComponent, "CardPixelSize", m_CardPixelSize, Float, OLO_VSF_BOUND(0.5f), OLO_VSF_BOUND(16384.0f)));
 registry.push_back(OLO_VSF_FIELD_RANGE(GroomLodComponent, "MeshPixelSize", m_MeshPixelSize, Float, OLO_VSF_BOUND(0.5f), OLO_VSF_BOUND(16384.0f)));
@@ -514,6 +529,11 @@ registry.push_back(OLO_VSF_FIELD_RANGE(GroomLodComponent, "VisibilitySteps", m_V
 registry.push_back(OLO_VSF_FIELD_RANGE(GroomLodComponent, "SimulationSteps", m_SimulationSteps, Int, OLO_VSF_BOUND(0), OLO_VSF_BOUND(16)));
 registry.push_back(OLO_VSF_FIELD_RANGE(GroomLodComponent, "ShadowSteps", m_ShadowSteps, Int, OLO_VSF_BOUND(0), OLO_VSF_BOUND(16)));
 registry.push_back(OLO_VSF_FIELD(GroomLodComponent, "Enabled", m_Enabled, Bool));
+
+// GroomSceneShadowComponent
+registry.push_back(OLO_VSF_FIELD_RANGE(GroomSceneShadowComponent, "ShadowWidthTexels", m_ShadowWidthTexels, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(16.0f)));
+registry.push_back(OLO_VSF_FIELD(GroomSceneShadowComponent, "CastShadows", m_CastShadows, Bool));
+registry.push_back(OLO_VSF_FIELD(GroomSceneShadowComponent, "ReceiveShadows", m_ReceiveShadows, Bool));
 
 // GroomSimulationComponent
 registry.push_back(OLO_VSF_FIELD_RANGE(GroomSimulationComponent, "Gravity", m_Gravity, Vec3, OLO_VSF_BOUND(-1000.0f), OLO_VSF_BOUND(1000.0f)));
@@ -539,10 +559,6 @@ registry.push_back(OLO_VSF_FIELD_RANGE(GroomSimulationComponent, "DebugView", m_
 registry.push_back(OLO_VSF_FIELD(GroomSimulationComponent, "Enabled", m_Enabled, Bool));
 registry.push_back(OLO_VSF_FIELD(GroomSimulationComponent, "Collide", m_Collide, Bool));
 
-}
-
-static void BuildRegistryChunk7(std::vector<ComponentFieldEntry>& registry)
-{
 // IKTargetComponent
 registry.push_back(OLO_VSF_FIELD(IKTargetComponent, "AimBoneIndex", AimBoneIndex, Int));
 registry.push_back(OLO_VSF_FIELD(IKTargetComponent, "AimTarget", AimTarget, Vec3));
@@ -570,6 +586,10 @@ registry.push_back(OLO_VSF_FIELD(IKTargetComponent, "AimIKEnabled", AimIKEnabled
 registry.push_back(OLO_VSF_FIELD(IKTargetComponent, "LimbIKEnabled", LimbIKEnabled, Bool));
 registry.push_back(OLO_VSF_FIELD(IKTargetComponent, "ChainIKEnabled", ChainIKEnabled, Bool));
 
+}
+
+static void BuildRegistryChunk8(std::vector<ComponentFieldEntry>& registry)
+{
 // InstancePortalComponent
 registry.push_back(OLO_VSF_FIELD(InstancePortalComponent, "TargetZoneID", TargetZoneID, Int));
 registry.push_back(OLO_VSF_FIELD(InstancePortalComponent, "InstanceType", InstanceType, Int));
@@ -603,10 +623,6 @@ registry.push_back(OLO_VSF_FIELD(ItemPickupComponent, "PickupRadius", PickupRadi
 registry.push_back(OLO_VSF_FIELD(ItemPickupComponent, "AutoPickup", AutoPickup, Bool));
 registry.push_back(OLO_VSF_FIELD(ItemPickupComponent, "DespawnTimer", DespawnTimer, Float));
 
-}
-
-static void BuildRegistryChunk8(std::vector<ComponentFieldEntry>& registry)
-{
 // LODGroupComponent
 registry.push_back(OLO_VSF_FIELD(LODGroupComponent, "LODGroup.Bias", m_LODGroup.Bias, Float));
 registry.push_back(OLO_VSF_FIELD(LODGroupComponent, "Enabled", m_Enabled, Bool));
@@ -652,6 +668,10 @@ registry.push_back(OLO_VSF_FIELD_RANGE(LocomotionComponent, "WalkClipSpeed", Wal
 registry.push_back(OLO_VSF_FIELD_RANGE(LocomotionComponent, "RunClipSpeed", RunClipSpeed, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(100.0f)));
 registry.push_back(OLO_VSF_FIELD_RANGE(LocomotionComponent, "MaxStrideScale", MaxStrideScale, Float, OLO_VSF_BOUND(1.0f), OLO_VSF_BOUND(4.0f)));
 
+}
+
+static void BuildRegistryChunk9(std::vector<ComponentFieldEntry>& registry)
+{
 // LuaScriptComponent
 registry.push_back(OLO_VSF_FIELD(LuaScriptComponent, "ScriptFile", ScriptFile, String));
 
@@ -687,10 +707,6 @@ registry.push_back(OLO_VSF_FIELD(NameplateComponent, "ManaBarColor", m_ManaBarCo
 registry.push_back(OLO_VSF_FIELD(NameplateComponent, "BarBackgroundColor", m_BarBackgroundColor, Vec4));
 registry.push_back(OLO_VSF_FIELD(NameplateComponent, "ManaBarGap", m_ManaBarGap, Float));
 
-}
-
-static void BuildRegistryChunk9(std::vector<ComponentFieldEntry>& registry)
-{
 // NavAgentComponent
 registry.push_back(OLO_VSF_FIELD_RANGE(NavAgentComponent, "Radius", m_Radius, Float, OLO_VSF_BOUND(0.01f), OLO_VSF_BOUND(100.0f)));
 registry.push_back(OLO_VSF_FIELD_RANGE(NavAgentComponent, "Height", m_Height, Float, OLO_VSF_BOUND(0.01f), OLO_VSF_BOUND(100.0f)));

@@ -1,0 +1,246 @@
+#version 450 core
+
+// =============================================================================
+// GroomRootFrames.comp -- a bound coat's drawn roots, evaluated on the GPU.
+// Issue #1533 E1.
+//
+// ONE INVOCATION PER DRAWN STRAND. Each skins its root's three triangle corners
+// with this frame's bone palette and last frame's, builds the triangle's frame
+// at the root's barycentric, and writes the strand's GroomDeformRootRecord --
+// exactly what GroomDeformBuffer::PackFrame packs from EvaluateGroomRootTransforms
+// on the CPU path, into the same region of the same buffer, which the vertex
+// stage (include/GroomStrandDeform.glsl) then reads unchanged.
+//
+// A TWIN, LINE FOR LINE, of the CPU evaluation it replaces:
+//   oloGroomSkinVertex   -> SkinGroomSurfaceVertex    (Groom/GroomDeformation.cpp)
+//   oloGroomSurfaceFrame -> MakeGroomSurfaceFrame     (Groom/GroomSurfaceFrame.h)
+//   oloGroomQuatFromBasis-> glm::quat_cast
+// GroomRootFramesParityTest runs this shader against EvaluateGroomRootTransforms
+// on the same inputs. A change to either side without the other fails it.
+//
+// THE BUFFER is the coat's deformation buffer (GroomGpuDeformation.h): this
+// shader reads the skin, vertex and palette regions and the bind frames, and
+// writes only the root region. Its bases come in the params block below.
+// =============================================================================
+
+layout(local_size_x = 64) in;
+
+// UBO_USER_0 -- the number GroomStrandParams and GroomShadowParams use,
+// rebound before every groom draw, so a block here can neither clobber nor be
+// clobbered by a draw (the within-shader rule: this shader declares nothing
+// else at 7). GroomRenderPass uploads and binds it right before the dispatch.
+layout(std140, binding = 7) uniform GroomRootFrameParams
+{
+	mat4 u_SurfaceToGroom;
+	mat4 u_PrevSurfaceToGroom;
+	ivec4 u_RootCounts; // x = roots, y = bones, z = has a previous pose, w = vertices
+	ivec4 u_RootBases;  // x = root records, y = skin records, z = vertex records, w = palette
+	ivec4 u_RootBind;   // x = bind frames, yzw unused
+};
+
+// SSBO_GROOM_DEFORMATION (79), the storage-buffer namespace being full; see
+// ShaderBindingLayout.h. Read-write here, read-only in the vertex stage.
+layout(std430, binding = 79) buffer GroomDeformation
+{
+	uvec4 b_GroomDeform[];
+};
+
+vec4 oloGroomUnitFloat4(uint unit)
+{
+	return uintBitsToFloat(b_GroomDeform[unit]);
+}
+
+void oloGroomStoreFloat4(uint unit, vec4 value)
+{
+	b_GroomDeform[unit] = floatBitsToUint(value);
+}
+
+mat4 oloGroomBone(uint bone, bool previous)
+{
+	uint boneCount = uint(u_RootCounts.y);
+	uint base = uint(u_RootBases.w) + ((previous ? boneCount : 0u) + bone) * 4u;
+	// Column-major, as glm stores a mat4: one unit per column.
+	return mat4(oloGroomUnitFloat4(base + 0u), oloGroomUnitFloat4(base + 1u), oloGroomUnitFloat4(base + 2u),
+	            oloGroomUnitFloat4(base + 3u));
+}
+
+bool oloGroomFinite(float x)
+{
+	return !isnan(x) && !isinf(x);
+}
+
+// SkinGroomSurfaceVertex: normalised linear-blend skinning, a non-finite or
+// non-positive weight dropped, a bone past the palette dropped, and an
+// unweighted vertex answered with its rest position.
+vec3 oloGroomSkinVertex(uint vertex, bool previous)
+{
+	uint base = uint(u_RootBases.z) + vertex * 3u;
+	vec3 rest = oloGroomUnitFloat4(base + 0u).xyz;
+	uvec4 ids = b_GroomDeform[base + 1u];
+	vec4 weights = oloGroomUnitFloat4(base + 2u);
+	uint boneCount = uint(u_RootCounts.y);
+
+	vec3 skinned = vec3(0.0);
+	float weightSum = 0.0;
+	for (int influence = 0; influence < 4; ++influence)
+	{
+		float weight = weights[influence];
+		if (!oloGroomFinite(weight) || weight <= 0.0)
+		{
+			continue;
+		}
+		uint bone = ids[influence];
+		if (bone >= boneCount)
+		{
+			continue;
+		}
+		skinned += weight * (oloGroomBone(bone, previous) * vec4(rest, 1.0)).xyz;
+		weightSum += weight;
+	}
+	if (weightSum <= 0.0)
+	{
+		return rest;
+	}
+	return skinned / weightSum;
+}
+
+// glm::quat_cast, branch for branch (glm/gtc/quaternion.inl), returned as
+// (x, y, z, w) -- the order PackQuat writes. m[c][r] is column c, row r in both.
+vec4 oloGroomQuatFromBasis(mat3 m)
+{
+	float fourXSquaredMinus1 = m[0][0] - m[1][1] - m[2][2];
+	float fourYSquaredMinus1 = m[1][1] - m[0][0] - m[2][2];
+	float fourZSquaredMinus1 = m[2][2] - m[0][0] - m[1][1];
+	float fourWSquaredMinus1 = m[0][0] + m[1][1] + m[2][2];
+
+	int biggestIndex = 0;
+	float fourBiggestSquaredMinus1 = fourWSquaredMinus1;
+	if (fourXSquaredMinus1 > fourBiggestSquaredMinus1)
+	{
+		fourBiggestSquaredMinus1 = fourXSquaredMinus1;
+		biggestIndex = 1;
+	}
+	if (fourYSquaredMinus1 > fourBiggestSquaredMinus1)
+	{
+		fourBiggestSquaredMinus1 = fourYSquaredMinus1;
+		biggestIndex = 2;
+	}
+	if (fourZSquaredMinus1 > fourBiggestSquaredMinus1)
+	{
+		fourBiggestSquaredMinus1 = fourZSquaredMinus1;
+		biggestIndex = 3;
+	}
+
+	float biggestVal = sqrt(fourBiggestSquaredMinus1 + 1.0) * 0.5;
+	float mult = 0.25 / biggestVal;
+
+	if (biggestIndex == 0)
+	{
+		return vec4((m[1][2] - m[2][1]) * mult, (m[2][0] - m[0][2]) * mult, (m[0][1] - m[1][0]) * mult, biggestVal);
+	}
+	if (biggestIndex == 1)
+	{
+		return vec4(biggestVal, (m[0][1] + m[1][0]) * mult, (m[2][0] + m[0][2]) * mult, (m[1][2] - m[2][1]) * mult);
+	}
+	if (biggestIndex == 2)
+	{
+		return vec4((m[0][1] + m[1][0]) * mult, biggestVal, (m[1][2] + m[2][1]) * mult, (m[2][0] - m[0][2]) * mult);
+	}
+	return vec4((m[2][0] + m[0][2]) * mult, (m[1][2] + m[2][1]) * mult, biggestVal, (m[0][1] - m[1][0]) * mult);
+}
+
+// MakeGroomSurfaceFrame: the barycentric origin; the normal from edge1 x
+// edge2; the tangent edge1 with its normal part removed; the basis (tangent,
+// bitangent, normal) as columns. False, with nothing written, where the CPU
+// leaves Valid false.
+bool oloGroomSurfaceFrame(vec3 v0, vec3 v1, vec3 v2, vec3 barycentric, out vec3 origin, out vec4 rotation)
+{
+	origin = v0 * barycentric.x + v1 * barycentric.y + v2 * barycentric.z;
+	rotation = vec4(0.0, 0.0, 0.0, 1.0);
+
+	vec3 edge1 = v1 - v0;
+	vec3 edge2 = v2 - v0;
+	vec3 crossed = cross(edge1, edge2);
+	float crossLength = length(crossed);
+	if (!oloGroomFinite(crossLength) || crossLength < 1.0e-12)
+	{
+		return false;
+	}
+	vec3 normal = crossed / crossLength;
+
+	vec3 tangentRaw = edge1 - normal * dot(normal, edge1);
+	float tangentLength = length(tangentRaw);
+	if (!oloGroomFinite(tangentLength) || tangentLength < 1.0e-12)
+	{
+		return false;
+	}
+	vec3 tangent = tangentRaw / tangentLength;
+	vec3 bitangent = cross(normal, tangent);
+
+	rotation = normalize(oloGroomQuatFromBasis(mat3(tangent, bitangent, normal)));
+	if (!oloGroomFinite(rotation.x) || !oloGroomFinite(rotation.y) || !oloGroomFinite(rotation.z) ||
+	    !oloGroomFinite(rotation.w) || !oloGroomFinite(origin.x) || !oloGroomFinite(origin.y) ||
+	    !oloGroomFinite(origin.z))
+	{
+		rotation = vec4(0.0, 0.0, 0.0, 1.0);
+		return false;
+	}
+	return true;
+}
+
+bool oloGroomEvaluateFrame(uvec3 corners, vec3 barycentric, bool previous, out vec3 origin, out vec4 rotation)
+{
+	mat4 toGroom = previous ? u_PrevSurfaceToGroom : u_SurfaceToGroom;
+	vec3 p0 = (toGroom * vec4(oloGroomSkinVertex(corners.x, previous), 1.0)).xyz;
+	vec3 p1 = (toGroom * vec4(oloGroomSkinVertex(corners.y, previous), 1.0)).xyz;
+	vec3 p2 = (toGroom * vec4(oloGroomSkinVertex(corners.z, previous), 1.0)).xyz;
+	return oloGroomSurfaceFrame(p0, p1, p2, barycentric, origin, rotation);
+}
+
+void main()
+{
+	uint slot = gl_GlobalInvocationID.x;
+	if (slot >= uint(u_RootCounts.x))
+	{
+		return;
+	}
+
+	uint skinUnit = uint(u_RootBases.y) + slot * 2u;
+	uvec4 corners = b_GroomDeform[skinUnit];
+	vec3 barycentric = oloGroomUnitFloat4(skinUnit + 1u).xyz;
+
+	vec3 origin;
+	vec4 rotation;
+	bool valid = corners.w != 0u && oloGroomEvaluateFrame(corners.xyz, barycentric, false, origin, rotation);
+
+	vec3 prevOrigin = origin;
+	vec4 prevRotation = rotation;
+	if (!valid)
+	{
+		// HELD AT REST: the bind frame, both frames -- PackFrame's answer for a
+		// root with no deformed frame, and exactly zero motion.
+		uint bindUnit = uint(u_RootBind.x) + slot * 2u;
+		origin = oloGroomUnitFloat4(bindUnit).xyz;
+		rotation = oloGroomUnitFloat4(bindUnit + 1u);
+		prevOrigin = origin;
+		prevRotation = rotation;
+	}
+	else if (u_RootCounts.z != 0)
+	{
+		vec3 o;
+		vec4 r;
+		// A triangle degenerate in the PREVIOUS pose only keeps the current
+		// frame for both: zero motion for this strand, as on the CPU.
+		if (oloGroomEvaluateFrame(corners.xyz, barycentric, true, o, r))
+		{
+			prevOrigin = o;
+			prevRotation = r;
+		}
+	}
+
+	uint rootUnit = uint(u_RootBases.x) + slot * 4u;
+	oloGroomStoreFloat4(rootUnit + 0u, vec4(origin, 0.0));
+	oloGroomStoreFloat4(rootUnit + 1u, rotation);
+	oloGroomStoreFloat4(rootUnit + 2u, vec4(prevOrigin, 0.0));
+	oloGroomStoreFloat4(rootUnit + 3u, prevRotation);
+}

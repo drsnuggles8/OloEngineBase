@@ -206,8 +206,10 @@ namespace OloEngine::Tests
         // and the write is no longer a direct assignment.
         //
         // The channel carries baked irradiance wherever a surface is lightmapped
-        // and a skin pixel's THICKNESS (in millimetres, coverage 0) where it is
-        // not — see oloSkinPackGBufferThickness in include/SkinTransmission.glsl.
+        // and a skin pixel's THICKNESS (in millimetres, coverage 0) and coat
+        // variance kernel (#1533) where it is not — see oloSkinPackGBufferLanes
+        // in include/SkinLayeredSpecular.glsl and the tenancy rules beside
+        // oloSkinPackGBufferThickness in include/SkinTransmission.glsl.
         // The packer returns its first argument UNTOUCHED whenever coverage is
         // above 0.5, so the contract this test has always guarded is intact; what
         // changed is that the irradiance now reaches RT5 through it.
@@ -222,14 +224,14 @@ namespace OloEngine::Tests
                "that still holds UV2 and the per-draw atlas region, so nothing downstream can recover it.";
 
         EXPECT_TRUE(std::regex_search(
-            src, std::regex(R"(o_GBufferBakedGI\s*=\s*oloSkinPackGBufferThickness\(\s*bakedGI)")))
+            src, std::regex(R"(o_GBufferBakedGI\s*=\s*oloSkinPackGBufferLanes\(\s*bakedGI)")))
             << "PBR_GBuffer.glsl does not write the atlas sample into RT5. Storing anything else there — "
                "the atlas UV, or a pre-shaded ambient term — breaks either the MSAA resolve (averaged "
                "UVs address a foreign chart) or the decal path (albedo is still being modified after "
-               "this pass runs). Since #1242 the write goes through oloSkinPackGBufferThickness, which "
-               "must be handed the sampled irradiance as its FIRST argument: it returns that value "
-               "unchanged wherever coverage says the pixel is lightmapped, and only substitutes a "
-               "thickness where the channel was otherwise unused.";
+               "this pass runs). Since #1242 the write goes through a skin packer (oloSkinPackGBufferLanes "
+               "since #1533), which must be handed the sampled irradiance as its FIRST argument: it returns "
+               "that value unchanged wherever coverage says the pixel is lightmapped, and only substitutes "
+               "the skin lanes where the channel was otherwise unused.";
 
         // The Vulkan vertex-pull route must gate the UV2 read on the same
         // per-instance signal the fragment sampler uses. An unconditional pull on

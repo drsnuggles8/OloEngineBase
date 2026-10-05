@@ -27,9 +27,11 @@
 #include <glm/gtx/norm.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <limits>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -321,6 +323,60 @@ TEST(GroomGuideSimulation, PauseHoldsTheStateAndResumeContinuesFromIt)
 // cut draws the groomed coat and emits zero motion, rather than a coat whose
 // tips are still at the old level and whose length constraint is now resolving
 // a hundred-metre segment.
+// A FRAME THAT RUNS NO STEP CARRIES THE COAT WITH THE BODY (#1533). Edit mode
+// animates the skeleton with the simulation's clock at zero; a solver that left
+// its particles in world space then left the coat behind the animal, and on the
+// dog showcase a wagging tail's whole plume, root included, hung where the tail
+// had been.
+TEST(GroomGuideSimulation, AFrameThatRunsNoStepCarriesTheCoatWithTheBody)
+{
+    // Laid across gravity, so the coat has a real drape to carry.
+    TestGuides guides = TestGuides::Make(2, 8, 0.05f, glm::vec3(1.0f, 0.0f, 0.0f));
+    GroomSimulationParams params;
+    params.Stiffness = 60.0f;
+
+    GroomGuideSimulationState state;
+    (void)StepGroomGuideSimulation(guides.Inputs(params, 1.0f / 60.0f, false), state);
+    for (u32 frame = 0; frame < 120; ++frame)
+    {
+        (void)StepGroomGuideSimulation(guides.Inputs(params, 1.0f / 60.0f, true), state);
+    }
+    std::vector<glm::vec3> drape(state.Curr.size());
+    for (sizet i = 0; i < drape.size(); ++i)
+    {
+        drape[i] = state.Curr[i] - guides.Targets[i];
+    }
+    f32 sag = 0.0f;
+    for (const glm::vec3& d : drape)
+    {
+        sag = std::max(sag, glm::length(d));
+    }
+    ASSERT_GT(sag, 0.005f) << "the coat needs a drape for this to carry anything";
+
+    // The body moves with the clock stopped: every frame hands a zero delta.
+    for (u32 frame = 1; frame <= 10; ++frame)
+    {
+        guides.Translate(glm::vec3(0.0f, 0.02f, 0.03f));
+        const GroomSimulationStats stats = StepGroomGuideSimulation(guides.Inputs(params, 0.0f, true), state);
+        ASSERT_FALSE(stats.Reseeded) << "a stopped clock is not a reset";
+    }
+    f32 worst = 0.0f;
+    for (sizet i = 0; i < drape.size(); ++i)
+    {
+        worst = std::max(worst, glm::length((state.Curr[i] - guides.Targets[i]) - drape[i]));
+    }
+    // Carried exactly: the drape relative to the body is what it was.
+    EXPECT_LT(worst, 1.0e-5f) << "the coat stayed behind a body that moved while the clock was stopped";
+    // And a still body under a stopped clock is held exactly, which is the
+    // pause half of criterion 1 (PauseHoldsTheStateAndResumeContinuesFromIt).
+    const std::vector<glm::vec3> held = state.Curr;
+    (void)StepGroomGuideSimulation(guides.Inputs(params, 0.0f, true), state);
+    for (sizet i = 0; i < held.size(); ++i)
+    {
+        EXPECT_EQ(state.Curr[i], held[i]);
+    }
+}
+
 TEST(GroomGuideSimulation, TeleportReseedsRatherThanStretching)
 {
     TestGuides guides = TestGuides::Make(2, 10);
@@ -488,6 +544,74 @@ TEST(GroomGuideSimulation, CollisionKeepsGuidesOutOfTheBody)
     EXPECT_LE(std::abs(stats.MaxStretchRatio - 1.0f), params.StretchTolerance);
 }
 
+// THE COLLIDER NEVER PUSHES A STRAND PAST WHERE THE GROOM PUT IT (#1533). A
+// fitted proxy is fatter than the body wherever the body is slim, so the groom's
+// own short fur can lie inside it. Pushed out to the shell, that fur stood off
+// the skin and bared it: on the dog showcase the collider alone took the pelt
+// that showed through the coat from 6.5k pixels to 11k with gravity OFF.
+TEST(GroomGuideSimulation, TheColliderNeverPushesAStrandPastWhereTheGroomPutIt)
+{
+    // A horizontal guide whose rest shape runs THROUGH the capsule's shell: its
+    // middle particles sit 5 cm inside a 20 cm capsule.
+    TestGuides guides = TestGuides::Make(1, 14, 0.08f, glm::vec3(1.0f, 0.0f, 0.0f));
+    GroomCollider capsule;
+    capsule.PointA = glm::vec3(0.52f, -0.15f, -1.0f);
+    capsule.PointB = glm::vec3(0.52f, -0.15f, 1.0f);
+    capsule.Radius = 0.2f;
+    const std::vector<GroomCollider> colliders{ capsule };
+
+    GroomSimulationParams params;
+    params.CollisionEnabled = true;
+    params.Gravity = glm::vec3(0.0f);
+    params.Stiffness = 20.0f;
+
+    u32 inside = 0;
+    for (const glm::vec3& p : guides.Targets)
+    {
+        inside += glm::length(p - ClosestPointOnGroomCollider(capsule, p)) < capsule.Radius ? 1u : 0u;
+    }
+    ASSERT_GE(inside, 3u) << "the rest shape must actually lie inside the proxy, or this measures nothing";
+
+    GroomGuideSimulationState state;
+    {
+        GroomSimulationInputs seed = guides.Inputs(params, 1.0f / 60.0f, false);
+        seed.Colliders = colliders;
+        (void)StepGroomGuideSimulation(seed, state);
+    }
+    GroomSimulationStats stats;
+    for (u32 frame = 0; frame < 240; ++frame)
+    {
+        GroomSimulationInputs inputs = guides.Inputs(params, 1.0f / 60.0f, true);
+        inputs.Colliders = colliders;
+        stats = StepGroomGuideSimulation(inputs, state);
+    }
+    ASSERT_FALSE(stats.Refused);
+    // With no gravity and no motion, the groom IS the equilibrium: the collider
+    // has nothing to correct, so the guide stays exactly where it was groomed.
+    EXPECT_LT(stats.MaxRestDeviation, 1.0e-5f) << "the collider moved a guide the groom placed inside it";
+
+    // And it still does its job: under gravity the guide cannot sink deeper into
+    // the proxy than the groom put it, by more than the length projection's
+    // one-segment slack the solver declares for every contact.
+    params.Gravity = glm::vec3(0.0f, -9.81f, 0.0f);
+    for (u32 frame = 0; frame < 240; ++frame)
+    {
+        GroomSimulationInputs inputs = guides.Inputs(params, 1.0f / 60.0f, true);
+        inputs.Colliders = colliders;
+        stats = StepGroomGuideSimulation(inputs, state);
+    }
+    f32 worstExtraDepth = 0.0f;
+    for (sizet i = 0; i < state.Curr.size(); ++i)
+    {
+        const f32 restDistance =
+            glm::length(guides.Targets[i] - ClosestPointOnGroomCollider(capsule, guides.Targets[i]));
+        const f32 distance = glm::length(state.Curr[i] - ClosestPointOnGroomCollider(capsule, state.Curr[i]));
+        const f32 allowed = std::min(capsule.Radius, restDistance);
+        worstExtraDepth = std::max(worstExtraDepth, allowed - distance);
+    }
+    EXPECT_LT(worstExtraDepth, 0.08f) << "gravity sank a guide deeper than its groom";
+}
+
 TEST(GroomGuideSimulation, CollisionDisabledLetsGuidesPassThroughAndIsCountedAsZero)
 {
     TestGuides guides = TestGuides::Make(1, 14, 0.08f);
@@ -589,6 +713,221 @@ TEST(GroomGuideSimulation, TheSlowestStepWithTheStiffestCoatStillSettles)
     }
 }
 
+// THE SHIPPED SOLVER BRINGS A FREE STRAND TO REST (#1533). Dynamic
+// follow-the-leader hands the length projection's correction back as velocity
+// every step, and under gravity that correction never goes to zero; a hanging
+// strand still settles to its sag, to well under a micrometre. Kept because the
+// dog's long hair once did NOT come to rest (0.35-0.45 mm for seconds), and this
+// is what said the free solver was not why: the contact was
+// (StrandsAcrossTwoCollidersComeToRestAtAnyFriction).
+TEST(GroomGuideSimulation, TheShippedCoatComesToRestUnderGravity)
+{
+    const TestGuides guides = TestGuides::Make(1, 12, 0.02f, glm::normalize(glm::vec3(1.0f, 0.3f, 0.0f)));
+    GroomSimulationParams params; // the shipped defaults: DFTL, correction 0.85, 60 Hz
+    params.CollisionEnabled = false;
+    ASSERT_EQ(params.Model, GroomSolverModel::DynamicFollowTheLeader);
+
+    GroomGuideSimulationState state;
+    (void)StepGroomGuideSimulation(guides.Inputs(params, 1.0f / 60.0f, false), state);
+    std::vector<glm::vec3> late;
+    for (u32 frame = 0; frame < 600u; ++frame)
+    {
+        const GroomSimulationStats stats =
+            StepGroomGuideSimulation(guides.Inputs(params, 1.0f / 60.0f, true), state);
+        ASSERT_FALSE(stats.Refused) << "frame " << frame;
+        if (frame >= 540u)
+            late.push_back(state.Curr.back());
+    }
+    glm::vec3 mean(0.0f);
+    for (const glm::vec3& p : late)
+        mean += p;
+    mean /= static_cast<f32>(late.size());
+    f64 sum2 = 0.0;
+    for (const glm::vec3& p : late)
+        sum2 += static_cast<f64>(glm::length2(p - mean));
+    const f64 rms = std::sqrt(sum2 / static_cast<f64>(late.size()));
+    const f32 sag = glm::length(state.Curr.back() - guides.Targets.back());
+    std::printf("[solver] shipped defaults, 10 s at rest: tip RMS about its mean over the last second = %.6f mm, sag "
+                "%.2f mm\n",
+                rms * 1000.0, static_cast<f64>(sag) * 1000.0);
+    EXPECT_LT(rms, 0.01e-3) << "the coat still moves " << rms * 1000.0 << " mm RMS after ten seconds at rest";
+    // Not vacuous: gravity does deflect the strand, so there was something to settle.
+    EXPECT_GT(sag, 1.0e-3f) << "gravity did not deflect the strand at all";
+}
+
+// A STRAND HELD ON A COLLIDER COMES TO REST (#1533). The dog's long hair swung
+// 0.35-0.45 mm RMS for seconds at rest and stopped within two with its colliders
+// off, so its contact with them was what kept it moving. This is the simplest
+// version of that contact -- a fitted proxy fatter than the body, the strand's
+// groomed shape INSIDE it and held at its own depth
+// (TheColliderNeverPushesAStrandPastWhereTheGroomPutIt), gravity pressing it in,
+// the dog's solver settings -- and it settles. Two capsules that meet did not
+// (StrandsAcrossTwoCollidersComeToRestAtAnyFriction). Ten seconds at rest, it
+// must hold still.
+TEST(GroomGuideSimulation, AStrandRestingOnAColliderComesToRest)
+{
+    TestGuides guides = TestGuides::Make(1, 14, 0.02f, glm::vec3(1.0f, 0.0f, 0.0f));
+    GroomCollider capsule;
+    capsule.PointA = glm::vec3(0.14f, -0.04f, -1.0f);
+    capsule.PointB = glm::vec3(0.14f, -0.04f, 1.0f);
+    capsule.Radius = 0.05f; // the strand's middle is 4 cm above the axis: inside the shell
+    const std::vector<GroomCollider> colliders{ capsule };
+
+    GroomSimulationParams params; // the shipped solver: DFTL, correction 0.85, 60 Hz
+    params.CollisionEnabled = true;
+    params.Stiffness = 1200.0f;                    // the dog's
+    params.Gravity = glm::vec3(0.0f, -4.0f, 0.0f); // the dog's
+    ASSERT_EQ(params.Model, GroomSolverModel::DynamicFollowTheLeader);
+
+    GroomGuideSimulationState state;
+    {
+        GroomSimulationInputs seed = guides.Inputs(params, 1.0f / 60.0f, false);
+        seed.Colliders = colliders;
+        (void)StepGroomGuideSimulation(seed, state);
+    }
+    std::vector<glm::vec3> late;
+    u32 lateContacts = 0;
+    for (u32 frame = 0; frame < 600u; ++frame)
+    {
+        GroomSimulationInputs inputs = guides.Inputs(params, 1.0f / 60.0f, true);
+        inputs.Colliders = colliders;
+        const GroomSimulationStats stats = StepGroomGuideSimulation(inputs, state);
+        ASSERT_FALSE(stats.Refused) << "frame " << frame;
+        if (frame >= 540u)
+        {
+            late.push_back(state.Curr.back());
+            lateContacts += stats.ContactsResolved;
+        }
+    }
+    glm::vec3 mean(0.0f);
+    for (const glm::vec3& p : late)
+        mean += p;
+    mean /= static_cast<f32>(late.size());
+    f64 sum2 = 0.0;
+    for (const glm::vec3& p : late)
+        sum2 += static_cast<f64>(glm::length2(p - mean));
+    const f64 rms = std::sqrt(sum2 / static_cast<f64>(late.size()));
+    std::printf("[solver] a strand on a capsule, 10 s at rest: tip RMS about its mean over the last second = %.6f mm, "
+                "%u contacts in that second\n",
+                rms * 1000.0, lateContacts);
+    // Not vacuous: the strand is still lying on the capsule in the second that is measured.
+    EXPECT_GT(lateContacts, 0u) << "the strand left the capsule, so this measured a free strand";
+    EXPECT_LT(rms, 0.01e-3) << "the strand still moves " << rms * 1000.0 << " mm RMS after ten seconds on the capsule";
+}
+
+// STRANDS ACROSS TWO COLLIDERS COME TO REST, AT ANY FRICTION (#1533). The
+// dog's long hair swung 0.35-0.45 mm RMS for as long as it stood, and stopped
+// within two seconds with its colliders off. One capsule settles
+// (AStrandRestingOnAColliderComesToRest); two that meet -- a fitted proxy's
+// joints, where the dog's coat lies across bones -- did not, and at full stick
+// a strand across them swung 13 mm. Two causes, both in how a contact met
+// DFTL's hand-back: the length pass moved a held particle AFTER its friction
+// was applied, so what it left with never saw the friction; and the hand-back
+// carried the collider's push from a held particle to its parent as velocity,
+// every step. Measured before the fix (worst tip RMS over the tenth second):
+//   elbow    0.0013 mm at 0.35, 13 mm at full stick, 0.0025 mm sliding
+//   spine    0.0013 mm,         0.75 mm,             0.0007 mm
+//   crossing 0.041 mm,          6.4 mm,              0.25 mm
+// and after it every arm at or under 0.0054 mm, which is a binary contact
+// flickering under gravity: two of some 150 contacts entering every fifth step.
+// Penetration and length are unchanged.
+TEST(GroomGuideSimulation, StrandsAcrossTwoCollidersComeToRestAtAnyFriction)
+{
+    struct Joint
+    {
+        const char* Name;
+        GroomCollider A;
+        GroomCollider B;
+    };
+    const std::array<Joint, 3> joints{ {
+        { "elbow", { glm::vec3(-0.30f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 0.0f), 0.060f }, { glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.20f, 0.17f, 0.0f), 0.050f } },
+        { "spine", { glm::vec3(-0.30f, 0.0f, 0.0f), glm::vec3(0.05f, 0.0f, 0.0f), 0.060f }, { glm::vec3(-0.05f, 0.01f, 0.0f), glm::vec3(0.30f, 0.01f, 0.0f), 0.058f } },
+        { "crossing", { glm::vec3(-0.30f, 0.0f, 0.0f), glm::vec3(0.30f, 0.0f, 0.0f), 0.060f }, { glm::vec3(0.0f, -0.25f, -0.03f), glm::vec3(0.0f, 0.05f, 0.03f), 0.050f } },
+    } };
+    // 48 guides rooted on a "skin" 4.5 cm round the x axis astride the joint,
+    // inside both shells, lying back along -x and a little out: 13 cm of
+    // long hair, the dog's solver settings.
+    TestGuides guides;
+    guides.Offsets.push_back(0u);
+    for (f32 x : { -0.04f, -0.01f, 0.02f, 0.05f })
+    {
+        for (u32 k = 0; k < 12u; ++k)
+        {
+            const f32 a = static_cast<f32>(k) * (6.2831853f / 12.0f);
+            const glm::vec3 out(0.0f, std::cos(a), std::sin(a));
+            const glm::vec3 root = glm::vec3(x, 0.0f, 0.0f) + 0.045f * out;
+            const glm::vec3 dir = glm::normalize(glm::vec3(-1.0f, 0.0f, 0.0f) + 0.25f * out);
+            guides.Curves.push_back(static_cast<u32>(guides.Curves.size()));
+            for (u32 i = 0; i < 14u; ++i)
+            {
+                guides.Targets.push_back(root + dir * (static_cast<f32>(i) * 0.01f));
+            }
+            guides.Offsets.push_back(static_cast<u32>(guides.Targets.size()));
+        }
+    }
+    const u32 guideCount = static_cast<u32>(guides.Curves.size());
+    for (const Joint& joint : joints)
+    {
+        const std::vector<GroomCollider> colliders{ joint.A, joint.B };
+        for (const f32 friction : { 0.35f, 0.0f, 1.0f })
+        {
+            SCOPED_TRACE(std::string(joint.Name) + " friction " + std::to_string(friction));
+            GroomSimulationParams params; // the shipped solver: DFTL, correction 0.85, 60 Hz
+            params.CollisionEnabled = true;
+            params.Stiffness = 1200.0f;                    // the dog's
+            params.Gravity = glm::vec3(0.0f, -4.0f, 0.0f); // the dog's
+            params.ColliderFriction = friction;
+            ASSERT_EQ(params.Model, GroomSolverModel::DynamicFollowTheLeader);
+            GroomGuideSimulationState state;
+            {
+                GroomSimulationInputs seed = guides.Inputs(params, 1.0f / 60.0f, false);
+                seed.Colliders = colliders;
+                (void)StepGroomGuideSimulation(seed, state);
+            }
+            std::vector<std::vector<glm::vec3>> late(guideCount);
+            u32 lateContacts = 0;
+            f32 worstStretch = 1.0f;
+            for (u32 frame = 0; frame < 600u; ++frame)
+            {
+                GroomSimulationInputs inputs = guides.Inputs(params, 1.0f / 60.0f, true);
+                inputs.Colliders = colliders;
+                const GroomSimulationStats stats = StepGroomGuideSimulation(inputs, state);
+                ASSERT_FALSE(stats.Refused) << "frame " << frame;
+                if (std::abs(stats.MaxStretchRatio - 1.0f) > std::abs(worstStretch - 1.0f))
+                {
+                    worstStretch = stats.MaxStretchRatio;
+                }
+                if (frame >= 540u)
+                {
+                    lateContacts += stats.ContactsResolved;
+                    for (u32 g = 0; g < guideCount; ++g)
+                    {
+                        late[g].push_back(state.Curr[guides.Offsets[g + 1u] - 1u]);
+                    }
+                }
+            }
+            f64 worst = 0.0;
+            for (const auto& tips : late)
+            {
+                glm::dvec3 mean(0.0);
+                for (const glm::vec3& p : tips)
+                    mean += glm::dvec3(p) / static_cast<f64>(tips.size());
+                f64 sum2 = 0.0;
+                for (const glm::vec3& p : tips)
+                    sum2 += glm::length2(glm::dvec3(p) - mean);
+                worst = std::max(worst, std::sqrt(sum2 / static_cast<f64>(tips.size())));
+            }
+            std::printf("[solver] two colliders, %-8s friction %.2f, 10 s at rest: worst tip RMS over the last second "
+                        "%.6f mm, %u contacts in that second\n",
+                        joint.Name, static_cast<f64>(friction), worst * 1000.0, lateContacts);
+            // Not vacuous: the coat still lies on the colliders in the measured second.
+            EXPECT_GT(lateContacts, 0u) << "the strands left the colliders, so this measured free strands";
+            EXPECT_LT(worst, 0.01e-3) << "a strand still moves " << worst * 1000.0 << " mm RMS after ten seconds";
+            EXPECT_LE(std::abs(worstStretch - 1.0f), params.StretchTolerance) << "the length guarantee broke";
+        }
+    }
+}
+
 // The clamp is a function of the STEP, so it must not touch a configuration
 // that is already stable. At 60 Hz the ceiling is 7200 and the authored maximum
 // is 2000, so a fast-stepping coat keeps exactly the stiffness it asked for.
@@ -615,6 +954,161 @@ TEST(GroomGuideSimulation, TheStiffnessCeilingDoesNotBindAtSixtyHertz)
     // and the coat would sag visibly further than the analytic g/k bound.
     EXPECT_LT(stats.MaxRestDeviation, 9.81f / 1000.0f * 12.0f)
         << "the 60 Hz ceiling must not be clamping an already-stable stiffness";
+}
+
+// -----------------------------------------------------------------------------
+// Per-group stiffness (#1533)
+// -----------------------------------------------------------------------------
+
+// The entity's stiffness is ONE number, so a body undercoat and a long tail
+// plume used to sag by the same g/k. Each guide now carries its group's
+// StiffnessScale, and at equilibrium a guide four times as stiff holds four
+// times closer to its groom. g/k is the steady offset of every free particle of
+// a chain laid across gravity: the first segment tilts by atan(g / (k L)) and
+// the rest follow it almost level, so the tip sags by L sin(atan(g/(kL))) ~ g/k.
+TEST(GroomGuideSimulation, APerGuideStiffnessScaleSetsEachGuidesSag)
+{
+    // Long segments, so the sag is small beside them and the chain stays in the
+    // regime where the offset IS g/k rather than a bent chain's.
+    const TestGuides guides = TestGuides::Make(2, 8, 0.2f, glm::vec3(1.0f, 0.0f, 0.0f));
+    GroomSimulationParams params;
+    params.CollisionEnabled = false;
+    params.Stiffness = 400.0f;
+    params.Damping = 12.0f;
+    const std::vector<f32> scales{ 1.0f, 4.0f };
+
+    GroomGuideSimulationState state;
+    GroomSimulationInputs inputs = guides.Inputs(params, 1.0f / 60.0f, false);
+    inputs.StiffnessScales = scales;
+    (void)StepGroomGuideSimulation(inputs, state);
+    inputs.HasHistory = true;
+    GroomSimulationStats stats;
+    for (u32 frame = 0; frame < 600u; ++frame) // ten seconds: long past settling
+    {
+        stats = StepGroomGuideSimulation(inputs, state);
+    }
+    ASSERT_FALSE(stats.Refused);
+    EXPECT_EQ(stats.GuidesStiffnessCapped, 0u) << "1600 is inside the 60 Hz ceiling of 3600";
+
+    const auto tipSag = [&](u32 guide)
+    {
+        const u32 tip = guides.Offsets[guide + 1u] - 1u;
+        return guides.Targets[tip].y - state.Curr[tip].y;
+    };
+    const f32 soft = tipSag(0u);
+    const f32 stiff = tipSag(1u);
+    EXPECT_NEAR(soft, 9.81f / 400.0f, 0.1f * (9.81f / 400.0f)) << "the unscaled guide sags by g/k";
+    EXPECT_NEAR(stiff / soft, 0.25f, 0.02f) << "a guide four times as stiff sagged " << stiff << " against " << soft;
+}
+
+// EMPTY is every guide at 1 — bit for bit the solve that existed before, so a
+// groom whose groups author no stiffness moves exactly as it did. A span of
+// ones is the same solve again.
+TEST(GroomGuideSimulation, AnEmptyStiffnessSpanIsEveryGuideAtOne)
+{
+    const TestGuides guides = TestGuides::Make(3, 9, 0.1f, glm::vec3(1.0f, 0.0f, 0.0f));
+    GroomSimulationParams params;
+    params.CollisionEnabled = false;
+    const std::vector<f32> ones(3u, 1.0f);
+
+    GroomGuideSimulationState unscaled;
+    GroomGuideSimulationState scaledByOne;
+    const RunResult plain = RunMotion(guides, params, 1.0f / 60.0f, 1.5f, unscaled);
+    // RunMotion builds its own inputs, so the span-of-ones arm is driven by hand
+    // over the same motion.
+    {
+        GroomSimulationInputs seed = guides.Inputs(params, 1.0f / 60.0f, false);
+        seed.StiffnessScales = ones;
+        (void)StepGroomGuideSimulation(seed, scaledByOne);
+        f32 time = 0.0f;
+        while (time < 1.5f)
+        {
+            time += 1.0f / 60.0f;
+            TestGuides moved = guides;
+            moved.Translate(glm::vec3(0.4f * std::sin(time * 6.0f), 0.0f, 0.0f));
+            GroomSimulationInputs inputs = moved.Inputs(params, 1.0f / 60.0f, true);
+            inputs.StiffnessScales = ones;
+            (void)StepGroomGuideSimulation(inputs, scaledByOne);
+        }
+    }
+    ASSERT_FALSE(plain.Last.Refused);
+    EXPECT_EQ(unscaled.Curr, scaledByOne.Curr);
+    EXPECT_EQ(unscaled.Prev, scaledByOne.Prev);
+}
+
+// A span that does not name every guide, or names one with a non-finite
+// scale, is a malformed input: REFUSED and cleared, like a malformed offset
+// table, never quietly padded with ones.
+TEST(GroomGuideSimulation, AMalformedStiffnessSpanIsRefused)
+{
+    const TestGuides guides = TestGuides::Make(3, 6);
+    GroomSimulationParams params;
+    const std::vector<std::vector<f32>> malformed{
+        { 1.0f, 2.0f },                                        // one short
+        { 1.0f, 2.0f, 3.0f, 4.0f },                            // one long
+        { 1.0f, std::numeric_limits<f32>::quiet_NaN(), 1.0f }, // NaN
+        { 1.0f, 1.0f, std::numeric_limits<f32>::infinity() },  // infinity
+    };
+    for (sizet c = 0; c < malformed.size(); ++c)
+    {
+        SCOPED_TRACE("case " + std::to_string(c));
+        GroomGuideSimulationState state;
+        (void)StepGroomGuideSimulation(guides.Inputs(params, 1.0f / 60.0f, false), state);
+        ASSERT_TRUE(state.Initialized);
+        GroomSimulationInputs inputs = guides.Inputs(params, 1.0f / 60.0f, true);
+        inputs.StiffnessScales = malformed[c];
+        const GroomSimulationStats stats = StepGroomGuideSimulation(inputs, state);
+        EXPECT_TRUE(stats.Refused);
+        EXPECT_FALSE(state.Initialized);
+    }
+}
+
+// The step's stability ceiling applies to each guide's PRODUCT. At 15 Hz the
+// ceiling is 225 (Stiffness * dt^2 <= 1); an entity at 90 with a group scaled
+// by 4 asks for 360, is solved at the ceiling -- exactly as an entity authored
+// straight at the ceiling is -- and is COUNTED. A product under the ceiling is
+// the product, bit for bit.
+TEST(GroomGuideSimulation, AScaledStiffnessPastTheStepCeilingIsHeldThereAndCounted)
+{
+    const TestGuides guides = TestGuides::Make(1, 10, 0.1f, glm::vec3(1.0f, 0.0f, 0.0f));
+    const auto run = [&](f32 stiffness, std::span<const f32> scales, GroomSimulationStats& outStats)
+    {
+        GroomSimulationParams params;
+        params.CollisionEnabled = false;
+        params.FixedHz = 15.0f;
+        params.Stiffness = stiffness;
+        GroomGuideSimulationState state;
+        GroomSimulationInputs inputs = guides.Inputs(params, 1.0f / 15.0f, false);
+        inputs.StiffnessScales = scales;
+        (void)StepGroomGuideSimulation(inputs, state);
+        inputs.HasHistory = true;
+        for (u32 frame = 0; frame < 60u; ++frame)
+        {
+            outStats = StepGroomGuideSimulation(inputs, state);
+        }
+        return state.Curr;
+    };
+
+    const std::vector<f32> four{ 4.0f };
+    GroomSimulationStats scaledStats;
+    GroomSimulationStats ceilingStats;
+    const std::vector<glm::vec3> scaled = run(90.0f, four, scaledStats);
+    // Authored at the maximum, which Sanitize holds to the ceiling: the same
+    // number the scaled guide is held to. The scale did not do that, so it is
+    // not counted.
+    const std::vector<glm::vec3> atCeiling = run(GroomSimulationLimits::MaxStiffness, {}, ceilingStats);
+    ASSERT_FALSE(scaledStats.Refused);
+    EXPECT_EQ(scaledStats.GuidesStiffnessCapped, 1u) << "the scale lifted the guide past the ceiling";
+    EXPECT_EQ(ceilingStats.GuidesStiffnessCapped, 0u);
+    EXPECT_EQ(scaled, atCeiling) << "the capped guide must be solved at exactly the ceiling";
+
+    // Under the ceiling: 50 x 4 is 200, exactly, and solves exactly as 200 does.
+    GroomSimulationStats underStats;
+    GroomSimulationStats plainStats;
+    const std::vector<glm::vec3> under = run(50.0f, four, underStats);
+    const std::vector<glm::vec3> plain = run(200.0f, {}, plainStats);
+    EXPECT_EQ(underStats.GuidesStiffnessCapped, 0u);
+    EXPECT_EQ(under, plain) << "a scale is a multiplier on the stiffness and nothing else";
 }
 
 // -----------------------------------------------------------------------------

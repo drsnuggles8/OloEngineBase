@@ -6,6 +6,12 @@
 #type vertex
 #version 460 core
 
+// THE GLSL TEXT ROUTE ON OPENGL (#1533): this program reaches a GL driver as
+// SPIRV-Cross GLSL text, not glShaderBinary SPIR-V, because NVIDIA's GLSL front
+// end runs the lawn and the terrain several times faster than its SPIR-V
+// ingestion. Vulkan is unaffected. docs/agent-rules/gl-shader-route.md.
+#define OLO_GL_GLSL_ROUTE 1
+
 #ifdef OLO_VULKAN
 // #691 (ADR 0011 §5, amendment (76)): vertex pull from the engine-wide
 // binding 57. Draw site is the terrain patch VBO (TerrainChunk.cpp /

@@ -509,6 +509,121 @@ namespace OloEngine::Tests
         }
     }
 
+    // #1533: the VSM keeps the contact shadows the cascades keep. It used to bias
+    // every receiver by its own constants -- 5 cm of depth and 2 cm of offset --
+    // which skipped every occluder within about 7 cm of a receiver whose texels
+    // are a millimetre wide; it now takes the light's bias (ShadowSettings'
+    // DepthBiasTexels and NormalBias, set from the light) in its own texels, as
+    // the cascades do. A thin plate 3 cm over the open floor, whose shadow is a
+    // strip beside it, seen from close by:
+    //   * under the cascades, the reference: the plate darkens the strip;
+    //   * under the VSM: the same strip, within a factor of two;
+    //   * under the VSM with the light's normal bias at the old 7 cm reach, the
+    //     negative control: the strip stays lit, or this case could not see it;
+    //   * and with the plate not casting, the two frames agree: the smaller
+    //     bias puts no acne on the floor or the plate.
+    TEST_F(VirtualShadowMapVisualEvidenceTest, TheVsmKeepsAContactShadowTheCascadesKeep)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        struct ScopedMockTime
+        {
+            explicit ScopedMockTime(f32 t)
+            {
+                Time::SetMockTime(t);
+            }
+            ~ScopedMockTime()
+            {
+                Time::ClearMockTime();
+            }
+        } scopedMockTime(kCaptureTime);
+
+        Scene& scene = GetScene();
+        DirectionalLightComponent* sun = nullptr;
+        for (auto e : scene.GetAllEntitiesWith<DirectionalLightComponent>())
+        {
+            sun = &Entity{ e, &scene }.GetComponent<DirectionalLightComponent>();
+        }
+        ASSERT_NE(sun, nullptr);
+        const f32 shippedNormalBias = sun->m_ShadowNormalBias;
+
+        // Well clear of the cube and its shadow (which runs toward +X).
+        Entity plate = scene.CreateEntity("Plate");
+        {
+            auto& tc = plate.GetComponent<TransformComponent>();
+            tc.Translation = { -6.0f, 0.03f + 0.0025f, 4.0f };
+            tc.Scale = { 1.0f, 0.005f, 1.0f };
+            auto& mc = plate.AddComponent<MeshComponent>();
+            mc.m_Primitive = MeshPrimitive::Cube;
+            if (Ref<Mesh> mesh = MeshPrimitives::CreateCube())
+                mc.m_MeshSource = mesh->GetMeshSource();
+            auto& mat = plate.AddComponent<MaterialComponent>();
+            mat.m_Material.SetBaseColorFactor(glm::vec4(0.5f, 0.5f, 0.52f, 1.0f));
+            mat.m_Material.SetRoughnessFactor(1.0f);
+        }
+        const auto plateCasts = [&plate](bool casts)
+        { plate.GetComponent<MaterialComponent>().m_Material.SetFlag(MaterialFlag::DisableShadowCasting, !casts); };
+
+        // From in front of the plate, above it, looking down -Z at its +X edge.
+        const glm::vec3 eye{ -6.0f, 0.45f, 5.2f };
+        constexpr f32 kPitch = 0.36f;
+        const auto darkened = [&](const std::string& tag, std::vector<u8>& off)
+        {
+            plateCasts(false);
+            Capture(tag + "_PlateOff", eye, 0.0f, kPitch, off);
+            plateCasts(true);
+            std::vector<u8> on;
+            Capture(tag, eye, 0.0f, kPitch, on);
+            u32 count = 0;
+            for (std::size_t i = 0; i + 2 < on.size() && i + 2 < off.size(); i += 4)
+            {
+                const f64 lumaOn = 0.2126 * on[i] + 0.7152 * on[i + 1] + 0.0722 * on[i + 2];
+                const f64 lumaOff = 0.2126 * off[i] + 0.7152 * off[i + 1] + 0.0722 * off[i + 2];
+                count += lumaOff - lumaOn > kDarkNoiseFloor ? 1u : 0u;
+            }
+            return count;
+        };
+
+        ASSERT_TRUE(SetVirtualShadowMaps(false));
+        std::vector<u8> csmOff;
+        const u32 csmDark = darkened("ContactCSM", csmOff);
+        if (!SetVirtualShadowMaps(true))
+        {
+            scene.DestroyEntity(plate);
+            GTEST_SKIP() << "Virtual Shadow Maps refused to initialise on this backend/driver";
+        }
+        std::vector<u8> vsmOff;
+        const u32 vsmDark = darkened("ContactVSM", vsmOff);
+        sun->m_ShadowNormalBias = 0.07f;
+        std::vector<u8> oldOff;
+        const u32 oldDark = darkened("ContactVSM_OldReach", oldOff);
+        sun->m_ShadowNormalBias = shippedNormalBias;
+        ASSERT_TRUE(SetVirtualShadowMaps(false));
+        scene.DestroyEntity(plate);
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        u32 offDiffer = 0;
+        for (std::size_t i = 0; i + 2 < csmOff.size() && i + 2 < vsmOff.size(); i += 4)
+        {
+            const f64 a = 0.2126 * csmOff[i] + 0.7152 * csmOff[i + 1] + 0.0722 * csmOff[i + 2];
+            const f64 b = 0.2126 * vsmOff[i] + 0.7152 * vsmOff[i + 1] + 0.0722 * vsmOff[i + 2];
+            offDiffer += std::abs(a - b) > kDarkNoiseFloor ? 1u : 0u;
+        }
+        GTEST_LOG_(INFO) << "contact shadow: the plate darkened " << csmDark << " px under CSM, " << vsmDark
+                         << " under VSM, " << oldDark << " under VSM at the old 7 cm reach (negative control); "
+                         << offDiffer << " px differ between the two with the plate not casting";
+
+        ASSERT_GT(csmDark, 1000u) << "the cascades' contact shadow, the reference, is barely in the frame";
+        ASSERT_LT(oldDark, csmDark / 10u)
+            << "at the old 7 cm reach the VSM still saw a plate 3 cm over the floor, so this case cannot tell the "
+               "fix from the gap it closes";
+        EXPECT_GT(vsmDark, csmDark / 2u) << "the VSM dropped the contact shadow the cascades keep";
+        EXPECT_LT(vsmDark, (csmDark * 2u) + 1000u) << "the VSM over-shadowed: acne, or a bias that lost its sign";
+        EXPECT_LT(offDiffer, (kWidth * kHeight) / 200u)
+            << "with nothing casting in view the VSM and the cascades disagree: acne under the light's bias";
+    }
+
     // Is the lit pass running the VSM sampling code AT ALL?
     //
     // This separates the two failure modes that look identical on screen — "VSM

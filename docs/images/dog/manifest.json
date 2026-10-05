@@ -1,0 +1,1341 @@
+{
+ "composites": {
+  "contact-sheet.jpg": {
+   "size": [
+    1920,
+    1508
+   ],
+   "codec": "JPEG quality 92, 4:4:4",
+   "operation": "each 1920x1080 still scaled to 640x360; labels drawn on top",
+   "bytes": 1013962,
+   "sources": [
+    {
+     "file": "final-60f38addb/package/gl/hero/FrontThreeQuarter.png",
+     "sha256": "382d858999fde11550913bd1da65cd3b51bd4b01d38517414367cf6311eeed7d"
+    },
+    {
+     "file": "final-60f38addb/package/gl/hero/Profile.png",
+     "sha256": "9123dbcb35dfd250f2a99cf5c5358b7cc88368a89921207d38934499b7345532"
+    },
+    {
+     "file": "final-60f38addb/package/gl/hero/FaceCloseUp.png",
+     "sha256": "dd673631332ca69d2e7d72cd962dacb84281454537a24a70cfc51cbd971acadc"
+    },
+    {
+     "file": "final-60f38addb/package/gl/hero/RearTail.png",
+     "sha256": "74eb779581302f23c0ffcd716aa551e0819b0e78896a60ce56b0f1324c82a74b"
+    },
+    {
+     "file": "final-60f38addb/package/gl/hero/LowHero.png",
+     "sha256": "bac712c8122a180d99bd5e24ebda2c1e502717fa9169d193fecf53a40ab61800"
+    },
+    {
+     "file": "final-60f38addb/package/gl/hero/FullBody.png",
+     "sha256": "0f0e7dfbf092d60d5e984451835e51e59279a0d6d3a642210948a0a720d8ccdd"
+    },
+    {
+     "file": "final-60f38addb/package/vk/hero/FrontThreeQuarter.png",
+     "sha256": "54c9d2e95495c7f6185321b2792535edeefc4013ff38ad5c53bc76059235dc47"
+    },
+    {
+     "file": "final-60f38addb/package/vk/hero/Profile.png",
+     "sha256": "3275056f10815c32ba1e27b17b0bbbd4d439d8fd1a1934c0fc2cb1b3b24eff21"
+    },
+    {
+     "file": "final-60f38addb/package/vk/hero/FaceCloseUp.png",
+     "sha256": "a414bb8a84e8683b3fe83cbe96300f00dc6407ce78ab4209187e3f93ba869247"
+    },
+    {
+     "file": "final-60f38addb/package/vk/hero/RearTail.png",
+     "sha256": "d5d12ce0008534b848c5148f88818d9f5c691746da198c2f4df138ccc933e663"
+    },
+    {
+     "file": "final-60f38addb/package/vk/hero/LowHero.png",
+     "sha256": "59b4ea1f5741d96cca9fa8026da0fba9f99801cd9e0385da1c390c3096f921de"
+    },
+    {
+     "file": "final-60f38addb/package/vk/hero/FullBody.png",
+     "sha256": "99a13aa07eeae28ae96cd3bda8ea14d0ddf25ccd595b564b4bb31e6100f1d74f"
+    }
+   ],
+   "sha256": "40e190b0bcaf90f5d0430a38c0fa6e0081177217c02872ea19ff73e8f9c537c1"
+  },
+  "contact-sheet-gl.png": {
+   "size": [
+    2880,
+    1080
+   ],
+   "codec": "PNG (lossless)",
+   "operation": "each still scaled to 960x540 (half size); labels drawn on top",
+   "bytes": 4336331,
+   "sources": [
+    {
+     "file": "final-60f38addb/package/gl/hero/FrontThreeQuarter.png",
+     "sha256": "382d858999fde11550913bd1da65cd3b51bd4b01d38517414367cf6311eeed7d"
+    },
+    {
+     "file": "final-60f38addb/package/gl/hero/Profile.png",
+     "sha256": "9123dbcb35dfd250f2a99cf5c5358b7cc88368a89921207d38934499b7345532"
+    },
+    {
+     "file": "final-60f38addb/package/gl/hero/FaceCloseUp.png",
+     "sha256": "dd673631332ca69d2e7d72cd962dacb84281454537a24a70cfc51cbd971acadc"
+    },
+    {
+     "file": "final-60f38addb/package/gl/hero/RearTail.png",
+     "sha256": "74eb779581302f23c0ffcd716aa551e0819b0e78896a60ce56b0f1324c82a74b"
+    },
+    {
+     "file": "final-60f38addb/package/gl/hero/LowHero.png",
+     "sha256": "bac712c8122a180d99bd5e24ebda2c1e502717fa9169d193fecf53a40ab61800"
+    },
+    {
+     "file": "final-60f38addb/package/gl/hero/FullBody.png",
+     "sha256": "0f0e7dfbf092d60d5e984451835e51e59279a0d6d3a642210948a0a720d8ccdd"
+    }
+   ],
+   "sha256": "832a86cc0fb59759fd74394c16bf029c232a790df650635291f916f9754d7905"
+  },
+  "contact-sheet-vk.png": {
+   "size": [
+    2880,
+    1080
+   ],
+   "codec": "PNG (lossless)",
+   "operation": "each still scaled to 960x540 (half size); labels drawn on top",
+   "bytes": 4365422,
+   "sources": [
+    {
+     "file": "final-60f38addb/package/vk/hero/FrontThreeQuarter.png",
+     "sha256": "54c9d2e95495c7f6185321b2792535edeefc4013ff38ad5c53bc76059235dc47"
+    },
+    {
+     "file": "final-60f38addb/package/vk/hero/Profile.png",
+     "sha256": "3275056f10815c32ba1e27b17b0bbbd4d439d8fd1a1934c0fc2cb1b3b24eff21"
+    },
+    {
+     "file": "final-60f38addb/package/vk/hero/FaceCloseUp.png",
+     "sha256": "a414bb8a84e8683b3fe83cbe96300f00dc6407ce78ab4209187e3f93ba869247"
+    },
+    {
+     "file": "final-60f38addb/package/vk/hero/RearTail.png",
+     "sha256": "d5d12ce0008534b848c5148f88818d9f5c691746da198c2f4df138ccc933e663"
+    },
+    {
+     "file": "final-60f38addb/package/vk/hero/LowHero.png",
+     "sha256": "59b4ea1f5741d96cca9fa8026da0fba9f99801cd9e0385da1c390c3096f921de"
+    },
+    {
+     "file": "final-60f38addb/package/vk/hero/FullBody.png",
+     "sha256": "99a13aa07eeae28ae96cd3bda8ea14d0ddf25ccd595b564b4bb31e6100f1d74f"
+    }
+   ],
+   "sha256": "54ce19e97443ae94a57f1739e1f697b4889e3bc68105005ae89c8068acbe4e93"
+  },
+  "live-paths.jpg": {
+   "size": [
+    1920,
+    720
+   ],
+   "codec": "JPEG quality 92, 4:4:4",
+   "operation": "each still scaled to 640x360; labels drawn on top",
+   "bytes": 512524,
+   "sources": [
+    {
+     "file": "final-60f38addb/package/gl/paths/forward.png",
+     "sha256": "d6cea19612344432b6d9c6d1e4458f1ec6383329eff39d60029a23d93d349688"
+    },
+    {
+     "file": "final-60f38addb/package/gl/paths/forwardplus.png",
+     "sha256": "be64e8f81e5ec85f84f1d45b099bfc25cfff5c6d7a69c2fa92ab823b0c1339a1"
+    },
+    {
+     "file": "final-60f38addb/package/gl/paths/deferred.png",
+     "sha256": "a94904874099327fd0157cf326bd2a59dd93f78d36d8d617d19c622f66c838cf"
+    },
+    {
+     "file": "final-60f38addb/package/vk/paths/forward.png",
+     "sha256": "67a84280b2ba91b3210a337d112e121ce19a155c8872522783a356e6838b7d07"
+    },
+    {
+     "file": "final-60f38addb/package/vk/paths/forwardplus.png",
+     "sha256": "8bd24b8dbf21305e46024f14c54f9f418874e57ada250dacc1eade145290896d"
+    },
+    {
+     "file": "final-60f38addb/package/vk/paths/deferred.png",
+     "sha256": "feb4086a112f9caf9a9839ad99a3c02d5670d21c33442259fd5152d2ea1d43e1"
+    }
+   ],
+   "sha256": "9e072fe07b90c0721b36d0ade318f79e6a6916aa5015bba393527246bdac362a"
+  },
+  "closeup.jpg": {
+   "size": [
+    2880,
+    1080
+   ],
+   "codec": "JPEG quality 92, 4:4:4",
+   "operation": "native pixels: a 960x540 crop of each 1920x1080 still, not scaled; labels on top",
+   "bytes": 1594294,
+   "sources": [
+    {
+     "file": "final-60f38addb/package/gl/closeup/Face.png",
+     "sha256": "b0241803f0bd60240d9115c4f9ec73ac7139d09d9d12aae6b2d659ff9f665ebf"
+    },
+    {
+     "file": "final-60f38addb/package/gl/closeup/EyeLeft.png",
+     "sha256": "6d66a0c04bb530cded87bf630be94d8aad7433aa9a556870da4f1a7e7c4fe905"
+    },
+    {
+     "file": "final-60f38addb/package/gl/closeup/Nose.png",
+     "sha256": "aae2d5165ab6ca6718d3b655863953cf5572c2dac2f7233bf1bf867bbecbff70"
+    },
+    {
+     "file": "final-60f38addb/package/vk/closeup/Face.png",
+     "sha256": "a1cea1b73e5bebc3d6e766291e960a061f634a94a03cd7dc924e8706c454a9e7"
+    },
+    {
+     "file": "final-60f38addb/package/vk/closeup/EyeLeft.png",
+     "sha256": "d23933a2bdde9ddf3141b644c98565026f4e60486ba8487f18ffbf483a1f4a9b"
+    },
+    {
+     "file": "final-60f38addb/package/vk/closeup/Nose.png",
+     "sha256": "aa838682011d17572c0503a969dca89edadfd9475be3209406296ca547c321f1"
+    }
+   ],
+   "sha256": "fb6687126424d8ab720fa929980a07807108eba92bae703d2a76ac3fbf24c41e"
+  },
+  "blink.jpg": {
+   "size": [
+    2160,
+    540
+   ],
+   "codec": "JPEG quality 92, 4:4:4",
+   "operation": "native pixels: a 720x270 crop around both eyes, not scaled; labels on top",
+   "bytes": 560187,
+   "sources": [
+    {
+     "file": "final-60f38addb/footage/Idle_FaceCloseUp/0000.png",
+     "sha256": "fbac65036a0b886c649f1384efd52e99806ecc46ce3fd61f3374ff3ff084b6a7"
+    },
+    {
+     "file": "final-60f38addb/footage/Idle_FaceCloseUp/0052.png",
+     "sha256": "cd25d13805f2f133cd1148469f36cf4c737e477ba0f6d0e5c8e0ce8ee5e4866f"
+    },
+    {
+     "file": "final-60f38addb/footage/Idle_FaceCloseUp/0062.png",
+     "sha256": "5328f3bf9e2c840e411b772aa3aac0e69d823452c02f059319101e17b9c11c58"
+    },
+    {
+     "file": "final-60f38addb/footage/Idle_FaceCloseUp/0066.png",
+     "sha256": "064d36690d2dfe0a55e5dcd4cb18d8ae496a8c0f661dcb6b1be85fbeaffa6503"
+    },
+    {
+     "file": "final-60f38addb/footage/Idle_FaceCloseUp/0072.png",
+     "sha256": "0d531fc9dffd17e86a3f1c20bbc8ba5633b8e80f50876ac56827ff4b7c4afab3"
+    },
+    {
+     "file": "final-60f38addb/footage/Idle_FaceCloseUp/0080.png",
+     "sha256": "78094ccef3b568a14ef55c363ebc25e1ef6d53cefc332fd702c7f4a7f7696229"
+    }
+   ],
+   "sha256": "1dbbcbccbc42f434a8cb07702fa90831b3bf025d56cc1983c7fd5b90c45232e6"
+  },
+  "mouth.jpg": {
+   "size": [
+    1920,
+    540
+   ],
+   "codec": "JPEG quality 92, 4:4:4",
+   "operation": "native pixels: a 960x540 crop around the muzzle, not scaled; labels on top",
+   "bytes": 557929,
+   "sources": [
+    {
+     "file": "final-60f38addb/footage/Pant_FaceCloseUp/0000.png",
+     "sha256": "9e96e5a783df8b7e036af8df0c164f5088ab8218a182e8cf2b10b37bee832a60"
+    },
+    {
+     "file": "final-60f38addb/footage/Pant_FaceCloseUp/0038.png",
+     "sha256": "bd4968768d8eb8ff8e0a747efc2e02b8ba75f1430d2b92814bdb0b8abcf63d3c"
+    }
+   ],
+   "sha256": "168f055ee480c8bf15084192758ddae6a835e7342781f680057e2793039732e8"
+  },
+  "clips.jpg": {
+   "size": [
+    1920,
+    720
+   ],
+   "codec": "JPEG quality 92, 4:4:4",
+   "operation": "each runtime frame scaled to 640x360; labels on top",
+   "bytes": 513988,
+   "sources": [
+    {
+     "file": "final-60f38addb/footage/Idle_FullBody/0120.png",
+     "sha256": "5c69570822069d7213485ea231808c64686367bb6ff1bea235581f0bb45eac05"
+    },
+    {
+     "file": "final-60f38addb/footage/HeadTilt_FaceCloseUp/0090.png",
+     "sha256": "08eb804e803180580db0cadf7a45f7b2633e758489740177f86a2b58bf5d61ff"
+    },
+    {
+     "file": "final-60f38addb/footage/Sit_FullBody/0179.png",
+     "sha256": "0166141e01eddcc8e1080565b33b7a27943abf1643a4c4aef0013a9cd1acedcf"
+    },
+    {
+     "file": "final-60f38addb/footage/Walk_MidShot/0060.png",
+     "sha256": "a2e8d54d0676730f06686f24aadba1d372bb56a26f9031ac3dec176e4e122651"
+    },
+    {
+     "file": "final-60f38addb/footage/Walk_RearTail/0060.png",
+     "sha256": "d3ce2ca44c77eb99241a96b7f92c198c6aa83b65d8f2f45abdd7ae4050029aad"
+    },
+    {
+     "file": "final-60f38addb/footage/Pant_RearTail/0060.png",
+     "sha256": "9ac599b17fc9e7514903a3716db9be0b970966c71f58c29a0df4491690ab4d21"
+    }
+   ],
+   "sha256": "4a691bed9271cff52b94b9e561b3b5e61d9eb7116c4dbf93712742de2065114f"
+  },
+  "dolly.jpg": {
+   "size": [
+    2100,
+    600
+   ],
+   "codec": "JPEG quality 92, 4:4:4",
+   "operation": "each frame cropped to a square around the dog sized to its distance, then scaled to 300x300: far tiles are ENLARGED (a 45 m dog is ~25 px tall in the real frame); labels on top",
+   "bytes": 423037,
+   "sources": [
+    {
+     "file": "final-60f38addb/footage/Dolly_0.6-15m/0000.png",
+     "sha256": "722a3f1cff6577fb6169169e7ce7376161d3e805735192a94468ff9325dd65ec"
+    },
+    {
+     "file": "final-60f38addb/footage/Dolly_0.6-15m/0057.png",
+     "sha256": "35adef1bf9d1c45a1b9616919e4bc2626198caa3aa3505b782c4be86632a384a"
+    },
+    {
+     "file": "final-60f38addb/footage/Dolly_0.6-15m/0099.png",
+     "sha256": "a2467a8cf34dbbaa47a91ffd92f80e7213dee4b392baca8db8e209bf07d3d84e"
+    },
+    {
+     "file": "final-60f38addb/footage/Dolly_0.6-15m/0142.png",
+     "sha256": "00aa7a34ab64fe2c5f91ed93155ef61bb5d79f9eddf1430163cecee5209fdef7"
+    },
+    {
+     "file": "final-60f38addb/footage/Dolly_0.6-15m/0179.png",
+     "sha256": "fa2779b1c59687a621bb26a1cf934f05357f785b5837154f5bfbbb91e76719d4"
+    },
+    {
+     "file": "final-60f38addb/footage/Dolly_0.6-15m/0181.png",
+     "sha256": "83bd16d427472cc20a8fc4f14fc29022785f6c7016e4478371338909c26d52c4"
+    },
+    {
+     "file": "final-60f38addb/footage/Dolly_0.6-15m/0199.png",
+     "sha256": "59e458bcecae01e0612ed01c3ff9f12232a811170e6748f66ebc2c7984ffe15c"
+    },
+    {
+     "file": "final-60f38addb/footage/Dolly_0.6-15m/0219.png",
+     "sha256": "cd1c2a6bc44070bcc5f2b30c6d125171fd3d56bd0235a0ace0ec629534ba86d0"
+    },
+    {
+     "file": "final-60f38addb/footage/Dolly_0.6-15m/0280.png",
+     "sha256": "1a408ae5f26f1ca6d7548b1f5cce0b73e280aa29bfdee10b4559a54835d656e0"
+    },
+    {
+     "file": "final-60f38addb/footage/Dolly_Extended_15-45m/0031.png",
+     "sha256": "c1935bbc59a9c78cda31610073cb326b00b75cdc6307a6344c97351b4631d6c0"
+    },
+    {
+     "file": "final-60f38addb/footage/Dolly_Extended_15-45m/0043.png",
+     "sha256": "29026b41e03babac22ef1d797571063ca668aec80fff52edc93147930f5709f7"
+    },
+    {
+     "file": "final-60f38addb/footage/Dolly_Extended_15-45m/0044.png",
+     "sha256": "88700b85bb03cd596a231f1816546fd9b976e9331c457fe5a881698f7092653a"
+    },
+    {
+     "file": "final-60f38addb/footage/Dolly_Extended_15-45m/0075.png",
+     "sha256": "d03241b4e13306826660c6a365cc1c99393ed4c3d50c28143c18cad30b4a4b6d"
+    },
+    {
+     "file": "final-60f38addb/footage/Dolly_Extended_15-45m/0119.png",
+     "sha256": "1e619ee8c6ec23c8b60045d93bbb44e2d7aa5e180544e670e1b265d84a7d1b63"
+    }
+   ],
+   "sha256": "d7e878c1ee50e1bf92ade491232264fac6abba4e15c8d0eef63b2e44b61a304e"
+  },
+  "taa-history.jpg": {
+   "size": [
+    2568,
+    1088
+   ],
+   "operation": "two 1280x720 held frames side by side, a 320x180 patch of each enlarged 2x (nearest) below; labels on top",
+   "codec": "JPEG quality 92, 4:4:4",
+   "sources": [
+    "b6_ab/lookdev_head/DogLookDev_GL_Forward_FaceThreeQuarter_Crop.png (the build before c686e34cb)",
+    "b6_ab/lookdev_hist/DogLookDev_GL_Forward_FaceThreeQuarter_Crop.png (the build with it)"
+   ],
+   "sha256": "3eacd3e367275c26b13d91d6b74d526b35a420a8d1b75572dc408b9acf24490f"
+  },
+  "live-walk.jpg": {
+   "size": [
+    1928,
+    540
+   ],
+   "operation": "two 1920x1080 live frames scaled to 960x540, side by side; labels on top",
+   "codec": "JPEG quality 92, 4:4:4",
+   "sources": [
+    "e1/gl-60f38addb/WalkMidShot.png",
+    "e1/vk-60f38addb/WalkMidShot.png"
+   ],
+   "sha256": "6eb5c538dcf2464a9e739c7836f3661aa8298c40237f252f2fe1f735e0916cfa"
+  }
+ },
+ "originals": {
+  "final-60f38addb/package/gl/closeup/EyeLeft.png": "6d66a0c04bb530cded87bf630be94d8aad7433aa9a556870da4f1a7e7c4fe905",
+  "final-60f38addb/package/gl/closeup/Face.png": "b0241803f0bd60240d9115c4f9ec73ac7139d09d9d12aae6b2d659ff9f665ebf",
+  "final-60f38addb/package/gl/closeup/Nose.png": "aae2d5165ab6ca6718d3b655863953cf5572c2dac2f7233bf1bf867bbecbff70",
+  "final-60f38addb/package/gl/hero/FaceCloseUp.png": "dd673631332ca69d2e7d72cd962dacb84281454537a24a70cfc51cbd971acadc",
+  "final-60f38addb/package/gl/hero/FrontThreeQuarter.png": "382d858999fde11550913bd1da65cd3b51bd4b01d38517414367cf6311eeed7d",
+  "final-60f38addb/package/gl/hero/FullBody.png": "0f0e7dfbf092d60d5e984451835e51e59279a0d6d3a642210948a0a720d8ccdd",
+  "final-60f38addb/package/gl/hero/LowHero.png": "bac712c8122a180d99bd5e24ebda2c1e502717fa9169d193fecf53a40ab61800",
+  "final-60f38addb/package/gl/hero/Profile.png": "9123dbcb35dfd250f2a99cf5c5358b7cc88368a89921207d38934499b7345532",
+  "final-60f38addb/package/gl/hero/RearTail.png": "74eb779581302f23c0ffcd716aa551e0819b0e78896a60ce56b0f1324c82a74b",
+  "final-60f38addb/package/gl/paths/deferred.png": "a94904874099327fd0157cf326bd2a59dd93f78d36d8d617d19c622f66c838cf",
+  "final-60f38addb/package/gl/paths/forward.png": "d6cea19612344432b6d9c6d1e4458f1ec6383329eff39d60029a23d93d349688",
+  "final-60f38addb/package/gl/paths/forwardplus.png": "be64e8f81e5ec85f84f1d45b099bfc25cfff5c6d7a69c2fa92ab823b0c1339a1",
+  "final-60f38addb/package/vk/closeup/EyeLeft.png": "d23933a2bdde9ddf3141b644c98565026f4e60486ba8487f18ffbf483a1f4a9b",
+  "final-60f38addb/package/vk/closeup/Face.png": "a1cea1b73e5bebc3d6e766291e960a061f634a94a03cd7dc924e8706c454a9e7",
+  "final-60f38addb/package/vk/closeup/Nose.png": "aa838682011d17572c0503a969dca89edadfd9475be3209406296ca547c321f1",
+  "final-60f38addb/package/vk/hero/FaceCloseUp.png": "a414bb8a84e8683b3fe83cbe96300f00dc6407ce78ab4209187e3f93ba869247",
+  "final-60f38addb/package/vk/hero/FrontThreeQuarter.png": "54c9d2e95495c7f6185321b2792535edeefc4013ff38ad5c53bc76059235dc47",
+  "final-60f38addb/package/vk/hero/FullBody.png": "99a13aa07eeae28ae96cd3bda8ea14d0ddf25ccd595b564b4bb31e6100f1d74f",
+  "final-60f38addb/package/vk/hero/LowHero.png": "59b4ea1f5741d96cca9fa8026da0fba9f99801cd9e0385da1c390c3096f921de",
+  "final-60f38addb/package/vk/hero/Profile.png": "3275056f10815c32ba1e27b17b0bbbd4d439d8fd1a1934c0fc2cb1b3b24eff21",
+  "final-60f38addb/package/vk/hero/RearTail.png": "d5d12ce0008534b848c5148f88818d9f5c691746da198c2f4df138ccc933e663",
+  "final-60f38addb/package/vk/paths/deferred.png": "feb4086a112f9caf9a9839ad99a3c02d5670d21c33442259fd5152d2ea1d43e1",
+  "final-60f38addb/package/vk/paths/forward.png": "67a84280b2ba91b3210a337d112e121ce19a155c8872522783a356e6838b7d07",
+  "final-60f38addb/package/vk/paths/forwardplus.png": "8bd24b8dbf21305e46024f14c54f9f418874e57ada250dacc1eade145290896d"
+ },
+ "commit": "60f38addb49b41dfd300e11b9f62876416b032a9",
+ "observations": [
+  "Darker brown streaks run across the crown in every view, on both backends.",
+  "A dark brown patch sits at the side of the neck in the three-quarter and full-body views. It is the floppy ear, which B2 asks to be darker than the coat.",
+  "From the low hero angle a thin pale line runs along the lower lip's edge, and a small white highlight sits at the front of the closed mouth, where the front teeth are.",
+  "At the extreme eye and nose close-ups (a 20 degree field a few tens of centimetres away) the face and muzzle strands read as flat, hard-edged ribbons radiating from the skin. From the face close-up outward they read as fur.",
+  "Stray hairs stand out of the head's outline against the sky in the face close-up.",
+  "In the rear views the tail's pale tip glows white where the sun shines through it, blown out to a soft white patch (the runtime rear footage and the RearTail still, both backends).",
+  "Through the dolly, from the 11 m step outward, the coat reads as clumped curls in the enlarged crops; at native size the dog is a few dozen pixels tall there. At the 22.5 m card hand-over the coat is blotchier than the strands just before it.",
+  "In the panting footage the tongue lies over the lower teeth and hangs past the lip; no tooth shows through it. Its highlights are broad and soft rather than lacquered, and the lower canine shows white at the corner of the mouth.",
+  "The eye's catch-light is a small steady highlight in every view on both backends, including the low hero view where a white bloom used to appear.",
+  "In the walk footage and live in Play the dog travels with the camera on it: the grass passes under the dog and its paws stay where they land.",
+  "Beside the build before TAA's history change, the coat's strands are slightly lower in contrast and the fine sparkle on the face and muzzle is gone (the before/after section).",
+  "OpenGL and Vulkan show the same pose and the same coat in all six hero views and on all three paths; the visible differences are the wind-blown grass blades in front of the camera."
+ ],
+ "live-gl": {
+  "backend": "OpenGL",
+  "editorBuild": "0.0.1+60f38addb4",
+  "softShadows": "pcf",
+  "viewport": {
+   "height": 1080,
+   "override": true,
+   "width": 1920
+  },
+  "mode": "live editor, edit mode, editor camera, clip paused",
+  "taa": {
+   "setting": false,
+   "feedback": 0.8999999761581421,
+   "sharpness": 0.25,
+   "note": "the coat requests the temporal resolve every frame (StochasticAlpha), whatever the setting"
+  },
+  "captures": {
+   "hero/FrontThreeQuarter.png": {
+    "path": "forward",
+    "camera": {
+     "eye": [
+      0.95,
+      0.62,
+      1.25
+     ],
+     "target": [
+      0.0,
+      0.36,
+      0.05
+     ],
+     "fovDegrees": 35.0
+    },
+    "clip": "Idle",
+    "clipSeconds": 0.0
+   },
+   "hero/Profile.png": {
+    "path": "forward",
+    "camera": {
+     "eye": [
+      1.75,
+      0.45,
+      0.02
+     ],
+     "target": [
+      0.0,
+      0.36,
+      -0.02
+     ],
+     "fovDegrees": 35.0
+    },
+    "clip": "Idle",
+    "clipSeconds": 0.0
+   },
+   "hero/FaceCloseUp.png": {
+    "path": "forward",
+    "camera": {
+     "eye": [
+      0.22,
+      0.64,
+      0.95
+     ],
+     "target": [
+      0.0,
+      0.57,
+      0.4
+     ],
+     "fovDegrees": 30.0
+    },
+    "clip": "Idle",
+    "clipSeconds": 0.0
+   },
+   "hero/RearTail.png": {
+    "path": "forward",
+    "camera": {
+     "eye": [
+      -0.95,
+      0.7,
+      -1.35
+     ],
+     "target": [
+      0.0,
+      0.4,
+      -0.25
+     ],
+     "fovDegrees": 35.0
+    },
+    "clip": "Idle",
+    "clipSeconds": 0.0
+   },
+   "hero/LowHero.png": {
+    "path": "forward",
+    "camera": {
+     "eye": [
+      0.55,
+      0.14,
+      1.05
+     ],
+     "target": [
+      0.0,
+      0.42,
+      0.1
+     ],
+     "fovDegrees": 40.0
+    },
+    "clip": "Idle",
+    "clipSeconds": 0.0
+   },
+   "hero/FullBody.png": {
+    "path": "forward",
+    "camera": {
+     "eye": [
+      1.25,
+      0.55,
+      1.65
+     ],
+     "target": [
+      0.0,
+      0.32,
+      0.0
+     ],
+     "fovDegrees": 35.0
+    },
+    "clip": "Idle",
+    "clipSeconds": 0.0
+   },
+   "paths/forward.png": {
+    "path": "forward",
+    "camera": {
+     "eye": [
+      0.95,
+      0.62,
+      1.25
+     ],
+     "target": [
+      0.0,
+      0.36,
+      0.05
+     ],
+     "fovDegrees": 35.0
+    },
+    "clip": "Idle",
+    "clipSeconds": 0.0
+   },
+   "paths/forwardplus.png": {
+    "path": "forwardplus",
+    "camera": {
+     "eye": [
+      0.95,
+      0.62,
+      1.25
+     ],
+     "target": [
+      0.0,
+      0.36,
+      0.05
+     ],
+     "fovDegrees": 35.0
+    },
+    "clip": "Idle",
+    "clipSeconds": 0.0
+   },
+   "paths/deferred.png": {
+    "path": "deferred",
+    "camera": {
+     "eye": [
+      0.95,
+      0.62,
+      1.25
+     ],
+     "target": [
+      0.0,
+      0.36,
+      0.05
+     ],
+     "fovDegrees": 35.0
+    },
+    "clip": "Idle",
+    "clipSeconds": 0.0
+   },
+   "closeup/Face.png": {
+    "path": "forward",
+    "camera": {
+     "eye": [
+      0.22,
+      0.64,
+      0.95
+     ],
+     "target": [
+      0.0,
+      0.57,
+      0.4
+     ],
+     "fovDegrees": 30.0
+    },
+    "clip": "Idle",
+    "clipSeconds": 0.0
+   },
+   "closeup/EyeLeft.png": {
+    "path": "forward",
+    "camera": {
+     "eye": [
+      0.17,
+      0.615,
+      0.73
+     ],
+     "target": [
+      0.052,
+      0.584,
+      0.47
+     ],
+     "fovDegrees": 20.0
+    },
+    "clip": "Idle",
+    "clipSeconds": 0.0
+   },
+   "closeup/Nose.png": {
+    "path": "forward",
+    "camera": {
+     "eye": [
+      0.09,
+      0.62,
+      0.82
+     ],
+     "target": [
+      0.0,
+      0.55,
+      0.6
+     ],
+     "fovDegrees": 20.0
+    },
+    "clip": "Idle",
+    "clipSeconds": 0.0
+   }
+  }
+ },
+ "live-vk": {
+  "backend": "Vulkan",
+  "editorBuild": "0.0.1+60f38addb4",
+  "softShadows": "pcf",
+  "viewport": {
+   "height": 1080,
+   "override": true,
+   "width": 1920
+  },
+  "mode": "live editor, edit mode, editor camera, clip paused",
+  "taa": {
+   "setting": false,
+   "feedback": 0.8999999761581421,
+   "sharpness": 0.25,
+   "note": "the coat requests the temporal resolve every frame (StochasticAlpha), whatever the setting"
+  },
+  "captures": {
+   "hero/FrontThreeQuarter.png": {
+    "path": "forward",
+    "camera": {
+     "eye": [
+      0.95,
+      0.62,
+      1.25
+     ],
+     "target": [
+      0.0,
+      0.36,
+      0.05
+     ],
+     "fovDegrees": 35.0
+    },
+    "clip": "Idle",
+    "clipSeconds": 0.0
+   },
+   "hero/Profile.png": {
+    "path": "forward",
+    "camera": {
+     "eye": [
+      1.75,
+      0.45,
+      0.02
+     ],
+     "target": [
+      0.0,
+      0.36,
+      -0.02
+     ],
+     "fovDegrees": 35.0
+    },
+    "clip": "Idle",
+    "clipSeconds": 0.0
+   },
+   "hero/FaceCloseUp.png": {
+    "path": "forward",
+    "camera": {
+     "eye": [
+      0.22,
+      0.64,
+      0.95
+     ],
+     "target": [
+      0.0,
+      0.57,
+      0.4
+     ],
+     "fovDegrees": 30.0
+    },
+    "clip": "Idle",
+    "clipSeconds": 0.0
+   },
+   "hero/RearTail.png": {
+    "path": "forward",
+    "camera": {
+     "eye": [
+      -0.95,
+      0.7,
+      -1.35
+     ],
+     "target": [
+      0.0,
+      0.4,
+      -0.25
+     ],
+     "fovDegrees": 35.0
+    },
+    "clip": "Idle",
+    "clipSeconds": 0.0
+   },
+   "hero/LowHero.png": {
+    "path": "forward",
+    "camera": {
+     "eye": [
+      0.55,
+      0.14,
+      1.05
+     ],
+     "target": [
+      0.0,
+      0.42,
+      0.1
+     ],
+     "fovDegrees": 40.0
+    },
+    "clip": "Idle",
+    "clipSeconds": 0.0
+   },
+   "hero/FullBody.png": {
+    "path": "forward",
+    "camera": {
+     "eye": [
+      1.25,
+      0.55,
+      1.65
+     ],
+     "target": [
+      0.0,
+      0.32,
+      0.0
+     ],
+     "fovDegrees": 35.0
+    },
+    "clip": "Idle",
+    "clipSeconds": 0.0
+   },
+   "paths/forward.png": {
+    "path": "forward",
+    "camera": {
+     "eye": [
+      0.95,
+      0.62,
+      1.25
+     ],
+     "target": [
+      0.0,
+      0.36,
+      0.05
+     ],
+     "fovDegrees": 35.0
+    },
+    "clip": "Idle",
+    "clipSeconds": 0.0
+   },
+   "paths/forwardplus.png": {
+    "path": "forwardplus",
+    "camera": {
+     "eye": [
+      0.95,
+      0.62,
+      1.25
+     ],
+     "target": [
+      0.0,
+      0.36,
+      0.05
+     ],
+     "fovDegrees": 35.0
+    },
+    "clip": "Idle",
+    "clipSeconds": 0.0
+   },
+   "paths/deferred.png": {
+    "path": "deferred",
+    "camera": {
+     "eye": [
+      0.95,
+      0.62,
+      1.25
+     ],
+     "target": [
+      0.0,
+      0.36,
+      0.05
+     ],
+     "fovDegrees": 35.0
+    },
+    "clip": "Idle",
+    "clipSeconds": 0.0
+   },
+   "closeup/Face.png": {
+    "path": "forward",
+    "camera": {
+     "eye": [
+      0.22,
+      0.64,
+      0.95
+     ],
+     "target": [
+      0.0,
+      0.57,
+      0.4
+     ],
+     "fovDegrees": 30.0
+    },
+    "clip": "Idle",
+    "clipSeconds": 0.0
+   },
+   "closeup/EyeLeft.png": {
+    "path": "forward",
+    "camera": {
+     "eye": [
+      0.17,
+      0.615,
+      0.73
+     ],
+     "target": [
+      0.052,
+      0.584,
+      0.47
+     ],
+     "fovDegrees": 20.0
+    },
+    "clip": "Idle",
+    "clipSeconds": 0.0
+   },
+   "closeup/Nose.png": {
+    "path": "forward",
+    "camera": {
+     "eye": [
+      0.09,
+      0.62,
+      0.82
+     ],
+     "target": [
+      0.0,
+      0.55,
+      0.6
+     ],
+     "fovDegrees": 20.0
+    },
+    "clip": "Idle",
+    "clipSeconds": 0.0
+   }
+  }
+ },
+ "footage": {
+  "backend": "OpenGL",
+  "bloom": true,
+  "build": "0.0.1+60f38addb4",
+  "driver": "4.6.0 NVIDIA 617.14",
+  "frameStep": "1/60 s",
+  "fxaa": true,
+  "gpu": "NVIDIA GeForce RTX 4090/PCIe/SSE2",
+  "ground": "the live scene's lawn (BuildLawn)",
+  "internalResolution": [
+   1920,
+   1080
+  ],
+  "kind": "headless runtime (DogShowcaseEvidenceTest.RecordsTheReviewFootage)",
+  "lawnClock": "pinned (a frozen mock time): the grass holds still here; it sways in the editor",
+  "path": "Forward",
+  "resolution": [
+   1920,
+   1080
+  ],
+  "shadow": {
+   "resolution": 4096,
+   "soft": false
+  },
+  "taa": {
+   "enabled": true,
+   "feedback": 0.8999999761581421,
+   "sharpness": 0.25
+  },
+  "tonemap": 2,
+  "upscale": 0,
+  "comparedWith": {
+   "build": "0.0.1+96675309c8",
+   "identicalFrames": 0,
+   "differentFrames": 1930,
+   "missingFrames": 0,
+   "firstDifferentFramePerSequence": {
+    "Dolly_0.6-15m": "0000.png",
+    "Dolly_Extended_15-45m": "0000.png",
+    "HeadTilt_FaceCloseUp": "0000.png",
+    "Idle_FaceCloseUp": "0000.png",
+    "Idle_FullBody": "0000.png",
+    "Pant_FaceCloseUp": "0000.png",
+    "Pant_RearTail": "0000.png",
+    "Sit_FullBody": "0000.png",
+    "Walk_MidShot": "0000.png",
+    "Walk_RearTail": "0000.png"
+   }
+  },
+  "sequences": {
+   "Dolly_0.6-15m": {
+    "advance": "held: the scene paused, the camera moving, the history never reset",
+    "fps": 60,
+    "frames": 400
+   },
+   "Dolly_Extended_15-45m": {
+    "advance": "held: the scene paused, the camera moving, the history never reset",
+    "fps": 60,
+    "frames": 240
+   },
+   "HeadTilt_FaceCloseUp": {
+    "advance": "runtime: clip time and solver",
+    "camera": {
+     "eye": [
+      0.23999999463558197,
+      0.6399999856948853,
+      0.9800000190734863
+     ],
+     "fovDegrees": 32.0,
+     "target": [
+      0.0,
+      0.5699999928474426,
+      0.4000000059604645
+     ]
+    },
+    "clip": "HeadTilt",
+    "fps": 60,
+    "frames": 150
+   },
+   "Idle_FaceCloseUp": {
+    "advance": "runtime: clip time and solver",
+    "camera": {
+     "eye": [
+      0.23999999463558197,
+      0.6399999856948853,
+      0.9800000190734863
+     ],
+     "fovDegrees": 32.0,
+     "target": [
+      0.0,
+      0.5699999928474426,
+      0.4000000059604645
+     ]
+    },
+    "clip": "Idle",
+    "fps": 60,
+    "frames": 240
+   },
+   "Idle_FullBody": {
+    "advance": "runtime: clip time and solver",
+    "camera": {
+     "eye": [
+      1.2999999523162842,
+      0.6000000238418579,
+      1.7200000286102295
+     ],
+     "fovDegrees": 32.0,
+     "target": [
+      0.0,
+      0.33000001311302185,
+      0.0
+     ]
+    },
+    "clip": "Idle",
+    "fps": 60,
+    "frames": 240
+   },
+   "Pant_FaceCloseUp": {
+    "advance": "runtime: clip time and solver",
+    "camera": {
+     "eye": [
+      0.23999999463558197,
+      0.6399999856948853,
+      0.9800000190734863
+     ],
+     "fovDegrees": 32.0,
+     "target": [
+      0.0,
+      0.5699999928474426,
+      0.4000000059604645
+     ]
+    },
+    "clip": "Pant",
+    "fps": 60,
+    "frames": 120
+   },
+   "Pant_RearTail": {
+    "advance": "runtime: clip time and solver",
+    "camera": {
+     "eye": [
+      -0.949999988079071,
+      0.699999988079071,
+      -1.350000023841858
+     ],
+     "fovDegrees": 35.0,
+     "target": [
+      0.0,
+      0.4000000059604645,
+      -0.25
+     ]
+    },
+    "clip": "Pant",
+    "fps": 60,
+    "frames": 120
+   },
+   "Sit_FullBody": {
+    "advance": "runtime: clip time and solver",
+    "camera": {
+     "eye": [
+      1.2999999523162842,
+      0.6000000238418579,
+      1.7200000286102295
+     ],
+     "fovDegrees": 32.0,
+     "target": [
+      0.0,
+      0.33000001311302185,
+      0.0
+     ]
+    },
+    "clip": "Sit",
+    "fps": 60,
+    "frames": 180
+   },
+   "Walk_MidShot": {
+    "advance": "runtime: clip time and solver",
+    "camera": {
+     "eye": [
+      2.0999999046325684,
+      1.0,
+      2.9000000953674316
+     ],
+     "fovDegrees": 32.0,
+     "target": [
+      0.0,
+      0.3499999940395355,
+      0.0
+     ]
+    },
+    "clip": "Walk",
+    "fps": 60,
+    "frames": 120
+   },
+   "Walk_RearTail": {
+    "advance": "runtime: clip time and solver",
+    "camera": {
+     "eye": [
+      -0.949999988079071,
+      0.699999988079071,
+      -1.350000023841858
+     ],
+     "fovDegrees": 35.0,
+     "target": [
+      0.0,
+      0.4000000059604645,
+      -0.25
+     ]
+    },
+    "clip": "Walk",
+    "fps": 60,
+    "frames": 120
+   }
+  }
+ },
+ "footagePresentation": {
+  "Dolly_0.6-15m_crop.mp4": {
+   "source": "Dolly_0.6-15m/ (400 frames)",
+   "operation": "native pixels: the 960x540 window at (480, 270) of each 1920x1080 frame, not scaled",
+   "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
+   "bytes": 13555182,
+   "ok": true
+  },
+  "Dolly_0.6-15m_overview.mp4": {
+   "source": "Dolly_0.6-15m/ (400 frames)",
+   "operation": "each 1920x1080 frame scaled to 640x360 (Lanczos)",
+   "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
+   "bytes": 2556534,
+   "ok": true
+  },
+  "Dolly_Extended_15-45m_crop.mp4": {
+   "source": "Dolly_Extended_15-45m/ (240 frames)",
+   "operation": "native pixels: the 960x540 window at (480, 270) of each 1920x1080 frame, not scaled",
+   "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
+   "bytes": 5018122,
+   "ok": true
+  },
+  "Dolly_Extended_15-45m_overview.mp4": {
+   "source": "Dolly_Extended_15-45m/ (240 frames)",
+   "operation": "each 1920x1080 frame scaled to 640x360 (Lanczos)",
+   "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
+   "bytes": 666110,
+   "ok": true
+  },
+  "HeadTilt_FaceCloseUp_crop.mp4": {
+   "source": "HeadTilt_FaceCloseUp/ (150 frames)",
+   "operation": "native pixels: the 960x540 window at (440, 300) of each 1920x1080 frame, not scaled",
+   "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
+   "bytes": 4080628,
+   "ok": true
+  },
+  "HeadTilt_FaceCloseUp_overview.mp4": {
+   "source": "HeadTilt_FaceCloseUp/ (150 frames)",
+   "operation": "each 1920x1080 frame scaled to 640x360 (Lanczos)",
+   "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
+   "bytes": 451751,
+   "ok": true
+  },
+  "Idle_FaceCloseUp_crop.mp4": {
+   "source": "Idle_FaceCloseUp/ (240 frames)",
+   "operation": "native pixels: the 960x540 window at (440, 300) of each 1920x1080 frame, not scaled",
+   "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
+   "bytes": 6123503,
+   "ok": true
+  },
+  "Idle_FaceCloseUp_overview.mp4": {
+   "source": "Idle_FaceCloseUp/ (240 frames)",
+   "operation": "each 1920x1080 frame scaled to 640x360 (Lanczos)",
+   "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
+   "bytes": 648138,
+   "ok": true
+  },
+  "Idle_FullBody_crop.mp4": {
+   "source": "Idle_FullBody/ (240 frames)",
+   "operation": "native pixels: the 960x540 window at (440, 170) of each 1920x1080 frame, not scaled",
+   "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
+   "bytes": 4928932,
+   "ok": true
+  },
+  "Idle_FullBody_overview.mp4": {
+   "source": "Idle_FullBody/ (240 frames)",
+   "operation": "each 1920x1080 frame scaled to 640x360 (Lanczos)",
+   "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
+   "bytes": 333636,
+   "ok": true
+  },
+  "Pant_FaceCloseUp_crop.mp4": {
+   "source": "Pant_FaceCloseUp/ (120 frames)",
+   "operation": "native pixels: the 960x540 window at (440, 470) of each 1920x1080 frame, not scaled",
+   "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
+   "bytes": 3139940,
+   "ok": true
+  },
+  "Pant_FaceCloseUp_overview.mp4": {
+   "source": "Pant_FaceCloseUp/ (120 frames)",
+   "operation": "each 1920x1080 frame scaled to 640x360 (Lanczos)",
+   "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
+   "bytes": 337506,
+   "ok": true
+  },
+  "Pant_RearTail_crop.mp4": {
+   "source": "Pant_RearTail/ (120 frames)",
+   "operation": "native pixels: the 960x540 window at (520, 250) of each 1920x1080 frame, not scaled",
+   "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
+   "bytes": 2919552,
+   "ok": true
+  },
+  "Pant_RearTail_overview.mp4": {
+   "source": "Pant_RearTail/ (120 frames)",
+   "operation": "each 1920x1080 frame scaled to 640x360 (Lanczos)",
+   "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
+   "bytes": 233698,
+   "ok": true
+  },
+  "Sit_FullBody_crop.mp4": {
+   "source": "Sit_FullBody/ (180 frames)",
+   "operation": "native pixels: the 960x540 window at (440, 170) of each 1920x1080 frame, not scaled",
+   "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
+   "bytes": 3523024,
+   "ok": true
+  },
+  "Sit_FullBody_overview.mp4": {
+   "source": "Sit_FullBody/ (180 frames)",
+   "operation": "each 1920x1080 frame scaled to 640x360 (Lanczos)",
+   "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
+   "bytes": 276892,
+   "ok": true
+  },
+  "Walk_MidShot_crop.mp4": {
+   "source": "Walk_MidShot/ (120 frames)",
+   "operation": "native pixels: the 960x540 window at (480, 270) of each 1920x1080 frame, not scaled",
+   "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
+   "bytes": 3189162,
+   "ok": true
+  },
+  "Walk_MidShot_overview.mp4": {
+   "source": "Walk_MidShot/ (120 frames)",
+   "operation": "each 1920x1080 frame scaled to 640x360 (Lanczos)",
+   "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
+   "bytes": 494593,
+   "ok": true
+  },
+  "Walk_RearTail_crop.mp4": {
+   "source": "Walk_RearTail/ (120 frames)",
+   "operation": "native pixels: the 960x540 window at (480, 250) of each 1920x1080 frame, not scaled",
+   "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
+   "bytes": 3599397,
+   "ok": true
+  },
+  "Walk_RearTail_overview.mp4": {
+   "source": "Walk_RearTail/ (120 frames)",
+   "operation": "each 1920x1080 frame scaled to 640x360 (Lanczos)",
+   "codec": "H.264 yuv420p, 60 fps, every frame, Blender FFmpeg constant-rate-factor HIGH, preset GOOD",
+   "bytes": 786591,
+   "ok": true
+  }
+ },
+ "footageComparedWith": {
+  "build": "0.0.1+96675309c8",
+  "identicalFrames": 0,
+  "differentFrames": 1930,
+  "missingFrames": 0,
+  "firstDifferentFramePerSequence": {
+   "Dolly_0.6-15m": "0000.png",
+   "Dolly_Extended_15-45m": "0000.png",
+   "HeadTilt_FaceCloseUp": "0000.png",
+   "Idle_FaceCloseUp": "0000.png",
+   "Idle_FullBody": "0000.png",
+   "Pant_FaceCloseUp": "0000.png",
+   "Pant_RearTail": "0000.png",
+   "Sit_FullBody": "0000.png",
+   "Walk_MidShot": "0000.png",
+   "Walk_RearTail": "0000.png"
+  }
+ },
+ "artifact": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j",
+ "assets": {
+  "data/e1-raw-60e900392-60f38addb.json": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/432751156f85dea82c00b4d01c4b3531",
+  "data/e1-raw-a2fd7467b-33cc3840b.json": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/de89720eb6737e77856d6be785443db4",
+  "final-60f38addb/package/gl/closeup/EyeLeft.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/8bb5df72977f363776d3990d64e0b24a",
+  "final-60f38addb/package/gl/closeup/Face.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/dc35126443d41787e1fb9af3c6167b75",
+  "final-60f38addb/package/gl/closeup/Nose.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/c0f72b95ef72c7e3453cf099faae30e8",
+  "final-60f38addb/package/gl/hero/FaceCloseUp.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/81787b7e7890a61b49babf633d0971c2",
+  "final-60f38addb/package/gl/hero/FrontThreeQuarter.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/751cca67b66507767587f279da27e477",
+  "final-60f38addb/package/gl/hero/FullBody.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/eea2327f835e05939b3e03c3fc3efe9f",
+  "final-60f38addb/package/gl/hero/LowHero.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/19f97815e729572a59cc327804a55a72",
+  "final-60f38addb/package/gl/hero/Profile.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/5e57b2d40a5f7d831e0de92dce35ae29",
+  "final-60f38addb/package/gl/hero/RearTail.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/bd0499da7c7c33f58d67cbfde4239a54",
+  "final-60f38addb/package/gl/paths/deferred.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/b7ab12da24065b7cd7934cfe238b2cbc",
+  "final-60f38addb/package/gl/paths/forward.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/2c72b8d6e88619181efaec9a92c7b8ae",
+  "final-60f38addb/package/gl/paths/forwardplus.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/bc9552027487c219f3ed7cebaf28b3fa",
+  "final-60f38addb/package/vk/closeup/EyeLeft.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/3061d9b4e8801d167f62d8030d769851",
+  "final-60f38addb/package/vk/closeup/Face.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/6e3fd5f2327ac290484c79c6f7e3798d",
+  "final-60f38addb/package/vk/closeup/Nose.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/0c0fc3275781d26faf9a4dfb01e443cd",
+  "final-60f38addb/package/vk/hero/FaceCloseUp.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/3ff197bd237821b07fe27de14400eac3",
+  "final-60f38addb/package/vk/hero/FrontThreeQuarter.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/28279a48791e35a4829ecdabe8cd7d6e",
+  "final-60f38addb/package/vk/hero/FullBody.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/ca1238080762a99c280f0ccfb180222a",
+  "final-60f38addb/package/vk/hero/LowHero.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/d18a684d9954f279e7b4e4d3fe6dab9c",
+  "final-60f38addb/package/vk/hero/Profile.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/93bc4a100f4d73be711eea7ebb746c55",
+  "final-60f38addb/package/vk/hero/RearTail.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/5ebe3d8ef8166a4368153b1c7a133e59",
+  "final-60f38addb/package/vk/paths/deferred.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/d3acf77881508d9038a9a7d8c1b60f5c",
+  "final-60f38addb/package/vk/paths/forward.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/818b24d7f6ed963424cd55ea92f0f9fb",
+  "final-60f38addb/package/vk/paths/forwardplus.png": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/2a161885c94671550ce6148e044f6fbc",
+  "footage-mp4/Dolly_0.6-15m_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/060163eeead6178b59a32a8822e0ace6",
+  "footage-mp4/Dolly_0.6-15m_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/ae413582e7645a46476100b4f6443c62",
+  "footage-mp4/Dolly_Extended_15-45m_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/9d824edda12a9937a3248b5ac6ae19d3",
+  "footage-mp4/Dolly_Extended_15-45m_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/bb9230b7f832810c90d0913aa980a3fe",
+  "footage-mp4/HeadTilt_FaceCloseUp_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/2c0b810809b38602701a01fa2684272d",
+  "footage-mp4/HeadTilt_FaceCloseUp_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/39141619197342f660bbeba593032aaa",
+  "footage-mp4/Idle_FaceCloseUp_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/7fe042e0991806e25e424aafe33dc9bf",
+  "footage-mp4/Idle_FaceCloseUp_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/8d7ec73512dfa67e648099d9f5fa66f8",
+  "footage-mp4/Idle_FullBody_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/ac098a36477f9bdc92b9cf40c95f383b",
+  "footage-mp4/Idle_FullBody_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/74dbc1ac232365bb748bf4d92e3344cd",
+  "footage-mp4/Pant_FaceCloseUp_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/f008b818f4ef4081a0cdd8a1d0dfb6fb",
+  "footage-mp4/Pant_FaceCloseUp_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/bfdd0ecda52be02fc705ab3f42058c06",
+  "footage-mp4/Pant_RearTail_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/04a0a08812a90f9d26d8801a7d1f1922",
+  "footage-mp4/Pant_RearTail_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/6d182a5ba13eeb25088eaacc1b483fbb",
+  "footage-mp4/Sit_FullBody_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/cc897f0046af0df552b4590d13a5a37a",
+  "footage-mp4/Sit_FullBody_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/11618330cf385ebb117a4051a6713558",
+  "footage-mp4/Walk_MidShot_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/a2bb695e3f77d7320716e727bcdc1713",
+  "footage-mp4/Walk_MidShot_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/98725701ca7104ae1ebe4d29200cd2d1",
+  "footage-mp4/Walk_RearTail_crop.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/4bbc8640237083872cf065f1499ab49a",
+  "footage-mp4/Walk_RearTail_overview.mp4": "https://claude.ai/artifact/XsKGtEoyS19uhmVRunoq5j/_blob/1ae60cc7aa4af11cfc71e64062a8511d"
+ },
+ "assetsNote": "asset URLs resolve inside the artifact page (relative /_blob/ paths); the absolute form here is the artifact URL joined with that path. Each original's SHA-256 is under \"originals\"; each footage frame's under \"footageSha256\".",
+ "committedComposites": [
+  "contact-sheet.jpg",
+  "closeup.jpg",
+  "live-paths.jpg",
+  "clips.jpg",
+  "blink.jpg",
+  "mouth.jpg",
+  "dolly.jpg",
+  "taa-history.jpg",
+  "live-walk.jpg"
+ ],
+ "footageSha256": "in the artifact copy of this manifest (1930 frames)"
+}

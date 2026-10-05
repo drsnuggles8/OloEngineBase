@@ -226,6 +226,13 @@
 		"OloEngine/Groom/GroomStrandMesh.cpp"
 		"OloEngine/Groom/GroomGpuDeformation.h"
 		"OloEngine/Groom/GroomGpuDeformation.cpp"
+		# A bound coat's shadow caster runs re-posed every frame (#1533).
+		"OloEngine/Groom/GroomCasterPose.h"
+		"OloEngine/Groom/GroomCasterPose.cpp"
+		# The per-frame evaluations' retained scratch, owned by their callers and
+		# counted once in one ledger (#1533 review).
+		"OloEngine/Groom/GroomEvaluationScratch.h"
+		"OloEngine/Groom/GroomEvaluationScratch.cpp"
 		"OloEngine/Groom/GroomStrandRequest.h"
 		"OloEngine/Asset/Serializers/GroomSerializer.cpp"
 		"OloEngine/Serialization/GroomBinaryFormat.h"
@@ -288,6 +295,11 @@
 		"OloEngine/Groom/GroomRayTracingProxy.cpp"
 		"OloEngine/Groom/GroomLodBuilder.h"
 		"OloEngine/Groom/GroomLodBuilder.cpp"
+		# The light-space one-texel width floor (#1323), CPU twin of
+		# include/GroomShadowWidening.glsl. Header-only, no renderer headers, so
+		# the claim "a 70 um hair is far below a cascade texel" is assertable in
+		# CI on a machine with no GPU.
+		"OloEngine/Groom/GroomShadowWidening.h"
 		# Build pipeline
 		"OloEngine/Build/GameBuildSettings.h"
 		"OloEngine/Build/GameBuildSettings.cpp"
@@ -682,6 +694,8 @@
 		"OloEngine/Renderer/Impostor/ImpostorBaker.h"
 		"OloEngine/Renderer/Material.cpp"
 		"OloEngine/Renderer/Material.h"
+		"OloEngine/Renderer/MaterialOverride.cpp"
+		"OloEngine/Renderer/MaterialOverride.h"
 		"OloEngine/Renderer/DeferredForwardOverlayRoute.h"
 		"OloEngine/Renderer/GltfPhysicalMaterial.cpp"
 		"OloEngine/Renderer/GltfPhysicalMaterial.h"
@@ -1145,6 +1159,8 @@
 		"OloEngine/Renderer/Passes/GBufferWriteDeclarations.h"
 		"OloEngine/Renderer/Passes/SceneAttachmentSnapshotPass.h"
 		"OloEngine/Renderer/Passes/SceneAttachmentSnapshotPass.cpp"
+		"OloEngine/Renderer/Passes/SceneVelocitySeedPass.h"
+		"OloEngine/Renderer/Passes/SceneVelocitySeedPass.cpp"
 		"OloEngine/Renderer/Passes/ForwardScreenSpaceAOInputs.h"
 		"OloEngine/Renderer/Passes/GPUDrivenOcclusionPrepassPass.h"
 		"OloEngine/Renderer/Passes/GPUDrivenOcclusionPrepassPass.cpp"
@@ -1464,6 +1480,7 @@
 		"OloEngine/Scene/AnimalScheduler.cpp"
 		"OloEngine/Scene/AnimalScheduler.h"
 		"OloEngine/Scene/Components.h"
+		"OloEngine/Scene/BoneAttachment.h"
 		"OloEngine/Scene/TransformComponent.cpp"
 		"OloEngine/Scene/Entity.cpp"
 		"OloEngine/Scene/Entity.h"
@@ -1489,6 +1506,8 @@
 		"OloEngine/Scene/SceneBinarySerializer.cpp"
 		"OloEngine/Scene/SceneTransition.cpp"
 		"OloEngine/Scene/SceneTransition.h"
+		"OloEngine/Scene/SelectionOutlineSet.cpp"
+		"OloEngine/Scene/SelectionOutlineSet.h"
 		"OloEngine/Scene/SpatialAcceleration.cpp"
 		"OloEngine/Scene/SpatialAcceleration.h"
 		"OloEngine/Scene/SystemScheduler.cpp"

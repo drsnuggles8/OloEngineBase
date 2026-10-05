@@ -93,9 +93,12 @@ layout(std430, binding = 19) buffer FoliageCullState
     // overflow flag and its drop count stay unconditional because a truncation
     // in ANY view is a condition the frame has.
     uint s_EmitStats;
-    uint s_StatsPad0;
-    uint s_StatsPad1;
-    uint s_StatsPad2;
+    // The mesh region (#1533): its first slot in the compacted stream (0 = no
+    // region), the pivot distance it admits up to, and its append cursor.
+    // FoliageCullStateHeader says what each one is.
+    uint s_MeshRegionBase;
+    float s_MeshReach;
+    uint s_MeshCursor;
     // Coverage-preserving density LOD (issue #1237). Same two lanes, same
     // packing, as FoliageParams' u_LodTransition0/1 — the cull and the vertex
     // stages evaluate the SAME function over the SAME numbers, which is what

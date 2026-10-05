@@ -113,6 +113,26 @@ namespace OloEngine
         clean &= Repair(desc.Tint.b, GroomCoatLimits::MinTint, GroomCoatLimits::MaxTint, 1.0f, "tint.b", groupIndex,
                         outReasons);
 
+        // ── Coat authoring v4 (#1533) ──
+        // Each reset lands on the value that changes nothing: a white tip, no
+        // curl, no wave, the entity's own stiffness.
+        clean &= Repair(desc.TipTint.r, GroomCoatLimits::MinTint, GroomCoatLimits::MaxTint, 1.0f, "tip tint.r",
+                        groupIndex, outReasons);
+        clean &= Repair(desc.TipTint.g, GroomCoatLimits::MinTint, GroomCoatLimits::MaxTint, 1.0f, "tip tint.g",
+                        groupIndex, outReasons);
+        clean &= Repair(desc.TipTint.b, GroomCoatLimits::MinTint, GroomCoatLimits::MaxTint, 1.0f, "tip tint.b",
+                        groupIndex, outReasons);
+        clean &= Repair(desc.CurlRadius, GroomCoatLimits::MinCurlRadius, GroomCoatLimits::MaxCurlRadius, 0.0f,
+                        "curl radius", groupIndex, outReasons);
+        clean &= Repair(desc.CurlFrequency, GroomCoatLimits::MinCurlFrequency, GroomCoatLimits::MaxCurlFrequency, 0.0f,
+                        "curl frequency", groupIndex, outReasons);
+        clean &= Repair(desc.WaveAmplitude, GroomCoatLimits::MinWaveAmplitude, GroomCoatLimits::MaxWaveAmplitude, 0.0f,
+                        "wave amplitude", groupIndex, outReasons);
+        clean &= Repair(desc.WaveFrequency, GroomCoatLimits::MinWaveFrequency, GroomCoatLimits::MaxWaveFrequency, 0.0f,
+                        "wave frequency", groupIndex, outReasons);
+        clean &= Repair(desc.StiffnessScale, GroomCoatLimits::MinStiffnessScale, GroomCoatLimits::MaxStiffnessScale,
+                        1.0f, "stiffness scale", groupIndex, outReasons);
+
         if (!IsValidGroomCoatRole(static_cast<i32>(desc.Role)))
         {
             outReasons.push_back(std::format("group {}: role {} is not a GroomCoatRole; reset to Unassigned",
@@ -352,14 +372,68 @@ namespace OloEngine
         params.Clump = std::clamp(desc.Clump * roleOverride.Clump * region.b, GroomCoatLimits::MinClump,
                                   GroomCoatLimits::MaxClump);
 
-        // ── Tint ─────────────────────────────────────────────────────
+        // ── Tint, at the root and at the tip (#1533) ─────────────────
+        //
+        // The group's TipTint multiplies its Tint, and the map and the shade
+        // jitter reach both ends identically, so the corner at t carries
+        // map * shade * mix(Tint, Tint * TipTint, t). A group whose TipTint is
+        // white (every group that authors none) evaluates the two ends to the
+        // same bits -- a multiply by 1.0 is exact -- which PackGroomCoatTintAt
+        // turns back into the one value v3 packed.
         glm::vec3 tint = desc.Tint;
+        glm::vec3 tipTint = desc.Tint * desc.TipTint;
         if (settings.ColorMap)
         {
-            tint *= settings.ColorMap->Sample(rootUV);
+            const glm::vec3 sampled = settings.ColorMap->Sample(rootUV);
+            tint *= sampled;
+            tipTint *= sampled;
         }
-        tint *= 1.0f + (shadeJitter * shadeNoise);
+        const f32 shade = 1.0f + (shadeJitter * shadeNoise);
+        tint *= shade;
+        tipTint *= shade;
         params.Tint = glm::clamp(tint, glm::vec3(0.0f), glm::vec3(GroomCoatLimits::MaxTint));
+        params.TipTint = glm::clamp(tipTint, glm::vec3(0.0f), glm::vec3(GroomCoatLimits::MaxTint));
+
+        // ── Curl and wave (#1533) ────────────────────────────────────
+        //
+        // The strand's own draws, on their own salts, keyed like everything
+        // above on the curve index and the seed alone — so a curl is as
+        // pose-invariant as a length. Symmetric jitter, so turning a group's
+        // curl up never also makes it tighter or looser on average.
+        //
+        // THE AMPLITUDES CARRY THE CARD TIER'S JitterScale. A card stands for N
+        // strands whose curls have independent phases, and N unit phasors of
+        // random phase average to a magnitude of 1/sqrt(N): the mean of the
+        // helices a card replaces is a helix that much narrower, the same factor
+        // the length jitter above already carries (#1428). The frequency and the
+        // phases are the strand's own draws and are not scaled.
+        if (desc.CurlRadius > 0.0f && desc.CurlFrequency > 0.0f)
+        {
+            const f32 radiusNoise = (GroomCoatHash01(curveIndex, settings.Seed ^ GroomCoatSalt::CurlRadius) * 2.0f) - 1.0f;
+            const f32 frequencyNoise =
+                (GroomCoatHash01(curveIndex, settings.Seed ^ GroomCoatSalt::CurlFrequency) * 2.0f) - 1.0f;
+            params.CurlRadius = desc.CurlRadius * (1.0f + (GroomCoatCurl::AmplitudeJitter * radiusNoise)) * jitterScale;
+            params.CurlFrequency = desc.CurlFrequency * (1.0f + (GroomCoatCurl::FrequencyJitter * frequencyNoise));
+            params.CurlPhase = GroomCoatHash01(curveIndex, settings.Seed ^ GroomCoatSalt::CurlPhase);
+        }
+        if (desc.WaveAmplitude > 0.0f && desc.WaveFrequency > 0.0f)
+        {
+            const f32 amplitudeNoise =
+                (GroomCoatHash01(curveIndex, settings.Seed ^ GroomCoatSalt::WaveAmplitude) * 2.0f) - 1.0f;
+            const f32 frequencyNoise =
+                (GroomCoatHash01(curveIndex, settings.Seed ^ GroomCoatSalt::WaveFrequency) * 2.0f) - 1.0f;
+            params.WaveAmplitude =
+                desc.WaveAmplitude * (1.0f + (GroomCoatCurl::AmplitudeJitter * amplitudeNoise)) * jitterScale;
+            params.WaveFrequency = desc.WaveFrequency * (1.0f + (GroomCoatCurl::FrequencyJitter * frequencyNoise));
+            params.WavePhase = GroomCoatHash01(curveIndex, settings.Seed ^ GroomCoatSalt::WavePhase);
+        }
+        if (params.CurlsOrWaves())
+        {
+            // Where around the root tangent the frame's normal starts: the
+            // plane a wave oscillates in. A per-strand draw, or every strand of
+            // a group would wave in one plane like a combed ribbon.
+            params.CurlAzimuth = GroomCoatHash01(curveIndex, settings.Seed ^ GroomCoatSalt::CurlAzimuth);
+        }
         return params;
     }
 
@@ -449,5 +523,167 @@ namespace OloEngine
         // and gathers only the outer half, which is what a tuft looks like.
         const f32 weight = std::clamp(clump, 0.0f, 1.0f) * t * t;
         return glm::mix(scaled, target, weight);
+    }
+
+    // ── Curl and wave (#1533) ───────────────────────────────────────
+
+    namespace
+    {
+        constexpr f32 kTwoPi = 6.28318530717958647692f;
+
+        // A chord or a tangent whose squared length is below this has no
+        // direction. Squared lengths of real strand segments are ~1e-8 and
+        // above (a tenth of a millimetre); this is "coincident", not "short".
+        constexpr f32 kCurlDegenerate2 = 1.0e-20f;
+
+        // Duff, Burgess, Christensen, Hery, Kensler, Liani and Villemin 2017,
+        // "Building an Orthonormal Basis, Revisited": two unit vectors
+        // perpendicular to unit `n` and to each other, with no branch on a
+        // near-parallel reference axis. The basis jumps where n.z changes sign,
+        // which does not matter here: the frame's starting azimuth is a
+        // per-strand hash draw anyway.
+        void OrthonormalBasis(const glm::vec3& n, glm::vec3& outB1, glm::vec3& outB2) noexcept
+        {
+            const f32 sign = std::copysign(1.0f, n.z);
+            const f32 a = -1.0f / (sign + n.z);
+            const f32 b = n.x * n.y * a;
+            outB1 = glm::vec3(1.0f + (sign * n.x * n.x * a), sign * b, -sign * n.x);
+            outB2 = glm::vec3(b, sign + (n.y * n.y * a), -n.y);
+        }
+
+        // A phase in TURNS, as an angle in [0, 2 pi). The turn count is carried
+        // in double and wrapped BEFORE it narrows: at 400 turns a metre a long
+        // strand reaches hundreds of turns, where an f32 holds the fraction to a
+        // few 1e-5 of a turn and the error grows with every point along it.
+        [[nodiscard]] f32 AngleOfTurns(f64 turns) noexcept
+        {
+            return static_cast<f32>(turns - std::floor(turns)) * kTwoPi;
+        }
+
+        [[nodiscard]] f32 CurlEnvelope(f32 t) noexcept
+        {
+            const f32 x = std::clamp(t / GroomCoatCurl::EnvelopeEnd, 0.0f, 1.0f);
+            return x * x * (3.0f - (2.0f * x));
+        }
+    } // namespace
+
+    void ApplyGroomCoatCurl(std::span<glm::vec3> points, const GroomCoatStrandParams& params) noexcept
+    {
+        const sizet count = points.size();
+        if (count < 2u || !params.CurlsOrWaves())
+        {
+            return;
+        }
+        // Every parameter before any of them reaches a sine: a NaN phase would
+        // otherwise put a NaN into every point but the root.
+        if (!std::isfinite(params.CurlRadius) || !std::isfinite(params.CurlFrequency) ||
+            !std::isfinite(params.CurlPhase) || !std::isfinite(params.CurlAzimuth) ||
+            !std::isfinite(params.WaveAmplitude) || !std::isfinite(params.WaveFrequency) ||
+            !std::isfinite(params.WavePhase))
+        {
+            return;
+        }
+        const bool curl = params.CurlRadius > 0.0f && params.CurlFrequency > 0.0f;
+        const bool wave = params.WaveAmplitude > 0.0f && params.WaveFrequency > 0.0f;
+
+        // The root tangent: toward the first point that is not the root.
+        glm::vec3 tangent(0.0f);
+        bool directed = false;
+        for (sizet i = 1; i < count && !directed; ++i)
+        {
+            const glm::vec3 chord = points[i] - points[0];
+            const f32 chord2 = glm::dot(chord, chord);
+            if (chord2 > kCurlDegenerate2)
+            {
+                tangent = chord / std::sqrt(chord2);
+                directed = true;
+            }
+        }
+        if (!directed)
+        {
+            return; // every point sits on the root: nothing to curl about
+        }
+
+        glm::vec3 b1(0.0f);
+        glm::vec3 b2(0.0f);
+        OrthonormalBasis(tangent, b1, b2);
+        const f32 azimuth = kTwoPi * params.CurlAzimuth;
+        glm::vec3 normal = (std::cos(azimuth) * b1) + (std::sin(azimuth) * b2);
+
+        const f32 invSpan = 1.0f / static_cast<f32>(count - 1u);
+        // The ORIGINAL position of the point before i. Points are overwritten as
+        // the walk passes them, and both the arc length and the frame must be
+        // measured on the shaped strand, not on the curled one.
+        glm::vec3 previous = points[0];
+        glm::vec3 previousTangent = tangent;
+        f64 arc = 0.0; // in double for AngleOfTurns' reason: it only ever grows
+        for (sizet i = 1; i < count; ++i)
+        {
+            const glm::vec3 current = points[i];
+            const glm::vec3 chord = current - previous;
+            const f32 chord2 = glm::dot(chord, chord);
+            arc += std::sqrt(static_cast<f64>(chord2));
+
+            // The tangent AT point i: across it, from the point before to the
+            // point after (neither of which is curled yet — the one after has not
+            // been reached), and one-sided at the tip.
+            const glm::vec3 across = (i + 1u < count) ? (points[i + 1u] - previous) : chord;
+            const f32 across2 = glm::dot(across, across);
+            const glm::vec3 pointTangent = across2 > kCurlDegenerate2 ? across / std::sqrt(across2) : previousTangent;
+
+            // Double reflection: reflect the frame in the plane bisecting the
+            // chord, then in the plane that takes the reflected tangent onto
+            // this point's tangent. The composition is the rotation-minimising
+            // transport, exact for a straight run and second-order along a bend.
+            glm::vec3 reflectedNormal = normal;
+            glm::vec3 reflectedTangent = previousTangent;
+            if (chord2 > kCurlDegenerate2)
+            {
+                reflectedNormal -= ((2.0f / chord2) * glm::dot(chord, normal)) * chord;
+                reflectedTangent -= ((2.0f / chord2) * glm::dot(chord, previousTangent)) * chord;
+            }
+            const glm::vec3 second = pointTangent - reflectedTangent;
+            if (const f32 second2 = glm::dot(second, second); second2 > kCurlDegenerate2)
+            {
+                reflectedNormal -= ((2.0f / second2) * glm::dot(second, reflectedNormal)) * second;
+            }
+            // Re-orthonormalised against the new tangent: the drift is rounding,
+            // not geometry, and it compounds over a long strand.
+            const glm::vec3 projected = reflectedNormal - (glm::dot(reflectedNormal, pointTangent) * pointTangent);
+            if (const f32 projected2 = glm::dot(projected, projected); projected2 > kCurlDegenerate2)
+            {
+                normal = projected / std::sqrt(projected2);
+            }
+            else
+            {
+                // Only a strand that folds straight back on itself gets here;
+                // restart the frame rather than divide by nothing.
+                OrthonormalBasis(pointTangent, b1, b2);
+                normal = b1;
+            }
+            const glm::vec3 binormal = glm::cross(pointTangent, normal);
+
+            const f32 envelope = CurlEnvelope(static_cast<f32>(i) * invSpan);
+            if (envelope > 0.0f)
+            {
+                glm::vec3 offset(0.0f);
+                if (curl)
+                {
+                    const f32 angle = AngleOfTurns((static_cast<f64>(params.CurlFrequency) * arc) +
+                                                   static_cast<f64>(params.CurlPhase));
+                    offset += params.CurlRadius * ((std::cos(angle) * normal) + (std::sin(angle) * binormal));
+                }
+                if (wave)
+                {
+                    const f32 angle = AngleOfTurns((static_cast<f64>(params.WaveFrequency) * arc) +
+                                                   static_cast<f64>(params.WavePhase));
+                    offset += (params.WaveAmplitude * std::sin(angle)) * normal;
+                }
+                points[i] = current + (envelope * offset);
+            }
+
+            previous = current;
+            previousTangent = pointTangent;
+        }
     }
 } // namespace OloEngine

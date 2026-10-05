@@ -240,3 +240,7 @@ scripts/steam/generated/
 # finds there, git-ignored or not, and CI then fails on registry entries it cannot
 # resolve.
 .vegetation-source/
+# The showcase dog's coat as Blender grows it (build_dog_groom.py): ~60 MB of Alembic curves,
+# cooked into the committed Grooms/Dog/Dog.ologroom. Outside SandboxProject/Assets for the
+# reason above.
+.dog-groom/

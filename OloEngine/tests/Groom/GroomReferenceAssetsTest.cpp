@@ -31,7 +31,10 @@
 #include "OloEngine/Groom/GroomCooker.h"
 
 #if defined(OLO_WITH_ALEMBIC)
+#include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
+#include "OloEngine/Asset/AssetRegistry.h"
 #include "OloEngine/Asset/Interchange/Alembic/AlembicGroomImporter.h"
+#include "OloEngine/Project/Project.h"
 #endif
 
 #include <chrono>
@@ -533,6 +536,110 @@ TEST(GroomReferenceAssets, ArchiveContainsCurvesDistinguishesAGroomFromAPolygonA
         out << "this is not an Alembic archive";
     }
     EXPECT_FALSE(AlembicGroomImporter::ArchiveContainsCurves(bogusPath));
+}
+
+TEST(GroomReferenceAssets, InspectArchiveTellsCurvesFromPolygons)
+{
+    const auto prim = Tests::GroomFixture::MakeHumanScalpGroom(16, 3, 0, "coat");
+    const std::filesystem::path curvesPath = Tests::TempFile("inspect-curves.abc");
+    const std::filesystem::path meshPath = Tests::TempFile("inspect-mesh.abc");
+    const std::filesystem::path bothPath = Tests::TempFile("inspect-both.abc");
+    ASSERT_TRUE(Tests::GroomFixture::WriteArchive(curvesPath, { prim }));
+    ASSERT_TRUE(Tests::GroomFixture::WriteArchive(meshPath, {}, /*withTriangle=*/true));
+    ASSERT_TRUE(Tests::GroomFixture::WriteArchive(bothPath, { prim }, /*withTriangle=*/true));
+
+    const auto curves = AlembicGroomImporter::InspectArchive(curvesPath);
+    EXPECT_TRUE(curves.Readable);
+    EXPECT_TRUE(curves.Curves);
+    EXPECT_FALSE(curves.Polygons);
+
+    const auto mesh = AlembicGroomImporter::InspectArchive(meshPath);
+    EXPECT_TRUE(mesh.Readable);
+    EXPECT_FALSE(mesh.Curves);
+    EXPECT_TRUE(mesh.Polygons);
+
+    const auto both = AlembicGroomImporter::InspectArchive(bothPath);
+    EXPECT_TRUE(both.Readable);
+    EXPECT_TRUE(both.Curves);
+    EXPECT_TRUE(both.Polygons);
+
+    const std::filesystem::path bogusPath = Tests::TempFile("inspect-bogus.abc");
+    std::ofstream(bogusPath, std::ios::binary | std::ios::trunc) << "this is not an Alembic archive";
+    const auto bogus = AlembicGroomImporter::InspectArchive(bogusPath);
+    EXPECT_FALSE(bogus.Readable);
+    EXPECT_FALSE(bogus.Curves);
+    EXPECT_FALSE(bogus.Polygons);
+}
+
+// #1542. A curves-only archive is a groom SOURCE: the cooker reads it by path
+// into the .ologroom the registry holds. Registered as a MeshSource, every load
+// of it failed with "no polymesh/subd geometry", once per Build Game. The scan
+// must not pick one up, a registry written before the fix must lose its entry,
+// and an archive with polygons, alone or beside curves, stays a MeshSource.
+TEST(GroomReferenceAssets, TheRegistryLeavesACurvesOnlyArchiveToTheGroomCooker)
+{
+    const std::filesystem::path root = Tests::TempDir("groom-source-registry");
+    std::error_code ec;
+    std::filesystem::create_directories(root / "Assets" / "Grooms", ec);
+    ASSERT_FALSE(ec) << ec.message();
+    std::filesystem::create_directories(root / "Assets" / "Meshes", ec);
+    ASSERT_FALSE(ec) << ec.message();
+    {
+        std::ofstream project(root / "Test.oloproj");
+        project << "Project:\n"
+                   "  Name: GroomSourceRegistry\n"
+                   "  StartScene: \"\"\n"
+                   "  AssetDirectory: \"Assets\"\n"
+                   "  ScriptModulePath: \"\"\n";
+    }
+
+    const auto prim = Tests::GroomFixture::MakeHumanScalpGroom(16, 3, 0, "coat");
+    ASSERT_TRUE(Tests::GroomFixture::WriteArchive(root / "Assets/Grooms/stale.abc", { prim }));
+    ASSERT_TRUE(Tests::GroomFixture::WriteArchive(root / "Assets/Grooms/new.abc", { prim }));
+    ASSERT_TRUE(Tests::GroomFixture::WriteArchive(root / "Assets/Meshes/body.abc", {}, /*withTriangle=*/true));
+    ASSERT_TRUE(Tests::GroomFixture::WriteArchive(root / "Assets/Meshes/body-and-coat.abc", { prim },
+                                                  /*withTriangle=*/true));
+
+    EXPECT_EQ(EditorAssetManager::GetRegistrationType(root / "Assets/Grooms/stale.abc"), AssetType::None);
+    EXPECT_EQ(EditorAssetManager::GetRegistrationType(root / "Assets/Meshes/body.abc"), AssetType::MeshSource);
+    EXPECT_EQ(EditorAssetManager::GetRegistrationType(root / "Assets/Meshes/body-and-coat.abc"), AssetType::MeshSource);
+    EXPECT_EQ(EditorAssetManager::GetRegistrationType(root / "Assets/Grooms/stale.ologroom"), AssetType::Groom)
+        << "only an Alembic archive is read; every other file keeps its extension's type";
+    const std::filesystem::path bogusPath = Tests::TempFile("registration-bogus.abc");
+    std::ofstream(bogusPath, std::ios::binary | std::ios::trunc) << "this is not an Alembic archive";
+    EXPECT_EQ(EditorAssetManager::GetRegistrationType(bogusPath), AssetType::MeshSource)
+        << "an archive nobody can read stays registered, so loading it still fails by name";
+
+    // The registry an editor wrote before #1542: the groom source as a MeshSource.
+    constexpr AssetHandle kStaleHandle{ 1542ULL };
+    {
+        AssetRegistry before;
+        before.AddAsset(AssetMetadata{ kStaleHandle, AssetType::MeshSource, "Assets/Grooms/stale.abc" });
+        ASSERT_TRUE(before.Serialize(root / "AssetRegistry.oar"));
+    }
+
+    ASSERT_TRUE(Project::Load(root / "Test.oloproj"));
+    {
+        auto manager = Ref<EditorAssetManager>::Create();
+        manager->Initialize(/*startFileWatcher=*/false);
+        EXPECT_FALSE(manager->IsAssetHandleValid(kStaleHandle)) << "the stale MeshSource entry is dropped at load";
+        EXPECT_EQ(static_cast<u64>(manager->GetAssetHandleFromFilePath("Assets/Grooms/stale.abc")), 0u);
+        EXPECT_EQ(static_cast<u64>(manager->GetAssetHandleFromFilePath("Assets/Grooms/new.abc")), 0u)
+            << "the scan does not register a curves-only archive";
+        for (const char* mesh : { "Assets/Meshes/body.abc", "Assets/Meshes/body-and-coat.abc" })
+        {
+            const AssetHandle handle = manager->GetAssetHandleFromFilePath(mesh);
+            EXPECT_NE(static_cast<u64>(handle), 0u) << mesh;
+            EXPECT_EQ(manager->GetAssetType(handle), AssetType::MeshSource) << mesh;
+        }
+    }
+    Project::Unload();
+
+    AssetRegistry after;
+    ASSERT_TRUE(after.Deserialize(root / "AssetRegistry.oar"));
+    EXPECT_FALSE(after.Exists(kStaleHandle)) << "the registry written back holds no groom source";
+    EXPECT_EQ(static_cast<u64>(after.GetHandleFromPath("Assets/Grooms/new.abc")), 0u);
+    EXPECT_EQ(after.GetAssetsOfType(AssetType::MeshSource).size(), 2u);
 }
 
 #endif // OLO_WITH_ALEMBIC

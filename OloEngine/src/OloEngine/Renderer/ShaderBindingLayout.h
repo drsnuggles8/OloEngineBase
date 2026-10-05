@@ -87,6 +87,15 @@ namespace OloEngine
             // or IBL capture, a shadow view — leaves it at the zero default.
             // Read through include/ForwardScreenSpaceAO.glsl.
             glm::vec4 ScreenSpaceAOParams = glm::vec4(0.0f);
+            // The TAA jitter's screen offset (#1552): xy this frame's, zw the
+            // previous frame's, in VELOCITY units -- the uploaded projection's
+            // NDC times 0.5 (Renderer3D's CurrJitterUV / PrevJitterUV). Each
+            // jittered view-projection moves every vertex by one constant
+            // offset, so a difference of two jittered positions moves by the
+            // jitter's change even where nothing moved; every velocity writer
+            // subtracts these (include/CameraCommon.glsl, oloVelocityFromNdc)
+            // and static content writes zero. Zero on every unjittered view.
+            glm::vec4 JitterUV = glm::vec4(0.0f);
 
             static constexpr u32 GetSize()
             {
@@ -102,10 +111,11 @@ namespace OloEngine
         // camera-relative render origin, issue #429; the trailing mat4 is the
         // reconstruction-flavour projection, issue #691 — 288 + 64 =
         // 352; the trailing vec4 is the forward screen-space AO lane, issue
-        // #1452 — 368). Alignment is not asserted: GLM mat4 is not
-        // 16-byte-aligned by default, but the C++-side SetData() call uploads
-        // the raw byte buffer so only total size matters.
-        static_assert(sizeof(CameraUBO) == 368, "CameraUBO std140 size drifted from GLSL expectation (368 B)");
+        // #1452 — 368; then the TAA jitter's screen offsets, issue #1552 —
+        // 384). Alignment is not asserted: GLM mat4 is not 16-byte-aligned by
+        // default, but the C++-side SetData() call uploads the raw byte buffer
+        // so only total size matters.
+        static_assert(sizeof(CameraUBO) == 384, "CameraUBO std140 size drifted from GLSL expectation (384 B)");
 
         // @brief Per-light record in the multi-light UBO (binding 5). Packed
         // by Scene::ProcessScene3DSharedLogic; decoded in PBRCommon.glsl /
@@ -640,7 +650,7 @@ namespace OloEngine
             f32 AlphaCutoff;
             f32 PrevTime = 0.0f; // Previous-frame time for per-fragment wind reprojection
             f32 WindHistoryValid = 1.0f;
-            glm::vec4 BaseColor; // xyz = color, w = unused
+            glm::vec4 BaseColor; // xyz = color, w = the dither's frame (#1533; 0 without a temporal resolve)
 
             // Octahedral impostor params (issue #433). Consumed only by the
             // Foliage_Impostor shader; zero/ignored on the flat-billboard path.
@@ -655,6 +665,9 @@ namespace OloEngine
             //   y, z = near fade-in band [start, end]. Below `end` the draw is
             //       cut; the mesh's far band and the card's near band are the
             //       same interval, so exactly one of them covers a plant.
+            //   w = the far card's normal lane (#1533, FoliageLod::CardNormalLane):
+            //       0 for a legacy card; in [1, 2] the card is the layer mesh's bake,
+            //       faced to the eye, its normal rising by 2 (w - 1) - 1.
             glm::vec4 MeshParams{ 0.0f };
 
             // xyz = the view position the hand-over is measured from, in the
@@ -804,17 +817,20 @@ namespace OloEngine
             i32 AtlasResolution = 0;     // Atlas texture resolution
             i32 CascadeDebugEnabled = 0; // Visualize cascade boundaries
             i32 SoftShadowMode = 0;      // 0 = legacy hardware PCF, 1 = PCSS (contact-hardening)
-            // Local-light ATLAS constant depth bias, in the entry's own
-            // normalized [0,1] depth (issue #1119). It takes the former Pad1
-            // int rather than growing the block, so the std140 size and every
+            // Local-light ATLAS depth bias, in TEXELS of the entry's tile,
+            // converted at each receiver by calculateAtlasEntryShadow (#1533;
+            // it was the entry's normalized [0,1] depth from #1119, which the
+            // perspective made 0.05 d^2 metres). It takes the former Pad1 int
+            // rather than growing the block, so the std140 size and every
             // offset after it are unchanged. It is a SEPARATE number from
             // ShadowParams.x: the atlas entries are perspective and the CSM
-            // cascades orthographic, so one value cannot serve both.
-            // The literal mirrors ShaderConstants::SHADOW_BIAS, which cannot be
-            // named here: ShaderConstants.h includes THIS header, not the other
-            // way round. ShadowMap::Init/UploadUBO always overwrite it from
-            // ShadowSettings::AtlasBias, which does use the named constant.
-            f32 AtlasDepthBias = 0.005f;
+            // cascades orthographic, so each converts its own.
+            // The literal mirrors ShaderConstants::SHADOW_ATLAS_DEPTH_BIAS_TEXELS,
+            // which cannot be named here: ShaderConstants.h includes THIS
+            // header, not the other way round. ShadowMap::Init/UploadUBO always
+            // overwrite it from ShadowSettings::AtlasDepthBiasTexels, which does use the
+            // named constant.
+            f32 AtlasDepthBiasTexels = 2.0f;
             i32 Pad2 = 0;
 
             // Ray-traced shadow technique routing (issue #1056). Which light
@@ -1573,9 +1589,11 @@ namespace OloEngine
             glm::vec4 FibreSinAlpha{ 0.0f };                    // xyz = sin(2^k alpha), w unused
             glm::vec4 FibreCosAlpha{ 1.0f, 1.0f, 1.0f, 0.0f };  // xyz = cos(2^k alpha), w unused
             // x = lit at all (0 renders #1246's neutral ramp), y = h-quadrature
-            // order, z = GroomFibreDebugMode, w unused. Int lanes because all
-            // three are compared against integer constants; a float lane would
-            // make an exact comparison a rounding question.
+            // order, z = GroomFibreDebugMode, w = the cost matrix's diagnostic
+            // substitutions (#1533; 1 no coat march, 2 a constant fibre; zero in
+            // every shipped frame). Int lanes because all four are compared
+            // against integer constants; a float lane would make an exact
+            // comparison a rounding question.
             glm::ivec4 FibreModes{ 0, 4, 0, 0 };
 
             // ── Coat self-shadowing (#1248) ──────────────────────────
@@ -1619,6 +1637,23 @@ namespace OloEngine
             // never the requested one. An int lane because the shader compares
             // it against integer constants, and a float lane would make an exact
             // comparison a rounding question.
+            //
+            // y = how this groom samples the SCENE shadow (#1323), a bitfield
+            //     since #1533: 1 = receives at all, 2 = the cascades bound for
+            //     this draw are ShadowMap's OPAQUE copy, 4 = the atlas bound is.
+            //     A map with its bit set is sampled at the strand itself; one
+            //     without it at the coat's light-exit point.
+            // z = the object-space box in CoatBoundsMin / CoatInvExtent is
+            //     valid for the receiver OFFSET. Separate from x because the
+            //     offset is gated on this groom being a CASTER while the march
+            //     is gated on a volume existing, and the two are independent:
+            //     a caster with no volume still has to move its receiver past
+            //     its own strands, or the map occludes the coat with itself and
+            //     it renders black.
+            // w = a bitfield (#1533), set only for a GPU-deformed draw: 1 = the
+            //     volume is the coat AT REST, marched from each fragment's bind
+            //     point; 2 = it also holds the BODY (negative density), which the
+            //     shader counts for every light no map answers for at the strand.
             glm::ivec4 CoatModes{ 0, 0, 0, 0 };
 
             // ── GPU strand deformation (#1427) ───────────────────────
@@ -1638,6 +1673,20 @@ namespace OloEngine
             // The guide weights start at 0, always.
             glm::ivec4 DeformBases{ 0, 0, 0, 0 };
 
+            // ── Dual scattering (#1533) ──────────────────────────────
+            //
+            // What a fibre's NEIGHBOURS pass on: the GroomFibreDualScattering
+            // constants, derived with the rest of the fibre parameters.
+            //
+            // THE .w DENSITY FACTORS GO UP ZERO AND THE SUCCESS PATH TURNS THEM
+            // ON, like CoatModes.x: dual scattering counts the neighbours through
+            // the coat volume, so only a draw with a built, bound volume writes
+            // Zinke's d_f = d_b = 0.7, and every other draw keeps #1247/#1248's
+            // shading by construction rather than by a flag being reset.
+            glm::vec4 FibreForwardScatter{ 0.0f }; // rgb = a_f, w = d_f
+            glm::vec4 FibreBackScatter{ 0.0f };    // rgb = A_b, w = d_b
+            glm::vec4 FibreBackLobe{ 0.0f };       // x = shift, y = width (radians of theta_h), zw unused
+
             static constexpr u32 GetSize()
             {
                 return static_cast<u32>(sizeof(GroomStrandParamsUBO));
@@ -1646,14 +1695,105 @@ namespace OloEngine
 
         static_assert(sizeof(GroomStrandParamsUBO) % 16 == 0,
                       "GroomStrandParamsUBO must be 16-byte aligned for std140");
-        // 432 B: 208 through #1246's lanes, the five vec4/ivec4 lanes #1247's
+        // 480 B: 208 through #1246's lanes, the five vec4/ivec4 lanes #1247's
         // fibre material added (288), #1248's coat-shadow block — one mat4
-        // and three vec4-sized lanes (112) — and #1427's two deformation lanes
-        // (32). Every lane is vec4-sized or a mat4, so the std140 layout is the
-        // C++ layout and the number is a plain sum — which is what makes this
-        // assertion able to catch a lane added to one side and not the other.
-        static_assert(sizeof(GroomStrandParamsUBO) == 432,
-                      "GroomStrandParamsUBO std140 size drifted from GLSL expectation (432 B)");
+        // and three vec4-sized lanes (112) — #1427's two deformation lanes
+        // (32) and #1533's three dual-scattering lanes (48). Every lane is
+        // vec4-sized or a mat4, so the std140 layout is the C++ layout and the
+        // number is a plain sum — which is what makes this assertion able to
+        // catch a lane added to one side and not the other.
+        static_assert(sizeof(GroomStrandParamsUBO) == 480,
+                      "GroomStrandParamsUBO std140 size drifted from GLSL expectation (480 B)");
+
+        // @brief One groom shadow-caster draw (issue #1323), uploaded at
+        // UBO_USER_0 (7). GLSL twin: the GroomShadowParams block, declared
+        // identically by GroomStrandDepth.glsl (CSM cascades + the local-light
+        // atlas) and VSM_GroomDepth.glsl (the Virtual Shadow Map clip levels).
+        //
+        // A SEPARATE, SMALL BLOCK rather than reusing GroomStrandParamsUBO, and
+        // the reason is the parallel-recording contract rather than tidiness:
+        // ShadowRenderPass owns one of these PER ITEM (amendment (92) rule 6 —
+        // one writer per resource object per region), so its size is paid once
+        // per cascade and once per atlas entry. The strand pass's 400-byte
+        // block carries a fibre material and a coat-shadow volume transform,
+        // none of which a depth-only raster reads.
+        //
+        // THE CLIP-LEVEL LANE IS THE VSM ROUTE'S ONLY EXTRA. It is an int lane
+        // because the shader indexes an array with it and clamps it; a float
+        // lane would make an exact index a rounding question.
+        struct GroomShadowParamsUBO
+        {
+            /// Render-relative model matrix (issue #429), matching the space
+            /// the shadow camera UBO's light VP was shifted into.
+            glm::mat4 Model{ 1.0f };
+            /// x = width scale (the per-groom authoring scale; the per-role
+            /// coverage compensation is in the stream's radii since #1428, so
+            /// the caster is as thick as the drawn coat),
+            /// y = the transform's mean axis length,
+            /// z = the target's resolution in texels,
+            /// w = the width floor in texels. See Groom/GroomShadowWidening.h.
+            glm::vec4 Width{ 1.0f, 1.0f, 1024.0f, 1.0f };
+            /// x = VSM clip level; unread by the cascade/atlas route.
+            glm::ivec4 Modes{ 0, 0, 0, 0 };
+            /// GPU strand deformation (#1427), mirrored lane for lane from
+            /// GroomStrandParamsUBO so include/GroomStrandDeform.glsl reads the
+            /// same numbers in the depth shaders as in the strand shader. Mode 0
+            /// is a final stream and neither lane is read.
+            glm::ivec4 DeformModes{ 0, 0, 0, 0 };
+            glm::ivec4 DeformBases{ 0, 0, 0, 0 };
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(GroomShadowParamsUBO));
+            }
+        };
+
+        static_assert(sizeof(GroomShadowParamsUBO) % 16 == 0,
+                      "GroomShadowParamsUBO must be 16-byte aligned for std140");
+        // 128 B: one mat4 (64) plus four vec4-sized lanes (64). Every lane is
+        // vec4-sized or a mat4, so the std140 layout is the C++ layout and the
+        // number is a plain sum — which is what lets this catch a lane added to
+        // one side and not the other.
+        static_assert(sizeof(GroomShadowParamsUBO) == 128,
+                      "GroomShadowParamsUBO std140 size drifted from GLSL expectation (128 B)");
+
+        // @brief The GPU root evaluation's dispatch (#1533 E1), uploaded at
+        // UBO_USER_0 (7) right before it. GLSL twin: the GroomRootFrameParams
+        // block in compute/GroomRootFrames.comp.
+        //
+        // AT 7, the number every groom draw rebinds (GroomStrandParams,
+        // GroomShadowParams), so the dispatch can neither clobber a draw's block
+        // nor inherit one: the pass records it outside any draw, and the next
+        // groom draw binds its own. The within-shader rule holds -- the compute
+        // declares nothing else at 7.
+        struct GroomRootFrameParamsUBO
+        {
+            /// The bound surface's space into the groom's, this frame and the
+            /// frame the previous palette belongs to (GroomDeformationInputs).
+            glm::mat4 SurfaceToGroom{ 1.0f };
+            glm::mat4 PrevSurfaceToGroom{ 1.0f };
+            /// x = drawn roots, y = bones, z = 1 when last frame's pose is
+            /// usable (else the previous frame is this one), w = vertices.
+            glm::ivec4 Counts{ 0, 0, 0, 0 };
+            /// The deformation buffer's regions, in 16-byte units: x = root
+            /// records (written), y = skin records, z = vertices, w = palette.
+            glm::ivec4 Bases{ 0, 0, 0, 0 };
+            /// x = the bind frames a root the binding does not reach is held
+            /// on; yzw unused.
+            glm::ivec4 Bind{ 0, 0, 0, 0 };
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(GroomRootFrameParamsUBO));
+            }
+        };
+
+        static_assert(sizeof(GroomRootFrameParamsUBO) % 16 == 0,
+                      "GroomRootFrameParamsUBO must be 16-byte aligned for std140");
+        // Two mat4 (128) and three ivec4 lanes (48): every member is a mat4 or
+        // vec4-sized, so the std140 layout is the C++ layout.
+        static_assert(sizeof(GroomRootFrameParamsUBO) == 176,
+                      "GroomRootFrameParamsUBO std140 size drifted from GLSL expectation (176 B)");
 
         // @brief Auto-exposure metering/adaptation parameters (issue #691),
         // uploaded at UBO_AUTO_EXPOSURE (58). GLSL twin: the
@@ -3514,6 +3654,25 @@ namespace OloEngine
         // criterion is that the thickness source survives a round-trip.
         static constexpr u32 TEX_SKIN_THICKNESS = 76;
 
+        // The BODY inside a groom's coat-shadow volume (issue #1533) — a
+        // sampler3D RGBA8 on TEX_GROOM_COAT_VOLUME's grid, in the same groom
+        // object space: A the body the coat grows on as box-filtered
+        // occupancy, marched by GroomStrand.glsl for the lights no shadow map
+        // answers at the strand; RGB the share of the sky it leaves, for the
+        // environment term. CPU twin: GroomCoatShadow::DensityVolume::Body.
+        //
+        // ITS OWN SLOT because the coat volume's texture could not hold it at
+        // the skin: trilinear filtering mixes coat and body in a shared cell, so
+        // the body rode there as negative density eroded a centimetre clear of
+        // every coat voxel, and the dog's ears, legs and tail tip had no core.
+        //
+        // 77 WAS FREE between the skin thickness map and TEX_SHADER_GRAPH_0, so
+        // claiming it moves neither TEX_SHADER_GRAPH_0 nor HEAP_IMAGE_SLOT_BASE:
+        // the heap's offset table already had an entry for it. Binding 77 is
+        // also UBO_REFLECTION_PROBE_CULL's and SSBO_VSM_STATS's number, in other
+        // namespaces and only in compute shaders that never sample this.
+        static constexpr u32 TEX_GROOM_COAT_BODY = 77; // sampler3D RGBA8 — a = body occupancy, rgb = the sky it leaves
+
         // First shader graph user texture slot — must stay after every
         // engine-reserved slot, which is why it MOVES when one is added rather
         // than the new slot being wedged in above it. It has moved four times
@@ -4723,6 +4882,13 @@ namespace OloEngine
                     // ShaderReflectionBinding.AllProductionShaderBindingsMatchCppLayout
                     // and makes ValidateStandardBindings trace every skin draw.
                     return name == "u_ThicknessMap";
+                case TEX_GROOM_COAT_BODY:
+                    // The body inside a groom's coat volume (issue #1533).
+                    // Declared once, in GroomStrand.glsl, and passed to
+                    // include/GroomCoatShadowCommon.glsl as a parameter, as the
+                    // coat volume is. Required for the same reason as the arm
+                    // above: 77 is outside the default's ranges.
+                    return name == "u_GroomCoatBody";
                 default:
                     // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_WATER_SSR, i.e. 10–42)
                     // and shader graph user texture slots (TEX_SHADER_GRAPH_0+)
@@ -4752,7 +4918,10 @@ layout(std140, binding = 0) uniform CameraMatrices {
     float _padding0;
     mat4 u_PrevViewProjection;
     vec3 u_RenderOrigin;
-    float _padding1;
+    float u_LightingTap;
+    mat4 u_ProjectionForReconstruction;
+    vec4 u_ScreenSpaceAOParams;
+    vec4 u_JitterUV;
 };)";
         }
 
@@ -4877,7 +5046,7 @@ layout(std140, binding = 6) uniform ShadowData {
     int u_AtlasResolution;
     int u_CascadeDebugEnabled;
     int u_SoftShadowMode;  // 0 = legacy hardware PCF, 1 = PCSS (contact-hardening)
-    float u_AtlasDepthBias; // local-light atlas constant depth bias, normalized [0,1] (#1119)
+    float u_AtlasDepthBiasTexels; // local-light atlas depth bias, in TEXELS of the entry's tile (#1533)
     int _shadowPad2;
     ivec4 u_RayTracedShadowLightIndices; // light index per mask channel, -1 = unassigned (#1056)
     vec4 u_RayTracedShadowParams;        // x = mask active, yzw reserved (#1056)

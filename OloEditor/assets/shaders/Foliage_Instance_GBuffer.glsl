@@ -42,6 +42,9 @@ layout(location = 8) in float v_InstanceSeed; // this plant's own draw (issue #1
 // lane (issue #1452).
 #include "include/CameraCommon.glsl"
 
+// The main view's dither moves with the frame under a temporal resolve
+// (#1533); see OLO_FOLIAGE_DITHER_FRAME in FoliageInstanceGeometry.glsl.
+#define OLO_FOLIAGE_DITHER_FRAME u_FoliageDitherFrame
 #include "include/FoliageParams.glsl"
 
 #include "include/FoliageInstanceGeometry.glsl"
@@ -184,7 +187,7 @@ void main()
     // fade. A density LOD step moves this while the instance, primitive,
     // material and depth all stay put, which is precisely the change no
     // other history channel can see.
-    o_GBufferVelocity = vec4((ndcCurr - ndcPrev) * 0.5, clamp(alpha, 0.0, 1.0), 0.0);
+    o_GBufferVelocity = vec4(oloVelocityFromNdc(ndcCurr, ndcPrev), clamp(alpha, 0.0, 1.0), 0.0);
 
     o_GBufferEntityID = instances[v_InstanceIndex].EntityID;
 

@@ -15,6 +15,8 @@
 #include "OloEngine/Core/Log.h"
 #include <algorithm>
 #include <optional>
+#include <mutex>
+#include <unordered_set>
 
 namespace OloEngine::Animation
 {
@@ -48,19 +50,20 @@ namespace OloEngine::Animation
         // SampleClipTRS + root-motion in-place pinning: when this bone is the
         // clip's extraction root, the extracted (masked) motion is removed from
         // the sample so the mesh doesn't double-move once the delta is applied
-        // to the entity (issue #631). boneIndex is the skeleton bone index.
-        TRSFrame SampleClipTRSPinned(const Ref<AnimationClip>& clip, f32 timeSeconds, const std::string& boneName,
+        // to the entity (issue #631). boneIndex is the skeleton bone index;
+        // settings are the clip's on this entity (RootMotionUtils::EffectiveSettings).
+        TRSFrame SampleClipTRSPinned(const Ref<AnimationClip>& clip, const AnimationRootMotionSettings& settings,
+                                     f32 timeSeconds, const std::string& boneName,
                                      const BoneAnimation* cachedBoneAnim, sizet boneIndex)
         {
             TRSFrame frame = SampleClipTRS(clip, timeSeconds, boneName, cachedBoneAnim);
-            if (clip && clip->RootMotion.ExtractRootMotion &&
-                boneIndex == static_cast<sizet>(clip->RootMotion.RootBoneIndex))
+            if (clip && settings.ExtractRootMotion && boneIndex == static_cast<sizet>(settings.RootBoneIndex))
             {
                 const TRSFrame reference = SampleClipTRS(clip, 0.0f, boneName, cachedBoneAnim);
                 const BoneTransform pinned = RootMotionUtils::MakeInPlaceRootPose(
                     { frame.translation, frame.rotation, frame.scale },
                     { reference.translation, reference.rotation, reference.scale },
-                    clip->RootMotion.RootTranslationMask, clip->RootMotion.RootRotationMask);
+                    settings.RootTranslationMask, settings.RootRotationMask);
                 frame.translation = pinned.Translation;
                 frame.rotation = pinned.Rotation;
             }
@@ -77,8 +80,11 @@ namespace OloEngine::Animation
         // Compute the animated local transform for a single bone, blending the
         // current/next clip as needed. Returns nullopt when no active clip
         // animates this bone (the caller keeps the bind-pose transform).
-        // boneIndex feeds per-clip root-motion pinning (issue #631).
-        std::optional<glm::mat4> EvaluateBoneLocalTransform(const AnimationStateComponent& animState, const std::string& boneName, sizet boneIndex)
+        // boneIndex feeds per-clip root-motion pinning (issue #631), against
+        // each clip's settings on this entity.
+        std::optional<glm::mat4> EvaluateBoneLocalTransform(const AnimationStateComponent& animState, const std::string& boneName,
+                                                            sizet boneIndex, const AnimationRootMotionSettings& currentSettings,
+                                                            const AnimationRootMotionSettings& nextSettings)
         {
             if (animState.m_Blending && animState.m_NextClip)
             {
@@ -89,8 +95,10 @@ namespace OloEngine::Animation
 
                 if (boneAnimA && boneAnimB)
                 {
-                    TRSFrame trsA = SampleClipTRSPinned(animState.m_CurrentClip, animState.m_CurrentTime, boneName, boneAnimA, boneIndex);
-                    TRSFrame trsB = SampleClipTRSPinned(animState.m_NextClip, animState.m_NextTime, boneName, boneAnimB, boneIndex);
+                    TRSFrame trsA = SampleClipTRSPinned(animState.m_CurrentClip, currentSettings, animState.m_CurrentTime, boneName,
+                                                        boneAnimA, boneIndex);
+                    TRSFrame trsB = SampleClipTRSPinned(animState.m_NextClip, nextSettings, animState.m_NextTime, boneName, boneAnimB,
+                                                        boneIndex);
 
                     TRSFrame blendedTRS;
                     blendedTRS.translation = glm::mix(trsA.translation, trsB.translation, animState.m_BlendFactor);
@@ -101,11 +109,13 @@ namespace OloEngine::Animation
                 }
                 if (boneAnimA)
                 {
-                    return TRSToMatrix(SampleClipTRSPinned(animState.m_CurrentClip, animState.m_CurrentTime, boneName, boneAnimA, boneIndex));
+                    return TRSToMatrix(SampleClipTRSPinned(animState.m_CurrentClip, currentSettings, animState.m_CurrentTime,
+                                                           boneName, boneAnimA, boneIndex));
                 }
                 if (boneAnimB)
                 {
-                    return TRSToMatrix(SampleClipTRSPinned(animState.m_NextClip, animState.m_NextTime, boneName, boneAnimB, boneIndex));
+                    return TRSToMatrix(SampleClipTRSPinned(animState.m_NextClip, nextSettings, animState.m_NextTime, boneName,
+                                                           boneAnimB, boneIndex));
                 }
                 // Neither clip animates this bone — keep bind-pose local transform.
                 return std::nullopt;
@@ -115,13 +125,92 @@ namespace OloEngine::Animation
             {
                 if (const auto* boneAnim = animState.m_CurrentClip->FindBoneAnimation(boneName); boneAnim)
                 {
-                    return TRSToMatrix(SampleClipTRSPinned(animState.m_CurrentClip, animState.m_CurrentTime, boneName, boneAnim, boneIndex));
+                    return TRSToMatrix(SampleClipTRSPinned(animState.m_CurrentClip, currentSettings, animState.m_CurrentTime,
+                                                           boneName, boneAnim, boneIndex));
                 }
             }
             // No current clip / bone not animated — keep bind-pose local transform.
             return std::nullopt;
         }
     } // namespace
+
+    void AnimationSystem::ApplyClipRequest(AnimationStateComponent& animState)
+    {
+        if (animState.m_RequestedClip.empty())
+        {
+            return;
+        }
+        std::string requested;
+        requested.swap(animState.m_RequestedClip); // consumed whatever happens next
+        const bool loop = animState.m_RequestedLoop;
+
+        const auto found = std::ranges::find_if(animState.m_AvailableClips, [&requested](const Ref<AnimationClip>& clip)
+                                                { return clip && clip->Name == requested; });
+        if (found == animState.m_AvailableClips.end())
+        {
+            // LOUD, once per name: a mistyped clip name in a script would
+            // otherwise read as an animation system that ignores it.
+            static std::mutex s_ReportedMutex;
+            static std::unordered_set<std::string> s_Reported;
+            const std::scoped_lock lock(s_ReportedMutex);
+            if (s_Reported.insert(requested).second)
+            {
+                std::string available;
+                for (const Ref<AnimationClip>& clip : animState.m_AvailableClips)
+                {
+                    if (clip)
+                    {
+                        available += available.empty() ? clip->Name : (", " + clip->Name);
+                    }
+                }
+                OLO_CORE_WARN("AnimationSystem: no clip named '{}' on this model (clips: {}); the request is ignored",
+                              requested, available.empty() ? std::string("none") : available);
+            }
+            return;
+        }
+        const Ref<AnimationClip>& target = *found;
+        const i32 index = static_cast<i32>(std::distance(animState.m_AvailableClips.begin(), found));
+
+        // Already the current clip and not leaving it: only the loop flag moves.
+        // This is what lets a script write the request every frame.
+        if (animState.m_CurrentClip == target && !animState.m_Blending)
+        {
+            animState.m_Loop = loop;
+            return;
+        }
+        // Already on its way there: keep the blend, take the new loop flag.
+        if (animState.m_Blending && animState.m_NextClip == target)
+        {
+            animState.m_NextLoop = loop;
+            return;
+        }
+
+        animState.m_CurrentClipIndex = index;
+        if (!animState.m_CurrentClip)
+        {
+            // Nothing to blend from.
+            animState.m_CurrentClip = target;
+            animState.m_CurrentTime = 0.0f;
+            animState.m_Loop = loop;
+            return;
+        }
+        // Interrupting a blend that is more than half done: the pose is mostly
+        // the blend target already, so that clip is promoted to current before
+        // the new blend starts. Starting from the old current clip instead would
+        // snap the pose back towards where the blend began.
+        if (animState.m_Blending && animState.m_NextClip && animState.m_BlendFactor > 0.5f)
+        {
+            animState.m_CurrentClip = animState.m_NextClip;
+            animState.m_CurrentTime = animState.m_NextTime;
+            animState.m_Loop = animState.m_NextLoop;
+        }
+        animState.m_NextClip = target;
+        animState.m_NextTime = 0.0f;
+        animState.m_NextLoop = loop;
+        animState.m_BlendTime = 0.0f;
+        animState.m_BlendFactor = 0.0f;
+        animState.m_Blending = true;
+    }
 
     // Animation update: advances time, samples animation, computes bone transforms
     void AnimationSystem::Update(
@@ -145,11 +234,21 @@ namespace OloEngine::Animation
         // entity animated, and a paused one would then emit last tick's delta
         // for as long as the pause lasted.
 
-        // Advance and loop animation time for current and next clips
-        auto LoopTime = [](f32 t, const Ref<AnimationClip>& clip)
+        // A clip requested from outside (issue #1533) starts its blend HERE, at
+        // the one place every pose update passes through, so the editor combo, a
+        // script and an MCP write behave the same way in edit mode and in Play.
+        ApplyClipRequest(animState);
+
+        // Advance animation time for current and next clips: a looping clip
+        // wraps, a non-looping one (issue #1533) holds its final pose.
+        auto LoopTime = [](f32 t, const Ref<AnimationClip>& clip, bool loop)
         {
             if (clip && clip->Duration > 0.0f)
             {
+                if (!loop)
+                {
+                    return std::clamp(t, 0.0f, clip->Duration);
+                }
                 while (t >= clip->Duration)
                     t -= clip->Duration;
                 while (t < 0.0f)
@@ -165,15 +264,21 @@ namespace OloEngine::Animation
         const bool wasBlending = animState.m_Blending && animState.m_NextClip;
         const Ref<AnimationClip> blendTargetClip = animState.m_NextClip; // survives the completion swap
 
-        animState.m_CurrentTime += deltaTime;
-        animState.m_CurrentTime = LoopTime(animState.m_CurrentTime, animState.m_CurrentClip);
+        // The clip clock runs at the entity's playback speed (issue #1533);
+        // the post passes below keep real time. A non-finite or negative speed
+        // (a corrupt write that bypassed every clamp) plays as authored.
+        const f32 playbackSpeed = std::isfinite(animState.m_PlaybackSpeed) ? std::clamp(animState.m_PlaybackSpeed, 0.0f, 10.0f) : 1.0f;
+        const f32 clipSeconds = deltaTime * playbackSpeed;
+
+        animState.m_CurrentTime += clipSeconds;
+        animState.m_CurrentTime = LoopTime(animState.m_CurrentTime, animState.m_CurrentClip, animState.m_Loop);
 
         f32 blendAlpha = 0.0f;
         if (wasBlending)
         {
-            animState.m_BlendTime += deltaTime;
-            animState.m_NextTime += deltaTime;
-            animState.m_NextTime = LoopTime(animState.m_NextTime, animState.m_NextClip);
+            animState.m_BlendTime += clipSeconds;
+            animState.m_NextTime += clipSeconds;
+            animState.m_NextTime = LoopTime(animState.m_NextTime, animState.m_NextClip, animState.m_NextLoop);
             blendAlpha = glm::clamp(animState.m_BlendTime / animState.m_BlendDuration, 0.0f, 1.0f);
             animState.m_BlendFactor = blendAlpha;
         }
@@ -181,8 +286,9 @@ namespace OloEngine::Animation
         // Extract this tick's root-motion delta (wrap-aware, per clip) before the
         // blend-completion swap discards the source clip. Each contributing clip
         // extracts against its own settings; the deltas blend with the same
-        // factor the pose blend uses. This path loops unconditionally (LoopTime),
-        // so extraction is always wrap-aware.
+        // factor the pose blend uses. Extraction is wrap-aware exactly when the
+        // clip loops (m_Loop / m_NextLoop, issue #1533); a clip that holds its
+        // final pose extracts no motion past its end.
         {
             const PoseEvalContext rootMotionCtx{
                 .BoneNames = skeleton.m_BoneNames,
@@ -195,12 +301,16 @@ namespace OloEngine::Animation
             if (animState.m_CurrentClip)
             {
                 delta = RootMotionUtils::ExtractConfiguredDelta(
-                    *animState.m_CurrentClip, rootMotionStartCurrent, deltaTime, true, rootMotionCtx);
+                    *animState.m_CurrentClip,
+                    RootMotionUtils::EffectiveSettings(*animState.m_CurrentClip, animState.m_RootMotion, skeleton.m_ParentIndices),
+                    rootMotionStartCurrent, clipSeconds, animState.m_Loop, rootMotionCtx);
             }
             if (wasBlending && blendTargetClip)
             {
                 const RootMotionDelta nextDelta = RootMotionUtils::ExtractConfiguredDelta(
-                    *blendTargetClip, rootMotionStartNext, deltaTime, true, rootMotionCtx);
+                    *blendTargetClip,
+                    RootMotionUtils::EffectiveSettings(*blendTargetClip, animState.m_RootMotion, skeleton.m_ParentIndices),
+                    rootMotionStartNext, clipSeconds, animState.m_NextLoop, rootMotionCtx);
                 delta = RootMotionUtils::Blend(delta, nextDelta, animState.m_BlendFactor);
             }
             animState.m_RootMotionTranslation = delta.Translation;
@@ -213,6 +323,7 @@ namespace OloEngine::Animation
             // Finish blend
             animState.m_CurrentClip = animState.m_NextClip;
             animState.m_CurrentTime = animState.m_NextTime;
+            animState.m_Loop = animState.m_NextLoop;
             animState.m_NextClip = nullptr;
             animState.m_Blending = false;
             animState.m_BlendTime = 0.0f;
@@ -231,10 +342,19 @@ namespace OloEngine::Animation
         // channels in the active clip(s) keep their bind-pose local transform
         // (e.g. b_Root_00 carries a -90° X rotation in the fox.gltf model but has
         // no keyframes in the animation).
+        const AnimationRootMotionSettings currentSettings =
+            animState.m_CurrentClip
+                ? RootMotionUtils::EffectiveSettings(*animState.m_CurrentClip, animState.m_RootMotion, skeleton.m_ParentIndices)
+                : AnimationRootMotionSettings{};
+        const AnimationRootMotionSettings nextSettings =
+            animState.m_NextClip
+                ? RootMotionUtils::EffectiveSettings(*animState.m_NextClip, animState.m_RootMotion, skeleton.m_ParentIndices)
+                : AnimationRootMotionSettings{};
         auto boneNameCount = skeleton.m_BoneNames.size();
         for (sizet i = 0; i < boneNameCount; ++i)
         {
-            if (auto animatedLocal = EvaluateBoneLocalTransform(animState, skeleton.m_BoneNames[i], i); animatedLocal)
+            if (auto animatedLocal = EvaluateBoneLocalTransform(animState, skeleton.m_BoneNames[i], i, currentSettings, nextSettings);
+                animatedLocal)
             {
                 skeleton.m_LocalTransforms[i] = *animatedLocal;
             }

@@ -33,6 +33,7 @@
 #include <yaml-cpp/yaml.h>
 #include <nlohmann/json.hpp>
 
+#include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/AssetRegistry.h"
 #include "OloEngine/Asset/AssetExtensions.h"
 #include "OloEngine/Asset/AssetSerializer.h"
@@ -1057,6 +1058,23 @@ namespace OloEngine::Tests
             if (relative.starts_with("Assets/cache/"))
                 continue;
 
+            // A curves-only Alembic archive is a groom source, which the editor
+            // deliberately does not register (#1542): the pack builder loads every
+            // entry, and as a MeshSource it failed on every Build Game. Here the
+            // invariant runs the other way.
+            if (EditorAssetManager::GetRegistrationType(entry.path()) == AssetType::None)
+            {
+                if (registeredPaths.contains(relative))
+                {
+                    unregistered.push_back({
+                        relative,
+                        "holds only curves, so it is a groom source, but AssetRegistry.oar registers it — "
+                        "every load of it fails as a MeshSource.",
+                    });
+                }
+                continue;
+            }
+
             if (!registeredPaths.contains(relative))
             {
                 unregistered.push_back({
@@ -1070,13 +1088,13 @@ namespace OloEngine::Tests
         if (!unregistered.empty())
         {
             std::ostringstream oss;
-            oss << unregistered.size() << " on-disk asset file(s) missing from registry:\n";
+            oss << unregistered.size() << " on-disk asset file(s) disagree with the registry:\n";
             for (const auto& f : unregistered)
                 oss << "----\n"
                     << f.Path << "\n    " << f.Reason << "\n";
             oss << "\nTo regenerate the registry, launch OloEditor (which auto-rescans),\n"
-                << "or run the DISABLED_RebaseAssetRegistry helper (currently only removes\n"
-                << "stale entries — extend it if a clean-rebuild path becomes useful).\n";
+                << "or run the DISABLED_RebaseAssetRegistry helper, which drops the entries\n"
+                << "the editor drops and adds the files it registers.\n";
             FAIL() << oss.str();
         }
     }
@@ -1817,6 +1835,11 @@ namespace OloEngine::Tests
                 registry.RemoveAsset(metadata.Handle);
                 ++removedCount;
             }
+            else if (EditorAssetManager::GetRegistrationType(resolved) == AssetType::None)
+            {
+                registry.RemoveAsset(metadata.Handle); // a groom source (#1542), as the editor drops it
+                ++removedCount;
+            }
         }
 
         // Pass 2 — reconcile supported on-disk assets with the registry.
@@ -1871,9 +1894,13 @@ namespace OloEngine::Tests
                 continue;
             }
 
+            const AssetType type = EditorAssetManager::GetRegistrationType(entry.path());
+            if (type == AssetType::None)
+                continue; // a groom source (#1542), which the editor does not register
+
             AssetMetadata md;
             md.Handle = UUID(); // fresh random handle, editor-style
-            md.Type = AssetExtensions::GetAssetTypeFromExtension(ext);
+            md.Type = type;
             md.FilePath = relative; // stored generic (forward-slash)
             md.Status = AssetStatus::None;
             registry.AddAsset(md);

@@ -165,6 +165,20 @@ namespace OloEngine
         AssetType GetAssetTypeFromPath(const std::filesystem::path& path);
 
         /**
+         * @brief The type a file on disk registers as: its extension's type, except
+         * that an Alembic archive holding only curves registers as nothing (#1542).
+         * Such an archive is a groom SOURCE, which "Import as Groom" cooks into the
+         * .ologroom the registry does hold. Registered as a MeshSource, every load
+         * of it failed with "no polymesh/subd geometry", and the pack builder loads
+         * every entry on every Build Game. Reads the archive's object headers; an
+         * archive that cannot be read keeps its extension's type, so loading it
+         * still fails by name.
+         * @param absolutePath The file on disk
+         * @return The type to register, or AssetType::None for "do not register"
+         */
+        [[nodiscard]] static AssetType GetRegistrationType(const std::filesystem::path& absolutePath);
+
+        /**
          * @brief Get file system path from asset handle
          * @param handle Asset handle
          * @return Absolute file system path
@@ -390,6 +404,15 @@ namespace OloEngine
          * @param directory Directory to scan
          */
         void ScanDirectoryForAssets(const std::filesystem::path& directory);
+
+        /**
+         * @brief Drop loaded registry entries GetRegistrationType no longer registers.
+         * An Alembic archive's registration depends on what it holds, so an entry
+         * is only as current as the file: a registry written before #1542, or an
+         * archive re-exported as curves only while the editor was closed, holds a
+         * groom source as a MeshSource.
+         */
+        void UnregisterGroomSourceArchives();
 
 #if OLO_ASYNC_ASSETS
         /**

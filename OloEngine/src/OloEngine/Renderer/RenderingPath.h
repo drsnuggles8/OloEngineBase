@@ -301,6 +301,12 @@ namespace OloEngine
         // measured against. A diagnostic, like the switch above: the two draw
         // the same coat, and only one of them fits in a frame.
         bool GroomGpuDeformation = true;
+        // --- Bound-coat roots on the GPU (issue #1533 E1) ---
+        // With GroomGpuDeformation on, a coat whose drawn roots need nothing on
+        // the CPU has them evaluated by a compute pass (GroomRootFrames.comp)
+        // instead of skinned, packed and uploaded by the CPU every frame. Off is
+        // the CPU evaluation, kept as the reference. A diagnostic, not persisted.
+        bool GroomGpuRootFrames = true;
 
         // --- Debug overlays ---
         // Editor-only master switch. Kept process-global with the other renderer

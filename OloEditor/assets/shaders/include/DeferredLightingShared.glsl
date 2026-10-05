@@ -439,6 +439,13 @@ vec3 ComputeDeferredLitSplit(
     // through the writer. Identical discipline to the leaf thickness above.
     float skinThicknessMM = oloSkinUnpackGBufferThickness(bakedGI, skinProfileSlot < OLO_SKIN_PROFILE_SLOT_NONE);
 
+    // THE COAT'S KERNEL (#1533), RT5's green channel: the writer's measure of
+    // this pixel's normal spread, which widens the coat here as the forward
+    // paths widen theirs. A fullscreen pass cannot take that derivative itself
+    // without straddling silhouettes (include/SkinLayeredSpecular.glsl).
+    skinOralLane.y = oloSkinWidenedRoughness(
+        skinOralLane.y, oloSkinUnpackGBufferCoatKernel(bakedGI, skinProfileSlot < OLO_SKIN_PROFILE_SLOT_NONE));
+
     // THE VERSION TEST, HERE AND NOT IN THE G-BUFFER. The writer publishes a
     // thickness for every skin pixel that names a profile, because it has no
     // SkinEvaluationModel to test; the version lives in the slot table, which
@@ -612,7 +619,10 @@ vec3 ComputeDeferredLitSplit(
         {
             lightVisibility *= rayTracedDirectional;
         }
-        else if (lightType == DIRECTIONAL_LIGHT && u_DirectionalShadowEnabled != 0)
+        // ...and it is tested against the light's INDEX as well: the cascades
+        // are the first directional light's alone, so a second one is
+        // unshadowed here rather than shadowed by the first one's map.
+        else if (lightType == DIRECTIONAL_LIGHT && i == 0 && u_DirectionalShadowEnabled != 0)
         {
             // Virtual Shadow Maps own the directional light when active (issue
             // #702); the CSM cascades are not even rendered in that case, so this
@@ -664,11 +674,12 @@ vec3 ComputeDeferredLitSplit(
             {
                 float shadow = calculateAtlasEntryShadow(
                     worldPos,
+                    shadowN,
                     u_AtlasEntryMatrices[atlasEntry],
                     u_AtlasEntryScaleOffset[atlasEntry],
                     u_ShadowAtlas,
                     u_ShadowAtlasRaw,
-                    u_AtlasDepthBias,
+                    u_AtlasDepthBiasTexels,
                     u_AtlasResolution,
                     u_SoftShadowMode,
                     u_ShadowParams.z);
@@ -696,11 +707,12 @@ vec3 ComputeDeferredLitSplit(
                 int entry = baseEntry + atlasCubeFace(worldPos - lightPos);
                 float shadow = calculateAtlasEntryShadow(
                     worldPos,
+                    shadowN,
                     u_AtlasEntryMatrices[entry],
                     u_AtlasEntryScaleOffset[entry],
                     u_ShadowAtlas,
                     u_ShadowAtlasRaw,
-                    u_AtlasDepthBias,
+                    u_AtlasDepthBiasTexels,
                     u_AtlasResolution,
                     0, // PCF only on cube faces (matches the old cubemap path)
                     u_ShadowParams.z);

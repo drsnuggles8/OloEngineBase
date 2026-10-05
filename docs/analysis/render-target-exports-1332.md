@@ -60,6 +60,11 @@ source, found the same object, and returned. It never copied anything.
 | Deferred MSAA 4x | 0 -> 0 | 13 (151.4) -> 12 (143.1) | 163.4 -> 163.4 | 1068.9 -> 1077.2 |
 | Deferred MSAA 4x, late geometry | 0 -> 1 (8.3) | 28 (350.4) -> 28 (350.4) | 180.0 -> 188.3 | 1071.1 -> 1079.4 |
 
+Since #1552 every Deferred cell has one copy more than this table shows, `SceneVelocitySeedPass`'s 16.6 MB
+at 1080p (see the retained copies), and a peak about 75 MB lower: TAA's surface history is now extracted from
+SceneColor RT3, so the G-Buffer no longer lives to the end of the frame for it (Deferred 687.3 -> 612.7 MB,
+MSAA 4x 1077.2 -> 1002.5 MB). The JSON records, re-run in Release on an idle machine, carry both.
+
 The one Deferred copy added is the water's view-normals snapshot. It fixes a feedback loop (see the table of
 retained copies below). The MSAA cells lose ScenePass's second depth resolve (`GBuffer::ResolveColorOnly`). The
 peak in the MSAA cell without late geometry is 8.3 MB higher because the pool still holds the previous cell's
@@ -91,7 +96,8 @@ figures are a measurement.
 | GBufferMS -> GBufferResolved blits (Deferred MSAA) | ScenePass, DeferredGPUOcclusionPass, DeferredOpaqueDecalPass | A real MSAA resolve. Each late writer that draws into the multisample G-Buffer resolves all seven attachments again, 91 MB each at 1080p. See *Not changed* below. |
 | G-Buffer depth and entity ID -> SceneColor blits (Deferred) | DeferredLightingPass | The forward overlay, groom and decals depth-test in SceneColor, and picking reads its entity ID. |
 | SceneColorTexture -> WaterRefraction | WaterPass | The refraction colour is read while the water draws over it. |
-| Velocity -> TAASurfaceHistory, TAAColor -> TAAHistory | end-of-frame extraction | Temporal histories outlive the frame. Velocity is now a view, so the planner keeps SceneColor alive until the copy runs (commit `36056b436`). |
+| G-Buffer Velocity -> SceneVelocity (Deferred, #1552) | SceneVelocitySeedPass, before the forward overlay | The groom, foliage, particles and water drawn over the lit frame write SceneColor RT3, and the resolves must read every surface's motion. The opaque scene's is in the G-Buffer's RT3, a different attachment, so it is copied in once before they draw. |
+| SceneVelocity -> TAASurfaceHistory, TAAColor -> TAAHistory | end-of-frame extraction | Temporal histories outlive the frame. SceneVelocity is a view, so the planner keeps SceneColor alive until the copy runs (commit `36056b436`). |
 
 Diagnostic captures stay explicit: `olo_render_capture_target` and `RenderGraphPassSnapshot` clone into
 scratch storage of their own (the ledger names it `<external>`, attributed to `<post-pass hook>`).
@@ -135,6 +141,12 @@ on Deferred has no velocity in TAA at all.
 
 The groom temporal tests were re-baselined to the honest velocity, with the measured numbers in their
 comments. The velocity convention and Deferred groom motion are #1552.
+
+Resolved by #1552: every writer now takes each frame's jitter out of its velocity, and the Deferred resolve
+reads SceneColor RT3 seeded with the G-Buffer's velocity (docs/agent-rules/velocity-convention.md). With TAA's
+coverage term comparing the coat's coverage means instead of its samples
+(docs/agent-rules/temporal-coverage-means-not-samples.md), the still coat's shimmer reduction is 11.9x on
+Forward and 11.8x on Forward+ and Deferred.
 
 ## Not changed, and why
 

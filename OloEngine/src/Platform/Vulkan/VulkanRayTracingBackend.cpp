@@ -18,6 +18,8 @@
 #include <array>
 #include <cstring>
 #include <limits>
+#include <map>
+#include <mutex>
 
 namespace OloEngine::RayTracing
 {
@@ -130,6 +132,8 @@ namespace OloEngine::RayTracing
         }
 
         u32 RecordBlasBuilds(std::span<const BlasBuildRequest> requests) override;
+        [[nodiscard]] u64 EstimateBlasBytes(GeometryClass geometryClass, u32 vertexCount, u32 vertexStride,
+                                            u32 triangleCount) const override;
         [[nodiscard]] bool WasBlasBuildRecorded(const GeometryKey& key) const override
         {
             return std::ranges::find(m_RecordedBuildKeys, key) != m_RecordedBuildKeys.end();
@@ -192,6 +196,19 @@ namespace OloEngine::RayTracing
         Capabilities m_Capabilities{};
         std::unordered_map<GeometryKey, BlasEntry, GeometryKeyHash> m_Blas;
         std::vector<GeometryKey> m_RecordedBuildKeys;
+        // Size-query answers by build shape (#1533): QueryBuildSizes.
+        struct SizeKey
+        {
+            u32 Flags = 0u;
+            u32 MaxVertex = 0u;
+            u32 Stride = 0u;
+            u32 Triangles = 0u;
+            auto operator<=>(const SizeKey&) const = default;
+        };
+        [[nodiscard]] VkAccelerationStructureBuildSizesInfoKHR QueryBuildSizes(
+            VulkanDevice& device, const VkAccelerationStructureBuildGeometryInfoKHR& build, u32 primitiveCount) const;
+        mutable std::map<SizeKey, VkAccelerationStructureBuildSizesInfoKHR> m_SizeCache;
+        mutable std::mutex m_SizeCacheMutex;
 
         DeviceBuffer m_Scratch;
         VkDeviceSize m_ScratchAlignment = 256;
@@ -511,12 +528,7 @@ namespace OloEngine::RayTracing
             item.Build.mode = item.IsUpdate ? VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR
                                             : VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
 
-            VkAccelerationStructureBuildSizesInfoKHR sizes{};
-            sizes.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
-            const u32 primitiveCount = item.Range.primitiveCount;
-            vkGetAccelerationStructureBuildSizesKHR(device->GetDevice(),
-                                                    VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &item.Build,
-                                                    &primitiveCount, &sizes);
+            const VkAccelerationStructureBuildSizesInfoKHR sizes = QueryBuildSizes(*device, item.Build, item.Range.primitiveCount);
             if (sizes.accelerationStructureSize == 0)
             {
                 continue;
@@ -833,6 +845,66 @@ namespace OloEngine::RayTracing
         entry.BuiltSize = 0;
         entry.CompactedSize = 0;
         entry.CompactionState = BlasEntry::Compaction::NotRequested;
+    }
+
+    u64 VulkanRayTracingBackend::EstimateBlasBytes(GeometryClass geometryClass, u32 vertexCount, u32 vertexStride,
+                                                   u32 triangleCount) const
+    {
+        auto* device = VulkanDevice::Get();
+        if (!m_Capabilities.Supported || device == nullptr || vertexCount == 0u || triangleCount == 0u)
+            return 0u;
+        // The same description RecordBlasBuilds sizes a build with, minus the
+        // addresses, which the size query ignores.
+        const bool wantsUpdate = UpdatePolicyFor(geometryClass) == UpdatePolicy::RefitOrRebuild;
+        VkAccelerationStructureGeometryKHR geometry{};
+        geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
+        geometry.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
+        geometry.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
+        VkAccelerationStructureGeometryTrianglesDataKHR& triangles = geometry.geometry.triangles;
+        triangles.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
+        triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
+        triangles.vertexStride = vertexStride;
+        triangles.maxVertex = vertexCount - 1u;
+        triangles.indexType = VK_INDEX_TYPE_UINT32;
+        VkAccelerationStructureBuildGeometryInfoKHR build{};
+        build.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+        build.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+        build.flags = wantsUpdate ? VkBuildAccelerationStructureFlagsKHR{ VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR |
+                                                                          VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR }
+                                  : VkBuildAccelerationStructureFlagsKHR{ VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR |
+                                                                          VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR };
+        build.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+        build.geometryCount = 1;
+        build.pGeometries = &geometry;
+        return QueryBuildSizes(*device, build, triangleCount).accelerationStructureSize;
+    }
+
+    VkAccelerationStructureBuildSizesInfoKHR VulkanRayTracingBackend::QueryBuildSizes(
+        VulkanDevice& device, const VkAccelerationStructureBuildGeometryInfoKHR& build, u32 primitiveCount) const
+    {
+        // Cached by build shape (#1533): the size query is a driver call, and
+        // ~650 vegetation refits a frame asked it the same few questions --
+        // most of the 13.8 ms RayTracingScene::Update cost with the lawn in.
+        // Every engine build is one opaque R32G32B32 / UINT32 triangle
+        // geometry, so flags, range, stride and count decide the answer; the
+        // query ignores mode and addresses.
+        const auto& triangles = build.pGeometries[0].geometry.triangles;
+        const SizeKey key{ static_cast<u32>(build.flags), triangles.maxVertex, static_cast<u32>(triangles.vertexStride),
+                           primitiveCount };
+        {
+            std::scoped_lock lock(m_SizeCacheMutex);
+            if (const auto found = m_SizeCache.find(key); found != m_SizeCache.end())
+                return found->second;
+        }
+        VkAccelerationStructureBuildSizesInfoKHR sizes{};
+        sizes.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
+        vkGetAccelerationStructureBuildSizesKHR(device.GetDevice(), VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
+                                                &build, &primitiveCount, &sizes);
+        std::scoped_lock lock(m_SizeCacheMutex);
+        if (m_SizeCache.size() >= 16384u)
+            m_SizeCache.clear(); // a scene of many distinct meshes: bounded, not lost
+        m_SizeCache.emplace(key, sizes);
+        return sizes;
     }
 
     void VulkanRayTracingBackend::RetireBlas(const GeometryKey& key)
@@ -1255,6 +1327,10 @@ namespace OloEngine::RayTracing
             DestroyBlasEntry(entry);
         }
         m_Blas.clear();
+        {
+            std::scoped_lock lock(m_SizeCacheMutex);
+            m_SizeCache.clear();
+        }
         if (m_Tlas != VK_NULL_HANDLE)
         {
             VulkanDeferredReclaim::Get().Enqueue(m_Tlas);

@@ -237,16 +237,35 @@ namespace OloEngine
                                                                const Material* importedMaterial, u32 importedSlot,
                                                                GPUSceneMaterialOverrideLane overrideLane)
     {
+        return ResolveGPUSceneMaterialKey(overrideMaterial, nullptr, stableEntityId, meshSource, importedMaterial,
+                                          importedSlot, overrideLane);
+    }
+
+    GPUSceneMaterialKey Renderer3D::ResolveGPUSceneMaterialKey(const Material* overrideMaterial,
+                                                               const Material* patchedMaterial, u64 stableEntityId,
+                                                               const Ref<MeshSource>& meshSource,
+                                                               const Material* importedMaterial, u32 importedSlot,
+                                                               GPUSceneMaterialOverrideLane overrideLane)
+    {
         // The same decision that picks the material the draw shades with
         // (SubmeshMaterialResolve.h), so the key cannot name one source while
         // the draw uses another.
-        switch (ResolveSubmeshMaterialOrigin(overrideMaterial, importedMaterial))
+        switch (ResolveSubmeshMaterialOrigin(overrideMaterial, patchedMaterial, importedMaterial))
         {
             case SubmeshMaterialOrigin::Override:
                 return GPUSceneMaterialKey{
                     .m_Owner = stableEntityId,
                     .m_Slot = std::to_underlying(overrideLane),
                     .m_Source = std::to_underlying(GPUSceneMaterialSource::EntityOverride),
+                };
+            case SubmeshMaterialOrigin::Patched:
+                // Per entity AND per slot (issue #1533): the patched copy belongs
+                // to this entity alone, and two patched slots of one entity are
+                // two different materials.
+                return GPUSceneMaterialKey{
+                    .m_Owner = stableEntityId,
+                    .m_Slot = importedSlot,
+                    .m_Source = std::to_underlying(GPUSceneMaterialSource::EntityPatch),
                 };
             case SubmeshMaterialOrigin::Imported:
             {
@@ -649,6 +668,7 @@ namespace OloEngine
         s_Data.VegetationSurfaces.Shutdown();
         s_Data.VegetationSurfaces.SetEnabled(s_Data.SceneRT.IsAvailable());
         s_Data.SceneRT.SetVegetationReady(false);
+        s_Data.SceneRT.SetVegetationCastersReady(false);
         // The groom proxies go the same way and for the same reason: their
         // buffers ARE what the coats' BLASes were built over, so a reset that
         // dropped the GPU Scene records and left these resident would leave

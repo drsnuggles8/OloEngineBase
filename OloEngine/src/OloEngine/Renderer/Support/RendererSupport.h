@@ -93,7 +93,6 @@ namespace OloEngine::RendererSupport
         DeformedRayStreamMissing,
         VirtualRayProxy,
         GroomRayProxy,
-        GroomSceneShadowMissing,
         SplatSceneIntegrationMissing,
         InvalidSampleCount,
         MaterialGeometryMismatch,
@@ -133,8 +132,6 @@ namespace OloEngine::RendererSupport
                 return "VirtualRayProxy";
             case Reason::GroomRayProxy:
                 return "GroomRayProxy";
-            case Reason::GroomSceneShadowMissing:
-                return "GroomSceneShadowMissing";
             case Reason::SplatSceneIntegrationMissing:
                 return "SplatSceneIntegrationMissing";
             case Reason::InvalidSampleCount:
@@ -233,8 +230,6 @@ namespace OloEngine::RendererSupport
             if (request.GeometryFamily == Geometry::Groom)
                 return { Outcome::Approximate, Reason::GroomRayProxy };
         }
-        if (request.GeometryFamily == Geometry::Groom && request.ShadowTechnique == Shadow::Raster)
-            return { Outcome::Unsupported, Reason::GroomSceneShadowMissing };
         if (request.SurfaceClosure == Closure::Masked && request.ShadowTechnique == Shadow::Raster)
             return { Outcome::Approximate, virtualMesh ? Reason::VirtualMaskedShadowMissing
                                                        : Reason::MaskedRasterShadowMissing };

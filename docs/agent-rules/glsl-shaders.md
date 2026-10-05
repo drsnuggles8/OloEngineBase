@@ -266,11 +266,13 @@ Three gotchas for any **consumer** of this buffer:
   depth-gate: where `depth == 1.0` (far plane), fall back to camera-only
   reconstruction (`InverseViewProjection` + `PrevViewProjection` from binding 8)
   instead of sampling the velocity buffer.
-- **It carries TAA jitter.** Both `u_ViewProjection` and `u_PrevViewProjection`
-  bake in their frame's Halton jitter (so TAA history reprojection stays
-  self-consistent). Consumers inherit a sub-pixel (~1 px) jitter velocity on
-  static geometry — harmless for motion blur, deliberately kept for TAA; don't
-  "unjitter" it in one consumer without accounting for the other.
+- **It carries NO TAA jitter** (#1552). Both `u_ViewProjection` and
+  `u_PrevViewProjection` bake in their frame's Halton jitter, so every writer
+  takes it out: `oloVelocityFromNdc` where the camera block is in scope,
+  `oloUnjitterClip` in the vertex stage otherwise. Static geometry writes zero.
+  A new writer that differences two jittered positions raw puts up to a pixel
+  of false motion into every temporal resolve
+  ([velocity-convention.md](velocity-convention.md)).
 - **Gate optional velocity with a flag, don't assume it exists.** Forward and
   deferred both produce it today, but pass a `hasVelocity` flag (TAA's
   `TAAParams`, motion blur's `MotionBlurParams` at binding 42) so a path without
@@ -1028,6 +1030,21 @@ candidate list must gain the new resource name *above* the stage it follows (CAS
 above `ToneMapColor` in `VignettePass`/`FXAAPass`/`SelectionOutlinePass`/`UICompositePass`/`FinalPass`),
 or the chain falls back past it and the stage's output is dropped. Placing CAS late
 also means **fewer** candidate-list edits than the HDR band (5 consumers vs 11).
+
+**The one sharpen that stays in HDR is TAA's own** (`PostProcess_TAA.glsl`, step 5), an
+unsharp mask on the resolve. It is clamped to the current frame's 3x3 range (#1533): unbounded on
+linear HDR, a pixel beside one bright sample has a 3x3 mean far above its own value, and the mask
+drove it below zero, a black ring in the sample's bloom. The bound also clips raw-sample noise
+excursions, which a linear mask scaled instead; a temporal-stability control arm that keeps the
+sharpen is quieter for it.
+
+**The sharpen stays out of the history.** The pass writes two attachments: the sharpened frame the
+chain shows, and the resolve before the sharpen, which becomes `TAAHistory`
+(`TAARenderPass::kHistoryAttachment`). Kept in the history, the mask's current-frame high-pass is
+blended back in every frame and accumulates: on a stochastic coat that is sample noise, and the dog's
+resolved coat held six times the converged estimate's high-frequency variance while its walk kept
+half of what the samples alone shimmer (B6, #1533).
+`VulkanPassSuite.TaaSharpenStaysInsideItsRangeAndOutOfTheHistory` reads the history sink back.
 
 Future FSR1 EASU/RCAS *spatial upscale* (render below display res, then upscale) is
 the opposite: EASU must run **early** (before display-res post), so when it lands it

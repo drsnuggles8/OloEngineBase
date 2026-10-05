@@ -152,7 +152,10 @@ namespace OloEngine
             {
                 // Pathless cubemaps (procedural / render-target) cannot produce
                 // a stable cache key across reloads, so skip disk-cache reuse.
-                OLO_CORE_WARN("GenerateIBLWithConfig: Pathless cubemap — skipping IBL disk cache");
+                // INFO, not a warning (#1533): it is what every procedural sky
+                // does by design, and a warning on every such scene open buried
+                // the ones that mean something.
+                OLO_CORE_INFO("GenerateIBLWithConfig: Pathless cubemap — skipping IBL disk cache");
                 cacheKey.clear();
             }
             else

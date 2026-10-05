@@ -25,6 +25,18 @@
 // olo_debug_levers_set. TEXT levers deliberately are not.
 // =============================================================================
 
+// --- OpenGL shader route ----------------------------------------------------
+OLO_LEVER_TRISTATE(GLShadersFromGlsl, "OLO_GL_SHADERS_FROM_GLSL",
+                   "Which route an OpenGL program takes to the driver. Unset, each shader's own "
+                   "OLO_GL_GLSL_ROUTE token decides: SPIRV-Cross GLSL text through glShaderSource for a shader "
+                   "that names it, glShaderBinary SPIR-V for every other. 1 puts every program on the text "
+                   "route (narrowed by OLO_GL_SHADERS_FROM_GLSL_MATCH), 0 none. Read as each program is "
+                   "created, so set it before launch: the A/B for what the driver's SPIR-V ingestion costs.")
+OLO_LEVER_TEXT(GLShadersFromGlslMatch, "OLO_GL_SHADERS_FROM_GLSL_MATCH",
+               "With OLO_GL_SHADERS_FROM_GLSL=1, take the GLSL-text route only for shaders whose path contains "
+               "one of these comma-separated substrings (e.g. 'Foliage_'), so one shader family can be A/B'd "
+               "against the rest of the frame.")
+
 // --- Render graph -----------------------------------------------------------
 OLO_LEVER_TOGGLE(RenderGraphDiagnostics, "OLO_RENDERGRAPH_DIAGNOSTICS",
                  "Verbose render-graph build/execute tracing, plus the registration-order-sensitivity diagnostic.")
@@ -71,6 +83,39 @@ OLO_LEVER_EXACT(SerialMeshSubmission, "OLO_RENDERER_SERIAL_MESH_SUBMISSION",
                 "(#1349). The two branches must produce the same packets; this is the A/B that says whether they "
                 "do. Read per call, so it applies to the next submitted batch.")
 
+// --- Grooms -----------------------------------------------------------------
+OLO_LEVER_EXACT(GroomNoDepthPrepass, "OLO_GROOM_NO_DEPTH_PREPASS",
+                "Draw each groom in ONE pass -- depth LESS with depth writes on, every passing fragment shaded -- "
+                "instead of the depth prepass and the shading draw at EQUAL (#1533 E1). The same fragments win "
+                "either way, so this is the A/B for whether the prepass pays for its second raster: compare the "
+                "GroomPass GPU time with it on and off. Read per frame.")
+OLO_LEVER_EXACT(GroomProxyOnCpu, "OLO_GROOM_PROXY_ON_CPU",
+                "Build a bound coat's ray-traced proxy on the CPU -- deform the rest stream's segments, convert them "
+                "to crossed ribbons and upload the vertices -- instead of in GroomProxyDeformToBuffer.comp (#1533). "
+                "The two produce the same ribbons to float rounding (a degenerate segment is dropped on the CPU and "
+                "written as a zero-area quad on the GPU); this is the A/B for the GroomProxy CPU scopes and for the "
+                "shadow. Read per frame.")
+OLO_LEVER_NUMBER(GroomShadowCasterFraction, "OLO_GROOM_SHADOW_CASTER_FRACTION", 0.015625f, 1.0f,
+                 "Cast every groom's scene shadow from this share of its strands in EVERY view, instead of the share "
+                 "each view's width floor allows (GroomShadowCasterFraction, #1533 E1). 1 casts the whole coat -- the "
+                 "A/B against the subset, for the shadow pass's GroomCasters time and for the look. Rounded up to a "
+                 "sixty-fourth. Unset keeps the per-view rule. Read per frame.")
+OLO_LEVER_EXACT(GroomNoCoatMarch, "OLO_GROOM_NO_COAT_MARCH",
+                "DIAGNOSTIC SUBSTITUTION (#1533 cost matrix): every groom's coat-volume march answers 'no coat in "
+                "the way' -- transmittance 1 -- while the volume is still baked and bound and its dual scattering "
+                "still evaluated. NOT the shipped look: the A/B that separates the march's cost from the rest of "
+                "the coat's shading (OLO_DOG_COST_SUB=nomarch). Read per frame.")
+OLO_LEVER_EXACT(GroomNoCoatBody, "OLO_GROOM_NO_COAT_BODY",
+                "Leave the body out of every groom's coat march (#1533): a rest bake still marks the body into its "
+                "volume, but the shader counts it for no light, so a light that does not cast, the sky and the VSM "
+                "reach the fur through the body as they did before it was there. The A/B for the body's share of "
+                "the coat's light (TheLightTheBodyCannotStopIsMeasuredRegionByRegion). Read per frame.")
+OLO_LEVER_EXACT(GroomConstantFibre, "OLO_GROOM_CONSTANT_FIBRE",
+                "DIAGNOSTIC SUBSTITUTION (#1533 cost matrix): every groom's fibre scattering -- the BCSDF per light "
+                "and its ambient response -- replaced by a constant lobe, with every attenuation (scene shadow, coat "
+                "march, dual scattering) still evaluated. NOT the shipped look: the A/B that separates the fibre "
+                "evaluation's cost from the volume traversal's (OLO_DOG_COST_SUB=nofibre). Read per frame.")
+
 // --- Fault injection ----------------------------------------------------------
 // Deliberately WRONG behaviour, for the negative controls of the renderer
 // state-machine harness (#1349): each one re-creates a known class of renderer
@@ -95,6 +140,19 @@ OLO_LEVER_EXACT(FaultShortenTransientLifetimes, "OLO_FAULT_SHORTEN_TRANSIENT_LIF
                 "FAULT (#1349 negative control): end every transient's planned lifetime one pass before its last "
                 "access, so the alias-slot assigner can hand its backing to another transient while it is still "
                 "read. Re-creates an alias-lifetime error in the transient planner.")
+OLO_LEVER_EXACT(FaultSkipGroomVsmInvalidation, "OLO_FAULT_SKIP_GROOM_VSM_INVALIDATION",
+                "FAULT (#1523 negative control): submit no Virtual Shadow Map page invalidation for groom casters, "
+                "so a moving coat leaves its old silhouette in the cached pages. Re-creates the gap #1380 shipped "
+                "with; GroomSceneShadowVisualEvidenceTest proves its stale-page check sees it.")
+OLO_LEVER_EXACT(FaultGroomShadowAtCoatExit, "OLO_FAULT_GROOM_SHADOW_AT_COAT_EXIT",
+                "FAULT (#1533 negative control): make no opaque shadow copies for groom receivers, so every groom "
+                "samples the sun's cascades and the local-light atlas at its coat's light-exit point -- outside the "
+                "body -- and the body it grows on shadows none of its fur. Re-creates the receiver #1323 shipped "
+                "with; GroomSceneShadowVisualEvidenceTest proves its body-shadow check sees it.")
+OLO_LEVER_EXACT(FaultGroomNoOtherFur, "OLO_FAULT_GROOM_NO_OTHER_FUR",
+                "FAULT (#1533 negative control): grooms that sample the opaque shadow copies never also sample the "
+                "full map at their coat's light-exit point, so one coat's fur does not shadow another coat -- the gap "
+                "the opaque copies left. GroomSceneShadowVisualEvidenceTest's coat-over-coat cases prove they see it.")
 OLO_LEVER_EXACT(FaultCountAliasAsBacking, "OLO_FAULT_COUNT_ALIAS_AS_BACKING",
                 "FAULT (#1342 negative control): book every view/alias RendererMemoryTracker::TrackAlias receives "
                 "as its own BACKING allocation, so a view onto an existing image is counted twice in the physical "

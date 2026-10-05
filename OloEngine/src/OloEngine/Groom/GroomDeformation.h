@@ -54,6 +54,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Groom/GroomBinding.h"
+#include "OloEngine/Groom/GroomEvaluationScratch.h"
 #include "OloEngine/Groom/GroomSurfaceFrame.h"
 
 #include <glm/glm.hpp>
@@ -355,9 +356,30 @@ namespace OloEngine
      * Pure apart from the output: the same groom, binding and inputs always
      * produce the same transforms, which is what lets a headless test assert on
      * a deformed root position rather than on a picture of one.
+     *
+     * @param onlySelectedDefined (#1533) with a selection, reset and write the
+     *        selected records alone and leave every other one as it was. For a
+     *        caller that reads its selection and nothing else -- the ray-traced
+     *        proxy's few thousand roots, where clearing all ~300k records of the
+     *        showcase dog cost more than evaluating them.
+     *
+     * @param skinScratch (#1533 review) the surface skinned once per vertex when
+     *        the roots outnumber the vertices: the caller's, which keeps its
+     *        capacity across frames and grooms (GroomEvaluationScratch.h). A
+     *        caller that evaluates every frame passes the scratch it owns.
      */
     GroomDeformationStats EvaluateGroomRootTransforms(const GroomAsset& groom, const GroomBindingAsset& binding,
                                                       const GroomDeformationInputs& inputs,
                                                       std::optional<std::span<const u32>> selectedCurves,
-                                                      TArray<GroomRootTransform>& outTransforms);
+                                                      TArray<GroomRootTransform>& outTransforms,
+                                                      GroomSurfaceSkinScratch& skinScratch,
+                                                      bool onlySelectedDefined = false);
+
+    /// The same for a ONE-OFF call (a test, a bake): its skin scratch lives and
+    /// dies with the call, so nothing is retained -- and nothing is reused.
+    GroomDeformationStats EvaluateGroomRootTransforms(const GroomAsset& groom, const GroomBindingAsset& binding,
+                                                      const GroomDeformationInputs& inputs,
+                                                      std::optional<std::span<const u32>> selectedCurves,
+                                                      TArray<GroomRootTransform>& outTransforms,
+                                                      bool onlySelectedDefined = false);
 } // namespace OloEngine

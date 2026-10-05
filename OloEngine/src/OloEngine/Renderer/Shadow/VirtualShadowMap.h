@@ -242,7 +242,7 @@ namespace OloEngine
             glm::vec4 LightDirection{ 0.0f };                // 2624 — xyz normalized, w unused
             glm::vec4 CameraPosition{ 0.0f };                // 2640 — xyz render-relative, w unused
             // x = clip 0 half extent (m), y = clip-selection bias,
-            // z = depth bias (clip units), w = normal bias (m)
+            // z = depth bias (texels of the level sampled), w = normal bias (m)
             glm::vec4 Params0{ 0.0f }; // 2656
             // x = softness, y = max shadow distance, z = physical resolution,
             // w = physical page-table resolution
@@ -258,7 +258,7 @@ namespace OloEngine
             // layers, and conflating them either over-dispatches the cull or
             // makes the marker miss five faces out of six.
             glm::ivec4 Params4{ 0 }; // 2720
-            // x = local detail bias, y = local depth bias (metres)
+            // x = local detail bias, y = local depth bias (texels of the mip sampled)
             glm::vec4 Params5{ 0.0f }; // 2736
 
             static constexpr u32 GetSize()
@@ -428,13 +428,14 @@ namespace OloEngine
         // this system is built on.
         f32 DepthRange = 4096.0f;
 
-        // Depth bias in METRES, converted to the ortho range's [0,1] depth on
-        // upload. Authored in world units on purpose: the clip levels share one
-        // fixed depth range, so a raw clip-space bias silently changes meaning the
-        // moment DepthRange is retuned. The normal offset is world-space too, and
-        // is additionally scaled by the selected level's texel size in the shader.
-        f32 DepthBiasMeters = 0.05f;
-        f32 NormalBias = 0.02f;
+        // NO RECEIVER BIAS OF ITS OWN (#1533). The sun's clip levels take the
+        // cascades' pair -- ShadowSettings::DepthBiasTexels and NormalBias, which
+        // the scene sets from the light -- and a lamp's layers the atlas's depth
+        // texels, each in texels of the level or mip sampled
+        // (VirtualShadowResources.glsl). The constant 5 cm of depth and 2 cm of
+        // offset these settings used to hold skipped every occluder within about
+        // 7 cm of a receiver whose texels are a millimetre wide, so contact
+        // shadows the cascades kept went missing.
 
         // Point / spot lights read the same page table instead of the budgeted
         // atlas (issue #703). ON by default under Enabled, deliberately: a
@@ -469,14 +470,6 @@ namespace OloEngine
         // top-tier face resolution and lets distance take everything else down
         // from there.
         f32 LocalDetailBias = 2.0f;
-
-        // Depth bias for local lights, in METRES, converted per sample to the
-        // [0,1] depth the light's perspective projection produces at that
-        // distance (vsmLocalDepthBias). Metres rather than NDC because a
-        // perspective depth's metre-per-unit scale falls off as 1/d²: one NDC
-        // constant is either useless near the light or a peter-pan at its range,
-        // over a range that differs per light.
-        f32 LocalDepthBiasMeters = 0.02f;
 
         // 0 = off, 1 = clip level tint, 2 = page address, 3 = residency,
         // 4 = shadow test, 5 = stored depth, 6 = receiver depth,
@@ -515,7 +508,16 @@ namespace OloEngine
         // shader load degrades to CSM instead of rendering nothing.
         [[nodiscard]] bool IsActive() const
         {
-            return m_Settings.Enabled && m_Initialized && !m_Suppressed;
+            return IsEnabledAndInitialized() && !m_Suppressed;
+        }
+        // IsActive() without the global shadow switch: the settings enable it
+        // and initialisation produced every resource. This is what a caller
+        // mirrors back as "VSM is on". The suppression is per frame and must not
+        // overwrite the user's choice: enabling VSM while shadows were off for a
+        // frame used to record it as refused (#1533).
+        [[nodiscard]] bool IsEnabledAndInitialized() const
+        {
+            return m_Settings.Enabled && m_Initialized;
         }
 
         // The shadow system as a whole was switched off (ShadowSettings::Enabled).
@@ -690,9 +692,12 @@ namespace OloEngine
         // --- Steps 1-6: page management (GPU) ---------------------------------
         void UpdatePages();
 
-        // Softness and max shadow distance come from ShadowSettings, which VSM
-        // does not own. Call after BeginFrame(), before UpdatePages().
-        void SetSamplingParams(f32 softness, f32 maxShadowDistance);
+        // Softness, max shadow distance and the receiver bias come from
+        // ShadowSettings, which VSM does not own: the sun's depth bias in texels
+        // and normal bias in metres, and the atlas's depth bias in texels for a
+        // lamp's layers. Call after BeginFrame(), before UpdatePages().
+        void SetSamplingParams(f32 softness, f32 maxShadowDistance, f32 depthBiasTexels, f32 normalBias,
+                               f32 localDepthBiasTexels);
 
         // --- Step 7: cull + raster -------------------------------------------
         //

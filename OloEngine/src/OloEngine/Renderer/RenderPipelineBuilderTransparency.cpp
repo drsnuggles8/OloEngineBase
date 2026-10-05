@@ -80,6 +80,15 @@ namespace OloEngine::RenderPipelineBuilderInternal
             AddExistingNode(graph, inputs.Passes->ShaderDebugDraw);
         }
 
+        // The CPU-submitted see-through debug draws (DrawLine / DrawSphere,
+        // #1533), for the same reason and in the same place: after OITResolve,
+        // so nothing drawn later in the frame covers them, and before AOApply,
+        // which reads SceneColor from the last writer registered ahead of it.
+        if (inputs.Passes->DebugOverlay)
+        {
+            AddExistingNode(graph, inputs.Passes->DebugOverlay);
+        }
+
         // AO writer (SSAOPass / GTAOPass) is registered earlier in RegisterSceneAndLightingNodes
         // so its AOBuffer write is visible to DeferredLightingPass's read in registration order.
         // AOApply consumes the same AOBuffer here; the name-based predecessor lookup wires it up.

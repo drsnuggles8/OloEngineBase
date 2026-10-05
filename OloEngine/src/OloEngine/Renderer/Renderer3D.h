@@ -103,6 +103,7 @@ namespace OloEngine
     class CommandPacket;
     class FoliageRenderer;
     class Window;
+    class MaterialOverrideCache;
     struct FramebufferSpecification;
     struct PODMaterialData;
 } // namespace OloEngine
@@ -209,6 +210,11 @@ namespace OloEngine
             // (#431). Routed to GPUDrivenOcclusionPass, which draws after
             // ScenePass in Forward / Forward+.
             GPUOcclusion,
+            // See-through debug draws (DrawLine / DrawSphere, #1533): routed to
+            // DebugOverlayPass, which runs after every scene-colour writer on
+            // every path, so foliage, fur, water and particles drawn later in
+            // the frame no longer paint over a gizmo that sits inside them.
+            DebugOverlay,
         };
 
         struct Statistics
@@ -365,6 +371,17 @@ namespace OloEngine
         [[nodiscard]] static GPUSceneMaterialKey ResolveGPUSceneMaterialKey(
             const Material* overrideMaterial, u64 stableEntityId, const Ref<MeshSource>& meshSource,
             const Material* importedMaterial, u32 importedSlot,
+            GPUSceneMaterialOverrideLane overrideLane = GPUSceneMaterialOverrideLane::MaterialComponent);
+        // The full key, with the entity's PATCH of the imported material in the
+        // precedence (MaterialOverridesComponent, issue #1533): override ->
+        // patched -> imported -> default. `patchedMaterial` is what
+        // ResolveMaterialPatch returned for `importedMaterial`; a patched submesh
+        // gets an EntityPatch key (entity, slot), so the record names the copy
+        // the draw shades with and the shared Imported record is left alone.
+        // The two overloads above are this one with no patch.
+        [[nodiscard]] static GPUSceneMaterialKey ResolveGPUSceneMaterialKey(
+            const Material* overrideMaterial, const Material* patchedMaterial, u64 stableEntityId,
+            const Ref<MeshSource>& meshSource, const Material* importedMaterial, u32 importedSlot,
             GPUSceneMaterialOverrideLane overrideLane = GPUSceneMaterialOverrideLane::MaterialComponent);
         // Visits a material once per frame: the first call for a key builds the
         // record input (factors, flags, RHI texture identities and their
@@ -535,13 +552,19 @@ namespace OloEngine
         // classic path, forwarded unchanged so both renderers pose the character
         // from one set of matrices. Empty for a rigid mesh, which is every
         // caller that predates skinned virtual geometry.
+        //
+        // `materialPatches` is the entity's MaterialOverridesComponent patches
+        // (Scene::PrepareMaterialOverrides for this mesh source, issue #1533), or
+        // null: a part whose imported material the entity patches shades with,
+        // and stages its proxy record under, the patched copy.
         [[nodiscard]] static bool SubmitVirtualMesh(AssetHandle meshHandle, const Ref<MeshSource>& meshSource,
                                                     const glm::mat4& modelMatrix, const Material* overrideMaterial,
                                                     const Material& defaultMaterial, i32 entityID,
                                                     u64 stableEntityId, f32 errorThresholdPixels, bool castShadows,
                                                     const glm::vec4& lightmapScaleOffset = glm::vec4(0.0f),
                                                     std::span<const glm::mat4> boneMatrices = {},
-                                                    std::span<const glm::mat4> prevBoneMatrices = {});
+                                                    std::span<const glm::mat4> prevBoneMatrices = {},
+                                                    const MaterialOverrideCache* materialPatches = nullptr);
         // Flatten a Material into the exact POD record the frame material table
         // uploads for a draw (factors, alpha mode/cutoff, and the resolved GL
         // texture id per slot, incl. the global-IBL fallback). Public because it
@@ -934,6 +957,15 @@ namespace OloEngine
         {
             return s_Data.GroomStrandRequests;
         }
+        // Hands `storage` a root-transform ALLOCATION from the frame before
+        // (#1533 E1), when it has none big enough and one is pooled. BeginScene
+        // keeps the drawn frame's arrays instead of freeing them: a bound coat's
+        // array is one record per strand (~18 MB for the showcase dog), and the
+        // producer swaps it into its request, so without the pool every frame
+        // allocated it afresh and paid for every page of it. Contents are NOT
+        // carried -- EvaluateGroomRootTransforms rewrites every record -- so
+        // which groom an array came from does not matter.
+        static void TakePooledGroomRootTransforms(TArray<GroomRootTransform>& storage, u32 needed) noexcept;
         // When a bound coat's self-shadow volume is rebaked from its drawn pose
         // (issue #1426). Held here and handed to GroomRenderPass every frame
         // with its frame state, so it survives a pipeline rebuild. A budget, not
@@ -985,6 +1017,14 @@ namespace OloEngine
         [[nodiscard]] static bool IsTemporalUpscaleActive() noexcept
         {
             return s_Data.TemporalUpscaleActive;
+        }
+        // The engine-wide stochastic frame counter (#706), for a draw that folds
+        // it into a per-pixel pattern a temporal resolve accumulates. Whether to
+        // sample with it is the caller's decision (see the foliage dither in
+        // CommandDispatch::DrawFoliageLayer, which freezes it without a resolve).
+        [[nodiscard]] static u32 GetStochasticFrameIndex() noexcept
+        {
+            return s_Data.StochasticFrameIndex;
         }
         // What reconstructed the LAST PREPARED frame and, when a temporal request
         // fell back, why. Latched beside TemporalUpscaleActive from the same
@@ -1951,7 +1991,11 @@ namespace OloEngine
             // The defaults are the identity, so every existing caller and test
             // keeps the pre-#1237 ladder.
             const glm::vec4& lodTransition0 = glm::vec4(0.0f, 30.0f, 80.0f, 0.25f),
-            const glm::vec4& lodTransition1 = glm::vec4(0.15f, 2.0f, 0.0f, 0.0f));
+            const glm::vec4& lodTransition1 = glm::vec4(0.15f, 2.0f, 0.0f, 0.0f),
+            // The far card's normal lane (#1533, FoliageLod::CardNormalLane): 0 for
+            // a legacy card, whose +Y normal and instance yaw are untouched;
+            // otherwise the card is the layer mesh's bake, faced to the eye.
+            f32 cardNormalLane = 0.0f);
 
         // Water rendering parameters (grouped to avoid 25+ parameter function)
         struct WaterDrawParams
@@ -2155,6 +2199,18 @@ namespace OloEngine
             SubmitRenderStreamPacket(RenderStreamType::ForwardOverlay, packet);
         }
 
+        // The see-through debug draws' late bucket (#1533).
+        template<typename T>
+        static CommandPacket* CreateDebugOverlayDrawCall()
+        {
+            return CreateRenderStreamDrawCall<T>(RenderStreamType::DebugOverlay);
+        }
+
+        static void SubmitDebugOverlayPacket(CommandPacket* packet)
+        {
+            SubmitRenderStreamPacket(RenderStreamType::DebugOverlay, packet);
+        }
+
         template<typename T>
         static CommandPacket* CreateWaterDrawCall()
         {
@@ -2168,6 +2224,9 @@ namespace OloEngine
 
       private:
         static void ObserveTemporalProjection(const glm::mat4& projection);
+        // BeginScene's clear of the groom requests, keeping their root-transform
+        // arrays for TakePooledGroomRootTransforms (#1533 E1).
+        static void RecycleGroomStrandRequests() noexcept;
 
         struct SceneBindingUBOs
         {
@@ -2487,6 +2546,10 @@ namespace OloEngine
             TArray64<RayTracedShadowLightRequest> RayTracedShadowLightRequests;
             // See SetGroomStrandRequests (issue #1246).
             TArray64<GroomStrandRequest> GroomStrandRequests;
+            // See TakePooledGroomRootTransforms (#1533 E1). Refilled at every
+            // BeginScene from the requests it clears, so it never holds more
+            // than one frame's arrays.
+            TArray<TArray<GroomRootTransform>> GroomRootTransformPool;
             // See SetGroomCoatRebakePolicy (issue #1426).
             GroomCoatShadow::CoatRebakePolicy GroomCoatRebakePolicy;
             // See RequestSceneTemporalResolve (issue #1429). Pending is what the
@@ -2850,14 +2913,20 @@ namespace OloEngine
             bool HasTemporalProjectionMatrix = false;
 
             // TAA projection jitter state (Halton(2,3) sub-pixel sequence).
-            // `RenderPipeline::PrepareFrame(...)` rotates CurrJitterUV ->
-            // PrevJitterUV and then samples the next Halton pair when
-            // EngineTAAWanted (the user OR a scene request, #1429); the
-            // jitter offset is baked into `ProjectionMatrix` (and therefore
-            // `ViewProjectionMatrix`) so all downstream passes observe the
-            // jittered camera consistently. In Forward / Forward+ without
-            // TAA, and in any path with TAA disabled, both jitters stay at
-            // zero — no behavioural change.
+            // `RenderPipeline::PrepareFrame(...)` samples the next Halton pair
+            // when EngineTAAWanted (the user OR a scene request, #1429) and
+            // bakes it into `ProjectionMatrix` (and therefore
+            // `ViewProjectionMatrix`), so all downstream passes observe the
+            // jittered camera consistently.
+            //
+            // CurrJitterUV is the offset that jitter puts on every vertex, in
+            // VELOCITY units (the uploaded projection's NDC times 0.5,
+            // TemporalUpscalePolicy::ProjectionJitterVelocityOffset), and
+            // PrevJitterUV the previous frame's, rotated with
+            // PrevViewProjectionMatrix at the end of the frame. Both reach the
+            // camera block (CameraUBO::JitterUV) and the motion-blur block, and
+            // every velocity writer subtracts them (#1552): static content
+            // writes zero. Without a jitter both stay at zero.
             u32 TAAJitterFrameIndex = 0;
             glm::vec2 CurrJitterUV = glm::vec2(0.0f);
             glm::vec2 PrevJitterUV = glm::vec2(0.0f);

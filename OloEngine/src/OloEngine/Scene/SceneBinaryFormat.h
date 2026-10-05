@@ -110,8 +110,14 @@ namespace OloEngine
         // under the old rules, so an unversioned scene with a fresh v5 sidecar
         // would still load. Sidecars written before that are invalidated; a
         // new one is written only after a YAML load that passed the check.
-        constexpr u32 CurrentVersion = 6;
-        constexpr u32 MinSupportedVersion = 6;
+        //
+        // v7 (issue #1533): GroomCoatShadowComponent gained the dual-scattering
+        // and rest-bake switches, which change its block's byte layout, and the
+        // BoneAttachment, MaterialOverrides and GroomSceneShadow components are
+        // new. A v6 sidecar read against the new layout would slide every
+        // entity after the first coat-shadow block.
+        constexpr u32 CurrentVersion = 7;
+        constexpr u32 MinSupportedVersion = 7;
 
         // Per-entity storage kind (the u8 that prefixes each EntityRecord).
         enum EntityKind : u8

@@ -2,9 +2,12 @@
 #include "OloEngine/Groom/GroomDeformation.h"
 
 #include "OloEngine/Groom/GroomAsset.h"
+#include "OloEngine/Task/ParallelFor.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <vector>
 
 namespace OloEngine
 {
@@ -109,14 +112,48 @@ namespace OloEngine
     GroomDeformationStats EvaluateGroomRootTransforms(const GroomAsset& groom, const GroomBindingAsset& binding,
                                                       const GroomDeformationInputs& inputs,
                                                       std::optional<std::span<const u32>> selectedCurves,
-                                                      TArray<GroomRootTransform>& outTransforms)
+                                                      TArray<GroomRootTransform>& outTransforms, bool onlySelectedDefined)
+    {
+        // A one-off call's scratch is its own, and gone with it.
+        GroomSurfaceSkinScratch scratch;
+        return EvaluateGroomRootTransforms(groom, binding, inputs, selectedCurves, outTransforms, scratch,
+                                           onlySelectedDefined);
+    }
+
+    GroomDeformationStats EvaluateGroomRootTransforms(const GroomAsset& groom, const GroomBindingAsset& binding,
+                                                      const GroomDeformationInputs& inputs,
+                                                      std::optional<std::span<const u32>> selectedCurves,
+                                                      TArray<GroomRootTransform>& outTransforms,
+                                                      GroomSurfaceSkinScratch& skinScratch, bool onlySelectedDefined)
     {
         GroomDeformationStats stats;
 
         const u32 curveCount = groom.GetCurveCount();
         // Fully written, never partially: an index into this array must be safe
         // for every curve whether or not it was selected — see the header.
-        outTransforms.Init(GroomRootTransform{}, static_cast<i32>(curveCount));
+        // Cleared into the allocation it already has, in parallel (#1533 E1):
+        // on the showcase dog that is ~300k records every frame, and one thread
+        // adding them one at a time cost more than evaluating the roots it kept.
+        outTransforms.SetNumUninitialized(static_cast<i32>(curveCount), EAllowShrinking::No);
+        if (onlySelectedDefined && selectedCurves.has_value())
+        {
+            GroomRootTransform* const records = outTransforms.GetData();
+            for (const u32 curve : *selectedCurves)
+                if (curve < curveCount)
+                    records[curve] = GroomRootTransform{};
+        }
+        else
+        {
+            static constexpr u32 kClearChunk = 16384;
+            GroomRootTransform* const records = outTransforms.GetData();
+            ParallelFor("GroomRootTransformsClear", static_cast<i32>((curveCount + kClearChunk - 1u) / kClearChunk), 1,
+                        [records, curveCount](i32 chunk)
+                        {
+                            const u32 begin = static_cast<u32>(chunk) * kClearChunk;
+                            const u32 end = std::min(begin + kClearChunk, curveCount);
+                            std::fill(records + begin, records + end, GroomRootTransform{});
+                        });
+        }
 
         if (binding.GetRootCount() != curveCount || !inputs.Surface.IsUsable())
         {
@@ -154,12 +191,62 @@ namespace OloEngine
         // own decision, which is the only thing that can invalidate it there.
         stats.HasHistory = inputs.HasHistory && (!skinned || usePrevPose);
 
-        const auto evaluateOne = [&](u32 curve)
+        // ── THE SURFACE, SKINNED ONCE (#1533 E1) ─────────────────────────────
+        //
+        // Every root skins its triangle's three corners, for this frame and the
+        // last, and a corner is shared by the roots of every triangle round it:
+        // on the showcase dog 299k roots read ~1.8M corners of a ~125k-vertex
+        // body, and doing them one root at a time was the frame's largest CPU
+        // cost (~60 ms). When the roots outnumber the vertices, every vertex is
+        // skinned ONCE into a scratch pose, in parallel, and each root reads its
+        // corners from it: the same function on the same inputs, so the same
+        // bits. A handful of roots on a big body keeps the per-root path, which
+        // then touches fewer vertices.
+        const u32 rootsToEvaluate =
+            selectedCurves.has_value() ? static_cast<u32>(selectedCurves->size()) : curveCount;
+        const u32 vertexCount = inputs.Surface.VertexCount;
+        const bool preSkin = skinned && (static_cast<u64>(rootsToEvaluate) > vertexCount);
+        // In the caller's scratch, which keeps its capacity across frames and
+        // grooms (GroomEvaluationScratch.h).
+        if (preSkin)
+        {
+            skinScratch.Current.resize(vertexCount);
+            skinScratch.Weighted.resize(vertexCount);
+            if (usePrevPose)
+            {
+                skinScratch.Previous.resize(vertexCount);
+            }
+            skinScratch.Account();
+            std::vector<glm::vec3>& current = skinScratch.Current;
+            std::vector<glm::vec3>& previous = skinScratch.Previous;
+            std::vector<u8>& weightedFlags = skinScratch.Weighted;
+            ParallelFor("GroomSkinSurface", static_cast<i32>(vertexCount), 2048,
+                        [&](i32 index)
+                        {
+                            const u32 v = static_cast<u32>(index);
+                            const glm::vec3 rest = inputs.Surface.Position(v);
+                            bool weighted = false;
+                            current[v] = SkinGroomSurfaceVertex(inputs.Skinning, v, rest, inputs.Skinning.Palette, weighted);
+                            weightedFlags[v] = weighted ? 1u : 0u;
+                            if (usePrevPose)
+                            {
+                                bool unused = false;
+                                previous[v] = SkinGroomSurfaceVertex(inputs.Skinning, v, rest, inputs.Skinning.PrevPalette, unused);
+                            }
+                        });
+        }
+
+        // The workers read the caller's scratch through these.
+        const glm::vec3* const skinnedCurrent = preSkin ? skinScratch.Current.data() : nullptr;
+        const glm::vec3* const skinnedPrevious = (preSkin && usePrevPose) ? skinScratch.Previous.data() : nullptr;
+        const u8* const skinnedWeighted = preSkin ? skinScratch.Weighted.data() : nullptr;
+
+        const auto evaluateOne = [&](u32 curve, GroomDeformationStats& rootStats)
         {
             const GroomRootBinding& record = binding.GetRoot(curve);
             if (!inputs.Surface.TriangleInRange(record.TriangleIndex))
             {
-                ++stats.RootsSkippedOutOfRange;
+                ++rootStats.RootsSkippedOutOfRange;
                 return;
             }
 
@@ -171,15 +258,24 @@ namespace OloEngine
             glm::vec3 current0 = rest0;
             glm::vec3 current1 = rest1;
             glm::vec3 current2 = rest2;
-            if (skinned)
+            if (preSkin)
+            {
+                current0 = skinnedCurrent[corners.x];
+                current1 = skinnedCurrent[corners.y];
+                current2 = skinnedCurrent[corners.z];
+                rootStats.VerticesUnweighted += (skinnedWeighted[corners.x] != 0u ? 0u : 1u) +
+                                                (skinnedWeighted[corners.y] != 0u ? 0u : 1u) +
+                                                (skinnedWeighted[corners.z] != 0u ? 0u : 1u);
+            }
+            else if (skinned)
             {
                 bool weighted = false;
                 current0 = SkinGroomSurfaceVertex(inputs.Skinning, corners.x, rest0, inputs.Skinning.Palette, weighted);
-                stats.VerticesUnweighted += weighted ? 0u : 1u;
+                rootStats.VerticesUnweighted += weighted ? 0u : 1u;
                 current1 = SkinGroomSurfaceVertex(inputs.Skinning, corners.y, rest1, inputs.Skinning.Palette, weighted);
-                stats.VerticesUnweighted += weighted ? 0u : 1u;
+                rootStats.VerticesUnweighted += weighted ? 0u : 1u;
                 current2 = SkinGroomSurfaceVertex(inputs.Skinning, corners.z, rest2, inputs.Skinning.Palette, weighted);
-                stats.VerticesUnweighted += weighted ? 0u : 1u;
+                rootStats.VerticesUnweighted += weighted ? 0u : 1u;
             }
 
             // Into the groom's object space before the frame is built, so
@@ -199,7 +295,7 @@ namespace OloEngine
                 // conflated them — the binding preview did — reports a
                 // degeneracy for every strand the budget simply did not select.
                 outTransforms[curve].Held = true;
-                ++stats.RootsHeldDegenerate;
+                ++rootStats.RootsHeldDegenerate;
                 return;
             }
 
@@ -212,11 +308,14 @@ namespace OloEngine
             {
                 bool weighted = false;
                 const glm::vec3 previous0 =
-                    SkinGroomSurfaceVertex(inputs.Skinning, corners.x, rest0, inputs.Skinning.PrevPalette, weighted);
+                    preSkin ? skinnedPrevious[corners.x]
+                            : SkinGroomSurfaceVertex(inputs.Skinning, corners.x, rest0, inputs.Skinning.PrevPalette, weighted);
                 const glm::vec3 previous1 =
-                    SkinGroomSurfaceVertex(inputs.Skinning, corners.y, rest1, inputs.Skinning.PrevPalette, weighted);
+                    preSkin ? skinnedPrevious[corners.y]
+                            : SkinGroomSurfaceVertex(inputs.Skinning, corners.y, rest1, inputs.Skinning.PrevPalette, weighted);
                 const glm::vec3 previous2 =
-                    SkinGroomSurfaceVertex(inputs.Skinning, corners.z, rest2, inputs.Skinning.PrevPalette, weighted);
+                    preSkin ? skinnedPrevious[corners.z]
+                            : SkinGroomSurfaceVertex(inputs.Skinning, corners.z, rest2, inputs.Skinning.PrevPalette, weighted);
                 // prevSurfaceToGroom, not surfaceToGroom: see
                 // GroomDeformationInputs::PrevSurfaceToGroom.
                 const GroomSurfaceFrame previousFrame =
@@ -250,27 +349,31 @@ namespace OloEngine
                 transform.PrevRotation = frame.Rotation;
             }
 
-            ++stats.RootsDeformed;
+            ++rootStats.RootsDeformed;
         };
 
-        if (!selectedCurves.has_value())
+        // The roots in parallel (#1533 E1): each writes only its own curve's
+        // transform, and counts into its worker's stats, summed after. An EMPTY
+        // selection evaluates nothing, which is the whole point of the
+        // optional -- see the header.
+        TArray<GroomDeformationStats> workerStats;
+        ParallelForWithTaskContext("GroomRootTransforms", workerStats, static_cast<i32>(rootsToEvaluate),
+                                   [&](GroomDeformationStats& local, i32 index)
+                                   {
+                                       const u32 curve = selectedCurves.has_value()
+                                                             ? (*selectedCurves)[static_cast<sizet>(index)]
+                                                             : static_cast<u32>(index);
+                                       if (curve < curveCount)
+                                       {
+                                           evaluateOne(curve, local);
+                                       }
+                                   });
+        for (const GroomDeformationStats& local : workerStats)
         {
-            for (u32 curve = 0; curve < curveCount; ++curve)
-            {
-                evaluateOne(curve);
-            }
-        }
-        else
-        {
-            // An EMPTY selection evaluates nothing, which is the whole point of
-            // the optional -- see the header.
-            for (const u32 curve : *selectedCurves)
-            {
-                if (curve < curveCount)
-                {
-                    evaluateOne(curve);
-                }
-            }
+            stats.RootsDeformed += local.RootsDeformed;
+            stats.RootsHeldDegenerate += local.RootsHeldDegenerate;
+            stats.RootsSkippedOutOfRange += local.RootsSkippedOutOfRange;
+            stats.VerticesUnweighted += local.VerticesUnweighted;
         }
 
         return stats;

@@ -87,10 +87,19 @@ namespace OloEngine::RendererSupport
 
         request.GeometryFamily = Geometry::VirtualWPO;
         ExpectDecision(request, kHybrid, Outcome::Unsupported, Reason::VirtualFeatureMissing);
+    }
 
+    // Groom scene shadows (#1323, re-landed by #1523): a groom is a caster
+    // family in ShadowRenderPass and GroomStrand.glsl samples the scene's
+    // shadow maps at the coat's light-exit point, so the raster request is
+    // served. It was Unsupported/GroomSceneShadowMissing while the #1382 merge
+    // had deleted the feature; that reason code is gone with the gap.
+    TEST(RendererSupport, GroomRasterSceneShadowIsServed)
+    {
+        Request request{};
         request.GeometryFamily = Geometry::Groom;
         request.SurfaceCategory = MaterialFamily::Fibre;
-        ExpectDecision(request, kHybrid, Outcome::Unsupported, Reason::GroomSceneShadowMissing);
+        ExpectDecision(request, kHybrid, Outcome::Supported, Reason::None);
     }
 
     TEST(RendererSupport, CoverageRowsMatchRegistry)

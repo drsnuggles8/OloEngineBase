@@ -211,7 +211,8 @@ namespace OloEngine
         RHI::ResourceHandle indirectBufferID,
         u32 indirectOffsetBytes,
         const glm::vec4& lodTransition0,
-        const glm::vec4& lodTransition1)
+        const glm::vec4& lodTransition1,
+        f32 cardNormalLane)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -320,6 +321,7 @@ namespace OloEngine
         cmd->isAuthoredMesh = isAuthoredMesh ? 1.0f : 0.0f;
         cmd->meshHandoverStart = meshHandoverStart;
         cmd->meshHandoverEnd = meshHandoverEnd;
+        cmd->cardNormalLane = cardNormalLane;
 
         // Leaf material (issue #1234). Copied for EVERY draw of the layer —
         // the authored mesh, the flat card and the impostor card alike — so a

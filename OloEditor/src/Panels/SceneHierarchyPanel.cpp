@@ -86,6 +86,7 @@
 #include <cctype>
 #include <limits>
 #include <concepts>
+#include <span>
 #include <unordered_map>
 #include <algorithm>
 
@@ -2070,6 +2071,7 @@ namespace OloEngine
             DisplayAddComponentEntry<InstancedMeshComponent>("Instanced Mesh");
             DisplayAddComponentEntry<ModelComponent>("Model (with Materials)");
             DisplayAddComponentEntry<MaterialComponent>("Material");
+            DisplayAddComponentEntry<MaterialOverridesComponent>("Material Overrides");
             DisplayAddComponentEntry<LODGroupComponent>("LOD Group");
             DisplayAddComponentEntry<TileRendererComponent>("Tile Renderer");
             DisplayAddComponentEntry<DirectionalLightComponent>("Directional Light");
@@ -2175,6 +2177,7 @@ namespace OloEngine
             DisplayAddComponentEntry<GroomLodComponent>("Groom LOD");
             DisplayAddComponentEntry<AnimalBudgetComponent>("Animal Budget");
             DisplayAddComponentEntry<AnimalPathComponent>("Animal Path");
+            DisplayAddComponentEntry<GroomSceneShadowComponent>("Groom Scene Shadow");
             DisplayAddComponentEntry<GroomCoatComponent>("Groom Coat");
             DisplayAddComponentEntry<GroomSimulationComponent>("Groom Simulation");
             DisplayAddComponentEntry<FogVolumeComponent>("Fog Volume");
@@ -2191,6 +2194,7 @@ namespace OloEngine
             DisplayAddComponentEntry<AnimationStateComponent>("Animation State");
             DisplayAddComponentEntry<AnimationGraphComponent>("Animation Graph");
             DisplayAddComponentEntry<SkeletonComponent>("Skeleton");
+            DisplayAddComponentEntry<BoneAttachmentComponent>("Bone Attachment");
             DisplayAddComponentEntry<SubmeshComponent>("Submesh");
             DisplayAddComponentEntry<MorphTargetComponent>("Morph Targets");
             DisplayAddComponentEntry<CinematicComponent>("Cinematic Sequence");
@@ -2304,6 +2308,72 @@ namespace OloEngine
                 component.SetRotationEuler(glm::radians(rotation));
             }
             DrawVec3Control("Scale", component.Scale, 1.0f); });
+
+        // Bone attachment (issue #1533). The Transform above is an offset in the
+        // bone's model-space frame while this resolves; the status row says what
+        // the renderer is actually doing, because a fallback to parent-relative
+        // composition looks like a plausible pose, not like an error.
+        DrawComponent<BoneAttachmentComponent>("Bone Attachment", entity, [entity, scene = m_Context](auto& component) mutable
+                                               {
+            ImGui::Checkbox("Enabled##BoneAttachment", &component.m_Enabled);
+
+            // The bone list is the PARENT's skeleton: the one the attachment
+            // composes against, not this entity's.
+            const Skeleton* skeleton = nullptr;
+            if (Entity parent = entity.GetParent(); parent && parent.HasComponent<SkeletonComponent>())
+            {
+                skeleton = parent.GetComponent<SkeletonComponent>().m_Skeleton.Raw();
+            }
+
+            const char* preview = component.m_BoneName.empty() ? "<none>" : component.m_BoneName.c_str();
+            if (ImGui::BeginCombo("Bone##BoneAttachment", preview))
+            {
+                if (skeleton == nullptr || skeleton->m_BoneNames.empty())
+                {
+                    ImGui::TextDisabled("The parent entity has no skeleton to pick a bone from.");
+                }
+                else
+                {
+                    for (const std::string& boneName : skeleton->m_BoneNames)
+                    {
+                        if (ImGui::Selectable(boneName.c_str(), boneName == component.m_BoneName))
+                        {
+                            component.m_BoneName = boneName;
+                        }
+                    }
+                }
+                ImGui::EndCombo();
+            }
+
+            // Free text as well: a name can be authored before the skeleton it
+            // names has loaded, and a scene file may carry one it does not have.
+            char boneBuffer[256];
+            ::memset(boneBuffer, 0, sizeof(boneBuffer));
+            std::strncpy(boneBuffer, component.m_BoneName.c_str(), sizeof(boneBuffer) - 1);
+            if (ImGui::InputText("Bone Name##BoneAttachment", boneBuffer, sizeof(boneBuffer)))
+            {
+                component.m_BoneName = std::string(boneBuffer);
+            }
+
+            if (!scene)
+            {
+                return;
+            }
+            if (const auto resolution = scene->ResolveBoneAttachment(static_cast<entt::entity>(entity)); resolution)
+            {
+                if (resolution->Status == BoneAttachmentStatus::Attached)
+                {
+                    ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "Following bone '%s' (index %d).",
+                                       component.m_BoneName.c_str(), resolution->BoneIndex);
+                }
+                else
+                {
+                    ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "Not following a bone: %s.",
+                                       DescribeBoneAttachmentStatus(resolution->Status));
+                    ImGui::TextDisabled("Composing parent-relative instead (%s).",
+                                        BoneAttachmentStatusToString(resolution->Status));
+                }
+            } });
 
         DrawComponent<CameraComponent>("Camera", entity, [](auto& component)
                                        {
@@ -3986,6 +4056,151 @@ namespace OloEngine
                 }
             } });
 
+        // Per-imported-material patches (issue #1533). Each row names one IMPORTED
+        // material of this entity's mesh and patches a copy of it. The status line
+        // under each row says whether it applies: a typo in a material name patches
+        // nothing, and an unpatched submesh looks entirely plausible on screen.
+        DrawComponent<MaterialOverridesComponent>("Material Overrides", entity, [entity](auto& component) mutable
+                                                  {
+            // The imported table the scene's draw loops resolve this entity's
+            // submeshes against (Scene::PrepareMaterialOverrides' callers). The
+            // holders keep the table alive while the rows below read it.
+            Ref<MeshSource> meshHolder;
+            Ref<Model> modelHolder;
+            std::span<const Ref<Material>> importedTable;
+            if (entity.HasComponent<VirtualMeshComponent>() && entity.GetComponent<VirtualMeshComponent>().m_MeshSource != 0)
+            {
+                meshHolder = AssetManager::GetAsset<MeshSource>(entity.GetComponent<VirtualMeshComponent>().m_MeshSource);
+            }
+            if (!meshHolder && entity.HasComponent<MeshComponent>())
+            {
+                meshHolder = entity.GetComponent<MeshComponent>().m_MeshSource;
+            }
+            if (!meshHolder && entity.HasComponent<SubmeshComponent>() && entity.GetComponent<SubmeshComponent>().m_Mesh)
+            {
+                meshHolder = entity.GetComponent<SubmeshComponent>().m_Mesh->GetMeshSource();
+            }
+            if (meshHolder)
+            {
+                importedTable = meshHolder->GetImportedMaterials();
+            }
+            else if (entity.HasComponent<ModelComponent>() && entity.GetComponent<ModelComponent>().m_Model)
+            {
+                modelHolder = entity.GetComponent<ModelComponent>().m_Model;
+                importedTable = modelHolder->GetMaterials();
+            }
+
+            const ImVec4 warnColor(1.0f, 0.75f, 0.3f, 1.0f);
+            if (entity.HasComponent<MaterialComponent>())
+            {
+                ImGui::TextColored(warnColor, "A Material component overrides every submesh: these overrides are inactive.");
+            }
+            if (importedTable.empty())
+            {
+                ImGui::TextColored(warnColor, "This entity's mesh carries no imported materials, so there is nothing to patch.");
+            }
+
+            i32 removeIndex = -1;
+            for (i32 i = 0; i < component.m_Overrides.Num(); ++i)
+            {
+                ImGui::PushID(i);
+                MaterialOverride& patch = component.m_Overrides[i];
+                const std::string name(patch.MaterialName.ToView());
+                const std::string header = "Override " + std::to_string(i) + ": " + (name.empty() ? std::string("<no material>") : name);
+                if (ImGui::TreeNodeEx("##MaterialOverride", ImGuiTreeNodeFlags_DefaultOpen, "%s", header.c_str()))
+                {
+                    // Pick one of the mesh's imported names, or type one: the
+                    // mesh may not be loaded while the scene is being authored.
+                    if (ImGui::BeginCombo("Material", name.empty() ? "<none>" : name.c_str()))
+                    {
+                        for (const Ref<Material>& imported : importedTable)
+                        {
+                            if (!imported)
+                                continue;
+                            const std::string importedName(imported->GetName().ToView());
+                            if (ImGui::Selectable(importedName.c_str(), importedName == name))
+                                patch.MaterialName = importedName;
+                        }
+                        ImGui::EndCombo();
+                    }
+                    char nameBuffer[256];
+                    ::memset(nameBuffer, 0, sizeof(nameBuffer));
+                    std::strncpy(nameBuffer, name.c_str(), sizeof(nameBuffer) - 1);
+                    if (ImGui::InputText("Name", nameBuffer, sizeof(nameBuffer)))
+                        patch.MaterialName = std::string(nameBuffer);
+
+                    const char* materialKinds[] = { "Generic", "Snow", "Skin", "Foliage" };
+                    static_assert(IM_ARRAYSIZE(materialKinds) == kMaterialKindCount,
+                                  "the override's Material Kind combo lost an entry");
+                    if (int kind = static_cast<int>(patch.Kind); ImGui::Combo("Material Kind", &kind, materialKinds, IM_ARRAYSIZE(materialKinds)))
+                        patch.Kind = static_cast<MaterialKind>(kind);
+
+                    // The skin profile slot: same drag-drop contract as the
+                    // MaterialComponent inspector (type-checked after import).
+                    const std::string profileLabel = patch.SkinProfile != 0
+                                                         ? "Skin Profile: " + std::to_string(static_cast<u64>(patch.SkinProfile))
+                                                         : "Skin Profile: <none — drag a .oloskin here>";
+                    ImGui::Button(profileLabel.c_str(), ImVec2(-1.0f, 0.0f));
+                    if (ImGui::BeginDragDropTarget())
+                    {
+                        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                        {
+                            std::filesystem::path assetPath = PathFromUtf8Payload(*payload);
+                            if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
+                            {
+                                AssetHandle handle = assetManager->ImportAsset(assetPath);
+                                if (handle != 0 && AssetManager::GetAssetType(handle) == AssetType::SkinProfile)
+                                {
+                                    patch.SkinProfile = handle;
+                                }
+                                else if (handle != 0)
+                                {
+                                    OLO_WARN("Drag-dropped asset is not a SkinProfile (type: {0})",
+                                             AssetUtils::AssetTypeToString(AssetManager::GetAssetType(handle)));
+                                }
+                            }
+                        }
+                        ImGui::EndDragDropTarget();
+                    }
+                    if (patch.SkinProfile != 0 && ImGui::SmallButton("Clear##OverrideSkinProfile"))
+                        patch.SkinProfile = 0;
+                    if (patch.Kind != MaterialKind::Skin && patch.SkinProfile != 0)
+                        ImGui::TextDisabled("The profile is only read by a Skin material.");
+
+                    ImGui::DragFloat("Thickness Factor (m)", &patch.ThicknessFactor, 0.0005f, 0.0f, 1.0f, "%.4f");
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("= %.2f mm", static_cast<f64>(patch.ThicknessFactor * 1000.0f));
+
+                    ImGui::Checkbox("Override Base Colour", &patch.OverrideBaseColor);
+                    if (patch.OverrideBaseColor)
+                        ImGui::ColorEdit4("Base Colour", glm::value_ptr(patch.BaseColor));
+                    ImGui::Checkbox("Override Roughness", &patch.OverrideRoughness);
+                    if (patch.OverrideRoughness)
+                        ImGui::SliderFloat("Roughness", &patch.Roughness, 0.0f, 1.0f);
+                    ImGui::Checkbox("Override Metallic", &patch.OverrideMetallic);
+                    if (patch.OverrideMetallic)
+                        ImGui::SliderFloat("Metallic", &patch.Metallic, 0.0f, 1.0f);
+
+                    const std::span<const MaterialOverride> list{ component.m_Overrides.GetData(),
+                                                                  static_cast<sizet>(component.m_Overrides.Num()) };
+                    const MaterialOverrideStatus status = ClassifyMaterialOverride(list, static_cast<sizet>(i), importedTable);
+                    if (status == MaterialOverrideStatus::Applies)
+                        ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "Applies: %s.", DescribeMaterialOverrideStatus(status));
+                    else
+                        ImGui::TextColored(warnColor, "Inactive: %s.", DescribeMaterialOverrideStatus(status));
+
+                    if (ImGui::SmallButton("Remove Override"))
+                        removeIndex = i;
+                    ImGui::TreePop();
+                }
+                ImGui::PopID();
+            }
+            if (removeIndex >= 0)
+                component.m_Overrides.RemoveAt(removeIndex);
+
+            if (ImGui::Button("Add Override"))
+                component.m_Overrides.Add(MaterialOverride{}); });
+
         DrawComponent<DirectionalLightComponent>("Directional Light", entity, [](auto& component)
                                                  {
             DrawVec3Control("Direction", component.m_Direction);
@@ -5488,6 +5703,9 @@ namespace OloEngine
 
             ImGui::DragFloat("Current Time##AnimationState", &component.m_CurrentTime, 0.01f, 0.0f, 100.0f);
             ImGui::DragFloat("Blend Duration##AnimationState", &component.m_BlendDuration, 0.01f, 0.0f, 5.0f);
+            ImGui::Checkbox("Root Motion##AnimationState", &component.m_RootMotion);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("In Play, a clip's root-bone travel moves the entity (a walk walks).\nThe editor preview stays in place.");
 
             if (component.m_Blending)
             {
@@ -6914,6 +7132,13 @@ namespace OloEngine
                             layer.Name = nameBuf;
                         }
                         ImGui::Checkbox("Layer Enabled", &layer.Enabled);
+                        ImGui::Checkbox("Cast Shadows", &layer.CastShadows);
+                        if (ImGui::IsItemHovered())
+                        {
+                            ImGui::SetTooltip("Draw this layer into the shadow maps. It receives shadows either way,\n"
+                                              "so off only drops the plants' shadows on each other and the ground --\n"
+                                              "on a dense lawn, most of the shadow pass (#1533).");
+                        }
 
                         // Paths
                         char meshBuf[256];
@@ -8669,6 +8894,29 @@ namespace OloEngine
                     {
                         ImGui::Text("Active: %s", std::string(ToString(decision.Effective)).c_str());
                     }
+
+                    // WHAT THE PASS HOLDS for every coat (#1533): the cache is
+                    // shared, so this is not this entity's share. Logical bytes
+                    // requested, not a driver VRAM reading; the GPU rows sum to
+                    // the cache total its budget works against.
+                    const GroomRenderStats::MemoryBreakdown& memory = groomPass->GetStats().Memory;
+                    constexpr double kMiB = 1024.0 * 1024.0;
+                    ImGui::TextWrapped("Strand cache, all coats: %.1f MiB GPU = vertices %.1f + indices %.1f + casters "
+                                       "%.1f + deformation %.1f + coat volumes %.1f",
+                                       static_cast<double>(memory.GpuBytes()) / kMiB,
+                                       static_cast<double>(memory.StrandVertexBytes) / kMiB,
+                                       static_cast<double>(memory.StrandIndexBytes) / kMiB,
+                                       static_cast<double>(memory.CasterIndexBytes) / kMiB,
+                                       static_cast<double>(memory.DeformBufferBytes) / kMiB,
+                                       static_cast<double>(memory.CoatVolumeBytes) / kMiB);
+                    ImGui::TextWrapped("Retained on the CPU (capacity): %.1f MiB = pose segments %.1f + deformation "
+                                       "mirrors %.1f + bake inputs %.1f + root tables %.1f + scratch %.1f",
+                                       static_cast<double>(memory.CpuBytes()) / kMiB,
+                                       static_cast<double>(memory.CpuPoseSegmentBytes) / kMiB,
+                                       static_cast<double>(memory.CpuDeformMirrorBytes) / kMiB,
+                                       static_cast<double>(memory.CpuBakeInputBytes) / kMiB,
+                                       static_cast<double>(memory.CpuRootTableBytes) / kMiB,
+                                       static_cast<double>(memory.CpuScratchBytes) / kMiB);
                 }
             }
 
@@ -8831,12 +9079,14 @@ namespace OloEngine
 
             ImGui::SeparatorText("Diagnostics");
             {
-                constexpr std::array<const char*, 6> kDebug{ "Full",     "R only",       "TT only",
-                                                             "TRT only", "Residual only", "Tangent frame" };
+                constexpr std::array<const char*, 7> kDebug{ "Full",          "R only",        "TT only",
+                                                             "TRT only",      "Residual only", "Tangent frame",
+                                                             "Multiple scattering" };
+                static_assert(kDebug.size() == static_cast<sizet>(GroomFibreDebugMode::Count));
                 int debug = static_cast<int>(component.m_DebugMode);
                 if (ImGui::Combo("Show", &debug, kDebug.data(), static_cast<int>(kDebug.size())))
                 {
-                    component.m_DebugMode = static_cast<u8>(std::clamp(debug, 0, 5));
+                    component.m_DebugMode = static_cast<u8>(std::clamp(debug, 0, static_cast<int>(kDebug.size()) - 1));
                 }
                 ImGui::TextDisabled("A pale coat that looks wrong is almost always a TT that is too dim");
                 ImGui::TextDisabled("or a TRT that is too bright, and the sum cannot tell you which.");
@@ -8913,7 +9163,7 @@ namespace OloEngine
                                    "Re-import it with group names the importer recognises (or a groom_role "
                                    "attribute) to give it an undercoat and guard hairs.");
             }
-            else if (ImGui::BeginTable("##groomcoatgroups", 7,
+            else if (ImGui::BeginTable("##groomcoatgroups", 12,
                                        ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                                            ImGuiTableFlags_SizingStretchProp))
             {
@@ -8924,7 +9174,40 @@ namespace OloEngine
                 ImGui::TableSetupColumn("Length");
                 ImGui::TableSetupColumn("Width");
                 ImGui::TableSetupColumn("Clump");
+                // Coat authoring v4 (#1533), read-only like the rest: what the
+                // asset was groomed with, cooked in section 9.
+                ImGui::TableSetupColumn("Tint");
+                ImGui::TableSetupColumn("Tip x"); // multiplies Tint at the tip (#1533)
+                ImGui::TableSetupColumn("Curl");
+                ImGui::TableSetupColumn("Wave");
+                ImGui::TableSetupColumn("Stiffness");
                 ImGui::TableHeadersRow();
+
+                // A tint swatch, with its values in the tooltip. HDR because a
+                // tint is a gain up to GroomCoatLimits::MaxTint, and a swatch
+                // clamped at white would hide the difference between 1 and 3.
+                const auto tintSwatch = [](const char* id, const glm::vec3& tint)
+                {
+                    ImGui::ColorButton(id, ImVec4(tint.r, tint.g, tint.b, 1.0f),
+                                       ImGuiColorEditFlags_NoPicker | ImGuiColorEditFlags_HDR |
+                                           ImGuiColorEditFlags_Float,
+                                       ImVec2(12.0f, 12.0f));
+                };
+                // Amplitude in millimetres at a frequency per metre, or a dash
+                // for a group that neither curls nor waves ("either at zero is
+                // the straight coat", GroomCoatGroupDesc).
+                const auto shapeCell = [](f32 amplitude, f32 frequency)
+                {
+                    if (amplitude > 0.0f && frequency > 0.0f)
+                    {
+                        ImGui::Text("%.1f mm %.0f/m", static_cast<f64>(amplitude) * 1000.0,
+                                    static_cast<f64>(frequency));
+                    }
+                    else
+                    {
+                        ImGui::TextDisabled("-");
+                    }
+                };
 
                 // A groom may legally hold 65535 groups, and a widget per row of
                 // that is the budget cpp-coding-quality.md §9 forbids. The
@@ -8941,6 +9224,10 @@ namespace OloEngine
                         const GroomCoatGroupDesc desc = groom->GetGroupCoat(groupIndex);
                         const auto& ranges = groom->GetGroupRanges();
                         ImGui::TableNextRow();
+                        // Per row, so every row's swatches ("##hue", "##tint",
+                        // "##tip") are distinct widgets rather than one ID
+                        // repeated down the table.
+                        ImGui::PushID(row);
                         ImGui::TableNextColumn();
                         // The colour the viewport preview draws this group in, so
                         // a row and a tuft on screen can be matched by eye.
@@ -8962,6 +9249,17 @@ namespace OloEngine
                         ImGui::Text("%.2f", static_cast<f64>(desc.Width));
                         ImGui::TableNextColumn();
                         ImGui::Text("%.2f", static_cast<f64>(desc.Clump));
+                        ImGui::TableNextColumn();
+                        tintSwatch("##tint", desc.Tint);
+                        ImGui::TableNextColumn();
+                        tintSwatch("##tip", desc.TipTint);
+                        ImGui::TableNextColumn();
+                        shapeCell(desc.CurlRadius, desc.CurlFrequency);
+                        ImGui::TableNextColumn();
+                        shapeCell(desc.WaveAmplitude, desc.WaveFrequency);
+                        ImGui::TableNextColumn();
+                        ImGui::Text("x%.2f", static_cast<f64>(desc.StiffnessScale));
+                        ImGui::PopID();
                     }
                 }
                 ImGui::EndTable();
@@ -9380,6 +9678,17 @@ namespace OloEngine
                                     stats.GuidesWithHeldRoots);
                         ImGui::PopStyleColor();
                     }
+                    if (stats.GuidesStiffnessCapped > 0u)
+                    {
+                        // A group scaled stiffer than this step rate can carry
+                        // is solved at the step's ceiling instead (#1533), and
+                        // looks exactly like a group authored softer.
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                        ImGui::Text("%u guide(s) held to the stability ceiling: their group's stiffness scale "
+                                    "is too stiff for this Fixed Hz",
+                                    stats.GuidesStiffnessCapped);
+                        ImGui::PopStyleColor();
+                    }
                     const f32 stretch = std::abs(stats.WorstStretchRatio - 1.0f);
                     const bool inContract = stretch <= stats.DeclaredStretchTolerance;
                     if (!inContract)
@@ -9448,6 +9757,28 @@ namespace OloEngine
                 ImGui::SetTooltip("Off renders the unshadowed coat the fibre material shipped (#1247).\n"
                                   "That is the A/B control this feature's evidence is measured against, not a\n"
                                   "performance switch.");
+            }
+            ImGui::BeginDisabled(!component.m_Enabled);
+            ImGui::Checkbox("Multiple scattering", &component.m_MultipleScattering);
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            {
+                ImGui::SetTooltip("Dual scattering (#1533): the light the coat's other fibres forward and scatter\n"
+                                  "back. It is what makes a pale coat golden rather than grey in its depths.\n"
+                                  "Off treats every fibre crossing as an opaque, colourless occluder. Needs the\n"
+                                  "coat shadow on: the volume is what counts the fibres.");
+            }
+            ImGui::BeginDisabled(!component.m_Enabled);
+            ImGui::Checkbox("Bake at rest", &component.m_BakeAtRest);
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            {
+                ImGui::SetTooltip("Bake the volume once, from the coat at rest, and look each strand up at its own\n"
+                                  "bind-pose point, turned with its root (#1533). Exact for whatever the body carries\n"
+                                  "whole and free after the first frame; where a limb moves against its neighbours,\n"
+                                  "their fur shadows each other as it did at rest. Off rebakes from the drawn pose\n"
+                                  "as the body moves, which costs a CPU pass over every segment. Needs a bound,\n"
+                                  "GPU-deformed coat; any other keeps the pose bake.");
             }
 
             ImGui::SeparatorText("Representation");
@@ -9815,6 +10146,142 @@ namespace OloEngine
                 ImGui::SetTooltip("Puts the animal back at the start of its figure. Because the position is a\n"
                                   "closed form of the elapsed time, this is the whole of the path's state --\n"
                                   "there is no accumulated drift to clear.");
+            } });
+
+        DrawComponent<GroomSceneShadowComponent>("Groom Scene Shadow", entity, [entity](auto& component)
+                                                 {
+            if (!entity.HasComponent<GroomComponent>())
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                ImGui::TextWrapped("This entity has no Groom component, so there is no coat to route into the "
+                                   "scene's shadows. Add a Groom first, or remove this component.");
+                ImGui::PopStyleColor();
+                return;
+            }
+            if (!entity.GetComponent<GroomComponent>().m_RenderStrands)
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                ImGui::TextWrapped("The Groom component has Render Strands off, so this is authored but the "
+                                   "coat neither casts nor receives. Turn Render Strands on to see it.");
+                ImGui::PopStyleColor();
+            }
+
+            ImGui::SeparatorText("Directions");
+            ImGui::Checkbox("Cast shadows", &component.m_CastShadows);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Hair -> body and scene. Rasterises the coat from the light into every\n"
+                                  "technique the frame is running: the CSM cascades, the Virtual Shadow\n"
+                                  "Map's clip levels and the local-light atlas.");
+            }
+            ImGui::Checkbox("Receive shadows", &component.m_ReceiveShadows);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Body and scene -> hair. Samples the scene's shadow term in the strand\n"
+                                  "shader, at the coat's LIGHT-EXIT point rather than at the fragment, so a\n"
+                                  "coat that is also a caster is not shadowed by itself twice.\n"
+                                  "\n"
+                                  "The two are separate switches so an A/B of one is a measurement of that\n"
+                                  "one rather than a picture of both.");
+            }
+
+            ImGui::SeparatorText("Light-space width");
+            ImGui::DragFloat("Width floor (texels)", &component.m_ShadowWidthTexels, 0.05f, 0.0f, 16.0f, "%.2f");
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("How wide a strand is rasterised from the light, at minimum, in texels of\n"
+                                  "the shadow target.\n"
+                                  "\n"
+                                  "ONE TEXEL IS THE DERIVATION, not a taste: a 70 um hair against a cascade\n"
+                                  "texel of a few centimetres is about a thousandth of a texel wide, so\n"
+                                  "rasterised honestly it crosses a texel centre essentially never and the\n"
+                                  "whole coat casts nothing.\n"
+                                  "\n"
+                                  "Zero turns the floor off, which is the A/B control that shows what is\n"
+                                  "being bought. Above one thickens the shadow -- and costs occlusion,\n"
+                                  "because a widened strand casts an OPAQUE shadow: a depth target has no\n"
+                                  "alpha to weight, and a hashed discard would be a stochastic technique\n"
+                                  "with nothing to converge it.");
+            }
+
+            // ── What the renderer ACTUALLY did ──────────────────────────
+            //
+            // A caster family reaches a technique only if somebody wired it
+            // there, and NOTHING detects the gap -- the frame renders, every
+            // other caster keeps its shadow, and the missing one reads as a
+            // lighting or bias problem. A per-technique draw count next to the
+            // caster count is what detects it, and it has to be here rather
+            // than in a log because the question is asked in front of the
+            // viewport.
+            ImGui::SeparatorText("Live");
+            if (const GroomRenderPass* pass = Renderer3D::GetGroomRenderPass())
+            {
+                const GroomShadowCasterStats& stats = pass->GetStats().SceneShadow;
+                if (stats.GroomsAskedToCast == 0u)
+                {
+                    ImGui::TextDisabled("No groom asked to cast this frame.");
+                }
+                else
+                {
+                    ImGui::Text("Casting: %u of %u groom(s) that asked", stats.GroomsCasting,
+                                stats.GroomsAskedToCast);
+                    if (stats.GroomsWithoutGeometry > 0u)
+                    {
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                        ImGui::Text("%u groom(s) asked to cast and produced NO geometry -- an empty build "
+                                    "or a budget that selected nothing.",
+                                    stats.GroomsWithoutGeometry);
+                        ImGui::PopStyleColor();
+                    }
+                    ImGui::Text("Draws: %u cascade, %u virtual-shadow level, %u atlas", stats.CascadeDraws,
+                                stats.VirtualShadowLevelDraws, stats.AtlasDraws);
+                    // Each view casts the share of a coat its width floor allows
+                    // (#1533 E1); the whole count is what casting every strand
+                    // into every view would have drawn.
+                    if (stats.SegmentsWhole > 0u)
+                    {
+                        ImGui::Text("Segments cast: %llu of %llu (%.0f%%)",
+                                    static_cast<unsigned long long>(stats.SegmentsCast),
+                                    static_cast<unsigned long long>(stats.SegmentsWhole),
+                                    100.0 * static_cast<f64>(stats.SegmentsCast) /
+                                        static_cast<f64>(stats.SegmentsWhole));
+                    }
+                    if (stats.VirtualShadowMapActive)
+                    {
+                        ImGui::Text("Virtual Shadow Map page invalidations: %u", stats.VirtualShadowInvalidations);
+                    }
+                    // The one technique a groom caster does not reach, said in
+                    // front of the viewport rather than only in the log.
+                    if (stats.VirtualShadowLocalLightsWithoutGrooms > 0u)
+                    {
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                        ImGui::TextWrapped("%u lamp(s) are served by the Virtual Shadow Map's local-light layers, "
+                                           "which groom casters do not reach: they cast no coat shadow. Turn off "
+                                           "the VSM's Local Lights to route them through the shadow atlas.",
+                                           stats.VirtualShadowLocalLightsWithoutGrooms);
+                        ImGui::PopStyleColor();
+                    }
+
+                    // THE ZERO THAT MATTERS. Which directional technique owns
+                    // the sun this frame decides which of the two counters is
+                    // allowed to be zero; the other being zero is a hole.
+                    const bool directionalDrawn =
+                        stats.VirtualShadowMapActive ? stats.VirtualShadowLevelDraws > 0u : stats.CascadeDraws > 0u;
+                    if (stats.GroomsCasting > 0u && !directionalDrawn)
+                    {
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.3f, 1.0f));
+                        ImGui::TextWrapped("%u groom(s) are casters and the frame's directional technique (%s) "
+                                           "drew none of them. Either every cascade culled the coat, or the "
+                                           "family is not wired into that technique.",
+                                           stats.GroomsCasting,
+                                           stats.VirtualShadowMapActive ? "Virtual Shadow Map" : "CSM cascades");
+                        ImGui::PopStyleColor();
+                    }
+                }
+            }
+            else
+            {
+                ImGui::TextDisabled("The groom pass has not run yet.");
             } });
 
         DrawComponent<GroomLodComponent>("Groom LOD", entity, [entity](auto& component)

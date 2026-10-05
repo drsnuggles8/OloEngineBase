@@ -22,6 +22,9 @@
 #include <atomic>
 #include <cstring>
 #include <stdexcept>
+#include <map>
+#include <mutex>
+#include <set>
 
 namespace OloEngine
 {
@@ -141,12 +144,14 @@ namespace OloEngine
 
         m_Mapped = nullptr;
         m_NeedsFlush = false;
+        m_MappedIsCached = false;
         VkMemoryPropertyFlags memProps = 0;
         vmaGetAllocationMemoryProperties(device->GetAllocator(), m_Allocation, &memProps);
         if ((memProps & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) != 0)
         {
             m_Mapped = outInfo.pMappedData;
             m_NeedsFlush = (memProps & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) == 0;
+            m_MappedIsCached = (memProps & VK_MEMORY_PROPERTY_HOST_CACHED_BIT) != 0;
         }
 
         VkBufferDeviceAddressInfo addressInfo{};
@@ -278,6 +283,36 @@ namespace OloEngine
         }
         else
         {
+            // Counted per binding and said at each power of two (#1533): this
+            // write waits on a fence for the queue, so a buffer rewritten every
+            // frame from here stalls the CPU every frame -- and its count climbs
+            // with the frame count. A WARNING only from the 64th write on: the
+            // first few are a system seeding its pool once at start-up, which
+            // stalls nothing that runs per frame.
+            static std::mutex s_OneShotMutex;
+            static std::map<u32, u64> s_OneShotByBinding;
+            u64 count = 0u;
+            {
+                std::scoped_lock lock(s_OneShotMutex);
+                count = ++s_OneShotByBinding[m_Binding];
+            }
+            if ((count & (count - 1u)) == 0u)
+            {
+                constexpr u64 kPerFrameSuspect = 64u;
+                if (count >= kPerFrameSuspect)
+                {
+                    OLO_CORE_WARN("[RHI/Vulkan] StorageBuffer::SetData (binding {}, {} of {} bytes): the allocation is "
+                                  "not host-visible, so the write is a one-shot upload that waits on the queue ({} so "
+                                  "far)",
+                                  m_Binding, size, m_Size, count);
+                }
+                else
+                {
+                    OLO_CORE_TRACE("[RHI/Vulkan] StorageBuffer::SetData (binding {}, {} of {} bytes): one-shot upload "
+                                   "to a device-local allocation ({} so far)",
+                                   m_Binding, size, m_Size, count);
+                }
+            }
             VulkanOneShot::UploadToBuffer(m_Buffer, offset, data, size, "VulkanStorageBuffer::SetData");
         }
 
@@ -461,6 +496,26 @@ namespace OloEngine
         if (const u32 writtenEnd = offset + size; writtenEnd < newBytes)
         {
             std::memcpy(dst + writtenEnd, static_cast<const u8*>(fillSource) + writtenEnd, newBytes - writtenEnd);
+        }
+        // Said once per binding (#1533): the fill above read uncached mapped
+        // memory, which runs at a few tens of MB/s. A buffer that writes a
+        // prefix every frame belongs on DynamicDrawExactUpload.
+        if (fillSource == m_Mapped && !m_MappedIsCached && newBytes - size >= 4096u)
+        {
+            static std::mutex s_WarnedFillMutex;
+            static std::set<u32> s_WarnedFillBindings;
+            bool firstForBinding = false;
+            {
+                std::scoped_lock lock(s_WarnedFillMutex);
+                firstForBinding = s_WarnedFillBindings.insert(m_Binding).second;
+            }
+            if (firstForBinding)
+            {
+                OLO_CORE_WARN("[RHI/Vulkan] StorageBuffer snapshot (binding {}, {}) filled {} unwritten bytes by reading "
+                              "write-combined mapped memory; a prefix written every frame belongs on "
+                              "DynamicDrawExactUpload",
+                              m_Binding, m_DebugAllocationName, newBytes - size);
+            }
         }
         arena.FlushWrite(allocation, newBytes);
 

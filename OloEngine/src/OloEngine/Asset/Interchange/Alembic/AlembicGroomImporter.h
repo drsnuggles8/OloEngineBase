@@ -47,7 +47,10 @@ namespace OloEngine
     //                          kConstantScope -> one for the prim, broadcast.
     //                          Absent -> every width is kDefaultWidth below,
     //                          and the import LOGS that it substituted.
-    //                          Any other scope is REJECTED.
+    //                          Any other scope is REJECTED. kConstantScope
+    //                          holding one value per control point (or per
+    //                          curve) is read by its count, as Blender writes
+    //                          a hair object's widths (#1533); logged once.
     //   uvs                    IV2fGeomParam, the ROOT UV.
     //                          kUniformScope -> one per curve, taken as-is.
     //                          kVertexScope -> the value at the curve's ROOT
@@ -58,7 +61,7 @@ namespace OloEngine
     //                          Absent -> (0,0) for every curve, logged.
     //                          Any other scope is REJECTED.
     //
-    // ARBITRARY GEOMETRY PARAMETERS. Exactly two are understood, both
+    // ARBITRARY GEOMETRY PARAMETERS. Exactly three are understood, all
     // IInt32GeomParam with kUniformScope (one value per curve):
     //
     //   groom_guide            non-zero marks the curve as a GUIDE.
@@ -80,6 +83,30 @@ namespace OloEngine
     // the file without it would produce a groom that is quietly missing
     // authored intent. Non-`groom_` params (a DCC's own bookkeeping) are
     // ignored and listed at TRACE level.
+    //
+    // USER PROPERTIES (issue #1533). Blender's Alembic exporter writes a hair
+    // object's points, curve sizes and widths, and its custom properties as the
+    // schema's `.userProperties` -- but no `uvs` and no arbGeomParams for
+    // curves. So the same data is also read from `groom_` user properties,
+    // integer or float, array or scalar (Blender writes every one an array):
+    //
+    //   groom_guide            one value per curve; non-zero marks a GUIDE.
+    //   groom_root_uv          two values per curve, the ROOT UV, used where
+    //                          the prim has no `uvs`.
+    //   groom_role             ONE value: the prim's GroomCoatRole.
+    //   groom_tint, groom_tip_tint                     three values each
+    //   groom_density, groom_length, groom_width, groom_clump,
+    //   groom_curl_radius, groom_curl_frequency, groom_wave_amplitude,
+    //   groom_wave_frequency, groom_stiffness          one value each
+    //                          the prim's GroomCoatGroupDesc (every group the
+    //                          prim holds gets it; without `groom_role` a group
+    //                          keeps the role its NAME implies).
+    //
+    // A value with the wrong count is REJECTED, and so is anything authored
+    // twice (`groom_guide` or `groom_role` as both an attribute and a property,
+    // `uvs` and `groom_root_uv`): one of them would be dropped silently. An
+    // unknown `groom_` user property is rejected by name, as an unknown
+    // arbGeomParam is. build_dog_groom.py (the showcase dog) is the producer.
     //
     // GROUPS. Absent `groom_group`, one ICurves prim is one group, named by its
     // full Alembic path. Group ids are assigned in ARCHIVE TRAVERSAL ORDER,
@@ -130,7 +157,9 @@ namespace OloEngine
         // 3: issue #1428 cooks the card level's widths as what the members
         // cover when drawn at the hand-over, not as their sum, so every card
         // level this importer writes for an unchanged input is narrower.
-        static constexpr u32 kImporterVersion = 3;
+        // 4: issue #1533 reads the `groom_` user properties, so an unchanged
+        // Blender export now imports its guides, root UVs and coat table.
+        static constexpr u32 kImporterVersion = 4;
 
         // The width substituted when a prim carries no `widths` param, in
         // source units. 0.1 mm — a human hair is 0.06-0.1 mm, so this is a
@@ -206,6 +235,20 @@ namespace OloEngine
         [[nodiscard]] static SidecarCookResult ImportAndCookToSidecar(const std::filesystem::path& abcPath,
                                                                       const Options& options = {},
                                                                       const std::filesystem::path& outputPath = {});
+
+        // What an archive holds, from its object headers alone. One extension
+        // carries two kinds of content: an archive with polygons is a
+        // MeshSource, and one holding only curves is a groom SOURCE, which this
+        // importer cooks into the .ologroom the asset registry holds
+        // (EditorAssetManager::GetRegistrationType, #1542). An archive that
+        // cannot be opened or traversed comes back with every flag false.
+        struct ArchiveContent
+        {
+            bool Readable = false;
+            bool Curves = false;   // at least one ICurves prim
+            bool Polygons = false; // at least one IPolyMesh or ISubD prim
+        };
+        [[nodiscard]] static ArchiveContent InspectArchive(const std::filesystem::path& path);
 
         // True when the archive at `path` contains at least one ICurves prim.
         // The editor uses it to route an .abc to this importer rather than to

@@ -319,10 +319,12 @@ curve.** Compare a single lobe, or compare at matched brightness.
 2. **N = 4 node-widened quadrature** — the far-field lobe is reproduced to 0.10–0.18 relative RMS,
    with an azimuthal blur in place of the authored roughness at the nodes' scale. §3.
 3. **Uniform environment** — §6, band [0.64, 1.11].
-4. **No multiple scattering between fibres at all.** #1248 owns density transport. The BaseColor
-   mode therefore inverts against the SINGLE-FIBRE albedo (§6b), so an authored colour is the colour
-   that renders today — rather than through Chiang's assembly fit, which assumes neighbours this
-   slice does not have.
+4. **No multiple scattering between fibres in this slice.** #1248 owns density transport. The
+   BaseColor mode therefore inverts against the SINGLE-FIBRE albedo (§6b), so an authored colour is
+   the colour a lone fibre renders — rather than through Chiang's assembly fit, which assumes
+   neighbours this slice does not have. **Since #1533** a coat with a density volume adds Zinke's
+   dual scattering on top (`docs/agent-rules/groom-dual-scattering.md`); the inversion is unchanged,
+   so such a coat renders more saturated than its authored fibre, as a real coat of pale fibres does.
 5. **One material per groom entity, not per group.** A cooked groom carries groups (a scalp and its
    eyebrows are different groups) and a production shader would give each its own material. Omitted
    deliberately: per-group materials need a per-group draw split in `GroomRenderPass`, which is a

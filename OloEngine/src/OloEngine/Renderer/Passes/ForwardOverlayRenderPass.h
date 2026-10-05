@@ -27,6 +27,11 @@ namespace OloEngine
     // Renders after DeferredLightingPass and before FoliagePass, GroomPass,
     // DecalPass and WaterPass in the SceneColor read-modify-write chain
     // (RenderPipelineBuilderScene.cpp).
+    //
+    // A SECOND INSTANCE, DebugOverlayPass (#1533), replays the see-through
+    // debug draws (DrawLine / DrawSphere) on every path, registered after the
+    // last scene-colour writer (RenderPipelineBuilderTransparency.cpp), so the
+    // foliage, fur and water drawn later in the frame cannot paint over them.
     class ForwardOverlayRenderPass : public CommandBufferRenderPass
     {
       public:
@@ -41,6 +46,14 @@ namespace OloEngine
         void AppendDeclarationInputs(RGDeclarationKey& key) const override
         {
             key.Add(HasSubmittedCommands());
+            key.Add(m_RunsOnEveryPath);
+        }
+
+        // On, the pass declares and draws on every path rather than on Deferred
+        // alone: the debug-overlay instance (#1533). Set once, at creation.
+        void SetRunsOnEveryPath(bool everyPath)
+        {
+            m_RunsOnEveryPath = everyPath;
         }
         void Execute(RGCommandContext& context) override;
         [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
@@ -55,5 +68,6 @@ namespace OloEngine
 
       private:
         Ref<Framebuffer> m_SceneFramebuffer;
+        bool m_RunsOnEveryPath = false;
     };
 } // namespace OloEngine

@@ -116,6 +116,295 @@ TEST_F(RayTracingDevice, VegetationSharesPartStreamsAndRecoversAfterUnsubmittedO
     cache.Shutdown();
 }
 
+// #1533: a group from a layer that casts no raster shadow is staged OUT of the
+// shadow-caster mask lane, so ray-traced shadow rays pass through it as the
+// shadow maps do while every other ray still hits it. Read off the GPU Scene
+// instances the TLAS is built from, folded the way the TLAS folds them.
+TEST_F(RayTracingDevice, ANonCastingVegetationGroupIsStagedOutOfTheShadowCasterLane)
+{
+    ScopedVulkanRenderCommandSelection selection;
+    const std::array<Vertex, 4> vertices{
+        Vertex({ -0.5f, 0, 0 }, { 0, 1, 0 }, { 0, 0 }), Vertex({ 0.5f, 0, 0 }, { 0, 1, 0 }, { 1, 0 }),
+        Vertex({ 0.5f, 1, 0 }, { 0, 1, 0 }, { 1, 1 }), Vertex({ -0.5f, 1, 0 }, { 0, 1, 0 }, { 0, 1 })
+    };
+    RT::VegetationSurfaceInput input;
+    input.Owner = 23u;
+    input.FirstPlantId = 1533u;
+    input.Rest = VertexBuffer::Create(vertices.data(), sizeof(vertices));
+    input.VertexCount = 4u;
+    input.Rows.Add({ glm::vec4(0, 0, 0, 1), glm::vec4(0, 1, 1, FoliageWindPhase(1533u)), glm::vec4(1) });
+    input.Parts.Add({ 0u, { 0u, 1u, 2u, 2u, 3u, 0u }, {} });
+    input.DetailedDistance = 12.0f;
+    GPUScene scene;
+    RT::VegetationSurfaceCache cache;
+    cache.SetEnabled(true);
+    const auto stagedMasks = [&](const bool castShadows)
+    {
+        input.CastShadows = castShadows;
+        cache.BeginFrame();
+        scene.BeginExtraction(23u, glm::vec3(0));
+        cache.Queue(input);
+        cache.FinishExtraction(scene);
+        static_cast<void>(scene.EndExtraction());
+        std::vector<u32> masks;
+        for (u32 slot = 0u; slot < scene.GetInstanceSlotCount(); ++slot)
+            if (const auto* instance = scene.GetLiveInstanceRecordBySlot(slot))
+                masks.push_back(RT::PackInstanceMask(instance->VisibilityMask));
+        return masks;
+    };
+
+    const std::vector<u32> casting = stagedMasks(true);
+    ASSERT_EQ(casting.size(), 1u);
+    EXPECT_EQ(casting[0], RT::kInstanceMaskAll) << "a casting layer occludes every ray, shadow rays included";
+
+    const std::vector<u32> nonCasting = stagedMasks(false);
+    ASSERT_EQ(nonCasting.size(), 1u);
+    EXPECT_EQ(nonCasting[0] & RT::kInstanceMaskShadowCaster, 0u) << "shadow rays would hit a layer the shadow maps skip";
+    EXPECT_EQ(nonCasting[0], RT::kVisibilityMaskNoShadowCast) << "every ray but a shadow ray must still see it";
+    cache.Shutdown();
+}
+
+// #1533: a REFLECTION-ONLY group whose wind refresh does not fit this frame's
+// budget keeps the snapshot it has instead of being refused, so the frame
+// stays complete and the TLAS stays; holding the oldest snapshot, it refreshes
+// first next frame. A casting group in the same place is refused, as before.
+TEST_F(RayTracingDevice, AReflectionOnlyGroupOverTheFrameBudgetKeepsItsSnapshot)
+{
+    ScopedVulkanRenderCommandSelection selection;
+    const std::array<Vertex, 4> vertices{
+        Vertex({ -0.5f, 0, 0 }, { 0, 1, 0 }, { 0, 0 }), Vertex({ 0.5f, 0, 0 }, { 0, 1, 0 }, { 1, 0 }),
+        Vertex({ 0.5f, 1, 0 }, { 0, 1, 0 }, { 1, 1 }), Vertex({ -0.5f, 1, 0 }, { 0, 1, 0 }, { 0, 1 })
+    };
+    RT::VegetationSurfaceInput reflection;
+    reflection.Owner = 31u;
+    reflection.FirstPlantId = 7u;
+    reflection.Rest = VertexBuffer::Create(vertices.data(), sizeof(vertices));
+    reflection.VertexCount = 4u;
+    reflection.Rows.Add({ glm::vec4(0, 0, 0, 1), glm::vec4(0, 1, 1, FoliageWindPhase(7u)), glm::vec4(1) });
+    reflection.Parts.Add({ 0u, { 0u, 1u, 2u, 2u, 3u, 0u }, {} });
+    reflection.DetailedDistance = 12.0f;
+    reflection.HistoryContinuous = true;
+    reflection.CastShadows = false;
+
+    // A casting group, new this frame, that takes the frame's whole triangle
+    // budget: new groups are served first.
+    constexpr u32 hogPlants = 64u;
+    RT::VegetationSurfaceInput hog = reflection;
+    hog.Owner = 32u;
+    hog.FirstPlantId = 8u;
+    hog.CastShadows = true;
+    hog.Rows.Reset();
+    for (u32 plant = 0u; plant < hogPlants; ++plant)
+        hog.Rows.Add({ glm::vec4(static_cast<f32>(plant), 0, 0, 1), glm::vec4(0, 1, 1, 0), glm::vec4(1) });
+    hog.Parts.Reset();
+    RT::VegetationSurfacePart hogPart;
+    for (u32 triangle = 0u; triangle < RT::VegetationPolicy::TrianglesPerFrame / hogPlants; ++triangle)
+        for (const u32 corner : { 0u, 1u, 2u })
+            hogPart.Indices.Add(corner);
+    hog.Parts.Add(std::move(hogPart));
+
+    GPUScene scene;
+    RT::VegetationSurfaceCache cache;
+    cache.SetEnabled(true);
+    const auto extract = [&](std::initializer_list<const RT::VegetationSurfaceInput*> inputs)
+    {
+        cache.BeginFrame();
+        scene.BeginExtraction(31u, glm::vec3(0));
+        for (const RT::VegetationSurfaceInput* input : inputs)
+            cache.Queue(*input);
+        cache.FinishExtraction(scene);
+        static_cast<void>(scene.EndExtraction());
+    };
+    extract({ &reflection });
+    RecordAndSubmit([&]
+                    { EXPECT_GT(cache.Dispatch(), 0u); });
+
+    reflection.Wind.Time += 0.1f;
+    extract({ &reflection, &hog });
+    EXPECT_EQ(cache.GetStats().Refused, 0u);
+    EXPECT_EQ(cache.GetStats().StaleReflectionSnapshots, 1u);
+    EXPECT_TRUE(cache.GetStats().Complete) << "a refresh that did not fit refused the group and withheld the TLAS";
+    EXPECT_TRUE(cache.GetStats().CastersComplete);
+    EXPECT_EQ(cache.GetStats().DetailedGroups, 2u) << "the stale group must still be staged";
+    RecordAndSubmit([&]
+                    { EXPECT_GT(cache.Dispatch(), 0u); });
+
+    extract({ &reflection, &hog });
+    EXPECT_EQ(cache.GetStats().StaleReflectionSnapshots, 0u) << "the oldest snapshot must refresh first";
+    EXPECT_EQ(cache.GetStats().Refused, 0u);
+    RecordAndSubmit([&]
+                    { EXPECT_GT(cache.Dispatch(), 0u); });
+
+    // Casting work is served first. Give the hog the NEWER snapshot (its
+    // refresh alone this frame), then let both need a refresh: the hog takes
+    // the budget and the reflection group keeps its snapshot. Served oldest
+    // first, the reflection group would win and the caster be refused.
+    hog.Wind.Time += 0.15f;
+    extract({ &reflection, &hog });
+    EXPECT_EQ(cache.GetStats().Refused, 0u);
+    RecordAndSubmit([&]
+                    { EXPECT_GT(cache.Dispatch(), 0u); });
+    reflection.Wind.Time += 0.1f;
+    hog.Wind.Time += 0.1f;
+    extract({ &reflection, &hog });
+    EXPECT_EQ(cache.GetStats().Refused, 0u);
+    EXPECT_TRUE(cache.GetStats().CastersComplete) << "a reflection-only refresh took the budget a caster needed";
+    EXPECT_EQ(cache.GetStats().StaleReflectionSnapshots, 1u);
+    RecordAndSubmit([&]
+                    { EXPECT_GT(cache.Dispatch(), 0u); });
+
+    // Last frame's unrecorded builds are spent first: with one small build
+    // owed, the hog's refresh no longer fits.
+    cache.ChargeBuildDebt({ 1u, 4u, 2u });
+    hog.Wind.Time += 0.1f;
+    extract({ &reflection, &hog });
+    EXPECT_EQ(cache.GetStats().CarriedBuilds, 1u);
+    EXPECT_EQ(cache.GetStats().Refused, 1u) << "the refresh spent budget the backend's retries need";
+    EXPECT_FALSE(cache.GetStats().CastersComplete);
+    // The reflection group's refresh fitted the two triangles the debt left.
+    RecordAndSubmit([&]
+                    { EXPECT_GT(cache.Dispatch(), 0u); });
+    extract({ &reflection, &hog });
+    EXPECT_EQ(cache.GetStats().CarriedBuilds, 0u) << "a debt is charged once";
+    EXPECT_EQ(cache.GetStats().Refused, 0u);
+    RecordAndSubmit([&]
+                    { EXPECT_GT(cache.Dispatch(), 0u); });
+
+    // The same squeeze on a CASTING group refuses it: a shadow ray must not
+    // trace wind the raster shadow no longer has.
+    reflection.CastShadows = true;
+    reflection.Wind.Time += 0.1f;
+    hog.FirstPlantId = 9u;
+    extract({ &reflection, &hog });
+    EXPECT_EQ(cache.GetStats().StaleReflectionSnapshots, 0u);
+    EXPECT_EQ(cache.GetStats().Refused, 1u);
+    EXPECT_FALSE(cache.GetStats().CastersComplete);
+    cache.Shutdown();
+}
+
+// #1533: the backend caps vegetation acceleration structures at
+// VegetationPolicy::AccelerationStructureBytes by dropping any build past it,
+// every frame. So the producer budgets the device's own size for each group:
+// the estimate is what a real build occupies, to the byte, and the cache
+// refuses the group that would cross the cap instead of leaving the backend
+// to drop it forever.
+TEST_F(RayTracingDevice, TheCacheBudgetsTheDevicesOwnAccelerationStructureSizes)
+{
+    ScopedVulkanRenderCommandSelection selection;
+    m_Backend = RT::CreateVulkanRayTracingBackend();
+    ASSERT_NE(m_Backend, nullptr);
+    ASSERT_TRUE(m_Backend->GetCapabilities().Supported);
+    const std::array<Vertex, 4> vertices{
+        Vertex({ -0.5f, 0, 0 }, { 0, 1, 0 }, { 0, 0 }), Vertex({ 0.5f, 0, 0 }, { 0, 1, 0 }, { 1, 0 }),
+        Vertex({ 0.5f, 1, 0 }, { 0, 1, 0 }, { 1, 1 }), Vertex({ -0.5f, 1, 0 }, { 0, 1, 0 }, { 0, 1 })
+    };
+    const std::array<u32, 6> indices{ 0u, 1u, 2u, 2u, 3u, 0u };
+    auto vertexBuffer = VertexBuffer::Create(vertices.data(), static_cast<u32>(sizeof(vertices)));
+    auto indexBuffer = IndexBuffer::Create(const_cast<u32*>(indices.data()), 6u);
+    ASSERT_TRUE(vertexBuffer && indexBuffer);
+    RT::BlasBuildRequest build{};
+    build.Key = RT::GeometryKey{ 0u, 1u };
+    build.Class = RT::GeometryClass::Deformed;
+    build.Reason = RT::BuildReason::FirstBuild;
+    build.VertexAddress = vertexBuffer->GetDeviceAddress();
+    build.IndexAddress = indexBuffer->GetDeviceAddress();
+    build.VertexStride = static_cast<u32>(sizeof(Vertex));
+    build.VertexCount = 4u;
+    build.IndexCount = 6u;
+    build.Vegetation = true;
+    const std::array<RT::BlasBuildRequest, 1> builds{ build };
+    RecordAndSubmit([&]
+                    { EXPECT_EQ(m_Backend->RecordBlasBuilds(builds), 1u); });
+    RT::SceneStats stats{};
+    m_Backend->PublishStats(stats);
+    const u64 estimate = m_Backend->EstimateBlasBytes(RT::GeometryClass::Deformed, 4u, static_cast<u32>(sizeof(Vertex)), 2u);
+    ASSERT_GT(estimate, 0u);
+    EXPECT_EQ(stats.Resident.AccelerationStructureBytes, estimate) << "the producer would budget a size the build does not take";
+    EXPECT_GT(m_Backend->EstimateBlasBytes(RT::GeometryClass::Deformed, 4096u, static_cast<u32>(sizeof(Vertex)), 8192u), estimate);
+    m_Backend->Shutdown();
+
+    RT::VegetationSurfaceInput input;
+    input.Owner = 41u;
+    input.FirstPlantId = 3u;
+    input.Rest = VertexBuffer::Create(vertices.data(), sizeof(vertices));
+    input.VertexCount = 4u;
+    input.Rows.Add({ glm::vec4(0, 0, 0, 1), glm::vec4(0, 1, 1, FoliageWindPhase(3u)), glm::vec4(1) });
+    input.Parts.Add({ 0u, { 0u, 1u, 2u, 2u, 3u, 0u }, {} });
+    input.AccelerationBytes = RT::VegetationPolicy::AccelerationStructureBytes / 2u + 1u;
+    RT::VegetationSurfaceCache cache;
+    cache.SetEnabled(true);
+    cache.BeginFrame();
+    cache.Queue(input);
+    input.FirstPlantId = 4u;
+    cache.Queue(input);
+    EXPECT_EQ(cache.GetStats().Refused, 1u) << "two groups past the cap were both queued";
+    EXPECT_EQ(cache.GetStagedAccelerationBytes(), input.AccelerationBytes);
+    input.FirstPlantId = 5u;
+    input.AccelerationBytes = RT::VegetationPolicy::AccelerationStructureBytes / 2u - 1u;
+    cache.Queue(input);
+    EXPECT_EQ(cache.GetStats().Refused, 1u) << "the room the first group left";
+    EXPECT_EQ(cache.GetStagedAccelerationBytes(), RT::VegetationPolicy::AccelerationStructureBytes);
+    cache.Shutdown();
+}
+
+// #1533: a group the cache holds under its content key is sent without rows
+// (216k rows a frame for the showcase lawn), and is staged as before. Rows
+// named under a key the cache does not hold are refused, never guessed.
+TEST_F(RayTracingDevice, AGroupHeldUnderItsContentKeyIsSentWithoutRows)
+{
+    ScopedVulkanRenderCommandSelection selection;
+    const std::array<Vertex, 4> vertices{
+        Vertex({ -0.5f, 0, 0 }, { 0, 1, 0 }, { 0, 0 }), Vertex({ 0.5f, 0, 0 }, { 0, 1, 0 }, { 1, 0 }),
+        Vertex({ 0.5f, 1, 0 }, { 0, 1, 0 }, { 1, 1 }), Vertex({ -0.5f, 1, 0 }, { 0, 1, 0 }, { 0, 1 })
+    };
+    RT::VegetationSurfaceInput input;
+    input.Owner = 51u;
+    input.FirstPlantId = 6u;
+    input.Rest = VertexBuffer::Create(vertices.data(), sizeof(vertices));
+    input.VertexCount = 4u;
+    input.Rows.Add({ glm::vec4(0, 0, 0, 1), glm::vec4(0, 1, 1, FoliageWindPhase(6u)), glm::vec4(1) });
+    input.Rows.Add({ glm::vec4(1, 0, 0, 1), glm::vec4(0, 1, 1, FoliageWindPhase(7u)), glm::vec4(1) });
+    input.Parts.Add({ 0u, { 0u, 1u, 2u, 2u, 3u, 0u }, {} });
+    input.DetailedDistance = 12.0f;
+    input.HistoryContinuous = true;
+    input.CastShadows = false;
+    input.ContentKey = 0x1533u;
+    GPUScene scene;
+    RT::VegetationSurfaceCache cache;
+    cache.SetEnabled(true);
+    const auto extract = [&](const RT::VegetationSurfaceInput& data)
+    {
+        cache.BeginFrame();
+        scene.BeginExtraction(51u, glm::vec3(0));
+        cache.Queue(data);
+        cache.FinishExtraction(scene);
+        static_cast<void>(scene.EndExtraction());
+    };
+    EXPECT_FALSE(cache.HoldsContent(input.Owner, input.FirstPlantId, input.Rest, input.ContentKey));
+    extract(input);
+    RecordAndSubmit([&]
+                    { EXPECT_GT(cache.Dispatch(), 0u); });
+    ASSERT_TRUE(cache.HoldsContent(input.Owner, input.FirstPlantId, input.Rest, input.ContentKey));
+
+    RT::VegetationSurfaceInput held = input;
+    held.Rows.Reset();
+    held.HeldPlantCount = 2u;
+    held.Wind.Time += 0.1f;
+    extract(held);
+    EXPECT_EQ(cache.GetStats().Refused, 0u);
+    EXPECT_TRUE(cache.GetStats().Complete);
+    EXPECT_EQ(cache.GetStats().PlantsRepresented, 2u);
+    EXPECT_EQ(cache.GetStats().HistoryReset, false) << "the same rows read as new ones";
+    RecordAndSubmit([&]
+                    { EXPECT_GT(cache.Dispatch(), 0u); });
+
+    held.ContentKey = 0x1534u;
+    extract(held);
+    EXPECT_EQ(cache.GetStats().Refused, 1u) << "rows named under a key the cache does not hold were staged";
+    EXPECT_FALSE(cache.GetStats().Complete);
+    cache.Shutdown();
+}
+
 TEST_F(RayTracingDevice, HybridConsumersUseTextureAlphaFactorCutoffAndHeapGeneration)
 {
     ScopedVulkanRenderCommandSelection selection;

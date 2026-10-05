@@ -448,6 +448,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Any shadow array a groom asked to grow (#1533), before this frame
+        // reads a single shadow handle below.
+        data.Shadow.ApplyPendingOpaqueLayers();
+
         // Open the profiler bracket before any per-frame work so the wall
         // bracket covers the whole render section, including the fence wait
         // inside FrameResourceManager::BeginFrame below. The wait itself is
@@ -757,9 +761,13 @@ namespace OloEngine
         m_HasJitterMode = true;
         m_PreviousJitterMode = jitterMode;
 
-        data.PrevJitterUV = data.CurrJitterUV;
+        // THIS frame's jitter offset, set below where a jitter is applied. The
+        // previous frame's is rotated with PrevViewProjectionMatrix, at the end
+        // of the frame that used it (Renderer3D::ExecuteFrame), so the two
+        // always describe the same frame (#1552).
         data.CurrJitterUV = glm::vec2(0.0f);
         data.TemporalUpscaleJitterPixels = glm::vec2(0.0f);
+        const glm::mat4 unjitteredProjection = data.ProjectionMatrix;
 
         // Jitter is needed by EITHER temporal accumulator, and the two disagree on
         // the sequence: engine TAA walks a fixed Halton-16, while FSR2 derives
@@ -801,7 +809,8 @@ namespace OloEngine
                 }
                 data.ViewProjectionMatrix = data.ProjectionMatrix * data.ViewMatrix;
 
-                data.CurrJitterUV = glm::vec2(jitterNdcX * 0.5f, jitterNdcY * 0.5f);
+                data.CurrJitterUV = TemporalUpscalePolicy::ProjectionJitterVelocityOffset(
+                    RHI::AdjustProjectionForBackend(unjitteredProjection), RHI::AdjustProjectionForBackend(data.ProjectionMatrix));
                 // NOT jitterPixels — see UpscalerJitterFromProjectionJitter. The
                 // projection was given +jitter, so the image carries -jitter, and
                 // that is what FSR2 has to be told or it never converges.
@@ -857,9 +866,11 @@ namespace OloEngine
                 }
                 data.ViewProjectionMatrix = data.ProjectionMatrix * data.ViewMatrix;
 
-                // Track jitter in UV-space so the TAA shader (or any future
-                // consumer) can subtract it if needed. NDC -> UV is * 0.5.
-                data.CurrJitterUV = glm::vec2(jitterNdcX * 0.5f, jitterNdcY * 0.5f);
+                // The offset this jitter puts on every vertex, in velocity
+                // units and the uploaded convention: what every velocity
+                // writer subtracts (#1552).
+                data.CurrJitterUV = TemporalUpscalePolicy::ProjectionJitterVelocityOffset(
+                    RHI::AdjustProjectionForBackend(unjitteredProjection), RHI::AdjustProjectionForBackend(data.ProjectionMatrix));
 
                 data.TAAJitterFrameIndex = (data.TAAJitterFrameIndex + 1) % kHaltonSequenceLength;
             }
@@ -912,6 +923,7 @@ namespace OloEngine
         // consumer (TAA velocity reconstruction, motion blur) reads this
         // frame.
         CommandDispatch::SetPrevViewProjectionMatrix(data.PrevViewProjectionMatrix);
+        CommandDispatch::SetJitterUV(glm::vec4(data.CurrJitterUV, data.PrevJitterUV));
         CommandDispatch::SetRenderOrigin(renderOrigin);
 
         // Depth-reconstruction consumers (decals, motion blur, fog, underwater)
@@ -1021,6 +1033,9 @@ namespace OloEngine
             // relative to the *current* origin, matching PrevModel which is
             // shifted by the same origin, so velocity is invariant.
             cameraData.PrevViewProjection = RHI::AdjustProjectionForBackend(relativePrevViewProjection);
+            // The jitter each of those two carries, for the velocity writers to
+            // take out (#1552): static content then writes zero.
+            cameraData.JitterUV = glm::vec4(data.CurrJitterUV, data.PrevJitterUV);
             // The render origin itself, so pattern shaders can rebuild an
             // absolute world position (triplanar tiling, procedural noise, etc.).
             cameraData.RenderOrigin = renderOrigin;
@@ -2338,6 +2353,13 @@ namespace OloEngine
                 RenderStreamPasses.Groom->SetCoatRebakePolicy(Renderer3D::GetGroomCoatRebakePolicy());
                 RenderStreamPasses.Groom->SetGpuDeformationEnabled(data.Settings.GroomGpuDeformation);
                 RenderStreamPasses.Groom->SetRequests(Renderer3D::GetGroomStrandRequests());
+                // The groom cache's frame boundary (#1323), HERE and before the
+                // graph executes, because two nodes now acquire from it --
+                // ShadowRenderPass first, GroomRenderPass second -- and neither
+                // may own it: a tick advanced inside the strand pass would hand
+                // the shadow pass last frame's, and a bound coat would cast from
+                // the previous pose.
+                RenderStreamPasses.Groom->BeginFrame();
             }
             if (SceneCompositePasses.Particle)
                 SceneCompositePasses.Particle->SetOITEnabled(oitEnabled);
@@ -2907,6 +2929,10 @@ namespace OloEngine
             // data.InverseViewProjectionMatrix there).
             mb.InverseViewProjection = RHI::AdjustedInverseForShaderReconstruction(data.ViewProjectionMatrix);
             mb.PrevViewProjection = RHI::AdjustProjectionForShaderReconstruction(data.PrevViewProjectionMatrix);
+            // Their jitters, which TAA's and motion blur's camera-velocity
+            // reconstruction takes out as the velocity writers do (#1552). The
+            // reconstruction flavour agrees with the uploaded one on .xy.
+            mb.JitterUV = glm::vec4(data.CurrJitterUV, data.PrevJitterUV);
             data.PostProcessGPU.MotionBlur->SetData(&mb, MotionBlurUBOData::GetSize());
             // Re-establish the base-8 binding every upload: of this UBO's
             // consumers only MotionBlurRenderPass binds it itself — the
@@ -3609,6 +3635,17 @@ namespace OloEngine
         // ------------------------------------------------------------------
         if (!deferredActive && board.Scene.SceneColor.IsValid())
             board.GBuffer.Velocity = graph.CreateFramebufferAttachmentView(ResourceNames::Velocity, board.Scene.SceneColor, 3u);
+        // ...and the velocity the resolves read once every pass has written
+        // its own (#1552): that same attachment on the forward paths; on
+        // Deferred SceneColor RT3 too, seeded with the G-Buffer's velocity
+        // (SceneVelocitySeedPass) so the groom, foliage, particles and water
+        // drawn over the lit frame reach TAA with their own motion.
+        if (board.Scene.SceneColor.IsValid())
+        {
+            board.Scene.SceneVelocity =
+                deferredActive ? graph.CreateFramebufferAttachmentView(ResourceNames::SceneVelocity, board.Scene.SceneColor, 3u)
+                               : board.GBuffer.Velocity;
+        }
 
         // ------------------------------------------------------------------
         // AO buffer
@@ -5064,12 +5101,21 @@ namespace OloEngine
         if (pipeline.PostProcessPasses.TAA && config.EngineTAA &&
             pipeline.PostProcessPasses.TAA->IsReadyForExecution())
         {
-            const auto taaOutput = declareGraphOnlyPostProcessOutput(
-                ResourceNames::TAAColor,
-                ResourceNames::TAAColorTexture,
-                RGResourceFormat::RGBA16Float);
-            board.Post.TAAColor = taaOutput.Framebuffer;
-            board.Post.TAAColorTexture = taaOutput.Texture;
+            // Two attachments (#1533): 0 is the frame the chain shows, sharpened;
+            // 1 is the resolve before the sharpen, the one TAAHistory keeps
+            // (TAARenderPass::Setup says why the history must not be sharpened).
+            RGResourceDesc taaDesc;
+            taaDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+            taaDesc.Width = postProcessWidth;
+            taaDesc.Height = postProcessHeight;
+            taaDesc.Format = RGResourceFormat::RGBA16Float;
+            taaDesc.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RGBA16Float };
+            taaDesc.DebugName = ResourceNames::TAAColor;
+            board.Post.TAAColor = declareGraphOnlyFramebuffer(ResourceNames::TAAColor, taaDesc);
+            board.Post.TAAColorTexture =
+                board.Post.TAAColor.IsValid()
+                    ? graph.CreateFramebufferAttachmentView(ResourceNames::TAAColorTexture, board.Post.TAAColor, 0u)
+                    : RGTextureHandle{};
         }
 
         // CloudsColor is declared only when the cloudscape is enabled (issue
@@ -5368,7 +5414,7 @@ namespace OloEngine
         // and the forward paths that reconstruct velocity from depth carry no
         // coverage at all. The shader's own u_HasSurfaceHistory gate means an
         // absent plane costs the term nothing rather than reading garbage.
-        if (pipeline.PostProcessPasses.TAA && board.GBuffer.Velocity.IsValid())
+        if (pipeline.PostProcessPasses.TAA && board.Scene.SceneVelocity.IsValid())
         {
             const auto& taaSurfaceSpec = pipeline.PostProcessPasses.TAA->GetFramebufferSpecification();
             if (taaSurfaceSpec.Width > 0u && taaSurfaceSpec.Height > 0u)
@@ -5780,6 +5826,7 @@ namespace OloEngine
         inputs.Passes.FoliagePrepass = FrameCorePasses.FoliagePrepass.Raw();
         inputs.Passes.SceneDepthSnapshot = FrameCorePasses.SceneDepthSnapshot.Raw();
         inputs.Passes.SceneViewNormalsSnapshot = FrameCorePasses.SceneViewNormalsSnapshot.Raw();
+        inputs.Passes.SceneVelocitySeed = FrameCorePasses.SceneVelocitySeed.Raw();
         inputs.Passes.Shadow = FrameCorePasses.Shadow.Raw();
         inputs.Passes.DDGIProbeUpdate = FrameCorePasses.DDGIProbeUpdate.Raw();
         inputs.Passes.VirtualShadowMapMark = FrameCorePasses.VirtualShadowMapMark.Raw();
@@ -5798,6 +5845,7 @@ namespace OloEngine
         inputs.Passes.FluidComposite = RenderStreamPasses.FluidComposite.Raw();
         inputs.Passes.VirtualGeometry = RenderStreamPasses.VirtualGeometry.Raw();
         inputs.Passes.ShaderDebugDraw = RenderStreamPasses.ShaderDebugDraw.Raw();
+        inputs.Passes.DebugOverlay = RenderStreamPasses.DebugOverlay.Raw();
         inputs.Passes.Decal = RenderStreamPasses.Decal.Raw();
         inputs.Passes.SSAO = SceneCompositePasses.SSAO.Raw();
         inputs.Passes.GTAO = SceneCompositePasses.GTAO.Raw();
@@ -5883,6 +5931,7 @@ namespace OloEngine
         FrameCorePasses.RayTracingScene->SetRayTracingScene(&Renderer3D::GetRayTracingScene());
         FrameCorePasses.RayTracingScene->SetGPUScene(&Renderer3D::GetGPUScene());
         FrameCorePasses.RayTracingScene->SetVegetationSurfaceCache(&Renderer3D::GetVegetationSurfaceCache());
+        FrameCorePasses.RayTracingScene->SetGroomSurfaceCache(&Renderer3D::GetGroomSurfaceCache());
         FrameCorePasses.RayTracingScene->SetRayTracingProbe(&Renderer3D::GetRayTracingProbe());
 
         FrameCorePasses.Scene = Ref<SceneRenderPass>::Create();
@@ -5897,6 +5946,8 @@ namespace OloEngine
             Ref<SceneAttachmentSnapshotPass>::Create(FrameCorePasses.Scene.Raw(), SceneAttachmentSnapshotPass::Attachment::Depth);
         FrameCorePasses.SceneViewNormalsSnapshot =
             Ref<SceneAttachmentSnapshotPass>::Create(FrameCorePasses.Scene.Raw(), SceneAttachmentSnapshotPass::Attachment::ViewNormals);
+        // Deferred's velocity, every surface's, for the resolves (#1552).
+        FrameCorePasses.SceneVelocitySeed = Ref<SceneVelocitySeedPass>::Create(FrameCorePasses.Scene.Raw());
 
         // Realtime DDGI probe update (#632) — path-agnostic, self-disables
         // when no Realtime/Hybrid volume is submitted for the frame. All its
@@ -5959,6 +6010,16 @@ namespace OloEngine
         RenderStreamPasses.ForwardOverlay->SetName("ForwardOverlayPass");
         RenderStreamPasses.ForwardOverlay->Init(finalPassSpec);
 
+        // The see-through debug draws' pass (#1533): the same replay into the
+        // scene framebuffer, on EVERY path, registered after the last
+        // scene-colour writer (RegisterTransparencyAndAONodes). In ScenePass, or
+        // ForwardOverlayPass on Deferred, a gizmo was drawn before the foliage,
+        // the fur and the water, which then painted over it.
+        RenderStreamPasses.DebugOverlay = Ref<ForwardOverlayRenderPass>::Create();
+        RenderStreamPasses.DebugOverlay->SetName("DebugOverlayPass");
+        RenderStreamPasses.DebugOverlay->SetRunsOnEveryPath(true);
+        RenderStreamPasses.DebugOverlay->Init(finalPassSpec);
+
         SceneCompositePasses.Particle = Ref<ParticleRenderPass>::Create();
         SceneCompositePasses.Particle->SetName("ParticlePass");
         SceneCompositePasses.Particle->Init(finalPassSpec);
@@ -5976,6 +6037,14 @@ namespace OloEngine
         RenderStreamPasses.Groom = Ref<GroomRenderPass>::Create();
         RenderStreamPasses.Groom->SetName("GroomPass");
         RenderStreamPasses.Groom->Init(finalPassSpec);
+        // The groom caster family (#1323) borrows the strand pass's geometry:
+        // the shadow map is rasterised BEFORE the strand pass runs, so the
+        // shadow pass acquires a caster's buffers through the groom pass rather
+        // than keeping a second cache that the other could never see.
+        if (FrameCorePasses.Shadow)
+        {
+            FrameCorePasses.Shadow->SetGroomPass(RenderStreamPasses.Groom.Raw());
+        }
 
         RenderStreamPasses.Water = Ref<WaterRenderPass>::Create();
         RenderStreamPasses.Water->SetName("WaterPass");

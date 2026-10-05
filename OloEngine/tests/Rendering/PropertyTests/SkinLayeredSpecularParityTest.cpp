@@ -77,6 +77,10 @@ namespace OloEngine::Tests
             CaseDetailPositiveDeepens = 12,
             CaseLobeGateWrongVersion = 13,
             CaseLobeGateRightVersion = 14,
+            CaseKernelParity = 15,
+            CaseCoatWideningParity = 16,
+            CaseZeroKernelExact = 17,
+            CaseRt5LanesRoundTrip = 18,
             CaseCount
         };
 
@@ -94,6 +98,9 @@ namespace OloEngine::Tests
 
         constexpr f32 kLobeMix = 0.35f;
         constexpr f32 kLobeRoughnessScale = 2.0f;
+
+        constexpr f32 kCoatRoughness = 0.04f;
+        constexpr f32 kThicknessMM = 2.5f;
 
         // THE TOLERANCE IS A PROPERTY OF THE FORMAT, not a number chosen until
         // the test passed, and the distinction matters because a parity test
@@ -388,6 +395,40 @@ namespace OloEngine::Tests
             << "a version-3 skin pixel did NOT get its authored lobe, so the gate assertions above are passing by "
                "being uniformly closed rather than by discriminating.";
         EXPECT_NEAR(rightVersion.g, kLobeRoughnessScale, HalfTolerance(kLobeRoughnessScale));
+
+        // ── The coat's share of the filter (#1533) ─────────────────────────
+
+        const f32 cpuKernel = SkinVarianceKernel(glm::dot(kdNdx, kdNdx), glm::dot(kdNdy, kdNdy), kVarianceStrength);
+        EXPECT_NEAR(texel(CaseKernelParity).r, cpuKernel, HalfTolerance(cpuKernel))
+            << "THE SHADER'S VARIANCE KERNEL IS NOT THE CPU'S. The coat is widened by this kernel on every path, "
+               "and the deferred pass reads it back out of RT5: a dropped `2 *` here leaves the tear film's glint "
+               "a firefly while the base lobe looks filtered.";
+        EXPECT_GT(cpuKernel, 0.0f);
+        EXPECT_LT(cpuKernel, kSkinVarianceKernelClamp) << "the fixture should sit below the clamp";
+
+        const f32 cpuCoat = SkinWidenedRoughness(kCoatRoughness, cpuKernel);
+        const glm::vec4 coat = texel(CaseCoatWideningParity);
+        EXPECT_NEAR(coat.r, cpuCoat, HalfTolerance(cpuCoat)) << "the shader's coat widening is not the CPU's";
+        EXPECT_NEAR(coat.r, coat.g, HalfTolerance(coat.g))
+            << "A COAT WIDENED BY THE KERNEL IS NOT THE FILTERED COAT. The two must be one expression: the coat's "
+               "lobe and the base's take the same variance.";
+        EXPECT_GT(coat.r, coat.b) << "the widened coat should be rougher than its floor for this derivative pair";
+        EXPECT_NEAR(cpuCoat, std::sqrt(SkinFilteredAlpha(kCoatRoughness * kCoatRoughness, glm::dot(kdNdx, kdNdx), glm::dot(kdNdy, kdNdy), kVarianceStrength)),
+                    1.0e-6f)
+            << "the CPU's widening and its filter disagree";
+
+        const glm::vec4 zeroKernel = texel(CaseZeroKernelExact);
+        EXPECT_FLOAT_EQ(zeroKernel.r, zeroKernel.g) << "a zero kernel changed the coat's roughness";
+        EXPECT_FLOAT_EQ(zeroKernel.b, zeroKernel.g) << "a NaN kernel changed the coat's roughness";
+        EXPECT_EQ(SkinWidenedRoughness(kCoatRoughness, 0.0f), kCoatRoughness);
+        EXPECT_EQ(SkinWidenedRoughness(kCoatRoughness, std::numeric_limits<f32>::quiet_NaN()), kCoatRoughness);
+
+        const glm::vec4 lanes = texel(CaseRt5LanesRoundTrip);
+        EXPECT_NEAR(lanes.r, cpuKernel, HalfTolerance(cpuKernel)) << "the kernel did not survive RT5";
+        EXPECT_NEAR(lanes.g, kThicknessMM, HalfTolerance(kThicknessMM))
+            << "writing the kernel beside the thickness lost the thickness";
+        EXPECT_EQ(lanes.b, 0.0f) << "a lightmapped texel gave up its light or carried a kernel";
+        EXPECT_EQ(lanes.a, 0.0f) << "a zero kernel no longer packs what the thickness-only writer packs";
     }
 
 } // namespace OloEngine::Tests

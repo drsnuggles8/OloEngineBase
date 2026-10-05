@@ -38,7 +38,7 @@ namespace OloEngine
         // inputs BEFORE swapping the blackboard to the full-res outputs. The graph
         // orders this pass after their producers via these reads.
         m_ReducedDepth = blackboard.Scene.SceneDepth;
-        m_ReducedVelocity = blackboard.GBuffer.Velocity;
+        m_ReducedVelocity = blackboard.Scene.SceneVelocity; // every surface's, on both paths (#1552)
         if (m_ReducedDepth.IsValid())
             (void)builder.Read(m_ReducedDepth, RGReadUsage::ShaderSample);
         if (m_ReducedVelocity.IsValid())
@@ -55,7 +55,7 @@ namespace OloEngine
         SetPrimaryOutputFramebufferHandle(outputHandle);
 
         // Publish the full-res depth/velocity as STABLE blackboard views. We do
-        // NOT mutate blackboard.Scene.SceneDepth / GBuffer.Velocity here — the
+        // NOT mutate blackboard.Scene.SceneDepth / SceneVelocity here — the
         // graph runs a forward + reversed determinism build that shares the
         // persistent blackboard, so a Setup-time mutation reads back as a
         // self-feedback hazard. Instead, the post-band consumers (DOF, Fog,

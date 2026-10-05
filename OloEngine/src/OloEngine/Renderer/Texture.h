@@ -154,6 +154,11 @@ namespace OloEngine
         /**
          * @brief Read texture data back from GPU
          *
+         * A block-compressed texture (BC4, BC5, BC7) reads back its blocks and returns
+         * them DECODED to RGBA8, four bytes a texel, by the engine's own decoder on both
+         * backends (#1533): a packed game's textures are cooked, and a CPU reader of one
+         * -- a coat's colour map -- must get texels. BC6H is refused (no 8-bit form).
+         *
          * @param outData Vector to receive the texture data
          * @param mipLevel Mipmap level to read (0 = base level)
          * @return true if readback succeeded

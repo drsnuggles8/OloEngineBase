@@ -24,7 +24,13 @@ layout(std140, binding = 0) uniform CameraMatrices {
     vec3 u_CameraPosition;
     float _padding0;
     mat4 u_PrevViewProjection;
+    vec3 _cameraRenderOrigin;
+    float _cameraLightingTap;
+    mat4 _cameraProjectionForReconstruction;
+    vec4 _cameraScreenSpaceAOParams;
+    vec4 u_JitterUV; // the TAA jitter offsets, for the velocity (#1552)
 };
+#include "include/ScreenVelocity.glsl"
 
 // This shader's consuming stage never reads v_InstanceIndex — declare no
 // varying (a written-but-unconsumed output is a per-pipeline Vulkan
@@ -47,8 +53,8 @@ void main()
     vec4 prevWorldPos = instances[gl_InstanceIndex].PrevTransform * vec4(a_Position, 1.0);
     vec4 clipPrev = u_PrevViewProjection * prevWorldPos;
 
-    v_ClipPosCurr = clipCurr;
-    v_ClipPosPrev = clipPrev;
+    v_ClipPosCurr = oloUnjitterClip(clipCurr, u_JitterUV.xy);
+    v_ClipPosPrev = oloUnjitterClip(clipPrev, u_JitterUV.zw);
 
     gl_Position = clipCurr;
 }
@@ -75,6 +81,7 @@ void main()
 {
     FragColor = vec4(1.0);
 
+    // The clip positions arrive unjittered (oloUnjitterClip in the vertex stage, #1552).
     vec2 ndcCurr = v_ClipPosCurr.xy / v_ClipPosCurr.w;
     vec2 ndcPrev = v_ClipPosPrev.xy / v_ClipPosPrev.w;
     o_Velocity = vec4((ndcCurr - ndcPrev) * 0.5, 1.0, 0.0);

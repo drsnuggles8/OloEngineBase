@@ -43,6 +43,14 @@ layout(std140, binding = 0) uniform CameraMatrices {
     // x = live, y = strength. Zero on every view but the main view's forward
     // colour passes. Read through include/ForwardScreenSpaceAO.glsl.
     vec4 u_ScreenSpaceAOParams;
+    // The TAA jitter's screen offset (#1552): xy this frame's, zw the previous
+    // frame's, in velocity units (NDC times 0.5, the uploaded projection's
+    // convention). Zero on every unjittered view. Read through
+    // oloVelocityFromNdc below.
+    vec4 u_JitterUV;
 };
+
+// oloVelocityFromNdc, the one velocity every writer emits (#1552).
+#include "ScreenVelocity.glsl"
 
 #endif // CAMERA_COMMON_GLSL

@@ -1,4 +1,7 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/PerformanceProfiler.h"
+#include "OloEngine/Math/Math.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Terrain/Foliage/FoliageWind.h"
 #include "OloEngine/Terrain/Foliage/FoliageAlphaCoverage.h"
 #include "OloEngine/Terrain/Foliage/FoliageInteraction.h"
@@ -35,6 +38,7 @@
 
 #include <glm/gtc/constants.hpp>
 
+#include <bit>
 #include <filesystem>
 #include <format>
 #include <span>
@@ -44,10 +48,31 @@
 
 namespace OloEngine
 {
+    // THE CARD IS THE MESH'S BAKE ONLY WHEN THE MESH HAS ITS OWN TEXTURES.
+    // Every imported plant carries its own (its .mtl), and its card is the
+    // vegetation import's billboard of it, over the mesh's own frame. A mesh with
+    // no material of its own is drawn with the layer's albedo, which is then a
+    // texture for the mesh's UVs rather than a picture of the plant: drawn as a
+    // bake, the procedural pine.obj with grass.png that the foliage fixtures
+    // author turned from a 1 m strip into a 10 m grass tuft. So any part that
+    // borrows the layer's albedo keeps the whole layer on the legacy card.
+    f32 FoliageRenderer::MeshLayerCardLane(const LayerRenderData& data)
+    {
+        if (!data.MeshVBO || data.MeshParts.IsEmpty())
+            return 0.0f;
+        for (const auto& part : data.MeshParts)
+        {
+            if (!part.Albedo)
+                return 0.0f;
+        }
+        return FoliageLod::CardNormalLane(data.CardNormalTilt);
+    }
+
     void FoliageRenderer::QueueRayTracing(u64 owner, const glm::vec3& cameraPosition) const
     {
         if (!Renderer3D::WantsRayTracingVegetation())
             return;
+        OLO_PERF_SCOPE_AUTO("Vegetation::Queue");
         auto& cache = Renderer3D::GetVegetationSurfaceCache();
         const auto field = WindSystem::GetGPUData();
         // sqrt(||A||_1 * ||A||_infinity) bounds the spectral norm and retains
@@ -65,25 +90,233 @@ namespace OloEngine
             maxRow = std::max(maxRow, row);
         }
         const f32 transformNorm = std::sqrt(maxColumn * maxRow);
+        const bool reflectionsReadVegetation = Renderer3D::GetPostProcessSettings().RayTracedReflection.Enabled;
+        const auto& rayTracingScene = Renderer3D::GetRayTracingScene();
+        // What one group of `plants` occupies, staged and as acceleration
+        // structures: one BLAS per part, each over the group's whole vertex
+        // stream, sized by the device (#1533). The cache budgets both.
+        const auto geometryBytes = [](const LayerRenderData& layer, bool mesh, u64 plants) -> u64
+        {
+            return plants * ((mesh ? static_cast<u64>(layer.MeshVertexCount) : 4u) * sizeof(Vertex) +
+                             (mesh ? static_cast<u64>(layer.MeshRayTracingIndices.Num()) : 6u) * sizeof(u32) + sizeof(FoliageInstanceData));
+        };
+        const auto accelerationBytes = [&](const LayerRenderData& layer, bool mesh, u64 plants) -> u64
+        {
+            const u64 vertices = plants * (mesh ? static_cast<u64>(layer.MeshVertexCount) : 4u);
+            if (vertices > std::numeric_limits<u32>::max())
+                return std::numeric_limits<u64>::max();
+            if (!mesh)
+                return rayTracingScene.EstimateDeformedBlasBytes(static_cast<u32>(vertices), static_cast<u32>(plants * 2u));
+            u64 bytes = 0u;
+            for (const auto& part : layer.MeshParts)
+                if (part.IndexCount > 0u)
+                    bytes += rayTracingScene.EstimateDeformedBlasBytes(static_cast<u32>(vertices),
+                                                                       static_cast<u32>(plants * (part.IndexCount / 3u)));
+            return bytes;
+        };
+        // One group of one layer's plants in one representation, described and
+        // queued -- or refused, counted against that layer's completeness.
+        const auto queueGroup = [&](const LayerRenderData& layer, u32 representation,
+                                    std::span<const FoliageInstanceRecord* const> records, u64 estimatedBytes,
+                                    u64 estimatedAccelerationBytes, f32 distanceToView)
+        {
+            const bool mesh = representation != 2u;
+            const bool impostor = representation == 1u;
+            if (!cache.HasQueueCapacity() || estimatedBytes > RayTracing::VegetationPolicy::GeometryBytes ||
+                estimatedAccelerationBytes > RayTracing::VegetationPolicy::AccelerationStructureBytes)
+            {
+                cache.Refuse(layer.CastShadows);
+                return;
+            }
+            RayTracing::VegetationSurfaceInput input;
+            input.Owner = owner;
+            input.FirstPlantId = records[0]->m_Id;
+            input.Rest = mesh ? layer.MeshVBO : layer.QuadVBO;
+            input.VertexCount = mesh ? layer.MeshVertexCount : 4u;
+            input.WorldTransform = m_TerrainTransform;
+            // A reflection-only layer is a SNAPSHOT everywhere (#1533): its wind is
+            // refreshed within the proxies' error deadline, not every frame, which
+            // is what lets the lawn's near field fit the per-frame budget at all.
+            input.DetailedDistance = !layer.CastShadows ? 0.0f
+                                                        : (mesh ? std::max(50.0f, layer.MeshFadeStartDistance)
+                                                                : RayTracing::VegetationPolicy::DetailedCardDistance);
+            input.DistanceToView = distanceToView;
+            const u32 partCount = mesh ? static_cast<u32>(layer.MeshParts.Num()) : 1u;
+            bool validParts = true;
+            for (u32 part = 0u; part < partCount; ++part)
+            {
+                RayTracing::VegetationSurfacePart surface;
+                surface.Slot = part;
+                if (mesh)
+                {
+                    const auto& range = layer.MeshParts[part];
+                    if (range.IndexCount == 0u)
+                        continue;
+                    if (static_cast<u64>(range.BaseIndex) + range.IndexCount > layer.MeshRayTracingIndices.Num())
+                    {
+                        validParts = false;
+                        break;
+                    }
+                    surface.Indices.Append(layer.MeshRayTracingIndices.GetData() + range.BaseIndex,
+                                           static_cast<i32>(range.IndexCount));
+                }
+                else
+                    surface.Indices = { 0u, 1u, 2u, 2u, 3u, 0u };
+                surface.Material.m_BaseColorFactor = glm::vec4(layer.BaseColor, 1.0f);
+                surface.Material.m_RoughnessFactor = layer.LeafRoughness;
+                surface.Material.m_AlphaMode = std::to_underlying(AlphaMode::Mask);
+                surface.Material.m_AlphaCutoff = layer.AlphaCutoff;
+                surface.Material.m_ClosureVersion = std::to_underlying(PBRModel::ClosureV2);
+                surface.Material.m_MaterialKind = std::to_underlying(MaterialKind::Foliage);
+                surface.Material.m_Flags = GPUSceneMaterialFlagTwoSided | GPUSceneMaterialFlagDepthTest;
+                const auto albedo = mesh && layer.MeshParts[part].Albedo ? layer.MeshParts[part].Albedo : layer.AlbedoTexture;
+                if (albedo && albedo->IsLoaded())
+                {
+                    surface.Material.m_Albedo.m_Handle = albedo->GetRHIHandle();
+                    surface.Material.m_Albedo.m_HeapOffset = HeapBinding::ResolveRecordTextureOffset(
+                                                                 albedo->GetRHIHandle(), HeapBinding::MaterialTexture2DSampler())
+                                                                 .Value;
+                }
+                input.Parts.Add(std::move(surface));
+            }
+            if (!validParts)
+            {
+                cache.Refuse(layer.CastShadows);
+                return;
+            }
+            // The rows' content key (#1533): the registry generation advances on
+            // any change to a plant, so it, the plant ids and the layer values
+            // written into each row name the rows exactly. A group the cache
+            // already holds under it is sent without rows.
+            u64 contentKey = 0x9e3779b97f4a7c15ull;
+            const auto mixKey = [&contentKey](u64 value)
+            {
+                contentKey = (contentKey ^ value) * 0x100000001b3ull;
+                contentKey ^= contentKey >> 29u;
+            };
+            mixKey(m_Registry.GetGeneration());
+            mixKey(RHI::HashKey(input.Rest->GetRHIHandle()));
+            mixKey(input.VertexCount);
+            mixKey(std::bit_cast<u32>(layer.BaseColor.x) | (static_cast<u64>(std::bit_cast<u32>(layer.BaseColor.y)) << 32u));
+            mixKey(std::bit_cast<u32>(layer.BaseColor.z) | (static_cast<u64>(std::bit_cast<u32>(layer.AlphaCutoff)) << 32u));
+            for (const FoliageInstanceRecord* record : records)
+                mixKey(record->m_Id);
+            input.ContentKey = contentKey != 0u ? contentKey : 1u;
+            if (cache.HoldsContent(owner, input.FirstPlantId, input.Rest, input.ContentKey))
+                input.HeldPlantCount = static_cast<u32>(records.size());
+            else
+            {
+                input.Rows.Reserve(static_cast<i32>(records.size()));
+                for (const FoliageInstanceRecord* plantRecord : records)
+                {
+                    const auto& record = *plantRecord;
+                    input.Rows.Add({ glm::vec4(record.m_Position, record.m_Scale),
+                                     glm::vec4(record.m_Rotation, record.m_Height, 1.0f, FoliageWindPhase(record.m_Id)),
+                                     glm::vec4(layer.BaseColor, layer.AlphaCutoff) });
+                }
+            }
+            auto& wind = input.Wind;
+            wind.Time = m_Time;
+            wind.PrevTime = m_PrevTime;
+            wind.WindStrength = layer.WindStrength;
+            wind.WindSpeed = layer.WindSpeed;
+            wind.WindWeights = layer.WindWeights;
+            wind.WindDirection = field.DirectionAndSpeed;
+            wind.WindGust = field.GustAndTurbulence;
+            wind.WindClock = field.TimeAndFlags;
+            wind.WindFlags = glm::vec4(Renderer3D::GetRenderOrigin(), field.TimeAndFlags.y);
+            wind.WindHistoryValid = WindSystem::HasStableParameters() ? 1.0f : 0.0f;
+            wind.MeshParams.x = mesh ? 1.0f : 0.0f;
+            wind.MeshParams.z = impostor ? 1.0f : 0.0f;
+            // A mesh layer's card is the mesh's bake (#1533): sized like
+            // the mesh, with the mesh's mean normal (the lane). Kept at the
+            // plant's own yaw here, unlike the raster card: a proxy turned
+            // to the main view would be neither a ray-space silhouette nor
+            // a cacheable one.
+            wind.MeshParams.w = mesh ? 0.0f : MeshLayerCardLane(layer);
+            wind.ImpostorParams1.x = impostor ? 1.0f : 0.0f;
+            // The ray-traced vegetation representation (issue #1240)
+            // takes the same influence set as the raster passes, so a
+            // plant a character is standing on casts a bent ray-traced
+            // shadow too. It is a SNAPSHOT: the cache's refresh key
+            // deliberately excludes time (see VegetationSurfaceCache),
+            // so interaction reaches RT on the same cadence wind phase
+            // does, not per frame. The velocity bound below is what
+            // keeps that cadence honest.
+            ApplyFoliageInteraction(wind, layer.InteractionResponse);
+            input.HistoryContinuous = WindSystem::HasStableParameters() && m_Time >= m_PrevTime;
+            input.CastShadows = layer.CastShadows;
+            input.AccelerationBytes = estimatedAccelerationBytes;
+            const bool hierarchy = layer.WindWeights.x + layer.WindWeights.y + layer.WindWeights.z > 0.0f;
+            input.VelocityBound = RayTracing::VegetationPolicy::WindVelocityBound(
+                layer.WindStrength, layer.WindSpeed, layer.WindWeights.y, layer.WindWeights.z,
+                hierarchy, field.TimeAndFlags.y > 0.5f && (hierarchy || !impostor), field.DirectionAndSpeed.w,
+                field.GustAndTurbulence.x, field.GustAndTurbulence.y, transformNorm);
+            // A running actor moves a plant far faster than wind does,
+            // and ProxyAgeLimit is error/velocity — so a bound that
+            // ignored interaction would keep serving a snapshot taken
+            // before the actor arrived. Reported by the field from its
+            // own springs rather than estimated here.
+            if (const f32 bendRate = FoliageInteractionField::GetMaximumBendRate();
+                std::isfinite(bendRate) && std::isfinite(input.VelocityBound))
+                input.VelocityBound += bendRate * layer.InteractionResponse * transformNorm;
+            cache.Queue(std::move(input));
+        };
+        // What the cached split was taken from, besides the camera: every
+        // layer field that decides a plant's group, tier or cost.
+        u64 layersKey = 0xcbf29ce484222325ull;
+        const auto mixLayers = [&layersKey](u64 value)
+        {
+            layersKey = (layersKey ^ value) * 0x100000001b3ull;
+            layersKey ^= layersKey >> 29u;
+        };
+        for (const auto& layer : m_Layers)
+        {
+            mixLayers(layer.CastShadows ? 1u : 0u);
+            mixLayers(std::bit_cast<u32>(layer.ViewDistance) | (static_cast<u64>(std::bit_cast<u32>(layer.MeshViewDistance)) << 32u));
+            mixLayers((layer.UseImpostor ? 1u : 0u) | (layer.Impostor.IsValid() ? 2u : 0u));
+            mixLayers(layer.MeshVBO ? RHI::HashKey(layer.MeshVBO->GetRHIHandle()) : 0u);
+            mixLayers(layer.QuadVBO ? RHI::HashKey(layer.QuadVBO->GetRHIHandle()) : 0u);
+            mixLayers(layer.MeshVertexCount | (static_cast<u64>(layer.MeshRayTracingIndices.Num()) << 32u));
+            for (const auto& part : layer.MeshParts)
+                mixLayers(part.IndexCount);
+        }
+        const bool splitReused = reflectionsReadVegetation && m_ReflectionSplit.Valid &&
+                                 m_ReflectionSplit.RecordsEpoch == m_Registry.GetRecordsEpoch() &&
+                                 m_ReflectionSplit.LayersKey == layersKey &&
+                                 Math::BitwiseEqual(m_ReflectionSplit.Terrain, m_TerrainTransform) &&
+                                 glm::length(cameraPosition - m_ReflectionSplit.Camera) < kReflectionSplitTolerance;
+        auto& reflectionCandidates = m_ReflectionSplit.Candidates;
+        auto& reflectionRecords = m_ReflectionSplit.Records;
+        if (!splitReused)
+        {
+            reflectionCandidates.Reset();
+            reflectionRecords.Reset();
+        }
         for (const auto& group : m_Registry.GetGroups())
         {
             if (group.m_LayerIndex >= m_Layers.Num())
                 continue;
             const auto& layer = m_Layers[group.m_LayerIndex];
+            if (!RayTracing::VegetationPolicy::TracesLayer(layer.CastShadows, reflectionsReadVegetation))
+                continue; // no ray this frame reads a layer that casts no shadow
             if (layer.UseImpostor && layer.Impostor.IsValid() && !layer.MeshVBO)
             {
                 // An atlas without its source mesh cannot produce a ray-space
                 // canopy. Count refusal and retain the whole raster tier.
-                cache.Queue({});
+                cache.Refuse(layer.CastShadows);
                 continue;
             }
+            if (!layer.CastShadows && splitReused)
+                continue; // its groups are in the cached split
             TArray<const FoliageInstanceRecord*> meshRecords, impostorRecords, cardRecords;
-            // RebuildGroups keeps these in ascending canonical ID for us.
-            for (const auto id : group.m_Instances)
+            TArray<f32> meshDistances, impostorDistances, cardDistances;
+            // RebuildGroups keeps these in ascending canonical ID for us, with
+            // each one's record index alongside: no lookup per plant.
+            const auto& allRecords = m_Registry.GetRecords();
+            for (const u32 index : group.m_RecordIndices)
             {
-                const auto* record = m_Registry.Find(id);
-                if (!record)
-                    continue;
+                const auto* record = &allRecords[static_cast<i32>(index)];
                 const glm::vec3 worldRoot = glm::vec3(m_TerrainTransform * glm::vec4(record->m_Position, 1.0f));
                 const f32 distance = glm::length(worldRoot - cameraPosition);
                 if (distance > layer.ViewDistance)
@@ -95,124 +328,106 @@ namespace OloEngine
                 const bool impostor = mesh && layer.UseImpostor && layer.Impostor.IsValid() &&
                                       distance > layer.MeshViewDistance;
                 (impostor ? impostorRecords : (mesh ? meshRecords : cardRecords)).Add(record);
+                (impostor ? impostorDistances : (mesh ? meshDistances : cardDistances)).Add(distance);
             }
             for (const u32 representation : { 0u, 1u, 2u })
             {
-                const bool mesh = representation != 2u, impostor = representation == 1u;
+                const bool mesh = representation != 2u;
+                const bool impostor = representation == 1u;
                 const auto& records = impostor ? impostorRecords : (mesh ? meshRecords : cardRecords);
+                const auto& distances = impostor ? impostorDistances : (mesh ? meshDistances : cardDistances);
                 const u32 plantsPerGroup = mesh ? RayTracing::VegetationPolicy::PlantsPerGroup : RayTracing::VegetationPolicy::CardPlantsPerGroup;
                 for (sizet first = 0u; first < records.Num(); first += plantsPerGroup)
                 {
                     const sizet count = std::min(records.Num() - first, static_cast<sizet>(plantsPerGroup));
-                    const u64 estimatedBytes = count * ((mesh ? static_cast<u64>(layer.MeshVertexCount) : 4u) * sizeof(Vertex) +
-                                                        (mesh ? static_cast<u64>(layer.MeshRayTracingIndices.Num()) : 6u) * sizeof(u32) + sizeof(FoliageInstanceData));
-                    if (!cache.HasQueueCapacity() || estimatedBytes > RayTracing::VegetationPolicy::GeometryBytes)
+                    const std::span<const FoliageInstanceRecord* const> slice{ records.GetData() + first, count };
+                    const f32 nearest = *std::min_element(distances.GetData() + first, distances.GetData() + first + count);
+                    const u64 estimatedBytes = geometryBytes(layer, mesh, count);
+                    if (!layer.CastShadows)
                     {
-                        cache.Queue({});
-                        continue;
-                    }
-                    RayTracing::VegetationSurfaceInput input;
-                    input.Owner = owner;
-                    input.FirstPlantId = records[first]->m_Id;
-                    input.Rest = mesh ? layer.MeshVBO : layer.QuadVBO;
-                    input.VertexCount = mesh ? layer.MeshVertexCount : 4u;
-                    input.WorldTransform = m_TerrainTransform;
-                    input.DetailedDistance = mesh ? std::max(50.0f, layer.MeshFadeStartDistance) : RayTracing::VegetationPolicy::DetailedCardDistance;
-                    input.DistanceToView = std::numeric_limits<f32>::infinity();
-                    const u32 partCount = mesh ? static_cast<u32>(layer.MeshParts.Num()) : 1u;
-                    bool validParts = true;
-                    for (u32 part = 0u; part < partCount; ++part)
-                    {
-                        RayTracing::VegetationSurfacePart surface;
-                        surface.Slot = part;
+                        // Reflection-only: a card group, with a mesh tier in
+                        // the mesh distance, admitted nearest first, below.
+                        ReflectionCandidate candidate;
+                        candidate.LayerIndex = group.m_LayerIndex;
+                        candidate.MeshRepresentation = representation;
+                        candidate.Cost.CardGeometryBytes = geometryBytes(layer, false, count);
+                        candidate.Cost.CardAccelerationBytes = accelerationBytes(layer, false, count);
                         if (mesh)
                         {
-                            const auto& range = layer.MeshParts[part];
-                            if (range.IndexCount == 0u)
-                                continue;
-                            if (static_cast<u64>(range.BaseIndex) + range.IndexCount > layer.MeshRayTracingIndices.Num())
-                            {
-                                validParts = false;
-                                break;
-                            }
-                            surface.Indices.Append(layer.MeshRayTracingIndices.GetData() + range.BaseIndex,
-                                                   static_cast<i32>(range.IndexCount));
+                            candidate.Cost.MeshGeometryBytes = estimatedBytes;
+                            candidate.Cost.MeshAccelerationBytes = accelerationBytes(layer, true, count);
                         }
-                        else
-                            surface.Indices = { 0u, 1u, 2u, 2u, 3u, 0u };
-                        surface.Material.m_BaseColorFactor = glm::vec4(layer.BaseColor, 1.0f);
-                        surface.Material.m_RoughnessFactor = layer.LeafRoughness;
-                        surface.Material.m_AlphaMode = std::to_underlying(AlphaMode::Mask);
-                        surface.Material.m_AlphaCutoff = layer.AlphaCutoff;
-                        surface.Material.m_ClosureVersion = std::to_underlying(PBRModel::ClosureV2);
-                        surface.Material.m_MaterialKind = std::to_underlying(MaterialKind::Foliage);
-                        surface.Material.m_Flags = GPUSceneMaterialFlagTwoSided | GPUSceneMaterialFlagDepthTest;
-                        const auto albedo = mesh && layer.MeshParts[part].Albedo ? layer.MeshParts[part].Albedo : layer.AlbedoTexture;
-                        if (albedo && albedo->IsLoaded())
-                        {
-                            surface.Material.m_Albedo.m_Handle = albedo->GetRHIHandle();
-                            surface.Material.m_Albedo.m_HeapOffset = HeapBinding::ResolveRecordTextureOffset(
-                                                                         albedo->GetRHIHandle(), HeapBinding::MaterialTexture2DSampler())
-                                                                         .Value;
-                        }
-                        input.Parts.Add(std::move(surface));
-                    }
-                    if (!validParts)
-                    {
-                        cache.Queue({});
+                        candidate.FirstId = slice.front()->m_Id;
+                        candidate.FirstRecord = static_cast<u32>(reflectionRecords.Num());
+                        candidate.RecordCount = static_cast<u32>(slice.size());
+                        reflectionRecords.Append(slice.data(), static_cast<i32>(slice.size()));
+                        candidate.Distance = nearest;
+                        reflectionCandidates.Add(std::move(candidate));
                         continue;
                     }
-                    const sizet end = std::min(static_cast<sizet>(records.Num()), first + plantsPerGroup);
-                    for (sizet plant = first; plant < end; ++plant)
-                    {
-                        const auto& record = *records[plant];
-                        input.Rows.Add({ glm::vec4(record.m_Position, record.m_Scale),
-                                         glm::vec4(record.m_Rotation, record.m_Height, 1.0f, FoliageWindPhase(record.m_Id)),
-                                         glm::vec4(layer.BaseColor, layer.AlphaCutoff) });
-                        const auto worldRoot = glm::vec3(m_TerrainTransform * glm::vec4(record.m_Position, 1.0f));
-                        input.DistanceToView = std::min(input.DistanceToView, glm::length(worldRoot - cameraPosition));
-                    }
-                    auto& wind = input.Wind;
-                    wind.Time = m_Time;
-                    wind.PrevTime = m_PrevTime;
-                    wind.WindStrength = layer.WindStrength;
-                    wind.WindSpeed = layer.WindSpeed;
-                    wind.WindWeights = layer.WindWeights;
-                    wind.WindDirection = field.DirectionAndSpeed;
-                    wind.WindGust = field.GustAndTurbulence;
-                    wind.WindClock = field.TimeAndFlags;
-                    wind.WindFlags = glm::vec4(Renderer3D::GetRenderOrigin(), field.TimeAndFlags.y);
-                    wind.WindHistoryValid = WindSystem::HasStableParameters() ? 1.0f : 0.0f;
-                    wind.MeshParams.x = mesh ? 1.0f : 0.0f;
-                    wind.MeshParams.z = impostor ? 1.0f : 0.0f;
-                    wind.ImpostorParams1.x = impostor ? 1.0f : 0.0f;
-                    // The ray-traced vegetation representation (issue #1240)
-                    // takes the same influence set as the raster passes, so a
-                    // plant a character is standing on casts a bent ray-traced
-                    // shadow too. It is a SNAPSHOT: the cache's refresh key
-                    // deliberately excludes time (see VegetationSurfaceCache),
-                    // so interaction reaches RT on the same cadence wind phase
-                    // does, not per frame. The velocity bound below is what
-                    // keeps that cadence honest.
-                    ApplyFoliageInteraction(wind, layer.InteractionResponse);
-                    input.HistoryContinuous = WindSystem::HasStableParameters() && m_Time >= m_PrevTime;
-                    const bool hierarchy = layer.WindWeights.x + layer.WindWeights.y + layer.WindWeights.z > 0.0f;
-                    input.VelocityBound = RayTracing::VegetationPolicy::WindVelocityBound(
-                        layer.WindStrength, layer.WindSpeed, layer.WindWeights.y, layer.WindWeights.z,
-                        hierarchy, field.TimeAndFlags.y > 0.5f && (hierarchy || !impostor), field.DirectionAndSpeed.w,
-                        field.GustAndTurbulence.x, field.GustAndTurbulence.y, transformNorm);
-                    // A running actor moves a plant far faster than wind does,
-                    // and ProxyAgeLimit is error/velocity — so a bound that
-                    // ignored interaction would keep serving a snapshot taken
-                    // before the actor arrived. Reported by the field from its
-                    // own springs rather than estimated here.
-                    if (const f32 bendRate = FoliageInteractionField::GetMaximumBendRate();
-                        std::isfinite(bendRate) && std::isfinite(input.VelocityBound))
-                        input.VelocityBound += bendRate * layer.InteractionResponse * transformNorm;
-                    cache.Queue(std::move(input));
+                    queueGroup(layer, representation, slice, estimatedBytes, accelerationBytes(layer, mesh, count), nearest);
                 }
             }
         }
+
+        // THE REFLECTION-ONLY GROUPS, nearest first: cards while they fit what
+        // the casting layers left, then the nearest upgraded to the mesh
+        // (VegetationPolicy::ChooseReflectionTiers). The rest are left out of
+        // the scene and counted, not refused, so the TLAS stays (#1533).
+        OLO_PERF_SCOPE_AUTO("Vegetation::QueueAdmit");
+        if (!splitReused)
+        {
+            std::ranges::sort(reflectionCandidates, [](const ReflectionCandidate& a, const ReflectionCandidate& b)
+                              { return std::make_pair(a.Distance, a.FirstId) < std::make_pair(b.Distance, b.FirstId); });
+            m_ReflectionSplit.Valid = reflectionsReadVegetation;
+            m_ReflectionSplit.Camera = cameraPosition;
+            m_ReflectionSplit.Terrain = m_TerrainTransform;
+            m_ReflectionSplit.RecordsEpoch = m_Registry.GetRecordsEpoch();
+            m_ReflectionSplit.LayersKey = layersKey;
+        }
+        using RayTracing::VegetationPolicy;
+        TArray<VegetationPolicy::ReflectionGroupCost> costs;
+        TArray<VegetationPolicy::ReflectionTier> tiers;
+        costs.Reserve(reflectionCandidates.Num());
+        for (const ReflectionCandidate& candidate : reflectionCandidates)
+        {
+            costs.Add(candidate.Cost);
+            tiers.Add(VegetationPolicy::ReflectionTier::Out);
+        }
+        VegetationPolicy::ChooseReflectionTiers(std::span<const VegetationPolicy::ReflectionGroupCost>{ costs.GetData(), static_cast<sizet>(costs.Num()) },
+                                                cache.GetStagedBytes(), cache.GetStagedAccelerationBytes(),
+                                                std::span<VegetationPolicy::ReflectionTier>{ tiers.GetData(), static_cast<sizet>(tiers.Num()) });
+        f32 reach = 0.0f;
+        f32 detailReach = 0.0f;
+        u32 groupsLeftOut = 0u;
+        u32 plantsLeftOut = 0u;
+        for (i32 i = 0; i < reflectionCandidates.Num(); ++i)
+        {
+            const ReflectionCandidate& candidate = reflectionCandidates[i];
+            const std::span<const FoliageInstanceRecord* const> records{ reflectionRecords.GetData() + candidate.FirstRecord,
+                                                                         candidate.RecordCount };
+            const auto& layer = m_Layers[candidate.LayerIndex];
+            switch (tiers[i])
+            {
+                case VegetationPolicy::ReflectionTier::Mesh:
+                    queueGroup(layer, candidate.MeshRepresentation, records, candidate.Cost.MeshGeometryBytes,
+                               candidate.Cost.MeshAccelerationBytes, candidate.Distance);
+                    reach = std::max(reach, candidate.Distance);
+                    detailReach = std::max(detailReach, candidate.Distance);
+                    break;
+                case VegetationPolicy::ReflectionTier::Card:
+                    queueGroup(layer, 2u, records, candidate.Cost.CardGeometryBytes, candidate.Cost.CardAccelerationBytes,
+                               candidate.Distance);
+                    reach = std::max(reach, candidate.Distance);
+                    break;
+                case VegetationPolicy::ReflectionTier::Out:
+                    ++groupsLeftOut;
+                    plantsLeftOut += candidate.RecordCount;
+                    break;
+            }
+        }
+        if (!reflectionCandidates.IsEmpty())
+            cache.CountBeyondReflectionBudget(groupsLeftOut, plantsLeftOut, reach, detailReach);
     }
 
     FoliageRenderer::~FoliageRenderer()
@@ -378,6 +593,36 @@ namespace OloEngine
             }
             return nullptr;
         }
+
+        // The elevation of a plant's mean FRONT-FACING normal (#1533): its face
+        // normals flipped toward +Z, the card bake's eye (bake_billboard projects
+        // along -Z), area-weighted, averaged and normalised. The far card faces
+        // the eye and takes this as its normal's rise, so it is lit the way the
+        // near plant is on average rather than as an upward-facing sheet.
+        [[nodiscard]] f32 MeanFrontFacingNormalElevation(const TArray<Vertex>& vertices, const TArray<u32>& indices)
+        {
+            glm::dvec3 sum(0.0);
+            for (i32 i = 0; i + 2 < indices.Num(); i += 3)
+            {
+                const u32 a = indices[i];
+                const u32 b = indices[i + 1];
+                const u32 c = indices[i + 2];
+                if (a >= static_cast<u32>(vertices.Num()) || b >= static_cast<u32>(vertices.Num()) ||
+                    c >= static_cast<u32>(vertices.Num()))
+                    continue;
+                const glm::dvec3 pa(vertices[static_cast<i32>(a)].Position);
+                // The cross product's length is twice the face's area: the weight.
+                glm::dvec3 face = glm::cross(glm::dvec3(vertices[static_cast<i32>(b)].Position) - pa,
+                                             glm::dvec3(vertices[static_cast<i32>(c)].Position) - pa);
+                if (face.z < 0.0)
+                    face = -face;
+                sum += face;
+            }
+            const f64 length = glm::length(sum);
+            if (!(length > 0.0) || !std::isfinite(length))
+                return 0.0f;
+            return static_cast<f32>(std::clamp(sum.y / length, -0.95, 0.95));
+        }
     } // namespace
 
     bool FoliageRenderer::BuildMeshGeometry(LayerRenderData& data, const FoliageLayer& layer) const
@@ -396,6 +641,7 @@ namespace OloEngine
         data.MeshIndexCount = 0;
         data.MeshGeometryPath.Empty();
         data.BoundsProfile = FoliageBoundsProfile{};
+        data.CardNormalTilt = 0.0f;
 
         // Project-relative for project content, working-directory-relative for
         // engine content (#1496). An unresolvable path is logged by the resolver
@@ -435,6 +681,7 @@ namespace OloEngine
         data.MeshIndexCount = static_cast<u32>(plant.Indices.Num());
         data.MeshModel = model;
         data.MeshGeometryPath = layer.MeshPath;
+        data.CardNormalTilt = MeanFrontFacingNormalElevation(srcVertices, plant.Indices);
 
         // Conservative bounds from the REAL geometry (issue #1233, second
         // criterion). A quad's box is not a pine's: the canopy is wider than
@@ -603,6 +850,10 @@ namespace OloEngine
             return;
 
         const bool meshDrawable = data.MeshVAO && !data.MeshParts.IsEmpty() && data.MeshViewDistance > 0.0f;
+        // The card is the mesh's bake whenever a textured mesh LOADED (#1533),
+        // whatever its hand-over distance: the card texture was baked from it
+        // either way (MeshLayerCardLane).
+        const f32 cardLane = MeshLayerCardLane(data);
         const f32 handoverStart = meshDrawable ? data.MeshFadeStartDistance : 0.0f;
         const f32 handoverEnd = meshDrawable ? data.MeshViewDistance : 0.0f;
 
@@ -621,6 +872,7 @@ namespace OloEngine
                 draw.IsAuthoredMesh = true;
                 draw.HandoverStart = handoverStart;
                 draw.HandoverEnd = handoverEnd;
+                draw.CardNormalLane = cardLane;
                 draw.FadeStart = data.FadeStartDistance;
                 draw.ViewDistance = data.ViewDistance;
                 draw.LodTransition0 = FoliageLodTransition0(data.Lod);
@@ -643,6 +895,7 @@ namespace OloEngine
             draw.IsAuthoredMesh = false;
             draw.HandoverStart = handoverStart;
             draw.HandoverEnd = handoverEnd;
+            draw.CardNormalLane = cardLane;
             draw.FadeStart = data.FadeStartDistance;
             draw.ViewDistance = data.ViewDistance;
             draw.LodTransition0 = FoliageLodTransition0(data.Lod);
@@ -765,6 +1018,7 @@ namespace OloEngine
                 std::isfinite(layer.InteractionResponse) ? std::clamp(layer.InteractionResponse, 0.0f, 8.0f) : 1.0f;
             renderData.BaseColor = layer.BaseColor;
             renderData.AlphaCutoff = layer.AlphaCutoff;
+            renderData.CastShadows = layer.CastShadows;
 
             // LOD transitions + coverage-preserving density (issue #1237).
             // Sanitised HERE, once, for the same reason InteractionResponse
@@ -1146,7 +1400,7 @@ namespace OloEngine
                 foliageUBOData.PrevTime = m_PrevTime;
                 foliageUBOData.BaseColor = glm::vec4(layer.BaseColor, 0.0f);
                 foliageUBOData.MeshParams = glm::vec4(draw.IsAuthoredMesh ? 1.0f : 0.0f,
-                                                      draw.HandoverStart, draw.HandoverEnd, 0.0f);
+                                                      draw.HandoverStart, draw.HandoverEnd, draw.CardNormalLane);
                 foliageUBOData.MeshViewPos = glm::vec4(renderRelativeViewPos, 0.0f);
                 // The #1237 lanes, from the draw the enumeration packed them on.
                 foliageUBOData.LodTransition0 = draw.LodTransition0;
@@ -1278,7 +1532,9 @@ namespace OloEngine
         TArray<LayerDraw> draws;
         for (auto& layer : m_Layers)
         {
-            if (layer.InstanceCount == 0)
+            // A layer authored out of the shadow maps (FoliageLayer::CastShadows,
+            // #1533) still receives; it only skips this pass.
+            if (layer.InstanceCount == 0 || !layer.CastShadows)
                 continue;
 
             EnumerateLayerDraws(layer, draws);
@@ -1309,7 +1565,7 @@ namespace OloEngine
                 foliageUBOData.WindHistoryValid = WindSystem::HasStableParameters() ? 1.0f : 0.0f;
                 foliageUBOData.AlphaCutoff = layer.AlphaCutoff;
                 foliageUBOData.MeshParams = glm::vec4(draw.IsAuthoredMesh ? 1.0f : 0.0f,
-                                                      draw.HandoverStart, draw.HandoverEnd, 0.0f);
+                                                      draw.HandoverStart, draw.HandoverEnd, draw.CardNormalLane);
                 // The MAIN view's position, not this pass's camera — that one is
                 // the light. Without it the shadow pass would pick the mesh where
                 // the lit frame drew the card and the plant's shadow would be a
@@ -1734,6 +1990,7 @@ namespace OloEngine
                 info.IsAuthoredMesh = draw.IsAuthoredMesh;
                 info.MeshHandoverStartDistance = draw.HandoverStart;
                 info.MeshHandoverEndDistance = draw.HandoverEnd;
+                info.CardNormalLane = draw.CardNormalLane;
                 info.ViewDistance = draw.ViewDistance;
                 info.FadeStartDistance = draw.FadeStart;
                 info.LodTransition0 = draw.LodTransition0;
@@ -1948,12 +2205,19 @@ namespace OloEngine
 
             parts.Reset();
             parts.Reserve(draws.Num());
+            bool hasMeshPart = false;
             for (const auto& draw : draws)
-                parts.Add(FoliageGPUCuller::Part{ draw.IndexCount, draw.BaseIndex });
+            {
+                parts.Add(FoliageGPUCuller::Part{ draw.IndexCount, draw.BaseIndex, draw.IsAuthoredMesh });
+                hasMeshPart = hasMeshPart || draw.IsAuthoredMesh;
+            }
 
+            // Room for the mesh region beside the all-survivor list (#1533):
+            // the region starts at the instance count, so the buffer holds two.
             auto& view = layer.CullViews[slotIndex];
+            const u32 capacityWanted = hasMeshPart ? layer.InstanceCount * 2u : layer.InstanceCount;
             const bool recreated =
-                m_Culler.EnsureViewCapacity(view.Resources, layer.InstanceCount, layer.CullLayer.GroupCount);
+                m_Culler.EnsureViewCapacity(view.Resources, capacityWanted, layer.CullLayer.GroupCount);
             if (recreated || (!view.CardVAO && !view.MeshVAO))
                 RebuildCulledVertexArrays(layer, slotIndex);
 
@@ -1970,6 +2234,10 @@ namespace OloEngine
             FoliageGPUCuller::LodInputs lodInputs;
             lodInputs.Transition0 = FoliageLodTransition0(layer.Lod);
             lodInputs.Transition1 = FoliageLodTransition1(layer.Lod);
+            // Every draw of a layer carries the same hand-over band.
+            if (hasMeshPart)
+                lodInputs.MeshReach = FoliageLod::MeshRegionReach(draws[0].HandoverStart, draws[0].HandoverEnd,
+                                                                  layer.Lod.TransitionSpread, layer.Lod.Hysteresis);
             if (m_Culler.Cull(layer.CullLayer, view.Resources, layer.InstanceVBO->GetRHIHandle(), std::span(parts.GetData(), static_cast<sizet>(parts.Num())), layerInputs,
                               emitStats, lodInputs))
             {

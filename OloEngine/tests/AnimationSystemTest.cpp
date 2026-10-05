@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
+#include <limits>
+
 #include "OloEngine/Animation/AnimationSystem.h"
 #include "OloEngine/Animation/AnimationClip.h"
 #include "OloEngine/Animation/Skeleton.h"
@@ -221,4 +223,180 @@ TEST(AnimationSystem, AnimatedBoneIsUpdatedFromKeyframes)
     const glm::vec3 childTranslation = glm::vec3(childLocal[3]);
     EXPECT_NEAR(childTranslation.y, 1.5f, 0.1f)
         << "Animated child bone should have interpolated position.";
+}
+
+// -----------------------------------------------------------------
+// Clip switching and one-shot clips (issue #1533). A script names a clip in
+// m_RequestedClip; the next Update blends to it from its first frame, and a
+// clip whose loop flag is off holds its final pose instead of wrapping.
+// -----------------------------------------------------------------
+
+static Ref<AnimationClip> NamedClip(const char* name, f32 duration)
+{
+    auto clip = CreateBothBonesClip(duration);
+    clip->Name = name;
+    return clip;
+}
+
+TEST(AnimationSystem, AOneShotClipHoldsItsFinalPose)
+{
+    auto skeleton = CreateTwoBoneSkeleton(glm::mat4(1.0f));
+
+    AnimationStateComponent animState;
+    animState.m_CurrentClip = CreateBothBonesClip(1.0f);
+    animState.m_IsPlaying = true;
+    animState.m_Loop = false;
+
+    // 1.2 s into a 1 s clip: held at the end, where the child sits at y = 2.
+    AnimationSystem::Update(animState, *skeleton, 0.6f);
+    AnimationSystem::Update(animState, *skeleton, 0.6f);
+    EXPECT_FLOAT_EQ(animState.m_CurrentTime, 1.0f);
+    EXPECT_NEAR(glm::vec3(skeleton->m_LocalTransforms[1][3]).y, 2.0f, 1e-4f);
+
+    // The control: the same clip looping has wrapped to 0.2 s, y = 1.2.
+    AnimationStateComponent looping;
+    looping.m_CurrentClip = animState.m_CurrentClip;
+    looping.m_IsPlaying = true;
+    AnimationSystem::Update(looping, *skeleton, 0.6f);
+    AnimationSystem::Update(looping, *skeleton, 0.6f);
+    EXPECT_NEAR(looping.m_CurrentTime, 0.2f, 1e-4f);
+    EXPECT_NEAR(glm::vec3(skeleton->m_LocalTransforms[1][3]).y, 1.2f, 1e-3f);
+}
+
+TEST(AnimationSystem, AClipRequestBlendsToTheNamedClipFromItsFirstFrame)
+{
+    auto skeleton = CreateTwoBoneSkeleton(glm::mat4(1.0f));
+    auto idle = NamedClip("Idle", 2.0f);
+    auto sit = NamedClip("Sit", 1.0f);
+
+    AnimationStateComponent animState;
+    animState.m_AvailableClips = { idle, sit };
+    animState.m_CurrentClip = idle;
+    animState.m_CurrentTime = 0.5f;
+    animState.m_IsPlaying = true;
+    animState.m_BlendDuration = 0.25f;
+    animState.m_RequestedClip = "Sit";
+    animState.m_RequestedLoop = false;
+
+    AnimationSystem::Update(animState, *skeleton, 0.1f);
+
+    EXPECT_TRUE(animState.m_RequestedClip.empty()) << "a request is consumed by the Update that applies it";
+    EXPECT_EQ(animState.m_CurrentClipIndex, 1);
+    ASSERT_TRUE(animState.m_Blending);
+    EXPECT_EQ(animState.m_NextClip, sit);
+    EXPECT_FALSE(animState.m_NextLoop);
+    EXPECT_NEAR(animState.m_NextTime, 0.1f, 1e-5f) << "the target starts from its first frame";
+
+    // Past the blend: Sit is current, keeps its one-shot flag, and holds its end.
+    for (int i = 0; i < 20; ++i)
+    {
+        AnimationSystem::Update(animState, *skeleton, 0.1f);
+    }
+    EXPECT_FALSE(animState.m_Blending);
+    EXPECT_EQ(animState.m_CurrentClip, sit);
+    EXPECT_FALSE(animState.m_Loop);
+    EXPECT_FLOAT_EQ(animState.m_CurrentTime, 1.0f);
+}
+
+TEST(AnimationSystem, ARequestForTheCurrentClipKeepsItsPlaceAndTakesTheLoopFlag)
+{
+    auto idle = NamedClip("Idle", 2.0f);
+
+    AnimationStateComponent animState;
+    animState.m_AvailableClips = { idle };
+    animState.m_CurrentClip = idle;
+    animState.m_CurrentTime = 0.75f;
+    animState.m_RequestedClip = "Idle";
+    animState.m_RequestedLoop = false;
+
+    AnimationSystem::ApplyClipRequest(animState);
+
+    // A script may write the request every frame; that must not restart the clip.
+    EXPECT_FALSE(animState.m_Blending);
+    EXPECT_FLOAT_EQ(animState.m_CurrentTime, 0.75f);
+    EXPECT_FALSE(animState.m_Loop);
+    EXPECT_TRUE(animState.m_RequestedClip.empty());
+}
+
+TEST(AnimationSystem, AnUnknownClipNameIsDroppedWithoutTouchingPlayback)
+{
+    auto idle = NamedClip("Idle", 2.0f);
+
+    AnimationStateComponent animState;
+    animState.m_AvailableClips = { idle };
+    animState.m_CurrentClip = idle;
+    animState.m_CurrentTime = 0.75f;
+    animState.m_RequestedClip = "NoSuchClip";
+
+    AnimationSystem::ApplyClipRequest(animState);
+
+    EXPECT_TRUE(animState.m_RequestedClip.empty()) << "a bad name is not retried every frame";
+    EXPECT_EQ(animState.m_CurrentClip, idle);
+    EXPECT_FALSE(animState.m_Blending);
+    EXPECT_FLOAT_EQ(animState.m_CurrentTime, 0.75f);
+}
+
+TEST(AnimationSystem, InterruptingABlendPastHalfwayStartsFromItsTarget)
+{
+    auto idle = NamedClip("Idle", 2.0f);
+    auto walk = NamedClip("Walk", 1.0f);
+    auto sit = NamedClip("Sit", 1.0f);
+
+    AnimationStateComponent animState;
+    animState.m_AvailableClips = { idle, walk, sit };
+    animState.m_CurrentClip = idle;
+    animState.m_CurrentTime = 1.5f;
+    animState.m_Blending = true;
+    animState.m_NextClip = walk;
+    animState.m_NextTime = 0.3f;
+    animState.m_NextLoop = true;
+    animState.m_BlendFactor = 0.7f;
+    animState.m_RequestedClip = "Sit";
+    animState.m_RequestedLoop = false;
+
+    AnimationSystem::ApplyClipRequest(animState);
+
+    // The pose was 70 % Walk; blending on from Idle would snap it back.
+    EXPECT_EQ(animState.m_CurrentClip, walk);
+    EXPECT_FLOAT_EQ(animState.m_CurrentTime, 0.3f);
+    EXPECT_TRUE(animState.m_Loop);
+    EXPECT_EQ(animState.m_NextClip, sit);
+    EXPECT_FLOAT_EQ(animState.m_BlendFactor, 0.0f);
+    EXPECT_FALSE(animState.m_NextLoop);
+
+    // Before halfway the source stays: the pose is still mostly Idle.
+    AnimationStateComponent early = animState;
+    early.m_CurrentClip = idle;
+    early.m_CurrentTime = 1.5f;
+    early.m_NextClip = walk;
+    early.m_BlendFactor = 0.3f;
+    early.m_RequestedClip = "Sit";
+    AnimationSystem::ApplyClipRequest(early);
+    EXPECT_EQ(early.m_CurrentClip, idle);
+    EXPECT_EQ(early.m_NextClip, sit);
+}
+
+TEST(AnimationSystem, PlaybackSpeedScalesTheClipClockOnly)
+{
+    auto skeleton = CreateTwoBoneSkeleton(glm::mat4(1.0f));
+
+    AnimationStateComponent half;
+    half.m_CurrentClip = CreateBothBonesClip(2.0f);
+    half.m_PlaybackSpeed = 0.5f;
+    AnimationSystem::Update(half, *skeleton, 0.5f);
+    EXPECT_NEAR(half.m_CurrentTime, 0.25f, 1e-5f);
+
+    AnimationStateComponent frozen;
+    frozen.m_CurrentClip = half.m_CurrentClip;
+    frozen.m_CurrentTime = 0.8f;
+    frozen.m_PlaybackSpeed = 0.0f;
+    AnimationSystem::Update(frozen, *skeleton, 0.5f);
+    EXPECT_FLOAT_EQ(frozen.m_CurrentTime, 0.8f) << "speed 0 freezes the pose";
+
+    // A corrupt speed that bypassed every clamp plays as authored.
+    AnimationStateComponent corrupt;
+    corrupt.m_CurrentClip = half.m_CurrentClip;
+    corrupt.m_PlaybackSpeed = std::numeric_limits<f32>::quiet_NaN();
+    AnimationSystem::Update(corrupt, *skeleton, 0.5f);
+    EXPECT_NEAR(corrupt.m_CurrentTime, 0.5f, 1e-5f);
 }

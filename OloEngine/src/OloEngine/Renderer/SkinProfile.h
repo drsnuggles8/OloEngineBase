@@ -1044,6 +1044,20 @@ namespace OloEngine
         // unless it had been counted beforehand.
         DeferredThicknessLaneUnavailable,
 
+        // A LIGHTMAPPED skin surface whose profile has a coat (a tear film, a
+        // saliva layer) and a variance strength keeps its coat UNFILTERED on the
+        // deferred path (#1533). The coat's variance kernel rides RT5's green
+        // channel beside the thickness, and a lightmapped draw's RT5 holds baked
+        // irradiance, which wins for the reason DeferredThicknessLaneUnavailable
+        // gives. The coat then shades at its authored roughness and a curved
+        // surface's glint can alias into a firefly. Forward and Forward+ filter
+        // it where they shade and are unaffected.
+        //
+        // Not a transmission term, and counted in this table anyway: it is the
+        // same lane, the same conflict and the same submission site, and the fix
+        // is the same -- unlightmap the surface or use a forward path.
+        DeferredCoatFilterLaneUnavailable,
+
         Count
     };
 
@@ -1061,6 +1075,8 @@ namespace OloEngine
                 return "RefractiveTransmissionConflict";
             case SkinTransmissionFallbackReason::DeferredThicknessLaneUnavailable:
                 return "DeferredThicknessLaneUnavailable";
+            case SkinTransmissionFallbackReason::DeferredCoatFilterLaneUnavailable:
+                return "DeferredCoatFilterLaneUnavailable";
             case SkinTransmissionFallbackReason::Count:
                 break;
         }

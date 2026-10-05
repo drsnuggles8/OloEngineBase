@@ -20,7 +20,8 @@ namespace OloEngine
     //   * TAA parameters UBO at binding 32
     //
     // Writes the current-frame `TAAColor` output through the setup-selected
-    // graph-owned framebuffer target.
+    // graph-owned framebuffer target: two attachments, the shown frame and the
+    // unsharpened resolve the history keeps (kHistoryAttachment).
     //
     // Inputs (selected during `Setup()`):
     //   * Post-process colour input framebuffer
@@ -34,6 +35,11 @@ namespace OloEngine
     class TAARenderPass : public RenderGraphNode
     {
       public:
+        // The output framebuffer's attachments: 0 the frame the chain shows
+        // (the resolve, sharpened), 1 the resolve before the sharpen, which
+        // becomes next frame's `TAAHistory` (#1533).
+        static constexpr u32 kHistoryAttachment = 1;
+
         TAARenderPass();
         ~TAARenderPass() override = default;
 
@@ -61,6 +67,15 @@ namespace OloEngine
         void SetSettings(const PostProcessSettings& settings)
         {
             m_Settings = settings;
+        }
+
+        // The velocity the resolve samples, as its last Setup selected it: the
+        // blackboard's SceneVelocity, or its upscaled view (#1552). What a
+        // test pins instead of the declared accesses, which name every view of
+        // a framebuffer the pass reads any of.
+        [[nodiscard]] RGTextureHandle GetSelectedVelocityTexture() const
+        {
+            return m_SelectedVelocityTexture;
         }
 
       private:

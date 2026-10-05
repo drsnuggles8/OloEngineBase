@@ -383,6 +383,77 @@ namespace OloEngine::Animation
         ExpectVec3Near(rootPose.Translation, glm::vec3(0.0f, 0.0f, 0.25f));
     }
 
+    // The entity's switch (#1533): a clip with no settings of its own -- a glTF's
+    // -- gives its root bone's travel to the entity, and the pose stays put.
+    TEST(RootMotionAnimationSystem, EntitySwitchGivesAModelClipsRootTravelToTheEntity)
+    {
+        auto skeleton = MakeRootSkeleton();
+        auto clip = MakeLinearClip(glm::vec3(0.0f, 0.0f, 1.0f)); // no settings of its own
+
+        AnimationStateComponent animState(clip);
+        animState.m_IsPlaying = true;
+        animState.m_RootMotion = true;
+
+        AnimationSystem::Update(animState, *skeleton, 0.25f);
+
+        EXPECT_TRUE(animState.m_HasRootMotion);
+        ExpectVec3Near(animState.m_RootMotionTranslation, glm::vec3(0.0f, 0.0f, 0.25f));
+        const BoneTransform rootPose = BlendUtils::DecomposeMatrix(skeleton->m_LocalTransforms[0]);
+        ExpectVec3Near(rootPose.Translation, glm::vec3(0.0f));
+    }
+
+    // The switch takes the root's translation, not its rotation: a turn stays in
+    // the pose and the entity does not yaw.
+    TEST(RootMotionAnimationSystem, EntitySwitchLeavesTheRootsRotationInThePose)
+    {
+        auto skeleton = MakeRootSkeleton();
+        auto clip = MakeTurningClip(90.0f);
+
+        AnimationStateComponent animState(clip);
+        animState.m_IsPlaying = true;
+        animState.m_RootMotion = true;
+
+        AnimationSystem::Update(animState, *skeleton, 0.5f);
+
+        ExpectQuatNear(animState.m_RootMotionRotation, glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
+        const BoneTransform rootPose = BlendUtils::DecomposeMatrix(skeleton->m_LocalTransforms[0]);
+        EXPECT_NEAR(YawDegrees(rootPose.Rotation), 45.0f, 0.5f);
+    }
+
+    // A clip's own settings (an AnimationAsset's) win over the entity's switch.
+    TEST(RootMotionAnimationSystem, AClipsOwnSettingsWinOverTheEntitySwitch)
+    {
+        auto skeleton = MakeRootSkeleton();
+        auto clip = MakeLinearClip(glm::vec3(1.0f, 0.0f, 1.0f));
+        EnableExtraction(clip);
+        clip->RootMotion.RootTranslationMask = glm::vec3(1.0f, 0.0f, 0.0f);
+
+        AnimationStateComponent animState(clip);
+        animState.m_IsPlaying = true;
+        animState.m_RootMotion = true;
+
+        AnimationSystem::Update(animState, *skeleton, 0.25f);
+
+        ExpectVec3Near(animState.m_RootMotionTranslation, glm::vec3(0.25f, 0.0f, 0.0f));
+    }
+
+    // The switch's root is the first bone with no parent, wherever it sits.
+    TEST(RootMotionConfigured, EntitySettingsTakeTheFirstParentlessBone)
+    {
+        const auto clip = MakeLinearClip(glm::vec3(0.0f, 0.0f, 1.0f));
+        const std::vector<int> parents{ 1, -1, 1 };
+
+        const AnimationRootMotionSettings on = RootMotionUtils::EffectiveSettings(*clip, true, parents);
+        EXPECT_TRUE(on.ExtractRootMotion);
+        EXPECT_EQ(on.RootBoneIndex, 1u);
+        ExpectVec3Near(on.RootTranslationMask, glm::vec3(1.0f));
+        ExpectVec3Near(on.RootRotationMask, glm::vec3(0.0f));
+
+        EXPECT_FALSE(RootMotionUtils::EffectiveSettings(*clip, false, parents).ExtractRootMotion);
+        EXPECT_FALSE(RootMotionUtils::EffectiveSettings(*clip, true, {}).ExtractRootMotion)
+            << "a skeleton without a root bone has nothing to extract";
+    }
+
     TEST(RootMotionAnimationSystem, PerTickDeltasSumAcrossLoopWraps)
     {
         auto skeleton = MakeRootSkeleton();

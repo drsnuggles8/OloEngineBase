@@ -101,6 +101,75 @@ float oloSkinFilteredRoughness(float roughness, vec3 N, float varianceStrength)
     return sqrt(filtered);
 }
 
+// ---- THE COAT'S SHARE OF THE FILTER (#1533) ---------------------------------
+//
+// A coat (the tear film on an eye, saliva on a lip) is a second GGX lobe on the
+// same surface, so the pixel's normal spread widens it exactly as it widens the
+// base: the variance adds to the coat's alpha-squared. Without it the coat's
+// 0.04 floor puts a delta light's glint inside one sample of a curved eye, and
+// the frames whose jitter lands on it read a few hundred where the eye around
+// it reads about one -- a white bloom on the dog's eye at a distance.
+//
+// The kernel is taken where the normal is built, as the base filter's is: the
+// forward shaders widen the coat lane they shade with, and the G-Buffer writers
+// park the kernel in RT5's green channel (oloSkinPackGBufferLanes below) for
+// the deferred lighting pass to widen its coat with. Mirrors SkinVarianceKernel
+// and SkinWidenedRoughness in Renderer/SkinLayeredSpecular.h.
+
+// The kernel oloSkinFilteredAlpha adds, on its own, in its order.
+float oloSkinVarianceKernel(vec3 dNdx, vec3 dNdy, float varianceStrength)
+{
+    float variance = varianceStrength * (dot(dNdx, dNdx) + dot(dNdy, dNdy));
+    return min(2.0 * variance, OLO_SKIN_VARIANCE_KERNEL_CLAMP);
+}
+
+// This pixel's kernel, read off the FINAL shading normal as
+// oloSkinFilteredRoughness reads it; 0 when the strength is 0.
+float oloSkinVarianceKernelAt(vec3 N, float varianceStrength)
+{
+    if (varianceStrength <= 0.0)
+        return 0.0;
+    return oloSkinVarianceKernel(dFdx(N), dFdy(N), varianceStrength);
+}
+
+// A perceptual roughness widened by a kernel. A kernel that is not positive
+// returns the roughness exactly: a profile with no strength keeps its coat bit
+// for bit.
+float oloSkinWidenedRoughness(float roughness, float kernel)
+{
+    if (!(kernel > 0.0))
+        return roughness;
+    float alpha = roughness * roughness;
+    return sqrt(clamp(sqrt(alpha * alpha + kernel), 0.0, 1.0));
+}
+
+// WRITER. RT5's two skin lanes together (#1242, #1533): the per-pixel
+// thickness in .r, the coat's variance kernel in .g, coverage 0. The tenancy is
+// oloSkinPackGBufferThickness's (include/SkinTransmission.glsl), and so is the
+// rule that baked irradiance WINS: a covered texel keeps its light, and the CPU
+// counts what that costs (DeferredThicknessLaneUnavailable,
+// DeferredCoatFilterLaneUnavailable). With a zero kernel this returns exactly
+// what oloSkinPackGBufferThickness does.
+vec4 oloSkinPackGBufferLanes(vec4 bakedGI, bool hasSkinProfile, float thicknessMM, float coatKernel)
+{
+    bool hasThickness = thicknessMM > 0.0;
+    bool hasKernel = coatKernel > 0.0;
+    if (!hasSkinProfile || !(hasThickness || hasKernel) || bakedGI.a > 0.5)
+        return bakedGI;
+    return vec4(hasThickness ? clamp(thicknessMM, 0.0, OLO_SKIN_MAX_THICKNESS_MM) : 0.0,
+                hasKernel ? min(coatKernel, OLO_SKIN_VARIANCE_KERNEL_CLAMP) : 0.0, 0.0, 0.0);
+}
+
+// READER. The coat's kernel a deferred skin pixel carries, or 0. Gated on the
+// profile slot and on coverage for the reasons oloSkinUnpackGBufferThickness
+// gives.
+float oloSkinUnpackGBufferCoatKernel(vec4 bakedGI, bool hasSkinProfile)
+{
+    if (!hasSkinProfile || bakedGI.a > 0.5)
+        return 0.0;
+    return clamp(bakedGI.g, 0.0, OLO_SKIN_VARIANCE_KERNEL_CLAMP);
+}
+
 // The BROAD lobe's roughness.
 //
 // THE SCALE IS ON ROUGHNESS, NOT ON ALPHA, and the two differ by a square, so

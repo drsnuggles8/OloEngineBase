@@ -420,11 +420,37 @@ namespace OloEngine
         swapchainInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
         swapchainInfo.preTransform = caps.currentTransform;
         swapchainInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-        // FIFO is the one mode every conformant device carries; it is also vsync,
-        // which matches the GL path's swap-interval default well enough for
-        // bring-up. Window::SetVSync is a no-op under Vulkan until a real present
-        // -mode policy exists.
-        swapchainInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+        // PRESENT PACING FOLLOWS THE WINDOW'S VSYNC (#1533). FIFO is vsync and
+        // the one mode every conformant device carries. With vsync off -- the
+        // editor's default, as on GL -- MAILBOX where the surface offers it
+        // (unthrottled, never tearing), else IMMEDIATE. Fixed at FIFO before
+        // this, the editor ran ahead of a 60 Hz display and blocked for two
+        // refreshes every dozen frames: a 14.6 ms GPU frame measured p95 43 ms,
+        // and the simulation took a 44 ms step in one frame of every fourteen.
+        VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
+        if (!m_VSync)
+        {
+            u32 modeCount = 0;
+            vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, d.Surface, &modeCount, nullptr);
+            std::vector<VkPresentModeKHR> modes(modeCount);
+            vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, d.Surface, &modeCount, modes.data());
+            const auto offers = [&modes](VkPresentModeKHR mode)
+            { return std::find(modes.begin(), modes.end(), mode) != modes.end(); };
+            if (offers(VK_PRESENT_MODE_MAILBOX_KHR))
+            {
+                presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
+            }
+            else if (offers(VK_PRESENT_MODE_IMMEDIATE_KHR))
+            {
+                presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+            }
+        }
+        swapchainInfo.presentMode = presentMode;
+        OLO_CORE_INFO("[Vulkan] swapchain present mode: {} (vsync {})",
+                      presentMode == VK_PRESENT_MODE_MAILBOX_KHR     ? "MAILBOX"
+                      : presentMode == VK_PRESENT_MODE_IMMEDIATE_KHR ? "IMMEDIATE"
+                                                                     : "FIFO",
+                      m_VSync ? "on" : "off");
         swapchainInfo.clipped = VK_TRUE;
 
         VkCheck(vkCreateSwapchainKHR(device, &swapchainInfo, nullptr, &d.Swapchain), "vkCreateSwapchainKHR");
@@ -1096,6 +1122,18 @@ namespace OloEngine
         return static_cast<u32>(m_Data->SwapchainFormat);
     }
 
+    void VulkanContext::SetVSync(bool enabled)
+    {
+        if (m_VSync == enabled)
+        {
+            return;
+        }
+        m_VSync = enabled;
+        // A swapchain not made yet (or skipped while minimised) is made with
+        // the new mode when it is.
+        m_PresentModeDirty = true;
+    }
+
     void VulkanContext::SwapBuffers()
     {
         OLO_PROFILE_FUNCTION();
@@ -1145,6 +1183,14 @@ namespace OloEngine
         if (fbWidth == 0 || fbHeight == 0)
         {
             return;
+        }
+
+        // A vsync change since the swapchain was made (SetVSync): applied here,
+        // before this frame acquires anything, never while one is recording.
+        if (m_PresentModeDirty && d.Swapchain != VK_NULL_HANDLE)
+        {
+            m_PresentModeDirty = false;
+            RecreateSwapchain();
         }
 
         // The window has area but no swapchain exists: creation was skipped while

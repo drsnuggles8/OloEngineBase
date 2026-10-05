@@ -40,6 +40,7 @@ namespace OloEngine
             // Core
             REGISTER_COMPONENT(TagComponent),
             REGISTER_COMPONENT(TransformComponent),
+            REGISTER_COMPONENT(BoneAttachmentComponent),
             REGISTER_COMPONENT(Rigidbody2DComponent),
             REGISTER_COMPONENT(CameraComponent),
             REGISTER_COMPONENT(SpriteRendererComponent),
@@ -150,6 +151,7 @@ namespace OloEngine
             // entry are two edits, not one.
             REGISTER_COMPONENT(WaterComponent),
             // Animation
+            REGISTER_COMPONENT(AnimationStateComponent),
             REGISTER_COMPONENT(AnimationGraphComponent),
             REGISTER_COMPONENT(MorphTargetComponent),
             // Cinematic

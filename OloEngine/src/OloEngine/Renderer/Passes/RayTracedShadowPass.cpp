@@ -204,7 +204,8 @@ namespace OloEngine
         // which is a DIFFERENT state from "no RT device", and conflating them
         // is how "the first frame has no shadows" gets misread as "this GPU
         // cannot ray trace".
-        const bool tlasReady = rayTracingAvailable && m_RayTracingScene->GetTlasDeviceAddress() != 0u;
+        // Shadow rays only (the caster lane): the shadow TLAS readiness (#1533).
+        const bool tlasReady = rayTracingAvailable && m_RayTracingScene->GetShadowTlasDeviceAddress() != 0u;
         // The mask only exists if the graph resolved every target the three
         // draws write. Asking the graph rather than assuming is the point:
         // SSGI's #902 postmortem is that a resolve blended against a buffer
@@ -393,7 +394,7 @@ namespace OloEngine
         params.InvProjection = RHI::AdjustedInverseForShaderReconstruction(m_Projection);
         params.View = relativeView;
 
-        const u64 tlasAddress = m_RayTracingScene != nullptr ? m_RayTracingScene->GetTlasDeviceAddressForTrace() : 0u;
+        const u64 tlasAddress = m_RayTracingScene != nullptr ? m_RayTracingScene->GetShadowTlasDeviceAddressForTrace() : 0u;
         params.TlasAddressAndCounts = glm::uvec4(static_cast<u32>(tlasAddress & 0xFFFFFFFFull),
                                                  static_cast<u32>(tlasAddress >> 32u), channelCount, m_FrameIndex);
         const auto& gpuScene = Renderer3D::GetGPUScene();

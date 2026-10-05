@@ -265,6 +265,13 @@ namespace OloEngine::Tests
             coat.m_Mode = static_cast<u8>(GroomCoatShadow::CoatShadowMode::AnisotropicDensityVolume);
             coat.m_Resolution = 64;
             coat.m_StepVoxels = 3.0f;
+            // THIS FILE IS #1248's OCCLUSION EVIDENCE, so it measures the volume
+            // with dual scattering (#1533) off: every claim below -- a dense coat
+            // comes out darker, a denser one darker still -- is a claim about the
+            // crossings as occluders. The transport they pass on is a separate
+            // term with its own evidence:
+            // MultipleScatteringWarmsAndBrightensAPaleCoat.
+            coat.m_MultipleScattering = false;
         }
 
         static Ref<GroomAsset> BuildEvidenceGroom()
@@ -611,6 +618,53 @@ namespace OloEngine::Tests
             << "the coat shadow has flattened the pigment: a pale and a dark coat render nearly the same, which "
                "is criterion 2 broken by the term criterion 1 asked for";
         EXPECT_GT(maxDelta, 30u);
+    }
+
+    // ── 3b. Dual scattering (#1533) on top of the occlusion ────────────────
+
+    TEST_F(GroomCoatShadowVisualEvidenceTest, MultipleScatteringWarmsAndBrightensAPaleCoat)
+    {
+        // What the crossings PASS ON. This file's coat is pale (a little
+        // eumelanin), so its fibres forward most of what they intercept, in
+        // their own colour: with the transport on, the coat must come out
+        // brighter than the occluders-only picture, and warmer -- the forwarded
+        // and back-scattered light keeps more red than blue, because a pale
+        // fibre absorbs blue three times as hard. A transport that only
+        // brightened would be an intensity lever; one that changed nothing
+        // would be a switch wired to nothing.
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        const glm::vec3 eye{ 0.0f, 0.9f, 4.6f };
+        Coat().m_Enabled = true;
+
+        Coat().m_MultipleScattering = false;
+        std::vector<u8> occluded;
+        Capture("GroomCoatShadow_GL_Forward_OccludersOnly", eye, 0.0f, 0.10f, occluded);
+        if (::testing::Test::HasFatalFailure())
+        {
+            return;
+        }
+        Coat().m_MultipleScattering = true;
+        std::vector<u8> transported;
+        Capture("GroomCoatShadow_GL_Forward_DualScattering", eye, 0.0f, 0.10f, transported);
+        if (::testing::Test::HasFatalFailure())
+        {
+            return;
+        }
+
+        const u32 differing = CountDifferingPixels(transported, occluded);
+        const f64 brighter = CoatLuminance(transported, occluded);
+        f64 warmth = 0.0; // sum over the frame of the change in (R - B)
+        for (sizet i = 0; i + 3 < transported.size(); i += 4)
+        {
+            warmth += (static_cast<f64>(transported[i]) - transported[i + 2]) -
+                      (static_cast<f64>(occluded[i]) - occluded[i + 2]);
+        }
+        std::printf("[groom-coat] dual scattering: %u px differ, luma %+.0f, warmth %+.0f\n", differing, brighter,
+                    warmth);
+        EXPECT_GT(differing, 2000u) << "the multiple-scattering switch changed almost nothing";
+        EXPECT_GT(brighter, 0.0) << "passing light on through the coat made it DARKER";
+        EXPECT_GT(warmth, 0.0) << "the transported light is not the fibres' colour: a pale coat's depths must warm";
     }
 
     // ── 4. Criterion 4, as a counter ───────────────────────────────────────

@@ -119,7 +119,14 @@ namespace OloEngine
         // covers the static importer relocating a texture a model names at a path
         // that does not exist (cerberus.fbx's Textures\Cerberus_A.tga), which a v12
         // cache stored as a material with no albedo.
-        constexpr u32 CurrentVersion = 13;
+        //
+        // v14 adds no section. It invalidates every v13 ANIMATED cache (issue #1533): the
+        // animated importer dropped a skin's joints that weight no vertex, and those are
+        // exactly the bones a BoneAttachmentComponent rides. A warm load hands back the
+        // skeleton the file holds, so a cached rig would keep its missing sockets -- and a
+        // groom binding cooked against the full skeleton would be refused against it --
+        // after the importer began keeping them.
+        constexpr u32 CurrentVersion = 14;
 
         constexpr u32 FlagCompressed = 1;   // Payload is zlib-compressed (always set; required by the reader)
         constexpr u32 FlagPreOptimized = 2; // Mesh was already optimized before caching

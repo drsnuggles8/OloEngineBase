@@ -37,16 +37,13 @@ namespace OloEngine
 
         // Shadow mapping constants.
         //
-        // SHADOW_BIAS is a constant depth offset in the shadow map's own
-        // NORMALIZED [0,1] depth. That unit is only meaningful for the LOCAL
-        // LIGHT ATLAS, whose spot / point entries have a bounded perspective
-        // range; the directional CSM's orthographic range is 400 m of fixed
-        // z-padding plus the cascade's own extent (404-1300 m in the sample
-        // scenes), so the same number there means 2-26 metres of world depth
-        // and detaches every shadow from its caster. Issue #1119: the CSM's
-        // bias is authored in SHADOW-MAP TEXELS instead and converted per
-        // cascade in the shader — see SHADOW_CSM_DEPTH_BIAS_TEXELS.
-        constexpr float SHADOW_BIAS = 0.005f;
+        // EVERY SHADOW DEPTH BIAS IS AUTHORED IN TEXELS and converted in the
+        // shader. A constant offset in a map's normalized [0,1] depth means a
+        // different world distance everywhere it lands: the directional CSM's
+        // orthographic range is 400 m of fixed z-padding plus the cascade's own
+        // extent, so 0.005 there was 2-26 metres of world depth (issue #1119);
+        // a local-light atlas entry is perspective with a 0.1 m near plane, so
+        // there it was 0.05 d^2 metres -- 1.8 m six metres from a spot (#1533).
         // Directional CSM constant depth bias, in shadow-map texels of the
         // cascade doing the lookup. Scale-free by construction: one texel is
         // one texel whether the cascade covers 4 m or 260 m, so the same
@@ -54,6 +51,17 @@ namespace OloEngine
         // MaxShadowDistance, and in every scene. Two texels comfortably
         // exceeds the depth slope a 3x3 PCF kernel (±1 texel) can see.
         constexpr float SHADOW_CSM_DEPTH_BIAS_TEXELS = 2.0f;
+        // Local-light atlas constant depth bias, in texels of the entry's tile
+        // AT THE RECEIVER (#1533; ShadowAtlasBias.h is the conversion). A
+        // perspective texel grows with distance while its depth compresses, so
+        // the shader converts per receiver rather than per entry. Two texels,
+        // as the cascades: with the 1.5-texel normal offset
+        // (ATLAS_NORMAL_OFFSET_TEXELS in PBRCommon.glsl) it clears a 3x3
+        // kernel's own plane to about 80 degrees of incidence.
+        constexpr float SHADOW_ATLAS_DEPTH_BIAS_TEXELS = 2.0f;
+        // The receiver's offset along its normal, in texels of the entry at the
+        // receiver: the C++ name of PBRCommon.glsl's ATLAS_NORMAL_OFFSET_TEXELS.
+        constexpr float SHADOW_ATLAS_NORMAL_OFFSET_TEXELS = 1.5f;
         constexpr int SHADOW_MAP_SIZE = 1024;
 
         // =============================================================================

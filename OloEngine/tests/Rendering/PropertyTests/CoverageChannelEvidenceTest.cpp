@@ -80,6 +80,8 @@ namespace OloEngine::Tests
         /// fp16 storage, so an exact 1.0 survives but a comparison should not
         /// ask for bit equality.
         constexpr f32 kEpsilon = 1.0e-3f;
+        // OLO_STOCHASTIC_COVERAGE_MARK (include/SurfaceCoverageMark.glsl).
+        constexpr f32 kStochasticCoverageMark = -1.0f;
     } // namespace
 
     class CoverageChannelEvidenceTest : public RendererAttachedTest
@@ -281,11 +283,13 @@ namespace OloEngine::Tests
         ASSERT_TRUE(ReadVelocityTarget(texels)) << "the scene framebuffer carries no velocity attachment";
         WriteCoveragePng("GL_Forward_Strands", texels);
 
-        u32 untouched = 0u;      // coverage == 0 — nothing drew here
-        u32 fullyCovered = 0u;   // coverage == 1 — an opaque surface
-        u32 fractional = 0u;     // 0 < coverage < 1 — THE CLAIM
-        u32 outOfRange = 0u;     // anything else is a lane carrying rubbish
-        u32 nonZeroProfile = 0u; // .a is unused by these shaders and must read 0
+        u32 untouched = 0u;       // coverage == 0 — nothing drew here
+        u32 fullyCovered = 0u;    // coverage == 1 — an opaque surface
+        u32 fractional = 0u;      // 0 < coverage < 1 — THE CLAIM
+        u32 outOfRange = 0u;      // anything else is a lane carrying rubbish
+        u32 marked = 0u;          // .a holds the stochastic mark: a StochasticAlpha strand drew here (#1552)
+        u32 markedUntouched = 0u; // ...where nothing drew: a writer that leaves .a undefined
+        u32 otherProfile = 0u;    // .a neither 0 nor the mark: no shader in this scene writes a profile
         f32 minFractional = 1.0f;
         f32 maxFractional = 0.0f;
 
@@ -307,8 +311,15 @@ namespace OloEngine::Tests
                 maxFractional = std::max(maxFractional, coverage);
             }
 
-            if (std::isfinite(profile) && std::abs(profile) > kEpsilon)
-                ++nonZeroProfile;
+            if (std::isfinite(profile) && std::abs(profile - kStochasticCoverageMark) <= kEpsilon)
+            {
+                ++marked;
+                markedUntouched += coverage <= kEpsilon ? 1u : 0u;
+            }
+            else if (!std::isfinite(profile) || std::abs(profile) > kEpsilon)
+            {
+                ++otherProfile;
+            }
         }
 
         // Printed, not only asserted: these are the numbers that say what the
@@ -337,8 +348,15 @@ namespace OloEngine::Tests
         EXPECT_GT(fractional, 0u)
             << "no pixel carries fractional coverage. The strands are writing the opaque default, so "
                "the coverage channel is inert for the subject it exists for.";
-        EXPECT_EQ(nonZeroProfile, 0u)
-            << "RT3's alpha lane is the MATERIAL PROFILE and no shader in this scene writes one, so it "
-               "must read 0. A non-zero value means a writer left it undefined.";
+        // RT3's alpha lane is the MATERIAL PROFILE, and no shader in this scene
+        // writes one: it reads 0, except where a StochasticAlpha strand drew,
+        // which marks its pixel (SurfaceCoverageMark.glsl, #1552) so TAA keeps
+        // that coverage's feedback in motion. Anything else means a writer
+        // left the lane undefined.
+        std::cout << "[coverage] profile: marked=" << marked << " markedUntouched=" << markedUntouched
+                  << " other=" << otherProfile << "\n";
+        EXPECT_EQ(otherProfile, 0u) << "RT3's profile lane holds a value that is neither 0 nor the stochastic mark.";
+        EXPECT_EQ(markedUntouched, 0u) << "the stochastic mark where nothing drew: a writer left .a undefined.";
+        EXPECT_GT(marked, 0u) << "the StochasticAlpha strands did not mark their pixels.";
     }
 } // namespace OloEngine::Tests

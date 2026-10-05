@@ -6070,7 +6070,10 @@ namespace OloEngine::MCP
 
             const Json result = host.MarshalRead([&host, id, requestedSubmesh]() -> Json
                                                  {
-                const Ref<Scene> scene = host.Context().GetActiveScene ? host.Context().GetActiveScene() : nullptr;
+                // Non-const: resolving the entity's material patches fills their
+                // derived-state cache (Scene::PrepareMaterialOverrides, issue #1533)
+                // — the same call the draw makes, which is the point of asking it.
+                Ref<Scene> scene = host.Context().GetActiveScene ? host.Context().GetActiveScene() : nullptr;
                 if (!scene)
                     return Json{ { "__error", "No active scene." } };
 
@@ -6129,23 +6132,34 @@ namespace OloEngine::MCP
                 const u32 first = requestedSubmesh >= 0 ? static_cast<u32>(requestedSubmesh) : 0u;
                 const u32 last = requestedSubmesh >= 0 ? first + 1u : submeshCount;
 
+                // The entity's patches of this source's imported materials (issue
+                // #1533), prepared by the same Scene call the draw makes.
+                const MaterialOverrideCache* materialPatches = scene->PrepareMaterialOverrides(
+                    static_cast<entt::entity>(entity), meshSource->GetImportedMaterials());
+
                 Json submeshes = Json::array();
                 for (u32 index = first; index < last; ++index)
                 {
                     // One precedence rule on EVERY path — MaterialComponent override ->
-                    // the submesh's imported material -> engine default — resolved through
-                    // the same OloEngine::ResolveSubmeshMaterial the renderer itself calls.
-                    // This tool used to special-case the classic path because it genuinely
-                    // ignored imported materials; that divergence is fixed, and reporting a
-                    // rule the renderer no longer follows would make this tool lie to the
-                    // next person debugging a material.
-                    const Material& resolved =
-                        ResolveSubmeshMaterial(overrideMaterial, meshSource.get(), index, *engineDefault);
+                    // the entity's patch of the imported material -> the submesh's imported
+                    // material -> engine default — resolved through the same
+                    // OloEngine::ResolveSubmeshMaterial the renderer itself calls. This tool
+                    // used to special-case the classic path because it genuinely ignored
+                    // imported materials; that divergence is fixed, and reporting a rule the
+                    // renderer no longer follows would make this tool lie to the next person
+                    // debugging a material.
+                    const Material* imported = meshSource->GetImportedMaterialPtrForSubmesh(index);
+                    const Material* patched = ResolveMaterialPatch(materialPatches, imported);
+                    const Material& resolved = ResolveSubmeshMaterial(overrideMaterial, patched, imported, *engineDefault);
                     const Material* material = &resolved;
                     std::string_view source;
                     if (material == overrideMaterial)
                     {
                         source = "MaterialComponent (override)";
+                    }
+                    else if (material == patched)
+                    {
+                        source = "MaterialOverridesComponent (patched copy of the imported material)";
                     }
                     else if (material != engineDefault.get())
                     {
@@ -6953,6 +6967,18 @@ namespace OloEngine::MCP
             snapshot.CacheBudgetBytes = groom.CacheBudgetBytes;
             snapshot.CacheOverBudgetBytes = groom.CacheOverBudgetBytes;
             snapshot.CacheEvictions = groom.CacheEvictions;
+            snapshot.Memory.StrandVertexBytes = groom.Memory.StrandVertexBytes;
+            snapshot.Memory.StrandIndexBytes = groom.Memory.StrandIndexBytes;
+            snapshot.Memory.CasterIndexBytes = groom.Memory.CasterIndexBytes;
+            snapshot.Memory.DeformBufferBytes = groom.Memory.DeformBufferBytes;
+            snapshot.Memory.CoatVolumeBytes = groom.Memory.CoatVolumeBytes;
+            snapshot.Memory.CpuPoseSegmentBytes = groom.Memory.CpuPoseSegmentBytes;
+            snapshot.Memory.CpuDeformMirrorBytes = groom.Memory.CpuDeformMirrorBytes;
+            snapshot.Memory.CpuBakeInputBytes = groom.Memory.CpuBakeInputBytes;
+            snapshot.Memory.CpuRootTableBytes = groom.Memory.CpuRootTableBytes;
+            snapshot.Memory.CpuScratchBytes = groom.Memory.CpuScratchBytes;
+            snapshot.Memory.RestStreams = groom.Memory.RestStreams;
+            snapshot.Memory.Entries = groom.Memory.Entries;
 
             for (sizet r = 0; r < GroomRepresentationCount; ++r)
             {
@@ -6975,6 +7001,15 @@ namespace OloEngine::MCP
             snapshot.CoatBakeMicroseconds = coat.BakeMicroseconds;
             snapshot.CoatResolutionInForce = coat.ResolutionInForce;
             snapshot.CoatResidentBytes = coat.ResidentBytes;
+
+            const GroomShadowCasterStats& sceneShadow = groom.SceneShadow;
+            snapshot.GroomsAskedToCast = sceneShadow.GroomsAskedToCast;
+            snapshot.GroomsCasting = sceneShadow.GroomsCasting;
+            snapshot.CascadeDraws = sceneShadow.CascadeDraws;
+            snapshot.AtlasDraws = sceneShadow.AtlasDraws;
+            snapshot.VirtualShadowLevelDraws = sceneShadow.VirtualShadowLevelDraws;
+            snapshot.SegmentsCast = sceneShadow.SegmentsCast;
+            snapshot.SegmentsWhole = sceneShadow.SegmentsWhole;
 
             if (scene)
             {
@@ -9755,7 +9790,10 @@ namespace OloEngine::MCP
                 "that stays near groomsSubmitted IS thrashing). `coatShadow` is the #1248 coat self-shadow decision "
                 "(shadowed / fallback / by choice, and the dominant reason) plus, for coats bound to a moving body "
                 "(#1426), deformedRebakes, the drift in voxels the sampled volumes lag the pose by, and the CPU bake "
-                "time. `animalBudget` is the scheduler's own answer, and "
+                "time. `sceneShadow` is what the coats cast into the scene's shadow maps (#1323): draws per technique, "
+                "and segmentsCast against segmentsWhole -- each view casts the share of a coat its one-texel width "
+                "floor allows (#1533), so the ratio is that subset's saving and equal means whole coats were cast. "
+                "`animalBudget` is the scheduler's own answer, and "
                 "`enabled` is the first field to read: false means nothing below was decided by the population budget "
                 "at all and a thinned coat is its own distance ladder's doing, which has a completely different fix. "
                 "heroesCoarsened must be 0 while AnimalProtectHero is set -- that is the hero contract as a number "
@@ -9810,6 +9848,14 @@ namespace OloEngine::MCP
                                             .Prop("bakeMicroseconds", Schema::Int().Min(0))
                                             .Prop("resolutionInForce", Schema::Int().Min(0))
                                             .Prop("residentBytes", Schema::Int().Min(0)))
+                    .Prop("sceneShadow", Schema::Object()
+                                             .Prop("groomsAskedToCast", Schema::Int().Min(0))
+                                             .Prop("groomsCasting", Schema::Int().Min(0))
+                                             .Prop("cascadeDraws", Schema::Int().Min(0))
+                                             .Prop("atlasDraws", Schema::Int().Min(0))
+                                             .Prop("virtualShadowLevelDraws", Schema::Int().Min(0))
+                                             .Prop("segmentsCast", Schema::Int().Min(0))
+                                             .Prop("segmentsWhole", Schema::Int().Min(0)))
                     .Prop("animalBudget", Schema::Object()
                                               .Prop("enabled", Schema::Bool())
                                               .Prop("animalsConsidered", Schema::Int().Min(0))
@@ -10040,6 +10086,14 @@ namespace OloEngine::MCP
                     .Prop("vegetation", Schema::Object()
                                             .Prop("ready", Schema::Bool())
                                             .Prop("complete", Schema::Bool())
+                                            .Prop("castersComplete", Schema::Bool().Desc("Every group of a layer that casts is resident: what ray-traced shadows and ReSTIR DI need (#1533)."))
+                                            .Prop("beyondReflectionBudget", Schema::Int().Min(0).Desc("Groups of layers that cast no shadow left out of the scene nearest-first by the vegetation budget: counted, not refused."))
+                                            .Prop("plantsBeyondReflectionBudget", Schema::Int().Min(0))
+                                            .Prop("reflectionReach", Schema::Number().Min(0).Desc("Metres out to which reflections still hold that vegetation, as cards or the mesh."))
+                                            .Prop("reflectionDetailReach", Schema::Number().Min(0).Desc("Metres out to which reflections hold it as the authored mesh rather than cards."))
+                                            .Prop("stagedAccelerationBytes", Schema::Int().Min(0).Desc("Acceleration-structure bytes the queued groups will occupy by the device's sizing, against the 64 MiB vegetation cap."))
+                                            .Prop("staleReflectionSnapshots", Schema::Int().Min(0).Desc("Reflection-only groups that kept their last wind snapshot because this frame's refresh did not fit."))
+                                            .Prop("carriedBuilds", Schema::Int().Min(0).Desc("Vegetation builds the backend did not record last frame, charged to this frame's budget before any refresh."))
                                             .Prop("producerFailed", Schema::Bool())
                                             .Prop("requested", Schema::Int().Min(0))
                                             .Prop("detailedGroups", Schema::Int().Min(0))
@@ -10068,6 +10122,8 @@ namespace OloEngine::MCP
                                         .Prop("reused", Schema::Int().Min(0))
                                         .Prop("refreshDeferred", Schema::Int().Min(0).Desc("Coats that wanted a refresh, could not have one (per-frame budget spent), and KEPT the structure they had. Represented, not refused — but one of them may be a deforming coat a frame behind its raster twin."))
                                         .Prop("segmentsConverted", Schema::Int().Min(0))
+                                        .Prop("gpuDispatched", Schema::Int().Min(0).Desc("Coat proxies built by GroomProxyDeformToBuffer.comp this frame (#1533)."))
+                                        .Prop("gpuDispatchFailures", Schema::Int().Min(0).Desc("GPU proxy builds queued but not recorded; their structures refit from last frame's ribbons."))
                                         .Prop("trianglesBuilt", Schema::Int().Min(0).Desc("Triangles converted THIS FRAME. Correctly zero in a still scene — use residentTriangles for what the TLAS holds."))
                                         .Prop("residentBytes", Schema::Int().Min(0))
                                         .Prop("residentTriangles", Schema::Int().Min(0).Desc("Triangles resident across every proxy. The figure to read for what the ray-traced scene contains; trianglesBuilt is this frame's WORK."))

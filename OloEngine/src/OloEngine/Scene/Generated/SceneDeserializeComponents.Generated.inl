@@ -194,6 +194,13 @@ if (auto node = entity["BoidObstacleComponent"]; node)
         comp.m_Radius = std::clamp(v, static_cast<f32>(0.01f), static_cast<f32>(10000.0f));
 }
 
+if (auto node = entity["BoneAttachmentComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<BoneAttachmentComponent>();
+    comp.m_BoneName = node["BoneName"].as<std::string>(comp.m_BoneName);
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+}
+
 if (auto node = entity["BuoyancyComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<BuoyancyComponent>();
@@ -622,6 +629,8 @@ if (auto node = entity["GroomCoatShadowComponent"]; node)
     if (const decltype(comp.m_Mode) v = node["Mode"].as<decltype(comp.m_Mode)>(comp.m_Mode); v >= static_cast<decltype(comp.m_Mode)>(0) && v <= static_cast<decltype(comp.m_Mode)>(3))
         comp.m_Mode = v;
     comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+    comp.m_MultipleScattering = node["MultipleScattering"].as<bool>(comp.m_MultipleScattering);
+    comp.m_BakeAtRest = node["BakeAtRest"].as<bool>(comp.m_BakeAtRest);
 }
 
 if (auto node = entity["GroomComponent"]; node)
@@ -670,7 +679,7 @@ if (auto node = entity["GroomFibreComponent"]; node)
     comp.m_HSamples = std::clamp(node["HSamples"].as<u32>(comp.m_HSamples), static_cast<u32>(1), static_cast<u32>(32));
     if (const decltype(comp.m_PigmentMode) v = node["PigmentMode"].as<decltype(comp.m_PigmentMode)>(comp.m_PigmentMode); v >= static_cast<decltype(comp.m_PigmentMode)>(0) && v <= static_cast<decltype(comp.m_PigmentMode)>(2))
         comp.m_PigmentMode = v;
-    if (const decltype(comp.m_DebugMode) v = node["DebugMode"].as<decltype(comp.m_DebugMode)>(comp.m_DebugMode); v >= static_cast<decltype(comp.m_DebugMode)>(0) && v <= static_cast<decltype(comp.m_DebugMode)>(5))
+    if (const decltype(comp.m_DebugMode) v = node["DebugMode"].as<decltype(comp.m_DebugMode)>(comp.m_DebugMode); v >= static_cast<decltype(comp.m_DebugMode)>(0) && v <= static_cast<decltype(comp.m_DebugMode)>(6))
         comp.m_DebugMode = v;
     comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
 }
@@ -697,6 +706,15 @@ if (auto node = entity["GroomLodComponent"]; node)
     comp.m_SimulationSteps = std::clamp(node["SimulationSteps"].as<u32>(comp.m_SimulationSteps), static_cast<u32>(0), static_cast<u32>(16));
     comp.m_ShadowSteps = std::clamp(node["ShadowSteps"].as<u32>(comp.m_ShadowSteps), static_cast<u32>(0), static_cast<u32>(16));
     comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+}
+
+if (auto node = entity["GroomSceneShadowComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<GroomSceneShadowComponent>();
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ShadowWidthTexels"], v))
+        comp.m_ShadowWidthTexels = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(16.0f));
+    comp.m_CastShadows = node["CastShadows"].as<bool>(comp.m_CastShadows);
+    comp.m_ReceiveShadows = node["ReceiveShadows"].as<bool>(comp.m_ReceiveShadows);
 }
 
 if (auto node = entity["GroomSimulationComponent"]; node)
@@ -787,6 +805,34 @@ if (auto node = entity["LuaScriptComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<LuaScriptComponent>();
     comp.ScriptFile = node["ScriptFile"].as<std::string>(comp.ScriptFile);
+}
+
+if (auto node = entity["MaterialOverridesComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<MaterialOverridesComponent>();
+    if (auto seqNode = node["Overrides"]; seqNode && seqNode.IsSequence())
+    {
+        comp.m_Overrides.Empty();
+        for (auto const& e : seqNode)
+        {
+            decltype(comp.m_Overrides)::ElementType tmp0{};
+            tmp0.MaterialName = e["MaterialName"].as<std::string>(tmp0.MaterialName.ToStdString());
+            if (const int v = e["Kind"].as<int>(static_cast<int>(tmp0.Kind)); v >= static_cast<int>(0) && v <= static_cast<int>(3))
+                tmp0.Kind = static_cast<decltype(tmp0.Kind)>(v);
+            tmp0.SkinProfile = e["SkinProfile"].as<u64>(static_cast<u64>(tmp0.SkinProfile));
+            if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(e["ThicknessFactor"], v))
+                tmp0.ThicknessFactor = std::max(v, static_cast<f32>(0.0f));
+            tmp0.OverrideBaseColor = e["OverrideBaseColor"].as<bool>(tmp0.OverrideBaseColor);
+            tmp0.BaseColor = e["BaseColor"].as<glm::vec4>(tmp0.BaseColor);
+            tmp0.OverrideRoughness = e["OverrideRoughness"].as<bool>(tmp0.OverrideRoughness);
+            if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(e["Roughness"], v))
+                tmp0.Roughness = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+            tmp0.OverrideMetallic = e["OverrideMetallic"].as<bool>(tmp0.OverrideMetallic);
+            if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(e["Metallic"], v))
+                tmp0.Metallic = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+            comp.m_Overrides.Add(tmp0);
+        }
+    }
 }
 
 if (auto node = entity["NameplateComponent"]; node)

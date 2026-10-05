@@ -1562,15 +1562,26 @@ namespace OloEngine
         {
             return false;
         }
-        const u32 texelBytes = VkFormatTexelBytes(m_Specification.Format);
-        if (texelBytes == 0 || m_Specification.Samples > 1u)
+        // A BLOCK-COMPRESSED texture reads back its blocks, sized by the block grid,
+        // and returns them decoded to RGBA8 (#1533). A packed game's textures are
+        // cooked to BC7, and every CPU reader of one -- a coat's colour map -- used
+        // to get nothing at all.
+        const bool blockCompressed = IsCompressedFormat(m_Specification.Format);
+        const u32 texelBytes = blockCompressed ? 0u : VkFormatTexelBytes(m_Specification.Format);
+        if ((!blockCompressed && texelBytes == 0) || m_Specification.Samples > 1u)
         {
             return false;
         }
 
         const u32 mipW = std::max(m_Width >> mipLevel, 1u);
         const u32 mipH = std::max(m_Height >> mipLevel, 1u);
-        const u64 sizeBytes = static_cast<u64>(mipW) * mipH * texelBytes;
+        const u64 sizeBytes = blockCompressed ? static_cast<u64>(TextureCompression::MipByteSize(
+                                                    TextureCompression::FromImageFormat(m_Specification.Format), mipW, mipH))
+                                              : static_cast<u64>(mipW) * mipH * texelBytes;
+        if (sizeBytes == 0)
+        {
+            return false;
+        }
 
         VkBufferCreateInfo readbackInfo{};
         readbackInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -1622,7 +1633,7 @@ namespace OloEngine
             }
         }
 
-        const bool ok = VulkanOneShot::Submit(
+        bool ok = VulkanOneShot::Submit(
             "VulkanTexture2D::GetData",
             [&](VkCommandBuffer cmd)
             {
@@ -1672,8 +1683,18 @@ namespace OloEngine
                 VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VulkanDevice::Get()->GetSampledImageLayout());
             }
             vmaInvalidateAllocation(device->GetAllocator(), readbackAllocation, 0, sizeBytes);
-            outData.SetNum(sizeBytes, EAllowShrinking::No);
-            std::memcpy(outData.GetData(), readbackOut.pMappedData, sizeBytes);
+            if (blockCompressed)
+            {
+                TArray64<u8> blocks;
+                blocks.SetNum(sizeBytes, EAllowShrinking::No);
+                std::memcpy(blocks.GetData(), readbackOut.pMappedData, sizeBytes);
+                ok = TextureCompression::DecodeReadbackToRGBA8(m_Specification.Format, mipW, mipH, std::move(blocks), outData);
+            }
+            else
+            {
+                outData.SetNum(sizeBytes, EAllowShrinking::No);
+                std::memcpy(outData.GetData(), readbackOut.pMappedData, sizeBytes);
+            }
         }
         TrackedVmaDestroyBuffer(device->GetAllocator(), readback, readbackAllocation);
         return ok;

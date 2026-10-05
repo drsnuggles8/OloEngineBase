@@ -2182,7 +2182,8 @@ namespace OloEngine
 
     void Model::DrawParallel(const glm::mat4& transform, const Material* overrideMaterial,
                              const Material& fallbackMaterial, i32 entityID,
-                             const std::function<glm::vec4(sizet)>& lightmapRegionForMesh) const
+                             const std::function<glm::vec4(sizet)>& lightmapRegionForMesh,
+                             const MaterialOverrideCache* materialPatches) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -2197,11 +2198,13 @@ namespace OloEngine
         {
             const Submesh& submesh = m_Meshes[i]->GetSubmesh();
 
-            // override -> imported -> fallback, through the shared resolve (#629).
+            // override -> patched -> imported -> fallback, through the shared
+            // resolve (#629, #1533).
             const Material* imported = (submesh.m_MaterialIndex < static_cast<sizet>(m_Materials.Num()) && m_Materials[submesh.m_MaterialIndex])
                                            ? m_Materials[submesh.m_MaterialIndex].get()
                                            : nullptr;
-            Material meshMaterial = ResolveSubmeshMaterial(overrideMaterial, imported, fallbackMaterial);
+            Material meshMaterial = ResolveSubmeshMaterial(overrideMaterial, ResolveMaterialPatch(materialPatches, imported),
+                                                           imported, fallbackMaterial);
 
             Renderer3D::MeshSubmitDesc descriptor{
                 m_Meshes[i],

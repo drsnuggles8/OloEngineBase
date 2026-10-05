@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "LuaScriptGlueInternal.h"
 
+#include "OloEngine/Animation/AnimationClip.h"
+
 // =============================================================================
 // LuaScriptGlue_World.cpp — dialogue, visual scripting, animation graphs, materials, lights, sky and weather, navigation and the player rigs.
 //
@@ -45,6 +47,40 @@ namespace OloEngine
                                                        if (!comp.RuntimeGraph)
                                                            return "";
                                                        return std::string(comp.RuntimeGraph->GetCurrentStateName(layerIndex.value_or(0))); });
+
+        // --- AnimationStateComponent (issue #1533) ---
+        // A script switches clips BY NAME through PlayClip, which only files a
+        // request: the animation system starts the blend on its next update
+        // (AnimationSystem::ApplyClipRequest), so a script, the editor and an
+        // MCP write all take one path. The clip pointers and the blend
+        // bookkeeping stay out of reach; writing them directly would skip the
+        // blend and leave m_CurrentClipIndex naming a different clip.
+        lua.new_usertype<AnimationStateComponent>("AnimationStateComponent", "PlayClip", [](AnimationStateComponent& c, const std::string& name, sol::optional<bool> loop)
+                                                  {
+                                                      c.m_RequestedClip = name;
+                                                      c.m_RequestedLoop = loop.value_or(true); }, "HasClip", [](const AnimationStateComponent& c, const std::string& name)
+                                                  { return std::ranges::any_of(c.m_AvailableClips, [&name](const Ref<AnimationClip>& clip)
+                                                                               { return clip && clip->Name == name; }); }, "GetClipNames", [](const AnimationStateComponent& c, sol::this_state s)
+                                                  {
+                                                      sol::state_view lua(s);
+                                                      sol::table names = lua.create_table();
+                                                      for (const Ref<AnimationClip>& clip : c.m_AvailableClips)
+                                                      {
+                                                          if (clip)
+                                                          {
+                                                              names.add(clip->Name);
+                                                          }
+                                                      }
+                                                      return names; }, "currentClip", sol::property([](const AnimationStateComponent& c)
+                                                                                    { return c.m_CurrentClip ? c.m_CurrentClip->Name : std::string(); }),
+                                                  // A one-shot clip that has reached its last frame and is
+                                                  // not leaving it: the cue for a script to queue the next.
+                                                  "isFinished", sol::property([](const AnimationStateComponent& c)
+                                                                              { return !c.m_Loop && !c.m_Blending && c.m_CurrentClip &&
+                                                                                       c.m_CurrentTime >= c.m_CurrentClip->Duration; }),
+                                                  "isPlaying", &AnimationStateComponent::m_IsPlaying, "loop", &AnimationStateComponent::m_Loop, "isBlending", sol::readonly(&AnimationStateComponent::m_Blending), "currentTime", sol::readonly(&AnimationStateComponent::m_CurrentTime), "blendDuration", sol::property([](const AnimationStateComponent& c)
+                                                                                                                                                                                                                                                                                                                         { return c.m_BlendDuration; }, [](AnimationStateComponent& c, f32 v)
+                                                                                                                                                                                                                                                                                                                         { if (std::isfinite(v) && v >= 0.001f) c.m_BlendDuration = v; }));
 
         // --- CinematicComponent ---
         lua.new_usertype<CinematicComponent>("CinematicComponent",

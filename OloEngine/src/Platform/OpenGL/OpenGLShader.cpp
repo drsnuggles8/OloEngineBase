@@ -22,6 +22,8 @@
 #include <glad/gl.h>
 #include <glm/gtc/type_ptr.hpp>
 #include <shaderc/shaderc.hpp>
+#include "OloEngine/Core/DebugLevers.h"
+
 #include <spirv_cross/spirv_cross.hpp>
 #include <spirv_cross/spirv_glsl.hpp>
 
@@ -561,6 +563,55 @@ namespace OloEngine
         }
     } // namespace Utils
 
+    namespace
+    {
+        // OLO_GL_SHADERS_FROM_GLSL_MATCH: does `path` fall in the forced lever's
+        // narrowed set (every path when the list is unset or empty)?
+        [[nodiscard]] bool MatchesGlslRouteFilter(const std::string& path)
+        {
+            const std::optional<std::string> match = Levers::GLShadersFromGlslMatch();
+            if (!match.has_value() || match->empty())
+            {
+                return true;
+            }
+            sizet begin = 0;
+            while (begin <= match->size())
+            {
+                const sizet end = std::min(match->find(',', begin), match->size());
+                const std::string token = match->substr(begin, end - begin);
+                if (!token.empty() && path.find(token) != std::string::npos)
+                {
+                    return true;
+                }
+                begin = end + 1;
+            }
+            return false;
+        }
+
+        // THE GLSL TEXT ROUTE'S OPT-IN, outside comments for the reason
+        // WantsBindlessVariant gives: a shader that names the token in prose must
+        // not change route.
+        [[nodiscard]] bool NamesGlslRoute(const std::unordered_map<GLenum, std::string>& sources)
+        {
+            return std::ranges::any_of(sources, [](const auto& entry)
+                                       { return Utils::MentionsOutsideComments(entry.second, "OLO_GL_GLSL_ROUTE"); });
+        }
+    } // namespace
+
+    bool OpenGLShader::TakesGlslTextRoute() const
+    {
+        switch (Levers::GLShadersFromGlsl())
+        {
+            case Levers::Tristate::On:
+                return MatchesGlslRouteFilter(GetFilePath());
+            case Levers::Tristate::Off:
+                return false;
+            case Levers::Tristate::Unset:
+                break;
+        }
+        return m_WantsGlslRoute;
+    }
+
     OpenGLShader::OpenGLShader(const std::string& filepath)
         : m_FilePath(filepath)
     {
@@ -633,6 +684,7 @@ namespace OloEngine
         // A shader that wants it skips the SPIR-V tiers entirely, same as the
         // old single-phase constructor did.
         m_WantsBindless = WantsBindlessVariant(shaderSources);
+        m_WantsGlslRoute = NamesGlslRoute(shaderSources);
         if (m_WantsBindless)
         {
             m_OriginalSourceCode.clear();
@@ -687,6 +739,10 @@ namespace OloEngine
             // crashing the editor (issue #568). Already logged via OLO_CORE_CRITICAL.
             m_CompilationStatus = ShaderCompilationStatus::Failed;
         }
+        else if (TakesGlslTextRoute())
+        {
+            CreateProgramFromGlslText();
+        }
         else if (Utils::IsAmdGpu())
         {
             std::string fullVersion(reinterpret_cast<const char*>(glGetString(GL_VERSION)));
@@ -705,7 +761,7 @@ namespace OloEngine
 
                 if (versionNumbers[0] < 23 || (versionNumbers[0] == 23 && versionNumbers[1] < 5) || (versionNumbers[0] == 23 && versionNumbers[1] == 5 && versionNumbers[2] < 2))
                 {
-                    CreateProgramForAmd();
+                    CreateProgramFromGlslText();
                 }
                 else if (m_OpenGLCompileOk)
                 {
@@ -869,9 +925,10 @@ namespace OloEngine
 
         OLO_SHADER_COMPILATION_START(GetName(), "runtime_source");
 
-        if (Utils::IsAmdGpu())
+        if (Utils::IsAmdGpu() || TakesGlslTextRoute())
         {
-            // AMD path: compile GLSL source strings directly (no SPIR-V)
+            // The GLSL text route: compile the cross-compiled GLSL directly (no
+            // glShaderBinary SPIR-V).
             m_OriginalSourceCode.clear();
             for (const auto& [stage, text] : sources)
             {
@@ -879,7 +936,7 @@ namespace OloEngine
             }
             if (CompileOrGetVulkanBinaries(sources))
             {
-                CreateProgramForAmd();
+                CreateProgramFromGlslText();
             }
             else
             {
@@ -1230,6 +1287,7 @@ namespace OloEngine
     bool OpenGLShader::CreateProgramFromRawGLSL(const std::unordered_map<GLenum, std::string>& sources)
     {
         OLO_PROFILE_FUNCTION();
+        m_IsGlslTextRoute = false;
 
         m_IsBindlessVariant = true;
 
@@ -2102,6 +2160,7 @@ namespace OloEngine
 
     void OpenGLShader::CreateProgram()
     {
+        m_IsGlslTextRoute = false;
         GLuint program = glCreateProgram();
 
         // Computed once and reused by every route below (the sync fallback's
@@ -2315,7 +2374,7 @@ namespace OloEngine
 
         // Mesa radeonsi crashes in glGetProgramiv(GL_PROGRAM_BINARY_LENGTH) for
         // programs compiled from SPIR-V binary (glShaderBinary + glSpecializeShader).
-        // The AMD-specific CreateProgramForAmd() path has its own cache save that
+        // The GLSL text route (CreateProgramFromGlslText) has its own cache save that
         // works correctly (it compiles from cross-compiled GLSL text instead).
         if (Utils::IsAmdGpu() && !m_OpenGLSPIRV.empty())
             return;
@@ -2461,16 +2520,17 @@ namespace OloEngine
         return true;
     }
 
-    void OpenGLShader::CreateProgramForAmd()
+    void OpenGLShader::CreateProgramFromGlslText()
     {
+        m_IsGlslTextRoute = true;
         GLuint program = glCreateProgram();
 
         const std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
         const std::filesystem::path shaderFilePath = GetFilePath();
-        // This route (old-driver AMD workaround) never calls
-        // CompileOrGetOpenGLBinaries, so m_OpenGLSPIRV is NOT populated here —
-        // only m_VulkanSPIRV is, from CompileOrGetVulkanBinaries above. Hash
-        // that instead (issue #906).
+        // This route -- old AMD drivers, and every shader that names
+        // OLO_GL_GLSL_ROUTE -- builds from m_VulkanSPIRV, which every route
+        // populates; m_OpenGLSPIRV is absent on the AMD route, which never calls
+        // CompileOrGetOpenGLBinaries. Hash the input it builds from (issue #906).
         const std::string contentHash = Utils::HashHexSpirvMap(m_VulkanSPIRV);
         const std::filesystem::path cachedPath =
             cacheDirectory / (shaderFilePath.filename().string() + "." + contentHash + ProgramBinaryCacheSuffix());
@@ -2493,10 +2553,27 @@ namespace OloEngine
         glDeleteProgram(program);
         program = glCreateProgram();
 
-        std::array<u32, 2> glShadersIDs{};
-        if (!CompileOpenGLBinariesForAmd(program, glShadersIDs))
+        // ONE SLOT PER STAGE, up to every graphics stage. It held two, and a
+        // tessellated program (the terrain, the water) wrote its third and
+        // fourth shader ids past the end of the array on the stack.
+        std::array<u32, kMaxGraphicsStages> glShadersIDs{};
+        // Detached AND deleted: a detached shader object nobody deletes lives
+        // until the context does.
+        const auto releaseShaders = [&]()
         {
-            // CompileOpenGLBinariesForAmd already cleaned up any shaders it attached
+            for (const u32 id : glShadersIDs)
+            {
+                if (id != 0u)
+                {
+                    glDetachShader(program, id);
+                    glDeleteShader(id);
+                }
+            }
+            glShadersIDs.fill(0u);
+        };
+        if (!CompileGlslTextStages(program, glShadersIDs))
+        {
+            // CompileGlslTextStages already cleaned up any shaders it attached
             // before failing; |program| itself is still ours to delete.
             Shader::UnregisterProgram(program);
             glDeleteProgram(program);
@@ -2509,10 +2586,7 @@ namespace OloEngine
 
         if (!VerifyProgramLink(program, GetFilePath()))
         {
-            for (auto const& id : glShadersIDs)
-            {
-                glDetachShader(program, id);
-            }
+            releaseShaders();
             Shader::UnregisterProgram(program);
             glDeleteProgram(program);
             m_CompilationStatus = ShaderCompilationStatus::Failed;
@@ -2542,18 +2616,22 @@ namespace OloEngine
             }
         }
 
-        for (auto const& id : glShadersIDs)
-        {
-            glDetachShader(program, id);
-        }
+        releaseShaders();
 
         FinalizeProgram(program, m_VulkanSPIRV);
         m_CompilationStatus = ShaderCompilationStatus::Ready;
     }
 
-    bool OpenGLShader::CompileOpenGLBinariesForAmd(GLenum const& program, std::array<u32, 2>& glShadersIDs) const
+    bool OpenGLShader::CompileGlslTextStages(GLenum const& program,
+                                             std::array<u32, kMaxGraphicsStages>& glShadersIDs) const
     {
         int glShaderIDIndex = 0;
+        if (m_VulkanSPIRV.size() > glShadersIDs.size())
+        {
+            OLO_CORE_CRITICAL("[OpenGL] '{}' has {} stages, more than a graphics program carries ({})", GetFilePath(),
+                              m_VulkanSPIRV.size(), glShadersIDs.size());
+            return false;
+        }
         for (auto&& [stage, spirv] : m_VulkanSPIRV)
         {
             spirv_cross::CompilerGLSL glslCompiler(spirv.GetData(), static_cast<sizet>(spirv.Num()));
@@ -2566,6 +2644,15 @@ namespace OloEngine
             options.separate_shader_objects = false;
             options.enable_420pack_extension = true;
             glslCompiler.set_common_options(options);
+
+            // ONLY WHAT THE STAGE USES. The driver's GLSL front end counts every
+            // DECLARED uniform block against GL_MAX_<stage>_UNIFORM_BLOCKS, and
+            // the terrain's fragment stage declares more than the 14 NVIDIA
+            // allows through the shared includes, so it failed to link here
+            // ("no buffers available for bindable uniform") while the SPIR-V
+            // route linked it. Bindings are explicit, so dropping an unused
+            // declaration changes nothing the program reads.
+            glslCompiler.set_enabled_interface_variables(glslCompiler.get_active_interface_variables());
 
             // Try to preserve variable names by setting them explicitly
             auto resources = glslCompiler.get_shader_resources();
@@ -2716,6 +2803,7 @@ namespace OloEngine
 
         std::string source = ReadFile(GetFilePath());
         auto shaderSources = PreProcess(source);
+        m_WantsGlslRoute = NamesGlslRoute(shaderSources);
 
         try
         {
@@ -2735,9 +2823,9 @@ namespace OloEngine
                 // block below keeps the previously-working shader bound (issue #568).
                 m_CompilationStatus = ShaderCompilationStatus::Failed;
             }
-            else if (Utils::IsAmdGpu())
+            else if (Utils::IsAmdGpu() || TakesGlslTextRoute())
             {
-                CreateProgramForAmd();
+                CreateProgramFromGlslText();
             }
             else if (CompileOrGetOpenGLBinaries())
             {

@@ -122,6 +122,14 @@ if (entity.HasComponent<BoidObstacleComponent>())
     SceneBinIO::Write(out, comp.m_Radius);
 }
 
+if (entity.HasComponent<BoneAttachmentComponent>())
+{
+    SceneBinIO::WriteU32(out, 2765227753u); // BoneAttachmentComponent
+    auto const& comp = entity.GetComponent<BoneAttachmentComponent>();
+    SceneBinIO::Write(out, comp.m_BoneName);
+    SceneBinIO::Write(out, comp.m_Enabled);
+}
+
 if (entity.HasComponent<BuoyancyComponent>())
 {
     SceneBinIO::WriteU32(out, 4273541646u); // BuoyancyComponent
@@ -459,6 +467,8 @@ if (entity.HasComponent<GroomCoatShadowComponent>())
     SceneBinIO::Write(out, comp.m_MinResolution);
     SceneBinIO::Write(out, comp.m_Mode);
     SceneBinIO::Write(out, comp.m_Enabled);
+    SceneBinIO::Write(out, comp.m_MultipleScattering);
+    SceneBinIO::Write(out, comp.m_BakeAtRest);
 }
 
 if (entity.HasComponent<GroomComponent>())
@@ -516,6 +526,15 @@ if (entity.HasComponent<GroomLodComponent>())
     SceneBinIO::Write(out, comp.m_SimulationSteps);
     SceneBinIO::Write(out, comp.m_ShadowSteps);
     SceneBinIO::Write(out, comp.m_Enabled);
+}
+
+if (entity.HasComponent<GroomSceneShadowComponent>())
+{
+    SceneBinIO::WriteU32(out, 774689478u); // GroomSceneShadowComponent
+    auto const& comp = entity.GetComponent<GroomSceneShadowComponent>();
+    SceneBinIO::Write(out, comp.m_ShadowWidthTexels);
+    SceneBinIO::Write(out, comp.m_CastShadows);
+    SceneBinIO::Write(out, comp.m_ReceiveShadows);
 }
 
 if (entity.HasComponent<GroomSimulationComponent>())
@@ -590,6 +609,26 @@ if (entity.HasComponent<LuaScriptComponent>())
     SceneBinIO::WriteU32(out, 4238546909u); // LuaScriptComponent
     auto const& comp = entity.GetComponent<LuaScriptComponent>();
     SceneBinIO::Write(out, comp.ScriptFile);
+}
+
+if (entity.HasComponent<MaterialOverridesComponent>())
+{
+    SceneBinIO::WriteU32(out, 1378335508u); // MaterialOverridesComponent
+    auto const& comp = entity.GetComponent<MaterialOverridesComponent>();
+    SceneBinIO::WriteU32(out, static_cast<u32>(comp.m_Overrides.Num()));
+    for (auto const& be0 : comp.m_Overrides)
+    {
+        SceneBinIO::Write(out, be0.MaterialName);
+        SceneBinIO::Write(out, be0.Kind);
+        SceneBinIO::Write(out, be0.SkinProfile);
+        SceneBinIO::Write(out, be0.ThicknessFactor);
+        SceneBinIO::Write(out, be0.OverrideBaseColor);
+        SceneBinIO::Write(out, be0.BaseColor);
+        SceneBinIO::Write(out, be0.OverrideRoughness);
+        SceneBinIO::Write(out, be0.Roughness);
+        SceneBinIO::Write(out, be0.OverrideMetallic);
+        SceneBinIO::Write(out, be0.Metallic);
+    }
 }
 
 if (entity.HasComponent<NameplateComponent>())

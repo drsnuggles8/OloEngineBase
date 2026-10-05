@@ -432,6 +432,56 @@ namespace OloEngine::Tests
         }
     }
 
+    // MaterialOverridesComponent (issue #1533) is binary-covered through the
+    // generated vector-of-struct path: a TArray whose elements carry an FString,
+    // a Reject-bounded enum, an AssetHandle, floats, a vec4 and bools. Both the
+    // sidecar-writing load and the sidecar-reading load must hand back the same
+    // overrides, in order.
+    TEST_F(SceneBinarySidecarTest, MaterialOverridesRoundTripViaBinary)
+    {
+        const auto path = ScenePath("material_overrides.olo");
+        {
+            auto scene = Scene::Create();
+            Entity e = scene->CreateEntity("Dog");
+            auto& overrides = e.AddComponent<MaterialOverridesComponent>();
+            MaterialOverride nose;
+            nose.MaterialName = "DogNose";
+            nose.Kind = MaterialKind::Skin;
+            nose.SkinProfile = 0x5151ull;
+            nose.ThicknessFactor = 0.25f;
+            nose.OverrideRoughness = true;
+            nose.Roughness = 0.375f;
+            overrides.m_Overrides.Add(nose);
+            MaterialOverride lips;
+            lips.MaterialName = "DogLips";
+            lips.OverrideBaseColor = true;
+            lips.BaseColor = glm::vec4(0.25f, 0.125f, 0.0625f, 1.0f);
+            overrides.m_Overrides.Add(lips);
+            SceneSerializer(scene).Serialize(path);
+        }
+
+        for (int pass = 0; pass < 2; ++pass)
+        {
+            auto scene = Scene::Create();
+            ASSERT_TRUE(SceneSerializer(scene).Deserialize(path)) << "pass " << pass;
+            Entity found;
+            for (auto h : scene->GetAllEntitiesWith<MaterialOverridesComponent>())
+                found = Entity{ h, scene.get() };
+            ASSERT_TRUE(static_cast<bool>(found)) << "pass " << pass;
+            const auto& overrides = found.GetComponent<MaterialOverridesComponent>().m_Overrides;
+            ASSERT_EQ(overrides.Num(), 2) << "pass " << pass;
+            EXPECT_EQ(overrides[0].MaterialName, "DogNose") << "pass " << pass;
+            EXPECT_EQ(overrides[0].Kind, MaterialKind::Skin) << "pass " << pass;
+            EXPECT_EQ(static_cast<u64>(overrides[0].SkinProfile), 0x5151ull) << "pass " << pass;
+            EXPECT_NEAR(overrides[0].ThicknessFactor, 0.25f, kEpsilon) << "pass " << pass;
+            EXPECT_TRUE(overrides[0].OverrideRoughness) << "pass " << pass;
+            EXPECT_NEAR(overrides[0].Roughness, 0.375f, kEpsilon) << "pass " << pass;
+            EXPECT_EQ(overrides[1].MaterialName, "DogLips") << "pass " << pass;
+            EXPECT_TRUE(overrides[1].OverrideBaseColor) << "pass " << pass;
+            EXPECT_NEAR(overrides[1].BaseColor.g, 0.125f, kEpsilon) << "pass " << pass;
+        }
+    }
+
     // Strongest fidelity guarantee: a scene loaded through the binary fast path
     // must re-serialize to EXACTLY the same YAML as one loaded through the YAML
     // path. If any covered component's binary read/write dropped or mangled a

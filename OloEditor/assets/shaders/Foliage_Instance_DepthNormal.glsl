@@ -14,11 +14,11 @@
 // note). So:
 //   * the vertex stage is the colour pass's own include, with
 //     `invariant gl_Position` — same placement, same wind, same depth;
-//   * the fragment discards are Foliage_Instance.glsl's three, in its order:
-//     the mesh-to-card hand-over, the cutout, and the distance fade at 0.
-//     (Forward foliage is opaque alpha-tested with no blend, so the fade only
-//     ever discards at 0 there; Foliage_Instance_GBuffer.glsl's 0.3 cut and
-//     density dither are the DEFERRED rule and do not apply here.)
+//   * the fragment discards are Foliage_Instance.glsl's four, in its order:
+//     the mesh-to-card hand-over, the cutout, the distance fade at 0, and,
+//     with stochastic coverage authored, the dithered fade (#1533). Forward
+//     foliage is opaque alpha-tested with no blend, so a partial fade can only
+//     be dithered; the colour pass and this one read the same dither frame.
 //
 // The normal is the one the G-Buffer twin stores: oloFoliageSampleSurface's
 // viewer-facing, leaf-normal-mapped normal, encoded to scene attachment 2 the
@@ -27,6 +27,14 @@
 
 #type vertex
 #version 460 core
+
+// THE GLSL TEXT ROUTE ON OPENGL, because the colour program takes it
+// (docs/agent-rules/gl-shader-route.md, rule 5). The colour pass draws these
+// leaves at GL_LEQUAL against this prepass's depth, and `invariant gl_Position`
+// holds only within one compiler: on different routes NVIDIA's two front ends
+// rounded the same position apart and the colour pass lost leaf fragments to
+// this depth.
+#define OLO_GL_GLSL_ROUTE 1
 
 // This program's fragment stage never reads v_InstanceIndex, like the colour
 // program's (a written-but-unconsumed output is a Vulkan interface warning).
@@ -49,6 +57,9 @@ layout(location = 7) in float v_MeshCoverage;
 layout(location = 8) in float v_InstanceSeed;
 
 #include "include/CameraCommon.glsl"
+// The main view's dither moves with the frame under a temporal resolve
+// (#1533); see OLO_FOLIAGE_DITHER_FRAME in FoliageInstanceGeometry.glsl.
+#define OLO_FOLIAGE_DITHER_FRAME u_FoliageDitherFrame
 #include "include/FoliageParams.glsl"
 #include "include/FoliageInstanceGeometry.glsl"
 
@@ -88,6 +99,10 @@ void main()
     float dist = distance(v_WorldPos, u_CameraPosition);
     float fadeFactor = 1.0 - smoothstep(u_FadeStart, u_ViewDistance, dist);
     if (fadeFactor <= 0.0)
+        discard;
+
+    if (foliageStochasticCoverage(u_LodTransition0) &&
+        !foliageDensityKeep(fadeFactor * v_Fade, gl_FragCoord.xy, v_InstanceSeed))
         discard;
 
     vec3 V = normalize(u_CameraPosition - v_WorldPos);

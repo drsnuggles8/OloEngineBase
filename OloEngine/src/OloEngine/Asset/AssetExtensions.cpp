@@ -110,7 +110,9 @@ namespace OloEngine
         // GroomSerializer (binary decode, no GPU resources). The SOURCE .abc
         // stays mapped to MeshSource below — an .abc is routed to a groom by
         // the importer detecting ICurves, not by its extension, because one
-        // extension carries both schemas.
+        // extension carries both schemas. The registry reads the archive too:
+        // EditorAssetManager::GetRegistrationType does not register a
+        // curves-only one (#1542).
         s_ExtensionMap["ologroom"] = AssetType::Groom;
         // Cooked groom-to-body binding (#1249) — the OUTPUT of
         // GroomBindingBuilder, cooked by GroomBindingCooker. Like .ologroom it

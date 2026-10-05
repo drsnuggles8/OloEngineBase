@@ -25,7 +25,9 @@
 //   * per-entity geometry and deformation state;
 //   * every slot of every coat-volume ring as capacity (the pass counts them too), with
 //     only the slots bound this frame as demand;
-//   * the CPU pose and shadow storage (CPU bytes, reported separately from GPU bytes).
+//   * the CPU pose and shadow storage (CPU bytes, reported separately from GPU bytes);
+//   * the per-frame evaluations' retained scratch, from its ledger: every owner's -- this
+//     pass's, the scene's, the RT proxy cache's -- once each (GroomEvaluationScratch.h).
 // Old buffers a rebuild or a ring-slot resize replaced are NOT here: they are retiring
 // allocations in the physical totals, which is where in-flight bytes belong.
 namespace OloEngine
@@ -36,6 +38,13 @@ namespace OloEngine
         [[nodiscard]] u64 VectorBytes(const std::vector<T>& v)
         {
             return static_cast<u64>(v.capacity()) * sizeof(T);
+        }
+
+        // A caster stream's CPU tables: its runs by root triangle.
+        template<typename Caster>
+        [[nodiscard]] u64 CasterTableBytes(const Caster& caster)
+        {
+            return caster.Pose.CpuBytes();
         }
 
         [[nodiscard]] std::optional<u64> Texture3DBytes(const Texture3D& texture)
@@ -124,9 +133,32 @@ namespace OloEngine
                 if (slot.Bound && slot.LastBoundFrame == frame)
                     ringDemand += *bytes;
             }
+            // The body's texture (#1533) is bound with the coat's slot, so it
+            // is in demand exactly when that slot is.
+            if (entry.CoatBody)
+            {
+                const auto bytes = Texture3DBytes(*entry.CoatBody);
+                if (!bytes)
+                {
+                    ringComplete = false;
+                }
+                else
+                {
+                    ringCapacity += *bytes;
+                    const auto& bound = entry.CoatRing[entry.CoatSlot];
+                    if (bound.Bound && bound.LastBoundFrame == frame)
+                        ringDemand += *bytes;
+                }
+            }
 
             cpuBytes += entry.DeformCpu.GetCpuBytes();
             cpuBytes += VectorBytes(entry.CoatBakedPose) + VectorBytes(entry.CoatFibreScales) + VectorBytes(entry.CoatPoseSubset);
+            // The caster tables (#1533): a GPU-deformed entry draws its rest
+            // stream's, counted with the stream below; every other entry owns
+            // its own. The posed runs and the pose's surface half are per entity.
+            if (!entry.GpuDeformed)
+                cpuBytes += CasterTableBytes(entry.Caster);
+            cpuBytes += entry.CasterPoseSurface.CpuBytes() + VectorBytes(entry.PosedRuns);
         }
         {
             MemoryCapacityRow row;
@@ -155,11 +187,13 @@ namespace OloEngine
         for (const auto& [key, stream] : m_RestStreams)
         {
             if (stream)
-                cpuBytes += VectorBytes(stream->RootCurves) + VectorBytes(stream->PoseSegments);
+                cpuBytes += VectorBytes(stream->RootCurves) + VectorBytes(stream->PoseSegments) + CasterTableBytes(stream->Caster);
         }
         cpuBytes += VectorBytes(m_DeformedVertices) + VectorBytes(m_DrawnPose) + VectorBytes(m_DrawnPoseFull) +
-                    VectorBytes(m_CoatSegments) + VectorBytes(m_CoatVolumeScratch.Density) +
-                    VectorBytes(m_CoatVolumeScratch.Direction) + VectorBytes(m_CoatPackHalf) + VectorBytes(m_CoatPackFloat);
+                    VectorBytes(m_CoatSegments) + VectorBytes(m_RestCentrelines) + VectorBytes(m_CoatVolumeScratch.Density) +
+                    VectorBytes(m_CoatVolumeScratch.Direction) + VectorBytes(m_CoatVolumeScratch.Body) +
+                    VectorBytes(m_CoatPackHalf) + VectorBytes(m_CoatPackFloat) +
+                    static_cast<u64>(m_CpuRootScratch.GetAllocatedSize());
         for (const auto& table : m_CardFibreTables)
             cpuBytes += VectorBytes(table.ByGroup);
         {
@@ -171,6 +205,21 @@ namespace OloEngine
             row.IsGpu = false;
             row.CapacityBytes = cpuBytes;
             row.UnknownReason = "active demand: reused scratch and retained poses have no per-frame demand figure";
+            rows.Add(std::move(row));
+        }
+
+        // --- The evaluations' scratch, every owner's, once each (#1533 review) -----------
+        // Read from the ledger every instance publishes to, never summed from the owners:
+        // no owner's row above adds its own, so none is counted twice or missed.
+        {
+            MemoryCapacityRow row;
+            row.Owner = "GroomRenderPass";
+            row.Category = "Groom evaluation scratch: caster pose and root skinning (every owner, CPU)";
+            row.Lifetime = MemoryLifetime::Persistent;
+            row.Source = MemorySizeSource::Committed;
+            row.IsGpu = false;
+            row.CapacityBytes = GroomEvaluationScratchRetainedBytes();
+            row.UnknownReason = "active demand: reused scratch has no per-frame demand figure";
             rows.Add(std::move(row));
         }
     }

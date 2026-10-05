@@ -52,6 +52,9 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 _cameraPrevViewProjection;
     vec3 u_RenderOrigin;
     float _padding1;
+    mat4 _cameraProjectionForReconstruction;
+    vec4 _cameraScreenSpaceAOParams;
+    vec4 u_JitterUV; // the TAA jitter offsets, for the velocity (#1552)
 };
 
 #include "include/InstanceBlock_Vertex.glsl"
@@ -291,7 +294,11 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 _cameraPrevViewProjection;
     vec3 u_RenderOrigin;
     float _padding1;
+    mat4 _cameraProjectionForReconstruction;
+    vec4 _cameraScreenSpaceAOParams;
+    vec4 u_JitterUV; // the TAA jitter offsets, for the velocity (#1552)
 };
+#include "include/ScreenVelocity.glsl"
 
 
 // Converted whole (§5c) — the material five are every sampler this shader has,
@@ -372,7 +379,16 @@ void main()
             discard;
     }
 
-    vec3 albedo = OLO_MAT_ALBEDO(u_AlbedoMap, v_TexCoord, u_BaseColorFactor.rgb, bool(u_UseAlbedoMap));
+    // AN IRIS PAINTED INTO THE ALBEDO MAP is fetched where the cornea looks
+    // (issue #1533); see include/SkinOcularSurface.glsl, oloSkinOcularIrisShift.
+    vec2 albedoUV = v_TexCoord;
+    if (oloSkinEvaluatesOcularSurface(u_MaterialKind, u_SkinEvaluationModel) && u_UseAlbedoMap == 1)
+    {
+        albedoUV = oloSkinOcularAlbedoUv(v_TexCoord, v_Normal, normalize(u_CameraPosition - v_WorldPos),
+                                         instances[v_InstanceIndex].Transform[2].xyz, u_SkinOcularCorneaLane,
+                                         u_SkinOcularIrisLane, u_SkinOcularResponseLane, u_SkinOcularTintLane);
+    }
+    vec3 albedo = OLO_MAT_ALBEDO(u_AlbedoMap, albedoUV, u_BaseColorFactor.rgb, bool(u_UseAlbedoMap));
     vec2 metallicRoughness = OLO_MAT_METALLIC_ROUGHNESS(u_MetallicRoughnessMap, v_TexCoord,
                                                         u_MetallicFactor, u_RoughnessFactor,
                                                         bool(u_UseMetallicRoughnessMap));
@@ -421,8 +437,14 @@ void main()
     // It also means MSAA does the right thing for free: this runs per SAMPLE,
     // so each sample's roughness reflects its own footprint before the resolve
     // averages them.
+    // The kernel also widens the coat at lighting time (#1533): it rides RT5's
+    // green channel to the deferred pass, written at the end of this shader.
+    float skinVarianceKernel = 0.0;
     if (u_MaterialKind == OLO_MATERIAL_KIND_SKIN)
+    {
         roughness = oloSkinFilteredRoughness(roughness, N, u_SkinSpecularLane.z);
+        skinVarianceKernel = oloSkinVarianceKernelAt(N, u_SkinSpecularLane.z);
+    }
 
     // ---- THE CORNEA AND THE IRIS (issue #1244) ---------------------------
     //
@@ -469,7 +491,7 @@ void main()
 
     vec2 ndcCurr = v_ClipPosCurr.xy / max(v_ClipPosCurr.w, 1e-6);
     vec2 ndcPrev = v_ClipPosPrev.xy / max(v_ClipPosPrev.w, 1e-6);
-    vec2 velocity = (ndcCurr - ndcPrev) * 0.5;
+    vec2 velocity = oloVelocityFromNdc(ndcCurr, ndcPrev);
 
     o_GBufferAlbedo   = vec4(albedo, metallic);
     o_GBufferNormal   = vec4(octEncodeGB(N), roughness, ao);
@@ -517,5 +539,7 @@ void main()
     // MATTERS for the demonstrating case: the backlit animated ear is a skinned
     // mesh, and it is exactly the surface that cannot lose its thickness to a
     // lightmap.
-    o_GBufferBakedGI = oloSkinPackGBufferThickness(vec4(0.0), skinThicknessMM > 0.0, skinThicknessMM);
+    o_GBufferBakedGI = oloSkinPackGBufferLanes(
+        vec4(0.0), u_MaterialKind == OLO_MATERIAL_KIND_SKIN && u_SkinProfileSlot < OLO_SKIN_PROFILE_SLOT_NONE,
+        skinThicknessMM, skinVarianceKernel);
 }

@@ -420,4 +420,106 @@ TEST(GroomRoundTrip, SourceTransformIsBakedIntoPointsAndWidths)
     EXPECT_NEAR(groom.GetPointWidths()[0], 0.2f, kEpsilon);
 }
 
+TEST(GroomRoundTrip, UserPropertiesCarryGuidesRootUVsAndTheCoatAsBlenderWritesThem)
+{
+    // Issue #1533. Blender's Alembic exporter writes no `uvs` and no
+    // arbGeomParams for hair curves, only custom properties -- every one an
+    // array, floats as float64. So the showcase dog's coat carries its guides,
+    // root UVs and coat description as `groom_` user properties, and those must
+    // arrive exactly where the attribute route puts them.
+    namespace Fixture = Tests::GroomFixture;
+
+    Fixture::CurvesPrim prim;
+    prim.Name = "muzzle_guard";
+    prim.Positions = { { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.1f, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 1.0f, 0.1f, 0.0f } };
+    prim.VertexCounts = { 2, 2 };
+    prim.Widths = { 0.004f, 0.002f, 0.004f, 0.002f };
+    prim.UserInts = { { "groom_role", { static_cast<i32>(GroomCoatRole::LongHair) } }, { "groom_guide", { 1, 0 } } };
+    prim.UserDoubles = { { "groom_root_uv", { 0.125, 0.25, 0.75, 0.5 } },
+                         { "groom_tint", { 0.6, 0.5, 0.4 } },
+                         { "groom_tip_tint", { 1.5, 1.25, 1.0 } },
+                         { "groom_wave_amplitude", { 0.009 } },
+                         { "groom_wave_frequency", { 12.0 } },
+                         { "groom_stiffness", { 0.5 } } };
+
+    const std::filesystem::path abcPath = Tests::TempFile("userprops.abc");
+    ASSERT_TRUE(Fixture::WriteArchive(abcPath, { prim }));
+
+    const auto result = AlembicGroomImporter::Import(abcPath);
+    ASSERT_TRUE(result.Succeeded()) << result.Diagnostic;
+    EXPECT_TRUE(result.Warnings.empty()) << "root UVs from the property must not be reported missing: "
+                                         << (result.Warnings.empty() ? std::string{} : result.Warnings.front());
+    const GroomAsset& groom = *result.Groom;
+    ASSERT_EQ(groom.GetCurveCount(), 2u);
+    EXPECT_EQ(groom.GetGuideCount(), 1u);
+
+    // The cook may reorder curves; find each by its root.
+    constexpr f32 kEpsilon = 1e-6f;
+    for (u32 c = 0; c < groom.GetCurveCount(); ++c)
+    {
+        const bool first = groom.GetPoints()[groom.GetCurveOffsets()[c]].x < 0.5f;
+        const glm::vec2 expected = first ? glm::vec2(0.125f, 0.25f) : glm::vec2(0.75f, 0.5f);
+        EXPECT_NEAR(groom.GetRootUVs()[c].x, expected.x, kEpsilon);
+        EXPECT_NEAR(groom.GetRootUVs()[c].y, expected.y, kEpsilon);
+        EXPECT_EQ(groom.IsGuide(c), first) << "curve " << c;
+    }
+
+    ASSERT_EQ(groom.GetGroupCount(), 1u);
+    const GroomCoatGroupDesc coat = groom.GetGroupCoat(0);
+    EXPECT_EQ(coat.Role, static_cast<u8>(GroomCoatRole::LongHair)) << "the property overrides the name's guard hair";
+    EXPECT_NEAR(coat.Tint.x, 0.6f, kEpsilon);
+    EXPECT_NEAR(coat.Tint.z, 0.4f, kEpsilon);
+    EXPECT_NEAR(coat.TipTint.x, 1.5f, kEpsilon);
+    EXPECT_NEAR(coat.WaveAmplitude, 0.009f, kEpsilon);
+    EXPECT_NEAR(coat.WaveFrequency, 12.0f, kEpsilon);
+    EXPECT_NEAR(coat.StiffnessScale, 0.5f, kEpsilon);
+    EXPECT_NEAR(coat.Clump, 0.0f, kEpsilon) << "an unauthored field keeps its default";
+}
+
+TEST(GroomRoundTrip, ConstantScopeWidthsWithOnePerPointAreReadByTheirCount)
+{
+    // Blender's hair export declares its per-point widths CONSTANT scope. One
+    // value per control point is what the data is; a constant param would hold
+    // one, so the count settles it.
+    namespace Fixture = Tests::GroomFixture;
+
+    Fixture::CurvesPrim prim;
+    prim.Name = "blenderwidths";
+    prim.Positions = { { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.1f, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 1.0f, 0.1f, 0.0f } };
+    prim.VertexCounts = { 2, 2 };
+    prim.Widths = { 0.004f, 0.002f, 0.008f, 0.006f };
+    prim.WidthScope = Fixture::AbcG::kConstantScope;
+
+    const std::filesystem::path abcPath = Tests::TempFile("constwidths.abc");
+    ASSERT_TRUE(Fixture::WriteArchive(abcPath, { prim }));
+
+    const auto result = AlembicGroomImporter::Import(abcPath);
+    ASSERT_TRUE(result.Succeeded()) << result.Diagnostic;
+    std::vector<f32> widths(result.Groom->GetPointWidths().begin(), result.Groom->GetPointWidths().end());
+    std::sort(widths.begin(), widths.end());
+    ASSERT_EQ(widths.size(), 4u);
+    EXPECT_NEAR(widths[0], 0.002f, 1e-6f);
+    EXPECT_NEAR(widths[3], 0.008f, 1e-6f) << "every point keeps its own width";
+}
+
+TEST(GroomRoundTrip, CoatUserPropertiesWithoutARoleKeepTheRoleTheNameImplies)
+{
+    namespace Fixture = Tests::GroomFixture;
+
+    Fixture::CurvesPrim prim;
+    prim.Name = "body_undercoat";
+    prim.Positions = { { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.1f, 0.0f } };
+    prim.VertexCounts = { 2 };
+    prim.UserDoubles = { { "groom_stiffness", { 1.5 } } };
+
+    const std::filesystem::path abcPath = Tests::TempFile("userprops-norole.abc");
+    ASSERT_TRUE(Fixture::WriteArchive(abcPath, { prim }));
+
+    const auto result = AlembicGroomImporter::Import(abcPath);
+    ASSERT_TRUE(result.Succeeded()) << result.Diagnostic;
+    const GroomCoatGroupDesc coat = result.Groom->GetGroupCoat(0);
+    EXPECT_EQ(coat.Role, static_cast<u8>(GroomCoatRole::Undercoat));
+    EXPECT_NEAR(coat.StiffnessScale, 1.5f, 1e-6f);
+}
+
 #endif // OLO_WITH_ALEMBIC

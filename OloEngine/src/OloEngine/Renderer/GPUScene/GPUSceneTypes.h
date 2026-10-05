@@ -240,6 +240,15 @@ namespace OloEngine
         // imported or authored on the entity, and a key space it shared with
         // either could collide with a real material on the same entity.
         Groom = 5,
+        // An entity's PATCHED copy of one imported material
+        // (MaterialOverridesComponent, issue #1533): owner is the stable entity
+        // id, slot is the imported material's index in the table the submesh
+        // resolves against (Submesh::m_MaterialIndex, or the Model's slot). Its
+        // own source because the copy is per entity — the shared Imported record
+        // of the same slot keeps shading every other entity using the mesh — and
+        // an EntityOverride key would collapse every patched slot of the entity
+        // into one record.
+        EntityPatch = 6,
     };
 
     // Which component supplied an EntityOverride material; it is the key's

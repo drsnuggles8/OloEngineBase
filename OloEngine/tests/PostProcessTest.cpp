@@ -128,11 +128,15 @@ TEST(PostProcessUBOData, FieldOffsets_Std140Compatible)
 // MotionBlurUBOData Layout
 // =============================================================================
 
-TEST(MotionBlurUBOData, SizeIs128Bytes)
+TEST(MotionBlurUBOData, LayoutMatchesTheShaderBlock)
 {
-    // Two mat4s = 2 * 64 = 128 bytes
-    EXPECT_EQ(MotionBlurUBOData::GetSize(), 128u);
-    EXPECT_EQ(sizeof(MotionBlurUBOData), 128u);
+    // Two mat4s and the jitter vec4 (#1552) = 64 + 64 + 16 bytes, member for
+    // member PostProcess_MotionBlur.glsl's MotionBlurMatrices block.
+    EXPECT_EQ(MotionBlurUBOData::GetSize(), 144u);
+    EXPECT_EQ(sizeof(MotionBlurUBOData), 144u);
+    EXPECT_EQ(offsetof(MotionBlurUBOData, InverseViewProjection), 0u);
+    EXPECT_EQ(offsetof(MotionBlurUBOData, PrevViewProjection), 64u);
+    EXPECT_EQ(offsetof(MotionBlurUBOData, JitterUV), 128u);
 }
 
 TEST(MotionBlurUBOData, DefaultsAreIdentityMatrices)

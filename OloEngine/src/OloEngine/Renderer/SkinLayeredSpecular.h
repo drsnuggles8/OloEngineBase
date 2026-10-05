@@ -234,6 +234,27 @@ namespace OloEngine
     [[nodiscard]] f32 SkinFilteredAlpha(f32 alpha, f32 dNdxLengthSq, f32 dNdyLengthSq,
                                         f32 varianceStrength) noexcept;
 
+    // The kernel SkinFilteredAlpha adds, on its own: the pixel's normal spread
+    // as a GGX alpha-squared, `min(2 * sigma^2 * (|dN/dx|^2 + |dN/dy|^2), clamp)`.
+    //
+    // SPLIT OUT FOR THE TEAR FILM AND THE SALIVA COAT (#1533). A coat is a
+    // second GGX lobe on the same surface, so the same sub-pixel normal spread
+    // widens it: the variance adds to the coat's alpha-squared exactly as it
+    // adds to the base's. Left unfiltered, the coat's 0.04 floor
+    // (kMinSkinOralCoatRoughness) puts a delta light's glint inside one sample
+    // of a curved eye, and the frames whose jitter lands on it read a few
+    // hundred where the eye around it reads about one -- the white bloom the
+    // dog's eye showed at a distance. The kernel is taken where the normal is
+    // built, as the base filter's is, and reaches the deferred lighting pass in
+    // RT5's green channel (include/SkinTransmission.glsl).
+    [[nodiscard]] f32 SkinVarianceKernel(f32 dNdxLengthSq, f32 dNdyLengthSq, f32 varianceStrength) noexcept;
+
+    // A PERCEPTUAL roughness widened by a kernel from SkinVarianceKernel:
+    // `sqrt(clamp(sqrt(roughness^4 + kernel), 0, 1))`. A kernel that is not
+    // positive returns `roughness` exactly, so a profile with no variance
+    // strength keeps its coat bit for bit. Mirrors oloSkinWidenedRoughness.
+    [[nodiscard]] f32 SkinWidenedRoughness(f32 roughness, f32 kernel) noexcept;
+
     // -------------------------------------------------------------------------
     // The two lobes
     // -------------------------------------------------------------------------

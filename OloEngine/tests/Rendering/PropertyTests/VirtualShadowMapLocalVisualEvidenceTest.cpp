@@ -856,9 +856,13 @@ namespace OloEngine::Tests
         constexpr f32 kEyeHeight = 9.0f;
         const std::array<Pose, 4> poses{ {
             { "Orbit000", { 0.0f, kEyeHeight, kRadius }, 0.0f },
-            { "Orbit090", { kRadius, kEyeHeight, 0.0f }, 1.5707963f },
+            // EditorCamera faces rotate(quat(-pitch, -yaw, 0), -Z): yaw +90 degrees
+            // looks along +X, so the eye at +X turns to -90 to face the lamp. With
+            // the signs swapped these two poses looked away from the scene, and
+            // the floor's faint far shading passed the old 1.0 luma bar (#1533).
+            { "Orbit090", { kRadius, kEyeHeight, 0.0f }, -1.5707963f },
             { "Orbit180", { 0.0f, kEyeHeight, -kRadius }, 3.1415927f },
-            { "Orbit270", { -kRadius, kEyeHeight, 0.0f }, -1.5707963f },
+            { "Orbit270", { -kRadius, kEyeHeight, 0.0f }, 1.5707963f },
         } };
 
         auto& shadowMap = Renderer3D::GetShadowMap();
@@ -888,7 +892,11 @@ namespace OloEngine::Tests
                               << ") — this azimuth cannot say anything about shadows";
                 continue;
             }
-            if (diff > 1.0)
+            // A pose that sees the boxes changes by ~8.6 luma when their shadows
+            // land; one that looks away from them changes by ~1.1. The bar sits
+            // between the two, so a pose that misses the subject fails.
+            constexpr f64 kShadowedDiff = 4.0;
+            if (diff > kShadowedDiff)
                 ++azimuthsWithShadow;
         }
 
@@ -899,6 +907,45 @@ namespace OloEngine::Tests
                "assets/tests/visual/VirtualShadowMapLocalSingle_Orbit*.png against their _NoShadow "
                "counterparts and compare which quadrant is identical, then map it onto the "
                "+X,-X,+Y,-Y,+Z,-Z face order";
+    }
+
+    // Found by #1533's full sweep: the orbit test above skipped on every run,
+    // reporting that the pages "refused to initialise". They had initialised.
+    // ShadowMap mirrored IsActive() back into its settings, and IsActive() folds
+    // in the per-frame suppression BeginFrame derives from the global shadow
+    // switch, which SetEnabled(true) left in place until the next frame. So a
+    // frame with shadows off turned the user's VSM choice off. The choice must
+    // survive such a frame, the pages must stay dark while shadows are off, and
+    // they must be live as soon as shadows are back on.
+    TEST_F(VirtualShadowMapLocalSingleLightTest, TurningThePagesOnAroundAFrameWithoutShadowsKeepsTheChoice)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        auto& shadowMap = Renderer3D::GetShadowMap();
+        ASSERT_TRUE(SetVirtualShadowMaps(false));
+
+        // Turned on during a frame with the shadows off, as Scene drives it.
+        shadowMap.SetEnabled(false);
+        shadowMap.BeginFrame();
+        ShadowSettings settings = shadowMap.GetSettings();
+        settings.VSM.Enabled = true;
+        settings.VSM.LocalLights = true;
+        shadowMap.SetSettings(settings);
+        if (!shadowMap.GetVirtualShadowMap().IsEnabledAndInitialized())
+            GTEST_SKIP() << "Virtual Shadow Maps refused to initialise on this backend/driver";
+        EXPECT_TRUE(shadowMap.GetSettings().VSM.Enabled)
+            << "turning the pages on while the shadows were off was recorded as a refusal";
+        EXPECT_FALSE(shadowMap.IsVirtualShadowMapActive()) << "the pages must stay dark while the shadows are off";
+        shadowMap.SetEnabled(true);
+        EXPECT_TRUE(shadowMap.IsVirtualShadowMapActive())
+            << "the pages must be live as soon as the shadows are back on, not a frame later";
+
+        // Turned on just after the shadows came back, the orbit test's sequence.
+        ASSERT_TRUE(SetVirtualShadowMaps(false));
+        shadowMap.SetEnabled(false);
+        shadowMap.BeginFrame();
+        shadowMap.SetEnabled(true);
+        EXPECT_TRUE(SetVirtualShadowMaps(true)) << "the pages were reported as refused right after the shadows came back";
+        EXPECT_TRUE(shadowMap.GetSettings().VSM.Enabled);
     }
 
 } // namespace OloEngine::Tests

@@ -16,6 +16,9 @@ namespace OloEngine
         // sqrt(pi/8), the constant Chiang's azimuthal-roughness fit is scaled
         // by so that s is a logistic scale rather than a Gaussian sigma.
         constexpr f32 kSqrtPiOver8 = 0.626657069f;
+        // sqrt(2 pi), a unit Gaussian's normaliser, and sqrt(2), its erf scale.
+        constexpr f32 kSqrtTwoPi = 2.50662827f;
+        constexpr f32 kSqrtTwo = 1.41421356f;
 
         [[nodiscard]] constexpr f32 Sqr(f32 x) noexcept
         {
@@ -587,7 +590,223 @@ namespace OloEngine
         params.Eta = authored.IndexOfRefraction;
         params.Intensity = authored.Intensity;
         params.HSamples = authored.HSamples;
+        // LAST: it reads every field above.
+        params.Dual = GroomFibreComputeDualScattering(params);
         return params;
+    }
+
+    namespace
+    {
+        // The mass a trimmed logistic of scale `s` puts on [a, b], a sub-interval
+        // of [-pi, pi]. Closed form, the same CDF SampleTrimmedLogistic inverts.
+        [[nodiscard]] f32 TrimmedLogisticMass(f32 a, f32 b, f32 s) noexcept
+        {
+            const f32 lo = LogisticCDF(-kPi, s);
+            const f32 norm = LogisticCDF(kPi, s) - lo;
+            return (LogisticCDF(b, s) - LogisticCDF(a, s)) / norm;
+        }
+
+        // The mass lobe N(phi) = TrimmedLogistic(WrapPhi(phi - mu), s) puts on
+        // the BACKWARD half-circle |phi| <= pi/2. In x = phi - mu that arc is
+        // [-pi/2 - mu, pi/2 - mu]; wrapped into [-pi, pi) it is one interval of
+        // length pi, or two when it straddles the seam.
+        [[nodiscard]] f32 BackwardMass(f32 mu, f32 s) noexcept
+        {
+            const f32 a = WrapPhi((-0.5f * kPi) - mu);
+            const f32 b = a + kPi;
+            if (b <= kPi)
+            {
+                return TrimmedLogisticMass(a, b, s);
+            }
+            return TrimmedLogisticMass(a, kPi, s) + TrimmedLogisticMass(-kPi, b - kTwoPi, s);
+        }
+
+        // Four-node Gauss-Legendre in sin(theta) over [-1, 1]: uniform in
+        // sin(theta) is uniform over the sphere of directions, so the weighted
+        // sum / 2 is the sphere average Zinke's a_f and a_b are defined as.
+        constexpr std::array<f32, 4> kSphereNodes{ -0.861136312f, -0.339981044f, 0.339981044f, 0.861136312f };
+        constexpr std::array<f32, 4> kSphereWeights{ 0.347854845f, 0.652145155f, 0.652145155f, 0.347854845f };
+
+        // Per-lobe backward attenuation, averaged like the split: what the
+        // back-scatter lobe's shift and width are weighted by.
+        struct BackwardLobes
+        {
+            glm::vec3 R{ 0.0f };
+            glm::vec3 TRT{ 0.0f };
+        };
+
+        [[nodiscard]] GroomFibreScatterSplit SplitAt(const GroomFibreParams& params, f32 sinTheta,
+                                                     BackwardLobes* lobes) noexcept
+        {
+            sinTheta = std::clamp(sinTheta, -1.0f, 1.0f);
+            const u32 n = std::clamp(params.HSamples, GroomFibreLimits::MinHSamples, GroomFibreLimits::MaxHSamples);
+            const f32 nodeWidth = 2.0f / static_cast<f32>(n);
+
+            const f32 cosTheta = SafeSqrt(1.0f - Sqr(sinTheta));
+            const f32 etaPrime = SafeSqrt(Sqr(params.Eta) - Sqr(sinTheta)) / std::max(cosTheta, 1.0e-5f);
+            const f32 sinThetaT = sinTheta / params.Eta;
+            const f32 cosThetaT = SafeSqrt(1.0f - Sqr(sinThetaT));
+
+            GroomFibreScatterSplit split;
+            for (u32 k = 0; k < n; ++k)
+            {
+                const f32 h = QuadratureNode(k, n);
+                const f32 gammaO = SafeASin(h);
+                const f32 sinGammaT = std::clamp(h / etaPrime, -1.0f, 1.0f);
+                const f32 cosGammaT = SafeSqrt(1.0f - Sqr(sinGammaT));
+                const f32 gammaT = SafeASin(sinGammaT);
+
+                const glm::vec3 transmittance =
+                    glm::exp(-params.SigmaA * ((2.0f * cosGammaT) / std::max(cosThetaT, 1.0e-5f)));
+                const std::array<glm::vec3, kGroomFibreLobeCount> ap =
+                    Attenuations(cosTheta, params.Eta, h, transmittance);
+
+                for (u32 p = 0; p + 1 < kGroomFibreLobeCount; ++p)
+                {
+                    const f32 s = NodeWidenedScale(params.S, p, h, etaPrime, nodeWidth);
+                    const f32 back = std::clamp(BackwardMass(LobePhi(p, gammaO, gammaT), s), 0.0f, 1.0f);
+                    split.Backward += ap[p] * back;
+                    split.Forward += ap[p] * (1.0f - back);
+                    if (lobes != nullptr && p == 0)
+                    {
+                        lobes->R += ap[p] * back;
+                    }
+                    if (lobes != nullptr && p == 2)
+                    {
+                        lobes->TRT += ap[p] * back;
+                    }
+                }
+                const glm::vec3 residual = ap[kGroomFibreLobeCount - 1] * 0.5f;
+                split.Backward += residual;
+                split.Forward += residual;
+            }
+
+            const f32 weight = 1.0f / static_cast<f32>(n);
+            split.Forward *= weight;
+            split.Backward *= weight;
+            if (lobes != nullptr)
+            {
+                lobes->R *= weight;
+                lobes->TRT *= weight;
+            }
+            return split;
+        }
+    } // namespace
+
+    GroomFibreScatterSplit GroomFibreScatterSplitAt(const GroomFibreParams& params, f32 sinTheta) noexcept
+    {
+        return SplitAt(params, sinTheta, nullptr);
+    }
+
+    GroomFibreDualScattering GroomFibreComputeDualScattering(const GroomFibreParams& params) noexcept
+    {
+        GroomFibreDualScattering dual;
+        BackwardLobes backLobes;
+        for (sizet i = 0; i < kSphereNodes.size(); ++i)
+        {
+            BackwardLobes at;
+            const GroomFibreScatterSplit split = SplitAt(params, kSphereNodes[i], &at);
+            const f32 w = 0.5f * kSphereWeights[i];
+            dual.ForwardScatter += split.Forward * w;
+            dual.BackwardScatter += split.Backward * w;
+            backLobes.R += at.R * w;
+            backLobes.TRT += at.TRT * w;
+        }
+        const glm::vec3 af = glm::clamp(dual.ForwardScatter, glm::vec3(0.0f), glm::vec3(1.0f));
+        const glm::vec3 ab = glm::clamp(dual.BackwardScatter, glm::vec3(0.0f), glm::vec3(1.0f));
+
+        // Zinke et al. 2008, eqs. 12-13. A1 sums the paths that go forward
+        // through the strands in front, back once off a strand behind, and
+        // forward out again — any number of forward passes, hence the
+        // geometric 1 / (1 - a_f^2). A3 is the same with three back scatters.
+        // The series is cut there, as in the paper: every further term carries
+        // another a_b^2, and a_b is a few per cent. The floor on 1 - a_f^2 is
+        // for a fibre that absorbs nothing, where R alone keeps a_f below one
+        // and the floor never binds; it is there so no authored value can
+        // divide by zero.
+        const glm::vec3 oneMinusAf2 = glm::max(glm::vec3(1.0f) - (af * af), glm::vec3(1.0e-3f));
+        const glm::vec3 a1 = (ab * af * af) / oneMinusAf2;
+        const glm::vec3 a3 = (ab * ab * ab * af * af) / (oneMinusAf2 * oneMinusAf2 * oneMinusAf2);
+        dual.MultipleBackScatter = a1 + a3;
+
+        // THE LOBE. Each single-scatter lobe peaks at a known theta_h: the tilt
+        // rotates R's outgoing angle by -2 alpha, TT's by +alpha and TRT's by
+        // +4 alpha, and M peaks where theta_i mirrors that angle, so the peaks
+        // sit at theta_h = +alpha, -alpha/2 and -2 alpha. Widths: M's variance v
+        // is measured in theta_i, and theta_h = (theta_i + theta_o) / 2 halves
+        // every angle, so in theta_h it is v / 4.
+        //
+        // A back-scatter path of k back scatters and two forward passes shifts
+        // by the sum of its lobes' shifts and spreads by the sum of their
+        // variances; the lobe is the A1/A3-weighted mean of the two paths,
+        // widened by Zinke's (1 + d_b a_f^2) for the scattering the cut series
+        // leaves out. Channel-averaged, because a per-channel Gaussian would
+        // triple the shader's cost for a difference below what the coat's
+        // other approximations resolve.
+        const f32 alpha = std::asin(std::clamp(params.Sin2kAlpha[0], -1.0f, 1.0f));
+        const f32 backR = (backLobes.R.x + backLobes.R.y + backLobes.R.z) / 3.0f;
+        const f32 backTRT = (backLobes.TRT.x + backLobes.TRT.y + backLobes.TRT.z) / 3.0f;
+        const f32 backTotal = std::max(backR + backTRT, 1.0e-6f);
+        const f32 shiftBack = ((backR * alpha) + (backTRT * (-2.0f * alpha))) / backTotal;
+        const f32 varianceBack = ((backR * params.V[0]) + (backTRT * params.V[2])) / (4.0f * backTotal);
+        const f32 shiftForward = -0.5f * alpha;
+        const f32 varianceForward = params.V[1] / 4.0f;
+
+        const f32 w1 = (a1.x + a1.y + a1.z) / 3.0f;
+        const f32 w3 = (a3.x + a3.y + a3.z) / 3.0f;
+        const f32 wTotal = std::max(w1 + w3, 1.0e-6f);
+        dual.BackShift = ((w1 * ((2.0f * shiftForward) + shiftBack)) + (w3 * ((2.0f * shiftForward) + (3.0f * shiftBack)))) /
+                         wTotal;
+        const f32 width1 = std::sqrt((2.0f * varianceForward) + varianceBack);
+        const f32 width3 = std::sqrt((2.0f * varianceForward) + (3.0f * varianceBack));
+        const f32 afMean = (af.x + af.y + af.z) / 3.0f;
+        const f32 widen = 1.0f + (kGroomCoatDensityFactor * afMean * afMean);
+        // Floored so a mirror-smooth fibre still gets a lobe the shader can
+        // normalise; capped at pi/2, past which theta_h has no room left.
+        dual.BackWidth = std::clamp(widen * (((w1 * width1) + (w3 * width3)) / wTotal), 0.02f, 0.5f * kPi);
+        return dual;
+    }
+
+    f32 GroomFibreErf(f32 x) noexcept
+    {
+        // Abramowitz & Stegun 7.1.26, |error| < 1.5e-7: five multiplies and an
+        // exp, where std::erf has no GLSL counterpart. The shader's twin is this
+        // expression, term for term, and the CPU uses it too rather than
+        // std::erf so the two sides agree on VALUES.
+        const f32 ax = std::abs(x);
+        const f32 t = 1.0f / (1.0f + (0.3275911f * ax));
+        const f32 poly =
+            t * (0.254829592f + (t * (-0.284496736f + (t * (1.421413741f + (t * (-1.453152027f + (t * 1.061405429f))))))));
+        const f32 magnitude = 1.0f - (poly * std::exp(-ax * ax));
+        return (x < 0.0f) ? -magnitude : magnitude;
+    }
+
+    glm::vec3 GroomFibreBackScatterProjected(const GroomFibreDualScattering& dual, f32 sinThetaO, f32 sinThetaI,
+                                             f32 cosPhi) noexcept
+    {
+        // theta_h's Gaussian integrates to 2 over theta_i (dTheta_i = 2 dTheta_h
+        // at a fixed theta_o) and the cosine lobe to 2 over phi in [0, 2 pi):
+        // hence the 1/4.
+        //
+        // RENORMALISED OVER THE theta_h THAT theta_i CAN REACH. theta_i spans
+        // [-pi/2, pi/2], so at a fixed theta_o, theta_h spans
+        // [(theta_o - pi/2)/2, (theta_o + pi/2)/2]; a Gaussian cut to that range
+        // keeps only part of its mass — 92 % head-on for the widest lobe a clear
+        // fibre gets, and HALF at a grazing theta_o, which is every strand on a
+        // silhouette. Dividing by the kept mass puts the lost energy back into
+        // directions that exist, so the lobe integrates to A_b at every view.
+        const f32 thetaO = SafeASin(std::clamp(sinThetaO, -1.0f, 1.0f));
+        const f32 thetaH = 0.5f * (SafeASin(std::clamp(sinThetaI, -1.0f, 1.0f)) + thetaO);
+        const f32 width = std::max(dual.BackWidth, 1.0e-3f);
+        const f32 d = thetaH - dual.BackShift;
+        const f32 gaussian = std::exp(-(d * d) / (2.0f * width * width)) / (width * kSqrtTwoPi);
+        const f32 k = 1.0f / (width * kSqrtTwo);
+        const f32 lo = 0.5f * (thetaO - (0.5f * kPi));
+        const f32 hi = 0.5f * (thetaO + (0.5f * kPi));
+        const f32 kept = std::max(0.5f * (GroomFibreErf((hi - dual.BackShift) * k) -
+                                          GroomFibreErf((lo - dual.BackShift) * k)),
+                                  1.0e-4f);
+        return dual.MultipleBackScatter * ((gaussian / kept) * std::max(cosPhi, 0.0f) * 0.25f);
     }
 
     // -------------------------------------------------------------------------

@@ -63,8 +63,15 @@ void main()
     float height = rows.Values[row + 5u];
     float phase = rows.Values[row + 7u];
     bool mesh = u_MeshParams.x > 0.5;
+    // A mesh layer's card (#1533): the mesh's bake, so sized like the mesh and
+    // lit with its mean normal, at the plant's own yaw (FoliageRenderer.cpp says
+    // why the proxy does not turn to the main view).
+    bool meshLayerCard = !mesh && u_MeshParams.w >= 1.0;
+    bool uniformScale = mesh || meshLayerCard;
+    if (meshLayerCard)
+        normal = foliageCardNormal(u_MeshParams.w);
     mat3 rotationMatrix = foliageInstanceRotation(rotation);
-    vec3 local = foliageInstanceLocalPos(vertex, scale, height, mesh);
+    vec3 local = foliageInstanceLocalPos(vertex, scale, height, uniformScale);
     vec3 rest = rotationMatrix * local;
     bool impostor = u_MeshParams.z > 0.5;
     float influence = dot(u_WindWeights.xyz, vec3(1.0)) > 0.0 ? 0.5 : 0.15;
@@ -72,7 +79,7 @@ void main()
     vec3 deformed = foliageDeform(rest, impostor ? vec3(0.0, influence, 0.0) : vertex, pivot, phase,
                                   p.Model, p.Model).Current;
     vec3 point = pivot + deformed;
-    vec3 dimensions = mesh ? vec3(height * scale) : vec3(scale, height * scale, scale);
+    vec3 dimensions = uniformScale ? vec3(height * scale) : vec3(scale, height * scale, scale);
     mat3 jacobian = rotationMatrix * mat3(vec3(dimensions.x, 0, 0),
                                         vec3(0, dimensions.y, 0), vec3(0, 0, dimensions.z));
     normal = impostor ? normalize(rotationMatrix * normal) :

@@ -1,0 +1,70 @@
+# DogShowcaseEvidenceTest.TheLightTheBodyCannotStopIsMeasuredRegionByRegion (#1533 review, section 6)
+# Linear scene colour (Rec.709 luminance, before tone mapping), GL Forward, the editor's quality tier,
+# Idle frame 40, simulation off, multiple scattering off in every arm; 24 settle + 8 averaged frames
+# per arm (dome: 12 + 4 per direction). Means over each region's coat pixels.
+# Each column is shipped / without the body in the coat's volume (OLO_GROOM_NO_COAT_BODY, before #1533).
+#   rimLeak    (RIM - RIM+BODY) / RIM: the share of the rim's light on this fur the cascades say the body
+#              stops and the arm lets through (0 = the volume's body agrees with the cascades)
+#   floor      |RIM - RIM again| / RIM: the shipped arm against itself
+#   leak/key   (RIM - RIM+BODY) / KEY: that light against the key's on the same fur
+#   skyVis     DOME casting / DOME not casting: the share of a uniform sky the cascades let reach this fur
+#              against the volume's account (1 = they agree)
+#   env        ENV / ENV without the body: what the volume's body takes from the sky on this fur
+#   vsm/key    VSM / KEY: the sun on this fur under the VSM's exit point against the opaque cascades
+#   exit/key   EXIT / KEY: the same sun through the cascades sampled at the coat's light-exit point
+#              (OLO_FAULT_GROOM_SHADOW_AT_COAT_EXIT) -- the VSM's receiver on the cascades' map
+#   vsm/exit   VSM / EXIT: the two maps at the same receiver (1 = they agree)
+#   fineLeak   (RIM - RIM+BODY at a 4 m shadow range) / RIM: rimLeak against cascades whose texels are a
+#              fraction of the shipped ones -- what of rimLeak is the cascades' own filtering
+#   furLeak    rimLeak with the skin under the coat black: the fur's own share. A coat pixel also shows the
+#              skin between its strands, which a non-casting light lights with no shadow at all
+
+FrontThreeQuarter
+region        pixels      key      rim  rimLeak (before)  floor  leak/key (before)   skyVis (before)    env  vsm/key (before)  exit/key  vsm/exit  fineLeak   furLeak
+face           35207   0.0637   0.0035   -0.457 ( 0.466)  0.000    -0.025 ( 0.070)    1.025 ( 0.955)  0.891    0.989 ( 1.006)     0.986     1.003    -0.431    -0.464
+eye sockets     4203   0.1239   0.0007   -2.105 ( 0.739)  0.000    -0.012 ( 0.052)    1.061 ( 0.925)  0.859    0.983 ( 1.000)     0.983     1.000    -2.150    -2.244
+chin/chest     48625   0.0456   0.0117   -0.033 ( 0.159)  0.000    -0.008 ( 0.050)    0.980 ( 0.936)  0.889    1.013 ( 1.020)     1.000     1.013    -0.030    -0.033
+torso          20244   0.0395   0.0599   -0.015 ( 0.003)  0.000    -0.022 ( 0.005)    1.002 ( 0.942)  0.861    1.011 ( 1.012)     0.999     1.012    -0.015    -0.015
+underside      17163   0.0366   0.0038   -0.066 ( 0.189)  0.000    -0.007 ( 0.026)    0.928 ( 0.795)  0.911    1.022 ( 1.031)     0.991     1.031    -0.057    -0.067
+tail base       2677   0.0779   0.0090   -0.009 ( 0.015)  0.000    -0.001 ( 0.002)    1.012 ( 0.966)  0.889    0.999 ( 1.001)     0.999     1.001    -0.008    -0.009
+tail            4635   0.0897   0.0539   -0.017 ( 0.022)  0.000    -0.010 ( 0.014)    1.002 ( 0.997)  0.905    0.999 ( 1.000)     0.998     1.000    -0.017    -0.018
+legs           24063   0.0828   0.0044    0.142 ( 0.319)  0.000     0.008 ( 0.022)    0.750 ( 0.652)  0.791    0.979 ( 1.011)     0.970     1.009     0.143     0.138
+sparse fringe   14074   0.0713   0.0678    0.022 ( 0.039)  0.000     0.020 ( 0.038)    0.988 ( 0.984)  0.812    0.990 ( 1.013)     0.989     1.001     0.021     0.021
+all coat      156817   0.0576   0.0150   -0.039 ( 0.130)  0.000    -0.010 ( 0.040)    0.981 ( 0.926)  0.874    0.997 ( 1.012)     0.988     1.009    -0.037    -0.041
+
+LowHero
+region        pixels      key      rim  rimLeak (before)  floor  leak/key (before)   skyVis (before)    env  vsm/key (before)  exit/key  vsm/exit  fineLeak   furLeak
+face           40772   0.0415   0.0055   -0.641 ( 0.577)  0.000    -0.084 ( 0.294)    1.039 ( 0.933)  0.850    0.986 ( 1.014)     0.979     1.006    -0.557    -0.641
+eye sockets     3832   0.0964   0.0001  -117.193 ( 0.664)  0.000    -0.084 ( 0.167)    1.192 ( 0.814)  0.787    0.987 ( 1.000)     0.987     1.000  -121.040  -139.361
+chin/chest     86848   0.0379   0.0222   -0.174 ( 0.542)  0.000    -0.102 ( 0.814)    0.995 ( 0.958)  0.899    1.018 ( 1.028)     1.005     1.013    -0.160    -0.174
+torso          10142   0.0326   0.1179   -0.002 ( 0.004)  0.000    -0.008 ( 0.013)    1.001 ( 0.992)  0.798    1.005 ( 1.005)     1.000     1.005    -0.002    -0.002
+underside      26733   0.0381   0.0147   -0.115 ( 0.400)  0.000    -0.044 ( 0.286)    1.001 ( 0.967)  0.897    1.015 ( 1.021)     0.994     1.020    -0.102    -0.115
+tail            1947   0.0864   0.1457   -0.051 ( 0.065)  0.000    -0.087 ( 0.124)    1.001 ( 0.999)  0.949    0.998 ( 1.000)     0.998     1.000    -0.045    -0.051
+legs           34418   0.0719   0.0142   -0.451 ( 0.351)  0.000    -0.089 ( 0.155)    1.002 ( 0.940)  0.829    0.975 ( 1.011)     0.967     1.008    -0.454    -0.452
+sparse fringe   15644   0.1103   0.2191   -0.008 ( 0.014)  0.000    -0.015 ( 0.028)    1.001 ( 0.999)  0.889    1.000 ( 1.016)     0.999     1.000    -0.007    -0.008
+all coat      204886   0.0457   0.0221   -0.175 ( 0.426)  0.000    -0.085 ( 0.421)    1.003 ( 0.958)  0.872    0.998 ( 1.018)     0.988     1.010    -0.164    -0.175
+
+RearTail
+region        pixels      key      rim  rimLeak (before)  floor  leak/key (before)   skyVis (before)    env  vsm/key (before)  exit/key  vsm/exit  fineLeak   furLeak
+face            2645   0.0319   0.0287   -0.001 ( 0.006)  0.000    -0.001 ( 0.005)    1.001 ( 0.999)  0.813    0.997 ( 1.016)     0.996     1.001    -0.003    -0.007
+chin/chest     20946   0.0340   0.0214    0.022 ( 0.028)  0.000     0.014 ( 0.018)    1.006 ( 0.966)  0.832    0.920 ( 1.119)     0.920     1.001     0.019     0.018
+torso          23874   0.0737   0.0134    0.106 ( 0.111)  0.000     0.019 ( 0.020)    0.956 ( 0.907)  0.895    0.946 ( 1.067)     0.943     1.003     0.100     0.002
+underside      20292   0.0079   0.0223    0.224 ( 0.232)  0.000     0.638 ( 0.667)    0.812 ( 0.661)  0.849    0.557 ( 4.438)     0.557     1.000     0.214     0.025
+tail base      13969   0.0070   0.0204    0.132 ( 0.135)  0.000     0.385 ( 0.397)    0.862 ( 0.785)  0.958    0.719 ( 2.089)     0.719     1.000     0.129     0.001
+tail           19199   0.0465   0.0142    0.038 ( 0.040)  0.000     0.012 ( 0.012)    0.937 ( 0.920)  0.981    0.992 ( 1.015)     0.992     1.000     0.034     0.000
+legs           19582   0.0121   0.0348    0.198 ( 0.216)  0.000     0.568 ( 0.633)    0.687 ( 0.640)  0.863    0.979 ( 1.077)     0.974     1.005     0.190     0.104
+sparse fringe   14043   0.1259   0.0277    0.146 ( 0.151)  0.000     0.032 ( 0.033)    0.958 ( 0.954)  0.855    0.999 ( 1.008)     0.999     1.001     0.143     0.144
+all coat      120508   0.0327   0.0210    0.129 ( 0.139)  0.000     0.083 ( 0.090)    0.921 ( 0.875)  0.893    0.933 ( 1.226)     0.932     1.002     0.123     0.030
+
+Profile
+region        pixels      key      rim  rimLeak (before)  floor  leak/key (before)   skyVis (before)    env  vsm/key (before)  exit/key  vsm/exit  fineLeak   furLeak
+face           12142   0.0697   0.0037    0.001 ( 0.022)  0.000     0.000 ( 0.001)    1.024 ( 0.957)  0.902    0.984 ( 1.011)     0.978     1.006     0.001    -0.005
+eye sockets      801   0.1390   0.0016    0.128 ( 0.301)  0.000     0.001 ( 0.004)    1.067 ( 0.941)  0.827    0.983 ( 1.000)     0.983     1.000     0.129    -0.007
+chin/chest     30052   0.0443   0.0081   -0.003 ( 0.041)  0.000    -0.000 ( 0.008)    0.998 ( 0.968)  0.913    1.005 ( 1.015)     0.990     1.015    -0.004    -0.011
+torso          27598   0.0801   0.0038    0.068 ( 0.074)  0.000     0.003 ( 0.004)    0.997 ( 0.947)  0.903    1.012 ( 1.015)     0.997     1.015     0.059     0.001
+underside      25265   0.0471   0.0057    0.089 ( 0.138)  0.000     0.011 ( 0.018)    0.916 ( 0.668)  0.924    1.039 ( 1.053)     0.988     1.051     0.089    -0.008
+tail base       9275   0.0489   0.0081    0.019 ( 0.020)  0.000     0.003 ( 0.003)    0.999 ( 0.977)  0.856    1.002 ( 1.005)     0.997     1.005     0.019     0.001
+tail           12004   0.0665   0.0432    0.000 ( 0.002)  0.000     0.000 ( 0.001)    1.000 ( 0.997)  0.897    1.003 ( 1.005)     0.998     1.005     0.000    -0.001
+legs           16312   0.0696   0.0107    0.107 ( 0.202)  0.000     0.016 ( 0.035)    0.905 ( 0.778)  0.886    0.985 ( 1.010)     0.978     1.007     0.105     0.007
+sparse fringe   14831   0.0859   0.0573    0.013 ( 0.022)  0.000     0.009 ( 0.015)    0.997 ( 0.995)  0.855    0.997 ( 1.005)     0.996     1.000     0.013     0.013
+all coat      133449   0.0605   0.0098    0.030 ( 0.061)  0.000     0.005 ( 0.010)    0.996 ( 0.959)  0.903    1.006 ( 1.018)     0.990     1.017     0.029    -0.003

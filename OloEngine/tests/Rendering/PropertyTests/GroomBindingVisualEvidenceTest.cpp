@@ -69,6 +69,7 @@
 #include "TestTempDir.h"
 
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
+#include "OloEngine/Animation/MorphTargets/MorphTargetComponents.h"
 #include "OloEngine/Animation/Skeleton.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetSerializer.h"
@@ -978,6 +979,284 @@ namespace OloEngine::Tests
         GetScene().DestroyEntity(twin);
     }
 
+    // ── #1533: what the pass holds, counted once, and nothing it need not ───
+    //
+    // The memory breakdown is WALKED from the cache, so it can be held to the
+    // budget's aggregate row for row. These run the real pass on the bound coat:
+    // a shared rest stream, per-entity frame buffers, a coat volume, the lazy
+    // CPU pose -- each created, shared and released, with the totals checked
+    // after every step.
+
+    namespace
+    {
+        // Out of the cache with everything this scene is not drawing: the cache
+        // is process-wide, so it can still hold an earlier test's coats. A
+        // one-byte budget held past the retention window evicts every entry not
+        // in use (the strand fixture's over-budget test does the same).
+        template<typename RunFn>
+        void EvictUnused(RunFn&& run)
+        {
+            const u64 previous = Renderer3D::SetGroomCacheBudgetBytes(1);
+            run(66u);
+            (void)Renderer3D::SetGroomCacheBudgetBytes(previous);
+            run(2u);
+        }
+    } // namespace
+
+    TEST_F(GroomBindingVisualEvidenceTest, TheMemoryBreakdownIsTheCacheAndASharedStreamCountsOnce)
+    {
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        SetBodyPose(55.0f);
+        SetBindingEnabled(true);
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 1000.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose({ 0.0f, 0.9f, 4.6f }, 0.0f, 0.10f);
+        const auto run = [&](u32 frames)
+        { RunEditorFrames(camera, frames); };
+
+        EvictUnused(run);
+        const GroomRenderStats single = PassStats();
+        const GroomRenderStats::MemoryBreakdown one = single.Memory;
+        EXPECT_EQ(one.GpuBytes(), single.CachedBytes) << "the breakdown must be the aggregate";
+        EXPECT_EQ(one.RestStreams, 1u);
+        EXPECT_EQ(one.Entries, 1u);
+        ASSERT_GT(one.StrandVertexBytes, 0u);
+        ASSERT_GT(one.StrandIndexBytes, 0u);
+        ASSERT_GT(one.DeformBufferBytes, 0u);
+        EXPECT_EQ(one.CoatVolumeBytes, 0u) << "this coat asks for no self-shadow";
+        EXPECT_EQ(one.CpuPoseSegmentBytes, 0u) << "nothing asked for a posed bake";
+
+        Entity twin = GetScene().CreateEntity("GroomTwin");
+        twin.AddComponent<GroomComponent>(m_GroomEntity.GetComponent<GroomComponent>());
+        twin.AddComponent<GroomBindingComponent>(m_GroomEntity.GetComponent<GroomBindingComponent>());
+        run(2u);
+        const GroomRenderStats pair = PassStats();
+        const GroomRenderStats::MemoryBreakdown two = pair.Memory;
+        std::printf("[groom-memory] one coat: %.2f MiB GPU (vertices %.2f, indices %.2f, casters %.2f, frame buffer "
+                    "%.2f); two entities wearing it: %.2f MiB\n",
+                    static_cast<f64>(one.GpuBytes()) / 1048576.0, static_cast<f64>(one.StrandVertexBytes) / 1048576.0,
+                    static_cast<f64>(one.StrandIndexBytes) / 1048576.0, static_cast<f64>(one.CasterIndexBytes) / 1048576.0,
+                    static_cast<f64>(one.DeformBufferBytes) / 1048576.0, static_cast<f64>(two.GpuBytes()) / 1048576.0);
+        EXPECT_EQ(two.GpuBytes(), pair.CachedBytes);
+        EXPECT_EQ(two.RestStreams, 1u) << "the twin draws the same rest stream";
+        EXPECT_EQ(two.Entries, 2u);
+        EXPECT_EQ(two.StrandVertexBytes, one.StrandVertexBytes) << "a shared stream is one allocation";
+        EXPECT_EQ(two.StrandIndexBytes, one.StrandIndexBytes);
+        EXPECT_EQ(two.CasterIndexBytes, one.CasterIndexBytes);
+        EXPECT_EQ(two.DeformBufferBytes, one.DeformBufferBytes * 2u) << "each entity's frame buffer is its own";
+
+        // Gone and evicted, the twin leaves nothing in the totals.
+        GetScene().DestroyEntity(twin);
+        EvictUnused(run);
+        const GroomRenderStats after = PassStats();
+        EXPECT_EQ(after.Memory.GpuBytes(), after.CachedBytes);
+        EXPECT_EQ(after.Memory.Entries, 1u);
+        EXPECT_EQ(after.Memory.DeformBufferBytes, one.DeformBufferBytes) << "the evicted twin's frame buffer stayed counted";
+        EXPECT_EQ(after.CachedBytes, single.CachedBytes) << "an eviction did not return the aggregate exactly";
+    }
+
+    TEST_F(GroomBindingVisualEvidenceTest, ACoatVolumeIsCountedOnceAndGivenBackExactly)
+    {
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        SetBodyPose(55.0f);
+        SetBindingEnabled(true);
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 1000.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose({ 0.0f, 0.9f, 4.6f }, 0.0f, 0.10f);
+        const auto run = [&](u32 frames)
+        { RunEditorFrames(camera, frames); };
+
+        EvictUnused(run);
+        const GroomRenderStats before = PassStats();
+        ASSERT_EQ(before.Memory.CoatVolumeBytes, 0u);
+
+        auto& coat = m_GroomEntity.AddComponent<GroomCoatShadowComponent>();
+        coat.m_Enabled = true;
+        coat.m_Resolution = 32u;
+        coat.m_MaxLodSteps = 0u;
+        coat.m_BakeAtRest = true;
+        run(3u);
+        const GroomRenderStats with = PassStats();
+        ASSERT_GT(with.Memory.CoatVolumeBytes, 0u) << "the coat never got a volume, so this measures nothing";
+        EXPECT_EQ(with.Memory.GpuBytes(), with.CachedBytes);
+        EXPECT_EQ(with.CachedBytes, before.CachedBytes + with.Memory.CoatVolumeBytes)
+            << "the volume must enter the aggregate once, and nothing else with it";
+        EXPECT_EQ(with.CoatShadow.ResidentBytes, with.Memory.CoatVolumeBytes)
+            << "the coat-shadow stats and the breakdown must name the same bytes";
+
+        // Stopped asking: the volume is given back, and the aggregate returns
+        // to the byte. Before #1533 it stayed resident until the coat itself
+        // was evicted.
+        coat.m_Enabled = false;
+        run(2u);
+        const GroomRenderStats off = PassStats();
+        EXPECT_EQ(off.Memory.CoatVolumeBytes, 0u) << "a coat that stopped asking kept its volume";
+        EXPECT_EQ(off.CachedBytes, before.CachedBytes);
+        EXPECT_EQ(off.Memory.GpuBytes(), off.CachedBytes);
+        m_GroomEntity.RemoveComponent<GroomCoatShadowComponent>();
+    }
+
+    TEST_F(GroomBindingVisualEvidenceTest, TheEvaluationScratchIsReportedOnceAndGivenBackWhenItIdles)
+    {
+        // #1533 review: a coat that casts into the scene's shadows has its
+        // caster runs posed every frame, in the pass's own scratch. It is kept
+        // while in use (a steady frame grows nothing), shared by every coat the
+        // pass poses and counted once -- in the pass's breakdown, and in the
+        // memory report's evaluation-scratch row, which reads the ledger every
+        // owner publishes to -- and given back once no coat has needed it for
+        // the pass's idle window. The GPU cache's accounting does not move.
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        SetBodyPose(55.0f);
+        SetBindingEnabled(true);
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 1000.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose({ 0.0f, 0.9f, 4.6f }, 0.0f, 0.10f);
+        const auto run = [&](u32 frames)
+        { RunEditorFrames(camera, frames); };
+        const auto scratchRow = []() -> u64
+        {
+            const RendererMemoryReport report = RendererMemoryTracker::GetInstance().BuildReport();
+            for (const MemoryCapacityRow& candidate : report.Capacity)
+            {
+                if (candidate.Owner.ToView() == "GroomRenderPass" &&
+                    candidate.Category.ToView().starts_with("Groom evaluation scratch"))
+                {
+                    return candidate.CapacityBytes.value_or(~u64{ 0 });
+                }
+            }
+            ADD_FAILURE() << "the memory report has no evaluation-scratch row";
+            return ~u64{ 0 };
+        };
+
+        EvictUnused(run);
+        // The idle window (GroomRenderPass::kScratchIdleFrames, 120) and two.
+        run(122u);
+        const GroomRenderStats quiet = PassStats();
+        EXPECT_EQ(quiet.Memory.CpuEvaluationScratchBytes, 0u) << "a coat casting no shadow left the pass holding pose scratch";
+        const u64 ledgerQuiet = GroomEvaluationScratchRetainedBytes();
+
+        auto& shadow = m_GroomEntity.AddComponent<GroomSceneShadowComponent>();
+        shadow.m_CastShadows = true;
+        run(3u);
+        const GroomRenderStats casting = PassStats();
+        ASSERT_GT(casting.CastersPosed, 0u) << "the coat's runs were never posed, so this measures nothing";
+        const u64 held = casting.Memory.CpuEvaluationScratchBytes;
+        ASSERT_GT(held, 0u) << "posing the runs retained no scratch";
+        EXPECT_EQ(GroomEvaluationScratchRetainedBytes(), ledgerQuiet + held) << "the ledger and the pass name different bytes";
+        EXPECT_EQ(scratchRow(), GroomEvaluationScratchRetainedBytes()) << "the report's row is not the ledger";
+        EXPECT_EQ(casting.Memory.GpuBytes(), casting.CachedBytes);
+
+        // Steady: the same pose for more frames grows nothing.
+        run(8u);
+        EXPECT_EQ(PassStats().Memory.CpuEvaluationScratchBytes, held) << "a steady frame grew the pose scratch";
+
+        // Shared: a twin wearing the same coat is posed through the same
+        // scratch, which the report counts once.
+        const GroomComponent groomCopy = m_GroomEntity.GetComponent<GroomComponent>();
+        const GroomBindingComponent bindingCopy = m_GroomEntity.GetComponent<GroomBindingComponent>();
+        const GroomSceneShadowComponent shadowCopy = shadow;
+        Entity twin = GetScene().CreateEntity("GroomTwin");
+        twin.AddComponent<GroomComponent>(groomCopy);
+        twin.AddComponent<GroomBindingComponent>(bindingCopy);
+        twin.AddComponent<GroomSceneShadowComponent>(shadowCopy);
+        run(3u);
+        const GroomRenderStats pair = PassStats();
+        ASSERT_GT(pair.CastersPosed, casting.CastersPosed) << "the twin's runs were not posed";
+        EXPECT_EQ(pair.Memory.CpuEvaluationScratchBytes, held) << "two coats through one scratch were counted twice";
+        EXPECT_EQ(GroomEvaluationScratchRetainedBytes(), ledgerQuiet + held);
+        EXPECT_EQ(scratchRow(), GroomEvaluationScratchRetainedBytes());
+        GetScene().DestroyEntity(twin);
+
+        // Given back: nothing poses for the idle window.
+        m_GroomEntity.GetComponent<GroomSceneShadowComponent>().m_CastShadows = false;
+        run(122u);
+        const GroomRenderStats after = PassStats();
+        EXPECT_EQ(after.CastersPosed, 0u);
+        EXPECT_EQ(after.Memory.CpuEvaluationScratchBytes, 0u) << "the pose scratch outlived its use";
+        EXPECT_EQ(GroomEvaluationScratchRetainedBytes(), ledgerQuiet) << "the given-back scratch stayed in the ledger";
+        EXPECT_EQ(scratchRow(), GroomEvaluationScratchRetainedBytes());
+        EXPECT_EQ(after.Memory.GpuBytes(), after.CachedBytes);
+        m_GroomEntity.RemoveComponent<GroomSceneShadowComponent>();
+    }
+
+    TEST_F(GroomBindingVisualEvidenceTest, TheCpuPoseIsBuiltOnlyForAPosedBakeAndOncePerStream)
+    {
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        SetBodyPose(55.0f);
+        SetBindingEnabled(true);
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 1000.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose({ 0.0f, 0.9f, 4.6f }, 0.0f, 0.10f);
+        const auto builds = [&](u32 frames)
+        {
+            u32 total = 0;
+            for (u32 f = 0; f < frames; ++f)
+            {
+                RunEditorFrames(camera, 1);
+                total += PassStats().PoseSegmentBuilds;
+            }
+            return total;
+        };
+        const auto addCoatShadow = [](Entity entity, bool atRest)
+        {
+            auto& coat = entity.AddComponent<GroomCoatShadowComponent>();
+            coat.m_Enabled = true;
+            coat.m_Resolution = 32u;
+            coat.m_MaxLodSteps = 0u;
+            coat.m_BakeAtRest = atRest;
+            return &coat;
+        };
+        EvictUnused([&](u32 frames)
+                    { RunEditorFrames(camera, frames); });
+
+        // Baked at rest: the CPU pose is never built, however long it draws.
+        GroomCoatShadowComponent* coat = addCoatShadow(m_GroomEntity, true);
+        EXPECT_EQ(builds(8u), 0u) << "a coat baked at rest built the CPU pose";
+        EXPECT_EQ(PassStats().Memory.CpuPoseSegmentBytes, 0u);
+        ASSERT_GT(PassStats().Memory.CoatVolumeBytes, 0u) << "the rest bake never ran, so this measures nothing";
+
+        // Posed: built on the first frame that asks, and kept.
+        coat->m_BakeAtRest = false;
+        EXPECT_EQ(builds(8u), 1u) << "a posed bake must build the CPU pose once";
+        const u64 poseBytes = PassStats().Memory.CpuPoseSegmentBytes;
+        EXPECT_GT(poseBytes, 0u);
+
+        // A twin sharing the stream, baked at rest: no second build, and the
+        // posed entity keeps the stream's pose.
+        Entity twin = GetScene().CreateEntity("GroomTwin");
+        twin.AddComponent<GroomComponent>(m_GroomEntity.GetComponent<GroomComponent>());
+        twin.AddComponent<GroomBindingComponent>(m_GroomEntity.GetComponent<GroomBindingComponent>());
+        (void)addCoatShadow(twin, true);
+        EXPECT_EQ(builds(4u), 0u);
+        EXPECT_EQ(PassStats().Memory.RestStreams, 1u);
+
+        // THE OTHER ORDER, on a fresh stream (another strand budget is another
+        // stream): both at rest first, so nothing is built -- and the first
+        // entity to switch to a posed bake builds it, once, for the stream they
+        // share. "The first wearer did not need it" is not a refusal.
+        const u32 fewer = m_GroomEntity.GetComponent<GroomComponent>().m_MaxRenderStrands - 1u;
+        m_GroomEntity.GetComponent<GroomComponent>().m_MaxRenderStrands = fewer;
+        twin.GetComponent<GroomComponent>().m_MaxRenderStrands = fewer;
+        coat->m_BakeAtRest = true;
+        EXPECT_EQ(builds(4u), 0u) << "the new stream was built with its pose";
+        // The old budget's entries -- and the stream whose pose they built -- stay
+        // cached until the budget presses; evict them, and what is left is the new
+        // stream, which every wearer bakes at rest.
+        EvictUnused([&](u32 frames)
+                    { EXPECT_EQ(builds(frames), 0u); });
+        EXPECT_EQ(PassStats().Memory.CpuPoseSegmentBytes, 0u)
+            << "a stream every wearer bakes at rest holds the CPU pose anyway";
+        twin.GetComponent<GroomCoatShadowComponent>().m_BakeAtRest = false;
+        EXPECT_EQ(builds(6u), 1u) << "the second wearer's posed bake must build the shared pose once";
+
+        GetScene().DestroyEntity(twin);
+        m_GroomEntity.RemoveComponent<GroomCoatShadowComponent>();
+    }
+
     // ── Criterion 2: a facial morph, with the skeleton standing still ──────
 
     TEST_F(GroomBindingVisualEvidenceTest, AMorphedSurfaceCarriesTheCoatWithTheSkeletonStill)
@@ -990,6 +1269,14 @@ namespace OloEngine::Tests
         Renderer3D::ApplyRendererSettings();
         SetBindingEnabled(true);
         SetBodyPose(0.0f);
+        // THE BODY SAYS IT IS MORPHED, as every morphing body does: a
+        // MorphTargetComponent (no targets, so nothing but this test writes the
+        // vertices), on for both captures. It is what keeps the coat's roots on
+        // the CPU (#1533 E1): the GPU root kernel holds the REST surface it was
+        // sent, and a vertex array rewritten in place with no generation bump
+        // never reaches it. So this case pins that routing too -- without it the
+        // coat stands still.
+        m_BodyEntity.AddOrReplaceComponent<MorphTargetComponent>();
 
         const glm::vec3 eye{ 0.0f, 0.9f, 4.6f };
 
@@ -1040,6 +1327,7 @@ namespace OloEngine::Tests
             vertices[i].Position = rest[static_cast<sizet>(i)];
         }
         m_BodySurface->Build();
+        m_BodyEntity.RemoveComponent<MorphTargetComponent>();
     }
 
     // ── Criterion 1: a refused binding is a refusal, not a quiet bind pose ──
@@ -1160,6 +1448,15 @@ namespace OloEngine::Tests
                     static_cast<unsigned long long>(*ring.ActiveDemandBytes),
                     static_cast<unsigned long long>(both.CoatShadow.ResidentBytes),
                     static_cast<unsigned long long>(cpu.CapacityBytes.value_or(0)));
+
+        // The pass's own breakdown (#1533) walks the same allocations by KIND
+        // where these rows split them by sharing and demand. Two walks written
+        // apart: a byte one of them misses shows as a difference here.
+        EXPECT_EQ(*rest.CapacityBytes + entities.CapacityBytes.value_or(0) + *ring.CapacityBytes, both.Memory.GpuBytes())
+            << "the report's GPU rows and the pass's breakdown count different allocations";
+        EXPECT_EQ(both.Memory.GpuBytes(), both.CachedBytes) << "the breakdown misses bytes the cache budget counts";
+        EXPECT_EQ(cpu.CapacityBytes.value_or(0), both.Memory.CpuBytes())
+            << "the report's CPU row and the pass's breakdown count different allocations";
 
         // Drawn this frame, by two routes: the rows' demand and the pass's own
         // once-per-entry, once-per-stream byte count.

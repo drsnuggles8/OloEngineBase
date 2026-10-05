@@ -1163,6 +1163,8 @@ namespace OloEngine
         f32 isAuthoredMesh = 0.0f;
         f32 meshHandoverStart = 0.0f;
         f32 meshHandoverEnd = 0.0f;
+        // The far card's normal lane (#1533), FoliageUBO::MeshParams.w.
+        f32 cardNormalLane = 0.0f;
         glm::vec4 baseColor = glm::vec4(1.0f); // xyz = color, w = unused
 
         // Albedo texture (0 = no texture). On the impostor path this is the
