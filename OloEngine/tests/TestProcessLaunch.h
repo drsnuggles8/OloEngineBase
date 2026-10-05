@@ -117,7 +117,7 @@ namespace OloEngine::Tests
     // survives — before this, a timeout reported "the app likely hung" and
     // threw the log away, which is how a 30 s hang on CI reached a human with
     // no evidence at all attached to it.
-    [[nodiscard]] inline std::string ReadCapturedOutput(const std::filesystem::path& path)
+    [[nodiscard]] inline std::string ReadCapturedOutput(const std::filesystem::path& path, std::size_t maxBytes = 4000)
     {
         std::ifstream in(path, std::ios::binary);
         if (!in)
@@ -130,30 +130,46 @@ namespace OloEngine::Tests
             return "<child produced no output>";
         }
 
-        constexpr std::size_t kMaxTail = 4000;
-        if (text.size() > kMaxTail)
+        if (text.size() > maxBytes)
         {
-            text = "...\n" + text.substr(text.size() - kMaxTail);
+            text = "...\n" + text.substr(text.size() - maxBytes);
         }
         return text;
     }
 
 #if defined(_WIN32)
+    inline std::string QuoteWindowsArgument(const std::string& argument)
+    {
+        std::string quoted = "\"";
+        std::size_t backslashes = 0;
+        for (const char character : argument)
+        {
+            if (character == '\\')
+            {
+                ++backslashes;
+                continue;
+            }
+            quoted.append(character == '"' ? backslashes * 2 + 1 : backslashes, '\\');
+            quoted += character;
+            backslashes = 0;
+        }
+        quoted.append(backslashes * 2, '\\');
+        quoted += '"';
+        return quoted;
+    }
+
     inline LaunchResult RunProcessWithTimeout(const std::string& exePath, const std::vector<std::string>& args,
-                                              const std::string& workingDir, unsigned timeoutMs)
+                                              const std::string& workingDir, unsigned timeoutMs, std::size_t maxOutputBytes = 4000)
     {
         const ScopedWithoutGTestSharding noSharding; // the child is often this binary
         LaunchResult result;
 
-        // Build a single command line: quoted exe path followed by the args.
-        // The args used by the callers ("--smoke-test", "--port", "28777",
-        // "--gtest_filter=Suite.Case") contain no spaces, so they're appended
-        // verbatim.
-        std::string cmdLine = "\"" + exePath + "\"";
+        // Preserve each argv token, including project/scene paths with spaces.
+        std::string cmdLine = QuoteWindowsArgument(exePath);
         for (const auto& a : args)
         {
             cmdLine += ' ';
-            cmdLine += a;
+            cmdLine += QuoteWindowsArgument(a);
         }
         std::vector<char> mutableCmd(cmdLine.begin(), cmdLine.end());
         mutableCmd.push_back('\0');
@@ -239,13 +255,13 @@ namespace OloEngine::Tests
         closeIfValid(hOut);
         if (haveHandles)
         {
-            result.Output = ReadCapturedOutput(outPath);
+            result.Output = ReadCapturedOutput(outPath, maxOutputBytes);
         }
         return result;
     }
 #else
     inline LaunchResult RunProcessWithTimeout(const std::string& exePath, const std::vector<std::string>& args,
-                                              const std::string& workingDir, unsigned timeoutMs)
+                                              const std::string& workingDir, unsigned timeoutMs, std::size_t maxOutputBytes = 4000)
     {
         const ScopedWithoutGTestSharding noSharding; // the child is often this binary
         LaunchResult result;
@@ -322,7 +338,7 @@ namespace OloEngine::Tests
                 result.Error = std::string("waitpid failed: ") + std::strerror(errno);
                 result.ExitCode = -1;
                 ::kill(pid, SIGKILL);
-                result.Output = ReadCapturedOutput(outPath);
+                result.Output = ReadCapturedOutput(outPath, maxOutputBytes);
                 return result;
             }
             if (waited >= timeoutMs)
@@ -330,7 +346,7 @@ namespace OloEngine::Tests
                 result.TimedOut = true;
                 ::kill(pid, SIGKILL);
                 ::waitpid(pid, &status, 0);
-                result.Output = ReadCapturedOutput(outPath);
+                result.Output = ReadCapturedOutput(outPath, maxOutputBytes);
                 return result;
             }
             timespec ts{ 0, static_cast<long>(stepMs) * 1000000L };
@@ -353,7 +369,7 @@ namespace OloEngine::Tests
         {
             result.ExitCode = 1;
         }
-        result.Output = ReadCapturedOutput(outPath);
+        result.Output = ReadCapturedOutput(outPath, maxOutputBytes);
         return result;
     }
 #endif

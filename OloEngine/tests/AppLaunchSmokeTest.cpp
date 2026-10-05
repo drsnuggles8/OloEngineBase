@@ -34,6 +34,7 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <string_view>
 #include <vector>
 
 // CMake injects each shipped binary's on-disk path (forward-slashed). A target
@@ -67,7 +68,7 @@ namespace
     // and stays well under the CTest per-test timeout.
     constexpr unsigned kSmokeTimeoutMs = 30000;
 
-    void RunLaunchSmoke(const char* exePath, const std::vector<std::string>& args)
+    void RunLaunchSmoke(const char* exePath, const std::vector<std::string>& args, std::string_view requiredOutput = {})
     {
         namespace fs = std::filesystem;
 
@@ -89,7 +90,7 @@ namespace
         // matters"). DLLs are found next to the .exe regardless of this cwd.
         const std::string workingDir = OLO_TEST_EDITOR_ROOT;
 
-        const LaunchResult r = RunProcessWithTimeout(exePath, args, workingDir, kSmokeTimeoutMs);
+        const LaunchResult r = RunProcessWithTimeout(exePath, args, workingDir, kSmokeTimeoutMs, 64 * 1024);
 
         ASSERT_TRUE(r.Launched) << "Failed to launch " << exePath << ": " << r.Error;
         ASSERT_FALSE(r.TimedOut) << exePath << " did not exit within " << kSmokeTimeoutMs
@@ -99,6 +100,12 @@ namespace
                                     "lines is a teardown hang, not a startup one.\n"
                                     "--- captured child output ---\n"
                                  << r.Output << "\n--- end ---";
+        if (!requiredOutput.empty())
+        {
+            EXPECT_NE(r.Output.find(requiredOutput), std::string::npos)
+                << "Expected launch path was not reached.\n"
+                << r.Output;
+        }
         EXPECT_EQ(r.ExitCode, 0) << exePath << " exited with code " << r.ExitCode
                                  << ". A non-zero exit means startup failed — most likely a missing "
                                     "runtime DLL (the regression class issue #303 targets) or a "
@@ -114,6 +121,19 @@ namespace
 TEST(AppLaunchSmoke, OloServerLaunchesCleanly)
 {
     RunLaunchSmoke(OLO_TEST_OLOSERVER_EXE, { "--smoke-test", "--port", "28777" });
+}
+
+TEST(AppLaunchSmoke, OloServerStopsAHeadlessSceneCleanly)
+{
+    const auto project = OloEngine::Tests::TempDir("server-headless-scene") / "project with spaces";
+    const auto scene = project / "Assets" / "Scenes" / "Empty.olo";
+    std::filesystem::create_directories(scene.parent_path());
+    std::ofstream(scene) << "Scene: HeadlessShutdown\nVersion: 1\nEntities: []\n";
+    // Runtime stop releases cursor capture even in an empty scene. A real
+    // headless Application exists here but intentionally owns no Window.
+    RunLaunchSmoke(OLO_TEST_OLOSERVER_EXE,
+                   { "--smoke-test", "--port", "28777", "--project", project.string(), "--scene", scene.string() },
+                   "[Server] Scene loaded and started");
 }
 
 // OloEditor/OloRuntime need a real GL 4.6 context for their UI/render layers,

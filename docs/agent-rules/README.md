@@ -227,6 +227,8 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 
 ## Gameplay, physics and simulation
 
+- [headless-input-window.md](headless-input-window.md): check the headless host role before obtaining a platform input window.
+
 - [force-model-vehicles.md](force-model-vehicles.md): boats and aircraft driven by `AddForce`; every bug here leaves the suite green.
 - [jolt-softbody-kinematic-attachment.md](jolt-softbody-kinematic-attachment.md): drive a pinned cloth vertex by velocity, never by position.
 - [follow-camera-and-character-query-seams.md](follow-camera-and-character-query-seams.md): a `CharacterVirtual` is invisible to UUID-keyed body filters, and a follow camera runs last.
@@ -283,6 +285,7 @@ The dominant archetype here. If your change is in one of these areas, a passing 
 
 | Doc | What stayed green |
 |---|---|
+| [headless-input-window.md](headless-input-window.md) | A server executes its scene successfully, then cursor release dereferences its absent window during shutdown; require a real scene start before checking clean exit. |
 | [force-model-vehicles.md](force-model-vehicles.md) | A boat with no thrust still floats and an oscillating aircraft still has finite positions. |
 | [shadow-receiver-bias-is-texels-of-the-map-sampled.md](shadow-receiver-bias-is-texels-of-the-map-sampled.md) | The VSM-against-CSM floor test compared a 5 m cube's shadow, which the VSM's own 7 cm bias does not change, while every contact shadow within 7 cm went missing; a dog's chest under its chin read 9% brighter. |
 | [vulkan-software-driver-ci.md](vulkan-software-driver-ci.md) | A CI job that runs the Vulkan suite on a driver below the ADR 0010 contract: every device-gated test skips, gtest prints `[  PASSED  ]`, the job is green and nothing about Vulkan was verified. Mesa 26.1.8's lavapipe is the trap's live example — it clears the Vulkan 1.4 bar everyone checks and exposes none of the three extensions that actually decide it. |
