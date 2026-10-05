@@ -1,0 +1,1395 @@
+{
+  "testedSourceCommit": "50d6dbcdd46017488a5fb00d1066599fecc27da6",
+  "configuration": "Release (clang-cl)",
+  "buildTargets": [
+    "OloEditor",
+    "OloRuntime",
+    "OloServer",
+    "OloEngine-Tests"
+  ],
+  "build": {
+    "exitCode": 0,
+    "headerDependencyRecords": 2038,
+    "discoveredCases": 9786,
+    "discoveredSuites": 1480,
+    "ctestEntries": 1497,
+    "log": "build-feedback-registry-refresh-final.log"
+  },
+  "tests": [
+    {
+      "sourceLog": "feedback-cpu-final.xml",
+      "tests": 467,
+      "failures": 0,
+      "skipped": 9,
+      "passed": 458,
+      "skipReasons": [
+        {
+          "suite": "RenderGraphOutOfBandSchedule",
+          "test": "EveryPathRendersWithACleanLedgerInEitherOrder",
+          "reason": "..\\OloEngine\\tests\\Rendering\\PropertyTests\\RendererAttachedTest.cpp:108\nRendererAttachedTest: no usable GL 4.6 context available (CI without GPU or headless server). (GL backend pinned to 'none' by --olo-gl-backend=none; no context was attempted)\n"
+        },
+        {
+          "suite": "RenderGraphOutOfBandSchedule",
+          "test": "ScheduleNamesEverySideEffectAndTheEpilogueRead",
+          "reason": "..\\OloEngine\\tests\\Rendering\\PropertyTests\\RendererAttachedTest.cpp:108\nRendererAttachedTest: no usable GL 4.6 context available (CI without GPU or headless server). (GL backend pinned to 'none' by --olo-gl-backend=none; no context was attempted)\n"
+        },
+        {
+          "suite": "RenderGraphOutOfBandSchedule",
+          "test": "OmittedFroxelFogPublicationIsCaught",
+          "reason": "..\\OloEngine\\tests\\Rendering\\PropertyTests\\RendererAttachedTest.cpp:108\nRendererAttachedTest: no usable GL 4.6 context available (CI without GPU or headless server). (GL backend pinned to 'none' by --olo-gl-backend=none; no context was attempted)\n"
+        },
+        {
+          "suite": "RenderGraphOutOfBandSchedule",
+          "test": "OmittedPreparedConsumerDeclarationIsCaught",
+          "reason": "..\\OloEngine\\tests\\Rendering\\PropertyTests\\RendererAttachedTest.cpp:108\nRendererAttachedTest: no usable GL 4.6 context available (CI without GPU or headless server). (GL backend pinned to 'none' by --olo-gl-backend=none; no context was attempted)\n"
+        },
+        {
+          "suite": "RenderGraphOutOfBandSchedule",
+          "test": "OmittedOcclusionPyramidRebuildIsCaught",
+          "reason": "..\\OloEngine\\tests\\Rendering\\PropertyTests\\RendererAttachedTest.cpp:108\nRendererAttachedTest: no usable GL 4.6 context available (CI without GPU or headless server). (GL backend pinned to 'none' by --olo-gl-backend=none; no context was attempted)\n"
+        },
+        {
+          "suite": "RenderGraphTransientPool",
+          "test": "ResizeEvictsStalePoolEntries",
+          "reason": "..\\OloEngine\\tests\\Rendering\\RenderGraphTest.cpp:4866\nNo GPU / GL 4.5+ context available in this environment. (GL backend pinned to 'none' by --olo-gl-backend=none; no context was attempted)\n"
+        },
+        {
+          "suite": "RenderGraphTransientPool",
+          "test": "ResizeEvictsPoolWhenNodeResizedButDisplayUnchanged",
+          "reason": "..\\OloEngine\\tests\\Rendering\\RenderGraphTest.cpp:4971\nNo GPU / GL 4.5+ context available in this environment. (GL backend pinned to 'none' by --olo-gl-backend=none; no context was attempted)\n"
+        },
+        {
+          "suite": "RenderGraphTransientPool",
+          "test": "TrimKeepsWhatTheLastFrameNeeded",
+          "reason": "..\\OloEngine\\tests\\Rendering\\RenderGraphTest.cpp:5044\nNo GPU / GL 4.5+ context available in this environment. (GL backend pinned to 'none' by --olo-gl-backend=none; no context was attempted)\n"
+        },
+        {
+          "suite": "RenderGraphTransientPool",
+          "test": "MaterializedTransientExtractionReturnsValidTextureWithGpuContext",
+          "reason": "..\\OloEngine\\tests\\Rendering\\RenderGraphTest.cpp:6511\nNo GPU / GL 4.5+ context available in this environment. (GL backend pinned to 'none' by --olo-gl-backend=none; no context was attempted)\n"
+        }
+      ],
+      "sha256": "55a678578d8d7da0cc49fd07e4d6d1964c7ad577f56ebe288ec4eb94e4abfdfe"
+    },
+    {
+      "sourceLog": "feedback-gl-final-tests.xml",
+      "tests": 495,
+      "failures": 0,
+      "skipped": 1,
+      "passed": 494,
+      "skipReasons": [
+        {
+          "suite": "AllPaths/SnowLayerTest",
+          "test": "SnowLooksTheSameAsOnTheForwardPath/Forward",
+          "reason": "..\\OloEngine\\tests\\Rendering\\PropertyTests\\SnowLayerEvidenceTest.cpp:345\nForward is the reference every other path is compared against\n"
+        }
+      ],
+      "sha256": "984ab82c2f877d32386fe0b1c2ab2d0c77000be5c0129e1063b6b76941843511"
+    },
+    {
+      "sourceLog": "feedback-vulkan-final-analytic.xml",
+      "tests": 2,
+      "failures": 0,
+      "skipped": 0,
+      "passed": 2,
+      "skipReasons": [],
+      "sha256": "6fd27368f9290bd31c8e0f30f0cdcd7df51e666dd54cca34523e3709f843d7f6"
+    }
+  ],
+  "negativeControls": [
+    {
+      "sourceLog": "feedback-negative.xml",
+      "tests": 1,
+      "failures": 1,
+      "skipped": 0,
+      "passed": 0,
+      "skipReasons": [],
+      "sha256": "c4010761e322565ab3786f142249e129e7024de4063afb3284040e709d870a74",
+      "expectedFailure": "Old name-only validator misses RenderGraphAttachmentFeedback.AFramebufferRenameCannotHideTheHistoricalWaterNormalFeedback"
+    },
+    {
+      "sourceLog": "feedback-sampler-negative.xml",
+      "tests": 1,
+      "failures": 1,
+      "skipped": 0,
+      "passed": 0,
+      "skipReasons": [],
+      "sha256": "7159a717ce532de67aaab805133de483af473ff68b82cdf539d69418e632e3bd",
+      "expectedFailure": "Bare Texture2D snapshot wrap=10497; source wrap=33071, across all requested Skin matrix arms"
+    },
+    {
+      "sourceLog": "feedback-parent-barrier-negative.xml",
+      "tests": 1,
+      "failures": 1,
+      "skipped": 0,
+      "passed": 0,
+      "skipReasons": [],
+      "sha256": "1aee0ec92d53d23d6a068470e723a9d2ac6771c81533c8c38487fef1c1b8933c",
+      "expectedFailure": "Synthetic parent shader read invents a MissingProducer and external/Undefined transition for produced colour and depth snapshot views"
+    },
+    {
+      "sourceLog": "feedback-registry-refresh-negative.xml",
+      "tests": 1,
+      "failures": 1,
+      "skipped": 0,
+      "passed": 0,
+      "skipReasons": [],
+      "sha256": "bf5cacc80fec2dd71b4e5ea45c4b032500c544176cb512bdf25972caf6f0d6da",
+      "expectedFailure": "A registry lookup during consumer Setup caches empty LateNormals producer and consumer lists despite a correct refreshed barrier transition"
+    }
+  ],
+  "binaries": [
+    {
+      "path": "bin/Release/OloEditor/OloEditor.exe",
+      "sha256": "46b88a420f67acebfddd3282c1118fcdd0b74b368d18e9ff0af0b5166cd52b80"
+    },
+    {
+      "path": "build-cached/OloEngine/tests/Release/OloEngine-Tests.exe",
+      "sha256": "b7f1bc4d0e295112a6c426e07f953db9cf6a0fccf23a6f49de5ea365766c2e5d"
+    }
+  ],
+  "openGLFixtureArtifacts": [
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluid_GL_Deferred_1x_Bilinear_Rejected1537.png",
+      "sha256": "491da989a1770490f73166c976a3b7f1460512ae12770b8296d0fee61acd95e8",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluid_GL_Deferred_1x_FSR2.png",
+      "sha256": "ae9a767219835dfd4daf5f14ab1e8a2c709fdaa548c89e05f407901240202818",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluid_GL_Deferred_1x_Native.png",
+      "sha256": "986ea71a11105b0067b7a484560eb16cb8687b4397024beab3284f495d8e939a",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluid_GL_Deferred_4x_Bilinear_Rejected1537.png",
+      "sha256": "3e7007f412cec6895a415bede47a5f71c575a33f6d62289b96cf9f37aba81b0f",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluid_GL_Deferred_4x_FSR2.png",
+      "sha256": "039653e3cf21604d83f5d9c0062f07a296c4b09f3591c1e0fb78844078cc0e16",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluid_GL_Deferred_4x_Native.png",
+      "sha256": "a31e81fbd7c53163ca9f580a6379958218414faf4450f5d6b710ee021e9d895e",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluid_GL_Forward_1x_Bilinear.png",
+      "sha256": "c02e992c17d4146e953f73fc5c44d0065e5dfd7eb9b430444297e9a68f49dfaf",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluid_GL_Forward_1x_FSR2.png",
+      "sha256": "505dc5b85a204cfa9d6d7196319414be35362c910e30f663d95c0fa2f9b929f0",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluid_GL_Forward_1x_Native.png",
+      "sha256": "5e5ffc65794a75d98b0d6669b2cce78049f4742b4b6010d9125c8f11fd1930ec",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluid_GL_Forward_MSAARequest4xActual1x_Bilinear.png",
+      "sha256": "c53b8449deb10bc7616886859ea427bbca6c46f1beffb59e1874143bd5e25030",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluid_GL_Forward_MSAARequest4xActual1x_FSR2.png",
+      "sha256": "5d5a1670c47d8272cbe99d96e11f360cddc0848b47aafccfaa767ddb611dba31",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluid_GL_Forward_MSAARequest4xActual1x_Native.png",
+      "sha256": "b296abdb8071923c8d64965cdafa0bbf04553c6156d5e916a0a928ed9f177581",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluid_GL_ForwardPlus_1x_Bilinear.png",
+      "sha256": "53f3cc9c1af287c1e3fe86da146240f3933391e12096981fbd429c37a21f8aba",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluid_GL_ForwardPlus_1x_FSR2.png",
+      "sha256": "c10ccae0eb88390ca243aa82f97c5b6d6c9336ec909a4acf9f157dbedb4559a5",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluid_GL_ForwardPlus_1x_Native.png",
+      "sha256": "125efc5dcaa84c82a545a011ca858194c96430447cc12fa59fd3ba75c6694117",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluid_GL_ForwardPlus_MSAARequest4xActual1x_Bilinear.png",
+      "sha256": "b0e8ffa6dc0954207f61e5c8764134bd2baf4fd111782628fb243ee22408a3b6",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluid_GL_ForwardPlus_MSAARequest4xActual1x_FSR2.png",
+      "sha256": "24aae67b440cb4fec3f912436e5e608fd10175c20941f3b14bb6e65d74cf5cad",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluid_GL_ForwardPlus_MSAARequest4xActual1x_Native.png",
+      "sha256": "dfdb70143bc4e6e57a5af2e2de0413468fe92b933d6433cad1f1903d600ec3cd",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluidOff_GL_Deferred_1x_Bilinear_Rejected1537.png",
+      "sha256": "951a19c333b9c3a816b698b4238cece5541ec3b00e4056890da32414ea95e027",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluidOff_GL_Deferred_1x_FSR2.png",
+      "sha256": "a993d0c6f2626b319677da739a1dca4a801bf25d5e6dbd1a0e487b95274a8d76",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluidOff_GL_Deferred_1x_Native.png",
+      "sha256": "0884385c8b81667c1fc17419178f8e5010701d58969c344601a34475faa5a639",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluidOff_GL_Deferred_4x_Bilinear_Rejected1537.png",
+      "sha256": "5192d19fddac922f1b943e73c4b96f15d7eefd7d4c7cb2dbe958edaa6537734e",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluidOff_GL_Deferred_4x_FSR2.png",
+      "sha256": "20a1e89870c1480c2cfd0ba006da1be823d4a1e2507ebc0d79f44860e8d2377e",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluidOff_GL_Deferred_4x_Native.png",
+      "sha256": "986288d210ebf2dc97d9940f964ee0fac0dc48174ecff0b98178fd1b61df4b3f",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluidOff_GL_Forward_1x_Bilinear.png",
+      "sha256": "19691175499ff9602c0ef4732aab1cbc15c2a1e05c7c786c51e91fdc6bd85554",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluidOff_GL_Forward_1x_FSR2.png",
+      "sha256": "aa50d0679a3291ca4057dd0b9f606d6838fc76007d85024de8135736f020d399",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluidOff_GL_Forward_1x_Native.png",
+      "sha256": "3e014ac1af51be81b1031f234534ba1e53cf5008330e2203a0c36b317d92f2c6",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluidOff_GL_Forward_MSAARequest4xActual1x_Bilinear.png",
+      "sha256": "19691175499ff9602c0ef4732aab1cbc15c2a1e05c7c786c51e91fdc6bd85554",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluidOff_GL_Forward_MSAARequest4xActual1x_FSR2.png",
+      "sha256": "123194940cacf49825ce2e5ee7cb6c6240cdc1562fd4266b52d0f8c9dd9a056a",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluidOff_GL_Forward_MSAARequest4xActual1x_Native.png",
+      "sha256": "3e014ac1af51be81b1031f234534ba1e53cf5008330e2203a0c36b317d92f2c6",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluidOff_GL_ForwardPlus_1x_Bilinear.png",
+      "sha256": "19691175499ff9602c0ef4732aab1cbc15c2a1e05c7c786c51e91fdc6bd85554",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluidOff_GL_ForwardPlus_1x_FSR2.png",
+      "sha256": "c9475cf17997fce954760f846555e97cd514c9b18cdd0d9df0d26350a94d5cbd",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluidOff_GL_ForwardPlus_1x_Native.png",
+      "sha256": "3e014ac1af51be81b1031f234534ba1e53cf5008330e2203a0c36b317d92f2c6",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluidOff_GL_ForwardPlus_MSAARequest4xActual1x_Bilinear.png",
+      "sha256": "19691175499ff9602c0ef4732aab1cbc15c2a1e05c7c786c51e91fdc6bd85554",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluidOff_GL_ForwardPlus_MSAARequest4xActual1x_FSR2.png",
+      "sha256": "abd9feebbbf347f67aff0f0eadf95534cb1c916d8f0c8ccc2fc6ddc227f01032",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentFluidOff_GL_ForwardPlus_MSAARequest4xActual1x_Native.png",
+      "sha256": "3e014ac1af51be81b1031f234534ba1e53cf5008330e2203a0c36b317d92f2c6",
+      "size": [
+        960,
+        540
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkin_GL_Deferred_1x_Bilinear_Rejected1537.png",
+      "sha256": "92be6901ead81fcc40facc5e4300e05aa0b7e3815bf03deafc270572f7413a9d",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkin_GL_Deferred_1x_FSR2.png",
+      "sha256": "6632bc8376b91654fbf012a8343f0a4a49602c472eafa50cea058a2eb4515487",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkin_GL_Deferred_1x_Native.png",
+      "sha256": "f58be29d3bf0100b0e063c018ffbf2f2f3af9bdd8d060568c4f78f654263d670",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkin_GL_Deferred_4x_Bilinear_Rejected1537.png",
+      "sha256": "eafbd6499690e3c8eeba1939c9f366fd3426e51a773cd5a2ef81ea412e9e47ab",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkin_GL_Deferred_4x_FSR2.png",
+      "sha256": "dfbc3c1bf63fcd629d126a4c9b143b9fa6adec36b57c909be26e236586b78461",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkin_GL_Deferred_4x_Native.png",
+      "sha256": "39d2e4c0ddd0578a00bb3c6b5af09ec5f0eb4f3dc1f5a6d582fca059c2e3a1fc",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkin_GL_Forward_1x_Bilinear.png",
+      "sha256": "fd038e263dd008c3c8612e301003437af31af8ccbea7f6d38b20e596b74b1a27",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkin_GL_Forward_1x_FSR2.png",
+      "sha256": "951c85c8a9f9eecedd91509a80cdab6d58cd41c9123581be3ab57ec98b5dac34",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkin_GL_Forward_1x_Native.png",
+      "sha256": "399536a72baa016c412d07de8469b21baf63f8a8a4a906d02bee0e211e745e19",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkin_GL_Forward_MSAARequest4xActual1x_Bilinear.png",
+      "sha256": "fd038e263dd008c3c8612e301003437af31af8ccbea7f6d38b20e596b74b1a27",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkin_GL_Forward_MSAARequest4xActual1x_FSR2.png",
+      "sha256": "d4c44dcda37405809f30ecb0ef2d775db4d9a564fa3ba959eacaa056bc5570f7",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkin_GL_Forward_MSAARequest4xActual1x_Native.png",
+      "sha256": "399536a72baa016c412d07de8469b21baf63f8a8a4a906d02bee0e211e745e19",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkin_GL_ForwardPlus_1x_Bilinear.png",
+      "sha256": "fd038e263dd008c3c8612e301003437af31af8ccbea7f6d38b20e596b74b1a27",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkin_GL_ForwardPlus_1x_FSR2.png",
+      "sha256": "951c85c8a9f9eecedd91509a80cdab6d58cd41c9123581be3ab57ec98b5dac34",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkin_GL_ForwardPlus_1x_Native.png",
+      "sha256": "399536a72baa016c412d07de8469b21baf63f8a8a4a906d02bee0e211e745e19",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkin_GL_ForwardPlus_MSAARequest4xActual1x_Bilinear.png",
+      "sha256": "fd038e263dd008c3c8612e301003437af31af8ccbea7f6d38b20e596b74b1a27",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkin_GL_ForwardPlus_MSAARequest4xActual1x_FSR2.png",
+      "sha256": "d4c44dcda37405809f30ecb0ef2d775db4d9a564fa3ba959eacaa056bc5570f7",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkin_GL_ForwardPlus_MSAARequest4xActual1x_Native.png",
+      "sha256": "399536a72baa016c412d07de8469b21baf63f8a8a4a906d02bee0e211e745e19",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkinOff_GL_Deferred_1x_Bilinear_Rejected1537.png",
+      "sha256": "12eee88b45d4e93578f5df8e914500cf9fbef53c4425cb69017fb303350e2ad4",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkinOff_GL_Deferred_1x_FSR2.png",
+      "sha256": "d860466a469bf8603c935cd1d2ec3602b71cbedcef27c94a201273ad6ce1a6d0",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkinOff_GL_Deferred_1x_Native.png",
+      "sha256": "47a244df68c55e836516192de81c37b364bfda78df9da0f9a683714d50fb1b1c",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkinOff_GL_Deferred_4x_Bilinear_Rejected1537.png",
+      "sha256": "29687e3aaa9eccbd18a8512757f4dc233c1b9ff4ed4ea78bda5cc834f5b84580",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkinOff_GL_Deferred_4x_FSR2.png",
+      "sha256": "9944711ab2dbf8f9fc589593a3325ebc2789e22cfd6e2041e69fa08336aa833a",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkinOff_GL_Deferred_4x_Native.png",
+      "sha256": "8a5bceb63fbc9173d079770ca0130a4ba41d6cec420daedf299ba458d38c54b4",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkinOff_GL_Forward_1x_Bilinear.png",
+      "sha256": "221beba89c20d845651aa17eecdc3f26ac05021fd024f7ee79869514369242c5",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkinOff_GL_Forward_1x_FSR2.png",
+      "sha256": "4f46a24036513b2fb278af9af01239fea7a38a74c464353c3c0f4fb1e4eca904",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkinOff_GL_Forward_1x_Native.png",
+      "sha256": "d0e8ef636e4c63217569c2248cc32a4379f5cf2ef1da840a9afcd78ac2ca8d42",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkinOff_GL_Forward_MSAARequest4xActual1x_Bilinear.png",
+      "sha256": "221beba89c20d845651aa17eecdc3f26ac05021fd024f7ee79869514369242c5",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkinOff_GL_Forward_MSAARequest4xActual1x_FSR2.png",
+      "sha256": "71854bad3e1b5733bc896c62e9d8f97c7e4cdf450902b3278e8e572f87942331",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkinOff_GL_Forward_MSAARequest4xActual1x_Native.png",
+      "sha256": "d0e8ef636e4c63217569c2248cc32a4379f5cf2ef1da840a9afcd78ac2ca8d42",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkinOff_GL_ForwardPlus_1x_Bilinear.png",
+      "sha256": "221beba89c20d845651aa17eecdc3f26ac05021fd024f7ee79869514369242c5",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkinOff_GL_ForwardPlus_1x_FSR2.png",
+      "sha256": "4f46a24036513b2fb278af9af01239fea7a38a74c464353c3c0f4fb1e4eca904",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkinOff_GL_ForwardPlus_1x_Native.png",
+      "sha256": "d0e8ef636e4c63217569c2248cc32a4379f5cf2ef1da840a9afcd78ac2ca8d42",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkinOff_GL_ForwardPlus_MSAARequest4xActual1x_Bilinear.png",
+      "sha256": "221beba89c20d845651aa17eecdc3f26ac05021fd024f7ee79869514369242c5",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkinOff_GL_ForwardPlus_MSAARequest4xActual1x_FSR2.png",
+      "sha256": "71854bad3e1b5733bc896c62e9d8f97c7e4cdf450902b3278e8e572f87942331",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSkinOff_GL_ForwardPlus_MSAARequest4xActual1x_Native.png",
+      "sha256": "d0e8ef636e4c63217569c2248cc32a4379f5cf2ef1da840a9afcd78ac2ca8d42",
+      "size": [
+        384,
+        384
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnow_GL_Deferred_1x_Bilinear_Rejected1537.png",
+      "sha256": "a46c73bc90498e9de339d7991019ded98ce9e19ed45eb32bc2f1c6f16175107c",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnow_GL_Deferred_1x_FSR2.png",
+      "sha256": "1db27f7bdad37fb256e238a4ab30a91a84c1966116f92e76e05ab1bd4d630627",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnow_GL_Deferred_1x_Native.png",
+      "sha256": "06795ff8868e117d6797540d59bd95620d60971b9021d70a72d2625d694b91dd",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnow_GL_Deferred_4x_Bilinear_Rejected1537.png",
+      "sha256": "aaf9b4d23cadf4321d64ce34298c16d7db1afaf4a1de7d961d159095ef7bca06",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnow_GL_Deferred_4x_FSR2.png",
+      "sha256": "b7baac02774e247ade3bb08ba751d5d14649e0684ca527198c6d7aaee116109b",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnow_GL_Deferred_4x_Native.png",
+      "sha256": "286557f08022c40720dde8289b4fcf3c635d84efe4ebbae17df666860ee41fdf",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnow_GL_Forward_1x_Bilinear.png",
+      "sha256": "4862952c0fb33787e4035465f3651fdc19a80687b3bcf764c43513f5036566df",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnow_GL_Forward_1x_FSR2.png",
+      "sha256": "e528db24c4d799229589e547ab291ad74885f7e2448b827eccdae221e7b07a79",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnow_GL_Forward_1x_Native.png",
+      "sha256": "9e27db7a882b80226f4a0a592c2de6fcde158a52bd6f1bf5e451da1b4ecc75e9",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnow_GL_Forward_MSAARequest4xActual1x_Bilinear.png",
+      "sha256": "4862952c0fb33787e4035465f3651fdc19a80687b3bcf764c43513f5036566df",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnow_GL_Forward_MSAARequest4xActual1x_FSR2.png",
+      "sha256": "4325493eb67eb3b0f967e8863b3f054344b3d16b05a2703454a2cd881b005594",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnow_GL_Forward_MSAARequest4xActual1x_Native.png",
+      "sha256": "9e27db7a882b80226f4a0a592c2de6fcde158a52bd6f1bf5e451da1b4ecc75e9",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnow_GL_ForwardPlus_1x_Bilinear.png",
+      "sha256": "4862952c0fb33787e4035465f3651fdc19a80687b3bcf764c43513f5036566df",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnow_GL_ForwardPlus_1x_FSR2.png",
+      "sha256": "e528db24c4d799229589e547ab291ad74885f7e2448b827eccdae221e7b07a79",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnow_GL_ForwardPlus_1x_Native.png",
+      "sha256": "9e27db7a882b80226f4a0a592c2de6fcde158a52bd6f1bf5e451da1b4ecc75e9",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnow_GL_ForwardPlus_MSAARequest4xActual1x_Bilinear.png",
+      "sha256": "4862952c0fb33787e4035465f3651fdc19a80687b3bcf764c43513f5036566df",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnow_GL_ForwardPlus_MSAARequest4xActual1x_FSR2.png",
+      "sha256": "4325493eb67eb3b0f967e8863b3f054344b3d16b05a2703454a2cd881b005594",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnow_GL_ForwardPlus_MSAARequest4xActual1x_Native.png",
+      "sha256": "9e27db7a882b80226f4a0a592c2de6fcde158a52bd6f1bf5e451da1b4ecc75e9",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnowOff_GL_Deferred_1x_Bilinear_Rejected1537.png",
+      "sha256": "4443dcfdea420a55161cfec9681380347d38574f57c93c7ef4ee9b65cfcde589",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnowOff_GL_Deferred_1x_FSR2.png",
+      "sha256": "d7418d90f8071baf54a0d6a168aef704581089ffc1dd0878e2a07cb39803e013",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnowOff_GL_Deferred_1x_Native.png",
+      "sha256": "8c73671dc79ffe2eeb6ca36457ec745f2882641c12ccb1efd397bb7393933af9",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnowOff_GL_Deferred_4x_Bilinear_Rejected1537.png",
+      "sha256": "4ca7a51ff644b8459bad8e1ebf6f89321c4ae0f6c73abd80cf706bfa99286f33",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnowOff_GL_Deferred_4x_FSR2.png",
+      "sha256": "ed75a7a1a9dd52ccc050ca4e0494d87b949f7507af5c32e0d99e86dccf653b86",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnowOff_GL_Deferred_4x_Native.png",
+      "sha256": "01c25bb666aa3e746f2784352435f5b9946b17edf9b251865479fa8ae558be63",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnowOff_GL_Forward_1x_Bilinear.png",
+      "sha256": "901399a673b9fcdbd50878dea05a63a5cf40d215b282b068bcec30ec71c99cf0",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnowOff_GL_Forward_1x_FSR2.png",
+      "sha256": "1433a24bbaa0e6ef4ba33dc44745be15501ff1e63856a307b1d95ee334ea33b3",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnowOff_GL_Forward_1x_Native.png",
+      "sha256": "8f2fb8c017341fa491ba08105d0853e9a4e9788802948b68f29e61e183e2f468",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnowOff_GL_Forward_MSAARequest4xActual1x_Bilinear.png",
+      "sha256": "901399a673b9fcdbd50878dea05a63a5cf40d215b282b068bcec30ec71c99cf0",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnowOff_GL_Forward_MSAARequest4xActual1x_FSR2.png",
+      "sha256": "91a3287c6c38fe682f52086813dff4a8b3b89312235b7c7d14625173d534bf35",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnowOff_GL_Forward_MSAARequest4xActual1x_Native.png",
+      "sha256": "8f2fb8c017341fa491ba08105d0853e9a4e9788802948b68f29e61e183e2f468",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnowOff_GL_ForwardPlus_1x_Bilinear.png",
+      "sha256": "901399a673b9fcdbd50878dea05a63a5cf40d215b282b068bcec30ec71c99cf0",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnowOff_GL_ForwardPlus_1x_FSR2.png",
+      "sha256": "1433a24bbaa0e6ef4ba33dc44745be15501ff1e63856a307b1d95ee334ea33b3",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnowOff_GL_ForwardPlus_1x_Native.png",
+      "sha256": "8f2fb8c017341fa491ba08105d0853e9a4e9788802948b68f29e61e183e2f468",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnowOff_GL_ForwardPlus_MSAARequest4xActual1x_Bilinear.png",
+      "sha256": "901399a673b9fcdbd50878dea05a63a5cf40d215b282b068bcec30ec71c99cf0",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnowOff_GL_ForwardPlus_MSAARequest4xActual1x_FSR2.png",
+      "sha256": "91a3287c6c38fe682f52086813dff4a8b3b89312235b7c7d14625173d534bf35",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/AttachmentSnowOff_GL_ForwardPlus_MSAARequest4xActual1x_Native.png",
+      "sha256": "8f2fb8c017341fa491ba08105d0853e9a4e9788802948b68f29e61e183e2f468",
+      "size": [
+        640,
+        480
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_Attachment_GL_Deferred_1x_Bilinear_Rejected1537.png",
+      "sha256": "ec8d849d73ff28cf4e1f85b68e19d0815eb065e701269feaa54181419ed62628",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_Attachment_GL_Deferred_1x_FSR2.png",
+      "sha256": "f1a2d8e2d7cef8c75f5af970d2dd5d252d35204987ae28619c362117bae933b1",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_Attachment_GL_Deferred_1x_Native.png",
+      "sha256": "84dcf0dbf36be33617a3997982d8e407bf7b0a2b1221997a279608f5d5af3b9d",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_Attachment_GL_Deferred_4x_Bilinear_Rejected1537.png",
+      "sha256": "fb192cfd55b9f7735c6e8cc68bd0c6a4ba9fb25a4b549fcb055b06fa1ba216b9",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_Attachment_GL_Deferred_4x_FSR2.png",
+      "sha256": "c1da69925e0bb6fdea9732b4a8cace4e7e7377a05cd017975f1b15d27944c6d3",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_Attachment_GL_Deferred_4x_Native.png",
+      "sha256": "6963336cf61b83e8fd948bb8f31d953d650a488c9325dc5ce14710379afca8f6",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_Attachment_GL_Forward_1x_Bilinear.png",
+      "sha256": "a769d1e048c071d93bd34f96b3dfad6ac2a839a3d9a0ce22ae84e342c130d431",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_Attachment_GL_Forward_1x_FSR2.png",
+      "sha256": "4c73f730715f3e287b58399c20b3cdfd28d5a218b31177d45b4f02c1ed488a72",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_Attachment_GL_Forward_1x_Native.png",
+      "sha256": "98701827ac88ba7d44233185d4ebd86adcfe57b43a66a88d42a095fa36ae1590",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_Attachment_GL_Forward_MSAARequest4xActual1x_Bilinear.png",
+      "sha256": "a769d1e048c071d93bd34f96b3dfad6ac2a839a3d9a0ce22ae84e342c130d431",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_Attachment_GL_Forward_MSAARequest4xActual1x_FSR2.png",
+      "sha256": "e82a9171898d7184bd0c23e162d91d961e0b6577b948775678e39cfbb9ef5c0b",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_Attachment_GL_Forward_MSAARequest4xActual1x_Native.png",
+      "sha256": "98701827ac88ba7d44233185d4ebd86adcfe57b43a66a88d42a095fa36ae1590",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_Attachment_GL_ForwardPlus_1x_Bilinear.png",
+      "sha256": "a769d1e048c071d93bd34f96b3dfad6ac2a839a3d9a0ce22ae84e342c130d431",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_Attachment_GL_ForwardPlus_1x_FSR2.png",
+      "sha256": "4c73f730715f3e287b58399c20b3cdfd28d5a218b31177d45b4f02c1ed488a72",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_Attachment_GL_ForwardPlus_1x_Native.png",
+      "sha256": "98701827ac88ba7d44233185d4ebd86adcfe57b43a66a88d42a095fa36ae1590",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_Attachment_GL_ForwardPlus_MSAARequest4xActual1x_Bilinear.png",
+      "sha256": "a769d1e048c071d93bd34f96b3dfad6ac2a839a3d9a0ce22ae84e342c130d431",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_Attachment_GL_ForwardPlus_MSAARequest4xActual1x_FSR2.png",
+      "sha256": "e82a9171898d7184bd0c23e162d91d961e0b6577b948775678e39cfbb9ef5c0b",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_Attachment_GL_ForwardPlus_MSAARequest4xActual1x_Native.png",
+      "sha256": "98701827ac88ba7d44233185d4ebd86adcfe57b43a66a88d42a095fa36ae1590",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_AttachmentOff_GL_Deferred_1x_Bilinear_Rejected1537.png",
+      "sha256": "9a728c5ea92a602f483c1ce565ad7eb0ec357a1c02835573f3f7e479395e4724",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_AttachmentOff_GL_Deferred_1x_FSR2.png",
+      "sha256": "4fbe12fd3f02f0a156483fa0db793d3512f2718b226b7e91164d59eb221b5f9c",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_AttachmentOff_GL_Deferred_1x_Native.png",
+      "sha256": "cd252c70cff43d76cda85be442e3e520fd5501102a530727be01e3ca5d64795d",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_AttachmentOff_GL_Deferred_4x_Bilinear_Rejected1537.png",
+      "sha256": "2d67b83a90bb69f9608bb0604c1b24888fb742a4b1e7691a9db89d6881aca0dd",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_AttachmentOff_GL_Deferred_4x_FSR2.png",
+      "sha256": "faa7d69ef3baf28c1e5c5c9a8d5b4c31eabf8295b66a3270b84f087618fd531f",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_AttachmentOff_GL_Deferred_4x_Native.png",
+      "sha256": "e0deb1202fb74c0e5a60ef334fb22bf27dbe09d0ac91bcb1f1649802ae5fb7a2",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_AttachmentOff_GL_Forward_1x_Bilinear.png",
+      "sha256": "32f607c04802223c4ea5eae8e0017fab45856a0010ca41f8b1c36702c806ada3",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_AttachmentOff_GL_Forward_1x_FSR2.png",
+      "sha256": "ab8f858975880a2cb599f54eec26074a5d2344e39a2c8fbf2ea2e3e9cc3aabff",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_AttachmentOff_GL_Forward_1x_Native.png",
+      "sha256": "63046dae36177f195446b1c833068d1e1e2af532c27a2ff9977c87c0fb1cbd96",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_AttachmentOff_GL_Forward_MSAARequest4xActual1x_Bilinear.png",
+      "sha256": "32f607c04802223c4ea5eae8e0017fab45856a0010ca41f8b1c36702c806ada3",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_AttachmentOff_GL_Forward_MSAARequest4xActual1x_FSR2.png",
+      "sha256": "3e2628be019083b477efeecdfab49a6bbbe49a49487afee2b61226e1585cbec1",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_AttachmentOff_GL_Forward_MSAARequest4xActual1x_Native.png",
+      "sha256": "63046dae36177f195446b1c833068d1e1e2af532c27a2ff9977c87c0fb1cbd96",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_AttachmentOff_GL_ForwardPlus_1x_Bilinear.png",
+      "sha256": "32f607c04802223c4ea5eae8e0017fab45856a0010ca41f8b1c36702c806ada3",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_AttachmentOff_GL_ForwardPlus_1x_FSR2.png",
+      "sha256": "ab8f858975880a2cb599f54eec26074a5d2344e39a2c8fbf2ea2e3e9cc3aabff",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_AttachmentOff_GL_ForwardPlus_1x_Native.png",
+      "sha256": "63046dae36177f195446b1c833068d1e1e2af532c27a2ff9977c87c0fb1cbd96",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_AttachmentOff_GL_ForwardPlus_MSAARequest4xActual1x_Bilinear.png",
+      "sha256": "32f607c04802223c4ea5eae8e0017fab45856a0010ca41f8b1c36702c806ada3",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_AttachmentOff_GL_ForwardPlus_MSAARequest4xActual1x_FSR2.png",
+      "sha256": "3e2628be019083b477efeecdfab49a6bbbe49a49487afee2b61226e1585cbec1",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/Water_AttachmentOff_GL_ForwardPlus_MSAARequest4xActual1x_Native.png",
+      "sha256": "63046dae36177f195446b1c833068d1e1e2af532c27a2ff9977c87c0fb1cbd96",
+      "size": [
+        1280,
+        720
+      ]
+    }
+  ],
+  "fluidReadinessDiagnosis": {
+    "failedId": "feedback-fluid-forwardplus-1x-fsr2",
+    "source": "50d6dbcdd46017488a5fb00d1066599fecc27da6",
+    "failedAttemptPreserved": "feedback-gl-final-window-1-attempt-1",
+    "classification": "Premature readiness audit before first submitted particle frame, after Simulate scene copy and renderer reset. FluidSystem::OnUpdate skips nonpositive delta; benchmark pins initial clock until warmup starts. Requested renderer settings alone do not establish simulation readiness. Completed front capture visibly contains fluid. Revised harness waits for required active passes within the same capture before copying/validating; timeout and active assertions remain strict. The targeted repeat passed with all three fluid passes active and a completed in-capture audit.",
+    "retainedValidCells": 45,
+    "initialAuditCounters": {
+      "drawCalls": 23,
+      "triangles": 159,
+      "instancesRendered": 12
+    },
+    "completedCaptureCounters": {
+      "cpuTrackedBytes": 9539977,
+      "drawCalls": 26,
+      "gpuResidentBytes": 604363996,
+      "instancesRendered": 12,
+      "trianglesRendered": 34688
+    },
+    "initialAuditFrame": 25525,
+    "sourceLocations": [
+      "OloEditor/src/EditorLayer.cpp:5198",
+      "OloEngine/src/OloEngine/Fluid/FluidSystem.cpp:383",
+      "OloEngine/src/OloEngine/Scene/Scene.cpp:13857",
+      "OloEditor/src/MCP/McpToolsBenchmark.cpp:200"
+    ],
+    "targetedRepeat": {
+      "attempt": "feedback-gl-final-window-2-attempt-1",
+      "passed": true,
+      "initializingFluidFrames": [],
+      "activeFluidPasses": [
+        "FluidIntermediatesPass",
+        "FluidSceneDepthSnapshotPass",
+        "FluidCompositePass"
+      ],
+      "auditCompletedBeforeCaptureReturn": true
+    }
+  },
+  "logs": [
+    {
+      "name": "feedback-opengl-final-engine.log",
+      "sha256": "a17d355c81a16eeef90c667c2bc6f1e84650bae80d4c53f7a10da19ba9dc1d0f",
+      "errorCount": 0
+    },
+    {
+      "name": "feedback-vulkan-final-engine.log",
+      "sha256": "5bb44fbdef8f03f48219debb9e3fdf07b8179337ea3f638167d5df854c0aba58",
+      "errorCount": 0
+    },
+    {
+      "name": "feedback-vulkan-validation.log",
+      "sha256": "8f6658523460f5da46e0afa3917a62b7314a40bc719c2b0df2d06d1d6f2e2b77",
+      "errorCount": 0
+    },
+    {
+      "name": "feedback-gl-final-window-1-engine.log",
+      "sha256": "7bf208429b06bc4b5b767668b9129f8995abf982a3c9348f1e32386999f0d812",
+      "errorCount": 0
+    },
+    {
+      "name": "feedback-gl-final-window-2-engine.log",
+      "sha256": "15124cd1aecc4b9fe1fd3fe73344cbcb1e9fda0c32601e114e3d914bc99b02ae",
+      "errorCount": 0
+    },
+    {
+      "name": "feedback-vulkan-final-window-1-engine.log",
+      "sha256": "57ec0159f87f7cf75de0cf98bb5453e39a682b2835457428c054b4c734188654",
+      "errorCount": 0
+    },
+    {
+      "name": "feedback-vulkan-final-window-2-engine.log",
+      "sha256": "3d912266d4d5c7f9fb4703f454b3f33e6ba0ee898f93097778c36bf1a24c20bc",
+      "errorCount": 0
+    },
+    {
+      "name": "feedback-vulkan-final-window-1-validation.log",
+      "sha256": "80ac0a9f30fe005fa3ac65307d551e6a728692310a1452b2f9ab95f31e7d8d46",
+      "errorCount": 0
+    },
+    {
+      "name": "feedback-vulkan-final-window-2-validation.log",
+      "sha256": "388d5dec0b4f73a0197c6fde4fd3d02eacc3bb77808328ea42fd8b1ec0ee9c36",
+      "errorCount": 0
+    }
+  ],
+  "externalVulkanValidation": {
+    "layer": "VK_LAYER_KHRONOS_validation",
+    "synchronizationValidation": true,
+    "moduleProof": "feedback-vulkan-final-layer-module.txt",
+    "moduleProofSHA256": "15c41e66a94db2ab388ef5eb4189a5d995e4597062da302cb1859b8c66e2d90d"
+  }
+}

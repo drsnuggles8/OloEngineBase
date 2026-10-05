@@ -26,6 +26,7 @@ Read the relevant file before non-trivial work; don't duplicate its content into
 - `test-catalogue.{renderer,functional,unit}.md` — **generated & git-ignored** per-file catalogues, rendered from `test_catalogue.json` + in-file `// OLO_TEST_LAYER` tags by `OloEngine/tests/scripts/generate_test_catalogue.py`. Not tracked; regenerate on demand.
 - [testing/restir-pt-1211-evidence.md](testing/restir-pt-1211-evidence.md) — numerical validation of the experimental ReSTIR PT prototype (#1211): what it supports, what makes it stand down, and the measured bias and variance.
 - [testing/restir-pt-1211-live.md](testing/restir-pt-1211-live.md) — the same prototype in motion in a live Vulkan editor, and what it still gets wrong.
+- [testing/evidence/render-graph-attachment-feedback-1554/README.md](testing/evidence/render-graph-attachment-feedback-1554/README.md) — physical attachment feedback contracts, snapshot copies and the complete OpenGL/Vulkan verification matrix (#1554).
 
 ## Renderer — status, support contract and roadmap owners
 

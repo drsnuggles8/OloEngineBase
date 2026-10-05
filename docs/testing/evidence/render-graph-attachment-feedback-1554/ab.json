@@ -1,0 +1,4473 @@
+{
+  "testedSourceCommit": "50d6dbcdd46017488a5fb00d1066599fecc27da6",
+  "purpose": "Native 640x360, requested MSAA1, isolated enabled/off functional checks; no timing claim",
+  "controls": "AO, bloom, TAA, FXAA, motion blur, autoexposure, SSR disabled; selection cleared; water wave and normal-map scroll speeds temporarily zero with undo restoration",
+  "pixelMetric": "RGB8 output image differences; threshold A/B RMS > 5 x repeated-enabled RMS",
+  "fluid": "No live enabled/off control: generic component writes are unavailable during Simulate; see GL controls and Vulkan live draw/compute/copy evidence",
+  "cells": [
+    {
+      "backend": "opengl",
+      "feature": "Skin",
+      "path": "Forward",
+      "cameras": [
+        {
+          "name": "frontal",
+          "metrics": {
+            "changedPixels": 7387,
+            "maxDelta": 97,
+            "rmse": 0.8841232382778789,
+            "repeatRmse": 0.0,
+            "repeatMaxDelta": 0
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 15950,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 15950,
+                  "iconified": false,
+                  "msSinceLastFrame": 20.7,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.003921568859368563,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243084759,
+                "width": 640
+              },
+              "sha256": "99e66c80d3206b9c1bcf4a6bf58be10940fa6ab5380037257702649ec077b1a0"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 15972,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 15972,
+                  "iconified": false,
+                  "msSinceLastFrame": 30.79,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.003921568859368563,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243084831,
+                "width": 640
+              },
+              "sha256": "99e66c80d3206b9c1bcf4a6bf58be10940fa6ab5380037257702649ec077b1a0"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 15993,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 15993,
+                  "iconified": false,
+                  "msSinceLastFrame": 21.12,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.003921568859368563,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243084914,
+                "width": 640
+              },
+              "sha256": "d1ac5f20626bed8ea0a1cc553e81cd1c3f6390d7e9d260f8eecdfa8510de5163"
+            }
+          }
+        },
+        {
+          "name": "grazing",
+          "metrics": {
+            "changedPixels": 3078,
+            "maxDelta": 53,
+            "rmse": 0.41179091692175446,
+            "repeatRmse": 0.0,
+            "repeatMaxDelta": 0
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 16095,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 16095,
+                  "iconified": false,
+                  "msSinceLastFrame": 20.35,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.011764707043766975,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243085138,
+                "width": 640
+              },
+              "sha256": "1093fdab2ccfc48932301f2ab97e57a18d446924b88fe48cc3c2502173341071"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 16118,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 16118,
+                  "iconified": false,
+                  "msSinceLastFrame": 21.03,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.011764707043766975,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243085199,
+                "width": 640
+              },
+              "sha256": "1093fdab2ccfc48932301f2ab97e57a18d446924b88fe48cc3c2502173341071"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 16137,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 16137,
+                  "iconified": false,
+                  "msSinceLastFrame": 24.23,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.011764707043766975,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243085275,
+                "width": 640
+              },
+              "sha256": "cbf9a6eabafb075647485ec0e89086285d1e4889e40f78bf6af33d5f96cf1cfd"
+            }
+          }
+        }
+      ],
+      "animationControl": null
+    },
+    {
+      "backend": "opengl",
+      "feature": "Skin",
+      "path": "ForwardPlus",
+      "cameras": [
+        {
+          "name": "frontal",
+          "metrics": {
+            "changedPixels": 7387,
+            "maxDelta": 97,
+            "rmse": 0.8841232382778789,
+            "repeatRmse": 0.0,
+            "repeatMaxDelta": 0
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 18372,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 18372,
+                  "iconified": false,
+                  "msSinceLastFrame": 22.61,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.003921568859368563,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243091375,
+                "width": 640
+              },
+              "sha256": "99e66c80d3206b9c1bcf4a6bf58be10940fa6ab5380037257702649ec077b1a0"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 18399,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 18399,
+                  "iconified": false,
+                  "msSinceLastFrame": 20.69,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.003921568859368563,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243091452,
+                "width": 640
+              },
+              "sha256": "99e66c80d3206b9c1bcf4a6bf58be10940fa6ab5380037257702649ec077b1a0"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 18449,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 18449,
+                  "iconified": false,
+                  "msSinceLastFrame": 19.79,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.003921568859368563,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243091574,
+                "width": 640
+              },
+              "sha256": "d1ac5f20626bed8ea0a1cc553e81cd1c3f6390d7e9d260f8eecdfa8510de5163"
+            }
+          }
+        },
+        {
+          "name": "grazing",
+          "metrics": {
+            "changedPixels": 3078,
+            "maxDelta": 53,
+            "rmse": 0.41179091692175446,
+            "repeatRmse": 0.0,
+            "repeatMaxDelta": 0
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 18572,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 18572,
+                  "iconified": false,
+                  "msSinceLastFrame": 26.15,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.011764707043766975,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243091818,
+                "width": 640
+              },
+              "sha256": "1093fdab2ccfc48932301f2ab97e57a18d446924b88fe48cc3c2502173341071"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 18592,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 18592,
+                  "iconified": false,
+                  "msSinceLastFrame": 22.9,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.011764707043766975,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243091925,
+                "width": 640
+              },
+              "sha256": "1093fdab2ccfc48932301f2ab97e57a18d446924b88fe48cc3c2502173341071"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 18615,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 18615,
+                  "iconified": false,
+                  "msSinceLastFrame": 22.56,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.011764707043766975,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243091996,
+                "width": 640
+              },
+              "sha256": "cbf9a6eabafb075647485ec0e89086285d1e4889e40f78bf6af33d5f96cf1cfd"
+            }
+          }
+        }
+      ],
+      "animationControl": null
+    },
+    {
+      "backend": "opengl",
+      "feature": "Skin",
+      "path": "Deferred",
+      "cameras": [
+        {
+          "name": "frontal",
+          "metrics": {
+            "changedPixels": 7325,
+            "maxDelta": 97,
+            "rmse": 0.8834946459101221,
+            "repeatRmse": 0.0,
+            "repeatMaxDelta": 0
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 21072,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 21072,
+                  "iconified": false,
+                  "msSinceLastFrame": 21.05,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.0,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243097720,
+                "width": 640
+              },
+              "sha256": "fae3be09527bef79911ce4d70e5a7414cfe4a4be3bca6ef0a1aadaad18bc65af"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 21091,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 21091,
+                  "iconified": false,
+                  "msSinceLastFrame": 21.48,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.0,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243097794,
+                "width": 640
+              },
+              "sha256": "fae3be09527bef79911ce4d70e5a7414cfe4a4be3bca6ef0a1aadaad18bc65af"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 21121,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 21121,
+                  "iconified": false,
+                  "msSinceLastFrame": 21.3,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.0,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243097910,
+                "width": 640
+              },
+              "sha256": "c25728c72e63b260371d476ce473271913dbbff6fc727d0fc0b64569e660022a"
+            }
+          }
+        },
+        {
+          "name": "grazing",
+          "metrics": {
+            "changedPixels": 3076,
+            "maxDelta": 53,
+            "rmse": 0.41152381687072725,
+            "repeatRmse": 0.0,
+            "repeatMaxDelta": 0
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 21214,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 21214,
+                  "iconified": false,
+                  "msSinceLastFrame": 22.93,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.011764707043766975,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243098218,
+                "width": 640
+              },
+              "sha256": "81b5d8a127fccd1a81f7e4bb347855e39df09aa512c67dd16c88b45308f24f3e"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 21232,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 21232,
+                  "iconified": false,
+                  "msSinceLastFrame": 24.54,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.011764707043766975,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243098290,
+                "width": 640
+              },
+              "sha256": "81b5d8a127fccd1a81f7e4bb347855e39df09aa512c67dd16c88b45308f24f3e"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 21251,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 21251,
+                  "iconified": false,
+                  "msSinceLastFrame": 21.73,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.011764707043766975,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243098361,
+                "width": 640
+              },
+              "sha256": "aaaf4e60961286f061a3e529747579268a776400bca596861deb95100d6083ea"
+            }
+          }
+        }
+      ],
+      "animationControl": null
+    },
+    {
+      "backend": "opengl",
+      "feature": "Snow",
+      "path": "Forward",
+      "cameras": [
+        {
+          "name": "front",
+          "metrics": {
+            "changedPixels": 112267,
+            "maxDelta": 57,
+            "rmse": 2.0791732770992666,
+            "repeatRmse": 0.0,
+            "repeatMaxDelta": 0
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 22187,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 22187,
+                  "iconified": false,
+                  "msSinceLastFrame": 30.42,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243102739,
+                "width": 640
+              },
+              "sha256": "e121d9573e39ed1bdde87057d16b2c9c6b0162a38daf77b207a35310fd56af5f"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 22206,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 22206,
+                  "iconified": false,
+                  "msSinceLastFrame": 30.59,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243102815,
+                "width": 640
+              },
+              "sha256": "e121d9573e39ed1bdde87057d16b2c9c6b0162a38daf77b207a35310fd56af5f"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 22230,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 22230,
+                  "iconified": false,
+                  "msSinceLastFrame": 32.01,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243102915,
+                "width": 640
+              },
+              "sha256": "d19c6358bf4a294470fd499afc69e838633ea25266f9dd7f9633472261213d49"
+            }
+          }
+        },
+        {
+          "name": "oblique",
+          "metrics": {
+            "changedPixels": 128354,
+            "maxDelta": 53,
+            "rmse": 1.6676720058157364,
+            "repeatRmse": 0.0,
+            "repeatMaxDelta": 0
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 22306,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 22306,
+                  "iconified": false,
+                  "msSinceLastFrame": 39.86,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243103173,
+                "width": 640
+              },
+              "sha256": "be261503e48ceb347ce8c508a113f376573db4ad14b38e5e7704eced3731d330"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 22321,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 22321,
+                  "iconified": false,
+                  "msSinceLastFrame": 38.07,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243103259,
+                "width": 640
+              },
+              "sha256": "be261503e48ceb347ce8c508a113f376573db4ad14b38e5e7704eced3731d330"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 22344,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 22344,
+                  "iconified": false,
+                  "msSinceLastFrame": 36.56,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243103377,
+                "width": 640
+              },
+              "sha256": "abe9a79d535ed94e83070e611535ba4641f4d0b18e5f4c7fd216df4e492668eb"
+            }
+          }
+        }
+      ],
+      "animationControl": null
+    },
+    {
+      "backend": "opengl",
+      "feature": "Snow",
+      "path": "ForwardPlus",
+      "cameras": [
+        {
+          "name": "front",
+          "metrics": {
+            "changedPixels": 112267,
+            "maxDelta": 57,
+            "rmse": 2.0791732770992666,
+            "repeatRmse": 0.0,
+            "repeatMaxDelta": 0
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 23646,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 23646,
+                  "iconified": false,
+                  "msSinceLastFrame": 32.33,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243108180,
+                "width": 640
+              },
+              "sha256": "e121d9573e39ed1bdde87057d16b2c9c6b0162a38daf77b207a35310fd56af5f"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 23665,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 23665,
+                  "iconified": false,
+                  "msSinceLastFrame": 31.46,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243108262,
+                "width": 640
+              },
+              "sha256": "e121d9573e39ed1bdde87057d16b2c9c6b0162a38daf77b207a35310fd56af5f"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 23684,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 23684,
+                  "iconified": false,
+                  "msSinceLastFrame": 28.26,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243108346,
+                "width": 640
+              },
+              "sha256": "d19c6358bf4a294470fd499afc69e838633ea25266f9dd7f9633472261213d49"
+            }
+          }
+        },
+        {
+          "name": "oblique",
+          "metrics": {
+            "changedPixels": 128354,
+            "maxDelta": 53,
+            "rmse": 1.6676720058157364,
+            "repeatRmse": 0.0,
+            "repeatMaxDelta": 0
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 23745,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 23745,
+                  "iconified": false,
+                  "msSinceLastFrame": 36.98,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243108557,
+                "width": 640
+              },
+              "sha256": "be261503e48ceb347ce8c508a113f376573db4ad14b38e5e7704eced3731d330"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 23761,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 23761,
+                  "iconified": false,
+                  "msSinceLastFrame": 35.77,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243108646,
+                "width": 640
+              },
+              "sha256": "be261503e48ceb347ce8c508a113f376573db4ad14b38e5e7704eced3731d330"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 23780,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 23780,
+                  "iconified": false,
+                  "msSinceLastFrame": 36.17,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243108748,
+                "width": 640
+              },
+              "sha256": "abe9a79d535ed94e83070e611535ba4641f4d0b18e5f4c7fd216df4e492668eb"
+            }
+          }
+        }
+      ],
+      "animationControl": null
+    },
+    {
+      "backend": "opengl",
+      "feature": "Snow",
+      "path": "Deferred",
+      "cameras": [
+        {
+          "name": "front",
+          "metrics": {
+            "changedPixels": 111936,
+            "maxDelta": 57,
+            "rmse": 2.0813754689129476,
+            "repeatRmse": 0.0,
+            "repeatMaxDelta": 0
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 25260,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 25260,
+                  "iconified": false,
+                  "msSinceLastFrame": 28.28,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243113389,
+                "width": 640
+              },
+              "sha256": "31528f1564d0807306fd587275f330a98ad0eb41a8d53eaafcd6d96e73c1264e"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 25289,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 25289,
+                  "iconified": false,
+                  "msSinceLastFrame": 29.72,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243113483,
+                "width": 640
+              },
+              "sha256": "31528f1564d0807306fd587275f330a98ad0eb41a8d53eaafcd6d96e73c1264e"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 25308,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 25308,
+                  "iconified": false,
+                  "msSinceLastFrame": 27.78,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243113562,
+                "width": 640
+              },
+              "sha256": "7106ae40677a631c68542486514de3d64b9c2cb396529030c5df770891a1574b"
+            }
+          }
+        },
+        {
+          "name": "oblique",
+          "metrics": {
+            "changedPixels": 128438,
+            "maxDelta": 53,
+            "rmse": 1.6694118017699793,
+            "repeatRmse": 0.0,
+            "repeatMaxDelta": 0
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 25388,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 25388,
+                  "iconified": false,
+                  "msSinceLastFrame": 37.3,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243113807,
+                "width": 640
+              },
+              "sha256": "5f4913760e6767171bfca073a716bbadf2a307d4d87fb3de4ec5e8d9b8b94e07"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 25407,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 25407,
+                  "iconified": false,
+                  "msSinceLastFrame": 41.11,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243113908,
+                "width": 640
+              },
+              "sha256": "5f4913760e6767171bfca073a716bbadf2a307d4d87fb3de4ec5e8d9b8b94e07"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 25428,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 25428,
+                  "iconified": false,
+                  "msSinceLastFrame": 35.17,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243114035,
+                "width": 640
+              },
+              "sha256": "20bba08e96cc791b4d73c232bf25f89b47c4f2aecc16a02d576fcdb5d3cb48e2"
+            }
+          }
+        }
+      ],
+      "animationControl": null
+    },
+    {
+      "backend": "opengl",
+      "feature": "Water",
+      "path": "Forward",
+      "cameras": [
+        {
+          "name": "front",
+          "metrics": {
+            "changedPixels": 172689,
+            "maxDelta": 119,
+            "rmse": 29.943404853372353,
+            "repeatRmse": 3.9609476016198166,
+            "repeatMaxDelta": 94
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 26331,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 26331,
+                  "iconified": false,
+                  "msSinceLastFrame": 36.38,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.03921568766236305,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243119478,
+                "width": 640
+              },
+              "sha256": "5122b17a7e37d7ce4043745ca3a5e8c56f2f7348ef7ff18feb8f9bfd7ee75a5b"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 26342,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 26342,
+                  "iconified": false,
+                  "msSinceLastFrame": 36.77,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.03921568766236305,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243119570,
+                "width": 640
+              },
+              "sha256": "295c2fb5501e9e3dbc8b168e6c3f38f48184420a51d56ef456e5f5640f060472"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 26354,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 26354,
+                  "iconified": false,
+                  "msSinceLastFrame": 40.18,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.03921568766236305,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243119670,
+                "width": 640
+              },
+              "sha256": "b3f8c1a614d008c95be04e7fbe0b2ba3a8f43eded366c75fe90d248cb2f8d1f2"
+            }
+          }
+        },
+        {
+          "name": "grazing",
+          "metrics": {
+            "changedPixels": 201424,
+            "maxDelta": 131,
+            "rmse": 38.34549027865791,
+            "repeatRmse": 1.5796223873363133,
+            "repeatMaxDelta": 76
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 26394,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 26394,
+                  "iconified": false,
+                  "msSinceLastFrame": 25.47,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.05098039656877518,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243119926,
+                "width": 640
+              },
+              "sha256": "9fda0b1f29005d3497ebf0e0c0e20439f7f56cba568b1e6c77c5f6dff6c214c1"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 26406,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 26406,
+                  "iconified": false,
+                  "msSinceLastFrame": 24.8,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.0470588281750679,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243120002,
+                "width": 640
+              },
+              "sha256": "eac88f04ddfa6eab2546b9188b4f2507cb66fd4cd4e3298c1ad7c2648177da03"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 26425,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 26425,
+                  "iconified": false,
+                  "msSinceLastFrame": 31.42,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.03529411926865578,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243120126,
+                "width": 640
+              },
+              "sha256": "5db81367b892b515b5b5aec9245a6f654f5f03cb10abf3daccae1c8fa2aeb407"
+            }
+          }
+        }
+      ],
+      "animationControl": "WaveSpeed and both NormalMapScrollSpeed fields set to zero transiently; undone on exit"
+    },
+    {
+      "backend": "opengl",
+      "feature": "Water",
+      "path": "ForwardPlus",
+      "cameras": [
+        {
+          "name": "front",
+          "metrics": {
+            "changedPixels": 172000,
+            "maxDelta": 125,
+            "rmse": 29.467796123755228,
+            "repeatRmse": 3.3132463345106333,
+            "repeatMaxDelta": 107
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 27330,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 27330,
+                  "iconified": false,
+                  "msSinceLastFrame": 37.05,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.03921568766236305,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243124869,
+                "width": 640
+              },
+              "sha256": "37bf019237abc39eb3cd0cc8871dad57aaf5db908a272f14ffc0302a92f48ce1"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 27346,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 27346,
+                  "iconified": false,
+                  "msSinceLastFrame": 38.7,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.03921568766236305,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243124977,
+                "width": 640
+              },
+              "sha256": "d2b6cdb8457a7209422715f583e655421318d5bbfb07ba32157be70bc815fce3"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 27359,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 27359,
+                  "iconified": false,
+                  "msSinceLastFrame": 36.84,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.03921568766236305,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243125076,
+                "width": 640
+              },
+              "sha256": "b3f8c1a614d008c95be04e7fbe0b2ba3a8f43eded366c75fe90d248cb2f8d1f2"
+            }
+          }
+        },
+        {
+          "name": "grazing",
+          "metrics": {
+            "changedPixels": 201592,
+            "maxDelta": 132,
+            "rmse": 38.49056563548807,
+            "repeatRmse": 1.4365143561309683,
+            "repeatMaxDelta": 117
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 27400,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 27400,
+                  "iconified": false,
+                  "msSinceLastFrame": 25.72,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.0470588281750679,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243125311,
+                "width": 640
+              },
+              "sha256": "b7b90fa86d1713d250be7c487e5c839038943791c5e0451e443462ba31ee0418"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 27416,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 27416,
+                  "iconified": false,
+                  "msSinceLastFrame": 26.26,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.05098039656877518,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243125406,
+                "width": 640
+              },
+              "sha256": "2ac3145185cc40945058cb598effb45301bd242924495e32caac1c2001a24515"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 27428,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 27428,
+                  "iconified": false,
+                  "msSinceLastFrame": 31.66,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.03529411926865578,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243125493,
+                "width": 640
+              },
+              "sha256": "5db81367b892b515b5b5aec9245a6f654f5f03cb10abf3daccae1c8fa2aeb407"
+            }
+          }
+        }
+      ],
+      "animationControl": "WaveSpeed and both NormalMapScrollSpeed fields set to zero transiently; undone on exit"
+    },
+    {
+      "backend": "opengl",
+      "feature": "Water",
+      "path": "Deferred",
+      "cameras": [
+        {
+          "name": "front",
+          "metrics": {
+            "changedPixels": 171912,
+            "maxDelta": 128,
+            "rmse": 29.877883088645962,
+            "repeatRmse": 4.010355158258476,
+            "repeatMaxDelta": 75
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 28385,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 28385,
+                  "iconified": false,
+                  "msSinceLastFrame": 36.62,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.03921568766236305,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243130641,
+                "width": 640
+              },
+              "sha256": "3b1aa9a8d3383e2d45af2f319bd26b95990acddc10d3490bc3ec2f49e0674959"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 28396,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 28396,
+                  "iconified": false,
+                  "msSinceLastFrame": 39.12,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.03921568766236305,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243130729,
+                "width": 640
+              },
+              "sha256": "577472f0aaea97d863cb9a467339a90b7744ff254ac28a2f2f5edbc134f34989"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 28409,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 28409,
+                  "iconified": false,
+                  "msSinceLastFrame": 40.25,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.03921568766236305,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243130834,
+                "width": 640
+              },
+              "sha256": "71fb0c786fd2b167f41b217f89f1d6c06fb18c9aa526b14042b7e212c5181530"
+            }
+          }
+        },
+        {
+          "name": "grazing",
+          "metrics": {
+            "changedPixels": 201383,
+            "maxDelta": 132,
+            "rmse": 38.25921380115998,
+            "repeatRmse": 1.668701015372048,
+            "repeatMaxDelta": 107
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 28455,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 28455,
+                  "iconified": false,
+                  "msSinceLastFrame": 24.3,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.05098039656877518,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243131072,
+                "width": 640
+              },
+              "sha256": "c2ad41120a0d1e5e8c8723575c1ca91484beeaa41839c2e49cd68beba8271057"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 28467,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 28467,
+                  "iconified": false,
+                  "msSinceLastFrame": 24.56,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.04313725605607033,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243131149,
+                "width": 640
+              },
+              "sha256": "b96f15ad6d9c9808fad4916c5cff2aa2c0059f1bad4199d49695f38b4f45686b"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 28479,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 28479,
+                  "iconified": false,
+                  "msSinceLastFrame": 31.37,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.03529411926865578,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791243131235,
+                "width": 640
+              },
+              "sha256": "35f4ca67ea62d4b6542263fe4e057fd9d8c12b7a391f4e5111eea963b2c26690"
+            }
+          }
+        }
+      ],
+      "animationControl": "WaveSpeed and both NormalMapScrollSpeed fields set to zero transiently; undone on exit"
+    },
+    {
+      "backend": "vulkan",
+      "feature": "Skin",
+      "path": "Forward",
+      "cameras": [
+        {
+          "name": "frontal",
+          "metrics": {
+            "changedPixels": 7321,
+            "maxDelta": 97,
+            "rmse": 0.8868982701903678,
+            "repeatRmse": 0.0,
+            "repeatMaxDelta": 0
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 8236,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 8236,
+                  "iconified": false,
+                  "msSinceLastFrame": 25.89,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.003921568859368563,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244081822,
+                "width": 640
+              },
+              "sha256": "6118bcc1c3c425b6fe80ff5f8521c7c999531b471a4ceed7f7a6c98278419999"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 8244,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 8244,
+                  "iconified": false,
+                  "msSinceLastFrame": 26.82,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.003921568859368563,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244081905,
+                "width": 640
+              },
+              "sha256": "6118bcc1c3c425b6fe80ff5f8521c7c999531b471a4ceed7f7a6c98278419999"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 8255,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 8255,
+                  "iconified": false,
+                  "msSinceLastFrame": 26.04,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.003921568859368563,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244082008,
+                "width": 640
+              },
+              "sha256": "db8b8c011852a26f90d4ee427718ed5156c322ab1a9d711eb24c6ef0ee978e0b"
+            }
+          }
+        },
+        {
+          "name": "grazing",
+          "metrics": {
+            "changedPixels": 3041,
+            "maxDelta": 53,
+            "rmse": 0.41253682495559646,
+            "repeatRmse": 0.0,
+            "repeatMaxDelta": 0
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 8291,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 8291,
+                  "iconified": false,
+                  "msSinceLastFrame": 34.18,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.007843137718737125,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244082317,
+                "width": 640
+              },
+              "sha256": "98e494e39571a948ae75291171f9f0ac8140ed255cbffb6e16d5e162ca39cdf9"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 8300,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 8300,
+                  "iconified": false,
+                  "msSinceLastFrame": 27.27,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.007843137718737125,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244082405,
+                "width": 640
+              },
+              "sha256": "98e494e39571a948ae75291171f9f0ac8140ed255cbffb6e16d5e162ca39cdf9"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 8310,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 8310,
+                  "iconified": false,
+                  "msSinceLastFrame": 27.75,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.007843137718737125,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244082503,
+                "width": 640
+              },
+              "sha256": "2e9273169a3253286c8cdd079d44e8b7f1bce3ecd5876e379044addbbd94490d"
+            }
+          }
+        }
+      ],
+      "animationControl": null
+    },
+    {
+      "backend": "vulkan",
+      "feature": "Skin",
+      "path": "ForwardPlus",
+      "cameras": [
+        {
+          "name": "frontal",
+          "metrics": {
+            "changedPixels": 7321,
+            "maxDelta": 97,
+            "rmse": 0.8868982701903678,
+            "repeatRmse": 0.0,
+            "repeatMaxDelta": 0
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 8805,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 8805,
+                  "iconified": false,
+                  "msSinceLastFrame": 26.15,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.003921568859368563,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244086673,
+                "width": 640
+              },
+              "sha256": "2896f50118e8f2d161d8c91cb36adc89bb14d4f35a94691b8d63881cdd27d2f8"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 8814,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 8814,
+                  "iconified": false,
+                  "msSinceLastFrame": 25.66,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.003921568859368563,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244086753,
+                "width": 640
+              },
+              "sha256": "2896f50118e8f2d161d8c91cb36adc89bb14d4f35a94691b8d63881cdd27d2f8"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 8823,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 8823,
+                  "iconified": false,
+                  "msSinceLastFrame": 25.53,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.003921568859368563,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244086841,
+                "width": 640
+              },
+              "sha256": "e430e22b4e09c73f4d02bd824defe403c50b8c685f13285eb3dde6b2bdb03673"
+            }
+          }
+        },
+        {
+          "name": "grazing",
+          "metrics": {
+            "changedPixels": 3041,
+            "maxDelta": 53,
+            "rmse": 0.41253682495559646,
+            "repeatRmse": 0.0,
+            "repeatMaxDelta": 0
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 8852,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 8852,
+                  "iconified": false,
+                  "msSinceLastFrame": 26.65,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.007843137718737125,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244087080,
+                "width": 640
+              },
+              "sha256": "98e494e39571a948ae75291171f9f0ac8140ed255cbffb6e16d5e162ca39cdf9"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 8861,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 8861,
+                  "iconified": false,
+                  "msSinceLastFrame": 29.63,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.007843137718737125,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244087181,
+                "width": 640
+              },
+              "sha256": "98e494e39571a948ae75291171f9f0ac8140ed255cbffb6e16d5e162ca39cdf9"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 8874,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 8874,
+                  "iconified": false,
+                  "msSinceLastFrame": 25.56,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.007843137718737125,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244087294,
+                "width": 640
+              },
+              "sha256": "2e9273169a3253286c8cdd079d44e8b7f1bce3ecd5876e379044addbbd94490d"
+            }
+          }
+        }
+      ],
+      "animationControl": null
+    },
+    {
+      "backend": "vulkan",
+      "feature": "Skin",
+      "path": "Deferred",
+      "cameras": [
+        {
+          "name": "frontal",
+          "metrics": {
+            "changedPixels": 7282,
+            "maxDelta": 97,
+            "rmse": 0.8861777774469075,
+            "repeatRmse": 0.0,
+            "repeatMaxDelta": 0
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 9388,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 9388,
+                  "iconified": false,
+                  "msSinceLastFrame": 27.13,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.0,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244091657,
+                "width": 640
+              },
+              "sha256": "ac657445e88a512d4f88e0e66e2d36362936f01ee3434ea5457a34ab61bfe3e5"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 9396,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 9396,
+                  "iconified": false,
+                  "msSinceLastFrame": 31.52,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.0,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244091756,
+                "width": 640
+              },
+              "sha256": "ac657445e88a512d4f88e0e66e2d36362936f01ee3434ea5457a34ab61bfe3e5"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 9404,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 9404,
+                  "iconified": false,
+                  "msSinceLastFrame": 25.8,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.0,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244091843,
+                "width": 640
+              },
+              "sha256": "3a9ed0912a7d6c7a9316611aca2986d3e46fc6fa771e6a5b7ffc1753ef38143a"
+            }
+          }
+        },
+        {
+          "name": "grazing",
+          "metrics": {
+            "changedPixels": 3100,
+            "maxDelta": 52,
+            "rmse": 0.4118260487687058,
+            "repeatRmse": 0.0,
+            "repeatMaxDelta": 0
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 9427,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 9427,
+                  "iconified": false,
+                  "msSinceLastFrame": 26.81,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.0117647061124444,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244092083,
+                "width": 640
+              },
+              "sha256": "2dfd2dce65030170805b84c681db64c7248e045385227ce37a8c2bf4967df250"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 9438,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 9438,
+                  "iconified": false,
+                  "msSinceLastFrame": 25.66,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.0117647061124444,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244092178,
+                "width": 640
+              },
+              "sha256": "2dfd2dce65030170805b84c681db64c7248e045385227ce37a8c2bf4967df250"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 9448,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 9448,
+                  "iconified": false,
+                  "msSinceLastFrame": 25.92,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.0117647061124444,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244092271,
+                "width": 640
+              },
+              "sha256": "2a0e27807cd3345f4dd4cd671aecc5ffa889a5ec62e5a2a39f0342cb4d59587a"
+            }
+          }
+        }
+      ],
+      "animationControl": null
+    },
+    {
+      "backend": "vulkan",
+      "feature": "Snow",
+      "path": "Forward",
+      "cameras": [
+        {
+          "name": "front",
+          "metrics": {
+            "changedPixels": 112296,
+            "maxDelta": 57,
+            "rmse": 2.0793270507056594,
+            "repeatRmse": 0.0,
+            "repeatMaxDelta": 0
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 9809,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 9809,
+                  "iconified": false,
+                  "msSinceLastFrame": 40.05,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244096603,
+                "width": 640
+              },
+              "sha256": "e1d4884f40916306e543e8fa1fcffe2602a3198df0ffa9b4388286cfd4e0249c"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 9816,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 9816,
+                  "iconified": false,
+                  "msSinceLastFrame": 33.38,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244096693,
+                "width": 640
+              },
+              "sha256": "e1d4884f40916306e543e8fa1fcffe2602a3198df0ffa9b4388286cfd4e0249c"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 9827,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 9827,
+                  "iconified": false,
+                  "msSinceLastFrame": 33.84,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244096820,
+                "width": 640
+              },
+              "sha256": "ffc1c7bf39a577ba83828695709b37f4520ecaa2c189505ec6cd58e427290df8"
+            }
+          }
+        },
+        {
+          "name": "oblique",
+          "metrics": {
+            "changedPixels": 128730,
+            "maxDelta": 53,
+            "rmse": 1.6678606834083172,
+            "repeatRmse": 0.0,
+            "repeatMaxDelta": 0
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 9851,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 9851,
+                  "iconified": false,
+                  "msSinceLastFrame": 40.02,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244097117,
+                "width": 640
+              },
+              "sha256": "f5e1a7b648f321ad08d49a875fedfa52c66ce8999b1105a85a273e16b781917e"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 9857,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 9857,
+                  "iconified": false,
+                  "msSinceLastFrame": 40.46,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244097211,
+                "width": 640
+              },
+              "sha256": "f5e1a7b648f321ad08d49a875fedfa52c66ce8999b1105a85a273e16b781917e"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 9866,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 9866,
+                  "iconified": false,
+                  "msSinceLastFrame": 38.14,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244097340,
+                "width": 640
+              },
+              "sha256": "55e61b42d2e0be2d3fe8e907dd514371165bbca1c59c6137ab0ddbcc40d36c91"
+            }
+          }
+        }
+      ],
+      "animationControl": null
+    },
+    {
+      "backend": "vulkan",
+      "feature": "Snow",
+      "path": "ForwardPlus",
+      "cameras": [
+        {
+          "name": "front",
+          "metrics": {
+            "changedPixels": 112296,
+            "maxDelta": 57,
+            "rmse": 2.0793270507056594,
+            "repeatRmse": 0.0,
+            "repeatMaxDelta": 0
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 10309,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 10309,
+                  "iconified": false,
+                  "msSinceLastFrame": 34.67,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244102201,
+                "width": 640
+              },
+              "sha256": "e1d4884f40916306e543e8fa1fcffe2602a3198df0ffa9b4388286cfd4e0249c"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 10316,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 10316,
+                  "iconified": false,
+                  "msSinceLastFrame": 36.41,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244102295,
+                "width": 640
+              },
+              "sha256": "e1d4884f40916306e543e8fa1fcffe2602a3198df0ffa9b4388286cfd4e0249c"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 10326,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 10326,
+                  "iconified": false,
+                  "msSinceLastFrame": 34.8,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244102409,
+                "width": 640
+              },
+              "sha256": "ffc1c7bf39a577ba83828695709b37f4520ecaa2c189505ec6cd58e427290df8"
+            }
+          }
+        },
+        {
+          "name": "oblique",
+          "metrics": {
+            "changedPixels": 128730,
+            "maxDelta": 53,
+            "rmse": 1.6678606834083172,
+            "repeatRmse": 0.0,
+            "repeatMaxDelta": 0
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 10350,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 10350,
+                  "iconified": false,
+                  "msSinceLastFrame": 37.97,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244102671,
+                "width": 640
+              },
+              "sha256": "f5e1a7b648f321ad08d49a875fedfa52c66ce8999b1105a85a273e16b781917e"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 10356,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 10356,
+                  "iconified": false,
+                  "msSinceLastFrame": 37.8,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244102762,
+                "width": 640
+              },
+              "sha256": "f5e1a7b648f321ad08d49a875fedfa52c66ce8999b1105a85a273e16b781917e"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 10365,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 10365,
+                  "iconified": false,
+                  "msSinceLastFrame": 39.5,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244102905,
+                "width": 640
+              },
+              "sha256": "55e61b42d2e0be2d3fe8e907dd514371165bbca1c59c6137ab0ddbcc40d36c91"
+            }
+          }
+        }
+      ],
+      "animationControl": null
+    },
+    {
+      "backend": "vulkan",
+      "feature": "Snow",
+      "path": "Deferred",
+      "cameras": [
+        {
+          "name": "front",
+          "metrics": {
+            "changedPixels": 112081,
+            "maxDelta": 57,
+            "rmse": 2.080236587328292,
+            "repeatRmse": 0.0,
+            "repeatMaxDelta": 0
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 10784,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 10784,
+                  "iconified": false,
+                  "msSinceLastFrame": 43.32,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244107598,
+                "width": 640
+              },
+              "sha256": "adb55c2091d2695cf285e67771a0d5c9fe8284bc1e54087b3c20a123ec6ac03a"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 10792,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 10792,
+                  "iconified": false,
+                  "msSinceLastFrame": 35.47,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244107727,
+                "width": 640
+              },
+              "sha256": "adb55c2091d2695cf285e67771a0d5c9fe8284bc1e54087b3c20a123ec6ac03a"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 10801,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 10801,
+                  "iconified": false,
+                  "msSinceLastFrame": 34.83,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244107844,
+                "width": 640
+              },
+              "sha256": "df49536d335e04ca519ddac93c8884285a81986e9ce62c8af5fd9bea9cbfa3ca"
+            }
+          }
+        },
+        {
+          "name": "oblique",
+          "metrics": {
+            "changedPixels": 128674,
+            "maxDelta": 53,
+            "rmse": 1.6702405258979474,
+            "repeatRmse": 0.0,
+            "repeatMaxDelta": 0
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 10825,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 10825,
+                  "iconified": false,
+                  "msSinceLastFrame": 46.27,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244108147,
+                "width": 640
+              },
+              "sha256": "01b87c3dda4648a48cb3aea5801fa21eec68233495cde041e9482a29eb398364"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 10831,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 10831,
+                  "iconified": false,
+                  "msSinceLastFrame": 46.21,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244108250,
+                "width": 640
+              },
+              "sha256": "01b87c3dda4648a48cb3aea5801fa21eec68233495cde041e9482a29eb398364"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 10841,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 10841,
+                  "iconified": false,
+                  "msSinceLastFrame": 40.06,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.125490203499794,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244108388,
+                "width": 640
+              },
+              "sha256": "cd333d58e9780c146a87c2820071caba1a44f8932fbc775a12cdb92237cc1e9f"
+            }
+          }
+        }
+      ],
+      "animationControl": null
+    },
+    {
+      "backend": "vulkan",
+      "feature": "Water",
+      "path": "Forward",
+      "cameras": [
+        {
+          "name": "front",
+          "metrics": {
+            "changedPixels": 171418,
+            "maxDelta": 130,
+            "rmse": 30.27428736411631,
+            "repeatRmse": 5.194950584372682,
+            "repeatMaxDelta": 112
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 11156,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 11156,
+                  "iconified": false,
+                  "msSinceLastFrame": 50.16,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.03921568766236305,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244114235,
+                "width": 640
+              },
+              "sha256": "efeab0a455facc4be4bccf6a3cf7ec329d185e41cc57764e72193371f5818ec9"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 11162,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 11162,
+                  "iconified": false,
+                  "msSinceLastFrame": 47.7,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.03921568766236305,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244114360,
+                "width": 640
+              },
+              "sha256": "0dcdb9b90f1567cae8996d574ed09da5575e3129e32edea4d6810254bd3e690e"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 11170,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 11170,
+                  "iconified": false,
+                  "msSinceLastFrame": 45.67,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.03921568766236305,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244114507,
+                "width": 640
+              },
+              "sha256": "481dd593d48df13b3818a791307b05ce051fea14ecc71dee1bbf856cc137ef7a"
+            }
+          }
+        },
+        {
+          "name": "grazing",
+          "metrics": {
+            "changedPixels": 200303,
+            "maxDelta": 131,
+            "rmse": 38.262789823396886,
+            "repeatRmse": 2.403651795917728,
+            "repeatMaxDelta": 92
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 11185,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 11185,
+                  "iconified": false,
+                  "msSinceLastFrame": 37.7,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.04313725605607033,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244114803,
+                "width": 640
+              },
+              "sha256": "83b3aaf688b555163aea3f1e7e313ee6547a23453382e34957ce27105e3232b8"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 11191,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 11191,
+                  "iconified": false,
+                  "msSinceLastFrame": 38.69,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.03921568766236305,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244114929,
+                "width": 640
+              },
+              "sha256": "8a9fc3c2e1215110cfb671437857caa3a98be272b0052528c5b1d318e96f69e3"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 11198,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 11198,
+                  "iconified": false,
+                  "msSinceLastFrame": 43.73,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.03529411926865578,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244115099,
+                "width": 640
+              },
+              "sha256": "988a5da64cac37c75bd483a7a04202ed89444a21aab11b57cc1415d9f38898ec"
+            }
+          }
+        }
+      ],
+      "animationControl": "WaveSpeed and both NormalMapScrollSpeed fields set to zero transiently; undone on exit"
+    },
+    {
+      "backend": "vulkan",
+      "feature": "Water",
+      "path": "ForwardPlus",
+      "cameras": [
+        {
+          "name": "front",
+          "metrics": {
+            "changedPixels": 170892,
+            "maxDelta": 126,
+            "rmse": 29.422344947909853,
+            "repeatRmse": 5.295125591968732,
+            "repeatMaxDelta": 111
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 11500,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 11500,
+                  "iconified": false,
+                  "msSinceLastFrame": 44.16,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.03921568766236305,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244120068,
+                "width": 640
+              },
+              "sha256": "0602d91335815e97dce78e4ec4af72c2bb672f9ca161989979a8943f3a702102"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 11506,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 11506,
+                  "iconified": false,
+                  "msSinceLastFrame": 44.66,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.03921568766236305,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244120184,
+                "width": 640
+              },
+              "sha256": "15678acaf0790aaa0c53745c2ddc47ddf7834fbb25f4dd35d9d57ce52fad3ce3"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 11513,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 11513,
+                  "iconified": false,
+                  "msSinceLastFrame": 42.71,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.03921568766236305,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244120318,
+                "width": 640
+              },
+              "sha256": "481dd593d48df13b3818a791307b05ce051fea14ecc71dee1bbf856cc137ef7a"
+            }
+          }
+        },
+        {
+          "name": "grazing",
+          "metrics": {
+            "changedPixels": 199518,
+            "maxDelta": 131,
+            "rmse": 38.164536743850114,
+            "repeatRmse": 2.4214461239140794,
+            "repeatMaxDelta": 106
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 11528,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 11528,
+                  "iconified": false,
+                  "msSinceLastFrame": 34.37,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.054901961237192154,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244120558,
+                "width": 640
+              },
+              "sha256": "e106353169bdcf598b5d6d0200577467cfb82b065ed6443cfa7795e5e0985df0"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 11534,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 11534,
+                  "iconified": false,
+                  "msSinceLastFrame": 36.86,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.05098039284348488,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244120671,
+                "width": 640
+              },
+              "sha256": "5b56561c13cb0caac0c7171efa4d65e797346a28c7125b842fefa160c901810f"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 11541,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 11541,
+                  "iconified": false,
+                  "msSinceLastFrame": 43.09,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.03529411926865578,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244120804,
+                "width": 640
+              },
+              "sha256": "988a5da64cac37c75bd483a7a04202ed89444a21aab11b57cc1415d9f38898ec"
+            }
+          }
+        }
+      ],
+      "animationControl": "WaveSpeed and both NormalMapScrollSpeed fields set to zero transiently; undone on exit"
+    },
+    {
+      "backend": "vulkan",
+      "feature": "Water",
+      "path": "Deferred",
+      "cameras": [
+        {
+          "name": "front",
+          "metrics": {
+            "changedPixels": 171029,
+            "maxDelta": 134,
+            "rmse": 30.077381802987528,
+            "repeatRmse": 4.538964856395409,
+            "repeatMaxDelta": 143
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 11838,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 11838,
+                  "iconified": false,
+                  "msSinceLastFrame": 43.18,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.03921568766236305,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244124968,
+                "width": 640
+              },
+              "sha256": "69c0833ddd884319a51c4fd8739573d72e7a9578f50e6f39f527605c3682b5df"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 11844,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 11844,
+                  "iconified": false,
+                  "msSinceLastFrame": 42.57,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.03921568766236305,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244125072,
+                "width": 640
+              },
+              "sha256": "4f054fe199f890f50eacd8bb69dee7b6944bf722abb8d4f0b961e24090e55d56"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 11851,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 11851,
+                  "iconified": false,
+                  "msSinceLastFrame": 41.91,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.03921568766236305,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244125185,
+                "width": 640
+              },
+              "sha256": "2211ec88cde3216539a00f8f393879127e5dec042f148ca4c40823d1a34c447e"
+            }
+          }
+        },
+        {
+          "name": "grazing",
+          "metrics": {
+            "changedPixels": 201618,
+            "maxDelta": 134,
+            "rmse": 38.46453265010171,
+            "repeatRmse": 2.1736456111923017,
+            "repeatMaxDelta": 118
+          },
+          "captures": {
+            "on": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 11871,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 11871,
+                  "iconified": false,
+                  "msSinceLastFrame": 30.39,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.054901961237192154,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244125477,
+                "width": 640
+              },
+              "sha256": "d6ab65ee1db64a74b2fd4a45b7c0f65dcbb8d71e436eb97aaa3184d94ff6f84c"
+            },
+            "repeat": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 11877,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 11877,
+                  "iconified": false,
+                  "msSinceLastFrame": 31.87,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.054901961237192154,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244125575,
+                "width": 640
+              },
+              "sha256": "8af2957b396146141cf2a3437e56414e6e07f1d0f5f2e3fa579e5fdf5b9b4fe3"
+            },
+            "off": {
+              "metadata": {
+                "forcedFreshFrame": true,
+                "format": "Unknown",
+                "frameIndex": 11883,
+                "height": 360,
+                "isDepth": false,
+                "layer": 0,
+                "liveness": {
+                  "captureUnready": false,
+                  "focused": true,
+                  "frameIndex": 11883,
+                  "iconified": false,
+                  "msSinceLastFrame": 39.99,
+                  "ticking": true,
+                  "visible": true
+                },
+                "maxValue": 1.0,
+                "minValue": 0.0313725508749485,
+                "name": "UIComposite",
+                "normalized": false,
+                "region": {
+                  "h": 360,
+                  "nativeResolution": true,
+                  "w": 640,
+                  "x": 0,
+                  "y": 0
+                },
+                "sourceHeight": 360,
+                "sourceWidth": 640,
+                "stale": false,
+                "timestampMs": 1791244125680,
+                "width": 640
+              },
+              "sha256": "232e2698c3d2b8a557f2a2a92012ee7abc8d780674730b1f7ecabe7acf374dbe"
+            }
+          }
+        }
+      ],
+      "animationControl": "WaveSpeed and both NormalMapScrollSpeed fields set to zero transiently; undone on exit"
+    }
+  ]
+}
