@@ -198,7 +198,9 @@ namespace OloEngine
     class ScriptEngine
     {
       public:
-        static void Init();
+        // Fixed before Mono starts; assembly loading and reload share this policy.
+        // Direct hosts (including tests) default to no debugger agent or PDB lookup.
+        static void Init(bool enableDebugging = false);
         static void Shutdown();
 
         static bool LoadAssembly(const std::filesystem::path& filepath);
