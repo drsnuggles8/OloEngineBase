@@ -73,6 +73,11 @@ process. One minimized capture and one Windows display/DPI-query attempt are
 excluded and preserved with controlled or identical-input clean reruns. The
 capture helper retains its window handle, restores observed minimization and
 restarts settling before publishing a PNG.
+The same check covers a hidden window: a
+[controlled Win32 hide/show sequence](../../OloEditor/assets/tests/visual/ShadowFamilyRegressions/RuntimeHiddenWindowBefore/Provenance.json)
+published after only 2.46 visible seconds before the fix and 8.08 seconds after
+it, with an eight-second settle request. These controls use a software window
+and are separate from the engine measurement totals.
 
 Snow disable returned shadow mass and centroid to the dry baseline on all three
 paths. The first disabled VSM measurement retains cached pages before a mode

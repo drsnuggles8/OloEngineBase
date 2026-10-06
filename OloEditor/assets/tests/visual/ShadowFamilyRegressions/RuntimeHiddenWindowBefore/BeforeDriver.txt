@@ -1,0 +1,6 @@
+
+Path    : C:\repos\OloEngine-vsm-terrain-voxel-foliage-casters-1524\.claude\vsm1524-hidden-before\Capture.png
+Width   : 962
+Height  : 768
+MeanLum : 22.1
+StdLum  : 49.2

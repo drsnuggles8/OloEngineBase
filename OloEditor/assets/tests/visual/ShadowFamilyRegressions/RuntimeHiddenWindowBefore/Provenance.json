@@ -1,0 +1,38 @@
+{
+  "sourceHEAD": "a269163a2427c0f1e1c93b04a996f875d74a6fdd",
+  "control": "Owned WinForms window, hidden without minimization repeatedly from 5 to 6.5 seconds during an 8-second driver settle, then shown. Same Win32 sequence before and after the visibility fix. No engine/GPU process used.",
+  "driverLogNormalization": "UTF-8 LF, trailing whitespace at file end removed; original source hashes retained below",
+  "originalDriverLogSHA256": {
+    "before": "c98123de8547905facbfb723492a5164fd625bef9b3a8bb8f6e262a9d19c2142",
+    "after": "80f264523cd20ca5102081cb60200615fd4c471230a2c34f56d2069f7525c6d2"
+  },
+  "fixtureScriptSHA256": "114aac20bc9fa39f27d7e561188017d676c5e4ecc508f20d6bcffae188ef0ee6",
+  "beforeVisibleSeconds": 2.4631972000934184,
+  "afterVisibleSeconds": 8.075088100042194,
+  "files": [
+    {
+      "path": "AfterCapture.png",
+      "SHA256": "8a58b797539b07ce1da43216a8d4a9afe23800368c2116e327d2d79cbdd99650"
+    },
+    {
+      "path": "AfterDriver.txt",
+      "SHA256": "80f264523cd20ca5102081cb60200615fd4c471230a2c34f56d2069f7525c6d2"
+    },
+    {
+      "path": "AfterProvenance.json",
+      "SHA256": "04d8fbfed0315aa981572e03157dc27148abcd2353fa08cbc395fc4e1d80f0a0"
+    },
+    {
+      "path": "BeforeCapture.png",
+      "SHA256": "0a2fa2d059ae1d68a426e0c51883fddbef0deef04eed63248b743e64d332fca2"
+    },
+    {
+      "path": "BeforeDriver.txt",
+      "SHA256": "526f927b571a545f18d9820f56acf9130fc22ca15ec86ee68b0b1e372765425f"
+    },
+    {
+      "path": "BeforeProvenance.json",
+      "SHA256": "797c8758df40f2ef7851f68e8033554a501e0c4d2504fb5347dabeebc665fc4f"
+    }
+  ]
+}

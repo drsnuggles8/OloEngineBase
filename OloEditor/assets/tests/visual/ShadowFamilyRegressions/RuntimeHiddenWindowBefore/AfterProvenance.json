@@ -1,0 +1,167 @@
+{
+  "driverSHA256": "01d5558933a50e5f5481e6ff6692bc14783a6c124d0eca8e607184b394c649d7",
+  "elapsedSeconds": 14.613987799966708,
+  "actorFinalShowSeconds": 6.538899699924514,
+  "visibleSettleAfterFinalShow": 8.075088100042194,
+  "events": [
+    {
+      "elapsedSeconds": 5.004342399770394,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "elapsedSeconds": 5.056355399778113,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "elapsedSeconds": 5.106616199947894,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "elapsedSeconds": 5.158480299869552,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "elapsedSeconds": 5.208794699981809,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "elapsedSeconds": 5.260123299900442,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "elapsedSeconds": 5.3104893998242915,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "elapsedSeconds": 5.360795199871063,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "elapsedSeconds": 5.412393599981442,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "elapsedSeconds": 5.462755599990487,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "elapsedSeconds": 5.51474679983221,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "elapsedSeconds": 5.565346699906513,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "elapsedSeconds": 5.615635899826884,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "elapsedSeconds": 5.667676999932155,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "elapsedSeconds": 5.71795709989965,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "elapsedSeconds": 5.769043099833652,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "elapsedSeconds": 5.819395699771121,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "elapsedSeconds": 5.871154399821535,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "elapsedSeconds": 5.9215149998199195,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "elapsedSeconds": 5.974237899994478,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "elapsedSeconds": 6.02453129994683,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "elapsedSeconds": 6.074792999774218,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "elapsedSeconds": 6.125834899954498,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "elapsedSeconds": 6.176256499951705,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "elapsedSeconds": 6.227802199777216,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "elapsedSeconds": 6.277888299897313,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "elapsedSeconds": 6.328799499897286,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "elapsedSeconds": 6.380500899860635,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "elapsedSeconds": 6.4307173998095095,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "elapsedSeconds": 6.481922399951145,
+      "visible": false,
+      "iconic": false
+    },
+    {
+      "shownAt": 6.538899699924514
+    }
+  ],
+  "pngSize": [
+    962,
+    768
+  ],
+  "fixturePID": 90312,
+  "fixtureAlive": true
+}
