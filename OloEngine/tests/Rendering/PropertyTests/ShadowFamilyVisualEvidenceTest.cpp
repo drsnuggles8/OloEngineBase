@@ -135,6 +135,8 @@ namespace OloEngine::Tests
         Entity m_Caster;
         Entity m_Light;
         bool m_ImpostorEvidence = false;
+        bool m_MeasurementsStarted = false;
+        bool m_UnsupportedStarted = false;
 
         void BuildScene() override
         {
@@ -455,7 +457,10 @@ namespace OloEngine::Tests
         {
             const auto directory = std::filesystem::path(OLO_TEST_EDITOR_ROOT) / "assets/tests/visual";
             std::filesystem::create_directories(directory);
-            std::ofstream output(directory / "ShadowFamilyUnsupported.txt", std::ios::app);
+            const auto* test = ::testing::UnitTest::GetInstance()->current_test_info();
+            std::ofstream output(directory / (std::string("ShadowFamilyUnsupported_") + test->name() + ".txt"),
+                                 m_UnsupportedStarted ? std::ios::app : std::ios::trunc);
+            m_UnsupportedStarted = true;
             output << FamilyName(family) << ": " << reason << '\n';
         }
 
@@ -463,11 +468,12 @@ namespace OloEngine::Tests
         {
             const auto directory = std::filesystem::path(OLO_TEST_EDITOR_ROOT) / "assets/tests/visual";
             std::filesystem::create_directories(directory);
-            static bool started = false;
-            std::ofstream output(directory / "ShadowFamilyMeasurements.csv", started ? std::ios::app : std::ios::trunc);
-            if (!started)
+            const auto* test = ::testing::UnitTest::GetInstance()->current_test_info();
+            std::ofstream output(directory / (std::string("ShadowFamilyMeasurements_") + test->name() + ".csv"),
+                                 m_MeasurementsStarted ? std::ios::app : std::ios::trunc);
+            if (!m_MeasurementsStarted)
                 output << "cell,pixels,darknessMass,centroidX,centroidZ,width,height,sceneSamples,resolvedUpscaler,upscaleFallback,statsReady,pagesDrawn,pagesResident,localPagesDrawn,localPagesResident\n";
-            started = true;
+            m_MeasurementsStarted = true;
             const auto& vsm = Renderer3D::GetShadowMap().GetVirtualShadowMap();
             output << cell << ',' << moment.Pixels << ',' << moment.Mass << ','
                    << moment.Position.x << ',' << moment.Position.y << ',' << m_Width << ',' << m_Height << ','
