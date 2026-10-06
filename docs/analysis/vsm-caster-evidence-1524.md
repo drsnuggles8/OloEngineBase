@@ -53,8 +53,9 @@ All 13 expanded family/cook/shader tests and
 158 targeted CPU contracts passed. All four Release production/test targets,
 the Debug editor, and 13 existing shadow parity tests built or passed. All 15
 scene records round-tripped through the rebuilt pack. Corrected packaged GL
-greedy-voxel smoke passed three modes at both native and odd window sizes;
-corrected Vulkan runtime verification remains pending. The live snow transition passed
+passed all 180 runtime cells at native and odd window sizes, with no error
+diagnostics and capture/render viewport agreement in every process.
+Corrected Vulkan runtime verification remains pending. The live snow transition passed
 18 cells on each backend, across all three paths and both CSM/VSM modes. Disabled
 shadow mass and centroid returned to the dry baseline. The preserved old renderer
 left 7,659 displaced silhouette pixels and about 3.1 units of centroid drift on
