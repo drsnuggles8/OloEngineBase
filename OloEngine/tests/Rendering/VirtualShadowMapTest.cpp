@@ -749,6 +749,22 @@ TEST(ShadowFamilyCache, RotationHeightEditsAndDeformationInvalidateWithoutABound
     EXPECT_EQ(dirty, 3u);
 }
 
+TEST(ShadowFamilyCache, StoppingDeformationInvalidatesTheLastDynamicSilhouetteOnce)
+{
+    ShadowFamilyCache cache;
+    std::array<ShadowFamilyFootprint, 1> casters{ ShadowFamilyFootprint{ 11, BoundingBox({ -1, -1, -1 }, { 1, 1, 1 }) } };
+    casters[0].Deforming = true;
+    cache.Update(casters, [](const BoundingBox&) {});
+    u32 dirty = 0;
+    const auto invalidate = [&](const BoundingBox&)
+    { ++dirty; };
+    casters[0].Deforming = false;
+    cache.Update(casters, invalidate);
+    EXPECT_EQ(dirty, 1u);
+    cache.Update(casters, invalidate);
+    EXPECT_EQ(dirty, 1u);
+}
+
 TEST(ShadowFamilyCache, SubmissionOrderDoesNotChangeCasterIdentity)
 {
     ShadowFamilyCache cache;

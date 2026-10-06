@@ -37,7 +37,7 @@ namespace OloEngine
                 auto previous = m_Previous.find(caster.Key);
                 if (previous == m_Previous.end())
                     invalidate(caster.Bounds);
-                else if (caster.Deforming || caster.Revision != previous->second.Revision ||
+                else if (caster.Deforming || previous->second.Deforming || caster.Revision != previous->second.Revision ||
                          !Math::BitwiseEqual(caster.Transform, previous->second.Transform) ||
                          (!Math::BitwiseEqual(caster.Bounds.Min, previous->second.Bounds.Min) ||
                           !Math::BitwiseEqual(caster.Bounds.Max, previous->second.Bounds.Max)))
