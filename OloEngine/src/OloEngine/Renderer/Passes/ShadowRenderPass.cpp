@@ -710,6 +710,21 @@ namespace OloEngine
         const auto activeCount = static_cast<u32>(m_ActiveViews.Num());
         m_CasterFilter = filter;
         EnsureItemResources(activeCount, instanceCapacity);
+        // Every terrain view samples the same snow image. Its first use (and
+        // a compute update) may leave a non-sampled layout, so transition on
+        // the primary before the workers inherit their frozen layout state.
+        if (filter != ShadowCasterFilter::GroomsOnly && !m_TerrainCasters.IsEmpty())
+        {
+            const auto snowDepth = SnowAccumulationSystem::GetSnowDepthTextureHandle();
+            if (snowDepth.IsValid())
+            {
+                const RHI::Barrier snowRead{ .Resource = snowDepth,
+                                             .Before = RHI::Access::StorageReadWrite,
+                                             .After = RHI::Access::ShaderSampleRead };
+                RenderCommand::IssueBarrierBatch(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch,
+                                                 std::span<const RHI::Barrier>(&snowRead, 1));
+            }
+        }
         if (static_cast<sizet>(m_VirtualItemResources.Num()) < activeCount)
             m_VirtualItemResources.SetNum(static_cast<i64>(activeCount), EAllowShrinking::No);
         // The groom half of a split region draws no virtual geometry (#1533),
