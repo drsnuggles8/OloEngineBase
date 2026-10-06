@@ -503,6 +503,13 @@ namespace OloEngine
 
             std::filesystem::path extractedPath = childNode.as<std::string>();
 
+            // Empty optional fields remain unset, rather than naming the asset directory.
+            if (extractedPath.empty())
+            {
+                output.clear();
+                return true;
+            }
+
             // Resolve relative paths against the asset directory within the project
             if (extractedPath.is_relative())
             {

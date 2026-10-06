@@ -1,0 +1,4 @@
+[09:39:07] OloEngine: Running in headless mode — no window, renderer, or audio
+[09:39:07] OloEngine: [ScriptEngine] Mono debugging disabled
+[09:39:07] OloEngine: AssetPackBuilder: Loading script module from: C:\repos\OloEngine-mono-debugger-host-policy-1540\build-cached\mono-project\Assets
+PACKAGE_RESULT 0 ScriptCore assembly required by the configured script module was not found: Resources/Scripts/OloEngine-ScriptCore.dll
