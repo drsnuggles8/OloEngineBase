@@ -3,9 +3,14 @@
   "host": "server",
   "configuration": "Debug",
   "optIn": true,
-  "exeSha256": "6f2433cb93773d79b43e63be7900216494852d33e5c28578aa2ce872eeeaa71e",
-  "pid": 92984,
+  "exeSha256": "067a84fa018c83b4d6c2de6eb5523fc1749a60c985513d007b6174dee459081f",
+  "externalMonoListenersAtStart": [],
+  "pid": 6288,
   "listeners": [
+    {
+      "address": "0.0.0.0",
+      "port": 8086
+    },
     {
       "address": "::",
       "port": 8086
@@ -13,10 +18,6 @@
     {
       "address": "127.0.0.1",
       "port": 2550
-    },
-    {
-      "address": "0.0.0.0",
-      "port": 8086
     }
   ],
   "debugger": {

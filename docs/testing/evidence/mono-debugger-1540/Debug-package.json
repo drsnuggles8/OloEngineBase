@@ -5,11 +5,11 @@
   "files": {
     "MonoPolicyGame.exe": {
       "bytes": 217455616,
-      "sha256": "d8d02fd812668f4ee45f8fedb528346c1b8a69811da82e5b67f3e48ce813cfd9"
+      "sha256": "aa1470139a8b668c55af3d332b9fcddc239be49b1305939cd772ee5af68d0224"
     },
     "game.manifest": {
       "bytes": 285,
-      "sha256": "8f6ddff4dd7f9bc90dc822436deba8c499bd5f342dda872c817b8f9149476d9b"
+      "sha256": "1d95b4a5c6c85d4c7304eaeb11fa895de5b15ac4364346691ed3a28014954af8"
     },
     "Assets/AssetPack.olopack": {
       "bytes": 13351,
@@ -25,11 +25,11 @@
     },
     "Resources/Scripts/OloEngine-ScriptCore.dll": {
       "bytes": 204800,
-      "sha256": "ec0339b3db5a68800306e27bf363a7c58b0715bb9bd8ca93d153a24a81a109fd"
+      "sha256": "f3ac523cec3b0272aa93c98e175c38631abc668159c33e6cdafbcb0b6e2ce255"
     },
     "Resources/Scripts/OloEngine-ScriptCore.pdb": {
       "bytes": 54512,
-      "sha256": "663c902ce04ca60602fac620e9c77a474170e006771ed4f5e10a74471bbaad17"
+      "sha256": "90a5e9c80f6f7d0acac29c755a8686433bba86da474d58edd742b7fe305fa137"
     },
     "Resources/Scripts/Sandbox-Scripting.dll": {
       "bytes": 4608,

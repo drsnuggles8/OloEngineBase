@@ -3,14 +3,9 @@
   "host": "server",
   "configuration": "Release",
   "optIn": false,
-  "exeSha256": "31ad7cad2375d464ca1fff251ece99078d8599966f96655766abdfc6f4fd7695",
-  "externalMonoListenersAtStart": [
-    {
-      "pid": 94692,
-      "address": "127.0.0.1"
-    }
-  ],
-  "pid": 95144,
+  "exeSha256": "1382a33f776067d148675264bebe44b6d41b6bf8cbba1166162590a3be3a286c",
+  "externalMonoListenersAtStart": [],
+  "pid": 42144,
   "listeners": [
     {
       "address": "0.0.0.0",
@@ -21,6 +16,7 @@
       "port": 8087
     }
   ],
+  "verifierCouldBindDebuggerPort": true,
   "exitCode": 0,
   "loadedPdbCount": 0,
   "debuggerLogCreated": false,

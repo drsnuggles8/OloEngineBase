@@ -8,7 +8,7 @@
     {
       "cell": "Debug-assemblies-off-OloEditor-default",
       "exitCode": 0,
-      "exeSha256": "f1c65f1cd37cd1881f9585ee42ed7d66874b78c7b735e902362a5ba29f197b43",
+      "exeSha256": "c98f7e84665d3c9f34ed78e995b6787fba88099c6b03b6c4c95d5c1345affe16",
       "coreAssemblyUnavailable": true,
       "debuggerEnabled": true,
       "debuggerLogCreated": true
@@ -16,7 +16,7 @@
     {
       "cell": "Debug-assemblies-off-OloEditor-optin",
       "exitCode": 0,
-      "exeSha256": "f1c65f1cd37cd1881f9585ee42ed7d66874b78c7b735e902362a5ba29f197b43",
+      "exeSha256": "c98f7e84665d3c9f34ed78e995b6787fba88099c6b03b6c4c95d5c1345affe16",
       "coreAssemblyUnavailable": true,
       "debuggerEnabled": true,
       "debuggerLogCreated": true
@@ -24,7 +24,7 @@
     {
       "cell": "Debug-assemblies-off-OloRuntime-default",
       "exitCode": 0,
-      "exeSha256": "0d7f80a96ed994b7093c16d6c14c658f4de2bfc20026326cc8c57091e209dcd7",
+      "exeSha256": "cb63ac1a66cd4c9bcb4cab0eeb120acce82927b82403573aee87d7a233b91552",
       "coreAssemblyUnavailable": true,
       "debuggerEnabled": false,
       "debuggerLogCreated": false
@@ -32,7 +32,7 @@
     {
       "cell": "Debug-assemblies-off-OloRuntime-optin",
       "exitCode": 0,
-      "exeSha256": "0d7f80a96ed994b7093c16d6c14c658f4de2bfc20026326cc8c57091e209dcd7",
+      "exeSha256": "cb63ac1a66cd4c9bcb4cab0eeb120acce82927b82403573aee87d7a233b91552",
       "coreAssemblyUnavailable": true,
       "debuggerEnabled": true,
       "debuggerLogCreated": true
@@ -40,7 +40,7 @@
     {
       "cell": "Debug-assemblies-off-OloServer-default",
       "exitCode": 0,
-      "exeSha256": "ae007ec00a5e60f8908b1e7cb38304840e187cd2c5dbe44c4d46bac297a94424",
+      "exeSha256": "c3e0439acec593ed1fc07a567c4d88b23bfa9bf437b4f0db8a609d09c19615e0",
       "coreAssemblyUnavailable": true,
       "debuggerEnabled": false,
       "debuggerLogCreated": false
@@ -48,7 +48,7 @@
     {
       "cell": "Debug-assemblies-off-OloServer-optin",
       "exitCode": 0,
-      "exeSha256": "ae007ec00a5e60f8908b1e7cb38304840e187cd2c5dbe44c4d46bac297a94424",
+      "exeSha256": "c3e0439acec593ed1fc07a567c4d88b23bfa9bf437b4f0db8a609d09c19615e0",
       "coreAssemblyUnavailable": true,
       "debuggerEnabled": true,
       "debuggerLogCreated": true
@@ -56,7 +56,7 @@
     {
       "cell": "Debug-assemblies-off-server-lua",
       "exitCode": 0,
-      "exeSha256": "ae007ec00a5e60f8908b1e7cb38304840e187cd2c5dbe44c4d46bac297a94424",
+      "exeSha256": "c3e0439acec593ed1fc07a567c4d88b23bfa9bf437b4f0db8a609d09c19615e0",
       "luaCreatedAndUpdated": true,
       "listeners": [
         {

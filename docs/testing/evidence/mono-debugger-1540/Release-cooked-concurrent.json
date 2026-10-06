@@ -1,21 +1,21 @@
 {
   "configuration": "Release",
-  "exeSha256": "83c97a226b383b44718597f3ecaa96ec574f55b1aaec88be8af10cafa907243a",
+  "exeSha256": "71a6ee6e45e476af47ce40876b8a86a5af023d0b7dc5cf78c3606a119d5f2ac5",
   "bothAliveConcurrently": true,
   "debuggerPortBoundByVerifierWhileBothAlive": 2550,
   "debuggerLogCreated": false,
   "processes": [
     {
       "cell": "Release-cooked-concurrent-1",
-      "pid": 36948,
+      "pid": 4600,
       "listeners": [
         {
-          "address": "0.0.0.0",
-          "port": 8086
+          "address": "::",
+          "port": 8087
         },
         {
-          "address": "::",
-          "port": 8086
+          "address": "0.0.0.0",
+          "port": 8087
         }
       ],
       "cookedPackLoaded": true,
@@ -26,7 +26,7 @@
     },
     {
       "cell": "Release-cooked-concurrent-2",
-      "pid": 94920,
+      "pid": 39140,
       "listeners": [
         {
           "address": "::",

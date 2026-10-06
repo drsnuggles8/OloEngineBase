@@ -1,15 +1,15 @@
 {
   "cell": "Release-editor-optin",
   "exitCode": 0,
-  "exeSha256": "f99234d756711bd0ad613e1c8982de0b27f78aa6ec475abe93935c6fa29ddaea",
+  "exeSha256": "9051423fb0a1433cd882ccd1ceb4e09a39de558ce4f85f1bb1f825b22ec046c1",
   "listeners": [
     {
       "address": "::",
-      "port": 8087
+      "port": 8086
     },
     {
       "address": "0.0.0.0",
-      "port": 8087
+      "port": 8086
     },
     {
       "address": "127.0.0.1",

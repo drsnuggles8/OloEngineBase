@@ -3,18 +3,20 @@
   "host": "server",
   "configuration": "Debug",
   "optIn": false,
-  "exeSha256": "6f2433cb93773d79b43e63be7900216494852d33e5c28578aa2ce872eeeaa71e",
-  "pid": 81128,
+  "exeSha256": "067a84fa018c83b4d6c2de6eb5523fc1749a60c985513d007b6174dee459081f",
+  "externalMonoListenersAtStart": [],
+  "pid": 91052,
   "listeners": [
     {
       "address": "0.0.0.0",
-      "port": 8086
+      "port": 8087
     },
     {
       "address": "::",
-      "port": 8086
+      "port": 8087
     }
   ],
+  "verifierCouldBindDebuggerPort": true,
   "exitCode": 0,
   "loadedPdbCount": 0,
   "debuggerLogCreated": false,

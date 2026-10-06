@@ -1,19 +1,19 @@
 {
   "cell": "Debug-editor-default",
   "exitCode": 0,
-  "exeSha256": "a67c953559466558beaa1cc1bd5d9cbf8915f86ba93ab4dd27fdc26de472a8bd",
+  "exeSha256": "def07f42984ab77717198be00cf0b9e62eacbbfb9e88c2ccca33e29b1b717d7e",
   "listeners": [
     {
       "address": "::",
-      "port": 8086
+      "port": 8087
+    },
+    {
+      "address": "0.0.0.0",
+      "port": 8087
     },
     {
       "address": "127.0.0.1",
       "port": 2550
-    },
-    {
-      "address": "0.0.0.0",
-      "port": 8086
     }
   ],
   "debugger": {
@@ -35,6 +35,7 @@
     ],
     "breakpointHits": []
   },
+  "externalMonoListenersAtStart": [],
   "loadedPdbCount": 4,
   "debuggerLogCreated": true,
   "reloadSucceeded": true,

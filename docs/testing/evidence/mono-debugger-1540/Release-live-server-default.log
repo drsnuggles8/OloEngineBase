@@ -1,6 +1,6 @@
-[23:26:05] OloEngine: [ScriptEngine] Mono debugging disabled
+[11:00:03] OloEngine: [ScriptEngine] Mono debugging disabled
 MONO_PROBE_CREATED
-[23:26:05] APP: LUA_POLICY_PROBE_CREATED
-[23:26:05] OloEngine: [Server] Scene loaded and started
-[23:26:05] OloEngine: [Script] C# exception in Sandbox.MonoPolicyProbe:OnUpdate (single): System.InvalidOperationException: MONO_POLICY_EXCEPTION
-[23:26:05] APP: LUA_POLICY_PROBE_UPDATED
+[11:00:03] APP: LUA_POLICY_PROBE_CREATED
+[11:00:03] OloEngine: [Server] Scene loaded and started
+[11:00:03] OloEngine: [Script] C# exception in Sandbox.MonoPolicyProbe:OnUpdate (single): System.InvalidOperationException: MONO_POLICY_EXCEPTION
+[11:00:03] APP: LUA_POLICY_PROBE_UPDATED

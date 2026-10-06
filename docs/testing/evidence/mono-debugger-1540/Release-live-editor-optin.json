@@ -3,7 +3,7 @@
   "host": "editor",
   "configuration": "Release",
   "optIn": true,
-  "exeSha256": "72a0f351a0b1db3f4525a94ee3ea20f1f71c8d2949d96d96ffc7223b9a14e14a",
+  "exeSha256": "dbe2f15bad4f657604b60de5a4571a4e0c24180f5b5521b3d5f41d0de1c49424",
   "externalMonoListenersAtStart": [],
   "scene": {
     "entityCount": 3,
@@ -46,7 +46,7 @@
         "language": "csharp",
         "message": "System.InvalidOperationException: MONO_POLICY_EXCEPTION\r\n  at Sandbox.MonoPolicyProbe.OnUpdate (System.Single dt) [0x0002d] in C:\\repos\\OloEngine-mono-debugger-host-policy-1540\\build-cached\\mono-script\\MonoProbe.cs:11 ",
         "scriptName": "Sandbox.MonoPolicyProbe:OnUpdate (single)",
-        "timestamp": 1791237871.5935373
+        "timestamp": 1791277385.416548
       }
     ]
   },
@@ -70,23 +70,23 @@
     "path": "C:\\repos\\OloEngine-mono-debugger-host-policy-1540\\build-cached\\mono-project\\Assets\\Scenes\\Mono.olo",
     "sceneName": "Mono.olo"
   },
-  "pid": 79912,
+  "pid": 59668,
   "listeners": [
     {
-      "address": "127.0.0.1",
-      "port": 2550
+      "address": "0.0.0.0",
+      "port": 8086
     },
     {
       "address": "127.0.0.1",
       "port": 17440
     },
     {
-      "address": "::",
-      "port": 8087
+      "address": "127.0.0.1",
+      "port": 2550
     },
     {
-      "address": "0.0.0.0",
-      "port": 8087
+      "address": "::",
+      "port": 8086
     }
   ],
   "debugger": {

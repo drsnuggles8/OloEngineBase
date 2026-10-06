@@ -3,17 +3,17 @@
   "host": "server",
   "configuration": "Release",
   "optIn": true,
-  "exeSha256": "31ad7cad2375d464ca1fff251ece99078d8599966f96655766abdfc6f4fd7695",
+  "exeSha256": "1382a33f776067d148675264bebe44b6d41b6bf8cbba1166162590a3be3a286c",
   "externalMonoListenersAtStart": [],
-  "pid": 62460,
+  "pid": 87320,
   "listeners": [
     {
       "address": "0.0.0.0",
-      "port": 8087
+      "port": 8086
     },
     {
       "address": "::",
-      "port": 8087
+      "port": 8086
     },
     {
       "address": "127.0.0.1",

@@ -1,15 +1,15 @@
 {
   "configuration": "Release",
   "exitCode": 0,
-  "exeSha256": "c2307624362c76b4316fa6cbc93998e224d1be02f83b8b6eb4b80df67ba7b6d4",
-  "filter": "MonoDebuggerPolicy.*:AppLaunchSmoke.*:GameBuildPipelineTest.*:RuntimeAssetPackTest.*:PrefabOverrideTest.*:LuaScriptMutatesTransformViaSceneTickTest.*:McpReloadScriptTest.*:McpReloadScriptShaping.*:AssetCSharpScriptValidity.*:AssetLuaScriptValidity.*",
+  "exeSha256": "7c993ca4d3d784dc6b644d2b29d5a2b26459853458acfa24b0b3682557b33f5a",
+  "filter": "MonoDebuggerPolicy.*:TestProcessOutput.*:AppLaunchSmoke.*:GameBuildPipelineTest.*:RuntimeAssetPackTest.*:PrefabOverrideTest.*:LuaScriptMutatesTransformViaSceneTickTest.*:McpReloadScriptTest.*:McpReloadScriptShaping.*:AssetCSharpScriptValidity.*:AssetLuaScriptValidity.*",
   "totals": {
-    "tests": "85",
+    "tests": "87",
     "failures": "0",
     "disabled": "0",
     "errors": "0",
-    "time": "9.339",
-    "timestamp": "2026-10-06T08:54:26.184",
+    "time": "12.33",
+    "timestamp": "2026-10-06T11:03:16.271",
     "name": "AllTests"
   },
   "suites": [
@@ -20,8 +20,18 @@
       "disabled": "0",
       "skipped": "0",
       "errors": "0",
-      "time": "0.",
-      "timestamp": "2026-10-06T08:54:26.184"
+      "time": "0.001",
+      "timestamp": "2026-10-06T11:03:16.273"
+    },
+    {
+      "name": "TestProcessOutput",
+      "tests": "1",
+      "failures": "0",
+      "disabled": "0",
+      "skipped": "0",
+      "errors": "0",
+      "time": "0.022",
+      "timestamp": "2026-10-06T11:03:16.274"
     },
     {
       "name": "AssetLuaScriptValidity",
@@ -30,8 +40,8 @@
       "disabled": "0",
       "skipped": "0",
       "errors": "0",
-      "time": "0.33",
-      "timestamp": "2026-10-06T08:54:26.185"
+      "time": "0.551",
+      "timestamp": "2026-10-06T11:03:16.297"
     },
     {
       "name": "AssetCSharpScriptValidity",
@@ -40,18 +50,18 @@
       "disabled": "0",
       "skipped": "0",
       "errors": "0",
-      "time": "0.299",
-      "timestamp": "2026-10-06T08:54:26.516"
+      "time": "0.545",
+      "timestamp": "2026-10-06T11:03:16.848"
     },
     {
       "name": "RuntimeAssetPackTest",
-      "tests": "7",
+      "tests": "8",
       "failures": "0",
       "disabled": "0",
       "skipped": "0",
       "errors": "0",
-      "time": "0.45",
-      "timestamp": "2026-10-06T08:54:26.816"
+      "time": "0.479",
+      "timestamp": "2026-10-06T11:03:17.393"
     },
     {
       "name": "AppLaunchSmoke",
@@ -60,8 +70,8 @@
       "disabled": "0",
       "skipped": "0",
       "errors": "0",
-      "time": "8.08",
-      "timestamp": "2026-10-06T08:54:27.267"
+      "time": "10.486",
+      "timestamp": "2026-10-06T11:03:17.873"
     },
     {
       "name": "PrefabOverrideTest",
@@ -70,8 +80,8 @@
       "disabled": "0",
       "skipped": "0",
       "errors": "0",
-      "time": "0.004",
-      "timestamp": "2026-10-06T08:54:35.347"
+      "time": "0.006",
+      "timestamp": "2026-10-06T11:03:28.359"
     },
     {
       "name": "GameBuildPipelineTest",
@@ -80,8 +90,8 @@
       "disabled": "0",
       "skipped": "1",
       "errors": "0",
-      "time": "0.144",
-      "timestamp": "2026-10-06T08:54:35.351"
+      "time": "0.202",
+      "timestamp": "2026-10-06T11:03:28.365"
     },
     {
       "name": "McpReloadScriptTest",
@@ -90,8 +100,8 @@
       "disabled": "0",
       "skipped": "0",
       "errors": "0",
-      "time": "0.",
-      "timestamp": "2026-10-06T08:54:35.496"
+      "time": "0.001",
+      "timestamp": "2026-10-06T11:03:28.568"
     },
     {
       "name": "McpReloadScriptShaping",
@@ -101,7 +111,7 @@
       "skipped": "0",
       "errors": "0",
       "time": "0.",
-      "timestamp": "2026-10-06T08:54:35.496"
+      "timestamp": "2026-10-06T11:03:28.569"
     },
     {
       "name": "LuaScriptMutatesTransformViaSceneTickTest",
@@ -110,8 +120,8 @@
       "disabled": "0",
       "skipped": "0",
       "errors": "0",
-      "time": "0.027",
-      "timestamp": "2026-10-06T08:54:35.496"
+      "time": "0.033",
+      "timestamp": "2026-10-06T11:03:28.569"
     }
   ],
   "skipped": [
