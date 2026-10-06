@@ -1,0 +1,11 @@
+{
+  "cell": "Debug-package-missing-core-without-module",
+  "configuration": "Debug",
+  "exeSha256": "def07f42984ab77717198be00cf0b9e62eacbbfb9e88c2ccca33e29b1b717d7e",
+  "exitCode": 0,
+  "scriptModuleConfigured": false,
+  "scriptCoreAbsentDuringBuild": true,
+  "appAssemblyAbsentDuringBuild": false,
+  "pipelineSuccess": true,
+  "originalCoreAndProjectRestored": true
+}

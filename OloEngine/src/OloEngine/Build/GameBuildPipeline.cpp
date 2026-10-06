@@ -1362,6 +1362,11 @@ namespace OloEngine
 
         if (!std::filesystem::exists(scriptCoreSrc))
         {
+            if (!Project::GetActive()->GetConfig().ScriptModulePath.empty())
+            {
+                errorMessage = "ScriptCore assembly required by the configured script module was not found: " + scriptCoreSrc.string();
+                return false;
+            }
             // A game without C# scripts may intentionally omit ScriptCore.
             OLO_CORE_WARN("[GameBuild] ScriptCore assembly absent; skipping managed assemblies: {}", scriptCoreSrc.string());
             return true;
@@ -1374,23 +1379,17 @@ namespace OloEngine
             return false;
         }
 
-        // Also copy the app-specific script assembly if it exists
+        // A configured app-specific script assembly is required.
         if (const auto& projectConfig = Project::GetActive()->GetConfig(); !projectConfig.ScriptModulePath.empty())
         {
-            std::filesystem::path appScriptSrc = projectConfig.ScriptModulePath;
-            if (std::filesystem::exists(appScriptSrc))
+            const std::filesystem::path appScriptSrc = projectConfig.ScriptModulePath;
+            // Runtime looks for the assembly at Resources/Scripts/<filename>
+            const std::filesystem::path appScriptDst = outputDir / "Resources" / "Scripts" / appScriptSrc.filename();
+            if (!StageManagedAssembly(appScriptSrc, appScriptDst, errorMessage))
             {
-                // Runtime looks for the assembly at Resources/Scripts/<filename>
-                std::filesystem::path appScriptDst = outputDir / "Resources" / "Scripts" / appScriptSrc.filename();
-                if (!StageManagedAssembly(appScriptSrc, appScriptDst, errorMessage))
-                {
-                    return false;
-                }
-                else
-                {
-                    OLO_CORE_INFO("[GameBuild] App script assembly copied: {}", appScriptDst.string());
-                }
+                return false;
             }
+            OLO_CORE_INFO("[GameBuild] App script assembly copied: {}", appScriptDst.string());
         }
 
         OLO_CORE_INFO("[GameBuild] ScriptCore assembly copied");

@@ -25,6 +25,8 @@ portable PDB source locations require an enabled session.
 Build script assemblies with portable PDBs (`DebugType=portable`, already set in
 the project's C# projects). Build Game stages matching PDBs beside the core and
 game DLLs when available, so an opted-in package can use source breakpoints.
+If a script module is configured, missing ScriptCore or app DLLs fail Build Game
+with the missing source path. Projects without a configured script module may omit ScriptCore.
 Ordinary launches leave those files unread. `OLO_WITH_CSHARP` controls assembly build
 targets; disabling it does not remove embedded Mono from Windows hosts. Hosts compiled
 without Mono (currently Linux) ignore the opt-in and report that C# scripting is

@@ -1,0 +1,11 @@
+{
+  "cell": "Release-package-missing-core",
+  "configuration": "Release",
+  "exeSha256": "9051423fb0a1433cd882ccd1ceb4e09a39de558ce4f85f1bb1f825b22ec046c1",
+  "exitCode": 11,
+  "scriptModuleConfigured": true,
+  "scriptCoreAbsentDuringBuild": true,
+  "appAssemblyAbsentDuringBuild": false,
+  "pipelineSuccess": false,
+  "originalCoreAndProjectRestored": true
+}
