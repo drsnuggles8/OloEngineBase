@@ -124,6 +124,7 @@ namespace OloEngine
         void MarkGPUModified()
         {
             m_CPUMirrorStale = true;
+            m_HeightBoundsValid = false;
             ++m_HeightRevision; // GPU content changed immediately, before deferred CPU sync
         }
 
@@ -175,6 +176,7 @@ namespace OloEngine
         mutable glm::vec2 m_CachedHeightRange{ 0.0f };
         mutable u64 m_CachedHeightRevision = ~u64{ 0 };
         mutable bool m_CPUMirrorStale = false;
+        mutable bool m_HeightBoundsValid = true;
         Ref<Texture2D> m_GPUHeightmap; // R32F GPU texture — authoritative while authoring
     };
 } // namespace OloEngine

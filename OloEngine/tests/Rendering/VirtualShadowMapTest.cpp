@@ -17,6 +17,7 @@
 
 #include "OloEngine/Renderer/Shadow/VirtualShadowMap.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Terrain/TerrainData.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -36,6 +37,18 @@
 #include "OloEngine/Renderer/Shadow/TerrainShadowRevision.h"
 
 using namespace OloEngine;
+
+TEST(ShadowFamilyContract, FailedHeightSynchronizationRetainsUnknownBoundsWithoutRetrying)
+{
+    TerrainData heightmap;
+    ASSERT_TRUE(heightmap.GetHeightRange().has_value());
+    heightmap.MarkGPUModified();
+    heightmap.SyncFromGPU(); // no texture: the GPU update cannot be mirrored
+    EXPECT_FALSE(heightmap.IsCPUMirrorStale()) << "failed synchronization must not retry every frame";
+    EXPECT_FALSE(heightmap.GetHeightRange().has_value()) << "old CPU data cannot bound the GPU surface";
+    heightmap.SyncFromGPU();
+    EXPECT_FALSE(heightmap.GetHeightRange().has_value());
+}
 
 namespace
 {

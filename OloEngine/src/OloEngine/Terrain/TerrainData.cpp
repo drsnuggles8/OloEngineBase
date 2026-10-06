@@ -13,8 +13,9 @@ namespace OloEngine
     {
         // Erosion can move heights outside the authored normalized range.
         // Do not force the editor's intentionally deferred stroke-end readback;
-        // pending GPU edits have unknown bounds until another consumer syncs.
-        if (m_CPUMirrorStale)
+        // Pending or failed GPU synchronization keeps bounds unknown until a
+        // successful readback or full CPU upload makes the mirror authoritative.
+        if (!m_HeightBoundsValid)
             return std::nullopt;
         if (m_CachedHeightRevision != m_HeightRevision)
         {
@@ -261,6 +262,7 @@ namespace OloEngine
         // so any pending GPU-newer flag is discharged rather than left to trigger
         // a readback that would undo this upload.
         m_CPUMirrorStale = false;
+        m_HeightBoundsValid = true;
         ++m_HeightRevision; // height content changed — see GetHeightRevision()
 
         if (m_Resolution == 0)
@@ -313,6 +315,7 @@ namespace OloEngine
             // complete base image and let SetData rebuild the chain on both APIs.
             // Terrain sculpt uploads happen before the frame is recorded.
             m_GPUHeightmap->SetData(m_Heights.GetData(), static_cast<u32>(m_Heights.Num() * sizeof(f32)));
+            m_HeightBoundsValid = true;
             return;
         }
 
@@ -328,6 +331,8 @@ namespace OloEngine
         // Single-level textures can retain the cheap partial upload.
         u32 dataSize = width * height * static_cast<u32>(sizeof(f32));
         m_GPUHeightmap->SubImage(x, y, width, height, regionData.GetData(), dataSize);
+        if (x == 0 && y == 0 && width == m_Resolution && height == m_Resolution)
+            m_HeightBoundsValid = true;
     }
 
     void TerrainData::SyncFromGPU() const
@@ -368,6 +373,7 @@ namespace OloEngine
 
         m_Heights.SetNum(static_cast<sizet>(m_Resolution) * m_Resolution, EAllowShrinking::No);
         std::memcpy(m_Heights.GetData(), rawData.GetData(), rawData.Num());
+        m_HeightBoundsValid = true;
         // The GPU is authoritative during sculpting, so this memcpy is where a
         // brush stroke becomes visible to every CPU consumer — and it lands at
         // the SAME address every time. Bumping here is the only signal a cache
