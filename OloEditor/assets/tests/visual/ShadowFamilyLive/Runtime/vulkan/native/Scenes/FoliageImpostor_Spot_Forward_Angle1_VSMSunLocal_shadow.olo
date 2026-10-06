@@ -1,0 +1,581 @@
+Scene: ShadowFamilyCookFixture_FoliageMesh_Spot
+Version: 1
+PostProcessSettings:
+  TonemapOperator: 1
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: false
+  BloomThreshold: 1
+  BloomIntensity: 0.5
+  BloomIterations: 5
+  VignetteEnabled: false
+  VignetteIntensity: 0.3
+  VignetteSmoothness: 0.15
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.005
+  FXAAEnabled: false
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 8
+  ColorGradingEnabled: false
+  SphereProxyAOEnabled: false
+  SphereProxyAOStrength: 1
+  SphereProxyAOMaxProxies: 64
+  SphereProxyAOMaxRadius: 25
+  SphereProxyAOInfluenceScale: 4
+  SphereProxyAOMaxOcclusion: 1
+  SphereProxyAODebugView: false
+  SSAOEnabled: false
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 32
+  SSAODebugView: false
+  SSREnabled: false
+  SSRMaxDistance: 40
+  SSRThickness: 0.8
+  SSRStride: 0.25
+  SSRMaxSteps: 64
+  SSRBinarySearchSteps: 6
+  SSRIntensity: 1
+  SSRMaxRoughness: 0.8
+  SSREdgeFade: 0.1
+  SSRDebugView: false
+  SSRTemporalResolve: true
+  SSRTemporalFeedback: 0.92
+  SSRPreBlurRadius: 2
+  SSRPostBlurRadius: 3
+  RTReflectionEnabled: false
+  RTReflectionIntensity: 1
+  RTReflectionMaxRayDistance: 60
+  RTReflectionNormalBias: 0.02
+  RTReflectionRoughnessGateStart: 0.05
+  RTReflectionRoughnessGateEnd: 0.3
+  RTReflectionTraceSunShadowRay: true
+  RTReflectionSkyAmbientLod: 4
+  RTReflectionTierDebugView: false
+  GpuPathTracerEnabled: false
+  GpuPathTracerSamplesPerFrame: 1
+  GpuPathTracerMaxSamples: 0
+  GpuPathTracerMaxBounces: 8
+  GpuPathTracerRussianRouletteStartBounce: 4
+  GpuPathTracerSeed: 2654435769
+  GpuPathTracerNextEventEstimation: true
+  GpuPathTracerSampleTextures: true
+  GpuPathTracerMaxRadianceClamp: 0
+  GpuPathTracerRayEpsilon: 0.001
+  GpuPathTracerMaxRayDistance: 100000
+  GpuPathTracerUniformEnvironmentRadiance:
+  - 0
+  - 0
+  - 0
+  GpuPathTracerEnvironmentCubeIntensity: 1
+  GpuPathTracerDebugView: 0
+  GpuPathTracerSampleCountDisplayScale: 0.00390625
+  GpuPathTracerVarianceDisplayScale: 100
+  ReSTIRDIEnabled: false
+  ReSTIRDIInitialCandidates: 32
+  ReSTIRDIVisibilityReuse: true
+  ReSTIRDITemporalReuse: true
+  ReSTIRDITemporalMCap: 20
+  ReSTIRDISpatialReuse: true
+  ReSTIRDISpatialNeighbours: 4
+  ReSTIRDISpatialRadiusPixels: 16
+  ReSTIRDISpatialPasses: 1
+  ReSTIRDIBiasMode: 1
+  ReSTIRDIEngagementMargin: 8
+  ReSTIRDIMaxRadianceClamp: 0
+  ReSTIRDIRayOriginNormalBias: 0.02
+  ReSTIRDIDebugView: 0
+  ReSTIRGIEnabled: false
+  ReSTIRGIInitialCandidates: 1
+  ReSTIRGIDDGITail: true
+  ReSTIRGITemporalReuse: true
+  ReSTIRGITemporalMCap: 20
+  ReSTIRGIMaxSampleAge: 64
+  ReSTIRGISpatialReuse: true
+  ReSTIRGISpatialNeighbours: 4
+  ReSTIRGISpatialRadiusPixels: 24
+  ReSTIRGISpatialPasses: 1
+  ReSTIRGIBiasMode: 1
+  ReSTIRGIReconnectionVisibility: true
+  ReSTIRGISpatialReconnectionVisibility: false
+  ReSTIRGIMinReconnectionDistance: 0.05
+  ReSTIRGIMaxBounceDistance: 10000
+  ReSTIRGIMaxRadianceClamp: 0
+  ReSTIRGIRayOriginNormalBias: 0.02
+  ReSTIRGIDebugView: 0
+  ReSTIRPT:
+    Enabled: false
+    TemporalReuse: true
+    SpatialReuse: true
+    InitialCandidates: 1
+    MappingMask: 7
+    Seed: 1211
+    SpatialRadius: 8
+    ConfidenceCap: 8
+    RayEpsilon: 0.001
+    NormalBias: 0.01
+    MaxRayDistance: 1000
+    RadianceClamp: 0
+    DebugView: 0
+  SSGIEnabled: false
+  SSGIIntensity: 1
+  SSGIMaxDistance: 8
+  SSGIThickness: 0.5
+  SSGIStride: 0.25
+  SSGIMaxSteps: 24
+  SSGIRayCount: 8
+  SSGIEdgeFade: 0.1
+  SSGIDebugView: false
+  SSGITemporalResolve: true
+  SSGITemporalFeedback: 0.92
+  SSGIHalfResolution: true
+  SSGIRayDistribution: true
+  SSGIPreBlurRadius: 1
+  SSGIPostBlurRadius: 4
+  ContactShadowEnabled: false
+  ContactShadowIntensity: 1
+  ContactShadowMaxDistance: 1
+  ContactShadowThickness: 0.3
+  ContactShadowStride: 0.04
+  ContactShadowMaxSteps: 24
+  ContactShadowBias: 0.02
+  ContactShadowEdgeFade: 0.1
+  ContactShadowDebugView: false
+  AutoExposureEnabled: false
+  AutoExposureMinLogLuminance: -8
+  AutoExposureMaxLogLuminance: 3.5
+  AutoExposureSpeedUp: 3
+  AutoExposureSpeedDown: 1
+  AutoExposureCompensation: 0
+  AutoExposureMinExposure: 0.05
+  AutoExposureMaxExposure: 16
+  CASEnabled: false
+  CASSharpness: 0.5
+  Upscale: 0
+  RCASSharpness: 0.5
+  UpscaleTechnique: 0
+  FSR2SharpeningEnabled: true
+  FSR2Sharpness: 0.5
+SnowSettings:
+  Enabled: false
+  HeightStart: -5
+  HeightFull: 5
+  SlopeStart: 0.7
+  SlopeFull: 0.3
+  Albedo:
+  - 0.92
+  - 0.93
+  - 0.98
+  Roughness: 0.65
+  SSSColor:
+  - 0.4
+  - 0.6
+  - 0.9
+  SSSIntensity: 0.6
+  SparkleIntensity: 0.8
+  SparkleDensity: 80
+  SparkleScale: 1
+  NormalPerturbStrength: 0.25
+  WindDriftFactor: 0
+  SSSBlurEnabled: false
+  SSSBlurRadius: 2
+  SSSBlurFalloff: 1
+FogSettings:
+  Enabled: false
+  Mode: 2
+  Color:
+  - 0.5
+  - 0.6
+  - 0.7
+  Density: 0.02
+  Start: 10
+  End: 300
+  HeightFalloff: 0.1
+  HeightOffset: 0
+  MaxOpacity: 1
+  EnableScattering: false
+  RayleighStrength: 1
+  MieStrength: 0.005
+  MieDirectionality: 0.76
+  RayleighColor:
+  - 0.27
+  - 0.51
+  - 0.83
+  SunIntensity: 22
+  EnableVolumetric: false
+  VolumetricSamples: 32
+  AbsorptionCoefficient: 0.02
+  EnableNoise: false
+  NoiseScale: 0.01
+  NoiseSpeed: 0.1
+  NoiseIntensity: 0.3
+  EnableLightShafts: false
+  LightShaftIntensity: 1
+  EnableVolumetricSelfShadow: true
+  VolumetricSelfShadowStrength: 1
+  VolumetricSelfShadowExtent: 300
+WindSettings:
+  Enabled: false
+  Direction:
+  - 1
+  - 0
+  - 0
+  Speed: 5
+  GustStrength: 0.3
+  GustFrequency: 0.5
+  TurbulenceIntensity: 0.5
+  TurbulenceScale: 0.1
+  GridWorldSize: 200
+  GridResolution: 128
+SnowAccumulationSettings:
+  Enabled: false
+  AccumulationRate: 0.02
+  MaxDepth: 0.5
+  MeltRate: 0.005
+  RestorationRate: 0.01
+  DisplacementScale: 1
+  ClipmapResolution: 2048
+  ClipmapExtent: 128
+  NumClipmapRings: 3
+  SnowDensity: 0.3
+SnowEjectaSettings:
+  Enabled: false
+  ParticlesPerDeform: 8
+  EjectaSpeed: 2.5
+  SpeedVariance: 0.8
+  UpwardBias: 0.6
+  LifetimeMin: 0.4
+  LifetimeMax: 1.2
+  InitialSize: 0.04
+  SizeVariance: 0.02
+  GravityScale: 0.3
+  DragCoefficient: 2
+  Color:
+  - 0.95
+  - 0.97
+  - 1
+  - 0.7
+  VelocityThreshold: 0.1
+  MaxParticles: 8192
+  WindInfluence: 0.5
+  NoiseStrength: 0.3
+  NoiseFrequency: 2
+  GroundY: 0
+  CollisionBounce: 0
+  CollisionFriction: 1
+PrecipitationSettings:
+  Enabled: false
+  Type: 0
+  Intensity: 0.5
+  TransitionSpeed: 1
+  BaseEmissionRate: 4000
+  MaxParticlesNearField: 100000
+  MaxParticlesFarField: 200000
+  NearFieldExtent:
+  - 15
+  - 20
+  - 15
+  NearFieldParticleSize: 0.04
+  NearFieldSizeVariance: 0.02
+  NearFieldSpeedMin: 0.8
+  NearFieldSpeedMax: 2
+  NearFieldLifetime: 10
+  FarFieldExtent:
+  - 60
+  - 30
+  - 60
+  FarFieldParticleSize: 0.025
+  FarFieldSpeedMin: 0.5
+  FarFieldSpeedMax: 1.5
+  FarFieldLifetime: 15
+  FarFieldAlphaMultiplier: 0.5
+  GravityScale: 0.8
+  WindInfluence: 1
+  DragCoefficient: 0.3
+  TurbulenceStrength: 0.8
+  TurbulenceFrequency: 0.5
+  GroundCollisionEnabled: true
+  GroundY: 0
+  CollisionBounce: 0
+  CollisionFriction: 1
+  FeedAccumulation: true
+  AccumulationFeedRate: 0.0001
+  ScreenStreaksEnabled: true
+  ScreenStreakIntensity: 0.3
+  ScreenStreakLength: 0.15
+  LensImpactsEnabled: true
+  LensImpactRate: 3
+  LensImpactLifetime: 1.5
+  LensImpactSize: 0.03
+  LODNearDistance: 30
+  LODFarDistance: 120
+  FrameBudgetMs: 1
+  ParticleColor:
+  - 0.95
+  - 0.97
+  - 1
+  - 0.85
+  ColorVariance: 0.05
+  RotationSpeed: 30
+StreamingSettings:
+  Enabled: false
+  DefaultLoadRadius: 200
+  DefaultUnloadRadius: 250
+  MaxLoadedRegions: 16
+  RegionDirectory: ''
+  MaxResidentMegabytes: 0
+  MaxAdmittedMegabytesPerFrame: 0
+WorldOriginSettings:
+  Enabled: false
+  RebaseThreshold: 2048
+  SnapGridSize: 1024
+LightmapSettings:
+  LightmapAsset: 0
+  Enabled: true
+  Intensity: 1
+  AtlasSize: 1024
+  SamplesPerTexel: 128
+  MaxBounces: 4
+  TexelsPerMeter: 8
+Entities:
+- Entity: 810172380127371430
+  TagComponent:
+    Tag: FoliageMesh
+  TransformComponent:
+    Translation:
+    - -2
+    - -1
+    - -2
+    Rotation:
+    - 0
+    - 0
+    - 0
+    Scale:
+    - 1
+    - 1
+    - 1
+  TerrainComponent:
+    HeightmapPath: assets/tests/visual/ShadowFamilyCookFixture_FoliageMesh_Height.png
+    WorldSizeX: 4
+    WorldSizeZ: 4
+    HeightScale: 8
+    CollisionEnabled: false
+    ProceduralEnabled: false
+    ProceduralSeed: 42
+    ProceduralResolution: 512
+    ProceduralOctaves: 6
+    ProceduralFrequency: 3
+    ProceduralLacunarity: 2
+    ProceduralPersistence: 0.45
+    ProceduralErosionIterations: 0
+    ShapingRidgeBlend: 0
+    ShapingWarpStrength: 0
+    ShapingWarpFrequency: 2
+    ShapingTerraceSteps: 0
+    ShapingTerraceSharpness: 0.6
+    ShapingHeightExponent: 1
+    ShapingIslandFalloff: 0
+    ShapingIslandFalloffRadius: 0.3
+    AutoMaterial: false
+    SplatmapGenResolution: 512
+    TessellationEnabled: true
+    TargetTriangleSize: 8
+    MorphRegion: 0.3
+    StreamingEnabled: false
+    TileDirectory: ''
+    TileFilePattern: tile_%d_%d.raw
+    TileWorldSize: 256
+    TileResolution: 513
+    StreamingLoadRadius: 3
+    StreamingMaxTiles: 25
+    VirtualTextureEnabled: false
+    VTVirtualPagesWide: 256
+    VTPageTexels: 128
+    VTBorderTexels: 4
+    VTCacheTilesWide: 16
+    VTMaxTileBakesPerFrame: 8
+    VTAdaptiveEnabled: true
+    VTSectorsWide: 8
+    VTMaxImagePagesWide: 64
+    VTTrilinearEnabled: true
+    VTCompressedCache: true
+    VoxelEnabled: false
+    VoxelSize: 1
+    VoxelMesher: 0
+  FoliageComponent:
+    Enabled: true
+    Layers:
+    - Name: Grass
+      MeshPath: SandboxProject/Assets/Models/Vegetation/shrub/shrub.obj
+      AlbedoPath: ''
+      Density: 0.5
+      SplatmapChannel: -1
+      MinSlopeAngle: 0
+      MaxSlopeAngle: 45
+      MinScale: 1
+      MaxScale: 1
+      MinHeight: 6
+      MaxHeight: 6
+      RandomRotation: true
+      SlopeFeather: 0
+      UseAltitudeBand: false
+      MinAltitude: 0
+      MaxAltitude: 1000
+      AltitudeFeather: 0
+      UseMoisture: false
+      MinMoisture: 0
+      MaxMoisture: 1
+      MoistureFeather: 0
+      ExclusionSplatmapChannel: -1
+      ExclusionThreshold: 0.5
+      ClumpStrength: 0
+      ClumpScale: 12
+      ClumpFalloff: 1
+      ClumpScaleInfluence: 0
+      ClumpGroup: -1
+      GroundOffset: 0
+      SlopeSinkFactor: 0
+      DecorrelatedVariation: false
+      ViewDistance: 100
+      FadeStartDistance: 90
+      UseAuthoredMesh: true
+      MeshViewDistance: 0
+      MeshFadeStartDistance: 0
+      WindStrength: 0
+      WindSpeed: 1
+      WindStiffness: 0
+      WindBranchWeight: 0
+      WindLeafWeight: 0
+      WindDebugDisplacement: false
+      InteractionResponse: 0
+      BaseColor:
+      - 0.3
+      - 0.5
+      - 0.1
+      Roughness: 0.8
+      AlphaCutoff: 0.5
+      NormalMapPath: ''
+      RoughnessMapPath: ''
+      ThicknessMapPath: ''
+      NormalStrength: 1
+      TransmissionStrength: 0
+      TransmissionColor:
+      - 0.42
+      - 0.62
+      - 0.18
+      Thickness: 0.5
+      TransmissionDistortion: 0.35
+      TransmissionPower: 4
+      TransmissionWrap: 0.5
+      TransmissionAmbient: 0.35
+      UseImpostor: true
+      ImpostorStartDistance: 0
+      ImpostorTransitionBand: 0.01
+      LodTransitionSpread: 0
+      LodHysteresis: 0
+      LodStochasticCoverage: false
+      UseDensityLod: false
+      DensityLodStartDistance: 30
+      DensityLodEndDistance: 80
+      DensityLodMinFraction: 0.25
+      DensityLodFadeFraction: 0.15
+      DensityLodMaxScale: 2
+      ImpostorFramesPerAxis: 4
+      ImpostorAtlasResolution: 256
+      ImpostorHemiOctahedral: true
+      Enabled: true
+      CastShadows: true
+- Entity: 7758105803735873444
+  TagComponent:
+    Tag: Runtime evidence camera
+  TransformComponent:
+    Translation:
+    - -14
+    - 14
+    - 20
+    Rotation:
+    - -0.45
+    - -0.7
+    - 0
+    Scale:
+    - 1
+    - 1
+    - 1
+  CameraComponent:
+    Camera:
+      ProjectionType: 0
+      PerspectiveFOV: 0.7853982
+      PerspectiveNear: 0.1
+      PerspectiveFar: 200
+      OrthographicSize: 10
+      OrthographicNear: -1
+      OrthographicFar: 1
+    Primary: true
+    FixedAspectRatio: false
+    RuntimeControl: false
+    FlySpeed: 5
+- Entity: 15967064209369072632
+  TagComponent:
+    Tag: Shadow light
+  TransformComponent:
+    Translation:
+    - -6
+    - 10
+    - 0
+    Rotation:
+    - 0
+    - 0
+    - 0
+    Scale:
+    - 1
+    - 1
+    - 1
+  SpotLightComponent:
+    Direction:
+    - 0.6
+    - -0.8
+    - 0
+    Color:
+    - 1
+    - 1
+    - 1
+    Intensity: 500
+    Range: 45
+    InnerCutoff: 55
+    OuterCutoff: 70
+    Attenuation: 2
+    CastShadows: true
+    RayTracedShadows: false
+    ShadowBias: 0.005
+    ShadowNormalBias: 0.01
+- Entity: 17589522924608388277
+  TagComponent:
+    Tag: Mesh receiver
+  TransformComponent:
+    Translation:
+    - 0
+    - 0
+    - 0
+    Rotation:
+    - 0
+    - 0
+    - 0
+    Scale:
+    - 60
+    - 1
+    - 60
+  MeshComponent:
+    Primitive: 3
+  MaterialComponent:
+    AlbedoColor:
+    - 0.8
+    - 0.8
+    - 0.8
+    Metallic: 0
+    Roughness: 1

@@ -312,7 +312,59 @@ LightmapSettings:
   MaxBounces: 4
   TexelsPerMeter: 8
 Entities:
-  - Entity: 3772995602548970548
+  - Entity: 1920960808090250320
+    TagComponent:
+      Tag: Runtime evidence camera
+    TransformComponent:
+      Translation: [4, 14, 26]
+      Rotation: [-0.45, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.7853982
+        PerspectiveNear: 0.1
+        PerspectiveFar: 200
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+      RuntimeControl: false
+      FlySpeed: 5
+  - Entity: 7162877831779377027
+    TagComponent:
+      Tag: Mesh receiver
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [60, 1, 60]
+    MeshComponent:
+      Primitive: 3
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.8, 0.8]
+      Metallic: 0
+      Roughness: 1
+  - Entity: 18145812348295248247
+    TagComponent:
+      Tag: Shadow light
+    TransformComponent:
+      Translation: [-6, 10, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [0.6, -0.8, 0]
+      Color: [1, 1, 1]
+      Intensity: 500
+      Range: 45
+      InnerCutoff: 55
+      OuterCutoff: 70
+      Attenuation: 2
+      CastShadows: true
+      RayTracedShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+  - Entity: 18215600540576383638
     TagComponent:
       Tag: Terrain
     TransformComponent:
@@ -367,55 +419,3 @@ Entities:
       VoxelEnabled: false
       VoxelSize: 1
       VoxelMesher: 0
-  - Entity: 4350338726454931753
-    TagComponent:
-      Tag: Shadow light
-    TransformComponent:
-      Translation: [-6, 10, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    SpotLightComponent:
-      Direction: [0.6, -0.8, 0]
-      Color: [1, 1, 1]
-      Intensity: 500
-      Range: 45
-      InnerCutoff: 55
-      OuterCutoff: 70
-      Attenuation: 2
-      CastShadows: true
-      RayTracedShadows: false
-      ShadowBias: 0.005
-      ShadowNormalBias: 0.01
-  - Entity: 7758105803735873444
-    TagComponent:
-      Tag: Runtime evidence camera
-    TransformComponent:
-      Translation: [4, 14, 26]
-      Rotation: [-0.45, 0, 0]
-      Scale: [1, 1, 1]
-    CameraComponent:
-      Camera:
-        ProjectionType: 0
-        PerspectiveFOV: 0.7853982
-        PerspectiveNear: 0.1
-        PerspectiveFar: 200
-        OrthographicSize: 10
-        OrthographicNear: -1
-        OrthographicFar: 1
-      Primary: true
-      FixedAspectRatio: false
-      RuntimeControl: false
-      FlySpeed: 5
-  - Entity: 17589522924608388277
-    TagComponent:
-      Tag: Mesh receiver
-    TransformComponent:
-      Translation: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [60, 1, 60]
-    MeshComponent:
-      Primitive: 3
-    MaterialComponent:
-      AlbedoColor: [0.8, 0.8, 0.8]
-      Metallic: 0
-      Roughness: 1

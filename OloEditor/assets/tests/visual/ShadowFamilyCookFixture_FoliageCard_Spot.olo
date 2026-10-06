@@ -312,7 +312,7 @@ LightmapSettings:
   MaxBounces: 4
   TexelsPerMeter: 8
 Entities:
-  - Entity: 7758105803735873444
+  - Entity: 1920960808090250320
     TagComponent:
       Tag: Runtime evidence camera
     TransformComponent:
@@ -332,7 +332,39 @@ Entities:
       FixedAspectRatio: false
       RuntimeControl: false
       FlySpeed: 5
-  - Entity: 14661978558411924989
+  - Entity: 7162877831779377027
+    TagComponent:
+      Tag: Mesh receiver
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [60, 1, 60]
+    MeshComponent:
+      Primitive: 3
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.8, 0.8]
+      Metallic: 0
+      Roughness: 1
+  - Entity: 17155048575880584247
+    TagComponent:
+      Tag: Shadow light
+    TransformComponent:
+      Translation: [-6, 10, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [0.6, -0.8, 0]
+      Color: [1, 1, 1]
+      Intensity: 500
+      Range: 45
+      InnerCutoff: 55
+      OuterCutoff: 70
+      Attenuation: 2
+      CastShadows: true
+      RayTracedShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+  - Entity: 17946648986488332226
     TagComponent:
       Tag: FoliageCard
     TransformComponent:
@@ -464,35 +496,3 @@ Entities:
           ImpostorHemiOctahedral: true
           Enabled: true
           CastShadows: true
-  - Entity: 16002370806176105011
-    TagComponent:
-      Tag: Shadow light
-    TransformComponent:
-      Translation: [-6, 10, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    SpotLightComponent:
-      Direction: [0.6, -0.8, 0]
-      Color: [1, 1, 1]
-      Intensity: 500
-      Range: 45
-      InnerCutoff: 55
-      OuterCutoff: 70
-      Attenuation: 2
-      CastShadows: true
-      RayTracedShadows: false
-      ShadowBias: 0.005
-      ShadowNormalBias: 0.01
-  - Entity: 17589522924608388277
-    TagComponent:
-      Tag: Mesh receiver
-    TransformComponent:
-      Translation: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [60, 1, 60]
-    MeshComponent:
-      Primitive: 3
-    MaterialComponent:
-      AlbedoColor: [0.8, 0.8, 0.8]
-      Metallic: 0
-      Roughness: 1

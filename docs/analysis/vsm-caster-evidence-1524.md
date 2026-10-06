@@ -40,26 +40,45 @@ unclaimed MCP request: readiness is awaited before retrying that cancelled call.
 
 ## Evidence index
 
-The committed editor ledger contains 6,108 measured cells. Its scope record
-explicitly marks packaged-runtime verification as pending; the final ledger is
-added after the remaining campaigns complete.
-The [editor measurements](../../OloEditor/assets/tests/visual/ShadowFamilyLive/Measurements.csv),
+The committed editor ledger contains 6,928 measured cells, with 372 packaged-runtime
+cells and 90 snow-transition cells retained separately. The
+[editor measurements](../../OloEditor/assets/tests/visual/ShadowFamilyLive/Measurements.csv),
+[runtime measurements](../../OloEditor/assets/tests/visual/ShadowFamilyLive/RuntimeMeasurements.csv),
+[snow measurements](../../OloEditor/assets/tests/visual/ShadowFamilyLive/SnowTransitions/Measurements.csv),
 [scope record](../../OloEditor/assets/tests/visual/ShadowFamilyLive/Scope.json),
 and [file hash manifest](../../OloEditor/assets/tests/visual/ShadowFamilyLive/Manifest.json)
-identify the retained captures and their completeness.
-The committed headless ledger contains 2,592 core GL cells plus 27 controls in
+identify the captures and their completeness.
+
+The headless ledger contains 2,592 core GL cells plus 27 controls in
 [ShadowFamilyMeasurements.csv](../../OloEditor/assets/tests/visual/ShadowFamilyMeasurements.csv).
-All 13 expanded family/cook/shader tests and
-158 targeted CPU contracts passed. All four Release production/test targets,
-the Debug editor, and 13 existing shadow parity tests built or passed. All 15
-scene records round-tripped through the rebuilt pack. Corrected packaged GL
-passed all 180 runtime cells at native and odd window sizes, with no error
-diagnostics and capture/render viewport agreement in every process.
-Corrected Vulkan runtime verification remains pending. The live snow transition passed
-18 cells on each backend, across all three paths and both CSM/VSM modes. Disabled
-shadow mass and centroid returned to the dry baseline. The preserved old renderer
-left 7,659 displaced silhouette pixels and about 3.1 units of centroid drift on
-all three GL paths.
+After merging master at `b239439b2`, all 603 targeted CPU/graph contracts,
+13 expanded family/cook/shader tests, four attachment/snow snapshot tests and
+13 existing shadow parity tests passed without skips. All four Release
+production/test targets and the Debug editor built. All 15 scene records
+round-tripped through the rebuilt pack.
+
+The broad pre-merge editor/runtime campaigns remain pinned to their original
+source and binary hashes. Post-merge integration adds 324 native family cells
+and 54 odd-resolution Deferred/MSAA/upscale cells per backend, 18 snow transitions
+per backend, and native/odd terrain runtime probes on both backends. Debug Vulkan
+records an inserted validation layer and no VUID messages. The incoming graph
+change left caster shaders, extraction and cache logic unchanged; these added
+checks exercise graph ordering and the changed attachment/snow consumers.
+The [integration reports](../../OloEditor/assets/tests/visual/ShadowFamilyLive/IntegrationContracts/Provenance.json)
+retain the contract XML, snapshot captures and build hashes.
+
+Both packaged-runtime backends passed 180 broad cells plus six post-merge probes,
+with no error diagnostics and capture/render viewport agreement in every retained
+process. One minimized capture and one Windows display/DPI-query attempt are
+excluded and preserved with controlled or identical-input clean reruns. The
+capture helper retains its window handle, restores observed minimization and
+restarts settling before publishing a PNG.
+
+Snow disable returned shadow mass and centroid to the dry baseline on all three
+paths. The first disabled VSM measurement retains cached pages before a mode
+switch. The old renderer left 7,659 displaced silhouette pixels and about
+3.1 units of centroid drift on all three GL paths; that negative control remains
+separate from the corrected measurements.
 
 ## Support boundaries
 

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="4" failures="0" disabled="0" errors="0" time="3.66" timestamp="2026-10-06T09:44:15.539" name="AllTests">
+  <testsuite name="VulkanPassSuite" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0.371" timestamp="2026-10-06T09:44:15.540">
+    <testcase name="SnowBlurAddsTheDiffusedSnowHalfIntoSceneColorInPlace" file="..\OloEngine\tests\Rendering\VulkanPassSuiteTest.cpp" line="1584" status="run" result="completed" time="0.371" timestamp="2026-10-06T09:44:15.540" classname="VulkanPassSuite" />
+  </testsuite>
+  <testsuite name="AllPaths/SnowLayerTest" tests="3" failures="0" disabled="0" skipped="0" errors="0" time="3.289" timestamp="2026-10-06T09:44:15.911">
+    <testcase name="AttachmentSnapshotsValidateAcrossMsaaAndReconstruction/Forward" value_param="1-byte object &lt;00&gt;" file="..\OloEngine\tests\Rendering\PropertyTests\SnowLayerEvidenceTest.cpp" line="283" status="run" result="completed" time="1.943" timestamp="2026-10-06T09:44:15.911" classname="AllPaths/SnowLayerTest" />
+    <testcase name="AttachmentSnapshotsValidateAcrossMsaaAndReconstruction/ForwardPlus" value_param="1-byte object &lt;01&gt;" file="..\OloEngine\tests\Rendering\PropertyTests\SnowLayerEvidenceTest.cpp" line="283" status="run" result="completed" time="0.619" timestamp="2026-10-06T09:44:17.854" classname="AllPaths/SnowLayerTest" />
+    <testcase name="AttachmentSnapshotsValidateAcrossMsaaAndReconstruction/Deferred" value_param="1-byte object &lt;02&gt;" file="..\OloEngine\tests\Rendering\PropertyTests\SnowLayerEvidenceTest.cpp" line="283" status="run" result="completed" time="0.726" timestamp="2026-10-06T09:44:18.474" classname="AllPaths/SnowLayerTest" />
+  </testsuite>
+</testsuites>

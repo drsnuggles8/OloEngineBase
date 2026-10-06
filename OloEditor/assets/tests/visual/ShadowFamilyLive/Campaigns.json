@@ -23340,5 +23340,1995 @@
     },
     "unsupported": [],
     "controls": []
+  },
+  {
+    "name": "vsm1524-live-opengl-groom-local-parity",
+    "backend": "OpenGLGroomLocal",
+    "retainedCells": 24,
+    "provenance": {
+      "head": "4def631c7b5cde458227e6d56a72395aa30664ab",
+      "workingDiffSHA256": "1cb2831d3769d387de9bacc9b9565a239bfcf0eaaf1d6592661fc9a1f91bec6e",
+      "executable": "C:\\repos\\OloEngine-vsm-terrain-voxel-foliage-casters-1524\\bin\\Release\\OloEditor\\OloEditor.exe",
+      "executableSHA256": "aecb4200984acd47d43cb8c7fe94fc74e9a002261d357166ca7e1de5aff1feeb",
+      "captureSettleFrames": 8
+    },
+    "engineLogSHA256": "579231deed09febca6534859eea8d0dc5e0d27bdb012d61ef4d7c788e65f9690",
+    "consoleLogSHA256": "40599a6a1d3545cadd0a7cce584db6093bf7957c723747401c434586e74db280",
+    "backendLines": [
+      "[05:51:19] [info] OloEngine: [RHI] Backend: OpenGL (source: --rhi flag)"
+    ],
+    "validationLines": [],
+    "bindlessLines": [
+      "[05:51:19] [info] OloEngine: [RHI] Descriptor heap initialised: 4096 persistent + 1024 transient slots, bindless available (off), poison off"
+    ],
+    "diagnostics": [],
+    "shaderErrorsAPI": {
+      "available": false,
+      "count": null,
+      "detail": "Shader tracking is compiled out of this build (OLO_SHADER_REGISTER is Debug-only), so shader errors cannot be reported. Use a Debug editor to check shader errors.",
+      "errors": [],
+      "status": "unavailableInThisBuild"
+    },
+    "unsupported": [],
+    "controls": []
+  },
+  {
+    "name": "vsm1524-live-opengl-vg-local-parity",
+    "backend": "OpenGLVirtualGeometryLocal",
+    "retainedCells": 8,
+    "provenance": {
+      "head": "4def631c7b5cde458227e6d56a72395aa30664ab",
+      "workingDiffSHA256": "8cf4b07fb1e5604776714ae520139a86188669fbe074abbcf258cceef2d90032",
+      "executable": "C:\\repos\\OloEngine-vsm-terrain-voxel-foliage-casters-1524\\bin\\Release\\OloEditor\\OloEditor.exe",
+      "executableSHA256": "aecb4200984acd47d43cb8c7fe94fc74e9a002261d357166ca7e1de5aff1feeb",
+      "captureSettleFrames": 8
+    },
+    "engineLogSHA256": "603d582d3eeee3394fee996e8b3bddd8776e9fdfdd9fdd60306b1e5d5d7cbec9",
+    "consoleLogSHA256": "99fe42a6f9a32ead8d20da758a127f857acfa41553afb1b48c14ab6b14dd0ba6",
+    "backendLines": [
+      "[05:51:28] [info] OloEngine: [RHI] Backend: OpenGL (source: --rhi flag)"
+    ],
+    "validationLines": [],
+    "bindlessLines": [
+      "[05:51:28] [info] OloEngine: [RHI] Descriptor heap initialised: 4096 persistent + 1024 transient slots, bindless available (off), poison off"
+    ],
+    "diagnostics": [],
+    "shaderErrorsAPI": {
+      "available": false,
+      "count": null,
+      "detail": "Shader tracking is compiled out of this build (OLO_SHADER_REGISTER is Debug-only), so shader errors cannot be reported. Use a Debug editor to check shader errors.",
+      "errors": [],
+      "status": "unavailableInThisBuild"
+    },
+    "unsupported": [],
+    "controls": []
+  },
+  {
+    "name": "vsm1524-live-vulkan-groom-local-parity",
+    "backend": "VulkanGroomLocal",
+    "retainedCells": 24,
+    "provenance": {
+      "head": "af372b579377ee2760b5c48e5cefe49c1745e33c",
+      "workingDiffSHA256": "23688eba69b4f5baceff4f291ce86b87ae78c6bfca18a16a8d641ec01c87d4b5",
+      "executable": "C:\\repos\\OloEngine-vsm-terrain-voxel-foliage-casters-1524\\bin\\Release\\OloEditor\\OloEditor.exe",
+      "executableSHA256": "aecb4200984acd47d43cb8c7fe94fc74e9a002261d357166ca7e1de5aff1feeb",
+      "captureSettleFrames": 8
+    },
+    "engineLogSHA256": "83d4e0bc580432e6c17cf9c00a6ec1b538a6cd06e972a4100b016a31f7062e9b",
+    "consoleLogSHA256": "49254948ad25dbc839cd7d1aea4f052efac54278f94f8f045b1edd19249590de",
+    "backendLines": [
+      "[07:17:13] [info] OloEngine: [RHI] Backend: Vulkan (source: --rhi flag)"
+    ],
+    "validationLines": [],
+    "bindlessLines": [
+      "[07:17:14] [info] OloEngine: [RHI] Descriptor heap initialised: 4096 persistent + 1024 transient slots, bindless available (off), poison off"
+    ],
+    "diagnostics": [],
+    "shaderErrorsAPI": {
+      "available": false,
+      "count": null,
+      "detail": "Shader tracking is compiled out of this build (OLO_SHADER_REGISTER is Debug-only), so shader errors cannot be reported. Use a Debug editor to check shader errors.",
+      "errors": [],
+      "status": "unavailableInThisBuild"
+    },
+    "unsupported": [],
+    "controls": []
+  },
+  {
+    "name": "vsm1524-live-vulkan-vg-local-parity",
+    "backend": "VulkanVirtualGeometryLocal",
+    "retainedCells": 8,
+    "provenance": {
+      "head": "af372b579377ee2760b5c48e5cefe49c1745e33c",
+      "workingDiffSHA256": "2fa3aa55da8693695d7d21442a19dd44b9b1d08e32a737fa1943288b0192ee79",
+      "executable": "C:\\repos\\OloEngine-vsm-terrain-voxel-foliage-casters-1524\\bin\\Release\\OloEditor\\OloEditor.exe",
+      "executableSHA256": "aecb4200984acd47d43cb8c7fe94fc74e9a002261d357166ca7e1de5aff1feeb",
+      "captureSettleFrames": 8
+    },
+    "engineLogSHA256": "90bdfd228ce2c9e93307f14a5f9f2f34c3561cae8427387ba208cddc107f0eff",
+    "consoleLogSHA256": "9953a3c93ce19a5efd83b2c5c6efb982040a3c64844de6c499a4dc1cbcc232c7",
+    "backendLines": [
+      "[07:17:30] [info] OloEngine: [RHI] Backend: Vulkan (source: --rhi flag)"
+    ],
+    "validationLines": [],
+    "bindlessLines": [
+      "[07:17:30] [info] OloEngine: [RHI] Descriptor heap initialised: 4096 persistent + 1024 transient slots, bindless available (off), poison off"
+    ],
+    "diagnostics": [
+      "[07:17:33] [error] OloEngine: [RHI/Vulkan] 'VirtualClusterCull' STORAGE binding 70 has no published occupant \u2014 substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it."
+    ],
+    "shaderErrorsAPI": {
+      "available": false,
+      "count": null,
+      "detail": "Shader tracking is compiled out of this build (OLO_SHADER_REGISTER is Debug-only), so shader errors cannot be reported. Use a Debug editor to check shader errors.",
+      "errors": [],
+      "status": "unavailableInThisBuild"
+    },
+    "unsupported": [],
+    "controls": []
+  },
+  {
+    "name": "vsm1524-live-opengl-integration-native",
+    "backend": "OpenGLIntegration",
+    "retainedCells": 324,
+    "provenance": {
+      "head": "602d7ee9d1e95ff477b3e05fb69e4313fbe60139",
+      "workingDiffSHA256": "c392b8db5d2c9dd408315cc49b703c74f66f70dda8463e7f3af0f6990cb3c033",
+      "executable": "C:\\repos\\OloEngine-vsm-terrain-voxel-foliage-casters-1524\\bin\\Release\\OloEditor\\OloEditor.exe",
+      "executableSHA256": "ba7bd8478ca12daec289493a423b0e23c295c1d66024bbf338ff404781213483",
+      "captureSettleFrames": 8
+    },
+    "engineLogSHA256": "753aade3695454a9d9a89d658165147760513f3ca59689cd63195a435048090c",
+    "consoleLogSHA256": "790209dc8e1d18246d0c560b79b3a403790bb63550ed8b35c87c2de3b1bf0fa0",
+    "backendLines": [
+      "[09:44:32] [info] OloEngine: [RHI] Backend: OpenGL (source: --rhi flag)"
+    ],
+    "validationLines": [],
+    "bindlessLines": [
+      "[09:44:32] [info] OloEngine: [RHI] Descriptor heap initialised: 4096 persistent + 1024 transient slots, bindless available (off), poison off"
+    ],
+    "diagnostics": [],
+    "shaderErrorsAPI": {
+      "available": false,
+      "count": null,
+      "detail": "Shader tracking is compiled out of this build (OLO_SHADER_REGISTER is Debug-only), so shader errors cannot be reported. Use a Debug editor to check shader errors.",
+      "errors": [],
+      "status": "unavailableInThisBuild"
+    },
+    "unsupported": [],
+    "controls": []
+  },
+  {
+    "name": "vsm1524-live-opengl-integration-msaa",
+    "backend": "OpenGLIntegration",
+    "retainedCells": 54,
+    "provenance": {
+      "head": "602d7ee9d1e95ff477b3e05fb69e4313fbe60139",
+      "workingDiffSHA256": "b855bb8a39867d51512f8119f32e08874ce1e5ed045603dce20b66788520d4cd",
+      "executable": "C:\\repos\\OloEngine-vsm-terrain-voxel-foliage-casters-1524\\bin\\Release\\OloEditor\\OloEditor.exe",
+      "executableSHA256": "ba7bd8478ca12daec289493a423b0e23c295c1d66024bbf338ff404781213483",
+      "captureSettleFrames": 8
+    },
+    "engineLogSHA256": "37d3e5d7a284b59122faa027a1f9905aafa50f540aa0b64926cc199587f51ee4",
+    "consoleLogSHA256": "813b081bc82fc92d4e64086093a4f600ca0626de3fbd335eb2f5fd6a837b8504",
+    "backendLines": [
+      "[09:46:04] [info] OloEngine: [RHI] Backend: OpenGL (source: --rhi flag)"
+    ],
+    "validationLines": [],
+    "bindlessLines": [
+      "[09:46:04] [info] OloEngine: [RHI] Descriptor heap initialised: 4096 persistent + 1024 transient slots, bindless available (off), poison off"
+    ],
+    "diagnostics": [],
+    "shaderErrorsAPI": {
+      "available": false,
+      "count": null,
+      "detail": "Shader tracking is compiled out of this build (OLO_SHADER_REGISTER is Debug-only), so shader errors cannot be reported. Use a Debug editor to check shader errors.",
+      "errors": [],
+      "status": "unavailableInThisBuild"
+    },
+    "unsupported": [
+      {
+        "cell": "Terrain_Sun_deferred_853x479MSAA4FSR2Quality_Angle0_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "Terrain_Sun_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "Terrain_Sun_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "Terrain_Sun_deferred_853x479MSAA4FSR2Quality_Angle1_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "Terrain_Sun_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "Terrain_Sun_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "Terrain_Spot_deferred_853x479MSAA4FSR2Quality_Angle0_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "Terrain_Spot_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "Terrain_Spot_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "Terrain_Spot_deferred_853x479MSAA4FSR2Quality_Angle1_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "Terrain_Spot_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "Terrain_Spot_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "Terrain_Point_deferred_853x479MSAA4FSR2Quality_Angle0_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "Terrain_Point_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "Terrain_Point_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "Terrain_Point_deferred_853x479MSAA4FSR2Quality_Angle1_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "Terrain_Point_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "Terrain_Point_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Sun_deferred_853x479MSAA4FSR2Quality_Angle0_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Sun_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Sun_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Sun_deferred_853x479MSAA4FSR2Quality_Angle1_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Sun_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Sun_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Spot_deferred_853x479MSAA4FSR2Quality_Angle0_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Spot_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Spot_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Spot_deferred_853x479MSAA4FSR2Quality_Angle1_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Spot_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Spot_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Point_deferred_853x479MSAA4FSR2Quality_Angle0_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Point_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Point_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Point_deferred_853x479MSAA4FSR2Quality_Angle1_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Point_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Point_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "FoliageCard_Sun_deferred_853x479MSAA4FSR2Quality_Angle0_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "FoliageCard_Sun_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "FoliageCard_Sun_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "FoliageCard_Sun_deferred_853x479MSAA4FSR2Quality_Angle1_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "FoliageCard_Sun_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "FoliageCard_Sun_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "FoliageCard_Spot_deferred_853x479MSAA4FSR2Quality_Angle0_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "FoliageCard_Spot_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "FoliageCard_Spot_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "FoliageCard_Spot_deferred_853x479MSAA4FSR2Quality_Angle1_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "FoliageCard_Spot_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "FoliageCard_Spot_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "FoliageCard_Point_deferred_853x479MSAA4FSR2Quality_Angle0_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "FoliageCard_Point_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "FoliageCard_Point_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "FoliageCard_Point_deferred_853x479MSAA4FSR2Quality_Angle1_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "FoliageCard_Point_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      },
+      {
+        "cell": "FoliageCard_Point_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "available"
+        }
+      }
+    ],
+    "controls": []
+  },
+  {
+    "name": "vsm1524-live-vulkan-integration-native",
+    "backend": "VulkanValidationIntegration",
+    "retainedCells": 324,
+    "provenance": {
+      "head": "602d7ee9d1e95ff477b3e05fb69e4313fbe60139",
+      "workingDiffSHA256": "c4f770401823e48e5bf251e0056c5d1a8371dde7bbf748e9b6354cf95c835fc1",
+      "executable": "C:\\repos\\OloEngine-vsm-terrain-voxel-foliage-casters-1524\\bin\\Debug\\OloEditor\\OloEditor.exe",
+      "executableSHA256": "362c12d18a4cf47aa24f995a731ff56e04b8d3f19d85612665b2d57b607904ed",
+      "captureSettleFrames": 8
+    },
+    "engineLogSHA256": "86a4e42d7127ddd35bb4625a3d3f27ff95f0b55b2c5c84ddf77ce12c1f43b581",
+    "consoleLogSHA256": "9ad72e6891a3d375006d6c6b70c3aee2073630a36d13edad7eef3564c42b7274",
+    "backendLines": [
+      "[09:47:11] [info] OloEngine: [RHI] Backend: Vulkan (source: --rhi flag)"
+    ],
+    "validationLines": [
+      "[Vulkan Loader] INFO | LAYER:   Insert instance layer \"VK_LAYER_KHRONOS_validation\" (C:\\VulkanSDK\\1.4.357.0\\Bin\\VkLayer_khronos_validation.dll)",
+      "[Vulkan Loader] LAYER:             VK_LAYER_KHRONOS_validation",
+      "[Vulkan Loader] INFO | LAYER:   Inserted device layer \"VK_LAYER_KHRONOS_validation\" (C:\\VulkanSDK\\1.4.357.0\\Bin\\VkLayer_khronos_validation.dll)",
+      "[Vulkan Loader] LAYER:             VK_LAYER_KHRONOS_validation"
+    ],
+    "bindlessLines": [
+      "[09:47:11] [info] OloEngine: [RHI] Descriptor heap initialised: 4096 persistent + 1024 transient slots, bindless available (off), poison on"
+    ],
+    "diagnostics": [],
+    "shaderErrorsAPI": {
+      "available": false,
+      "count": null,
+      "detail": "Shader tracking is compiled in but ShaderDebugger::Initialize() has not run in this process, so no shader has registered. Nothing was checked; a zero here would be a guess, not a result.",
+      "errors": [],
+      "status": "notInitialized"
+    },
+    "unsupported": [],
+    "controls": []
+  },
+  {
+    "name": "vsm1524-live-vulkan-integration-msaa",
+    "backend": "VulkanValidationIntegration",
+    "retainedCells": 54,
+    "provenance": {
+      "head": "602d7ee9d1e95ff477b3e05fb69e4313fbe60139",
+      "workingDiffSHA256": "97c9b333918fef8ad031eb3a4ca13c5789a9f3c20d1f794669e9f6b771430098",
+      "executable": "C:\\repos\\OloEngine-vsm-terrain-voxel-foliage-casters-1524\\bin\\Debug\\OloEditor\\OloEditor.exe",
+      "executableSHA256": "362c12d18a4cf47aa24f995a731ff56e04b8d3f19d85612665b2d57b607904ed",
+      "captureSettleFrames": 8
+    },
+    "engineLogSHA256": "b5442790b4cc584d022ab8418f96d7a5a77b84a60e00cec33ebe758600e06b13",
+    "consoleLogSHA256": "867d53d71ce1cfb7ad03b625731d8bef663097712621c76b331891b0362393f6",
+    "backendLines": [
+      "[09:53:17] [info] OloEngine: [RHI] Backend: Vulkan (source: --rhi flag)"
+    ],
+    "validationLines": [
+      "[Vulkan Loader] INFO | LAYER:   Insert instance layer \"VK_LAYER_KHRONOS_validation\" (C:\\VulkanSDK\\1.4.357.0\\Bin\\VkLayer_khronos_validation.dll)",
+      "[Vulkan Loader] LAYER:             VK_LAYER_KHRONOS_validation",
+      "[Vulkan Loader] INFO | LAYER:   Inserted device layer \"VK_LAYER_KHRONOS_validation\" (C:\\VulkanSDK\\1.4.357.0\\Bin\\VkLayer_khronos_validation.dll)",
+      "[Vulkan Loader] LAYER:             VK_LAYER_KHRONOS_validation"
+    ],
+    "bindlessLines": [
+      "[09:53:18] [info] OloEngine: [RHI] Descriptor heap initialised: 4096 persistent + 1024 transient slots, bindless available (off), poison on"
+    ],
+    "diagnostics": [],
+    "shaderErrorsAPI": {
+      "available": false,
+      "count": null,
+      "detail": "Shader tracking is compiled in but ShaderDebugger::Initialize() has not run in this process, so no shader has registered. Nothing was checked; a zero here would be a guess, not a result.",
+      "errors": [],
+      "status": "notInitialized"
+    },
+    "unsupported": [
+      {
+        "cell": "Terrain_Sun_deferred_853x479MSAA4FSR2Quality_Angle0_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "Terrain_Sun_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "Terrain_Sun_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "Terrain_Sun_deferred_853x479MSAA4FSR2Quality_Angle1_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "Terrain_Sun_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "Terrain_Sun_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "Terrain_Spot_deferred_853x479MSAA4FSR2Quality_Angle0_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "Terrain_Spot_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "Terrain_Spot_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "Terrain_Spot_deferred_853x479MSAA4FSR2Quality_Angle1_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "Terrain_Spot_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "Terrain_Spot_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "Terrain_Point_deferred_853x479MSAA4FSR2Quality_Angle0_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "Terrain_Point_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "Terrain_Point_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "Terrain_Point_deferred_853x479MSAA4FSR2Quality_Angle1_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "Terrain_Point_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "Terrain_Point_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Sun_deferred_853x479MSAA4FSR2Quality_Angle0_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Sun_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Sun_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Sun_deferred_853x479MSAA4FSR2Quality_Angle1_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Sun_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Sun_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Spot_deferred_853x479MSAA4FSR2Quality_Angle0_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Spot_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Spot_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Spot_deferred_853x479MSAA4FSR2Quality_Angle1_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Spot_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Spot_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Point_deferred_853x479MSAA4FSR2Quality_Angle0_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Point_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Point_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Point_deferred_853x479MSAA4FSR2Quality_Angle1_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Point_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "GreedyVoxel_Point_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "FoliageCard_Sun_deferred_853x479MSAA4FSR2Quality_Angle0_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "FoliageCard_Sun_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "FoliageCard_Sun_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "FoliageCard_Sun_deferred_853x479MSAA4FSR2Quality_Angle1_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "FoliageCard_Sun_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "FoliageCard_Sun_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "FoliageCard_Spot_deferred_853x479MSAA4FSR2Quality_Angle0_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "FoliageCard_Spot_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "FoliageCard_Spot_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "FoliageCard_Spot_deferred_853x479MSAA4FSR2Quality_Angle1_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "FoliageCard_Spot_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "FoliageCard_Spot_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "FoliageCard_Point_deferred_853x479MSAA4FSR2Quality_Angle0_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "FoliageCard_Point_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "FoliageCard_Point_deferred_853x479MSAA4FSR2Quality_Angle0_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "FoliageCard_Point_deferred_853x479MSAA4FSR2Quality_Angle1_CSMAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "FoliageCard_Point_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunAtlas",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      },
+      {
+        "cell": "FoliageCard_Point_deferred_853x479MSAA4FSR2Quality_Angle1_VSMSunLocal",
+        "reason": "Temporal request used its declared fallback",
+        "upscaler": {
+          "fallback": "msaaResolved",
+          "pending": false,
+          "reason": "The scene band is MSAA-resolved (4 samples). FSR2 reconstructs from per-pixel depth and motion, which a resolve has already averaged, so it is refused under MSAA; set msaa to 1 to run it.",
+          "requested": {
+            "technique": "temporal",
+            "upscale": "quality"
+          },
+          "resolved": "spatial",
+          "sceneSampleCount": 4,
+          "temporalUpscalerStatus": "unsupported on the active RHI backend"
+        }
+      }
+    ],
+    "controls": []
   }
 ]
