@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="8" failures="0" disabled="0" errors="0" time="0.001" timestamp="2026-10-06T08:12:51.956" name="AllTests">
+  <testsuite name="AppLaunchSmoke" tests="8" failures="0" disabled="0" skipped="8" errors="0" time="0." timestamp="2026-10-06T08:12:51.958">
+    <testcase name="OloServerLaunchesCleanly" file="/olo/OloEngine/tests/AppLaunchSmokeTest.cpp" line="139" status="run" result="skipped" time="0." timestamp="2026-10-06T08:12:51.958" classname="AppLaunchSmoke">
+      <skipped message="/olo/OloEngine/tests/AppLaunchSmokeTest.cpp:85&#x0A;Binary not found at /home/runner/work/OloEngineBase/OloEngineBase/bin/Debug/OloServer/OloServer — build the app target to exercise this launch smoke test.&#x0A;"><![CDATA[/olo/OloEngine/tests/AppLaunchSmokeTest.cpp:85
+Binary not found at /home/runner/work/OloEngineBase/OloEngineBase/bin/Debug/OloServer/OloServer — build the app target to exercise this launch smoke test.
+]]></skipped>
+    </testcase>
+    <testcase name="OloServerStopsAHeadlessSceneCleanly" file="/olo/OloEngine/tests/AppLaunchSmokeTest.cpp" line="144" status="run" result="skipped" time="0." timestamp="2026-10-06T08:12:51.958" classname="AppLaunchSmoke">
+      <skipped message="/olo/OloEngine/tests/AppLaunchSmokeTest.cpp:85&#x0A;Binary not found at /home/runner/work/OloEngineBase/OloEngineBase/bin/Debug/OloServer/OloServer — build the app target to exercise this launch smoke test.&#x0A;"><![CDATA[/olo/OloEngine/tests/AppLaunchSmokeTest.cpp:85
+Binary not found at /home/runner/work/OloEngineBase/OloEngineBase/bin/Debug/OloServer/OloServer — build the app target to exercise this launch smoke test.
+]]></skipped>
+    </testcase>
+    <testcase name="OloEditorLaunchesCleanly" file="/olo/OloEngine/tests/AppLaunchSmokeTest.cpp" line="160" status="run" result="skipped" time="0." timestamp="2026-10-06T08:12:51.958" classname="AppLaunchSmoke">
+      <skipped message="/olo/OloEngine/tests/AppLaunchSmokeTest.cpp:85&#x0A;Binary not found at /home/runner/work/OloEngineBase/OloEngineBase/bin/Debug/OloEditor/OloEditor — build the app target to exercise this launch smoke test.&#x0A;"><![CDATA[/olo/OloEngine/tests/AppLaunchSmokeTest.cpp:85
+Binary not found at /home/runner/work/OloEngineBase/OloEngineBase/bin/Debug/OloEditor/OloEditor — build the app target to exercise this launch smoke test.
+]]></skipped>
+    </testcase>
+    <testcase name="OloRuntimeLaunchesCleanly" file="/olo/OloEngine/tests/AppLaunchSmokeTest.cpp" line="170" status="run" result="skipped" time="0." timestamp="2026-10-06T08:12:51.958" classname="AppLaunchSmoke">
+      <skipped message="/olo/OloEngine/tests/AppLaunchSmokeTest.cpp:85&#x0A;Binary not found at /home/runner/work/OloEngineBase/OloEngineBase/bin/Debug/OloRuntime/OloRuntime — build the app target to exercise this launch smoke test.&#x0A;"><![CDATA[/olo/OloEngine/tests/AppLaunchSmokeTest.cpp:85
+Binary not found at /home/runner/work/OloEngineBase/OloEngineBase/bin/Debug/OloRuntime/OloRuntime — build the app target to exercise this launch smoke test.
+]]></skipped>
+    </testcase>
+    <testcase name="OloServerAcceptsMonoDebugOptIn" file="/olo/OloEngine/tests/AppLaunchSmokeTest.cpp" line="175" status="run" result="skipped" time="0." timestamp="2026-10-06T08:12:51.958" classname="AppLaunchSmoke">
+      <skipped message="/olo/OloEngine/tests/AppLaunchSmokeTest.cpp:85&#x0A;Binary not found at /home/runner/work/OloEngineBase/OloEngineBase/bin/Debug/OloServer/OloServer — build the app target to exercise this launch smoke test.&#x0A;"><![CDATA[/olo/OloEngine/tests/AppLaunchSmokeTest.cpp:85
+Binary not found at /home/runner/work/OloEngineBase/OloEngineBase/bin/Debug/OloServer/OloServer — build the app target to exercise this launch smoke test.
+]]></skipped>
+    </testcase>
+    <testcase name="OloEditorAcceptsMonoDebugOptIn" file="/olo/OloEngine/tests/AppLaunchSmokeTest.cpp" line="180" status="run" result="skipped" time="0." timestamp="2026-10-06T08:12:51.958" classname="AppLaunchSmoke">
+      <skipped message="/olo/OloEngine/tests/AppLaunchSmokeTest.cpp:85&#x0A;Binary not found at /home/runner/work/OloEngineBase/OloEngineBase/bin/Debug/OloEditor/OloEditor — build the app target to exercise this launch smoke test.&#x0A;"><![CDATA[/olo/OloEngine/tests/AppLaunchSmokeTest.cpp:85
+Binary not found at /home/runner/work/OloEngineBase/OloEngineBase/bin/Debug/OloEditor/OloEditor — build the app target to exercise this launch smoke test.
+]]></skipped>
+    </testcase>
+    <testcase name="OloRuntimeAcceptsMonoDebugOptIn" file="/olo/OloEngine/tests/AppLaunchSmokeTest.cpp" line="185" status="run" result="skipped" time="0." timestamp="2026-10-06T08:12:51.958" classname="AppLaunchSmoke">
+      <skipped message="/olo/OloEngine/tests/AppLaunchSmokeTest.cpp:85&#x0A;Binary not found at /home/runner/work/OloEngineBase/OloEngineBase/bin/Debug/OloRuntime/OloRuntime — build the app target to exercise this launch smoke test.&#x0A;"><![CDATA[/olo/OloEngine/tests/AppLaunchSmokeTest.cpp:85
+Binary not found at /home/runner/work/OloEngineBase/OloEngineBase/bin/Debug/OloRuntime/OloRuntime — build the app target to exercise this launch smoke test.
+]]></skipped>
+    </testcase>
+    <testcase name="OloCtlLaunchesCleanly" file="/olo/OloEngine/tests/AppLaunchSmokeTest.cpp" line="194" status="run" result="skipped" time="0." timestamp="2026-10-06T08:12:51.958" classname="AppLaunchSmoke">
+      <skipped message="/olo/OloEngine/tests/AppLaunchSmokeTest.cpp:85&#x0A;Binary not found at /home/runner/work/OloEngineBase/OloEngineBase/bin/Debug/oloctl/oloctl — build the app target to exercise this launch smoke test.&#x0A;"><![CDATA[/olo/OloEngine/tests/AppLaunchSmokeTest.cpp:85
+Binary not found at /home/runner/work/OloEngineBase/OloEngineBase/bin/Debug/oloctl/oloctl — build the app target to exercise this launch smoke test.
+]]></skipped>
+    </testcase>
+  </testsuite>
+</testsuites>
