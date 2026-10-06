@@ -1,0 +1,54 @@
+{
+  "cell": "Debug-live-runtime-optin",
+  "host": "runtime",
+  "configuration": "Debug",
+  "optIn": true,
+  "exeSha256": "d8d02fd812668f4ee45f8fedb528346c1b8a69811da82e5b67f3e48ce813cfd9",
+  "externalMonoListenersAtStart": [],
+  "pid": 1644,
+  "listeners": [
+    {
+      "address": "127.0.0.1",
+      "port": 2550
+    },
+    {
+      "address": "::",
+      "port": 8087
+    },
+    {
+      "address": "0.0.0.0",
+      "port": 8087
+    }
+  ],
+  "debugger": {
+    "handshake": "DWP-Handshake",
+    "vmVersion": "mono 6.13.0 (Visual Studio built mono)",
+    "protocol": [
+      2,
+      58
+    ],
+    "threadCount": 1,
+    "probeTypeCount": 1,
+    "methods": [
+      {
+        "name": "OnUpdate",
+        "source": "C:\\repos\\OloEngine-mono-debugger-host-policy-1540\\build-cached\\mono-script\\MonoProbe.cs",
+        "sequencePoints": 7,
+        "acceptedBreakpoint": 1
+      }
+    ],
+    "breakpointHits": [
+      {
+        "requestId": 1,
+        "threadId": 2,
+        "methodId": 2,
+        "ilOffset": 0
+      }
+    ]
+  },
+  "exitCode": 0,
+  "loadedPdbCount": 2,
+  "debuggerLogCreated": true,
+  "managedExceptionCaptured": true,
+  "luaCreatedAndUpdated": true
+}

@@ -1,0 +1,6 @@
+[23:26:13] OloEngine: [ScriptEngine] Mono debugging disabled
+[23:26:13] OloEngine: [Runtime] Asset pack loaded successfully
+MONO_PROBE_CREATED
+[23:26:14] APP: LUA_POLICY_PROBE_CREATED
+[23:26:14] OloEngine: [Script] C# exception in Sandbox.MonoPolicyProbe:OnUpdate (single): System.InvalidOperationException: MONO_POLICY_EXCEPTION
+[23:26:14] APP: LUA_POLICY_PROBE_UPDATED

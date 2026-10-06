@@ -1,0 +1,2 @@
+[22:42:50] OloEngine: [ScriptEngine] Mono debugging enabled (127.0.0.1:2550)
+[22:42:50] OloEngine: [ScriptEngine] OloEngine-ScriptCore assembly unavailable; C# scripting disabled for this session. Build the 'OloEngine-ScriptCore' CMake target (a dependency of OloEditor whenever OLO_WITH_CSHARP is ON; needs the .NET SDK) to produce Resources/Scripts/OloEngine-ScriptCore.dll.

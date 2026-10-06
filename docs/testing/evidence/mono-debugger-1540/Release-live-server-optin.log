@@ -1,0 +1,8 @@
+[00:04:23] OloEngine: [ScriptEngine] Mono debugging enabled (127.0.0.1:2550)
+[00:04:23] OloEngine: Loaded PDB Resources/Scripts/OloEngine-ScriptCore.pdb
+[00:04:23] OloEngine: Loaded PDB Resources/Scripts/Sandbox-Scripting.pdb
+MONO_PROBE_CREATED
+[00:04:23] APP: LUA_POLICY_PROBE_CREATED
+[00:04:23] OloEngine: [Server] Scene loaded and started
+[00:04:23] OloEngine: [Script] C# exception in Sandbox.MonoPolicyProbe:OnUpdate (single): System.InvalidOperationException: MONO_POLICY_EXCEPTION
+[00:04:23] APP: LUA_POLICY_PROBE_UPDATED

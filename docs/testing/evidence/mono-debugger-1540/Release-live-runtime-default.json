@@ -1,0 +1,29 @@
+{
+  "cell": "Release-live-runtime-default",
+  "host": "runtime",
+  "configuration": "Release",
+  "optIn": false,
+  "exeSha256": "83c97a226b383b44718597f3ecaa96ec574f55b1aaec88be8af10cafa907243a",
+  "externalMonoListenersAtStart": [
+    {
+      "pid": 94692,
+      "address": "127.0.0.1"
+    }
+  ],
+  "pid": 89440,
+  "listeners": [
+    {
+      "address": "0.0.0.0",
+      "port": 8087
+    },
+    {
+      "address": "::",
+      "port": 8087
+    }
+  ],
+  "exitCode": 0,
+  "loadedPdbCount": 0,
+  "debuggerLogCreated": false,
+  "managedExceptionCaptured": true,
+  "luaCreatedAndUpdated": true
+}

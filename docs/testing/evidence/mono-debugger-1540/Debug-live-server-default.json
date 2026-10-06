@@ -1,0 +1,23 @@
+{
+  "cell": "Debug-live-server-default",
+  "host": "server",
+  "configuration": "Debug",
+  "optIn": false,
+  "exeSha256": "6f2433cb93773d79b43e63be7900216494852d33e5c28578aa2ce872eeeaa71e",
+  "pid": 81128,
+  "listeners": [
+    {
+      "address": "0.0.0.0",
+      "port": 8086
+    },
+    {
+      "address": "::",
+      "port": 8086
+    }
+  ],
+  "exitCode": 0,
+  "loadedPdbCount": 0,
+  "debuggerLogCreated": false,
+  "managedExceptionCaptured": true,
+  "luaCreatedAndUpdated": true
+}

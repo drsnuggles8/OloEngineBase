@@ -1,0 +1,47 @@
+{
+  "configuration": "Release",
+  "exeSha256": "83c97a226b383b44718597f3ecaa96ec574f55b1aaec88be8af10cafa907243a",
+  "bothAliveConcurrently": true,
+  "debuggerPortBoundByVerifierWhileBothAlive": 2550,
+  "debuggerLogCreated": false,
+  "processes": [
+    {
+      "cell": "Release-cooked-concurrent-1",
+      "pid": 36948,
+      "listeners": [
+        {
+          "address": "0.0.0.0",
+          "port": 8086
+        },
+        {
+          "address": "::",
+          "port": 8086
+        }
+      ],
+      "cookedPackLoaded": true,
+      "managedExceptionCaptured": true,
+      "luaCreatedAndUpdated": true,
+      "loadedPdbCount": 0,
+      "exitCode": 0
+    },
+    {
+      "cell": "Release-cooked-concurrent-2",
+      "pid": 94920,
+      "listeners": [
+        {
+          "address": "::",
+          "port": 8088
+        },
+        {
+          "address": "0.0.0.0",
+          "port": 8088
+        }
+      ],
+      "cookedPackLoaded": true,
+      "managedExceptionCaptured": true,
+      "luaCreatedAndUpdated": true,
+      "loadedPdbCount": 0,
+      "exitCode": 0
+    }
+  ]
+}

@@ -1,0 +1,99 @@
+{
+  "cell": "Release-live-editor-default",
+  "host": "editor",
+  "configuration": "Release",
+  "optIn": false,
+  "exeSha256": "72a0f351a0b1db3f4525a94ee3ea20f1f71c8d2949d96d96ffc7223b9a14e14a",
+  "externalMonoListenersAtStart": [
+    {
+      "pid": 94692,
+      "address": "127.0.0.1"
+    }
+  ],
+  "scene": {
+    "entityCount": 3,
+    "hasActiveScene": true,
+    "isPaused": false,
+    "isPlaying": false,
+    "name": "Mono.olo"
+  },
+  "documentAtStart": {
+    "canRedo": false,
+    "canUndo": true,
+    "changed": false,
+    "dirty": true,
+    "editMode": true,
+    "entityCount": 3,
+    "path": "C:\\repos\\OloEngine-mono-debugger-host-policy-1540\\build-cached\\mono-project\\Assets\\Scenes\\Mono.olo",
+    "sceneName": "Mono.olo"
+  },
+  "reload": {
+    "available": true,
+    "language": "csharp",
+    "message": "Reloaded the C# app assembly (1 script class(es) registered).",
+    "ok": true,
+    "scriptClassCount": 1
+  },
+  "play": {
+    "available": true,
+    "changed": true,
+    "message": "Entered Play mode.",
+    "mode": "play",
+    "ok": true,
+    "playing": true,
+    "sceneName": "Untitled",
+    "simulating": false
+  },
+  "scriptErrors": {
+    "count": 1,
+    "errors": [
+      {
+        "language": "csharp",
+        "message": "System.InvalidOperationException: MONO_POLICY_EXCEPTION\r\n  at Sandbox.MonoPolicyProbe.OnUpdate (System.Single dt) [0x0002d] in <4a44c03b79b5446eb36e2026f2a95d49>:0 ",
+        "scriptName": "Sandbox.MonoPolicyProbe:OnUpdate (single)",
+        "timestamp": 1791235388.739921
+      }
+    ]
+  },
+  "documentBeforeClose": {
+    "canRedo": false,
+    "canUndo": true,
+    "changed": false,
+    "dirty": true,
+    "editMode": true,
+    "entityCount": 3,
+    "path": "C:\\repos\\OloEngine-mono-debugger-host-policy-1540\\build-cached\\mono-project\\Assets\\Scenes\\Mono.olo",
+    "sceneName": "Mono.olo"
+  },
+  "saveBeforeClose": {
+    "canRedo": false,
+    "canUndo": true,
+    "changed": true,
+    "dirty": false,
+    "editMode": true,
+    "entityCount": 3,
+    "path": "C:\\repos\\OloEngine-mono-debugger-host-policy-1540\\build-cached\\mono-project\\Assets\\Scenes\\Mono.olo",
+    "sceneName": "Mono.olo"
+  },
+  "pid": 82136,
+  "listeners": [
+    {
+      "address": "::",
+      "port": 8088
+    },
+    {
+      "address": "127.0.0.1",
+      "port": 17440
+    },
+    {
+      "address": "0.0.0.0",
+      "port": 8088
+    }
+  ],
+  "exitCode": 0,
+  "sceneFixtureRestored": true,
+  "loadedPdbCount": 0,
+  "debuggerLogCreated": false,
+  "managedExceptionCaptured": true,
+  "luaCreatedAndUpdated": true
+}

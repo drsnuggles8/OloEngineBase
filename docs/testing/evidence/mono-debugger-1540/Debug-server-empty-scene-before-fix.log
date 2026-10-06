@@ -1,0 +1,9 @@
+[20:13:40] OloEngine: Running in headless mode â€” no window, renderer, or audio
+[20:13:40] OloEngine: [ScriptEngine] Mono debugging disabled
+[20:13:40] OloEngine: [Server] Starting server on port 28779
+[20:13:40] OloEngine: [Server] Max players: 64
+[20:13:40] OloEngine: [Server] Tick rate: 60 Hz
+[20:13:40] OloEngine: [Server] Mounted project 'mono-project' at 'C:\repos\OloEngine-mono-debugger-host-policy-1540\build-cached\mono-project' (assets: 'C:\repos\OloEngine-mono-debugger-host-policy-1540\build-cached\mono-project\Assets')
+[20:13:40] OloEngine: [Server] Loading scene: C:\repos\OloEngine-mono-debugger-host-policy-1540\build-cached\mono-project\Assets\Scenes\Empty.olo
+[20:13:40] OloEngine: [Server] Scene loaded and started
+[20:13:40] OloEngine: [Server] Listening on port 28779 (snapshot rate 20 Hz)

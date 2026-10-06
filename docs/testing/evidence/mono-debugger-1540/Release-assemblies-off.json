@@ -1,0 +1,74 @@
+{
+  "configuration": "Release",
+  "OLO_WITH_CSHARP": "OFF",
+  "embeddedMonoOnWindows": true,
+  "managedAssembliesTemporarilyAbsent": true,
+  "assembliesRestored": true,
+  "cells": [
+    {
+      "cell": "Release-assemblies-off-OloEditor-default",
+      "exitCode": 0,
+      "exeSha256": "cf49573a571a5ad03b53d45f631e1d14b784cbbb02b785e08e39facb20f9e483",
+      "coreAssemblyUnavailable": true,
+      "debuggerEnabled": false,
+      "debuggerLogCreated": false
+    },
+    {
+      "cell": "Release-assemblies-off-OloEditor-optin",
+      "exitCode": 0,
+      "exeSha256": "cf49573a571a5ad03b53d45f631e1d14b784cbbb02b785e08e39facb20f9e483",
+      "coreAssemblyUnavailable": true,
+      "debuggerEnabled": true,
+      "debuggerLogCreated": true
+    },
+    {
+      "cell": "Release-assemblies-off-OloRuntime-default",
+      "exitCode": 0,
+      "exeSha256": "44097075a3423dfddef98b85a7a946ccd3af7dea9a8b5cdacbaeb5d695b16fb0",
+      "coreAssemblyUnavailable": true,
+      "debuggerEnabled": false,
+      "debuggerLogCreated": false
+    },
+    {
+      "cell": "Release-assemblies-off-OloRuntime-optin",
+      "exitCode": 0,
+      "exeSha256": "44097075a3423dfddef98b85a7a946ccd3af7dea9a8b5cdacbaeb5d695b16fb0",
+      "coreAssemblyUnavailable": true,
+      "debuggerEnabled": true,
+      "debuggerLogCreated": true
+    },
+    {
+      "cell": "Release-assemblies-off-OloServer-default",
+      "exitCode": 0,
+      "exeSha256": "0105eb8e493fc8d810e65ed63141a9b778daa1db1199472470e2d1c4e65dc3de",
+      "coreAssemblyUnavailable": true,
+      "debuggerEnabled": false,
+      "debuggerLogCreated": false
+    },
+    {
+      "cell": "Release-assemblies-off-OloServer-optin",
+      "exitCode": 0,
+      "exeSha256": "0105eb8e493fc8d810e65ed63141a9b778daa1db1199472470e2d1c4e65dc3de",
+      "coreAssemblyUnavailable": true,
+      "debuggerEnabled": true,
+      "debuggerLogCreated": true
+    },
+    {
+      "cell": "Release-assemblies-off-server-lua",
+      "exitCode": 0,
+      "exeSha256": "0105eb8e493fc8d810e65ed63141a9b778daa1db1199472470e2d1c4e65dc3de",
+      "luaCreatedAndUpdated": true,
+      "listeners": [
+        {
+          "address": "0.0.0.0",
+          "port": 8086
+        },
+        {
+          "address": "::",
+          "port": 8086
+        }
+      ],
+      "debuggerLogCreated": false
+    }
+  ]
+}

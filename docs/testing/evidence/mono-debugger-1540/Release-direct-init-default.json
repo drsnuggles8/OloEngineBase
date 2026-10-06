@@ -1,0 +1,27 @@
+{
+  "cell": "Release-direct-init-default",
+  "exitCode": 0,
+  "exeSha256": "f99234d756711bd0ad613e1c8982de0b27f78aa6ec475abe93935c6fa29ddaea",
+  "listeners": [
+    {
+      "address": "::",
+      "port": 8088
+    },
+    {
+      "address": "0.0.0.0",
+      "port": 8088
+    }
+  ],
+  "debugger": null,
+  "externalMonoListenersAtStart": [
+    {
+      "pid": 94692,
+      "address": "127.0.0.1"
+    }
+  ],
+  "loadedPdbCount": 0,
+  "debuggerLogCreated": false,
+  "reloadSucceeded": true,
+  "managedTranslationY": 1,
+  "managedExceptionCaptured": true
+}

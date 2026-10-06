@@ -1,0 +1,29 @@
+{
+  "cell": "Debug-live-runtime-default",
+  "host": "runtime",
+  "configuration": "Debug",
+  "optIn": false,
+  "exeSha256": "d8d02fd812668f4ee45f8fedb528346c1b8a69811da82e5b67f3e48ce813cfd9",
+  "externalMonoListenersAtStart": [
+    {
+      "pid": 94692,
+      "address": "127.0.0.1"
+    }
+  ],
+  "pid": 54296,
+  "listeners": [
+    {
+      "address": "::",
+      "port": 8087
+    },
+    {
+      "address": "0.0.0.0",
+      "port": 8087
+    }
+  ],
+  "exitCode": 0,
+  "loadedPdbCount": 0,
+  "debuggerLogCreated": false,
+  "managedExceptionCaptured": true,
+  "luaCreatedAndUpdated": true
+}

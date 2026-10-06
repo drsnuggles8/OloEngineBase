@@ -1,0 +1,67 @@
+{
+  "preset": "dev-cached",
+  "cells": [
+    {
+      "OLO_WITH_CSHARP": "ON",
+      "configurations": [
+        "Debug",
+        "Release"
+      ],
+      "targets": [
+        "OloEngine",
+        "OloEditor",
+        "OloRuntime",
+        "OloServer",
+        "OloEngine-Tests",
+        "OloEngine-LuaScriptCore",
+        "OloEngine-ScriptCore",
+        "Sandbox-Scripting",
+        "MonoDebuggerEvidence"
+      ],
+      "exitCode": 0,
+      "log": "build-mono-final-verified.log"
+    },
+    {
+      "OLO_WITH_CSHARP": "OFF",
+      "configurations": [
+        "Debug",
+        "Release"
+      ],
+      "targets": [
+        "OloEngine",
+        "OloEditor",
+        "OloRuntime",
+        "OloServer",
+        "OloEngine-Tests",
+        "OloEngine-LuaScriptCore",
+        "MonoDebuggerEvidence"
+      ],
+      "exitCode": 0,
+      "log": "build-mono-assemblies-off-native.log",
+      "lockLog": "build-mono-assemblies-off.log",
+      "nativeOutputCapturedWithoutTruncation": true
+    },
+    {
+      "OLO_WITH_CSHARP": "ON",
+      "restoredAfterOffChecks": true,
+      "configurations": [
+        "Debug",
+        "Release"
+      ],
+      "targets": [
+        "OloEngine",
+        "OloEditor",
+        "OloRuntime",
+        "OloServer",
+        "OloEngine-Tests",
+        "OloEngine-LuaScriptCore",
+        "OloEngine-ScriptCore",
+        "Sandbox-Scripting",
+        "MonoDebuggerEvidence"
+      ],
+      "exitCode": 0,
+      "log": "build-mono-restored-on.log",
+      "lockLog": "build-mono-restored-on-lock.log"
+    }
+  ]
+}

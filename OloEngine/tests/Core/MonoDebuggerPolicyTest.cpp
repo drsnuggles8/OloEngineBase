@@ -18,7 +18,7 @@ namespace OloEngine::Tests
                 for (bool optIn : { false, true })
                 {
                     SCOPED_TRACE(::testing::Message() << "editor=" << isEditor
-                                                     << " headless=" << isHeadless << " optIn=" << optIn);
+                                                      << " headless=" << isHeadless << " optIn=" << optIn);
                     ApplicationSpecification spec;
                     spec.IsEditor = isEditor;
                     spec.IsHeadless = isHeadless;
@@ -50,4 +50,4 @@ namespace OloEngine::Tests
         spec.CommandLineArgs = { 4, argv };
         EXPECT_FALSE(spec.ShouldEnableMonoDebugging());
     }
-}
+} // namespace OloEngine::Tests
