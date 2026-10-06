@@ -164,6 +164,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [screen-space-denoiser-chain.md](screen-space-denoiser-chain.md): a filter that runs at half resolution is guided by a guide buffer at its own resolution, its geometry test is a plane distance, and only a stage's SIZE is graph topology.
 - [gl-clear-program-revalidation.md](gl-clear-program-revalidation.md): wrap every new clear site in `GLClearProgramGuard`, unbind and restore.
 - [render-pass-published-state.md](render-pass-published-state.md): a pass that publishes engine-global bindings runs last and is not wrapped in `GLStateGuard(Restore)`.
+- [render-graph-attachment-feedback.md](render-graph-attachment-feedback.md): validate the original accesses against physical attachment identities; renamed resources keep their storage, and writable attached depth requires a snapshot.
 - [render-graph-transient-aliasing.md](render-graph-transient-aliasing.md): `WriteNewVersion` renames a physical resource; use the poison and disable levers to find stale reads.
 - [render-pipeline-caches.md](render-pipeline-caches.md): process-wide render caches invalidate on every topology reset, not only on a fingerprint change.
 - [render-graph-out-of-band-work.md](render-graph-out-of-band-work.md): anything a pass touches that the graph cannot back (a TLAS, a retained pyramid, a command bucket, a texture id) is a named out-of-band boundary declared in `Setup()` and noted where it is accessed; `DependsOnPass`, `NeverCull` and registration order are not declarations.
@@ -579,6 +580,7 @@ The logic is right; when it runs, or how long it lives, is wrong.
 | [registries-must-outlive-their-registrants.md](registries-must-outlive-their-registrants.md) | A lazily-created registry is destroyed BEFORE the namespace-scope statics whose destructors unregister from it. |
 | [cluster-lod-simplification.md](cluster-lod-simplification.md) | A lock must outlive the level that created it (§1); an `isfinite` test accepts the `FLT_MAX` terminal marker and silently selects an empty cut (§5b). |
 | [deforming-geometry-conservative-bounds.md](deforming-geometry-conservative-bounds.md) | A rest-pose bound stops containing geometry that deforms, so the cull drops clusters that are on screen; and per-node deformed LOD spheres stop nesting, so the cut cracks along a seam that opens and closes as the character moves. |
+| [render-graph-attachment-feedback.md](render-graph-attachment-feedback.md) | A renamed framebuffer hid a shader read of the attachment it was writing, while dependency expansion made unrelated attachments look like feedback. |
 | [render-graph-transient-aliasing.md](render-graph-transient-aliasing.md) | A read from a pooled resource whose lifetime already ended. |
 | [intrusive-refcount-weakref-races.md](intrusive-refcount-weakref-races.md) | TOCTOU between a decrement and a re-read. |
 | [non-recursive-lock-self-locking-helper.md](non-recursive-lock-self-locking-helper.md) | A locked scope calling a sibling that locks the same non-recursive mutex; unlock the callee, don't move the caller. |

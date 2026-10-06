@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "MCP/McpFramebufferTarget.h"
 #include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
@@ -30,6 +31,7 @@
 #include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSSRenderPass.h"
+#include "OloEngine/Renderer/Passes/SceneAttachmentSnapshotPass.h"
 #include "OloEngine/Renderer/Passes/TAARenderPass.h"
 #include "OloEngine/Renderer/Passes/ToneMapRenderPass.h"
 #include "OloEngine/Renderer/Passes/UICompositeRenderPass.h"
@@ -335,6 +337,75 @@ class StubFramebuffer : public Framebuffer
     u32 m_RenderViewportHeight = 0;
     FramebufferSpecification m_Specification;
 };
+
+class DiagnosticTargetFramebuffer : public StubFramebuffer
+{
+  public:
+    explicit DiagnosticTargetFramebuffer(std::initializer_list<FramebufferTextureSpecification> attachments)
+        : StubFramebuffer(0u)
+    {
+        m_TargetSpecification.Attachments = FramebufferAttachmentSpecification(attachments);
+    }
+
+    const FramebufferSpecification& GetSpecification() const override
+    {
+        return m_TargetSpecification;
+    }
+    RHI::ResourceHandle GetColorAttachmentHandle(u32 index) const override
+    {
+        EXPECT_EQ(index, 0u);
+        ++ColourQueries;
+        return Colour;
+    }
+    RHI::ResourceHandle GetDepthAttachmentHandle() const override
+    {
+        ++DepthQueries;
+        return Depth;
+    }
+
+    // Synthetic identities pin attachment selection only; no GPU storage is
+    // claimed. The original live crash is exercised by olo_render_validate.
+    RHI::ResourceHandle Colour{ 10u, 1u };
+    RHI::ResourceHandle Depth{ 20u, 1u };
+    mutable u32 ColourQueries = 0u;
+    mutable u32 DepthQueries = 0u;
+
+  private:
+    FramebufferSpecification m_TargetSpecification;
+};
+
+TEST(RenderGraphFramebufferTargets, DepthOnlyDiagnosticsNeverQueryColourIndexZero)
+{
+    for (const auto format : { FramebufferTextureFormat::DEPTH24STENCIL8, FramebufferTextureFormat::DEPTH_COMPONENT32F })
+    {
+        DiagnosticTargetFramebuffer framebuffer{ format };
+        bool depth = false;
+        EXPECT_EQ(MCP::ResolveFramebufferTargetHandle(framebuffer, depth), framebuffer.Depth);
+        EXPECT_TRUE(depth);
+        EXPECT_EQ(framebuffer.ColourQueries, 0u);
+        EXPECT_EQ(framebuffer.DepthQueries, 1u);
+    }
+}
+
+TEST(RenderGraphFramebufferTargets, ColourAndDepthDiagnosticsPreferColour)
+{
+    DiagnosticTargetFramebuffer framebuffer{ FramebufferTextureFormat::RGBA16F, FramebufferTextureFormat::DEPTH24STENCIL8 };
+    bool depth = true;
+    EXPECT_EQ(MCP::ResolveFramebufferTargetHandle(framebuffer, depth), framebuffer.Colour);
+    EXPECT_FALSE(depth);
+    EXPECT_EQ(framebuffer.ColourQueries, 1u);
+    EXPECT_EQ(framebuffer.DepthQueries, 0u);
+}
+
+TEST(RenderGraphFramebufferTargets, AttachmentlessDiagnosticsReturnNoTarget)
+{
+    DiagnosticTargetFramebuffer framebuffer{ FramebufferTextureFormat::None };
+    framebuffer.Depth = {};
+    bool depth = true;
+    EXPECT_FALSE(MCP::ResolveFramebufferTargetHandle(framebuffer, depth).IsValid());
+    EXPECT_FALSE(depth);
+    EXPECT_EQ(framebuffer.ColourQueries, 0u);
+}
 
 class AttachmentStubFramebuffer : public StubFramebuffer
 {
@@ -2153,6 +2224,13 @@ TEST(RenderGraph, SSSBlursSceneColorInPlaceAndPublishesNoOutputOfItsOwn)
     blackboard.Scene.SceneColorTexture = sceneTexture;
     blackboard.Scene.SkinDiffuse = handoff;
     blackboard.Scene.SceneDepthAttachment = depth;
+    auto snapshotDesc = sceneDesc;
+    snapshotDesc.Kind = RGResourceHandle::Kind::Texture2D;
+    snapshotDesc.Attachments.Reset();
+    snapshotDesc.Format = RGResourceFormat::Depth24Stencil8;
+    blackboard.Scene.DiffusionDepthSnapshot = graph.DeclareTransientTexture("DiffusionDepthSnapshot", snapshotDesc);
+    snapshotDesc.Format = RGResourceFormat::RGBA16Float;
+    blackboard.Scene.DiffusionHandoffSnapshot = graph.DeclareTransientTexture("DiffusionHandoffSnapshot", snapshotDesc);
     blackboard.Post.BloomColor = bloomHandle;
     blackboard.Post.BloomColorTexture = bloomTexture;
 
@@ -2168,6 +2246,8 @@ TEST(RenderGraph, SSSBlursSceneColorInPlaceAndPublishesNoOutputOfItsOwn)
     bloomPass->SetName("BloomPass");
     bloomPass->SetEnabled(false);
 
+    graph.AddNode(Ref<SceneAttachmentSnapshotPass>::Create(nullptr, SceneAttachmentSnapshotPass::Attachment::DiffusionDepth));
+    graph.AddNode(Ref<SceneAttachmentSnapshotPass>::Create(nullptr, SceneAttachmentSnapshotPass::Attachment::DiffusionHandoff));
     AddPassNode(graph, sssPass);
     AddPassNode(graph, bloomPass);
     graph.SetFinalPass("BloomPass");

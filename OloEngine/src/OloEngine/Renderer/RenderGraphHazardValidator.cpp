@@ -17,6 +17,8 @@ namespace OloEngine::RenderGraphHazardValidator
         {
             auto spanOverlap = [](u32 lhsBase, u32 lhsCount, u32 rhsBase, u32 rhsCount) -> bool
             {
+                if (lhsCount == 0u || rhsCount == 0u)
+                    return false;
                 const auto lhsEndExclusive = lhsCount == ~0u
                                                  ? std::numeric_limits<u64>::max()
                                                  : static_cast<u64>(lhsBase) + static_cast<u64>(lhsCount);
@@ -31,6 +33,32 @@ namespace OloEngine::RenderGraphHazardValidator
             return spanOverlap(lhs.BaseMip, lhs.MipCount, rhs.BaseMip, rhs.MipCount) &&
                    spanOverlap(lhs.BaseLayer, lhs.LayerCount, rhs.BaseLayer, rhs.LayerCount) &&
                    spanOverlap(lhs.BaseSlice, lhs.SliceCount, rhs.BaseSlice, rhs.SliceCount);
+        }
+
+        [[nodiscard]] bool AttachmentsOverlap(const PhysicalAccess& lhs, const PhysicalAccess& rhs)
+        {
+            if (lhs.Resource != rhs.Resource)
+                return false;
+            if (lhs.AttachmentAspect == PhysicalAccess::Aspect::WholeResource ||
+                rhs.AttachmentAspect == PhysicalAccess::Aspect::WholeResource)
+                return true;
+            return lhs.AttachmentAspect == rhs.AttachmentAspect &&
+                   (lhs.AttachmentAspect != PhysicalAccess::Aspect::Color || lhs.AttachmentIndex == rhs.AttachmentIndex);
+        }
+
+        [[nodiscard]] bool CoversOverlap(const RGSubresourceRange& declaration,
+                                         const RGSubresourceRange& lhs, const RGSubresourceRange& rhs)
+        {
+            const auto covers = [](u32 base, u32 count, u32 lhsBase, u32 lhsCount, u32 rhsBase, u32 rhsCount)
+            {
+                const auto end = [](u32 start, u32 size)
+                { return size == ~0u ? std::numeric_limits<u64>::max() : static_cast<u64>(start) + size; };
+                return base <= std::max(lhsBase, rhsBase) &&
+                       end(base, count) >= std::min(end(lhsBase, lhsCount), end(rhsBase, rhsCount));
+            };
+            return covers(declaration.BaseMip, declaration.MipCount, lhs.BaseMip, lhs.MipCount, rhs.BaseMip, rhs.MipCount) &&
+                   covers(declaration.BaseLayer, declaration.LayerCount, lhs.BaseLayer, lhs.LayerCount, rhs.BaseLayer, rhs.LayerCount) &&
+                   covers(declaration.BaseSlice, declaration.SliceCount, lhs.BaseSlice, lhs.SliceCount, rhs.BaseSlice, rhs.SliceCount);
         }
     } // namespace
 
@@ -102,22 +130,35 @@ namespace OloEngine::RenderGraphHazardValidator
         //    overlapping subresources of the same resource must declare it
         //    via builder.AllowSamePassReadWrite(); otherwise emit a Feedback
         //    hazard. The declaration is only correct for genuine intra-pass
-        //    ping-pong / iteration patterns; inter-pass RMW must rename via
-        //    WriteNewVersion instead.
-        const auto feedbackCoversOverlap = [&input](std::string_view passName,
-                                                    const RGAccessDeclaration& readAccess,
-                                                    const RGAccessDeclaration& writeAccess)
+        //    ping-pong / iteration patterns. Inter-pass publication uses
+        //    WriteNewVersion, which retains storage and cannot legalize sampling
+        //    an attachment that the pass also writes.
+        const auto resolvePhysical = [&input](const FString& name, const RGSubresourceRange& range)
+        {
+            return input.ResolvePhysicalAccess ? input.ResolvePhysicalAccess(name.ToView(), range)
+                                               : PhysicalAccess{ .Resource = name, .Range = range };
+        };
+        const auto feedbackCoversOverlap = [&input, &resolvePhysical](std::string_view passName,
+                                                                      const PhysicalAccess& readAccess,
+                                                                      const PhysicalAccess& writeAccess, const RGReadUsage readUsage)
         {
             if (const auto feedbackIt = input.PassFeedbackDeclarations.find(passName);
                 feedbackIt != input.PassFeedbackDeclarations.end())
             {
                 for (const auto& feedback : feedbackIt->second)
                 {
-                    if (feedback.ResourceName != readAccess.ResourceName)
+                    if (feedback.ReadUsage && *feedback.ReadUsage != readUsage)
                         continue;
-                    if (!RangesOverlap(feedback.Range, readAccess.Range))
+                    const auto physical = resolvePhysical(feedback.ResourceName, feedback.Range);
+                    if (!AttachmentsOverlap(physical, readAccess) || !AttachmentsOverlap(physical, writeAccess))
                         continue;
-                    if (!RangesOverlap(feedback.Range, writeAccess.Range))
+                    // A declaration for colour 0 cannot authorize a whole-FBO
+                    // overlap that also includes colour 1 or depth.
+                    if (physical.AttachmentAspect != PhysicalAccess::Aspect::WholeResource &&
+                        readAccess.AttachmentAspect == PhysicalAccess::Aspect::WholeResource &&
+                        writeAccess.AttachmentAspect == PhysicalAccess::Aspect::WholeResource)
+                        continue;
+                    if (!CoversOverlap(physical.Range, readAccess.Range, writeAccess.Range))
                         continue;
                     return true;
                 }
@@ -125,8 +166,8 @@ namespace OloEngine::RenderGraphHazardValidator
             return false;
         };
 
-        const auto validateFeedbackHazards = [&hazards, &feedbackCoversOverlap, &shouldInspectPass](std::string_view passName,
-                                                                                                    const TArray64<RGAccessDeclaration>& accesses)
+        const auto validateFeedbackHazards = [&hazards, &feedbackCoversOverlap, &shouldInspectPass, &resolvePhysical](std::string_view passName,
+                                                                                                                      const TArray64<RGAccessDeclaration>& accesses)
         {
             if (!shouldInspectPass(passName))
                 return;
@@ -138,16 +179,24 @@ namespace OloEngine::RenderGraphHazardValidator
                 if (readAccess.IsWrite)
                     continue;
 
+                // Attachment load/blend/depth-test reads are the normal RMW
+                // contract. They are not shader/image sampling feedback.
+                const auto physicalRead = resolvePhysical(readAccess.ResourceName, readAccess.Range);
+
                 for (sizet writeIdx = 0; writeIdx < accessCount; ++writeIdx)
                 {
                     const auto& writeAccess = accesses[writeIdx];
                     if (!writeAccess.IsWrite)
                         continue;
-                    if (readAccess.ResourceName != writeAccess.ResourceName)
+                    if (readAccess.ReadUsage == RGReadUsage::RenderTargetRead &&
+                        (writeAccess.WriteUsage == RGWriteUsage::RenderTarget || writeAccess.WriteUsage == RGWriteUsage::DepthStencil))
                         continue;
-                    if (!RangesOverlap(readAccess.Range, writeAccess.Range))
+                    const auto physicalWrite = resolvePhysical(writeAccess.ResourceName, writeAccess.Range);
+                    if (!AttachmentsOverlap(physicalRead, physicalWrite))
                         continue;
-                    if (feedbackCoversOverlap(passName, readAccess, writeAccess))
+                    if (!RangesOverlap(physicalRead.Range, physicalWrite.Range))
+                        continue;
+                    if (feedbackCoversOverlap(passName, physicalRead, physicalWrite, readAccess.ReadUsage))
                         continue;
 
                     Hazard h;
@@ -157,7 +206,8 @@ namespace OloEngine::RenderGraphHazardValidator
                     h.Consumer = passName;
                     h.Message = "Feedback hazard: pass '" + std::string(passName) +
                                 "' reads and writes overlapping subresources of resource '" +
-                                readAccess.ResourceName + "' without an explicit feedback declaration";
+                                readAccess.ResourceName + "' (physical target '" + physicalRead.Resource +
+                                "', write '" + writeAccess.ResourceName + "') without an explicit feedback declaration";
                     OLO_CORE_ERROR("RenderGraph hazard: {}", h.Message.ToView());
                     hazards.Add(std::move(h));
                     break;
@@ -167,6 +217,15 @@ namespace OloEngine::RenderGraphHazardValidator
 
         for (const auto& passName : input.ExecutionOrder)
         {
+            if (input.PassSetupAccessDeclarations)
+            {
+                const auto setup = input.PassSetupAccessDeclarations->find(passName.ToView());
+                if (setup != input.PassSetupAccessDeclarations->end())
+                {
+                    validateFeedbackHazards(passName.ToView(), setup->second);
+                    continue;
+                }
+            }
             if (const auto accessIt = input.PassAccessDeclarations.find(passName.ToView());
                 accessIt != input.PassAccessDeclarations.end())
             {

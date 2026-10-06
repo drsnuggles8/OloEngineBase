@@ -50,6 +50,7 @@
 #include "OloEnginePCH.h"
 
 #include "RendererAttachedTest.h"
+#include "AttachmentFeedbackEvidence.h"
 #include "TestTempDir.h"
 
 #include "OloEngine/Asset/AssetManager.h"
@@ -498,6 +499,32 @@ namespace OloEngine::Tests
         Ref<EditorAssetManager> m_AssetManager;
         fs::path m_ProjectDir;
     };
+
+    TEST_F(SkinDiffusionScene, AttachmentSnapshotsValidateAcrossMsaaAndReconstruction)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        for (const auto& [path, name] : std::array{
+                 std::pair{ RenderingPath::Forward, "Forward" },
+                 std::pair{ RenderingPath::ForwardPlus, "ForwardPlus" },
+                 std::pair{ RenderingPath::Deferred, "Deferred" } })
+        {
+            ForEachAttachmentFeedbackCell(path, name, [&](const std::string& cell, u32 settleFrames)
+                                          {
+                Renderer3D::GetSkinDiffusionSettings().Enabled = false;
+                RunFrames(settleFrames);
+                Capture control;
+                ASSERT_TRUE(CaptureFrame(path, false, "AttachmentSkinOff_GL_" + cell, control));
+                Renderer3D::GetSkinDiffusionSettings().Enabled = true;
+                RunFrames(settleFrames);
+                Capture frame;
+                ASSERT_TRUE(CaptureFrame(path, true, "AttachmentSkin_GL_" + cell, frame));
+                EXPECT_GT(PeakLuma(frame), 0.05f);
+                EXPECT_NE(frame.Pixels, control.Pixels) << "diffusion did not change this cell";
+                ExpectAttachmentFeedbackGraphClean("SkinDiffusionPass");
+                ExpectAttachmentSnapshotSamplingMatchesSource("SceneDepthAttachment", "DiffusionDepthSnapshot");
+                ExpectAttachmentSnapshotSamplingMatchesSource("SceneSkinDiffuse", "DiffusionHandoffSnapshot"); });
+        }
+    }
 
     TEST_F(SkinDiffusionScene, DiffusesTheDiffuseHalfAndLeavesTheHighlightSharpOnForward)
     {

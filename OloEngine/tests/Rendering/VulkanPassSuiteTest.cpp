@@ -116,6 +116,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Passes/SSGIRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSRRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSSRenderPass.h"
+#include "OloEngine/Renderer/Passes/SceneAttachmentSnapshotPass.h"
 #include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
 #include "OloEngine/Renderer/Passes/TAARenderPass.h"
 #include "OloEngine/Renderer/Passes/ToneMapRenderPass.h"
@@ -1672,6 +1673,8 @@ TEST_F(VulkanPassSuite, SnowBlurAddsTheDiffusedSnowHalfIntoSceneColorInPlace)
         depthDesc.Height = kSize;
         blackboard.Scene.SceneDepthAttachment =
             graph.ImportTextureHandle(ResourceNames::SceneDepthAttachment, depthTexture->GetRHIHandle(), depthDesc);
+        blackboard.Scene.DiffusionDepthSnapshot = graph.DeclareTransientTexture("DiffusionDepthSnapshot", depthDesc);
+        blackboard.Scene.DiffusionHandoffSnapshot = graph.DeclareTransientTexture("DiffusionHandoffSnapshot", handoffDesc);
 
         auto producer = Ref<PatternProducerPass>::Create(
             edgeInput, blitShader, std::string(ResourceNames::SceneColor),
@@ -1695,6 +1698,8 @@ TEST_F(VulkanPassSuite, SnowBlurAddsTheDiffusedSnowHalfIntoSceneColorInPlace)
         sss->SetSSSUBO(sssUbo, nullptr);
 
         graph.AddNode(producer);
+        graph.AddNode(Ref<SceneAttachmentSnapshotPass>::Create(nullptr, SceneAttachmentSnapshotPass::Attachment::DiffusionDepth));
+        graph.AddNode(Ref<SceneAttachmentSnapshotPass>::Create(nullptr, SceneAttachmentSnapshotPass::Attachment::DiffusionHandoff));
         graph.AddNode(sss);
         graph.SetFinalPass("SSSPass");
         graph.BuildFrameGraph();
@@ -5628,6 +5633,14 @@ TEST_F(VulkanPassSuite, FluidCompositeFloorsWithoutIntermediatesAndPassesRefract
         blackboard.Scene.SceneDepthAttachment = graph.CreateFramebufferDepthAttachmentView(
             ResourceNames::SceneDepthAttachment, blackboard.Scene.SceneColor);
 
+        RGResourceDesc depthSnapshotDesc;
+        depthSnapshotDesc.Kind = RGResourceHandle::Kind::Texture2D;
+        depthSnapshotDesc.Format = RGResourceFormat::Depth24Stencil8;
+        depthSnapshotDesc.Width = kSize;
+        depthSnapshotDesc.Height = kSize;
+        blackboard.Scene.FluidSceneDepthSnapshot =
+            graph.AllocateTransientTextureHandle("FluidSceneDepthSnapshot", depthSnapshotDesc);
+
         RGResourceDesc refractionDesc;
         refractionDesc.Kind = RGResourceHandle::Kind::Texture2D;
         refractionDesc.Format = RGResourceFormat::RGBA16Float;
@@ -5667,9 +5680,17 @@ TEST_F(VulkanPassSuite, FluidCompositeFloorsWithoutIntermediatesAndPassesRefract
         producer->TreatAsSideEffecting = true;
 
         graph.AddNode(producer);
+        graph.AddNode(Ref<SceneAttachmentSnapshotPass>::Create(nullptr, SceneAttachmentSnapshotPass::Attachment::FluidDepth));
         graph.AddNode(composite);
         graph.SetFinalPass("FluidCompositePass");
         graph.BuildFrameGraph();
+        const auto* accesses = graph.GetDeclaredPassAccesses("FluidCompositePass");
+        ASSERT_NE(accesses, nullptr);
+        EXPECT_TRUE(std::ranges::any_of(*accesses, [](const RGAccessDeclaration& access)
+                                        { return !access.IsWrite && access.ResourceName == "FluidSceneDepthSnapshot"; }));
+        EXPECT_TRUE(graph.GetFramebufferHandle("SceneColor@FluidCompositePass").IsValid())
+            << "the composite Setup must publish its output before Execute gates on intermediates";
+        EXPECT_TRUE(graph.ValidateCompiledResourceHazards().IsEmpty());
 
         SubmitFrame(
             [&]()
