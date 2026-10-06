@@ -164,6 +164,7 @@ layout(binding = 30) uniform sampler2D u_SnowDepthMap;
 #endif
 
 #include "include/TerrainHeightSampling.glsl"
+#include "include/TerrainDisplacedHeight.glsl"
 
 // Snow Accumulation UBO (binding 16)
 layout(std140, binding = 16) uniform SnowAccumulationParams {
@@ -238,7 +239,7 @@ void main()
     float morphFactor = u_TessFactors2.y;
     float meshHeight = interpolate3(tc_Position[0], tc_Position[1], tc_Position[2]).y;
     vec3 meshNormal = normalize(interpolate3(tc_Normal[0], tc_Normal[1], tc_Normal[2]));
-    pos.y = mix(sampledHeight, meshHeight, morphFactor);
+    pos.y = oloTerrainDisplacedHeight(sampledHeight, snowDisplacement, meshHeight, morphFactor);
     nrm = normalize(mix(nrm, meshNormal, morphFactor));
 
     vec4 worldPos = instances[0].Transform * vec4(pos, 1.0);

@@ -26,6 +26,7 @@
 #include "OloEngine/Terrain/TerrainMaterial.h"
 #include "OloEngine/Terrain/Foliage/FoliageLayer.h"
 #include "OloEngine/Terrain/Voxel/VoxelOverride.h"
+#include "OloEngine/Snow/SnowAccumulationSystem.h"
 #include <stb_image/stb_image_write.h>
 #include <gtest/gtest.h>
 #include <algorithm>
@@ -763,6 +764,71 @@ namespace OloEngine::Tests
         Evidence(Family::FoliageMesh);
         if (std::getenv("OLO_VSM_FAMILY_FULL_MATRIX") != nullptr)
             PresentationEvidence(Family::FoliageMesh);
+    }
+
+    TEST_F(ShadowFamilyVisualEvidence, SnowDisplacementMatchesVisibleTerrainAndVirtualShadowGeometry)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        AddFamily(Family::Terrain);
+        SetLight(0);
+        EditorCamera camera(45.0f, static_cast<f32>(kWidth) / kHeight, 0.1f, 200.0f);
+        camera.SetViewportSize(kWidth, kHeight);
+        camera.SetPose({ 4, 14, 26 }, 0.0f, 0.45f);
+        auto& snow = Renderer3D::GetSnowAccumulationSettings();
+        const auto savedSnow = snow;
+        struct RestoreSnow
+        {
+            SnowAccumulationSettings Settings;
+            glm::vec3 Position;
+            ~RestoreSnow()
+            {
+                Renderer3D::GetSnowAccumulationSettings() = Settings;
+                SnowAccumulationSystem::Update(Settings, Position, Timestep(0.0f));
+                SnowAccumulationSystem::Reset();
+            }
+        } restoreSnow{ savedSnow, camera.GetPosition() };
+        for (auto path : { RenderingPath::Forward, RenderingPath::ForwardPlus, RenderingPath::Deferred })
+        {
+            Renderer3D::GetRendererSettings().Path = path;
+            Renderer3D::ApplyRendererSettings();
+            snow.Enabled = false;
+            SnowAccumulationSystem::Update(snow, camera.GetPosition(), Timestep(0.0f));
+            const std::string cell = std::string("TerrainSnow_GL_") + PathName(path);
+            const auto dry = Capture(camera, cell + "_dry");
+            snow.Enabled = true;
+            snow.AccumulationRate = 1.0f;
+            snow.MaxDepth = 1.0f;
+            snow.MeltRate = snow.RestorationRate = 0.0f;
+            snow.DisplacementScale = 2.0f;
+            SnowAccumulationSystem::Reset();
+            SnowAccumulationSystem::Update(snow, camera.GetPosition(), Timestep(2.0f));
+            const auto displaced = Capture(camera, cell + "_displaced");
+            ASSERT_EQ(dry.EntityIDs.Num(), displaced.EntityIDs.Num());
+            const i32 casterID = static_cast<i32>(static_cast<u32>(m_Caster));
+            u32 changedSilhouette = 0;
+            for (sizet i = 0; i < dry.EntityIDs.Num(); ++i)
+                changedSilhouette += (dry.EntityIDs[i] == casterID) != (displaced.EntityIDs[i] == casterID);
+            EXPECT_GT(changedSilhouette, 30u) << "snow must move the visible terrain, not only its shadow";
+            std::array<ShadowMoment, 2> moments;
+            for (u32 mode = 0; mode < 2; ++mode)
+            {
+                auto settings = Renderer3D::GetShadowMap().GetSettings();
+                settings.Enabled = true;
+                settings.VSM.Enabled = mode != 0;
+                Renderer3D::GetShadowMap().SetSettings(settings);
+                const std::string name = cell + (mode ? "_VSM" : "_CSM");
+                Cast(false);
+                const auto lit = Capture(camera, name + "_lit");
+                Cast(true);
+                const auto shadow = Capture(camera, name + "_shadow");
+                moments[mode] = Measure(camera, lit, shadow);
+                Record(name, moments[mode]);
+                EXPECT_GT(moments[mode].Pixels, 30u);
+            }
+            EXPECT_GT(moments[1].Mass, moments[0].Mass * 0.15);
+            EXPECT_LT(glm::length(moments[0].Position - moments[1].Position), 1.5);
+        }
+        GetScene().DestroyEntity(m_Caster);
     }
 
     TEST_F(ShadowFamilyVisualEvidence, FrozenCullingRetainsFoliageShadowsBeyondTheRenderEyeDistance)

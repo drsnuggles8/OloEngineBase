@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Snow/SnowAccumulationSystem.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
@@ -1236,6 +1237,10 @@ namespace OloEngine
                         terrainUBO->SetData(&caster.terrainUBO, ShaderBindingLayout::TerrainUBO::GetSize());
                         terrainUBO->Bind();
                     }
+
+                    HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_SNOW_DEPTH,
+                                                     SnowAccumulationSystem::GetSnowDepthTextureHandle(),
+                                                     RHI::HeapSlotLifetime::Persistent);
 
                     // A FLUSH PER CASTER, not per pass: each iteration rebinds the
                     // heightmap slot to a DIFFERENT terrain's texture, so a flush

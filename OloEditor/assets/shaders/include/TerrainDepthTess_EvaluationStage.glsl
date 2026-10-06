@@ -49,6 +49,7 @@ layout(binding = 30) uniform sampler2D u_SnowDepthMap;
 #endif
 
 #include "TerrainHeightSampling.glsl"
+#include "TerrainDisplacedHeight.glsl"
 
 // Snow Accumulation UBO (binding 16)
 layout(std140, binding = 16) uniform SnowAccumulationParams {
@@ -73,7 +74,9 @@ void main()
     // Displace Y from heightmap
     float heightScale = u_WorldSizeAndHeightScale.z;
     float heightMip = oloTerrainHeightMip(tc_TexCoord[0], tc_TexCoord[1], tc_TexCoord[2]);
-    pos.y = oloTerrainFilteredHeight(uv, heightMip) * heightScale;
+    float sampledHeight = oloTerrainFilteredHeight(uv, heightMip) * heightScale;
+    pos.y = sampledHeight;
+    float snowDisplacement = 0.0;
 
     // Snow accumulation displacement (must match Terrain_PBR.glsl)
     if (u_DisplacementParams.z > 0.5)
@@ -85,7 +88,7 @@ void main()
         if (snowUV.x >= 0.0 && snowUV.x <= 1.0 && snowUV.y >= 0.0 && snowUV.y <= 1.0)
         {
             float snowDepth = texture(u_SnowDepthMap, snowUV).r;
-            pos.y += snowDepth * u_DisplacementParams.x;
+            snowDisplacement = snowDepth * u_DisplacementParams.x;
         }
     }
 
@@ -94,7 +97,7 @@ void main()
     float meshHeight = gl_TessCoord.x * tc_Position[0].y
                      + gl_TessCoord.y * tc_Position[1].y
                      + gl_TessCoord.z * tc_Position[2].y;
-    pos.y = mix(pos.y, meshHeight, morphFactor);
+    pos.y = oloTerrainDisplacedHeight(sampledHeight, snowDisplacement, meshHeight, morphFactor);
 
     gl_Position = u_ViewProjection * instances[0].Transform * vec4(pos, 1.0);
 #ifdef OLO_VSM_FAMILY
