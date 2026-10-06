@@ -69,6 +69,16 @@ namespace OloEngine::Tests
     {
         namespace fs = std::filesystem;
 
+        const std::regex& ShaderCacheFilenamePattern()
+        {
+            // Stage caches use 16 hex digits. Raw bindless program binaries
+            // concatenate patch-version and source hashes (32 digits). Failed
+            // GLSL dumps are diagnostic source, not content-addressed binaries.
+            static const std::regex pattern(
+                R"RX((?:.+\.[0-9a-fA-F]{16}\.cached_(?:(?:opengl|vulkan(?:12)?)(?:\.bindless)?\.(?:vert|frag|comp|tesc|tese|geom|pgr)|vulkan14(?:\.bindless)?\.(?:vert|frag|comp|tesc|tese|geom|task|mesh|pgr)))|(?:.+\.[0-9a-fA-F]{32}\.cached_opengl\.bindless\.pgr)|(?:.+\.glsl\.cached_opengl\.(?:vert|frag|tesc|tese)(?:\.bindless)?\.failed\.glsl)|(?:program_binary_driver_stamp\.txt)|(?:pipeline_cache\.vkpc))RX");
+            return pattern;
+        }
+
         // Resolved absolute paths of every fetch-on-demand asset declared in
         // scripts/assets/asset-manifest.json.
         //
@@ -1387,6 +1397,31 @@ namespace OloEngine::Tests
     // Without this gate, a future cache kind could silently accumulate junk
     // files for years before anyone notices the working tree growing.
     // -------------------------------------------------------------------------
+    TEST(AssetContentValidity, ShaderCacheNamesAdmitProducedArtifactsAndRejectMalformedKeys)
+    {
+        const auto& pattern = ShaderCacheFilenamePattern();
+        for (const char* filename : {
+                 "Water.glsl.0123456789abcdef.cached_opengl.vert",
+                 "Water.glsl.0123456789abcdef.cached_vulkan14.mesh",
+                 "Water.glsl.fe64cedf1ddf3fa2321ec72405e20e0e.cached_opengl.bindless.pgr",
+                 "Water.glsl.cached_opengl.vert.failed.glsl",
+                 "Water.glsl.cached_opengl.frag.bindless.failed.glsl",
+                 "program_binary_driver_stamp.txt",
+                 "pipeline_cache.vkpc" })
+            EXPECT_TRUE(std::regex_match(filename, pattern)) << filename;
+
+        for (const char* filename : {
+                 "Water.glsl.not-a-hash.cached_opengl.vert",
+                 "Water.glsl.cached_opengl.pgr",
+                 "Water.glsl.0123456789abcdef0123456789abcdef.cached_opengl.vert",
+                 "Water.glsl.0123456789abcdef0123456789abcdef.cached_opengl.pgr",
+                 "Water.glsl.0123456789abcdef.cached_opengl.mesh",
+                 "Water.glsl.cached_opengl.comp.failed.glsl",
+                 "Water.glsl.cached_opengl.geom.bindless.failed.glsl",
+                 "Water.glsl.cached_opengl.pgr.failed.glsl" })
+            EXPECT_FALSE(std::regex_match(filename, pattern)) << filename;
+    }
+
     TEST(AssetContentValidity, AllCacheFilesMatchKnownPattern)
     {
         const fs::path cacheRoot = fs::path{ OLO_TEST_EDITOR_ROOT } /
@@ -1533,11 +1568,9 @@ namespace OloEngine::Tests
         // means it would accept a malformed non-content-addressed name under
         // the new root too (e.g. `Foo.glsl.not-a-hash.cached_opengl.vert`) —
         // exactly the kind of drift this whitelist exists to catch (caught
-        // in review). Every new-root shader artifact must carry the 16-hex
-        // content-hash segment; only the two machine-local sidecar files are
-        // exempt from that shape.
-        const std::regex newRootShaderPattern(
-            R"RX((?:.+\.[0-9a-fA-F]{16}\.cached_(?:(?:opengl|vulkan(?:12)?)(?:\.bindless)?\.(?:vert|frag|comp|tesc|tese|geom|pgr)|vulkan14(?:\.bindless)?\.(?:vert|frag|comp|tesc|tese|geom|task|mesh|pgr)))|(?:program_binary_driver_stamp\.txt)|(?:pipeline_cache\.vkpc))RX");
+        // in review). Binary names must carry their route's content-hash
+        // segment; sidecars and failed-source diagnostics have explicit shapes.
+        const std::regex& newRootShaderPattern = ShaderCacheFilenamePattern();
 
         const fs::path shaderCacheRoot = ShaderCachePaths::Root();
         if (fs::exists(shaderCacheRoot))
@@ -1555,8 +1588,8 @@ namespace OloEngine::Tests
                     unclassified.push_back({
                         entry.path().generic_string(),
                         "file under the shader cache root does not match the content-addressed "
-                        "pattern <name>.<16-hex-hash>.cached_{opengl|vulkan}.{stage|pgr}, "
-                        "program_binary_driver_stamp.txt, or pipeline_cache.vkpc.",
+                        "pattern for content-addressed stage/program binaries, failed GLSL "
+                        "diagnostics, program_binary_driver_stamp.txt, or pipeline_cache.vkpc.",
                     });
                 }
             }
