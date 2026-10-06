@@ -312,7 +312,26 @@ LightmapSettings:
   MaxBounces: 4
   TexelsPerMeter: 8
 Entities:
-  - Entity: 2572304127006511996
+  - Entity: 2991282666537585240
+    TagComponent:
+      Tag: Shadow light
+    TransformComponent:
+      Translation: [-6, 10, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [0.6, -0.8, 0]
+      Color: [1, 1, 1]
+      Intensity: 500
+      Range: 45
+      InnerCutoff: 55
+      OuterCutoff: 70
+      Attenuation: 2
+      CastShadows: true
+      RayTracedShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+  - Entity: 7213149523124472052
     TagComponent:
       Tag: Mesh receiver
     TransformComponent:
@@ -325,7 +344,7 @@ Entities:
       AlbedoColor: [0.8, 0.8, 0.8]
       Metallic: 0
       Roughness: 1
-  - Entity: 3708015540651772090
+  - Entity: 8713472397861410955
     TagComponent:
       Tag: Terrain
     TransformComponent:
@@ -380,26 +399,7 @@ Entities:
       VoxelEnabled: false
       VoxelSize: 1
       VoxelMesher: 0
-  - Entity: 7881352144020580083
-    TagComponent:
-      Tag: Shadow light
-    TransformComponent:
-      Translation: [-6, 10, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    SpotLightComponent:
-      Direction: [0.6, -0.8, 0]
-      Color: [1, 1, 1]
-      Intensity: 500
-      Range: 45
-      InnerCutoff: 55
-      OuterCutoff: 70
-      Attenuation: 2
-      CastShadows: true
-      RayTracedShadows: false
-      ShadowBias: 0.005
-      ShadowNormalBias: 0.01
-  - Entity: 15140605697397893537
+  - Entity: 14475176332121530669
     TagComponent:
       Tag: Runtime evidence camera
     TransformComponent:

@@ -1,19 +1,19 @@
 {
-  "head": "8eef6f55d2d88a473a7b3de4548f9ba9d4891208",
-  "testsExecutableSHA256": "3410ff7396bac7ebfb79612e6d4b48b8cc720255077f4f3dabbec474b5c96d89",
-  "measurements": 2604,
+  "head": "0cffa21facdf46c909582ed9ef400371d7cf4022",
+  "testsExecutableSHA256": "860b1e8a3029eb6737934efef24785c991846a6f7fae9d194a03db605c82d939",
+  "measurements": 2619,
   "coreCells": 2592,
-  "headlessPNGCount": 5467,
-  "engineLogSHA256": "ba73fb731d0698e8bfe5fd30d0bbaadf75c8d2c83590b1b2c3eeb0377d140b0c",
-  "packSHA256": "69e4b7c7c937e6e10c65e61445b6c2e653ad0319c4c115f1e8ad1fd48a291d9b",
+  "headlessPNGCount": 5539,
+  "engineLogSHA256": "d95ec4af79ed5acc15099b0300387e90f8cc4d2e6617f9b56f2f49a16c848915",
+  "packSHA256": "7cb08b58fa9d7ca3ec2caf08b0c38ee928d9db3a18941be0f10ef7fbb1233ce2",
   "testSummaries": {
     "CPU": {
-      "tests": "157",
+      "tests": "158",
       "failures": "0",
       "disabled": "0",
       "errors": "0",
-      "time": "6.7",
-      "timestamp": "2026-10-06T02:04:53.569",
+      "time": "5.905",
+      "timestamp": "2026-10-06T04:12:36.682",
       "name": "AllTests"
     },
     "ExpandedGL": {
@@ -21,8 +21,8 @@
       "failures": "0",
       "disabled": "0",
       "errors": "0",
-      "time": "284.88",
-      "timestamp": "2026-10-06T02:05:00.605",
+      "time": "286.641",
+      "timestamp": "2026-10-06T04:12:43.280",
       "name": "AllTests"
     },
     "ExistingParity": {
@@ -10686,7 +10686,7 @@
     },
     {
       "path": "OloEditor/assets/tests/visual/ShadowFamilyDeformationRestored_FoliageMesh_GL_Deferred_Sun_Angle0.png",
-      "sha256": "a1126348f9ee246ba1cb90c3412243c5e0c66f9348ae49cceffcac18bd1a277a"
+      "sha256": "49425db5299a4a24e9c39f4ef034a261242adf609fa795e2cd34532238690004"
     },
     {
       "path": "OloEditor/assets/tests/visual/ShadowFamilyDeformationRestored_FoliageMeshImpostor_GL_Deferred_Sun_Angle0.png",
@@ -10706,15 +10706,15 @@
     },
     {
       "path": "OloEditor/assets/tests/visual/ShadowFamilyDeformed_FoliageCard_GL_Deferred_Sun_Angle0.png",
-      "sha256": "99f30501077e3d979002825bd39348e77c9139585d4c39cf7f2cc42e9b839a45"
+      "sha256": "375358a5b6900f76183b2284cd629e22bbcdc1068cdff327c7e7136093eaa12b"
     },
     {
       "path": "OloEditor/assets/tests/visual/ShadowFamilyDeformed_FoliageMesh_GL_Deferred_Sun_Angle0.png",
-      "sha256": "29ad26c2de788d3325673d4a25e2b63d59471eb335f83460047b8116e6731ee9"
+      "sha256": "43b10fac745b66bb066489fb39af227f406448a23dd60836d91cacc95dbf1973"
     },
     {
       "path": "OloEditor/assets/tests/visual/ShadowFamilyDeformed_FoliageMeshImpostor_GL_Deferred_Sun_Angle0.png",
-      "sha256": "ef4a48b7bab41455c52b7ce05895519b3bf0c330e76e565e66e8d37f5d8f1b09"
+      "sha256": "fd3b51c42d3dbf31758c92a4b4ef5f0e14241ce53126b676a0746296ef9b02a2"
     },
     {
       "path": "OloEditor/assets/tests/visual/ShadowFamilyDeformed_GreedyVoxel_GL_Deferred_Sun_Angle0.png",
@@ -21369,6 +21369,186 @@
       "sha256": "3b2407aa6402ab4bdfc7647acd01056649ee7cf20d360518efc87add8f83227f"
     },
     {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Deferred_disabled.png",
+      "sha256": "3c268587eacbaf5de23ae1cf7704db0df60bdc64744875c7b84eeb781159f794"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Deferred_Disabled_CSM_lit.png",
+      "sha256": "5806627947e992fce31bbeef52a748f602570882f791c6da8ab84e4740d81fd7"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Deferred_Disabled_CSM_shadow.png",
+      "sha256": "364bcf6fe581debfeaadd873c29d8741c7702299ee842a77d8658a030b6de413"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Deferred_Disabled_VSM_lit.png",
+      "sha256": "5806627947e992fce31bbeef52a748f602570882f791c6da8ab84e4740d81fd7"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Deferred_Disabled_VSM_shadow.png",
+      "sha256": "3c268587eacbaf5de23ae1cf7704db0df60bdc64744875c7b84eeb781159f794"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Deferred_displaced.png",
+      "sha256": "2cc37d80bc1bb14c9f1fa53a745d98b6dd0ddfb3bdb166e0294c4ffba2b860d6"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Deferred_dry.png",
+      "sha256": "3c268587eacbaf5de23ae1cf7704db0df60bdc64744875c7b84eeb781159f794"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Deferred_Dry_CSM_lit.png",
+      "sha256": "5806627947e992fce31bbeef52a748f602570882f791c6da8ab84e4740d81fd7"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Deferred_Dry_CSM_shadow.png",
+      "sha256": "364bcf6fe581debfeaadd873c29d8741c7702299ee842a77d8658a030b6de413"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Deferred_Dry_VSM_lit.png",
+      "sha256": "5806627947e992fce31bbeef52a748f602570882f791c6da8ab84e4740d81fd7"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Deferred_Dry_VSM_shadow.png",
+      "sha256": "3c268587eacbaf5de23ae1cf7704db0df60bdc64744875c7b84eeb781159f794"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Deferred_Snow_CSM_lit.png",
+      "sha256": "8db269143336558db1cef623dbe6ed3857134cb4246f62a8c0c43a530a3268d0"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Deferred_Snow_CSM_shadow.png",
+      "sha256": "d857d22f4974d29253aca55f8f6757089c1be06920e81ccdd3cc2a31b988aa64"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Deferred_Snow_VSM_lit.png",
+      "sha256": "8db269143336558db1cef623dbe6ed3857134cb4246f62a8c0c43a530a3268d0"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Deferred_Snow_VSM_shadow.png",
+      "sha256": "2cc37d80bc1bb14c9f1fa53a745d98b6dd0ddfb3bdb166e0294c4ffba2b860d6"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Forward_disabled.png",
+      "sha256": "e9f45c6e12c062f32a344f4abbe178caca456e2361a5e524c21413812f97c31a"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Forward_Disabled_CSM_lit.png",
+      "sha256": "8d8295d23b6efbbc8c17b8c245e26809c2c6eb46bf5c4bcd2ad1849dd3a74ff3"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Forward_Disabled_CSM_shadow.png",
+      "sha256": "72e5cbb7486d19c71a32d01a53306d1d06cbe1b5a4bc66b28f076bd59765ffa5"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Forward_Disabled_VSM_lit.png",
+      "sha256": "8d8295d23b6efbbc8c17b8c245e26809c2c6eb46bf5c4bcd2ad1849dd3a74ff3"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Forward_Disabled_VSM_shadow.png",
+      "sha256": "e9f45c6e12c062f32a344f4abbe178caca456e2361a5e524c21413812f97c31a"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Forward_displaced.png",
+      "sha256": "4706bf69ae5d89d63c4591d5a3459b37b1d3a1aa5ac94c10be4e485e49249844"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Forward_dry.png",
+      "sha256": "72e5cbb7486d19c71a32d01a53306d1d06cbe1b5a4bc66b28f076bd59765ffa5"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Forward_Dry_CSM_lit.png",
+      "sha256": "8d8295d23b6efbbc8c17b8c245e26809c2c6eb46bf5c4bcd2ad1849dd3a74ff3"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Forward_Dry_CSM_shadow.png",
+      "sha256": "72e5cbb7486d19c71a32d01a53306d1d06cbe1b5a4bc66b28f076bd59765ffa5"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Forward_Dry_VSM_lit.png",
+      "sha256": "8d8295d23b6efbbc8c17b8c245e26809c2c6eb46bf5c4bcd2ad1849dd3a74ff3"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Forward_Dry_VSM_shadow.png",
+      "sha256": "e9f45c6e12c062f32a344f4abbe178caca456e2361a5e524c21413812f97c31a"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Forward_Snow_CSM_lit.png",
+      "sha256": "295642f82f61c6b7868f6a8c7c7c78ea4c2d06d4d118d4194496ffd1ce7893fe"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Forward_Snow_CSM_shadow.png",
+      "sha256": "dedeed5355c29960bebabbb6a647da1a094b62ac03e15db072251c38127912ac"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Forward_Snow_VSM_lit.png",
+      "sha256": "295642f82f61c6b7868f6a8c7c7c78ea4c2d06d4d118d4194496ffd1ce7893fe"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_Forward_Snow_VSM_shadow.png",
+      "sha256": "4706bf69ae5d89d63c4591d5a3459b37b1d3a1aa5ac94c10be4e485e49249844"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_ForwardPlus_disabled.png",
+      "sha256": "e9f45c6e12c062f32a344f4abbe178caca456e2361a5e524c21413812f97c31a"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_ForwardPlus_Disabled_CSM_lit.png",
+      "sha256": "8d8295d23b6efbbc8c17b8c245e26809c2c6eb46bf5c4bcd2ad1849dd3a74ff3"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_ForwardPlus_Disabled_CSM_shadow.png",
+      "sha256": "72e5cbb7486d19c71a32d01a53306d1d06cbe1b5a4bc66b28f076bd59765ffa5"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_ForwardPlus_Disabled_VSM_lit.png",
+      "sha256": "8d8295d23b6efbbc8c17b8c245e26809c2c6eb46bf5c4bcd2ad1849dd3a74ff3"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_ForwardPlus_Disabled_VSM_shadow.png",
+      "sha256": "e9f45c6e12c062f32a344f4abbe178caca456e2361a5e524c21413812f97c31a"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_ForwardPlus_displaced.png",
+      "sha256": "4706bf69ae5d89d63c4591d5a3459b37b1d3a1aa5ac94c10be4e485e49249844"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_ForwardPlus_dry.png",
+      "sha256": "e9f45c6e12c062f32a344f4abbe178caca456e2361a5e524c21413812f97c31a"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_ForwardPlus_Dry_CSM_lit.png",
+      "sha256": "8d8295d23b6efbbc8c17b8c245e26809c2c6eb46bf5c4bcd2ad1849dd3a74ff3"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_ForwardPlus_Dry_CSM_shadow.png",
+      "sha256": "72e5cbb7486d19c71a32d01a53306d1d06cbe1b5a4bc66b28f076bd59765ffa5"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_ForwardPlus_Dry_VSM_lit.png",
+      "sha256": "8d8295d23b6efbbc8c17b8c245e26809c2c6eb46bf5c4bcd2ad1849dd3a74ff3"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_ForwardPlus_Dry_VSM_shadow.png",
+      "sha256": "e9f45c6e12c062f32a344f4abbe178caca456e2361a5e524c21413812f97c31a"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_ForwardPlus_Snow_CSM_lit.png",
+      "sha256": "295642f82f61c6b7868f6a8c7c7c78ea4c2d06d4d118d4194496ffd1ce7893fe"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_ForwardPlus_Snow_CSM_shadow.png",
+      "sha256": "dedeed5355c29960bebabbb6a647da1a094b62ac03e15db072251c38127912ac"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_ForwardPlus_Snow_VSM_lit.png",
+      "sha256": "295642f82f61c6b7868f6a8c7c7c78ea4c2d06d4d118d4194496ffd1ce7893fe"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/SnowDisableBefore/TerrainSnow_GL_ForwardPlus_Snow_VSM_shadow.png",
+      "sha256": "4706bf69ae5d89d63c4591d5a3459b37b1d3a1aa5ac94c10be4e485e49249844"
+    },
+    {
       "path": "OloEditor/assets/tests/visual/ShadowFamilyRemoved_FoliageCard_GL_Deferred_Point_Angle0.png",
       "sha256": "528076264b01906091bb7f8a39f83cf07e8acfae44a5be913f279d8217e751fd"
     },
@@ -21833,12 +22013,24 @@
       "sha256": "89bd09cfe0ad3e46c0c2fdcf5a1e9d7af708488674cacc2d3a14497d344665c3"
     },
     {
-      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Deferred_CSM_lit.png",
-      "sha256": "8db269143336558db1cef623dbe6ed3857134cb4246f62a8c0c43a530a3268d0"
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Deferred_disabled.png",
+      "sha256": "3c268587eacbaf5de23ae1cf7704db0df60bdc64744875c7b84eeb781159f794"
     },
     {
-      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Deferred_CSM_shadow.png",
-      "sha256": "d857d22f4974d29253aca55f8f6757089c1be06920e81ccdd3cc2a31b988aa64"
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Deferred_Disabled_CSM_lit.png",
+      "sha256": "5806627947e992fce31bbeef52a748f602570882f791c6da8ab84e4740d81fd7"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Deferred_Disabled_CSM_shadow.png",
+      "sha256": "364bcf6fe581debfeaadd873c29d8741c7702299ee842a77d8658a030b6de413"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Deferred_Disabled_VSM_lit.png",
+      "sha256": "5806627947e992fce31bbeef52a748f602570882f791c6da8ab84e4740d81fd7"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Deferred_Disabled_VSM_shadow.png",
+      "sha256": "3c268587eacbaf5de23ae1cf7704db0df60bdc64744875c7b84eeb781159f794"
     },
     {
       "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Deferred_displaced.png",
@@ -21849,44 +22041,116 @@
       "sha256": "3c268587eacbaf5de23ae1cf7704db0df60bdc64744875c7b84eeb781159f794"
     },
     {
-      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Deferred_VSM_lit.png",
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Deferred_Dry_CSM_lit.png",
+      "sha256": "5806627947e992fce31bbeef52a748f602570882f791c6da8ab84e4740d81fd7"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Deferred_Dry_CSM_shadow.png",
+      "sha256": "364bcf6fe581debfeaadd873c29d8741c7702299ee842a77d8658a030b6de413"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Deferred_Dry_VSM_lit.png",
+      "sha256": "5806627947e992fce31bbeef52a748f602570882f791c6da8ab84e4740d81fd7"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Deferred_Dry_VSM_shadow.png",
+      "sha256": "3c268587eacbaf5de23ae1cf7704db0df60bdc64744875c7b84eeb781159f794"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Deferred_Snow_CSM_lit.png",
       "sha256": "8db269143336558db1cef623dbe6ed3857134cb4246f62a8c0c43a530a3268d0"
     },
     {
-      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Deferred_VSM_shadow.png",
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Deferred_Snow_CSM_shadow.png",
+      "sha256": "d857d22f4974d29253aca55f8f6757089c1be06920e81ccdd3cc2a31b988aa64"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Deferred_Snow_VSM_lit.png",
+      "sha256": "8db269143336558db1cef623dbe6ed3857134cb4246f62a8c0c43a530a3268d0"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Deferred_Snow_VSM_shadow.png",
       "sha256": "2cc37d80bc1bb14c9f1fa53a745d98b6dd0ddfb3bdb166e0294c4ffba2b860d6"
     },
     {
-      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Forward_CSM_lit.png",
-      "sha256": "295642f82f61c6b7868f6a8c7c7c78ea4c2d06d4d118d4194496ffd1ce7893fe"
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Forward_disabled.png",
+      "sha256": "e9f45c6e12c062f32a344f4abbe178caca456e2361a5e524c21413812f97c31a"
     },
     {
-      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Forward_CSM_shadow.png",
-      "sha256": "dedeed5355c29960bebabbb6a647da1a094b62ac03e15db072251c38127912ac"
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Forward_Disabled_CSM_lit.png",
+      "sha256": "8d8295d23b6efbbc8c17b8c245e26809c2c6eb46bf5c4bcd2ad1849dd3a74ff3"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Forward_Disabled_CSM_shadow.png",
+      "sha256": "72e5cbb7486d19c71a32d01a53306d1d06cbe1b5a4bc66b28f076bd59765ffa5"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Forward_Disabled_VSM_lit.png",
+      "sha256": "8d8295d23b6efbbc8c17b8c245e26809c2c6eb46bf5c4bcd2ad1849dd3a74ff3"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Forward_Disabled_VSM_shadow.png",
+      "sha256": "e9f45c6e12c062f32a344f4abbe178caca456e2361a5e524c21413812f97c31a"
     },
     {
       "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Forward_displaced.png",
-      "sha256": "dedeed5355c29960bebabbb6a647da1a094b62ac03e15db072251c38127912ac"
+      "sha256": "4706bf69ae5d89d63c4591d5a3459b37b1d3a1aa5ac94c10be4e485e49249844"
     },
     {
       "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Forward_dry.png",
       "sha256": "72e5cbb7486d19c71a32d01a53306d1d06cbe1b5a4bc66b28f076bd59765ffa5"
     },
     {
-      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Forward_VSM_lit.png",
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Forward_Dry_CSM_lit.png",
+      "sha256": "8d8295d23b6efbbc8c17b8c245e26809c2c6eb46bf5c4bcd2ad1849dd3a74ff3"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Forward_Dry_CSM_shadow.png",
+      "sha256": "72e5cbb7486d19c71a32d01a53306d1d06cbe1b5a4bc66b28f076bd59765ffa5"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Forward_Dry_VSM_lit.png",
+      "sha256": "8d8295d23b6efbbc8c17b8c245e26809c2c6eb46bf5c4bcd2ad1849dd3a74ff3"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Forward_Dry_VSM_shadow.png",
+      "sha256": "e9f45c6e12c062f32a344f4abbe178caca456e2361a5e524c21413812f97c31a"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Forward_Snow_CSM_lit.png",
       "sha256": "295642f82f61c6b7868f6a8c7c7c78ea4c2d06d4d118d4194496ffd1ce7893fe"
     },
     {
-      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Forward_VSM_shadow.png",
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Forward_Snow_CSM_shadow.png",
+      "sha256": "dedeed5355c29960bebabbb6a647da1a094b62ac03e15db072251c38127912ac"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Forward_Snow_VSM_lit.png",
+      "sha256": "295642f82f61c6b7868f6a8c7c7c78ea4c2d06d4d118d4194496ffd1ce7893fe"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_Forward_Snow_VSM_shadow.png",
       "sha256": "4706bf69ae5d89d63c4591d5a3459b37b1d3a1aa5ac94c10be4e485e49249844"
     },
     {
-      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_ForwardPlus_CSM_lit.png",
-      "sha256": "295642f82f61c6b7868f6a8c7c7c78ea4c2d06d4d118d4194496ffd1ce7893fe"
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_ForwardPlus_disabled.png",
+      "sha256": "e9f45c6e12c062f32a344f4abbe178caca456e2361a5e524c21413812f97c31a"
     },
     {
-      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_ForwardPlus_CSM_shadow.png",
-      "sha256": "dedeed5355c29960bebabbb6a647da1a094b62ac03e15db072251c38127912ac"
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_ForwardPlus_Disabled_CSM_lit.png",
+      "sha256": "8d8295d23b6efbbc8c17b8c245e26809c2c6eb46bf5c4bcd2ad1849dd3a74ff3"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_ForwardPlus_Disabled_CSM_shadow.png",
+      "sha256": "72e5cbb7486d19c71a32d01a53306d1d06cbe1b5a4bc66b28f076bd59765ffa5"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_ForwardPlus_Disabled_VSM_lit.png",
+      "sha256": "8d8295d23b6efbbc8c17b8c245e26809c2c6eb46bf5c4bcd2ad1849dd3a74ff3"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_ForwardPlus_Disabled_VSM_shadow.png",
+      "sha256": "e9f45c6e12c062f32a344f4abbe178caca456e2361a5e524c21413812f97c31a"
     },
     {
       "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_ForwardPlus_displaced.png",
@@ -21897,11 +22161,35 @@
       "sha256": "e9f45c6e12c062f32a344f4abbe178caca456e2361a5e524c21413812f97c31a"
     },
     {
-      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_ForwardPlus_VSM_lit.png",
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_ForwardPlus_Dry_CSM_lit.png",
+      "sha256": "8d8295d23b6efbbc8c17b8c245e26809c2c6eb46bf5c4bcd2ad1849dd3a74ff3"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_ForwardPlus_Dry_CSM_shadow.png",
+      "sha256": "72e5cbb7486d19c71a32d01a53306d1d06cbe1b5a4bc66b28f076bd59765ffa5"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_ForwardPlus_Dry_VSM_lit.png",
+      "sha256": "8d8295d23b6efbbc8c17b8c245e26809c2c6eb46bf5c4bcd2ad1849dd3a74ff3"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_ForwardPlus_Dry_VSM_shadow.png",
+      "sha256": "e9f45c6e12c062f32a344f4abbe178caca456e2361a5e524c21413812f97c31a"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_ForwardPlus_Snow_CSM_lit.png",
       "sha256": "295642f82f61c6b7868f6a8c7c7c78ea4c2d06d4d118d4194496ffd1ce7893fe"
     },
     {
-      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_ForwardPlus_VSM_shadow.png",
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_ForwardPlus_Snow_CSM_shadow.png",
+      "sha256": "dedeed5355c29960bebabbb6a647da1a094b62ac03e15db072251c38127912ac"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_ForwardPlus_Snow_VSM_lit.png",
+      "sha256": "295642f82f61c6b7868f6a8c7c7c78ea4c2d06d4d118d4194496ffd1ce7893fe"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/TerrainSnow_GL_ForwardPlus_Snow_VSM_shadow.png",
       "sha256": "4706bf69ae5d89d63c4591d5a3459b37b1d3a1aa5ac94c10be4e485e49249844"
     }
   ]

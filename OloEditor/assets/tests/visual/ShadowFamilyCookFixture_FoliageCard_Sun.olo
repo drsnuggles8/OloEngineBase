@@ -312,7 +312,25 @@ LightmapSettings:
   MaxBounces: 4
   TexelsPerMeter: 8
 Entities:
-  - Entity: 6409913497373084300
+  - Entity: 4758591122845108038
+    TagComponent:
+      Tag: Shadow light
+    TransformComponent:
+      Translation: [-6, 10, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [0.8411785, -0.5407576, 0]
+      Color: [1, 1, 1]
+      Intensity: 2
+      CastShadows: true
+      CascadeDebugVisualization: false
+      RayTracedShadows: false
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
+      MaxShadowDistance: 200
+      CascadeSplitLambda: 0.5
+  - Entity: 8766684884292334876
     TagComponent:
       Tag: FoliageCard
     TransformComponent:
@@ -444,7 +462,20 @@ Entities:
           ImpostorHemiOctahedral: true
           Enabled: true
           CastShadows: true
-  - Entity: 7160041123325869781
+  - Entity: 11422143432190587060
+    TagComponent:
+      Tag: Mesh receiver
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [60, 1, 60]
+    MeshComponent:
+      Primitive: 3
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.8, 0.8]
+      Metallic: 0
+      Roughness: 1
+  - Entity: 16644087329222568275
     TagComponent:
       Tag: Runtime evidence camera
     TransformComponent:
@@ -464,34 +495,3 @@ Entities:
       FixedAspectRatio: false
       RuntimeControl: false
       FlySpeed: 5
-  - Entity: 12476710509150807713
-    TagComponent:
-      Tag: Mesh receiver
-    TransformComponent:
-      Translation: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [60, 1, 60]
-    MeshComponent:
-      Primitive: 3
-    MaterialComponent:
-      AlbedoColor: [0.8, 0.8, 0.8]
-      Metallic: 0
-      Roughness: 1
-  - Entity: 15176197515763843880
-    TagComponent:
-      Tag: Shadow light
-    TransformComponent:
-      Translation: [-6, 10, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    DirectionalLightComponent:
-      Direction: [0.8411785, -0.5407576, 0]
-      Color: [1, 1, 1]
-      Intensity: 2
-      CastShadows: true
-      CascadeDebugVisualization: false
-      RayTracedShadows: false
-      ShadowDepthBiasTexels: 2
-      ShadowNormalBias: 0.01
-      MaxShadowDistance: 200
-      CascadeSplitLambda: 0.5

@@ -312,7 +312,38 @@ LightmapSettings:
   MaxBounces: 4
   TexelsPerMeter: 8
 Entities:
-  - Entity: 2235543125872017950
+  - Entity: 11597973883635289029
+    TagComponent:
+      Tag: Mesh receiver
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [60, 1, 60]
+    MeshComponent:
+      Primitive: 3
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.8, 0.8]
+      Metallic: 0
+      Roughness: 1
+  - Entity: 14574904956060819793
+    TagComponent:
+      Tag: Shadow light
+    TransformComponent:
+      Translation: [-6, 10, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [0.8411785, -0.5407576, 0]
+      Color: [1, 1, 1]
+      Intensity: 2
+      CastShadows: true
+      CascadeDebugVisualization: false
+      RayTracedShadows: false
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
+      MaxShadowDistance: 200
+      CascadeSplitLambda: 0.5
+  - Entity: 14692112662752231889
     TagComponent:
       Tag: Runtime evidence camera
     TransformComponent:
@@ -332,25 +363,7 @@ Entities:
       FixedAspectRatio: false
       RuntimeControl: false
       FlySpeed: 5
-  - Entity: 5726209351838719857
-    TagComponent:
-      Tag: Shadow light
-    TransformComponent:
-      Translation: [-6, 10, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    DirectionalLightComponent:
-      Direction: [0.8411785, -0.5407576, 0]
-      Color: [1, 1, 1]
-      Intensity: 2
-      CastShadows: true
-      CascadeDebugVisualization: false
-      RayTracedShadows: false
-      ShadowDepthBiasTexels: 2
-      ShadowNormalBias: 0.01
-      MaxShadowDistance: 200
-      CascadeSplitLambda: 0.5
-  - Entity: 5754060413337505748
+  - Entity: 18425269439033025321
     TagComponent:
       Tag: FoliageMesh
     TransformComponent:
@@ -482,16 +495,3 @@ Entities:
           ImpostorHemiOctahedral: true
           Enabled: true
           CastShadows: true
-  - Entity: 16859415397970979652
-    TagComponent:
-      Tag: Mesh receiver
-    TransformComponent:
-      Translation: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [60, 1, 60]
-    MeshComponent:
-      Primitive: 3
-    MaterialComponent:
-      AlbedoColor: [0.8, 0.8, 0.8]
-      Metallic: 0
-      Roughness: 1

@@ -312,7 +312,27 @@ LightmapSettings:
   MaxBounces: 4
   TexelsPerMeter: 8
 Entities:
-  - Entity: 2380696315888986564
+  - Entity: 2209097511530591535
+    TagComponent:
+      Tag: Runtime evidence camera
+    TransformComponent:
+      Translation: [4, 14, 26]
+      Rotation: [-0.45, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.7853982
+        PerspectiveNear: 0.1
+        PerspectiveFar: 200
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+      RuntimeControl: false
+      FlySpeed: 5
+  - Entity: 4811573437433784475
     TagComponent:
       Tag: GreedyVoxel
     TransformComponent:
@@ -367,7 +387,7 @@ Entities:
       VoxelEnabled: true
       VoxelSize: 0.25
       VoxelMesher: 1
-  - Entity: 10886590918004866004
+  - Entity: 7578998837036022426
     TagComponent:
       Tag: Mesh receiver
     TransformComponent:
@@ -380,7 +400,7 @@ Entities:
       AlbedoColor: [0.8, 0.8, 0.8]
       Metallic: 0
       Roughness: 1
-  - Entity: 12557145573506493408
+  - Entity: 14456833462084353984
     TagComponent:
       Tag: Shadow light
     TransformComponent:
@@ -398,23 +418,3 @@ Entities:
       ShadowNormalBias: 0.01
       MaxShadowDistance: 200
       CascadeSplitLambda: 0.5
-  - Entity: 12621128698231228600
-    TagComponent:
-      Tag: Runtime evidence camera
-    TransformComponent:
-      Translation: [4, 14, 26]
-      Rotation: [-0.45, 0, 0]
-      Scale: [1, 1, 1]
-    CameraComponent:
-      Camera:
-        ProjectionType: 0
-        PerspectiveFOV: 0.7853982
-        PerspectiveNear: 0.1
-        PerspectiveFar: 200
-        OrthographicSize: 10
-        OrthographicNear: -1
-        OrthographicFar: 1
-      Primary: true
-      FixedAspectRatio: false
-      RuntimeControl: false
-      FlySpeed: 5
