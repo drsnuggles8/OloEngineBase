@@ -2627,10 +2627,11 @@ namespace OloEngine
             WindSystem::Update(data.Wind, data.ViewPos, Timestep(data.WindPaused ? 0.0f : dt));
             WindSystem::BindWindTexture();
 
-            // Update snow accumulation system
+            // Publish disabled state too, so receivers and depth casters stop
+            // sampling the previous frame's accumulated displacement.
+            SnowAccumulationSystem::Update(data.SnowAccumulation, data.ViewPos, Timestep(dt));
             if (data.SnowAccumulation.Enabled)
             {
-                SnowAccumulationSystem::Update(data.SnowAccumulation, data.ViewPos, Timestep(dt));
                 SnowAccumulationSystem::BindSnowDepthTexture();
                 CommandDispatch::SetSnowDepthTexture(SnowAccumulationSystem::GetSnowDepthTextureHandle());
             }
@@ -2642,7 +2643,7 @@ namespace OloEngine
             // the resource the render graph's transient aliasing is wrong for
             // (docs/agent-rules/render-graph-transient-aliasing.md).
             //
-            // Called unconditionally, unlike the snow block above: Update()
+            // Called unconditionally: Update()
             // itself handles the disabled case by dropping the queued splats
             // and marking the field for a clear, so a scene that turns wake off
             // cannot leave a frozen — rather than decayed — trail behind for

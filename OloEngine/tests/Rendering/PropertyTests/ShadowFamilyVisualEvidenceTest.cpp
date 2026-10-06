@@ -795,6 +795,30 @@ namespace OloEngine::Tests
             SnowAccumulationSystem::Update(snow, camera.GetPosition(), Timestep(0.0f));
             const std::string cell = std::string("TerrainSnow_GL_") + PathName(path);
             const auto dry = Capture(camera, cell + "_dry");
+            EvidenceFrame dryVirtualLit;
+            const auto measureModes = [&](const std::string& phase)
+            {
+                std::array<ShadowMoment, 2> result;
+                for (u32 mode = 0; mode < 2; ++mode)
+                {
+                    auto settings = Renderer3D::GetShadowMap().GetSettings();
+                    settings.Enabled = true;
+                    settings.VSM.Enabled = mode != 0;
+                    Renderer3D::GetShadowMap().SetSettings(settings);
+                    const std::string name = cell + "_" + phase + (mode ? "_VSM" : "_CSM");
+                    Cast(false);
+                    const auto lit = Capture(camera, name + "_lit");
+                    if (phase == "Dry" && mode == 1)
+                        dryVirtualLit = lit;
+                    Cast(true);
+                    const auto shadow = Capture(camera, name + "_shadow");
+                    result[mode] = Measure(camera, lit, shadow);
+                    Record(name, result[mode]);
+                    EXPECT_GT(result[mode].Pixels, 30u);
+                }
+                return result;
+            };
+            const auto dryMoments = measureModes("Dry");
             snow.Enabled = true;
             snow.AccumulationRate = 1.0f;
             snow.MaxDepth = 1.0f;
@@ -809,24 +833,30 @@ namespace OloEngine::Tests
             for (sizet i = 0; i < dry.EntityIDs.Num(); ++i)
                 changedSilhouette += (dry.EntityIDs[i] == casterID) != (displaced.EntityIDs[i] == casterID);
             EXPECT_GT(changedSilhouette, 30u) << "snow must move the visible terrain, not only its shadow";
-            std::array<ShadowMoment, 2> moments;
-            for (u32 mode = 0; mode < 2; ++mode)
-            {
-                auto settings = Renderer3D::GetShadowMap().GetSettings();
-                settings.Enabled = true;
-                settings.VSM.Enabled = mode != 0;
-                Renderer3D::GetShadowMap().SetSettings(settings);
-                const std::string name = cell + (mode ? "_VSM" : "_CSM");
-                Cast(false);
-                const auto lit = Capture(camera, name + "_lit");
-                Cast(true);
-                const auto shadow = Capture(camera, name + "_shadow");
-                moments[mode] = Measure(camera, lit, shadow);
-                Record(name, moments[mode]);
-                EXPECT_GT(moments[mode].Pixels, 30u);
-            }
+            const auto moments = measureModes("Snow");
             EXPECT_GT(moments[1].Mass, moments[0].Mass * 0.15);
             EXPECT_LT(glm::length(moments[0].Position - moments[1].Position), 1.5);
+            // Exercise the production frame setup: do not publish the disabled
+            // UBO directly here. A stale enabled block keeps both paths displaced.
+            snow.Enabled = false;
+            const auto disabled = Capture(camera, cell + "_disabled");
+            ASSERT_EQ(dry.EntityIDs.Num(), disabled.EntityIDs.Num());
+            u32 staleSilhouette = 0;
+            for (sizet i = 0; i < dry.EntityIDs.Num(); ++i)
+                staleSilhouette += (dry.EntityIDs[i] == casterID) != (disabled.EntityIDs[i] == casterID);
+            EXPECT_EQ(staleSilhouette, 0u);
+            // Retain the existing virtual page cache across the disable
+            // transition. Switching modes first would conceal stale pages.
+            const auto cachedDisabled = Measure(camera, dryVirtualLit, disabled);
+            Record(cell + "_DisabledCached_VSM", cachedDisabled);
+            EXPECT_NEAR(cachedDisabled.Mass, dryMoments[1].Mass, dryMoments[1].Mass * 0.01);
+            EXPECT_LT(glm::length(cachedDisabled.Position - dryMoments[1].Position), 0.02);
+            const auto disabledMoments = measureModes("Disabled");
+            for (u32 mode = 0; mode < 2; ++mode)
+            {
+                EXPECT_NEAR(disabledMoments[mode].Mass, dryMoments[mode].Mass, dryMoments[mode].Mass * 0.01);
+                EXPECT_LT(glm::length(disabledMoments[mode].Position - dryMoments[mode].Position), 0.02);
+            }
         }
         GetScene().DestroyEntity(m_Caster);
     }
