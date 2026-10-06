@@ -903,4 +903,7 @@ TEST(McpRendererSettings, LocalVirtualLayersToggleIndependentlyOfDirectionalRequ
     ASSERT_TRUE(RS::Apply(RS::Setting::VSMLocalLights, RS::kVirtualShadowMapsOn, post, renderer, lever).Ok);
     EXPECT_TRUE(lever.VSMLocalLights);
     EXPECT_TRUE(lever.VirtualShadowMaps);
+    ASSERT_TRUE(RS::Apply(RS::Setting::VirtualShadowMaps, RS::kVirtualShadowMapsOff, post, renderer, lever).Ok);
+    EXPECT_FALSE(lever.VirtualShadowMaps);
+    EXPECT_TRUE(lever.VSMLocalLights) << "the inactive local-layer request remains independent";
 }

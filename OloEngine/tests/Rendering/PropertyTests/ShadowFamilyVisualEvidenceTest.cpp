@@ -86,7 +86,28 @@ namespace OloEngine::Tests
         }
         constexpr std::array<const char*, 3> kLightNames{ "Sun", "Spot", "Point" };
         constexpr std::array<const char*, 3> kModeNames{ "CSMAtlas", "VSMSunAtlas", "VSMSunLocal" };
-        constexpr std::array<const char*, 4> kPresentationNames{ "MSAA4", "FSR1Quality", "FSR2Quality", "853x479Native" };
+        struct PresentationVariant
+        {
+            const char* Name;
+            u32 Samples;
+            UpscaleMode Upscale;
+            UpscalerTechnique Technique;
+            u32 Width;
+            u32 Height;
+        };
+        constexpr std::array<PresentationVariant, 11> kPresentationVariants{
+            PresentationVariant{ "MSAA4", 4, UpscaleMode::Off, UpscalerTechnique::Spatial, kWidth, kHeight },
+            { "FSR1Quality", 1, UpscaleMode::Quality, UpscalerTechnique::Spatial, kWidth, kHeight },
+            { "FSR2Quality", 1, UpscaleMode::Quality, UpscalerTechnique::Temporal, kWidth, kHeight },
+            { "853x479Native", 1, UpscaleMode::Off, UpscalerTechnique::Spatial, 853, 479 },
+            { "MSAA4FSR1Quality", 4, UpscaleMode::Quality, UpscalerTechnique::Spatial, kWidth, kHeight },
+            { "MSAA4FSR2Quality", 4, UpscaleMode::Quality, UpscalerTechnique::Temporal, kWidth, kHeight },
+            { "853x479MSAA4Native", 4, UpscaleMode::Off, UpscalerTechnique::Spatial, 853, 479 },
+            { "853x479FSR1Quality", 1, UpscaleMode::Quality, UpscalerTechnique::Spatial, 853, 479 },
+            { "853x479FSR2Quality", 1, UpscaleMode::Quality, UpscalerTechnique::Temporal, 853, 479 },
+            { "853x479MSAA4FSR1Quality", 4, UpscaleMode::Quality, UpscalerTechnique::Spatial, 853, 479 },
+            { "853x479MSAA4FSR2Quality", 4, UpscaleMode::Quality, UpscalerTechnique::Temporal, 853, 479 }
+        };
         struct EvidenceFrame
         {
             std::vector<u8> Pixels; // ReadbackComposite API boundary
@@ -284,7 +305,11 @@ namespace OloEngine::Tests
 
         EvidenceFrame Capture(const EditorCamera& camera, const std::string& name)
         {
-            RunEditorFrames(camera, 8, 0.0f); // pinned clock, including wind
+            const auto& post = Renderer3D::GetPostProcessSettings();
+            // Temporal history needs to converge after the casting A/B toggle;
+            // eight frames erased the thin impostor shadow in both techniques.
+            const u32 settleFrames = post.Technique == UpscalerTechnique::Temporal && post.Upscale != UpscaleMode::Off ? 64u : 8u;
+            RunEditorFrames(camera, settleFrames, 0.0f); // pinned clock, including wind
             EvidenceFrame frame;
             u32 width = 0, height = 0;
             EXPECT_TRUE(ReadbackComposite(frame.Pixels, width, height));
@@ -466,29 +491,31 @@ namespace OloEngine::Tests
                 if (!fullMatrix && path != RenderingPath::Deferred)
                     continue;
                 renderer.Path = path;
-                for (u32 variant = 0; variant < 4; ++variant)
+                for (sizet variant = 0; variant < (fullMatrix ? kPresentationVariants.size() : 4u); ++variant)
                 {
-                    if (variant == 0 && path != RenderingPath::Deferred)
+                    const auto& presentation = kPresentationVariants[variant];
+                    if (presentation.Samples != 1 && path != RenderingPath::Deferred)
                     {
                         RecordUnsupported(family, "MSAA is a deferred G-buffer setting; Forward paths consume one scene sample");
                         continue;
                     }
-                    renderer.Deferred.MSAASampleCount = variant == 0 ? 4u : 1u;
+                    renderer.Deferred.MSAASampleCount = presentation.Samples;
                     auto& post = Renderer3D::GetPostProcessSettings();
-                    post.Upscale = variant == 1 || variant == 2 ? UpscaleMode::Quality : UpscaleMode::Off;
-                    post.Technique = variant == 2 ? UpscalerTechnique::Temporal : UpscalerTechnique::Spatial;
-                    if (variant == 2 && !TemporalUpscalerUsable())
+                    post.Upscale = presentation.Upscale;
+                    post.Technique = presentation.Technique;
+                    if (post.Technique == UpscalerTechnique::Temporal && !TemporalUpscalerUsable())
                     {
                         RecordUnsupported(family, "FSR2 unavailable on this GL device; Spatial is the supported fallback");
-                        continue;
+                        if (!fullMatrix)
+                            continue;
                     }
-                    if (variant == 0 && Renderer3D::GetMaxMSAASamples() < 4u)
+                    if (presentation.Samples > Renderer3D::GetMaxMSAASamples())
                     {
                         RecordUnsupported(family, "4x MSAA exceeds driver cap " + std::to_string(Renderer3D::GetMaxMSAASamples()));
                         continue;
                     }
-                    m_Width = variant == 3 ? 853u : kWidth;
-                    m_Height = variant == 3 ? 479u : kHeight;
+                    m_Width = presentation.Width;
+                    m_Height = presentation.Height;
                     Renderer3D::ApplyRendererSettings();
                     ResizeRenderTarget(m_Width, m_Height);
                     for (u32 angle = 0; angle < (fullMatrix ? 2u : 1u); ++angle)
@@ -503,8 +530,8 @@ namespace OloEngine::Tests
                             const u32 modes = fullMatrix ? 3u : 2u;
                             for (u32 mode = 0; mode < modes; ++mode)
                             {
-                                const std::string cell = std::string(FamilyName(family)) + "_GL_" + PathName(path) +
-                                                         "_" + kPresentationNames[variant] + "_Angle" + std::to_string(angle) +
+                                const std::string cell = std::string(FamilyName(family)) + (m_ImpostorEvidence ? "Impostor_GL_" : "_GL_") + PathName(path) +
+                                                         "_" + presentation.Name + "_Angle" + std::to_string(angle) +
                                                          "_" + kLightNames[light] + "_" + kModeNames[fullMatrix ? mode : mode * 2];
                                 SCOPED_TRACE(cell);
                                 auto settings = Renderer3D::GetShadowMap().GetSettings();
@@ -523,8 +550,8 @@ namespace OloEngine::Tests
                                 const auto& resolve = Renderer3D::GetUpscaleResolution();
                                 ASSERT_TRUE(resolve.Latched);
                                 EXPECT_EQ(resolve.Path, path);
-                                EXPECT_EQ(resolve.SceneSampleCount, variant == 0 ? 4u : 1u);
-                                if (variant == 2 && !Renderer3D::IsTemporalUpscaleActive())
+                                EXPECT_EQ(resolve.SceneSampleCount, presentation.Samples);
+                                if (post.Technique == UpscalerTechnique::Temporal && !Renderer3D::IsTemporalUpscaleActive())
                                     RecordUnsupported(family, cell + " FSR2 fell back: reason " + std::to_string(static_cast<i32>(resolve.Result.Fallback)));
                             }
                             for (u32 mode = 1; mode < modes; ++mode)
@@ -728,6 +755,8 @@ namespace OloEngine::Tests
         OLO_ENSURE_GPU_OR_SKIP();
         m_ImpostorEvidence = true;
         Evidence(Family::FoliageMesh);
+        if (std::getenv("OLO_VSM_FAMILY_FULL_MATRIX") != nullptr)
+            PresentationEvidence(Family::FoliageMesh);
     }
 
     TEST_F(ShadowFamilyVisualEvidence, OffscreenTerrainStillCastsOntoTheVisibleReceiver)
