@@ -1,3 +1,4 @@
+#include "BindlessHeap.glsl"
 #ifdef OLO_VSM_FAMILY
 #include "VirtualShadowFamilyFragment.glsl"
 #endif
@@ -6,7 +7,6 @@ layout(location = 1) in float v_AlphaCutoff;
 layout(location = 2) in float v_MeshCoverage;
 layout(location = 3) in vec2 v_LodSeedFade;
 
-#include "BindlessHeap.glsl"
 #ifdef OLO_BINDLESS
 #define u_DiffuseTexture OLO_HEAP_TEX_2D(0)  // TEX_DIFFUSE
 #else

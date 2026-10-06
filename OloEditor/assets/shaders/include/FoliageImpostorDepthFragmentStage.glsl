@@ -1,3 +1,4 @@
+#include "BindlessHeap.glsl"
 #ifdef OLO_VSM_FAMILY
 #include "VirtualShadowFamilyFragment.glsl"
 #endif
