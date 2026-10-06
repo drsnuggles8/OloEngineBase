@@ -903,6 +903,12 @@ namespace OloEngine::MCP
                                    .Prop("path", Schema::String().Desc("VOX1 file path, absolute or relative to the editor working directory."))
                                    .Required({ "entity", "path" })
                                    .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("entity", Schema::EntityId())
+                                    .Prop("chunks", Schema::Int().Min(0))
+                                    .Prop("undoable", Schema::Bool())
+                                    .Prop("scenePersisted", Schema::Bool())
+                                    .Required({ "entity", "chunks", "undoable", "scenePersisted" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_TerrainVoxelLoad;
             registry.Register(std::move(tool));
