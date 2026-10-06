@@ -1,19 +1,19 @@
 {
-  "head": "0cffa21facdf46c909582ed9ef400371d7cf4022",
-  "testsExecutableSHA256": "860b1e8a3029eb6737934efef24785c991846a6f7fae9d194a03db605c82d939",
+  "head": "9d733a336907fdec778ded7c250257b6741d9a6f",
+  "testsExecutableSHA256": "2f62252a721ce322b610e09e5caa0789bd648b939f7a14a61e1f667cc8e63728",
   "measurements": 2619,
   "coreCells": 2592,
   "headlessPNGCount": 5539,
-  "engineLogSHA256": "d95ec4af79ed5acc15099b0300387e90f8cc4d2e6617f9b56f2f49a16c848915",
-  "packSHA256": "7cb08b58fa9d7ca3ec2caf08b0c38ee928d9db3a18941be0f10ef7fbb1233ce2",
+  "engineLogSHA256": "47e8b8fe208ee7346cbb9c1249448976b80b27ac958ff43c4ceda956929a557c",
+  "packSHA256": "1163b03c925209bf66e7122b5de340dc2fcd3b80c631c30c778764c53c411087",
   "testSummaries": {
     "CPU": {
       "tests": "158",
       "failures": "0",
       "disabled": "0",
       "errors": "0",
-      "time": "5.905",
-      "timestamp": "2026-10-06T04:12:36.682",
+      "time": "5.501",
+      "timestamp": "2026-10-06T04:49:14.028",
       "name": "AllTests"
     },
     "ExpandedGL": {
@@ -21,8 +21,8 @@
       "failures": "0",
       "disabled": "0",
       "errors": "0",
-      "time": "286.641",
-      "timestamp": "2026-10-06T04:12:43.280",
+      "time": "319.222",
+      "timestamp": "2026-10-06T04:49:19.890",
       "name": "AllTests"
     },
     "ExistingParity": {
@@ -10686,7 +10686,7 @@
     },
     {
       "path": "OloEditor/assets/tests/visual/ShadowFamilyDeformationRestored_FoliageMesh_GL_Deferred_Sun_Angle0.png",
-      "sha256": "49425db5299a4a24e9c39f4ef034a261242adf609fa795e2cd34532238690004"
+      "sha256": "a1126348f9ee246ba1cb90c3412243c5e0c66f9348ae49cceffcac18bd1a277a"
     },
     {
       "path": "OloEditor/assets/tests/visual/ShadowFamilyDeformationRestored_FoliageMeshImpostor_GL_Deferred_Sun_Angle0.png",
@@ -10706,15 +10706,15 @@
     },
     {
       "path": "OloEditor/assets/tests/visual/ShadowFamilyDeformed_FoliageCard_GL_Deferred_Sun_Angle0.png",
-      "sha256": "375358a5b6900f76183b2284cd629e22bbcdc1068cdff327c7e7136093eaa12b"
+      "sha256": "44cc2437ae6ee126490c4d75967f3045d4f11f0bd6604efb47f75bc613d5f4c5"
     },
     {
       "path": "OloEditor/assets/tests/visual/ShadowFamilyDeformed_FoliageMesh_GL_Deferred_Sun_Angle0.png",
-      "sha256": "43b10fac745b66bb066489fb39af227f406448a23dd60836d91cacc95dbf1973"
+      "sha256": "88b97165cafab88f0623f3f7bb2588eba07a0d93581a496dc67bd9a598082223"
     },
     {
       "path": "OloEditor/assets/tests/visual/ShadowFamilyDeformed_FoliageMeshImpostor_GL_Deferred_Sun_Angle0.png",
-      "sha256": "fd3b51c42d3dbf31758c92a4b4ef5f0e14241ce53126b676a0746296ef9b02a2"
+      "sha256": "201c4550d1e2c49d7f9654d05bda9eed20fff8f56798b92dd40ef49e9fb9dda8"
     },
     {
       "path": "OloEditor/assets/tests/visual/ShadowFamilyDeformed_GreedyVoxel_GL_Deferred_Sun_Angle0.png",

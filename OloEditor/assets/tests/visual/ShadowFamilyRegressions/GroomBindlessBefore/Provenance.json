@@ -1,0 +1,23 @@
+{
+  "issue": 1567,
+  "campaign": "vsm1524-live-opengl-bindless-final2",
+  "provenance": {
+    "head": "0cffa21facdf46c909582ed9ef400371d7cf4022",
+    "workingDiffSHA256": "b76cf4c3cd5aca18fadec25b91f42e0f0e0d82a927ed5b5fbd75ae0aed6e23bc",
+    "executable": "C:\\repos\\OloEngine-vsm-terrain-voxel-foliage-casters-1524\\bin\\Release\\OloEditor\\OloEditor.exe",
+    "executableSHA256": "b33db3f2e698a48a6f4933d2dea175deedc49fbf6d10cdba75c407aecb28adfd",
+    "captureSettleFrames": 8
+  },
+  "engineLogSHA256": "c2e05047aa97300b3fd92a5f82f3eb8903a487e7e2d6578a7bc2b86978d79c95",
+  "failedVertexInputs": [
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/GroomBindlessBefore/VSM_GroomDepth.vertex.txt",
+      "SHA256": "fc25c914f6ae7687fd62662820b1a04c5450eebd0ef3c4bd400efdec3f729f67"
+    },
+    {
+      "path": "OloEditor/assets/tests/visual/ShadowFamilyRegressions/GroomBindlessBefore/GroomStrand.vertex.txt",
+      "SHA256": "577eb04549d963abde5cff189dad21994c6cd8611b618d042b08adea5379da92"
+    }
+  ],
+  "status": "Raw driver compile failure; candidate parameter rename remains unverified"
+}

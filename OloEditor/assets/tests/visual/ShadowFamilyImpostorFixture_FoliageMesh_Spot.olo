@@ -312,26 +312,7 @@ LightmapSettings:
   MaxBounces: 4
   TexelsPerMeter: 8
 Entities:
-  - Entity: 10098715431745266113
-    TagComponent:
-      Tag: Shadow light
-    TransformComponent:
-      Translation: [-6, 10, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    SpotLightComponent:
-      Direction: [0.6, -0.8, 0]
-      Color: [1, 1, 1]
-      Intensity: 500
-      Range: 45
-      InnerCutoff: 55
-      OuterCutoff: 70
-      Attenuation: 2
-      CastShadows: true
-      RayTracedShadows: false
-      ShadowBias: 0.005
-      ShadowNormalBias: 0.01
-  - Entity: 11179936881517178757
+  - Entity: 2407356599363026755
     TagComponent:
       Tag: FoliageMesh
     TransformComponent:
@@ -463,7 +444,26 @@ Entities:
           ImpostorHemiOctahedral: true
           Enabled: true
           CastShadows: true
-  - Entity: 11597973883635289029
+  - Entity: 12643953378434315392
+    TagComponent:
+      Tag: Shadow light
+    TransformComponent:
+      Translation: [-6, 10, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [0.6, -0.8, 0]
+      Color: [1, 1, 1]
+      Intensity: 500
+      Range: 45
+      InnerCutoff: 55
+      OuterCutoff: 70
+      Attenuation: 2
+      CastShadows: true
+      RayTracedShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+  - Entity: 13681341350119152718
     TagComponent:
       Tag: Mesh receiver
     TransformComponent:
@@ -476,7 +476,7 @@ Entities:
       AlbedoColor: [0.8, 0.8, 0.8]
       Metallic: 0
       Roughness: 1
-  - Entity: 14692112662752231889
+  - Entity: 15219304877698505233
     TagComponent:
       Tag: Runtime evidence camera
     TransformComponent:

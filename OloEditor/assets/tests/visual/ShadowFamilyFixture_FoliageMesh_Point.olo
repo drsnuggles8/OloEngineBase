@@ -312,40 +312,23 @@ LightmapSettings:
   MaxBounces: 4
   TexelsPerMeter: 8
 Entities:
-  - Entity: 2304363530794668537
+  - Entity: 22370271374139809
     TagComponent:
-      Tag: Mesh receiver
+      Tag: Shadow light
     TransformComponent:
-      Translation: [0, 0, 0]
+      Translation: [-6, 10, 0]
       Rotation: [0, 0, 0]
-      Scale: [60, 1, 60]
-    MeshComponent:
-      Primitive: 3
-    MaterialComponent:
-      AlbedoColor: [0.8, 0.8, 0.8]
-      Metallic: 0
-      Roughness: 1
-  - Entity: 3542264096215084460
-    TagComponent:
-      Tag: Runtime evidence camera
-    TransformComponent:
-      Translation: [4, 14, 26]
-      Rotation: [-0.45, 0, 0]
       Scale: [1, 1, 1]
-    CameraComponent:
-      Camera:
-        ProjectionType: 0
-        PerspectiveFOV: 0.7853982
-        PerspectiveNear: 0.1
-        PerspectiveFar: 200
-        OrthographicSize: 10
-        OrthographicNear: -1
-        OrthographicFar: 1
-      Primary: true
-      FixedAspectRatio: false
-      RuntimeControl: false
-      FlySpeed: 5
-  - Entity: 10923014757207147415
+    PointLightComponent:
+      Color: [1, 1, 1]
+      Intensity: 500
+      Range: 45
+      Attenuation: 2
+      CastShadows: true
+      RayTracedShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+  - Entity: 5328030063773734266
     TagComponent:
       Tag: FoliageMesh
     TransformComponent:
@@ -477,19 +460,36 @@ Entities:
           ImpostorHemiOctahedral: true
           Enabled: true
           CastShadows: true
-  - Entity: 14475398294357216064
+  - Entity: 14563693362880269626
     TagComponent:
-      Tag: Shadow light
+      Tag: Runtime evidence camera
     TransformComponent:
-      Translation: [-6, 10, 0]
-      Rotation: [0, 0, 0]
+      Translation: [4, 14, 26]
+      Rotation: [-0.45, 0, 0]
       Scale: [1, 1, 1]
-    PointLightComponent:
-      Color: [1, 1, 1]
-      Intensity: 500
-      Range: 45
-      Attenuation: 2
-      CastShadows: true
-      RayTracedShadows: false
-      ShadowBias: 0.005
-      ShadowNormalBias: 0.01
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.7853982
+        PerspectiveNear: 0.1
+        PerspectiveFar: 200
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+      RuntimeControl: false
+      FlySpeed: 5
+  - Entity: 15077342675198729244
+    TagComponent:
+      Tag: Mesh receiver
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [60, 1, 60]
+    MeshComponent:
+      Primitive: 3
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.8, 0.8]
+      Metallic: 0
+      Roughness: 1

@@ -312,7 +312,23 @@ LightmapSettings:
   MaxBounces: 4
   TexelsPerMeter: 8
 Entities:
-  - Entity: 2209097511530591535
+  - Entity: 2271270181163607792
+    TagComponent:
+      Tag: Shadow light
+    TransformComponent:
+      Translation: [-6, 10, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 1, 1]
+      Intensity: 500
+      Range: 45
+      Attenuation: 2
+      CastShadows: true
+      RayTracedShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+  - Entity: 3305118654067959725
     TagComponent:
       Tag: Runtime evidence camera
     TransformComponent:
@@ -332,20 +348,7 @@ Entities:
       FixedAspectRatio: false
       RuntimeControl: false
       FlySpeed: 5
-  - Entity: 7578998837036022426
-    TagComponent:
-      Tag: Mesh receiver
-    TransformComponent:
-      Translation: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [60, 1, 60]
-    MeshComponent:
-      Primitive: 3
-    MaterialComponent:
-      AlbedoColor: [0.8, 0.8, 0.8]
-      Metallic: 0
-      Roughness: 1
-  - Entity: 9989480005329440524
+  - Entity: 6849585954976297594
     TagComponent:
       Tag: GreedyVoxel
     TransformComponent:
@@ -400,19 +403,16 @@ Entities:
       VoxelEnabled: true
       VoxelSize: 0.25
       VoxelMesher: 1
-  - Entity: 14771893366702708363
+  - Entity: 17184735930628682662
     TagComponent:
-      Tag: Shadow light
+      Tag: Mesh receiver
     TransformComponent:
-      Translation: [-6, 10, 0]
+      Translation: [0, 0, 0]
       Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    PointLightComponent:
-      Color: [1, 1, 1]
-      Intensity: 500
-      Range: 45
-      Attenuation: 2
-      CastShadows: true
-      RayTracedShadows: false
-      ShadowBias: 0.005
-      ShadowNormalBias: 0.01
+      Scale: [60, 1, 60]
+    MeshComponent:
+      Primitive: 3
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.8, 0.8]
+      Metallic: 0
+      Roughness: 1

@@ -312,26 +312,27 @@ LightmapSettings:
   MaxBounces: 4
   TexelsPerMeter: 8
 Entities:
-  - Entity: 5835961400383977540
+  - Entity: 7758105803735873444
     TagComponent:
-      Tag: Shadow light
+      Tag: Runtime evidence camera
     TransformComponent:
-      Translation: [-6, 10, 0]
-      Rotation: [0, 0, 0]
+      Translation: [4, 14, 26]
+      Rotation: [-0.45, 0, 0]
       Scale: [1, 1, 1]
-    SpotLightComponent:
-      Direction: [0.6, -0.8, 0]
-      Color: [1, 1, 1]
-      Intensity: 500
-      Range: 45
-      InnerCutoff: 55
-      OuterCutoff: 70
-      Attenuation: 2
-      CastShadows: true
-      RayTracedShadows: false
-      ShadowBias: 0.005
-      ShadowNormalBias: 0.01
-  - Entity: 8766684884292334876
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.7853982
+        PerspectiveNear: 0.1
+        PerspectiveFar: 200
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+      RuntimeControl: false
+      FlySpeed: 5
+  - Entity: 14661978558411924989
     TagComponent:
       Tag: FoliageCard
     TransformComponent:
@@ -463,7 +464,26 @@ Entities:
           ImpostorHemiOctahedral: true
           Enabled: true
           CastShadows: true
-  - Entity: 11422143432190587060
+  - Entity: 16002370806176105011
+    TagComponent:
+      Tag: Shadow light
+    TransformComponent:
+      Translation: [-6, 10, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [0.6, -0.8, 0]
+      Color: [1, 1, 1]
+      Intensity: 500
+      Range: 45
+      InnerCutoff: 55
+      OuterCutoff: 70
+      Attenuation: 2
+      CastShadows: true
+      RayTracedShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+  - Entity: 17589522924608388277
     TagComponent:
       Tag: Mesh receiver
     TransformComponent:
@@ -476,23 +496,3 @@ Entities:
       AlbedoColor: [0.8, 0.8, 0.8]
       Metallic: 0
       Roughness: 1
-  - Entity: 16644087329222568275
-    TagComponent:
-      Tag: Runtime evidence camera
-    TransformComponent:
-      Translation: [4, 14, 26]
-      Rotation: [-0.45, 0, 0]
-      Scale: [1, 1, 1]
-    CameraComponent:
-      Camera:
-        ProjectionType: 0
-        PerspectiveFOV: 0.7853982
-        PerspectiveNear: 0.1
-        PerspectiveFar: 200
-        OrthographicSize: 10
-        OrthographicNear: -1
-        OrthographicFar: 1
-      Primary: true
-      FixedAspectRatio: false
-      RuntimeControl: false
-      FlySpeed: 5

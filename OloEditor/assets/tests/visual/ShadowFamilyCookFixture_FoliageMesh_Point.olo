@@ -312,7 +312,7 @@ LightmapSettings:
   MaxBounces: 4
   TexelsPerMeter: 8
 Entities:
-  - Entity: 2159293293843895560
+  - Entity: 810172380127371430
     TagComponent:
       Tag: FoliageMesh
     TransformComponent:
@@ -444,20 +444,23 @@ Entities:
           ImpostorHemiOctahedral: true
           Enabled: true
           CastShadows: true
-  - Entity: 11422143432190587060
+  - Entity: 4858014015747762740
     TagComponent:
-      Tag: Mesh receiver
+      Tag: Shadow light
     TransformComponent:
-      Translation: [0, 0, 0]
+      Translation: [-6, 10, 0]
       Rotation: [0, 0, 0]
-      Scale: [60, 1, 60]
-    MeshComponent:
-      Primitive: 3
-    MaterialComponent:
-      AlbedoColor: [0.8, 0.8, 0.8]
-      Metallic: 0
-      Roughness: 1
-  - Entity: 16644087329222568275
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 1, 1]
+      Intensity: 500
+      Range: 45
+      Attenuation: 2
+      CastShadows: true
+      RayTracedShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+  - Entity: 7758105803735873444
     TagComponent:
       Tag: Runtime evidence camera
     TransformComponent:
@@ -477,19 +480,16 @@ Entities:
       FixedAspectRatio: false
       RuntimeControl: false
       FlySpeed: 5
-  - Entity: 18068307818494491210
+  - Entity: 17589522924608388277
     TagComponent:
-      Tag: Shadow light
+      Tag: Mesh receiver
     TransformComponent:
-      Translation: [-6, 10, 0]
+      Translation: [0, 0, 0]
       Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    PointLightComponent:
-      Color: [1, 1, 1]
-      Intensity: 500
-      Range: 45
-      Attenuation: 2
-      CastShadows: true
-      RayTracedShadows: false
-      ShadowBias: 0.005
-      ShadowNormalBias: 0.01
+      Scale: [60, 1, 60]
+    MeshComponent:
+      Primitive: 3
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.8, 0.8]
+      Metallic: 0
+      Roughness: 1

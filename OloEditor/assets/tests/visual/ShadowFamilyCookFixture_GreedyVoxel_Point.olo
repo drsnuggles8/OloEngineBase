@@ -312,7 +312,27 @@ LightmapSettings:
   MaxBounces: 4
   TexelsPerMeter: 8
 Entities:
-  - Entity: 1282176957042514229
+  - Entity: 7758105803735873444
+    TagComponent:
+      Tag: Runtime evidence camera
+    TransformComponent:
+      Translation: [4, 14, 26]
+      Rotation: [-0.45, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.7853982
+        PerspectiveNear: 0.1
+        PerspectiveFar: 200
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+      RuntimeControl: false
+      FlySpeed: 5
+  - Entity: 8041780264426238480
     TagComponent:
       Tag: GreedyVoxel
     TransformComponent:
@@ -367,20 +387,7 @@ Entities:
       VoxelEnabled: true
       VoxelSize: 0.25
       VoxelMesher: 1
-  - Entity: 11422143432190587060
-    TagComponent:
-      Tag: Mesh receiver
-    TransformComponent:
-      Translation: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [60, 1, 60]
-    MeshComponent:
-      Primitive: 3
-    MaterialComponent:
-      AlbedoColor: [0.8, 0.8, 0.8]
-      Metallic: 0
-      Roughness: 1
-  - Entity: 15871266443013714622
+  - Entity: 13648980776296539595
     TagComponent:
       Tag: Shadow light
     TransformComponent:
@@ -396,23 +403,16 @@ Entities:
       RayTracedShadows: false
       ShadowBias: 0.005
       ShadowNormalBias: 0.01
-  - Entity: 16644087329222568275
+  - Entity: 17589522924608388277
     TagComponent:
-      Tag: Runtime evidence camera
+      Tag: Mesh receiver
     TransformComponent:
-      Translation: [4, 14, 26]
-      Rotation: [-0.45, 0, 0]
-      Scale: [1, 1, 1]
-    CameraComponent:
-      Camera:
-        ProjectionType: 0
-        PerspectiveFOV: 0.7853982
-        PerspectiveNear: 0.1
-        PerspectiveFar: 200
-        OrthographicSize: 10
-        OrthographicNear: -1
-        OrthographicFar: 1
-      Primary: true
-      FixedAspectRatio: false
-      RuntimeControl: false
-      FlySpeed: 5
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [60, 1, 60]
+    MeshComponent:
+      Primitive: 3
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.8, 0.8]
+      Metallic: 0
+      Roughness: 1

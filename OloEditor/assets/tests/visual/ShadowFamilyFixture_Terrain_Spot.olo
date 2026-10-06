@@ -312,7 +312,7 @@ LightmapSettings:
   MaxBounces: 4
   TexelsPerMeter: 8
 Entities:
-  - Entity: 2991282666537585240
+  - Entity: 3923528670750292284
     TagComponent:
       Tag: Shadow light
     TransformComponent:
@@ -331,20 +331,7 @@ Entities:
       RayTracedShadows: false
       ShadowBias: 0.005
       ShadowNormalBias: 0.01
-  - Entity: 7213149523124472052
-    TagComponent:
-      Tag: Mesh receiver
-    TransformComponent:
-      Translation: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [60, 1, 60]
-    MeshComponent:
-      Primitive: 3
-    MaterialComponent:
-      AlbedoColor: [0.8, 0.8, 0.8]
-      Metallic: 0
-      Roughness: 1
-  - Entity: 8713472397861410955
+  - Entity: 7691145867122441889
     TagComponent:
       Tag: Terrain
     TransformComponent:
@@ -399,7 +386,7 @@ Entities:
       VoxelEnabled: false
       VoxelSize: 1
       VoxelMesher: 0
-  - Entity: 14475176332121530669
+  - Entity: 12511410168412636216
     TagComponent:
       Tag: Runtime evidence camera
     TransformComponent:
@@ -419,3 +406,16 @@ Entities:
       FixedAspectRatio: false
       RuntimeControl: false
       FlySpeed: 5
+  - Entity: 18099982157170328901
+    TagComponent:
+      Tag: Mesh receiver
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [60, 1, 60]
+    MeshComponent:
+      Primitive: 3
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.8, 0.8]
+      Metallic: 0
+      Roughness: 1
