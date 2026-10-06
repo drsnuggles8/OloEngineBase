@@ -109,7 +109,7 @@ namespace OloEngine::Tests
         bool TimedOut = false;
         int ExitCode = 0;
         std::string Error;
-        std::string Output; // child's stdout+stderr (tail), for the failure message
+        std::string Output; // child's stdout+stderr, bounded to a diagnostic tail by default
     };
 
     // Tail of the child's captured output, for a failure message. A hung
@@ -117,6 +117,7 @@ namespace OloEngine::Tests
     // survives — before this, a timeout reported "the app likely hung" and
     // threw the log away, which is how a 30 s hang on CI reached a human with
     // no evidence at all attached to it.
+    // maxBytes == 0 retains the complete capture for assertions on startup output.
     [[nodiscard]] inline std::string ReadCapturedOutput(const std::filesystem::path& path, std::size_t maxBytes = 4000)
     {
         std::ifstream in(path, std::ios::binary);
@@ -130,7 +131,7 @@ namespace OloEngine::Tests
             return "<child produced no output>";
         }
 
-        if (text.size() > maxBytes)
+        if (maxBytes != 0 && text.size() > maxBytes)
         {
             text = "...\n" + text.substr(text.size() - maxBytes);
         }

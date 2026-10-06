@@ -91,9 +91,9 @@ namespace
         // matters"). DLLs are found next to the .exe regardless of this cwd.
         const std::string workingDir = OLO_TEST_EDITOR_ROOT;
 
-        // Startup-policy assertions need the early log lines, before the verbose
-        // C# binding scan. The helper's default 4 KiB tail is for failure diagnostics.
-        const LaunchResult r = RunProcessWithTimeout(exePath, args, workingDir, kSmokeTimeoutMs, 64 * 1024);
+        // Retain the full capture: verbose binding scans must not discard startup
+        // policy messages. Other callers keep the default diagnostic tail.
+        const LaunchResult r = RunProcessWithTimeout(exePath, args, workingDir, kSmokeTimeoutMs, 0);
 
         ASSERT_TRUE(r.Launched) << "Failed to launch " << exePath << ": " << r.Error;
         ASSERT_FALSE(r.TimedOut) << exePath << " did not exit within " << kSmokeTimeoutMs

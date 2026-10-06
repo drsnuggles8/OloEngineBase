@@ -56,6 +56,7 @@ add_executable(OloEngine-Tests
 		RefTest.cpp
 		Core/BuildInfoTest.cpp
 		Core/MonoDebuggerPolicyTest.cpp
+		Core/TestProcessOutputTest.cpp
 		# Guards the debug-lever registry, including the grep test that stops a
 		# new lever from being added as a bare Env:: read again.
 		Core/CVarTest.cpp
