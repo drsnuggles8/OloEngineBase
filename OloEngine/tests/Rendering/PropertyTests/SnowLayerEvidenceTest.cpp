@@ -27,6 +27,7 @@
 #include "OloEnginePCH.h"
 
 #include "RendererAttachedTest.h"
+#include "AttachmentFeedbackEvidence.h"
 #include "RenderPropertyTest.h"
 
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
@@ -278,6 +279,29 @@ namespace OloEngine::Tests
     constexpr f32 kClearX0 = 0.02f, kClearX1 = 0.40f, kClearY0 = 0.30f, kClearY1 = 0.98f;
     // Snow-covered screen region: the platform top to the right of the seam.
     constexpr f32 kSnowX0 = 0.62f, kSnowX1 = 0.98f, kSnowY0 = 0.45f, kSnowY1 = 0.98f;
+
+    TEST_P(SnowLayerTest, AttachmentSnapshotsValidateAcrossMsaaAndReconstruction)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ScopedMockTime mockTime(kCaptureTime);
+        Renderer3D::GetSnowSettings().SSSBlurEnabled = true;
+        ForEachAttachmentFeedbackCell(GetParam(), PathName(GetParam()), [&](const std::string& cell, u32 settleFrames)
+                                      {
+            Renderer3D::GetSnowSettings().SSSBlurEnabled = false;
+            RunFrames(settleFrames);
+            std::vector<u8> control;
+            Capture("AttachmentSnowOff_GL_" + cell, kFrontPose, kFrontYaw, kFrontPitch, control);
+            ASSERT_FALSE(HasFatalFailure());
+            Renderer3D::GetSnowSettings().SSSBlurEnabled = true;
+            RunFrames(settleFrames);
+            std::vector<u8> pixels;
+            Capture("AttachmentSnow_GL_" + cell, kFrontPose, kFrontYaw, kFrontPitch, pixels);
+            ASSERT_FALSE(HasFatalFailure());
+            EXPECT_GT(CompareRegion(control, pixels, kSnowX0, kSnowX1, kSnowY0, kSnowY1).Changed, 200u);
+            ExpectAttachmentFeedbackGraphClean("SSSPass");
+            ExpectAttachmentSnapshotSamplingMatchesSource("SceneDepthAttachment", "DiffusionDepthSnapshot");
+            ExpectAttachmentSnapshotSamplingMatchesSource("SceneSkinDiffuse", "DiffusionHandoffSnapshot"); });
+    }
 
     TEST_P(SnowLayerTest, TheBlurTouchesSnowAndNothingElse)
     {

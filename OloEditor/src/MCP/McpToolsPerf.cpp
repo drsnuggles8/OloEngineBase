@@ -180,16 +180,15 @@ namespace OloEngine::MCP
                 o["commandPackets"] = f.m_CommandPackets;
                 o["sortingMs"] = Round2(f.m_SortingTime);
                 o["cullingMs"] = Round2(f.m_CullingTime);
-                // The ACTUAL scene render resolution (SceneColor target size), so a
+                // The ACTUAL scene render resolution (SceneColor active viewport), so a
                 // reading taken at the wrong resolution is self-evident — e.g. the
                 // render graph silently left at window size while a viewport
                 // override claims 1920x1080 (#316), or FSR rendering below display
                 // res. Omitted when no render graph is live (2D mode / no frame).
                 if (const Ref<Framebuffer> sceneFB = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor))
                 {
-                    const auto& spec = sceneFB->GetSpecification();
-                    o["renderWidth"] = spec.Width;
-                    o["renderHeight"] = spec.Height;
+                    o["renderWidth"] = sceneFB->GetActiveViewportWidth();
+                    o["renderHeight"] = sceneFB->GetActiveViewportHeight();
                 }
                 // The DISPLAY resolution beside the render one (#1337 criterion
                 // 4). They differ whenever the render scale is not 1.0, and a

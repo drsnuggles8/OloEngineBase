@@ -10,6 +10,7 @@
 
 #include <concepts>
 #include <functional>
+#include <optional>
 #include <string>
 #include <type_traits>
 #include <string_view>
@@ -172,6 +173,7 @@ namespace OloEngine
     {
         FString ResourceName;
         RGSubresourceRange Range = RGSubresourceRange::Full();
+        std::optional<RGReadUsage> ReadUsage;
     };
 
     // ========================================================================
@@ -194,6 +196,11 @@ namespace OloEngine
             RGTextureHandle handle,
             RGReadUsage usage = RGReadUsage::ShaderSample,
             const RGSubresourceRange& range = RGSubresourceRange::Full());
+
+        // Copy this source before writing its attachment later in Execute.
+        // Authorizes only TransferSource overlap; shader sampling still fails
+        // validation. Finish the copy before binding/drawing the target.
+        [[nodiscard]] RGTextureHandle ReadTransferSourceBeforeWrite(RGTextureHandle handle);
 
         [[nodiscard]] RGFramebufferHandle Read(
             RGFramebufferHandle handle,
@@ -274,9 +281,9 @@ namespace OloEngine
         //
         // Inter-pass read-modify-write of a shared resource (Decal/Particle
         // accumulating into SceneColor / OIT targets, etc.) must instead use
-        // `WriteNewVersion` so the new pass output is a renamed version and
-        // the prior version's read precedes the rename — no feedback loop
-        // exists for the validator to see.
+        // `WriteNewVersion` to publish the new writer. The rename preserves
+        // physical storage, so shader sampling still requires a separate image;
+        // ordinary attachment loads/blending use RenderTargetRead.
         void AllowSamePassReadWrite(
             RGTextureHandle handle,
             const RGSubresourceRange& range = RGSubresourceRange::Full());
@@ -490,7 +497,8 @@ namespace OloEngine
       private:
         [[nodiscard]] std::string BuildVersionedResourceName(std::string_view resourceName,
                                                              std::string_view versionTag);
-        void RecordFeedback(std::string_view resourceName, const RGSubresourceRange& range);
+        void RecordFeedback(std::string_view resourceName, const RGSubresourceRange& range,
+                            std::optional<RGReadUsage> readUsage = std::nullopt);
         void RecordRead(std::string_view resourceName, RGReadUsage usage, const RGSubresourceRange& range);
         void RecordWrite(std::string_view resourceName, RGWriteUsage usage, const RGSubresourceRange& range);
         void RecordLifetimeExtension(std::string_view resourceName);
@@ -524,6 +532,7 @@ namespace OloEngine
     struct TIsTriviallyRelocatable<RGFeedbackDeclaration>
     {
         static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(RGFeedbackDeclaration::ResourceName)> &&
+                                      TIsTriviallyRelocatable_V<decltype(RGFeedbackDeclaration::ReadUsage)> &&
                                       TIsTriviallyRelocatable_V<decltype(RGFeedbackDeclaration::Range)>;
     };
 } // namespace OloEngine

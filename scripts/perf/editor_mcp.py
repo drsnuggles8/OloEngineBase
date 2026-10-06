@@ -45,8 +45,8 @@ class Client:
                     raise
                 time.sleep(1)
 
-    def tool(self, name, **arguments):
-        result = self.rpc('tools/call', {'name': name, 'arguments': arguments})
+    def tool(self, tool_name, **arguments):
+        result = self.rpc('tools/call', {'name': tool_name, 'arguments': arguments})
         if result.get('isError'):
             raise RuntimeError(result)
         if 'structuredContent' in result:

@@ -39,26 +39,23 @@ namespace OloEngine
         // Every input is required; a blur with no depth cannot tell a snowbank
         // from the wall behind it, so without one the pass claims nothing and
         // the graph culls it.
-        if (!blackboard.Scene.SkinDiffuse.IsValid() || !blackboard.Scene.SceneDepthAttachment.IsValid() ||
+        if (!blackboard.Scene.DiffusionHandoffSnapshot.IsValid() || !blackboard.Scene.DiffusionDepthSnapshot.IsValid() ||
             !blackboard.Scene.SceneColor.IsValid())
         {
             return;
         }
 
-        m_HandoffTexture = blackboard.Scene.SkinDiffuse;
-        m_SceneDepthTexture = blackboard.Scene.SceneDepthAttachment;
+        m_HandoffTexture = blackboard.Scene.DiffusionHandoffSnapshot;
+        m_SceneDepthTexture = blackboard.Scene.DiffusionDepthSnapshot;
         [[maybe_unused]] const auto handoffRead = builder.Read(m_HandoffTexture, RGReadUsage::ShaderSample);
         [[maybe_unused]] const auto depthRead = builder.Read(m_SceneDepthTexture, RGReadUsage::ShaderSample);
 
-        // Scene colour is written IN PLACE by an additive blend, exactly as
-        // SkinDiffusionPass writes it: the graph is told about the write for
-        // ordering and barriers, and the declared same-framebuffer read/write
-        // covers the disjoint subresources — this pass draws attachment 0 ONLY
-        // and samples attachment 4 and depth, which nothing in it writes.
+        // The inputs are independent snapshots made immediately before the
+        // diffusion band. No sampled image remains attached to this target,
+        // including Vulkan's writable depth/stencil attachment.
         m_SceneColorFramebuffer = blackboard.Scene.SceneColor;
         SetPrimaryInputFramebufferHandle(blackboard.Scene.SceneColor);
         builder.Write(blackboard.Scene.SceneColor, RGWriteUsage::RenderTarget);
-        builder.AllowSamePassReadWrite(blackboard.Scene.SceneColor);
     }
 
     void SSSRenderPass::Init(const FramebufferSpecification& spec)

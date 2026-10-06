@@ -11,6 +11,23 @@
 
 namespace OloEngine::RenderGraphHazardValidator
 {
+    // Symbolic storage identity, available before transient GPU allocation.
+    // A framebuffer access covers all attachments; a view selects one aspect
+    // and colour index. Versions retain their source's storage identity.
+    struct PhysicalAccess
+    {
+        enum class Aspect : u8
+        {
+            WholeResource,
+            Color,
+            Depth,
+        };
+
+        FString Resource;
+        Aspect AttachmentAspect = Aspect::WholeResource;
+        u32 AttachmentIndex = 0;
+        RGSubresourceRange Range;
+    };
     // Resource-hazard validator extracted from `RenderGraph::ValidateResourceHazardsInternal`
     // as part of the module split (2026-05-11). The validator runs after
     // the resource registry and topological order are ready; it checks:
@@ -35,6 +52,7 @@ namespace OloEngine::RenderGraphHazardValidator
         // Either a native backing or a live generation-checked RHI buffer.
         std::function<bool(RGBufferHandle)> HasBufferBacking;
         std::function<Ref<Framebuffer>(RGFramebufferHandle)> ResolveFramebuffer;
+        std::function<PhysicalAccess(std::string_view, const RGSubresourceRange&)> ResolvePhysicalAccess;
 
         // Topology (already up to date — caller has run UpdateDependencyGraph
         // and surfaced any cycle diagnostic).
@@ -44,6 +62,9 @@ namespace OloEngine::RenderGraphHazardValidator
         // Setup-time access + feedback declarations.
         const RGTransparentStringMap<TArray64<RGAccessDeclaration>>& PassAccessDeclarations;
         const RGTransparentStringMap<TArray64<RGFeedbackDeclaration>>& PassFeedbackDeclarations;
+        // Dependency expansion may add sibling views that were not accessed by
+        // the pass. Physical feedback must inspect the original declarations.
+        const RGTransparentStringMap<TArray64<RGAccessDeclaration>>* PassSetupAccessDeclarations = nullptr;
 
         // Registry stage outputs.
         std::span<const RenderGraph::Hazard> RegistryDiagnostics;

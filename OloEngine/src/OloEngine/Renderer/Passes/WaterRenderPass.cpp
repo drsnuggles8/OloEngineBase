@@ -54,7 +54,9 @@ namespace OloEngine
         if (board.Scene.SceneColorTexture.IsValid())
         {
             m_SelectedSceneColorTexture = board.Scene.SceneColorTexture;
-            [[maybe_unused]] const auto sceneColorRead = builder.Read(board.Scene.SceneColorTexture, RGReadUsage::ShaderSample);
+            [[maybe_unused]] const auto sceneColorRead = builder.ReadTransferSourceBeforeWrite(board.Scene.SceneColorTexture);
+            // Execute copies this attachment before binding the scene target.
+            // Only the independent refraction snapshot is sampled by the draw.
         }
 
         // Sample the SNAPSHOT depth, never the live attachment.

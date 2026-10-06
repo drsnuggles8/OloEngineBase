@@ -15,10 +15,10 @@ namespace OloEngine
     // itself, so it always sees the newest write the graph ordered before it,
     // and no pass copies anything to keep an export current. A view cannot
     // serve a pass that samples the attachment WHILE that attachment is bound
-    // to the framebuffer it draws into: that is a rendering feedback loop,
-    // undefined in GL and a layout conflict in Vulkan. Two passes do exactly
-    // that, and this node is their copy, made once, at a fixed point, under a
-    // name of its own:
+    // to the framebuffer it draws into: that can be a rendering feedback loop,
+    // undefined when the sampled image is also written, or a layout conflict
+    // in Vulkan. This node copies the required image at a fixed point under
+    // a name of its own:
     //
     //   Depth        -> SceneDepthSnapshot, for DecalRenderPass (projection)
     //                   and WaterRenderPass (refraction floor, soft edges).
@@ -33,8 +33,15 @@ namespace OloEngine
     //                   attachment it marched over, so this copy is needed on
     //                   every path.
     //
-    // A node with no reader is culled, so a frame without decals or water pays
-    // for no copy.
+    // Issue #1554 adds copies on every path, taken at the relevant writer:
+    //   FluidDepth: SceneDepthAttachment immediately before FluidComposite.
+    //   DiffusionDepth + DiffusionHandoff: scene depth and attachment 4 before
+    //   the skin/snow diffusion band. The pair is shared by both additive
+    //   passes. Vulkan binds writable depth even with depth writes disabled;
+    //   using separate storage avoids that layout conflict and blanket feedback
+    //   exemptions on the scene framebuffer.
+    //
+    // A node with no reader is culled, so disabled consumers pay for no copy.
     class SceneAttachmentSnapshotPass : public RenderGraphNode
     {
       public:
@@ -42,6 +49,9 @@ namespace OloEngine
         {
             Depth,
             ViewNormals,
+            FluidDepth,
+            DiffusionDepth,
+            DiffusionHandoff,
         };
 
         SceneAttachmentSnapshotPass(SceneRenderPass* scene, Attachment attachment);
@@ -55,5 +65,6 @@ namespace OloEngine
         Attachment m_Attachment = Attachment::Depth;
         RGTextureHandle m_Source{};
         RGTextureHandle m_Snapshot{};
+        RGFramebufferHandle m_SceneFramebuffer{};
     };
 } // namespace OloEngine

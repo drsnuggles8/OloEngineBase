@@ -28,6 +28,7 @@
 #include "OloEngine/Renderer/RayTracing/RayTracingProbe.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingScene.h"
 #include "MCP/McpRenderTargetStats.h"
+#include "MCP/McpFramebufferTarget.h"
 #include "MCP/McpRenderValidate.h"
 #include "MCP/McpRendererSettings.h"
 #include "MCP/McpShadowCapture.h"
@@ -908,13 +909,7 @@ namespace OloEngine::MCP
             if (!framebuffer)
                 return {};
 
-            handle = framebuffer->GetColorAttachmentHandle(0);
-            if (handle.IsValid())
-                return handle;
-
-            handle = framebuffer->GetDepthAttachmentHandle();
-            outDepthFromFramebuffer = handle.IsValid();
-            return handle;
+            return ResolveFramebufferTargetHandle(*framebuffer, outDepthFromFramebuffer);
         }
 
         // How to READ one texel of a target, derived from the backend's own

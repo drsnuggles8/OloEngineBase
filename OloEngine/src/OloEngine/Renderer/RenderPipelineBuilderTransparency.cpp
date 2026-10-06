@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 
 #include "OloEngine/Renderer/PostProcessSettings.h"
+#include "OloEngine/Renderer/Passes/SceneAttachmentSnapshotPass.h"
 
 namespace OloEngine::RenderPipelineBuilderInternal
 {
@@ -9,6 +10,11 @@ namespace OloEngine::RenderPipelineBuilderInternal
                                         const TransparencyAOStageInputs& inputs)
     {
         OLO_CORE_ASSERT(inputs.Passes, "RegisterTransparencyAndAONodes requires pass inputs");
+
+        // Both additive diffusions sample the same pre-diffusion hand-off and
+        // depth. Copy them once; no enabled reader means both nodes are culled.
+        graph.AddNode(Ref<SceneAttachmentSnapshotPass>::Create(nullptr, SceneAttachmentSnapshotPass::Attachment::DiffusionDepth));
+        graph.AddNode(Ref<SceneAttachmentSnapshotPass>::Create(nullptr, SceneAttachmentSnapshotPass::Attachment::DiffusionHandoff));
 
         // Skin diffusion (issue #1241) runs FIRST in this group, and the
         // position is load bearing in both directions:
