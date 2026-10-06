@@ -1,0 +1,6 @@
+{
+  "rendererSourceCommit": "22dad1c7a3436bfa0baeae787f030c9bca82a07d",
+  "executableSHA256": "f54c130d522d842930c10db0fe01154022a8a29931d05b0c274691bddf0ed7fb",
+  "prediction": "Frozen eye retains beauty and CSM foliage, while old VSM uses distant render eye and removes it.",
+  "result": "CSM 732 shadow pixels; VSM 0 shadow pixels."
+}

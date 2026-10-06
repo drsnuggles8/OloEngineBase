@@ -1,0 +1,7 @@
+cell,pixels,darknessMass,centroidX,centroidZ,width,height,sceneSamples,resolvedUpscaler,upscaleFallback,statsReady,pagesDrawn,pagesResident,localPagesDrawn,localPagesResident
+TerrainSnow_GL_Forward_CSM,4234,272508,11.7814,0.132382,640,480,1,0,0,0,0,0,0,0
+TerrainSnow_GL_Forward_VSM,3617,294512,11.7562,0.134631,640,480,1,0,0,1,63,569,0,0
+TerrainSnow_GL_ForwardPlus_CSM,4234,272508,11.7814,0.132382,640,480,1,0,0,0,0,0,0,0
+TerrainSnow_GL_ForwardPlus_VSM,3617,294512,11.7562,0.134631,640,480,1,0,0,1,63,569,0,0
+TerrainSnow_GL_Deferred_CSM,4231,272462,11.7814,0.132024,640,480,1,0,0,0,0,0,0,0
+TerrainSnow_GL_Deferred_VSM,3617,294524,11.756,0.134591,640,480,1,0,0,1,63,569,0,0

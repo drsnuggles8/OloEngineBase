@@ -1,0 +1,49 @@
+FoliageMesh: Bilinear upscale is not a selectable renderer technique; spatial mode is FSR1 EASU
+FoliageMesh: MSAA is a deferred G-buffer setting; Forward paths consume one scene sample
+FoliageMesh: MSAA is a deferred G-buffer setting; Forward paths consume one scene sample
+FoliageMesh: MSAA is a deferred G-buffer setting; Forward paths consume one scene sample
+FoliageMesh: MSAA is a deferred G-buffer setting; Forward paths consume one scene sample
+FoliageMesh: MSAA is a deferred G-buffer setting; Forward paths consume one scene sample
+FoliageMesh: MSAA is a deferred G-buffer setting; Forward paths consume one scene sample
+FoliageMesh: MSAA is a deferred G-buffer setting; Forward paths consume one scene sample
+FoliageMesh: MSAA is a deferred G-buffer setting; Forward paths consume one scene sample
+FoliageMesh: MSAA is a deferred G-buffer setting; Forward paths consume one scene sample
+FoliageMesh: MSAA is a deferred G-buffer setting; Forward paths consume one scene sample
+FoliageMesh: MSAA is a deferred G-buffer setting; Forward paths consume one scene sample
+FoliageMesh: MSAA is a deferred G-buffer setting; Forward paths consume one scene sample
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_MSAA4FSR2Quality_Angle0_Sun_CSMAtlas FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_MSAA4FSR2Quality_Angle0_Sun_VSMSunAtlas FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_MSAA4FSR2Quality_Angle0_Sun_VSMSunLocal FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_MSAA4FSR2Quality_Angle0_Spot_CSMAtlas FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_MSAA4FSR2Quality_Angle0_Spot_VSMSunAtlas FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_MSAA4FSR2Quality_Angle0_Spot_VSMSunLocal FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_MSAA4FSR2Quality_Angle0_Point_CSMAtlas FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_MSAA4FSR2Quality_Angle0_Point_VSMSunAtlas FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_MSAA4FSR2Quality_Angle0_Point_VSMSunLocal FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_MSAA4FSR2Quality_Angle1_Sun_CSMAtlas FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_MSAA4FSR2Quality_Angle1_Sun_VSMSunAtlas FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_MSAA4FSR2Quality_Angle1_Sun_VSMSunLocal FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_MSAA4FSR2Quality_Angle1_Spot_CSMAtlas FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_MSAA4FSR2Quality_Angle1_Spot_VSMSunAtlas FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_MSAA4FSR2Quality_Angle1_Spot_VSMSunLocal FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_MSAA4FSR2Quality_Angle1_Point_CSMAtlas FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_MSAA4FSR2Quality_Angle1_Point_VSMSunAtlas FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_MSAA4FSR2Quality_Angle1_Point_VSMSunLocal FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_853x479MSAA4FSR2Quality_Angle0_Sun_CSMAtlas FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_853x479MSAA4FSR2Quality_Angle0_Sun_VSMSunAtlas FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_853x479MSAA4FSR2Quality_Angle0_Sun_VSMSunLocal FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_853x479MSAA4FSR2Quality_Angle0_Spot_CSMAtlas FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_853x479MSAA4FSR2Quality_Angle0_Spot_VSMSunAtlas FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_853x479MSAA4FSR2Quality_Angle0_Spot_VSMSunLocal FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_853x479MSAA4FSR2Quality_Angle0_Point_CSMAtlas FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_853x479MSAA4FSR2Quality_Angle0_Point_VSMSunAtlas FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_853x479MSAA4FSR2Quality_Angle0_Point_VSMSunLocal FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_853x479MSAA4FSR2Quality_Angle1_Sun_CSMAtlas FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_853x479MSAA4FSR2Quality_Angle1_Sun_VSMSunAtlas FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_853x479MSAA4FSR2Quality_Angle1_Sun_VSMSunLocal FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_853x479MSAA4FSR2Quality_Angle1_Spot_CSMAtlas FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_853x479MSAA4FSR2Quality_Angle1_Spot_VSMSunAtlas FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_853x479MSAA4FSR2Quality_Angle1_Spot_VSMSunLocal FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_853x479MSAA4FSR2Quality_Angle1_Point_CSMAtlas FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_853x479MSAA4FSR2Quality_Angle1_Point_VSMSunAtlas FSR2 fell back: reason 1
+FoliageMesh: FoliageMeshImpostor_GL_Deferred_853x479MSAA4FSR2Quality_Angle1_Point_VSMSunLocal FSR2 fell back: reason 1

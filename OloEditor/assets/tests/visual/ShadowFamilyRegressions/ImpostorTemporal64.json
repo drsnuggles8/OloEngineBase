@@ -1,0 +1,620 @@
+[
+  {
+    "cell": "FoliageImpostor_Sun_forward_FSR2Quality_Angle0_CSMAtlas",
+    "scene": "C:\\repos\\OloEngine-vsm-terrain-voxel-foliage-casters-1524\\OloEditor\\assets\\tests\\visual\\ShadowFamilyImpostorFixture_FoliageMesh_Sun.olo",
+    "sceneSHA256": "e8d1ac2d77395106ff61415213b8a4adac08d2fbf458f6246efc6e5f2ce095f9",
+    "moment": {
+      "pixels": 72,
+      "mass": 903.0,
+      "x": 6.632445892032666,
+      "z": 0.20960643489797248
+    },
+    "capture": {
+      "camera": "editor camera",
+      "frameIndex": 218,
+      "liveness": {
+        "captureUnready": false,
+        "focused": true,
+        "frameIndex": 218,
+        "iconified": false,
+        "msSinceLastFrame": 15.68,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    },
+    "settings": {
+      "changed": false,
+      "previousValue": "temporal",
+      "setting": "technique",
+      "upscaler": {
+        "pending": false,
+        "requested": {
+          "technique": "temporal",
+          "upscale": "quality"
+        },
+        "resolved": "temporal",
+        "sceneSampleCount": 1,
+        "temporalUpscalerStatus": "available"
+      },
+      "value": "temporal"
+    },
+    "vsm": {
+      "availability": {
+        "available": true,
+        "enabled": false,
+        "hasData": false,
+        "status": "disabled"
+      },
+      "freshness": {
+        "model": "previousFrame",
+        "sampleAgeFrames": null,
+        "stale": false
+      }
+    },
+    "perf": {
+      "commandPackets": 2,
+      "cpuMs": 2.41,
+      "cullingMs": 0.0,
+      "displayHeight": 480,
+      "displayWidth": 640,
+      "drawCalls": 47,
+      "fenceWaitMs": 0.0,
+      "fps": 209.6,
+      "frameTimeMs": 4.77,
+      "gpuMs": 1.3,
+      "gpuStatus": "valid",
+      "gpuWaitMs": 0.13,
+      "instancedDrawCalls": 4,
+      "instancesBatched": 0,
+      "instancesRendered": 4,
+      "liveness": {
+        "captureUnready": false,
+        "focused": true,
+        "frameIndex": 243,
+        "iconified": false,
+        "msSinceLastFrame": 4.06,
+        "ticking": true,
+        "visible": true
+      },
+      "presentWaitMs": 0.13,
+      "renderHeight": 320,
+      "renderScale": 1.0,
+      "renderWidth": 426,
+      "shaderBinds": 60,
+      "sortingMs": 0.0,
+      "stateChanges": 44,
+      "textureBinds": 1,
+      "triangles": 23,
+      "vertices": 393285
+    }
+  },
+  {
+    "cell": "FoliageImpostor_Sun_forward_FSR2Quality_Angle0_VSMSunAtlas",
+    "scene": "C:\\repos\\OloEngine-vsm-terrain-voxel-foliage-casters-1524\\OloEditor\\assets\\tests\\visual\\ShadowFamilyImpostorFixture_FoliageMesh_Sun.olo",
+    "sceneSHA256": "e8d1ac2d77395106ff61415213b8a4adac08d2fbf458f6246efc6e5f2ce095f9",
+    "moment": {
+      "pixels": 73,
+      "mass": 1218.0,
+      "x": 6.741696865642086,
+      "z": 0.012678117618047345
+    },
+    "capture": {
+      "camera": "editor camera",
+      "frameIndex": 408,
+      "liveness": {
+        "captureUnready": false,
+        "focused": true,
+        "frameIndex": 408,
+        "iconified": false,
+        "msSinceLastFrame": 18.1,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    },
+    "settings": {
+      "changed": false,
+      "previousValue": "temporal",
+      "setting": "technique",
+      "upscaler": {
+        "pending": false,
+        "requested": {
+          "technique": "temporal",
+          "upscale": "quality"
+        },
+        "resolved": "temporal",
+        "sceneSampleCount": 1,
+        "temporalUpscalerStatus": "available"
+      },
+      "value": "temporal"
+    },
+    "vsm": {
+      "availability": {
+        "available": true,
+        "enabled": true,
+        "hasData": true,
+        "status": "ready"
+      },
+      "freshness": {
+        "model": "previousFrame",
+        "sampleAgeFrames": 1,
+        "stale": false
+      },
+      "physicalPool": {
+        "pageCount": 4096,
+        "pageSize": 64,
+        "resolution": 4096
+      },
+      "statistics": {
+        "cullOverflows": 0,
+        "drawInstances": 3,
+        "localPagesDrawn": 0,
+        "localPagesResident": 0,
+        "pagesAllocated": 0,
+        "pagesDrawn": 314,
+        "pagesFailed": 0,
+        "pagesFreed": 0,
+        "pagesRequested": 0,
+        "pagesResident": 573
+      },
+      "vramBytes": 99182944
+    },
+    "perf": {
+      "commandPackets": 2,
+      "cpuMs": 2.16,
+      "cullingMs": 0.0,
+      "displayHeight": 480,
+      "displayWidth": 640,
+      "drawCalls": 84,
+      "fenceWaitMs": 0.0,
+      "fps": 228.15,
+      "frameTimeMs": 4.38,
+      "gpuMs": 1.66,
+      "gpuStatus": "valid",
+      "gpuWaitMs": 0.14,
+      "instancedDrawCalls": 0,
+      "instancesBatched": 0,
+      "instancesRendered": 0,
+      "liveness": {
+        "captureUnready": false,
+        "focused": true,
+        "frameIndex": 438,
+        "iconified": false,
+        "msSinceLastFrame": 4.01,
+        "ticking": true,
+        "visible": true
+      },
+      "presentWaitMs": 0.14,
+      "renderHeight": 320,
+      "renderScale": 1.0,
+      "renderWidth": 426,
+      "shaderBinds": 120,
+      "sortingMs": 0.0,
+      "stateChanges": 51,
+      "textureBinds": 1,
+      "triangles": 15,
+      "vertices": 1179693
+    }
+  },
+  {
+    "cell": "FoliageImpostor_Sun_forward_FSR2Quality_Angle0_VSMSunLocal",
+    "scene": "C:\\repos\\OloEngine-vsm-terrain-voxel-foliage-casters-1524\\OloEditor\\assets\\tests\\visual\\ShadowFamilyImpostorFixture_FoliageMesh_Sun.olo",
+    "sceneSHA256": "e8d1ac2d77395106ff61415213b8a4adac08d2fbf458f6246efc6e5f2ce095f9",
+    "moment": {
+      "pixels": 71,
+      "mass": 1201.0,
+      "x": 6.720709273031833,
+      "z": 0.008798014182484347
+    },
+    "capture": {
+      "camera": "editor camera",
+      "frameIndex": 610,
+      "liveness": {
+        "captureUnready": false,
+        "focused": true,
+        "frameIndex": 610,
+        "iconified": false,
+        "msSinceLastFrame": 20.0,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    },
+    "settings": {
+      "changed": false,
+      "previousValue": "temporal",
+      "setting": "technique",
+      "upscaler": {
+        "pending": false,
+        "requested": {
+          "technique": "temporal",
+          "upscale": "quality"
+        },
+        "resolved": "temporal",
+        "sceneSampleCount": 1,
+        "temporalUpscalerStatus": "available"
+      },
+      "value": "temporal"
+    },
+    "vsm": {
+      "availability": {
+        "available": true,
+        "enabled": true,
+        "hasData": true,
+        "status": "ready"
+      },
+      "freshness": {
+        "model": "previousFrame",
+        "sampleAgeFrames": 1,
+        "stale": false
+      },
+      "physicalPool": {
+        "pageCount": 4096,
+        "pageSize": 64,
+        "resolution": 4096
+      },
+      "statistics": {
+        "cullOverflows": 0,
+        "drawInstances": 3,
+        "localPagesDrawn": 0,
+        "localPagesResident": 0,
+        "pagesAllocated": 0,
+        "pagesDrawn": 314,
+        "pagesFailed": 0,
+        "pagesFreed": 0,
+        "pagesRequested": 0,
+        "pagesResident": 573
+      },
+      "vramBytes": 99182944
+    },
+    "perf": {
+      "commandPackets": 2,
+      "cpuMs": 3.38,
+      "cullingMs": 0.0,
+      "displayHeight": 480,
+      "displayWidth": 640,
+      "drawCalls": 84,
+      "fenceWaitMs": 0.01,
+      "fps": 156.92,
+      "frameTimeMs": 6.37,
+      "gpuMs": 2.07,
+      "gpuStatus": "valid",
+      "gpuWaitMs": 0.12,
+      "instancedDrawCalls": 0,
+      "instancesBatched": 0,
+      "instancesRendered": 0,
+      "liveness": {
+        "captureUnready": false,
+        "focused": true,
+        "frameIndex": 634,
+        "iconified": false,
+        "msSinceLastFrame": 4.97,
+        "ticking": true,
+        "visible": true
+      },
+      "presentWaitMs": 0.11,
+      "renderHeight": 320,
+      "renderScale": 1.0,
+      "renderWidth": 426,
+      "shaderBinds": 120,
+      "sortingMs": 0.0,
+      "stateChanges": 51,
+      "textureBinds": 1,
+      "triangles": 15,
+      "vertices": 1179693
+    }
+  },
+  {
+    "cell": "FoliageImpostor_Sun_forward_FSR2Quality_Angle1_CSMAtlas",
+    "scene": "C:\\repos\\OloEngine-vsm-terrain-voxel-foliage-casters-1524\\OloEditor\\assets\\tests\\visual\\ShadowFamilyImpostorFixture_FoliageMesh_Sun.olo",
+    "sceneSHA256": "e8d1ac2d77395106ff61415213b8a4adac08d2fbf458f6246efc6e5f2ce095f9",
+    "moment": {
+      "pixels": 328,
+      "mass": 7108.0,
+      "x": 7.088432161116669,
+      "z": 0.3609268541384923
+    },
+    "capture": {
+      "camera": "editor camera",
+      "frameIndex": 820,
+      "liveness": {
+        "captureUnready": false,
+        "focused": true,
+        "frameIndex": 820,
+        "iconified": false,
+        "msSinceLastFrame": 15.36,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    },
+    "settings": {
+      "changed": false,
+      "previousValue": "temporal",
+      "setting": "technique",
+      "upscaler": {
+        "pending": false,
+        "requested": {
+          "technique": "temporal",
+          "upscale": "quality"
+        },
+        "resolved": "temporal",
+        "sceneSampleCount": 1,
+        "temporalUpscalerStatus": "available"
+      },
+      "value": "temporal"
+    },
+    "vsm": {
+      "availability": {
+        "available": true,
+        "enabled": false,
+        "hasData": false,
+        "status": "disabled"
+      },
+      "freshness": {
+        "model": "previousFrame",
+        "sampleAgeFrames": null,
+        "stale": false
+      }
+    },
+    "perf": {
+      "commandPackets": 2,
+      "cpuMs": 1.65,
+      "cullingMs": 0.0,
+      "displayHeight": 480,
+      "displayWidth": 640,
+      "drawCalls": 47,
+      "fenceWaitMs": 0.01,
+      "fps": 296.45,
+      "frameTimeMs": 3.37,
+      "gpuMs": 0.9,
+      "gpuStatus": "valid",
+      "gpuWaitMs": 0.1,
+      "instancedDrawCalls": 4,
+      "instancesBatched": 0,
+      "instancesRendered": 4,
+      "liveness": {
+        "captureUnready": false,
+        "focused": true,
+        "frameIndex": 842,
+        "iconified": false,
+        "msSinceLastFrame": 3.01,
+        "ticking": true,
+        "visible": true
+      },
+      "presentWaitMs": 0.09,
+      "renderHeight": 320,
+      "renderScale": 1.0,
+      "renderWidth": 426,
+      "shaderBinds": 60,
+      "sortingMs": 0.0,
+      "stateChanges": 44,
+      "textureBinds": 1,
+      "triangles": 23,
+      "vertices": 393285
+    }
+  },
+  {
+    "cell": "FoliageImpostor_Sun_forward_FSR2Quality_Angle1_VSMSunAtlas",
+    "scene": "C:\\repos\\OloEngine-vsm-terrain-voxel-foliage-casters-1524\\OloEditor\\assets\\tests\\visual\\ShadowFamilyImpostorFixture_FoliageMesh_Sun.olo",
+    "sceneSHA256": "e8d1ac2d77395106ff61415213b8a4adac08d2fbf458f6246efc6e5f2ce095f9",
+    "moment": {
+      "pixels": 304,
+      "mass": 6576.666666666667,
+      "x": 7.072325814729472,
+      "z": 0.5664511469986764
+    },
+    "capture": {
+      "camera": "editor camera",
+      "frameIndex": 1011,
+      "liveness": {
+        "captureUnready": false,
+        "focused": true,
+        "frameIndex": 1011,
+        "iconified": false,
+        "msSinceLastFrame": 20.44,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    },
+    "settings": {
+      "changed": false,
+      "previousValue": "temporal",
+      "setting": "technique",
+      "upscaler": {
+        "pending": false,
+        "requested": {
+          "technique": "temporal",
+          "upscale": "quality"
+        },
+        "resolved": "temporal",
+        "sceneSampleCount": 1,
+        "temporalUpscalerStatus": "available"
+      },
+      "value": "temporal"
+    },
+    "vsm": {
+      "availability": {
+        "available": true,
+        "enabled": true,
+        "hasData": true,
+        "status": "ready"
+      },
+      "freshness": {
+        "model": "previousFrame",
+        "sampleAgeFrames": 1,
+        "stale": false
+      },
+      "physicalPool": {
+        "pageCount": 4096,
+        "pageSize": 64,
+        "resolution": 4096
+      },
+      "statistics": {
+        "cullOverflows": 0,
+        "drawInstances": 3,
+        "localPagesDrawn": 0,
+        "localPagesResident": 0,
+        "pagesAllocated": 0,
+        "pagesDrawn": 330,
+        "pagesFailed": 0,
+        "pagesFreed": 0,
+        "pagesRequested": 0,
+        "pagesResident": 566
+      },
+      "vramBytes": 99182944
+    },
+    "perf": {
+      "commandPackets": 2,
+      "cpuMs": 2.12,
+      "cullingMs": 0.0,
+      "displayHeight": 480,
+      "displayWidth": 640,
+      "drawCalls": 85,
+      "fenceWaitMs": 0.01,
+      "fps": 224.61,
+      "frameTimeMs": 4.45,
+      "gpuMs": 1.76,
+      "gpuStatus": "valid",
+      "gpuWaitMs": 0.11,
+      "instancedDrawCalls": 0,
+      "instancesBatched": 0,
+      "instancesRendered": 0,
+      "liveness": {
+        "captureUnready": false,
+        "focused": true,
+        "frameIndex": 1036,
+        "iconified": false,
+        "msSinceLastFrame": 6.08,
+        "ticking": true,
+        "visible": true
+      },
+      "presentWaitMs": 0.1,
+      "renderHeight": 320,
+      "renderScale": 1.0,
+      "renderWidth": 426,
+      "shaderBinds": 126,
+      "sortingMs": 0.0,
+      "stateChanges": 51,
+      "textureBinds": 1,
+      "triangles": 15,
+      "vertices": 1179693
+    }
+  },
+  {
+    "cell": "FoliageImpostor_Sun_forward_FSR2Quality_Angle1_VSMSunLocal",
+    "scene": "C:\\repos\\OloEngine-vsm-terrain-voxel-foliage-casters-1524\\OloEditor\\assets\\tests\\visual\\ShadowFamilyImpostorFixture_FoliageMesh_Sun.olo",
+    "sceneSHA256": "e8d1ac2d77395106ff61415213b8a4adac08d2fbf458f6246efc6e5f2ce095f9",
+    "moment": {
+      "pixels": 294,
+      "mass": 6534.333333333333,
+      "x": 7.079353982446401,
+      "z": 0.6222072251210161
+    },
+    "capture": {
+      "camera": "editor camera",
+      "frameIndex": 1206,
+      "liveness": {
+        "captureUnready": false,
+        "focused": true,
+        "frameIndex": 1206,
+        "iconified": false,
+        "msSinceLastFrame": 15.18,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    },
+    "settings": {
+      "changed": false,
+      "previousValue": "temporal",
+      "setting": "technique",
+      "upscaler": {
+        "pending": false,
+        "requested": {
+          "technique": "temporal",
+          "upscale": "quality"
+        },
+        "resolved": "temporal",
+        "sceneSampleCount": 1,
+        "temporalUpscalerStatus": "available"
+      },
+      "value": "temporal"
+    },
+    "vsm": {
+      "availability": {
+        "available": true,
+        "enabled": true,
+        "hasData": true,
+        "status": "ready"
+      },
+      "freshness": {
+        "model": "previousFrame",
+        "sampleAgeFrames": 1,
+        "stale": false
+      },
+      "physicalPool": {
+        "pageCount": 4096,
+        "pageSize": 64,
+        "resolution": 4096
+      },
+      "statistics": {
+        "cullOverflows": 0,
+        "drawInstances": 3,
+        "localPagesDrawn": 0,
+        "localPagesResident": 0,
+        "pagesAllocated": 0,
+        "pagesDrawn": 330,
+        "pagesFailed": 0,
+        "pagesFreed": 0,
+        "pagesRequested": 0,
+        "pagesResident": 566
+      },
+      "vramBytes": 99182944
+    },
+    "perf": {
+      "commandPackets": 2,
+      "cpuMs": 2.14,
+      "cullingMs": 0.0,
+      "displayHeight": 480,
+      "displayWidth": 640,
+      "drawCalls": 85,
+      "fenceWaitMs": 0.0,
+      "fps": 270.17,
+      "frameTimeMs": 3.7,
+      "gpuMs": 1.77,
+      "gpuStatus": "valid",
+      "gpuWaitMs": 0.07,
+      "instancedDrawCalls": 0,
+      "instancesBatched": 0,
+      "instancesRendered": 0,
+      "liveness": {
+        "captureUnready": false,
+        "focused": true,
+        "frameIndex": 1231,
+        "iconified": false,
+        "msSinceLastFrame": 3.21,
+        "ticking": true,
+        "visible": true
+      },
+      "presentWaitMs": 0.07,
+      "renderHeight": 320,
+      "renderScale": 1.0,
+      "renderWidth": 426,
+      "shaderBinds": 126,
+      "sortingMs": 0.0,
+      "stateChanges": 51,
+      "textureBinds": 1,
+      "triangles": 15,
+      "vertices": 1179693
+    }
+  }
+]

@@ -1,0 +1,1 @@
+Voxel: Cooked VOX1 edits are not persisted by SceneSerializer; regular-voxel authored volumes cannot ship through the current scene format. Greedy heightfield seeding is verified separately.
