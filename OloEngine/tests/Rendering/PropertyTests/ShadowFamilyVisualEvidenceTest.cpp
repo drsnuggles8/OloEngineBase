@@ -765,6 +765,52 @@ namespace OloEngine::Tests
             PresentationEvidence(Family::FoliageMesh);
     }
 
+    TEST_F(ShadowFamilyVisualEvidence, FrozenCullingRetainsFoliageShadowsBeyondTheRenderEyeDistance)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        AddFamily(Family::FoliageCard);
+        SetLight(0);
+        auto& layer = m_Caster.GetComponent<FoliageComponent>().m_Layers[0];
+        layer.ViewDistance = 40.0f;
+        layer.FadeStartDistance = 39.0f;
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+        Renderer3D::ApplyRendererSettings();
+        EditorCamera anchor(45.0f, static_cast<f32>(kWidth) / kHeight, 0.1f, 200.0f);
+        anchor.SetViewportSize(kWidth, kHeight);
+        anchor.SetPose({ 4, 14, 26 }, 0.0f, 0.45f);
+        RunEditorFrames(anchor, 8, 0.0f);
+        Renderer3D::SetCullingCameraFrozen(true);
+        struct RestoreCulling
+        {
+            ~RestoreCulling()
+            {
+                Renderer3D::SetCullingCameraFrozen(false);
+            }
+        } restoreCulling;
+        EditorCamera observer(45.0f, static_cast<f32>(kWidth) / kHeight, 0.1f, 200.0f);
+        observer.SetViewportSize(kWidth, kHeight);
+        observer.SetPose({ 4, 14, 50 }, 0.0f, 0.3f);
+        std::array<ShadowMoment, 2> moments;
+        for (u32 mode = 0; mode < 2; ++mode)
+        {
+            auto settings = Renderer3D::GetShadowMap().GetSettings();
+            settings.Enabled = true;
+            settings.VSM.Enabled = mode != 0;
+            Renderer3D::GetShadowMap().SetSettings(settings);
+            const std::string cell = std::string("FoliageFrozen_GL_Deferred_") + (mode ? "VSM" : "CSM");
+            Cast(false);
+            const auto lit = Capture(observer, cell + "_lit");
+            Cast(true);
+            const auto shadow = Capture(observer, cell + "_shadow");
+            moments[mode] = Measure(observer, lit, shadow);
+            Record(cell, moments[mode]);
+            EXPECT_GT(moments[mode].Pixels, 30u);
+        }
+        EXPECT_GT(moments[1].Mass, moments[0].Mass * 0.15);
+        EXPECT_LT(glm::length(moments[0].Position - moments[1].Position), 1.5);
+        GetScene().DestroyEntity(m_Caster);
+    }
+
     TEST_F(ShadowFamilyVisualEvidence, OffscreenTerrainStillCastsOntoTheVisibleReceiver)
     {
         OLO_ENSURE_GPU_OR_SKIP();

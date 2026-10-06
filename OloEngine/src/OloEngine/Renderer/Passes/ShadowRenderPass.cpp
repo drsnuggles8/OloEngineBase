@@ -2108,7 +2108,7 @@ namespace OloEngine
                 if (!caster.renderer)
                     continue;
                 caster.renderer->ResetShadowViewCulling();
-                caster.renderer->DispatchShadowViewCulling(0, caster.renderer->MakeCullInputs(worldVP, CommandDispatch::GetViewPosition()));
+                caster.renderer->DispatchShadowViewCulling(0, caster.renderer->MakeCullInputs(worldVP, Renderer3D::GetCullViewPosition()));
             }
             RenderCascadeOrFace(worldVP, local ? ShadowPassType::Atlas : ShadowPassType::CSM, view, &frustum,
                                 m_FamilyVsmShaders, m_ItemResources[0], nullptr, nullptr, 0, &vsm);
