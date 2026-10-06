@@ -271,6 +271,8 @@ movement, foliage cast flags and stable-page reuse controls. It covers multiple
 angles, all three render paths, LocalLights off/on and presentation variants.
 Shader compilation alone does not establish backend visual parity; retain the
 per-backend live captures and measurements with the PR evidence.
+The [caster evidence report](../analysis/vsm-caster-evidence-1524.md) records the
+measurement contract, presentation combinations and support boundaries.
 
 **Virtual geometry reaches the clip levels only, not the local-light layers.**
 A layer is a perspective projection with a per-texel mip, and the cluster cull is
