@@ -153,9 +153,12 @@ namespace OloEngine
         // driver (issue #691).
         RenderCommand::ShutdownGpuResources();
 
-        // Shutdown memory tracker after all renderers are shut down
+        // Vulkan's context still owns heaps, frame arenas and deferred frees.
+        // Its teardown finalizes the tracker after those allocations are released;
+        // a census here would report legitimate context allocations as leaks.
         RendererMemoryOwners::Unregister();
-        RendererMemoryTracker::GetInstance().Shutdown();
+        if (RendererAPI::GetAPI() != RendererAPI::API::Vulkan)
+            RendererMemoryTracker::GetInstance().Shutdown();
     }
 
     void Renderer::OnWindowResize(const u32 width, const u32 height)
