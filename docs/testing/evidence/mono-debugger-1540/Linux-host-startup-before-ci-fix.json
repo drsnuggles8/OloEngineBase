@@ -1,0 +1,11 @@
+{
+  "headCommit": "afbf3aa83ac0c40f0ea75bf44a11c1f4ac4ddeaf",
+  "workflowRun": 37426510054,
+  "shardJob": 112165396652,
+  "artifactName": "ubsan-linux-test-results-shard-1",
+  "sourceXml": "OloEngine-Tests_AppLaunchSmoke_5560.xml",
+  "sourceSha256": "177c9420b850b8dce6162aec0af558dbae748b81e060666ba2e2f17111abb899",
+  "hostCases": 8,
+  "skippedHostCases": 8,
+  "reason": "Test-only build and shard artifact omit the native hosts; this report is before-fix coverage-gap evidence."
+}

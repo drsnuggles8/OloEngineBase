@@ -1,0 +1,17 @@
+{
+  "configurations": [
+    "Debug",
+    "Release"
+  ],
+  "targets": [
+    "OloEngine",
+    "OloEditor",
+    "OloRuntime",
+    "OloServer",
+    "OloEngine-Tests",
+    "OloEngine-LuaScriptCore",
+    "MonoDebuggerEvidence"
+  ],
+  "OLO_WITH_CSHARP": "OFF",
+  "managedAssemblyTargetsPresent": false
+}

@@ -1,0 +1,23 @@
+ninja: no work to do.
+ninja: no work to do.
+ninja: no work to do.
+ninja: no work to do.
+ninja: no work to do.
+[1/12] Linking CXX shared library C:\repos\OloEngine-mono-debugger-host-policy-1540\OloEditor\Resources\Scripts\OloEngine-LuaScriptCore.dll
+Build succeeded.
+Build succeeded.
+[6/12] Linking CXX static library C:\repos\OloEngine-mono-debugger-host-policy-1540\bin\Debug\OloEngine\OloEngine.lib; Checking OloEngine archive size against the 4 GiB COFF limit
+[7/12] Linking CXX executable C:\repos\OloEngine-mono-debugger-host-policy-1540\bin\Debug\MonoDebuggerEvidence\MonoDebuggerEvidence.exe
+[8/12] Linking CXX executable C:\repos\OloEngine-mono-debugger-host-policy-1540\bin\Debug\OloRuntime\OloRuntime.exe; Copying FFmpeg runtime libs to OloRuntime output dir
+[9/12] Linking CXX executable C:\repos\OloEngine-mono-debugger-host-policy-1540\bin\Debug\OloServer\OloServer.exe; Copying FFmpeg runtime libs to OloServer output dir
+[10/12] Linking CXX executable OloEngine\tests\Debug\OloEngine-Tests.exe; Copying FFmpeg runtime libs to OloEngine-Tests output dir
+[11/12] Linking CXX executable C:\repos\OloEngine-mono-debugger-host-policy-1540\bin\Debug\OloEditor\OloEditor.exe; Copying FFmpeg runtime libs to OloEditor output dir; Staging USD plugInfo tree next to OloEditor
+[2/12] Linking CXX shared library C:\repos\OloEngine-mono-debugger-host-policy-1540\OloEditor\Resources\Scripts\OloEngine-LuaScriptCore.dll
+Build succeeded.
+Build succeeded.
+[6/12] Linking CXX static library C:\repos\OloEngine-mono-debugger-host-policy-1540\bin\Release\OloEngine\OloEngine.lib; Checking OloEngine archive size against the 4 GiB COFF limit
+[7/12] Linking CXX executable C:\repos\OloEngine-mono-debugger-host-policy-1540\bin\Release\MonoDebuggerEvidence\MonoDebuggerEvidence.exe
+[8/12] Linking CXX executable C:\repos\OloEngine-mono-debugger-host-policy-1540\bin\Release\OloRuntime\OloRuntime.exe; Copying FFmpeg runtime libs to OloRuntime output dir
+[9/12] Linking CXX executable C:\repos\OloEngine-mono-debugger-host-policy-1540\bin\Release\OloServer\OloServer.exe; Copying FFmpeg runtime libs to OloServer output dir
+[10/12] Linking CXX executable OloEngine\tests\Release\OloEngine-Tests.exe; Copying FFmpeg runtime libs to OloEngine-Tests output dir
+[11/12] Linking CXX executable C:\repos\OloEngine-mono-debugger-host-policy-1540\bin\Release\OloEditor\OloEditor.exe; Copying FFmpeg runtime libs to OloEditor output dir; Staging USD plugInfo tree next to OloEditor

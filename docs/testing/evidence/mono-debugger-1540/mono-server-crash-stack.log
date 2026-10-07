@@ -1,0 +1,45 @@
+  thread #45: tid = 0x15804, 0x00007ffd6a810e84 ntdll.dll`NtWaitForSingleObject + 20
+  thread #46: tid = 0xdf64, 0x00007ffd6a810e84 ntdll.dll`NtWaitForSingleObject + 20
+  thread #47: tid = 0x1675c, 0x00007ffd6a810e84 ntdll.dll`NtWaitForSingleObject + 20
+  thread #48: tid = 0xd2b8, 0x00007ffd6a810e84 ntdll.dll`NtWaitForSingleObject + 20
+  thread #49: tid = 0x1960, 0x00007ffd6a810e84 ntdll.dll`NtWaitForSingleObject + 20
+  thread #50: tid = 0xbf8c, 0x00007ffd6a810e84 ntdll.dll`NtWaitForSingleObject + 20
+  thread #51: tid = 0x1685c, 0x00007ffd6a810e84 ntdll.dll`NtWaitForSingleObject + 20
+  thread #52: tid = 0xf628, 0x00007ffd6a810e84 ntdll.dll`NtWaitForSingleObject + 20
+  thread #53: tid = 0x1653c, 0x00007ffd6a810e84 ntdll.dll`NtWaitForSingleObject + 20
+  thread #54: tid = 0x1561c, 0x00007ffd6a810e84 ntdll.dll`NtWaitForSingleObject + 20
+  thread #55: tid = 0x16088, 0x00007ffd6a810e84 ntdll.dll`NtWaitForSingleObject + 20
+  thread #56: tid = 0x1e60, 0x00007ffd6a810e84 ntdll.dll`NtWaitForSingleObject + 20
+  thread #57: tid = 0x1591c, 0x00007ffd6a810e84 ntdll.dll`NtWaitForSingleObject + 20
+  thread #58: tid = 0x14cf4, 0x00007ffd6a810e84 ntdll.dll`NtWaitForSingleObject + 20
+  thread #59: tid = 0xdfbc, 0x00007ffd6a810e84 ntdll.dll`NtWaitForSingleObject + 20
+  thread #60: tid = 0x1f38, 0x00007ffd6a810e84 ntdll.dll`NtWaitForSingleObject + 20
+  thread #61: tid = 0x153bc, 0x00007ffd6a810e84 ntdll.dll`NtWaitForSingleObject + 20
+  thread #62: tid = 0x12e24, 0x00007ffd6a810e84 ntdll.dll`NtWaitForSingleObject + 20
+  thread #63: tid = 0xa744, 0x00007ffd6a810e84 ntdll.dll`NtWaitForSingleObject + 20
+  thread #64: tid = 0x9e84, 0x00007ffd6a810e84 ntdll.dll`NtWaitForSingleObject + 20
+  thread #65: tid = 0x14fbc, 0x00007ffd6a8149f4 ntdll.dll`NtWaitForAlertByThreadId + 20
+  thread #66: tid = 0x1551c, 0x00007ffd6a8149f4 ntdll.dll`NtWaitForAlertByThreadId + 20
+  thread #67: tid = 0x73c4, 0x00007ffd6a810e84 ntdll.dll`NtWaitForSingleObject + 20
+  thread #68: tid = 0x141dc, 0x00007ffd6a8149f4 ntdll.dll`NtWaitForAlertByThreadId + 20
+  thread #69: tid = 0x9f3c, 0x00007ffd6a811954 ntdll.dll`NtWaitForMultipleObjects + 20
+  thread #70: tid = 0x6ac4, 0x00007ffd6a810ec4 ntdll.dll`NtReadFile + 20
+(lldb) bt 25
+* thread #1, stop reason = Exception 0xc0000005 encountered at address 0x7ff6fd89004e
+  * frame #0: 0x00007ff6fd89004e OloServer.exe`OloEngine::`anonymous namespace'::TryGetGlfwWindow at WindowsInput.cpp:35
+    frame #1: 0x00007ff6fd8905a9 OloServer.exe`enum OloEngine::CursorMode OloEngine::Input::GetCursorMode(void) at WindowsInput.cpp:211
+    frame #2: 0x00007ff6fdd1c8c0 OloServer.exe`void OloEngine::PlayerRigSystem::ReleaseCursorCapture(void) at PlayerRigSystem.cpp:462
+    frame #3: 0x00007ff6fd499701 OloServer.exe`void OloEngine::Scene::OnRuntimeStop(this=0x00000224263bd1c0) at Scene.cpp:1890
+    frame #4: 0x00007ff6fcf66415 OloServer.exe`void OloEngine::ServerLayer::OnDetach(this=0x0000022423242310) at OloServerApp.cpp:103
+    frame #5: 0x00007ff6fd868611 OloServer.exe`void OloEngine::LayerStack::Clear(this=0x000002245fe917d0) at LayerStack.cpp:17
+    frame #6: 0x00007ff6fcf84aef OloServer.exe`OloEngine::Application::~Application(this=0x000002245fe91740) at Application.cpp:360
+    frame #7: 0x00007ff6fcf7fc73 OloServer.exe`OloEngine::OloServerApplication::~OloServerApplication(this=0x000002245fe91740) at OloServerApp.cpp:417
+    frame #8: 0x00007ff6fcf7fc39 OloServer.exe`void * OloEngine::OloServerApplication::`vector deleting dtor'(this=0x000002245fe91740, should_call_delete=1) at OloServerApp.cpp:417
+    frame #9: 0x00007ff6fcf61330 OloServer.exe`main(argc=7, argv=0x00000224565b5db0) at EntryPoint.h:103
+    frame #10: 0x00007ff7052ef059 OloServer.exe`invoke_main at exe_common.inl:78
+    frame #11: 0x00007ff7052ef192 OloServer.exe`__scrt_common_main_seh at exe_common.inl:288
+    frame #12: 0x00007ff7052ef21e OloServer.exe`__scrt_common_main at exe_common.inl:330
+    frame #13: 0x00007ff7052ef23e OloServer.exe`mainCRTStartup(__formal=0x0000008307879000) at exe_main.cpp:16
+    frame #14: 0x00007ffd69f5259d kernel32.dll`BaseThreadInitThunk + 29
+    frame #15: 0x00007ffd6a7caf78 ntdll.dll`RtlUserThreadStart + 40
+(lldb) quit

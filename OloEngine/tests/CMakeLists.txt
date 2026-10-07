@@ -55,6 +55,8 @@ add_executable(OloEngine-Tests
 		FastRandomTest.cpp
 		RefTest.cpp
 		Core/BuildInfoTest.cpp
+		Core/MonoDebuggerPolicyTest.cpp
+		Core/TestProcessOutputTest.cpp
 		# Guards the debug-lever registry, including the grep test that stops a
 		# new lever from being added as a bare Env:: read again.
 		Core/CVarTest.cpp
@@ -1871,6 +1873,11 @@ olo_copy_steam_runtime(OloEngine-Tests)
 olo_copy_aftermath_runtime(OloEngine-Tests)
 
 target_compile_definitions(OloEngine-Tests PRIVATE SOL_ALL_SAFETIES_ON=1)
+
+# Tests do not inherit the engine's private OLO_DEBUG macro. These policy
+# assertions describe the actual host configuration, including the Debug editor.
+set_property(SOURCE Core/MonoDebuggerPolicyTest.cpp AppLaunchSmokeTest.cpp APPEND PROPERTY
+    COMPILE_DEFINITIONS OLO_TEST_HOST_DEBUG=$<IF:$<CONFIG:Debug>,1,0>)
 
 # Functional fixtures resolve the editor asset root from this define so
 # tests don't depend on the binary's working directory. See ADR 0003.

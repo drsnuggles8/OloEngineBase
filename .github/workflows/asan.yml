@@ -2149,7 +2149,41 @@ jobs:
       # exhaust runner memory (clang++ under sanitizer instrumentation uses
       # ~9 GB per translation unit, measured), causing `The hosted runner lost
       # communication with the server` failures.
-      run: cmake --build build --target OloEngine-Tests --parallel 2
+      # The sharded test artifact contains no shipped hosts. Build and exercise
+      # them here so Linux Mono-free startup cannot pass through skipped cases.
+      run: cmake --build build --target OloEngine-Tests OloRuntime OloServer oloctl --parallel 2
+
+    - name: Verify Mono-free shipped host startup
+      working-directory: ${{github.workspace}}/OloEditor
+      env:
+        UBSAN_OPTIONS: external_symbolizer_path=${{ steps.linux.outputs.symbolizer }}:halt_on_error=1:print_stacktrace=1:symbolize=1
+      run: |
+        set -euo pipefail
+        mkdir -p "${GITHUB_WORKSPACE}/test_results"
+        ../build/OloEngine/tests/OloEngine-Tests --olo-gl-backend=none \
+          --gtest_filter='MonoDebuggerPolicy.*:AppLaunchSmoke.*' \
+          --gtest_output="xml:${GITHUB_WORKSPACE}/test_results/linux-host-startup.xml"
+        python3 - <<'PY'
+        import os
+        import xml.etree.ElementTree as ET
+        report = ET.parse(os.path.join(os.environ['GITHUB_WORKSPACE'], 'test_results/linux-host-startup.xml'))
+        cases = list(report.iter('testcase'))
+        assert len(cases) == 11, f'Expected 11 policy/host cases, found {len(cases)}'
+        assert not list(report.iter('failure')), 'Policy/host startup failed'
+        skipped = {case.attrib['name'] for case in cases if case.find('skipped') is not None}
+        expected = {'OloEditorLaunchesCleanly', 'OloEditorAcceptsMonoDebugOptIn'}
+        assert skipped == expected, f'Only the unavailable Linux editor may skip: {skipped}'
+        print('Linux Mono-free policy and runtime/server/oloctl startup verified; only editor unavailable.')
+        PY
+
+    - name: Upload Linux host startup results
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: linux-mono-free-host-startup
+        path: ${{github.workspace}}/test_results/linux-host-startup.xml
+        if-no-files-found: error
+        retention-days: 7
 
     # Read the cache hit rate. A cold cache (first run / after a real source
     # change) is mostly misses + writes; a warm cache shows a high hit rate,

@@ -183,7 +183,7 @@ namespace OloEngine
         Scope<filewatch::FileWatch<std::string>> AppAssemblyFileWatcher;
         bool AssemblyReloadPending = false;
 
-        bool EnableDebugging = true;
+        bool EnableDebugging = false;
 
         // Runtime
         Scene* SceneContext = nullptr;
@@ -205,12 +205,14 @@ namespace OloEngine
         }
     }
 
-    void ScriptEngine::Init()
+    void ScriptEngine::Init(bool enableDebugging)
     {
         OLO_PROFILE_FUNCTION();
         OLO_CORE_TRACE("[ScriptEngine] Initializing.");
 
         s_Data = new ScriptEngineData();
+        s_Data->EnableDebugging = enableDebugging;
+        OLO_CORE_INFO("[ScriptEngine] Mono debugging {}", s_Data->EnableDebugging ? "enabled (127.0.0.1:2550)" : "disabled");
 
         InitMono();
         ScriptGlue::RegisterFunctions();
@@ -777,7 +779,7 @@ namespace OloEngine
     static Scene* s_SceneContext = nullptr;
     static std::unordered_map<u64, ScriptFieldMap> s_EntityFieldMaps;
 
-    void ScriptEngine::Init()
+    void ScriptEngine::Init(bool /*enableDebugging*/)
     {
         OLO_CORE_INFO("[ScriptEngine] C# scripting disabled (Mono not available on this platform)");
     }

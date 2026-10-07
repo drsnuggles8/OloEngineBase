@@ -1,0 +1,152 @@
+{
+  "preset": "dev-cached",
+  "cells": [
+    {
+      "OLO_WITH_CSHARP": "ON",
+      "configurations": [
+        "Debug",
+        "Release"
+      ],
+      "targets": [
+        "OloEngine",
+        "OloEditor",
+        "OloRuntime",
+        "OloServer",
+        "OloEngine-Tests",
+        "OloEngine-LuaScriptCore",
+        "OloEngine-ScriptCore",
+        "Sandbox-Scripting",
+        "MonoDebuggerEvidence"
+      ],
+      "exitCode": 0,
+      "log": "build-mono-final-verified.log"
+    },
+    {
+      "OLO_WITH_CSHARP": "OFF",
+      "configurations": [
+        "Debug",
+        "Release"
+      ],
+      "targets": [
+        "OloEngine",
+        "OloEditor",
+        "OloRuntime",
+        "OloServer",
+        "OloEngine-Tests",
+        "OloEngine-LuaScriptCore",
+        "MonoDebuggerEvidence"
+      ],
+      "exitCode": 0,
+      "log": "build-mono-assemblies-off-native.log",
+      "lockLog": "build-mono-assemblies-off.log",
+      "nativeOutputCapturedWithoutTruncation": true
+    },
+    {
+      "OLO_WITH_CSHARP": "ON",
+      "restoredAfterOffChecks": true,
+      "configurations": [
+        "Debug",
+        "Release"
+      ],
+      "targets": [
+        "OloEngine",
+        "OloEditor",
+        "OloRuntime",
+        "OloServer",
+        "OloEngine-Tests",
+        "OloEngine-LuaScriptCore",
+        "OloEngine-ScriptCore",
+        "Sandbox-Scripting",
+        "MonoDebuggerEvidence"
+      ],
+      "exitCode": 0,
+      "log": "build-mono-restored-on.log",
+      "lockLog": "build-mono-restored-on-lock.log"
+    },
+    {
+      "OLO_WITH_CSHARP": "ON",
+      "configurations": [
+        "Debug",
+        "Release"
+      ],
+      "targets": [
+        "OloEngine",
+        "OloEditor",
+        "OloRuntime",
+        "OloServer",
+        "OloEngine-Tests",
+        "OloEngine-LuaScriptCore",
+        "OloEngine-ScriptCore",
+        "Sandbox-Scripting",
+        "MonoDebuggerEvidence"
+      ],
+      "exitCode": 0,
+      "log": "build-mono-review-before-project-path.log",
+      "reviewFixValidation": "Required managed assemblies and full smoke output capture"
+    },
+    {
+      "OLO_WITH_CSHARP": "ON",
+      "configurations": [
+        "Debug",
+        "Release"
+      ],
+      "targets": [
+        "OloEngine",
+        "OloEditor",
+        "OloRuntime",
+        "OloServer",
+        "OloEngine-Tests",
+        "OloEngine-LuaScriptCore",
+        "OloEngine-ScriptCore",
+        "Sandbox-Scripting",
+        "MonoDebuggerEvidence"
+      ],
+      "exitCode": 0,
+      "log": "build-mono-review.log",
+      "reviewFixValidation": "Empty optional project paths and regression"
+    },
+    {
+      "OLO_WITH_CSHARP": "OFF",
+      "configurations": [
+        "Debug",
+        "Release"
+      ],
+      "targets": [
+        "OloEngine",
+        "OloEditor",
+        "OloRuntime",
+        "OloServer",
+        "OloEngine-Tests",
+        "OloEngine-LuaScriptCore",
+        "MonoDebuggerEvidence"
+      ],
+      "exitCode": 0,
+      "log": "build-mono-review-off.log",
+      "lockLog": "build-mono-review-off-lock.log",
+      "reviewFixValidation": "Required assemblies, full output capture, empty optional project paths"
+    },
+    {
+      "OLO_WITH_CSHARP": "ON",
+      "configurations": [
+        "Debug",
+        "Release"
+      ],
+      "targets": [
+        "OloEngine",
+        "OloEditor",
+        "OloRuntime",
+        "OloServer",
+        "OloEngine-Tests",
+        "OloEngine-LuaScriptCore",
+        "OloEngine-ScriptCore",
+        "Sandbox-Scripting",
+        "MonoDebuggerEvidence"
+      ],
+      "exitCode": 0,
+      "log": "build-mono-review-restored-on.log",
+      "lockLog": "build-mono-review-off-lock.log",
+      "reviewFixValidation": "Required assemblies, full output capture, empty optional project paths",
+      "restoredAfterOffChecks": true
+    }
+  ]
+}

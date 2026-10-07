@@ -76,6 +76,10 @@ namespace OloEngine
         // cleanly (EXIT_SUCCESS). 0 = normal run with no auto-close. See the
         // `--smoke-test` handling in each app's CreateApplication.
         u32 SmokeTestTickLimit = 0;
+
+        // Debug editors opt in by default. Runtime, server and direct test hosts
+        // leave the agent off unless --mono-debug was explicitly supplied.
+        [[nodiscard]] bool ShouldEnableMonoDebugging() const;
     };
 
     class Application

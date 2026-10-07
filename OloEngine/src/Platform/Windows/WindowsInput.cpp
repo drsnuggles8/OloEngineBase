@@ -27,10 +27,11 @@ namespace OloEngine
         // pointer and Application::GetWindow() would SEGV reading m_Window
         // at a small offset from zero. Routing through TryGet() lets each
         // Input method fall back to its cached / no-input behaviour safely.
+        // A headless Application also exists without owning a Window.
         GLFWwindow* TryGetGlfwWindow()
         {
             auto* const app = Application::TryGet();
-            if (!app)
+            if (!app || app->IsHeadless())
                 return nullptr;
             return static_cast<GLFWwindow*>(app->GetWindow().GetNativeWindow());
         }

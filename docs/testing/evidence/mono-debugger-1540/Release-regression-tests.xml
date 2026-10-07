@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="87" failures="0" disabled="0" errors="0" time="12.33" timestamp="2026-10-06T11:03:16.271" name="AllTests">
+  <testsuite name="MonoDebuggerPolicy" tests="3" failures="0" disabled="0" skipped="0" errors="0" time="0.001" timestamp="2026-10-06T11:03:16.273">
+    <testcase name="HostAndOptInMatrix" file="..\OloEngine\tests\Core\MonoDebuggerPolicyTest.cpp" line="9" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:16.273" classname="MonoDebuggerPolicy" />
+    <testcase name="DefaultHostDoesNotStartDebugger" file="..\OloEngine\tests\Core\MonoDebuggerPolicyTest.cpp" line="37" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:16.274" classname="MonoDebuggerPolicy" />
+    <testcase name="OptInRequiresAnExactArgumentAfterProgramName" file="..\OloEngine\tests\Core\MonoDebuggerPolicyTest.cpp" line="42" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:16.274" classname="MonoDebuggerPolicy" />
+  </testsuite>
+  <testsuite name="TestProcessOutput" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0.022" timestamp="2026-10-06T11:03:16.274">
+    <testcase name="FullCapturePreservesStartupAfterVerboseLogging" file="..\OloEngine\tests\Core\TestProcessOutputTest.cpp" line="10" status="run" result="completed" time="0.022" timestamp="2026-10-06T11:03:16.274" classname="TestProcessOutput" />
+  </testsuite>
+  <testsuite name="AssetLuaScriptValidity" tests="4" failures="0" disabled="0" skipped="0" errors="0" time="0.551" timestamp="2026-10-06T11:03:16.297">
+    <testcase name="AllSandboxLuaScriptsParseCleanly" file="..\OloEngine\tests\AssetLuaScriptValidityTest.cpp" line="81" status="run" result="completed" time="0.006" timestamp="2026-10-06T11:03:16.297" classname="AssetLuaScriptValidity" />
+    <testcase name="EveryLuaScriptDeclaresAtLeastOneEngineHook" file="..\OloEngine\tests\AssetLuaScriptValidityTest.cpp" line="143" status="run" result="completed" time="0.002" timestamp="2026-10-06T11:03:16.303" classname="AssetLuaScriptValidity" />
+    <testcase name="EveryLuaScriptIsReferencedByAtLeastOneScene" file="..\OloEngine\tests\AssetLuaScriptValidityTest.cpp" line="197" status="run" result="completed" time="0.536" timestamp="2026-10-06T11:03:16.305" classname="AssetLuaScriptValidity" />
+    <testcase name="AllHookDeclarationsMatchEngineSignature" file="..\OloEngine\tests\AssetLuaScriptValidityTest.cpp" line="297" status="run" result="completed" time="0.005" timestamp="2026-10-06T11:03:16.842" classname="AssetLuaScriptValidity" />
+  </testsuite>
+  <testsuite name="AssetCSharpScriptValidity" tests="4" failures="0" disabled="0" skipped="0" errors="0" time="0.545" timestamp="2026-10-06T11:03:16.848">
+    <testcase name="EveryCSharpFileDeclaresClassMatchingFilename" file="..\OloEngine\tests\AssetCSharpScriptValidityTest.cpp" line="77" status="run" result="completed" time="0.002" timestamp="2026-10-06T11:03:16.848" classname="AssetCSharpScriptValidity" />
+    <testcase name="EveryEntityDerivedScriptIsReferencedByAtLeastOneScene" file="..\OloEngine\tests\AssetCSharpScriptValidityTest.cpp" line="135" status="run" result="completed" time="0.54" timestamp="2026-10-06T11:03:16.850" classname="AssetCSharpScriptValidity" />
+    <testcase name="CSharpProjectsCompileEverySourceFile" file="..\OloEngine\tests\AssetCSharpScriptValidityTest.cpp" line="256" status="run" result="completed" time="0.001" timestamp="2026-10-06T11:03:17.390" classname="AssetCSharpScriptValidity" />
+    <testcase name="EveryNonEntityHelperClassIsReferencedByAnotherSource" file="..\OloEngine\tests\AssetCSharpScriptValidityTest.cpp" line="341" status="run" result="completed" time="0.001" timestamp="2026-10-06T11:03:17.392" classname="AssetCSharpScriptValidity" />
+  </testsuite>
+  <testsuite name="RuntimeAssetPackTest" tests="8" failures="0" disabled="0" skipped="0" errors="0" time="0.479" timestamp="2026-10-06T11:03:17.393">
+    <testcase name="EmptyProjectAssetPathsRemainUnset" file="..\OloEngine\tests\RuntimeAssetPackTest.cpp" line="59" status="run" result="completed" time="0.015" timestamp="2026-10-06T11:03:17.393" classname="RuntimeAssetPackTest" />
+    <testcase name="SceneSourceReadAndWriteUseTheProjectDirectory" file="..\OloEngine\tests\RuntimeAssetPackTest.cpp" line="76" status="run" result="completed" time="0.039" timestamp="2026-10-06T11:03:17.409" classname="RuntimeAssetPackTest" />
+    <testcase name="SceneSerializerPackRoundTrip" file="..\OloEngine\tests\RuntimeAssetPackTest.cpp" line="153" status="run" result="completed" time="0.007" timestamp="2026-10-06T11:03:17.449" classname="RuntimeAssetPackTest" />
+    <testcase name="SceneRoutingUsesSceneInfoOffset" file="..\OloEngine\tests\RuntimeAssetPackTest.cpp" line="189" status="run" result="completed" time="0.339" timestamp="2026-10-06T11:03:17.457" classname="RuntimeAssetPackTest" />
+    <testcase name="OffThreadCapabilityContract" file="..\OloEngine\tests\RuntimeAssetPackTest.cpp" line="243" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:17.797" classname="RuntimeAssetPackTest" />
+    <testcase name="AsyncLoadIntegratesThroughManager" file="..\OloEngine\tests\RuntimeAssetPackTest.cpp" line="263" status="run" result="completed" time="0.04" timestamp="2026-10-06T11:03:17.797" classname="RuntimeAssetPackTest" />
+    <testcase name="DeserializeFromAssetPackAnalyzesRealAudioMetadata" file="..\OloEngine\tests\RuntimeAssetPackTest.cpp" line="339" status="run" result="completed" time="0.016" timestamp="2026-10-06T11:03:17.837" classname="RuntimeAssetPackTest" />
+    <testcase name="DeserializeFromAssetPackFallsBackToDefaultsWhenSourceMissing" file="..\OloEngine\tests\RuntimeAssetPackTest.cpp" line="389" status="run" result="completed" time="0.018" timestamp="2026-10-06T11:03:17.854" classname="RuntimeAssetPackTest" />
+  </testsuite>
+  <testsuite name="AppLaunchSmoke" tests="8" failures="0" disabled="0" skipped="0" errors="0" time="10.486" timestamp="2026-10-06T11:03:17.873">
+    <testcase name="OloServerLaunchesCleanly" file="..\OloEngine\tests\AppLaunchSmokeTest.cpp" line="139" status="run" result="completed" time="1.075" timestamp="2026-10-06T11:03:17.873" classname="AppLaunchSmoke" />
+    <testcase name="OloServerStopsAHeadlessSceneCleanly" file="..\OloEngine\tests\AppLaunchSmokeTest.cpp" line="144" status="run" result="completed" time="1.207" timestamp="2026-10-06T11:03:18.948" classname="AppLaunchSmoke" />
+    <testcase name="OloEditorLaunchesCleanly" file="..\OloEngine\tests\AppLaunchSmokeTest.cpp" line="160" status="run" result="completed" time="1.18" timestamp="2026-10-06T11:03:20.156" classname="AppLaunchSmoke" />
+    <testcase name="OloRuntimeLaunchesCleanly" file="..\OloEngine\tests\AppLaunchSmokeTest.cpp" line="170" status="run" result="completed" time="2.074" timestamp="2026-10-06T11:03:21.337" classname="AppLaunchSmoke" />
+    <testcase name="OloServerAcceptsMonoDebugOptIn" file="..\OloEngine\tests\AppLaunchSmokeTest.cpp" line="175" status="run" result="completed" time="1.683" timestamp="2026-10-06T11:03:23.412" classname="AppLaunchSmoke" />
+    <testcase name="OloEditorAcceptsMonoDebugOptIn" file="..\OloEngine\tests\AppLaunchSmokeTest.cpp" line="180" status="run" result="completed" time="1.996" timestamp="2026-10-06T11:03:25.096" classname="AppLaunchSmoke" />
+    <testcase name="OloRuntimeAcceptsMonoDebugOptIn" file="..\OloEngine\tests\AppLaunchSmokeTest.cpp" line="185" status="run" result="completed" time="1.174" timestamp="2026-10-06T11:03:27.093" classname="AppLaunchSmoke" />
+    <testcase name="OloCtlLaunchesCleanly" file="..\OloEngine\tests\AppLaunchSmokeTest.cpp" line="194" status="run" result="completed" time="0.091" timestamp="2026-10-06T11:03:28.267" classname="AppLaunchSmoke" />
+  </testsuite>
+  <testsuite name="PrefabOverrideTest" tests="31" failures="0" disabled="0" skipped="0" errors="0" time="0.006" timestamp="2026-10-06T11:03:28.359">
+    <testcase name="PrefabComponent_DefaultHasNoOverrides" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="57" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.359" classname="PrefabOverrideTest" />
+    <testcase name="PrefabComponent_MarkAndQueryOverride" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="66" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.359" classname="PrefabOverrideTest" />
+    <testcase name="PrefabComponent_ClearSingleOverride" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="75" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.359" classname="PrefabOverrideTest" />
+    <testcase name="PrefabComponent_ClearAllOverrides" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="85" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.359" classname="PrefabOverrideTest" />
+    <testcase name="PrefabComponent_AddedAndRemoved" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="97" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.359" classname="PrefabOverrideTest" />
+    <testcase name="Prefab_CreateFromEntity" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="113" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.359" classname="PrefabOverrideTest" />
+    <testcase name="Prefab_InstantiateCreatesNewEntity" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="135" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.360" classname="PrefabOverrideTest" />
+    <testcase name="Prefab_CreatePreservesHierarchy" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="155" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.360" classname="PrefabOverrideTest" />
+    <testcase name="Prefab_InstantiatePreservesHierarchy" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="183" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.360" classname="PrefabOverrideTest" />
+    <testcase name="Prefab_DetectOverrides_Added" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="213" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.361" classname="PrefabOverrideTest" />
+    <testcase name="Prefab_DetectOverrides_Removed" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="232" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.361" classname="PrefabOverrideTest" />
+    <testcase name="Prefab_RevertComponent" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="257" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.361" classname="PrefabOverrideTest" />
+    <testcase name="Prefab_RevertComponent_UnknownReturnsFalse" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="280" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.362" classname="PrefabOverrideTest" />
+    <testcase name="Prefab_ApplyComponentToPrefab" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="298" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.362" classname="PrefabOverrideTest" />
+    <testcase name="Prefab_UpdateInstanceFromPrefab_NonOverridden" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="325" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.362" classname="PrefabOverrideTest" />
+    <testcase name="Prefab_CycleDetection_SelfReference" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="363" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.362" classname="PrefabOverrideTest" />
+    <testcase name="Prefab_HasNestedPrefabs_EmptyPrefab" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="370" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.362" classname="PrefabOverrideTest" />
+    <testcase name="Scene_MarkPrefabComponentOverridden" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="387" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.363" classname="PrefabOverrideTest" />
+    <testcase name="Scene_MarkPrefabOverridden_NoPrefabComponent" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="398" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.363" classname="PrefabOverrideTest" />
+    <testcase name="Prefab_UpdateInstance_SkipsRemovedComponents" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="410" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.363" classname="PrefabOverrideTest" />
+    <testcase name="Prefab_ApplyRemovedComponent_RemovesFromPrefab" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="432" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.363" classname="PrefabOverrideTest" />
+    <testcase name="Prefab_RevertRemovedComponent_RestoresFromPrefab" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="457" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.363" classname="PrefabOverrideTest" />
+    <testcase name="Prefab_RevertAddedComponent_RemovesFromInstance" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="482" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.363" classname="PrefabOverrideTest" />
+    <testcase name="Prefab_RevertComponent_ChildEntity" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="506" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.363" classname="PrefabOverrideTest" />
+    <testcase name="Prefab_UpdateInstance_ChildEntity" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="543" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.364" classname="PrefabOverrideTest" />
+    <testcase name="Prefab_DetectOverrides_PopulatesOverridden" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="588" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.364" classname="PrefabOverrideTest" />
+    <testcase name="Prefab_UpdateInstance_RemovesStaleComponent" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="616" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.364" classname="PrefabOverrideTest" />
+    <testcase name="PrefabComponent_ClearComponentOverride_ClearsAllSets" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="641" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.364" classname="PrefabOverrideTest" />
+    <testcase name="Scene_RevertPrefabComponent_EndToEnd" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="659" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.365" classname="PrefabOverrideTest" />
+    <testcase name="Scene_ApplyPrefabComponent_EndToEnd" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="687" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.365" classname="PrefabOverrideTest" />
+    <testcase name="Scene_UpdateAllPrefabInstances_MultipleInstances" file="..\OloEngine\tests\PrefabOverrideTest.cpp" line="714" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.365" classname="PrefabOverrideTest" />
+  </testsuite>
+  <testsuite name="GameBuildPipelineTest" tests="20" failures="0" disabled="0" skipped="1" errors="0" time="0.202" timestamp="2026-10-06T11:03:28.365">
+    <testcase name="ManagedAssemblyStagesMatchingSymbols" file="..\OloEngine\tests\Build\GameBuildPipelineTest.cpp" line="80" status="run" result="completed" time="0.007" timestamp="2026-10-06T11:03:28.365" classname="GameBuildPipelineTest" />
+    <testcase name="ManagedAssemblyWithoutSymbolsRemovesStalePdb" file="..\OloEngine\tests\Build\GameBuildPipelineTest.cpp" line="93" status="run" result="completed" time="0.007" timestamp="2026-10-06T11:03:28.372" classname="GameBuildPipelineTest" />
+    <testcase name="ManagedAssemblyReportsSymbolCopyFailure" file="..\OloEngine\tests\Build\GameBuildPipelineTest.cpp" line="109" status="run" result="completed" time="0.004" timestamp="2026-10-06T11:03:28.380" classname="GameBuildPipelineTest" />
+    <testcase name="ManagedAssemblyReportsMissingDll" file="..\OloEngine\tests\Build\GameBuildPipelineTest.cpp" line="122" status="run" result="completed" time="0.001" timestamp="2026-10-06T11:03:28.385" classname="GameBuildPipelineTest" />
+    <testcase name="LinuxLauncherAndIconStayInsideAMovedPackage" file="..\OloEngine\tests\Build\GameBuildPipelineTest.cpp" line="130" status="run" result="completed" time="0.03" timestamp="2026-10-06T11:03:28.387" classname="GameBuildPipelineTest" />
+    <testcase name="LinuxLauncherRejectsMissingAndUnsupportedIcons" file="..\OloEngine\tests\Build\GameBuildPipelineTest.cpp" line="177" status="run" result="completed" time="0.014" timestamp="2026-10-06T11:03:28.417" classname="GameBuildPipelineTest" />
+    <testcase name="LinuxLauncherAllowsAnEmptyIconAndOverwritesPackagedIcons" file="..\OloEngine\tests\Build\GameBuildPipelineTest.cpp" line="201" status="run" result="completed" time="0.033" timestamp="2026-10-06T11:03:28.432" classname="GameBuildPipelineTest" />
+    <testcase name="LinuxLauncherExecutesFromARelocatedPackage" file="..\OloEngine\tests\Build\GameBuildPipelineTest.cpp" line="226" status="run" result="skipped" time="0." timestamp="2026-10-06T11:03:28.466" classname="GameBuildPipelineTest">
+      <skipped message="..\OloEngine\tests\Build\GameBuildPipelineTest.cpp:229&#x0A;Requires a Linux shell and filesystem permissions.&#x0A;"><![CDATA[..\OloEngine\tests\Build\GameBuildPipelineTest.cpp:229
+Requires a Linux shell and filesystem permissions.
+]]></skipped>
+    </testcase>
+    <testcase name="DefaultSettingsTargetTheHostPlatform" file="..\OloEngine\tests\Build\GameBuildPipelineTest.cpp" line="265" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.467" classname="GameBuildPipelineTest" />
+    <testcase name="OnlyTheHostPlatformIsSupported" file="..\OloEngine\tests\Build\GameBuildPipelineTest.cpp" line="272" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.467" classname="GameBuildPipelineTest" />
+    <testcase name="HostExecutableNamingIsPlatformSpecific" file="..\OloEngine\tests\Build\GameBuildPipelineTest.cpp" line="281" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.467" classname="GameBuildPipelineTest" />
+    <testcase name="CSharpScriptingIsWindowsOnly" file="..\OloEngine\tests\Build\GameBuildPipelineTest.cpp" line="289" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.467" classname="GameBuildPipelineTest" />
+    <testcase name="WindowsStagesEveryDynamicLibraryBesideTheRuntime" file="..\OloEngine\tests\Build\GameBuildPipelineTest.cpp" line="298" status="run" result="completed" time="0.007" timestamp="2026-10-06T11:03:28.467" classname="GameBuildPipelineTest" />
+    <testcase name="LooseRuntimeTexturesPreserveTheirProjectRelativePaths" file="..\OloEngine\tests\Build\GameBuildPipelineTest.cpp" line="332" status="run" result="completed" time="0.01" timestamp="2026-10-06T11:03:28.475" classname="GameBuildPipelineTest" />
+    <testcase name="SceneReferencedContentStagesEveryFileAScenePathOpens" file="..\OloEngine\tests\Build\GameBuildPipelineTest.cpp" line="366" status="run" result="completed" time="0.073" timestamp="2026-10-06T11:03:28.485" classname="GameBuildPipelineTest" />
+    <testcase name="ShaderPackIsStagedWhenPresent" file="..\OloEngine\tests\Build\GameBuildPipelineTest.cpp" line="503" status="run" result="completed" time="0.004" timestamp="2026-10-06T11:03:28.559" classname="GameBuildPipelineTest" />
+    <testcase name="ShaderPackStagingIsANoOpWhenAbsent" file="..\OloEngine\tests\Build\GameBuildPipelineTest.cpp" line="520" status="run" result="completed" time="0.002" timestamp="2026-10-06T11:03:28.563" classname="GameBuildPipelineTest" />
+    <testcase name="ToStringIsHumanReadable" file="..\OloEngine\tests\Build\GameBuildPipelineTest.cpp" line="538" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.566" classname="GameBuildPipelineTest" />
+    <testcase name="BuildRejectsATargetThisHostCannotProduce" file="..\OloEngine\tests\Build\GameBuildPipelineTest.cpp" line="548" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.566" classname="GameBuildPipelineTest" />
+    <testcase name="BuildAcceptsTheHostPlatformPastTheGate" file="..\OloEngine\tests\Build\GameBuildPipelineTest.cpp" line="576" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.567" classname="GameBuildPipelineTest" />
+  </testsuite>
+  <testsuite name="McpReloadScriptTest" tests="5" failures="0" disabled="0" skipped="0" errors="0" time="0.001" timestamp="2026-10-06T11:03:28.568">
+    <testcase name="GateOffRejectsReloadAndDoesNotInvoke" file="..\OloEngine\tests\MCP\McpReloadScriptTest.cpp" line="92" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.568" classname="McpReloadScriptTest" />
+    <testcase name="GateOnInvokesReloadAndReturnsResult" file="..\OloEngine\tests\MCP\McpReloadScriptTest.cpp" line="106" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.568" classname="McpReloadScriptTest" />
+    <testcase name="FailedReloadReportsOkFalse" file="..\OloEngine\tests\MCP\McpReloadScriptTest.cpp" line="134" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.569" classname="McpReloadScriptTest" />
+    <testcase name="UnavailableScriptingIsCleanResult" file="..\OloEngine\tests\MCP\McpReloadScriptTest.cpp" line="156" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.569" classname="McpReloadScriptTest" />
+    <testcase name="SchemaRejectsUnknownProperty" file="..\OloEngine\tests\MCP\McpReloadScriptTest.cpp" line="180" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.569" classname="McpReloadScriptTest" />
+  </testsuite>
+  <testsuite name="McpReloadScriptShaping" tests="2" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-10-06T11:03:28.569">
+    <testcase name="ToJsonCarriesEveryField" file="..\OloEngine\tests\MCP\McpReloadScriptTest.cpp" line="192" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.569" classname="McpReloadScriptShaping" />
+    <testcase name="InputSchemaIsClosedEmptyObject" file="..\OloEngine\tests\MCP\McpReloadScriptTest.cpp" line="209" status="run" result="completed" time="0." timestamp="2026-10-06T11:03:28.569" classname="McpReloadScriptShaping" />
+  </testsuite>
+  <testsuite name="LuaScriptMutatesTransformViaSceneTickTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0.033" timestamp="2026-10-06T11:03:28.569">
+    <testcase name="OnUpdateRunsEachTickAndWritesTranslation" file="..\OloEngine\tests\Functional\Scripting\LuaScriptMutatesTransformViaSceneTickTest.cpp" line="105" status="run" result="completed" time="0.033" timestamp="2026-10-06T11:03:28.569" classname="LuaScriptMutatesTransformViaSceneTickTest" />
+  </testsuite>
+</testsuites>
