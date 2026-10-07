@@ -244,3 +244,15 @@ scripts/steam/generated/
 # cooked into the committed Grooms/Dog/Dog.ologroom. Outside SandboxProject/Assets for the
 # reason above.
 .dog-groom/
+
+# VSM family verification outputs (#1524): regenerated captures, exported scenes,
+# measurement ledgers and diagnostics. Keep the tests and written evidence summary
+# in Git; retain full campaigns locally or as CI artifacts.
+/OloEditor/assets/tests/visual/ShadowFamily*
+/OloEditor/assets/tests/visual/FoliageFrozen_*
+/OloEditor/assets/tests/visual/TerrainOffscreen_*
+/OloEditor/assets/tests/visual/TerrainReceiver_*
+/OloEditor/assets/tests/visual/TerrainSnow_*
+/OloEditor/assets/tests/visual/GroomSceneShadow_GL_Forward_VsmNearOccluder*
+/OloEditor/assets/tests/visual/VirtualShadowMap_Contact*
+/.v-build/

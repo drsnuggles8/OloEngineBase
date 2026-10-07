@@ -40,17 +40,20 @@ unclaimed MCP request: readiness is awaited before retrying that cancelled call.
 
 ## Evidence index
 
-The committed editor ledger contains 6,928 measured cells, with 372 packaged-runtime
-cells and 90 snow-transition cells retained separately. The
-[editor measurements](../../OloEditor/assets/tests/visual/ShadowFamilyLive/Measurements.csv),
-[runtime measurements](../../OloEditor/assets/tests/visual/ShadowFamilyLive/RuntimeMeasurements.csv),
-[snow measurements](../../OloEditor/assets/tests/visual/ShadowFamilyLive/SnowTransitions/Measurements.csv),
-[scope record](../../OloEditor/assets/tests/visual/ShadowFamilyLive/Scope.json),
-and [file hash manifest](../../OloEditor/assets/tests/visual/ShadowFamilyLive/Manifest.json)
-identify the captures and their completeness.
+The local editor ledger records 6,928 measured cells, with 372 packaged-runtime
+cells and 90 snow-transition cells retained separately. Full campaigns are
+generated verification outputs, excluded from Git. In the verification checkout,
+`OloEditor/assets/tests/visual/ShadowFamilyLive/` contains `Measurements.csv`,
+`RuntimeMeasurements.csv`, `SnowTransitions/Measurements.csv`, `Scope.json` and
+`Manifest.json` with the measurements, scope and capture hashes. Earlier evidence
+commits through `a269163a2` also retain those outputs; they are removed from the
+PR's final tree to keep the source change reviewable.
 
-The headless ledger contains 2,592 core GL cells plus 27 controls in
-[ShadowFamilyMeasurements.csv](../../OloEditor/assets/tests/visual/ShadowFamilyMeasurements.csv).
+The local headless ledger contains 2,592 core GL cells plus 27 controls in
+`OloEditor/assets/tests/visual/ShadowFamilyMeasurements.csv`.
+The committed [visual evidence test](../../OloEngine/tests/Rendering/PropertyTests/ShadowFamilyVisualEvidenceTest.cpp)
+generates its fixtures, captures and per-test measurement reports during execution;
+none of those generated files is a required test input or golden baseline.
 After merging master at `b239439b2`, all 603 targeted CPU/graph contracts,
 13 expanded family/cook/shader tests, four attachment/snow snapshot tests and
 13 existing shadow parity tests passed without skips. All four Release
@@ -64,8 +67,8 @@ per backend, and native/odd terrain runtime probes on both backends. Debug Vulka
 records an inserted validation layer and no VUID messages. The incoming graph
 change left caster shaders, extraction and cache logic unchanged; these added
 checks exercise graph ordering and the changed attachment/snow consumers.
-The [integration reports](../../OloEditor/assets/tests/visual/ShadowFamilyLive/IntegrationContracts/Provenance.json)
-retain the contract XML, snapshot captures and build hashes.
+The local `ShadowFamilyLive/IntegrationContracts/Provenance.json` report
+records the contract XML, snapshot captures and build hashes.
 
 Both packaged-runtime backends passed 180 broad cells plus six post-merge probes,
 with no error diagnostics and capture/render viewport agreement in every retained
@@ -74,7 +77,8 @@ excluded and preserved with controlled or identical-input clean reruns. The
 capture helper retains its window handle, restores observed minimization and
 restarts settling before publishing a PNG.
 The same check covers a hidden window: a
-[controlled Win32 hide/show sequence](../../OloEditor/assets/tests/visual/ShadowFamilyRegressions/RuntimeHiddenWindowBefore/Provenance.json)
+controlled Win32 hide/show sequence (recorded locally under
+`ShadowFamilyRegressions/RuntimeHiddenWindowBefore/Provenance.json`)
 published after only 2.46 visible seconds before the fix and 8.08 seconds after
 it, with an eight-second settle request. These controls use a software window
 and are separate from the engine measurement totals.

@@ -1,3 +1,0 @@
-cell,pixels,darknessMass,centroidX,centroidZ,width,height,sceneSamples,resolvedUpscaler,upscaleFallback,statsReady,pagesDrawn,pagesResident,localPagesDrawn,localPagesResident
-FoliageFrozen_GL_Deferred_CSM,732,36636,5.58176,0.0985413,640,480,1,0,0,0,0,0,0,0
-FoliageFrozen_GL_Deferred_VSM,641,43105,5.64639,0.0552483,640,480,1,0,0,1,21,550,0,0

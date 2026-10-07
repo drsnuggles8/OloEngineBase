@@ -1,3 +1,0 @@
-cell,pixels,darknessMass,centroidX,centroidZ,width,height,sceneSamples,resolvedUpscaler,upscaleFallback,statsReady,pagesDrawn,pagesResident,localPagesDrawn,localPagesResident
-TerrainReceiver_GL_Forward_CSM,6532,341793,7.06947,0.11387,640,480,1,0,0,0,0,0,0,0
-TerrainReceiver_GL_Forward_VSM,6056,352529,7.13077,0.109626,640,480,1,0,0,1,0,426,0,0

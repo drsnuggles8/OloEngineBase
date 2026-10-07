@@ -1,3 +1,0 @@
-cell,pixels,darknessMass,centroidX,centroidZ,width,height,sceneSamples,resolvedUpscaler,upscaleFallback,statsReady,pagesDrawn,pagesResident,localPagesDrawn,localPagesResident
-TerrainOffscreen_GL_Deferred_CSM,23514,1.55775e+06,8.67982,0.126777,640,480,1,0,0,0,0,0,0,0
-TerrainOffscreen_GL_Deferred_VSM,20336,1.63779e+06,8.65439,0.137278,640,480,1,0,0,1,0,191,0,0
