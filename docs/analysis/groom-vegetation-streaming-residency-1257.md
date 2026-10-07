@@ -1,34 +1,36 @@
 # Groom and vegetation residency evidence (#1257)
 
-Twelve full Release Editor cells, two separate sparse post-fix cells and two post-fix
-Forward Runtime runs were retained on 7 October 2026. They show optional detail ->
-pressure fallback -> reload behavior. Historical runs keep their original provenance;
-new binaries are credited only by their own checks. Debug GL shader channels report
-zero errors; Vulkan tracking remains unavailable. Region events and paired frame tails
-remain pending. Both backends now have clean Runtime shutdown rechecks.
+The committed-source Editor matrix and four regional runs are complete on source
+`c519034ed`; the [functional results](groom-vegetation-streaming-residency-1257-results.md)
+retain the 12-cell audit. Runtime and earlier captures keep their own provenance.
+The first GL paired campaign completed but has a post-run background-GPU qualification:
+it is descriptive evidence, not verified idle-host acceptance. Paired Vulkan has never
+run; timing captures are paused and accepted performance remains pending.
 
-The [public evidence ledger](evidence/groom-vegetation-streaming-residency-1257.json)
-records exact artifact hashes, effective states, latches and gaps. Raw artifacts remain
-under ignored `artifacts/residency/`; eight unchanged post-fix Runtime PNGs are public.
+The [performance and regions record](groom-vegetation-streaming-residency-1257-performance.md)
+contains actual counters/tails and the qualification. The [public ledger](evidence/groom-vegetation-streaming-residency-1257.json)
+records exact raw hashes, source/binary identity, effective states and gaps. Raw files
+remain in ignored `artifacts/residency/`; eight unchanged Runtime PNGs are public.
 
 ## Editor and shader evidence
 
-The [measured results](groom-vegetation-streaming-residency-1257-results.md) retain the
-12-cell Release matrix, audited post-fix sparse transitions and four Debug shader
-captures. Release samples cover both families on all six backend/path combinations;
-optional GPU detail reaches zero under pressure and reloads. Complete scene UUID lists
-remain stable. The sparse follow-up independently verifies 19 GL / 22 Vulkan
-checkpoints and 149 PNG hashes. Vulkan sparse detail/reload has complete RT casters;
-pressure intentionally withholds TLAS for two missing-impostor sources and falls back
-to raster. Default parallel Vulkan CSM lacks named family timers; inline VSM is observed.
-A separately forced-inline CSM diagnostic records valid positive family timing in all
-three representation phases, with actual parallel recording false.
+Final-source Release captures cover both families on GL/Vulkan and
+Forward/Forward+/Deferred: 12 cells, 552 verified PNGs with advancing non-stale frames,
+stable UUID/name sets and matching backend/path diagnostics. Settled pressure has zero
+optional resident and retiring GPU bytes with positive drawable floors. Held completed
+CPU payloads remain charged separately; initial samples do not show an in-flight load.
 
-Debug GL groom/vegetation shader channels are available with zero reported errors
-before/after. Vulkan returns unavailable/null/notInitialized, despite native logs
-having no matching failures. Vegetation Debug PNGs include stale samples and are not
-all accepted as fresh images. Cold-start failures and successful groom retries retain
-separate provenance. No all-backend clean-shader verdict is claimed.
+Deferred extras retain actual MSAA4/FSR latches, VSM activity and TAA history snapshots.
+Vulkan sparse vegetation RT detail/reload is complete; pressure has two refusals,
+withholds TLAS and uses raster fallback. Groom RT retains all 41 coats at pressure.
+Execution brackets are narrower evidence than shadow pixel correctness. Default
+parallel Vulkan CSM lacks named family timers; a separate forced-inline diagnostic
+keeps its own configuration and provenance.
+
+Earlier Debug GL shader channels report zero tracked errors before/after. Vulkan is
+unavailable/null/notInitialized despite logs without matching failures. Stale Debug
+vegetation PNGs are not all accepted as fresh images. These probes retain their earlier
+binary/source identity and supply no all-backend clean-shader verdict.
 
 ## Actual runtime observations
 
@@ -82,12 +84,8 @@ retirement, physical retiring charge, bound GPU deformation, history recovery an
 The bound fixture's PNGs show a coat without a body. Prior CPU 64-case and isolated
 Vulkan device passes are separate from live acceptance.
 
-Post-fix Release/Debug builds passed 2,050/2,049-object dependency checks. GL passed 7/7;
-Debug Vulkan shutdown, proxy and AS device runs each passed 1/1, exercised, with zero
-VUID/error matches; application smoke passed 8/8 and latest CPU streaming regressions
-passed 57/57. XML/log hashes are in the ledger.
-Debug shader reachability is recorded separately; the earlier 12 cells keep their
-original source provenance.
+Named build/device results and exact XML/log hashes are in the ledger. Historical
+Debug shader reachability keeps its own source and binary provenance.
 
 ## Region integration correction milestone
 
@@ -104,8 +102,8 @@ hashes are in the ledger; [measured results](groom-vegetation-streaming-residenc
 retain the diagnosis and limits. These functional runs overlapped Debug compilation;
 their elapsed times are not performance evidence. Debug now passes 2,049 dependency
 objects; Vulkan shutdown, proxy and AS checks each pass 1/1, EXERCISED, no VUID/errors.
-Live region reruns remain pending. Earlier 12-cell, sparse and Runtime retain their own
-pre-correction provenance and do not verify this new binary in those live workloads.
+The corrected four-cell regional run and separate 12-cell functional rerun now complete
+on source c519034ed. Historical captures remain separate; no old result is reattributed.
 
 ## Workloads and remaining measurements
 
@@ -119,11 +117,12 @@ unchanged. All three rendering paths have manifests under
 | Groom | 64 / 8 / 128 MiB | Resident 0.001 MiB | 45 / 55 m |
 | Vegetation | 128 / 32 / 128 MiB | Resident 0.001 MiB | 125 / 135 m |
 
-Each manifest requests 1,000 stationary, 180 degrees/s turn and traversal steps. Two real region
-files and linked point-distance volumes exist per family. Their traversals reach both
-load circles and leave the first unload circle: eligibility, not an observed event.
-Pending region execution must record loaded-count changes and eviction increments;
-individual loaded IDs are not exported. Zero budgets are unlimited; all three zero is eager.
+Each manifest requests 1,000 stationary, 180 degrees/s turn and traversal steps. Both
+families have two real region files and point-distance volumes. All four completed
+traversals observe loaded 1 -> 2 -> 1 and pending 0 -> 1 -> 0. Proximity unload does
+not increment count/byte-budget eviction counters; those stay zero. Per-frame region
+IDs are unavailable. Actual intervals and costs are in the linked performance record.
+Zero budgets are unlimited; all three zero is eager.
 
 The [controlled-performance](../guides/controlled-performance.md) workflow requires warm
 caches, two pairs, fresh AB/BA processes, identical inputs and 1,000 samples per camera.
@@ -134,11 +133,13 @@ significance verdict:
 python scripts/perf/streaming-residency-report.py --plan C:/perf/streaming-plan.json --output C:/perf/streaming-run
 ```
 
-Use the build-lock wrapper; `--summarize-capture` reads retained output. AB/BA and region
-measurements are pending; no speedup is claimed. Read wall time includes OS caching,
+Use the build-lock wrapper; `--summarize-capture` reads retained output. The first GL
+AB/BA result is qualified; accepted performance and paired Vulkan remain pending.
+No speedup is claimed. Read wall time includes OS caching,
 preparation includes CPU build work, and neither is isolated disk latency. Optional
 groom preparation uses an already resident source, not a separate tier file.
 
-The ledger retains exact supporting commits `d3e7307` (hash refresh), `b6ee5b4` (buffer
-backing), `e473de4` (texture backing), and `4931416` (runtime title). Historical Editor
-captures predate the last commit; later dirty source is credited only by new captures.
+Supporting corrections are `d3e7307` (hash refresh), `b6ee5b4` (buffer backing),
+`e473de4` (texture backing), `4931416` (runtime readiness) and `efdd0fa9f` (Vulkan
+shutdown). Core implementation is `d19d536d5`; own-layer impostor correction is
+`c519034ed`. The ledger distinguishes historical and final-source captures.

@@ -1,90 +1,64 @@
-# Measured editor and shader observations (#1257)
+# Functional and shader observations (#1257)
 
-See the [main residency analysis](groom-vegetation-streaming-residency-1257.md) for
-runtime images, art limits, tests and remaining measurements. Exact raw hashes are
-in the [public evidence ledger](evidence/groom-vegetation-streaming-residency-1257.json).
+See the [main analysis](groom-vegetation-streaming-residency-1257.md), [regions/performance record](groom-vegetation-streaming-residency-1257-performance.md) and [exact evidence ledger](evidence/groom-vegetation-streaming-residency-1257.json).
 
-## Actual editor observations
+## Final-source functional matrix
 
-Hardware: Intel Core i7-14700KF (28 logical processors), NVIDIA RTX 4090, driver
-32.0.16.1714. Build: Release, clang-cl 23.1.0. `functional-gl-final` and
-`functional-vk-final` share one Editor binary, built on `e473de4` with dirty source.
-The ledger retains exact compiler revision, binary SHA-256, source commit and distinct
-GL/Vulkan source-diff hashes; no clean-commit provenance is inferred.
+Both complete Release campaigns use source `c519034ed18a0f654bc917c0e0b8c94f24dccd66`
+and binary SHA-256 `8999466a6e6a874d724dbe5865cbb56b563400b12f5a580620530c85b9317272`.
+Each recorded dirty-diff hash is retained. All 552 PNGs match hashes, PNG signatures and
+1920x1080 dimensions; recorded metadata advances and is non-stale/ready. UUID/name sets
+are unchanged, backend/path diagnostics match, and native logs have no error/fatal/SEH
+or VUID matches under the audit expressions. Selected image inspection supplies no
+blank-frame concern, but is not a blanket beauty or temporal verdict.
 
-| Backend | Family / path | PNG samples | Observed transition checkpoints | Complete UUID lists stable |
-|---|---|---:|---:|---|
-| OpenGL | Groom Forward / Forward+ / Deferred | 33 / 33 / 65 | 6/6 / 6/6 / 18/18 | 44 entities on each path |
-| OpenGL | Vegetation Forward / Forward+ / Deferred | 33 / 33 / 70 | 6/6 / 6/6 / 19/19 | 4 entities on each path |
-| Vulkan | Groom Forward / Forward+ / Deferred | 33 / 33 / 74 | 6/6 / 6/6 / 21/21 | 44 entities on each path |
-| Vulkan | Vegetation Forward / Forward+ / Deferred | 33 / 33 / 79 | 6/6 / 6/6 / 22/22 | 4 entities on each path |
+| Backend | Family | Forward / Forward+ / Deferred captures | Stable entities |
+|---|---|---:|---:|
+| opengl | groom | 33 / 33 / 65 | 44 |
+| opengl | vegetation | 33 / 33 / 70 | 4 |
+| vulkan | groom | 33 / 33 / 74 | 44 |
+| vulkan | vegetation | 33 / 33 / 79 | 4 |
 
-All 552 PNG files match their recorded hashes. No retained PNG reports stale or a
-nonadvancing frame index; the first sample per cell has no preceding comparison.
-PNG and diagnostic reads describe nearby sequential frames. UUID equality concerns
-scene entities, not every canonical instance ID or component value.
+| Settled CSM cycle, all paths | Detail optional GPU bytes | Pressure detail / fallback | Reload |
+|---|---:|---|---|
+| opengl groom | 2931616 | 0 / 41 | Detail bytes/draws restored |
+| vulkan groom | 2931616 | 0 / 41 | Detail bytes/draws restored |
+| opengl vegetation | 21139480 | 0 / 3 | Detail bytes/draws restored |
+| vulkan vegetation | 21165056 | 0 / 3 | Detail bytes/draws restored |
 
-| CSM cycle on all three paths | Detail | Pressure | Reload |
-|---|---|---|---|
-| Groom, both backends | 2,931,616 optional GPU bytes; 23 detail / 18 fallback draws | 0 bytes; 41 fallback draws | Same bytes and draw counts restored |
-| Vegetation, OpenGL | 21,139,480 bytes; 3 resident / 1 fallback layer | 0 bytes; 4 fallback / 3 pending layers | 3 resident layers restored |
-| Vegetation, Vulkan | 21,165,056 bytes; 3 resident / 1 fallback layer | 0 bytes; 4 fallback / 3 pending layers | 3 resident layers restored |
+Every settled pressure snapshot has optional resident GPU bytes zero and physical
+retiring bytes zero, while floors remain drawable. No sampled retiring peak is claimed.
+Worker pendingLoads is zero: groom retains two completed payloads / 9,333,472 CPU
+bytes; vegetation three / 60,796,496 bytes. These held staging leases are not in-flight
+workers or GPU residency. Initial pending-opportunity samples were already settled.
 
-Groom pending requests were not observed by the sparse live sampler; the deterministic
-gated fixture supplies separate pending evidence. Vegetation beauty submissions
-record FoliagePass command counts 9 -> 4 -> 9. Later Deferred extras after the eager cycle
-retain four detail layers; the ledger keeps those states separate from the earlier
-three-layer CSM cycle.
+Both deferred families latch MSAA four and spatial FSR. GL temporal requests resolve
+temporal; Vulkan resolves spatial with `backendNotOpenGL` at the same scale. Later RT
+phases upscale off/native, and do not establish temporal FSR coverage. TAA history
+snapshots advance; valid history and scheduled passes do not prove ghost-free images.
+VSM observations are positive, while global draw/page counts alone do not establish
+every foliage shadow pixel. Earlier GL CSM/VSM and Vulkan inline VSM family brackets
+retain their own provenance. Default Vulkan parallel CSM omits named family timers;
+the separately forced-inline CSM check is narrower configuration evidence.
 
-Both groom Deferred cells record 41 grooms casting, 98 CSM cascade draws and 14 VSM
-virtual-shadow level draws. GL VSM records 1,618 pages drawn and 2,086 resident, with
-zero failed pages/cull overflows. Vegetation VSM records positive global page activity,
-but its per-family shadow draw count is unavailable in these campaigns. VSM
-`drawInstances` counts the mesh/skinned GPU cull output; foliage uses a separate
-external caster route. Beauty command buckets and global pages do not establish
-foliage shadow consumption. Separate post-fix sparse Deferred captures now retain
-valid, non-stale `FoliageCasters` GPU brackets under GL CSM/VSM and Vulkan inline
-VSM. Default Vulkan parallel CSM deliberately omits named family brackets; its
-parent ShadowPass has fresh positive timing and four recorded secondaries. The
-production draw route continues outside that timer guard. Brackets measure execution
-spans, not exact draw counts or shadow pixel correctness. A separate Vulkan run with
-`OLO_VK_PARALLEL_RECORDING=0` records actual parallel false and zero secondaries.
-Its four valid non-stale CSM family brackets sum to 0.110 / 0.073 / 0.106 ms for
-detail / pressure / reload (GPU frame IDs 169 / 272 / 372, age one). All 33 PNG
-hashes match. This is diagnostic execution timing in a forced-inline configuration,
-not default parallel named-family timing or a paired performance result.
+Vulkan vegetation RT detail/reload is ready/complete, represents 124/124 plants and
+reports TLAS 128 / 4,203,264 AS bytes with valid positive Trace/Resolve/Filter brackets.
+Pressure has noData, incomplete casters and two refusals (122/124 represented), so TLAS
+counters are omitted and raster fallback is intentional. Groom detail/pressure/reload
+represent all 41 coats with zero refusals, TLAS 83 / 12,047,744 AS bytes and valid trace
+brackets. Diagnostics and PNGs are sequential nearby frames, not atomic samples.
 
-Deferred MSAA4 samples latch scene sample count four on both backends. FSR spatial
-requests resolve spatial. Temporal requests resolve temporal on GL, but Vulkan reports
-`backendNotOpenGL` and resolves spatial at the same render scale. These are effective
-renderer latches after rendered frames, not merely requests. TAA motion samples retain
-valid surface history with advancing generations; sparse screenshots cannot establish
-absence of ghosting at the representation boundary.
+The executable and 507 shaders were rehashed and match both campaigns. Asset snapshots
+differ only in mutable imgui.ini and OloEngine.log; 4413 other entries agree between
+campaigns. Full current asset rehash was not performed by the audit.
 
-Vulkan groom RT-on samples report ready, 41 represented / zero refused coats, 83 TLAS
-instances and 12,047,744 AS bytes; the subsequent per-light readback records one
-ray-traced light and zero fallback lights. The viewport ray answers with a hit, without
-proving it hit the groom. Vulkan vegetation RT-on instead reports `noData`, incomplete
-caster preparation, zero ray-traced lights and one raster fallback because no TLAS was
-available. Its viewport ray is unavailable; that dense cell is not credited as successful
-vegetation RT lighting. New sparse post-fix Vulkan detail/reload samples are ready with
-128 TLAS instances, 4,203,264 AS bytes, complete casters and one ray-traced light after
-reload. The sampled pressure phase intentionally withholds TLAS and uses raster fallback:
-two `missing-impostor-source` representations are refused and casters are incomplete.
-The independent audit verifies 19 GL / 22 Vulkan transition checkpoints and all 149
-PNG hashes. Fresh trace/resolve/filter brackets are positive in detail/reload; the
-final query answers with a miss, proving query dispatch rather than a vegetation hit.
+Historical 12-cell captures, two sparse follow-ups, Runtime runs and Debug probes remain
+separate ledger entries with original hashes. Their observations are not reassigned to
+the final-source binary. The wide groom view does not clearly distinguish fine fibres;
+coarse foliage/dog pressure cards and sparse motion retain the art/temporal limits
+described in the main analysis. Release shader diagnostics stay unavailable/null.
 
-GL vegetation eager -> bounded samples move 5,586,944 live bytes from pinned to detail
-ownership while combined physical backing stays 57,473,179 bytes. No transient retiring
-charge was captured. Family accounting and physical owner backing remain separate;
-neither is a total device VRAM census.
-
-All Release shader diagnostics return `available:false`, `count:null`. They provide no
-clean-shader verdict. Separate final Debug results are below. Settings, scheduled
-graph topology and AS presence alone are never promoted to pixel-correct consumption.
-
-## Debug shader reachability
+## Historical Debug shader reachability
 
 Four Deferred Debug captures use one binary (exact hash and each dirty source diff
 are in the ledger). Each retains 33 PNGs and before/after shader diagnostics.
@@ -107,7 +81,8 @@ tracked-shader clean verdict.
 The initial GL/Vulkan groom attempts hit the 300-second private MCP startup deadline
 during cold shader compilation. Their logs remain retained and they supply no accepted
 cell. Retries used 900 seconds with the same staging/cache. Debug captures provide no
-performance comparison. Regions and fresh-process paired tails remain pending.
+performance comparison. Completed regions and qualified GL pairs are in the linked
+performance record; paired Vulkan and accepted performance remain pending.
 
 ## Region integration diagnosis and green regression
 
@@ -128,11 +103,10 @@ pressure keeps the pinned atlas/card. The regression also exercises later public
 rebake framing/identity and pinned atlas retention. Wider GL residency is 8/8, CPU 57/57,
 application smoke 8/8, all zero skipped. Release all four targets passed with 2,050
 recorded dependency objects; Debug passes 2,049. Actual Vulkan shutdown, proxy and AS
-checks each pass 1/1, EXERCISED, zero skipped/VUID/errors. Vegetation region reruns
-remain pending; no completed full-family region campaign is claimed.
+checks each pass 1/1, EXERCISED, zero skipped/VUID/errors. A separately provenanced
+post-correction regional campaign now completes all four cells.
 
 Both dumps and the original executable/PDB are preserved with exact hashes. Functional
 runs overlapped Debug compilation, so their wall times supply no performance evidence.
-The earlier live captures remain pre-correction records. Future completed region events
-and AB/BA measurements can be added in a separately linked performance document;
-no timing comparison is invented here.
+The earlier live captures remain pre-correction records. The final-source matrix above
+and linked regions/performance record supply separate newer evidence.
