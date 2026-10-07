@@ -73,7 +73,9 @@ namespace OloEngine
 
             // Create a temporary EditorAssetManager to handle the assets from the registry
             auto tempAssetManager = Ref<EditorAssetManager>::Create();
-            tempAssetManager->Initialize();
+            // Pack builds read a snapshot; watcher callbacks could outlive this
+            // temporary manager after Shutdown(), so do not start a watcher.
+            tempAssetManager->Initialize(false);
 
             // Load all assets from the provided registry
             auto allAssets = assetRegistry.GetAllAssets();
