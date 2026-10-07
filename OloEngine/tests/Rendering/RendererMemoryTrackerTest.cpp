@@ -318,6 +318,77 @@ namespace OloEngine::Tests
         EXPECT_EQ(tracker.GetAllocationCount(kType), countBefore);
     }
 
+    TEST(RendererMemoryTracker, ExactBackingReattributionPreservesTotalsAndRetiresOnlyTheSelectedResource)
+    {
+        Tracker& tracker = Tracker::GetInstance();
+        constexpr ResourceType kType = ResourceType::Other;
+        constexpr u64 backingKey = 0x1257A501u;
+        constexpr u64 unrelatedKey = 0x1257A502u;
+        constexpr u64 aliasKey = 0x1257A503u;
+        constexpr std::string_view sourceOwner = "Reattribute test source";
+        constexpr std::string_view detailOwner = "Reattribute test detail";
+        int selected = 0;
+        int unrelated = 0;
+        struct Cleanup
+        {
+            Tracker& Memory;
+            void* Selected;
+            void* Unrelated;
+            u64 AliasKey;
+            u64 RetirementTicket = 0;
+            ~Cleanup()
+            {
+                Memory.UntrackAliasOfHandle(AliasKey);
+                Memory.TrackDeallocation(Selected, __FILE__, __LINE__);
+                Memory.TrackDeallocation(Unrelated, __FILE__, __LINE__);
+                Memory.ReleaseRetired(RetirementTicket);
+            }
+        } cleanup{ tracker, &selected, &unrelated, aliasKey };
+        const auto gpuBefore = tracker.GetGpuResidentBytes();
+        const auto cpuBefore = tracker.GetCpuResidentBytes();
+        const auto countBefore = tracker.GetAllocationCount(kType);
+        {
+            RendererMemoryOwnerScope sourceScope(sourceOwner, MemoryLifetime::Asset);
+            tracker.TrackAllocation(&selected, 256, kType, "selected backing", true, __FILE__, __LINE__);
+            tracker.TrackAllocation(&unrelated, 512, kType, "unrelated backing", true, __FILE__, __LINE__);
+            tracker.BindResourceHandle(&selected, backingKey);
+            tracker.BindResourceHandle(&unrelated, unrelatedKey);
+            tracker.TrackAliasOfHandle(aliasKey, backingKey, kType, "selected view", __FILE__, __LINE__);
+        }
+        EXPECT_FALSE(tracker.ReattributeBackingResource(0, detailOwner, MemoryLifetime::PassOwned));
+        EXPECT_FALSE(tracker.ReattributeBackingResource(aliasKey, detailOwner, MemoryLifetime::PassOwned));
+        EXPECT_FALSE(tracker.ReattributeBackingResource(aliasKey + 1, detailOwner, MemoryLifetime::PassOwned));
+        ASSERT_TRUE(tracker.ReattributeBackingResource(backingKey, detailOwner, MemoryLifetime::PassOwned));
+        EXPECT_EQ(tracker.GetGpuResidentBytes(), gpuBefore + 768);
+        EXPECT_EQ(tracker.GetCpuResidentBytes(), cpuBefore);
+        EXPECT_EQ(tracker.GetAllocationCount(kType), countBefore + 2);
+        const auto detail = tracker.GetLargestAllocations(detailOwner, 8);
+        ASSERT_TRUE(detail);
+        ASSERT_EQ(detail->Num(), 1);
+        EXPECT_EQ((*detail)[0].m_Address, &selected);
+        EXPECT_EQ((*detail)[0].m_Size, 256u);
+        EXPECT_EQ((*detail)[0].m_Lifetime, MemoryLifetime::PassOwned);
+        EXPECT_EQ((*detail)[0].m_SizeSource, MemorySizeSource::FormatEstimate);
+        const auto source = tracker.GetLargestAllocations(sourceOwner, 8);
+        ASSERT_TRUE(source);
+        ASSERT_EQ(source->Num(), 2); // unrelated backing and the untouched alias
+        EXPECT_EQ((*source)[0].m_Address, &unrelated);
+        EXPECT_EQ((*source)[0].m_Lifetime, MemoryLifetime::Asset);
+        EXPECT_TRUE((*source)[1].IsAlias());
+        EXPECT_EQ((*source)[1].m_Lifetime, MemoryLifetime::Asset);
+        cleanup.RetirementTicket = tracker.RetireAllocation(&selected);
+        ASSERT_NE(cleanup.RetirementTicket, 0u);
+        cleanup.Selected = nullptr;
+        EXPECT_EQ(tracker.GetOwnerGpuRetiringBytes(detailOwner), 256u);
+        EXPECT_EQ(tracker.GetOwnerGpuRetiringBytes(sourceOwner), 0u);
+        EXPECT_EQ(tracker.GetGpuResidentBytes(), gpuBefore + 768);
+        EXPECT_FALSE(tracker.ReattributeBackingResource(backingKey, sourceOwner, MemoryLifetime::Asset));
+        tracker.ReleaseRetired(cleanup.RetirementTicket);
+        cleanup.RetirementTicket = 0;
+        EXPECT_EQ(tracker.GetOwnerGpuRetiringBytes(detailOwner), 0u);
+        EXPECT_EQ(tracker.GetGpuResidentBytes(), gpuBefore + 512);
+    }
+
     // Shutdown() sets m_IsShutdown; Initialize() and Reset() must each clear it. They used not to,
     // which left the tracker permanently half-dead after the first shutdown: TrackDeallocation
     // early-returns on the latch while TrackAllocation keeps recording, so every resource type

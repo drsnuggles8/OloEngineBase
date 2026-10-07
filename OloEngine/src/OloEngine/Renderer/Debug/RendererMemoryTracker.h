@@ -142,6 +142,11 @@ namespace OloEngine
 
         // @brief Views by RHI handle — see RendererMemory:: in RendererMemoryReport.h.
         void BindResourceHandle(void* address, u64 handleKey);
+        // Transfer a live backing allocation's accounting owner before an
+        // exact resource changes ownership. The key is RHI::HashKey(handle).
+        // Views, unknown keys and retired resources cannot be reattributed;
+        // physical totals, byte provenance and aliases remain unchanged.
+        [[nodiscard]] bool ReattributeBackingResource(u64 handleKey, std::string_view owner, MemoryLifetime lifetime);
         void TrackAliasOfHandle(u64 aliasHandleKey, u64 backingHandleKey, ResourceType type, std::string_view name,
                                 const char* file, u32 line);
         void UntrackAliasOfHandle(u64 aliasHandleKey);
@@ -176,6 +181,9 @@ namespace OloEngine
 
         // @brief Live + retiring physical GPU bytes: what the device holds for the renderer.
         u64 GetGpuResidentBytes() const;
+        // Physical retiring backing of one owner, without invoking capacity
+        // reporters. Admission may call this from inside a capacity report.
+        [[nodiscard]] u64 GetOwnerGpuRetiringBytes(std::string_view owner) const;
         // @brief Live + retiring CPU-side bookings. Never added to the GPU figure.
         u64 GetCpuResidentBytes() const;
 

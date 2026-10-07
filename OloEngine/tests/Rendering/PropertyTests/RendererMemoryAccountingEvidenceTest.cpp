@@ -51,6 +51,8 @@
 #include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Texture2DArray.h"
+#include "Platform/OpenGL/OpenGLVertexBuffer.h"
+#include "Platform/OpenGL/OpenGLIndexBuffer.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 
@@ -61,6 +63,7 @@
 #include <fstream>
 #include <string>
 #include <string_view>
+#include <glad/gl.h>
 
 using namespace OloEngine;        // NOLINT(google-build-using-namespace)
 using namespace OloEngine::Tests; // NOLINT(google-build-using-namespace)
@@ -455,6 +458,59 @@ TEST_F(RendererMemoryAccountingEvidence, ResizeShowsOldAndNewTogetherThenReclaim
     EXPECT_EQ(back.Gpu.ResidentBytes(), steady.Gpu.ResidentBytes())
         << "a resize round trip left " << static_cast<i64>(back.Gpu.ResidentBytes()) - static_cast<i64>(steady.Gpu.ResidentBytes())
         << " bytes resident";
+}
+
+TEST_F(RendererMemoryAccountingEvidence, RealBufferHandlesReattributeBackingThroughEveryOpenGLBookingPath)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+    if (RendererAPI::GetAPI() != RendererAPI::API::OpenGL)
+        GTEST_SKIP() << "OpenGL buffer booking requires the OpenGL backend";
+    RunFrames(kDrainFrames);
+    auto& tracker = RendererMemoryTracker::GetInstance();
+    constexpr std::string_view sourceOwner = "MemoryEvidence buffer source";
+    constexpr std::string_view detailOwner = "MemoryEvidence buffer detail";
+    constexpr std::array<f32, 8> vertices{};
+    constexpr std::array<u32, 4> indices{ 0, 1, 2, 3 };
+    constexpr u32 vertexBytes = sizeof(vertices);
+    constexpr u64 detailBytes = 6u * vertexBytes + 2u * sizeof(indices);
+    std::array<Ref<VertexBuffer>, 6> vertexBuffers;
+    std::array<Ref<IndexBuffer>, 2> indexBuffers;
+    Ref<VertexBuffer> unrelated;
+    {
+        RendererMemoryOwnerScope source(sourceOwner, MemoryLifetime::Asset);
+        vertexBuffers[0] = Ref<OpenGLVertexBuffer>::Create(vertexBytes);
+        vertexBuffers[1] = Ref<OpenGLVertexBuffer>::Create(vertexBytes, GL_DYNAMIC_STORAGE_BIT);
+        vertexBuffers[2] = Ref<OpenGLVertexBuffer>::Create(vertices.data(), vertexBytes);
+        vertexBuffers[3] = Ref<OpenGLVertexBuffer>::Create(vertices.data(), vertexBytes, GL_DYNAMIC_STORAGE_BIT);
+        vertexBuffers[4] = Ref<OpenGLVertexBuffer>::Create(static_cast<const void*>(vertices.data()), vertexBytes);
+        vertexBuffers[5] = Ref<OpenGLVertexBuffer>::Create(static_cast<const void*>(vertices.data()), vertexBytes, GL_DYNAMIC_STORAGE_BIT);
+        indexBuffers[0] = Ref<OpenGLIndexBuffer>::Create(indices.data(), static_cast<u32>(indices.size()));
+        indexBuffers[1] = Ref<OpenGLIndexBuffer>::Create(indices.data(), static_cast<u32>(indices.size()), GL_DYNAMIC_STORAGE_BIT);
+        unrelated = VertexBuffer::Create(16);
+    }
+    const auto before = Report();
+    EXPECT_EQ(OwnerLiveGpuBytes(before, sourceOwner), detailBytes + 16);
+    for (const auto& buffer : vertexBuffers)
+        ASSERT_TRUE(tracker.ReattributeBackingResource(RHI::HashKey(buffer->GetRHIHandle()), detailOwner, MemoryLifetime::Asset));
+    for (const auto& buffer : indexBuffers)
+        ASSERT_TRUE(tracker.ReattributeBackingResource(RHI::HashKey(buffer->GetRHIHandle()), detailOwner, MemoryLifetime::Asset));
+    const auto retagged = Report();
+    EXPECT_EQ(retagged.Gpu.LiveBytes, before.Gpu.LiveBytes);
+    EXPECT_EQ(retagged.Gpu.RetiringBytes, before.Gpu.RetiringBytes);
+    EXPECT_EQ(OwnerLiveGpuBytes(retagged, detailOwner), detailBytes);
+    EXPECT_EQ(OwnerLiveGpuBytes(retagged, sourceOwner), 16u);
+    for (auto& buffer : vertexBuffers)
+        buffer.Reset();
+    for (auto& buffer : indexBuffers)
+        buffer.Reset();
+    EXPECT_EQ(tracker.GetOwnerGpuRetiringBytes(detailOwner), detailBytes);
+    EXPECT_EQ(tracker.GetOwnerGpuRetiringBytes(sourceOwner), 0u);
+    EXPECT_EQ(OwnerLiveGpuBytes(Report(), sourceOwner), 16u);
+    RunFrames(kDrainFrames);
+    EXPECT_EQ(tracker.GetOwnerGpuRetiringBytes(detailOwner), 0u);
+    unrelated.Reset();
+    RunFrames(kDrainFrames);
+    EXPECT_EQ(tracker.GetOwnerGpuRetiringBytes(sourceOwner), 0u);
 }
 
 // ---------------------------------------------------------------------------------------
