@@ -94,9 +94,10 @@ namespace OloEngine
         m_RingbufferSink = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(200);
         m_RingbufferSink->set_pattern("[%T] [%l] %n: %v");
 
+        m_ResolvedLogFileName = ResolveLogFileName();
         std::vector<spdlog::sink_ptr> logSinks;
         logSinks.emplace_back(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
-        logSinks.emplace_back(std::make_shared<spdlog::sinks::basic_file_sink_mt>(ResolveLogFileName(), true));
+        logSinks.emplace_back(std::make_shared<spdlog::sinks::basic_file_sink_mt>(m_ResolvedLogFileName, true));
         logSinks.emplace_back(m_RingbufferSink);
 
         logSinks[0]->set_pattern("%^[%T] %n: %v%$");

@@ -248,6 +248,7 @@ and for what to do when adding a tool.
 | `olo_shader_errors` | shaders with compile/link errors |
 | `olo_shader_get` | one shader's uniforms/buffers/samplers/instructions (+ optional GLSL) |
 | `olo_shader_reload` | reload + recompile one shader from disk by name; returns post-reload status + the compile/link log (the shader inner loop) |
+| `olo_asset_pack_build` **(consented write)** | GUI Edit-mode asynchronous pack build `{output, compress}`; auto-saves scene/registry, polls or cancels with `operationId`, and reports serialized asset records, actual cooked texture format/sRGB, and interval warning/error logs. Output stays under the project, including junction checks. Headless attach lacks document-save hooks. Project switching is refused until the worker finishes, and editor detach cancels and drains the build. Builds a pack only; Build Game assembles the manifest, shaders and binaries needed to launch OloRuntime. |
 | `olo_assets_list` | paginated registered assets (handle, type, path); filter by `typeFilter`, `namePattern` (filename substring) and `pathPattern` (path substring), combined with AND |
 | `olo_assets_problems` | assets that failed to load or are missing/invalid |
 | `olo_asset_get` | one asset's registry metadata by `handle` or `path` — type, project-relative path, on-disk state, size. Answers for an unregistered file too, which is exactly when somebody is about to delete it |
@@ -311,6 +312,9 @@ and for what to do when adding a tool.
 | `olo_scene_get_atmosphere` | read the scene's atmosphere in one call — `timeOfDay` block (hours, dayOfYear, latitude, paused, derived sun elevation / isNight / sun+moon directions), `weather` block (current/target state, transitionProgress, wetness, blended cloud coverage), `cloudscape` block (enabled, coverage, layer bottom/top, castCloudShadows). Blocks for absent components are omitted; the note lists which components were found |
 | `olo_render_why_not_visible` | explain why one entity (`entity`) is NOT on screen — the "why can't I see my mesh?" debugger: root-cause `reasonCode`, summary, ordered checks, and the raw render facts |
 | `olo_physics_layer_matrix` | the collision-layer matrix the sim uses: built-in object layers + user-defined layers, with pairwise collide/no-collide (works in Edit mode) |
+| `olo_physics2d_list_bodies` | paginated Box2D entity-backed rigidbodies; authored values in Edit, live pose/velocity/shapes in Play or Simulate |
+| `olo_physics2d_list_colliders` | paginated Box/CircleCollider2D entities (including collider-only authoring), live fixture shape/material/filter data when a body exists; tilemap bodies are counted separately, not enumerated |
+| `olo_physics2d_raycast` | live Box2D closest-hit ray `{origin:[x,y], translation:[dx,dy]}`; point, normal, fraction, shape and entity UUID (null for tilemap/unmapped shapes). GUI and headless attach supported. |
 | `olo_physics_list_colliders` | paginated entities with a rigidbody: authored body type / layer / trigger / collider shapes, plus live object layer, position, awake/asleep when playing |
 | `olo_physics_contacts` | entity pairs whose bodies are touching right now (live active-contact set, deduplicated); requires Play mode |
 | `olo_physics_raycast` | cast a ray (`origin` + `direction`\|`to`) through the live physics world: closest hit, or up to `maxHits` ordered hits (entity, position, normal, distance) |
@@ -627,7 +631,11 @@ unrelated can land inside the undo group.
 
 `olo_entity_set_field` mutates one component field on one entity, through the
 editor's undo stack (`ComponentChangeCommand<T>`, UUID-keyed — a single Ctrl-Z).
-`olo_entity_list_fields` is its read-only discovery half.
+`olo_entity_list_fields` is its read-only discovery half, available in GUI and headless attach with an active scene. `olo_entity_set_field` requires the GUI's command-history hooks; project field writes are unavailable in headless attach.
+
+`MaterialComponent` exposes setter-backed `AlbedoColor`, `Metallic`, `Roughness`, `Emissive`, `NormalScale`, `PBRModel`, `MaterialKind`, `SkinProfile`, `Transmission`, `IOR`, `Thickness`, `AttenuationColor` and `AttenuationDistance`, plus `ShaderGraphHandle`. Edit writes and undo call the same material setters; Play writes apply directly without undo. The per-instance material is consumed on both GL and Vulkan. `MCPOnly` annotations keep diagnostics fields separate from the scripting API; scene/save-game layouts are unchanged.
+
+See the [material, Box2D and pack validation](../testing/mcp-capability-gaps-607.md) for live captures, returned records and regression coverage.
 
 **The registry is generated, not curated (issue #607).** It used to be a
 hand-written list of nine components, so most of the engine — `VirtualMeshComponent`,
@@ -743,10 +751,10 @@ appear under the `script` toolset — see "Script-defined tools" below):
 | `perf` | `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_bottlenecks`, `olo_perf_frame_history`, `olo_perf_capture_frame`, `olo_perf_pass_timings`, `olo_perf_cpu_scopes` |
 | `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_graph_topology_export`, `olo_render_graph_schedule`, `olo_render_capture_target`, `olo_render_probe_pixel`, `olo_render_target_stats`, `olo_render_validate`, `olo_render_toggle_pass`, `olo_postprocess_settings_get`, `olo_postprocess_settings_set`, `olo_render_transient_plan`, `olo_render_debug_set`, `olo_render_set_debug_view`, `olo_renderer_settings_set`, `olo_renderer_support`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_scene_set_weather`, `olo_scene_get_atmosphere`, `olo_render_compare_golden`, `olo_render_why_not_visible`, `olo_froxel_fog_probe`, `olo_cluster_grid_stats`, `olo_virtual_shadow_map_stats`, `olo_render_lod_stats`, `olo_groom_budget_stats`, `olo_skeletal_deformation_stats`, `olo_rt_scene_stats`, `olo_rt_trace_ray`, `olo_rt_vegetation_diagnostic`, `olo_pathtracer_stats`, `olo_restir_stats`, `olo_restir_gi_stats`, `olo_restir_pt_stats`, `olo_ddgi_probe_stats`, `olo_shadow_atlas_layout`, `olo_virtual_geometry_set`, `olo_virtual_geometry_stats`, `olo_particle_stats`, `olo_material_get`, `olo_material_set`, `olo_shader_debug_draw`, `olo_terrain_virtual_texture_stats`, `olo_gpu_readback_stats`, `olo_gpu_resources` |
 | `shader` | `olo_shader_list`, `olo_shader_errors`, `olo_shader_get`, `olo_shader_reload` |
-| `assets` | `olo_assets_list`, `olo_assets_problems`, `olo_asset_get`, `olo_asset_references`, `olo_asset_create`, `olo_asset_move`, `olo_asset_delete`, `olo_asset_import`, `olo_asset_reimport`, `olo_asset_import_settings` |
+| `assets` | `olo_asset_pack_build`, `olo_assets_list`, `olo_assets_problems`, `olo_asset_get`, `olo_asset_references`, `olo_asset_create`, `olo_asset_move`, `olo_asset_delete`, `olo_asset_import`, `olo_asset_reimport`, `olo_asset_import_settings` |
 | `scripting` | `olo_script_get_api`, `olo_script_get_last_errors`, `olo_reload_script` |
 | `camera` | `olo_screenshot`, `olo_camera_get`, `olo_camera_set_pose`, `olo_camera_orbit`, `olo_camera_frame_entity`, `olo_camera_freeze_culling`, `olo_viewport_set_size` |
-| `physics` | `olo_physics_layer_matrix`, `olo_physics_list_colliders`, `olo_physics_contacts`, `olo_physics_raycast`, `olo_physics_overlap`, `olo_physics_why_no_collision`, `olo_set_collision_layer` |
+| `physics` | `olo_physics2d_list_bodies`, `olo_physics2d_list_colliders`, `olo_physics2d_raycast`, `olo_physics_layer_matrix`, `olo_physics_list_colliders`, `olo_physics_contacts`, `olo_physics_raycast`, `olo_physics_overlap`, `olo_physics_why_no_collision`, `olo_set_collision_layer` |
 | `input` | `olo_input_inject` |
 | `editor` | `olo_editor_panel_list`, `olo_editor_panel_set`, `olo_asset_open`, `olo_accessibility_get`, `olo_accessibility_set`, `olo_lightmap_bake`, `olo_editor_debug_draw_set`, `olo_terrain_pick`, `olo_editor_actions`, `olo_editor_pause`, `olo_editor_step`, `olo_editor_gizmo_set`, `olo_editor_build_shader_pack` |
 | `tests` | `olo_tests_list`, `olo_tests_run` |
@@ -2429,6 +2437,8 @@ transitionSeconds?, immediate? }` retargets the scene's `WeatherStateComponent`
 (read-only) reports the time-of-day, weather, and cloudscape state in one call.
 
 ### Physics introspection (the `olo_physics_*` family)
+
+The `olo_physics_*` tools expose Jolt 3D only. List/contact replies explicitly flag authored 2D components and name the Box2D alternatives. `olo_physics2d_*` reads Box2D: lists support Edit and Play/Simulate, raycasts require a live world. Every 2D rotation is in radians, and authored restitutionThreshold is reported separately because the Box2D world controls the live threshold. All 2D tools support GUI and headless attach with an active scene.
 
 These expose Jolt's read-only query surface so an agent can debug collision/physics
 problems without guessing. They follow the same "expose, don't embed" rule — no tool

@@ -1,0 +1,32 @@
+[17:36:48] [info] OloEngine: Application: frame loop exited
+[17:36:48] [info] OloEngine: Application: teardown begins
+[17:36:48] [info] OloEngine: [ImGui/Vulkan] renderer backend shut down
+[17:36:48] [info] OloEngine: [MCP] Diagnostics server stopped
+[17:36:48] [info] OloEngine: [SaveGameManager] Shutdown
+[17:36:48] [info] OloEngine: Application: layers detached
+[17:36:48] [trace] OloEngine: [LuaScriptEngine] Shutting down.
+[17:36:48] [trace] OloEngine: [ScriptEngine] Shutting down.
+[17:36:48] [trace] OloEngine: [NetworkThread] Thread exiting
+[17:36:48] [info] OloEngine: NetworkThread stopped
+[17:36:48] [trace] OloEngine: [GNS] Shutting down low level socket/threading support.
+[17:36:48] [info] OloEngine: NetworkManager shut down
+[17:36:48] [trace] OloEngine: [AudioEngine] Shutting down.
+[17:36:48] [trace] OloEngine: [AudioEngine] Stopping audio thread...
+[17:36:48] [trace] OloEngine: [AudioEngine] Audio thread shutting down, processing remaining tasks...
+[17:36:48] [trace] OloEngine: [AudioEngine] Audio thread exiting
+[17:36:48] [trace] OloEngine: [AudioEngine] Audio thread stopped.
+[17:36:49] [trace] OloEngine: [AudioEngine] Shutdown complete.
+[17:36:49] [info] OloEngine: Shutting down Renderer3D.
+[17:36:49] [info] OloEngine: WindSystem shut down
+[17:36:49] [info] OloEngine: ScreenSpacePrecipitation shut down
+[17:36:49] [info] OloEngine: PrecipitationSystem shut down
+[17:36:49] [info] OloEngine: SnowEjectaSystem shut down
+[17:36:49] [info] OloEngine: SnowAccumulationSystem shut down
+[17:36:49] [info] OloEngine: FrameResourceManager: Shutting down...
+[17:36:49] [info] OloEngine: FrameResourceManager: Shutdown complete
+[17:36:49] [info] OloEngine: GPUPassTimerPool: Shutdown
+[17:36:49] [info] OloEngine: Renderer Profiler shutdown
+[17:36:49] [info] OloEngine: Renderer3D shutdown complete.
+[17:36:49] [info] OloEngine: [Vulkan] Pipeline cache saved (28505692 bytes)
+[17:36:49] [info] OloEngine: Renderer Memory Tracker shutdown
+[17:36:49] [info] OloEngine: [Vulkan] Context shut down cleanly

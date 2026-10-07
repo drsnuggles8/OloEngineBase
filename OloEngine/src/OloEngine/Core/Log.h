@@ -147,6 +147,11 @@ namespace OloEngine
 
         void SetDefaultTagSettings();
 
+        const std::string& GetLogFileName() const
+        {
+            return m_ResolvedLogFileName;
+        }
+
         // Crash reporting: retrieve the last N formatted log messages from the ringbuffer
         [[nodiscard]] std::vector<std::string> GetRecentLogMessages(std::size_t count = 0) const;
 
@@ -215,6 +220,7 @@ namespace OloEngine
         TagDetails GetTagDetails(std::string_view tag) const;
 
       private:
+        std::string m_ResolvedLogFileName;
         std::shared_ptr<spdlog::logger> m_CoreLogger;
         std::shared_ptr<spdlog::logger> m_ClientLogger;
         std::shared_ptr<spdlog::logger> m_EditorConsoleLogger;

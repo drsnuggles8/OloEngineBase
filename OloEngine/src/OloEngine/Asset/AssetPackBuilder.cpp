@@ -349,7 +349,7 @@ namespace OloEngine
                 ColorSpaceIntentScope& operator=(const ColorSpaceIntentScope&) = delete;
             } colorSpaceScope(CollectTextureColorSpaceIntents(assetManager->GetLoadedAssets()));
 
-            if (!SerializeAllAssets(assetManager, assetPackFile, scriptModuleBinary.Size(), progress, cancelToken))
+            if (!SerializeAllAssets(assetManager, assetPackFile, scriptModuleBinary.Size(), result, progress, cancelToken))
             {
                 result.m_ErrorMessage = "Failed to serialize assets or build was cancelled";
                 return result;
@@ -640,7 +640,7 @@ namespace OloEngine
         }
     }
 
-    [[nodiscard]] bool AssetPackBuilder::SerializeAllAssets(Ref<AssetManagerBase> assetManager, AssetPackFile& assetPackFile, u64 scriptModuleSize, ProgressRange progress, const std::atomic<bool>* cancelToken)
+    [[nodiscard]] bool AssetPackBuilder::SerializeAllAssets(Ref<AssetManagerBase> assetManager, AssetPackFile& assetPackFile, u64 scriptModuleSize, BuildResult& result, ProgressRange progress, const std::atomic<bool>* cancelToken)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -749,6 +749,10 @@ namespace OloEngine
             if (AssetSerializationInfo serializationInfo; AssetImporter::SerializeToAssetPack(assetInfo.Handle, tempWriter, serializationInfo))
             {
                 assetInfo.PackedSize = serializationInfo.Size;
+                const auto metadata = assetManager->GetAssetMetadata(assetInfo.Handle);
+                result.m_Records.Add(AssetRecord{ assetInfo.Handle, assetInfo.Type, FString(metadata.FilePath.generic_string()),
+                                                  assetInfo.PackedOffset, assetInfo.PackedSize, serializationInfo.TextureFormat,
+                                                  serializationInfo.TextureSRGB, serializationInfo.TextureWidth, serializationInfo.TextureHeight });
                 tempAssetFiles.emplace_back(assetInfo.Handle, tempPath);
                 currentOffset += assetInfo.PackedSize;
             }
@@ -790,6 +794,9 @@ namespace OloEngine
             if (AssetImporter::SerializeToAssetPack(sceneInfo.Handle, tempWriter, serializationInfo))
             {
                 sceneInfo.PackedSize = serializationInfo.Size;
+                const auto metadata = assetManager->GetAssetMetadata(sceneInfo.Handle);
+                result.m_Records.Add(AssetRecord{ sceneInfo.Handle, AssetType::Scene, FString(metadata.FilePath.generic_string()),
+                                                  sceneInfo.PackedOffset, sceneInfo.PackedSize });
                 tempAssetFiles.emplace_back(sceneInfo.Handle, tempPath);
                 currentOffset += sceneInfo.PackedSize;
             }

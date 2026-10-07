@@ -723,6 +723,9 @@ namespace OloEngine::MCP
         // Nonmodal authored-document lifecycle. Call only inside a marshaled
         // main-thread job; writes also require the Edit-only command history.
         Automation::SceneDocumentAccess SceneDocument;
+        // Main-thread acquisition pins the project until the worker releases the
+        // lease. The editor calls cancelAndWait on detach before GPU teardown.
+        std::function<std::shared_ptr<void>(std::function<void()> cancelAndWait)> AcquireAssetPackBuildLease;
         // Clear editor-held handles before structural undo/redo destroys entities.
         std::function<void()> InvalidateEntityReferences;
 

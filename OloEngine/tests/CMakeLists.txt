@@ -1598,6 +1598,7 @@ add_executable(OloEngine-Tests
 		# Editor panel visibility and clean viewport-overlay controls (#607).
 		MCP/McpEditorPanelsTest.cpp
 		MCP/McpAssetOpenTest.cpp
+		MCP/McpAssetPackBuildTest.cpp
 		MCP/McpEditorDebugDrawTest.cpp
 		# Consented MCP WRITE tool: olo_editor_select_entity (#607) — select/clear
 		# the Scene Hierarchy panel's selection so the Properties inspector draws a
