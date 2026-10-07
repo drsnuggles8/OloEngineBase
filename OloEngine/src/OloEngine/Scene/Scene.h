@@ -550,6 +550,12 @@ namespace OloEngine
         }
 
         // Physics access
+        // Read on the game thread, after the physics fence (diagnostics only).
+        b2WorldId GetPhysicsWorld2D() const
+        {
+            return m_PhysicsWorld;
+        }
+
         JoltScene* GetPhysicsScene() const
         {
             return m_JoltScene.get();
