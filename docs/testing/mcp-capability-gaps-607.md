@@ -97,7 +97,7 @@ header because the reconstructed texture remains unloaded.
 
 Material field discovery and Box2D inspection support GUI and headless hosts with
 an active scene. Material field writes require the GUI's command-history hooks;
-the headless host explicitly refuses project writes. Pack
+the headless host explicitly refuses these field writes. Pack
 starts require the GUI's scene save and project/shutdown lease hooks; a headless host
 receives an explicit error. Polling and cancellation retain the latest operation.
 

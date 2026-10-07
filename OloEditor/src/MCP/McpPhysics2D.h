@@ -201,7 +201,10 @@ namespace OloEngine::MCP::Physics2D
             {
                 Entity e{ id, &scene };
                 if (B2_ID_EQUALS(e.GetComponent<Rigidbody2DComponent>().RuntimeBody, body))
+                {
                     j["entity"] = std::to_string(static_cast<u64>(e.GetUUID()));
+                    break;
+                }
             }
         }
         return j;

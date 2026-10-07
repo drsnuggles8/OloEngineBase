@@ -803,8 +803,6 @@ namespace OloEngine::MCP
                     return ToolResult::Error(result["error"].get<std::string>());
                 return ToolResult::Structured(result);
             };
-            if (tool.Name.starts_with("olo_physics_"))
-                tool.Description += " Jolt 3D only; for Box2D use olo_physics2d_list_bodies, olo_physics2d_list_colliders or olo_physics2d_raycast.";
             registry.Register(std::move(tool));
         }
         {
@@ -835,8 +833,6 @@ namespace OloEngine::MCP
                     return ToolResult::Error(result["error"].get<std::string>());
                 return ToolResult::Structured(result);
             };
-            if (tool.Name.starts_with("olo_physics_"))
-                tool.Description += " Jolt 3D only; for Box2D use olo_physics2d_list_bodies, olo_physics2d_list_colliders or olo_physics2d_raycast.";
             registry.Register(std::move(tool));
         }
         {
@@ -872,8 +868,7 @@ namespace OloEngine::MCP
                                     .Required({ "objectLayers", "collisionMatrix", "userDefinedLayers", "note" });
             tool.MainMarshaled = false;
             tool.Handler = Handle_PhysicsLayerMatrix;
-            if (tool.Name.starts_with("olo_physics_"))
-                tool.Description += " Jolt 3D only; for Box2D use olo_physics2d_list_bodies, olo_physics2d_list_colliders or olo_physics2d_raycast.";
+            tool.Description += " Jolt 3D only; for Box2D use olo_physics2d_list_bodies, olo_physics2d_list_colliders or olo_physics2d_raycast.";
             registry.Register(std::move(tool));
         }
 
@@ -916,8 +911,7 @@ namespace OloEngine::MCP
                                     .Required({ "physicsRunning", "total", "page", "pageSize", "returned", "colliders" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PhysicsListColliders;
-            if (tool.Name.starts_with("olo_physics_"))
-                tool.Description += " Jolt 3D only; for Box2D use olo_physics2d_list_bodies, olo_physics2d_list_colliders or olo_physics2d_raycast.";
+            tool.Description += " Jolt 3D only; for Box2D use olo_physics2d_list_bodies, olo_physics2d_list_colliders or olo_physics2d_raycast.";
             registry.Register(std::move(tool));
         }
 
@@ -954,8 +948,7 @@ namespace OloEngine::MCP
                                     .Required({ "physicsRunning", "activeContactCount", "contacts" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PhysicsContacts;
-            if (tool.Name.starts_with("olo_physics_"))
-                tool.Description += " Jolt 3D only; for Box2D use olo_physics2d_list_bodies, olo_physics2d_list_colliders or olo_physics2d_raycast.";
+            tool.Description += " Jolt 3D only; for Box2D use olo_physics2d_list_bodies, olo_physics2d_list_colliders or olo_physics2d_raycast.";
             registry.Register(std::move(tool));
         }
 
@@ -994,8 +987,7 @@ namespace OloEngine::MCP
                                     .Required({ "origin", "direction", "maxDistance", "hitCount", "hits" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PhysicsRaycast;
-            if (tool.Name.starts_with("olo_physics_"))
-                tool.Description += " Jolt 3D only; for Box2D use olo_physics2d_list_bodies, olo_physics2d_list_colliders or olo_physics2d_raycast.";
+            tool.Description += " Jolt 3D only; for Box2D use olo_physics2d_list_bodies, olo_physics2d_list_colliders or olo_physics2d_raycast.";
             registry.Register(std::move(tool));
         }
 
@@ -1030,8 +1022,7 @@ namespace OloEngine::MCP
                                     .Required({ "shape", "origin", "overlapCount", "overlaps" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PhysicsOverlap;
-            if (tool.Name.starts_with("olo_physics_"))
-                tool.Description += " Jolt 3D only; for Box2D use olo_physics2d_list_bodies, olo_physics2d_list_colliders or olo_physics2d_raycast.";
+            tool.Description += " Jolt 3D only; for Box2D use olo_physics2d_list_bodies, olo_physics2d_list_colliders or olo_physics2d_raycast.";
             registry.Register(std::move(tool));
         }
 
@@ -1085,8 +1076,7 @@ namespace OloEngine::MCP
                                     .Required({ "a", "b", "reasonCode", "summary", "canCollide", "checks", "facts" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PhysicsWhyNoCollision;
-            if (tool.Name.starts_with("olo_physics_"))
-                tool.Description += " Jolt 3D only; for Box2D use olo_physics2d_list_bodies, olo_physics2d_list_colliders or olo_physics2d_raycast.";
+            tool.Description += " Jolt 3D only; for Box2D use olo_physics2d_list_bodies, olo_physics2d_list_colliders or olo_physics2d_raycast.";
             registry.Register(std::move(tool));
         }
 
@@ -1120,8 +1110,6 @@ namespace OloEngine::MCP
                                     .Required({ "entity", "component", "previousLayer", "layer", "changed", "undoable" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_SetCollisionLayer;
-            if (tool.Name.starts_with("olo_physics_"))
-                tool.Description += " Jolt 3D only; for Box2D use olo_physics2d_list_bodies, olo_physics2d_list_colliders or olo_physics2d_raycast.";
             registry.Register(std::move(tool));
         }
     }

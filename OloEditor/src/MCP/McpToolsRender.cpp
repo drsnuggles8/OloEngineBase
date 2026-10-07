@@ -6191,7 +6191,8 @@ namespace OloEngine::MCP
 
         // ---- olo_material_set (main-marshaled, consented write) ------------------
         // The write half of olo_material_get, limited to the entity's
-        // MaterialComponent and to the fields no other route can author. Scene
+        // MaterialComponent, including blending flags absent from the generated
+        // field registry. AlbedoColor can also edit RGBA through that registry. Scene
         // YAML stores AlbedoColor as a vec3 with a forced alpha of 1 and has no
         // key for AlphaMode or MaterialFlag::Blend, and olo_entity_set_field's
         // generated registry exposes neither, so without this a conventional
@@ -6278,7 +6279,7 @@ namespace OloEngine::MCP
                         return Json{ { "__error", "Entity " + UuidToString(UUID(id)) +
                                                       " has no MaterialComponent. olo_material_set edits the override "
                                                       "material only; add a MaterialComponent first (olo_entity_set_field "
-                                                      "cannot author these fields)." } };
+                                                      "requires an existing component too)." } };
 
                     Material& material = entity.GetComponent<MaterialComponent>().m_Material;
                     if (hasColor)
@@ -9571,7 +9572,7 @@ namespace OloEngine::MCP
             tool.ProjectWrite = true;
             tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
             tool.Description =
-                "Set the fields of an entity's MaterialComponent that no other route can author: "
+                "Set base color and blending fields on an entity's MaterialComponent: "
                 "'baseColorFactor' as RGBA (scene YAML keeps only RGB and forces alpha to 1), 'alphaMode' "
                 "('Opaque' | 'Mask' | 'Blend'), 'blend' (MaterialFlag::Blend, which is what actually enables "
                 "SRC_ALPHA/ONE_MINUS_SRC_ALPHA blending and the back-to-front transparent sort) and 'twoSided'. "
@@ -9579,7 +9580,8 @@ namespace OloEngine::MCP
                 "says whether it was implied. At least one field is required. Only the MaterialComponent "
                 "override is edited, so the entity must have one. The write edits the loaded scene IN MEMORY "
                 "and is not an undo-stack entry. A scene save keeps baseColorFactor RGB only: alpha reloads as 1.0, "
-                "and alphaMode, blend and twoSided are not serialized. Read "
+                "and alphaMode, blend and twoSided are not serialized. For an undoable RGBA color edit, use "
+                "olo_entity_set_field with MaterialComponent.AlbedoColor; blending flags require this tool. Read "
                 "back with olo_material_get. This is a WRITE tool: refused unless agent writes are enabled in "
                 "the editor's MCP Server panel (off by default).";
             tool.InputSchema = Schema::Object()
