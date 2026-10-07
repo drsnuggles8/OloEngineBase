@@ -57,6 +57,7 @@ contract docs before claiming support; read the issues before claiming a gap is 
 - [guides/skin-digital-human.md](guides/skin-digital-human.md) — running skin, eyes and mouth on ONE subject: a complete face spends the whole seven-slot skin-profile budget and an eighth profile silently renders as not-skin, the material debug views are deferred-only, how to switch the three lighting rigs without changing two things at once, and why the decomposition is checked by cross-talk rather than by a sum.
 - [guides/input-action-maps.md](guides/input-action-maps.md) — input action maps & contexts.
 - [guides/localization.md](guides/localization.md) — localization & `LocalizedTextComponent`.
+- [guides/mono-debugging.md](guides/mono-debugging.md) — debugger defaults by host and build configuration, packaged-game opt-in, port and symbol loading.
 - [guides/mcp-diagnostics-server.md](guides/mcp-diagnostics-server.md) — the read-only MCP diagnostics server (tools, resources, prompts, attach flow).
 - [guides/oloctl.md](guides/oloctl.md) — `oloctl`, the CLI frontend generated from the automation registry (spelling rules, arguments, exit codes, the closed write path).
 - [guides/perf-stress-scenes.md](guides/perf-stress-scenes.md) — perf stress-scene generator + measurement runbook.

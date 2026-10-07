@@ -1,0 +1,783 @@
+{
+  "issue": 1540,
+  "platform": "Windows 11 x64",
+  "nativeCompiler": "clang-cl (dev-cached)",
+  "baseCommit": "9e99b554d0b397139ad7016a3acc8fd44df03f98",
+  "worktreeSourceHashes": {
+    "OloEngine/src/OloEngine/Asset/AssetSerializer.cpp": "1a80b2f88fd52626bee3601a4e0e81bff6fb3d846b99361c7d373044ea4d0787",
+    "OloEngine/src/OloEngine/Build/GameBuildPipeline.cpp": "2ee5eb7e4ee344a555163d7b66adef405d870357761448a886ec6b5d35d14c0e",
+    "OloEngine/src/OloEngine/Build/GameBuildPipeline.h": "e3e657468918d24523c9cdeb660288a9dd8fed7ded3372f981d6b071947511c7",
+    "OloEngine/src/OloEngine/Core/Application.cpp": "36ed36e8db0b852296b09225d2356cb7afa884e5d8e332c80bf05ba274f5eac6",
+    "OloEngine/src/OloEngine/Core/Application.h": "a82468e6a074d7ac590d68ba88d9d8e33c7232d85ebacd2f535dde16a4d9a93c",
+    "OloEngine/src/OloEngine/Project/ProjectSerializer.cpp": "deb8d95e27cc65af7619aae163229e3cc07100c42c86e097c2ca292333f2c404",
+    "OloEngine/src/OloEngine/Scripting/C#/ScriptEngine.cpp": "6666833fffd4efb14896f6f9f6a66b944fe474ab801bd420a0acf27eda7ae751",
+    "OloEngine/src/OloEngine/Scripting/C#/ScriptEngine.h": "9454ab466b2bb3a1ba7742a3b229e55d78b97bf3a0abb4adb3061f17e00197fe",
+    "OloEngine/src/Platform/Linux/LinuxInput.cpp": "a78e744748b1e5e360248d32483289a8f9bdca547afbec90d98359b32ddd9b3a",
+    "OloEngine/src/Platform/Windows/WindowsInput.cpp": "c3db097ba5da0ec9d1ee8221c3357e36e1068aa9653e3fffacb8b507f0d41284",
+    "OloEngine/tests/AppLaunchSmokeTest.cpp": "2cf7ae51c639e332a226183f0c9fbce5552c3bd53b002cff7e8252e14c675219",
+    "OloEngine/tests/Build/GameBuildPipelineTest.cpp": "0d0f9473ea857031904afbdd9a8bfb8cb8cfb7de92419da6d1d53a7c1efc7d52",
+    "OloEngine/tests/CMakeLists.txt": "44f9fa377264e3997ae7c78c1df2543d2c00d62f8265487c3bd2b5793a149f4b",
+    "OloEngine/tests/Core/MonoDebuggerPolicyTest.cpp": "99f2949d57c24f6e0d38834398938a23166b00766e5322bc6820f1aaf7ec90fb",
+    "OloEngine/tests/Core/TestProcessOutputTest.cpp": "e9d0257700b916c2ba3d66e35bafe17b7fe593e89dd0362f44a882da79de25b8",
+    "OloEngine/tests/RuntimeAssetPackTest.cpp": "abb8f8c2ed1ea6e66594c02a7e1415dc9451256d7288e8b43183fa2ab117a785",
+    "OloEngine/tests/TestProcessLaunch.h": "a02f45c393aa0aec65a4f22cb09296c08f0255e91959e2a0d101b424b8e2f963"
+  },
+  "binaries": {
+    "bin\\Debug\\OloEditor\\OloEditor.exe": {
+      "bytes": 276374016,
+      "sha256": "907b533297d61304ed1c74e08896b28e605d1c012b0ec0fe1ad15514b7b0aa8e"
+    },
+    "bin\\Debug\\OloRuntime\\OloRuntime.exe": {
+      "bytes": 217455616,
+      "sha256": "aa1470139a8b668c55af3d332b9fcddc239be49b1305939cd772ee5af68d0224"
+    },
+    "bin\\Debug\\OloServer\\OloServer.exe": {
+      "bytes": 217456640,
+      "sha256": "067a84fa018c83b4d6c2de6eb5523fc1749a60c985513d007b6174dee459081f"
+    },
+    "build-cached\\OloEngine\\tests\\Debug\\OloEngine-Tests.exe": {
+      "bytes": 354176000,
+      "sha256": "c004e81aafa91047bf8d98f3aa8fb7e7a24d2dcad1074bfa07b721a4f570fe50"
+    },
+    "bin\\Release\\OloEditor\\OloEditor.exe": {
+      "bytes": 134450688,
+      "sha256": "dbe2f15bad4f657604b60de5a4571a4e0c24180f5b5521b3d5f41d0de1c49424"
+    },
+    "bin\\Release\\OloRuntime\\OloRuntime.exe": {
+      "bytes": 80510976,
+      "sha256": "71a6ee6e45e476af47ce40876b8a86a5af023d0b7dc5cf78c3606a119d5f2ac5"
+    },
+    "bin\\Release\\OloServer\\OloServer.exe": {
+      "bytes": 77923840,
+      "sha256": "1382a33f776067d148675264bebe44b6d41b6bf8cbba1166162590a3be3a286c"
+    },
+    "build-cached\\OloEngine\\tests\\Release\\OloEngine-Tests.exe": {
+      "bytes": 221416960,
+      "sha256": "7c993ca4d3d784dc6b644d2b29d5a2b26459853458acfa24b0b3682557b33f5a"
+    }
+  },
+  "artifacts": {
+    "build-verification.json": {
+      "sha256": "1ad5e77df37a76cc3d445663fcc6893effdcd4cefcb3e32bc9b8cff8afe58980",
+      "captureSha256": "2550ebc772e671bfceb4d07370c5c7e3f29667d2fb826404e7d941305b690e0d"
+    },
+    "assemblies-on-configure.json": {
+      "sha256": "01d39330ea814ec7d0e2441a1eafa60e63fa4d7e4fdb35f4b8238c0f72f108c0",
+      "captureSha256": "a5216a3c318e577e8127ce0cc1e4a2988a50f794d047924cb94932a1b3a63142"
+    },
+    "assemblies-off-configure.json": {
+      "sha256": "653bd987bbeb3044687c3043c433d86eb5b527909058555a503cb72c0ea54274",
+      "captureSha256": "d3adb77bf5eba99eca9d2333d6755a34484f9e4c5ecda45fd6edded98c2178b2"
+    },
+    "precommit.log": {
+      "sha256": "b7fcdf7db317db0846423c8465a1771e16fdbfcd8674641c101c05ef8b8f5cc9",
+      "captureSha256": "c41e380448ccf405f10664881058be9c3615db8b1c2325627441e7ab502e43c6"
+    },
+    "build-mono-final-verified.log": {
+      "rawLogBytes": 15372222,
+      "rawLogSha256": "31c23313e04fafc0f609186321e91512ab95d6ef2791b29fdfd0bb26cc113e3e",
+      "excerptSha256": "a8a983b92c700e2448abe010deee3aa941da66e8916bc8d8f13e39311c8cbe5f"
+    },
+    "build-mono-assemblies-off-native.log": {
+      "rawLogBytes": 34434,
+      "rawLogSha256": "ef3d83da06a2f4c69bf65f77d66ca48c56ad8f6bcafd742012d5622e5de426f0",
+      "excerptSha256": "4cc8f2dd9a57a77ade9d59142e7e5d2f49ecfeb470d12f7647c642a027e4a632"
+    },
+    "build-mono-restored-on.log": {
+      "rawLogBytes": 36103,
+      "rawLogSha256": "61f39d345d97e59243637eb2e83efbd9e9f0f246af7d06119160cf27b3da7c5f",
+      "excerptSha256": "7ab1699b646d2b11e30c739f5014be48868c27971f6164bccbbcb83c92061d90"
+    },
+    "build-mono-review-before-project-path.log": {
+      "rawLogBytes": 41326,
+      "rawLogSha256": "ef0a16f62f6d71485559c6e8f416c68d11a3bc287e99e94fd5cc0b3d0deb52a9",
+      "excerptSha256": "cd2854aee3c1da7b3f6a136cdff82e1b86ebeaa54d961bacaf38276ece654de4"
+    },
+    "build-mono-review.log": {
+      "rawLogBytes": 18689,
+      "rawLogSha256": "ee51e6c3dcc0b276311149dc1ae53277936c80344f8e854597f870d702d3c6d1",
+      "excerptSha256": "292c41b18700c78d1628e2b1caa1aabc13c6dd23657cb073da047dbed977ef10"
+    },
+    "build-mono-review-off.log": {
+      "rawLogBytes": 34533,
+      "rawLogSha256": "ceeaeef0ce06777237d5f93493e507e8c4dffc2021d6de148ff91f3781a3a2d0",
+      "excerptSha256": "1a6b32d9dc88625367ba77c0723687ca41150a1dfed868e3d46ef52ebd26ad7d"
+    },
+    "build-mono-review-restored-on.log": {
+      "rawLogBytes": 36103,
+      "rawLogSha256": "995340b0e5722d7bb06e829549ecbe1742acbc4334b5eb995391d4ec45b3d4fa",
+      "excerptSha256": "81efac00ee8bbc5ac090185196ead8e79d3f0ec90b256e3e63750a3a81502bcb"
+    },
+    "Debug-live-editor-default.json": {
+      "bytes": 3067,
+      "sha256": "473a6d7e06486e46fa9f57a3244d6fd2a14038a65e617583895eec618dc9c47b",
+      "captureSha256": "089a02e2faa251c124796d13f7e049fd3d3dce302df5cb7535405f3bab9b7e46"
+    },
+    "Debug-live-editor-default.log": {
+      "rawLogBytes": 513593,
+      "rawLogSha256": "5bf2a147f4b80db2939d0375c9a69c5ab894e5d32ec1f4f0234b9655dc927117",
+      "excerptSha256": "7b998ce11c82a31b9045e5b7099eb566a23859da289c78835fd454a9c07e5809"
+    },
+    "Debug-live-editor-optin.json": {
+      "bytes": 3063,
+      "sha256": "8e620c223cf096d4e00cf7cf77d29135a105c9e90289688e1e1e0b15510b5411",
+      "captureSha256": "d81ce8fc3a8fdf4e155222eb53aa22134ad8f0aef049cd09b13a2be7a77d9e69"
+    },
+    "Debug-live-editor-optin.log": {
+      "rawLogBytes": 430158,
+      "rawLogSha256": "3d24f5f1d3c7fab1342dcb17b77ebdc179a0e9bb45d593e327adbbe382f32617",
+      "excerptSha256": "224c9d01551f7c3f7ba545fb59347f4fd00a196ed3795fd01447d9ff8708fdb2"
+    },
+    "Debug-live-runtime-default.json": {
+      "bytes": 563,
+      "sha256": "2af59b6b82396f26e9690332ed8b59394b536ae733609d75d5be3361db5401d3",
+      "captureSha256": "8af54f9e9ef2523f0dc5c5706f2c0d864fde5c58a5b12c31768ec155c7bf129d"
+    },
+    "Debug-live-runtime-default.log": {
+      "rawLogBytes": 34877,
+      "rawLogSha256": "9e58b09b4debce7c9aeece895ceba254960c45d053901cecd937244130ba25b1",
+      "excerptSha256": "e8191002a04d550bc6cc42ebf1eea84002e51d27018c2868f1713287282d0a5b"
+    },
+    "Debug-live-runtime-optin.json": {
+      "bytes": 1165,
+      "sha256": "827b331ce9d0e5bbbfe641c7c029c467b38d8c92c6e9333383a13ff8df442e4e",
+      "captureSha256": "08aa72fdce94fbd528a5cc3ceb6aac4695f2fc53a9b8e7cbf4bdc9e31b4cff11"
+    },
+    "Debug-live-runtime-optin.log": {
+      "rawLogBytes": 29960,
+      "rawLogSha256": "7c2e8adcc668bb1aebd130c42ecef0ba7246f9c1f3a5b12a2e6ad81296979526",
+      "excerptSha256": "b58214f39c1a0bdb2c73755da4afe45f6b0bd02a661f1fc9d8951b317a3d2dd7"
+    },
+    "Debug-live-server-default.json": {
+      "bytes": 561,
+      "sha256": "a3d922428c15d0c5afb49a2941671daf124e9dd151e14f7466e8d05dfe0d7b7b",
+      "captureSha256": "0d28a133119ddb392ef0ec318e4442cb84b82bce5c458e35ce3e7aeec626cb8f"
+    },
+    "Debug-live-server-default.log": {
+      "rawLogBytes": 9075,
+      "rawLogSha256": "3cce23cbd6e73e0094ebf5c9828b4f45fc0d272b6f5d9fa44705c1a22b7bdb42",
+      "excerptSha256": "86d910930846a1551061bcafdb9dab3172a0915069eb26a1ae85b77e68f62a05"
+    },
+    "Debug-live-server-optin.json": {
+      "bytes": 1162,
+      "sha256": "1f71818c8a3d289f35642ec85f7bd7551ccc986c1e6dc6b03c5a9cd26a56da15",
+      "captureSha256": "e66eaf9f162f53fe69daa3e0b11930588ca411b224c6efedd90f78d905543e66"
+    },
+    "Debug-live-server-optin.log": {
+      "rawLogBytes": 9366,
+      "rawLogSha256": "b888cfd6408d00daefd8518be5a61489a17059957a3ae906598f3c43e10d1905",
+      "excerptSha256": "c3c03d3e42903b7cfbf9e663e355474338c0639d454fa0e2061ff889e7cf67bd"
+    },
+    "Debug-application-host-default.json": {
+      "bytes": 486,
+      "sha256": "0988ec4800f519f3ee7b3e14156b4b2657065eae7ae643e3661c0368a57e363f",
+      "captureSha256": "6e50571796b3d19bf333665baa8a022df781d1ba56d86f27b698414dde28d5c5"
+    },
+    "Debug-application-host-default.log": {
+      "rawLogBytes": 10671,
+      "rawLogSha256": "941963e680aca88206cbce17bcd6c49f43fcfd9ea154273152ede6c50cf48139",
+      "excerptSha256": "a178444b0a289e1595ae54205e89d0e3941ee772706273dafd6d5324ae2b4790"
+    },
+    "Debug-application-host-optin.json": {
+      "bytes": 997,
+      "sha256": "35975e9c7309b4dff4a0ed6800d77ace1c9e7a207df43477dff4d7f7782c4743",
+      "captureSha256": "0981deb5ac5ca38bd28c63d4885366a405dd0ccae5de16b27318750b2c065696"
+    },
+    "Debug-application-host-optin.log": {
+      "rawLogBytes": 11113,
+      "rawLogSha256": "1c4235644904a2a7d2794789bcedf9eb61c6368f0ffa58c2815738602d4d58bf",
+      "excerptSha256": "e7429d3c6dad2984f743d45b2f99a23fb45f8cfc18e70d2bce5b624e52ab3881"
+    },
+    "Debug-editor-default.json": {
+      "bytes": 989,
+      "sha256": "20149f51b3a397a6e96e8fc212ea4c3ae9e8bc485e35b0f53557e0bc8f39fb68",
+      "captureSha256": "ab1219f86d8bc3c4354b9a6dc41d4bbdc5779f6b013ddb6e39d68c90e933680c"
+    },
+    "Debug-editor-default.log": {
+      "rawLogBytes": 11113,
+      "rawLogSha256": "fc2e17112c3883c3ae99bd49ff5599c5b706f45b0013dd766ffdd1a62eeeb731",
+      "excerptSha256": "5cf6bcf3c6a7220948c667432b71ec634777c8cb0b06cbb75325fae7a266029c"
+    },
+    "Debug-editor-optin.json": {
+      "bytes": 987,
+      "sha256": "80cd73dd22f3146d1939e32118dfcae7c21f61b459cd95ace4b0f20c55893cf1",
+      "captureSha256": "d3cd13b41c5bdb56512687da3e9da34f2d60de257757c3a2aba528e8cd38198a"
+    },
+    "Debug-editor-optin.log": {
+      "rawLogBytes": 11113,
+      "rawLogSha256": "b29f5178da080d1fb981abc328dd2443f4fad2a7ea4b2eb157b311415aff621e",
+      "excerptSha256": "cca2e5cb9d37294354a5f001b695b21b071cad9a59b81b8cab3fe9b0a6b10a7f"
+    },
+    "Debug-direct-init-default.json": {
+      "bytes": 481,
+      "sha256": "a9d6062785d4300dfa1fb2e68680aeff3a5b6479044af5b86a0950cbef3ee1e0",
+      "captureSha256": "8bd71f732338ada8d412e6f5b776bc78e9f1dff09d8a7f0f542f3bd97125f43e"
+    },
+    "Debug-direct-init-default.log": {
+      "rawLogBytes": 9537,
+      "rawLogSha256": "050a76eeb3d748eef977f5912a0931d8bd82e5f9e516a71749277828cd673cb1",
+      "excerptSha256": "5edda72218a76ededc57fcaf923a9d24e451b3004024fa6f93b251b77f7aeaca"
+    },
+    "Debug-direct-init-optin.json": {
+      "bytes": 992,
+      "sha256": "8de6fa13c07ec16a174c1f2b27cd7d2d09a25c1b7e552fa949f04ce14c4b759d",
+      "captureSha256": "941368b39679fd924ed718ed32f0d9005699ce49c959587d61a4c5745eab0fd2"
+    },
+    "Debug-direct-init-optin.log": {
+      "rawLogBytes": 9978,
+      "rawLogSha256": "1dda23dbc1a73e46f5c8a5defa8a55ea4498434b7a52b33cd9e18e98a476ca99",
+      "excerptSha256": "8cbcd699db11ee8fedcd40b6d1dc06455279f57067fe1af8552f75b020458f37"
+    },
+    "Debug-package.json": {
+      "bytes": 1494,
+      "sha256": "4aec9d92a6d65cac743d2ea90b1ae505bda5ec047b9f3bdb7f7b88b71efdbf25",
+      "captureSha256": "0844f2f66d1deca4df572ced7ce3a8d8f6dc34038caaae4febc3b8473aa4626d"
+    },
+    "Debug-package.log": {
+      "rawLogBytes": 14056,
+      "rawLogSha256": "f5c39bd3c70328a4b2b346995e49c0236dffb9beb4abcc2b0ef3c1f72b427898",
+      "excerptSha256": "bde92dafc4e359d702e4750a21274a19c4ea30e08a8ae5abe683e7e64fa7cf46"
+    },
+    "Debug-package-symbol-failure.json": {
+      "bytes": 201,
+      "sha256": "708df4f0d8b83f25b2e4e5568e186dacd2c3b14b8c88812b2313e78a63d8f7b0",
+      "captureSha256": "bd050f2c5a5fc60b4716ad8d6cb54742d6b69f001f14c39550215590adbdb4f8"
+    },
+    "Debug-package-symbol-failure.log": {
+      "rawLogBytes": 13394,
+      "rawLogSha256": "34a287cd73ff8356e1807d7b1db9bb7a016e42d2ad390ab164713d84b5250465",
+      "excerptSha256": "39e6d319636114eeb6441fe18c487057bb5fd561619278b02b43d5098683d899"
+    },
+    "Debug-regression-tests.json": {
+      "bytes": 3387,
+      "sha256": "48f5cf3674ef395d20fdaff988e3cf8a70a6dc2c82f6b345770d271e3fae6323",
+      "captureSha256": "4ec3eb4025d603149b8cc0ad2c85abe3bd363e1e726098725ea8fc3b67de7b48"
+    },
+    "Debug-regression-tests.log": {
+      "rawLogBytes": 19702,
+      "rawLogSha256": "49d5e0974d2b0339c097798780ff848afb37e0c290695a36646601a61cda501d",
+      "excerptSha256": "2c01ce197e993a7c7ada3335630049ab91db3f18ce327f57b2db0234810003cd"
+    },
+    "Debug-regression-tests.xml": {
+      "sha256": "b5056843f3887949a66a5f8b5eeef683063989189f46a39f836d307e80ea4aae",
+      "captureSha256": "110f533791dc6afd4c22e17669d4752ae44ec05dffa25a688c419d165065fb24"
+    },
+    "Debug-assemblies-off.json": {
+      "bytes": 2281,
+      "sha256": "1c0264432b0388e6faf1c2b008d982a22d7910e3912f9215bee05b9b0d3db481",
+      "captureSha256": "dd3303a50a837c4e73efa59fc30651a35b05eed98f96ba339758486fdae599bc"
+    },
+    "Debug-assemblies-off-OloEditor-default.log": {
+      "rawLogBytes": 2059,
+      "rawLogSha256": "bf2ad809651f4b73f3039263865392c7b755054f97cef60135cd05ad1beb3d4a",
+      "excerptSha256": "cc8d0636e6250877a520d00ffc255778eb2b63aec30df2775ee0e823292ff41f"
+    },
+    "Debug-assemblies-off-OloEditor-optin.log": {
+      "rawLogBytes": 2059,
+      "rawLogSha256": "6e92326520af07b3dca24930c3d3ad355b433bf94439c92733af340b8366bc62",
+      "excerptSha256": "4bee30d5bd1d23812ce49b71249ca2d14eedf005b7dc6225d4ab2d183571d257"
+    },
+    "Debug-assemblies-off-OloRuntime-default.log": {
+      "rawLogBytes": 1978,
+      "rawLogSha256": "41a1994bef97f117e1731018d25a1447c66bb2fb9d9a70ca5d39be986ec183e4",
+      "excerptSha256": "f1c0b1e3c7c3eac38d7abd48800c1ccb10da07dd4aad1905492b120be0d817ea"
+    },
+    "Debug-assemblies-off-OloRuntime-optin.log": {
+      "rawLogBytes": 2064,
+      "rawLogSha256": "3415ca3b2a1f1cd4bcbf316d4ee22d0ca5c26fcbe1400f7626646c628dba23ab",
+      "excerptSha256": "a1ec33601907c3db6a9cc06f003f846843aee0de03c995f8819857cad4a65467"
+    },
+    "Debug-assemblies-off-OloServer-default.log": {
+      "rawLogBytes": 2633,
+      "rawLogSha256": "22ce93fb6bc0120b5bb1dac44915385ff1bc0d0c8e939d36d7875ccb7809bb73",
+      "excerptSha256": "e1f633501b6640ec0c72ccbae858dfe11d900b7557ba6e68ae566d6d6575ebd7"
+    },
+    "Debug-assemblies-off-OloServer-optin.log": {
+      "rawLogBytes": 2719,
+      "rawLogSha256": "98192eb6e5fa2574032de52c8a914eb521c5a21ad9aad2278b533e805302528f",
+      "excerptSha256": "44d5d50b894ab075d7f780899fcd3ddaaab572e2655d8d11dcaec6c8c94d6f56"
+    },
+    "Debug-assemblies-off-server-lua.log": {
+      "rawLogBytes": 4811,
+      "rawLogSha256": "ff724f02f6f0114d171403fec4853edeff665336a7072add963b42ee600fde7c",
+      "excerptSha256": "c33254855073af3957202cc6f8b023bc5f5f9d39bd7b46fb1a8e6a795563575b"
+    },
+    "Debug-package-missing-core.json": {
+      "bytes": 356,
+      "sha256": "56ff8561630568b240bb7a1b6f0a4ca1ec5baa5aef0cbbca37092ec180b9ce18",
+      "captureSha256": "c477985f9841893fd4480e0df0a8a78fab73dd8d8c643b9e5eadde232331f580"
+    },
+    "Debug-package-missing-core.log": {
+      "rawLogBytes": 7704,
+      "rawLogSha256": "93f59e36a7d63cbc857f6e88ead2c0cdd63e2a963c36a09828cf14291478c4c3",
+      "excerptSha256": "8677d0b3b8efbf52921c8eace2b3589c9732f00bca1a6eb10402d7217b22a717"
+    },
+    "Debug-package-missing-core-without-module.json": {
+      "bytes": 370,
+      "sha256": "788906be0756f6ac5bd733b59c64f34b06b275fc67666b75d1b7819f55752168",
+      "captureSha256": "4dc2c1daaf6e9dc8f59d3befe43d9e6af0d4d64d053575980da04c6a5c4b5409"
+    },
+    "Debug-package-missing-core-without-module.log": {
+      "rawLogBytes": 8162,
+      "rawLogSha256": "7ea51bd0fe33c01a4b5de127360a1eecdbbc4e20387131fd367d410291ce95f7",
+      "excerptSha256": "e77063fc72cf060c1575f5353e3912d0001da5db7d84ec34e6cc7c8a19e70517"
+    },
+    "Debug-package-missing-app.json": {
+      "bytes": 355,
+      "sha256": "a370083d14249717317e05b3ae1c1552f8b14aedb87b37c1cc8c5a84268927b5",
+      "captureSha256": "d1463727631f91894e5ba94f2193e639ba2180070eb6a130383abbc11bd1cac4"
+    },
+    "Debug-package-missing-app.log": {
+      "rawLogBytes": 13485,
+      "rawLogSha256": "fdd8049aa392237f51d13bf76214f61d9101f3e501da162327b9bbb3e4f447d5",
+      "excerptSha256": "9e1ba3dcdb26c3f62a42ebc834dcfb863155d4bb91c8504a4ebadafde816e7de"
+    },
+    "Release-live-editor-default.json": {
+      "bytes": 2520,
+      "sha256": "2135a525863f684ccdecad65cbe62f9ed5078a7c76427a71af4af01837241561",
+      "captureSha256": "a5237c69aaa3986dc28e9fde356abfbf07a2eae152f640a97f448bc235694a82"
+    },
+    "Release-live-editor-default.log": {
+      "rawLogBytes": 467250,
+      "rawLogSha256": "8357dfb823567f436bde6e918c33349c8fb57414c28295426f127bb69a65408b",
+      "excerptSha256": "fad7a9ca6456712c344af678edaea91f207a4e6f8e2d7a8ec91cf1a9393c94d7"
+    },
+    "Release-live-editor-optin.json": {
+      "bytes": 3067,
+      "sha256": "2660ca6cbea8f81ef75a68a8e1c621a54e378fa82d375a21786d540e159f4f4a",
+      "captureSha256": "ba4439c6002d90213824a6e0eda81e6586d745c15b0d0f9fd6f04de182978ae1"
+    },
+    "Release-live-editor-optin.log": {
+      "rawLogBytes": 384544,
+      "rawLogSha256": "8065ce3a1e259423d42d9f3e40f05fa05510f38d2e59d9e3464973ca50606296",
+      "excerptSha256": "9a0a1343e40bc8ce8c9d82d4ac24b0fbff1058d1edf9699bf0eb1569e18a83ed"
+    },
+    "Release-live-runtime-default.json": {
+      "bytes": 567,
+      "sha256": "84fb5b6e2592a313c972109a84a2e1e819c0c7a79dbe6b7dfb68e7e9cee123ea",
+      "captureSha256": "b2704bea1430943ca74d1fed44093427b61fdaf6e354178ad306a6b8508a8eb1"
+    },
+    "Release-live-runtime-default.log": {
+      "rawLogBytes": 28490,
+      "rawLogSha256": "9582dcf405ae0e6866e58cf24ab3f3f61c1c604d0991cc7a19efc45c737b2d37",
+      "excerptSha256": "a13bb38ab9a44e92b3cd2b120f68b152c94a52f2dea72633effb9fd1c4ac7d6f"
+    },
+    "Release-live-runtime-optin.json": {
+      "bytes": 1169,
+      "sha256": "67ce5ccf998174c719e765894023099fa4d433ac414536b7b6b15cf0a6cea4dd",
+      "captureSha256": "a629a4d1ee69a1c8a82b238327038db5d888fa865335e26eca815666b0e45045"
+    },
+    "Release-live-runtime-optin.log": {
+      "rawLogBytes": 28424,
+      "rawLogSha256": "54d899ca6b327e048633c50631da5ee115eb1ee24ef1190c2a4203ed58b6d997",
+      "excerptSha256": "2ca663dc52d9027e7c25d2bca3575be610c5ea64004c68d36492c9eda3c9ca2f"
+    },
+    "Release-live-server-default.json": {
+      "bytes": 565,
+      "sha256": "ec263977e24f89d025df8e93c1ce72bfd308236fb45903b88e08bb6937a18f3b",
+      "captureSha256": "defc82477a61efd0cb97f9d30c24e2295a7064343f5e33aea7917b337e7fadd9"
+    },
+    "Release-live-server-default.log": {
+      "rawLogBytes": 8994,
+      "rawLogSha256": "b16976078b61bf40dedea444a48eb771aff8a49ae5e74a9494d9c495c3f9936f",
+      "excerptSha256": "7e603a8bbba3fadcfb50e3bbae4a2a41beb770da1219868b8a4576b29ff7b8f7"
+    },
+    "Release-live-server-optin.json": {
+      "bytes": 1167,
+      "sha256": "84b83e20acd2c65a24811b2921f778d35bf9297cd76e5f5f7ce85b99b1996c16",
+      "captureSha256": "75e5f6afb1f6841631e192b4ad513b7c675656915b4795f57f8ecd49d9ac059a"
+    },
+    "Release-live-server-optin.log": {
+      "rawLogBytes": 9286,
+      "rawLogSha256": "f820cb7d091a4291971b6fe399f34e9806ffac6da0e1b6491345d659ab53030d",
+      "excerptSha256": "d18d5448419feec0f7db629762219666320c5001e00494aeeded6a54baaadf93"
+    },
+    "Release-application-host-default.json": {
+      "bytes": 488,
+      "sha256": "d6c69dfe7fa7ca5a2eebf06dafc0edbc344e21676299f85f7bd5029d9f294a1d",
+      "captureSha256": "50968364128c199ed3bf4e42b25923d46bb3a802694042fa30c1e5ee25cc364b"
+    },
+    "Release-application-host-default.log": {
+      "rawLogBytes": 10671,
+      "rawLogSha256": "fc8b049da431a7cd83c8acaeddfe160f34079733987a5097608b94aa319a6df5",
+      "excerptSha256": "037d2d7a77c7151d3e381986aa0961ef2b5d50b48e4fa6b01034265439131ae7"
+    },
+    "Release-application-host-optin.json": {
+      "bytes": 999,
+      "sha256": "946e8dfa9b4b85d41ae2f98db6ef766150796705f52d3ecacd2780e4fd967515",
+      "captureSha256": "6d46f9323a8e579c4566c00f8ecdca6b2d586a849cb41181df42d92080cc8418"
+    },
+    "Release-application-host-optin.log": {
+      "rawLogBytes": 11113,
+      "rawLogSha256": "13976e95c7b67f785b3689ea623e84c61ed61f924ac78f5f68c6aa56c2bd4740",
+      "excerptSha256": "eab8ff800b7a71ec6662f63c1bc6b46b539b8f323c9d8373ffe4331384597684"
+    },
+    "Release-editor-default.json": {
+      "bytes": 478,
+      "sha256": "85a73504be34e9df19ace4aa1cb1373ae377ceeacdf62ce114ca3e11e079fd62",
+      "captureSha256": "8fdaa748e67f9dd141ffec863b8aec4a39410012a3a67bffc75c3fe076a35db1"
+    },
+    "Release-editor-default.log": {
+      "rawLogBytes": 10671,
+      "rawLogSha256": "2d5f05f69e18c2d7cc9294e6b71036427c5de68ebda33ad20c040e58d9dc577b",
+      "excerptSha256": "6bb78da0f3e83b483955104998f2024ad572bc4f3c34209af774d39f3195d0c7"
+    },
+    "Release-editor-optin.json": {
+      "bytes": 989,
+      "sha256": "88f3795901e77eead99a0bf5963c3d0f73cca11fef84284ffe6c5cc27b53c38e",
+      "captureSha256": "b04a315f6f15d386631c7d1e953a64ab023d6bde12b3ff8fa13e8c486c591e99"
+    },
+    "Release-editor-optin.log": {
+      "rawLogBytes": 11113,
+      "rawLogSha256": "9831ee59de1278437c0f9478a75e61eb731f8d2621f9236a5175b94884caa424",
+      "excerptSha256": "85a3f751d2c7732c72e39a375a615d217b31d588847b3f2ef3658459a886ee0b"
+    },
+    "Release-direct-init-default.json": {
+      "bytes": 483,
+      "sha256": "494c6dbeedb3429443d19c4c795b473688cf454c6f41d849318bd0513d0cfa8e",
+      "captureSha256": "30af17eab4760e3812704e08fea02e99f3390617656d0c4bcfc6a8c25979c17d"
+    },
+    "Release-direct-init-default.log": {
+      "rawLogBytes": 9537,
+      "rawLogSha256": "0c47c72bd6cd12541eba34f0b52cb15e15d86ad0e5e4a409d3e185be7031afb7",
+      "excerptSha256": "5b2d39a921641ba7946d2316da5ea5a433a0306639b9d5e1c9d4be2f96b0cf81"
+    },
+    "Release-direct-init-optin.json": {
+      "bytes": 994,
+      "sha256": "18e765b6c5bcd5918353579a5b5b0179d059b4b86cd33c77e25c5b6a82383ad0",
+      "captureSha256": "6f71781263c3125613d3bcd18efc1b251d163a577f5211582729cae4e1ce105b"
+    },
+    "Release-direct-init-optin.log": {
+      "rawLogBytes": 9978,
+      "rawLogSha256": "86195dcbeeaf9c47417bf20cc7c9c056e1b4b398dd6f0750eb2c95d2ce6eff34",
+      "excerptSha256": "220acca1b258a9f1f14d708274d89518693141f325178e5cadb8f8116828b74d"
+    },
+    "Release-package.json": {
+      "bytes": 1495,
+      "sha256": "881e6465ecd95b1f9bcb489059ed73cbcc38516ec6169059aa7b35b0ae6915f0",
+      "captureSha256": "d6464f06e5a8300c9495a7851ae0169c83a818d43dfce29d4ba11b4a93de3ef9"
+    },
+    "Release-package.log": {
+      "rawLogBytes": 14066,
+      "rawLogSha256": "edaab6e3434fe287b186c94967bd87018d0235a01086d758916f6653c41d8e6d",
+      "excerptSha256": "1a12c470917f98cb00258df7754cc7739e74d2071fc4ba0e98f5310987a3398a"
+    },
+    "Release-package-symbol-failure.json": {
+      "bytes": 203,
+      "sha256": "c5a944feb31fd51ace6b9fbf342c700b856df2a403ae76d481e04c8f91076c3b",
+      "captureSha256": "8bf930d26f80a6624f1bfc85ef762e22a51ab1cf7d3b9e8031d9f712cb315225"
+    },
+    "Release-package-symbol-failure.log": {
+      "rawLogBytes": 13398,
+      "rawLogSha256": "d5f86da22a7637e448327b8d9eb38eead2f80e144643c06c40c92e0fd0fa0b3c",
+      "excerptSha256": "e81a0a3f556af9206be194c4bf44dad948c84a8280d5539b4f635ac0024ba0c7"
+    },
+    "Release-regression-tests.json": {
+      "bytes": 3393,
+      "sha256": "aade5c92eb0ff895a16568520ef8261d903f7f3795942e4049f605132dba3fcd",
+      "captureSha256": "36569e7a1e4191b9029eef386ab0048e1093ad33a97e7c94416ba067340c3fff"
+    },
+    "Release-regression-tests.log": {
+      "rawLogBytes": 19696,
+      "rawLogSha256": "a48cba8eb0b983e5ac10d4478104e29496a7e69b40afe5392ec59e4c44ba5ff7",
+      "excerptSha256": "8b7d66cc64089077bd5c6e6097dadd873842627be5cd829df4dae7ff2ff74079"
+    },
+    "Release-regression-tests.xml": {
+      "sha256": "c28e4c4cb468c900e50c95229f19a55002c1d9225158b474deff19ba788e3a6d",
+      "captureSha256": "8eecda5795cc738e1dec9f1f03f2d1b187845fe35e5c85b0810df48aab820276"
+    },
+    "Release-assemblies-off.json": {
+      "bytes": 2299,
+      "sha256": "ba1b9e317cd522158161472aa20b409356ad74f30d252e17e31ed42c7fe11808",
+      "captureSha256": "01eb7abe4864a9e4a10a113c5e314ebe751e2d40e47a6e7562256c0638d82e79"
+    },
+    "Release-assemblies-off-OloEditor-default.log": {
+      "rawLogBytes": 1972,
+      "rawLogSha256": "36d5304bf90eed2304c809e3a77219fc668cc6be9574db833797788616934d39",
+      "excerptSha256": "27b570cb597dccbbb88bf931fb44e615a9b962e881ba452ec7247ed49676a0f8"
+    },
+    "Release-assemblies-off-OloEditor-optin.log": {
+      "rawLogBytes": 2059,
+      "rawLogSha256": "6eeb85c22a6dd5ed2cee1ddb50867d18e1fe9457dcd253395bae4fec03afe2fa",
+      "excerptSha256": "b39304f66601c7584c68aeb9c2497d0c1aac13a31358d7847548c952b9df851e"
+    },
+    "Release-assemblies-off-OloRuntime-default.log": {
+      "rawLogBytes": 1978,
+      "rawLogSha256": "328d789dc4191003f8ed4e5e49ef779098702eef525c929238aea97d3bc566d9",
+      "excerptSha256": "904fa42387463b9dc0a711afb4200cfe970b6d7103713198cfda62e5d6198c18"
+    },
+    "Release-assemblies-off-OloRuntime-optin.log": {
+      "rawLogBytes": 2064,
+      "rawLogSha256": "60ee216340042fda16a06e7ed1e4feb1db7277d678811dc32909493cf817d502",
+      "excerptSha256": "63dd6156929911c8f56a39a4edc3e73864461f77b934c044fd0b089aa1f6e53e"
+    },
+    "Release-assemblies-off-OloServer-default.log": {
+      "rawLogBytes": 2633,
+      "rawLogSha256": "7d5b83f42847ef0b38f2c60877ccd75cadef417d6a25bf25c6146238a92a7cd7",
+      "excerptSha256": "a05e7f3add93ceb2da10e0189c59d53ecb451f5457541b9cebd6867a1bc6b4b9"
+    },
+    "Release-assemblies-off-OloServer-optin.log": {
+      "rawLogBytes": 2719,
+      "rawLogSha256": "f37257312436085d383a95b3ee3edc48ecca921a7bb5009e4fd4b1f9436c66c3",
+      "excerptSha256": "0b5ea9a8a5ce213dfa1d6b04141b7e5a3b55f698907d2764c502425436ef4c0f"
+    },
+    "Release-assemblies-off-server-lua.log": {
+      "rawLogBytes": 5156,
+      "rawLogSha256": "52e4d88a7b01222f8d9cc19ef6993211754de0cd9dc2bb7af88ee72184898c64",
+      "excerptSha256": "acbf593d5b1cf2db330cb51817ddf309db64b3d41d61a54663d6a45ee23bd1da"
+    },
+    "Release-package-missing-core.json": {
+      "bytes": 360,
+      "sha256": "2b72e84fa176b6ac041c1f48cd924220bbca7cf6f98a7e1a3e84f01d3233114c",
+      "captureSha256": "278390a56a728374283b0a3cff2fc1d5852b8de6305607e83fb04068c27c084c"
+    },
+    "Release-package-missing-core.log": {
+      "rawLogBytes": 7708,
+      "rawLogSha256": "dde00c40c6a9af0809a0af7662615ecac35ef245561b69804683389c0ec0724d",
+      "excerptSha256": "a8223f4a252dde5a15402d798479d510b3c0f03fb297fd1efe8c95ab518208cb"
+    },
+    "Release-package-missing-core-without-module.json": {
+      "bytes": 374,
+      "sha256": "9364cd4489818eb34026f1c8ac567e4ee5e49d32c13ca69c5b12f0040cf7bfa5",
+      "captureSha256": "0500d16b8cfae4ae28bfd21ab4a1c99768618bf6ebfae8f5c844e60bbb0aeb3e"
+    },
+    "Release-package-missing-core-without-module.log": {
+      "rawLogBytes": 8170,
+      "rawLogSha256": "ce67a2831dd75ae2eab724ddc13500d2f5cf48eb2dbbacad5941a7407e2f6f0f",
+      "excerptSha256": "91306b111c920fdb667f20dcb2674706571d6b8d4fb7fb6e62357b3d471175d9"
+    },
+    "Release-package-missing-app.json": {
+      "bytes": 359,
+      "sha256": "ea17295ec34e1b67cd942b1188011a89a6f14c8e697f4cf2ce6aa3f01fb96f02",
+      "captureSha256": "1521d077858f4c446c0072ff425852f28df027d984e339573997048e5a717bfe"
+    },
+    "Release-package-missing-app.log": {
+      "rawLogBytes": 13490,
+      "rawLogSha256": "71d721e6cc74c45ad65d26cefcdbd8600a2f3e76fc3aabce3479d0a827fec83d",
+      "excerptSha256": "ace5d5830cecaeb8bc9a54b6b93ae3774e225ffafabf77434f6134dc4c0572b2"
+    },
+    "Release-cooked-concurrent.json": {
+      "bytes": 1071,
+      "sha256": "068609320ec60911b0900fb604c4f0afae3d7c9cc2082c606dc81ed00f55f0ca",
+      "captureSha256": "4f7c89611211e2f2e28cf651e92db3031e0ec587fc799f9adc719d05e8ab01c2"
+    },
+    "Release-cooked-concurrent-1.log": {
+      "rawLogBytes": 28488,
+      "rawLogSha256": "e0ba837c02b2bca5a165eb1eed690c605de4a42344c3a782b66a7722c2bcc84b",
+      "excerptSha256": "8db188eb385ba536d9c041f494451d9d70305d75ccc8239e1f6f1f948f2972dc"
+    },
+    "Release-cooked-concurrent-2.log": {
+      "rawLogBytes": 28133,
+      "rawLogSha256": "ca31c7096a784f4ac615950f672f578ed4edbded77423fa51a3fb278dc23d33a",
+      "excerptSha256": "6cf5f0fd94c23f118b8132113964bd5211108c37fe4bce40de3c5a4480da2de3"
+    },
+    "Release-package-missing-core-before-fix.json": {
+      "bytes": 328,
+      "sha256": "51f6e74629ec46dcba742d93ed4359815c3eb25512a7df307581d07f43aba603",
+      "captureSha256": "5db06b6a20e8e64c5bbfadbb94389544387e6758664e2ffa2e0b4b8c9f715e7e"
+    },
+    "Release-package-missing-core-before-fix.log": {
+      "rawLogBytes": 8300,
+      "rawLogSha256": "be9d07be468179ec84086b0e5cdb0480d2afdeedcb0623dc027afd9ebb22cda3",
+      "excerptSha256": "b92db411b92c51bdef52467110c1e4d119a644bc14a271dbd98a7818131594b4"
+    },
+    "Release-package-missing-app-before-fix.json": {
+      "bytes": 368,
+      "sha256": "1ca0043afb0214de3f79c6d3c8062499746c254f74640ccc2b4e5edaa0c3d395",
+      "captureSha256": "b2dd43f8147015429aedcdce48ca8bb683e0756b1b685f651629d0ea17599c4f"
+    },
+    "Release-package-missing-app-before-fix.log": {
+      "rawLogBytes": 13929,
+      "rawLogSha256": "4e22983000b7ea4a54977e0173f7ff41c61f54f64a97113716635c958904af58",
+      "excerptSha256": "a1fb28d711cfdc1ba033a08971d96ad42d1e86b2c0c196fd35c4730ee9c1b64e"
+    },
+    "Linux-host-startup-before-ci-fix.json": {
+      "sha256": "1a93b0910536f1d7dd84ed76a924706534fffe653aa49624cb0e35d120803e37",
+      "captureSha256": "381b9dd6826f0f00219ade4fc6926d67725eaadf97dfc774f0c72830f3f97b8f"
+    },
+    "Linux-host-startup-before-ci-fix.xml": {
+      "sha256": "177c9420b850b8dce6162aec0af558dbae748b81e060666ba2e2f17111abb899",
+      "captureSha256": "177c9420b850b8dce6162aec0af558dbae748b81e060666ba2e2f17111abb899"
+    },
+    "Debug-server-empty-scene-before-fix.log": {
+      "rawLogSha256": "4a1db7157e9ec4591f38700139bfbda8010257df024db91083c401591dcd4971",
+      "excerptSha256": "7a235c1ddf45dd05b080504eb35e98aadff8ca6b5eb0f46424954b01f62f6bb9"
+    },
+    "mono-server-crash-stack.log": {
+      "rawLogSha256": "3e73ebf689b43df33daefaee39182b81fb2095dfe97e8439fcb9b9504bbe24f5",
+      "excerptSha256": "774ea857eaa9c5dff2bb4431cb023edb6f8e50043ee72df09ba33dcb9f815294"
+    },
+    "Debug-project-empty-module-before-fix.log": {
+      "rawLogSha256": "cc9cc3b5d583fbeb0ab7adb4cfda01cdaa6593d485d881ec152277c3dac3408e",
+      "excerptSha256": "e70d904a46bdeaa467a6562bc698721236e67328f8fc2ca1a65abb9ef021f3e8"
+    }
+  },
+  "buildVerification": {
+    "preset": "dev-cached",
+    "cells": [
+      {
+        "OLO_WITH_CSHARP": "ON",
+        "configurations": [
+          "Debug",
+          "Release"
+        ],
+        "targets": [
+          "OloEngine",
+          "OloEditor",
+          "OloRuntime",
+          "OloServer",
+          "OloEngine-Tests",
+          "OloEngine-LuaScriptCore",
+          "OloEngine-ScriptCore",
+          "Sandbox-Scripting",
+          "MonoDebuggerEvidence"
+        ],
+        "exitCode": 0,
+        "log": "build-mono-final-verified.log",
+        "rawLogSha256": "31c23313e04fafc0f609186321e91512ab95d6ef2791b29fdfd0bb26cc113e3e"
+      },
+      {
+        "OLO_WITH_CSHARP": "OFF",
+        "configurations": [
+          "Debug",
+          "Release"
+        ],
+        "targets": [
+          "OloEngine",
+          "OloEditor",
+          "OloRuntime",
+          "OloServer",
+          "OloEngine-Tests",
+          "OloEngine-LuaScriptCore",
+          "MonoDebuggerEvidence"
+        ],
+        "exitCode": 0,
+        "log": "build-mono-assemblies-off-native.log",
+        "lockLog": "build-mono-assemblies-off.log",
+        "nativeOutputCapturedWithoutTruncation": true,
+        "rawLogSha256": "ef3d83da06a2f4c69bf65f77d66ca48c56ad8f6bcafd742012d5622e5de426f0"
+      },
+      {
+        "OLO_WITH_CSHARP": "ON",
+        "restoredAfterOffChecks": true,
+        "configurations": [
+          "Debug",
+          "Release"
+        ],
+        "targets": [
+          "OloEngine",
+          "OloEditor",
+          "OloRuntime",
+          "OloServer",
+          "OloEngine-Tests",
+          "OloEngine-LuaScriptCore",
+          "OloEngine-ScriptCore",
+          "Sandbox-Scripting",
+          "MonoDebuggerEvidence"
+        ],
+        "exitCode": 0,
+        "log": "build-mono-restored-on.log",
+        "lockLog": "build-mono-restored-on-lock.log",
+        "rawLogSha256": "61f39d345d97e59243637eb2e83efbd9e9f0f246af7d06119160cf27b3da7c5f"
+      },
+      {
+        "OLO_WITH_CSHARP": "ON",
+        "configurations": [
+          "Debug",
+          "Release"
+        ],
+        "targets": [
+          "OloEngine",
+          "OloEditor",
+          "OloRuntime",
+          "OloServer",
+          "OloEngine-Tests",
+          "OloEngine-LuaScriptCore",
+          "OloEngine-ScriptCore",
+          "Sandbox-Scripting",
+          "MonoDebuggerEvidence"
+        ],
+        "exitCode": 0,
+        "log": "build-mono-review-before-project-path.log",
+        "reviewFixValidation": "Required managed assemblies and full smoke output capture",
+        "rawLogSha256": "ef0a16f62f6d71485559c6e8f416c68d11a3bc287e99e94fd5cc0b3d0deb52a9"
+      },
+      {
+        "OLO_WITH_CSHARP": "ON",
+        "configurations": [
+          "Debug",
+          "Release"
+        ],
+        "targets": [
+          "OloEngine",
+          "OloEditor",
+          "OloRuntime",
+          "OloServer",
+          "OloEngine-Tests",
+          "OloEngine-LuaScriptCore",
+          "OloEngine-ScriptCore",
+          "Sandbox-Scripting",
+          "MonoDebuggerEvidence"
+        ],
+        "exitCode": 0,
+        "log": "build-mono-review.log",
+        "reviewFixValidation": "Empty optional project paths and regression",
+        "rawLogSha256": "ee51e6c3dcc0b276311149dc1ae53277936c80344f8e854597f870d702d3c6d1"
+      },
+      {
+        "OLO_WITH_CSHARP": "OFF",
+        "configurations": [
+          "Debug",
+          "Release"
+        ],
+        "targets": [
+          "OloEngine",
+          "OloEditor",
+          "OloRuntime",
+          "OloServer",
+          "OloEngine-Tests",
+          "OloEngine-LuaScriptCore",
+          "MonoDebuggerEvidence"
+        ],
+        "exitCode": 0,
+        "log": "build-mono-review-off.log",
+        "lockLog": "build-mono-review-off-lock.log",
+        "reviewFixValidation": "Required assemblies, full output capture, empty optional project paths",
+        "rawLogSha256": "ceeaeef0ce06777237d5f93493e507e8c4dffc2021d6de148ff91f3781a3a2d0"
+      },
+      {
+        "OLO_WITH_CSHARP": "ON",
+        "configurations": [
+          "Debug",
+          "Release"
+        ],
+        "targets": [
+          "OloEngine",
+          "OloEditor",
+          "OloRuntime",
+          "OloServer",
+          "OloEngine-Tests",
+          "OloEngine-LuaScriptCore",
+          "OloEngine-ScriptCore",
+          "Sandbox-Scripting",
+          "MonoDebuggerEvidence"
+        ],
+        "exitCode": 0,
+        "log": "build-mono-review-restored-on.log",
+        "lockLog": "build-mono-review-off-lock.log",
+        "reviewFixValidation": "Required assemblies, full output capture, empty optional project paths",
+        "restoredAfterOffChecks": true,
+        "rawLogSha256": "995340b0e5722d7bb06e829549ecbe1742acbc4334b5eb995391d4ec45b3d4fa"
+      }
+    ]
+  },
+  "scratchInputHashes": {
+    "build-cached\\MonoDebuggerEvidence.cpp": "add2283c14aeef3bba4a5c3ede65abc886db363112a8cef583123fe28845999e",
+    "build-cached\\mono-script\\MonoProbe.cs": "3c5db1bbba694df554cb62d6a752303341611514b9e9e0cbbc4ddd6919c3be92",
+    "build-cached\\mono-project\\Assets\\Scenes\\Mono.oloscene": "237274929a06260b08cb07352422dcb30a659fa4b2c819c63bc9dc465f146aa6",
+    "build-cached\\mono-project\\Assets\\Scripts\\Probe.lua": "b9b93e046ca3f0c1b5cd51247b1fd74f9713d59d3e8eea624a2c0e983df36e13"
+  },
+  "debuggerProtocolReference": "https://github.com/mono/mono/blob/main/mcs/class/Mono.Debugger.Soft/Mono.Debugger.Soft/Connection.cs",
+  "methodology": "Real host logs, owned TCP listeners, DWP handshake, PDB sequence points and accepted source breakpoints. Runtime/server opt-in also requires a matching breakpoint event. Editor reload, Play/Stop and error buffer are queried through its private MCP session. Concurrent ordinary Release runtimes load a production Build Game pack while the verifier binds 2550. OLO_WITH_CSHARP=OFF controls assembly targets on Windows; missing-assembly checks temporarily remove only the probe cwd assemblies and restore them. Linux Mono-free host startup is covered separately by PR CI.",
+  "nonMonoListeners": "Tracy may own 8086 (or the next free port); editor MCP owns private 17440. These are recorded independently of Mono 2550."
+}

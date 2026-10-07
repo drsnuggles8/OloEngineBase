@@ -34,6 +34,7 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <string_view>
 #include <vector>
 
 // CMake injects each shipped binary's on-disk path (forward-slashed). A target
@@ -67,7 +68,8 @@ namespace
     // and stays well under the CTest per-test timeout.
     constexpr unsigned kSmokeTimeoutMs = 30000;
 
-    void RunLaunchSmoke(const char* exePath, const std::vector<std::string>& args)
+    void RunLaunchSmoke(const char* exePath, const std::vector<std::string>& args,
+                        std::string_view monoPolicy = {}, std::string_view requiredOutput = {})
     {
         namespace fs = std::filesystem;
 
@@ -89,7 +91,9 @@ namespace
         // matters"). DLLs are found next to the .exe regardless of this cwd.
         const std::string workingDir = OLO_TEST_EDITOR_ROOT;
 
-        const LaunchResult r = RunProcessWithTimeout(exePath, args, workingDir, kSmokeTimeoutMs);
+        // Retain the full capture: verbose binding scans must not discard startup
+        // policy messages. Other callers keep the default diagnostic tail.
+        const LaunchResult r = RunProcessWithTimeout(exePath, args, workingDir, kSmokeTimeoutMs, 0);
 
         ASSERT_TRUE(r.Launched) << "Failed to launch " << exePath << ": " << r.Error;
         ASSERT_FALSE(r.TimedOut) << exePath << " did not exit within " << kSmokeTimeoutMs
@@ -99,6 +103,27 @@ namespace
                                     "lines is a teardown hang, not a startup one.\n"
                                     "--- captured child output ---\n"
                                  << r.Output << "\n--- end ---";
+        if (!requiredOutput.empty())
+        {
+            EXPECT_NE(r.Output.find(requiredOutput), std::string::npos)
+                << "Expected launch path was not reached.\n"
+                << r.Output;
+        }
+#if OLO_ENABLE_CSHARP_SCRIPTING
+        if (!monoPolicy.empty())
+        {
+            EXPECT_NE(r.Output.find(monoPolicy), std::string::npos)
+                << "Unexpected Mono debugger startup policy.\n"
+                << r.Output;
+        }
+#else
+        if (!monoPolicy.empty())
+        {
+            EXPECT_NE(r.Output.find("C# scripting disabled (Mono not available on this platform)"), std::string::npos)
+                << "Expected the Mono-free scripting stub.\n"
+                << r.Output;
+        }
+#endif
         EXPECT_EQ(r.ExitCode, 0) << exePath << " exited with code " << r.ExitCode
                                  << ". A non-zero exit means startup failed — most likely a missing "
                                     "runtime DLL (the regression class issue #303 targets) or a "
@@ -113,7 +138,20 @@ namespace
 // with a developer's running server on the default 7777.
 TEST(AppLaunchSmoke, OloServerLaunchesCleanly)
 {
-    RunLaunchSmoke(OLO_TEST_OLOSERVER_EXE, { "--smoke-test", "--port", "28777" });
+    RunLaunchSmoke(OLO_TEST_OLOSERVER_EXE, { "--smoke-test", "--port", "28777" }, "Mono debugging disabled");
+}
+
+TEST(AppLaunchSmoke, OloServerStopsAHeadlessSceneCleanly)
+{
+    const auto project = OloEngine::Tests::TempDir("server-headless-scene") / "project with spaces";
+    const auto scene = project / "Assets" / "Scenes" / "Empty.olo";
+    std::filesystem::create_directories(scene.parent_path());
+    std::ofstream(scene) << "Scene: HeadlessShutdown\nVersion: 1\nEntities: []\n";
+    // Runtime stop releases cursor capture even in an empty scene. A real
+    // headless Application exists here but intentionally owns no Window.
+    RunLaunchSmoke(OLO_TEST_OLOSERVER_EXE,
+                   { "--smoke-test", "--port", "28777", "--project", project.string(), "--scene", scene.string() },
+                   "Mono debugging disabled", "[Server] Scene loaded and started");
 }
 
 // OloEditor/OloRuntime need a real GL 4.6 context for their UI/render layers,
@@ -121,12 +159,32 @@ TEST(AppLaunchSmoke, OloServerLaunchesCleanly)
 // the binary starts and loads its DLLs. See OloEditorApp.cpp for the rationale.
 TEST(AppLaunchSmoke, OloEditorLaunchesCleanly)
 {
-    RunLaunchSmoke(OLO_TEST_OLOEDITOR_EXE, { "--smoke-test" });
+#if OLO_TEST_HOST_DEBUG
+    constexpr std::string_view monoPolicy = "Mono debugging enabled";
+#else
+    constexpr std::string_view monoPolicy = "Mono debugging disabled";
+#endif
+    RunLaunchSmoke(OLO_TEST_OLOEDITOR_EXE, { "--smoke-test" }, monoPolicy);
 }
 
 TEST(AppLaunchSmoke, OloRuntimeLaunchesCleanly)
 {
-    RunLaunchSmoke(OLO_TEST_OLORUNTIME_EXE, { "--smoke-test" });
+    RunLaunchSmoke(OLO_TEST_OLORUNTIME_EXE, { "--smoke-test" }, "Mono debugging disabled");
+}
+
+TEST(AppLaunchSmoke, OloServerAcceptsMonoDebugOptIn)
+{
+    RunLaunchSmoke(OLO_TEST_OLOSERVER_EXE, { "--smoke-test", "--port", "28777", "--mono-debug" }, "Mono debugging enabled");
+}
+
+TEST(AppLaunchSmoke, OloEditorAcceptsMonoDebugOptIn)
+{
+    RunLaunchSmoke(OLO_TEST_OLOEDITOR_EXE, { "--smoke-test", "--mono-debug" }, "Mono debugging enabled");
+}
+
+TEST(AppLaunchSmoke, OloRuntimeAcceptsMonoDebugOptIn)
+{
+    RunLaunchSmoke(OLO_TEST_OLORUNTIME_EXE, { "--smoke-test", "--mono-debug" }, "Mono debugging enabled");
 }
 
 // oloctl has no --smoke-test: it is not an engine app and starts no subsystems.

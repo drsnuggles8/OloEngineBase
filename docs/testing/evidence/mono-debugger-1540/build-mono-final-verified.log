@@ -1,0 +1,31 @@
+[build-lock] parallelism: -j6 (free 35.1 GB) via CMAKE_BUILD_PARALLEL_LEVEL
+[build-lock] acquired (pid=73736) slot=1 of 2, 2 building -> cmake --preset dev-cached -DCMAKE_TOOLCHAIN_FILE=D:/vcpkg/scripts/buildsystems/vcpkg.cmake -DFETCHCONTENT_UPDATES_DISCONNECTED=ON
+cmake --build build-cached --target OloEngine OloEditor OloRuntime OloServer OloEngine-Tests OloEngine-LuaScriptCore OloEngine-ScriptCore Sandbox-Scripting MonoDebuggerEvidence --config Debug --parallel 6
+cmake --build build-cached --target OloEngine OloEditor OloRuntime OloServer OloEngine-Tests OloEngine-LuaScriptCore OloEngine-ScriptCore Sandbox-Scripting MonoDebuggerEvidence --config Release --parallel 6
+[11/708] Linking CXX static library OloEngine\vendor\Debug\ffx_fsr2_gl.lib
+Build succeeded.
+[466/707] Linking CXX static library C:\repos\OloEngine-mono-debugger-host-policy-1540\bin\Debug\OloEngineContent\OloEngineContent.lib; Checking OloEngineContent archive size against the 4 GiB COFF limit
+[469/707] Linking CXX static library C:\repos\OloEngine-mono-debugger-host-policy-1540\bin\Debug\OloEngineRenderer\OloEngineRenderer.lib; Checking OloEngineRenderer archive size against the 4 GiB COFF limit
+[472/707] Linking CXX static library C:\repos\OloEngine-mono-debugger-host-policy-1540\bin\Debug\OloEngine\OloEngine.lib; Checking OloEngine archive size against the 4 GiB COFF limit
+[479/707] Linking CXX executable C:\repos\OloEngine-mono-debugger-host-policy-1540\bin\Debug\OloRuntime\OloRuntime.exe; Copying FFmpeg runtime libs to OloRuntime output dir
+[667/707] Linking CXX static library OloEditor\src\Debug\OloEditorCore.lib
+[702/707] Linking CXX executable C:\repos\OloEngine-mono-debugger-host-policy-1540\bin\Debug\MonoDebuggerEvidence\MonoDebuggerEvidence.exe
+[704/707] Linking CXX executable C:\repos\OloEngine-mono-debugger-host-policy-1540\bin\Debug\OloServer\OloServer.exe; Copying FFmpeg runtime libs to OloServer output dir
+[705/707] Linking CXX executable OloEngine\tests\Debug\OloEngine-Tests.exe; Copying FFmpeg runtime libs to OloEngine-Tests output dir
+[706/707] Linking CXX executable C:\repos\OloEngine-mono-debugger-host-policy-1540\bin\Debug\OloEditor\OloEditor.exe; Copying FFmpeg runtime libs to OloEditor output dir; Staging USD plugInfo tree next to OloEditor
+[8/1918] Linking CXX executable C:\repos\OloEngine-mono-debugger-host-policy-1540\bin\Release\oloctl\oloctl.exe
+[9/1918] Linking CXX static library OloEngine\vendor\Release\ffx_fsr2_gl.lib
+[10/1918] Linking CXX shared library C:\repos\OloEngine-mono-debugger-host-policy-1540\OloEditor\Resources\Scripts\OloEngine-LuaScriptCore.dll
+Build succeeded.
+Build succeeded.
+[1347/1918] Linking CXX static library C:\repos\OloEngine-mono-debugger-host-policy-1540\bin\Release\OloEngineContent\OloEngineContent.lib; Checking OloEngineContent archive size against the 4 GiB COFF limit
+[1349/1918] Linking CXX static library C:\repos\OloEngine-mono-debugger-host-policy-1540\bin\Release\OloEngineRenderer\OloEngineRenderer.lib; Checking OloEngineRenderer archive size against the 4 GiB COFF limit
+[1351/1918] Linking CXX static library C:\repos\OloEngine-mono-debugger-host-policy-1540\bin\Release\OloEngine\OloEngine.lib; Checking OloEngine archive size against the 4 GiB COFF limit
+[1387/1918] Linking CXX executable C:\repos\OloEngine-mono-debugger-host-policy-1540\bin\Release\OloRuntime\OloRuntime.exe; Copying FFmpeg runtime libs to OloRuntime output dir
+[1866/1918] Linking CXX static library OloEngine-VolumeCook\src\Release\OloEngine-VolumeCook.lib
+[1868/1918] Linking CXX static library OloEditor\src\Release\OloEditorCore.lib
+[1913/1918] Linking CXX executable C:\repos\OloEngine-mono-debugger-host-policy-1540\bin\Release\MonoDebuggerEvidence\MonoDebuggerEvidence.exe
+[1914/1918] Linking CXX executable C:\repos\OloEngine-mono-debugger-host-policy-1540\bin\Release\OloServer\OloServer.exe; Copying FFmpeg runtime libs to OloServer output dir
+[1916/1918] Linking CXX executable OloEngine\tests\Release\OloEngine-Tests.exe; Copying FFmpeg runtime libs to OloEngine-Tests output dir
+[1917/1918] Linking CXX executable C:\repos\OloEngine-mono-debugger-host-policy-1540\bin\Release\OloEditor\OloEditor.exe; Copying FFmpeg runtime libs to OloEditor output dir; Staging USD plugInfo tree next to OloEditor
+[build-lock] released (pid=73736)

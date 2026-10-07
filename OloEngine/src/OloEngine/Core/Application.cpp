@@ -40,6 +40,18 @@
 
 namespace OloEngine
 {
+    bool ApplicationSpecification::ShouldEnableMonoDebugging() const
+    {
+        // Use the engine's build configuration, even for callers that do not
+        // define its private OLO_DEBUG macro (including the test executable).
+#ifdef OLO_DEBUG
+        const bool editorDefault = IsEditor;
+#else
+        constexpr bool editorDefault = false;
+#endif
+        return editorDefault || CommandLineArgs.Contains("--mono-debug");
+    }
+
     Application* Application::s_Instance = nullptr;
     std::filesystem::path Application::s_StartupWorkingDirectory;
     Application::Application(ApplicationSpecification specification)
@@ -291,7 +303,7 @@ namespace OloEngine
                 SteamManager::Initialize();
             }
 
-            ScriptEngine::Init();
+            ScriptEngine::Init(m_Specification.ShouldEnableMonoDebugging());
             LuaScriptEngine::Init();
         }
         catch (...)

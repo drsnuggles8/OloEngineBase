@@ -39,6 +39,9 @@
 #include "OloEngine/Asset/AssetManager/RuntimeAssetManager.h"
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Project/Project.h"
+#include "OloEngine/Project/ProjectSerializer.h"
 #include "OloEngine/Serialization/AssetPackFile.h"
 #include "OloEngine/Serialization/FileStream.h"
 #include "OloEngine/Task/NamedThreads.h"
@@ -46,11 +49,78 @@
 
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <thread>
 #include <vector>
 
 using namespace OloEngine; // NOLINT(google-build-using-namespace)
+
+TEST(RuntimeAssetPackTest, EmptyProjectAssetPathsRemainUnset)
+{
+    const auto root = OloEngine::Tests::TempDir("project-empty-asset-paths");
+    std::filesystem::create_directories(root / "Assets");
+    const auto file = root / "NoManagedScripts.oloproj";
+    std::ofstream(file) << "Project:\n  Name: NoManagedScripts\n  StartScene: \"\"\n"
+                           "  AssetDirectory: Assets\n  ScriptModulePath: \"\"\n";
+    auto project = Ref<Project>::Create();
+    project->GetConfig().ScriptModulePath = "stale.dll";
+    project->GetConfig().StartScene = "stale.olo";
+    ProjectSerializer serializer(project);
+    ASSERT_TRUE(serializer.Deserialize(file));
+    EXPECT_TRUE(project->GetConfig().ScriptModulePath.empty());
+    EXPECT_TRUE(project->GetConfig().StartScene.empty());
+    EXPECT_EQ(project->GetConfig().AssetDirectory, std::filesystem::weakly_canonical(root / "Assets"));
+}
+
+TEST(RuntimeAssetPackTest, SceneSourceReadAndWriteUseTheProjectDirectory)
+{
+    namespace fs = std::filesystem;
+    const auto root = OloEngine::Tests::TempDir("pack-scene-source");
+    const auto relative = fs::path("Assets") / "Scenes" / "Registered.oloscene";
+    fs::create_directories((root / relative).parent_path());
+    std::ofstream(root / relative) << "Scene: Registered\nVersion: 1\nEntities:\n"
+                                      "  - Entity: 42\n    TagComponent:\n      Tag: PackSceneProbe\n";
+
+    struct ProjectScope
+    {
+        Ref<Project> Previous = Project::GetActive();
+        Ref<AssetManagerBase> Manager = Project::HasAssetManager() ? Project::GetAssetManager() : nullptr;
+        ~ProjectScope()
+        {
+            Project::Unload();
+            if (Previous)
+            {
+                Project::NewInMemory(Previous->GetDirectory(), Previous->GetConfig());
+            }
+            if (Manager)
+                Project::SetAssetManager(Manager);
+        }
+    } projectScope;
+    ProjectConfig config;
+    config.AssetDirectory = "Assets";
+    Project::NewInMemory(root, config);
+    ASSERT_NE(fs::current_path(), root);
+
+    SceneAssetSerializer serializer;
+    AssetMetadata metadata;
+    metadata.Handle = static_cast<AssetHandle>(42);
+    metadata.Type = AssetType::Scene;
+    metadata.FilePath = relative;
+    Ref<Asset> loaded;
+    ASSERT_TRUE(serializer.TryLoadData(metadata, loaded));
+    ASSERT_TRUE(loaded.As<Scene>()->FindEntityByName("PackSceneProbe"));
+    EXPECT_EQ(loaded->GetHandle(), metadata.Handle);
+
+    metadata.FilePath = fs::path("Assets") / "Scenes" / "Saved.oloscene";
+    serializer.Serialize(metadata, loaded);
+    ASSERT_TRUE(fs::is_regular_file(root / metadata.FilePath));
+    // Absolute registry paths must also retain their original location.
+    metadata.FilePath = root / metadata.FilePath;
+    Ref<Asset> saved;
+    ASSERT_TRUE(serializer.TryLoadData(metadata, saved));
+    EXPECT_TRUE(saved.As<Scene>()->FindEntityByName("PackSceneProbe"));
+}
 
 namespace
 {

@@ -34,6 +34,48 @@ namespace OloEngine
         }
     } // namespace
 
+    bool StageManagedAssembly(
+        const std::filesystem::path& source,
+        const std::filesystem::path& destination,
+        std::string& errorMessage)
+    {
+        errorMessage.clear();
+        std::error_code ec;
+        std::filesystem::create_directories(destination.parent_path(), ec);
+        if (!ec)
+        {
+            std::filesystem::copy_file(source, destination, std::filesystem::copy_options::overwrite_existing, ec);
+        }
+        if (ec)
+        {
+            errorMessage = "Failed to stage managed assembly " + source.string() + ": " + ec.message();
+            return false;
+        }
+
+        auto sourcePdb = source;
+        sourcePdb.replace_extension(".pdb");
+        auto destinationPdb = destination;
+        destinationPdb.replace_extension(".pdb");
+        const bool hasSymbols = std::filesystem::exists(sourcePdb, ec);
+        if (!ec)
+        {
+            if (hasSymbols)
+            {
+                std::filesystem::copy_file(sourcePdb, destinationPdb, std::filesystem::copy_options::overwrite_existing, ec);
+            }
+            else
+            {
+                std::filesystem::remove(destinationPdb, ec);
+            }
+        }
+        if (ec)
+        {
+            errorMessage = "Failed to stage managed symbols " + sourcePdb.string() + ": " + ec.message();
+            return false;
+        }
+        return true;
+    }
+
     bool StageRuntimeDependencyLibraries(
         BuildTargetPlatform targetPlatform,
         const std::filesystem::path& runtimeBinDir,
@@ -871,9 +913,7 @@ namespace OloEngine
         OLO_CORE_INFO("[GameBuild] Step 7/9: Copying ScriptCore assembly...");
         if (!CopyScriptCoreAssembly(settings, outputDir, result.ErrorMessage))
         {
-            // Not fatal — game may not use C# scripts
-            OLO_CORE_WARN("[GameBuild] ScriptCore copy failed (non-fatal): {}", result.ErrorMessage);
-            result.ErrorMessage.clear();
+            return result;
         }
         progress = 0.95f;
 
@@ -1322,42 +1362,34 @@ namespace OloEngine
 
         if (!std::filesystem::exists(scriptCoreSrc))
         {
-            errorMessage = "OloEngine-ScriptCore.dll not found at: " + scriptCoreSrc.string();
-            return false;
+            if (!Project::GetActive()->GetConfig().ScriptModulePath.empty())
+            {
+                errorMessage = "ScriptCore assembly required by the configured script module was not found: " + scriptCoreSrc.string();
+                return false;
+            }
+            // A game without C# scripts may intentionally omit ScriptCore.
+            OLO_CORE_WARN("[GameBuild] ScriptCore assembly absent; skipping managed assemblies: {}", scriptCoreSrc.string());
+            return true;
         }
 
         const std::filesystem::path scriptCoreDst = outputDir / "Resources" / "Scripts" / "OloEngine-ScriptCore.dll";
 
-        std::error_code ec;
-        std::filesystem::create_directories(scriptCoreDst.parent_path(), ec);
-        std::filesystem::copy_file(scriptCoreSrc, scriptCoreDst,
-                                   std::filesystem::copy_options::overwrite_existing, ec);
-        if (ec)
+        if (!StageManagedAssembly(scriptCoreSrc, scriptCoreDst, errorMessage))
         {
-            errorMessage = "Failed to copy ScriptCore assembly: " + ec.message();
             return false;
         }
 
-        // Also copy the app-specific script assembly if it exists
+        // A configured app-specific script assembly is required.
         if (const auto& projectConfig = Project::GetActive()->GetConfig(); !projectConfig.ScriptModulePath.empty())
         {
-            std::filesystem::path appScriptSrc = projectConfig.ScriptModulePath;
-            if (std::filesystem::exists(appScriptSrc))
+            const std::filesystem::path appScriptSrc = projectConfig.ScriptModulePath;
+            // Runtime looks for the assembly at Resources/Scripts/<filename>
+            const std::filesystem::path appScriptDst = outputDir / "Resources" / "Scripts" / appScriptSrc.filename();
+            if (!StageManagedAssembly(appScriptSrc, appScriptDst, errorMessage))
             {
-                // Runtime looks for the assembly at Resources/Scripts/<filename>
-                std::filesystem::path appScriptDst = outputDir / "Resources" / "Scripts" / appScriptSrc.filename();
-                std::filesystem::create_directories(appScriptDst.parent_path(), ec);
-                std::filesystem::copy_file(appScriptSrc, appScriptDst,
-                                           std::filesystem::copy_options::overwrite_existing, ec);
-                if (ec)
-                {
-                    OLO_CORE_WARN("[GameBuild] Failed to copy app script assembly: {}", ec.message());
-                }
-                else
-                {
-                    OLO_CORE_INFO("[GameBuild] App script assembly copied: {}", appScriptDst.string());
-                }
+                return false;
             }
+            OLO_CORE_INFO("[GameBuild] App script assembly copied: {}", appScriptDst.string());
         }
 
         OLO_CORE_INFO("[GameBuild] ScriptCore assembly copied");

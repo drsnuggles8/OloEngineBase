@@ -1,0 +1,22 @@
+{
+  "cell": "Release-editor-default",
+  "exitCode": 0,
+  "exeSha256": "9051423fb0a1433cd882ccd1ceb4e09a39de558ce4f85f1bb1f825b22ec046c1",
+  "listeners": [
+    {
+      "address": "::",
+      "port": 8087
+    },
+    {
+      "address": "0.0.0.0",
+      "port": 8087
+    }
+  ],
+  "debugger": null,
+  "externalMonoListenersAtStart": [],
+  "loadedPdbCount": 0,
+  "debuggerLogCreated": false,
+  "reloadSucceeded": true,
+  "managedTranslationY": 1,
+  "managedExceptionCaptured": true
+}

@@ -1,0 +1,133 @@
+{
+  "configuration": "Release",
+  "exitCode": 0,
+  "exeSha256": "7c993ca4d3d784dc6b644d2b29d5a2b26459853458acfa24b0b3682557b33f5a",
+  "filter": "MonoDebuggerPolicy.*:TestProcessOutput.*:AppLaunchSmoke.*:GameBuildPipelineTest.*:RuntimeAssetPackTest.*:PrefabOverrideTest.*:LuaScriptMutatesTransformViaSceneTickTest.*:McpReloadScriptTest.*:McpReloadScriptShaping.*:AssetCSharpScriptValidity.*:AssetLuaScriptValidity.*",
+  "totals": {
+    "tests": "87",
+    "failures": "0",
+    "disabled": "0",
+    "errors": "0",
+    "time": "12.33",
+    "timestamp": "2026-10-06T11:03:16.271",
+    "name": "AllTests"
+  },
+  "suites": [
+    {
+      "name": "MonoDebuggerPolicy",
+      "tests": "3",
+      "failures": "0",
+      "disabled": "0",
+      "skipped": "0",
+      "errors": "0",
+      "time": "0.001",
+      "timestamp": "2026-10-06T11:03:16.273"
+    },
+    {
+      "name": "TestProcessOutput",
+      "tests": "1",
+      "failures": "0",
+      "disabled": "0",
+      "skipped": "0",
+      "errors": "0",
+      "time": "0.022",
+      "timestamp": "2026-10-06T11:03:16.274"
+    },
+    {
+      "name": "AssetLuaScriptValidity",
+      "tests": "4",
+      "failures": "0",
+      "disabled": "0",
+      "skipped": "0",
+      "errors": "0",
+      "time": "0.551",
+      "timestamp": "2026-10-06T11:03:16.297"
+    },
+    {
+      "name": "AssetCSharpScriptValidity",
+      "tests": "4",
+      "failures": "0",
+      "disabled": "0",
+      "skipped": "0",
+      "errors": "0",
+      "time": "0.545",
+      "timestamp": "2026-10-06T11:03:16.848"
+    },
+    {
+      "name": "RuntimeAssetPackTest",
+      "tests": "8",
+      "failures": "0",
+      "disabled": "0",
+      "skipped": "0",
+      "errors": "0",
+      "time": "0.479",
+      "timestamp": "2026-10-06T11:03:17.393"
+    },
+    {
+      "name": "AppLaunchSmoke",
+      "tests": "8",
+      "failures": "0",
+      "disabled": "0",
+      "skipped": "0",
+      "errors": "0",
+      "time": "10.486",
+      "timestamp": "2026-10-06T11:03:17.873"
+    },
+    {
+      "name": "PrefabOverrideTest",
+      "tests": "31",
+      "failures": "0",
+      "disabled": "0",
+      "skipped": "0",
+      "errors": "0",
+      "time": "0.006",
+      "timestamp": "2026-10-06T11:03:28.359"
+    },
+    {
+      "name": "GameBuildPipelineTest",
+      "tests": "20",
+      "failures": "0",
+      "disabled": "0",
+      "skipped": "1",
+      "errors": "0",
+      "time": "0.202",
+      "timestamp": "2026-10-06T11:03:28.365"
+    },
+    {
+      "name": "McpReloadScriptTest",
+      "tests": "5",
+      "failures": "0",
+      "disabled": "0",
+      "skipped": "0",
+      "errors": "0",
+      "time": "0.001",
+      "timestamp": "2026-10-06T11:03:28.568"
+    },
+    {
+      "name": "McpReloadScriptShaping",
+      "tests": "2",
+      "failures": "0",
+      "disabled": "0",
+      "skipped": "0",
+      "errors": "0",
+      "time": "0.",
+      "timestamp": "2026-10-06T11:03:28.569"
+    },
+    {
+      "name": "LuaScriptMutatesTransformViaSceneTickTest",
+      "tests": "1",
+      "failures": "0",
+      "disabled": "0",
+      "skipped": "0",
+      "errors": "0",
+      "time": "0.033",
+      "timestamp": "2026-10-06T11:03:28.569"
+    }
+  ],
+  "skipped": [
+    {
+      "name": "GameBuildPipelineTest.LinuxLauncherExecutesFromARelocatedPackage",
+      "reason": "..\\OloEngine\\tests\\Build\\GameBuildPipelineTest.cpp:229\nRequires a Linux shell and filesystem permissions.\n"
+    }
+  ]
+}

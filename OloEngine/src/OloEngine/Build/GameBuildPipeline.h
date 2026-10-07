@@ -38,6 +38,13 @@ namespace OloEngine
         sizet& copiedCount,
         std::string& errorMessage);
 
+    // Stage a managed DLL and its optional matching PDB. A rebuild without
+    // symbols removes the old destination PDB so it cannot describe a different DLL.
+    bool StageManagedAssembly(
+        const std::filesystem::path& source,
+        const std::filesystem::path& destination,
+        std::string& errorMessage);
+
     /**
      * @brief Stage project textures needed by legacy path-based scene components.
      *

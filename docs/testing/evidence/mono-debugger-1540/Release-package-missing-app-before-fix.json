@@ -1,0 +1,11 @@
+{
+  "cell": "Release-package-missing-app-before-fix",
+  "configuration": "Release",
+  "exeSha256": "f99234d756711bd0ad613e1c8982de0b27f78aa6ec475abe93935c6fa29ddaea",
+  "exitCode": 0,
+  "scriptModuleConfigured": true,
+  "scriptCoreAbsentDuringBuild": false,
+  "appAssemblyAbsentDuringBuild": true,
+  "pipelineSuccess": true,
+  "originalCoreAndProjectRestored": true
+}

@@ -217,6 +217,9 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 
 ## Scene, ECS and serialization
 
+- [scene-registry-source-path.md](scene-registry-source-path.md): resolve scene registry paths against the active project before reading or writing source files.
+- [project-optional-paths.md](project-optional-paths.md): preserve empty optional project paths before resolving them against the asset directory.
+
 - [component-serializer-codegen.md](component-serializer-codegen.md): when a component round-trips for free, when to annotate a field, and every generated touch-point's exclusion set.
 - [scene-binary-sidecar.md](scene-binary-sidecar.md): the `.scenebin` fast path: generated, hybrid-covered, and how it is invalidated — reordering a covered component's fields is a version bump like adding one.
 - [binary-format-versioning.md](binary-format-versioning.md): every on-disk format reads exactly its current version and rejects any other with a fix message; a bump migrates the repo's content in the same PR, and a fixed-order archive is framed and length-checked.
@@ -227,6 +230,8 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [derived-graph-must-outlive-its-source.md](derived-graph-must-outlive-its-source.md): before answering "what points at X" from an existing graph, enumerate its writers and check the direction of every edge; and a direction bug can be invisible because its reader is wrong the same way, so change both halves together.
 
 ## Gameplay, physics and simulation
+
+- [headless-input-window.md](headless-input-window.md): check the headless host role before obtaining a platform input window.
 
 - [force-model-vehicles.md](force-model-vehicles.md): boats and aircraft driven by `AddForce`; every bug here leaves the suite green.
 - [jolt-softbody-kinematic-attachment.md](jolt-softbody-kinematic-attachment.md): drive a pinned cloth vertex by velocity, never by position.
@@ -284,6 +289,9 @@ The dominant archetype here. If your change is in one of these areas, a passing 
 
 | Doc | What stayed green |
 |---|---|
+| [headless-input-window.md](headless-input-window.md) | A server executes its scene successfully, then cursor release dereferences its absent window during shutdown; require a real scene start before checking clean exit. |
+| [scene-registry-source-path.md](scene-registry-source-path.md) | Direct scene opens work, but Build Game cannot load a registered scene because its project-relative path is opened from the editor working directory. |
+| [project-optional-paths.md](project-optional-paths.md) | An empty script-module path becomes the asset directory, so a project without a configured C# module is treated as requesting one. |
 | [force-model-vehicles.md](force-model-vehicles.md) | A boat with no thrust still floats and an oscillating aircraft still has finite positions. |
 | [shadow-receiver-bias-is-texels-of-the-map-sampled.md](shadow-receiver-bias-is-texels-of-the-map-sampled.md) | The VSM-against-CSM floor test compared a 5 m cube's shadow, which the VSM's own 7 cm bias does not change, while every contact shadow within 7 cm went missing; a dog's chest under its chin read 9% brighter. |
 | [vulkan-software-driver-ci.md](vulkan-software-driver-ci.md) | A CI job that runs the Vulkan suite on a driver below the ADR 0010 contract: every device-gated test skips, gtest prints `[  PASSED  ]`, the job is green and nothing about Vulkan was verified. Mesa 26.1.8's lavapipe is the trap's live example — it clears the Vulkan 1.4 bar everyone checks and exposes none of the three extensions that actually decide it. |
