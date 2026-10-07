@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Renderer/Shadow/ShadowCasterFootprint.h"
+
 #include "OloEngine/Containers/Array.h"
 #include "OloEngine/Containers/LinkedList.h"
 
@@ -1479,12 +1481,13 @@ namespace OloEngine
 
         static void AddTerrainShadowCaster(RHI::ResourceHandle vaoID, u32 indexCount, u32 patchVertexCount,
                                            const glm::mat4& transform, RHI::ResourceHandle heightmapTextureID,
-                                           const ShaderBindingLayout::TerrainUBO& terrainUBO);
+                                           const ShaderBindingLayout::TerrainUBO& terrainUBO,
+                                           const ShadowCasterFootprint& footprint = {});
 
         // instanceCount > 0 selects the packed-quad depth shader + instanced
         // draw (issue #727); 0 keeps the marching-cubes triangle-soup path.
         static void AddVoxelShadowCaster(RHI::ResourceHandle vaoID, u32 indexCount, const glm::mat4& transform,
-                                         u32 instanceCount = 0);
+                                         u32 instanceCount = 0, const ShadowCasterFootprint& footprint = {});
 
         static void AddFoliageShadowCaster(FoliageRenderer* renderer, const Ref<Shader>& depthShader, f32 time);
 

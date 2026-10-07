@@ -147,6 +147,48 @@ namespace
     }
 } // namespace
 
+TEST(RuntimeAssetPackTest, SceneRegistryPathsLoadAndSaveUnderTheProjectRoot)
+{
+    struct ProjectGuard
+    {
+        Ref<Project> Previous = Project::GetActive();
+        Ref<AssetManagerBase> Assets = Project::HasAssetManager() ? Project::GetAssetManager() : nullptr;
+        ~ProjectGuard()
+        {
+            Project::Unload();
+            if (Previous)
+                Project::NewInMemory(Previous->GetDirectory(), Previous->GetConfig());
+            if (Assets)
+                Project::SetAssetManager(Assets);
+        }
+    } projectGuard;
+    const auto root = OloEngine::Tests::TempDir("scene-registry-path");
+    fs::create_directories(root / "Assets/Scenes");
+    ProjectConfig config;
+    config.AssetDirectory = "Assets";
+    ASSERT_TRUE(Project::NewInMemory(root, config));
+    const auto relative = fs::path("Assets/Scenes") / ("Scene-" + root.filename().string() + ".olo");
+    const auto wrongPath = fs::current_path() / relative;
+    ASSERT_FALSE(fs::exists(wrongPath));
+    AssetMetadata metadata;
+    metadata.Handle = AssetHandle(0x1524);
+    metadata.Type = AssetType::Scene;
+    metadata.FilePath = relative;
+    auto original = Ref<Scene>::Create();
+    original->SetName("project-relative scene");
+    SceneAssetSerializer serializer;
+    serializer.Serialize(metadata, original);
+    ASSERT_TRUE(fs::exists(root / relative));
+    EXPECT_FALSE(fs::exists(wrongPath));
+    Ref<Asset> loaded;
+    ASSERT_TRUE(serializer.TryLoadData(metadata, loaded));
+    ASSERT_TRUE(loaded);
+    EXPECT_EQ(loaded->GetHandle(), metadata.Handle);
+    EXPECT_EQ(loaded.As<Scene>()->GetName(), relative.filename().string());
+    metadata.FilePath = root / relative;
+    ASSERT_TRUE(serializer.TryLoadData(metadata, loaded)) << "absolute paths must remain valid";
+}
+
 // -----------------------------------------------------------------------------
 // 1. Scene pack deserialize round-trip (direct serializer, no manager).
 // -----------------------------------------------------------------------------

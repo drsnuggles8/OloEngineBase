@@ -7,6 +7,7 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 #include <cstring>
+#include <limits>
 
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Ray.h"
@@ -125,4 +126,30 @@ TEST(VoxelEdit, DeserializeRejectsAWrongVersionOrAHeaderlessBlob)
 
     EXPECT_EQ(restored->GetChunkCount(), chunksBefore);
     EXPECT_FLOAT_EQ(restored->GetVoxelSDF({ 3, 4, 5 }), -1.0f);
+}
+
+TEST(VoxelEdit, DeserializeRejectsNonFiniteSamplesAndUnsafeChunkCoordinatesWithoutMutation)
+{
+    auto voxels = MakeVoxels();
+    voxels->SetVoxel({ 3, 4, 5 }, -1.0f, 7);
+    const auto valid = voxels->SerializeRLE();
+    ASSERT_GT(valid.Num(), 32);
+    auto restored = MakeVoxels();
+    ASSERT_TRUE(restored->DeserializeRLE(valid));
+    for (const f32 value : { std::numeric_limits<f32>::quiet_NaN(), std::numeric_limits<f32>::infinity(),
+                             -std::numeric_limits<f32>::infinity() })
+    {
+        auto corrupt = valid;
+        // VOX1 header (12), chunk coordinate (12), run count (4), first SDF.
+        std::memcpy(corrupt.GetData() + 28, &value, sizeof(value));
+        EXPECT_FALSE(restored->DeserializeRLE(corrupt));
+        EXPECT_FLOAT_EQ(restored->GetVoxelSDF({ 3, 4, 5 }), -1.0f);
+    }
+    for (const i32 coord : { std::numeric_limits<i32>::min(), std::numeric_limits<i32>::max() })
+    {
+        auto corrupt = valid;
+        std::memcpy(corrupt.GetData() + 12, &coord, sizeof(coord));
+        EXPECT_FALSE(restored->DeserializeRLE(corrupt));
+        EXPECT_FLOAT_EQ(restored->GetVoxelSDF({ 3, 4, 5 }), -1.0f);
+    }
 }

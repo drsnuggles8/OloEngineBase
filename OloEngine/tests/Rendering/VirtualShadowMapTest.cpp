@@ -17,6 +17,7 @@
 
 #include "OloEngine/Renderer/Shadow/VirtualShadowMap.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Terrain/TerrainData.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -31,7 +32,23 @@
 #include <sstream>
 #include <string>
 
+#include "OloEngine/Renderer/Shadow/ShadowFamilyCache.h"
+#include "OloEngine/Renderer/Shadow/ShadowInvalidationQueue.h"
+#include "OloEngine/Renderer/Shadow/TerrainShadowRevision.h"
+
 using namespace OloEngine;
+
+TEST(ShadowFamilyContract, FailedHeightSynchronizationRetainsUnknownBoundsWithoutRetrying)
+{
+    TerrainData heightmap;
+    ASSERT_TRUE(heightmap.GetHeightRange().has_value());
+    heightmap.MarkGPUModified();
+    heightmap.SyncFromGPU(); // no texture: the GPU update cannot be mirrored
+    EXPECT_FALSE(heightmap.IsCPUMirrorStale()) << "failed synchronization must not retry every frame";
+    EXPECT_FALSE(heightmap.GetHeightRange().has_value()) << "old CPU data cannot bound the GPU surface";
+    heightmap.SyncFromGPU();
+    EXPECT_FALSE(heightmap.GetHeightRange().has_value());
+}
 
 namespace
 {
@@ -632,8 +649,7 @@ TEST(VirtualShadowMap, PhysicalResolutionIsClampedToAWholeNumberOfPages)
     // The default is what the acceptance criterion's VRAM comparison is quoted
     // against, so a silent change to it must show up here.
     const VirtualShadowMapSettings defaults{};
-    EXPECT_FALSE(defaults.Enabled) << "VSM must stay opt-in: it does not yet cover terrain / foliage / "
-                                      "voxel / virtual-geometry casters";
+    EXPECT_FALSE(defaults.Enabled) << "VSM stays opt-in; virtual-geometry local layers remain unsupported";
 
     // The two projection flavours must be SEPARATE members. Collapsing them to
     // one would work on GL (where the backend adjustment is identity) and flip
@@ -645,4 +661,175 @@ TEST(VirtualShadowMap, PhysicalResolutionIsClampedToAWholeNumberOfPages)
     EXPECT_EQ(4096u, defaults.PhysicalResolution);
     EXPECT_GT(defaults.DepthRange, 0.0f);
     EXPECT_GT(defaults.Clip0HalfExtent, 0.0f);
+}
+
+TEST(ShadowFamilyCache, StaticPagesAreReusedAndRemovalInvalidatesTheOldFootprint)
+{
+    ShadowFamilyCache cache;
+    std::array<ShadowFamilyFootprint, 1> casters{ ShadowFamilyFootprint{ 7, BoundingBox({ -2, 0, -2 }, { 2, 4, 2 }) } };
+    TArray64<BoundingBox> dirty;
+    const auto invalidate = [&](const BoundingBox& bounds)
+    { dirty.Add(bounds); };
+    cache.Update(casters, invalidate);
+    ASSERT_EQ(dirty.Num(), 1);
+    dirty.Reset();
+    cache.Update(casters, invalidate);
+    EXPECT_TRUE(dirty.IsEmpty());
+    cache.Update({}, invalidate);
+    ASSERT_EQ(dirty.Num(), 1);
+    EXPECT_FLOAT_EQ(dirty[0].Max.y, 4.0f);
+}
+
+TEST(ShadowFamilyCache, TerrainFeedbackAndMaterialChangesReuseTheSilhouette)
+{
+    ShaderBindingLayout::TerrainUBO terrain{};
+    terrain.WorldSizeAndHeightScale = { 8, 8, 4, 4 };
+    terrain.HeightmapResolution = 65;
+    terrain.TessFactors = glm::vec4(4.0f);
+    terrain.TessFactors2 = { 4, 0, 0, 1 };
+    const u64 revision = TerrainShadowRevision(7, terrain);
+    ShadowFamilyCache cache;
+    std::array<ShadowFamilyFootprint, 1> caster{ ShadowFamilyFootprint{ 7, BoundingBox({ 0, 0, 0 }, { 8, 4, 8 }), glm::mat4(1.0f), revision } };
+    cache.Update(caster, [](const BoundingBox&) {});
+    terrain.VTParams2.y = 3.0f;
+    terrain.VTSectors[0] = glm::vec4(2.0f);
+    terrain.LayerTilingScales0 = glm::vec4(5.0f);
+    caster[0].Revision = TerrainShadowRevision(7, terrain);
+    EXPECT_EQ(caster[0].Revision, revision);
+    u32 dirty = 0;
+    cache.Update(caster, [&](const BoundingBox&)
+                 { ++dirty; });
+    EXPECT_EQ(dirty, 0u);
+
+    for (u32 change = 0; change < 4; ++change)
+    {
+        auto edited = terrain;
+        if (change == 0)
+            edited.WorldSizeAndHeightScale.z += 1.0f;
+        else if (change == 1)
+            edited.TessFactors2.y = 0.5f;
+        else if (change == 2)
+            edited.TessFactors.x += 1.0f;
+        else
+            ++edited.HeightmapResolution;
+        EXPECT_NE(TerrainShadowRevision(7, edited), revision) << change;
+    }
+}
+
+TEST(ShadowFamilyCache, MotionInvalidatesBothOldAndNewPositions)
+{
+    ShadowFamilyCache cache;
+    std::array<ShadowFamilyFootprint, 1> casters{ ShadowFamilyFootprint{ 9, BoundingBox({ 0, 0, 0 }, { 1, 1, 1 }) } };
+    cache.Update(casters, [](const BoundingBox&) {});
+    casters[0].Bounds = BoundingBox({ 10, 0, 0 }, { 11, 1, 1 });
+    TArray64<BoundingBox> dirty;
+    cache.Update(casters, [&](const BoundingBox& bounds)
+                 { dirty.Add(bounds); });
+    ASSERT_EQ(dirty.Num(), 1);
+    EXPECT_FLOAT_EQ(dirty[0].Min.x, 0.0f);
+    EXPECT_FLOAT_EQ(dirty[0].Max.x, 11.0f);
+}
+
+TEST(ShadowFamilyCache, RotationHeightEditsAndDeformationInvalidateWithoutABoundsChange)
+{
+    ShadowFamilyCache cache;
+    std::array<ShadowFamilyFootprint, 1> casters{ ShadowFamilyFootprint{ 11, BoundingBox({ -1, -1, -1 }, { 1, 1, 1 }) } };
+    cache.Update(casters, [](const BoundingBox&) {});
+    u32 dirty = 0;
+    const auto invalidate = [&](const BoundingBox&)
+    { ++dirty; };
+    casters[0].Transform = glm::rotate(glm::mat4(1.0f), 1.0f, glm::vec3(0, 1, 0));
+    cache.Update(casters, invalidate);
+    EXPECT_EQ(dirty, 1u);
+    ++casters[0].Revision;
+    cache.Update(casters, invalidate);
+    EXPECT_EQ(dirty, 2u);
+    casters[0].Deforming = true;
+    cache.Update(casters, invalidate);
+    EXPECT_EQ(dirty, 3u);
+}
+
+TEST(ShadowFamilyCache, StoppingDeformationInvalidatesTheLastDynamicSilhouetteOnce)
+{
+    ShadowFamilyCache cache;
+    std::array<ShadowFamilyFootprint, 1> casters{ ShadowFamilyFootprint{ 11, BoundingBox({ -1, -1, -1 }, { 1, 1, 1 }) } };
+    casters[0].Deforming = true;
+    cache.Update(casters, [](const BoundingBox&) {});
+    u32 dirty = 0;
+    const auto invalidate = [&](const BoundingBox&)
+    { ++dirty; };
+    casters[0].Deforming = false;
+    cache.Update(casters, invalidate);
+    EXPECT_EQ(dirty, 1u);
+    cache.Update(casters, invalidate);
+    EXPECT_EQ(dirty, 1u);
+}
+
+TEST(ShadowFamilyCache, SubmissionOrderDoesNotChangeCasterIdentity)
+{
+    ShadowFamilyCache cache;
+    std::array<ShadowFamilyFootprint, 2> casters{
+        ShadowFamilyFootprint{ 1, BoundingBox({ 0, 0, 0 }, { 1, 1, 1 }) },
+        ShadowFamilyFootprint{ 2, BoundingBox({ 2, 0, 0 }, { 3, 1, 1 }) }
+    };
+    cache.Update(casters, [](const BoundingBox&) {});
+    std::swap(casters[0], casters[1]);
+    u32 dirty = 0;
+    cache.Update(casters, [&](const BoundingBox&)
+                 { ++dirty; });
+    EXPECT_EQ(dirty, 0u);
+}
+
+TEST(ShadowFamilyCache, SharedGeometryInstancesRetireIndependently)
+{
+    ShadowFamilyCache cache;
+    // Scene identity stays distinct even when VAO and silhouette revision match.
+    std::array<ShadowFamilyFootprint, 2> casters{
+        ShadowFamilyFootprint{ 101, BoundingBox({ 0, 0, 0 }, { 1, 1, 1 }), glm::mat4(1.0f), 5 },
+        ShadowFamilyFootprint{ 102, BoundingBox({ 10, 0, 0 }, { 11, 1, 1 }), glm::mat4(1.0f), 5 }
+    };
+    cache.Update(casters, [](const BoundingBox&) {});
+    TArray64<BoundingBox> dirty;
+    cache.Update(std::span<const ShadowFamilyFootprint>(casters).subspan(1), [&](const BoundingBox& bounds)
+                 { dirty.Add(bounds); });
+    ASSERT_EQ(dirty.Num(), 1);
+    EXPECT_FLOAT_EQ(dirty[0].Min.x, 0.0f);
+    EXPECT_FLOAT_EQ(dirty[0].Max.x, 1.0f);
+}
+
+TEST(VirtualShadowMap, SaturatedInvalidationsStillCoverEveryChangedFootprint)
+{
+    TArray64<glm::vec4> pending;
+    AppendBoundedShadowInvalidation(pending, { -10, 0, 0 }, { -9, 1, 1 }, 2);
+    AppendBoundedShadowInvalidation(pending, { 0, 0, 0 }, { 1, 1, 1 }, 2);
+    AppendBoundedShadowInvalidation(pending, { 10, -2, -3 }, { 11, 2, 3 }, 2);
+    AppendBoundedShadowInvalidation(pending, { -5, 0, 0 }, { -4, 1, 1 }, 2);
+    ASSERT_EQ(pending.Num(), 4);
+    EXPECT_FLOAT_EQ(pending[0].x, -10.0f);
+    EXPECT_FLOAT_EQ(pending[1].x, -9.0f);
+    EXPECT_FLOAT_EQ(pending[2].x, -5.0f);
+    EXPECT_FLOAT_EQ(pending[2].y, -2.0f);
+    EXPECT_FLOAT_EQ(pending[3].x, 11.0f);
+    EXPECT_FLOAT_EQ(pending[3].z, 3.0f);
+}
+
+TEST(ShadowFamilyCache, UnknownEditedCoverageDoesNotCollapseToTheOldBoundedFootprint)
+{
+    ShadowFamilyCache cache;
+    std::array<ShadowFamilyFootprint, 1> caster{ ShadowFamilyFootprint{ 17, BoundingBox({ 0, 0, 0 }, { 1, 1, 1 }) } };
+    cache.Update(caster, [](const BoundingBox&) {});
+    caster[0].Bounds = NoBounds;
+    ++caster[0].Revision;
+    TArray64<BoundingBox> dirty;
+    cache.Update(caster, [&](const BoundingBox& bounds)
+                 { dirty.Add(bounds); });
+    ASSERT_EQ(dirty.Num(), 1);
+    EXPECT_FLOAT_EQ(dirty[0].Min.x, NoBounds.Min.x);
+    dirty.Reset();
+    caster[0].Bounds = BoundingBox({ 0, 0, 0 }, { 1, 2, 1 });
+    ++caster[0].Revision;
+    cache.Update(caster, [&](const BoundingBox& bounds)
+                 { dirty.Add(bounds); });
+    ASSERT_EQ(dirty.Num(), 1);
+    EXPECT_FLOAT_EQ(dirty[0].Min.x, NoBounds.Min.x);
 }

@@ -51,6 +51,18 @@
 
 using namespace OloEngine;
 
+TEST(VirtualShadowMapLocal, LocalRequestWithVirtualMapsDisabledConsumesNoVirtualLayers)
+{
+    VirtualShadowMap map;
+    // Defaults are exactly the inactive VSM / requested local-layers pair.
+    // SetSettings initializes inert GPU bindings, even while VSM is disabled.
+    EXPECT_FALSE(map.IsActive());
+    EXPECT_FALSE(map.AreLocalLightsActive());
+    EXPECT_EQ(map.GetLocalLightCount(), 0u);
+    EXPECT_FALSE(map.GetSettings().Enabled);
+    EXPECT_TRUE(map.GetSettings().LocalLights) << "inactive local request must remain stored";
+}
+
 namespace
 {
     [[nodiscard]] std::string ReadShaderText(const char* relative)

@@ -24,6 +24,44 @@ existing tests on 2026-09-23; this page does not claim a new test or live run.
 | Groom raster scene-shadow casting or receiving (#1323, restored by #1523) | Supported | `ShadowRenderPass` casts grooms into the CSM cascades, the local-light atlas and the Virtual Shadow Map's clip levels, deforming a bound coat in the depth shaders; `GroomStrand.glsl` samples the scene's shadow at the coat's light-exit point. `GroomSceneShadowVisualEvidenceTest.cpp` pins both directions on GL Forward, Forward+ and Deferred. Gap: with the VSM's LocalLights on, lamps are served from its layer pool, which groom casters do not reach; counted as `VirtualShadowLocalLightsWithoutGrooms` and warned once. |
 | Groom as a Vulkan ray-query surface (#1253) | Approximate | `GroomSurfaceCache::Extract` converts and budgets resident strand proxy geometry for the GPU Scene. `GroomRayTracingProxyTest.cpp` checks tier/coverage/refusal contracts. Residency, update and triangle budgets can refuse an individual groom; a successful proxy is not per-strand RT. |
 
+## Raster shadow caster coverage
+
+VSM replaces directional CSM while enabled; `VSM.LocalLights` additionally
+replaces the point/spot atlas. The current family routes are independent of the
+Forward, Forward+ or Deferred receiver path.
+
+| Caster family | CSM and local atlas | VSM directional clips | VSM point/spot layers |
+|---|---|---|---|
+| Static and skinned mesh | Yes | Yes | Yes |
+| Tessellated or ordinary terrain | Yes | Yes | Yes |
+| Marching-cubes and greedy cubic voxel geometry | Yes | Yes | Yes |
+| Foliage cards, authored meshes and impostors | Yes | Yes | Yes |
+| Virtual geometry | Yes | Yes | Unsupported |
+| Groom ribbons | Yes | Yes | Unsupported, counted/warned |
+
+Terrain, voxel and foliage VSM depth wrappers use the same deformation, alpha
+discard and LOD bodies as their CSM/atlas shaders. Shadow extraction includes
+offscreen terrain chunks, with shadow-view culling. Cached footprints cover
+creation, movement, height/geometry changes and removal; moving foliage dirties
+its conservative footprint. Pending GPU height edits use unknown bounds and
+conservative invalidation until the CPU mirror is synchronized.
+
+`ShadowFamilyCache` CPU tests pin identity, invalidation and removal.
+`ShadowFamilyVisualEvidence` measures isolated-family contribution and world
+position on all three GL paths, with local-layer, presentation and lifecycle
+controls. The full retained presentation matrix is selected with
+`OLO_VSM_FAMILY_FULL_MATRIX=1`; shader compilation alone is not Vulkan visual
+evidence. See [the VSM page-cache guide](../agent-rules/virtual-shadow-map-page-cache.md#7-caster-coverage)
+for the resource and live-verification contract.
+
+VSM remains off by default. `OLO_VSM_STARTUP=0|1` and
+`OLO_VSM_LOCAL_LIGHTS_STARTUP=0|1` seed the existing shadow settings during
+initialization, allowing cooked runtime A/B verification without a new scene
+schema. Later settings writes remain authoritative. Startup logs report both
+requested and effective VSM state. `olo_terrain_voxel_load` imports existing
+VOX1 data into an enabled editor terrain, with undo; voxel override content
+currently remains in memory and is not persisted by scene YAML.
+
 ## Material, alpha and transmission
 
 `SurfaceCategory` names the renderer family, `AuthoredKind` is the persisted

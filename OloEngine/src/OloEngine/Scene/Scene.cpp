@@ -12464,6 +12464,8 @@ namespace OloEngine
                             m_JoltScene->DestroyTerrainTilesForEntity(terrainEnt.GetUUID());
                     }
 
+                    const u64 casterInstanceKey = static_cast<u64>(m_Registry.get<IDComponent>(entity).ID);
+
                     // In cubic-voxel mode the voxels ARE the terrain (they are
                     // seeded from this same height field), so the smooth
                     // heightmap surface must not also draw: the two occupy the
@@ -12492,12 +12494,12 @@ namespace OloEngine
                         auto submitChunkPackets = [&terrain, &transform, &splatmapID, &splatmap1ID,
                                                    &albedoArrayID, &normalArrayID, &armArrayID,
                                                    &hasMaterial, &useTess, &terrainShader, &entityID,
-                                                   &hasActiveShadows, &cullCameraPosition, &cullViewProjection](const TerrainChunkManager& chunkMgr,
-                                                                                                                const TerrainData* terrainData,
-                                                                                                                const TerrainMaterial* tileMaterial,
-                                                                                                                f32 worldSizeX, f32 worldSizeZ,
-                                                                                                                f32 heightScale,
-                                                                                                                const glm::vec3& tileWorldOrigin)
+                                                   &hasActiveShadows, &cullCameraPosition, &cullViewProjection, casterInstanceKey](const TerrainChunkManager& chunkMgr,
+                                                                                                                                   const TerrainData* terrainData,
+                                                                                                                                   const TerrainMaterial* tileMaterial,
+                                                                                                                                   f32 worldSizeX, f32 worldSizeZ,
+                                                                                                                                   f32 heightScale,
+                                                                                                                                   const glm::vec3& tileWorldOrigin)
                         {
                             if (!chunkMgr.IsBuilt())
                             {
@@ -12662,23 +12664,6 @@ namespace OloEngine
                                 // shadowing — and building a second GPU descent
                                 // per cascade is its own change. This matches what
                                 // the non-tessellated path has always done.
-                                if (hasActiveShadows)
-                                {
-                                    ShaderBindingLayout::TerrainUBO shadowUBO = terrainUBOData;
-                                    shadowUBO.TessFactors = glm::vec4(1.0f);
-                                    shadowUBO.TessFactors2.w = 1.0f;
-                                    TArray<const TerrainChunk*> shadowChunks;
-                                    chunkMgr.GetVisibleChunks(tileCull.ViewFrustum, shadowChunks);
-                                    for (const auto* chunk : shadowChunks)
-                                    {
-                                        auto va = chunk->GetVertexArray();
-                                        if (!va)
-                                            continue;
-                                        Renderer3D::AddTerrainShadowCaster(
-                                            va->GetRHIHandle(), chunk->GetIndexCount(), 3,
-                                            tileModel, heightmapID, shadowUBO);
-                                    }
-                                }
                             }
                             else if (useTess)
                             {
@@ -12702,14 +12687,6 @@ namespace OloEngine
                                         tileModel, terrainUBOData, entityID, {}, {}, vtBindings);
                                     if (packet)
                                         Renderer3D::SubmitPacket(packet);
-
-                                    // Shadow caster for this chunk
-                                    if (hasActiveShadows)
-                                    {
-                                        Renderer3D::AddTerrainShadowCaster(
-                                            va->GetRHIHandle(), rc.Chunk->GetIndexCount(), 3,
-                                            tileModel, heightmapID, terrainUBOData);
-                                    }
                                 }
                             }
                             else
@@ -12734,13 +12711,52 @@ namespace OloEngine
                                         tileModel, terrainUBOData, entityID, {}, {}, vtBindings);
                                     if (packet)
                                         Renderer3D::SubmitPacket(packet);
-
-                                    if (hasActiveShadows)
+                                }
+                            }
+                            // Extract every built chunk; the shadow view performs its own
+                            // cull. Main-eye survivors omit off-screen occluders (#1524).
+                            if (hasActiveShadows)
+                            {
+                                TArray<const TerrainChunk*> shadowChunks;
+                                chunkMgr.GetAllChunks(shadowChunks);
+                                std::unordered_map<const TerrainChunk*, TerrainChunkLODData> shadowLODs;
+                                if (useTess && !gpuDriven)
+                                {
+                                    for (const auto& selected : chunkMgr.GetSelectedChunks())
+                                        shadowLODs.emplace(selected.Chunk, selected.LODData);
+                                }
+                                ShaderBindingLayout::TerrainUBO shadowUBO = terrainUBOData;
+                                shadowUBO.TessFactors = glm::vec4(useTess ? 4.0f : 1.0f);
+                                shadowUBO.TessFactors2 = glm::vec4(0.0f, useTess ? 0.0f : 1.0f, 0.0f, 1.0f);
+                                const auto sourceRange = terrainData ? terrainData->GetHeightRange() : std::optional<glm::vec2>{ glm::vec2(0.0f, 1.0f) };
+                                const auto heightRange = sourceRange.value_or(glm::vec2(0.0f)) * heightScale;
+                                const f32 minHeight = std::min(heightRange.x, heightRange.y);
+                                const f32 maxHeight = std::max(heightRange.x, heightRange.y);
+                                const auto& snow = Renderer3D::GetSnowAccumulationSettings();
+                                const f32 snowExtent = snow.Enabled ? std::abs(snow.MaxDepth * snow.DisplacementScale) : 0.0f;
+                                for (const auto* chunk : shadowChunks)
+                                {
+                                    const auto va = chunk->GetVertexArray();
+                                    if (!va)
+                                        continue;
+                                    auto bounds = chunk->GetBounds();
+                                    // Tessellation can sample peaks between the mesh's
+                                    // control vertices. Raw-sample extrema include them.
+                                    bounds.Min.y = std::min(bounds.Min.y, minHeight) - snowExtent;
+                                    bounds.Max.y = std::max(bounds.Max.y, maxHeight) + snowExtent;
+                                    ShaderBindingLayout::TerrainUBO chunkUBO = shadowUBO;
+                                    if (const auto selected = shadowLODs.find(chunk); selected != shadowLODs.end())
                                     {
-                                        Renderer3D::AddTerrainShadowCaster(
-                                            va->GetRHIHandle(), chunk->GetIndexCount(), 3,
-                                            tileModel, heightmapID, terrainUBOData);
+                                        chunkUBO.TessFactors = selected->second.TessFactors;
+                                        chunkUBO.TessFactors2 = selected->second.TessFactors2;
+                                        chunkUBO.TessFactors2.w = 1.0f;
                                     }
+                                    const auto handle = va->GetRHIHandle();
+                                    const u64 partKey = (static_cast<u64>(handle.Generation) << 32) | handle.Index;
+                                    const u64 casterKey = (casterInstanceKey * 1099511628211ull) ^ partKey;
+                                    Renderer3D::AddTerrainShadowCaster(va->GetRHIHandle(), chunk->GetIndexCount(), 3,
+                                                                       tileModel, heightmapID, chunkUBO,
+                                                                       { casterKey, sourceRange ? bounds.Transform(tileModel) : NoBounds, terrainData ? terrainData->GetHeightRevision() : 0 });
                                 }
                             }
                         };
@@ -12813,7 +12829,8 @@ namespace OloEngine
                                 {
                                     Renderer3D::AddVoxelShadowCaster(
                                         mesh.VAO->GetRHIHandle(), mesh.IndexCount,
-                                        transform.GetTransform());
+                                        transform.GetTransform(), 0u,
+                                        { (casterInstanceKey * 1099511628211ull) ^ ((static_cast<u64>(mesh.VAO->GetRHIHandle().Generation) << 32) | mesh.VAO->GetRHIHandle().Index), mesh.Bounds.Transform(transform.GetTransform()), 0 });
                                 }
                             }
                         }
@@ -12845,7 +12862,8 @@ namespace OloEngine
                             {
                                 Renderer3D::AddVoxelShadowCaster(
                                     mesh.VAO->GetRHIHandle(), VoxelQuadMesh::kIndexCount,
-                                    chunkTransform, mesh.QuadCount);
+                                    chunkTransform, mesh.QuadCount,
+                                    { (casterInstanceKey * 1099511628211ull) ^ ((static_cast<u64>(mesh.VAO->GetRHIHandle().Generation) << 32) | mesh.VAO->GetRHIHandle().Index), mesh.Bounds.Transform(transform.GetTransform()), mesh.GeometryRevision });
                             }
                         }
                     }

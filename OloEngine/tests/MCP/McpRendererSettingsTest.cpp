@@ -886,3 +886,24 @@ TEST(McpRendererSettingsUpscaler, IntrospectionCarriesTheBlockOnlyWhenGiven)
     }
     EXPECT_TRUE(sawTechnique);
 }
+
+TEST(McpRendererSettings, LocalVirtualLayersToggleIndependentlyOfDirectionalRequest)
+{
+    RendererSettings renderer;
+    PostProcessSettings post;
+    RS::LeverState lever;
+    lever.VirtualShadowMaps = true;
+    RS::Setting parsed{};
+    ASSERT_TRUE(RS::ParseSetting("vsmlocallights", parsed));
+    EXPECT_EQ(parsed, RS::Setting::VSMLocalLights);
+    EXPECT_EQ(RS::CurrentValue(RS::Setting::VSMLocalLights, post, renderer, lever), RS::kVirtualShadowMapsOn);
+    ASSERT_TRUE(RS::Apply(RS::Setting::VSMLocalLights, RS::kVirtualShadowMapsOff, post, renderer, lever).Ok);
+    EXPECT_FALSE(lever.VSMLocalLights);
+    EXPECT_TRUE(lever.VirtualShadowMaps);
+    ASSERT_TRUE(RS::Apply(RS::Setting::VSMLocalLights, RS::kVirtualShadowMapsOn, post, renderer, lever).Ok);
+    EXPECT_TRUE(lever.VSMLocalLights);
+    EXPECT_TRUE(lever.VirtualShadowMaps);
+    ASSERT_TRUE(RS::Apply(RS::Setting::VirtualShadowMaps, RS::kVirtualShadowMapsOff, post, renderer, lever).Ok);
+    EXPECT_FALSE(lever.VirtualShadowMaps);
+    EXPECT_TRUE(lever.VSMLocalLights) << "the inactive local-layer request remains independent";
+}

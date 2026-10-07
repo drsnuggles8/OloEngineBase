@@ -442,12 +442,12 @@ namespace OloEngine::Tests
         EXPECT_NE(helper.find("textureLod"), std::string::npos)
             << "a non-fragment stage has no implicit derivatives; terrain height sampling needs an explicit mip";
 
-        for (const char* shaderName : { "Terrain_PBR.glsl", "Terrain_GBuffer.glsl", "Terrain_Depth.glsl" })
+        for (const char* shaderName : { "Terrain_PBR.glsl", "Terrain_GBuffer.glsl", "include/TerrainDepthTess_EvaluationStage.glsl" })
         {
             const std::filesystem::path shaderPath = shaderDir / shaderName;
             const std::string source = StripComments(ReadFile(shaderPath));
             ASSERT_FALSE(source.empty()) << "could not read " << shaderPath.string();
-            EXPECT_NE(source.find("include/TerrainHeightSampling.glsl"), std::string::npos)
+            EXPECT_NE(source.find("TerrainHeightSampling.glsl"), std::string::npos)
                 << shaderName << " bypasses the shared terrain-height sampling rule";
             EXPECT_NE(source.find("oloTerrainFilteredHeight("), std::string::npos)
                 << shaderName << " still displaces terrain from an unfiltered height sample";

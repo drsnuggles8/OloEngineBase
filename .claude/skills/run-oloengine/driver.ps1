@@ -106,7 +106,7 @@ public static class WinShot {
             if (pid == target && IsWindowVisible(h)) {
                 RECT r; GetWindowRect(h, out r);
                 long area = (long)(r.Right - r.Left) * (r.Bottom - r.Top);
-                if ((r.Right - r.Left) > 200 && (r.Bottom - r.Top) > 200 && area > bestArea) {
+                if (((r.Right - r.Left) > 200 && (r.Bottom - r.Top) > 200 || IsIconic(h)) && area > bestArea) {
                     bestArea = area; best = h;
                 }
             }
@@ -215,11 +215,30 @@ function Get-WindowRectFor {
 
 function Save-Shot {
     param($hwnd, $path)
+    # The window can be minimized during the settle delay. Keep its HWND and
+    # require a complete visible settle interval before reading its surface.
     [WinShot]::ShowWindow($hwnd, $SW_RESTORE) | Out-Null
     [WinShot]::SetForegroundWindow($hwnd) | Out-Null
-    Start-Sleep -Seconds $SettleSeconds
+    $settling = [System.Diagnostics.Stopwatch]::StartNew()
+    $visibleSince = 0.0
+    $settleLimit = 3 * [math]::Max(1, $SettleSeconds)
+    while ($settling.Elapsed.TotalSeconds - $visibleSince -lt $SettleSeconds) {
+        if ($settling.Elapsed.TotalSeconds -ge $settleLimit) {
+            throw 'Window did not remain visible during capture settling'
+        }
+        if ([WinShot]::IsIconic($hwnd) -or -not [WinShot]::IsWindowVisible($hwnd)) {
+            [WinShot]::ShowWindow($hwnd, $SW_RESTORE) | Out-Null
+            [WinShot]::SetForegroundWindow($hwnd) | Out-Null
+            $visibleSince = $settling.Elapsed.TotalSeconds
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    if ([WinShot]::IsIconic($hwnd) -or -not [WinShot]::IsWindowVisible($hwnd)) {
+        throw 'Window did not remain visible during capture settling'
+    }
 
     $r = Get-WindowRectFor $hwnd
+    if ([WinShot]::IsIconic($hwnd) -or -not [WinShot]::IsWindowVisible($hwnd)) { throw 'Window minimized or hidden before capture' }
     $w = $r.Right - $r.Left; $h = $r.Bottom - $r.Top
     if ($w -le 0 -or $h -le 0) { throw "Window has zero size ($w x $h)" }
 
@@ -232,6 +251,10 @@ function Save-Shot {
     }
     else {
         $g.CopyFromScreen($r.Left, $r.Top, 0, 0, (New-Object System.Drawing.Size($w, $h)))
+    }
+    if ([WinShot]::IsIconic($hwnd) -or -not [WinShot]::IsWindowVisible($hwnd)) {
+        $g.Dispose(); $bmp.Dispose()
+        throw 'Window minimized or hidden during capture'
     }
     New-Item -ItemType Directory -Force -Path (Split-Path $path) | Out-Null
     $bmp.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)

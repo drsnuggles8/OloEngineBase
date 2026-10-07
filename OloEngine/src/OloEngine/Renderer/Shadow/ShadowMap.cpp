@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Texture2DArray.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
+#include "OloEngine/Core/DebugLevers.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
@@ -20,6 +21,14 @@ namespace OloEngine
         const RendererMemoryOwnerScope memoryOwner("ShadowMap", MemoryLifetime::Persistent); // #1342
 
         m_Settings = settings;
+        if (!m_StartupSettingsApplied)
+        {
+            if (const auto request = Levers::VirtualShadowMapsStartup(); request != Levers::Tristate::Unset)
+                m_Settings.VSM.Enabled = request == Levers::Tristate::On;
+            if (const auto request = Levers::VirtualShadowLocalLightsStartup(); request != Levers::Tristate::Unset)
+                m_Settings.VSM.LocalLights = request == Levers::Tristate::On;
+            m_StartupSettingsApplied = true;
+        }
 
         CreateDepthArrays();
 
@@ -54,11 +63,14 @@ namespace OloEngine
         // The directional VSM (issue #702). Init is a no-op while disabled, so the
         // default path allocates nothing extra; when enabled it replaces the CSM
         // cascades above for the directional light only.
+        const bool vsmRequested = m_Settings.VSM.Enabled;
         m_VirtualShadowMap.Init(m_Settings.VSM);
         // Init can refuse (wrong backend, shader load failure) and clears its own
         // Enabled flag when it does. Mirror that back so the settings the editor
         // and the serializer see match what is actually running.
         m_Settings.VSM.Enabled = m_VirtualShadowMap.IsEnabledAndInitialized();
+        OLO_CORE_INFO("ShadowMap VSM startup: requested={}, active={}, localLayers={}",
+                      vsmRequested, m_Settings.VSM.Enabled, m_Settings.VSM.LocalLights);
 
         m_Initialized = true;
         OLO_CORE_INFO("ShadowMap initialized: {}x{} CSM resolution ({} cascades), {}x{} shadow atlas ({} entry budget)",

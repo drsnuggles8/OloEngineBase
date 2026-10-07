@@ -505,6 +505,8 @@ namespace OloEngine
 
       private:
         ShadowSettings m_Settings;
+        // Resource recreation must preserve explicit settings written after startup.
+        bool m_StartupSettingsApplied = false;
 
         // Shadow map textures
         Ref<Texture2DArray> m_CSMTextureArray; // 4 layers for CSM cascades

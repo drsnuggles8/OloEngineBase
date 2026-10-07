@@ -295,3 +295,9 @@ OLO_LEVER_INT(ParallelForYieldMs, "OLO_PARALLEL_FOR_YIELD_MS", 0,
 // ceil(workers * inf) cast to i32 is undefined behaviour.
 OLO_LEVER_NUMBER(TaskGraphOversubscriptionRatio, "OLO_TASK_GRAPH_OVERSUBSCRIPTION_RATIO", 1.0f, 64.0f,
                  "Worker-pool oversubscription ratio.")
+OLO_LEVER_TRISTATE(VirtualShadowMapsStartup, "OLO_VSM_STARTUP",
+                   "Override VSM enablement when ShadowMap initializes, including cooked runtime verification. "
+                   "Unset preserves the authored default; later setting writes remain authoritative.")
+OLO_LEVER_TRISTATE(VirtualShadowLocalLightsStartup, "OLO_VSM_LOCAL_LIGHTS_STARTUP",
+                   "Override VSM local-layer enablement when ShadowMap initializes. Unset preserves the default; "
+                   "off keeps point/spot lights on the atlas while directional VSM remains available.")

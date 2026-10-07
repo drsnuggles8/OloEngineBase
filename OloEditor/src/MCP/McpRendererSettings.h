@@ -82,6 +82,7 @@ namespace OloEngine::MCP::RendererSettings
         SoftShadows,             // LeverState::SoftShadows       (ShadowSettings::SoftShadows: PCSS vs PCF)
         HZBOcclusion,            // LeverState::HZBOcclusion      (Renderer3D::EnableHZBOcclusionCulling)
         VirtualShadowMaps,       // LeverState::VirtualShadowMaps (ShadowSettings::VSM.Enabled, issue #702)
+        VSMLocalLights,          // LeverState::VSMLocalLights (VirtualShadowMapSettings::LocalLights)
         VSMDebug,                // LeverState::VSMDebugMode (VirtualShadowMapSettings::DebugMode)
         RayTracedShadows,        // LeverState::RayTracedShadows (ShadowSettings::Technique, issue #1056)
         RayTracedShadowSoftness, // LeverState::RayTracedShadowSoftness (RayTracedShadowSettings::LightAngularRadiusDegrees)
@@ -110,6 +111,7 @@ namespace OloEngine::MCP::RendererSettings
         // clears the flag when it cannot come up, so a request that silently
         // fell back to CSM shows as 'off' here rather than as 'on'.
         bool VirtualShadowMaps = false;
+        bool VSMLocalLights = true;
         i32 VSMDebugMode = 0;
         // live ShadowSettings::Technique == RayTraced (issue #1056). Like
         // VirtualShadowMaps above this reports the REQUEST, not what any one
@@ -274,9 +276,8 @@ namespace OloEngine::MCP::RendererSettings
     inline constexpr std::array<EnumValue, 2> kVirtualShadowMapValues = { {
         { "off", kVirtualShadowMapsOff, "Fixed 4-cascade CSM for the directional light" },
         { "on", kVirtualShadowMapsOn,
-          "Sparse page-table Virtual Shadow Maps (issue #702). Covers static + skinned MESH casters only; terrain, "
-          "foliage, voxel and virtualized-geometry casters still need CSM, so a scene relying on those renders them "
-          "unshadowed" },
+          "Sparse page-table Virtual Shadow Maps. Directional maps cover static/skinned meshes, terrain, voxels, "
+          "foliage, virtualized geometry and grooms. The separate vsmlocallights switch selects VSM point/spot layers." },
     } };
 
     inline constexpr std::array<EnumValue, 4> kRayTracedSoftnessValues = { {
@@ -295,6 +296,11 @@ namespace OloEngine::MCP::RendererSettings
           "most four lights fit the mask's four channels. Needs Vulkan + a hardware ray-tracing device + the "
           "Deferred path; anything missing falls back per light with a counted reason. This lever reports what was "
           "REQUESTED, so use it as the A/B switch and read the fallback counters for what actually happened" },
+    } };
+
+    inline constexpr std::array<EnumValue, 2> kVSMLocalLightValues = { {
+        { "off", kVirtualShadowMapsOff, "Use the local-light shadow atlas" },
+        { "on", kVirtualShadowMapsOn, "Use VSM point/spot layers while VSM is active" },
     } };
 
     inline constexpr std::array<EnumValue, 8> kVSMDebugValues = { {
@@ -362,7 +368,7 @@ namespace OloEngine::MCP::RendererSettings
         std::string_view Description;
     };
 
-    inline constexpr std::array<SettingInfo, 18> kSettings = { {
+    inline constexpr std::array<SettingInfo, 19> kSettings = { {
         { "upscale", Setting::Upscale,
           "FSR1 spatial-upscale quality preset (PostProcess.Upscale). Off is native resolution; the other presets render "
           "below display resolution and EASU-upscale the HDR scene colour back to display res (#480)." },
@@ -396,10 +402,13 @@ namespace OloEngine::MCP::RendererSettings
           "ScenePass at 1080p Sponza)." },
         { "virtualshadowmaps", Setting::VirtualShadowMaps,
           "Directional shadow technique (ShadowSettings.VSM.Enabled, issue #702): 'on' = sparse page-table Virtual "
-          "Shadow Maps, 'off' = the fixed 4-cascade CSM. VSM covers static + skinned MESH casters; terrain, foliage, "
-          "voxel and virtualized-geometry casters still render through CSM, so enabling it in a scene that relies on "
-          "those leaves them unshadowed. Reads back the EFFECTIVE value — a request that failed to initialise reports "
+          "Shadow Maps, 'off' = the fixed 4-cascade CSM. VSM covers static/skinned meshes, terrain, voxels and foliage "
+          "in directional and local maps; virtual geometry and grooms currently cover directional maps only. "
+          "Reads back the EFFECTIVE value: a request that failed to initialise reports "
           "'off'." },
+        { "vsmlocallights", Setting::VSMLocalLights,
+          "Local-shadow route while VSM is active: 'on' uses VSM point/spot layers, 'off' uses the shadow atlas. "
+          "Preserves the directional VSM request; reads back the configured local-layer mode." },
         { "raytracedshadows", Setting::RayTracedShadows,
           "Shadow technique (ShadowSettings.Technique, issue #1056): 'on' = ray-query visibility mask with a "
           "temporal + variance-guided denoiser, 'off' = the raster shadow-map tier. THE A/B lever for the hybrid "
@@ -486,6 +495,8 @@ namespace OloEngine::MCP::RendererSettings
                 return kHZBOcclusionValues;
             case Setting::VirtualShadowMaps:
                 return kVirtualShadowMapValues;
+            case Setting::VSMLocalLights:
+                return kVSMLocalLightValues;
             case Setting::RayTracedShadows:
                 return kRayTracedShadowValues;
             case Setting::RayTracedShadowSoftness:
@@ -714,6 +725,8 @@ namespace OloEngine::MCP::RendererSettings
                 return lever.HZBOcclusion ? kHZBOcclusionOn : kHZBOcclusionOff;
             case Setting::VirtualShadowMaps:
                 return lever.VirtualShadowMaps ? kVirtualShadowMapsOn : kVirtualShadowMapsOff;
+            case Setting::VSMLocalLights:
+                return lever.VSMLocalLights ? kVirtualShadowMapsOn : kVirtualShadowMapsOff;
             case Setting::RayTracedShadows:
                 return lever.RayTracedShadows ? kRayTracedShadowsOn : kRayTracedShadowsOff;
             case Setting::RayTracedShadowSoftness:
@@ -820,6 +833,9 @@ namespace OloEngine::MCP::RendererSettings
                 break;
             case Setting::VirtualShadowMaps:
                 lever.VirtualShadowMaps = value == kVirtualShadowMapsOn;
+                break;
+            case Setting::VSMLocalLights:
+                lever.VSMLocalLights = value == kVirtualShadowMapsOn;
                 break;
             case Setting::RayTracedShadows:
                 lever.RayTracedShadows = value == kRayTracedShadowsOn;

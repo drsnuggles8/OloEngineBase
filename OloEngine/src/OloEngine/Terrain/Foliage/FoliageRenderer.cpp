@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include <limits>
 #include "OloEngine/Core/PerformanceProfiler.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
@@ -1486,7 +1487,22 @@ namespace OloEngine
         }
     }
 
-    void FoliageRenderer::RenderShadows(const Ref<Shader>& depthShader, f32 time, u32 shadowViewIndex) const
+    BoundingBox FoliageRenderer::GetShadowBounds() const
+    {
+        BoundingBox bounds = NoBounds;
+        for (const auto& layer : m_Layers)
+        {
+            if (layer.InstanceCount == 0 || !layer.CastShadows)
+                continue;
+            const auto world = layer.Bounds.Transform(m_TerrainTransform);
+            bounds = bounds.Min.x >= std::numeric_limits<f32>::max() ? world : bounds.Union(world);
+        }
+        return bounds;
+    }
+
+    void FoliageRenderer::RenderShadows(const Ref<Shader>& depthShader, f32 time, u32 shadowViewIndex,
+                                        const Ref<Shader>& impostorDepthOverride,
+                                        const std::function<void()>& afterProgramBind) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -1544,10 +1560,12 @@ namespace OloEngine
             {
                 const u32 part = partIndex++;
                 const bool impostor = !draw.IsAuthoredMesh && layer.UseImpostor && layer.Impostor.IsValid();
-                const auto& program = impostor ? m_ImpostorDepthShader : depthShader;
+                const auto& program = impostor ? (impostorDepthOverride ? impostorDepthOverride : m_ImpostorDepthShader) : depthShader;
                 if (!program || !program->IsReady())
                     continue;
                 program->Bind();
+                if (afterProgramBind)
+                    afterProgramBind();
 
                 // Upload per-draw foliage UBO for depth pass
                 ShaderBindingLayout::FoliageUBO foliageUBOData{};

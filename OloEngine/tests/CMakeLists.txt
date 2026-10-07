@@ -798,6 +798,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/OverdrawVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ContactShadowVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VirtualShadowMapVisualEvidenceTest.cpp
+		Rendering/PropertyTests/ShadowFamilyVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VirtualShadowMapLocalVisualEvidenceTest.cpp
 		Rendering/PropertyTests/CASVisualEvidenceTest.cpp
 		Rendering/PropertyTests/EASUVisualEvidenceTest.cpp

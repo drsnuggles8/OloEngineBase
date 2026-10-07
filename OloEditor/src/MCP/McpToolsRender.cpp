@@ -2967,6 +2967,7 @@ namespace OloEngine::MCP
                 // that fell back to CSM must not read back as 'on' (issue #702).
                 lever.VirtualShadowMaps = Renderer3D::GetShadowMap().IsVirtualShadowMapActive();
                 lever.VSMDebugMode = Renderer3D::GetShadowMap().GetSettings().VSM.DebugMode;
+                lever.VSMLocalLights = Renderer3D::GetShadowMap().GetSettings().VSM.LocalLights;
                 // The REQUEST, unlike VirtualShadowMaps above. The technique
                 // is a per-light decision made inside the frame, so there is
                 // no single effective bool to report: a scene can have one
@@ -3075,6 +3076,12 @@ namespace OloEngine::MCP
                         applied.Data["note"] = "virtual shadow maps refused to initialise (see "
                                                "OloEngine.log); reporting the effective state";
                     }
+                }
+                else if (setting == Setting::VSMLocalLights)
+                {
+                    ShadowSettings shadow = Renderer3D::GetShadowMap().GetSettings();
+                    shadow.VSM.LocalLights = lever.VSMLocalLights;
+                    Renderer3D::GetShadowMap().SetSettings(shadow);
                 }
                 else if (setting == Setting::RayTracedShadowSoftness)
                 {
@@ -8872,7 +8879,7 @@ namespace OloEngine::MCP
                 "forces the live depth-prepass state; 'auto' restores the settings-derived value; Forward+/Deferred "
                 "derive it on for tile culling) and 'softshadows' (pcf|pcss — PCSS is the dominant ScenePass cost in "
                 "shadowed scenes; A/B it in one call instead of editing shader source). Also exposes 'msaa' (1|2|4|8), "
-                "'persamplelighting', 'depthawareculling', 'virtualshadowmaps', 'vsmdebug' (off plus six diagnostic views), "
+                "'persamplelighting', 'depthawareculling', 'virtualshadowmaps', 'vsmlocallights', 'vsmdebug' (off plus six diagnostic views), "
                 "'ddgicascades', 'hzbocclusion', and 'scenetemporalresolve' (honour|ignore, #1429: 'ignore' refuses a scene's TAA request so a stochastic groom goes bald), 'groomdeformation' (gpu|cpu, #1427: 'cpu' rebuilds every bound coat on the CPU each frame, the reference for an A/B). Two more drive the hybrid ray-traced shadow tier (#1056): "
                 "'raytracedshadows' (off|on — routes opted-in lights through ray-query visibility instead of the shadow "
                 "map; Vulkan + Deferred only, and it reports 'rayTracedLights'/'fallbackLights'/'fallbackReason' rather "

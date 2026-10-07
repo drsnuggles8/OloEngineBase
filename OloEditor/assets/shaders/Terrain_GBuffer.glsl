@@ -177,6 +177,7 @@ layout(binding = 30) uniform sampler2D u_SnowDepthMap;
 #endif
 
 #include "include/TerrainHeightSampling.glsl"
+#include "include/TerrainDisplacedHeight.glsl"
 
 layout(std140, binding = 16) uniform SnowAccumulationParams {
     mat4 u_ClipmapViewProj[3];
@@ -209,6 +210,7 @@ void main()
     float heightMip = oloTerrainHeightMip(tc_TexCoord[0], tc_TexCoord[1], tc_TexCoord[2]);
     float sampledHeight = oloTerrainFilteredHeight(uv, heightMip) * heightScale;
     pos.y = sampledHeight;
+    float snowDisplacement = 0.0;
 
     if (u_DisplacementParams.z > 0.5)
     {
@@ -219,7 +221,7 @@ void main()
         if (snowUV.x >= 0.0 && snowUV.x <= 1.0 && snowUV.y >= 0.0 && snowUV.y <= 1.0)
         {
             float snowDepth = texture(u_SnowDepthMap, snowUV).r;
-            pos.y += snowDepth * u_DisplacementParams.x;
+            snowDisplacement = snowDepth * u_DisplacementParams.x;
         }
     }
 
@@ -239,7 +241,7 @@ void main()
     float morphFactor = u_TessFactors2.y;
     float meshHeight = interpolate3(tc_Position[0], tc_Position[1], tc_Position[2]).y;
     vec3 meshNormal = normalize(interpolate3(tc_Normal[0], tc_Normal[1], tc_Normal[2]));
-    pos.y = mix(sampledHeight, meshHeight, morphFactor);
+    pos.y = oloTerrainDisplacedHeight(sampledHeight, snowDisplacement, meshHeight, morphFactor);
     nrm = normalize(mix(nrm, meshNormal, morphFactor));
 
     vec4 worldPos = instances[0].Transform * vec4(pos, 1.0);

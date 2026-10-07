@@ -292,7 +292,12 @@ void main()
             vec4 viewSpacePos = u_View * vec4(v_WorldPos, 1.0);
             float viewDepth = viewSpacePos.z;
 
-            float shadow = calculateCascadedShadowFactorCSM(
+            float shadow;
+            if (VSM_ENABLED != 0)
+                shadow = vsmShadowFactor(v_WorldPos, N);
+            else
+            {
+                shadow = calculateCascadedShadowFactorCSM(
                 u_ShadowMapCSM,
                 u_ShadowMapCSMRaw,
                 v_WorldPos,
@@ -304,6 +309,7 @@ void main()
                 u_ShadowMapResolution,
                 u_SoftShadowMode
             );
+            }
             lightContrib *= shadow;
             lightVisibility *= shadow;
         }

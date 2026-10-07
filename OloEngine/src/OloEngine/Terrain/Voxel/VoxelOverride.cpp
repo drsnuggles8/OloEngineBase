@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cmath>
 #include <cstring>
+#include <limits>
 
 namespace OloEngine
 {
@@ -527,6 +528,12 @@ namespace OloEngine
             coord.X = readI32();
             coord.Y = readI32();
             coord.Z = readI32();
+            // Grid coordinates and six-neighbour meshing use signed i32.
+            // Leave one chunk of headroom for neighbour arithmetic.
+            constexpr i32 maxChunk = std::numeric_limits<i32>::max() / static_cast<i32>(VoxelChunk::CHUNK_SIZE) - 1;
+            if (coord.X < -maxChunk || coord.X > maxChunk || coord.Y < -maxChunk || coord.Y > maxChunk ||
+                coord.Z < -maxChunk || coord.Z > maxChunk)
+                return false;
 
             i32 runCount = readI32();
             if (runCount < 0 || static_cast<u32>(runCount) > VoxelChunk::TOTAL_VOXELS)
@@ -547,6 +554,8 @@ namespace OloEngine
                 }
 
                 f32 val = readF32();
+                if (!std::isfinite(val))
+                    return false;
                 u16 count = readU16();
 
                 if (idx + count > VoxelChunk::TOTAL_VOXELS)

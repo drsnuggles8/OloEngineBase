@@ -87,10 +87,13 @@ layout(std140, binding = 81) uniform VirtualShadowGlobals
 // per SetData. Two consumers, disjoint in time:
 //   .x — VSM_BuildHPB: the mip being written.
 //      — VSM_Depth raster: the base of this batch's compacted instance run.
+#ifndef OLO_VSM_RECEIVER_ONLY
+// Dispatch/draw scratch is consumed by page producers, not lit receivers.
 layout(std140, binding = 82) uniform VirtualShadowPass
 {
     uvec4 u_VSMPassParams;
 };
+#endif
 
 // Virtual page table — VSM_TOTAL_PAGE_TABLE_ENTRIES entries, one uint each:
 // the directional clip levels first, then the local-light layers (issue #703).

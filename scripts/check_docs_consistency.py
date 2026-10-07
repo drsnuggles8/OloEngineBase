@@ -191,19 +191,27 @@ def check_links(repo: Repo, docs: list[str]) -> list[str]:
     return errors
 
 
+def parse_git_grep(output: bytes):
+    # git separates matches with LF; CR and Unicode line separators can be
+    # part of a source line and must not become additional match records.
+    for hit in output.decode("utf-8", errors="replace").split("\n"):
+        if not hit:
+            continue
+        rel, number, line = hit.split(":", 2)
+        yield rel, int(number), line.rstrip("\r")
+
+
 def lines_citing_docs(repo: Repo):
     """Yield (file, line number, line) for text lines outside docs/ that mention docs/."""
     if repo.use_git:
         grep = subprocess.run(
             ["git", "grep", "--untracked", "-n", "-I", "-F", "docs/", "--", ".", ":!docs", ":!**/vendor/**", f":!{SELF}"],
-            cwd=repo.root, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            cwd=repo.root, capture_output=True,
         )
         # 1 means no match; anything else is git failing, which must not read as "clean".
         if grep.returncode not in (0, 1):
-            raise RuntimeError(f"git grep failed ({grep.returncode}): {grep.stderr.strip()}")
-        for hit in grep.stdout.splitlines():
-            rel, number, line = hit.split(":", 2)
-            yield rel, int(number), line
+            raise RuntimeError(f"git grep failed ({grep.returncode}): {grep.stderr.decode('utf-8', errors='replace').strip()}")
+        yield from parse_git_grep(grep.stdout)
         return
     for rel in sorted(repo.tracked):
         if not rel.startswith("docs/") and rel != SELF:
@@ -301,6 +309,11 @@ SELF_TEST_BASE = {
 
 def self_test() -> list[str]:
     failures = []
+    for ending in ["\n", "\r\n", "\r\r\n"]:
+        record = "src/X.h:3:// docs/guides/a.md\u0085 still the same source line" + ending
+        expected = [("src/X.h", 3, "// docs/guides/a.md\u0085 still the same source line")]
+        if list(parse_git_grep(record.encode("utf-8"))) != expected:
+            failures.append("git grep records split on a source line separator")
     for name, (overrides, expect) in SELF_TEST.items():
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

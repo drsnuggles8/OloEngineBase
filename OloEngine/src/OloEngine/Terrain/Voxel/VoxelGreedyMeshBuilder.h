@@ -32,6 +32,7 @@ namespace OloEngine
         Ref<VertexArray> VAO;
         Ref<VertexBuffer> InstanceVBO;
         u32 QuadCount = 0;
+        u64 GeometryRevision = 0;
         u32 InstanceCapacity = 0;
 
         // Terrain-local placement of the chunk: translate(chunkOrigin) *

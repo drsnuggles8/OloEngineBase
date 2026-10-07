@@ -79,6 +79,9 @@ namespace OloEngine
 
         // OloEngine types (normalized without dots)
         s_ExtensionMap["oloscene"] = AssetType::Scene;
+        // Native editor/MCP scenes use these existing scene extensions too.
+        s_ExtensionMap["olo"] = AssetType::Scene;
+        s_ExtensionMap["scene"] = AssetType::Scene;
         s_ExtensionMap["olomesh"] = AssetType::Mesh;
         s_ExtensionMap["olosmesh"] = AssetType::StaticMesh;
         s_ExtensionMap["olomaterial"] = AssetType::Material;

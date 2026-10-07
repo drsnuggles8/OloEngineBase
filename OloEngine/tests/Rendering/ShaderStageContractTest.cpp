@@ -217,7 +217,12 @@ namespace OloEngine::Tests
                 // include/; the contract is on the text the compiler sees.
                 std::string expandedStage = stageSource;
                 for (const std::string& includePath : SH::IncludedPaths(stageSource))
-                    expandedStage += SH::ReadWholeFile(SH::ResolveInclude(SH::ResolveShaderRoot(), includePath));
+                {
+                    const fs::path included = SH::ResolveInclude(root, includePath);
+                    expandedStage += SH::ReadWholeFile(included);
+                    for (const fs::path& dependency : SH::IncludeClosure(root, included))
+                        expandedStage += SH::ReadWholeFile(dependency);
+                }
                 if (expandedStage.find("gl_Position") == std::string::npos)
                 {
                     failures.push_back({ path.generic_string(),

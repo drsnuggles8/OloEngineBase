@@ -29,7 +29,9 @@
 
 #define VSM_PAGE_TABLE_READONLY 1
 #define VSM_LOCAL_LIGHTS_READONLY 1
+#define OLO_VSM_RECEIVER_ONLY 1
 #include "VirtualShadowResources.glsl"
+#undef OLO_VSM_RECEIVER_ONLY
 
 // TEX_VSM_PHYSICAL. usampler2D, not sampler2D: the pool stores raw float bits so
 // the raster can resolve visibility with imageAtomicMin, and a float sampler

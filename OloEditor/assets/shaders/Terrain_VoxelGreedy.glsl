@@ -90,6 +90,7 @@ void main()
 
 #include "include/PBRCommon.glsl"
 #include "include/AtmosphereShading.glsl"
+#include "include/VirtualShadowSampling.glsl"
 #include "include/VoxelQuadUnpack.glsl"
 
 // Camera UBO (binding 0)
@@ -322,7 +323,12 @@ void main()
             vec4 viewSpacePos = u_View * vec4(v_WorldPos, 1.0);
             float viewDepth = viewSpacePos.z;
 
-            float shadow = calculateCascadedShadowFactorCSM(
+            float shadow;
+            if (VSM_ENABLED != 0)
+                shadow = vsmShadowFactor(v_WorldPos, N);
+            else
+            {
+                shadow = calculateCascadedShadowFactorCSM(
                 u_ShadowMapCSM,
                 u_ShadowMapCSMRaw,
                 v_WorldPos,
@@ -334,13 +340,22 @@ void main()
                 u_ShadowMapResolution,
                 u_SoftShadowMode
             );
+            }
             lightContrib *= shadow;
             lightVisibility *= shadow;
         }
         else if (lightType == SPOT_LIGHT)
         {
+            // Spot shadows come from the light's shadow-atlas entry (issue
+            // #435); direction.w carries the entry index (-1 = none).
             int atlasEntry = int(u_Lights[i].direction.w);
-            if (atlasEntry >= 0 && atlasEntry < u_AtlasEntryCount)
+            float localShadow;
+            if (vsmLocalShadow(v_WorldPos, N, atlasEntry, false, localShadow))
+            {
+                lightContrib *= localShadow;
+                lightVisibility *= localShadow;
+            }
+            else if (atlasEntry >= 0 && atlasEntry < u_AtlasEntryCount)
             {
                 float shadow = calculateAtlasEntryShadow(
                     v_WorldPos,
@@ -360,8 +375,17 @@ void main()
         }
         else if (lightType == POINT_LIGHT || lightType == SPHERE_AREA_LIGHT)
         {
+            // Sphere area lights shadow from the emitter centre (the
+            // representative point), so both types share the point path:
+            // direction.w carries the BASE atlas entry of the 6 face tiles.
             int baseEntry = int(u_Lights[i].direction.w);
-            if (baseEntry >= 0 && baseEntry + 5 < u_AtlasEntryCount)
+            float localShadow;
+            if (vsmLocalShadow(v_WorldPos, N, baseEntry, true, localShadow))
+            {
+                lightContrib *= localShadow;
+                lightVisibility *= localShadow;
+            }
+            else if (baseEntry >= 0 && baseEntry + 5 < u_AtlasEntryCount)
             {
                 vec3 lightPos = u_Lights[i].position.xyz;
                 int entry = baseEntry + atlasCubeFace(v_WorldPos - lightPos);
@@ -374,7 +398,7 @@ void main()
                     u_ShadowAtlasRaw,
                     u_AtlasDepthBiasTexels,
                     u_AtlasResolution,
-                    0,
+                    0, // PCF only on cube faces (matches the old cubemap path)
                     u_ShadowParams.z
                 );
                 lightContrib *= shadow;

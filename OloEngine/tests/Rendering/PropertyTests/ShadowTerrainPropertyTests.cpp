@@ -448,6 +448,23 @@ namespace OloEngine::Tests
     // Catches: off-by-one in texel offsets, swapped x/z derivatives, wrong
     // normalisation factor, accidental dependency on heightScale.
     // =========================================================================
+    TEST(TerrainHeightmapTest, SnowDisplacementSurvivesHeightMorphing)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ShaderProbeHarness harness(8, 8, "assets/shaders/tests/ShaderUnit_TerrainDisplacedHeight.glsl");
+        harness.Draw(0);
+        std::vector<f32> pixels;
+        harness.ReadRgbaFloat(pixels);
+        ASSERT_EQ(pixels.size(), 8u * 8u * 4u);
+        for (sizet i = 0; i < pixels.size(); i += 4)
+        {
+            EXPECT_NEAR(pixels[i], 12.0f, 1e-4f);
+            EXPECT_NEAR(pixels[i + 1], 8.0f, 1e-4f);
+            EXPECT_NEAR(pixels[i + 2], 4.0f, 1e-4f);
+            EXPECT_NEAR(pixels[i + 3], 10.0f, 1e-4f);
+        }
+    }
+
     TEST(TerrainHeightmapTest, FlatHeightmapProducesUpNormal)
     {
         OLO_ENSURE_GPU_OR_SKIP();
