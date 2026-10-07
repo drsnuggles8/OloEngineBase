@@ -256,7 +256,8 @@ namespace OloEngine
         // The device releases its parallel recording resources and drains the
         // final deferred frees too. Only now can physical VMA survivors be
         // distinguished from resources legitimately owned by this context.
-        RendererMemoryTracker::GetInstance().Shutdown();
+        if (m_MemoryTrackerShutdownRequested)
+            RendererMemoryTracker::GetInstance().Shutdown();
         OLO_CORE_INFO("[Vulkan] Context shut down cleanly");
     }
 

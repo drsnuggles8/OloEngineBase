@@ -11,6 +11,9 @@
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/RendererMemoryOwners.h"
 #include "Platform/OpenGL/OpenGLFramebuffer.h"
+#if OLO_WITH_VULKAN
+#include "Platform/Vulkan/VulkanContext.h"
+#endif
 
 namespace OloEngine
 {
@@ -157,8 +160,17 @@ namespace OloEngine
         // Its teardown finalizes the tracker after those allocations are released;
         // a census here would report legitimate context allocations as leaks.
         RendererMemoryOwners::Unregister();
-        if (RendererAPI::GetAPI() != RendererAPI::API::Vulkan)
-            RendererMemoryTracker::GetInstance().Shutdown();
+#if OLO_WITH_VULKAN
+        if (RendererAPI::GetAPI() == RendererAPI::API::Vulkan)
+        {
+            if (auto* context = VulkanContext::Get())
+            {
+                context->RequestMemoryTrackerShutdown();
+                return;
+            }
+        }
+#endif
+        RendererMemoryTracker::GetInstance().Shutdown();
     }
 
     void Renderer::OnWindowResize(const u32 width, const u32 height)

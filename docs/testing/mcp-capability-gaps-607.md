@@ -80,7 +80,13 @@ texture serialization and the real headless MCP screenshot/dispatch check pass.
 The initial Vulkan run exposed an early memory census: it reported 16 allocations
 (33,998,848 bytes) before the context released its legitimate heaps/frame buffers.
 The Vulkan census now runs after device teardown and its final reclaim drain;
-OpenGL retains its existing location. The fresh session exits normally with no
+only `Renderer::Shutdown` requests that deferred census. Temporary Vulkan contexts
+leave the process-wide tracker active. A real OpenGL renderer followed by the
+temporary Vulkan context runs in one process with no skips: the tracked sentinel
+survives context teardown and normal deallocation removes it. The
+[two-case JUnit report](evidence/mcp-capability-gaps-607/vulkan-context-tracker.xml)
+records this regression check. OpenGL retains its existing census location.
+The fresh session exits normally with no
 survivor or VMA diagnostics. See the [before summary](evidence/mcp-capability-gaps-607/vulkan-teardown-before.txt)
 and [complete post-fix teardown](evidence/mcp-capability-gaps-607/vulkan-teardown-after.log).
 
