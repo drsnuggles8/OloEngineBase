@@ -7,6 +7,7 @@
 
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/RHI/RHIResources.h"
+#include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "Platform/Vulkan/VulkanAftermath.h"
 #include "Platform/Vulkan/VulkanBarrierLowering.h"
@@ -17,6 +18,7 @@
 #include "Platform/Vulkan/VulkanContext.h"
 #include "Platform/Vulkan/VulkanDescriptorSlotCache.h"
 #include "Platform/Vulkan/VulkanDevice.h"
+#include "Platform/Vulkan/VulkanDeferredReclaim.h"
 #include "Platform/Vulkan/VulkanFrameArena.h"
 #include "Platform/Vulkan/VulkanGpuFence.h"
 #include "Platform/Vulkan/VulkanPipelineBuilder.h"
@@ -254,6 +256,28 @@ namespace OloEngine
         CacheDeviceLimits();
         OLO_CORE_INFO("[RHI/Vulkan] VulkanRendererAPI up — execution layer (barriers, transient clears, "
                       "dynamic state); pipeline-shaped entry points still stubbed");
+    }
+
+    void VulkanRendererAPI::ShutdownGpuResources()
+    {
+        if (RefuseOnWorker("ShutdownGpuResources"))
+        {
+            return;
+        }
+        auto* device = VulkanDevice::Get();
+        if (!device || device->GetDevice() == VK_NULL_HANDLE)
+        {
+            return;
+        }
+
+        // These context-owned backings must retire before the renderer's live
+        // allocation census. The context repeats this idempotent cleanup for
+        // partial startup and objects released after renderer shutdown.
+        vkDeviceWaitIdle(device->GetDevice());
+        RHI::DescriptorHeap::Get().Shutdown();
+        VulkanResourceHeap::Get().Release();
+        VulkanFrameArena::Get().ReleaseBuffers();
+        VulkanDeferredReclaim::Get().FlushAll();
     }
 
     std::shared_ptr<VulkanRecordingCompletion> VulkanRendererAPI::BeginRecording(const VkCommandBuffer cmd)

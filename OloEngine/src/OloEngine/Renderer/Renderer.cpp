@@ -112,11 +112,9 @@ namespace OloEngine
         // objects silently, having no allocator-teardown assertion.
         //
         // Position: after ShaderWarmup::Shutdown, the last consumer. It must stay
-        // ahead of ShutdownGpuResources() below only on GL, where that call is
-        // what releases the descriptor heap while the context is current
-        // (OpenGLRendererAPI overrides it; on Vulkan it is the empty
-        // RendererAPI base default, and the device is not destroyed until
-        // VulkanContext::Shutdown runs from m_Window.reset()).
+        // ahead of ShutdownGpuResources() below, which releases both backends'
+        // heap resources while their context/device is still alive. The Vulkan
+        // device itself remains alive until window teardown.
         //
         // Releasing here rather than inside Renderer3D::Shutdown is safe on both
         // backends — on GL, FrameResourceManager::SubmitForDeletion runs the

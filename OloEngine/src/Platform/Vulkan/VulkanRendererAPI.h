@@ -388,6 +388,7 @@ namespace OloEngine
 
         // --- RendererAPI ---------------------------------------------------
         void Init() override;
+        void ShutdownGpuResources() override;
         void SetViewport(u32 x, u32 y, u32 width, u32 height) override;
         void SetClearColor(const glm::vec4& color) override;
         void Clear() override;

@@ -155,6 +155,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "Platform/Vulkan/VulkanPipelineCache.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 #include "Platform/Vulkan/VulkanResourceHeap.h"
+#include "Platform/Vulkan/VulkanSamplerHeap.h"
 #include "Platform/Vulkan/VulkanShader.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
@@ -938,6 +939,51 @@ class VulkanPassSuite : public ::testing::Test
     bool m_PreviousDescriptorHeapEnabled = false;
     bool m_HadOpenGlContext = false;
 };
+
+TEST_F(VulkanPassSuite, BackendShutdownReleasesHeapNullImagesAndFrameArenaBeforeTheMemoryCensus)
+{
+    auto& tracker = RendererMemoryTracker::GetInstance();
+    const RendererMemoryReport before = tracker.BuildReport();
+    ASSERT_EQ(before.Observation.Backend, MemoryBackend::Vulkan);
+    ASSERT_TRUE(before.Observation.HasAllocatorTotals);
+
+    // Create the actual context-owned survivors from the Runtime teardown:
+    // descriptor/sampler heaps, typed null images and both frame-arena slots.
+    m_ShutdownDescriptorHeapOnTearDown = true;
+    ASSERT_TRUE(VulkanDescriptorHeapBackend::InstallOntoEngineHeap());
+    ASSERT_TRUE(VulkanSamplerHeap::Get().EnsureCreated());
+    VulkanDescriptorHeapBackend::Get().WarmNullSampledSlots();
+    ASSERT_NE(VulkanDescriptorHeapBackend::Get().NullStorageDescriptor(RHI::Format::R32UInt), 0u);
+    VulkanFrameArena::Get().BeginFrame(0);
+    ASSERT_NE(VulkanFrameArena::Get().GetSlotBuffer(0), VK_NULL_HANDLE);
+    ASSERT_NE(VulkanFrameArena::Get().GetSlotBuffer(1), VK_NULL_HANDLE);
+    ASSERT_NE(VulkanFrameArena::Get().GetNullBlockAddress(), 0u);
+    const RendererMemoryReport populated = tracker.BuildReport();
+    ASSERT_GE(populated.Observation.AllocationBytes, before.Observation.AllocationBytes);
+    ASSERT_GE(populated.Observation.AllocationBytes - before.Observation.AllocationBytes,
+              2u * VulkanFrameArena::Get().GetSlotCapacityBytes());
+    ASSERT_GT(populated.Gpu.LiveBytes, before.Gpu.LiveBytes);
+    ASSERT_GT(VulkanResourceHeap::Get().GetReservedSlots(), 0u);
+
+    // Exercise the production dispatch hook, while the tracker and device
+    // remain alive. A fixture-only cleanup could conceal the original defect.
+    RenderCommand::ShutdownGpuResources();
+    const RendererMemoryReport released = tracker.BuildReport();
+    EXPECT_EQ(released.Gpu.LiveBytes, before.Gpu.LiveBytes);
+    EXPECT_EQ(released.Gpu.RetiringBytes, before.Gpu.RetiringBytes);
+    EXPECT_EQ(released.Observation.AllocationBytes, before.Observation.AllocationBytes);
+    EXPECT_EQ(released.Observation.AllocationCount, before.Observation.AllocationCount);
+    EXPECT_EQ(VulkanResourceHeap::Get().GetReservedSlots(), 0u);
+    EXPECT_EQ(VulkanSamplerHeap::Get().GetLiveSlotCount(), 0u);
+    EXPECT_EQ(VulkanFrameArena::Get().GetSlotBuffer(0), VK_NULL_HANDLE);
+    EXPECT_EQ(VulkanFrameArena::Get().GetSlotBuffer(1), VK_NULL_HANDLE);
+
+    RenderCommand::ShutdownGpuResources();
+    const RendererMemoryReport repeated = tracker.BuildReport();
+    EXPECT_EQ(repeated.Gpu.ResidentBytes(), released.Gpu.ResidentBytes());
+    EXPECT_EQ(repeated.Observation.AllocationBytes, released.Observation.AllocationBytes);
+    EXPECT_EQ(repeated.Observation.AllocationCount, released.Observation.AllocationCount);
+}
 
 TEST_F(VulkanPassSuite, PagedRgba16fLightmapSamplesEveryLayerThroughSlot16)
 {
