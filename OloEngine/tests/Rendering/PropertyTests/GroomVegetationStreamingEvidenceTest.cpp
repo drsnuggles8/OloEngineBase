@@ -472,6 +472,80 @@ namespace OloEngine::Tests
         EXPECT_FALSE(Plants().GetActiveLayerDrawInfo().IsEmpty());
     }
 
+    TEST_F(GroomVegetationStreamingEvidenceTest, PreparedImpostorLayerRebuildWaitsForItsOwnGpuUpload)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        m_GroomEntity.RemoveComponent<GroomComponent>();
+        auto& foliage = m_Terrain.GetComponent<FoliageComponent>();
+        foliage.m_Layers[0].UseImpostor = true;
+        foliage.m_Layers[0].ImpostorFramesPerAxis = 2;
+        foliage.m_Layers[0].ImpostorAtlasResolution = 128;
+        GetScene().GetStreamingSettings().RepresentationUploadMegabytesPerFrame = 0.000001f;
+        RunFrames(2);
+        m_Gate.Trigger();
+        ASSERT_TRUE(WaitForPlants([](const FFoliageStreamingStats& stats)
+                                  { return stats.PreparedCpuBytes > 0u; }));
+        ASSERT_EQ(Plants().GetStreamingStats().ResidentLayers, 0u);
+        const auto instanceCount = Plants().GetTotalInstanceCount();
+        ASSERT_GT(instanceCount, 0u);
+        TArray<u64> ids;
+        for (const auto& record : Plants().GetInstanceRegistry().GetRecords())
+            ids.Add(record.m_Id);
+
+        // Region integration and editor edits can regenerate placements while
+        // CPU preparation is ready but the upload allowance still refuses it.
+        foliage.m_NeedsRebuild = true;
+        RunFrames(1);
+        EXPECT_EQ(Plants().GetStreamingStats().ResidentLayers, 0u);
+        EXPECT_GT(Plants().GetStreamingStats().PreparedCpuBytes, 0u);
+        EXPECT_EQ(Plants().GetTotalInstanceCount(), instanceCount);
+        EXPECT_FALSE(Plants().GetActiveLayerDrawInfo().IsEmpty());
+        EXPECT_EQ(Plants().GetImpostorAtlas(0), nullptr);
+
+        GetScene().GetStreamingSettings().RepresentationUploadMegabytesPerFrame = 8.0f;
+        ASSERT_TRUE(WaitForPlants([](const FFoliageStreamingStats& stats)
+                                  { return stats.ResidentLayers == 1u; }));
+        EXPECT_EQ(Plants().GetStreamingStats().PreparedCpuBytes, 0u);
+        const auto& records = Plants().GetInstanceRegistry().GetRecords();
+        ASSERT_EQ(records.Num(), ids.Num());
+        for (i32 i = 0; i < ids.Num(); ++i)
+            EXPECT_EQ(records[i].m_Id, ids[i]);
+        const auto draws = Plants().GetActiveLayerDrawInfo();
+        EXPECT_TRUE(std::ranges::any_of(draws, [](const auto& draw)
+                                        { return draw.UseImpostor && draw.ImpostorFramesPerAxis == 2u; }))
+            << "the admitted layer must bake its impostor from its own mesh";
+        const auto* atlas = Plants().GetImpostorAtlas(0);
+        ASSERT_NE(atlas, nullptr);
+        const auto firstAtlas = atlas->Albedo->GetRHIHandle();
+        const auto radius = atlas->Radius;
+
+        // After publication no Ready CPU geometry remains. Re-baking must use
+        // the same resident mesh and its exact bounds, including updated mips.
+        foliage.m_Layers[0].BaseColor = { 0.3f, 0.5f, 0.1f };
+        foliage.m_Layers[0].AlphaCutoff = 0.35f;
+        foliage.m_Layers[0].ImpostorFramesPerAxis = 4;
+        foliage.m_NeedsRebuild = true;
+        RunFrames(1);
+        atlas = Plants().GetImpostorAtlas(0);
+        ASSERT_NE(atlas, nullptr);
+        EXPECT_EQ(atlas->FramesPerAxis, 4u);
+        EXPECT_NE(atlas->Albedo->GetRHIHandle(), firstAtlas);
+        EXPECT_TRUE(Math::BitwiseEqual(atlas->Radius, radius));
+        EXPECT_EQ(Plants().GetStreamingStats().PreparedCpuBytes, 0u);
+        EXPECT_EQ(Plants().GetStreamingStats().ResidentLayers, 1u);
+        const auto pinnedAtlas = atlas->Albedo->GetRHIHandle();
+
+        GetScene().GetStreamingSettings().RepresentationResidentMegabytes = 0.001f;
+        RunFrames(2);
+        EXPECT_EQ(Plants().GetStreamingStats().ResidentLayers, 0u);
+        atlas = Plants().GetImpostorAtlas(0);
+        ASSERT_NE(atlas, nullptr);
+        EXPECT_EQ(atlas->Albedo->GetRHIHandle(), pinnedAtlas);
+        EXPECT_EQ(Plants().GetTotalInstanceCount(), instanceCount);
+    }
+
     TEST_F(GroomVegetationStreamingEvidenceTest, PendingPressureAndReloadStayDrawableOnEveryPath)
     {
         OLO_ENSURE_GPU_OR_SKIP();

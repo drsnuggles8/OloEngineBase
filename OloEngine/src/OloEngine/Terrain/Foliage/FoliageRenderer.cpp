@@ -489,17 +489,11 @@ namespace OloEngine
         // billboard painted over the pine's atlas UVs passed 12% of its surface.
         struct PlantGeometry
         {
-            Ref<MeshSource> Source;                           // owns the vertices
-            const TArray<Vertex>* PreparedVertices = nullptr; // borrowed from the held CPU load payload while baking
+            Ref<MeshSource> Source; // owns the vertices
             TArray<u32> Indices;
             TArray<FoliageLayerDrawPart> Parts;
             TArray<TArray<glm::vec2>> PartSurfaceUVs;
             BoundingBox Box;
-
-            [[nodiscard]] const TArray<Vertex>& GetVertices() const
-            {
-                return PreparedVertices ? *PreparedVertices : Source->GetVertices();
-            }
         };
 
         // nullptr on success, otherwise why the model yields nothing drawable.
@@ -659,6 +653,7 @@ namespace OloEngine
         data.MeshModel = nullptr;
         data.MeshVertexCount = 0;
         data.MeshIndexCount = 0;
+        data.MeshBounds = BoundingBox{};
         data.MeshGeometryPath.Empty();
         data.BoundsProfile = FoliageBoundsProfile{};
         data.CardNormalTilt = 0.0f;
@@ -700,6 +695,7 @@ namespace OloEngine
         data.MeshRayTracingIndices = plant.Indices;
         data.MeshVertexCount = static_cast<u32>(srcVertices.Num());
         data.MeshIndexCount = static_cast<u32>(plant.Indices.Num());
+        data.MeshBounds = plant.Box;
         data.MeshModel = model;
         data.MeshGeometryPath = layer.MeshPath;
         data.CardNormalTilt = MeanFrontFacingNormalElevation(srcVertices, plant.Indices);
@@ -837,6 +833,7 @@ namespace OloEngine
         data.MeshPartSurfaceUVs.Empty();
         data.MeshVertexCount = 0;
         data.MeshIndexCount = 0;
+        data.MeshBounds = BoundingBox{};
         data.AlphaCoverageDirty = true;
         m_ReflectionSplit.Valid = false;
         m_MainViewCulled = false;
@@ -999,6 +996,7 @@ namespace OloEngine
                                                     { return part.Albedo && part.Albedo->IsLoaded(); });
         data.CardNormalTilt = MeanFrontFacingNormalElevation(payload->Vertices, payload->Indices);
         const auto& box = payload->Bounds;
+        data.MeshBounds = box;
         const f32 radius = std::max({ std::abs(box.Min.x), std::abs(box.Max.x), std::abs(box.Min.z), std::abs(box.Max.z) });
         data.BoundsProfile.m_HalfExtentXZHeightScaled = std::max(data.BoundsProfile.m_HalfExtentXZHeightScaled, radius * glm::root_two<f32>());
         data.BoundsProfile.m_MinY = std::min(data.BoundsProfile.m_MinY, box.Min.y);
@@ -1049,6 +1047,7 @@ namespace OloEngine
     {
         auto& budget = RepresentationStreaming::Get();
         const f32 cutoff = AlphaCoverageMips::SanitizeCutoff(layer.AlphaCutoff);
+        bool changed = false;
         for (const auto& part : data.MeshParts)
         {
             Ref<Texture2D> texture = part.Albedo;
@@ -1072,7 +1071,9 @@ namespace OloEngine
             const u64 before = FoliageDetailPhysicalLiveBytes();
             const auto start = std::chrono::steady_clock::now();
             RendererMemoryOwnerScope owner("Foliage streaming detail", MemoryLifetime::Asset);
+            const f32 previousCutoff = texture->GetAlphaCoverageCutoff();
             texture->SetAlphaCoverageCutoff(cutoff);
+            changed |= !Math::BitwiseEqual(previousCutoff, texture->GetAlphaCoverageCutoff());
             const u64 transferred = cutoff > 0.0f ? FoliageTextureBytes(texture) : baseBytes;
             m_StreamingStats.UploadedBytes += transferred;
             budget.RecordUpload(transferred, static_cast<u64>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count()));
@@ -1091,7 +1092,7 @@ namespace OloEngine
             }
             state.Descriptor.GpuBytes = resident;
         }
-        return false;
+        return changed;
     }
 
     bool FoliageRenderer::UpdateStreamingResidency(const TArray<FoliageLayer>& layers, const glm::vec3& cameraPosition)
@@ -1602,6 +1603,7 @@ namespace OloEngine
                     renderData.MeshModel = nullptr;
                     renderData.MeshVertexCount = 0;
                     renderData.MeshIndexCount = 0;
+                    renderData.MeshBounds = BoundingBox{};
                     renderData.MeshGeometryPath.Empty();
                     renderData.CardUsesMeshBake = false;
                     renderData.CardNormalTilt = 0.0f;
@@ -2489,6 +2491,20 @@ namespace OloEngine
             return;
         }
 
+        const bool streamingGeometry = m_StreamingEnabled && layer.UseAuthoredMesh;
+        if (streamingGeometry)
+        {
+            // CPU preparation is not GPU residency. Bake only this layer's
+            // admitted geometry, including during later material/layout edits;
+            // a sibling's ready payload for the same path cannot supply it.
+            if (!data.MeshVBO || !data.MeshIBO || data.MeshParts.IsEmpty() || data.MeshGeometryPath != layer.MeshPath)
+                return; // retain the pinned atlas/card while optional geometry is absent
+            const f32 cutoff = AlphaCoverageMips::SanitizeCutoff(layer.AlphaCutoff);
+            for (const auto& part : data.MeshParts)
+                if (part.Albedo && !Math::BitwiseEqual(part.Albedo->GetAlphaCoverageCutoff(), cutoff))
+                    return; // the admitted material mip update must finish before recording a new bake
+        }
+
         // Re-bake only when anything the atlas is baked FROM changed: mesh, grid,
         // atlas resolution, layout, AND the material inputs (albedo texture path,
         // tint, alpha cutoff) — the bake bakes those in, so a tint/cutoff change
@@ -2502,20 +2518,12 @@ namespace OloEngine
         // bake and the near geometry are framed from the SAME source, which is
         // also what keeps the impostor card and the mesh the same tree.
         Ref<Model> owned;
-        Ref<FFoliageStreamingPayload> prepared;
         PlantGeometry plant;
-        if (m_StreamingEnabled && layer.UseAuthoredMesh)
+        if (streamingGeometry)
         {
-            const auto found = std::ranges::find_if(m_StreamingLayers, [&](const auto& pair)
-                                                    { return pair.second.Path == layer.MeshPath && pair.second.Ready; });
-            if (found == m_StreamingLayers.end())
-                return; // the flat card stays drawable while preparation is pending
-            prepared = found->second.Ready.As<FFoliageStreamingPayload>();
-            plant.PreparedVertices = &prepared->Vertices;
-            plant.Indices = prepared->Indices;
             plant.Parts = data.MeshParts;
             plant.PartSurfaceUVs = data.MeshPartSurfaceUVs;
-            plant.Box = prepared->Bounds;
+            plant.Box = data.MeshBounds;
         }
         else if (!data.MeshModel || data.MeshGeometryPath != layer.MeshPath)
         {
@@ -2550,7 +2558,7 @@ namespace OloEngine
             data.AlphaCoverageDirty = true;
         };
         const Model* model = owned ? owned.Raw() : data.MeshModel.Raw();
-        const char* failure = prepared ? nullptr : (!model || model->GetMeshCount() == 0 ? "it failed to load" : ExtractPlantGeometry(*model, plant));
+        const char* failure = streamingGeometry ? nullptr : (!model || model->GetMeshCount() == 0 ? "it failed to load" : ExtractPlantGeometry(*model, plant));
         if (failure)
         {
             OLO_CORE_WARN("FoliageRenderer: impostor layer '{}' mesh '{}': {} — impostor disabled for this layer",
@@ -2577,12 +2585,15 @@ namespace OloEngine
                                         albedo && albedo->IsLoaded() ? albedo : Ref<Texture2D>{} });
         }
 
-        const auto& vertices = plant.GetVertices();
-        Ref<VertexBuffer> bakeVBO =
-            prepared ? data.MeshVBO : VertexBuffer::Create(vertices.GetData(), static_cast<u32>(vertices.Num() * sizeof(Vertex)));
+        Ref<VertexBuffer> bakeVBO = data.MeshVBO;
+        Ref<IndexBuffer> bakeIBO = data.MeshIBO;
+        if (!streamingGeometry)
+        {
+            const auto& vertices = plant.Source->GetVertices();
+            bakeVBO = VertexBuffer::Create(vertices.GetData(), static_cast<u32>(vertices.Num() * sizeof(Vertex)));
+            bakeIBO = IndexBuffer::Create(plant.Indices.GetData(), static_cast<u32>(plant.Indices.Num()));
+        }
         bakeVBO->SetLayout(Vertex::GetLayout());
-        Ref<IndexBuffer> bakeIBO =
-            prepared ? data.MeshIBO : IndexBuffer::Create(plant.Indices.GetData(), static_cast<u32>(plant.Indices.Num()));
         Ref<VertexArray> bakeVAO = VertexArray::Create();
         bakeVAO->AddVertexBuffer(bakeVBO);
         bakeVAO->SetIndexBuffer(bakeIBO);
