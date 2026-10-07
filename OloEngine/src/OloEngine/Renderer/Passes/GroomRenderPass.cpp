@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/ComputeShader.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -221,6 +222,9 @@ namespace OloEngine
 
     void GroomRenderPass::Setup(RGBuilder& builder, FrameBlackboard& board)
     {
+        // Cancellation/retirement is real work even after the last groom left
+        // the scene. Otherwise graph culling would strand the resident set.
+        SetSideEffects(m_StreamingDetails.empty() ? SideEffect::None : SideEffect::NeverCull);
         RenderGraphNode::Setup(builder, board);
 
         if (m_Requests.empty())
@@ -297,6 +301,7 @@ namespace OloEngine
         // The value is the tier rather than a pointer, so two entities on the
         // same tier of the same asset still share one buffer.
         key = mix(key, static_cast<u64>(std::to_underlying(request.Lod.Representation)));
+        key = mix(key, request.StreamingKey);
         // A DEFORMED groom's vertices depend on a body's pose, so its geometry
         // is per ENTITY: two characters sharing one groom asset at one budget
         // must not share one buffer. Mixing the entity id in only on the
@@ -348,6 +353,7 @@ namespace OloEngine
         key = mix(key, static_cast<u64>(std::bit_cast<u32>(request.Build.MaxWidthCompensation)));
         key = mix(key, request.Build.CoatDigest);
         key = mix(key, static_cast<u64>(std::to_underlying(request.Lod.Representation)));
+        key = mix(key, request.StreamingKey);
         key = mix(key, request.Binding ? static_cast<u64>(request.Binding->GetHandle()) : 0ull);
         key = mix(key, 0x1427ull);
         return key;
@@ -393,19 +399,37 @@ namespace OloEngine
         // frame buffer — and a herd sharing one cooked coat pays for it once.
         const auto buildStart = std::chrono::steady_clock::now();
         const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
-        std::vector<GroomStrandVertex> vertices;
-        std::vector<u32> indices;
-        std::vector<u32> strandFirstIndex;
-        std::vector<GroomCasterStrand> casterStrands;
+        std::vector<GroomStrandVertex> builtVertices;
+        std::vector<u32> builtIndices;
+        std::vector<u32> builtFirstIndex;
+        std::vector<GroomCasterStrand> builtCasters;
         auto stream = Ref<GroomRestStream>::Create();
         // NO POSE SEGMENTS HERE (#1533). Only a POSED coat bake reads them, and
         // AcquireDrawnPose builds them on its first call, straight from the walk.
         // Built with every stream whose coat asked for a self-shadow, they were
         // 44 bytes a segment -- over 80 MiB on the showcase dog -- held for a
         // coat baked at rest, which never reads them.
-        const GroomStrandMeshStats stats =
-            BuildGroomStrandRestMesh(source, request.Build, binding, vertices, indices, stream->RootCurves, &coat,
-                                     nullptr, &strandFirstIndex, &casterStrands);
+        Ref<FPreparedGroomGeometry> prepared = PreparedStreamingGeometry(request);
+        GroomStrandMeshStats stats;
+        if (prepared && prepared->Binding == request.Binding && prepared->Groom == request.Groom)
+        {
+            stats = prepared->Stats;
+            const auto roots = FPreparedGroomGeometry::View(prepared->RootCurves);
+            stream->RootCurves.assign(roots.begin(), roots.end());
+        }
+        else
+        {
+            stats = BuildGroomStrandRestMesh(source, request.Build, binding, builtVertices, builtIndices, stream->RootCurves,
+                                             &coat, nullptr, &builtFirstIndex, &builtCasters);
+        }
+        const std::span<const GroomStrandVertex> vertices = prepared ? FPreparedGroomGeometry::View(prepared->Vertices)
+                                                                     : std::span<const GroomStrandVertex>(builtVertices);
+        const std::span<const u32> indices = prepared ? FPreparedGroomGeometry::View(prepared->Indices)
+                                                      : std::span<const u32>(builtIndices);
+        const std::span<const u32> strandFirstIndex = prepared ? FPreparedGroomGeometry::View(prepared->StrandFirstIndex)
+                                                               : std::span<const u32>(builtFirstIndex);
+        const std::span<const GroomCasterStrand> casterStrands = prepared ? FPreparedGroomGeometry::View(prepared->CasterStrands)
+                                                                          : std::span<const GroomCasterStrand>(builtCasters);
         m_Stats.DeformedBuildMicroseconds += static_cast<u64>(
             std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - buildStart)
                 .count());
@@ -415,6 +439,7 @@ namespace OloEngine
         }
 
         stream->Settings = request.Build;
+        stream->StreamingKey = request.StreamingKey;
         stream->Stats = stats;
         stream->Bytes = stats.VertexBytes + stats.IndexBytes;
         stream->Binding = request.Binding;
@@ -435,15 +460,29 @@ namespace OloEngine
         }
         // IMMUTABLE buffers, like an unbound groom's: nothing ever refills the
         // stream. What moves every frame is each entity's frame buffer.
+        std::optional<RendererMemoryOwnerScope> streamingOwner;
+        const auto streamingUploadStart = std::chrono::steady_clock::now();
+        const u64 physicalBefore = request.StreamingEnabled ? RendererMemoryTracker::GetInstance().GetGpuResidentBytes() : 0;
+        if (request.StreamingEnabled)
+        {
+            streamingOwner.emplace(request.StreamingFloor ? "Groom streaming floor" : "Groom streaming detail",
+                                   MemoryLifetime::Persistent);
+        }
         stream->Vertices = VertexBuffer::Create(vertices.data(), static_cast<u32>(stats.VertexBytes));
         stream->Vertices->SetLayout(StrandVertexLayout());
-        stream->Indices = IndexBuffer::Create(indices.data(), static_cast<u32>(indices.size()));
+        // The legacy factory takes a mutable pointer but both backends only
+        // copy it. Prepared output remains immutable across its upload.
+        stream->Indices = IndexBuffer::Create(const_cast<u32*>(indices.data()), static_cast<u32>(indices.size()));
         stream->Array = VertexArray::Create();
         stream->Array->AddVertexBuffer(stream->Vertices);
         stream->Array->SetIndexBuffer(stream->Indices);
         stream->Caster = BuildCasterStream(stream->Vertices, vertices, indices, strandFirstIndex, casterStrands,
                                            stream->RootCurves, &binding, true, request.Influence.Raw());
         stream->Bytes += stream->Caster.Bytes;
+        // GPU factories and caster construction have consumed the borrowed
+        // views. CompleteStreamingUpload must drop the sole remaining owner
+        // before releasing staging; this temporary must no longer retain it.
+        prepared = nullptr;
 
         m_CacheBytes += stream->Bytes;
         ++m_Stats.CacheBuilds;
@@ -456,6 +495,9 @@ namespace OloEngine
                        static_cast<f64>(stream->Caster.MeanRadius) * 1.0e6);
 
         m_RestStreams[key] = stream;
+        const u64 physicalAfter = request.StreamingEnabled ? RendererMemoryTracker::GetInstance().GetGpuResidentBytes() : 0;
+        CompleteStreamingUpload(request.StreamingKey, stream->Bytes, MicrosecondsSince(streamingUploadStart),
+                                physicalAfter - std::min(physicalAfter, physicalBefore), static_cast<u32>(stream->RootCurves.size()));
         return stream;
     }
 
@@ -464,7 +506,8 @@ namespace OloEngine
         for (auto it = m_RestStreams.begin(); it != m_RestStreams.end();)
         {
             // Only the map's own reference left: no cached entity draws it.
-            if (!it->second || it->second->GetRefCount() <= 1u)
+            if (!it->second || (it->second->GetRefCount() <= 1u &&
+                                (it->second->StreamingKey == 0 || !m_StreamingDetails.contains(it->second->StreamingKey))))
             {
                 if (it->second)
                 {
@@ -547,6 +590,9 @@ namespace OloEngine
         // buffer's alone (UploadDeformation adds it); the stream's are counted
         // once, by the map.
         CacheEntry entry;
+        entry.StreamingKey = request.StreamingKey;
+        entry.StreamingEntityKey = request.StreamingEntityKey;
+        entry.StreamingFloor = request.StreamingFloor;
         entry.Settings = request.Build;
         entry.Stats = stream->Stats;
         entry.Array = stream->Array;
@@ -655,10 +701,20 @@ namespace OloEngine
             }
 
             const u64 oldBytes = entry.DeformGpu ? static_cast<u64>(entry.DeformGpu->GetSize()) : 0u;
+            std::optional<RendererMemoryOwnerScope> streamingOwner;
+            if (request.StreamingEnabled)
+            {
+                streamingOwner.emplace(request.StreamingFloor ? "Groom streaming floor" : "Groom streaming detail",
+                                       MemoryLifetime::Persistent);
+            }
+            const u64 physicalBefore = request.StreamingEnabled ? RendererMemoryTracker::GetInstance().GetGpuResidentBytes() : 0;
             entry.DeformGpu = StorageBuffer::Create(static_cast<u32>(layout.TotalBytes()),
                                                     ShaderBindingLayout::SSBO_GROOM_DEFORMATION,
                                                     StorageBufferUsage::StreamCommandOrdered);
             const u64 newBytes = entry.DeformGpu ? static_cast<u64>(entry.DeformGpu->GetSize()) : 0u;
+            const u64 physicalAfter = request.StreamingEnabled ? RendererMemoryTracker::GetInstance().GetGpuResidentBytes() : 0;
+            CompleteStreamingEntityUpload(request.StreamingEntityKey,
+                                          physicalAfter - std::min(physicalAfter, physicalBefore), entry.DeformGpu != nullptr);
             // Counted against the cache like the geometry, and released with it
             // by the same `Bytes` subtraction every eviction already makes.
             entry.Bytes = entry.Bytes - std::min(entry.Bytes, oldBytes) + newBytes;
@@ -718,6 +774,7 @@ namespace OloEngine
         }
 
         const auto uploadStart = std::chrono::steady_clock::now();
+        u64 streamingUploadedBytes = 0;
         m_Stats.DeformedBuildMicroseconds += static_cast<u64>(
             std::chrono::duration_cast<std::chrono::microseconds>(uploadStart - packStart).count());
 
@@ -739,6 +796,7 @@ namespace OloEngine
                     entry.DeformGpu->SetData(bytes.data() + begin, static_cast<u32>(end - begin),
                                              static_cast<u32>(begin));
                     m_Stats.DeformedUploadBytes += end - begin;
+                    streamingUploadedBytes += end - begin;
                 }
             };
             if (relayout)
@@ -764,6 +822,10 @@ namespace OloEngine
             }
         }
         ++m_Stats.DeformedRebuilds;
+        if (request.StreamingEnabled)
+        {
+            RepresentationStreaming::Get().RecordUpload(streamingUploadedBytes, MicrosecondsSince(uploadStart));
+        }
         m_Stats.DeformedUploadMicroseconds += static_cast<u64>(
             std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - uploadStart)
                 .count());
@@ -1110,11 +1172,31 @@ namespace OloEngine
         // what makes criterion 1's "colour and highlight response are preserved
         // across transitions" true by construction rather than by care.
         const auto buildStart = std::chrono::steady_clock::now();
-        const GroomStrandMeshStats stats =
-            BuildGroomStrandMesh(request.BuildSource(), request.Build, vertices, indices,
-                                 deformed ? &deformation : nullptr, &coat,
-                                 simulation.IsUsable(request.Groom->GetCurveCount()) ? &simulation : nullptr,
-                                 &strandFirstIndex, &casterStrands, deformed ? &strandCurves : nullptr);
+        Ref<FPreparedGroomGeometry> prepared = deformed ? nullptr : PreparedStreamingGeometry(request);
+        GroomStrandMeshStats stats;
+        if (prepared)
+        {
+            stats = prepared->Stats;
+            const auto copy = []<typename T>(std::vector<T>& out, const TArray<T>& from)
+            {
+                const auto view = FPreparedGroomGeometry::View(from);
+                out.assign(view.begin(), view.end());
+            };
+            copy(vertices, prepared->Vertices);
+            copy(indices, prepared->Indices);
+            copy(strandFirstIndex, prepared->StrandFirstIndex);
+            copy(casterStrands, prepared->CasterStrands);
+            // Only the streaming record retains immutable output through GPU
+            // integration; no local owner can outlive its staging release.
+            prepared = nullptr;
+        }
+        else
+        {
+            stats = BuildGroomStrandMesh(request.BuildSource(), request.Build, vertices, indices,
+                                         deformed ? &deformation : nullptr, &coat,
+                                         simulation.IsUsable(request.Groom->GetCurveCount()) ? &simulation : nullptr,
+                                         &strandFirstIndex, &casterStrands, deformed ? &strandCurves : nullptr);
+        }
         if (deformed)
         {
             m_Stats.DeformedBuildMicroseconds += static_cast<u64>(
@@ -1145,6 +1227,10 @@ namespace OloEngine
                 const auto uploadStart = std::chrono::steady_clock::now();
                 entry.Vertices->SetData({ vertices.data(), static_cast<u32>(stats.VertexBytes) });
                 m_Stats.DeformedUploadBytes += stats.VertexBytes;
+                if (request.StreamingEnabled)
+                {
+                    RepresentationStreaming::Get().RecordUpload(stats.VertexBytes, MicrosecondsSince(uploadStart));
+                }
                 m_Stats.DeformedUploadMicroseconds += static_cast<u64>(
                     std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - uploadStart)
                         .count());
@@ -1160,11 +1246,23 @@ namespace OloEngine
         }
 
         CacheEntry entry;
+        entry.StreamingKey = request.StreamingKey;
+        entry.StreamingEntityKey = request.StreamingEntityKey;
+        entry.StreamingFloor = request.StreamingFloor;
         entry.Settings = request.Build;
         entry.Stats = stats;
         entry.Bytes = stats.VertexBytes + stats.IndexBytes;
         entry.LastUsedFrame = m_CacheTick;
         entry.Dynamic = deformed;
+
+        std::optional<RendererMemoryOwnerScope> streamingOwner;
+        const auto streamingUploadStart = std::chrono::steady_clock::now();
+        const u64 physicalBefore = request.StreamingEnabled ? RendererMemoryTracker::GetInstance().GetGpuResidentBytes() : 0;
+        if (request.StreamingEnabled)
+        {
+            streamingOwner.emplace(request.StreamingFloor ? "Groom streaming floor" : "Groom streaming detail",
+                                   MemoryLifetime::Persistent);
+        }
 
         if (deformed)
         {
@@ -1205,6 +1303,12 @@ namespace OloEngine
         if (inserted && deformed)
         {
             PoseCpuCasterRuns(request, it->second, deformation.RootTransforms);
+        }
+        if (inserted)
+        {
+            const u64 physicalAfter = request.StreamingEnabled ? RendererMemoryTracker::GetInstance().GetGpuResidentBytes() : 0;
+            CompleteStreamingUpload(request.StreamingKey, it->second.Bytes, MicrosecondsSince(streamingUploadStart),
+                                    physicalAfter - std::min(physicalAfter, physicalBefore), stats.StrandsSelected);
         }
         return inserted ? &it->second : nullptr;
     }
@@ -1971,6 +2075,10 @@ namespace OloEngine
         candidates.reserve(m_Cache.size());
         for (const auto& [key, entry] : m_Cache)
         {
+            if (entry.StreamingKey != 0)
+            {
+                continue; // the representation consumer owns these admissions
+            }
             if (m_CacheTick - entry.LastUsedFrame < kCacheRetentionFrames)
             {
                 continue;
@@ -2046,6 +2154,7 @@ namespace OloEngine
         if (m_Requests.empty() || !m_SceneFramebuffer || !m_Shader || !m_ParamsUBO)
         {
             m_Requests = {};
+            FinishStreamingFrame();
             ReleaseIdleScratch(true);
             PublishCacheStats();
             // The cache can still be over budget on a frame that draws nothing.
@@ -2073,6 +2182,7 @@ namespace OloEngine
                                "GroomRenderPass has no coat-shadow placeholder volume or no deformation "
                                "placeholder buffer; skipping the strand draws rather than binding a null resource.");
             m_Requests = {};
+            FinishStreamingFrame();
             ReleaseIdleScratch(true);
             PublishCacheStats();
             // The cache can still be over budget on a frame that draws nothing.
@@ -2799,6 +2909,7 @@ namespace OloEngine
             }
         }
 
+        FinishStreamingFrame();
         EvictToBudget();
         PublishCacheStats();
 
@@ -3140,6 +3251,20 @@ namespace OloEngine
 
     void GroomRenderPass::OnReset()
     {
+        for (auto& [key, entry] : m_StreamingDetails)
+        {
+            (void)m_StreamingLoads.Cancel(key);
+            entry.Prepared = nullptr;
+            m_StreamingLoads.ReleaseStaging(entry.StagingTicket);
+            RepresentationStreaming::Get().Release(key);
+        }
+        m_StreamingDetails.clear();
+        m_StreamingBaseAssets.clear();
+        m_StreamingBaseBindings.clear();
+        m_StreamingStats = {};
+        m_StreamingEnabled = false;
+        m_StreamingFrame = 0;
+        SetSideEffects(SideEffect::None);
         // The cache holds GPU buffers whose device is going away, so it is
         // dropped here rather than left to be rebuilt against a dead context.
         m_Cache.clear();

@@ -389,6 +389,75 @@ namespace OloEngine::Tests
         EXPECT_EQ(tracker.GetGpuResidentBytes(), gpuBefore + 512);
     }
 
+    TEST(RendererMemoryTracker, SelectedLiveGpuBackingUsesCommittedPaddingAndRejectsUnknownAliasesAndRetirement)
+    {
+        Tracker& tracker = Tracker::GetInstance();
+        constexpr u64 vertexKey = 0x1257B501u;
+        constexpr u64 textureKey = 0x1257B502u;
+        constexpr u64 unrelatedKey = 0x1257B503u;
+        constexpr u64 aliasKey = 0x1257B504u;
+        constexpr u64 cpuKey = 0x1257B505u;
+        int vertex = 0;
+        int texture = 0;
+        int unrelated = 0;
+        int cpu = 0;
+        struct Cleanup
+        {
+            Tracker& Memory;
+            std::array<void*, 4> Addresses;
+            u64 AliasKey;
+            u64 Ticket = 0;
+            ~Cleanup()
+            {
+                Memory.UntrackAliasOfHandle(AliasKey);
+                for (void* address : Addresses)
+                    Memory.TrackDeallocation(address, __FILE__, __LINE__);
+                Memory.ReleaseRetired(Ticket);
+            }
+        } cleanup{ tracker, { &vertex, &texture, &unrelated, &cpu }, aliasKey };
+        const auto book = [&tracker](void* address, u64 key, sizet committed, bool gpu)
+        {
+            Tracker::AllocationDesc desc;
+            desc.Address = address;
+            desc.Size = committed;
+            desc.IsGPU = gpu;
+            desc.Backend = MemoryBackend::Vulkan;
+            desc.SizeSource = MemorySizeSource::Committed;
+            desc.Name = "padded backing query test";
+            tracker.TrackAllocation(desc);
+            tracker.BindResourceHandle(address, key);
+        };
+        // Logical vertex and RGBA content could each fit in 64 bytes; the
+        // driver's committed backing is what admission must actually charge.
+        book(&vertex, vertexKey, 4096, true);
+        book(&texture, textureKey, 8192, true);
+        book(&unrelated, unrelatedKey, 32768, true);
+        book(&cpu, cpuKey, 256, false);
+        tracker.TrackAliasOfHandle(aliasKey, vertexKey, ResourceType::Other, "view query test", __FILE__, __LINE__);
+        const std::array<u64, 4> selected{ vertexKey, textureKey, vertexKey, textureKey };
+        ASSERT_TRUE(tracker.GetLiveBackingGpuBytes(selected));
+        EXPECT_EQ(*tracker.GetLiveBackingGpuBytes(selected), 12288u);
+        EXPECT_EQ(tracker.GetLiveBackingGpuBytes(std::span<const u64>{}), 0u);
+        const std::array<u64, 1> unknown{ unrelatedKey + 100 };
+        const std::array<u64, 1> alias{ aliasKey };
+        const std::array<u64, 1> cpuOnly{ cpuKey };
+        const std::array<u64, 1> zero{ 0 };
+        EXPECT_FALSE(tracker.GetLiveBackingGpuBytes(unknown));
+        EXPECT_FALSE(tracker.GetLiveBackingGpuBytes(alias));
+        EXPECT_FALSE(tracker.GetLiveBackingGpuBytes(cpuOnly));
+        EXPECT_FALSE(tracker.GetLiveBackingGpuBytes(zero));
+        const std::array<u64, 2> mixed{ textureKey, unknown[0] };
+        EXPECT_FALSE(tracker.GetLiveBackingGpuBytes(mixed)) << "missing backing must not be silently omitted";
+        cleanup.Ticket = tracker.RetireAllocation(&vertex);
+        ASSERT_NE(cleanup.Ticket, 0u);
+        EXPECT_FALSE(tracker.GetLiveBackingGpuBytes(selected));
+        const std::array<u64, 1> textureOnly{ textureKey };
+        EXPECT_EQ(tracker.GetLiveBackingGpuBytes(textureOnly), 8192u);
+        // Recycled CPU addresses cannot revive the retired resource's key.
+        tracker.TrackAllocation(&vertex, 128, ResourceType::Other, "reused query address", true, __FILE__, __LINE__);
+        EXPECT_FALSE(tracker.GetLiveBackingGpuBytes(selected));
+    }
+
     // Shutdown() sets m_IsShutdown; Initialize() and Reset() must each clear it. They used not to,
     // which left the tracker permanently half-dead after the first shutdown: TrackDeallocation
     // early-returns on the latch while TrackAllocation keeps recording, so every resource type

@@ -523,6 +523,7 @@ namespace OloEngine::MCP
 
     void RegisterPerfTools(AutomationRegistry& registry)
     {
+        RegisterStreamingResidencyTools(registry);
         {
             ToolDef tool;
             tool.Name = "olo_memory_report";

@@ -316,12 +316,18 @@ TEST(SaveGameSceneSettingsRoundTrip, StreamingByteBudgetsSurviveASave)
     Ref<Scene> saved = MakeScene();
     saved->GetStreamingSettings().MaxResidentMegabytes = 256.0f;
     saved->GetStreamingSettings().MaxAdmittedMegabytesPerFrame = 8.5f;
+    saved->GetStreamingSettings().RepresentationResidentMegabytes = 128.0f;
+    saved->GetStreamingSettings().RepresentationUploadMegabytesPerFrame = 4.5f;
+    saved->GetStreamingSettings().RepresentationStagingMegabytes = 64.0f;
     const std::vector<u8> payload = SaveGameSerializer::CaptureSceneState(*saved);
 
     Ref<Scene> loaded = MakeScene(); // authored with no budget
     ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*loaded, payload));
     EXPECT_FLOAT_EQ(loaded->GetStreamingSettings().MaxResidentMegabytes, 256.0f);
     EXPECT_FLOAT_EQ(loaded->GetStreamingSettings().MaxAdmittedMegabytesPerFrame, 8.5f);
+    EXPECT_FLOAT_EQ(loaded->GetStreamingSettings().RepresentationResidentMegabytes, 128.0f);
+    EXPECT_FLOAT_EQ(loaded->GetStreamingSettings().RepresentationUploadMegabytesPerFrame, 4.5f);
+    EXPECT_FLOAT_EQ(loaded->GetStreamingSettings().RepresentationStagingMegabytes, 64.0f);
 }
 
 TEST(SaveGameSceneSettingsRoundTrip, CorruptStreamingBudgetsLoadAsNoBudget)
@@ -330,6 +336,9 @@ TEST(SaveGameSceneSettingsRoundTrip, CorruptStreamingBudgetsLoadAsNoBudget)
     // Written straight into the settings, past every sanitiser, as a corrupt save would carry them.
     saved->GetStreamingSettings().MaxResidentMegabytes = std::numeric_limits<f32>::quiet_NaN();
     saved->GetStreamingSettings().MaxAdmittedMegabytesPerFrame = -4.0f;
+    saved->GetStreamingSettings().RepresentationResidentMegabytes = std::numeric_limits<f32>::infinity();
+    saved->GetStreamingSettings().RepresentationUploadMegabytesPerFrame = -1.0f;
+    saved->GetStreamingSettings().RepresentationStagingMegabytes = std::numeric_limits<f32>::quiet_NaN();
     const std::vector<u8> payload = SaveGameSerializer::CaptureSceneState(*saved);
 
     Ref<Scene> loaded = MakeScene();
@@ -337,4 +346,7 @@ TEST(SaveGameSceneSettingsRoundTrip, CorruptStreamingBudgetsLoadAsNoBudget)
     ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*loaded, payload));
     EXPECT_FLOAT_EQ(loaded->GetStreamingSettings().MaxResidentMegabytes, 0.0f);
     EXPECT_FLOAT_EQ(loaded->GetStreamingSettings().MaxAdmittedMegabytesPerFrame, 0.0f);
+    EXPECT_FLOAT_EQ(loaded->GetStreamingSettings().RepresentationResidentMegabytes, 0.0f);
+    EXPECT_FLOAT_EQ(loaded->GetStreamingSettings().RepresentationUploadMegabytesPerFrame, 0.0f);
+    EXPECT_FLOAT_EQ(loaded->GetStreamingSettings().RepresentationStagingMegabytes, 0.0f);
 }

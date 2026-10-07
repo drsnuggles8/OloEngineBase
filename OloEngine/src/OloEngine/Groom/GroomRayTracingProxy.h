@@ -668,6 +668,9 @@ namespace OloEngine
         /// scene's animated-coat population, which is a capacity fact
         /// rather than a failure.
         u32 RefreshDeferred = 0;
+        // Effective raster residency changed; a proxy from the previous tier
+        // must leave the current GPU scene even when refresh work is deferred.
+        u32 StreamingInvalidations = 0;
         u32 SegmentsConverted = 0;
         u32 TrianglesBuilt = 0;
         /// Coat proxies built on the GPU this frame (GroomProxyDeformToBuffer.comp,

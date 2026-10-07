@@ -7202,6 +7202,9 @@ namespace OloEngine
             out << YAML::Key << "RegionDirectory" << YAML::Value << ss.RegionDirectory;
             out << YAML::Key << "MaxResidentMegabytes" << YAML::Value << ss.MaxResidentMegabytes;
             out << YAML::Key << "MaxAdmittedMegabytesPerFrame" << YAML::Value << ss.MaxAdmittedMegabytesPerFrame;
+            out << YAML::Key << "RepresentationResidentMegabytes" << YAML::Value << ss.RepresentationResidentMegabytes;
+            out << YAML::Key << "RepresentationUploadMegabytesPerFrame" << YAML::Value << ss.RepresentationUploadMegabytesPerFrame;
+            out << YAML::Key << "RepresentationStagingMegabytes" << YAML::Value << ss.RepresentationStagingMegabytes;
             out << YAML::EndMap;
         }
 
@@ -7573,6 +7576,9 @@ namespace OloEngine
             // Absent in scenes saved before issue #1365: the defaults (no byte budget) stand.
             TrySet(ss.MaxResidentMegabytes, ssNode["MaxResidentMegabytes"]);
             TrySet(ss.MaxAdmittedMegabytesPerFrame, ssNode["MaxAdmittedMegabytesPerFrame"]);
+            TrySet(ss.RepresentationResidentMegabytes, ssNode["RepresentationResidentMegabytes"]);
+            TrySet(ss.RepresentationUploadMegabytesPerFrame, ssNode["RepresentationUploadMegabytesPerFrame"]);
+            TrySet(ss.RepresentationStagingMegabytes, ssNode["RepresentationStagingMegabytes"]);
 
             SanitizeStreamingSettings(ss);
         }
@@ -7877,6 +7883,9 @@ namespace OloEngine
             out << YAML::Key << "RegionDirectory" << YAML::Value << ss.RegionDirectory;
             out << YAML::Key << "MaxResidentMegabytes" << YAML::Value << ss.MaxResidentMegabytes;
             out << YAML::Key << "MaxAdmittedMegabytesPerFrame" << YAML::Value << ss.MaxAdmittedMegabytesPerFrame;
+            out << YAML::Key << "RepresentationResidentMegabytes" << YAML::Value << ss.RepresentationResidentMegabytes;
+            out << YAML::Key << "RepresentationUploadMegabytesPerFrame" << YAML::Value << ss.RepresentationUploadMegabytesPerFrame;
+            out << YAML::Key << "RepresentationStagingMegabytes" << YAML::Value << ss.RepresentationStagingMegabytes;
             out << YAML::EndMap;
         }
 

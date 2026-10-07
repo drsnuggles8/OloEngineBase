@@ -138,7 +138,7 @@ namespace OloEngine
         return s_Data.Pipeline ? s_Data.Pipeline->SceneCompositePasses.RayTracedShadow.Raw() : nullptr;
     }
 
-    const GroomRenderPass* Renderer3D::GetGroomRenderPass()
+    GroomRenderPass* Renderer3D::GetGroomRenderPass()
     {
         return s_Data.Pipeline ? s_Data.Pipeline->RenderStreamPasses.Groom.Raw() : nullptr;
     }

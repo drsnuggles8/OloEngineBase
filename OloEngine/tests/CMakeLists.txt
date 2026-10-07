@@ -142,6 +142,8 @@ add_executable(OloEngine-Tests
 		# its two anti-thrash mechanisms, the coverage compensation's linear rule,
 		# and the card cook's determinism and density conservation.
 		Groom/GroomLodContractTest.cpp
+		Groom/GroomStreamingTest.cpp
+		Rendering/FoliageStreamingPayloadTest.cpp
 		Groom/GroomRayTracingProxyTest.cpp
 		# ...and the cooked format's half: the level survives the cook byte for
 		# byte, the cook stays deterministic, a file from before the version bump
@@ -328,6 +330,7 @@ add_executable(OloEngine-Tests
 		Rendering/Baking/LightmapAtlasPagingTest.cpp
 		Rendering/Baking/LightProbePathTracedBakeTest.cpp
 		Asset/LightmapAssetSerializationTest.cpp
+		Asset/RuntimeRepresentationStreamingPackTest.cpp
 		Asset/TextureSourcePathResolutionTest.cpp
 		Rendering/FoliageImpostorPlacementTest.cpp
 		Rendering/FoliageLodTransitionContractTest.cpp
@@ -899,6 +902,7 @@ add_executable(OloEngine-Tests
 		# thrash" has a truth value.
 		Rendering/PropertyTests/AnimalBudgetVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomLodVisualEvidenceTest.cpp
+		Rendering/PropertyTests/GroomVegetationStreamingEvidenceTest.cpp
 		Rendering/PropertyTests/GroomFibrePropertyTests.cpp
 		# #1533: dual scattering -- what a fibre's neighbours pass on. The
 		# forward/back split, Zinke's A_b and the coloured coat transmittance,
@@ -985,6 +989,7 @@ add_executable(OloEngine-Tests
 		# Issue #1365, loose path: region-load cancellation, byte-budget admission and
 		# eviction, and the StreamingSettings budget fields in scene YAML.
 		Streaming/SceneStreamerBudgetTest.cpp
+		RepresentationStreamingTest.cpp
 		InputActionTest.cpp
 		# The synthetic-input overlay behind olo_input_inject, and specifically the
 		# absolute-vs-relative distinction (#607): an ABSOLUTE override integrates to

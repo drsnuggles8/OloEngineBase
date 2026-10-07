@@ -51,6 +51,8 @@
 #include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Texture2DArray.h"
+#include "OloEngine/Renderer/TextureCompression.h"
+#include "OloEngine/Renderer/AlphaCoverageMips.h"
 #include "Platform/OpenGL/OpenGLVertexBuffer.h"
 #include "Platform/OpenGL/OpenGLIndexBuffer.h"
 #include "OloEngine/Scene/Components.h"
@@ -511,6 +513,88 @@ TEST_F(RendererMemoryAccountingEvidence, RealBufferHandlesReattributeBackingThro
     unrelated.Reset();
     RunFrames(kDrainFrames);
     EXPECT_EQ(tracker.GetOwnerGpuRetiringBytes(sourceOwner), 0u);
+}
+
+TEST_F(RendererMemoryAccountingEvidence, RealTexture2DHandlesExposeCurrentBackingAcrossStorageReplacement)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+    if (RendererAPI::GetAPI() != RendererAPI::API::OpenGL)
+        GTEST_SKIP() << "OpenGL texture booking requires the OpenGL backend";
+    RunFrames(kDrainFrames);
+    auto& tracker = RendererMemoryTracker::GetInstance();
+    const auto bytes = [&](const Ref<Texture2D>& texture)
+    {
+        const std::array<u64, 1> handles{ RHI::HashKey(texture->GetRHIHandle()) };
+        return tracker.GetLiveBackingGpuBytes(handles);
+    };
+    TextureSpecification plainSpec;
+    plainSpec.Width = 8;
+    plainSpec.Height = 8;
+    plainSpec.Format = ImageFormat::RGBA8;
+    plainSpec.GenerateMips = false;
+    auto plain = Texture2D::Create(plainSpec);
+    ASSERT_TRUE(plain && plain->IsLoaded());
+    ASSERT_EQ(bytes(plain), std::optional<u64>(8u * 8u * 4u));
+    const auto plainHandle = plain->GetRHIHandle();
+    const u64 retiringBeforeResize = Report().Gpu.RetiringBytes;
+    plain->Resize(16, 16);
+    EXPECT_EQ(plain->GetRHIHandle(), plainHandle);
+    EXPECT_EQ(Report().Gpu.RetiringBytes, retiringBeforeResize + 8u * 8u * 4u);
+    EXPECT_EQ(bytes(plain), std::optional<u64>(16u * 16u * 4u))
+        << "the live query must exclude the old storage still awaiting deletion";
+
+    TextureSpecification mipSpec;
+    mipSpec.Width = 128;
+    mipSpec.Height = 128;
+    mipSpec.Format = ImageFormat::RGBA8;
+    mipSpec.GenerateMips = true;
+    auto mipped = Texture2D::Create(mipSpec);
+    ASSERT_TRUE(mipped && mipped->IsLoaded());
+    const u32 fullLevels = RendererMemoryFormat::FullMipCount(128, 128);
+    const u64 fullBytes = RendererMemoryFormat::ImageBytes(ImageFormat::RGBA8, 128, 128, fullLevels).value();
+    ASSERT_EQ(bytes(mipped), std::optional<u64>(fullBytes));
+    TArray<u8> pixels;
+    pixels.Init(u8{ 160 }, 128 * 128 * 4);
+    for (i32 pixel = 0; pixel < 128 * 128; ++pixel)
+        pixels[pixel * 4 + 3] = (pixel % 2) == 0 ? 0u : 255u;
+    mipped->SetData(pixels.GetData(), static_cast<u32>(pixels.Num()));
+    const auto mipHandle = mipped->GetRHIHandle();
+    const u64 retiringBeforeCoverage = Report().Gpu.RetiringBytes;
+    mipped->SetAlphaCoverageCutoff(0.5f);
+    EXPECT_EQ(mipped->GetRHIHandle(), mipHandle);
+    EXPECT_EQ(Report().Gpu.RetiringBytes, retiringBeforeCoverage + fullBytes);
+    const u32 coverageLevels = AlphaCoverageMips::CappedLevelCount(128, 128, fullLevels);
+    const u64 coverageBytes = RendererMemoryFormat::ImageBytes(ImageFormat::RGBA8, 128, 128, coverageLevels).value();
+    ASSERT_LT(coverageBytes, fullBytes);
+    EXPECT_EQ(bytes(mipped), std::optional<u64>(coverageBytes))
+        << "alpha-coverage replacement must bind its new booked allocation";
+    // This is the decoded-file/reload storage path, with its actual decoded
+    // pixels supplied directly so no filesystem fixture controls the test.
+    mipped->Invalidate("MemoryEvidenceTexture", 64, 64, pixels.GetData(), 4);
+    EXPECT_EQ(mipped->GetRHIHandle(), mipHandle);
+    ASSERT_EQ(bytes(mipped), std::optional<u64>(64u * 64u * 4u));
+
+    constexpr std::array<u8, 16> mask{};
+    const auto image = TextureCompression::EncodeBC4(mask.data(), 4, 4, 1, false);
+    ASSERT_TRUE(image.IsValid());
+    auto compressed = Texture2D::Create(image);
+    ASSERT_TRUE(compressed && compressed->IsLoaded());
+    ASSERT_EQ(bytes(compressed), std::optional<u64>(8u));
+    const std::array<u64, 4> handles{ RHI::HashKey(plain->GetRHIHandle()), RHI::HashKey(mipped->GetRHIHandle()),
+                                      RHI::HashKey(compressed->GetRHIHandle()), RHI::HashKey(plain->GetRHIHandle()) };
+    EXPECT_EQ(tracker.GetLiveBackingGpuBytes(handles), std::optional<u64>(16u * 16u * 4u + 64u * 64u * 4u + 8u))
+        << "multiple references to one texture must count its backing once";
+    ASSERT_TRUE(tracker.ReattributeBackingResource(RHI::HashKey(mipped->GetRHIHandle()),
+                                                   "MemoryEvidence texture adopted", MemoryLifetime::Asset));
+    EXPECT_EQ(bytes(mipped), std::optional<u64>(64u * 64u * 4u)) << "adoption must preserve the backing association";
+    const u64 retiringBeforeAdopted = tracker.GetOwnerGpuRetiringBytes("MemoryEvidence texture adopted");
+    mipped.Reset();
+    EXPECT_EQ(tracker.GetOwnerGpuRetiringBytes("MemoryEvidence texture adopted"), retiringBeforeAdopted + 64u * 64u * 4u);
+    EXPECT_FALSE(tracker.GetLiveBackingGpuBytes(handles).has_value())
+        << "a retired texture cannot masquerade as live through its stable old handle";
+    plain.Reset();
+    compressed.Reset();
+    RunFrames(kDrainFrames);
 }
 
 // ---------------------------------------------------------------------------------------

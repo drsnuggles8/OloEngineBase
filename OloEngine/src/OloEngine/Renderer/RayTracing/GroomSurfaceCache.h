@@ -138,6 +138,7 @@ namespace OloEngine::RayTracing
             /// both buffers; Vulkan also replaces vertices on a same-shape
             /// refill so an in-flight BLAS build keeps its original bytes.
             u64 ShapeHash = 0;
+            u64 StreamingKey = 0;
             /// Bumped on every refill. Rides the instance record as
             /// m_DeformedContentRevision, which is what lets RayTracingScene
             /// tell a coat that moved from one that did not — without it a

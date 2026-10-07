@@ -12,6 +12,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <span>
 #include <atomic>
 #include <array>
 #include <functional>
@@ -147,6 +148,10 @@ namespace OloEngine
         // Views, unknown keys and retired resources cannot be reattributed;
         // physical totals, byte provenance and aliases remain unchanged.
         [[nodiscard]] bool ReattributeBackingResource(u64 handleKey, std::string_view owner, MemoryLifetime lifetime);
+        // Sum exact live GPU backing bookings for these RHI handle keys,
+        // counting repeated resources once. Unknown, alias, CPU and retiring
+        // resources return nullopt, so missing accounting cannot admit as zero.
+        [[nodiscard]] std::optional<u64> GetLiveBackingGpuBytes(std::span<const u64> handleKeys) const;
         void TrackAliasOfHandle(u64 aliasHandleKey, u64 backingHandleKey, ResourceType type, std::string_view name,
                                 const char* file, u32 line);
         void UntrackAliasOfHandle(u64 aliasHandleKey);

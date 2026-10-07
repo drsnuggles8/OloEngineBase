@@ -1,0 +1,4337 @@
+{
+  "schemaVersion": 1,
+  "issue": 1257,
+  "recordedDate": "2026-10-07",
+  "status": "Historical full Editor/Runtime and audited sparse observations retain original pre-impostor-correction provenance; Debug shader-channel reachability recorded; Release/Debug correction milestone and isolated Vulkan checks green; region reruns and paired tails pending",
+  "sourceSnapshotAtDocumentation": {
+    "head": "493141617ba592b6ad9e734c6e70f5d1171d72ad",
+    "fourSupportingCommits": [
+      {
+        "sha": "493141617ba592b6ad9e734c6e70f5d1171d72ad",
+        "subject": "fix(runtime): restore game title after 3D shader warmup"
+      },
+      {
+        "sha": "e473de4bf9ccb73f218d674db70ca3d1817c7641",
+        "subject": "fix(renderer): associate texture backing allocations with RHI handles"
+      },
+      {
+        "sha": "b6ee5b458c563ca6161a2ce16da9c3623ed77906",
+        "subject": "fix(renderer): bind buffer backing handles for retirement accounting"
+      },
+      {
+        "sha": "d3e730740444acca3f30f660b5361c5552590e60",
+        "subject": "fix(benchmarks): refresh stale reference asset hashes"
+      }
+    ]
+  },
+  "hardware": {
+    "cpu": "Intel Core i7-14700KF",
+    "logicalProcessors": 28,
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "driverVersion": "32.0.16.1714"
+  },
+  "editorCampaigns": [
+    {
+      "path": "artifacts/residency/functional-gl-final",
+      "provenance": {
+        "path": "artifacts/residency/functional-gl-final/provenance.json",
+        "sha256": "847377d50dc2589f96d9533268ad5624a05d63868655d2fc5639c817307f8337"
+      },
+      "campaign": {
+        "path": "artifacts/residency/functional-gl-final/campaign.json",
+        "sha256": "edc60157be69504ff16fd7e9ed5b923f1dfe9b2597fa1e0b183408cbbd1aa006"
+      },
+      "buildConfig": "Release",
+      "compiler": "clang-cl 23.1.0 ea7d852a70e8bdfaf601d6626a760f9771b2c4b4",
+      "capturedSourceCommit": "e473de4bf9ccb73f218d674db70ca3d1817c7641",
+      "capturedDirtyDiffSha256": "517de453bf71f32a779edecdd565c75621293759f0403c2c75e4d02ea28960a6",
+      "binarySha256": "8c32ac4a81c2c7159fbe6709ac1adca6414fbece29ce8b4ecae9dd75a0f15a05",
+      "dirtySource": true
+    },
+    {
+      "path": "artifacts/residency/functional-vk-final",
+      "provenance": {
+        "path": "artifacts/residency/functional-vk-final/provenance.json",
+        "sha256": "5abb0519c6635c35859676a540e5fc4c7f1118ac20d6178d8875c68037cfafeb"
+      },
+      "campaign": {
+        "path": "artifacts/residency/functional-vk-final/campaign.json",
+        "sha256": "69c3087c3fd2b1de68e03ccdf7e657fe331c7670ec2156ac65dc1763fe08da55"
+      },
+      "buildConfig": "Release",
+      "compiler": "clang-cl 23.1.0 ea7d852a70e8bdfaf601d6626a760f9771b2c4b4",
+      "capturedSourceCommit": "e473de4bf9ccb73f218d674db70ca3d1817c7641",
+      "capturedDirtyDiffSha256": "993042c2dac426f8fe904ef8255745d7e9c9739dddd98bd51e572ce473dab681",
+      "binarySha256": "8c32ac4a81c2c7159fbe6709ac1adca6414fbece29ce8b4ecae9dd75a0f15a05",
+      "dirtySource": true
+    }
+  ],
+  "editorCells": [
+    {
+      "backend": "opengl",
+      "family": "groom",
+      "path": "forward",
+      "status": "captured; consumption and visuals require review",
+      "samples": 33,
+      "frames": {
+        "first": 159,
+        "last": 1378,
+        "stale": 0,
+        "nonadvancing": 0
+      },
+      "entityUuid": {
+        "completeLists": true,
+        "stable": true,
+        "countBefore": 44,
+        "countAfter": 44
+      },
+      "pendingObservedSamples": 0,
+      "shader": {
+        "before": {
+          "available": false,
+          "count": null,
+          "status": "unavailableInThisBuild"
+        },
+        "after": {
+          "available": false,
+          "count": null,
+          "status": "unavailableInThisBuild"
+        }
+      },
+      "csmState": {
+        "detail": {
+          "optionalGpuBytes": 2931616,
+          "pendingRequests": 0,
+          "fallbackDraws": 18,
+          "evictions": 3,
+          "detailDraws": 23
+        },
+        "pressure": {
+          "optionalGpuBytes": 0,
+          "pendingRequests": 0,
+          "fallbackDraws": 41,
+          "evictions": 5,
+          "detailDraws": 0
+        },
+        "reload": {
+          "optionalGpuBytes": 2931616,
+          "pendingRequests": 0,
+          "fallbackDraws": 18,
+          "evictions": 6,
+          "detailDraws": 23
+        }
+      },
+      "transitionCheckpoints": {
+        "total": 6,
+        "reportedObserved": 6,
+        "observedFromCounters": 6
+      },
+      "artifacts": [
+        {
+          "sha256": "a3265117711e52d25c66e93491bef305a1f7d31bdf3b687afe7c88accb07418c",
+          "file": "samples.json"
+        },
+        {
+          "sha256": "5b39b443eb151b8d15b782785364b7cafd8cb5eef778e78f11fe2f5b6b343241",
+          "file": "entities-before.json"
+        },
+        {
+          "sha256": "5b39b443eb151b8d15b782785364b7cafd8cb5eef778e78f11fe2f5b6b343241",
+          "file": "entities-after.json"
+        },
+        {
+          "sha256": "b571d22e201c8d14523662ac6c780146e80781b7fb9cdfc9a4fe14cd48a1fb4a",
+          "file": "OloEngine.log"
+        },
+        {
+          "sha256": "8ecdd9a200e9217fbab188ae1ea7a5da577bc3e98170459ca67cd5c662997451",
+          "file": "subject.olo"
+        }
+      ],
+      "selectedPngs": {
+        "detail": {
+          "sha256": "d91232e0b73cc93c5b7d92cfee4a7969ac8ab57f8b3b11cf66de98fead765c41",
+          "file": "003-csm-detail-diagnostics.png"
+        },
+        "pressure": {
+          "sha256": "dbba1b64759d9131d6d356281861c142401912ec75e46331d4764f52923d5b7e",
+          "file": "006-csm-pressure-diagnostics.png"
+        },
+        "reload": {
+          "sha256": "84d42df2c1ec9846222b46f1a5213b117b2a88dbeaf5c70369d02f3b929af8c5",
+          "file": "009-csm-reload-diagnostics.png"
+        }
+      },
+      "allPngHashesMatch": true,
+      "csmGroomCasterStats": {
+        "atlasDraws": 0,
+        "cascadeDraws": 98,
+        "groomsAskedToCast": 41,
+        "groomsCasting": 41,
+        "segmentsCast": 40845,
+        "segmentsWhole": 288979,
+        "virtualShadowLevelDraws": 0
+      },
+      "beautyCommandBuckets": {
+        "detail": [
+          {
+            "pass": "ScenePass",
+            "commands": 2
+          }
+        ],
+        "pressure": [
+          {
+            "pass": "ScenePass",
+            "commands": 2
+          }
+        ],
+        "reload": [
+          {
+            "pass": "ScenePass",
+            "commands": 2
+          }
+        ]
+      },
+      "artifactDirectory": "artifacts/residency/functional-gl-final/opengl-groom-forward"
+    },
+    {
+      "backend": "opengl",
+      "family": "groom",
+      "path": "forward-plus",
+      "status": "captured; consumption and visuals require review",
+      "samples": 33,
+      "frames": {
+        "first": 162,
+        "last": 1496,
+        "stale": 0,
+        "nonadvancing": 0
+      },
+      "entityUuid": {
+        "completeLists": true,
+        "stable": true,
+        "countBefore": 44,
+        "countAfter": 44
+      },
+      "pendingObservedSamples": 0,
+      "shader": {
+        "before": {
+          "available": false,
+          "count": null,
+          "status": "unavailableInThisBuild"
+        },
+        "after": {
+          "available": false,
+          "count": null,
+          "status": "unavailableInThisBuild"
+        }
+      },
+      "csmState": {
+        "detail": {
+          "optionalGpuBytes": 2931616,
+          "pendingRequests": 0,
+          "fallbackDraws": 18,
+          "evictions": 3,
+          "detailDraws": 23
+        },
+        "pressure": {
+          "optionalGpuBytes": 0,
+          "pendingRequests": 0,
+          "fallbackDraws": 41,
+          "evictions": 5,
+          "detailDraws": 0
+        },
+        "reload": {
+          "optionalGpuBytes": 2931616,
+          "pendingRequests": 0,
+          "fallbackDraws": 18,
+          "evictions": 6,
+          "detailDraws": 23
+        }
+      },
+      "transitionCheckpoints": {
+        "total": 6,
+        "reportedObserved": 6,
+        "observedFromCounters": 6
+      },
+      "artifacts": [
+        {
+          "sha256": "f5f77ec4293e5da472e709fddd93240892b425518f36f0e5a078094811f65ef8",
+          "file": "samples.json"
+        },
+        {
+          "sha256": "5b39b443eb151b8d15b782785364b7cafd8cb5eef778e78f11fe2f5b6b343241",
+          "file": "entities-before.json"
+        },
+        {
+          "sha256": "5b39b443eb151b8d15b782785364b7cafd8cb5eef778e78f11fe2f5b6b343241",
+          "file": "entities-after.json"
+        },
+        {
+          "sha256": "aa90fa26412baf8813c3cc15652530f68ea8f51b55c1c94e893c92e0d0b11abf",
+          "file": "OloEngine.log"
+        },
+        {
+          "sha256": "8ecdd9a200e9217fbab188ae1ea7a5da577bc3e98170459ca67cd5c662997451",
+          "file": "subject.olo"
+        }
+      ],
+      "selectedPngs": {
+        "detail": {
+          "sha256": "0c2872b963fcb6e4b41d3506b5a6e3494f41a02f81d8021633209d27f6727958",
+          "file": "003-csm-detail-diagnostics.png"
+        },
+        "pressure": {
+          "sha256": "de44b9479a368932bb99f11412695deb6dd9d5437b2e4a8ebb6fb8a20ecbfd72",
+          "file": "006-csm-pressure-diagnostics.png"
+        },
+        "reload": {
+          "sha256": "19c4721359b5496a07fd72be3ad473d86acaa6ed0cc13f0a1bccdec5c0d06b50",
+          "file": "009-csm-reload-diagnostics.png"
+        }
+      },
+      "allPngHashesMatch": true,
+      "csmGroomCasterStats": {
+        "atlasDraws": 0,
+        "cascadeDraws": 98,
+        "groomsAskedToCast": 41,
+        "groomsCasting": 41,
+        "segmentsCast": 40861,
+        "segmentsWhole": 288979,
+        "virtualShadowLevelDraws": 0
+      },
+      "beautyCommandBuckets": {
+        "detail": [
+          {
+            "pass": "ScenePass",
+            "commands": 2
+          }
+        ],
+        "pressure": [
+          {
+            "pass": "ScenePass",
+            "commands": 2
+          }
+        ],
+        "reload": [
+          {
+            "pass": "ScenePass",
+            "commands": 2
+          }
+        ]
+      },
+      "artifactDirectory": "artifacts/residency/functional-gl-final/opengl-groom-forward-plus"
+    },
+    {
+      "backend": "opengl",
+      "family": "groom",
+      "path": "deferred",
+      "status": "captured; consumption and visuals require review",
+      "samples": 65,
+      "frames": {
+        "first": 194,
+        "last": 2475,
+        "stale": 0,
+        "nonadvancing": 0
+      },
+      "entityUuid": {
+        "completeLists": true,
+        "stable": true,
+        "countBefore": 44,
+        "countAfter": 44
+      },
+      "pendingObservedSamples": 0,
+      "shader": {
+        "before": {
+          "available": false,
+          "count": null,
+          "status": "unavailableInThisBuild"
+        },
+        "after": {
+          "available": false,
+          "count": null,
+          "status": "unavailableInThisBuild"
+        }
+      },
+      "csmState": {
+        "detail": {
+          "optionalGpuBytes": 2931616,
+          "pendingRequests": 0,
+          "fallbackDraws": 18,
+          "evictions": 3,
+          "detailDraws": 23
+        },
+        "pressure": {
+          "optionalGpuBytes": 0,
+          "pendingRequests": 0,
+          "fallbackDraws": 41,
+          "evictions": 5,
+          "detailDraws": 0
+        },
+        "reload": {
+          "optionalGpuBytes": 2931616,
+          "pendingRequests": 0,
+          "fallbackDraws": 18,
+          "evictions": 6,
+          "detailDraws": 23
+        }
+      },
+      "transitionCheckpoints": {
+        "total": 18,
+        "reportedObserved": 18,
+        "observedFromCounters": 18
+      },
+      "artifacts": [
+        {
+          "sha256": "5ad1c58e8eae56fdbf10b43163ca108a79400beabdcd3f87ad27fd1952720a19",
+          "file": "samples.json"
+        },
+        {
+          "sha256": "5b39b443eb151b8d15b782785364b7cafd8cb5eef778e78f11fe2f5b6b343241",
+          "file": "entities-before.json"
+        },
+        {
+          "sha256": "5b39b443eb151b8d15b782785364b7cafd8cb5eef778e78f11fe2f5b6b343241",
+          "file": "entities-after.json"
+        },
+        {
+          "sha256": "fe451aae3e14b650d5f53167a785a2237f5500c9570187050f83590fa2d2ebc5",
+          "file": "OloEngine.log"
+        },
+        {
+          "sha256": "8ecdd9a200e9217fbab188ae1ea7a5da577bc3e98170459ca67cd5c662997451",
+          "file": "subject.olo"
+        }
+      ],
+      "selectedPngs": {
+        "detail": {
+          "sha256": "4e41bc49fd567dc75de7d5cfecf5816069453b7ee59e8a6ee36700f8b590334f",
+          "file": "003-csm-detail-diagnostics.png"
+        },
+        "pressure": {
+          "sha256": "f15888fed3951892eca2cde34dbea314a8cdf252f97de7db2420d99d645f09be",
+          "file": "006-csm-pressure-diagnostics.png"
+        },
+        "reload": {
+          "sha256": "4875a3e1e9a0d82ddc71a0148ff68f4ce68fb499917582632ea7b5d61e50beaa",
+          "file": "009-csm-reload-diagnostics.png"
+        }
+      },
+      "allPngHashesMatch": true,
+      "csmGroomCasterStats": {
+        "atlasDraws": 0,
+        "cascadeDraws": 98,
+        "groomsAskedToCast": 41,
+        "groomsCasting": 41,
+        "segmentsCast": 40856,
+        "segmentsWhole": 288979,
+        "virtualShadowLevelDraws": 0
+      },
+      "beautyCommandBuckets": {
+        "detail": [
+          {
+            "pass": "ScenePass",
+            "commands": 2
+          }
+        ],
+        "pressure": [
+          {
+            "pass": "ScenePass",
+            "commands": 2
+          }
+        ],
+        "reload": [
+          {
+            "pass": "ScenePass",
+            "commands": 2
+          }
+        ]
+      },
+      "deferredObservations": {
+        "vsm-detail-diagnostics": {
+          "vsm": {
+            "availability": {
+              "available": true,
+              "enabled": true,
+              "hasData": true,
+              "status": "ready"
+            },
+            "freshness": {
+              "model": "previousFrame",
+              "sampleAgeFrames": 1,
+              "stale": false
+            },
+            "statistics": {
+              "cullOverflows": 0,
+              "drawInstances": 6,
+              "localPagesDrawn": 0,
+              "localPagesResident": 0,
+              "pagesAllocated": 0,
+              "pagesDrawn": 1618,
+              "pagesFailed": 0,
+              "pagesFreed": 0,
+              "pagesRequested": 0,
+              "pagesResident": 2086
+            }
+          },
+          "groomCasterStats": {
+            "atlasDraws": 0,
+            "cascadeDraws": 0,
+            "groomsAskedToCast": 41,
+            "groomsCasting": 41,
+            "segmentsCast": 239375,
+            "segmentsWhole": 1657838,
+            "virtualShadowLevelDraws": 14
+          },
+          "foliageCasterAttribution": null
+        },
+        "msaa4-detail-diagnostics": {
+          "upscalerLatch": {
+            "pending": false,
+            "requested": {
+              "technique": "spatial",
+              "upscale": "off"
+            },
+            "resolved": "native",
+            "sceneSampleCount": 4,
+            "temporalUpscalerStatus": "available"
+          }
+        },
+        "fsr-spatial-detail-diagnostics": {
+          "upscalerLatch": {
+            "pending": false,
+            "requested": {
+              "technique": "spatial",
+              "upscale": "quality"
+            },
+            "resolved": "spatial",
+            "sceneSampleCount": 1,
+            "temporalUpscalerStatus": "available"
+          }
+        },
+        "fsr-temporal-reachability-detail-diagnostics": {
+          "upscalerLatch": {
+            "pending": false,
+            "requested": {
+              "technique": "temporal",
+              "upscale": "quality"
+            },
+            "resolved": "temporal",
+            "sceneSampleCount": 1,
+            "temporalUpscalerStatus": "available"
+          }
+        }
+      },
+      "artifactDirectory": "artifacts/residency/functional-gl-final/opengl-groom-deferred"
+    },
+    {
+      "backend": "opengl",
+      "family": "vegetation",
+      "path": "forward",
+      "status": "captured; consumption and visuals require review",
+      "samples": 33,
+      "frames": {
+        "first": 68,
+        "last": 664,
+        "stale": 0,
+        "nonadvancing": 0
+      },
+      "entityUuid": {
+        "completeLists": true,
+        "stable": true,
+        "countBefore": 4,
+        "countAfter": 4
+      },
+      "pendingObservedSamples": 13,
+      "shader": {
+        "before": {
+          "available": false,
+          "count": null,
+          "status": "unavailableInThisBuild"
+        },
+        "after": {
+          "available": false,
+          "count": null,
+          "status": "unavailableInThisBuild"
+        }
+      },
+      "csmState": {
+        "detail": {
+          "optionalGpuBytes": 21139480,
+          "pendingRequests": 0,
+          "fallbackDraws": 1,
+          "evictions": 0,
+          "detailDraws": 3,
+          "reloads": 0
+        },
+        "pressure": {
+          "optionalGpuBytes": 0,
+          "pendingRequests": 3,
+          "fallbackDraws": 4,
+          "evictions": 3,
+          "detailDraws": 0,
+          "reloads": 0
+        },
+        "reload": {
+          "optionalGpuBytes": 21139480,
+          "pendingRequests": 0,
+          "fallbackDraws": 1,
+          "evictions": 3,
+          "detailDraws": 3,
+          "reloads": 3
+        }
+      },
+      "transitionCheckpoints": {
+        "total": 6,
+        "reportedObserved": 6,
+        "observedFromCounters": 6
+      },
+      "artifacts": [
+        {
+          "sha256": "ac0a886b0acca46a9ed453fd6ce45dc4e1e115ace0477e3a8d57c39a69d7a349",
+          "file": "samples.json"
+        },
+        {
+          "sha256": "851eabd776bfa3846db1a6e86211e294d8941e0c4b5360214692fe76c9fa8c71",
+          "file": "entities-before.json"
+        },
+        {
+          "sha256": "851eabd776bfa3846db1a6e86211e294d8941e0c4b5360214692fe76c9fa8c71",
+          "file": "entities-after.json"
+        },
+        {
+          "sha256": "34eeeb4d556a731c8db7a704f846de063be09d1a4eb47da3395380624b351d39",
+          "file": "OloEngine.log"
+        },
+        {
+          "sha256": "f58f286b41ead93b8b476271da364780d118c34024f246c467f8ef4f50c8a50d",
+          "file": "subject.olo"
+        }
+      ],
+      "selectedPngs": {
+        "detail": {
+          "sha256": "fd60643e2489da4b9c047561ed1e13a15257f485d66dd01a0ecac1f47690a644",
+          "file": "003-csm-detail-diagnostics.png"
+        },
+        "pressure": {
+          "sha256": "060b508da558db70870ded11b76ff267fbc4d4b87c3868624469b355cc83642c",
+          "file": "006-csm-pressure-diagnostics.png"
+        },
+        "reload": {
+          "sha256": "c6c6570c38f3b9b33167b35dabb97a72615549481c4f6ebec4eeb42a3cacc054",
+          "file": "009-csm-reload-diagnostics.png"
+        }
+      },
+      "allPngHashesMatch": true,
+      "csmGroomCasterStats": null,
+      "beautyCommandBuckets": {
+        "detail": [
+          {
+            "pass": "ScenePass",
+            "commands": 11
+          },
+          {
+            "pass": "FoliagePrepassPass",
+            "commands": 9
+          },
+          {
+            "pass": "FoliagePass",
+            "commands": 9
+          }
+        ],
+        "pressure": [
+          {
+            "pass": "ScenePass",
+            "commands": 11
+          },
+          {
+            "pass": "FoliagePrepassPass",
+            "commands": 4
+          },
+          {
+            "pass": "FoliagePass",
+            "commands": 4
+          }
+        ],
+        "reload": [
+          {
+            "pass": "ScenePass",
+            "commands": 11
+          },
+          {
+            "pass": "FoliagePrepassPass",
+            "commands": 9
+          },
+          {
+            "pass": "FoliagePass",
+            "commands": 9
+          }
+        ]
+      },
+      "artifactDirectory": "artifacts/residency/functional-gl-final/opengl-vegetation-forward"
+    },
+    {
+      "backend": "opengl",
+      "family": "vegetation",
+      "path": "forward-plus",
+      "status": "captured; consumption and visuals require review",
+      "samples": 33,
+      "frames": {
+        "first": 69,
+        "last": 678,
+        "stale": 0,
+        "nonadvancing": 0
+      },
+      "entityUuid": {
+        "completeLists": true,
+        "stable": true,
+        "countBefore": 4,
+        "countAfter": 4
+      },
+      "pendingObservedSamples": 13,
+      "shader": {
+        "before": {
+          "available": false,
+          "count": null,
+          "status": "unavailableInThisBuild"
+        },
+        "after": {
+          "available": false,
+          "count": null,
+          "status": "unavailableInThisBuild"
+        }
+      },
+      "csmState": {
+        "detail": {
+          "optionalGpuBytes": 21139480,
+          "pendingRequests": 0,
+          "fallbackDraws": 1,
+          "evictions": 0,
+          "detailDraws": 3,
+          "reloads": 0
+        },
+        "pressure": {
+          "optionalGpuBytes": 0,
+          "pendingRequests": 3,
+          "fallbackDraws": 4,
+          "evictions": 3,
+          "detailDraws": 0,
+          "reloads": 0
+        },
+        "reload": {
+          "optionalGpuBytes": 21139480,
+          "pendingRequests": 0,
+          "fallbackDraws": 1,
+          "evictions": 3,
+          "detailDraws": 3,
+          "reloads": 3
+        }
+      },
+      "transitionCheckpoints": {
+        "total": 6,
+        "reportedObserved": 6,
+        "observedFromCounters": 6
+      },
+      "artifacts": [
+        {
+          "sha256": "484715da4fffaaee5d062778e7c2203029e6afbcb7af49d00eb07ec87ca35231",
+          "file": "samples.json"
+        },
+        {
+          "sha256": "851eabd776bfa3846db1a6e86211e294d8941e0c4b5360214692fe76c9fa8c71",
+          "file": "entities-before.json"
+        },
+        {
+          "sha256": "851eabd776bfa3846db1a6e86211e294d8941e0c4b5360214692fe76c9fa8c71",
+          "file": "entities-after.json"
+        },
+        {
+          "sha256": "c20a921f61eda8b8ed3262adf81db587c41ce9d427e1ee80e68580adaaf7f2da",
+          "file": "OloEngine.log"
+        },
+        {
+          "sha256": "f58f286b41ead93b8b476271da364780d118c34024f246c467f8ef4f50c8a50d",
+          "file": "subject.olo"
+        }
+      ],
+      "selectedPngs": {
+        "detail": {
+          "sha256": "6392d4a174b671e1cd7f78d62c22c3266e5c737512d34f750b8ef7289855b582",
+          "file": "003-csm-detail-diagnostics.png"
+        },
+        "pressure": {
+          "sha256": "7f01ee0bc8d6522d6befc4d4a3720b02ce0784ddfeb420c40f1c5a37b2029d36",
+          "file": "006-csm-pressure-diagnostics.png"
+        },
+        "reload": {
+          "sha256": "5d7c280b15c8446bfe2351f4e42b0740c1a770136d74540dc0a46adec1648588",
+          "file": "009-csm-reload-diagnostics.png"
+        }
+      },
+      "allPngHashesMatch": true,
+      "csmGroomCasterStats": null,
+      "beautyCommandBuckets": {
+        "detail": [
+          {
+            "pass": "ScenePass",
+            "commands": 11
+          },
+          {
+            "pass": "FoliagePrepassPass",
+            "commands": 9
+          },
+          {
+            "pass": "FoliagePass",
+            "commands": 9
+          }
+        ],
+        "pressure": [
+          {
+            "pass": "ScenePass",
+            "commands": 11
+          },
+          {
+            "pass": "FoliagePrepassPass",
+            "commands": 4
+          },
+          {
+            "pass": "FoliagePass",
+            "commands": 4
+          }
+        ],
+        "reload": [
+          {
+            "pass": "ScenePass",
+            "commands": 11
+          },
+          {
+            "pass": "FoliagePrepassPass",
+            "commands": 9
+          },
+          {
+            "pass": "FoliagePass",
+            "commands": 9
+          }
+        ]
+      },
+      "artifactDirectory": "artifacts/residency/functional-gl-final/opengl-vegetation-forward-plus"
+    },
+    {
+      "backend": "opengl",
+      "family": "vegetation",
+      "path": "deferred",
+      "status": "captured; consumption and visuals require review",
+      "samples": 70,
+      "frames": {
+        "first": 56,
+        "last": 1454,
+        "stale": 0,
+        "nonadvancing": 0
+      },
+      "entityUuid": {
+        "completeLists": true,
+        "stable": true,
+        "countBefore": 4,
+        "countAfter": 4
+      },
+      "pendingObservedSamples": 25,
+      "shader": {
+        "before": {
+          "available": false,
+          "count": null,
+          "status": "unavailableInThisBuild"
+        },
+        "after": {
+          "available": false,
+          "count": null,
+          "status": "unavailableInThisBuild"
+        }
+      },
+      "csmState": {
+        "detail": {
+          "optionalGpuBytes": 21139480,
+          "pendingRequests": 0,
+          "fallbackDraws": 1,
+          "evictions": 0,
+          "detailDraws": 3,
+          "reloads": 0
+        },
+        "pressure": {
+          "optionalGpuBytes": 0,
+          "pendingRequests": 3,
+          "fallbackDraws": 4,
+          "evictions": 3,
+          "detailDraws": 0,
+          "reloads": 0
+        },
+        "reload": {
+          "optionalGpuBytes": 21139480,
+          "pendingRequests": 0,
+          "fallbackDraws": 1,
+          "evictions": 3,
+          "detailDraws": 3,
+          "reloads": 3
+        }
+      },
+      "transitionCheckpoints": {
+        "total": 19,
+        "reportedObserved": 19,
+        "observedFromCounters": 19
+      },
+      "artifacts": [
+        {
+          "sha256": "9dfd0edead83753615a6c1bbdfc420a4c6da07f219fb12e17858f8e87a212016",
+          "file": "samples.json"
+        },
+        {
+          "sha256": "851eabd776bfa3846db1a6e86211e294d8941e0c4b5360214692fe76c9fa8c71",
+          "file": "entities-before.json"
+        },
+        {
+          "sha256": "851eabd776bfa3846db1a6e86211e294d8941e0c4b5360214692fe76c9fa8c71",
+          "file": "entities-after.json"
+        },
+        {
+          "sha256": "313f3b8bc71b4bd69dba72e2978b0d89b8d9a28fe2350cdc1f70cd6b7ffce50c",
+          "file": "OloEngine.log"
+        },
+        {
+          "sha256": "f58f286b41ead93b8b476271da364780d118c34024f246c467f8ef4f50c8a50d",
+          "file": "subject.olo"
+        }
+      ],
+      "selectedPngs": {
+        "detail": {
+          "sha256": "46e854c5b9b98d018d08990f6ff4aab76a2d78b18e40eb34ffe23f94f648e681",
+          "file": "003-csm-detail-diagnostics.png"
+        },
+        "pressure": {
+          "sha256": "237bbb543de862c3f32a8384419786db0905e175b421d69a29a175e9362b2929",
+          "file": "006-csm-pressure-diagnostics.png"
+        },
+        "reload": {
+          "sha256": "4cea12403fef4eecec23a42190b4765c87c11d5c7aea65af11e7ceb93d96e269",
+          "file": "009-csm-reload-diagnostics.png"
+        }
+      },
+      "allPngHashesMatch": true,
+      "csmGroomCasterStats": null,
+      "beautyCommandBuckets": {
+        "detail": [
+          {
+            "pass": "ScenePass",
+            "commands": 20
+          }
+        ],
+        "pressure": [
+          {
+            "pass": "ScenePass",
+            "commands": 15
+          }
+        ],
+        "reload": [
+          {
+            "pass": "ScenePass",
+            "commands": 20
+          }
+        ]
+      },
+      "deferredObservations": {
+        "vsm-detail-diagnostics": {
+          "vsm": {
+            "availability": {
+              "available": true,
+              "enabled": true,
+              "hasData": true,
+              "status": "ready"
+            },
+            "freshness": {
+              "model": "previousFrame",
+              "sampleAgeFrames": 1,
+              "stale": false
+            },
+            "statistics": {
+              "cullOverflows": 0,
+              "drawInstances": 0,
+              "localPagesDrawn": 0,
+              "localPagesResident": 0,
+              "pagesAllocated": 4,
+              "pagesDrawn": 3079,
+              "pagesFailed": 0,
+              "pagesFreed": 0,
+              "pagesRequested": 0,
+              "pagesResident": 3075
+            }
+          },
+          "groomCasterStats": null,
+          "foliageCasterAttribution": "unobserved: global VSM page counts and beauty commands do not attribute foliage shadow draws"
+        },
+        "msaa4-detail-diagnostics": {
+          "upscalerLatch": {
+            "pending": false,
+            "requested": {
+              "technique": "spatial",
+              "upscale": "off"
+            },
+            "resolved": "native",
+            "sceneSampleCount": 4,
+            "temporalUpscalerStatus": "available"
+          }
+        },
+        "fsr-spatial-detail-diagnostics": {
+          "upscalerLatch": {
+            "pending": false,
+            "requested": {
+              "technique": "spatial",
+              "upscale": "quality"
+            },
+            "resolved": "spatial",
+            "sceneSampleCount": 1,
+            "temporalUpscalerStatus": "available"
+          }
+        },
+        "fsr-temporal-reachability-detail-diagnostics": {
+          "upscalerLatch": {
+            "pending": false,
+            "requested": {
+              "technique": "temporal",
+              "upscale": "quality"
+            },
+            "resolved": "temporal",
+            "sceneSampleCount": 1,
+            "temporalUpscalerStatus": "available"
+          }
+        }
+      },
+      "artifactDirectory": "artifacts/residency/functional-gl-final/opengl-vegetation-deferred"
+    },
+    {
+      "backend": "vulkan",
+      "family": "groom",
+      "path": "forward",
+      "status": "captured; consumption and visuals require review",
+      "samples": 33,
+      "frames": {
+        "first": 119,
+        "last": 1133,
+        "stale": 0,
+        "nonadvancing": 0
+      },
+      "entityUuid": {
+        "completeLists": true,
+        "stable": true,
+        "countBefore": 44,
+        "countAfter": 44
+      },
+      "pendingObservedSamples": 0,
+      "shader": {
+        "before": {
+          "available": false,
+          "count": null,
+          "status": "unavailableInThisBuild"
+        },
+        "after": {
+          "available": false,
+          "count": null,
+          "status": "unavailableInThisBuild"
+        }
+      },
+      "csmState": {
+        "detail": {
+          "optionalGpuBytes": 2931616,
+          "pendingRequests": 0,
+          "fallbackDraws": 18,
+          "evictions": 3,
+          "detailDraws": 23
+        },
+        "pressure": {
+          "optionalGpuBytes": 0,
+          "pendingRequests": 0,
+          "fallbackDraws": 41,
+          "evictions": 5,
+          "detailDraws": 0
+        },
+        "reload": {
+          "optionalGpuBytes": 2931616,
+          "pendingRequests": 0,
+          "fallbackDraws": 18,
+          "evictions": 6,
+          "detailDraws": 23
+        }
+      },
+      "transitionCheckpoints": {
+        "total": 6,
+        "reportedObserved": 6,
+        "observedFromCounters": 6
+      },
+      "artifacts": [
+        {
+          "sha256": "eae81679c97d047e340c5297855bc129a71dfb22e1b0ed1e778f252e2ed3bdc6",
+          "file": "samples.json"
+        },
+        {
+          "sha256": "5b39b443eb151b8d15b782785364b7cafd8cb5eef778e78f11fe2f5b6b343241",
+          "file": "entities-before.json"
+        },
+        {
+          "sha256": "5b39b443eb151b8d15b782785364b7cafd8cb5eef778e78f11fe2f5b6b343241",
+          "file": "entities-after.json"
+        },
+        {
+          "sha256": "f9b5cd736276c9d8a1a2777b89ca638536c62b1832d644094d0099a0a7eb8ad1",
+          "file": "OloEngine.log"
+        },
+        {
+          "sha256": "8ecdd9a200e9217fbab188ae1ea7a5da577bc3e98170459ca67cd5c662997451",
+          "file": "subject.olo"
+        }
+      ],
+      "selectedPngs": {
+        "detail": {
+          "sha256": "424efc57b04d3a1515a8c8798dd4893b12025c371f8134a47b6c9abe35588809",
+          "file": "003-csm-detail-diagnostics.png"
+        },
+        "pressure": {
+          "sha256": "a3e32ffc56759577a711312693c2a9d8389d9df995372cd365c5c393cf0a0635",
+          "file": "006-csm-pressure-diagnostics.png"
+        },
+        "reload": {
+          "sha256": "4be8ee2420d71622093670b1c60ca0715a00c1d9f72f89305ecb1745b2cfa5d4",
+          "file": "009-csm-reload-diagnostics.png"
+        }
+      },
+      "allPngHashesMatch": true,
+      "csmGroomCasterStats": {
+        "atlasDraws": 0,
+        "cascadeDraws": 98,
+        "groomsAskedToCast": 41,
+        "groomsCasting": 41,
+        "segmentsCast": 40856,
+        "segmentsWhole": 288979,
+        "virtualShadowLevelDraws": 0
+      },
+      "beautyCommandBuckets": {
+        "detail": [
+          {
+            "pass": "ScenePass",
+            "commands": 2
+          }
+        ],
+        "pressure": [
+          {
+            "pass": "ScenePass",
+            "commands": 2
+          }
+        ],
+        "reload": [
+          {
+            "pass": "ScenePass",
+            "commands": 2
+          }
+        ]
+      },
+      "artifactDirectory": "artifacts/residency/functional-vk-final/vulkan-groom-forward"
+    },
+    {
+      "backend": "vulkan",
+      "family": "groom",
+      "path": "forward-plus",
+      "status": "captured; consumption and visuals require review",
+      "samples": 33,
+      "frames": {
+        "first": 194,
+        "last": 1241,
+        "stale": 0,
+        "nonadvancing": 0
+      },
+      "entityUuid": {
+        "completeLists": true,
+        "stable": true,
+        "countBefore": 44,
+        "countAfter": 44
+      },
+      "pendingObservedSamples": 0,
+      "shader": {
+        "before": {
+          "available": false,
+          "count": null,
+          "status": "unavailableInThisBuild"
+        },
+        "after": {
+          "available": false,
+          "count": null,
+          "status": "unavailableInThisBuild"
+        }
+      },
+      "csmState": {
+        "detail": {
+          "optionalGpuBytes": 2931616,
+          "pendingRequests": 0,
+          "fallbackDraws": 18,
+          "evictions": 3,
+          "detailDraws": 23
+        },
+        "pressure": {
+          "optionalGpuBytes": 0,
+          "pendingRequests": 0,
+          "fallbackDraws": 41,
+          "evictions": 5,
+          "detailDraws": 0
+        },
+        "reload": {
+          "optionalGpuBytes": 2931616,
+          "pendingRequests": 0,
+          "fallbackDraws": 18,
+          "evictions": 6,
+          "detailDraws": 23
+        }
+      },
+      "transitionCheckpoints": {
+        "total": 6,
+        "reportedObserved": 6,
+        "observedFromCounters": 6
+      },
+      "artifacts": [
+        {
+          "sha256": "46b8b52f19e2907dcbfcc47883b1f0104b2654a7bd8c63c9054f9e4a227107dc",
+          "file": "samples.json"
+        },
+        {
+          "sha256": "5b39b443eb151b8d15b782785364b7cafd8cb5eef778e78f11fe2f5b6b343241",
+          "file": "entities-before.json"
+        },
+        {
+          "sha256": "5b39b443eb151b8d15b782785364b7cafd8cb5eef778e78f11fe2f5b6b343241",
+          "file": "entities-after.json"
+        },
+        {
+          "sha256": "48a48047b8c795839127d8f1e3c1b1f02ee96b648b4de037290ca6f8af79c768",
+          "file": "OloEngine.log"
+        },
+        {
+          "sha256": "8ecdd9a200e9217fbab188ae1ea7a5da577bc3e98170459ca67cd5c662997451",
+          "file": "subject.olo"
+        }
+      ],
+      "selectedPngs": {
+        "detail": {
+          "sha256": "e02525d81c29f020559f16f360363529cf8081213c5965e75767bf640f1dc46f",
+          "file": "003-csm-detail-diagnostics.png"
+        },
+        "pressure": {
+          "sha256": "9b49b9e1df780b05808e1003fa043f86476809e504d397a8d3158e0b9170cb3a",
+          "file": "006-csm-pressure-diagnostics.png"
+        },
+        "reload": {
+          "sha256": "8959e75eab6229c5327b570bc01d84626447a50b80b267986ef69fc728c94a2d",
+          "file": "009-csm-reload-diagnostics.png"
+        }
+      },
+      "allPngHashesMatch": true,
+      "csmGroomCasterStats": {
+        "atlasDraws": 0,
+        "cascadeDraws": 98,
+        "groomsAskedToCast": 41,
+        "groomsCasting": 41,
+        "segmentsCast": 40848,
+        "segmentsWhole": 288979,
+        "virtualShadowLevelDraws": 0
+      },
+      "beautyCommandBuckets": {
+        "detail": [
+          {
+            "pass": "ScenePass",
+            "commands": 2
+          }
+        ],
+        "pressure": [
+          {
+            "pass": "ScenePass",
+            "commands": 2
+          }
+        ],
+        "reload": [
+          {
+            "pass": "ScenePass",
+            "commands": 2
+          }
+        ]
+      },
+      "artifactDirectory": "artifacts/residency/functional-vk-final/vulkan-groom-forward-plus"
+    },
+    {
+      "backend": "vulkan",
+      "family": "groom",
+      "path": "deferred",
+      "status": "captured; consumption and visuals require review",
+      "samples": 74,
+      "frames": {
+        "first": 110,
+        "last": 2496,
+        "stale": 0,
+        "nonadvancing": 0
+      },
+      "entityUuid": {
+        "completeLists": true,
+        "stable": true,
+        "countBefore": 44,
+        "countAfter": 44
+      },
+      "pendingObservedSamples": 0,
+      "shader": {
+        "before": {
+          "available": false,
+          "count": null,
+          "status": "unavailableInThisBuild"
+        },
+        "after": {
+          "available": false,
+          "count": null,
+          "status": "unavailableInThisBuild"
+        }
+      },
+      "csmState": {
+        "detail": {
+          "optionalGpuBytes": 2931616,
+          "pendingRequests": 0,
+          "fallbackDraws": 18,
+          "evictions": 3,
+          "detailDraws": 23
+        },
+        "pressure": {
+          "optionalGpuBytes": 0,
+          "pendingRequests": 0,
+          "fallbackDraws": 41,
+          "evictions": 5,
+          "detailDraws": 0
+        },
+        "reload": {
+          "optionalGpuBytes": 2931616,
+          "pendingRequests": 0,
+          "fallbackDraws": 18,
+          "evictions": 6,
+          "detailDraws": 23
+        }
+      },
+      "transitionCheckpoints": {
+        "total": 21,
+        "reportedObserved": 21,
+        "observedFromCounters": 21
+      },
+      "artifacts": [
+        {
+          "sha256": "523908f96a1e9a5e3e33f68ee467e775d5205e200ccf3e6895e57859a7a2962e",
+          "file": "samples.json"
+        },
+        {
+          "sha256": "5b39b443eb151b8d15b782785364b7cafd8cb5eef778e78f11fe2f5b6b343241",
+          "file": "entities-before.json"
+        },
+        {
+          "sha256": "5b39b443eb151b8d15b782785364b7cafd8cb5eef778e78f11fe2f5b6b343241",
+          "file": "entities-after.json"
+        },
+        {
+          "sha256": "0749166cca8888a0a7588e2b5a6406278949831573ab721894bcfba311a85ec7",
+          "file": "OloEngine.log"
+        },
+        {
+          "sha256": "8ecdd9a200e9217fbab188ae1ea7a5da577bc3e98170459ca67cd5c662997451",
+          "file": "subject.olo"
+        }
+      ],
+      "selectedPngs": {
+        "detail": {
+          "sha256": "9e50ad4c9773d8b19c9e99b6502d1f331f220a921e2c196b7dcc1697e7f2aeea",
+          "file": "003-csm-detail-diagnostics.png"
+        },
+        "pressure": {
+          "sha256": "4ee4c8518a5a7989291b7a61f6c65399d363884de82650efb1603fe0b12f4de1",
+          "file": "006-csm-pressure-diagnostics.png"
+        },
+        "reload": {
+          "sha256": "7b4314f298af2506af08562a38be5f579b1c8646f2e97bd6634290448ccc9516",
+          "file": "009-csm-reload-diagnostics.png"
+        }
+      },
+      "allPngHashesMatch": true,
+      "csmGroomCasterStats": {
+        "atlasDraws": 0,
+        "cascadeDraws": 98,
+        "groomsAskedToCast": 41,
+        "groomsCasting": 41,
+        "segmentsCast": 40856,
+        "segmentsWhole": 288979,
+        "virtualShadowLevelDraws": 0
+      },
+      "beautyCommandBuckets": {
+        "detail": [
+          {
+            "pass": "ScenePass",
+            "commands": 2
+          }
+        ],
+        "pressure": [
+          {
+            "pass": "ScenePass",
+            "commands": 2
+          }
+        ],
+        "reload": [
+          {
+            "pass": "ScenePass",
+            "commands": 2
+          }
+        ]
+      },
+      "deferredObservations": {
+        "vsm-detail-diagnostics": {
+          "vsm": {
+            "availability": {
+              "available": true,
+              "enabled": true,
+              "hasData": true,
+              "status": "ready"
+            },
+            "freshness": {
+              "model": "previousFrame",
+              "sampleAgeFrames": 1,
+              "stale": false
+            },
+            "statistics": {
+              "cullOverflows": 0,
+              "drawInstances": 6,
+              "localPagesDrawn": 0,
+              "localPagesResident": 0,
+              "pagesAllocated": 0,
+              "pagesDrawn": 1614,
+              "pagesFailed": 0,
+              "pagesFreed": 0,
+              "pagesRequested": 0,
+              "pagesResident": 2060
+            }
+          },
+          "groomCasterStats": {
+            "atlasDraws": 0,
+            "cascadeDraws": 0,
+            "groomsAskedToCast": 41,
+            "groomsCasting": 41,
+            "segmentsCast": 239375,
+            "segmentsWhole": 1657838,
+            "virtualShadowLevelDraws": 14
+          },
+          "foliageCasterAttribution": null
+        },
+        "msaa4-detail-diagnostics": {
+          "upscalerLatch": {
+            "pending": false,
+            "requested": {
+              "technique": "spatial",
+              "upscale": "off"
+            },
+            "resolved": "native",
+            "sceneSampleCount": 4,
+            "temporalUpscalerStatus": "unsupported on the active RHI backend"
+          }
+        },
+        "fsr-spatial-detail-diagnostics": {
+          "upscalerLatch": {
+            "pending": false,
+            "requested": {
+              "technique": "spatial",
+              "upscale": "quality"
+            },
+            "resolved": "spatial",
+            "sceneSampleCount": 1,
+            "temporalUpscalerStatus": "unsupported on the active RHI backend"
+          }
+        },
+        "fsr-temporal-reachability-detail-diagnostics": {
+          "upscalerLatch": {
+            "fallback": "backendNotOpenGL",
+            "pending": false,
+            "reason": "FSR2 has an OpenGL backend only and this editor runs another RHI backend, so the frame is FSR1 spatial at the same render scale.",
+            "requested": {
+              "technique": "temporal",
+              "upscale": "quality"
+            },
+            "resolved": "spatial",
+            "sceneSampleCount": 1,
+            "temporalUpscalerStatus": "unsupported on the active RHI backend"
+          }
+        },
+        "rt-on-detail-diagnostics": {
+          "rt": {
+            "availability": {
+              "available": true,
+              "enabled": true,
+              "hasData": true,
+              "status": "ready"
+            },
+            "resident": {
+              "accelerationStructureBytes": 12047744,
+              "animatedInstancesRefused": 0,
+              "blasByClass": {
+                "deformed": 41,
+                "masked": 0,
+                "rigidDynamic": 0,
+                "static": 42,
+                "unsupported": 0
+              },
+              "compactionSavedBytes": 9589632,
+              "scratchBytes": 6235392,
+              "tlasInstances": 83,
+              "unsupportedInstances": 0
+            },
+            "grooms": {
+              "represented": 41,
+              "refused": 0,
+              "detailedCoats": 0,
+              "proxyCoats": 41,
+              "residentBytes": 21420448,
+              "complete": true,
+              "gpuDispatchFailures": 0
+            },
+            "vegetation": {
+              "ready": true,
+              "complete": true,
+              "castersComplete": true,
+              "plantsRepresented": 0,
+              "refused": 0,
+              "requested": 0,
+              "residentBytes": 0,
+              "stagedAccelerationBytes": 0,
+              "producerFailed": false
+            }
+          }
+        },
+        "rt-on-pressure-diagnostics": {
+          "rt": {
+            "availability": {
+              "available": true,
+              "enabled": true,
+              "hasData": true,
+              "status": "ready"
+            },
+            "resident": {
+              "accelerationStructureBytes": 12047744,
+              "animatedInstancesRefused": 0,
+              "blasByClass": {
+                "deformed": 41,
+                "masked": 0,
+                "rigidDynamic": 0,
+                "static": 42,
+                "unsupported": 0
+              },
+              "compactionSavedBytes": 9589632,
+              "scratchBytes": 6235392,
+              "tlasInstances": 83,
+              "unsupportedInstances": 0
+            },
+            "grooms": {
+              "represented": 41,
+              "refused": 0,
+              "detailedCoats": 0,
+              "proxyCoats": 41,
+              "residentBytes": 21420448,
+              "complete": true,
+              "gpuDispatchFailures": 0
+            },
+            "vegetation": {
+              "ready": true,
+              "complete": true,
+              "castersComplete": true,
+              "plantsRepresented": 0,
+              "refused": 0,
+              "requested": 0,
+              "residentBytes": 0,
+              "stagedAccelerationBytes": 0,
+              "producerFailed": false
+            }
+          }
+        },
+        "rt-on-reload-diagnostics": {
+          "rt": {
+            "availability": {
+              "available": true,
+              "enabled": true,
+              "hasData": true,
+              "status": "ready"
+            },
+            "resident": {
+              "accelerationStructureBytes": 12047744,
+              "animatedInstancesRefused": 0,
+              "blasByClass": {
+                "deformed": 41,
+                "masked": 0,
+                "rigidDynamic": 0,
+                "static": 42,
+                "unsupported": 0
+              },
+              "compactionSavedBytes": 9589632,
+              "scratchBytes": 6235392,
+              "tlasInstances": 83,
+              "unsupportedInstances": 0
+            },
+            "grooms": {
+              "represented": 41,
+              "refused": 0,
+              "detailedCoats": 0,
+              "proxyCoats": 41,
+              "residentBytes": 21420448,
+              "complete": true,
+              "gpuDispatchFailures": 0
+            },
+            "vegetation": {
+              "ready": true,
+              "complete": true,
+              "castersComplete": true,
+              "plantsRepresented": 0,
+              "refused": 0,
+              "requested": 0,
+              "residentBytes": 0,
+              "stagedAccelerationBytes": 0,
+              "producerFailed": false
+            }
+          }
+        }
+      },
+      "rtLightsAfter": {
+        "changed": false,
+        "fallbackLights": 0,
+        "note": "counters are from the PREVIOUS frame; re-read after a frame has rendered with the new setting",
+        "previousValue": "on",
+        "rayTracedLights": 1,
+        "setting": "raytracedshadows",
+        "value": "on"
+      },
+      "rtCameraRay": {
+        "status": "answered",
+        "reason": null,
+        "hitCount": 1,
+        "missCount": 0,
+        "rayCount": 1
+      },
+      "artifactDirectory": "artifacts/residency/functional-vk-final/vulkan-groom-deferred"
+    },
+    {
+      "backend": "vulkan",
+      "family": "vegetation",
+      "path": "forward",
+      "status": "captured; consumption and visuals require review",
+      "samples": 33,
+      "frames": {
+        "first": 111,
+        "last": 745,
+        "stale": 0,
+        "nonadvancing": 0
+      },
+      "entityUuid": {
+        "completeLists": true,
+        "stable": true,
+        "countBefore": 4,
+        "countAfter": 4
+      },
+      "pendingObservedSamples": 13,
+      "shader": {
+        "before": {
+          "available": false,
+          "count": null,
+          "status": "unavailableInThisBuild"
+        },
+        "after": {
+          "available": false,
+          "count": null,
+          "status": "unavailableInThisBuild"
+        }
+      },
+      "csmState": {
+        "detail": {
+          "optionalGpuBytes": 21165056,
+          "pendingRequests": 0,
+          "fallbackDraws": 1,
+          "evictions": 0,
+          "detailDraws": 3,
+          "reloads": 0
+        },
+        "pressure": {
+          "optionalGpuBytes": 0,
+          "pendingRequests": 3,
+          "fallbackDraws": 4,
+          "evictions": 3,
+          "detailDraws": 0,
+          "reloads": 0
+        },
+        "reload": {
+          "optionalGpuBytes": 21165056,
+          "pendingRequests": 0,
+          "fallbackDraws": 1,
+          "evictions": 3,
+          "detailDraws": 3,
+          "reloads": 3
+        }
+      },
+      "transitionCheckpoints": {
+        "total": 6,
+        "reportedObserved": 6,
+        "observedFromCounters": 6
+      },
+      "artifacts": [
+        {
+          "sha256": "c0b19bee954cabeea379467327efe61edace059175625abf987f3ab4f04f4ba4",
+          "file": "samples.json"
+        },
+        {
+          "sha256": "851eabd776bfa3846db1a6e86211e294d8941e0c4b5360214692fe76c9fa8c71",
+          "file": "entities-before.json"
+        },
+        {
+          "sha256": "851eabd776bfa3846db1a6e86211e294d8941e0c4b5360214692fe76c9fa8c71",
+          "file": "entities-after.json"
+        },
+        {
+          "sha256": "305fe9ad0cb15899d8d9cdc1025361d93a00a8498e51154370a237cf78d3983f",
+          "file": "OloEngine.log"
+        },
+        {
+          "sha256": "f58f286b41ead93b8b476271da364780d118c34024f246c467f8ef4f50c8a50d",
+          "file": "subject.olo"
+        }
+      ],
+      "selectedPngs": {
+        "detail": {
+          "sha256": "677b8bd0df3fad38413aa66e7c130799c29322d5135043d44f971f219322e8f6",
+          "file": "003-csm-detail-diagnostics.png"
+        },
+        "pressure": {
+          "sha256": "e516e288c540d916f5704627f86c60712328dbc40f8477a2fae49158c9d9ff04",
+          "file": "006-csm-pressure-diagnostics.png"
+        },
+        "reload": {
+          "sha256": "fd5d4f6084ec0cd4dd4c71b162ea560ff9fd8a777ff7166920330e7a461eecb8",
+          "file": "009-csm-reload-diagnostics.png"
+        }
+      },
+      "allPngHashesMatch": true,
+      "csmGroomCasterStats": null,
+      "beautyCommandBuckets": {
+        "detail": [
+          {
+            "pass": "ScenePass",
+            "commands": 11
+          },
+          {
+            "pass": "FoliagePrepassPass",
+            "commands": 9
+          },
+          {
+            "pass": "FoliagePass",
+            "commands": 9
+          }
+        ],
+        "pressure": [
+          {
+            "pass": "ScenePass",
+            "commands": 11
+          },
+          {
+            "pass": "FoliagePrepassPass",
+            "commands": 4
+          },
+          {
+            "pass": "FoliagePass",
+            "commands": 4
+          }
+        ],
+        "reload": [
+          {
+            "pass": "ScenePass",
+            "commands": 11
+          },
+          {
+            "pass": "FoliagePrepassPass",
+            "commands": 9
+          },
+          {
+            "pass": "FoliagePass",
+            "commands": 9
+          }
+        ]
+      },
+      "artifactDirectory": "artifacts/residency/functional-vk-final/vulkan-vegetation-forward"
+    },
+    {
+      "backend": "vulkan",
+      "family": "vegetation",
+      "path": "forward-plus",
+      "status": "captured; consumption and visuals require review",
+      "samples": 33,
+      "frames": {
+        "first": 64,
+        "last": 703,
+        "stale": 0,
+        "nonadvancing": 0
+      },
+      "entityUuid": {
+        "completeLists": true,
+        "stable": true,
+        "countBefore": 4,
+        "countAfter": 4
+      },
+      "pendingObservedSamples": 13,
+      "shader": {
+        "before": {
+          "available": false,
+          "count": null,
+          "status": "unavailableInThisBuild"
+        },
+        "after": {
+          "available": false,
+          "count": null,
+          "status": "unavailableInThisBuild"
+        }
+      },
+      "csmState": {
+        "detail": {
+          "optionalGpuBytes": 21165056,
+          "pendingRequests": 0,
+          "fallbackDraws": 1,
+          "evictions": 0,
+          "detailDraws": 3,
+          "reloads": 0
+        },
+        "pressure": {
+          "optionalGpuBytes": 0,
+          "pendingRequests": 3,
+          "fallbackDraws": 4,
+          "evictions": 3,
+          "detailDraws": 0,
+          "reloads": 0
+        },
+        "reload": {
+          "optionalGpuBytes": 21165056,
+          "pendingRequests": 0,
+          "fallbackDraws": 1,
+          "evictions": 3,
+          "detailDraws": 3,
+          "reloads": 3
+        }
+      },
+      "transitionCheckpoints": {
+        "total": 6,
+        "reportedObserved": 6,
+        "observedFromCounters": 6
+      },
+      "artifacts": [
+        {
+          "sha256": "a7669f6e24ab670a495b57fbc9c2d020ce3f16f84175f3bf70e141be2c516514",
+          "file": "samples.json"
+        },
+        {
+          "sha256": "851eabd776bfa3846db1a6e86211e294d8941e0c4b5360214692fe76c9fa8c71",
+          "file": "entities-before.json"
+        },
+        {
+          "sha256": "851eabd776bfa3846db1a6e86211e294d8941e0c4b5360214692fe76c9fa8c71",
+          "file": "entities-after.json"
+        },
+        {
+          "sha256": "567551f5d841c9619ebe3cc302b4fdc8e6ab4b5a7d23b59fdb7d29f16a43cfbb",
+          "file": "OloEngine.log"
+        },
+        {
+          "sha256": "f58f286b41ead93b8b476271da364780d118c34024f246c467f8ef4f50c8a50d",
+          "file": "subject.olo"
+        }
+      ],
+      "selectedPngs": {
+        "detail": {
+          "sha256": "3c16086a6c296ae324af268fe22c934aa653f5ba5a16d9a590aeee635f955c8a",
+          "file": "003-csm-detail-diagnostics.png"
+        },
+        "pressure": {
+          "sha256": "d3cb8d3c3823d1cd021b804b776df30811ff1211652b7d6b0b157cca042d0808",
+          "file": "006-csm-pressure-diagnostics.png"
+        },
+        "reload": {
+          "sha256": "cb7a827132cc6bab705289fa7660b69db00cdc6c1a749ed492b4df96bbebcd4a",
+          "file": "009-csm-reload-diagnostics.png"
+        }
+      },
+      "allPngHashesMatch": true,
+      "csmGroomCasterStats": null,
+      "beautyCommandBuckets": {
+        "detail": [
+          {
+            "pass": "ScenePass",
+            "commands": 11
+          },
+          {
+            "pass": "FoliagePrepassPass",
+            "commands": 9
+          },
+          {
+            "pass": "FoliagePass",
+            "commands": 9
+          }
+        ],
+        "pressure": [
+          {
+            "pass": "ScenePass",
+            "commands": 11
+          },
+          {
+            "pass": "FoliagePrepassPass",
+            "commands": 4
+          },
+          {
+            "pass": "FoliagePass",
+            "commands": 4
+          }
+        ],
+        "reload": [
+          {
+            "pass": "ScenePass",
+            "commands": 11
+          },
+          {
+            "pass": "FoliagePrepassPass",
+            "commands": 9
+          },
+          {
+            "pass": "FoliagePass",
+            "commands": 9
+          }
+        ]
+      },
+      "artifactDirectory": "artifacts/residency/functional-vk-final/vulkan-vegetation-forward-plus"
+    },
+    {
+      "backend": "vulkan",
+      "family": "vegetation",
+      "path": "deferred",
+      "status": "captured; consumption and visuals require review",
+      "samples": 79,
+      "frames": {
+        "first": 62,
+        "last": 1695,
+        "stale": 0,
+        "nonadvancing": 0
+      },
+      "entityUuid": {
+        "completeLists": true,
+        "stable": true,
+        "countBefore": 4,
+        "countAfter": 4
+      },
+      "pendingObservedSamples": 28,
+      "shader": {
+        "before": {
+          "available": false,
+          "count": null,
+          "status": "unavailableInThisBuild"
+        },
+        "after": {
+          "available": false,
+          "count": null,
+          "status": "unavailableInThisBuild"
+        }
+      },
+      "csmState": {
+        "detail": {
+          "optionalGpuBytes": 21165056,
+          "pendingRequests": 0,
+          "fallbackDraws": 1,
+          "evictions": 0,
+          "detailDraws": 3,
+          "reloads": 0
+        },
+        "pressure": {
+          "optionalGpuBytes": 0,
+          "pendingRequests": 3,
+          "fallbackDraws": 4,
+          "evictions": 3,
+          "detailDraws": 0,
+          "reloads": 0
+        },
+        "reload": {
+          "optionalGpuBytes": 21165056,
+          "pendingRequests": 0,
+          "fallbackDraws": 1,
+          "evictions": 3,
+          "detailDraws": 3,
+          "reloads": 3
+        }
+      },
+      "transitionCheckpoints": {
+        "total": 22,
+        "reportedObserved": 22,
+        "observedFromCounters": 22
+      },
+      "artifacts": [
+        {
+          "sha256": "f15bbca654bef8a0043bc724360819defe6e2f5d041b24c98c1efa19e34aa35e",
+          "file": "samples.json"
+        },
+        {
+          "sha256": "851eabd776bfa3846db1a6e86211e294d8941e0c4b5360214692fe76c9fa8c71",
+          "file": "entities-before.json"
+        },
+        {
+          "sha256": "851eabd776bfa3846db1a6e86211e294d8941e0c4b5360214692fe76c9fa8c71",
+          "file": "entities-after.json"
+        },
+        {
+          "sha256": "8d13e272946721224342463d087a8d24b09781f68006064b1ab75306731d2b4b",
+          "file": "OloEngine.log"
+        },
+        {
+          "sha256": "f58f286b41ead93b8b476271da364780d118c34024f246c467f8ef4f50c8a50d",
+          "file": "subject.olo"
+        }
+      ],
+      "selectedPngs": {
+        "detail": {
+          "sha256": "0311faea8ffacdbbbd2a99f6ba738b81ea2db440da67dbafd008c5a3719e8cfd",
+          "file": "003-csm-detail-diagnostics.png"
+        },
+        "pressure": {
+          "sha256": "a06a1e3e3c4670e7365d870046f8c1c84dcbaca762a2eabdf7c901e5e76f7060",
+          "file": "006-csm-pressure-diagnostics.png"
+        },
+        "reload": {
+          "sha256": "b0c0f49a7df9a5a62ef6acad175fe6bc624b5441fc7d4c40cc08a13415f0d21b",
+          "file": "009-csm-reload-diagnostics.png"
+        }
+      },
+      "allPngHashesMatch": true,
+      "csmGroomCasterStats": null,
+      "beautyCommandBuckets": {
+        "detail": [
+          {
+            "pass": "ScenePass",
+            "commands": 20
+          }
+        ],
+        "pressure": [
+          {
+            "pass": "ScenePass",
+            "commands": 15
+          }
+        ],
+        "reload": [
+          {
+            "pass": "ScenePass",
+            "commands": 20
+          }
+        ]
+      },
+      "deferredObservations": {
+        "vsm-detail-diagnostics": {
+          "vsm": {
+            "availability": {
+              "available": true,
+              "enabled": true,
+              "hasData": true,
+              "status": "ready"
+            },
+            "freshness": {
+              "model": "previousFrame",
+              "sampleAgeFrames": 1,
+              "stale": false
+            },
+            "statistics": {
+              "cullOverflows": 0,
+              "drawInstances": 0,
+              "localPagesDrawn": 0,
+              "localPagesResident": 0,
+              "pagesAllocated": 3,
+              "pagesDrawn": 3083,
+              "pagesFailed": 0,
+              "pagesFreed": 0,
+              "pagesRequested": 0,
+              "pagesResident": 3080
+            }
+          },
+          "groomCasterStats": null,
+          "foliageCasterAttribution": "unobserved: global VSM page counts and beauty commands do not attribute foliage shadow draws"
+        },
+        "msaa4-detail-diagnostics": {
+          "upscalerLatch": {
+            "pending": false,
+            "requested": {
+              "technique": "spatial",
+              "upscale": "off"
+            },
+            "resolved": "native",
+            "sceneSampleCount": 4,
+            "temporalUpscalerStatus": "unsupported on the active RHI backend"
+          }
+        },
+        "fsr-spatial-detail-diagnostics": {
+          "upscalerLatch": {
+            "pending": false,
+            "requested": {
+              "technique": "spatial",
+              "upscale": "quality"
+            },
+            "resolved": "spatial",
+            "sceneSampleCount": 1,
+            "temporalUpscalerStatus": "unsupported on the active RHI backend"
+          }
+        },
+        "fsr-temporal-reachability-detail-diagnostics": {
+          "upscalerLatch": {
+            "fallback": "backendNotOpenGL",
+            "pending": false,
+            "reason": "FSR2 has an OpenGL backend only and this editor runs another RHI backend, so the frame is FSR1 spatial at the same render scale.",
+            "requested": {
+              "technique": "temporal",
+              "upscale": "quality"
+            },
+            "resolved": "spatial",
+            "sceneSampleCount": 1,
+            "temporalUpscalerStatus": "unsupported on the active RHI backend"
+          }
+        },
+        "rt-on-detail-diagnostics": {
+          "rt": {
+            "availability": {
+              "available": true,
+              "enabled": true,
+              "hasData": false,
+              "status": "noData"
+            },
+            "resident": null,
+            "grooms": {
+              "represented": 0,
+              "refused": 0,
+              "detailedCoats": 0,
+              "proxyCoats": 0,
+              "residentBytes": 0,
+              "complete": true,
+              "gpuDispatchFailures": 0
+            },
+            "vegetation": {
+              "ready": false,
+              "complete": false,
+              "castersComplete": false,
+              "plantsRepresented": 56953,
+              "refused": 707,
+              "requested": 955,
+              "residentBytes": 43866248,
+              "stagedAccelerationBytes": 67107712,
+              "producerFailed": false
+            }
+          }
+        },
+        "rt-on-pressure-diagnostics": {
+          "rt": {
+            "availability": {
+              "available": true,
+              "enabled": true,
+              "hasData": false,
+              "status": "noData"
+            },
+            "resident": null,
+            "grooms": {
+              "represented": 0,
+              "refused": 0,
+              "detailedCoats": 0,
+              "proxyCoats": 0,
+              "residentBytes": 0,
+              "complete": true,
+              "gpuDispatchFailures": 0
+            },
+            "vegetation": {
+              "ready": false,
+              "complete": false,
+              "castersComplete": false,
+              "plantsRepresented": 125330,
+              "refused": 206,
+              "requested": 801,
+              "residentBytes": 25066000,
+              "stagedAccelerationBytes": 18099456,
+              "producerFailed": false
+            }
+          }
+        },
+        "rt-on-reload-diagnostics": {
+          "rt": {
+            "availability": {
+              "available": true,
+              "enabled": true,
+              "hasData": false,
+              "status": "noData"
+            },
+            "resident": null,
+            "grooms": {
+              "represented": 0,
+              "refused": 0,
+              "detailedCoats": 0,
+              "proxyCoats": 0,
+              "residentBytes": 0,
+              "complete": true,
+              "gpuDispatchFailures": 0
+            },
+            "vegetation": {
+              "ready": false,
+              "complete": false,
+              "castersComplete": false,
+              "plantsRepresented": 65401,
+              "refused": 674,
+              "requested": 955,
+              "residentBytes": 43866248,
+              "stagedAccelerationBytes": 67107712,
+              "producerFailed": false
+            }
+          }
+        }
+      },
+      "rtLightsAfter": {
+        "changed": false,
+        "fallbackLights": 1,
+        "fallbackReason": "no TLAS has been built yet, so there is nothing to trace against",
+        "note": "counters are from the PREVIOUS frame; re-read after a frame has rendered with the new setting",
+        "previousValue": "on",
+        "rayTracedLights": 0,
+        "setting": "raytracedshadows",
+        "value": "on"
+      },
+      "rtCameraRay": {
+        "status": "unavailable",
+        "reason": "No TLAS has been built yet -- a scene with no traceable geometry is exactly this. olo_rt_scene_stats' gpuScene block says what the builder did and did not accept.",
+        "hitCount": null,
+        "missCount": null,
+        "rayCount": 1
+      },
+      "artifactDirectory": "artifacts/residency/functional-vk-final/vulkan-vegetation-deferred"
+    }
+  ],
+  "runtimeCells": [
+    {
+      "cell": "opengl-forward",
+      "directory": "artifacts/residency/runtime-credible/cells/opengl-forward/capture-20261007-204018",
+      "startedUtc": "2026-10-07T18:40:18.2234975Z",
+      "finishedUtc": "2026-10-07T18:41:27.3279878Z",
+      "exitCode": 0,
+      "binarySha256": "4172886d947086421cd6600c8c637ec538ced50f1430ec42bf54b0e633d61086",
+      "rendererPath": "Forward engine construction default",
+      "counterTelemetryAvailable": false,
+      "pathSelectorAvailable": false,
+      "sourceCommit": "not recorded in runtime run ledger; binary and authored inputs are hashed",
+      "packSha256": "d6a7ad55011a5885446eae1c30f2af9788d59e94da62bf721196602f19d9a4be",
+      "derivedSceneSha256": "aa0d9a7c4224110416cefd8ecc3b88bcc3186df4a6b0c22d3d9df577f32f0ad4",
+      "scriptSha256": "2f38262d8b3c8ce5f19befb9bccaeb440099fd7eea4b777aba81ef1112451bb8",
+      "loggedIdentityStable": true,
+      "groomUuid": "1257001",
+      "plantUuid": "1257002",
+      "groomHandle": "15952688685437936336",
+      "bindingHandle": "15952688685437936337",
+      "phases": [
+        "initial",
+        "pressure",
+        "recovered",
+        "reloaded"
+      ],
+      "simulationTiming": {
+        "initialCapture": 8,
+        "pressureStart": 16,
+        "pressureCapture": 24,
+        "recoveryStart": 32,
+        "recoveryCapture": 40,
+        "reloadRequest": 48,
+        "afterReloadCapture": 8,
+        "afterReloadQuit": 16
+      },
+      "artifacts": [
+        {
+          "sha256": "1c9e479781ba372a3d449f42c63ed69853a64804d5f10edfc6ceb00bf6e00c8e",
+          "file": "run.json"
+        },
+        {
+          "sha256": "b0036092763f5b8016e609fc55d71950d56546efaadde1088308199f7c09f915",
+          "file": "provenance.json"
+        },
+        {
+          "sha256": "353ef2ca2a56654df512fb49027ffdaa907ae123f8e00fb28faae277ed186f6b",
+          "file": "runtime.log"
+        },
+        {
+          "sha256": "65e2523ac100885db385244cd11975f9d35059209647d413e50c4d3cca769a8b",
+          "file": "stdout.log"
+        }
+      ],
+      "phasePngs": {
+        "initial": {
+          "sha256": "e161b7bc8821eb88cc47ad90d7992662f0008196a9648d72ab4221baa8ea7168",
+          "file": "initial.png"
+        },
+        "pressure": {
+          "sha256": "b29d670dbba13366f6bb906107c60dd59c79b3780d6007305bafc8058599bd5a",
+          "file": "pressure.png"
+        },
+        "recovered": {
+          "sha256": "48e003b9c9d37ddd34a26c49dafcc420f689948763ed04231a5005c9a02edce5",
+          "file": "recovered.png"
+        },
+        "reloaded": {
+          "sha256": "99d4a6971aa75fbdd103d6d7a2b696f6d9785f92a4d349d022c935f99d344bf8",
+          "file": "reloaded.png"
+        }
+      },
+      "visualObservation": "Authored dog body/coat and fern remain visible; pressure visibly exposes coarse coat cards; sparse samples do not establish temporal quality.",
+      "teardown": {
+        "unresolved": false
+      },
+      "status": "historical before shutdown fix"
+    },
+    {
+      "cell": "vulkan-forward",
+      "directory": "artifacts/residency/runtime-credible/cells/vulkan-forward/capture-20261007-204212",
+      "startedUtc": "2026-10-07T18:42:12.9966711Z",
+      "finishedUtc": "2026-10-07T18:43:25.6113476Z",
+      "exitCode": 0,
+      "binarySha256": "4172886d947086421cd6600c8c637ec538ced50f1430ec42bf54b0e633d61086",
+      "rendererPath": "Forward engine construction default",
+      "counterTelemetryAvailable": false,
+      "pathSelectorAvailable": false,
+      "sourceCommit": "not recorded in runtime run ledger; binary and authored inputs are hashed",
+      "packSha256": "d6a7ad55011a5885446eae1c30f2af9788d59e94da62bf721196602f19d9a4be",
+      "derivedSceneSha256": "aa0d9a7c4224110416cefd8ecc3b88bcc3186df4a6b0c22d3d9df577f32f0ad4",
+      "scriptSha256": "742f1bd167171356e263363edd58b54b327ee98cf123190afe465c9fbe6a9ed2",
+      "loggedIdentityStable": true,
+      "groomUuid": "1257001",
+      "plantUuid": "1257002",
+      "groomHandle": "15952688685437936336",
+      "bindingHandle": "15952688685437936337",
+      "phases": [
+        "initial",
+        "pressure",
+        "recovered",
+        "reloaded"
+      ],
+      "simulationTiming": {
+        "initialCapture": 8,
+        "pressureStart": 16,
+        "pressureCapture": 24,
+        "recoveryStart": 32,
+        "recoveryCapture": 40,
+        "reloadRequest": 48,
+        "afterReloadCapture": 8,
+        "afterReloadQuit": 16
+      },
+      "artifacts": [
+        {
+          "sha256": "54c5787fb1ff7e1ea75d9a76a58de09b79a3ad3aab1c2e0ea992e626e01a9efb",
+          "file": "run.json"
+        },
+        {
+          "sha256": "19be6118604422842ee2b46d16b9d00da835b3fd1d72929230c9ee1e80119caa",
+          "file": "provenance.json"
+        },
+        {
+          "sha256": "ff40d4e5b7ac7f48054f7a823a1a1bc5acf52c830d2548eb1a1b0d9648ca1252",
+          "file": "runtime.log"
+        },
+        {
+          "sha256": "58e71608f3c9a80542e4ba1b74332b08202f918f2436854da2b7bcbd41c27eab",
+          "file": "stdout.log"
+        }
+      ],
+      "phasePngs": {
+        "initial": {
+          "sha256": "24bba1e4a17c488c15fcdbab0dce8d762778303451bc7d59e8c475f54fcacbf3",
+          "file": "initial.png"
+        },
+        "pressure": {
+          "sha256": "0afd827d479a93627b84d6d7bf062a979eaa1a1e8aadb88abc618db8cc880f10",
+          "file": "pressure.png"
+        },
+        "recovered": {
+          "sha256": "500033dad748d4f3c7e2ba443afe6567743be9369b608f80f2b13158d9ab871c",
+          "file": "recovered.png"
+        },
+        "reloaded": {
+          "sha256": "53ee74afadf4d616c937d4871031273027ab26fb9fd629c7ac142311f703af15",
+          "file": "reloaded.png"
+        }
+      },
+      "visualObservation": "Authored dog body/coat and fern remain visible; pressure visibly exposes coarse coat cards; sparse samples do not establish temporal quality.",
+      "teardown": {
+        "unresolved": false,
+        "survivingAllocations": 16,
+        "survivingBytes": 33998848,
+        "diagnostic": "[20:43:25] [error] OloEngine: [Teardown] 16 GPU allocation(s) (33998848 bytes) survived the renderer -- 5 Storage Buffer, 8 Texture 2D, 2 Texture Cubemap, 1 Other. Each is a process static, or a Ref that outlived Renderer::Shutdown(). See docs/agent-rules/lazy-static-release-ownership.md",
+        "postFixVerification": "verified in separate new run",
+        "resolution": "Verified by separate post-fix capture-20261007-211409 and fresh Vulkan device shutdown test",
+        "unresolvedAtCapture": true
+      },
+      "status": "historical before shutdown fix"
+    },
+    {
+      "cell": "vulkan-forward",
+      "directory": "artifacts/residency/runtime-credible/cells/vulkan-forward/capture-20261007-211409",
+      "startedUtc": "2026-10-07T19:14:09.7530373Z",
+      "finishedUtc": "2026-10-07T19:15:19.2253196Z",
+      "exitCode": 0,
+      "binarySha256": "220717bed5984a4b38b14122e966ea3d9201ad0c33fbd06d48a93a34043c6003",
+      "rendererPath": "Forward engine construction default",
+      "counterTelemetryAvailable": false,
+      "pathSelectorAvailable": false,
+      "sourceCommit": "not recorded in runtime run ledger; binary and authored inputs are hashed",
+      "packSha256": "d6a7ad55011a5885446eae1c30f2af9788d59e94da62bf721196602f19d9a4be",
+      "derivedSceneSha256": "aa0d9a7c4224110416cefd8ecc3b88bcc3186df4a6b0c22d3d9df577f32f0ad4",
+      "scriptSha256": "742f1bd167171356e263363edd58b54b327ee98cf123190afe465c9fbe6a9ed2",
+      "loggedIdentityStable": true,
+      "groomUuid": "1257001",
+      "plantUuid": "1257002",
+      "groomHandle": "15952688685437936336",
+      "bindingHandle": "15952688685437936337",
+      "phases": [
+        "initial",
+        "pressure",
+        "recovered",
+        "reloaded"
+      ],
+      "simulationTiming": {
+        "initialCapture": 8,
+        "pressureStart": 16,
+        "pressureCapture": 24,
+        "recoveryStart": 32,
+        "recoveryCapture": 40,
+        "reloadRequest": 48,
+        "afterReloadCapture": 8,
+        "afterReloadQuit": 16
+      },
+      "artifacts": [
+        {
+          "file": "run.json",
+          "sha256": "c31b696004ca7e4ef0354244685bd737eab4c8b8f336ee1dce981c2e2c9ecdaf"
+        },
+        {
+          "file": "provenance.json",
+          "sha256": "19be6118604422842ee2b46d16b9d00da835b3fd1d72929230c9ee1e80119caa"
+        },
+        {
+          "file": "runtime.log",
+          "sha256": "4b77d5ac07e214f01b36a037f869a04fd2ae81974eb878e142521e32384ed321"
+        },
+        {
+          "file": "stdout.log",
+          "sha256": "8cc7d40c0da3d9121f6473c7cd88f9f19ce88d1c505fd005009f16b8b64df5a7"
+        }
+      ],
+      "phasePngs": {
+        "initial": {
+          "file": "initial.png",
+          "sha256": "408b54554fc2be92f63e5b634bc92975bc1ed1fb64545c52685ce05b3c4a2a5e",
+          "publicPath": "OloEditor/assets/tests/visual/GroomVegetationStreaming_Runtime_Vulkan_Forward_initial.png",
+          "publicSha256": "408b54554fc2be92f63e5b634bc92975bc1ed1fb64545c52685ce05b3c4a2a5e"
+        },
+        "pressure": {
+          "file": "pressure.png",
+          "sha256": "4757cc609e6f3419a2e1b9c6ad00812c05a0d032dd3f4b098aa3eb33c31537ed",
+          "publicPath": "OloEditor/assets/tests/visual/GroomVegetationStreaming_Runtime_Vulkan_Forward_pressure.png",
+          "publicSha256": "4757cc609e6f3419a2e1b9c6ad00812c05a0d032dd3f4b098aa3eb33c31537ed"
+        },
+        "recovered": {
+          "file": "recovered.png",
+          "sha256": "8a82e6bd2f19cdffe2496b21ab4bbcc13fd92aa324061b185bcace5b67ba32f4",
+          "publicPath": "OloEditor/assets/tests/visual/GroomVegetationStreaming_Runtime_Vulkan_Forward_recovered.png",
+          "publicSha256": "8a82e6bd2f19cdffe2496b21ab4bbcc13fd92aa324061b185bcace5b67ba32f4"
+        },
+        "reloaded": {
+          "file": "reloaded.png",
+          "sha256": "7a3aa5fddd71c8e2f0e0018d41d444923707d2b9ed2c401713fde3d1e94752b2",
+          "publicPath": "OloEditor/assets/tests/visual/GroomVegetationStreaming_Runtime_Vulkan_Forward_reloaded.png",
+          "publicSha256": "7a3aa5fddd71c8e2f0e0018d41d444923707d2b9ed2c401713fde3d1e94752b2"
+        }
+      },
+      "visualObservation": "Authored dog body/coat and fern remain visible; pressure visibly exposes coarse coat cards; sparse samples do not establish temporal quality.",
+      "teardown": {
+        "unresolved": false,
+        "matchedAllocationErrorOrVuidLines": 0,
+        "scope": "Actual final runtime.log text scan; process exited zero. Separate fresh-device test also passed."
+      },
+      "status": "post-fix observed run"
+    },
+    {
+      "cell": "opengl-forward",
+      "directory": "artifacts/residency/runtime-credible/cells/opengl-forward/capture-20261007-211533",
+      "startedUtc": "2026-10-07T19:15:33.4501045Z",
+      "finishedUtc": "2026-10-07T19:16:42.6361747Z",
+      "exitCode": 0,
+      "binarySha256": "220717bed5984a4b38b14122e966ea3d9201ad0c33fbd06d48a93a34043c6003",
+      "rendererPath": "Forward engine construction default",
+      "counterTelemetryAvailable": false,
+      "pathSelectorAvailable": false,
+      "sourceCommit": "not recorded in runtime run ledger; binary and authored inputs are hashed",
+      "packSha256": "d6a7ad55011a5885446eae1c30f2af9788d59e94da62bf721196602f19d9a4be",
+      "derivedSceneSha256": "aa0d9a7c4224110416cefd8ecc3b88bcc3186df4a6b0c22d3d9df577f32f0ad4",
+      "scriptSha256": "2f38262d8b3c8ce5f19befb9bccaeb440099fd7eea4b777aba81ef1112451bb8",
+      "loggedIdentityStable": true,
+      "groomUuid": "1257001",
+      "plantUuid": "1257002",
+      "groomHandle": "15952688685437936336",
+      "bindingHandle": "15952688685437936337",
+      "phases": [
+        "initial",
+        "pressure",
+        "recovered",
+        "reloaded"
+      ],
+      "simulationTiming": {
+        "initialCapture": 8,
+        "pressureStart": 16,
+        "pressureCapture": 24,
+        "recoveryStart": 32,
+        "recoveryCapture": 40,
+        "reloadRequest": 48,
+        "afterReloadCapture": 8,
+        "afterReloadQuit": 16
+      },
+      "artifacts": [
+        {
+          "file": "run.json",
+          "sha256": "a45609a5d7de2f57572e96e583028361a78e22eb8a2c057adc2de936e981af78"
+        },
+        {
+          "file": "provenance.json",
+          "sha256": "b0036092763f5b8016e609fc55d71950d56546efaadde1088308199f7c09f915"
+        },
+        {
+          "file": "runtime.log",
+          "sha256": "499430a27291246eb4f7463ef2b43e838d1d9874f8428b7c6aaf17c0673bfb40"
+        },
+        {
+          "file": "stdout.log",
+          "sha256": "c4e4677b934ed11d6580fdb2b9cbb54ff3a3af5039eefeb149b8d50bef5652d3"
+        }
+      ],
+      "phasePngs": {
+        "initial": {
+          "file": "initial.png",
+          "sha256": "966f8fd3add851e38bc9004c44161492567e033ada55e502984f05daa68ef685",
+          "publicPath": "OloEditor/assets/tests/visual/GroomVegetationStreaming_Runtime_GL_Forward_initial.png",
+          "publicSha256": "966f8fd3add851e38bc9004c44161492567e033ada55e502984f05daa68ef685"
+        },
+        "pressure": {
+          "file": "pressure.png",
+          "sha256": "1711b6471cc9554fbc97a5386535191904c6ea61c0148e6e828368a3b563b518",
+          "publicPath": "OloEditor/assets/tests/visual/GroomVegetationStreaming_Runtime_GL_Forward_pressure.png",
+          "publicSha256": "1711b6471cc9554fbc97a5386535191904c6ea61c0148e6e828368a3b563b518"
+        },
+        "recovered": {
+          "file": "recovered.png",
+          "sha256": "95175c198a50cb70eff28cec1470819f2a0fed4841bc9ecdf7957dc92b2f9e6e",
+          "publicPath": "OloEditor/assets/tests/visual/GroomVegetationStreaming_Runtime_GL_Forward_recovered.png",
+          "publicSha256": "95175c198a50cb70eff28cec1470819f2a0fed4841bc9ecdf7957dc92b2f9e6e"
+        },
+        "reloaded": {
+          "file": "reloaded.png",
+          "sha256": "69ab2cbdd54571aea2970802bb7efac78efbba7b36eee0698f06b83ea95258a7",
+          "publicPath": "OloEditor/assets/tests/visual/GroomVegetationStreaming_Runtime_GL_Forward_reloaded.png",
+          "publicSha256": "69ab2cbdd54571aea2970802bb7efac78efbba7b36eee0698f06b83ea95258a7"
+        }
+      },
+      "visualObservation": "Authored dog body/coat and fern remain visible; pressure visibly exposes coarse coat cards; sparse samples do not establish temporal quality.",
+      "teardown": {
+        "unresolved": false,
+        "matchedAllocationErrorOrVuidLines": 0,
+        "scope": "Actual final runtime.log text scan; process exited zero."
+      },
+      "status": "post-fix observed run"
+    }
+  ],
+  "pending": [
+    "actual both-backend region rerun after initial vegetation integration crashes",
+    "fresh-process warm AB/BA p50/p95/p99 and physical backing comparison"
+  ],
+  "limitations": [
+    "Settings and scheduled graph alone do not prove renderer consumption.",
+    "PNG and diagnostics are nearby sequential frames, not atomic or contiguous motion video.",
+    "Editor AnimalPopulation coats are unbound and too small to demonstrate finished fur art.",
+    "Forest fallback visibly becomes large dark cards/blobs; no seamless appearance claim.",
+    "Runtime Lua markers prove settings and logged identity, not GPU admission counters.",
+    "Runtime screenshots include window borders; warmup-excluded PNGs are not accepted.",
+    "Release shader tracking unavailable with null counts; no clean shader verdict.",
+    "Eight unchanged post-fix Runtime PNGs are public; Editor PNGs remain in ignored raw artifacts.",
+    "Debug Vulkan shader tracking is compiled in but not initialized: false/null/notInitialized; native log absence is not tracked shader acceptance.",
+    "Debug vegetation screenshot freshness: OpenGL 22/33 stale; Vulkan 27/33 stale and five nonadvancing. These images are not all fresh visual acceptance.",
+    "Default Vulkan parallel CSM omits named FoliageCasters brackets; inline VSM brackets are observed. Any forced-inline diagnostic is a separate configuration.",
+    "All earlier Editor/sparse/Runtime captures predate the region-impostor correction. Green functional runs overlapped Debug compilation and do not establish performance or corrected live-region acceptance."
+  ],
+  "postFixTestRecords": [
+    {
+      "name": "gl-residency-shutdown",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "deviceCoverageExercised": null,
+      "matchedVuidOrErrorLines": 0,
+      "testCases": [
+        "BoundMovingCoatDemotesAndReloadsWithAccountedGpuState",
+        "EagerLayerWithoutPlacementsReleasesItsDetailUnderPressure",
+        "DisablingPendingPlantsReleasesTheirReservationAndReenableDraws",
+        "DisablingResidentPlantsDropsDrawHandlesButChargesPhysicalRetirement",
+        "DisablingPreparedPlantsReleasesThePayloadAndItsHeldStagingLease",
+        "PendingPressureAndReloadStayDrawableOnEveryPath",
+        "RealTexture2DHandlesExposeCurrentBackingAcrossStorageReplacement"
+      ],
+      "artifacts": [
+        {
+          "path": "artifacts/residency/gl-residency-shutdown.xml",
+          "sha256": "cb58d87ba52a41733a88a4b83f5c784eba336d9aab6d21b7fea6233f325f3a58"
+        },
+        {
+          "path": "artifacts/residency/gl-residency-shutdown.log",
+          "sha256": "6f9433f53d3487fc3c2ac56391821980069cbc38892e0f1ca71e0be68e82a4f8"
+        }
+      ],
+      "scope": "Targeted test run; does not replace final live Runtime teardown or editor counter verification."
+    },
+    {
+      "name": "vk-shutdown-debug",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "deviceCoverageExercised": true,
+      "matchedVuidOrErrorLines": 0,
+      "testCases": [
+        "BackendShutdownReleasesHeapNullImagesAndFrameArenaBeforeTheMemoryCensus"
+      ],
+      "artifacts": [
+        {
+          "path": "artifacts/residency/vk-shutdown-debug.xml",
+          "sha256": "9a10d78359c022b12ecdfb5f4fbabc142fe7e2b5f9f14795262934c0bec4be2a"
+        },
+        {
+          "path": "artifacts/residency/vk-shutdown-debug.log",
+          "sha256": "48a2d43d8937e830369f69d879cd29ac2bcd94be49113e08d4870a7c842dd22c"
+        }
+      ],
+      "scope": "Targeted test run; does not replace final live Runtime teardown or editor counter verification."
+    },
+    {
+      "name": "vk-proxy-debug-postfix",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "deviceCoverageExercised": true,
+      "matchedVuidOrErrorLines": 0,
+      "testCases": [
+        "GroomStreamingEvictionRetiresProxyWhenRefreshBudgetIsSpent"
+      ],
+      "artifacts": [
+        {
+          "path": "artifacts/residency/vk-proxy-debug-postfix.xml",
+          "sha256": "18c160b710f4c239e154c0ff36655fa76a59a7065c9e62edd179665da22eed3b"
+        },
+        {
+          "path": "artifacts/residency/vk-proxy-debug-postfix.log",
+          "sha256": "7f0b93ae71a1349ecd59821918ea74b2e5e4b44a9fc90c01f16a7d2709ed6aa8"
+        }
+      ],
+      "scope": "Targeted test run; does not replace final live Runtime teardown or editor counter verification."
+    },
+    {
+      "name": "vk-as-debug-postfix",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "deviceCoverageExercised": true,
+      "matchedVuidOrErrorLines": 0,
+      "testCases": [
+        "GroomStreamingEvictionRetiresActualAsAfterHeldTraceCompletes"
+      ],
+      "artifacts": [
+        {
+          "path": "artifacts/residency/vk-as-debug-postfix.xml",
+          "sha256": "edff92e90edbbe9a6a3f08dcf222298069b26b289c34da7f1e1596e89c423db6"
+        },
+        {
+          "path": "artifacts/residency/vk-as-debug-postfix.log",
+          "sha256": "053021b4abfb58fe07bc82841075cd5f22d69b70473af6b100b9bf50d9e00374"
+        }
+      ],
+      "scope": "Targeted test run; does not replace final live Runtime teardown or editor counter verification."
+    },
+    {
+      "name": "app-smoke-postfix",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "deviceCoverageExercised": null,
+      "matchedVuidOrErrorLines": 0,
+      "testCases": [
+        "OloServerLaunchesCleanly",
+        "OloServerStopsAHeadlessSceneCleanly",
+        "OloEditorLaunchesCleanly",
+        "OloRuntimeLaunchesCleanly",
+        "OloServerAcceptsMonoDebugOptIn",
+        "OloEditorAcceptsMonoDebugOptIn",
+        "OloRuntimeAcceptsMonoDebugOptIn",
+        "OloCtlLaunchesCleanly"
+      ],
+      "artifacts": [
+        {
+          "path": "artifacts/residency/app-smoke-postfix.xml",
+          "sha256": "9f63b2db016d4b2cf567c86f49794fc76c28b7dc7b29128954f98171174fa8de"
+        },
+        {
+          "path": "artifacts/residency/app-smoke-postfix.log",
+          "sha256": "334ef90670b427ffc30a41b52590c5003ff3fdb64c7a99d27eb845909da5a717"
+        }
+      ],
+      "scope": "Targeted test run; does not replace final live Runtime teardown or editor counter verification."
+    },
+    {
+      "name": "CPU post-fix streaming regression",
+      "tests": 57,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "artifacts": [
+        {
+          "file": "artifacts/residency/cpu-postfix.xml",
+          "sha256": "f739314ce207ffe8124bd432dad1efbe3cedf758b2ea9083716a414c3c601bba"
+        },
+        {
+          "file": "artifacts/residency/cpu-postfix.log",
+          "sha256": "63078ab6c4562104346d8cfa609c08b3d792fcf437e2d554ee8755851c008eb1"
+        }
+      ],
+      "scope": "Latest CPU streaming test binary; separate from GPU/live acceptance"
+    }
+  ],
+  "postFixBuilds": [
+    {
+      "buildConfig": "Release",
+      "log": {
+        "path": "build-release-residency-shutdown.log",
+        "sha256": "cdd877b09d6e7fe3442d7209c0891ba8b9e68eced817ed77f5085b95158e7f0c"
+      },
+      "headerDependencyObjects": 2050,
+      "status": "completed; linked targets and deps-check OK"
+    },
+    {
+      "buildConfig": "Debug",
+      "log": {
+        "path": "build-debug-residency-shutdown.log",
+        "sha256": "8e9212f8cf157086346aab9ac37edf971219dac5caf71d7ad10da8e8d0f41c27"
+      },
+      "headerDependencyObjects": 2049,
+      "status": "completed; linked targets and deps-check OK"
+    }
+  ],
+  "postFixSparseCampaign": {
+    "directory": "artifacts/residency/functional-vegetation-shadow-fit-postfix",
+    "sourceCommit": "493141617ba592b6ad9e734c6e70f5d1171d72ad",
+    "dirtyDiffSha256": "e6fd8dc00a1505fbcf2c34e4934bef6af09a68278412b699418750cc64812e6b",
+    "binarySha256": "c89b4fda9ddbbd8aeb34e89fd50731bb3c48952b9f88ee603c43ea8d41baf945",
+    "artifacts": [
+      {
+        "path": "artifacts/residency/functional-vegetation-shadow-fit-postfix/campaign.json",
+        "sha256": "62585d98674d91bbe235cc52d1947eaa7d77d8e55552cd11a369637ca3534aba"
+      },
+      {
+        "path": "artifacts/residency/functional-vegetation-shadow-fit-postfix/provenance.json",
+        "sha256": "491f9860e6b5644e3b00d9af349b0365e96c481b1c00ff92a30267961d719fe1"
+      }
+    ],
+    "cells": [
+      {
+        "cell": "opengl-vegetation-deferred",
+        "sampleCount": 70,
+        "artifacts": [
+          {
+            "path": "artifacts/residency/functional-vegetation-shadow-fit-postfix/opengl-vegetation-deferred/samples.json",
+            "sha256": "a03700015d8ae4f9f97a5db2e664667ec030613275f1ca28add4d4bea979a0f0"
+          },
+          {
+            "path": "artifacts/residency/functional-vegetation-shadow-fit-postfix/opengl-vegetation-deferred/subject.olo",
+            "sha256": "7279a3100e3e4b7f48b5dd541133092444a843cf6ee5b9c989dec2991e30480a"
+          },
+          {
+            "path": "artifacts/residency/functional-vegetation-shadow-fit-postfix/opengl-vegetation-deferred/OloEngine.log",
+            "sha256": "73dbe240efedbfdb9bfc62ea0e8890df102f19d6c0db4b8417da4864846996ac"
+          }
+        ],
+        "shadowGpuBrackets": {
+          "csm-detail-diagnostics": {
+            "sampleState": {
+              "optionalGpuBytes": 21139480,
+              "pendingRequests": 0,
+              "fallbackDraws": 0,
+              "evictions": 0,
+              "detailDraws": 3,
+              "reloads": 0
+            },
+            "gpuMeasurementFrameId": 213,
+            "ageFrames": 3,
+            "stale": false,
+            "gpuMs": [
+              0.046,
+              0.019,
+              0.017,
+              0.014
+            ],
+            "gpuStatuses": [
+              "valid",
+              "valid",
+              "valid",
+              "valid"
+            ],
+            "limitation": "GPU bracket execution span; not a per-family shadow-draw count or pixel correctness verdict."
+          },
+          "csm-pressure-diagnostics": {
+            "sampleState": {
+              "optionalGpuBytes": 0,
+              "pendingRequests": 3,
+              "fallbackDraws": 3,
+              "evictions": 3,
+              "detailDraws": 0,
+              "reloads": 0
+            },
+            "gpuMeasurementFrameId": 337,
+            "ageFrames": 3,
+            "stale": false,
+            "gpuMs": [
+              0.031,
+              0.012,
+              0.01,
+              0.009
+            ],
+            "gpuStatuses": [
+              "valid",
+              "valid",
+              "valid",
+              "valid"
+            ],
+            "limitation": "GPU bracket execution span; not a per-family shadow-draw count or pixel correctness verdict."
+          },
+          "csm-reload-diagnostics": {
+            "sampleState": {
+              "optionalGpuBytes": 21139480,
+              "pendingRequests": 0,
+              "fallbackDraws": 0,
+              "evictions": 3,
+              "detailDraws": 3,
+              "reloads": 3
+            },
+            "gpuMeasurementFrameId": 462,
+            "ageFrames": 3,
+            "stale": false,
+            "gpuMs": [
+              0.045,
+              0.018,
+              0.016,
+              0.014
+            ],
+            "gpuStatuses": [
+              "valid",
+              "valid",
+              "valid",
+              "valid"
+            ],
+            "limitation": "GPU bracket execution span; not a per-family shadow-draw count or pixel correctness verdict."
+          },
+          "vsm-detail-diagnostics": {
+            "sampleState": {
+              "optionalGpuBytes": 21139480,
+              "pendingRequests": 0,
+              "fallbackDraws": 0,
+              "evictions": 10,
+              "detailDraws": 3,
+              "reloads": 9
+            },
+            "gpuMeasurementFrameId": 1897,
+            "ageFrames": 2,
+            "stale": false,
+            "gpuMs": [
+              0.011,
+              0.01,
+              0.029,
+              0.046,
+              0.023,
+              0.026,
+              0.018,
+              0.016,
+              0.017,
+              0.012,
+              0.012,
+              0.013,
+              0.012,
+              0.012,
+              0.013,
+              0.012
+            ],
+            "gpuStatuses": [
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid"
+            ],
+            "limitation": "GPU bracket execution span; not a per-family shadow-draw count or pixel correctness verdict."
+          },
+          "vsm-pressure-diagnostics": {
+            "sampleState": {
+              "optionalGpuBytes": 0,
+              "pendingRequests": 3,
+              "fallbackDraws": 3,
+              "evictions": 13,
+              "detailDraws": 0,
+              "reloads": 9
+            },
+            "gpuMeasurementFrameId": 1983,
+            "ageFrames": 2,
+            "stale": false,
+            "gpuMs": [
+              0.008,
+              0.007,
+              0.024,
+              0.033,
+              0.015,
+              0.015,
+              0.01,
+              0.01,
+              0.011,
+              0.008,
+              0.007,
+              0.007,
+              0.008,
+              0.008,
+              0.007,
+              0.007
+            ],
+            "gpuStatuses": [
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid"
+            ],
+            "limitation": "GPU bracket execution span; not a per-family shadow-draw count or pixel correctness verdict."
+          },
+          "vsm-reload-diagnostics": {
+            "sampleState": {
+              "optionalGpuBytes": 21139480,
+              "pendingRequests": 0,
+              "fallbackDraws": 0,
+              "evictions": 13,
+              "detailDraws": 3,
+              "reloads": 12
+            },
+            "gpuMeasurementFrameId": 2079,
+            "ageFrames": 2,
+            "stale": false,
+            "gpuMs": [
+              0.015,
+              0.01,
+              0.03,
+              0.047,
+              0.024,
+              0.027,
+              0.019,
+              0.018,
+              0.016,
+              0.012,
+              0.013,
+              0.012,
+              0.012,
+              0.013,
+              0.013,
+              0.013
+            ],
+            "gpuStatuses": [
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid"
+            ],
+            "limitation": "GPU bracket execution span; not a per-family shadow-draw count or pixel correctness verdict."
+          }
+        },
+        "rtPhases": {}
+      },
+      {
+        "cell": "vulkan-vegetation-deferred",
+        "sampleCount": 79,
+        "artifacts": [
+          {
+            "path": "artifacts/residency/functional-vegetation-shadow-fit-postfix/vulkan-vegetation-deferred/samples.json",
+            "sha256": "fa6ae05ba131c8093b10c9820d4930c16d5240a4df90b16038f4c31c17be7699"
+          },
+          {
+            "path": "artifacts/residency/functional-vegetation-shadow-fit-postfix/vulkan-vegetation-deferred/subject.olo",
+            "sha256": "7279a3100e3e4b7f48b5dd541133092444a843cf6ee5b9c989dec2991e30480a"
+          },
+          {
+            "path": "artifacts/residency/functional-vegetation-shadow-fit-postfix/vulkan-vegetation-deferred/OloEngine.log",
+            "sha256": "659a1ee6e00bd2a3d83489ec33f645f94bacefdbe74cbb84bb609886f61d6c62"
+          }
+        ],
+        "shadowGpuBrackets": {
+          "csm-detail-diagnostics": {
+            "sampleState": {
+              "optionalGpuBytes": 21165056,
+              "pendingRequests": 0,
+              "fallbackDraws": 0,
+              "evictions": 0,
+              "detailDraws": 3,
+              "reloads": 0
+            },
+            "gpuMeasurementFrameId": 178,
+            "ageFrames": 2,
+            "stale": false,
+            "gpuMs": [],
+            "gpuStatuses": [],
+            "limitation": "GPU bracket execution span; not a per-family shadow-draw count or pixel correctness verdict."
+          },
+          "csm-pressure-diagnostics": {
+            "sampleState": {
+              "optionalGpuBytes": 0,
+              "pendingRequests": 3,
+              "fallbackDraws": 3,
+              "evictions": 3,
+              "detailDraws": 0,
+              "reloads": 0
+            },
+            "gpuMeasurementFrameId": 298,
+            "ageFrames": 2,
+            "stale": false,
+            "gpuMs": [],
+            "gpuStatuses": [],
+            "limitation": "GPU bracket execution span; not a per-family shadow-draw count or pixel correctness verdict."
+          },
+          "csm-reload-diagnostics": {
+            "sampleState": {
+              "optionalGpuBytes": 21165056,
+              "pendingRequests": 0,
+              "fallbackDraws": 0,
+              "evictions": 3,
+              "detailDraws": 3,
+              "reloads": 3
+            },
+            "gpuMeasurementFrameId": 448,
+            "ageFrames": 2,
+            "stale": false,
+            "gpuMs": [],
+            "gpuStatuses": [],
+            "limitation": "GPU bracket execution span; not a per-family shadow-draw count or pixel correctness verdict."
+          },
+          "vsm-detail-diagnostics": {
+            "sampleState": {
+              "optionalGpuBytes": 21165056,
+              "pendingRequests": 0,
+              "fallbackDraws": 0,
+              "evictions": 10,
+              "detailDraws": 3,
+              "reloads": 9
+            },
+            "gpuMeasurementFrameId": 1818,
+            "ageFrames": 1,
+            "stale": false,
+            "gpuMs": [
+              0.009,
+              0.009,
+              0.03,
+              0.05,
+              0.025,
+              0.023,
+              0.017,
+              0.016,
+              0.016,
+              0.011,
+              0.011,
+              0.011,
+              0.011,
+              0.011,
+              0.012,
+              0.013
+            ],
+            "gpuStatuses": [
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid"
+            ],
+            "limitation": "GPU bracket execution span; not a per-family shadow-draw count or pixel correctness verdict."
+          },
+          "vsm-pressure-diagnostics": {
+            "sampleState": {
+              "optionalGpuBytes": 0,
+              "pendingRequests": 3,
+              "fallbackDraws": 3,
+              "evictions": 13,
+              "detailDraws": 0,
+              "reloads": 9
+            },
+            "gpuMeasurementFrameId": 1893,
+            "ageFrames": 1,
+            "stale": false,
+            "gpuMs": [
+              0.006,
+              0.005,
+              0.025,
+              0.296,
+              0.015,
+              0.012,
+              0.01,
+              0.01,
+              0.01,
+              0.007,
+              0.007,
+              0.005,
+              0.005,
+              0.005,
+              0.007,
+              0.006
+            ],
+            "gpuStatuses": [
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid"
+            ],
+            "limitation": "GPU bracket execution span; not a per-family shadow-draw count or pixel correctness verdict."
+          },
+          "vsm-reload-diagnostics": {
+            "sampleState": {
+              "optionalGpuBytes": 21165056,
+              "pendingRequests": 0,
+              "fallbackDraws": 0,
+              "evictions": 13,
+              "detailDraws": 3,
+              "reloads": 12
+            },
+            "gpuMeasurementFrameId": 1973,
+            "ageFrames": 1,
+            "stale": false,
+            "gpuMs": [
+              0.007,
+              0.007,
+              0.022,
+              0.038,
+              0.02,
+              0.017,
+              0.013,
+              0.012,
+              0.012,
+              0.009,
+              0.008,
+              0.008,
+              0.008,
+              0.008,
+              0.008,
+              0.008
+            ],
+            "gpuStatuses": [
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid",
+              "valid"
+            ],
+            "limitation": "GPU bracket execution span; not a per-family shadow-draw count or pixel correctness verdict."
+          }
+        },
+        "rtPhases": {
+          "detail": {
+            "state": {
+              "optionalGpuBytes": 21165056,
+              "pendingRequests": 0,
+              "fallbackDraws": 0,
+              "evictions": 22,
+              "detailDraws": 3,
+              "reloads": 21
+            },
+            "availability": {
+              "available": true,
+              "enabled": true,
+              "hasData": true,
+              "status": "ready"
+            },
+            "vegetation": {
+              "ready": true,
+              "complete": true,
+              "castersComplete": true,
+              "plantsRepresented": 124,
+              "refused": 0,
+              "requested": 124
+            },
+            "tlasInstances": 128,
+            "accelerationStructureBytes": 4203264
+          },
+          "pressure": {
+            "state": {
+              "optionalGpuBytes": 0,
+              "pendingRequests": 3,
+              "fallbackDraws": 3,
+              "evictions": 25,
+              "detailDraws": 0,
+              "reloads": 21
+            },
+            "availability": {
+              "available": true,
+              "enabled": true,
+              "hasData": false,
+              "status": "noData"
+            },
+            "vegetation": {
+              "ready": false,
+              "complete": false,
+              "castersComplete": false,
+              "plantsRepresented": 122,
+              "refused": 2,
+              "requested": 124
+            },
+            "tlasInstances": null,
+            "accelerationStructureBytes": null
+          },
+          "reload": {
+            "state": {
+              "optionalGpuBytes": 21165056,
+              "pendingRequests": 0,
+              "fallbackDraws": 0,
+              "evictions": 25,
+              "detailDraws": 3,
+              "reloads": 24
+            },
+            "availability": {
+              "available": true,
+              "enabled": true,
+              "hasData": true,
+              "status": "ready"
+            },
+            "vegetation": {
+              "ready": true,
+              "complete": true,
+              "castersComplete": true,
+              "plantsRepresented": 124,
+              "refused": 0,
+              "requested": 124
+            },
+            "tlasInstances": 128,
+            "accelerationStructureBytes": 4203264
+          }
+        },
+        "rtLightsAfterReload": {
+          "changed": false,
+          "fallbackLights": 0,
+          "note": "counters are from the PREVIOUS frame; re-read after a frame has rendered with the new setting",
+          "previousValue": "on",
+          "rayTracedLights": 1,
+          "setting": "raytracedshadows",
+          "value": "on"
+        },
+        "defaultParallelCsmFamilyTiming": "unavailable: named family brackets intentionally disabled during parallel item recording; draw route and positive parent ShadowPass remain observed",
+        "pressureRtInterpretation": "Intentional raster fallback: two missing-impostor-source representations; TLAS withheld until casters complete"
+      }
+    ],
+    "scope": "Separate sparse vegetation fixture, both backends Deferred; does not replace dense full matrix or prove every-frame handover quality.",
+    "independentAudit": {
+      "artifacts": [
+        {
+          "file": "artifacts/residency/audit-sparse-postfix/audit.json",
+          "sha256": "a6ec3d42e20bc90401de037b73b4319232d0875d378d532eb9046a46a800eeab"
+        },
+        {
+          "file": "artifacts/residency/audit-sparse-postfix/audit.md",
+          "sha256": "6fc624a563e96b3869da794c96f7de5ba457d25eabbfec8bf546c3ebbd44ff50"
+        }
+      ],
+      "cells": [
+        {
+          "cell": "opengl-vegetation-deferred",
+          "sampleCount": 70,
+          "allPngHashesMatch": true,
+          "verifiedPngCount": 70,
+          "allTransitionsIndependentlyVerified": true,
+          "aggregateTransitionCount": 19,
+          "aggregateAgrees": true,
+          "frameLiveness": {
+            "first": 93,
+            "last": 3263,
+            "staleSamples": 0,
+            "staleUnknown": 0,
+            "nonadvancingSamples": 0,
+            "comparisonUnavailable": 1
+          },
+          "entityUuidIdentity": {
+            "stable": true,
+            "completeLists": true,
+            "beforeCount": 4,
+            "afterCount": 4,
+            "removed": [],
+            "added": [],
+            "scope": "scene entity UUIDs; does not prove stable instance IDs or component contents"
+          },
+          "anyPositiveOptionalOwnerRetiringSample": false
+        },
+        {
+          "cell": "vulkan-vegetation-deferred",
+          "sampleCount": 79,
+          "allPngHashesMatch": true,
+          "verifiedPngCount": 79,
+          "allTransitionsIndependentlyVerified": true,
+          "aggregateTransitionCount": 22,
+          "aggregateAgrees": true,
+          "frameLiveness": {
+            "first": 85,
+            "last": 3578,
+            "staleSamples": 0,
+            "staleUnknown": 0,
+            "nonadvancingSamples": 0,
+            "comparisonUnavailable": 1
+          },
+          "entityUuidIdentity": {
+            "stable": true,
+            "completeLists": true,
+            "beforeCount": 4,
+            "afterCount": 4,
+            "removed": [],
+            "added": [],
+            "scope": "scene entity UUIDs; does not prove stable instance IDs or component contents"
+          },
+          "anyPositiveOptionalOwnerRetiringSample": false
+        }
+      ],
+      "vulkanCsmTimingExplanation": {
+        "rtWasDisabled": true,
+        "vsmWasDisabled": true,
+        "observedShadowSecondaries": 4,
+        "source": "OloEngine/src/OloEngine/Renderer/Passes/ShadowRenderPass.cpp:1275",
+        "reason": "Named FoliageCasters GPU brackets are intentionally guarded out during parallel item recording; RenderShadows is still called at1290. CSM observed four ShadowPass secondaries and fresh positive parent timing, while inline VSM emitted named foliage brackets.",
+        "existingOptionalControl": "OLO_VK_PARALLEL_RECORDING=0 at startup forces inline for separately measured family bracket evidence; disabling RT alone cannot change these already RT-off cells."
+      },
+      "pressureRtInterpretation": "Two missing-impostor-source representations are refused; incomplete casters intentionally withhold TLAS and use raster fallback. Ready complete detail/reload, 124 represented plants and positive RT trace/resolve/filter timing remain separate.",
+      "limitations": [
+        "Release shader tracking unavailable; no clean shader verdict from null counters. Separate Debug evidence is required.",
+        "Sequential nearby diagnostics and PNGs are not atomic; preserve each PNG frame and delayed GPU measurement frame.",
+        "Named GPU brackets measure execution spans, not exact foliage draw counts or shadow pixel correctness. Vulkan production parallel CSM omits named family brackets intentionally.",
+        "No positive optional-detail retiring sample retained: sampled physical live detail becomes zero and pinned floor survives, but intermediate deferred-retirement peak is not observed by this campaign. Global Vulkan retiring includes unrelated frame resources.",
+        "Sparse authored density/1024 variant is capacity-fit proof, not dense scene scalability. Original dense AS-cap fallback evidence remains distinct.",
+        "Pressure keeps completed CPU geometry staging (~60.8MiB) while optional GPU is zero; this is budgeted Ready payload, not pending GPU residency.",
+        "Scene entity UUID stability does not prove canonical plant IDs; disabled census deliberately retires plant IDs.",
+        "Final RT ray answered with miss proves a dispatched query against available TLAS, not a vegetation hit.",
+        "Images show retained sparse foliage, but do not establish four species visibly in the camera or near authored meshes versus pinned cards."
+      ]
+    }
+  },
+  "debugShaderProbes": {
+    "purpose": "Debug shader tracking reachability; no performance claim",
+    "cells": [
+      {
+        "backend": "opengl",
+        "family": "vegetation",
+        "path": "deferred",
+        "status": "captured; consumption and visuals require review",
+        "directory": "artifacts/residency/debug-shader-postfix/opengl-vegetation-deferred",
+        "artifacts": [
+          {
+            "file": "artifacts/residency/debug-shader-postfix/campaign.json",
+            "sha256": "20f85deb90ada1328f0122f1d5b05438115acbbc1bf5258df80c2f5fc4c189f4"
+          },
+          {
+            "file": "artifacts/residency/debug-shader-postfix/provenance-Debug.json",
+            "sha256": "75616e8b650e36a5d4a0dc25f548121509b2b9d7249e25665866479f6c43ec02"
+          },
+          {
+            "file": "artifacts/residency/debug-shader-postfix/opengl-vegetation-deferred/samples.json",
+            "sha256": "42f00a7059d832212b93654dc4e8e6b14555179a4d42add61b21e9639afe18fe"
+          },
+          {
+            "file": "artifacts/residency/debug-shader-postfix/opengl-vegetation-deferred/OloEngine.log",
+            "sha256": "a346985d8be39733946fd1970267a67d10fcc9025777cccf1e8d1622461aa0dc"
+          },
+          {
+            "file": "artifacts/residency/debug-shader-postfix/opengl-vegetation-deferred/subject.olo",
+            "sha256": "f58f286b41ead93b8b476271da364780d118c34024f246c467f8ef4f50c8a50d"
+          }
+        ],
+        "buildConfig": "Debug",
+        "compiler": "clang-cl 23.1.0 ea7d852a70e8bdfaf601d6626a760f9771b2c4b4",
+        "binarySha256": "74c5ee3be49ce2a94332dfac9f5025da9e1ef3fddc9b17fb5d8fefd44ace3bc6",
+        "sourceCommit": "493141617ba592b6ad9e734c6e70f5d1171d72ad",
+        "dirtyDiffSha256": "9e08061004e2dcdd8007ee29e9b8d30d8ad99f96c65806fffb1f7d4fd97fe2d4",
+        "subjectSceneSha256": "f58f286b41ead93b8b476271da364780d118c34024f246c467f8ef4f50c8a50d",
+        "shaderTracking": {
+          "before": {
+            "available": true,
+            "count": 0,
+            "errors": [],
+            "status": "ready"
+          },
+          "after": {
+            "available": true,
+            "count": 0,
+            "errors": [],
+            "status": "ready"
+          },
+          "verdict": "clean observed tracked shader set"
+        },
+        "sampleCount": 33,
+        "screenshotFreshness": {
+          "reportedStale": 22,
+          "nonadvancing": 0,
+          "firstComparisonUnavailable": true,
+          "scope": "Debug vegetation stale images are retained but not accepted as fresh visual checks; shader channel before/after remains separate"
+        },
+        "verifiedPngCount": 33,
+        "allPngHashesMatch": true,
+        "nativeLogScan": {
+          "pattern": "ERROR|VUID|shader.*fail|failed.*shader",
+          "matches": 0,
+          "scope": "Log scan only; unavailable Vulkan shader channel remains unavailable"
+        },
+        "startupDeadlineSeconds": 300,
+        "helperExit": {
+          "reportedByRoot": 0,
+          "reason": "Observed tracked shader set has zero reported errors",
+          "scope": "Controller exit, not an engine failure"
+        }
+      },
+      {
+        "backend": "vulkan",
+        "family": "vegetation",
+        "path": "deferred",
+        "status": "captured; consumption and visuals require review",
+        "directory": "artifacts/residency/debug-shader-postfix/vulkan-vegetation-deferred",
+        "artifacts": [
+          {
+            "file": "artifacts/residency/debug-shader-postfix/campaign.json",
+            "sha256": "20f85deb90ada1328f0122f1d5b05438115acbbc1bf5258df80c2f5fc4c189f4"
+          },
+          {
+            "file": "artifacts/residency/debug-shader-postfix/provenance-Debug.json",
+            "sha256": "75616e8b650e36a5d4a0dc25f548121509b2b9d7249e25665866479f6c43ec02"
+          },
+          {
+            "file": "artifacts/residency/debug-shader-postfix/vulkan-vegetation-deferred/samples.json",
+            "sha256": "23addc9aedc8e971419e9450e4df9c3a3b81d5a50cbb7031b6eb7000d31140a6"
+          },
+          {
+            "file": "artifacts/residency/debug-shader-postfix/vulkan-vegetation-deferred/OloEngine.log",
+            "sha256": "21115547fd0b93014286f1879dcfa744e532fb380910205b6e5fab81f6088f07"
+          },
+          {
+            "file": "artifacts/residency/debug-shader-postfix/vulkan-vegetation-deferred/subject.olo",
+            "sha256": "f58f286b41ead93b8b476271da364780d118c34024f246c467f8ef4f50c8a50d"
+          }
+        ],
+        "buildConfig": "Debug",
+        "compiler": "clang-cl 23.1.0 ea7d852a70e8bdfaf601d6626a760f9771b2c4b4",
+        "binarySha256": "74c5ee3be49ce2a94332dfac9f5025da9e1ef3fddc9b17fb5d8fefd44ace3bc6",
+        "sourceCommit": "493141617ba592b6ad9e734c6e70f5d1171d72ad",
+        "dirtyDiffSha256": "9e08061004e2dcdd8007ee29e9b8d30d8ad99f96c65806fffb1f7d4fd97fe2d4",
+        "subjectSceneSha256": "f58f286b41ead93b8b476271da364780d118c34024f246c467f8ef4f50c8a50d",
+        "shaderTracking": {
+          "before": {
+            "available": false,
+            "count": null,
+            "detail": "Shader tracking is compiled in but ShaderDebugger::Initialize() has not run in this process, so no shader has registered. Nothing was checked; a zero here would be a guess, not a result.",
+            "errors": [],
+            "status": "notInitialized"
+          },
+          "after": {
+            "available": false,
+            "count": null,
+            "detail": "Shader tracking is compiled in but ShaderDebugger::Initialize() has not run in this process, so no shader has registered. Nothing was checked; a zero here would be a guess, not a result.",
+            "errors": [],
+            "status": "notInitialized"
+          },
+          "verdict": "tracking unavailable; no clean claim"
+        },
+        "sampleCount": 33,
+        "screenshotFreshness": {
+          "reportedStale": 27,
+          "nonadvancing": 5,
+          "firstComparisonUnavailable": true,
+          "scope": "Debug vegetation stale images are retained but not accepted as fresh visual checks; shader channel before/after remains separate"
+        },
+        "verifiedPngCount": 33,
+        "allPngHashesMatch": true,
+        "nativeLogScan": {
+          "pattern": "ERROR|VUID|shader.*fail|failed.*shader",
+          "matches": 0,
+          "scope": "Log scan only; unavailable Vulkan shader channel remains unavailable"
+        },
+        "startupDeadlineSeconds": 300,
+        "helperExit": {
+          "reportedByRoot": 2,
+          "reason": "Tracking capability check intentionally fails when unavailable",
+          "scope": "Controller exit, not an engine failure"
+        }
+      },
+      {
+        "backend": "opengl",
+        "family": "groom",
+        "path": "deferred",
+        "status": "captured; consumption and visuals require review",
+        "directory": "artifacts/residency/debug-shader-gl-groom-retry/opengl-groom-deferred",
+        "artifacts": [
+          {
+            "file": "artifacts/residency/debug-shader-gl-groom-retry/campaign.json",
+            "sha256": "fcb122a9f29f47dfaca059c974d014aa34981a4b42c0097f5a2816effb0a5d65"
+          },
+          {
+            "file": "artifacts/residency/debug-shader-gl-groom-retry/provenance-Debug.json",
+            "sha256": "8552ac37ff503ec814e718d97654938421dbb404837766caa802f7f0cbd9d17c"
+          },
+          {
+            "file": "artifacts/residency/debug-shader-gl-groom-retry/opengl-groom-deferred/samples.json",
+            "sha256": "eef7549f2c4808bfe762a65288220a86fb97a63c2e488c84aa82edc0bd3e959f"
+          },
+          {
+            "file": "artifacts/residency/debug-shader-gl-groom-retry/opengl-groom-deferred/OloEngine.log",
+            "sha256": "164245872743354f84420fb8f025ce6e258270188cb7a3fe952e776471748b74"
+          },
+          {
+            "file": "artifacts/residency/debug-shader-gl-groom-retry/opengl-groom-deferred/subject.olo",
+            "sha256": "8ecdd9a200e9217fbab188ae1ea7a5da577bc3e98170459ca67cd5c662997451"
+          }
+        ],
+        "buildConfig": "Debug",
+        "compiler": "clang-cl 23.1.0 ea7d852a70e8bdfaf601d6626a760f9771b2c4b4",
+        "binarySha256": "74c5ee3be49ce2a94332dfac9f5025da9e1ef3fddc9b17fb5d8fefd44ace3bc6",
+        "sourceCommit": "493141617ba592b6ad9e734c6e70f5d1171d72ad",
+        "dirtyDiffSha256": "96f9c9d99140dc6b443c15d87269e5c5c6574a826bd40ebcb9ff6e0af1932535",
+        "subjectSceneSha256": "8ecdd9a200e9217fbab188ae1ea7a5da577bc3e98170459ca67cd5c662997451",
+        "shaderTracking": {
+          "before": {
+            "available": true,
+            "count": 0,
+            "errors": [],
+            "status": "ready"
+          },
+          "after": {
+            "available": true,
+            "count": 0,
+            "errors": [],
+            "status": "ready"
+          },
+          "verdict": "clean observed tracked shader set"
+        },
+        "sampleCount": 33,
+        "screenshotFreshness": {
+          "reportedStale": 0,
+          "nonadvancing": 0,
+          "firstComparisonUnavailable": true,
+          "scope": "Debug vegetation stale images are retained but not accepted as fresh visual checks; shader channel before/after remains separate"
+        },
+        "verifiedPngCount": 33,
+        "allPngHashesMatch": true,
+        "nativeLogScan": {
+          "pattern": "ERROR|VUID|shader.*fail|failed.*shader",
+          "matches": 0,
+          "scope": "Log scan only; unavailable Vulkan shader channel remains unavailable"
+        },
+        "startupDeadlineSeconds": 900,
+        "helperExit": {
+          "reportedByRoot": 0,
+          "reason": "Observed tracked shader set has zero reported errors",
+          "scope": "Controller exit, not an engine failure"
+        }
+      },
+      {
+        "backend": "vulkan",
+        "family": "groom",
+        "path": "deferred",
+        "status": "captured; consumption and visuals require review",
+        "directory": "artifacts/residency/debug-shader-vk-groom-retry/vulkan-groom-deferred",
+        "artifacts": [
+          {
+            "file": "artifacts/residency/debug-shader-vk-groom-retry/campaign.json",
+            "sha256": "3bbbd324317dbf636e9c6f866b79a4f6654d7efc46098e6799f147ab5fa7d501"
+          },
+          {
+            "file": "artifacts/residency/debug-shader-vk-groom-retry/provenance-Debug.json",
+            "sha256": "a40843dacf929a6a9a4e787cb4d4aae859ce88e58d1c204d6334a66a49e06af9"
+          },
+          {
+            "file": "artifacts/residency/debug-shader-vk-groom-retry/vulkan-groom-deferred/samples.json",
+            "sha256": "257e151cd25fde8c299434dba09a741654dc43da881e58674da6e50874fedf11"
+          },
+          {
+            "file": "artifacts/residency/debug-shader-vk-groom-retry/vulkan-groom-deferred/OloEngine.log",
+            "sha256": "34186cf05569e3e8284b6fb5167f66bfd985df1318b79eb55cfef5091f00db71"
+          },
+          {
+            "file": "artifacts/residency/debug-shader-vk-groom-retry/vulkan-groom-deferred/subject.olo",
+            "sha256": "8ecdd9a200e9217fbab188ae1ea7a5da577bc3e98170459ca67cd5c662997451"
+          }
+        ],
+        "buildConfig": "Debug",
+        "compiler": "clang-cl 23.1.0 ea7d852a70e8bdfaf601d6626a760f9771b2c4b4",
+        "binarySha256": "74c5ee3be49ce2a94332dfac9f5025da9e1ef3fddc9b17fb5d8fefd44ace3bc6",
+        "sourceCommit": "493141617ba592b6ad9e734c6e70f5d1171d72ad",
+        "dirtyDiffSha256": "8ca248d3486d165b157c67dba1ab3d854dbfac05b33a27b6bc04ca9bb244f488",
+        "subjectSceneSha256": "8ecdd9a200e9217fbab188ae1ea7a5da577bc3e98170459ca67cd5c662997451",
+        "shaderTracking": {
+          "before": {
+            "available": false,
+            "count": null,
+            "detail": "Shader tracking is compiled in but ShaderDebugger::Initialize() has not run in this process, so no shader has registered. Nothing was checked; a zero here would be a guess, not a result.",
+            "errors": [],
+            "status": "notInitialized"
+          },
+          "after": {
+            "available": false,
+            "count": null,
+            "detail": "Shader tracking is compiled in but ShaderDebugger::Initialize() has not run in this process, so no shader has registered. Nothing was checked; a zero here would be a guess, not a result.",
+            "errors": [],
+            "status": "notInitialized"
+          },
+          "verdict": "tracking unavailable; no clean claim"
+        },
+        "sampleCount": 33,
+        "screenshotFreshness": {
+          "reportedStale": 0,
+          "nonadvancing": 0,
+          "firstComparisonUnavailable": true,
+          "scope": "Debug vegetation stale images are retained but not accepted as fresh visual checks; shader channel before/after remains separate"
+        },
+        "verifiedPngCount": 33,
+        "allPngHashesMatch": true,
+        "nativeLogScan": {
+          "pattern": "ERROR|VUID|shader.*fail|failed.*shader",
+          "matches": 0,
+          "scope": "Log scan only; unavailable Vulkan shader channel remains unavailable"
+        },
+        "startupDeadlineSeconds": 900,
+        "helperExit": {
+          "reportedByRoot": 2,
+          "reason": "Tracking capability check intentionally fails when unavailable",
+          "scope": "Controller exit, not an engine failure"
+        }
+      }
+    ],
+    "failedColdStartAttempts": [
+      {
+        "backend": "opengl",
+        "family": "groom",
+        "path": "deferred",
+        "status": "unavailable",
+        "directory": "artifacts/residency/debug-shader-postfix/opengl-groom-deferred",
+        "artifacts": [
+          {
+            "file": "artifacts/residency/debug-shader-postfix/campaign.json",
+            "sha256": "20f85deb90ada1328f0122f1d5b05438115acbbc1bf5258df80c2f5fc4c189f4"
+          },
+          {
+            "file": "artifacts/residency/debug-shader-postfix/provenance-Debug.json",
+            "sha256": "75616e8b650e36a5d4a0dc25f548121509b2b9d7249e25665866479f6c43ec02"
+          },
+          {
+            "file": "artifacts/residency/debug-shader-postfix/opengl-groom-deferred/OloEngine.log",
+            "sha256": "86fb66d5106a83c39e0c2567c505f7384c787d52fe3df63669dedd2692d247c0"
+          }
+        ],
+        "reason": "private MCP startup deadline",
+        "startupDeadlineSeconds": 300,
+        "accepted": false
+      },
+      {
+        "backend": "vulkan",
+        "family": "groom",
+        "path": "deferred",
+        "status": "unavailable",
+        "directory": "artifacts/residency/debug-shader-postfix/vulkan-groom-deferred",
+        "artifacts": [
+          {
+            "file": "artifacts/residency/debug-shader-postfix/campaign.json",
+            "sha256": "20f85deb90ada1328f0122f1d5b05438115acbbc1bf5258df80c2f5fc4c189f4"
+          },
+          {
+            "file": "artifacts/residency/debug-shader-postfix/provenance-Debug.json",
+            "sha256": "75616e8b650e36a5d4a0dc25f548121509b2b9d7249e25665866479f6c43ec02"
+          },
+          {
+            "file": "artifacts/residency/debug-shader-postfix/vulkan-groom-deferred/OloEngine.log",
+            "sha256": "a0f1662d019c51e5099d38c88684a79ab4481a54af82d418b1221aeeb6f75647"
+          }
+        ],
+        "reason": "private MCP startup deadline",
+        "startupDeadlineSeconds": 300,
+        "accepted": false
+      }
+    ],
+    "retryCachePolicy": "Groom retries use 900-second startup deadline and same staging/cache after retained 300-second cold compile deadline failures",
+    "vulkanTrackingGap": {
+      "available": false,
+      "count": null,
+      "status": "notInitialized",
+      "reason": "OpenGL-only tooling initialization and no Vulkan shader registration; unavailable counts are not zero",
+      "scope": "Native logs have no matching failures; no Vulkan tracked-shader clean verdict"
+    }
+  },
+  "vulkanCsmInlineDiagnostic": {
+    "directory": "artifacts/residency/functional-vk-csm-inline-diagnostic",
+    "buildConfig": "Release",
+    "backend": "vulkan",
+    "family": "vegetation",
+    "path": "deferred",
+    "fixture": "sparse capacity-fit",
+    "binarySha256": "c89b4fda9ddbbd8aeb34e89fd50731bb3c48952b9f88ee603c43ea8d41baf945",
+    "sourceCommit": "493141617ba592b6ad9e734c6e70f5d1171d72ad",
+    "dirtyDiffSha256": "96f9c9d99140dc6b443c15d87269e5c5c6574a826bd40ebcb9ff6e0af1932535",
+    "sampleCount": 33,
+    "verifiedPngCount": 33,
+    "allPngHashesMatch": true,
+    "screenshotFreshness": {
+      "reportedStale": 0,
+      "nonadvancing": 0
+    },
+    "startupEnvironment": {
+      "OLO_VK_PARALLEL_RECORDING": "0",
+      "lifetime": "Root reports scoped to owned process and restored after run; actual recording diagnostics confirm inline"
+    },
+    "observations": [
+      {
+        "label": "csm-detail-diagnostics",
+        "pngFrameIndex": 139,
+        "pngReportedStale": false,
+        "gpuFrame": {
+          "cpuMs": 2.048,
+          "currentFrameId": 170,
+          "fenceWaitMs": 0.001,
+          "frameTimeMs": 13.135,
+          "gpuMeasurementFrameId": 169,
+          "gpuMs": 3.071,
+          "gpuStatus": "valid",
+          "gpuWaitMs": 2.819,
+          "presentWaitMs": 2.818
+        },
+        "gpuResultsAgeFrames": 1,
+        "gpuResultsStale": false,
+        "shadowParent": {
+          "cpuMs": 0.344,
+          "gpuMs": 0.617,
+          "gpuStatus": "valid",
+          "pass": "ShadowPass"
+        },
+        "foliageCasters": [
+          {
+            "gpuMs": 0.059,
+            "gpuStatus": "valid",
+            "name": "FoliageCasters"
+          },
+          {
+            "gpuMs": 0.02,
+            "gpuStatus": "valid",
+            "name": "FoliageCasters"
+          },
+          {
+            "gpuMs": 0.016,
+            "gpuStatus": "valid",
+            "name": "FoliageCasters"
+          },
+          {
+            "gpuMs": 0.015,
+            "gpuStatus": "valid",
+            "name": "FoliageCasters"
+          }
+        ],
+        "foliageCastersSumMs": 0.11,
+        "shadowRegionParallel": false,
+        "secondariesExecuted": 0
+      },
+      {
+        "label": "csm-pressure-diagnostics",
+        "pngFrameIndex": 235,
+        "pngReportedStale": false,
+        "gpuFrame": {
+          "cpuMs": 1.449,
+          "currentFrameId": 273,
+          "fenceWaitMs": 0.001,
+          "frameTimeMs": 13.461,
+          "gpuMeasurementFrameId": 272,
+          "gpuMs": 2.829,
+          "gpuStatus": "valid",
+          "gpuWaitMs": 2.115,
+          "presentWaitMs": 2.114
+        },
+        "gpuResultsAgeFrames": 1,
+        "gpuResultsStale": false,
+        "shadowParent": {
+          "cpuMs": 0.244,
+          "gpuMs": 0.56,
+          "gpuStatus": "valid",
+          "pass": "ShadowPass"
+        },
+        "foliageCasters": [
+          {
+            "gpuMs": 0.039,
+            "gpuStatus": "valid",
+            "name": "FoliageCasters"
+          },
+          {
+            "gpuMs": 0.013,
+            "gpuStatus": "valid",
+            "name": "FoliageCasters"
+          },
+          {
+            "gpuMs": 0.011,
+            "gpuStatus": "valid",
+            "name": "FoliageCasters"
+          },
+          {
+            "gpuMs": 0.01,
+            "gpuStatus": "valid",
+            "name": "FoliageCasters"
+          }
+        ],
+        "foliageCastersSumMs": 0.073,
+        "shadowRegionParallel": false,
+        "secondariesExecuted": 0
+      },
+      {
+        "label": "csm-reload-diagnostics",
+        "pngFrameIndex": 335,
+        "pngReportedStale": false,
+        "gpuFrame": {
+          "cpuMs": 1.705,
+          "currentFrameId": 373,
+          "fenceWaitMs": 0.001,
+          "frameTimeMs": 13.12,
+          "gpuMeasurementFrameId": 372,
+          "gpuMs": 2.839,
+          "gpuStatus": "valid",
+          "gpuWaitMs": 2.321,
+          "presentWaitMs": 2.32
+        },
+        "gpuResultsAgeFrames": 1,
+        "gpuResultsStale": false,
+        "shadowParent": {
+          "cpuMs": 0.301,
+          "gpuMs": 0.596,
+          "gpuStatus": "valid",
+          "pass": "ShadowPass"
+        },
+        "foliageCasters": [
+          {
+            "gpuMs": 0.057,
+            "gpuStatus": "valid",
+            "name": "FoliageCasters"
+          },
+          {
+            "gpuMs": 0.019,
+            "gpuStatus": "valid",
+            "name": "FoliageCasters"
+          },
+          {
+            "gpuMs": 0.016,
+            "gpuStatus": "valid",
+            "name": "FoliageCasters"
+          },
+          {
+            "gpuMs": 0.014,
+            "gpuStatus": "valid",
+            "name": "FoliageCasters"
+          }
+        ],
+        "foliageCastersSumMs": 0.106,
+        "shadowRegionParallel": false,
+        "secondariesExecuted": 0
+      }
+    ],
+    "artifacts": [
+      {
+        "file": "artifacts/residency/functional-vk-csm-inline-diagnostic/campaign.json",
+        "sha256": "5d19e7d8ea1fac162f003be24915b6ac76d19614cfc53f99db26c1eff2048d71"
+      },
+      {
+        "file": "artifacts/residency/functional-vk-csm-inline-diagnostic/provenance.json",
+        "sha256": "2a29908a1f0c3a4071f6e51f012a70bd0dce5cb6500bd94e91ac3902820cd9c1"
+      },
+      {
+        "file": "artifacts/residency/functional-vk-csm-inline-diagnostic/vulkan-vegetation-deferred/samples.json",
+        "sha256": "c5cd192efe837461dc69473c63620507a81551c92293001780865dcc0e69191a"
+      },
+      {
+        "file": "artifacts/residency/functional-vk-csm-inline-diagnostic/vulkan-vegetation-deferred/subject.olo",
+        "sha256": "7279a3100e3e4b7f48b5dd541133092444a843cf6ee5b9c989dec2991e30480a"
+      },
+      {
+        "file": "artifacts/residency/functional-vk-csm-inline-diagnostic/vulkan-vegetation-deferred/OloEngine.log",
+        "sha256": "251c39dec111e80b9d9600430b0b6fbdb74364b8722cf72498d79b5534e0fb89"
+      }
+    ],
+    "limitation": "Separate forced-inline execution diagnostics only: not default parallel family brackets, exact draw counts, shadow pixel correctness or paired performance evidence"
+  },
+  "impostorCorrectionMilestone": {
+    "status": "Reviewed correction built in Release/Debug; targeted and wider functional plus isolated Vulkan device checks passed; region reruns and paired measurements pending",
+    "recordedUtc": "2026-10-07T20:47:13.727165+00:00",
+    "sourceHead": "493141617ba592b6ad9e734c6e70f5d1171d72ad",
+    "dirtySource": true,
+    "provenanceScope": "Source snapshots identify reviewed dirty code; no clean commit or old capture is reattributed to this binary",
+    "diagnosis": {
+      "cause": "CPU-ready optional foliage payload was treated as drawable GPU mesh readiness during impostor regeneration; lookup by shared path admitted a bake before this layer owned resident buffers/material parts, then unconditional bakeVBO SetLayout dereferenced null",
+      "pdbGuid": "11A621E9-A0F7-265D-4C4C-44205044422E",
+      "pdbAge": 1,
+      "guidMatchesBothLoadedImageUuids": true,
+      "sharedSymbolicStack": [
+        {
+          "function": "FoliageRenderer::UpdateImpostorAtlas",
+          "file": "FoliageRenderer.cpp",
+          "line": 2583
+        },
+        {
+          "function": "FoliageRenderer::GenerateInstances",
+          "file": "FoliageRenderer.cpp",
+          "line": 1802
+        },
+        {
+          "function": "Scene::ProcessScene3DSharedLogic",
+          "file": "Scene.cpp",
+          "line": 12414
+        },
+        {
+          "function": "Scene::RenderScene3D",
+          "file": "Scene.cpp",
+          "line": 15561
+        },
+        {
+          "function": "Scene::OnUpdateEditor",
+          "file": "Scene.cpp",
+          "line": 6366
+        },
+        {
+          "function": "EditorLayer::OnUpdate",
+          "file": "EditorLayer.cpp",
+          "line": 2102
+        },
+        {
+          "function": "Application::RenderFrameLayers",
+          "file": "Application.cpp",
+          "line": 567
+        }
+      ],
+      "faultInstruction": "movq (%r14), %rax",
+      "r14BothDumps": "0x0",
+      "exceptionCode": "0xc0000005",
+      "exceptionRip": "0x7ff6eb2b13f3",
+      "dumps": [
+        {
+          "backend": "opengl",
+          "file": "artifacts/residency/region-crash/crash_20261007_214731_982.dmp",
+          "bytes": 113023588,
+          "sha256": "cc2feb4e7b7e3eb7231f7700d578f7374429e169e38cda3ab7e46cef07ac1b6e",
+          "originalSource": "C:\\repos\\OloEngine-groom-vegetation-streaming-residency-1257\\OloEditor\\CrashReports\\crash_20261007_214731_982.dmp",
+          "nativeCrashReport": {
+            "file": "artifacts/residency/region-crash/crash_20261007_214731_982.txt",
+            "bytes": 20008,
+            "sha256": "74ab1fcff1d6553b9a62ca73813d7eb34bb35f16b8eb01fd95447586e03526b1"
+          },
+          "symbolImageUuid": "11A621E9-A0F7-265D-4C4C-44205044422E-00000001",
+          "exceptionCode": "0xc0000005",
+          "exceptionRip": "0x00007ff6eb2b13f3",
+          "faultInstruction": "movq (%r14), %rax",
+          "faultRegisterR14": "0x0",
+          "preparedCpuPayload": "0x00000254c558c0d0"
+        },
+        {
+          "backend": "vulkan",
+          "file": "artifacts/residency/region-crash/crash_20261007_215336_345.dmp",
+          "bytes": 145636996,
+          "sha256": "dce2f8e91f6eaa9bfd1af9196eb4b1473cbff1780a919dcfd4e2ccdafe439f27",
+          "originalSource": "C:\\repos\\OloEngine-groom-vegetation-streaming-residency-1257\\OloEditor\\CrashReports\\crash_20261007_215336_345.dmp",
+          "nativeCrashReport": {
+            "file": "artifacts/residency/region-crash/crash_20261007_215336_345.txt",
+            "bytes": 21193,
+            "sha256": "cf3f6b1eb3fff388a71c0b092cae4f3b70efa53fdb0da94d1b8c1aca13d26d00"
+          },
+          "symbolImageUuid": "11A621E9-A0F7-265D-4C4C-44205044422E-00000001",
+          "exceptionCode": "0xc0000005",
+          "exceptionRip": "0x00007ff6eb2b13f3",
+          "faultInstruction": "movq (%r14), %rax",
+          "faultRegisterR14": "0x0",
+          "preparedCpuPayload": "0x000002172ab75540"
+        }
+      ],
+      "limitations": {
+        "preparedPayloadNonnullBoth": true,
+        "openGLSourceIndices": 75438,
+        "openGLPartsCount": 0,
+        "openGLPartSurfaceUvCount": 0,
+        "openGLBakeVboNull": true,
+        "heapLayerBackingCaptured": false,
+        "indexBufferFaultEstablished": false,
+        "optimizedThisNullUsedAsEvidence": false
+      }
+    },
+    "preservedBeforeFixBinaryAndSymbols": {
+      "hashLedger": {
+        "file": "artifacts/residency/region-crash/binary-before-fix/hashes.json",
+        "sha256": "0e4df8af5c4b3b36cf85c76df7075516c73a074067e295b7f19edf970ebdb8a2"
+      },
+      "files": [
+        {
+          "file": "C:/repos/OloEngine-groom-vegetation-streaming-residency-1257/artifacts/residency/region-crash/binary-before-fix/OloEditor.exe",
+          "sha256": "c89b4fda9ddbbd8aeb34e89fd50731bb3c48952b9f88ee603c43ea8d41baf945"
+        },
+        {
+          "file": "C:/repos/OloEngine-groom-vegetation-streaming-residency-1257/artifacts/residency/region-crash/binary-before-fix/OloEditor.pdb",
+          "sha256": "5fcd8b25624c101fb9192701c15d9a5ae6208ad37293623580be5701e9cc87e3"
+        }
+      ]
+    },
+    "redRegression": {
+      "suite": "GroomVegetationStreamingEvidenceTest",
+      "test": "PreparedImpostorLayerRebuildWaitsForItsOwnGpuUpload",
+      "tests": 1,
+      "failures": 1,
+      "errors": 0,
+      "seconds": 1.747,
+      "failureMessage": "unknown file\nSEH exception with code 0xc0000005 thrown in the test body.",
+      "status": "actual red before correction",
+      "artifacts": [
+        {
+          "file": "artifacts/residency/region-crash/regression-red.xml",
+          "bytes": 914,
+          "sha256": "701aaa7fadb5ae33a567fe115441f0ed9b1be1aa3d38f801210efd2b75134ab9"
+        },
+        {
+          "file": "artifacts/residency/region-crash/regression-red.log",
+          "bytes": 449219,
+          "sha256": "879735315651345e7f3756116ee1776c310baa7d051c932d28b5d37f97b88e19"
+        },
+        {
+          "file": "artifacts/residency/region-crash/build-red.log",
+          "bytes": 4710,
+          "sha256": "c9768341bfc9867aaaad134cbd531a7fbf84b03a6e691d95478549485c2db0ac"
+        }
+      ]
+    },
+    "sourceCorrection": {
+      "status": "Source correction supported by green targeted regression; own-GPU/bounds/cutoff behavior exercised separately from live region acceptance",
+      "snapshots": [
+        {
+          "file": "OloEngine/src/OloEngine/Terrain/Foliage/FoliageRenderer.cpp",
+          "bytes": 164320,
+          "sha256": "4f82e7e64e6311178a979de11a1c3108f779e43807805d917c1af329630ae497"
+        },
+        {
+          "file": "OloEngine/src/OloEngine/Terrain/Foliage/FoliageRenderer.h",
+          "bytes": 48715,
+          "sha256": "e493ec15e65419eed23630326e8f1462176b566aef8f4bbd272a7d5ba8536167"
+        },
+        {
+          "file": "OloEngine/tests/Rendering/PropertyTests/GroomVegetationStreamingEvidenceTest.cpp",
+          "bytes": 31021,
+          "sha256": "6dcac7004e0591f28dc8956d48231d5e84cd798d89731b785b6546b686957ea1"
+        }
+      ],
+      "changes": [
+        "Streaming impostor bake requires this layer MeshVBO, MeshIBO, nonempty MeshParts and matching MeshGeometryPath; no search for a sibling Ready payload with the same path.",
+        "Bake uses the admitted layer material parts and retained MeshBounds, including after CPU Ready payload release; eager and streamed publications both populate bounds.",
+        "Pending/refused/evicted optional detail returns while retaining existing pinned card/atlas; it does not allocate a replacement unbudgeted geometry buffer.",
+        "Streaming cutoff rebuilds are admitted through UpdateStreamingAlphaCutoffs; impostor bake waits until resident material textures match sanitized layer cutoff. Eager texture updates retain their existing path."
+      ],
+      "predictions": [
+        "Prepared CPU payload with refused upload remains drawable floor and rebuild no longer crashes.",
+        "After admitted upload, impostor is generated from the layer own published GPU resources and bounds.",
+        "Material/layout rebake after CPU payload release keeps framing, follows admitted cutoff and retains stable canonical IDs.",
+        "Pressure eviction preserves pinned atlas and instance population."
+      ],
+      "regressionScope": "PreparedImpostorLayerRebuildWaitsForItsOwnGpuUpload also checks floor drawing, no early atlas, IDs, uploaded atlas, edit rebake bounds and pressure-pinned atlas; expected behavior is not yet green evidence"
+    },
+    "releaseBuild": {
+      "status": "all four targets exit zero reported by root; completed Release build-lock log confirms links and 2050 dependency objects",
+      "rootSession": 92397,
+      "log": {
+        "file": "build-release-residency-impostor.log",
+        "sha256": "4e9fd3b4f36136aee09709a8d461f5a37c0fa333482a0c75059ba1fcae02e717"
+      },
+      "dependencyObjects": 2050,
+      "editorBinarySnapshot": {
+        "file": "bin/Release/OloEditor/OloEditor.exe",
+        "sha256": "8999466a6e6a874d724dbe5865cbb56b563400b12f5a580620530c85b9317272"
+      }
+    },
+    "greenTests": [
+      {
+        "name": "regression-green",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "timestamp": "2026-10-07T22:40:01.815",
+        "seconds": 3.7,
+        "artifacts": [
+          {
+            "file": "artifacts/residency/region-crash/regression-green.xml",
+            "sha256": "e4774cefcabce0fdd800c53fec57da6635fdbdafcb0fa692949732c1a6cecadf"
+          },
+          {
+            "file": "artifacts/residency/region-crash/regression-green.log",
+            "sha256": "fd7f047eaaf2e6681aa9a9e618e60c01a16fcaa03c4d1884e9a4949519195e4c"
+          }
+        ],
+        "scope": "Functional/regression execution overlapped Debug compilation; elapsed seconds are not a performance comparison"
+      },
+      {
+        "name": "gl-residency-impostor",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "timestamp": "2026-10-07T22:41:12.925",
+        "seconds": 5.556,
+        "artifacts": [
+          {
+            "file": "artifacts/residency/gl-residency-impostor.xml",
+            "sha256": "1be4c550918fed3ea16bd1a42d21f077d58d244d3297a85d1c75bfe6352a4164"
+          },
+          {
+            "file": "artifacts/residency/gl-residency-impostor.log",
+            "sha256": "567086df60e20d3734f3a0087edcc8c0f3099c1235e866b6343c75e07d562d89"
+          }
+        ],
+        "scope": "Functional/regression execution overlapped Debug compilation; elapsed seconds are not a performance comparison"
+      },
+      {
+        "name": "cpu-impostor",
+        "tests": 57,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "timestamp": "2026-10-07T22:41:29.074",
+        "seconds": 1.007,
+        "artifacts": [
+          {
+            "file": "artifacts/residency/cpu-impostor.xml",
+            "sha256": "f289a64b547ca41815f5e718bb4599328e437cc0751aa411de556a44e4b31c4d"
+          },
+          {
+            "file": "artifacts/residency/cpu-impostor.log",
+            "sha256": "33d98dc4f2d023bb2273e9deb613aa146e7460416118840b134602c31433a188"
+          }
+        ],
+        "scope": "Functional/regression execution overlapped Debug compilation; elapsed seconds are not a performance comparison"
+      },
+      {
+        "name": "app-smoke-impostor",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "timestamp": "2026-10-07T22:42:05.479",
+        "seconds": 8.443,
+        "artifacts": [
+          {
+            "file": "artifacts/residency/app-smoke-impostor.xml",
+            "sha256": "02e847866f8ca20e6cee8c56d82269ba4da24575e70d192fb27d1b729ccb1f0e"
+          },
+          {
+            "file": "artifacts/residency/app-smoke-impostor.log",
+            "sha256": "9a34e1038f392397f02872ae83e450b8a3e5035cb72a24c7c5d22c6dae66759f"
+          }
+        ],
+        "scope": "Functional/regression execution overlapped Debug compilation; elapsed seconds are not a performance comparison"
+      }
+    ],
+    "rawAnalysisArtifacts": [
+      {
+        "file": "artifacts/residency/region-crash/analysis.md",
+        "sha256": "40a68883c50bda98ae281233f4687f616aed6c4e1f28f1f25e4ab6c536572fd7"
+      },
+      {
+        "file": "artifacts/residency/region-crash/crash-analysis.json",
+        "sha256": "39c754da0c238e106bd7b94efa40a5d2cdb71b70076bcc4590e3e7c89e1c1066"
+      },
+      {
+        "file": "artifacts/residency/region-crash/fix-evidence.json",
+        "sha256": "e591ff6c48da5ad59ce27469628188683dbf6e647bf798a97cd72895499b62c0"
+      },
+      {
+        "file": "artifacts/residency/region-crash/fix-evidence.md",
+        "sha256": "a1748fe8f56ca52c0de770cc41d175039553699fe6d3c364438e59fe079c1da3"
+      }
+    ],
+    "initialRegionCampaign": {
+      "status": "Partial failed campaign: groom captures only, both vegetation integrations crashed; rerun acceptance pending",
+      "groomCounterSummary": {
+        "file": "artifacts/residency/region-crash/groom-regions-summary.json",
+        "sha256": "488dda06ac176309ef289f8093621766e49590c92b53ce987f0118e5af9ede1f"
+      },
+      "campaign": {
+        "file": "artifacts/residency/regions-postfix/campaign.json",
+        "sha256": "cd0f3993881466a829283e5c2dcdcfe436bd1262f229964326f54e3982037db3"
+      },
+      "fullRegionalPass": false
+    },
+    "pending": [
+      "Actual both-backend region rerun after the impostor correction",
+      "Fresh warm AB/BA tails and physical backing measurements"
+    ],
+    "debugBuild": {
+      "status": "completed: links and build-lock release confirmed, 2049 objects with recorded header dependencies",
+      "log": {
+        "file": "build-debug-residency-impostor.log",
+        "sha256": "c5b38e2b447dabe8dde149512559d4a2c9a9d12b5cc3321bad8e9334f3d5e705"
+      },
+      "dependencyObjects": 2049,
+      "buildConfig": "Debug"
+    },
+    "nativeVulkanChecks": [
+      {
+        "name": "vk-shutdown-impostor",
+        "buildConfig": "Debug",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "deviceCoverage": "EXERCISED",
+        "testCases": [
+          "VulkanPassSuite.BackendShutdownReleasesHeapNullImagesAndFrameArenaBeforeTheMemoryCensus"
+        ],
+        "timestamp": "2026-10-07T22:51:49.946",
+        "vuidErrorMatches": 0,
+        "nativeLogScanPattern": "VUID|word error",
+        "device": "NVIDIA GeForce RTX 4090",
+        "artifacts": [
+          {
+            "file": "artifacts/residency/vk-shutdown-impostor.xml",
+            "sha256": "140954e901c4d99d5e9edeb6a8b689a783b7fa27c4f9cae551271a2ed16bd7b0"
+          },
+          {
+            "file": "artifacts/residency/vk-shutdown-impostor.log",
+            "sha256": "321275d3108d9e37b566f40ecd6d7b710182ec9c8322f8e5b250163775fa1363"
+          }
+        ],
+        "scope": "Actual isolated device checks; no performance or complete live workload acceptance"
+      },
+      {
+        "name": "vk-proxy-impostor",
+        "buildConfig": "Debug",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "deviceCoverage": "EXERCISED",
+        "testCases": [
+          "VulkanPassSuite.GroomStreamingEvictionRetiresProxyWhenRefreshBudgetIsSpent"
+        ],
+        "timestamp": "2026-10-07T22:51:51.103",
+        "vuidErrorMatches": 0,
+        "nativeLogScanPattern": "VUID|word error",
+        "device": "NVIDIA GeForce RTX 4090",
+        "artifacts": [
+          {
+            "file": "artifacts/residency/vk-proxy-impostor.xml",
+            "sha256": "f26b8f7dc79653fb2b80b48ddc2a5df14c5407f3493b7ccecee175cf1fc0e221"
+          },
+          {
+            "file": "artifacts/residency/vk-proxy-impostor.log",
+            "sha256": "0f1288906bea301d62d1d06295512c8f8e18db4e141b59966790719236a425fb"
+          }
+        ],
+        "scope": "Actual isolated device checks; no performance or complete live workload acceptance"
+      },
+      {
+        "name": "vk-as-impostor",
+        "buildConfig": "Debug",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "deviceCoverage": "EXERCISED",
+        "testCases": [
+          "RayTracingDevice.GroomStreamingEvictionRetiresActualAsAfterHeldTraceCompletes"
+        ],
+        "timestamp": "2026-10-07T22:51:52.542",
+        "vuidErrorMatches": 0,
+        "nativeLogScanPattern": "VUID|word error",
+        "device": "NVIDIA GeForce RTX 4090",
+        "artifacts": [
+          {
+            "file": "artifacts/residency/vk-as-impostor.xml",
+            "sha256": "6c88a3ffb64aa362705d970e935bbce0a28bff749fa69486105c6fec6aa59f67"
+          },
+          {
+            "file": "artifacts/residency/vk-as-impostor.log",
+            "sha256": "1d36b6c1edff07b47677026cabca8e055b6246b721d370f213ba8ae8ccd2cdda"
+          }
+        ],
+        "scope": "Actual isolated device checks; no performance or complete live workload acceptance"
+      }
+    ]
+  }
+}

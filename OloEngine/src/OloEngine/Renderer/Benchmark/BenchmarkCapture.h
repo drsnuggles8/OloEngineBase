@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Asset/AssetSystem/RepresentationStreaming.h"
+
 // =============================================================================
 // BenchmarkCapture — backend-neutral attachment capture + self-describing
 // result directory for the renderer benchmark manifests (issue #974).
@@ -221,6 +223,25 @@ namespace OloEngine::Benchmark
         u64 GpuResidentBytes = 0;           // physical GPU backing, live + retiring (#1342)
         u64 CpuTrackedBytes = 0;            // CPU-side bookings, never added to the GPU figure
         u32 DrawCalls = 0;
+        FRepresentationStreamingStats Streaming;
+        u64 GroomPinnedCpuBytes = 0;
+        u64 GroomPinnedGpuBytes = 0;
+        u64 GroomOptionalGpuBytes = 0;
+        u64 GroomEvictions = 0;
+        u32 GroomPendingRequests = 0;
+        u32 GroomFallbackRequests = 0;
+        u64 VegetationCanonicalCpuBytes = 0;
+        u64 VegetationPinnedGpuBytes = 0;
+        u64 VegetationOptionalGpuBytes = 0;
+        u64 VegetationPendingCpuBytes = 0;
+        u64 VegetationEvictions = 0;
+        u64 VegetationReloads = 0;
+        u32 VegetationPendingLayers = 0;
+        u32 VegetationFallbackLayers = 0;
+        bool RegionStreamingActive = false;
+        u32 LoadedRegions = 0;
+        u32 PendingRegions = 0;
+        u64 RegionEvictions = 0;
     };
 
 } // namespace OloEngine::Benchmark
@@ -245,7 +266,26 @@ namespace OloEngine
                                       TIsTriviallyRelocatable_V<decltype(Record::GpuPasses)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::GpuResidentBytes)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::CpuTrackedBytes)> &&
-                                      TIsTriviallyRelocatable_V<decltype(Record::DrawCalls)>;
+                                      TIsTriviallyRelocatable_V<decltype(Record::DrawCalls)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Streaming)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::GroomPinnedCpuBytes)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::GroomPinnedGpuBytes)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::GroomOptionalGpuBytes)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::GroomEvictions)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::GroomPendingRequests)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::GroomFallbackRequests)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::VegetationCanonicalCpuBytes)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::VegetationPinnedGpuBytes)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::VegetationOptionalGpuBytes)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::VegetationPendingCpuBytes)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::VegetationEvictions)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::VegetationReloads)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::VegetationPendingLayers)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::VegetationFallbackLayers)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::RegionStreamingActive)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::LoadedRegions)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::PendingRegions)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::RegionEvictions)>;
     };
 } // namespace OloEngine
 
@@ -263,6 +303,7 @@ namespace OloEngine::Benchmark
 
     [[nodiscard]] MeasuredFrame SnapshotMeasuredFrame(std::string_view cameraId, u32 index, f64 renderCallMs);
     [[nodiscard]] MeasuredFrame SnapshotEditorMeasuredFrame(std::string_view cameraId, u32 index);
+    void SnapshotSceneStreaming(const Scene& scene, MeasuredFrame& sample);
 
     struct AppliedConfiguration
     {

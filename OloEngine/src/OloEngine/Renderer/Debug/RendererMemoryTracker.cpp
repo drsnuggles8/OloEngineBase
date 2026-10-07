@@ -546,6 +546,32 @@ namespace OloEngine
         return true;
     }
 
+    std::optional<u64> RendererMemoryTracker::GetLiveBackingGpuBytes(std::span<const u64> handleKeys) const
+    {
+        TUniqueLock<FMutex> lock(m_Mutex);
+        if (m_IsShutdown)
+            return std::nullopt;
+        TArray<void*> counted;
+        u64 bytes = 0;
+        for (const u64 key : handleKeys)
+        {
+            const auto backing = m_BackingByHandle.find(key);
+            if (key == 0 || backing == m_BackingByHandle.end())
+                return std::nullopt;
+            const auto entry = m_Allocations.find(backing->second);
+            if (entry == m_Allocations.end() || entry->second.IsAlias() || !entry->second.m_IsGPU || entry->second.m_HandleKey != key)
+                return std::nullopt;
+            if (counted.Contains(backing->second))
+                continue;
+            const u64 size = entry->second.m_Size;
+            if (size > std::numeric_limits<u64>::max() - bytes)
+                return std::nullopt;
+            counted.Add(backing->second);
+            bytes += size;
+        }
+        return bytes;
+    }
+
     void RendererMemoryTracker::TrackAliasOfHandle(const u64 aliasHandleKey, const u64 backingHandleKey, const ResourceType type,
                                                    const std::string_view name, const char* file, const u32 line)
     {

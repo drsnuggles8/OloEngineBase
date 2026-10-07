@@ -432,6 +432,29 @@ namespace OloEngine
             if (Scene* scene = ScriptEngine::GetSceneContext())
                 scene->GetStreamingSettings().Enabled = v;
         };
+        sceneTable["SetRepresentationStreamingBudgets"] = [](f32 residentMegabytes, f32 uploadMegabytesPerFrame, f32 stagingMegabytes)
+        {
+            if (Scene* scene = ScriptEngine::GetSceneContext())
+            {
+                auto& settings = scene->GetStreamingSettings();
+                settings.RepresentationResidentMegabytes = SanitizeStreamingBudgetMegabytes(residentMegabytes);
+                settings.RepresentationUploadMegabytesPerFrame = SanitizeStreamingBudgetMegabytes(uploadMegabytesPerFrame);
+                settings.RepresentationStagingMegabytes = SanitizeStreamingBudgetMegabytes(stagingMegabytes);
+            }
+        };
+        sceneTable["GetRepresentationStreamingBudgets"] = [](sol::this_state state) -> sol::object
+        {
+            const Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return sol::make_object(state, sol::nil);
+            const auto& settings = scene->GetStreamingSettings();
+            sol::state_view luaState(state);
+            auto snapshot = luaState.create_table();
+            snapshot["residentMegabytes"] = settings.RepresentationResidentMegabytes;
+            snapshot["uploadMegabytesPerFrame"] = settings.RepresentationUploadMegabytesPerFrame;
+            snapshot["stagingMegabytes"] = settings.RepresentationStagingMegabytes;
+            return sol::make_object(state, snapshot);
+        };
 
         // --- Scene reload / switch ---
         sceneTable["ReloadCurrentScene"] = []()
