@@ -1801,6 +1801,99 @@ registry.push_back(MakeSetterField<AudioSourceComponent, AssetHandle>(
         comp.SetSoundConfigHandle(AssetHandle(v));
     }));
 
+// MaterialComponent (OLO_PROPERTY setter-based — private authored fields)
+registry.push_back(MakeSetterField<MaterialComponent, glm::vec4>(
+    "MaterialComponent", "AlbedoColor",
+    [](const MaterialComponent& comp) -> glm::vec4 { return (comp.m_Material.GetBaseColorFactor()); },
+    [](MaterialComponent& comp, const glm::vec4& v)
+    {
+        comp.m_Material.SetBaseColorFactor(v);
+    }));
+registry.push_back(MakeSetterField<MaterialComponent, float>(
+    "MaterialComponent", "Metallic",
+    [](const MaterialComponent& comp) -> float { return (comp.m_Material.GetMetallicFactor()); },
+    [](MaterialComponent& comp, const float& v)
+    {
+        comp.m_Material.SetMetallicFactor(v);
+    }, FieldRange{ std::optional<double>(0), std::optional<double>(1) }));
+registry.push_back(MakeSetterField<MaterialComponent, float>(
+    "MaterialComponent", "Roughness",
+    [](const MaterialComponent& comp) -> float { return (comp.m_Material.GetRoughnessFactor()); },
+    [](MaterialComponent& comp, const float& v)
+    {
+        comp.m_Material.SetRoughnessFactor(v);
+    }, FieldRange{ std::optional<double>(0), std::optional<double>(1) }));
+registry.push_back(MakeSetterField<MaterialComponent, glm::vec4>(
+    "MaterialComponent", "Emissive",
+    [](const MaterialComponent& comp) -> glm::vec4 { return (comp.m_Material.GetEmissiveFactor()); },
+    [](MaterialComponent& comp, const glm::vec4& v)
+    {
+        comp.m_Material.SetEmissiveFactor(v);
+    }));
+registry.push_back(MakeSetterField<MaterialComponent, float>(
+    "MaterialComponent", "NormalScale",
+    [](const MaterialComponent& comp) -> float { return (comp.m_Material.GetNormalScale()); },
+    [](MaterialComponent& comp, const float& v)
+    {
+        comp.m_Material.SetNormalScale(v);
+    }, FieldRange{ std::optional<double>(0), std::nullopt }));
+registry.push_back(MakeSetterField<MaterialComponent, int>(
+    "MaterialComponent", "PBRModel",
+    [](const MaterialComponent& comp) -> int { return (static_cast<int>(comp.m_Material.GetPBRModel())); },
+    [](MaterialComponent& comp, const int& v)
+    {
+        comp.m_Material.SetPBRModel(static_cast<PBRModel>(v));
+    }, FieldRange{ std::optional<double>(0), std::optional<double>(1) }));
+registry.push_back(MakeSetterField<MaterialComponent, int>(
+    "MaterialComponent", "MaterialKind",
+    [](const MaterialComponent& comp) -> int { return (static_cast<int>(comp.m_Material.GetMaterialKind())); },
+    [](MaterialComponent& comp, const int& v)
+    {
+        comp.m_Material.SetMaterialKind(static_cast<MaterialKind>(v));
+    }, FieldRange{ std::optional<double>(0), std::optional<double>(3) }));
+registry.push_back(MakeSetterField<MaterialComponent, AssetHandle>(
+    "MaterialComponent", "SkinProfile",
+    [](const MaterialComponent& comp) -> AssetHandle { return (comp.m_Material.GetSkinProfileHandle()); },
+    [](MaterialComponent& comp, const AssetHandle& v)
+    {
+        comp.m_Material.SetSkinProfileHandle(v);
+    }));
+registry.push_back(MakeSetterField<MaterialComponent, float>(
+    "MaterialComponent", "Transmission",
+    [](const MaterialComponent& comp) -> float { return (comp.m_Material.GetTransmissionFactor()); },
+    [](MaterialComponent& comp, const float& v)
+    {
+        comp.m_Material.SetTransmissionFactor(v);
+    }, FieldRange{ std::optional<double>(0), std::optional<double>(1) }));
+registry.push_back(MakeSetterField<MaterialComponent, float>(
+    "MaterialComponent", "IOR",
+    [](const MaterialComponent& comp) -> float { return (comp.m_Material.GetIOR()); },
+    [](MaterialComponent& comp, const float& v)
+    {
+        comp.m_Material.SetIOR(v);
+    }, FieldRange{ std::optional<double>(1), std::nullopt }));
+registry.push_back(MakeSetterField<MaterialComponent, float>(
+    "MaterialComponent", "Thickness",
+    [](const MaterialComponent& comp) -> float { return (comp.m_Material.GetThicknessFactor()); },
+    [](MaterialComponent& comp, const float& v)
+    {
+        comp.m_Material.SetThicknessFactor(v);
+    }, FieldRange{ std::optional<double>(0), std::nullopt }));
+registry.push_back(MakeSetterField<MaterialComponent, glm::vec3>(
+    "MaterialComponent", "AttenuationColor",
+    [](const MaterialComponent& comp) -> glm::vec3 { return (comp.m_Material.GetAttenuationColor()); },
+    [](MaterialComponent& comp, const glm::vec3& v)
+    {
+        comp.m_Material.SetAttenuationColor(v);
+    }, FieldRange{ std::optional<double>(0), std::optional<double>(1) }));
+registry.push_back(MakeSetterField<MaterialComponent, float>(
+    "MaterialComponent", "AttenuationDistance",
+    [](const MaterialComponent& comp) -> float { return (comp.m_Material.GetAttenuationDistance()); },
+    [](MaterialComponent& comp, const float& v)
+    {
+        comp.m_Material.SetAttenuationDistance(v);
+    }, FieldRange{ std::optional<double>(0), std::nullopt }));
+
 // TransformComponent (OLO_PROPERTY setter-based — private authored fields)
 registry.push_back(MakeSetterField<TransformComponent, glm::vec3>(
     "TransformComponent", "Rotation",
