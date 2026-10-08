@@ -183,15 +183,18 @@ namespace OloEngine::Tests
                                        });
         }
 
-        // OpenGLComputeShader's opt-in, which differs from the graphics one: a
-        // plain substring search of the include-resolved source, comments
-        // included.
+        // OpenGLComputeShader's opt-in: OLO_BINDLESS outside comments in the
+        // include-resolved source (it has no OLO_BINDLESS_ROUTE_PARITY form).
         [[nodiscard]] bool ComputeOptsInToTheBindlessBranch(const fs::path& root, const fs::path& shader)
         {
             std::vector<fs::path> files = SH::IncludeClosure(root, shader);
             files.push_back(shader);
-            return std::ranges::any_of(files, [](const fs::path& file)
-                                       { return SH::ReadWholeFile(file).find("OLO_BINDLESS") != std::string::npos; });
+            return std::ranges::any_of(files,
+                                       [](const fs::path& file)
+                                       {
+                                           return ShaderSourceScan::MentionsOutsideComments(SH::ReadWholeFile(file),
+                                                                                            "OLO_BINDLESS");
+                                       });
         }
 
         // The top-level graphics shaders (the files Shader::Create loads).
@@ -549,7 +552,12 @@ namespace OloEngine::Tests
             const std::vector<RawRouteStage> stages = PreprocessForRawRoute(root, path, compiler, error);
             const bool isCompute = std::ranges::any_of(stages, [](const RawRouteStage& stage)
                                                        { return stage.Kind == shaderc_glsl_compute_shader; });
-            if (!error.empty() || !isCompute || IsVulkanOnly(stages))
+            if (!error.empty())
+            {
+                preprocessFailures += "\n    " + path.filename().string() + " " + error;
+                continue;
+            }
+            if (!isCompute || IsVulkanOnly(stages))
             {
                 continue;
             }
@@ -568,6 +576,7 @@ namespace OloEngine::Tests
                          << measured;
         EXPECT_GT(programs.size(), 40u) << "too few raw-route programs found; the opt-in scan is broken, not the tree";
         EXPECT_GT(compute, 20u) << "too few bindless compute programs found; the opt-in scan is broken, not the tree";
+        EXPECT_TRUE(preprocessFailures.empty()) << "could not preprocess:" << preprocessFailures;
         EXPECT_TRUE(offRoute.empty()) << "These programs opt in to the bindless route and were NOT built on it "
                                          "by this driver — OloEngine.log has the driver's reason:"
                                       << offRoute;
