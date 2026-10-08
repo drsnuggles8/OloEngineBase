@@ -127,6 +127,19 @@ negative checks. Incremental Debug build passes (three steps, 2,049 dependency o
 The complete AssetContentValidity run executes 29 tests: 28 pass and one historical
 `ShaderCacheEntriesAllHaveLiveGlslSources` skip. One existing disabled
 `DISABLED_RebaseAssetRegistry` is listed separately, not executed. XML reports zero
-failures/errors. The e10f8fe1 remote rerun has 26 successful checks and two verified Linux shard skips;
-the main Windows job remains running at this snapshot. No all-green claim is made.
+failures/errors. The e10f8fe1 remote rerun is green: 31 successful checks and two
+intentional Linux
+shard skips covered by the passing 2,608-test ASan/LSan parent. This is the pre-merge
+head; final-head CI remains on the PR.
 Exact red/green, build and five remote failure-log hashes are in the ledger.
+
+## Current-master integration
+
+Master a14697268 merged into source 0333b05ac. Release/Debug builds of
+Editor, Runtime, Server and Tests pass. The ledger records nine selected regression
+groups, including the temporary-context tracker, shutdown/proxy/held-AS Vulkan tests.
+152 passes, two skips (historical content and Windows symlink privilege), and one
+disabled test are separate from the
+earlier live/paired measurements, which retain c519/e10 binary provenance. The measured
+Editor executable is archived with its original SHA. Final pushed-head CI is tracked
+on the PR; the e10 green snapshot does not assert merged-head CI.

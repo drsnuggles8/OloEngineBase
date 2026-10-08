@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "issue": 1257,
   "recordedDate": "2026-10-08",
-  "status": "Final-source functional and regional evidence plus native-verified monitored GL/Vulkan paired report-load observations complete; remote CI remains separately recorded",
+  "status": "Functional/regional and native-verified monitored measurements complete; merged-master local validation passed; recorded e10 remote CI green. Live final-head CI remains on the PR.",
   "sourceSnapshotAtDocumentation": {
     "head": "493141617ba592b6ad9e734c6e70f5d1171d72ad",
     "fourSupportingCommits": [
@@ -2544,9 +2544,7 @@
       "status": "post-fix observed run"
     }
   ],
-  "pending": [
-    "Main Windows CI job on e10f8fe1 remains running at documentation preparation; no all-green claim"
-  ],
+  "pending": [],
   "limitations": [
     "Settings and scheduled graph alone do not prove renderer consumption.",
     "PNG and diagnostics are nearby sequential frames, not atomic or contiguous motion video.",
@@ -14591,6 +14589,24 @@
         "path": "artifacts/residency/ci-e10-current-snapshot.json",
         "bytes": 9133,
         "sha256": "e870fc1d957781e4525da816c640bca1acab2a03c49245f867085853bde71d2b"
+      }
+    },
+    "greenRemoteRerun": {
+      "head": "e10f8fe1e4186a03fdd0944a100ba5d4ed27db99",
+      "successfulChecks": 31,
+      "skippedChecks": 2,
+      "failedChecks": 0,
+      "inProgressChecks": 0,
+      "scope": "e10 before the later local master merge; not final merged-head CI",
+      "raw": {
+        "path": "artifacts/residency/ci-e10-green-snapshot.json",
+        "bytes": 10332,
+        "sha256": "09018692aaaa74a76299c4f0423904be759f0d9a82324e8bb7995b263ac510b3"
+      },
+      "verifiedSkipParentLog": {
+        "path": "artifacts/residency/ci-new-asan-linux-parent.log",
+        "bytes": 12386352,
+        "sha256": "9edab33598204c69cf476131e9e52d90032ef52ac27e0e83e50364f10c63ed5c"
       }
     }
   },
@@ -61930,5 +61946,235 @@
       }
     ],
     "retainedReportPresent": false
+  },
+  "postMasterMergeValidation": {
+    "sourceHead": "0333b05acaabb1f9e80a5d24c05818005e2f9f71",
+    "baseMaster": "a1469726825fa2bb045f354ce18ae6d06d0fb904",
+    "scope": "Local merge validation only; no new paired measurements or relabeling of c519/e10 captures",
+    "checks": {
+      "head": "0333b05acaabb1f9e80a5d24c05818005e2f9f71",
+      "groups": [
+        {
+          "group": "cpu",
+          "exitCode": 0,
+          "executed": 57,
+          "passed": 57,
+          "skipped": 0,
+          "disabledNotRun": 0,
+          "failures": 0,
+          "xml": "C:\\repos\\OloEngine-groom-vegetation-streaming-residency-1257\\artifacts\\residency\\post-merge-cpu.xml",
+          "log": "C:\\repos\\OloEngine-groom-vegetation-streaming-residency-1257\\artifacts\\residency\\post-merge-cpu.log"
+        },
+        {
+          "group": "content",
+          "exitCode": 0,
+          "executed": 29,
+          "passed": 28,
+          "skipped": 1,
+          "disabledNotRun": 1,
+          "failures": 0,
+          "xml": "C:\\repos\\OloEngine-groom-vegetation-streaming-residency-1257\\artifacts\\residency\\post-merge-content.xml",
+          "log": "C:\\repos\\OloEngine-groom-vegetation-streaming-residency-1257\\artifacts\\residency\\post-merge-content.log"
+        },
+        {
+          "group": "mcp",
+          "exitCode": 0,
+          "executed": 48,
+          "passed": 47,
+          "skipped": 1,
+          "disabledNotRun": 0,
+          "failures": 0,
+          "xml": "C:\\repos\\OloEngine-groom-vegetation-streaming-residency-1257\\artifacts\\residency\\post-merge-mcp.xml",
+          "log": "C:\\repos\\OloEngine-groom-vegetation-streaming-residency-1257\\artifacts\\residency\\post-merge-mcp.log"
+        },
+        {
+          "group": "gl",
+          "exitCode": 0,
+          "executed": 8,
+          "passed": 8,
+          "skipped": 0,
+          "disabledNotRun": 0,
+          "failures": 0,
+          "xml": "C:\\repos\\OloEngine-groom-vegetation-streaming-residency-1257\\artifacts\\residency\\post-merge-gl.xml",
+          "log": "C:\\repos\\OloEngine-groom-vegetation-streaming-residency-1257\\artifacts\\residency\\post-merge-gl.log"
+        },
+        {
+          "group": "app",
+          "exitCode": 0,
+          "executed": 8,
+          "passed": 8,
+          "skipped": 0,
+          "disabledNotRun": 0,
+          "failures": 0,
+          "xml": "C:\\repos\\OloEngine-groom-vegetation-streaming-residency-1257\\artifacts\\residency\\post-merge-app.xml",
+          "log": "C:\\repos\\OloEngine-groom-vegetation-streaming-residency-1257\\artifacts\\residency\\post-merge-app.log"
+        },
+        {
+          "group": "vk-shutdown",
+          "exitCode": 0,
+          "executed": 1,
+          "passed": 1,
+          "skipped": 0,
+          "disabledNotRun": 0,
+          "failures": 0,
+          "xml": "C:\\repos\\OloEngine-groom-vegetation-streaming-residency-1257\\artifacts\\residency\\post-merge-vk-shutdown.xml",
+          "log": "C:\\repos\\OloEngine-groom-vegetation-streaming-residency-1257\\artifacts\\residency\\post-merge-vk-shutdown.log"
+        },
+        {
+          "group": "vk-proxy",
+          "exitCode": 0,
+          "executed": 1,
+          "passed": 1,
+          "skipped": 0,
+          "disabledNotRun": 0,
+          "failures": 0,
+          "xml": "C:\\repos\\OloEngine-groom-vegetation-streaming-residency-1257\\artifacts\\residency\\post-merge-vk-proxy.xml",
+          "log": "C:\\repos\\OloEngine-groom-vegetation-streaming-residency-1257\\artifacts\\residency\\post-merge-vk-proxy.log"
+        },
+        {
+          "group": "vk-as",
+          "exitCode": 0,
+          "executed": 1,
+          "passed": 1,
+          "skipped": 0,
+          "disabledNotRun": 0,
+          "failures": 0,
+          "xml": "C:\\repos\\OloEngine-groom-vegetation-streaming-residency-1257\\artifacts\\residency\\post-merge-vk-as.xml",
+          "log": "C:\\repos\\OloEngine-groom-vegetation-streaming-residency-1257\\artifacts\\residency\\post-merge-vk-as.log"
+        },
+        {
+          "group": "vk-context",
+          "exitCode": 0,
+          "executed": 1,
+          "passed": 1,
+          "skipped": 0,
+          "disabledNotRun": 0,
+          "failures": 0,
+          "xml": "C:\\repos\\OloEngine-groom-vegetation-streaming-residency-1257\\artifacts\\residency\\post-merge-vk-context.xml",
+          "log": "C:\\repos\\OloEngine-groom-vegetation-streaming-residency-1257\\artifacts\\residency\\post-merge-vk-context.log"
+        }
+      ],
+      "scope": "Existing selected regression tests on merged head; no new paired timing campaign",
+      "firstBatchAttempt": {
+        "exitCode": 1,
+        "reason": "Existing MCP symlink capability skip was unanticipated by scratch harness; native test exit0 with no failures",
+        "record": "C:\\repos\\OloEngine-groom-vegetation-streaming-residency-1257\\artifacts\\residency\\post-merge-checks-first-attempt.json"
+      },
+      "status": "passed"
+    },
+    "raw": {
+      "path": "artifacts/residency/post-merge-checks.json",
+      "bytes": 4344,
+      "sha256": "6f8f69090562c8a49db3201595dc14ae3b1386c6dc27a66f8992b546294c463b"
+    },
+    "builds": [
+      {
+        "path": "build-release-residency-master-merge.log",
+        "bytes": 8421167,
+        "sha256": "945407d3e2684db28ebfac844455ce766829dc74f4232ec0b1af942f6c8e5de6"
+      },
+      {
+        "path": "build-debug-residency-master-merge.log",
+        "bytes": 8389524,
+        "sha256": "20c51f17045e7c02a6bd25997bdf573c84560b66d3bca21011a7721aea4dbcab"
+      }
+    ],
+    "rawTestArtifacts": [
+      {
+        "path": "artifacts/residency/post-merge-cpu.xml",
+        "bytes": 17313,
+        "sha256": "301404fb15e7222b96d710aa542b59ef800a7b4f1bc6c63fb35fb22dd482ab00"
+      },
+      {
+        "path": "artifacts/residency/post-merge-cpu.log",
+        "bytes": 238575,
+        "sha256": "7f9884003200f4c623cf14654785dcd6118ee198968a574f5fa94745975a7141"
+      },
+      {
+        "path": "artifacts/residency/post-merge-content.xml",
+        "bytes": 8518,
+        "sha256": "bf5855b0f56b895ca0e1913c70080b7357c344b99151268561deaec59a4a8a0f"
+      },
+      {
+        "path": "artifacts/residency/post-merge-content.log",
+        "bytes": 6993,
+        "sha256": "8c23323c51004ec899685834f19e0cb24ecf53721f0e9f89e35bd9b4c339c835"
+      },
+      {
+        "path": "artifacts/residency/post-merge-mcp.xml",
+        "bytes": 12612,
+        "sha256": "c5da3cff238353e17ebca62eb6bbfe8f8017ce4d36e90ec883549efa92ecfeb5"
+      },
+      {
+        "path": "artifacts/residency/post-merge-mcp.log",
+        "bytes": 23519,
+        "sha256": "1384422535d318982b836c7302a4f1fb044c740d5be5da987f1ee502cf9c5473"
+      },
+      {
+        "path": "artifacts/residency/post-merge-gl.xml",
+        "bytes": 3243,
+        "sha256": "6b7ea8ec008fca8edc05500f3f77031b705dbe11de37e7bdcb52fa926d92ec88"
+      },
+      {
+        "path": "artifacts/residency/post-merge-gl.log",
+        "bytes": 1108266,
+        "sha256": "eefaaa81e2a14320f2fb655b94feda1218f5d16eded8339c7b771b1c784ab834"
+      },
+      {
+        "path": "artifacts/residency/post-merge-app.xml",
+        "bytes": 2113,
+        "sha256": "3160d6f6c4db442fca4b51341dd2862da4354c0874ca72fd72ffc388145c0829"
+      },
+      {
+        "path": "artifacts/residency/post-merge-app.log",
+        "bytes": 1712,
+        "sha256": "9764c3f960b9068bf104978279bccf7070aae48e5b913a561d1ddb2405e40eef"
+      },
+      {
+        "path": "artifacts/residency/post-merge-vk-shutdown.xml",
+        "bytes": 620,
+        "sha256": "4faed0604a4822928f8589cf4eceff836ef7fe762ec5107a6faf62b31a98b840"
+      },
+      {
+        "path": "artifacts/residency/post-merge-vk-shutdown.log",
+        "bytes": 2615,
+        "sha256": "88ce6124e1964542d5a57ffb501f589f4233e6aa1ce37ca029d4241e700ef22c"
+      },
+      {
+        "path": "artifacts/residency/post-merge-vk-proxy.xml",
+        "bytes": 609,
+        "sha256": "674f3ca376b670bf0ee860018f5fff394c5fe93beda95961c58d77dce5c9b2ef"
+      },
+      {
+        "path": "artifacts/residency/post-merge-vk-proxy.log",
+        "bytes": 2246,
+        "sha256": "e4a47a2c3813f9549acdb0c1067b61db93c71679685d52e3e9a12e8f8e7a6949"
+      },
+      {
+        "path": "artifacts/residency/post-merge-vk-as.xml",
+        "bytes": 633,
+        "sha256": "c6ed3cb4f19816fa5f3165682696e0e3ad740dc40ba6056cd01532b810419200"
+      },
+      {
+        "path": "artifacts/residency/post-merge-vk-as.log",
+        "bytes": 2594,
+        "sha256": "ef1fd634f09f2e9937e4b13caef06dd429a0c1d4bf47fb741e48a65b4ff55693"
+      },
+      {
+        "path": "artifacts/residency/post-merge-vk-context.xml",
+        "bytes": 660,
+        "sha256": "1abe306d5dd62a88a914c306b555d7aeb2bb77771c472d6f01a8f898cd649306"
+      },
+      {
+        "path": "artifacts/residency/post-merge-vk-context.log",
+        "bytes": 3540,
+        "sha256": "6a336040502bedd3b4aeb6a32c706438a6530e2ce67e79bea582b3dfe1b602f5"
+      }
+    ],
+    "measuredBinaryArchive": {
+      "path": "artifacts/residency/measured-binary-e10/OloEditor.exe",
+      "bytes": 134788608,
+      "sha256": "8999466a6e6a874d724dbe5865cbb56b563400b12f5a580620530c85b9317272"
+    }
   }
 }
