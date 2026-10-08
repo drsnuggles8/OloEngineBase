@@ -82,7 +82,8 @@ The initial GL/Vulkan groom attempts hit the 300-second private MCP startup dead
 during cold shader compilation. Their logs remain retained and they supply no accepted
 cell. Retries used 900 seconds with the same staging/cache. Debug captures provide no
 performance comparison. Completed regions and qualified GL pairs are in the linked
-performance record; paired Vulkan and accepted performance remain pending.
+performance record. Monitored GL/Vulkan pairs now complete with native audits and
+reported background load; they do not establish idle-host or causal acceptance.
 
 ## Region integration diagnosis and green regression
 
@@ -126,5 +127,6 @@ negative checks. Incremental Debug build passes (three steps, 2,049 dependency o
 The complete AssetContentValidity run executes 29 tests: 28 pass and one historical
 `ShaderCacheEntriesAllHaveLiveGlslSources` skip. One existing disabled
 `DISABLED_RebaseAssetRegistry` is listed separately, not executed. XML reports zero
-failures/errors. The new remote run has not started; no all-green CI claim is made.
+failures/errors. The e10f8fe1 remote rerun has 26 successful checks and two verified Linux shard skips;
+the main Windows job remains running at this snapshot. No all-green claim is made.
 Exact red/green, build and five remote failure-log hashes are in the ledger.

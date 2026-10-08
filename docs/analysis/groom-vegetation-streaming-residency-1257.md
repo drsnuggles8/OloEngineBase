@@ -3,10 +3,10 @@
 The committed-source Editor matrix and four regional runs are complete on source
 `c519034ed`; the [functional results](groom-vegetation-streaming-residency-1257-results.md)
 retain the 12-cell audit. Runtime and earlier captures keep their own provenance.
-The first GL paired campaign completed but has a post-run background-GPU qualification:
-it is descriptive evidence, not verified idle-host acceptance. Paired Vulkan has never
-run. The user authorized continuation with reported background load; monitored GL/Vulkan
-runs have not started, and accepted performance remains pending.
+Monitored GL/Vulkan paired campaigns now complete under user-authorized reported
+background load: 16 retained/eight warm per backend,
+191,956 retained native frames. Native audits pass. These are descriptive loaded-host
+observations; no idle-host or causal performance verdict is claimed.
 
 The [performance and regions record](groom-vegetation-streaming-residency-1257-performance.md)
 contains actual counters/tails and the qualification. The [public ledger](evidence/groom-vegetation-streaming-residency-1257.json)
@@ -135,8 +135,8 @@ python scripts/perf/streaming-residency-report.py --plan C:/perf/streaming-plan.
 ```
 
 Use the build-lock wrapper; `--summarize-capture` reads retained output. The first GL
-AB/BA result is qualified; accepted performance and paired Vulkan remain pending.
-No speedup is claimed. Read wall time includes OS caching,
+AB/BA result keeps its historical qualification. Monitored GL/Vulkan pairs are complete
+with explicit background load and observer cost; no causal speedup is claimed. Read wall time includes OS caching,
 preparation includes CPU build work, and neither is isolated disk latency. Optional
 groom preparation uses an already resident source, not a separate tier file.
 
