@@ -2,6 +2,7 @@
 #include "MCP/McpToolsCommon.h"
 #include "MCP/McpSchemaBuilder.h"
 #include "MCP/McpPhysicsExplain.h"
+#include "MCP/McpPhysics2D.h"
 #include "MCP/McpSetCollisionLayer.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Physics3D/JoltBody.h"
@@ -290,6 +291,7 @@ namespace OloEngine::MCP
                 }
                 JoltScene* physics = GetRunningPhysics(scene);
                 j["physicsRunning"] = physics != nullptr;
+                Physics2D::DescribeJoltScope(j, *scene);
 
                 std::vector<Entity> bodies;
                 for (const auto handle : scene->GetAllEntitiesWith<Rigidbody3DComponent>())
@@ -375,6 +377,7 @@ namespace OloEngine::MCP
                 }
                 JoltScene* physics = GetRunningPhysics(scene);
                 j["physicsRunning"] = physics != nullptr;
+                Physics2D::DescribeJoltScope(j, *scene);
                 if (!physics)
                 {
                     j["activeContactCount"] = 0;
@@ -461,8 +464,9 @@ namespace OloEngine::MCP
                 if (!scene)
                     return Json{ { "__error", "No active scene." } };
                 JoltScene* physics = GetRunningPhysics(scene);
+                Physics2D::DescribeJoltScope(j, *scene);
                 if (!physics)
-                    return Json{ { "__error", "Physics is not running — enter Play mode to run physics queries." } };
+                    return Json{ { "__error", "Jolt 3D physics is not running; enter Play mode. For Box2D use olo_physics2d_raycast." } };
 
                 RayCastInfo info = hasTo ? SceneQueryUtils::CreateRayInfo(origin, toPoint)
                                          : RayCastInfo(origin, glm::normalize(direction), maxDistance);
@@ -543,8 +547,9 @@ namespace OloEngine::MCP
                 if (!scene)
                     return Json{ { "__error", "No active scene." } };
                 JoltScene* physics = GetRunningPhysics(scene);
+                Physics2D::DescribeJoltScope(j, *scene);
                 if (!physics)
-                    return Json{ { "__error", "Physics is not running — enter Play mode to run physics queries." } };
+                    return Json{ { "__error", "Jolt 3D physics is not running; enter Play mode. For Box2D use olo_physics2d_raycast." } };
 
                 std::vector<SceneQueryHit> buffer(static_cast<sizet>(maxHits));
                 i32 count = 0;
@@ -705,6 +710,7 @@ namespace OloEngine::MCP
 
                 j["a"] = UuidToString(UUID(idA));
                 j["b"] = UuidToString(UUID(idB));
+                Physics2D::DescribeJoltScope(j, *scene);
                 j["reasonCode"] = verdict.ReasonCode;
                 j["summary"] = verdict.Summary;
                 j["canCollide"] = verdict.CanCollide;
@@ -773,6 +779,62 @@ namespace OloEngine::MCP
 
     void RegisterPhysicsTools(AutomationRegistry& registry)
     {
+        for (const bool colliders : { false, true })
+        {
+            ToolDef tool;
+            tool.Name = colliders ? "olo_physics2d_list_colliders" : "olo_physics2d_list_bodies";
+            tool.Toolset = "physics";
+            tool.Title = colliders ? "List Box2D colliders" : "List Box2D bodies";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description = "Inspect entity-backed Box2D 2D bodies or Box/Circle colliders, paginated. Edit mode reads authored components; Play/Simulate also reads live body positions, rotations (radians), velocities and shapes with density/friction/restitution/filter parameters. Tilemap-generated bodies are counted in worldCounts and reachable by raycast, not enumerated here. Works in GUI and headless attach with an active scene.";
+            tool.InputSchema = Physics2D::ListSchema();
+            tool.OutputSchema = Schema::Object().Prop("backend", Schema::String()).Prop("dimension", Schema::Int()).Prop("physicsRunning", Schema::Bool()).Prop("source", Schema::String()).Prop("total", Schema::Int()).Prop("page", Schema::Int()).Prop("pageSize", Schema::Int()).Prop("returned", Schema::Int()).Prop("nextPage", Schema::Int()).Prop("note", Schema::String()).Prop("worldCounts", Schema::Object()).Prop(colliders ? "colliders" : "bodies", Schema::Array(Schema::Object())).Required({ "backend", "dimension", "physicsRunning", "source", "total", "page", "pageSize", "returned", colliders ? "colliders" : "bodies" });
+            tool.MainMarshaled = true;
+            tool.Handler = [colliders](IAutomationHost& host, const Json& args)
+            {
+                const auto page = args.value("page", 0LL);
+                const int size = args.value("pageSize", 50);
+                Json result = host.MarshalRead([&host, page, size, colliders]() -> Json
+                                               {
+                    auto scene = host.Context().GetActiveScene ? host.Context().GetActiveScene() : nullptr;
+                    if (!scene) return Json{ { "error", "No active scene" } };
+                    return Physics2D::List(*scene, page, size, colliders); });
+                if (result.contains("error"))
+                    return ToolResult::Error(result["error"].get<std::string>());
+                return ToolResult::Structured(result);
+            };
+            registry.Register(std::move(tool));
+        }
+        {
+            ToolDef tool;
+            tool.Name = "olo_physics2d_raycast";
+            tool.Toolset = "physics";
+            tool.Title = "Box2D raycast";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description = "Cast a closest-hit ray in the live Box2D world (Play/Simulate only). origin and translation are finite [x,y] world coordinates; translation includes the ray length. Reports point, normal, fraction and shape; entity is null for world shapes without a Rigidbody2D entity (including tilemaps). Uses Box2D's default query filter and initial-overlap behavior. GUI and headless attach supported.";
+            tool.InputSchema = Physics2D::RaySchema();
+            tool.OutputSchema = Schema::Object().Prop("backend", Schema::String()).Prop("dimension", Schema::Int()).Prop("hit", Schema::Bool()).Prop("point", Schema::Array(Schema::Number())).Prop("normal", Schema::Array(Schema::Number())).Prop("fraction", Schema::Number()).Prop("shape", Schema::Object()).Prop("entity", Schema::Raw(Json{ { "type", Json::array({ "string", "null" }) } })).Required({ "backend", "dimension", "hit" });
+            tool.MainMarshaled = true;
+            tool.Handler = [](IAutomationHost& host, const Json& args)
+            {
+                b2Vec2 origin{ args["origin"][0].get<float>(), args["origin"][1].get<float>() };
+                b2Vec2 translation{ args["translation"][0].get<float>(), args["translation"][1].get<float>() };
+                if (!std::isfinite(origin.x) || !std::isfinite(origin.y) || !std::isfinite(translation.x) || !std::isfinite(translation.y) ||
+                    !std::isfinite(origin.x + translation.x) || !std::isfinite(origin.y + translation.y) ||
+                    !std::isfinite(b2Dot(translation, translation)) ||
+                    (std::abs(translation.x) <= 1e-6f && std::abs(translation.y) <= 1e-6f))
+                    return ToolResult::Error("Ray coordinates and squared length must remain finite in Box2D precision; translation must have nonzero length.");
+                Json result = host.MarshalRead([&host, origin, translation]() -> Json
+                                               {
+                    auto scene = host.Context().GetActiveScene ? host.Context().GetActiveScene() : nullptr;
+                    if (!scene) return Json{ { "error", "No active scene" } };
+                    return Physics2D::Raycast(*scene, origin, translation); });
+                if (result.contains("error"))
+                    return ToolResult::Error(result["error"].get<std::string>());
+                return ToolResult::Structured(result);
+            };
+            registry.Register(std::move(tool));
+        }
         {
             ToolDef tool;
             tool.Name = "olo_physics_layer_matrix";
@@ -806,6 +868,7 @@ namespace OloEngine::MCP
                                     .Required({ "objectLayers", "collisionMatrix", "userDefinedLayers", "note" });
             tool.MainMarshaled = false;
             tool.Handler = Handle_PhysicsLayerMatrix;
+            tool.Description += " Jolt 3D only; for Box2D use olo_physics2d_list_bodies, olo_physics2d_list_colliders or olo_physics2d_raycast.";
             registry.Register(std::move(tool));
         }
 
@@ -825,6 +888,10 @@ namespace OloEngine::MCP
                                    .NoAdditional();
             tool.OutputSchema = Schema::Object()
                                     .Prop("physicsRunning", Schema::Bool())
+                                    .Prop("backend", Schema::String())
+                                    .Prop("dimension", Schema::Int())
+                                    .Prop("hasAuthored2D", Schema::Bool())
+                                    .Prop("scopeNote", Schema::String())
                                     .Prop("total", Schema::Int().Min(0).Desc("Total entities with a Rigidbody3DComponent."))
                                     .Prop("page", Schema::Int().Min(0))
                                     .Prop("pageSize", Schema::Int().Min(1))
@@ -844,6 +911,7 @@ namespace OloEngine::MCP
                                     .Required({ "physicsRunning", "total", "page", "pageSize", "returned", "colliders" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PhysicsListColliders;
+            tool.Description += " Jolt 3D only; for Box2D use olo_physics2d_list_bodies, olo_physics2d_list_colliders or olo_physics2d_raycast.";
             registry.Register(std::move(tool));
         }
 
@@ -862,6 +930,10 @@ namespace OloEngine::MCP
                                    .NoAdditional();
             tool.OutputSchema = Schema::Object()
                                     .Prop("physicsRunning", Schema::Bool())
+                                    .Prop("backend", Schema::String())
+                                    .Prop("dimension", Schema::Int())
+                                    .Prop("hasAuthored2D", Schema::Bool())
+                                    .Prop("scopeNote", Schema::String())
                                     .Prop("activeContactCount", Schema::Int().Min(0).Desc("Total live contact pairs; may exceed 'returned' when truncated."))
                                     .Prop("contacts", Schema::Array(Schema::Object()
                                                                         .Prop("a", Schema::Object()
@@ -876,6 +948,7 @@ namespace OloEngine::MCP
                                     .Required({ "physicsRunning", "activeContactCount", "contacts" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PhysicsContacts;
+            tool.Description += " Jolt 3D only; for Box2D use olo_physics2d_list_bodies, olo_physics2d_list_colliders or olo_physics2d_raycast.";
             registry.Register(std::move(tool));
         }
 
@@ -914,6 +987,7 @@ namespace OloEngine::MCP
                                     .Required({ "origin", "direction", "maxDistance", "hitCount", "hits" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PhysicsRaycast;
+            tool.Description += " Jolt 3D only; for Box2D use olo_physics2d_list_bodies, olo_physics2d_list_colliders or olo_physics2d_raycast.";
             registry.Register(std::move(tool));
         }
 
@@ -948,6 +1022,7 @@ namespace OloEngine::MCP
                                     .Required({ "shape", "origin", "overlapCount", "overlaps" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PhysicsOverlap;
+            tool.Description += " Jolt 3D only; for Box2D use olo_physics2d_list_bodies, olo_physics2d_list_colliders or olo_physics2d_raycast.";
             registry.Register(std::move(tool));
         }
 
@@ -1001,6 +1076,7 @@ namespace OloEngine::MCP
                                     .Required({ "a", "b", "reasonCode", "summary", "canCollide", "checks", "facts" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PhysicsWhyNoCollision;
+            tool.Description += " Jolt 3D only; for Box2D use olo_physics2d_list_bodies, olo_physics2d_list_colliders or olo_physics2d_raycast.";
             registry.Register(std::move(tool));
         }
 

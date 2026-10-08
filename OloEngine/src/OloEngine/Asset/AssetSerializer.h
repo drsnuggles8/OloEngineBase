@@ -1,5 +1,7 @@
 #pragma once
 
+#include <optional>
+
 #include <atomic>
 #include <string>
 #include <string_view>
@@ -57,6 +59,11 @@ namespace OloEngine
     {
         u64 Offset = 0;
         u64 Size = 0;
+        // Exact metadata emitted by TextureSerializer, rather than the source texture spec.
+        std::optional<u32> TextureFormat;
+        bool TextureSRGB = false;
+        u32 TextureWidth = 0;
+        u32 TextureHeight = 0;
     };
 
     /**

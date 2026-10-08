@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="97" failures="0" disabled="0" errors="0" time="4.974" timestamp="2026-10-07T18:34:41.224" name="AllTests">
+  <testsuite name="AssetPackFileTest" tests="4" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-10-07T18:34:41.225">
+    <testcase name="HeaderSizeIs24Bytes" file="..\OloEngine\tests\AssetPackTest.cpp" line="106" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:41.225" classname="AssetPackFileTest" />
+    <testcase name="DefaultHeaderHasCorrectMagicAndVersion" file="..\OloEngine\tests\AssetPackTest.cpp" line="112" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:41.225" classname="AssetPackFileTest" />
+    <testcase name="RecordSizesAreTheBytesEachFieldWrites" file="..\OloEngine\tests\AssetPackTest.cpp" line="121" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:41.225" classname="AssetPackFileTest" />
+    <testcase name="IndexOffsetMustBeAtLeastHeaderSize" file="..\OloEngine\tests\AssetPackTest.cpp" line="135" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:41.226" classname="AssetPackFileTest" />
+  </testsuite>
+  <testsuite name="AssetPackTest" tests="13" failures="0" disabled="0" skipped="0" errors="0" time="0.122" timestamp="2026-10-07T18:34:41.226">
+    <testcase name="LoadFailsIfFileDoesNotExist" file="..\OloEngine\tests\AssetPackTest.cpp" line="151" status="run" result="completed" time="0.002" timestamp="2026-10-07T18:34:41.226" classname="AssetPackTest" />
+    <testcase name="LoadFailsWithInvalidMagicNumber" file="..\OloEngine\tests\AssetPackTest.cpp" line="160" status="run" result="completed" time="0.004" timestamp="2026-10-07T18:34:41.228" classname="AssetPackTest" />
+    <testcase name="LoadFailsWithZeroIndexOffset" file="..\OloEngine\tests\AssetPackTest.cpp" line="174" status="run" result="completed" time="0.008" timestamp="2026-10-07T18:34:41.233" classname="AssetPackTest" />
+    <testcase name="LoadFailsWithZeroAssetCount" file="..\OloEngine\tests\AssetPackTest.cpp" line="189" status="run" result="completed" time="0.014" timestamp="2026-10-07T18:34:41.241" classname="AssetPackTest" />
+    <testcase name="LoadSucceedsWithZeroSceneCount" file="..\OloEngine\tests\AssetPackTest.cpp" line="202" status="run" result="completed" time="0.01" timestamp="2026-10-07T18:34:41.257" classname="AssetPackTest" />
+    <testcase name="LoadRejectsAnyVersionButCurrent" file="..\OloEngine\tests\AssetPackTest.cpp" line="218" status="run" result="completed" time="0.025" timestamp="2026-10-07T18:34:41.267" classname="AssetPackTest" />
+    <testcase name="LoadFailsWithIndexOffsetBeyondFileSize" file="..\OloEngine\tests\AssetPackTest.cpp" line="242" status="run" result="completed" time="0.011" timestamp="2026-10-07T18:34:41.292" classname="AssetPackTest" />
+    <testcase name="LoadSucceedsWithValidMinimalPack" file="..\OloEngine\tests\AssetPackTest.cpp" line="255" status="run" result="completed" time="0.011" timestamp="2026-10-07T18:34:41.304" classname="AssetPackTest" />
+    <testcase name="UnloadMakesPackNotLoaded" file="..\OloEngine\tests\AssetPackTest.cpp" line="271" status="run" result="completed" time="0.002" timestamp="2026-10-07T18:34:41.315" classname="AssetPackTest" />
+    <testcase name="IdempotentLoadReturnsTrueOnSecondCall" file="..\OloEngine\tests\AssetPackTest.cpp" line="285" status="run" result="completed" time="0.001" timestamp="2026-10-07T18:34:41.318" classname="AssetPackTest" />
+    <testcase name="AssetInfoFieldOrderMatchesLoader" file="..\OloEngine\tests\AssetPackTest.cpp" line="300" status="run" result="completed" time="0.001" timestamp="2026-10-07T18:34:41.320" classname="AssetPackTest" />
+    <testcase name="LoadSucceedsWithMultipleAssetsNoScenes" file="..\OloEngine\tests\AssetPackTest.cpp" line="355" status="run" result="completed" time="0.012" timestamp="2026-10-07T18:34:41.322" classname="AssetPackTest" />
+    <testcase name="WrongFieldOrderProducesGarbledData" file="..\OloEngine\tests\AssetPackTest.cpp" line="372" status="run" result="completed" time="0.013" timestamp="2026-10-07T18:34:41.334" classname="AssetPackTest" />
+  </testsuite>
+  <testsuite name="AssetPackBuilderTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0.11" timestamp="2026-10-07T18:34:41.348">
+    <testcase name="EveryAssetLoadsBackFromTheOffsetTheBuilderRecorded" file="..\OloEngine\tests\AssetPackTest.cpp" line="432" status="run" result="completed" time="0.11" timestamp="2026-10-07T18:34:41.348" classname="AssetPackBuilderTest" />
+  </testsuite>
+  <testsuite name="TextureAutoCookPackTest" tests="6" failures="0" disabled="0" skipped="0" errors="0" time="0.803" timestamp="2026-10-07T18:34:41.459">
+    <testcase name="CompressionOnCooksSourcePngToBC7" file="..\OloEngine\tests\Rendering\PropertyTests\TextureAutoCookPackTest.cpp" line="210" status="run" result="completed" time="0.35" timestamp="2026-10-07T18:34:41.459" classname="TextureAutoCookPackTest" />
+    <testcase name="CompressionOnCooksHdrSourceToBC6H" file="..\OloEngine\tests\Rendering\PropertyTests\TextureAutoCookPackTest.cpp" line="236" status="run" result="completed" time="0.053" timestamp="2026-10-07T18:34:41.811" classname="TextureAutoCookPackTest" />
+    <testcase name="CompressionOffLeavesTextureUncompressed" file="..\OloEngine\tests\Rendering\PropertyTests\TextureAutoCookPackTest.cpp" line="262" status="run" result="completed" time="0.021" timestamp="2026-10-07T18:34:41.865" classname="TextureAutoCookPackTest" />
+    <testcase name="CookFailureFallsBackToUncompressedRecord" file="..\OloEngine\tests\Rendering\PropertyTests\TextureAutoCookPackTest.cpp" line="283" status="run" result="completed" time="0.037" timestamp="2026-10-07T18:34:41.887" classname="TextureAutoCookPackTest" />
+    <testcase name="AnAlphaCutoutShipsItsCoverageChain" file="..\OloEngine\tests\Rendering\PropertyTests\TextureAutoCookPackTest.cpp" line="315" status="run" result="completed" time="0.273" timestamp="2026-10-07T18:34:41.925" classname="TextureAutoCookPackTest" />
+    <testcase name="AHashNamedAlbedoShipsInItsMaterialSlotsColourSpace" file="..\OloEngine\tests\Rendering\PropertyTests\TextureAutoCookPackTest.cpp" line="358" status="run" result="completed" time="0.063" timestamp="2026-10-07T18:34:42.199" classname="TextureAutoCookPackTest" />
+  </testsuite>
+  <testsuite name="McpHeadlessAttachTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="2.836" timestamp="2026-10-07T18:34:42.263">
+    <testcase name="ScreenshotAndShaderErrorsOverMcp" file="..\OloEngine\tests\Rendering\PropertyTests\McpHeadlessAttachTest.cpp" line="202" status="run" result="completed" time="2.836" timestamp="2026-10-07T18:34:42.263" classname="McpHeadlessAttachTest" />
+  </testsuite>
+  <testsuite name="McpPhysics2D" tests="4" failures="0" disabled="0" skipped="0" errors="0" time="0.007" timestamp="2026-10-07T18:34:45.100">
+    <testcase name="RealCommandsValidateInputsAndJoltDoesNotSilentlyHide2D" file="..\OloEngine\tests\MCP\McpPhysics2DTest.cpp" line="38" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:45.100" classname="McpPhysics2D" />
+    <testcase name="AuthoredMixedAndEmptyScenesHaveExplicitScope" file="..\OloEngine\tests\MCP\McpPhysics2DTest.cpp" line="70" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:45.101" classname="McpPhysics2D" />
+    <testcase name="LiveReadUsesBox2DStateAndRayHitsTheEntity" file="..\OloEngine\tests\MCP\McpPhysics2DTest.cpp" line="98" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:45.101" classname="McpPhysics2D" />
+    <testcase name="RealCommandsDistinguishBothWorldsInEditAndLiveMixedOrEmptyScenes" file="..\OloEngine\tests\MCP\McpPhysics2DTest.cpp" line="123" status="run" result="completed" time="0.005" timestamp="2026-10-07T18:34:45.101" classname="McpPhysics2D" />
+  </testsuite>
+  <testsuite name="McpToolAnnotations" tests="5" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-10-07T18:34:45.107">
+    <testcase name="ToolsListEmitsTitleAndReadOnlyAnnotations" file="..\OloEngine\tests\MCP\McpToolAnnotationsTest.cpp" line="95" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:45.107" classname="McpToolAnnotations" />
+    <testcase name="ToolsListOmitsTitleWhenEmpty" file="..\OloEngine\tests\MCP\McpToolAnnotationsTest.cpp" line="115" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:45.107" classname="McpToolAnnotations" />
+    <testcase name="ToolsListOmitsAnnotationsWhenEmpty" file="..\OloEngine\tests\MCP\McpToolAnnotationsTest.cpp" line="130" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:45.107" classname="McpToolAnnotations" />
+    <testcase name="ToolsListOmitsAnnotationsWhenEmptyObject" file="..\OloEngine\tests\MCP\McpToolAnnotationsTest.cpp" line="149" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:45.107" classname="McpToolAnnotations" />
+    <testcase name="ReadOnlyAndMutatingClassificationRoundTrip" file="..\OloEngine\tests\MCP\McpToolAnnotationsTest.cpp" line="165" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:45.107" classname="McpToolAnnotations" />
+  </testsuite>
+  <testsuite name="McpOutputSchemaCoverage" tests="2" failures="0" disabled="0" skipped="0" errors="0" time="0.223" timestamp="2026-10-07T18:34:45.107">
+    <testcase name="EveryDeclaredOutputSchemaIsWellFormed" file="..\OloEngine\tests\MCP\McpOutputSchemaCoverageTest.cpp" line="75" status="run" result="completed" time="0.222" timestamp="2026-10-07T18:34:45.107" classname="McpOutputSchemaCoverage" />
+    <testcase name="EveryToolDeclaresAnOutputSchemaExceptTextOnlyExemptions" file="..\OloEngine\tests\MCP\McpOutputSchemaCoverageTest.cpp" line="114" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:45.330" classname="McpOutputSchemaCoverage" />
+  </testsuite>
+  <testsuite name="McpInputValidation" tests="15" failures="0" disabled="0" skipped="0" errors="0" time="0.001" timestamp="2026-10-07T18:34:45.331">
+    <testcase name="HappyPathReturnsNoError" file="..\OloEngine\tests\MCP\McpInputValidationTest.cpp" line="65" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:45.331" classname="McpInputValidation" />
+    <testcase name="MissingRequiredPropertyNamesTheField" file="..\OloEngine\tests\MCP\McpInputValidationTest.cpp" line="77" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:45.331" classname="McpInputValidation" />
+    <testcase name="WrongTypeNamesFieldAndExpectedType" file="..\OloEngine\tests\MCP\McpInputValidationTest.cpp" line="83" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:45.331" classname="McpInputValidation" />
+    <testcase name="IntegerIsStrictAboutWholeValuedFloats" file="..\OloEngine\tests\MCP\McpInputValidationTest.cpp" line="90" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:45.331" classname="McpInputValidation" />
+    <testcase name="IntegerOutOfRangeReportsTheBound" file="..\OloEngine\tests\MCP\McpInputValidationTest.cpp" line="98" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:45.331" classname="McpInputValidation" />
+    <testcase name="NumberAcceptsIntegerAndFloatAndEnforcesExclusiveMin" file="..\OloEngine\tests\MCP\McpInputValidationTest.cpp" line="106" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:45.331" classname="McpInputValidation" />
+    <testcase name="NonFiniteNumbersAreRejected" file="..\OloEngine\tests\MCP\McpInputValidationTest.cpp" line="121" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:45.332" classname="McpInputValidation" />
+    <testcase name="EnumRejectsValuesOutsideTheClosedSet" file="..\OloEngine\tests\MCP\McpInputValidationTest.cpp" line="140" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:45.332" classname="McpInputValidation" />
+    <testcase name="StringLengthBoundsAreEnforced" file="..\OloEngine\tests\MCP\McpInputValidationTest.cpp" line="150" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:45.332" classname="McpInputValidation" />
+    <testcase name="ClosedObjectRejectsUnexpectedProperty" file="..\OloEngine\tests\MCP\McpInputValidationTest.cpp" line="174" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:45.332" classname="McpInputValidation" />
+    <testcase name="OpenObjectAllowsUnknownProperties" file="..\OloEngine\tests\MCP\McpInputValidationTest.cpp" line="180" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:45.332" classname="McpInputValidation" />
+    <testcase name="EmptyObjectSchemaRejectsAnyArgument" file="..\OloEngine\tests\MCP\McpInputValidationTest.cpp" line="187" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:45.332" classname="McpInputValidation" />
+    <testcase name="NestedArrayEnforcesItemsAndLength" file="..\OloEngine\tests\MCP\McpInputValidationTest.cpp" line="198" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:45.332" classname="McpInputValidation" />
+    <testcase name="MultiTypeUnionAcceptsEitherTypeAndReportsBoth" file="..\OloEngine\tests\MCP\McpInputValidationTest.cpp" line="222" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:45.332" classname="McpInputValidation" />
+    <testcase name="PermissiveSchemaValidatesNothing" file="..\OloEngine\tests\MCP\McpInputValidationTest.cpp" line="237" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:45.332" classname="McpInputValidation" />
+  </testsuite>
+  <testsuite name="McpDocsCoverage" tests="2" failures="0" disabled="0" skipped="0" errors="0" time="0.655" timestamp="2026-10-07T18:34:45.332">
+    <testcase name="EveryRegisteredToolAppearsInTheGuide" file="..\OloEngine\tests\MCP\McpDocsCoverageTest.cpp" line="186" status="run" result="completed" time="0.31" timestamp="2026-10-07T18:34:45.332" classname="McpDocsCoverage" />
+    <testcase name="EveryConsentGatedToolIsMarkedConsentedWriteInTheGuide" file="..\OloEngine\tests\MCP\McpDocsCoverageTest.cpp" line="217" status="run" result="completed" time="0.343" timestamp="2026-10-07T18:34:45.644" classname="McpDocsCoverage" />
+  </testsuite>
+  <testsuite name="McpFieldRegistry" tests="40" failures="0" disabled="0" skipped="0" errors="0" time="0.037" timestamp="2026-10-07T18:34:45.988">
+    <testcase name="MaterialFactorsAndSkinProfileUseLiveSettersAndUndo" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="94" status="run" result="completed" time="0.018" timestamp="2026-10-07T18:34:45.988" classname="McpFieldRegistry" />
+    <testcase name="CoversVirtualMeshComponent" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="133" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.007" classname="McpFieldRegistry" />
+    <testcase name="CoversTheComponentsAnAgentDebugsWith" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="144" status="run" result="completed" time="0.002" timestamp="2026-10-07T18:34:46.008" classname="McpFieldRegistry" />
+    <testcase name="KeepsEveryPreviouslyHandWrittenField" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="162" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.010" classname="McpFieldRegistry" />
+    <testcase name="TransformRotationAccessorRoundTripsAndUndoes" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="183" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.010" classname="McpFieldRegistry" />
+    <testcase name="RefusesRuntimeOnlyComponents" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="223" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.010" classname="McpFieldRegistry" />
+    <testcase name="AnimationStateExposesItsSettingsButNotItsPlaybackState" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="241" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.011" classname="McpFieldRegistry" />
+    <testcase name="BlendDurationCannotBeWrittenToZeroOrNegative" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="265" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.012" classname="McpFieldRegistry" />
+    <testcase name="RuntimeOnlyComponentWriteIsRefusedWithGuidance" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="288" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.012" classname="McpFieldRegistry" />
+    <testcase name="SkipAnnotatedRuntimeFieldsAreNotWritable" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="301" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.013" classname="McpFieldRegistry" />
+    <testcase name="ClampsAnnotatedRangeAndReportsIt" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="314" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.013" classname="McpFieldRegistry" />
+    <testcase name="InRangeWriteIsNotClamped" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="335" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.013" classname="McpFieldRegistry" />
+    <testcase name="ClampsHandWrittenSerializerRange" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="350" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.013" classname="McpFieldRegistry" />
+    <testcase name="ListFieldsReportsTheRange" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="364" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.013" classname="McpFieldRegistry" />
+    <testcase name="ReportedValueIsReadBackFromTheComponent" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="399" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.014" classname="McpFieldRegistry" />
+    <testcase name="NoOpWriteReportsChangedFalse" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="417" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.014" classname="McpFieldRegistry" />
+    <testcase name="ClampedNoOpReportsBothFlags" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="434" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.014" classname="McpFieldRegistry" />
+    <testcase name="AssetHandleFieldRoundTrips" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="451" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.014" classname="McpFieldRegistry" />
+    <testcase name="EnumFieldRoundTripsAndClampsToValidEnumerators" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="470" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.014" classname="McpFieldRegistry" />
+    <testcase name="StringFieldOnNewlyRegisteredComponentRoundTrips" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="495" status="run" result="completed" time="0.002" timestamp="2026-10-07T18:34:46.015" classname="McpFieldRegistry" />
+    <testcase name="UnknownFieldOnKnownComponentListsItsFields" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="509" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.017" classname="McpFieldRegistry" />
+    <testcase name="CoversFieldsNestedInsideANonPodMember" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="536" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.017" classname="McpFieldRegistry" />
+    <testcase name="NestedFieldWriteRoundTripsAndUndoes" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="559" status="run" result="completed" time="0.002" timestamp="2026-10-07T18:34:46.017" classname="McpFieldRegistry" />
+    <testcase name="NestedVectorFieldRoundTrips" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="584" status="run" result="completed" time="0.001" timestamp="2026-10-07T18:34:46.021" classname="McpFieldRegistry" />
+    <testcase name="NestedFieldInheritsTheSerializerClampInsteadOfIndexingOutOfBounds" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="608" status="run" result="completed" time="0.001" timestamp="2026-10-07T18:34:46.023" classname="McpFieldRegistry" />
+    <testcase name="DescentDoesNotInventFieldsForContainerElements" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="631" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.024" classname="McpFieldRegistry" />
+    <testcase name="DescentRespectsSkipOnARuntimeCacheSubObject" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="644" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.024" classname="McpFieldRegistry" />
+    <testcase name="ListFieldsReportsNestedDottedFields" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="653" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.024" classname="McpFieldRegistry" />
+    <testcase name="MapFieldBarePrefixIsNotDirectlyWritable" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="693" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.025" classname="McpFieldRegistry" />
+    <testcase name="CoversAudioSourceComponent" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="710" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.025" classname="McpFieldRegistry" />
+    <testcase name="AudioSourcePropertyRoundTripsAndUndoes" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="724" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.025" classname="McpFieldRegistry" />
+    <testcase name="AudioSourceHandleFieldRoundTrips" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="745" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.025" classname="McpFieldRegistry" />
+    <testcase name="WriteDoesNotResetActiveEventID" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="773" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.025" classname="McpFieldRegistry" />
+    <testcase name="WeightsKeyRoundTripsAndUndoes" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="803" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.025" classname="McpFieldRegistry" />
+    <testcase name="UndoOfAnExistingKeyOverwriteRestoresTheOldValueRatherThanErasing" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="835" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.025" classname="McpFieldRegistry" />
+    <testcase name="DistinctKeysOnTheSameMapFieldAreIndependentlyAddressable" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="855" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.025" classname="McpFieldRegistry" />
+    <testcase name="WeightsKeyClampsToZeroOneRange" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="870" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.026" classname="McpFieldRegistry" />
+    <testcase name="BareWeightsFieldWithNoKeyIsRefused" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="891" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.026" classname="McpFieldRegistry" />
+    <testcase name="ListFieldsExpandsMapKeysIntoDottedEntries" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="906" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.026" classname="McpFieldRegistry" />
+    <testcase name="ListFieldsOnEmptyWeightsMapReportsNoMapEntries" file="..\OloEngine\tests\MCP\McpFieldRegistryTest.cpp" line="946" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.026" classname="McpFieldRegistry" />
+  </testsuite>
+  <testsuite name="McpAssetPackBuild" tests="4" failures="0" disabled="0" skipped="1" errors="0" time="0.172" timestamp="2026-10-07T18:34:46.026">
+    <testcase name="RejectsTraversalAbsolutePathsAndFinalSymlinkEscape" file="..\OloEngine\tests\MCP\McpAssetPackBuildTest.cpp" line="18" status="run" result="skipped" time="0.005" timestamp="2026-10-07T18:34:46.026" classname="McpAssetPackBuild">
+      <skipped message="..\OloEngine\tests\MCP\McpAssetPackBuildTest.cpp:33&#x0A;Creating symlinks requires Windows developer mode or symlink privilege: A required privilege is not held by the client.&#x0A;"><![CDATA[..\OloEngine\tests\MCP\McpAssetPackBuildTest.cpp:33
+Creating symlinks requires Windows developer mode or symlink privilege: A required privilege is not held by the client.
+]]></skipped>
+    </testcase>
+    <testcase name="RecordsReportTheSerializersCookedMetadataAndRuntimeScope" file="..\OloEngine\tests\MCP\McpAssetPackBuildTest.cpp" line="41" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.032" classname="McpAssetPackBuild" />
+    <testcase name="RealCommandEnforcesConsentSchemaAndErrorShapes" file="..\OloEngine\tests\MCP\McpAssetPackBuildTest.cpp" line="84" status="run" result="completed" time="0." timestamp="2026-10-07T18:34:46.032" classname="McpAssetPackBuild" />
+    <testcase name="RealBuildAutoSavesPollsAndReturnsWarningsWithBothCompressionSettings" file="..\OloEngine\tests\MCP\McpAssetPackBuildTest.cpp" line="103" status="run" result="completed" time="0.165" timestamp="2026-10-07T18:34:46.033" classname="McpAssetPackBuild" />
+  </testsuite>
+</testsuites>

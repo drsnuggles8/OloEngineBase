@@ -23,6 +23,8 @@
 //   Type  — Override the exposed type (float/bool/int/vec2/vec3/vec4)
 //   Get   — Custom getter expression on the component (uses $ for component ref)
 //   Set   — Custom setter expression ({v} = incoming value)
+//   MCPOnly — "true" emits diagnostics access without a scripting binding
+//   Min / Max — optional numeric range for MCP setter coercion
 //   Skip  — If "true", the next field is the anchor but no binding is generated
 //           (used when OLO_PROPERTY carries only metadata for custom PROP)
 // =============================================================================

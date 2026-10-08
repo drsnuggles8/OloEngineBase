@@ -1,0 +1,2243 @@
+{
+  "date": "2026-10-07",
+  "resolution": [
+    640,
+    360
+  ],
+  "scene": "MaterialSpheres.olo",
+  "entity": "780000000000100",
+  "camera": {
+    "position": [
+      -4.5,
+      1.4,
+      -6.8
+    ],
+    "target": [
+      -4.5,
+      0.5,
+      -4.5
+    ],
+    "fov": 45
+  },
+  "rendering": {
+    "opengl": {
+      "backend": "OpenGL",
+      "path": "Forward",
+      "fieldDiscovery": [
+        {
+          "components": [
+            {
+              "component": "MaterialComponent",
+              "fields": [
+                {
+                  "field": "ShaderGraphHandle",
+                  "type": "handle",
+                  "value": "0"
+                },
+                {
+                  "field": "AlbedoColor",
+                  "type": "vec4",
+                  "value": [
+                    0.019999999552965164,
+                    0.20000000298023224,
+                    0.8999999761581421,
+                    1.0
+                  ]
+                },
+                {
+                  "field": "Metallic",
+                  "max": 1.0,
+                  "min": 0.0,
+                  "type": "float",
+                  "value": 0.800000011920929
+                },
+                {
+                  "field": "Roughness",
+                  "max": 1.0,
+                  "min": 0.0,
+                  "type": "float",
+                  "value": 0.05000000074505806
+                },
+                {
+                  "field": "Emissive",
+                  "type": "vec4",
+                  "value": [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ]
+                },
+                {
+                  "field": "NormalScale",
+                  "min": 0.0,
+                  "type": "float",
+                  "value": 1.0
+                },
+                {
+                  "field": "PBRModel",
+                  "max": 1.0,
+                  "min": 0.0,
+                  "type": "int",
+                  "value": 0
+                },
+                {
+                  "field": "MaterialKind",
+                  "max": 3.0,
+                  "min": 0.0,
+                  "type": "int",
+                  "value": 0
+                },
+                {
+                  "field": "SkinProfile",
+                  "type": "handle",
+                  "value": "0"
+                },
+                {
+                  "field": "Transmission",
+                  "max": 1.0,
+                  "min": 0.0,
+                  "type": "float",
+                  "value": 0.0
+                },
+                {
+                  "field": "IOR",
+                  "min": 1.0,
+                  "type": "float",
+                  "value": 1.5
+                },
+                {
+                  "field": "Thickness",
+                  "min": 0.0,
+                  "type": "float",
+                  "value": 0.0
+                },
+                {
+                  "field": "AttenuationColor",
+                  "max": 1.0,
+                  "min": 0.0,
+                  "type": "vec3",
+                  "value": [
+                    1.0,
+                    1.0,
+                    1.0
+                  ]
+                },
+                {
+                  "field": "AttenuationDistance",
+                  "min": 0.0,
+                  "type": "float",
+                  "value": null
+                }
+              ]
+            }
+          ],
+          "entity": "780000000000100",
+          "found": true
+        },
+        {
+          "components": [
+            {
+              "component": "MaterialComponent",
+              "fields": [
+                {
+                  "field": "ShaderGraphHandle",
+                  "type": "handle",
+                  "value": "0"
+                },
+                {
+                  "field": "AlbedoColor",
+                  "type": "vec4",
+                  "value": [
+                    0.019999999552965164,
+                    0.20000000298023224,
+                    0.8999999761581421,
+                    1.0
+                  ]
+                },
+                {
+                  "field": "Metallic",
+                  "max": 1.0,
+                  "min": 0.0,
+                  "type": "float",
+                  "value": 0.800000011920929
+                },
+                {
+                  "field": "Roughness",
+                  "max": 1.0,
+                  "min": 0.0,
+                  "type": "float",
+                  "value": 0.05000000074505806
+                },
+                {
+                  "field": "Emissive",
+                  "type": "vec4",
+                  "value": [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ]
+                },
+                {
+                  "field": "NormalScale",
+                  "min": 0.0,
+                  "type": "float",
+                  "value": 1.0
+                },
+                {
+                  "field": "PBRModel",
+                  "max": 1.0,
+                  "min": 0.0,
+                  "type": "int",
+                  "value": 0
+                },
+                {
+                  "field": "MaterialKind",
+                  "max": 3.0,
+                  "min": 0.0,
+                  "type": "int",
+                  "value": 0
+                },
+                {
+                  "field": "SkinProfile",
+                  "type": "handle",
+                  "value": "0"
+                },
+                {
+                  "field": "Transmission",
+                  "max": 1.0,
+                  "min": 0.0,
+                  "type": "float",
+                  "value": 0.0
+                },
+                {
+                  "field": "IOR",
+                  "min": 1.0,
+                  "type": "float",
+                  "value": 1.5
+                },
+                {
+                  "field": "Thickness",
+                  "min": 0.0,
+                  "type": "float",
+                  "value": 0.0
+                },
+                {
+                  "field": "AttenuationColor",
+                  "max": 1.0,
+                  "min": 0.0,
+                  "type": "vec3",
+                  "value": [
+                    1.0,
+                    1.0,
+                    1.0
+                  ]
+                },
+                {
+                  "field": "AttenuationDistance",
+                  "min": 0.0,
+                  "type": "float",
+                  "value": null
+                }
+              ]
+            }
+          ],
+          "entity": "780000000000100",
+          "found": true
+        }
+      ],
+      "writes": [
+        {
+          "changed": false,
+          "clamped": false,
+          "component": "MaterialComponent",
+          "entity": "780000000000100",
+          "field": "Metallic",
+          "previousValue": 0.800000011920929,
+          "type": "float",
+          "undoable": false,
+          "value": 0.800000011920929
+        },
+        {
+          "changed": true,
+          "clamped": false,
+          "component": "MaterialComponent",
+          "entity": "780000000000100",
+          "field": "AlbedoColor",
+          "previousValue": [
+            0.019999999552965164,
+            0.20000000298023224,
+            0.8999999761581421,
+            1.0
+          ],
+          "type": "vec4",
+          "undoable": true,
+          "value": [
+            0.8999999761581421,
+            0.03999999910593033,
+            0.019999999552965164,
+            1.0
+          ]
+        },
+        {
+          "changed": false,
+          "clamped": false,
+          "component": "MaterialComponent",
+          "entity": "780000000000100",
+          "field": "Roughness",
+          "previousValue": 0.05000000074505806,
+          "type": "float",
+          "undoable": false,
+          "value": 0.05000000074505806
+        },
+        {
+          "changed": true,
+          "clamped": false,
+          "component": "MaterialComponent",
+          "entity": "780000000000100",
+          "field": "AlbedoColor",
+          "previousValue": [
+            0.8999999761581421,
+            0.03999999910593033,
+            0.019999999552965164,
+            1.0
+          ],
+          "type": "vec4",
+          "undoable": true,
+          "value": [
+            0.019999999552965164,
+            0.20000000298023224,
+            0.8999999761581421,
+            1.0
+          ]
+        },
+        {
+          "changed": true,
+          "clamped": false,
+          "component": "MaterialComponent",
+          "entity": "780000000000100",
+          "field": "Roughness",
+          "previousValue": 0.05000000074505806,
+          "type": "float",
+          "undoable": true,
+          "value": 0.8999999761581421
+        }
+      ],
+      "deltas": {
+        "red-smooth -> blue-smooth": {
+          "meanAbsolute8bitChannelDelta": 5.238640407986111,
+          "pixelsDeltaGreaterThan3": 33940
+        },
+        "blue-smooth -> blue-rough": {
+          "meanAbsolute8bitChannelDelta": 2.9365711805555557,
+          "pixelsDeltaGreaterThan3": 31707
+        },
+        "blue-smooth -> undo-roughness": {
+          "meanAbsolute8bitChannelDelta": 0.0,
+          "pixelsDeltaGreaterThan3": 0
+        }
+      },
+      "shaderTracking": {
+        "available": false,
+        "count": null,
+        "detail": "Shader tracking is compiled out of this build (OLO_SHADER_REGISTER is Debug-only), so shader errors cannot be reported. Use a Debug editor to check shader errors.",
+        "errors": [],
+        "status": "unavailableInThisBuild"
+      }
+    },
+    "vulkan": {
+      "backend": "Vulkan",
+      "path": "Forward",
+      "fieldDiscovery": [
+        {
+          "components": [
+            {
+              "component": "MaterialComponent",
+              "fields": [
+                {
+                  "field": "ShaderGraphHandle",
+                  "type": "handle",
+                  "value": "0"
+                },
+                {
+                  "field": "AlbedoColor",
+                  "type": "vec4",
+                  "value": [
+                    0.019999999552965164,
+                    0.20000000298023224,
+                    0.8999999761581421,
+                    1.0
+                  ]
+                },
+                {
+                  "field": "Metallic",
+                  "max": 1.0,
+                  "min": 0.0,
+                  "type": "float",
+                  "value": 0.800000011920929
+                },
+                {
+                  "field": "Roughness",
+                  "max": 1.0,
+                  "min": 0.0,
+                  "type": "float",
+                  "value": 0.05000000074505806
+                },
+                {
+                  "field": "Emissive",
+                  "type": "vec4",
+                  "value": [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ]
+                },
+                {
+                  "field": "NormalScale",
+                  "min": 0.0,
+                  "type": "float",
+                  "value": 1.0
+                },
+                {
+                  "field": "PBRModel",
+                  "max": 1.0,
+                  "min": 0.0,
+                  "type": "int",
+                  "value": 0
+                },
+                {
+                  "field": "MaterialKind",
+                  "max": 3.0,
+                  "min": 0.0,
+                  "type": "int",
+                  "value": 0
+                },
+                {
+                  "field": "SkinProfile",
+                  "type": "handle",
+                  "value": "0"
+                },
+                {
+                  "field": "Transmission",
+                  "max": 1.0,
+                  "min": 0.0,
+                  "type": "float",
+                  "value": 0.0
+                },
+                {
+                  "field": "IOR",
+                  "min": 1.0,
+                  "type": "float",
+                  "value": 1.5
+                },
+                {
+                  "field": "Thickness",
+                  "min": 0.0,
+                  "type": "float",
+                  "value": 0.0
+                },
+                {
+                  "field": "AttenuationColor",
+                  "max": 1.0,
+                  "min": 0.0,
+                  "type": "vec3",
+                  "value": [
+                    1.0,
+                    1.0,
+                    1.0
+                  ]
+                },
+                {
+                  "field": "AttenuationDistance",
+                  "min": 0.0,
+                  "type": "float",
+                  "value": null
+                }
+              ]
+            }
+          ],
+          "entity": "780000000000100",
+          "found": true
+        },
+        {
+          "components": [
+            {
+              "component": "MaterialComponent",
+              "fields": [
+                {
+                  "field": "ShaderGraphHandle",
+                  "type": "handle",
+                  "value": "0"
+                },
+                {
+                  "field": "AlbedoColor",
+                  "type": "vec4",
+                  "value": [
+                    0.019999999552965164,
+                    0.20000000298023224,
+                    0.8999999761581421,
+                    1.0
+                  ]
+                },
+                {
+                  "field": "Metallic",
+                  "max": 1.0,
+                  "min": 0.0,
+                  "type": "float",
+                  "value": 0.800000011920929
+                },
+                {
+                  "field": "Roughness",
+                  "max": 1.0,
+                  "min": 0.0,
+                  "type": "float",
+                  "value": 0.05000000074505806
+                },
+                {
+                  "field": "Emissive",
+                  "type": "vec4",
+                  "value": [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ]
+                },
+                {
+                  "field": "NormalScale",
+                  "min": 0.0,
+                  "type": "float",
+                  "value": 1.0
+                },
+                {
+                  "field": "PBRModel",
+                  "max": 1.0,
+                  "min": 0.0,
+                  "type": "int",
+                  "value": 0
+                },
+                {
+                  "field": "MaterialKind",
+                  "max": 3.0,
+                  "min": 0.0,
+                  "type": "int",
+                  "value": 0
+                },
+                {
+                  "field": "SkinProfile",
+                  "type": "handle",
+                  "value": "0"
+                },
+                {
+                  "field": "Transmission",
+                  "max": 1.0,
+                  "min": 0.0,
+                  "type": "float",
+                  "value": 0.0
+                },
+                {
+                  "field": "IOR",
+                  "min": 1.0,
+                  "type": "float",
+                  "value": 1.5
+                },
+                {
+                  "field": "Thickness",
+                  "min": 0.0,
+                  "type": "float",
+                  "value": 0.0
+                },
+                {
+                  "field": "AttenuationColor",
+                  "max": 1.0,
+                  "min": 0.0,
+                  "type": "vec3",
+                  "value": [
+                    1.0,
+                    1.0,
+                    1.0
+                  ]
+                },
+                {
+                  "field": "AttenuationDistance",
+                  "min": 0.0,
+                  "type": "float",
+                  "value": null
+                }
+              ]
+            }
+          ],
+          "entity": "780000000000100",
+          "found": true
+        }
+      ],
+      "writes": [
+        {
+          "changed": false,
+          "clamped": false,
+          "component": "MaterialComponent",
+          "entity": "780000000000100",
+          "field": "Metallic",
+          "previousValue": 0.800000011920929,
+          "type": "float",
+          "undoable": false,
+          "value": 0.800000011920929
+        },
+        {
+          "changed": true,
+          "clamped": false,
+          "component": "MaterialComponent",
+          "entity": "780000000000100",
+          "field": "AlbedoColor",
+          "previousValue": [
+            0.019999999552965164,
+            0.20000000298023224,
+            0.8999999761581421,
+            1.0
+          ],
+          "type": "vec4",
+          "undoable": true,
+          "value": [
+            0.8999999761581421,
+            0.03999999910593033,
+            0.019999999552965164,
+            1.0
+          ]
+        },
+        {
+          "changed": false,
+          "clamped": false,
+          "component": "MaterialComponent",
+          "entity": "780000000000100",
+          "field": "Roughness",
+          "previousValue": 0.05000000074505806,
+          "type": "float",
+          "undoable": false,
+          "value": 0.05000000074505806
+        },
+        {
+          "changed": true,
+          "clamped": false,
+          "component": "MaterialComponent",
+          "entity": "780000000000100",
+          "field": "AlbedoColor",
+          "previousValue": [
+            0.8999999761581421,
+            0.03999999910593033,
+            0.019999999552965164,
+            1.0
+          ],
+          "type": "vec4",
+          "undoable": true,
+          "value": [
+            0.019999999552965164,
+            0.20000000298023224,
+            0.8999999761581421,
+            1.0
+          ]
+        },
+        {
+          "changed": true,
+          "clamped": false,
+          "component": "MaterialComponent",
+          "entity": "780000000000100",
+          "field": "Roughness",
+          "previousValue": 0.05000000074505806,
+          "type": "float",
+          "undoable": true,
+          "value": 0.8999999761581421
+        }
+      ],
+      "deltas": {
+        "red-smooth -> blue-smooth": {
+          "meanAbsolute8bitChannelDelta": 5.232814670138889,
+          "pixelsDeltaGreaterThan3": 34225
+        },
+        "blue-smooth -> blue-rough": {
+          "meanAbsolute8bitChannelDelta": 2.9357432725694443,
+          "pixelsDeltaGreaterThan3": 31726
+        },
+        "blue-smooth -> undo-roughness": {
+          "meanAbsolute8bitChannelDelta": 0.0,
+          "pixelsDeltaGreaterThan3": 0
+        }
+      },
+      "shaderTracking": {
+        "available": false,
+        "count": null,
+        "detail": "Shader tracking is compiled out of this build (OLO_SHADER_REGISTER is Debug-only), so shader errors cannot be reported. Use a Debug editor to check shader errors.",
+        "errors": [],
+        "status": "unavailableInThisBuild"
+      }
+    }
+  },
+  "packs": [
+    {
+      "assetCount": 3,
+      "assets": [
+        {
+          "handle": "3",
+          "offset": 196,
+          "path": "Assets/Textures/Checkerboard.png",
+          "serialized": true,
+          "size": 64,
+          "texture": {
+            "format": "RGB8",
+            "formatId": 5,
+            "height": 64,
+            "sRGB": false,
+            "width": 64
+          },
+          "type": "Texture2D"
+        },
+        {
+          "handle": "1",
+          "offset": 260,
+          "path": "Assets/Scenes/MaterialSpheres.olo",
+          "serialized": true,
+          "size": 26658,
+          "type": "Scene"
+        },
+        {
+          "handle": "2",
+          "offset": 26918,
+          "path": "Assets/Scenes/Physics2D.olo",
+          "serialized": true,
+          "size": 11505,
+          "type": "Scene"
+        }
+      ],
+      "error": "",
+      "failedAssetCount": 0,
+      "output": "C:/repos/OloEngine-mcp-material-physics2d-asset-pack-607/bin/mcp607-live/Project/Builds/False.olopack",
+      "runtime": {
+        "launched": false,
+        "reason": "Pack building does not create game.manifest, copy shaders/script/runtime binaries, or select a start scene. Use Build Game to assemble a runnable distribution; OloRuntime loads Assets/AssetPack.olopack relative to that game directory. Launching/managing a separate runtime process is outside this editor tool's scope."
+      },
+      "sceneCount": 2,
+      "sceneSaved": true,
+      "success": true,
+      "warnings": [],
+      "warningsAvailable": true,
+      "warningsScope": "All warning/error log lines emitted during this build interval, including concurrent editor diagnostics."
+    },
+    {
+      "assetCount": 3,
+      "assets": [
+        {
+          "handle": "3",
+          "offset": 196,
+          "path": "Assets/Textures/Checkerboard.png",
+          "serialized": true,
+          "size": 2872,
+          "texture": {
+            "format": "BC4",
+            "formatId": 22,
+            "height": 64,
+            "sRGB": false,
+            "width": 64
+          },
+          "type": "Texture2D"
+        },
+        {
+          "handle": "1",
+          "offset": 3068,
+          "path": "Assets/Scenes/MaterialSpheres.olo",
+          "serialized": true,
+          "size": 26658,
+          "type": "Scene"
+        },
+        {
+          "handle": "2",
+          "offset": 29726,
+          "path": "Assets/Scenes/Physics2D.olo",
+          "serialized": true,
+          "size": 11505,
+          "type": "Scene"
+        }
+      ],
+      "error": "",
+      "failedAssetCount": 0,
+      "output": "C:/repos/OloEngine-mcp-material-physics2d-asset-pack-607/bin/mcp607-live/Project/Builds/True.olopack",
+      "runtime": {
+        "launched": false,
+        "reason": "Pack building does not create game.manifest, copy shaders/script/runtime binaries, or select a start scene. Use Build Game to assemble a runnable distribution; OloRuntime loads Assets/AssetPack.olopack relative to that game directory. Launching/managing a separate runtime process is outside this editor tool's scope."
+      },
+      "sceneCount": 2,
+      "sceneSaved": true,
+      "success": true,
+      "warnings": [],
+      "warningsAvailable": true,
+      "warningsScope": "All warning/error log lines emitted during this build interval, including concurrent editor diagnostics."
+    }
+  ],
+  "physics": {
+    "olo_physics2d_list_bodies": [
+      {
+        "backend": "Box2D",
+        "bodies": [
+          {
+            "angularVelocity": 0.0,
+            "bodyType": "Static",
+            "colliders": [
+              {
+                "density": 1.0,
+                "friction": 0.5,
+                "halfExtents": [
+                  0.5,
+                  0.5
+                ],
+                "offset": [
+                  0.0,
+                  0.0
+                ],
+                "restitution": 0.0,
+                "restitutionThreshold": 0.5,
+                "type": "Box"
+              }
+            ],
+            "fixedRotation": false,
+            "hasRigidbody": true,
+            "id": "5134011587522944740",
+            "linearVelocity": [
+              0.0,
+              0.0
+            ],
+            "live": null,
+            "name": "Floor",
+            "position": [
+              2.3506453037261963,
+              -1.8453996181488037
+            ],
+            "rotation": 0.6036925315856934,
+            "scale": [
+              6.741969585418701,
+              0.4606781601905823
+            ]
+          },
+          {
+            "angularVelocity": 0.0,
+            "bodyType": "Dynamic",
+            "colliders": [
+              {
+                "density": 0.8799999952316284,
+                "friction": 0.10000000149011612,
+                "halfExtents": [
+                  0.5,
+                  0.5
+                ],
+                "offset": [
+                  0.0,
+                  0.0
+                ],
+                "restitution": 0.8199999928474426,
+                "restitutionThreshold": 0.5,
+                "type": "Box"
+              }
+            ],
+            "fixedRotation": false,
+            "hasRigidbody": true,
+            "id": "8254140920860137284",
+            "linearVelocity": [
+              0.0,
+              0.0
+            ],
+            "live": null,
+            "name": "Player",
+            "position": [
+              0.04957062005996704,
+              0.27150389552116394
+            ],
+            "rotation": -0.23508453369140625,
+            "scale": [
+              0.36115971207618713,
+              0.3755720555782318
+            ]
+          },
+          {
+            "angularVelocity": 0.0,
+            "bodyType": "Static",
+            "colliders": [
+              {
+                "density": 1.0,
+                "friction": 0.5,
+                "offset": [
+                  0.0,
+                  0.0
+                ],
+                "radius": 0.5,
+                "restitution": 0.0,
+                "restitutionThreshold": 0.5,
+                "type": "Circle"
+              }
+            ],
+            "fixedRotation": false,
+            "hasRigidbody": true,
+            "id": "8804479042241551551",
+            "linearVelocity": [
+              0.0,
+              0.0
+            ],
+            "live": null,
+            "name": "Circle",
+            "position": [
+              1.0273888111114502,
+              -1.7033147811889648
+            ],
+            "rotation": 0.0,
+            "scale": [
+              2.1599998474121094,
+              2.1599998474121094
+            ]
+          },
+          {
+            "angularVelocity": 0.0,
+            "bodyType": "Dynamic",
+            "colliders": [
+              {
+                "density": 0.8799999952316284,
+                "friction": 0.10000000149011612,
+                "halfExtents": [
+                  0.5,
+                  0.5
+                ],
+                "offset": [
+                  0.0,
+                  0.0
+                ],
+                "restitution": 0.8199999928474426,
+                "restitutionThreshold": 0.5,
+                "type": "Box"
+              }
+            ],
+            "fixedRotation": false,
+            "hasRigidbody": true,
+            "id": "15045535320033348975",
+            "linearVelocity": [
+              0.0,
+              0.0
+            ],
+            "live": null,
+            "name": "Block",
+            "position": [
+              -0.5608819127082825,
+              0.9800640344619751
+            ],
+            "rotation": 0.0,
+            "scale": [
+              0.36115971207618713,
+              0.3755720555782318
+            ]
+          },
+          {
+            "angularVelocity": 0.0,
+            "bodyType": "Static",
+            "colliders": [
+              {
+                "density": 1.0,
+                "friction": 0.5,
+                "halfExtents": [
+                  0.5,
+                  0.5
+                ],
+                "offset": [
+                  0.0,
+                  0.0
+                ],
+                "restitution": 0.0,
+                "restitutionThreshold": 0.5,
+                "type": "Box"
+              }
+            ],
+            "fixedRotation": false,
+            "hasRigidbody": true,
+            "id": "16672940118998907085",
+            "linearVelocity": [
+              0.0,
+              0.0
+            ],
+            "live": null,
+            "name": "Floor",
+            "position": [
+              -0.8831756711006165,
+              -1.0944793224334717
+            ],
+            "rotation": -0.6389960050582886,
+            "scale": [
+              6.741967678070068,
+              0.4606781303882599
+            ]
+          }
+        ],
+        "dimension": 2,
+        "note": "Lists entity-backed Rigidbody2D or Box/CircleCollider2D components. Tilemap-generated bodies are included in worldCounts and raycasts, not these entity lists. Authored restitutionThreshold is not applied per shape by Box2D.",
+        "page": 0,
+        "pageSize": 50,
+        "physicsRunning": false,
+        "returned": 5,
+        "source": "authored",
+        "total": 5
+      },
+      {
+        "backend": "Box2D",
+        "bodies": [
+          {
+            "angularVelocity": 0.0,
+            "bodyType": "Static",
+            "colliders": [
+              {
+                "density": 1.0,
+                "friction": 0.5,
+                "halfExtents": [
+                  0.5,
+                  0.5
+                ],
+                "offset": [
+                  0.0,
+                  0.0
+                ],
+                "restitution": 0.0,
+                "restitutionThreshold": 0.5,
+                "type": "Box"
+              }
+            ],
+            "fixedRotation": false,
+            "hasRigidbody": true,
+            "id": "5134011587522944740",
+            "linearVelocity": [
+              0.0,
+              0.0
+            ],
+            "live": {
+              "angularVelocity": 0.0,
+              "awake": false,
+              "bodyType": "Static",
+              "colliders": [
+                {
+                  "aabb": {
+                    "max": [
+                      5.2759809494018555,
+                      0.2787633240222931
+                    ],
+                    "min": [
+                      -0.5746903419494629,
+                      -3.969562530517578
+                    ]
+                  },
+                  "categoryBits": "1",
+                  "density": 1.0,
+                  "friction": 0.5,
+                  "groupIndex": 0,
+                  "maskBits": "18446744073709551615",
+                  "radius": 0.0,
+                  "restitution": 0.0,
+                  "sensor": false,
+                  "type": "Polygon",
+                  "vertices": [
+                    [
+                      -3.3709847927093506,
+                      -0.23033908009529114
+                    ],
+                    [
+                      3.3709847927093506,
+                      -0.23033908009529114
+                    ],
+                    [
+                      3.3709847927093506,
+                      0.23033908009529114
+                    ],
+                    [
+                      -3.3709847927093506,
+                      0.23033908009529114
+                    ]
+                  ]
+                }
+              ],
+              "enabled": true,
+              "linearVelocity": [
+                0.0,
+                0.0
+              ],
+              "position": [
+                2.3506453037261963,
+                -1.8453996181488037
+              ],
+              "rotation": 0.6040250062942505
+            },
+            "name": "Floor",
+            "position": [
+              2.3506453037261963,
+              -1.8453996181488037
+            ],
+            "rotation": 0.6040250062942505,
+            "scale": [
+              6.741969585418701,
+              0.4606781601905823
+            ]
+          },
+          {
+            "angularVelocity": 0.0,
+            "bodyType": "Dynamic",
+            "colliders": [
+              {
+                "density": 0.8799999952316284,
+                "friction": 0.10000000149011612,
+                "halfExtents": [
+                  0.5,
+                  0.5
+                ],
+                "offset": [
+                  0.0,
+                  0.0
+                ],
+                "restitution": 0.8199999928474426,
+                "restitutionThreshold": 0.5,
+                "type": "Box"
+              }
+            ],
+            "fixedRotation": false,
+            "hasRigidbody": true,
+            "id": "8254140920860137284",
+            "linearVelocity": [
+              0.0,
+              0.0
+            ],
+            "live": {
+              "angularVelocity": 0.0,
+              "awake": true,
+              "bodyType": "Dynamic",
+              "colliders": [
+                {
+                  "aabb": {
+                    "max": [
+                      0.28915315866470337,
+                      0.5020936131477356
+                    ],
+                    "min": [
+                      -0.1900119036436081,
+                      0.012297999113798141
+                    ]
+                  },
+                  "categoryBits": "1",
+                  "density": 0.8799999952316284,
+                  "friction": 0.10000000149011612,
+                  "groupIndex": 0,
+                  "maskBits": "18446744073709551615",
+                  "radius": 0.0,
+                  "restitution": 0.8199999928474426,
+                  "sensor": false,
+                  "type": "Polygon",
+                  "vertices": [
+                    [
+                      -0.18057985603809357,
+                      -0.1877860277891159
+                    ],
+                    [
+                      0.18057985603809357,
+                      -0.1877860277891159
+                    ],
+                    [
+                      0.18057985603809357,
+                      0.1877860277891159
+                    ],
+                    [
+                      -0.18057985603809357,
+                      0.1877860277891159
+                    ]
+                  ]
+                }
+              ],
+              "enabled": true,
+              "linearVelocity": [
+                0.0,
+                -0.5249348282814026
+              ],
+              "position": [
+                0.04957062005996704,
+                0.2571958005428314
+              ],
+              "rotation": -0.2367275208234787
+            },
+            "name": "Player",
+            "position": [
+              0.04957062005996704,
+              0.2571958005428314
+            ],
+            "rotation": -0.2367275208234787,
+            "scale": [
+              0.36115971207618713,
+              0.3755720555782318
+            ]
+          },
+          {
+            "angularVelocity": 0.0,
+            "bodyType": "Static",
+            "colliders": [
+              {
+                "density": 1.0,
+                "friction": 0.5,
+                "offset": [
+                  0.0,
+                  0.0
+                ],
+                "radius": 0.5,
+                "restitution": 0.0,
+                "restitutionThreshold": 0.5,
+                "type": "Circle"
+              }
+            ],
+            "fixedRotation": false,
+            "hasRigidbody": true,
+            "id": "8804479042241551551",
+            "linearVelocity": [
+              0.0,
+              0.0
+            ],
+            "live": {
+              "angularVelocity": 0.0,
+              "awake": false,
+              "bodyType": "Static",
+              "colliders": [
+                {
+                  "aabb": {
+                    "max": [
+                      2.1273887157440186,
+                      -0.6033148765563965
+                    ],
+                    "min": [
+                      -0.07261110842227936,
+                      -2.803314685821533
+                    ]
+                  },
+                  "categoryBits": "1",
+                  "center": [
+                    0.0,
+                    0.0
+                  ],
+                  "density": 1.0,
+                  "friction": 0.5,
+                  "groupIndex": 0,
+                  "maskBits": "18446744073709551615",
+                  "radius": 1.0799999237060547,
+                  "restitution": 0.0,
+                  "sensor": false,
+                  "type": "Circle"
+                }
+              ],
+              "enabled": true,
+              "linearVelocity": [
+                0.0,
+                0.0
+              ],
+              "position": [
+                1.0273888111114502,
+                -1.7033147811889648
+              ],
+              "rotation": 0.0
+            },
+            "name": "Circle",
+            "position": [
+              1.0273888111114502,
+              -1.7033147811889648
+            ],
+            "rotation": 0.0,
+            "scale": [
+              2.1599998474121094,
+              2.1599998474121094
+            ]
+          },
+          {
+            "angularVelocity": 0.0,
+            "bodyType": "Dynamic",
+            "colliders": [
+              {
+                "density": 0.8799999952316284,
+                "friction": 0.10000000149011612,
+                "halfExtents": [
+                  0.5,
+                  0.5
+                ],
+                "offset": [
+                  0.0,
+                  0.0
+                ],
+                "restitution": 0.8199999928474426,
+                "restitutionThreshold": 0.5,
+                "type": "Box"
+              }
+            ],
+            "fixedRotation": false,
+            "hasRigidbody": true,
+            "id": "15045535320033348975",
+            "linearVelocity": [
+              0.0,
+              0.0
+            ],
+            "live": {
+              "angularVelocity": 0.0,
+              "awake": true,
+              "bodyType": "Dynamic",
+              "colliders": [
+                {
+                  "aabb": {
+                    "max": [
+                      -0.36030206084251404,
+                      1.1735420227050781
+                    ],
+                    "min": [
+                      -0.7614617347717285,
+                      0.7579699754714966
+                    ]
+                  },
+                  "categoryBits": "1",
+                  "density": 0.8799999952316284,
+                  "friction": 0.10000000149011612,
+                  "groupIndex": 0,
+                  "maskBits": "18446744073709551615",
+                  "radius": 0.0,
+                  "restitution": 0.8199999928474426,
+                  "sensor": false,
+                  "type": "Polygon",
+                  "vertices": [
+                    [
+                      -0.18057985603809357,
+                      -0.1877860277891159
+                    ],
+                    [
+                      0.18057985603809357,
+                      -0.1877860277891159
+                    ],
+                    [
+                      0.18057985603809357,
+                      0.1877860277891159
+                    ],
+                    [
+                      -0.18057985603809357,
+                      0.1877860277891159
+                    ]
+                  ]
+                }
+              ],
+              "enabled": true,
+              "linearVelocity": [
+                0.0,
+                -0.5249348282814026
+              ],
+              "position": [
+                -0.5608819127082825,
+                0.9657559990882874
+              ],
+              "rotation": 0.0
+            },
+            "name": "Block",
+            "position": [
+              -0.5608819127082825,
+              0.9657559990882874
+            ],
+            "rotation": 0.0,
+            "scale": [
+              0.36115971207618713,
+              0.3755720555782318
+            ]
+          },
+          {
+            "angularVelocity": 0.0,
+            "bodyType": "Static",
+            "colliders": [
+              {
+                "density": 1.0,
+                "friction": 0.5,
+                "halfExtents": [
+                  0.5,
+                  0.5
+                ],
+                "offset": [
+                  0.0,
+                  0.0
+                ],
+                "restitution": 0.0,
+                "restitutionThreshold": 0.5,
+                "type": "Box"
+              }
+            ],
+            "fixedRotation": false,
+            "hasRigidbody": true,
+            "id": "16672940118998907085",
+            "linearVelocity": [
+              0.0,
+              0.0
+            ],
+            "live": {
+              "angularVelocity": 0.0,
+              "awake": false,
+              "bodyType": "Static",
+              "colliders": [
+                {
+                  "aabb": {
+                    "max": [
+                      1.9796202182769775,
+                      1.1214630603790283
+                    ],
+                    "min": [
+                      -3.745971441268921,
+                      -3.3104217052459717
+                    ]
+                  },
+                  "categoryBits": "1",
+                  "density": 1.0,
+                  "friction": 0.5,
+                  "groupIndex": 0,
+                  "maskBits": "18446744073709551615",
+                  "radius": 0.0,
+                  "restitution": 0.0,
+                  "sensor": false,
+                  "type": "Polygon",
+                  "vertices": [
+                    [
+                      -3.370983839035034,
+                      -0.23033906519412994
+                    ],
+                    [
+                      3.370983839035034,
+                      -0.23033906519412994
+                    ],
+                    [
+                      3.370983839035034,
+                      0.23033906519412994
+                    ],
+                    [
+                      -3.370983839035034,
+                      0.23033906519412994
+                    ]
+                  ]
+                }
+              ],
+              "enabled": true,
+              "linearVelocity": [
+                0.0,
+                0.0
+              ],
+              "position": [
+                -0.8831756711006165,
+                -1.0944793224334717
+              ],
+              "rotation": -0.6392574310302734
+            },
+            "name": "Floor",
+            "position": [
+              -0.8831756711006165,
+              -1.0944793224334717
+            ],
+            "rotation": -0.6392574310302734,
+            "scale": [
+              6.741967678070068,
+              0.4606781303882599
+            ]
+          }
+        ],
+        "dimension": 2,
+        "note": "Lists entity-backed Rigidbody2D or Box/CircleCollider2D components. Tilemap-generated bodies are included in worldCounts and raycasts, not these entity lists. Authored restitutionThreshold is not applied per shape by Box2D.",
+        "page": 0,
+        "pageSize": 50,
+        "physicsRunning": true,
+        "returned": 5,
+        "source": "live",
+        "total": 5,
+        "worldCounts": {
+          "bodies": 5,
+          "shapes": 5
+        }
+      }
+    ],
+    "olo_physics2d_list_colliders": [
+      {
+        "backend": "Box2D",
+        "colliders": [
+          {
+            "angularVelocity": 0.0,
+            "bodyType": "Static",
+            "colliders": [
+              {
+                "density": 1.0,
+                "friction": 0.5,
+                "halfExtents": [
+                  0.5,
+                  0.5
+                ],
+                "offset": [
+                  0.0,
+                  0.0
+                ],
+                "restitution": 0.0,
+                "restitutionThreshold": 0.5,
+                "type": "Box"
+              }
+            ],
+            "fixedRotation": false,
+            "hasRigidbody": true,
+            "id": "5134011587522944740",
+            "linearVelocity": [
+              0.0,
+              0.0
+            ],
+            "live": null,
+            "name": "Floor",
+            "position": [
+              2.3506453037261963,
+              -1.8453996181488037
+            ],
+            "rotation": 0.6036925315856934,
+            "scale": [
+              6.741969585418701,
+              0.4606781601905823
+            ]
+          },
+          {
+            "angularVelocity": 0.0,
+            "bodyType": "Dynamic",
+            "colliders": [
+              {
+                "density": 0.8799999952316284,
+                "friction": 0.10000000149011612,
+                "halfExtents": [
+                  0.5,
+                  0.5
+                ],
+                "offset": [
+                  0.0,
+                  0.0
+                ],
+                "restitution": 0.8199999928474426,
+                "restitutionThreshold": 0.5,
+                "type": "Box"
+              }
+            ],
+            "fixedRotation": false,
+            "hasRigidbody": true,
+            "id": "8254140920860137284",
+            "linearVelocity": [
+              0.0,
+              0.0
+            ],
+            "live": null,
+            "name": "Player",
+            "position": [
+              0.04957062005996704,
+              0.27150389552116394
+            ],
+            "rotation": -0.23508453369140625,
+            "scale": [
+              0.36115971207618713,
+              0.3755720555782318
+            ]
+          },
+          {
+            "angularVelocity": 0.0,
+            "bodyType": "Static",
+            "colliders": [
+              {
+                "density": 1.0,
+                "friction": 0.5,
+                "offset": [
+                  0.0,
+                  0.0
+                ],
+                "radius": 0.5,
+                "restitution": 0.0,
+                "restitutionThreshold": 0.5,
+                "type": "Circle"
+              }
+            ],
+            "fixedRotation": false,
+            "hasRigidbody": true,
+            "id": "8804479042241551551",
+            "linearVelocity": [
+              0.0,
+              0.0
+            ],
+            "live": null,
+            "name": "Circle",
+            "position": [
+              1.0273888111114502,
+              -1.7033147811889648
+            ],
+            "rotation": 0.0,
+            "scale": [
+              2.1599998474121094,
+              2.1599998474121094
+            ]
+          },
+          {
+            "angularVelocity": 0.0,
+            "bodyType": "Dynamic",
+            "colliders": [
+              {
+                "density": 0.8799999952316284,
+                "friction": 0.10000000149011612,
+                "halfExtents": [
+                  0.5,
+                  0.5
+                ],
+                "offset": [
+                  0.0,
+                  0.0
+                ],
+                "restitution": 0.8199999928474426,
+                "restitutionThreshold": 0.5,
+                "type": "Box"
+              }
+            ],
+            "fixedRotation": false,
+            "hasRigidbody": true,
+            "id": "15045535320033348975",
+            "linearVelocity": [
+              0.0,
+              0.0
+            ],
+            "live": null,
+            "name": "Block",
+            "position": [
+              -0.5608819127082825,
+              0.9800640344619751
+            ],
+            "rotation": 0.0,
+            "scale": [
+              0.36115971207618713,
+              0.3755720555782318
+            ]
+          },
+          {
+            "angularVelocity": 0.0,
+            "bodyType": "Static",
+            "colliders": [
+              {
+                "density": 1.0,
+                "friction": 0.5,
+                "halfExtents": [
+                  0.5,
+                  0.5
+                ],
+                "offset": [
+                  0.0,
+                  0.0
+                ],
+                "restitution": 0.0,
+                "restitutionThreshold": 0.5,
+                "type": "Box"
+              }
+            ],
+            "fixedRotation": false,
+            "hasRigidbody": true,
+            "id": "16672940118998907085",
+            "linearVelocity": [
+              0.0,
+              0.0
+            ],
+            "live": null,
+            "name": "Floor",
+            "position": [
+              -0.8831756711006165,
+              -1.0944793224334717
+            ],
+            "rotation": -0.6389960050582886,
+            "scale": [
+              6.741967678070068,
+              0.4606781303882599
+            ]
+          }
+        ],
+        "dimension": 2,
+        "note": "Lists entity-backed Rigidbody2D or Box/CircleCollider2D components. Tilemap-generated bodies are included in worldCounts and raycasts, not these entity lists. Authored restitutionThreshold is not applied per shape by Box2D.",
+        "page": 0,
+        "pageSize": 50,
+        "physicsRunning": false,
+        "returned": 5,
+        "source": "authored",
+        "total": 5
+      },
+      {
+        "backend": "Box2D",
+        "colliders": [
+          {
+            "angularVelocity": 0.0,
+            "bodyType": "Static",
+            "colliders": [
+              {
+                "density": 1.0,
+                "friction": 0.5,
+                "halfExtents": [
+                  0.5,
+                  0.5
+                ],
+                "offset": [
+                  0.0,
+                  0.0
+                ],
+                "restitution": 0.0,
+                "restitutionThreshold": 0.5,
+                "type": "Box"
+              }
+            ],
+            "fixedRotation": false,
+            "hasRigidbody": true,
+            "id": "5134011587522944740",
+            "linearVelocity": [
+              0.0,
+              0.0
+            ],
+            "live": {
+              "angularVelocity": 0.0,
+              "awake": false,
+              "bodyType": "Static",
+              "colliders": [
+                {
+                  "aabb": {
+                    "max": [
+                      5.2759809494018555,
+                      0.2787633240222931
+                    ],
+                    "min": [
+                      -0.5746903419494629,
+                      -3.969562530517578
+                    ]
+                  },
+                  "categoryBits": "1",
+                  "density": 1.0,
+                  "friction": 0.5,
+                  "groupIndex": 0,
+                  "maskBits": "18446744073709551615",
+                  "radius": 0.0,
+                  "restitution": 0.0,
+                  "sensor": false,
+                  "type": "Polygon",
+                  "vertices": [
+                    [
+                      -3.3709847927093506,
+                      -0.23033908009529114
+                    ],
+                    [
+                      3.3709847927093506,
+                      -0.23033908009529114
+                    ],
+                    [
+                      3.3709847927093506,
+                      0.23033908009529114
+                    ],
+                    [
+                      -3.3709847927093506,
+                      0.23033908009529114
+                    ]
+                  ]
+                }
+              ],
+              "enabled": true,
+              "linearVelocity": [
+                0.0,
+                0.0
+              ],
+              "position": [
+                2.3506453037261963,
+                -1.8453996181488037
+              ],
+              "rotation": 0.6040250062942505
+            },
+            "name": "Floor",
+            "position": [
+              2.3506453037261963,
+              -1.8453996181488037
+            ],
+            "rotation": 0.6040250062942505,
+            "scale": [
+              6.741969585418701,
+              0.4606781601905823
+            ]
+          },
+          {
+            "angularVelocity": 0.0,
+            "bodyType": "Dynamic",
+            "colliders": [
+              {
+                "density": 0.8799999952316284,
+                "friction": 0.10000000149011612,
+                "halfExtents": [
+                  0.5,
+                  0.5
+                ],
+                "offset": [
+                  0.0,
+                  0.0
+                ],
+                "restitution": 0.8199999928474426,
+                "restitutionThreshold": 0.5,
+                "type": "Box"
+              }
+            ],
+            "fixedRotation": false,
+            "hasRigidbody": true,
+            "id": "8254140920860137284",
+            "linearVelocity": [
+              0.0,
+              0.0
+            ],
+            "live": {
+              "angularVelocity": 0.0,
+              "awake": true,
+              "bodyType": "Dynamic",
+              "colliders": [
+                {
+                  "aabb": {
+                    "max": [
+                      0.28915315866470337,
+                      0.49954208731651306
+                    ],
+                    "min": [
+                      -0.1900119036436081,
+                      0.009746473282575607
+                    ]
+                  },
+                  "categoryBits": "1",
+                  "density": 0.8799999952316284,
+                  "friction": 0.10000000149011612,
+                  "groupIndex": 0,
+                  "maskBits": "18446744073709551615",
+                  "radius": 0.0,
+                  "restitution": 0.8199999928474426,
+                  "sensor": false,
+                  "type": "Polygon",
+                  "vertices": [
+                    [
+                      -0.18057985603809357,
+                      -0.1877860277891159
+                    ],
+                    [
+                      0.18057985603809357,
+                      -0.1877860277891159
+                    ],
+                    [
+                      0.18057985603809357,
+                      0.1877860277891159
+                    ],
+                    [
+                      -0.18057985603809357,
+                      0.1877860277891159
+                    ]
+                  ]
+                }
+              ],
+              "enabled": true,
+              "linearVelocity": [
+                0.0,
+                -0.5703278183937073
+              ],
+              "position": [
+                0.04957062005996704,
+                0.2546442747116089
+              ],
+              "rotation": -0.2367275208234787
+            },
+            "name": "Player",
+            "position": [
+              0.04957062005996704,
+              0.2546442747116089
+            ],
+            "rotation": -0.2367275208234787,
+            "scale": [
+              0.36115971207618713,
+              0.3755720555782318
+            ]
+          },
+          {
+            "angularVelocity": 0.0,
+            "bodyType": "Static",
+            "colliders": [
+              {
+                "density": 1.0,
+                "friction": 0.5,
+                "offset": [
+                  0.0,
+                  0.0
+                ],
+                "radius": 0.5,
+                "restitution": 0.0,
+                "restitutionThreshold": 0.5,
+                "type": "Circle"
+              }
+            ],
+            "fixedRotation": false,
+            "hasRigidbody": true,
+            "id": "8804479042241551551",
+            "linearVelocity": [
+              0.0,
+              0.0
+            ],
+            "live": {
+              "angularVelocity": 0.0,
+              "awake": false,
+              "bodyType": "Static",
+              "colliders": [
+                {
+                  "aabb": {
+                    "max": [
+                      2.1273887157440186,
+                      -0.6033148765563965
+                    ],
+                    "min": [
+                      -0.07261110842227936,
+                      -2.803314685821533
+                    ]
+                  },
+                  "categoryBits": "1",
+                  "center": [
+                    0.0,
+                    0.0
+                  ],
+                  "density": 1.0,
+                  "friction": 0.5,
+                  "groupIndex": 0,
+                  "maskBits": "18446744073709551615",
+                  "radius": 1.0799999237060547,
+                  "restitution": 0.0,
+                  "sensor": false,
+                  "type": "Circle"
+                }
+              ],
+              "enabled": true,
+              "linearVelocity": [
+                0.0,
+                0.0
+              ],
+              "position": [
+                1.0273888111114502,
+                -1.7033147811889648
+              ],
+              "rotation": 0.0
+            },
+            "name": "Circle",
+            "position": [
+              1.0273888111114502,
+              -1.7033147811889648
+            ],
+            "rotation": 0.0,
+            "scale": [
+              2.1599998474121094,
+              2.1599998474121094
+            ]
+          },
+          {
+            "angularVelocity": 0.0,
+            "bodyType": "Dynamic",
+            "colliders": [
+              {
+                "density": 0.8799999952316284,
+                "friction": 0.10000000149011612,
+                "halfExtents": [
+                  0.5,
+                  0.5
+                ],
+                "offset": [
+                  0.0,
+                  0.0
+                ],
+                "restitution": 0.8199999928474426,
+                "restitutionThreshold": 0.5,
+                "type": "Box"
+              }
+            ],
+            "fixedRotation": false,
+            "hasRigidbody": true,
+            "id": "15045535320033348975",
+            "linearVelocity": [
+              0.0,
+              0.0
+            ],
+            "live": {
+              "angularVelocity": 0.0,
+              "awake": true,
+              "bodyType": "Dynamic",
+              "colliders": [
+                {
+                  "aabb": {
+                    "max": [
+                      -0.36030206084251404,
+                      1.1709904670715332
+                    ],
+                    "min": [
+                      -0.7614617347717285,
+                      0.7554184794425964
+                    ]
+                  },
+                  "categoryBits": "1",
+                  "density": 0.8799999952316284,
+                  "friction": 0.10000000149011612,
+                  "groupIndex": 0,
+                  "maskBits": "18446744073709551615",
+                  "radius": 0.0,
+                  "restitution": 0.8199999928474426,
+                  "sensor": false,
+                  "type": "Polygon",
+                  "vertices": [
+                    [
+                      -0.18057985603809357,
+                      -0.1877860277891159
+                    ],
+                    [
+                      0.18057985603809357,
+                      -0.1877860277891159
+                    ],
+                    [
+                      0.18057985603809357,
+                      0.1877860277891159
+                    ],
+                    [
+                      -0.18057985603809357,
+                      0.1877860277891159
+                    ]
+                  ]
+                }
+              ],
+              "enabled": true,
+              "linearVelocity": [
+                0.0,
+                -0.5703278183937073
+              ],
+              "position": [
+                -0.5608819127082825,
+                0.9632045030593872
+              ],
+              "rotation": 0.0
+            },
+            "name": "Block",
+            "position": [
+              -0.5608819127082825,
+              0.9632045030593872
+            ],
+            "rotation": 0.0,
+            "scale": [
+              0.36115971207618713,
+              0.3755720555782318
+            ]
+          },
+          {
+            "angularVelocity": 0.0,
+            "bodyType": "Static",
+            "colliders": [
+              {
+                "density": 1.0,
+                "friction": 0.5,
+                "halfExtents": [
+                  0.5,
+                  0.5
+                ],
+                "offset": [
+                  0.0,
+                  0.0
+                ],
+                "restitution": 0.0,
+                "restitutionThreshold": 0.5,
+                "type": "Box"
+              }
+            ],
+            "fixedRotation": false,
+            "hasRigidbody": true,
+            "id": "16672940118998907085",
+            "linearVelocity": [
+              0.0,
+              0.0
+            ],
+            "live": {
+              "angularVelocity": 0.0,
+              "awake": false,
+              "bodyType": "Static",
+              "colliders": [
+                {
+                  "aabb": {
+                    "max": [
+                      1.9796202182769775,
+                      1.1214630603790283
+                    ],
+                    "min": [
+                      -3.745971441268921,
+                      -3.3104217052459717
+                    ]
+                  },
+                  "categoryBits": "1",
+                  "density": 1.0,
+                  "friction": 0.5,
+                  "groupIndex": 0,
+                  "maskBits": "18446744073709551615",
+                  "radius": 0.0,
+                  "restitution": 0.0,
+                  "sensor": false,
+                  "type": "Polygon",
+                  "vertices": [
+                    [
+                      -3.370983839035034,
+                      -0.23033906519412994
+                    ],
+                    [
+                      3.370983839035034,
+                      -0.23033906519412994
+                    ],
+                    [
+                      3.370983839035034,
+                      0.23033906519412994
+                    ],
+                    [
+                      -3.370983839035034,
+                      0.23033906519412994
+                    ]
+                  ]
+                }
+              ],
+              "enabled": true,
+              "linearVelocity": [
+                0.0,
+                0.0
+              ],
+              "position": [
+                -0.8831756711006165,
+                -1.0944793224334717
+              ],
+              "rotation": -0.6392574310302734
+            },
+            "name": "Floor",
+            "position": [
+              -0.8831756711006165,
+              -1.0944793224334717
+            ],
+            "rotation": -0.6392574310302734,
+            "scale": [
+              6.741967678070068,
+              0.4606781303882599
+            ]
+          }
+        ],
+        "dimension": 2,
+        "note": "Lists entity-backed Rigidbody2D or Box/CircleCollider2D components. Tilemap-generated bodies are included in worldCounts and raycasts, not these entity lists. Authored restitutionThreshold is not applied per shape by Box2D.",
+        "page": 0,
+        "pageSize": 50,
+        "physicsRunning": true,
+        "returned": 5,
+        "source": "live",
+        "total": 5,
+        "worldCounts": {
+          "bodies": 5,
+          "shapes": 5
+        }
+      }
+    ],
+    "olo_physics_list_colliders": [
+      {
+        "backend": "Jolt",
+        "colliders": [],
+        "dimension": 3,
+        "hasAuthored2D": true,
+        "page": 0,
+        "pageSize": 50,
+        "physicsRunning": false,
+        "returned": 0,
+        "scopeNote": "This tool inspects Jolt 3D only. Box2D bodies/shapes are not included; use olo_physics2d_list_bodies, olo_physics2d_list_colliders or olo_physics2d_raycast.",
+        "total": 0
+      },
+      {
+        "backend": "Jolt",
+        "colliders": [],
+        "dimension": 3,
+        "hasAuthored2D": true,
+        "page": 0,
+        "pageSize": 50,
+        "physicsRunning": true,
+        "returned": 0,
+        "scopeNote": "This tool inspects Jolt 3D only. Box2D bodies/shapes are not included; use olo_physics2d_list_bodies, olo_physics2d_list_colliders or olo_physics2d_raycast.",
+        "total": 0
+      }
+    ],
+    "olo_physics2d_raycast": [
+      {
+        "backend": "Box2D",
+        "dimension": 2,
+        "entity": "8254140920860137284",
+        "fraction": 0.443092942237854,
+        "hit": true,
+        "normal": [
+          0.23451471328735352,
+          0.9721125960350037
+        ],
+        "point": [
+          5.21540641784668e-08,
+          0.4552563428878784
+        ],
+        "shape": {
+          "aabb": {
+            "max": [
+              0.28915315866470337,
+              0.49502265453338623
+            ],
+            "min": [
+              -0.1900119036436081,
+              0.005227040499448776
+            ]
+          },
+          "categoryBits": "1",
+          "density": 0.8799999952316284,
+          "friction": 0.10000000149011612,
+          "groupIndex": 0,
+          "maskBits": "18446744073709551615",
+          "radius": 0.0,
+          "restitution": 0.8199999928474426,
+          "sensor": false,
+          "type": "Polygon",
+          "vertices": [
+            [
+              -0.18057985603809357,
+              -0.1877860277891159
+            ],
+            [
+              0.18057985603809357,
+              -0.1877860277891159
+            ],
+            [
+              0.18057985603809357,
+              0.1877860277891159
+            ],
+            [
+              -0.18057985603809357,
+              0.1877860277891159
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  "sandbox": [
+    {
+      "content": [
+        {
+          "text": "Parent traversal in output is refused.",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    },
+    {
+      "content": [
+        {
+          "text": "output must be a project-relative .olopack filename without drive/stream separators.",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    },
+    {
+      "content": [
+        {
+          "text": "Output resolves outside the project (symlink/junction escape).",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    }
+  ]
+}

@@ -46,6 +46,7 @@ TEST(VulkanRenderGraphExecution, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Commands/CommandBucket.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
@@ -738,6 +739,28 @@ TEST(VulkanRenderGraphExecutionContext, GraphDependencyFencePairOrdersProduction
     Levers::SetRenderGraphSequential(false);
 
     ScopedVulkanRenderCommandSelection renderCommandSelection;
+    // A temporary context does not own the process-wide renderer tracker. In
+    // the full suite, the shared OpenGL renderer can still be alive here.
+    u32 trackedSentinel = 0;
+    auto& tracker = RendererMemoryTracker::GetInstance();
+    struct SentinelCleanup
+    {
+        void* Address;
+        ~SentinelCleanup()
+        {
+            if (Address)
+                RendererMemoryTracker::GetInstance().TrackDeallocation(Address, __FILE__, __LINE__);
+        }
+    } sentinelCleanup{ &trackedSentinel };
+    constexpr std::string_view sentinelOwner = "TemporaryVulkanContextTrackerRegression";
+    const auto trackSentinel = [&]()
+    {
+        const RendererMemoryOwnerScope owner(sentinelOwner, MemoryLifetime::Persistent);
+        tracker.TrackAllocation(&trackedSentinel, sizeof(trackedSentinel),
+                                RendererMemoryTracker::ResourceType::Other,
+                                "SurvivesTemporaryContext", false, __FILE__, __LINE__);
+    };
+    trackSentinel();
     {
         VulkanContext context(window.Get());
         try
@@ -837,6 +860,20 @@ TEST(VulkanRenderGraphExecutionContext, GraphDependencyFencePairOrdersProduction
 
     EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u)
         << "production split submissions and VulkanContext teardown must remain validation-clean";
+    const auto surviving = tracker.GetLargestAllocations(sentinelOwner, 1u);
+    EXPECT_TRUE(surviving.has_value());
+    if (surviving)
+    {
+        EXPECT_EQ(surviving->Num(), 1);
+        if (!surviving->IsEmpty())
+            EXPECT_EQ((*surviving)[0].m_Address, &trackedSentinel);
+    }
+    // Context teardown must not disable subsequent frees.
+    tracker.TrackDeallocation(&trackedSentinel, __FILE__, __LINE__);
+    sentinelCleanup.Address = nullptr;
+    const auto released = tracker.GetLargestAllocations(sentinelOwner, 1u);
+    ASSERT_TRUE(released.has_value());
+    EXPECT_TRUE(released->IsEmpty());
 }
 
 #endif // OLO_WITH_VULKAN

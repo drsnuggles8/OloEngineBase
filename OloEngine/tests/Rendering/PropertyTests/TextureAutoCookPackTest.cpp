@@ -181,7 +181,25 @@ class TextureAutoCookPackTest : public ::testing::Test
 
         FileStreamReader reader(packPath);
         EXPECT_TRUE(reader.IsStreamGood());
-        return serializer.DeserializeFromAssetPack(reader, assetInfo).As<Texture2D>();
+        u32 recordWidth = 0, recordHeight = 0, recordFormat = 0;
+        reader.ReadRaw(recordWidth);
+        reader.ReadRaw(recordHeight);
+        reader.ReadRaw(recordFormat);
+        EXPECT_EQ(info.TextureWidth, recordWidth);
+        EXPECT_EQ(info.TextureHeight, recordHeight);
+        EXPECT_EQ(info.TextureFormat.value_or(0), recordFormat);
+        auto decoded = serializer.DeserializeFromAssetPack(reader, assetInfo).As<Texture2D>();
+        // A deliberately missing loose source returns an unloaded texture with
+        // zero dimensions; the emitted record still describes the original image.
+        if (decoded && decoded->IsLoaded())
+        {
+            EXPECT_TRUE(info.TextureFormat.has_value());
+            EXPECT_EQ(info.TextureFormat.value_or(0), static_cast<u32>(decoded->GetSpecification().Format));
+            EXPECT_EQ(info.TextureSRGB, decoded->GetSpecification().SRGB);
+            EXPECT_EQ(info.TextureWidth, decoded->GetWidth());
+            EXPECT_EQ(info.TextureHeight, decoded->GetHeight());
+        }
+        return decoded;
     }
 
     fs::path m_TempDir;
@@ -416,7 +434,16 @@ TEST_F(TextureAutoCookPackTest, AHashNamedAlbedoShipsInItsMaterialSlotsColourSpa
         assetInfo.PackedSize = info.Size;
         assetInfo.Type = AssetType::Texture2D;
         FileStreamReader reader(packPath);
-        return serializer.DeserializeFromAssetPack(reader, assetInfo).As<Texture2D>();
+        auto decoded = serializer.DeserializeFromAssetPack(reader, assetInfo).As<Texture2D>();
+        if (decoded)
+        {
+            EXPECT_TRUE(info.TextureFormat.has_value());
+            EXPECT_EQ(info.TextureFormat.value_or(0), static_cast<u32>(decoded->GetSpecification().Format));
+            EXPECT_EQ(info.TextureSRGB, decoded->GetSpecification().SRGB);
+            EXPECT_EQ(info.TextureWidth, decoded->GetWidth());
+            EXPECT_EQ(info.TextureHeight, decoded->GetHeight());
+        }
+        return decoded;
     };
 
     // Negative control: without the intents the pack ships the filename guess.

@@ -39,6 +39,7 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Scene/SceneSerializer.h"
 
 #include <glm/glm.hpp>
 
@@ -89,6 +90,40 @@ namespace
         }
     };
 } // namespace
+
+TEST(McpFieldRegistry, MaterialFactorsAndSkinProfileUseLiveSettersAndUndo)
+{
+    Fixture fixture;
+    auto& component = fixture.TheEntity.AddComponent<OloEngine::MaterialComponent>();
+    const auto* color = GFW::Find("MaterialComponent", "AlbedoColor");
+    const auto* roughness = GFW::Find("MaterialComponent", "Roughness");
+    const auto* profile = GFW::Find("MaterialComponent", "SkinProfile");
+    ASSERT_NE(color, nullptr);
+    ASSERT_NE(roughness, nullptr);
+    ASSERT_NE(profile, nullptr);
+    const glm::vec4 original = component.m_Material.GetBaseColorFactor();
+    auto applied = color->Apply(fixture.Scene_, fixture.History, fixture.TheEntity, fixture.Uuid, Json::array({ 0.1, 0.2, 0.3, 1.0 }));
+    EXPECT_TRUE(applied.Error.empty());
+    EXPECT_FLOAT_EQ(component.m_Material.GetBaseColorFactor().r, 0.1f);
+    fixture.History.Undo();
+    EXPECT_TRUE(OloEngine::Math::BitwiseEqual(original, component.m_Material.GetBaseColorFactor()));
+    fixture.History.Redo();
+    EXPECT_FLOAT_EQ(component.m_Material.GetBaseColorFactor().r, 0.1f);
+    applied = roughness->ApplyDirect(fixture.TheEntity, fixture.Uuid, 4.0);
+    EXPECT_TRUE(applied.Error.empty());
+    EXPECT_FLOAT_EQ(component.m_Material.GetRoughnessFactor(), 1.0f);
+    applied = profile->Apply(fixture.Scene_, fixture.History, fixture.TheEntity, fixture.Uuid, "18446744073709551614");
+    EXPECT_TRUE(applied.Error.empty());
+    EXPECT_EQ(static_cast<u64>(component.m_Material.GetSkinProfileHandle()), 18446744073709551614ULL);
+    fixture.History.Undo();
+    EXPECT_EQ(static_cast<u64>(component.m_Material.GetSkinProfileHandle()), 0ULL);
+    EXPECT_FALSE(color->ApplyDirect(fixture.TheEntity, fixture.Uuid, Json::array({ 0.1, "bad", 0.3, 1.0 })).Error.empty());
+    const auto yaml = OloEngine::SceneSerializer(fixture.Scene_).SerializeToYAML();
+    auto restoredScene = Ref<Scene>::Create();
+    ASSERT_TRUE(OloEngine::SceneSerializer(restoredScene).DeserializeFromYAML(yaml));
+    auto restored = restoredScene->GetEntityByUUID(UUID(fixture.Uuid));
+    EXPECT_TRUE(component == restored.GetComponent<OloEngine::MaterialComponent>());
+}
 
 // ---- 1. breadth: the registry covers the real component surface -------------
 

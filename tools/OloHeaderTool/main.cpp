@@ -109,6 +109,9 @@ struct PropertyDef
     std::string cppField;  // C++ field name (e.g., "m_Color")
     std::string customGet; // Custom getter expression (empty = direct field)
     std::string customSet; // Custom setter expression (empty = direct field)
+    bool mcpOnly = false;
+    std::string mcpMin;
+    std::string mcpMax;
 };
 
 struct ComponentDef
@@ -744,6 +747,11 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
 
                     PropertyDef prop;
                     prop.cppField = fieldName;
+                    prop.mcpOnly = meta.contains("MCPOnly") && meta.at("MCPOnly") == "true";
+                    if (meta.contains("Min"))
+                        prop.mcpMin = meta.at("Min");
+                    if (meta.contains("Max"))
+                        prop.mcpMax = meta.at("Max");
 
                     // Determine script name: metadata Name, or strip m_ prefix
                     if (auto it = meta.find("Name"); it != meta.end())
@@ -2784,6 +2792,7 @@ static void EmitMcpFieldsRecursive(std::ostream& out, const std::string& compone
 // MorphTargetSet is bound at runtime.
 static const std::set<std::string> kOloPropertySetterMcpComponents = {
     "AudioSourceComponent",
+    "MaterialComponent",
     "TransformComponent",
 };
 
@@ -2879,7 +2888,11 @@ static std::size_t EmitMcpSetterFields(ChunkWriter& writer, const std::vector<Co
             body << "    [](" << comp.name << "& comp, const " << cppType << "& v)\n";
             body << "    {\n";
             EmitStatements(body, "        ", setExpr);
-            body << "    }));\n";
+            body << "    }";
+            if (!prop.mcpMin.empty() || !prop.mcpMax.empty())
+                body << ", FieldRange{ " << (prop.mcpMin.empty() ? "std::nullopt" : "std::optional<double>(" + prop.mcpMin + ")")
+                     << ", " << (prop.mcpMax.empty() ? "std::nullopt" : "std::optional<double>(" + prop.mcpMax + ")") << " }";
+            body << "));\n";
             ++emitted;
         }
         if (emitted == before)
@@ -3919,6 +3932,10 @@ int main(int argc, char* argv[])
     };
 
     auto components = ParseHeaders(scanDir);
+    const auto mcpProperties = components;
+    for (auto& component : components)
+        std::erase_if(component.properties, [](const PropertyDef& property)
+                      { return property.mcpOnly; });
 
     // The AllComponents tuple is generated from `struct *Component` definitions and
     // is independent of OLO_PROPERTY — emit it before the no-properties early-out so
@@ -3981,7 +3998,7 @@ int main(int argc, char* argv[])
         // a different consumer: every public, JSON-coercible member of every
         // component (including the ones the serializer keeps hand-written, whose
         // recognised fields the scan still collects).
-        if (!WriteMcpFieldRegistry(mcpOutDir, componentFields, components))
+        if (!WriteMcpFieldRegistry(mcpOutDir, componentFields, mcpProperties))
             errors = true;
         // The engine-side component-field registry behind the visual-script
         // Get/Set Field nodes (issue #793) - the same scan again, for a consumer

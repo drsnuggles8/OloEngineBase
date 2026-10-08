@@ -1,0 +1,4 @@
+Observed during the initial Vulkan session before the census timing fix (2026-10-07, 17:13:09):
+The tracker reported 16 GPU allocations totaling 33,998,848 bytes: 5 Storage Buffer, 8 Texture 2D, 2 Texture Cubemap, 1 Other.
+The context then shut down cleanly after releasing its heaps, frame buffers and deferred allocations.
+This is a recorded summary of the initial log; the complete post-fix teardown is in vulkan-teardown-after.log.

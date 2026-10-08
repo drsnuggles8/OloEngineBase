@@ -2816,16 +2816,26 @@ namespace OloEngine
     struct MaterialComponent
     {
         OLO_PROPERTY(Name = "AlbedoColor", Type = "vec4", Get = "comp.m_Material.GetBaseColorFactor()", Set = "comp.m_Material.SetBaseColorFactor({v})")
-        OLO_PROPERTY(Name = "Metallic", Type = "float", Get = "comp.m_Material.GetMetallicFactor()", Set = "comp.m_Material.SetMetallicFactor({v})")
-        OLO_PROPERTY(Name = "Roughness", Type = "float", Get = "comp.m_Material.GetRoughnessFactor()", Set = "comp.m_Material.SetRoughnessFactor({v})")
+        OLO_PROPERTY(Name = "Metallic", Type = "float", Min = "0", Max = "1", Get = "comp.m_Material.GetMetallicFactor()", Set = "comp.m_Material.SetMetallicFactor({v})")
+        OLO_PROPERTY(Name = "Roughness", Type = "float", Min = "0", Max = "1", Get = "comp.m_Material.GetRoughnessFactor()", Set = "comp.m_Material.SetRoughnessFactor({v})")
         OLO_PROPERTY(Name = "Emissive", Type = "vec4", Get = "comp.m_Material.GetEmissiveFactor()", Set = "comp.m_Material.SetEmissiveFactor({v})")
         // DELIBERATE C# EXEMPTION: the material's enum-shaped fields —
         // AlphaMode, the #975 PBRModel closure selector and the #1231
-        // MaterialKind — are not OLO_PROPERTY-annotated, matching each other.
+        // MaterialKind — remain outside the generated scripting API.
         // Lua exposes pbrModel, materialKind and skinProfile (all with range
         // rejection) because Lua is the runtime-tuning surface; extend the C#
         // surface for all three together when a C# materials API grows past the
         // four factors above.
+        // MCP diagnostics reuses the setter path without widening the C# API.
+        OLO_PROPERTY(Name = "NormalScale", Type = "float", MCPOnly = "true", Get = "comp.m_Material.GetNormalScale()", Set = "comp.m_Material.SetNormalScale({v})", Min = "0")
+        OLO_PROPERTY(Name = "PBRModel", Type = "int", MCPOnly = "true", Get = "static_cast<int>(comp.m_Material.GetPBRModel())", Set = "comp.m_Material.SetPBRModel(static_cast<PBRModel>({v}))", Min = "0", Max = "1")
+        OLO_PROPERTY(Name = "MaterialKind", Type = "int", MCPOnly = "true", Get = "static_cast<int>(comp.m_Material.GetMaterialKind())", Set = "comp.m_Material.SetMaterialKind(static_cast<MaterialKind>({v}))", Min = "0", Max = "3")
+        OLO_PROPERTY(Name = "SkinProfile", Type = "ulong", MCPOnly = "true", Get = "comp.m_Material.GetSkinProfileHandle()", Set = "comp.m_Material.SetSkinProfileHandle({v})")
+        OLO_PROPERTY(Name = "Transmission", Type = "float", MCPOnly = "true", Get = "comp.m_Material.GetTransmissionFactor()", Set = "comp.m_Material.SetTransmissionFactor({v})", Min = "0", Max = "1")
+        OLO_PROPERTY(Name = "IOR", Type = "float", MCPOnly = "true", Get = "comp.m_Material.GetIOR()", Set = "comp.m_Material.SetIOR({v})", Min = "1")
+        OLO_PROPERTY(Name = "Thickness", Type = "float", MCPOnly = "true", Get = "comp.m_Material.GetThicknessFactor()", Set = "comp.m_Material.SetThicknessFactor({v})", Min = "0")
+        OLO_PROPERTY(Name = "AttenuationColor", Type = "vec3", MCPOnly = "true", Get = "comp.m_Material.GetAttenuationColor()", Set = "comp.m_Material.SetAttenuationColor({v})", Min = "0", Max = "1")
+        OLO_PROPERTY(Name = "AttenuationDistance", Type = "float", MCPOnly = "true", Get = "comp.m_Material.GetAttenuationDistance()", Set = "comp.m_Material.SetAttenuationDistance({v})", Min = "0")
         Material m_Material;
         AssetHandle m_ShaderGraphHandle = 0;
 
