@@ -34,16 +34,15 @@ namespace OloEngine::MCP
         {
             const auto& terrain = m_Scene->GetEntityByUUID(m_Entity).GetComponent<TerrainComponent>();
             m_Before = terrain.m_VoxelOverride;
-            m_BeforeAutoSeeded = terrain.m_VoxelAutoSeeded;
         }
 
         void Execute() override
         {
-            SetVolume(m_After, false);
+            SetVolume(m_After);
         }
         void Undo() override
         {
-            SetVolume(m_Before, m_BeforeAutoSeeded);
+            SetVolume(m_Before);
         }
         [[nodiscard]] std::string GetDescription() const override
         {
@@ -51,25 +50,24 @@ namespace OloEngine::MCP
         }
 
       private:
-        void SetVolume(Ref<VoxelOverride> volume, bool autoSeeded)
+        // A volume carries its own seeding state: the import is authored, and the
+        // volume it replaced keeps whatever it was.
+        void SetVolume(Ref<VoxelOverride> volume)
         {
             Entity entity = m_Scene->GetEntityByUUID(m_Entity);
             if (!entity || !entity.HasComponent<TerrainComponent>())
                 return;
             auto& terrain = entity.GetComponent<TerrainComponent>();
             terrain.m_VoxelOverride = volume;
-            terrain.m_VoxelAutoSeeded = autoSeeded;
             terrain.m_VoxelMeshes.clear();
             terrain.m_VoxelQuadMeshes = nullptr;
             if (volume)
-                for (auto& entry : volume->GetChunks())
-                    entry.second.Dirty = true;
+                volume->MarkAllChunksDirty();
         }
 
         Ref<Scene> m_Scene;
         UUID m_Entity;
         Ref<VoxelOverride> m_Before;
         Ref<VoxelOverride> m_After;
-        bool m_BeforeAutoSeeded = false;
     };
 } // namespace OloEngine::MCP

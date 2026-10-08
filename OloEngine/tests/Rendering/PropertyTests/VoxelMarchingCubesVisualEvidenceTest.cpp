@@ -355,4 +355,61 @@ namespace OloEngine::Tests
                 << ") - the tangent frame is collapsing the perturbed normals";
         }
     }
+
+    // #1561: a terrain restored by delete -> undo (DeleteEntityCommand re-adds a
+    // copy of its snapshot) shares the authored volume, whose chunks the
+    // original already meshed and marked clean. The copy has no meshes of its
+    // own, so unless the tick re-dirties the volume, marching cubes rebuilds
+    // nothing and the authored blob vanishes from the screen while every
+    // CPU-side voxel check still passes.
+    TEST_F(VoxelMarchingCubesVisualEvidenceTest, UndoRestoredTerrainRemeshesItsAuthoredVolume)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        EditorCamera camera = BlobCamera();
+        RunEditorFrames(camera, 1);
+        {
+            auto& terrain = m_TerrainEntity.GetComponent<TerrainComponent>();
+            ASSERT_TRUE(terrain.m_VoxelOverride);
+            terrain.m_VoxelOverride->AddSphere(kBlobCentre, kBlobRadius);
+        }
+        RunEditorFrames(camera, 3);
+
+        std::vector<u8> frame;
+        SurfaceSample original;
+        CaptureBlob(frame, original);
+        ASSERT_GT(original.Coverage, 0.03f) << "the blob did not render before the copy";
+
+        // What DeleteEntityCommand's undo does to the component.
+        auto restoreFromSnapshot = [this]()
+        {
+            const TerrainComponent snapshot = m_TerrainEntity.GetComponent<TerrainComponent>();
+            m_TerrainEntity.RemoveComponent<TerrainComponent>();
+            return &m_TerrainEntity.AddComponent<TerrainComponent>(snapshot);
+        };
+
+        auto* restored = restoreFromSnapshot();
+        EXPECT_TRUE(restored->m_VoxelMeshes.empty());
+        RunEditorFrames(camera, 3);
+        restored = &m_TerrainEntity.GetComponent<TerrainComponent>();
+        EXPECT_FALSE(restored->m_VoxelMeshes.empty()) << "the restored terrain never re-meshed its authored volume";
+
+        SurfaceSample after;
+        CaptureBlob(frame, after);
+        if (GoldenRebaseRequested())
+        {
+            WritePng("VoxelMarchingCubes_blob_undoRestored.png", frame);
+        }
+        std::printf("[#1561] undo-restored blob: coverage %.3f (before the copy %.3f)\n",
+                    static_cast<double>(after.Coverage), static_cast<double>(original.Coverage));
+        EXPECT_GT(after.Coverage, original.Coverage * 0.9f) << "the undo-restored blob does not render";
+
+        // Negative control: the same copy without the re-mesh request draws
+        // nothing, so the assertion above is measuring the request.
+        restored = restoreFromSnapshot();
+        restored->m_VoxelRemeshAll = false;
+        RunEditorFrames(camera, 3);
+        EXPECT_TRUE(m_TerrainEntity.GetComponent<TerrainComponent>().m_VoxelMeshes.empty())
+            << "the negative control re-meshed anyway; the check above proves nothing";
+    }
 } // namespace OloEngine::Tests

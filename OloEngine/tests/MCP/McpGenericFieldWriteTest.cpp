@@ -846,7 +846,7 @@ TEST(McpVoxelImport, UndoRestoresTheOriginalVolumeAndRebuildsItsMeshes)
     terrain.m_VoxelOverride = Ref<VoxelOverride>::Create();
     terrain.m_VoxelOverride->Initialize(4, 4, 8, 0.25f);
     terrain.m_VoxelOverride->AddSphere({ 2, 2, 2 }, 1.0f);
-    terrain.m_VoxelAutoSeeded = true;
+    terrain.m_VoxelOverride->SetAutoSeeded(true);
     auto original = terrain.m_VoxelOverride;
     for (auto& entry : original->GetChunks())
         entry.second.Dirty = false;
@@ -856,15 +856,15 @@ TEST(McpVoxelImport, UndoRestoresTheOriginalVolumeAndRebuildsItsMeshes)
     CommandHistory history;
     history.Execute(std::make_unique<MCP::VoxelImportCommand>(scene, entity.GetUUID(), replacement));
     EXPECT_EQ(terrain.m_VoxelOverride, replacement);
-    EXPECT_FALSE(terrain.m_VoxelAutoSeeded);
+    EXPECT_FALSE(terrain.m_VoxelOverride->IsAutoSeeded());
     history.Undo();
     EXPECT_EQ(terrain.m_VoxelOverride, original);
-    EXPECT_TRUE(terrain.m_VoxelAutoSeeded);
+    EXPECT_TRUE(terrain.m_VoxelOverride->IsAutoSeeded());
     for (const auto& entry : original->GetChunks())
         EXPECT_TRUE(entry.second.Dirty) << "a restored volume must regenerate discarded marching-cubes meshes";
     history.Redo();
     EXPECT_EQ(terrain.m_VoxelOverride, replacement);
-    EXPECT_FALSE(terrain.m_VoxelAutoSeeded);
+    EXPECT_FALSE(terrain.m_VoxelOverride->IsAutoSeeded());
 }
 
 TEST(McpVoxelImport, RejectsCompressedVolumesExceedingTheDecodedBudget)

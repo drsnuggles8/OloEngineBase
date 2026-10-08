@@ -568,6 +568,11 @@ namespace OloEngine
         // Copy components (except IDComponent and TagComponent)
         CopyComponent(AllComponents{}, dstSceneRegistry, srcSceneRegistry, enttMap);
 
+        // The copy is a separate world: a Play-mode voxel edit must not reach the
+        // edit scene, nor an edit-scene undo reach the running copy (#1561).
+        for (auto&& [entity, terrain] : dstSceneRegistry.view<TerrainComponent>().each())
+            terrain.DetachVoxelVolume();
+
         // Propagate navmesh so NavigationSystem works in the copied scene
         if (other->m_NavMesh)
             newScene->SetNavMesh(other->m_NavMesh);
@@ -6453,6 +6458,12 @@ namespace OloEngine
             newEntity.GetComponent<CameraComponent>().Primary = false;
         }
 
+        // TerrainComponent: the duplicate carves its own voxels (#1561)
+        if (newEntity.HasComponent<TerrainComponent>())
+        {
+            newEntity.GetComponent<TerrainComponent>().DetachVoxelVolume();
+        }
+
         return newEntity;
     }
 
@@ -12196,6 +12207,13 @@ namespace OloEngine
                             terrain.m_WorldSizeX, terrain.m_WorldSizeZ,
                             terrain.m_HeightScale, terrain.m_VoxelSize);
                     }
+                    // A copy or an undo shares an authored volume whose chunks
+                    // were meshed for another component (#1561).
+                    if (terrain.m_VoxelRemeshAll)
+                    {
+                        terrain.m_VoxelOverride->MarkAllChunksDirty();
+                        terrain.m_VoxelRemeshAll = false;
+                    }
 
                     if (terrain.m_VoxelMesher == VoxelMesherKind::GreedyCubic)
                     {
@@ -12217,7 +12235,13 @@ namespace OloEngine
                                 terrain.m_VoxelOverride->SeedFromHeightmap(
                                     *terrain.m_TerrainData,
                                     terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
-                                terrain.m_VoxelAutoSeeded = true;
+                            }
+                            else
+                            {
+                                // A new builder has no meshes: after a switch from
+                                // marching cubes, a copy or an undo, every chunk
+                                // of an existing volume needs one.
+                                terrain.m_VoxelOverride->MarkAllChunksDirty();
                             }
                         }
                         terrain.m_VoxelQuadMeshes->Update(*terrain.m_VoxelOverride);
@@ -12235,11 +12259,17 @@ namespace OloEngine
                         // seed comment above says the MC path avoids. A volume the
                         // USER carved is theirs and is never dropped; only the one
                         // this code seeded is.
-                        if (terrain.m_VoxelAutoSeeded)
+                        if (terrain.m_VoxelOverride->IsAutoSeeded())
                         {
                             terrain.m_VoxelOverride->GetChunks().clear();
-                            terrain.m_VoxelAutoSeeded = false;
+                            terrain.m_VoxelOverride->SetAutoSeeded(false);
                             terrain.m_VoxelMeshes.clear();
+                        }
+                        // Switching from greedy: marching cubes has no meshes for
+                        // the chunks the cubic path drew.
+                        if (terrain.m_VoxelQuadMeshes)
+                        {
+                            terrain.m_VoxelOverride->MarkAllChunksDirty();
                         }
 
                         // Rebuild dirty voxel meshes on main thread
