@@ -21,6 +21,18 @@ the only symptom is a log line. Since #1565/#1567 that line is
 `[Bindless] '<file>' FELL BACK to the slot-based route: …` at error level. Grep the log for it after
 any bindless run.
 
+Two heap rules surfaced while verifying the above, both on the raw route only:
+
+- **A released heap slot must publish its typed null in every build.** Poison-on-free was Debug-only;
+  in Release a freed slot kept its now non-resident handle, and a draw reading the stale offset
+  crashed NVIDIA's driver (`0xc0000409` in `nvoglv64.dll`) after a scene's textures were freed. A
+  crash that reproduces in Release and not in Debug on the raw route is this class first.
+- **An inherited sampler must survive the seam.** `HeapBinding` passes `DepthCompare = false` for
+  every ordinary bind; the GL backend used to inherit the texture's own sampler only for `true`, so
+  every seam bind sampled REPEAT + linear-mip whatever the texture said. Pinned by
+  `HeapGpuFixture.AClampToEdgeTexture3DKeepsItsWrapThroughTheHeap`, which goes through the real seam
+  rather than `CreateView(…, ViewDesc{}, …)`.
+
 ## How it is guarded
 
 `OloEngine/tests/Rendering/PropertyTests/BindlessRawRouteTest.cpp`:
