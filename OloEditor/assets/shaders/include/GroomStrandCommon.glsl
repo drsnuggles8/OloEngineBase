@@ -92,9 +92,9 @@ float oloGroomPixelsPerUnitAtUnitW(mat4 projection, float viewportHeight)
 // vertex pipeline may flush to zero. Masking it off here is what turns that
 // exponent back into nothing. Dropping the mask would multiply every coat by a
 // tint whose blue channel is 0x3F.
-vec3 oloGroomUnpackTint(float packed)
+vec3 oloGroomUnpackTint(float packedTint)
 {
-	uint bits = floatBitsToUint(packed) & 0x00FFFFFFu;
+	uint bits = floatBitsToUint(packedTint) & 0x00FFFFFFu;
 	return vec3(float(bits & 0xFFu), float((bits >> 8) & 0xFFu), float((bits >> 16) & 0xFFu)) * (1.0 / 255.0);
 }
 

@@ -931,6 +931,10 @@ add_executable(OloEngine-Tests
 		# The route a GL program takes to the driver (#1533): GLSL text for a
 		# shader that names OLO_GL_GLSL_ROUTE, glShaderBinary SPIR-V otherwise.
 		Rendering/PropertyTests/OpenGLShaderRouteTest.cpp
+		# The raw-GLSL bindless route (#1565, #1567): identifiers NVIDIA's front end
+		# reserves, the per-stage uniform-block budget, and every opted-in program
+		# built on the route by the real driver (skips without bindless).
+		Rendering/PropertyTests/BindlessRawRouteTest.cpp
 		Rendering/PropertyTests/AssetPreviewRendererTest.cpp
 		Rendering/PropertyTests/RendererAttachedTest.cpp
 		Rendering/RendererMemoryTrackerTest.cpp
