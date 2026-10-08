@@ -42,6 +42,7 @@
 #include "OloEngine/Gameplay/Progression/SkillTreeDatabase.h"
 #include "OloEngine/Renderer/ShaderCachePaths.h"
 #include "OloEngine/Scene/SceneSerializer.h"
+#include "OloEngine/Scene/Streaming/StreamingRegionSerializer.h"
 
 #include <algorithm>
 #include <array>
@@ -1268,10 +1269,11 @@ namespace OloEngine::Tests
             "FontHandle",
             "AudioFileHandle",
             "ColliderAsset",     // MeshCollider3D / ConvexMeshCollider3D / TriangleMeshCollider3D
-            "RegionAssetHandle", // StreamingVolumeComponent
             "BehaviorTreeAsset", // BehaviorTreeComponent (note: no "Handle" suffix)
             "StateMachineAsset", // StateMachineComponent (note: no "Handle" suffix)
         };
+        // StreamingVolumeComponent.RegionAssetHandle is a .oloregion RegionID,
+        // not an AssetRegistry GUID. Its directory-based namespace is checked below.
 
         const auto scenes = EnumerateFilesByExtension(projectRoot / "Assets" / "Scenes", ".olo");
         std::vector<Failure> failures;
@@ -1348,6 +1350,127 @@ namespace OloEngine::Tests
         // No EXPECT_GT here: scenes may legitimately use zero non-zero
         // asset handles today; the test is a regression guard.
         (void)handlesChecked;
+    }
+
+    namespace
+    {
+        sizet ValidateStreamingVolumeRegions(const YAML::Node& scene, const fs::path& scenePath,
+                                             std::vector<Failure>& failures)
+        {
+            std::vector<u64> requestedIDs;
+            try
+            {
+                if (const auto entities = scene["Entities"]; entities && entities.IsSequence())
+                {
+                    for (const auto& entity : entities)
+                    {
+                        if (const auto volume = entity["StreamingVolumeComponent"]; volume)
+                        {
+                            if (const auto handle = volume["RegionAssetHandle"]; handle)
+                            {
+                                if (const auto id = handle.as<u64>(); id != 0)
+                                    requestedIDs.push_back(id);
+                            }
+                        }
+                    }
+                }
+                if (requestedIDs.empty())
+                    return 0;
+
+                const auto settings = scene["StreamingSettings"];
+                const std::string directory = settings && settings["RegionDirectory"]
+                                                  ? settings["RegionDirectory"].as<std::string>()
+                                                  : "";
+                if (directory.empty())
+                {
+                    failures.push_back({ scenePath.generic_string(),
+                                         "Nonzero streaming volume RegionID requires StreamingSettings.RegionDirectory" });
+                    return requestedIDs.size();
+                }
+
+                // SceneStreamer::DiscoverRegions resolves relative paths against
+                // the editor working directory and scans only immediate children.
+                const fs::path regionDirectory = fs::path{ OLO_TEST_EDITOR_ROOT } / fs::path{ directory };
+                if (!fs::is_directory(regionDirectory))
+                {
+                    failures.push_back({ scenePath.generic_string(),
+                                         "StreamingSettings.RegionDirectory is not a directory: " + regionDirectory.generic_string() });
+                    return requestedIDs.size();
+                }
+
+                std::set<u64> discoveredIDs;
+                for (const auto& entry : fs::directory_iterator(regionDirectory))
+                {
+                    if (entry.path().extension() != ".oloregion")
+                        continue;
+                    const auto data = StreamingRegionSerializer::ParseRegionFile(entry.path());
+                    if (data && data["Region"])
+                        discoveredIDs.insert(static_cast<u64>(StreamingRegionSerializer::ReadMetadata(data).RegionID));
+                }
+                for (const u64 id : requestedIDs)
+                {
+                    if (!discoveredIDs.contains(id))
+                        failures.push_back({ scenePath.generic_string(),
+                                             "StreamingVolumeComponent.RegionAssetHandle = " + std::to_string(id) +
+                                                 " is not a .oloregion RegionID discoverable in " + regionDirectory.generic_string() });
+                }
+            }
+            catch (const std::exception& e)
+            {
+                failures.push_back({ scenePath.generic_string(),
+                                     std::string("Streaming volume region discovery failed: ") + e.what() });
+            }
+            return requestedIDs.size();
+        }
+    } // namespace
+
+    TEST(AssetContentValidity, AllSandboxStreamingVolumeRegionsAreDiscoverable)
+    {
+        const auto scenes = EnumerateFilesByExtension(SandboxAssetsRoot() / "Scenes", ".olo");
+        std::vector<Failure> failures;
+        sizet volumesChecked = 0;
+        for (const auto& path : scenes)
+        {
+            std::string reason;
+            if (const auto scene = ParseYAMLFile(path, reason); scene)
+                volumesChecked += ValidateStreamingVolumeRegions(*scene, path, failures);
+            else
+                failures.push_back({ path.generic_string(), reason });
+        }
+        ReportFailures("streaming volume region reference", failures, volumesChecked);
+    }
+
+    TEST(AssetContentValidity, StreamingVolumeRegionDiscoveryRejectsMissingDirectoryAndForeignID)
+    {
+        const fs::path scenePath = SandboxAssetsRoot() / "Scenes" / "Benchmark" / "StreamingGroomRegions.olo";
+        std::string reason;
+        auto scene = ParseYAMLFile(scenePath, reason);
+        ASSERT_TRUE(scene) << reason;
+        std::vector<Failure> failures;
+        EXPECT_GT(ValidateStreamingVolumeRegions(*scene, scenePath, failures), 0u);
+        ASSERT_TRUE(failures.empty());
+
+        // An existing directory with unrelated .oloregion files must not satisfy
+        // the reference. The registry and filenames are irrelevant to this lookup.
+        const auto foreign = StreamingRegionSerializer::ParseRegionFile(
+            SandboxAssetsRoot() / "Scenes" / "Benchmark" / "StreamingVegetationRegions" / "region-0.oloregion");
+        ASSERT_TRUE(foreign && foreign["Region"]);
+        const u64 foreignID = static_cast<u64>(StreamingRegionSerializer::ReadMetadata(foreign).RegionID);
+        ASSERT_NE(foreignID, 0u);
+        for (auto entity : (*scene)["Entities"])
+        {
+            if (auto volume = entity["StreamingVolumeComponent"]; volume)
+                volume["RegionAssetHandle"] = foreignID;
+        }
+        ValidateStreamingVolumeRegions(*scene, scenePath, failures);
+        ASSERT_FALSE(failures.empty());
+        EXPECT_NE(failures.front().Reason.find("not a .oloregion RegionID discoverable"), std::string::npos);
+
+        failures.clear();
+        (*scene)["StreamingSettings"]["RegionDirectory"] = "SandboxProject/Assets/Scenes/Benchmark/StreamingGroomRegions/missing-directory";
+        ValidateStreamingVolumeRegions(*scene, scenePath, failures);
+        ASSERT_EQ(failures.size(), 1u);
+        EXPECT_NE(failures.front().Reason.find("is not a directory"), std::string::npos);
     }
 
     // -------------------------------------------------------------------------
