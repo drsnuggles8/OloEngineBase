@@ -4949,6 +4949,25 @@ namespace OloEngine
             m_VoxelRemeshAll = false; // nothing shared is left to re-mesh
         }
 
+        // Bound the scalars that size allocations, divide, or place the voxel
+        // grid. Shared by the scene file and save-game readers, which both read
+        // untrusted values; a non-finite value takes the default.
+        void SanitizeScalars()
+        {
+            auto sanitize = [](f32& v, f32 lo, f32 hi, f32 fallback)
+            { v = std::isfinite(v) ? std::clamp(v, lo, hi) : fallback; };
+            sanitize(m_WorldSizeX, 1.0e-3f, 1.0e6f, 256.0f);
+            sanitize(m_WorldSizeZ, 1.0e-3f, 1.0e6f, 256.0f);
+            sanitize(m_HeightScale, 0.0f, 1.0e6f, 64.0f);
+            sanitize(m_ProceduralFrequency, 0.0f, 1.0e4f, 3.0f);
+            sanitize(m_ProceduralLacunarity, 1.0e-3f, 64.0f, 2.0f);
+            sanitize(m_ProceduralPersistence, 0.0f, 1.0f, 0.45f);
+            sanitize(m_TargetTriangleSize, 1.0e-3f, 1.0e4f, 8.0f);
+            sanitize(m_MorphRegion, 0.0f, 1.0f, 0.3f);
+            sanitize(m_TileWorldSize, 1.0e-3f, 1.0e6f, 256.0f);
+            sanitize(m_VoxelSize, 1.0e-3f, 1.0e6f, 1.0f);
+        }
+
         // Compares the serialized fields plus WHICH voxel volume is held
         // (identity, not content: voxel edits have their own undo, and an
         // inspector snapshot shares the volume). Runtime state is rebuilt on

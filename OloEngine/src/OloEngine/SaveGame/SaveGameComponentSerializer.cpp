@@ -2410,6 +2410,9 @@ namespace OloEngine
             sanitize(c.m_HeightShaping.HeightExponent, 0.05f, 16.0f, 1.0f);
             sanitize(c.m_HeightShaping.IslandFalloff, 0.0f, 1.0f, 0.0f);
             sanitize(c.m_HeightShaping.IslandFalloffRadius, 0.0f, 0.5f, 0.3f);
+            // The world size, height scale, voxel size and the other sizing
+            // scalars, with the bounds the scene file reader applies.
+            c.SanitizeScalars();
             c.m_HeightShaping.TerraceSteps = std::min(c.m_HeightShaping.TerraceSteps, 256u);
             c.m_SplatmapGenResolution = std::clamp(c.m_SplatmapGenResolution, 16u, 4096u);
             c.m_ProceduralErosionIterations = std::clamp(c.m_ProceduralErosionIterations, 0, 64);
