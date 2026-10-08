@@ -165,9 +165,12 @@ namespace OloEngine
             // rather than one draw. Retry the slot-based source once.
             if (m_IsBindlessVariant)
             {
-                OLO_CORE_WARN("[Bindless] Compute shader '{0}' failed with the bindless branch; "
-                              "falling back to the slot-based build.",
-                              GetName());
+                // Error, not warning: a dispatch off the route it was asked for is
+                // a defect on this driver, not a preference (see OpenGLShader's
+                // raw-GLSL fallback line).
+                OLO_CORE_ERROR("[Bindless] Compute shader '{0}' FELL BACK to the slot-based build: its bindless "
+                               "branch did not compile on this driver (see the error above).",
+                               GetName());
                 m_IsBindlessVariant = false;
                 const u32 retry = glCreateShader(GL_COMPUTE_SHADER);
                 const char* plain = source.c_str();

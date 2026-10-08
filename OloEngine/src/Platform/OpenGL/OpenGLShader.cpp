@@ -1395,6 +1395,8 @@ namespace OloEngine
         attached.reserve(sources.size());
 
         bool ok = true;
+        // Which step refused the raw GLSL, for the fallback line below.
+        std::string failedStep;
         for (const auto& [stage, stageSource] : sources)
         {
             // Inject the define AND the extension directive immediately after
@@ -1553,6 +1555,7 @@ namespace OloEngine
                 }
 
                 glDeleteShader(shader);
+                failedStep = std::string("the ") + Utils::GLShaderStageToString(stage) + " stage's compile";
                 ok = false;
                 break;
             }
@@ -1576,6 +1579,7 @@ namespace OloEngine
                 std::vector<char> log(static_cast<sizet>(length > 0 ? length : 1));
                 glGetProgramInfoLog(freshProgram, length, nullptr, log.data());
                 OLO_CORE_ERROR("[Bindless] '{}' failed to link: {}", GetFilePath(), log.data());
+                failedStep = "the link";
                 ok = false;
             }
         }
@@ -1594,6 +1598,14 @@ namespace OloEngine
             // its optimisation, never its shader — the caller retries on the
             // ordinary path, which is the one every device without the extension
             // uses anyway.
+            //
+            // BUT SAY SO, by name and at error level. The driver's message above
+            // does not mention the fallback, and the frame still renders, so a
+            // program quietly off the route it was asked for was invisible in
+            // every bindless run (#1565, #1567).
+            OLO_CORE_ERROR("[Bindless] '{}' FELL BACK to the slot-based route: {} rejected its raw GLSL on "
+                           "this driver (see the error above). It renders, but does not read the descriptor heap.",
+                           GetFilePath(), failedStep);
             m_IsBindlessVariant = false;
             m_OpenGLSourceCode.clear();
             return false;

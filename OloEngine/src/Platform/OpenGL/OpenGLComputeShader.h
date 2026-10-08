@@ -52,6 +52,14 @@ namespace OloEngine
 
         bool Reload() override;
 
+        /// True when the program was built with the heap-bindless branch
+        /// (OLO_RHI_BINDLESS=1 and the source names OLO_BINDLESS), false when
+        /// that branch failed on this driver and the slot-based retry built it.
+        [[nodiscard]] bool IsBindlessVariant() const
+        {
+            return m_IsBindlessVariant;
+        }
+
       private:
         void Compile(const std::string& source);
         // Split out of Compile so the bindless branch can retry with the plain
