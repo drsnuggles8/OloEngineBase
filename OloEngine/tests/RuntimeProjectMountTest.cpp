@@ -34,6 +34,7 @@
 #include <gtest/gtest.h>
 #include "TestTempDir.h"
 
+#include "OloEngine/Asset/AssetManager/AssetManagerBase.h"
 #include "OloEngine/Project/Project.h"
 
 #include <filesystem>
@@ -51,6 +52,7 @@ class RuntimeProjectMountTest : public ::testing::Test
         // Whatever project an earlier test left mounted. Restored in TearDown so
         // this test can't strand the suite on a directory it then deletes.
         m_PreviousProject = Project::GetActive();
+        m_PreviousAssets = Project::HasAssetManager() ? Project::GetAssetManager() : nullptr;
 
         m_GameDir = OloEngine::Tests::TempDir("game");
         ASSERT_TRUE(std::filesystem::is_directory(m_GameDir))
@@ -59,9 +61,19 @@ class RuntimeProjectMountTest : public ::testing::Test
 
     void TearDown() override
     {
+        // Leave the suite as it was: the earlier project WITH its asset manager,
+        // or none. Leaving this test's project mounted (or a restored one with
+        // no asset manager) broke later tests that assume a mounted project has
+        // one, depending on run order.
         if (m_PreviousProject)
         {
             Project::NewInMemory(m_PreviousProject->GetDirectory(), m_PreviousProject->GetConfig());
+            if (m_PreviousAssets)
+                Project::SetAssetManager(m_PreviousAssets);
+        }
+        else
+        {
+            Project::Unload();
         }
         std::error_code ec;
         std::filesystem::remove_all(m_GameDir, ec);
@@ -88,6 +100,7 @@ class RuntimeProjectMountTest : public ::testing::Test
     }
 
     Ref<Project> m_PreviousProject;
+    Ref<AssetManagerBase> m_PreviousAssets;
     std::filesystem::path m_GameDir;
 };
 
