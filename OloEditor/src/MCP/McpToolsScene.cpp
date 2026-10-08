@@ -304,7 +304,7 @@ namespace OloEngine::MCP
                     command->Execute();
                 else
                     history->Execute(std::move(command));
-                return {{"entity", std::to_string(uuid)}, {"chunks", chunks}, {"undoable", !playing}, {"scenePersisted", false}}; });
+                return {{"entity", std::to_string(uuid)}, {"chunks", chunks}, {"undoable", !playing}, {"scenePersisted", !playing}}; });
             if (result.contains("error"))
                 return ToolResult::Error(result["error"].get<std::string>());
             return ToolResult::Structured(result);
