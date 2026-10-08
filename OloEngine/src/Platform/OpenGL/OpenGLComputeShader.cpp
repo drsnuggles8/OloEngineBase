@@ -105,7 +105,7 @@ namespace OloEngine
                                                           glDeleteProgram(programId); });
     }
 
-    void OpenGLComputeShader::Compile(const std::string& source)
+    bool OpenGLComputeShader::Compile(const std::string& source, const bool assertOnFailure)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -164,7 +164,7 @@ namespace OloEngine
         }
         else if (Link(shader, source))
         {
-            return;
+            return true;
         }
 
         // A broken bindless BRANCH must cost the dispatch its optimisation,
@@ -192,22 +192,29 @@ namespace OloEngine
             glGetShaderiv(retry, GL_COMPILE_STATUS, &retryCompiled);
             if (retryCompiled == GL_FALSE)
             {
+                GLint length = 0;
+                glGetShaderiv(retry, GL_INFO_LOG_LENGTH, &length);
+                std::string infoLog(static_cast<sizet>(length), '\0');
+                glGetShaderInfoLog(retry, length, &length, infoLog.data());
                 glDeleteShader(retry);
+                OLO_CORE_ERROR("Compute shader slot-based retry failed to compile ({0}):\n{1}", GetName(), infoLog);
             }
             else if (Link(retry, source))
             {
-                return;
+                return true;
             }
+            compiled = retryCompiled; // name the step that failed last: the retry's
         }
 
-        if (compiled == GL_FALSE)
+        if (assertOnFailure && compiled == GL_FALSE)
         {
             OLO_CORE_ASSERT(false, "Compute shader compilation failure!");
         }
-        else
+        else if (assertOnFailure)
         {
             OLO_CORE_ASSERT(false, "Compute shader link failure!");
         }
+        return false;
     }
 
     bool OpenGLComputeShader::Link(u32 shader, const std::string& source)
@@ -251,8 +258,8 @@ namespace OloEngine
 
         // Source size plus a guessed kilobyte: a CPU-side estimate, not device memory, so it
         // is booked in the CPU column where it cannot inflate the GPU total (#1342).
-        const sizet estimatedMemory = source.size() + 1024;
-        OLO_TRACK_CPU_ALLOC(this, estimatedMemory, RendererMemoryTracker::ResourceType::Shader, "OpenGL Compute Shader");
+        m_TrackedBytes = source.size() + 1024;
+        OLO_TRACK_CPU_ALLOC(this, m_TrackedBytes, RendererMemoryTracker::ResourceType::Shader, "OpenGL Compute Shader");
 
         OLO_SHADER_REGISTER_MANUAL(m_RendererID, GetName(), GetFilePath());
         m_IsValid = true;
@@ -381,30 +388,52 @@ namespace OloEngine
             return false;
         }
 
-        // Clean up old program
-        if (m_IsValid)
+        // BUILD FIRST, RETIRE ON SUCCESS. Deleting the old program before
+        // compiling the edited source meant a typo saved during a live session
+        // took the system (snow, wind, HZB) offline until the file was fixed,
+        // while a graphics shader in the same situation kept rendering.
+        const u32 oldProgramId = m_RendererID;
+        const bool oldValid = m_IsValid;
+        const bool oldBindless = m_IsBindlessVariant;
+        if (oldValid)
         {
             OLO_TRACK_DEALLOC(this);
         }
-        OLO_SHADER_UNREGISTER(m_RendererID);
-
-        u32 oldProgramId = m_RendererID;
-        UnregisterGLProgramLabel(oldProgramId);
-        FrameResourceManager::Get().SubmitForDeletion([oldProgramId]()
-                                                      {
-                                                          // See Utils::UnbindProgramIfCurrent (issue #625): the
-                                                          // reloaded-away program may still be bound by the time
-                                                          // this deferred deletion runs.
-                                                          Utils::UnbindProgramIfCurrent(oldProgramId);
-                                                          Shader::UnregisterProgram(oldProgramId);
-                                                          glDeleteProgram(oldProgramId); });
-
         m_RendererID = 0;
-        m_RHIHandle.Sync(RHI::ResourceKind::ShaderProgram, m_RendererID, RHI::Backend::OpenGL);
         m_IsValid = false;
         m_UniformLocationCache.clear();
 
-        Compile(source);
+        if (!Compile(source, /*assertOnFailure*/ false))
+        {
+            m_RendererID = oldProgramId;
+            m_RHIHandle.Sync(RHI::ResourceKind::ShaderProgram, m_RendererID, RHI::Backend::OpenGL);
+            m_IsValid = oldValid;
+            m_IsBindlessVariant = oldBindless;
+            if (oldValid)
+            {
+                OLO_TRACK_CPU_ALLOC(this, m_TrackedBytes, RendererMemoryTracker::ResourceType::Shader,
+                                    "OpenGL Compute Shader");
+            }
+            OLO_CORE_ERROR("Compute shader '{0}' did not rebuild; keeping the previous program (see the error above).",
+                           GetName());
+            OLO_SHADER_RELOAD_END(oldProgramId, false);
+            return false;
+        }
+
+        if (oldProgramId != 0)
+        {
+            OLO_SHADER_UNREGISTER(oldProgramId);
+            UnregisterGLProgramLabel(oldProgramId);
+            FrameResourceManager::Get().SubmitForDeletion([oldProgramId]()
+                                                          {
+                                                              // See Utils::UnbindProgramIfCurrent (issue #625): the
+                                                              // reloaded-away program may still be bound by the time
+                                                              // this deferred deletion runs.
+                                                              Utils::UnbindProgramIfCurrent(oldProgramId);
+                                                              Shader::UnregisterProgram(oldProgramId);
+                                                              glDeleteProgram(oldProgramId); });
+        }
+
         OLO_SHADER_RELOAD_END(m_RendererID, m_IsValid);
         return m_IsValid;
     }

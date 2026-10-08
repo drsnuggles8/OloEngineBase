@@ -19,10 +19,15 @@
 
 #include "RenderPropertyTest.h"
 
+#include "OloEngine/Renderer/ComputeShader.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ShaderDebugUtils.h"
 
+#include "TestTempDir.h"
+
 #include <gtest/gtest.h>
+
+#include <fstream>
 
 namespace OloEngine::Tests
 {
@@ -132,5 +137,38 @@ namespace OloEngine::Tests
         EXPECT_EQ(shader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
         EXPECT_TRUE(shader->IsReady());
         EXPECT_NE(shader->GetRendererID(), 0u);
+    }
+
+    // A broken edit saved during a live session must not take a compute pass
+    // offline: Reload used to delete the working program before compiling the
+    // edit, so a typo left the shader invalid (snow, wind, HZB gone) until the
+    // file was fixed. The previous program now stays live until a rebuild
+    // succeeds.
+    TEST(ShaderCompileFailureRecovery, AComputeShaderKeepsItsProgramWhenAReloadFails)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        const auto path = TempFile("ReloadKeepsProgram.comp");
+        const auto write = [&](const char* body)
+        {
+            std::ofstream out(path, std::ios::binary | std::ios::trunc);
+            out << "#version 460 core\nlayout(local_size_x = 1) in;\n"
+                   "layout(std430, binding = 0) buffer Out { uint v[]; };\n"
+                << body;
+        };
+        write("void main() { v[0] = 7u; }\n");
+        Ref<ComputeShader> shader = ComputeShader::Create(path.string());
+        ASSERT_TRUE(shader && shader->IsValid());
+        const u32 liveProgram = shader->GetRendererID();
+        ASSERT_NE(liveProgram, 0u);
+
+        write("void main() { v[0] = undeclaredIdentifier; }\n");
+        EXPECT_FALSE(shader->Reload());
+        EXPECT_TRUE(shader->IsValid()) << "a failed reload left the compute shader without a program";
+        EXPECT_EQ(shader->GetRendererID(), liveProgram) << "a failed reload replaced the live program";
+
+        write("void main() { v[0] = 9u; }\n");
+        EXPECT_TRUE(shader->Reload());
+        EXPECT_TRUE(shader->IsValid());
+        EXPECT_NE(shader->GetRendererID(), liveProgram) << "a successful reload must swap in the new program";
     }
 } // namespace OloEngine::Tests
