@@ -1154,6 +1154,7 @@ add_executable(OloEngine-Tests
 		Scene/WorldOriginRebaseTest.cpp
 		# Runtime scene load/switch resolution + loading (issue #642)
 		Scene/SceneTransitionTest.cpp
+		Scene/SceneRenderSettingsActivationTest.cpp
 		# ParticleSystemComponent undo equality: authored settings only (issue #1412)
 		Scene/ParticleSystemComponentUndoEqualityTest.cpp
 		# Inspector undo state machine: undo/redo and outside writes are not edits

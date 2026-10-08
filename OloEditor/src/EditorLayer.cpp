@@ -4731,29 +4731,11 @@ namespace OloEngine
                 std::to_string(static_cast<u64>(newScene->GetAllEntitiesWith<IDComponent>().size())) + " entities)",
             0, scenePath.filename().string());
 
-        Renderer3D::GetPostProcessSettings() = newScene->GetPostProcessSettings();
-        Renderer3D::GetSnowSettings() = newScene->GetSnowSettings();
-        Renderer3D::GetWindSettings() = newScene->GetWindSettings();
-        Renderer3D::GetSnowAccumulationSettings() = newScene->GetSnowAccumulationSettings();
-        Renderer3D::GetSnowEjectaSettings() = newScene->GetSnowEjectaSettings();
-        Renderer3D::GetPrecipitationSettings() = newScene->GetPrecipitationSettings();
-        Renderer3D::GetFogSettings() = newScene->GetFogSettings();
-
-        // Reapply quality tiering over scene-loaded settings
-        if (auto project = Project::GetActive())
-        {
-            ShadowSettings shadowCopy = Renderer3D::GetShadowMap().GetSettings();
-            ApplyTieringToSettings(project->GetConfig().QualityTiering, Renderer3D::GetPostProcessSettings(), shadowCopy);
-            Renderer3D::GetShadowMap().SetSettings(shadowCopy);
-            ApplyTieringToRendererSettings(project->GetConfig().QualityTiering, Renderer3D::GetRendererSettings());
-        }
-
-        // Push the (now scene-loaded + quality-tiered) settings into the render graph
-        // (#534). Runs AFTER the PostProcessSettings copy above because
-        // ApplyRendererSettings rebuilds the graph on an AO-technique change, so the
-        // scene's ActiveAOTechnique must already be live. Covers OpenScene, MCP
-        // olo_scene_open, and the auto-save pre-answered paths that share this finalizer.
-        ApplyRendererSettingsToGraph();
+        // The scene's render settings, the quality tier on top, then the render
+        // graph — the same seam the shipped runtime activates scenes through
+        // (#1563). Covers OpenScene, MCP olo_scene_open, and the auto-save
+        // pre-answered paths that share this finalizer.
+        SceneTransition::ApplySceneRenderSettings(*newScene);
 
         // A direct scene load supersedes any ARMED auto-save recovery (issue
         // #607): an olo_scene_open (or File > Open) while the recovery modal
@@ -4842,14 +4824,7 @@ namespace OloEngine
                         m_SceneHierarchyPanel.ToggleEntitySelection(*entity);
                 }
             }
-            const auto& settings = document.RenderedSettings;
-            Renderer3D::GetPostProcessSettings() = settings.PostProcess;
-            Renderer3D::GetSnowSettings() = settings.Snow;
-            Renderer3D::GetWindSettings() = settings.Wind;
-            Renderer3D::GetSnowAccumulationSettings() = settings.SnowAccumulation;
-            Renderer3D::GetSnowEjectaSettings() = settings.SnowEjecta;
-            Renderer3D::GetPrecipitationSettings() = settings.Precipitation;
-            Renderer3D::GetFogSettings() = settings.Fog;
+            document.RenderedSettings.PublishToRenderer();
             ApplyRendererSettingsToGraph();
             m_ShowAutoSaveRecovery = false;
             m_CancelAutoSaveRecovery = true;
@@ -4929,27 +4904,9 @@ namespace OloEngine
             return false;
         }
         SetEditorScene(newScene);
-        Renderer3D::GetPostProcessSettings() = newScene->GetPostProcessSettings();
-        Renderer3D::GetSnowSettings() = newScene->GetSnowSettings();
-        Renderer3D::GetWindSettings() = newScene->GetWindSettings();
-        Renderer3D::GetSnowAccumulationSettings() = newScene->GetSnowAccumulationSettings();
-        Renderer3D::GetSnowEjectaSettings() = newScene->GetSnowEjectaSettings();
-        Renderer3D::GetPrecipitationSettings() = newScene->GetPrecipitationSettings();
-        Renderer3D::GetFogSettings() = newScene->GetFogSettings();
-
-        // Reapply quality tiering over scene-loaded settings
-        if (auto project = Project::GetActive())
-        {
-            ShadowSettings shadowCopy = Renderer3D::GetShadowMap().GetSettings();
-            ApplyTieringToSettings(project->GetConfig().QualityTiering, Renderer3D::GetPostProcessSettings(), shadowCopy);
-            Renderer3D::GetShadowMap().SetSettings(shadowCopy);
-            ApplyTieringToRendererSettings(project->GetConfig().QualityTiering, Renderer3D::GetRendererSettings());
-        }
-
-        // Same rationale as LoadEditorSceneFile (#534): apply after the scene's
-        // settings are live so the graph reflects them. This finalizer backs the
-        // auto-save recovery modal's load paths.
-        ApplyRendererSettingsToGraph();
+        // Same seam as LoadEditorSceneFile. This finalizer backs the auto-save
+        // recovery modal's load paths.
+        SceneTransition::ApplySceneRenderSettings(*newScene);
 
         return true;
     }
@@ -5086,6 +5043,11 @@ namespace OloEngine
         }
 
         m_SceneState = SceneState::Play;
+        // Before anything runtime writes the renderer (a WeatherSystem drives
+        // fog, wind and precipitation): Stop restores this if Play switched
+        // scenes (#1563).
+        m_RenderSettingsAtPlay = SceneTransition::SceneRenderSettings::CaptureRenderer();
+        m_PlaySwitchedScenes = false;
 
         m_ActiveScene = Scene::Copy(m_EditorScene);
         ResetRendererForSceneSwap();
@@ -5208,6 +5170,11 @@ namespace OloEngine
 
         m_ActiveScene = loaded.LoadedScene;
         ResetRendererForSceneSwap();
+        // The incoming scene draws with its own authored settings, as it would in
+        // the shipped runtime (#1563). Stop puts back the edit scene's live
+        // settings, captured when Play started.
+        m_PlaySwitchedScenes = true;
+        SceneTransition::ApplySceneRenderSettings(*m_ActiveScene);
         // Unlike OnScenePlay's Scene::Copy, this scene was just deserialized and
         // has never seen the viewport, so size it before the runtime starts.
         if (m_ViewportSize.x > 0.0f && m_ViewportSize.y > 0.0f)
@@ -5265,6 +5232,12 @@ namespace OloEngine
 
         m_ActiveScene = m_EditorScene;
         ResetRendererForSceneSwap();
+        if (m_PlaySwitchedScenes)
+        {
+            m_RenderSettingsAtPlay.PublishToRenderer();
+            m_PlaySwitchedScenes = false;
+            ApplyRendererSettingsToGraph();
+        }
 
         BindPanelsToScene(m_ActiveScene, &m_CommandHistory);
         m_SaveGamePanel.SetContext(nullptr, nullptr);

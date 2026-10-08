@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Renderer/QualityTiering.h"
 #include "OloEngine/Scene/Scene.h"
 
 #include <filesystem>
@@ -76,4 +77,39 @@ namespace OloEngine::SceneTransition
     /// scene so the host has not yet stopped its current one.
     [[nodiscard]] LoadResult LoadSceneFile(const std::filesystem::path& path, bool requirePrimaryCamera,
                                            std::string_view saveSlot = {});
+
+    /// The scene-level render settings Renderer3D mirrors as process-global
+    /// state. A scene stores them; the renderer only sees them once they are
+    /// published, which every host must do when a scene becomes the one it
+    /// draws (issue #1563).
+    struct SceneRenderSettings
+    {
+        PostProcessSettings PostProcess;
+        SnowSettings Snow;
+        WindSettings Wind;
+        SnowAccumulationSettings SnowAccumulation;
+        SnowEjectaSettings SnowEjecta;
+        PrecipitationSettings Precipitation;
+        FogSettings Fog;
+
+        [[nodiscard]] static SceneRenderSettings Capture(const Scene& scene);
+        /// What the renderer currently draws with, quality tiering included.
+        [[nodiscard]] static SceneRenderSettings CaptureRenderer();
+        void Apply(Scene& scene) const;
+        void PublishToRenderer() const;
+    };
+
+    /// Make `scene`'s authored render settings the renderer's effective ones:
+    /// publish them, overlay the quality tier (when `tiering` is non-null), then
+    /// push the result into the render graph if Renderer3D is up. The order is
+    /// the contract: authored first, tier on top. The engine has no player
+    /// graphics preferences yet; when it does, they go on top of both.
+    ///
+    /// The shared activation seam for the editor's scene open, the editor's
+    /// Play-mode scene switch, and the runtime's initial load, reload and
+    /// script-driven switch.
+    void ApplySceneRenderSettings(const Scene& scene, const QualityTieringSettings* tiering);
+
+    /// As above, with the active project's quality tier (none without a project).
+    void ApplySceneRenderSettings(const Scene& scene);
 } // namespace OloEngine::SceneTransition

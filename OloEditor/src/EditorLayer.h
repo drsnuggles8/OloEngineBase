@@ -36,6 +36,7 @@
 #include "MCP/McpServer.h" // McpInputEvent / McpInputPlan (the input-injection queue below holds them by value)
 #include "UndoRedo/EditorCommand.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
+#include "OloEngine/Scene/SceneTransition.h"
 #include "OloEngine/Asset/AssetPackBuilder.h"
 #include "OloEngine/Renderer/Baking/LightmapBaker.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
@@ -379,6 +380,11 @@ namespace OloEngine
         Ref<Scene> m_ActiveScene;
         Ref<Scene> m_EditorScene;
         std::filesystem::path m_EditorScenePath;
+        // What the renderer drew with when Play started: the edit scene's live,
+        // possibly unsaved settings. A Play-mode scene switch publishes the
+        // incoming scene's settings (#1563); Stop then puts these back.
+        SceneTransition::SceneRenderSettings m_RenderSettingsAtPlay;
+        bool m_PlaySwitchedScenes = false;
 
         Entity m_HoveredEntity;
 

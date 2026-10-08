@@ -8,6 +8,8 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/Profiler.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Project/ProjectSerializer.h"
+#include "OloEngine/Renderer/QualityTiering.h"
 #include "OloEngine/Renderer/BackendSelection.h"
 
 #include <algorithm>
@@ -1692,6 +1694,16 @@ namespace OloEngine
         out << YAML::Key << "Rendering" << YAML::Value << YAML::BeginMap;
         out << YAML::Key << "Is3DMode" << YAML::Value << settings.Is3DMode;
         out << YAML::EndMap;
+
+        // The project's quality tier, so the shipped runtime overlays the same
+        // tier on each scene's authored render settings as the editor does
+        // (#1563). A manifest without the block gets the default tier, as a
+        // project without one does in the editor.
+        if (const auto project = Project::GetActive())
+        {
+            out << YAML::Key << "QualityTiering" << YAML::Value;
+            SerializeQualityTiering(out, project->GetConfig().QualityTiering);
+        }
 
         // Record the target explicitly, including whether C# scripting is
         // available on it (#891) — the honest answer, rather than a runtime
