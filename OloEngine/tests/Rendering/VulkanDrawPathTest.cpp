@@ -561,22 +561,13 @@ TEST_F(VulkanDrawPath, EngineHeapServesShaderReachableSlotsAndPoisonsFreedOnes)
 
     ASSERT_TRUE(VulkanDescriptorHeapBackend::InstallOntoEngineHeap());
 
-    // Poison-on-free is a DEBUG diagnostic in both backends' installs
-    // (OpenGLRendererAPI::Init and VulkanDescriptorHeapBackend::
-    // InstallOntoEngineHeap both gate HeapDesc::PoisonOnFree on OLO_DEBUG), so
-    // the install this test just performed leaves it OFF in Release — and the
-    // freed slot below keeps the dead texture's descriptor and samples 0xFF
-    // instead of the poison's 0x00. That is issue #1087's entire Release-vs-
-    // Debug split: not a missing barrier, not robustness2's nullDescriptor
-    // (this backend's nulls are real 1x1 black images precisely because
-    // nullDescriptor is not on the device floor), and not a stale binding.
-    //
-    // Re-initialise with poison ON rather than skipping the assertion in
-    // Release: the contract in this test's name is a property of the heap, not
-    // of the build, and a test that quietly stops checking half its name in
-    // the shipping configuration is the green-run-that-tested-nothing shape.
-    // Legal here because Initialize retires every live slot first and no view
-    // has been minted yet.
+    // Both backends' installs now poison in every build (it was Debug-only,
+    // and a Release slot kept the dead texture's descriptor: issue #1087's
+    // Release-vs-Debug split, and on GL a driver crash on a non-resident
+    // handle). Re-initialise with poison ON anyway, so this test states its
+    // own precondition instead of inheriting the install's choice. Legal here
+    // because Initialize retires every live slot first and no view has been
+    // minted yet.
     RHI::HeapDesc poisoningDesc = engineHeap.GetDesc();
     poisoningDesc.PoisonOnFree = true;
     RHI::DescriptorHeap::Get().Initialize(poisoningDesc, engineHeap.GetBackend());

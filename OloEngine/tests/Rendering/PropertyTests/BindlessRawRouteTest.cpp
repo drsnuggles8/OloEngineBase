@@ -2,6 +2,7 @@
 #include "OloEnginePCH.h"
 
 #include "RenderPropertyTest.h"
+#include "RendererAttachedTest.h"
 #include "Rendering/ShaderHarness.h"
 
 #include "OloEngine/Renderer/ComputeShader.h"
@@ -544,5 +545,29 @@ namespace OloEngine::Tests
         EXPECT_TRUE(offRoute.empty()) << "These programs opt in to the bindless route and were NOT built on it "
                                          "by this driver — OloEngine.log has the driver's reason:"
                                       << offRoute;
+    }
+
+    // The engine's own heap install poisons a released slot in every build. It
+    // was Debug-only, and in Release a released slot kept publishing its now
+    // non-resident bindless handle: a draw that read the stale offset crashed
+    // NVIDIA's driver (0xc0000409 in nvoglv64.dll) after a scene's textures were
+    // freed, and the same sequence passed in Debug. Reproduced by running
+    // ShadowFamilyVisualEvidence.TerrainCasts... then ...FoliageCards... in one
+    // Release process with OLO_RHI_BINDLESS=1.
+    class EngineHeapInstall : public RendererAttachedTest
+    {
+      protected:
+        void BuildScene() override
+        {
+            EnableRendering(64, 64);
+        }
+    };
+
+    TEST_F(EngineHeapInstall, PoisonsReleasedSlotsInEveryBuild)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        EXPECT_TRUE(RHI::DescriptorHeap::Get().IsPoisonOnFree())
+            << "A released heap slot must be overwritten with its typed null in Release too; otherwise a stale "
+               "offset samples a non-resident handle.";
     }
 } // namespace OloEngine::Tests

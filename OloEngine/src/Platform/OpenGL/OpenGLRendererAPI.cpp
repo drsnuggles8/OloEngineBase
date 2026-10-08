@@ -212,13 +212,20 @@ namespace OloEngine
         // slots covers every texture a scene loads with room to spare, and 1024
         // ring slots is ~16x the busiest frame's transient count.
         //
-        // POISON DEFAULTS TO ON IN DEBUG. It costs one buffer write per freed
-        // slot and turns a use-after-free from "shows the previous tenant" —
-        // which LIFO slot reuse hides in steady state, exactly as the transient
-        // POOL hides it — into a deterministic black read. That trade is the
-        // same one OLO_RG_POISON_TRANSIENTS makes, except that instrument is
-        // opt-in because it costs a full clear per resource and this one does
-        // not.
+        // POISON IS ON IN EVERY BUILD. It costs one buffer write per freed slot
+        // and turns a use-after-free from "shows the previous tenant" — which
+        // LIFO slot reuse hides in steady state, exactly as the transient POOL
+        // hides it — into a deterministic black read.
+        //
+        // It used to be Debug-only, and in Release that was not a quieter
+        // diagnostic but a crash: releasing a slot makes its bindless handle
+        // NON-RESIDENT, and without the poison the published table kept that
+        // handle. A draw reading the stale offset sampled a non-resident handle,
+        // which is undefined, and NVIDIA's driver fast-fails on it
+        // (0xc0000409 inside nvoglv64.dll). Any shader reading a slot its pass did
+        // not rebind after a scene's textures were freed — an editor scene
+        // switch, or two renderer tests in one process — took the process down,
+        // in Release only.
         // ---------------------------------------------------------------------
         {
             m_DescriptorHeapBackend.Initialize(kDescriptorHeapSlots);
@@ -227,11 +234,7 @@ namespace OloEngine
             heapDesc.ResourceSlotCapacity = kDescriptorHeapPersistentSlots;
             heapDesc.SamplerSlotCapacity = kDescriptorHeapSamplerSlots;
             heapDesc.FrameTransientRingSlots = kDescriptorHeapTransientSlots;
-#ifdef OLO_DEBUG
             heapDesc.PoisonOnFree = true;
-#else
-            heapDesc.PoisonOnFree = false;
-#endif
 
             RHI::DescriptorHeap::Get().Initialize(heapDesc, &m_DescriptorHeapBackend);
         }
