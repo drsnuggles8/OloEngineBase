@@ -898,7 +898,7 @@ namespace OloEngine::MCP
             tool.Title = "Import voxel override";
             tool.ProjectWrite = true;
             tool.Annotations = MutatingAnnotations(false);
-            tool.Description = "Replace an enabled terrain's voxel override from an existing VOX1 file. Uses the real decoder and mesher, is undoable in Edit mode, and rejects invalid data without changing the volume. This authored resource is in memory: scene YAML does not currently persist voxel override data.";
+            tool.Description = "Replace an enabled terrain's voxel override from an existing VOX1 file. Uses the real decoder and mesher, is undoable in Edit mode, and rejects invalid data without changing the volume. The imported volume is authored content: saving the scene persists it.";
             tool.InputSchema = Schema::Object()
                                    .Prop("entity", Schema::EntityId())
                                    .Prop("path", Schema::String().Desc("VOX1 file path, absolute or relative to the editor working directory."))

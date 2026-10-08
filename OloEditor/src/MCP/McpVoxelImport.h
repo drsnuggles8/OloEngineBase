@@ -24,8 +24,8 @@ namespace OloEngine::MCP
         return chunks <= 1024;
     }
 
-    // Import uses the existing VOX1 decoder. The volume remains an editor
-    // resource; scene YAML currently does not persist voxel override data.
+    // Import uses the existing VOX1 decoder. The imported volume is authored
+    // content: the scene file and save games persist it (#1566).
     class VoxelImportCommand final : public EditorCommand
     {
       public:

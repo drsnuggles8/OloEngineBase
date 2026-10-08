@@ -59,8 +59,9 @@ VSM remains off by default. `OLO_VSM_STARTUP=0|1` and
 initialization, allowing cooked runtime A/B verification without a new scene
 schema. Later settings writes remain authoritative. Startup logs report both
 requested and effective VSM state. `olo_terrain_voxel_load` imports existing
-VOX1 data into an enabled editor terrain, with undo; voxel override content
-currently remains in memory and is not persisted by scene YAML.
+VOX1 data into an enabled editor terrain, with undo. Authored voxel content is
+persisted by scene YAML (and so by asset packs) and by save games; an
+auto-seeded greedy volume is not, and re-seeds from the height field.
 
 ## Material, alpha and transmission
 

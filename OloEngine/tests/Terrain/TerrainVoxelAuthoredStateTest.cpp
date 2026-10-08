@@ -318,6 +318,174 @@ TEST(TerrainVoxelAuthoredState, AnEditTurnsASeededVolumeIntoAuthoredContentAndUn
     EXPECT_FALSE(terrain.m_VoxelOverride->IsAutoSeeded());
 }
 
+// ── #1566: scene YAML ─────────────────────────────────────────────────────────
+
+class TerrainVoxelPersistenceTest : public ::testing::Test
+{
+  protected:
+    void SetUp() override
+    {
+        m_Root = OloEngine::Tests::TempDir("terrain-voxel-persistence");
+    }
+    void TearDown() override
+    {
+        std::error_code ec;
+        std::filesystem::remove_all(m_Root, ec);
+    }
+
+    [[nodiscard]] Ref<Scene> SaveAndReload(const Ref<Scene>& scene, const std::string& name) const
+    {
+        const auto path = m_Root / (name + ".olo");
+        SceneSerializer(scene).Serialize(path);
+        auto loaded = Scene::Create();
+        EXPECT_TRUE(SceneSerializer(loaded).Deserialize(path));
+        return loaded;
+    }
+
+    std::filesystem::path m_Root;
+};
+
+TEST_F(TerrainVoxelPersistenceTest, SceneFileRoundTripsTheExactAuthoredVolume)
+{
+    for (const auto& mesher : kMeshers)
+    {
+        SCOPED_TRACE(mesher.Name);
+        auto scene = Scene::Create();
+        const UUID uuid = MakeTerrain(*scene, mesher.Build).GetUUID();
+        const auto& authored = TerrainOf(*scene, uuid);
+        const TArray<u8> bytes = Bytes(authored.m_VoxelOverride);
+
+        auto loaded = SaveAndReload(scene, mesher.Name);
+        const auto& terrain = TerrainOf(*loaded, uuid);
+        EXPECT_TRUE(SameAuthoredVolume(terrain.m_VoxelOverride, bytes));
+        EXPECT_EQ(terrain.m_VoxelMesher, authored.m_VoxelMesher);
+        EXPECT_FLOAT_EQ(terrain.m_VoxelSize, authored.m_VoxelSize);
+        EXPECT_FLOAT_EQ(terrain.m_VoxelOverride->GetVoxelSize(), kVoxelSize);
+    }
+}
+
+// The asset pack stores each scene as SceneSerializer YAML text, and the
+// shipped runtime activates it from that text.
+TEST_F(TerrainVoxelPersistenceTest, YamlTextRoundTripsTheExactAuthoredVolume)
+{
+    auto scene = Scene::Create();
+    const UUID uuid = MakeTerrain(*scene, &AuthorEditedGreedy).GetUUID();
+    const TArray<u8> bytes = Bytes(TerrainOf(*scene, uuid).m_VoxelOverride);
+
+    const std::string yaml = SceneSerializer(scene).SerializeToYAML();
+    auto loaded = Scene::Create();
+    ASSERT_TRUE(SceneSerializer(loaded).DeserializeFromYAML(yaml));
+    EXPECT_TRUE(SameAuthoredVolume(TerrainOf(*loaded, uuid).m_VoxelOverride, bytes));
+    EXPECT_EQ(TerrainOf(*loaded, uuid).m_VoxelOverride->EncodePersisted().Compressed,
+              TerrainOf(*scene, uuid).m_VoxelOverride->EncodePersisted().Compressed)
+        << "an unchanged volume must re-save to the same bytes";
+}
+
+// An unedited seeded volume is the height field again: not written, re-seeded
+// on load. A scene saved before #1566 (no VoxelVolume key) reads the same way.
+TEST_F(TerrainVoxelPersistenceTest, AnAutoSeededVolumeIsNotWritten)
+{
+    auto scene = Scene::Create();
+    Entity entity = MakeTerrain(*scene, &AuthorEditedGreedy);
+    entity.GetComponent<TerrainComponent>().m_VoxelOverride = SeededGreedyVolume();
+
+    const std::string yaml = SceneSerializer(scene).SerializeToYAML();
+    EXPECT_EQ(yaml.find("VoxelVolume"), std::string::npos);
+    auto loaded = Scene::Create();
+    ASSERT_TRUE(SceneSerializer(loaded).DeserializeFromYAML(yaml));
+    const auto& terrain = TerrainOf(*loaded, entity.GetUUID());
+    EXPECT_FALSE(terrain.m_VoxelOverride);
+    EXPECT_TRUE(terrain.m_VoxelEnabled);
+    EXPECT_EQ(terrain.m_VoxelMesher, VoxelMesherKind::GreedyCubic);
+}
+
+// The inspector's Voxel Size edits the field without rebuilding an existing
+// volume, which keeps drawing at the size it was built with. The file must
+// bring back that volume, not one rescaled to the field.
+TEST_F(TerrainVoxelPersistenceTest, TheVolumeKeepsTheVoxelSizeItWasBuiltWith)
+{
+    auto scene = Scene::Create();
+    const UUID uuid = MakeTerrain(*scene, &AuthorMarchingCubes).GetUUID();
+    TerrainOf(*scene, uuid).m_VoxelSize = 2.0f;
+    const TArray<u8> bytes = Bytes(TerrainOf(*scene, uuid).m_VoxelOverride);
+
+    auto loaded = SaveAndReload(scene, "VoxelSizeEdited");
+    const auto& terrain = TerrainOf(*loaded, uuid);
+    EXPECT_FLOAT_EQ(terrain.m_VoxelSize, 2.0f);
+    ASSERT_TRUE(SameAuthoredVolume(terrain.m_VoxelOverride, bytes));
+    EXPECT_FLOAT_EQ(terrain.m_VoxelOverride->GetVoxelSize(), kVoxelSize);
+}
+
+TEST_F(TerrainVoxelPersistenceTest, AHostileVolumeBlockIsRejectedWithoutTouchingTheRest)
+{
+    auto scene = Scene::Create();
+    const UUID uuid = MakeTerrain(*scene, &AuthorMarchingCubes).GetUUID();
+    std::string yaml = SceneSerializer(scene).SerializeToYAML();
+    const auto block = yaml.find("VoxelVolume:");
+    ASSERT_NE(block, std::string::npos);
+    const auto space = yaml.find(" Size: ", block); // the leading space skips VoxelSize
+    ASSERT_NE(space, std::string::npos);
+    const auto at = space + 1;
+    const auto end = yaml.find('\n', at);
+
+    for (const char* size : { "Size: 18446744073709551615", "Size: 3", "Size: 999999" })
+    {
+        SCOPED_TRACE(size);
+        std::string hostile = yaml;
+        hostile.replace(at, end - at, size);
+        auto loaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(loaded).DeserializeFromYAML(hostile));
+        const auto& terrain = TerrainOf(*loaded, uuid);
+        EXPECT_FALSE(terrain.m_VoxelOverride);
+        EXPECT_TRUE(terrain.m_VoxelEnabled);
+        EXPECT_FLOAT_EQ(terrain.m_VoxelSize, kVoxelSize);
+    }
+}
+
+TEST(TerrainVoxelPersistence, DecodeRejectsAChunkCountOverTheBudget)
+{
+    TArray<u8> header;
+    header.SetNumZeroed(12);
+    const i32 magic = VoxelOverride::RLEMagic;
+    const i32 version = VoxelOverride::RLEVersion;
+    const u32 chunks = VoxelOverride::MaxPersistedChunks + 1;
+    std::memcpy(header.GetData(), &magic, 4);
+    std::memcpy(header.GetData() + 4, &version, 4);
+    std::memcpy(header.GetData() + 8, &chunks, 4);
+    const auto compressed = ZlibSection::Compress(header.GetData(), 12, "test");
+    ASSERT_FALSE(compressed.empty());
+    EXPECT_FALSE(VoxelOverride::DecodePersisted(compressed, 12, kVoxelSize, kWorld, kWorld, kHeight, "test"));
+}
+
+// ── #1566: save game ──────────────────────────────────────────────────────────
+
+TEST(TerrainVoxelPersistence, SaveGameRestoresTheExactAuthoredVolume)
+{
+    for (const auto& mesher : kMeshers)
+    {
+        SCOPED_TRACE(mesher.Name);
+        auto scene = Scene::Create();
+        scene->SetRenderingEnabled(false);
+        Entity entity = MakeTerrain(*scene, mesher.Build);
+        entity.GetComponent<TagComponent>().Tag = "VoxelSave";
+        const auto& authored = entity.GetComponent<TerrainComponent>();
+        const TArray<u8> bytes = Bytes(authored.m_VoxelOverride);
+
+        const auto payload = SaveGameSerializer::CaptureSceneState(*scene);
+        ASSERT_FALSE(payload.empty());
+        auto restored = Scene::Create();
+        restored->SetRenderingEnabled(false);
+        ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*restored, payload));
+
+        Entity back = restored->FindEntityByName("VoxelSave");
+        ASSERT_TRUE(back && back.HasComponent<TerrainComponent>());
+        const auto& terrain = back.GetComponent<TerrainComponent>();
+        EXPECT_TRUE(SameAuthoredVolume(terrain.m_VoxelOverride, bytes));
+        EXPECT_EQ(terrain.m_VoxelMesher, authored.m_VoxelMesher);
+        EXPECT_FLOAT_EQ(terrain.m_VoxelSize, authored.m_VoxelSize);
+    }
+}
+
 // ── Negative controls ─────────────────────────────────────────────────────────
 
 // The pre-fix copy dropped the volume; a greedy terrain then re-seeded from

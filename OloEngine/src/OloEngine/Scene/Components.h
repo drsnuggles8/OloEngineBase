@@ -4768,9 +4768,11 @@ namespace OloEngine
         // The voxel volume. Copies SHARE it, like m_Material, so an undo
         // snapshot, the inspector's snapshot and the voxel edit history keep
         // naming one volume; a copy that becomes a separate world takes its own
-        // with DetachVoxelVolume (Scene::Copy, duplicate, prefab). An auto-seeded
-        // volume (VoxelOverride::IsAutoSeeded) is a copy of the height field: a
-        // separate world drops it and re-seeds.
+        // with DetachVoxelVolume (Scene::Copy, duplicate, prefab). Only AUTHORED
+        // content (carved, painted, imported) is persisted, by SceneSerializer's
+        // VoxelVolume block and the save game; an auto-seeded volume
+        // (VoxelOverride::IsAutoSeeded) is a copy of the height field and is
+        // re-seeded instead.
         OLO_SERIALIZE(Skip)
         Ref<VoxelOverride> m_VoxelOverride;
         // Owns the indirection map, the physical cache, the feedback ring and the
@@ -4915,6 +4917,14 @@ namespace OloEngine
                 m_VoxelQuadMeshes = nullptr;
                 m_VoxelMeshes.clear();
             }
+        }
+
+        // The volume a scene file or save game persists: the authored one, or
+        // none for an auto-seeded copy of the height field, which re-seeds.
+        [[nodiscard]] static Ref<VoxelOverride> AuthoredVoxelVolume(const TerrainComponent& terrain)
+        {
+            return terrain.m_VoxelOverride && !terrain.m_VoxelOverride->IsAutoSeeded() ? terrain.m_VoxelOverride
+                                                                                       : nullptr;
         }
 
         // Stop sharing the volume with the component this was copied from.

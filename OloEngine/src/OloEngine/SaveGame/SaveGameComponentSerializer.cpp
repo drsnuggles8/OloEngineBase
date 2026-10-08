@@ -2358,6 +2358,41 @@ namespace OloEngine
         // Radial island falloff (issue #880).
         ar << c.m_HeightShaping.IslandFalloff << c.m_HeightShaping.IslandFalloffRadius;
 
+        // The authored voxel volume (#1566), in the scene file's persisted form.
+        // An auto-seeded volume is a copy of the height field: not saved, the
+        // restored terrain re-seeds.
+        bool hasVoxelVolume = false;
+        VoxelOverride::Persisted voxelVolume;
+        if (!ar.IsLoading())
+        {
+            if (const auto volume = TerrainComponent::AuthoredVoxelVolume(c); volume && volume->GetChunkCount() > 0)
+            {
+                voxelVolume = volume->EncodePersisted();
+                hasVoxelVolume = !voxelVolume.Compressed.IsEmpty();
+            }
+        }
+        ar << hasVoxelVolume;
+        if (hasVoxelVolume)
+        {
+            u64 compressedSize = static_cast<u64>(voxelVolume.Compressed.Num());
+            ar << voxelVolume.RawSize << voxelVolume.VoxelSize << compressedSize;
+            if (ar.IsLoading())
+            {
+                // Deflate never grows a stream by more than a few bytes per 16 KiB.
+                constexpr u64 maxCompressed = VoxelOverride::MaxPersistedRawSize + VoxelOverride::MaxPersistedRawSize / 256 + 64;
+                const i64 total = ar.TotalSize();
+                const i64 at = ar.Tell();
+                const bool overrunsArchive = total >= 0 && at >= 0 && compressedSize > static_cast<u64>(total - at);
+                if (ar.IsError() || compressedSize == 0 || compressedSize > maxCompressed || overrunsArchive)
+                {
+                    ar.SetError();
+                    return;
+                }
+                voxelVolume.Compressed.SetNumUninitialized(static_cast<TArray<u8>::SizeType>(compressedSize));
+            }
+            ar.Serialize(voxelVolume.Compressed.GetData(), static_cast<i64>(compressedSize));
+        }
+
         if (ar.IsLoading())
         {
             // Sanitize untrusted on-disk values so corrupt save data can't poison
@@ -2414,6 +2449,20 @@ namespace OloEngine
                     std::swap(r.MinHeight, r.MaxHeight);
                 if (r.MinSlopeDeg > r.MaxSlopeDeg)
                     std::swap(r.MinSlopeDeg, r.MaxSlopeDeg);
+            }
+
+            // After the sanitize: the decode sizes the volume from these fields.
+            // Restoring replaces whatever volume the scene had, as the other
+            // fields do; a save without one leaves the terrain to re-seed.
+            c.m_VoxelOverride = nullptr;
+            c.m_VoxelMeshes.clear();
+            c.m_VoxelQuadMeshes = nullptr;
+            if (hasVoxelVolume && !ar.IsError())
+            {
+                c.m_VoxelOverride = VoxelOverride::DecodePersisted(
+                    { voxelVolume.Compressed.GetData(), static_cast<sizet>(voxelVolume.Compressed.Num()) },
+                    voxelVolume.RawSize, voxelVolume.VoxelSize, c.m_WorldSizeX, c.m_WorldSizeZ, c.m_HeightScale,
+                    "SaveGame TerrainComponent");
             }
         }
         // Runtime pointers (TerrainData, ChunkManager, etc.) are not serialized

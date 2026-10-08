@@ -1023,19 +1023,15 @@ namespace OloEngine::Tests
         Project::SetAssetManager(editorAssets);
         AssetRegistry registry;
         TArray<AssetHandle> handles;
-        std::vector<fs::path> sceneFiles; // StageSceneReferencedContent API boundary
+        std::vector<TArray<u8>> authoredVoxels; // per handle; empty for a family without a volume
+        std::vector<fs::path> sceneFiles;       // StageSceneReferencedContent API boundary
         for (const auto family : { Family::Terrain, Family::Voxel, Family::GreedyVoxel, Family::FoliageCard, Family::FoliageMesh })
         {
             AddFamily(family);
-            if (family == Family::GreedyVoxel)
-            {
-                // This shipped subject uses the supported heightfield-seeded
-                // greedy route. VOX1 edits themselves are not persisted yet.
-                auto& data = m_Caster.GetComponent<TerrainComponent>().m_TerrainData;
-                for (auto& height : data->GetHeightData())
-                    height = 0.6f;
-                data->UploadToGPU();
-            }
+            // Both voxel families ship their authored VOX1 volume in the scene
+            // file (#1566); the cooked scene must carry exactly these bytes.
+            const auto& voxels = m_Caster.GetComponent<TerrainComponent>().m_VoxelOverride;
+            const TArray<u8> authored = voxels ? voxels->SerializeRLE() : TArray<u8>{};
             for (u32 light = 0; light < 3; ++light)
             {
                 SetLight(light);
@@ -1049,6 +1045,7 @@ namespace OloEngine::Tests
                 ASSERT_NE(static_cast<u64>(handle), 0u);
                 registry.AddAsset(editorAssets->GetMetadata(handle));
                 handles.Add(handle);
+                authoredVoxels.push_back(authored);
                 sceneFiles.push_back(staged);
             }
             GetScene().DestroyEntity(m_Caster);
@@ -1066,8 +1063,9 @@ namespace OloEngine::Tests
         auto runtimeAssets = Ref<RuntimeAssetManager>::Create(false);
         ASSERT_TRUE(runtimeAssets->LoadAssetPack(settings.m_OutputPath));
         Project::SetAssetManager(runtimeAssets);
-        for (const auto handle : handles)
+        for (i32 index = 0; index < handles.Num(); ++index)
         {
+            const auto handle = handles[index];
             auto asset = runtimeAssets->GetAsset(handle);
             ASSERT_TRUE(asset);
             ASSERT_EQ(asset->GetAssetType(), AssetType::Scene);
@@ -1079,7 +1077,16 @@ namespace OloEngine::Tests
             {
                 const auto& terrain = scene->GetAllEntitiesWith<TerrainComponent>().get<TerrainComponent>(entity);
                 EXPECT_FALSE(terrain.m_HeightmapPath.empty());
-                EXPECT_FALSE(terrain.m_VoxelOverride) << "current scene format does not carry VOX1 edits";
+                const auto& expected = authoredVoxels[static_cast<sizet>(index)];
+                if (expected.IsEmpty())
+                {
+                    EXPECT_FALSE(terrain.m_VoxelOverride);
+                    continue;
+                }
+                ASSERT_TRUE(terrain.m_VoxelOverride) << "the cooked scene lost its authored VOX1 volume";
+                EXPECT_FALSE(terrain.m_VoxelOverride->IsAutoSeeded());
+                EXPECT_TRUE(terrain.m_VoxelOverride->SerializeRLE() == expected)
+                    << "the cooked scene's voxel chunks differ from the authored ones";
             }
         }
         if (retainPackage)
@@ -1102,7 +1109,6 @@ namespace OloEngine::Tests
                     fs::copy(editorRoot / content, root / content, fs::copy_options::recursive | fs::copy_options::overwrite_existing);
                 }
             std::ofstream(root / "game.manifest") << "Game:\n  Name: VSMFamilyEvidence\nStartScene: Scenes/ShadowFamilyCookFixture_Terrain_Sun.olo\nRendering:\n  Is3DMode: true\n";
-            RecordUnsupported(Family::Voxel, "Cooked VOX1 edits are not persisted by SceneSerializer; regular-voxel authored volumes cannot ship through the current scene format. Greedy heightfield seeding is verified separately.");
         }
     }
 } // namespace OloEngine::Tests
