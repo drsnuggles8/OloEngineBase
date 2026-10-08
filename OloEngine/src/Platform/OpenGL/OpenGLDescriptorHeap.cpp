@@ -693,6 +693,14 @@ namespace OloEngine
             {
                 return true;
             }
+            // A multisample texture has no sampler state to ask about (querying
+            // it is GL_INVALID_ENUM) and never compares.
+            GLint target = 0;
+            glGetTextureParameteriv(texture, GL_TEXTURE_TARGET, &target);
+            if (target == GL_TEXTURE_2D_MULTISAMPLE || target == GL_TEXTURE_2D_MULTISAMPLE_ARRAY)
+            {
+                return true;
+            }
             GLint compareMode = GL_NONE;
             glGetTextureParameteriv(texture, GL_TEXTURE_COMPARE_MODE, &compareMode);
             return compareMode == GL_NONE;

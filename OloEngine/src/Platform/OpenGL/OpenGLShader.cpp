@@ -2824,7 +2824,10 @@ namespace OloEngine
             // capture possible without a restart: flip the heap on, reload the
             // shader, and the same file comes back bindless.
             m_IsBindlessVariant = false;
-            if (WantsBindlessVariant(shaderSources) && CreateProgramFromRawGLSL(shaderSources))
+            // Re-decided here, so RequestedBindlessVariant() answers for the
+            // program this reload builds rather than the one it replaces.
+            m_WantsBindless = WantsBindlessVariant(shaderSources);
+            if (m_WantsBindless && CreateProgramFromRawGLSL(shaderSources))
             {
                 EnsureLinked();
             }

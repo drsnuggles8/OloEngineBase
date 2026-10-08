@@ -77,17 +77,11 @@ namespace OloEngine
 
         /// True when the heap was enabled at compile time and the source opts in
         /// to the bindless route (WantsBindlessVariant). Compare with
-        /// IsBindlessVariant: a program that asked and did not get it fell back
+        /// Shader::IsProgramBindless(GetRendererID()): a program that asked and did not get it fell back
         /// to the slot-based route because the driver rejected its raw GLSL.
         [[nodiscard]] bool RequestedBindlessVariant() const
         {
             return m_WantsBindless;
-        }
-
-        /// True when CreateProgramFromRawGLSL built the program (the bindless route).
-        [[nodiscard]] bool IsBindlessVariant() const
-        {
-            return m_IsBindlessVariant;
         }
 
         // --- Async compilation status (override base class) ---

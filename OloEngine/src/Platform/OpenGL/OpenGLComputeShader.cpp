@@ -157,44 +157,49 @@ namespace OloEngine
             glGetShaderInfoLog(shader, length, &length, infoLog.data());
             glDeleteShader(shader);
             OLO_CORE_ERROR("Compute shader compilation failed ({0}):\n{1}", GetName(), infoLog);
-
-            // A broken bindless BRANCH must cost the dispatch its optimisation,
-            // never its shader — same degradation policy as the graphics route,
-            // and it matters more here because a compute pass that fails to
-            // compile takes a whole system offline (no snow, no wind, no HZB)
-            // rather than one draw. Retry the slot-based source once.
-            if (m_IsBindlessVariant)
-            {
-                // Error, not warning: a dispatch off the route it was asked for is
-                // a defect on this driver, not a preference (see OpenGLShader's
-                // raw-GLSL fallback line).
-                OLO_CORE_ERROR("[Bindless] Compute shader '{0}' FELL BACK to the slot-based build: its bindless "
-                               "branch did not compile on this driver (see the error above).",
-                               GetName());
-                m_IsBindlessVariant = false;
-                const u32 retry = glCreateShader(GL_COMPUTE_SHADER);
-                const char* plain = source.c_str();
-                glShaderSource(retry, 1, &plain, nullptr);
-                glCompileShader(retry);
-
-                GLint retryCompiled = 0;
-                glGetShaderiv(retry, GL_COMPILE_STATUS, &retryCompiled);
-                if (retryCompiled != GL_FALSE)
-                {
-                    Link(retry, source);
-                    return;
-                }
-                glDeleteShader(retry);
-            }
-
-            OLO_CORE_ASSERT(false, "Compute shader compilation failure!");
+        }
+        else if (Link(shader, source))
+        {
             return;
         }
 
-        Link(shader, source);
+        // A broken bindless BRANCH must cost the dispatch its optimisation,
+        // never its shader — same degradation policy as the graphics route,
+        // and it matters more here because a compute pass that fails to
+        // build takes a whole system offline (no snow, no wind, no HZB)
+        // rather than one draw. Retry the slot-based source once, after a
+        // failed LINK as well as a failed compile: a uniform-block budget
+        // overflow (C5058, #1565) is a link error.
+        if (m_IsBindlessVariant)
+        {
+            // Error, not warning: a dispatch off the route it was asked for is
+            // a defect on this driver, not a preference (see OpenGLShader's
+            // raw-GLSL fallback line).
+            OLO_CORE_ERROR("[Bindless] Compute shader '{0}' FELL BACK to the slot-based build: its bindless "
+                           "branch did not {1} on this driver (see the error above).",
+                           GetName(), compiled == GL_FALSE ? "compile" : "link");
+            m_IsBindlessVariant = false;
+            const u32 retry = glCreateShader(GL_COMPUTE_SHADER);
+            const char* plain = source.c_str();
+            glShaderSource(retry, 1, &plain, nullptr);
+            glCompileShader(retry);
+
+            GLint retryCompiled = 0;
+            glGetShaderiv(retry, GL_COMPILE_STATUS, &retryCompiled);
+            if (retryCompiled == GL_FALSE)
+            {
+                glDeleteShader(retry);
+            }
+            else if (Link(retry, source))
+            {
+                return;
+            }
+        }
+
+        OLO_CORE_ASSERT(false, "Compute shader build failure!");
     }
 
-    void OpenGLComputeShader::Link(u32 shader, const std::string& source)
+    bool OpenGLComputeShader::Link(u32 shader, const std::string& source)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -219,8 +224,7 @@ namespace OloEngine
             m_RendererID = 0;
             m_RHIHandle.Sync(RHI::ResourceKind::ShaderProgram, m_RendererID, RHI::Backend::OpenGL);
             OLO_CORE_ERROR("Compute shader link failed ({0}):\n{1}", GetName(), infoLog);
-            OLO_CORE_ASSERT(false, "Compute shader link failure!");
-            return;
+            return false;
         }
 
         glDetachShader(m_RendererID, shader);
@@ -242,6 +246,7 @@ namespace OloEngine
         OLO_SHADER_REGISTER_MANUAL(m_RendererID, GetName(), GetFilePath());
         m_IsValid = true;
         OLO_CORE_INFO("Compiled compute shader '{0}'{1}", GetName(), m_IsBindlessVariant ? " (bindless)" : "");
+        return true;
     }
 
     void OpenGLComputeShader::Bind() const

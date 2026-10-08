@@ -52,20 +52,13 @@ namespace OloEngine
 
         bool Reload() override;
 
-        /// True when the program was built with the heap-bindless branch
-        /// (OLO_RHI_BINDLESS=1 and the source names OLO_BINDLESS), false when
-        /// that branch failed on this driver and the slot-based retry built it.
-        [[nodiscard]] bool IsBindlessVariant() const
-        {
-            return m_IsBindlessVariant;
-        }
-
       private:
         void Compile(const std::string& source);
         // Split out of Compile so the bindless branch can retry with the plain
         // source and still reach exactly the same link/label/track path — a second
         // copy of it is how the two builds would drift.
-        void Link(u32 shader, const std::string& source);
+        // False, with the program and `shader` deleted, when the link fails.
+        [[nodiscard]] bool Link(u32 shader, const std::string& source);
 
         [[nodiscard]] GLint GetUniformLocation(const std::string& name) const;
 
