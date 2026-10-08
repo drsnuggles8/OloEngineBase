@@ -678,9 +678,27 @@ namespace OloEngine
             }
         }
 
+        // DepthCompare = false asks for a raw-depth read, and inheriting gives
+        // exactly that whenever the texture itself does not compare — which is
+        // every colour texture. HeapBinding derives DepthCompare from the
+        // sampler, so an ordinary slot bind ALWAYS passes false; testing only
+        // against the default `true` made every such bind mint a sampler from
+        // the default desc instead. That desc is REPEAT on all three axes, so a
+        // clamp-to-edge froxel fog volume fetched at its far edge (w = 1) blended
+        // in its near slice, and the sky under volumetric fog read differently
+        // on the raw bindless route than on the slotted one and on Vulkan.
+        const bool rawDepthIsTheTexturesOwnState = [&]
+        {
+            if (view.DepthCompare == kUnstatedView.DepthCompare)
+            {
+                return true;
+            }
+            GLint compareMode = GL_NONE;
+            glGetTextureParameteriv(texture, GL_TEXTURE_COMPARE_MODE, &compareMode);
+            return compareMode == GL_NONE;
+        }();
         const bool inheritsTextureState = (sampler.Source == RHI::SamplerSource::InheritTexture) &&
-                                          fieldsAreDefault &&
-                                          (view.DepthCompare == kUnstatedView.DepthCompare);
+                                          fieldsAreDefault && rawDepthIsTheTexturesOwnState;
 
         GLuint64 handle = 0u;
         if (inheritsTextureState)
