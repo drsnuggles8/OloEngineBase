@@ -202,7 +202,7 @@ TEST_F(SceneRenderSettingsActivationTest, QualityTierOverridesOnlyTheFieldsItOwn
 }
 
 // The shipped game has no .oloproj; game.manifest carries the tier. The block
-// must round-trip.
+// must round-trip, and a non-finite value must not get through.
 TEST_F(SceneRenderSettingsActivationTest, ManifestTierBlockRoundTrips)
 {
     QualityTieringSettings written = GetPresetSettings(QualityPreset::Low);
@@ -222,4 +222,9 @@ TEST_F(SceneRenderSettingsActivationTest, ManifestTierBlockRoundTrips)
     EXPECT_TRUE(read.BloomEnabled);
     EXPECT_FLOAT_EQ(read.SSAORadius, 1.25f);
     EXPECT_EQ(read.ShadowResolution, 2048u);
+
+    QualityTieringSettings hostile;
+    DeserializeQualityTiering(YAML::Load("Preset: Custom\nSSAORadius: .nan\nGTAOPower: .inf\n"), hostile);
+    EXPECT_TRUE(std::isfinite(hostile.SSAORadius));
+    EXPECT_TRUE(std::isfinite(hostile.GTAOPower));
 }

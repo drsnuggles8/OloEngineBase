@@ -271,10 +271,14 @@ namespace OloEngine
             qt = seeded;
         }
 
+        // A non-finite value keeps the preset's; std::clamp passes NaN through.
         auto readFloat = [&node](const char* key, f32& value, f32 lo, f32 hi)
         {
             if (auto n = node[key]; n && n.IsScalar())
-                value = std::clamp(n.as<f32>(value), lo, hi);
+            {
+                if (const f32 raw = n.as<f32>(value); std::isfinite(raw))
+                    value = std::clamp(raw, lo, hi);
+            }
         };
         auto readInt = [&node](const char* key, i32& value, i32 lo, i32 hi)
         {
