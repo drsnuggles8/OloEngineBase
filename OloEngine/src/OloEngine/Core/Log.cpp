@@ -102,9 +102,17 @@ namespace OloEngine
         m_ResolvedLogFileName = ResolveLogFileName();
         if (std::error_code ec; !m_ResolvedLogFileName.empty())
         {
-            const auto absolute = std::filesystem::absolute(m_ResolvedLogFileName, ec);
-            if (!ec)
-                m_ResolvedLogFileName = absolute.string();
+            // string() throws for a path the narrow code page cannot hold; the
+            // logger does not exist yet to say so, so keep the name as given.
+            try
+            {
+                const auto absolute = std::filesystem::absolute(m_ResolvedLogFileName, ec);
+                if (!ec)
+                    m_ResolvedLogFileName = absolute.string();
+            }
+            catch (const std::exception&)
+            {
+            }
         }
         std::vector<spdlog::sink_ptr> logSinks;
         logSinks.emplace_back(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
