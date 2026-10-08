@@ -453,6 +453,7 @@ namespace OloEngine
 
         VkImageCreateInfo imageInfo{};
         imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageInfo.flags = m_Specification.MutableFormat ? VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT : 0u;
         imageInfo.imageType = VK_IMAGE_TYPE_2D;
         imageInfo.format = format;
         imageInfo.extent = { m_Width, m_Height, 1u };

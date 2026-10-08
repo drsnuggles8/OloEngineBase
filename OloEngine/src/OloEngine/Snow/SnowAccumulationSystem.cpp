@@ -34,6 +34,8 @@ namespace OloEngine
         spec.Height = kSnowDepthResolution;
         spec.Format = ImageFormat::R32F;
         spec.GenerateMips = false;
+        // BindSnowDepthImageUint views it as R32UI for the feed's atomic CAS.
+        spec.MutableFormat = true;
 
         s_Data.m_SnowDepthTexture = Texture2D::Create(spec);
         s_Data.m_TextureResolution = kSnowDepthResolution;

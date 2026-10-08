@@ -121,6 +121,13 @@ namespace OloEngine
         // double-buffered Pixel Buffer Object ring so the copy + DMA do not stall
         // the render thread. Ignored for multisample textures.
         bool Streaming = false;
+        // True when a storage view reinterprets the texel format within its size
+        // class, as the snow depth map (R32F) does when the feed shader binds it
+        // as R32UI for imageAtomicCompSwap. Vulkan then creates the image with
+        // VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT; without it a view in another format
+        // is invalid (VUID-VkImageViewCreateInfo-image-12397). OpenGL needs
+        // nothing: an image unit accepts any format of the same size class.
+        bool MutableFormat = false;
     };
 
     class Texture : public RendererResource
