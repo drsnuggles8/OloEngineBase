@@ -210,6 +210,10 @@ TEST_F(SceneRenderSettingsActivationTest, ManifestTierBlockRoundTrips)
     written.BloomEnabled = true;
     written.SSAORadius = 1.25f;
     written.ShadowResolution = 2048;
+    written.DDGIEnabled = true;
+    written.DDGIBudgetScale = 0.75f;
+    written.AnimalSchedulingEnabled = false;
+    written.AnimalFrameBudgetUnits = 1234.0f;
 
     YAML::Emitter out;
     out << YAML::BeginMap << YAML::Key << "QualityTiering" << YAML::Value;
@@ -222,6 +226,10 @@ TEST_F(SceneRenderSettingsActivationTest, ManifestTierBlockRoundTrips)
     EXPECT_TRUE(read.BloomEnabled);
     EXPECT_FLOAT_EQ(read.SSAORadius, 1.25f);
     EXPECT_EQ(read.ShadowResolution, 2048u);
+    EXPECT_TRUE(read.DDGIEnabled) << "Low seeds DDGI off; the written Custom value must win";
+    EXPECT_FLOAT_EQ(read.DDGIBudgetScale, 0.75f);
+    EXPECT_FALSE(read.AnimalSchedulingEnabled);
+    EXPECT_FLOAT_EQ(read.AnimalFrameBudgetUnits, 1234.0f);
 
     QualityTieringSettings hostile;
     DeserializeQualityTiering(YAML::Load("Preset: Custom\nSSAORadius: .nan\nGTAOPower: .inf\n"), hostile);

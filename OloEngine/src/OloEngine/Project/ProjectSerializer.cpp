@@ -253,6 +253,11 @@ namespace OloEngine
         out << YAML::Key << "MotionBlurEnabled" << YAML::Value << qt.MotionBlurEnabled;
         out << YAML::Key << "VignetteEnabled" << YAML::Value << qt.VignetteEnabled;
         out << YAML::Key << "ChromaticAberrationEnabled" << YAML::Value << qt.ChromaticAberrationEnabled;
+        // RendererSettings knobs the tier owns (ApplyTieringToRendererSettings).
+        out << YAML::Key << "DDGIEnabled" << YAML::Value << qt.DDGIEnabled;
+        out << YAML::Key << "DDGIBudgetScale" << YAML::Value << qt.DDGIBudgetScale;
+        out << YAML::Key << "AnimalSchedulingEnabled" << YAML::Value << qt.AnimalSchedulingEnabled;
+        out << YAML::Key << "AnimalFrameBudgetUnits" << YAML::Value << qt.AnimalFrameBudgetUnits;
         out << YAML::EndMap;
     }
 
@@ -321,6 +326,10 @@ namespace OloEngine
         readBool("MotionBlurEnabled", qt.MotionBlurEnabled);
         readBool("VignetteEnabled", qt.VignetteEnabled);
         readBool("ChromaticAberrationEnabled", qt.ChromaticAberrationEnabled);
+        readBool("DDGIEnabled", qt.DDGIEnabled);
+        readFloat("DDGIBudgetScale", qt.DDGIBudgetScale, 0.0f, 16.0f);
+        readBool("AnimalSchedulingEnabled", qt.AnimalSchedulingEnabled);
+        readFloat("AnimalFrameBudgetUnits", qt.AnimalFrameBudgetUnits, 0.0f, 1.0e6f);
     }
 
     ProjectSerializer::ProjectSerializer(Ref<Project> project)
