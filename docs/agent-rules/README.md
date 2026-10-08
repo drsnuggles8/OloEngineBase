@@ -225,6 +225,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [binary-format-versioning.md](binary-format-versioning.md): every on-disk format reads exactly its current version and rejects any other with a fix message; a bump migrates the repo's content in the same PR, and a fixed-order archive is framed and length-checked.
 - [cache-stored-unresolvable-reference.md](cache-stored-unresolvable-reference.md): a cache must refuse to store a name nothing can resolve; the failure shows on the second load only.
 - [scene-copy-must-carry-scene-level-settings.md](scene-copy-must-carry-scene-level-settings.md): `Scene::Copy()` must carry every scene-level settings struct into Play.
+- [terrain-voxel-authored-state.md](terrain-voxel-authored-state.md): component copies share the voxel volume and separate worlds detach it; only authored (not auto-seeded) volumes are persisted, and tests compare exact VOX1 bytes on an edited greedy volume.
 - [floating-origin-rebase-subsystems.md](floating-origin-rebase-subsystems.md): four subsystems hold world-space state outside the rebased set, each needing a different fix.
 - [asset-degradation-and-constructor-preconditions.md](asset-degradation-and-constructor-preconditions.md): a precondition asserted in a constructor delegates safety to every call site.
 - [derived-graph-must-outlive-its-source.md](derived-graph-must-outlive-its-source.md): before answering "what points at X" from an existing graph, enumerate its writers and check the direction of every edge; and a direction bug can be invisible because its reader is wrong the same way, so change both halves together.
@@ -289,6 +290,7 @@ The dominant archetype here. If your change is in one of these areas, a passing 
 
 | Doc | What stayed green |
 |---|---|
+| [terrain-voxel-authored-state.md](terrain-voxel-authored-state.md) | A greedy terrain that lost its authored voxel volume on undo, Play or reload re-seeded a plausible height-field copy, so every mesh and chunk-count check passed. |
 | [headless-input-window.md](headless-input-window.md) | A server executes its scene successfully, then cursor release dereferences its absent window during shutdown; require a real scene start before checking clean exit. |
 | [scene-registry-source-path.md](scene-registry-source-path.md) | Direct scene opens work, but Build Game cannot load a registered scene because its project-relative path is opened from the editor working directory. |
 | [project-optional-paths.md](project-optional-paths.md) | An empty script-module path becomes the asset directory, so a project without a configured C# module is treated as requesting one. |
