@@ -135,12 +135,10 @@ int main(int argc, char** argv)
     // read it yet.
     OloEngine::Levers::SetRenderGraphDiagnostics(true);
 
-    // Initialize logging explicitly. The suite gets its own file: run from
-    // OloEditor/ (which the visual tests require) it shared OloEngine.log with
-    // a live editor and, opening truncating, erased that editor's diagnostics
-    // mid-session — so a shader error under investigation became the suite's
-    // shutdown noise.
-    OloEngine::Log::SetLogFile("OloEngine-Tests.log");
+    // CTest runs concurrent processes from the same directory. Each needs its
+    // own log: starting a sibling must not truncate an in-flight pack build's
+    // warning interval or overwrite another test's diagnostics.
+    OloEngine::Log::SetLogFile("OloEngine-Tests-" + std::to_string(CurrentProcessId()) + ".log");
     OloEngine::Log::Initialize();
 
     // Most headless tests never construct an Application, so the startup line

@@ -56,7 +56,7 @@ namespace OloEngine
     // are no migrations and no per-field version gates (docs/agent-rules/
     // binary-format-versioning.md, #1498). Bump it when the payload layout
     // changes, once per PR. The history of past layouts is in git.
-    static constexpr u32 kSaveGameFormatVersion = 42; // 42: TerrainComponent's authored voxel volume (#1566)
+    static constexpr u32 kSaveGameFormatVersion = 43; // 43: TerrainComponent's authored voxel volume (#1566)
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Compression flags (stored in Header.Flags)

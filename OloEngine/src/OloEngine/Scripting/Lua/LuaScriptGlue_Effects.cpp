@@ -376,7 +376,16 @@ namespace OloEngine
                                                                                   { s.MaxResidentMegabytes = SanitizeStreamingBudgetMegabytes(v); }),
                                             "maxAdmittedMegabytesPerFrame", sol::property([](const StreamingSettings& s)
                                                                                           { return s.MaxAdmittedMegabytesPerFrame; }, [](StreamingSettings& s, f32 v)
-                                                                                          { s.MaxAdmittedMegabytesPerFrame = SanitizeStreamingBudgetMegabytes(v); }));
+                                                                                          { s.MaxAdmittedMegabytesPerFrame = SanitizeStreamingBudgetMegabytes(v); }),
+                                            "representationResidentMegabytes", sol::property([](const StreamingSettings& s)
+                                                                                             { return s.RepresentationResidentMegabytes; }, [](StreamingSettings& s, f32 v)
+                                                                                             { s.RepresentationResidentMegabytes = SanitizeStreamingBudgetMegabytes(v); }),
+                                            "representationUploadMegabytesPerFrame", sol::property([](const StreamingSettings& s)
+                                                                                                   { return s.RepresentationUploadMegabytesPerFrame; }, [](StreamingSettings& s, f32 v)
+                                                                                                   { s.RepresentationUploadMegabytesPerFrame = SanitizeStreamingBudgetMegabytes(v); }),
+                                            "representationStagingMegabytes", sol::property([](const StreamingSettings& s)
+                                                                                            { return s.RepresentationStagingMegabytes; }, [](StreamingSettings& s, f32 v)
+                                                                                            { s.RepresentationStagingMegabytes = SanitizeStreamingBudgetMegabytes(v); }));
 
         // --- NetworkIdentityComponent ---
         lua.new_usertype<NetworkIdentityComponent>("NetworkIdentityComponent",

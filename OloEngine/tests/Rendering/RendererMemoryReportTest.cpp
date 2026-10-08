@@ -271,6 +271,69 @@ namespace OloEngine::Tests
 
     // --- Attribution and units ------------------------------------------------------------
 
+    TEST(RendererMemoryReport, OwnerRetiringGpuQueryCountsOnlyMatchingPhysicalBacking)
+    {
+        Tracker& tracker = Tracker::GetInstance();
+        FakeObjects objects;
+        constexpr std::string_view ownerName = "MemReportTestRetiringGpuOwner";
+        constexpr std::string_view otherOwnerName = "MemReportTestRetiringGpuOther";
+        {
+            const RendererMemoryOwnerScope owner(ownerName, MemoryLifetime::Persistent);
+            tracker.TrackAllocation(objects.At(0), 1000, ResourceType::StorageBuffer, "retiring GPU", true, __FILE__, __LINE__);
+            tracker.TrackAllocation(objects.At(1), 3000, ResourceType::Other, "retiring CPU", false, __FILE__, __LINE__);
+            tracker.TrackAllocation(objects.At(2), 4000, ResourceType::StorageBuffer, "live GPU", true, __FILE__, __LINE__);
+            tracker.TrackAlias(objects.At(3), objects.At(0), 1000, ResourceType::StorageBuffer, "GPU view", __FILE__, __LINE__);
+        }
+        {
+            const RendererMemoryOwnerScope owner(otherOwnerName, MemoryLifetime::Persistent);
+            tracker.TrackAllocation(objects.At(4), 2000, ResourceType::StorageBuffer, "other owner GPU", true, __FILE__, __LINE__);
+        }
+        EXPECT_EQ(tracker.GetOwnerGpuRetiringBytes(ownerName), 0u) << "live allocations are not retiring backing";
+        const u64 gpuTicket = tracker.RetireAllocation(objects.At(0));
+        const u64 cpuTicket = tracker.RetireAllocation(objects.At(1));
+        const u64 otherTicket = tracker.RetireAllocation(objects.At(4));
+        EXPECT_NE(gpuTicket, 0u);
+        EXPECT_NE(cpuTicket, 0u);
+        EXPECT_NE(otherTicket, 0u);
+        EXPECT_EQ(tracker.RetireAllocation(objects.At(3)), 0u) << "an alias owns no retiring backing";
+        EXPECT_EQ(tracker.GetOwnerGpuRetiringBytes(ownerName), 1000u);
+        EXPECT_EQ(tracker.GetOwnerGpuRetiringBytes(otherOwnerName), 2000u);
+        EXPECT_EQ(tracker.GetOwnerGpuRetiringBytes("MemReportTestRetiringGpuAbsent"), 0u);
+
+        tracker.ReleaseRetired(cpuTicket);
+        EXPECT_EQ(tracker.GetOwnerGpuRetiringBytes(ownerName), 1000u) << "CPU reclamation must not change GPU bytes";
+        tracker.ReleaseRetired(gpuTicket);
+        EXPECT_EQ(tracker.GetOwnerGpuRetiringBytes(ownerName), 0u);
+        EXPECT_EQ(tracker.GetOwnerGpuRetiringBytes(otherOwnerName), 2000u);
+        tracker.ReleaseRetired(otherTicket);
+        EXPECT_EQ(tracker.GetOwnerGpuRetiringBytes(otherOwnerName), 0u);
+        tracker.TrackDeallocation(objects.At(2), __FILE__, __LINE__);
+    }
+
+    TEST(RendererMemoryReport, OwnerRetiringGpuQueryDoesNotInvokeCapacityReporters)
+    {
+        Tracker& tracker = Tracker::GetInstance();
+        FakeObjects objects;
+        constexpr std::string_view ownerName = "MemReportTestRetiringGpuWithoutReporters";
+        {
+            const RendererMemoryOwnerScope owner(ownerName, MemoryLifetime::Persistent);
+            tracker.TrackAllocation(objects.At(0), 128, ResourceType::StorageBuffer, "retiring GPU", true, __FILE__, __LINE__);
+        }
+        const u64 ticket = tracker.RetireAllocation(objects.At(0));
+        u32 reporterCalls = 0;
+        const RendererMemoryReporterHandle handle([&reporterCalls](TArray<MemoryCapacityRow>&)
+                                                  { ++reporterCalls; });
+
+        EXPECT_EQ(tracker.GetOwnerGpuRetiringBytes(ownerName), 128u);
+        EXPECT_EQ(tracker.GetOwnerGpuRetiringBytes("MemReportTestRetiringGpuMissingWithoutReporters"), 0u);
+        EXPECT_EQ(reporterCalls, 0u) << "admission can query retirement from inside a capacity reporter; invoking reporters would recurse";
+        (void)tracker.BuildReport();
+        EXPECT_EQ(reporterCalls, 1u) << "the registered reporter must be active for the recursion guard to be meaningful";
+        tracker.ReleaseRetired(ticket);
+        EXPECT_EQ(tracker.GetOwnerGpuRetiringBytes(ownerName), 0u);
+        EXPECT_EQ(reporterCalls, 1u);
+    }
+
     TEST(RendererMemoryReport, OwnerScopesAttributeInnermostFirst)
     {
         Tracker& tracker = Tracker::GetInstance();

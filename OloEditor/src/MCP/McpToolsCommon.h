@@ -376,6 +376,7 @@ namespace OloEngine::MCP
     void RegisterDiagnosticsTools(AutomationRegistry& registry);
     void RegisterSceneTools(AutomationRegistry& registry);
     void RegisterPerfTools(AutomationRegistry& registry);
+    void RegisterStreamingResidencyTools(AutomationRegistry& registry);
     void RegisterRenderTools(AutomationRegistry& registry);
     void RegisterShaderTools(AutomationRegistry& registry);
     void RegisterResourceTools(AutomationRegistry& registry);

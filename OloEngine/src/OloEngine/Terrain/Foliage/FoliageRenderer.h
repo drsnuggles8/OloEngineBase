@@ -13,12 +13,15 @@
 #include "OloEngine/Terrain/Foliage/FoliageWind.h"
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/RayTracing/VegetationPolicy.h"
+#include "OloEngine/Asset/AssetSystem/RepresentationStreaming.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 
 #include <glm/glm.hpp>
 #include <array>
 #include <span>
 #include <functional>
 #include <string>
+#include <map>
 #include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
@@ -151,6 +154,8 @@ namespace OloEngine
         // The submesh's own albedo. Null falls through to the layer's
         // AlbedoTexture, which is what a mesh with no imported texture gets.
         Ref<Texture2D> Albedo;
+        FString AlbedoSourcePath; // immutable streaming decode has no texture file constructor
+        FoliageAlphaCoverage::Histogram SampledAlphaCoverage;
     };
 
     // An external texture Ref and scalar index range; no self-address escapes.
@@ -159,7 +164,9 @@ namespace OloEngine
     {
         static constexpr bool Value = TIsTriviallyRelocatable<decltype(FoliageLayerDrawPart::BaseIndex)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerDrawPart::IndexCount)>::Value &&
-                                      TIsTriviallyRelocatable<decltype(FoliageLayerDrawPart::Albedo)>::Value;
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerDrawPart::Albedo)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerDrawPart::AlbedoSourcePath)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerDrawPart::SampledAlphaCoverage)>::Value;
     };
 
     struct FoliageLayerRenderData
@@ -186,6 +193,7 @@ namespace OloEngine
         bool MeshRequested = false; // UseAuthoredMesh && !MeshPath.empty()
         u32 MeshVertexCount = 0;
         u32 MeshIndexCount = 0;
+        BoundingBox MeshBounds{}; // Exact optional geometry bounds used for resident impostor rebakes
         FoliageBoundsProfile BoundsProfile{};
         f32 MeshViewDistance = 0.0f;
         f32 MeshFadeStartDistance = 0.0f;
@@ -193,6 +201,9 @@ namespace OloEngine
         // card's normal: the card is lit as the near plant is on average. Measured
         // when the mesh loads; 0 for a layer with no mesh.
         f32 CardNormalTilt = 0.0f;
+        // Derived appearance belongs to the pinned card, not the optional
+        // mesh buffers. Evicting the mesh must not rotate/stretch its bake.
+        bool CardUsesMeshBake = false;
 
         u32 InstanceCount = 0;
         u32 InstanceCapacity = 0;
@@ -295,6 +306,7 @@ namespace OloEngine
         // Refs for a diagnostic would keep every one of them resident on the GPU.
         TArray<FString> ImpostorPartTextures;
         TArray<TArray<glm::vec2>> ImpostorPartSurfaceUVs;
+        TArray<FoliageAlphaCoverage::Histogram> ImpostorPartCoverage;
         TArray<FoliageAlphaCoverage::Entry> AlphaCoverage;
         bool AlphaCoverageDirty = true;
         bool AlphaCoverageMeshDrawn = false;
@@ -335,10 +347,12 @@ namespace OloEngine
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshRequested)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshVertexCount)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshIndexCount)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshBounds)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::BoundsProfile)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshViewDistance)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshFadeStartDistance)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::CardNormalTilt)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::CardUsesMeshBake)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::InstanceCount)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::InstanceCapacity)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::IndexCount)>::Value &&
@@ -385,6 +399,7 @@ namespace OloEngine
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshPartSurfaceUVs)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::ImpostorPartTextures)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::ImpostorPartSurfaceUVs)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::ImpostorPartCoverage)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::AlphaCoverage)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::AlphaCoverageDirty)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::AlphaCoverageMeshDrawn)>::Value &&
@@ -436,10 +451,25 @@ namespace OloEngine
                                       TIsTriviallyRelocatable<decltype(FoliageLayerDraw::LodTransition1)>::Value;
     };
 
+    struct FFoliageStreamingStats
+    {
+        u64 PinnedGpuBytes = 0;
+        u64 OptionalGpuBytes = 0;
+        u64 PendingCpuBytes = 0;
+        u64 CanonicalCpuBytes = 0;
+        u64 PreparedCpuBytes = 0;
+        u64 UploadedBytes = 0;
+        u32 ResidentLayers = 0;
+        u32 PendingLayers = 0;
+        u32 FallbackLayers = 0;
+        u64 Evictions = 0;
+        u64 Reloads = 0;
+    };
+
     class FoliageRenderer : public RefCounted
     {
       public:
-        FoliageRenderer() = default;
+        FoliageRenderer();
         // Releases every live layer's impostor VRAM budget claim (issue
         // #718) — ImpostorAtlas has no destructor of its own (its BudgetNode
         // is a plain accounting handle, not a GPU resource, so giving it RAII
@@ -623,6 +653,20 @@ namespace OloEngine
         [[nodiscard]] TArray<FoliageLayerDrawInfo> GetActiveLayerDrawInfo() const;
         void QueueRayTracing(u64 owner, const glm::vec3& cameraPosition) const;
 
+        // Configure before GenerateInstances. Update once before any consumer
+        // extracts this frame. A true return requests one identity-preserving
+        // reconcile and temporal-history invalidation from the owning scene.
+        void SetStreamingEnabled(bool enabled);
+        [[nodiscard]] bool UpdateStreamingResidency(const TArray<FoliageLayer>& layers, const glm::vec3& cameraPosition);
+        [[nodiscard]] const FFoliageStreamingStats& GetStreamingStats() const
+        {
+            return m_StreamingStats;
+        }
+        void SetStreamingLoadGate(std::optional<Tasks::FTaskEvent> gate)
+        {
+            m_StreamingLoads.SetStartGate(std::move(gate));
+        }
+
         void SetTime(f32 time, f32 prevTime)
         {
             m_WindHistory.Advance(time, prevTime);
@@ -695,8 +739,8 @@ namespace OloEngine
         // judges every entry at the layer's CURRENT cutoff and warns once per
         // implausible one (issue #1399). A diagnostic: it reads the layer and
         // writes only the coverage fields.
-        static void UpdateAlphaCoverage(LayerRenderData& data, const FoliageLayer& layer, bool meshDrawn,
-                                        bool impostorDrawn);
+        void UpdateAlphaCoverage(LayerRenderData& data, const FoliageLayer& layer, bool meshDrawn,
+                                 bool impostorDrawn);
 
         // A reflection-only group of plants, one representation (#1533).
         // Plain data; its plants are a run of ReflectionSplit::Records.
@@ -748,5 +792,29 @@ namespace OloEngine
         FoliageWindHistory m_WindHistory;
         f32 m_Time = 0.0f;
         f32 m_PrevTime = 0.0f;
+
+        struct FStreamingLayer
+        {
+            u64 Key = 0;
+            FString Path;
+            FRepresentationDescriptor Descriptor;
+            Ref<FRepresentationPayload> Ready;
+            u64 StagingTicket = 0;
+            bool WasResident = false;
+            bool UploadFailed = false;
+        };
+        void EvictStreamingMesh(LayerRenderData& data);
+        void DropStreamingLayer(FStreamingLayer& state);
+        [[nodiscard]] bool UploadStreamingMesh(LayerRenderData& data, FStreamingLayer& state, const FoliageLayer& layer);
+        [[nodiscard]] bool UpdateStreamingAlphaCutoffs(LayerRenderData& data, FStreamingLayer& state, const FoliageLayer& layer);
+        void RefreshStreamingStats();
+        bool m_StreamingEnabled = false;
+        bool m_StreamingModeChanged = false;
+        u64 m_StreamingPinnedKey = 0;
+        FRepresentationLoadQueue m_StreamingLoads;
+        std::map<u32, FStreamingLayer> m_StreamingLayers;
+        FFoliageStreamingStats m_StreamingStats;
+        // Unregister before destroying any state captured by the reporter.
+        RendererMemoryReporterHandle m_StreamingMemoryReporter;
     };
 } // namespace OloEngine

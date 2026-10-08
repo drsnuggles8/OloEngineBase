@@ -619,6 +619,9 @@ TEST(StreamingSettingsYaml, ByteBudgetsRoundTrip)
     Ref<Scene> scene = Scene::Create();
     scene->GetStreamingSettings().MaxResidentMegabytes = 384.5f;
     scene->GetStreamingSettings().MaxAdmittedMegabytesPerFrame = 12.25f;
+    scene->GetStreamingSettings().RepresentationResidentMegabytes = 128.0f;
+    scene->GetStreamingSettings().RepresentationUploadMegabytesPerFrame = 4.5f;
+    scene->GetStreamingSettings().RepresentationStagingMegabytes = 64.0f;
 
     const std::string yaml = SceneSerializer(scene).SerializeToYAML();
     ASSERT_NE(yaml.find("MaxResidentMegabytes"), std::string::npos);
@@ -627,6 +630,9 @@ TEST(StreamingSettingsYaml, ByteBudgetsRoundTrip)
     ASSERT_TRUE(SceneSerializer(loaded).DeserializeFromYAML(yaml));
     EXPECT_FLOAT_EQ(loaded->GetStreamingSettings().MaxResidentMegabytes, 384.5f);
     EXPECT_FLOAT_EQ(loaded->GetStreamingSettings().MaxAdmittedMegabytesPerFrame, 12.25f);
+    EXPECT_FLOAT_EQ(loaded->GetStreamingSettings().RepresentationResidentMegabytes, 128.0f);
+    EXPECT_FLOAT_EQ(loaded->GetStreamingSettings().RepresentationUploadMegabytesPerFrame, 4.5f);
+    EXPECT_FLOAT_EQ(loaded->GetStreamingSettings().RepresentationStagingMegabytes, 64.0f);
 
     // The file path writes the same block as the string path.
     const fs::path path = Tests::TempFile("streaming_budget_roundtrip.olo");
@@ -635,6 +641,9 @@ TEST(StreamingSettingsYaml, ByteBudgetsRoundTrip)
     ASSERT_TRUE(SceneSerializer(fromFile).Deserialize(path));
     EXPECT_FLOAT_EQ(fromFile->GetStreamingSettings().MaxResidentMegabytes, 384.5f);
     EXPECT_FLOAT_EQ(fromFile->GetStreamingSettings().MaxAdmittedMegabytesPerFrame, 12.25f);
+    EXPECT_FLOAT_EQ(fromFile->GetStreamingSettings().RepresentationResidentMegabytes, 128.0f);
+    EXPECT_FLOAT_EQ(fromFile->GetStreamingSettings().RepresentationUploadMegabytesPerFrame, 4.5f);
+    EXPECT_FLOAT_EQ(fromFile->GetStreamingSettings().RepresentationStagingMegabytes, 64.0f);
     std::error_code ec;
     fs::remove(path, ec);
 }
@@ -664,6 +673,9 @@ TEST(StreamingSettingsYaml, ASceneSavedBeforeTheByteBudgetLoadsWithNoBudget)
     EXPECT_EQ(ss.RegionDirectory, "Regions/World");
     EXPECT_FLOAT_EQ(ss.MaxResidentMegabytes, 0.0f) << "absent means no byte budget";
     EXPECT_FLOAT_EQ(ss.MaxAdmittedMegabytesPerFrame, 0.0f);
+    EXPECT_FLOAT_EQ(ss.RepresentationResidentMegabytes, 0.0f);
+    EXPECT_FLOAT_EQ(ss.RepresentationUploadMegabytesPerFrame, 0.0f);
+    EXPECT_FLOAT_EQ(ss.RepresentationStagingMegabytes, 0.0f);
     EXPECT_EQ(MakeSceneStreamerConfig(ss).MaxResidentBytes, 0u);
 }
 
@@ -677,7 +689,10 @@ TEST(StreamingSettingsYaml, CorruptBudgetsAreSanitisedOnLoad)
                                  "\n"
                                  "StreamingSettings:\n"
                                  "  MaxResidentMegabytes: " +
-                                 resident + "\n  MaxAdmittedMegabytesPerFrame: " + perFrame + "\nEntities: []\n";
+                                 resident + "\n  MaxAdmittedMegabytesPerFrame: " + perFrame +
+                                 "\n  RepresentationResidentMegabytes: " + resident +
+                                 "\n  RepresentationUploadMegabytesPerFrame: " + perFrame +
+                                 "\n  RepresentationStagingMegabytes: " + resident + "\nEntities: []\n";
         Ref<Scene> scene = Scene::Create();
         EXPECT_TRUE(SceneSerializer(scene).DeserializeFromYAML(yaml));
         return scene->GetStreamingSettings();
@@ -686,13 +701,22 @@ TEST(StreamingSettingsYaml, CorruptBudgetsAreSanitisedOnLoad)
     StreamingSettings nan = load(".nan", ".inf");
     EXPECT_FLOAT_EQ(nan.MaxResidentMegabytes, 0.0f) << "NaN is no budget, not a tiny one";
     EXPECT_FLOAT_EQ(nan.MaxAdmittedMegabytesPerFrame, 0.0f);
+    EXPECT_FLOAT_EQ(nan.RepresentationResidentMegabytes, 0.0f);
+    EXPECT_FLOAT_EQ(nan.RepresentationUploadMegabytesPerFrame, 0.0f);
+    EXPECT_FLOAT_EQ(nan.RepresentationStagingMegabytes, 0.0f);
 
     StreamingSettings negative = load("-64", "-1");
     EXPECT_FLOAT_EQ(negative.MaxResidentMegabytes, 0.0f);
     EXPECT_FLOAT_EQ(negative.MaxAdmittedMegabytesPerFrame, 0.0f);
+    EXPECT_FLOAT_EQ(negative.RepresentationResidentMegabytes, 0.0f);
+    EXPECT_FLOAT_EQ(negative.RepresentationUploadMegabytesPerFrame, 0.0f);
+    EXPECT_FLOAT_EQ(negative.RepresentationStagingMegabytes, 0.0f);
 
     StreamingSettings huge = load("1e7", "3e38");
     EXPECT_FLOAT_EQ(huge.MaxResidentMegabytes, kMaxStreamingBudgetMegabytes);
     EXPECT_FLOAT_EQ(huge.MaxAdmittedMegabytesPerFrame, kMaxStreamingBudgetMegabytes);
+    EXPECT_FLOAT_EQ(huge.RepresentationResidentMegabytes, kMaxStreamingBudgetMegabytes);
+    EXPECT_FLOAT_EQ(huge.RepresentationUploadMegabytesPerFrame, kMaxStreamingBudgetMegabytes);
+    EXPECT_FLOAT_EQ(huge.RepresentationStagingMegabytes, kMaxStreamingBudgetMegabytes);
     EXPECT_EQ(StreamingBudgetMegabytesToBytes(huge.MaxResidentMegabytes), 1024ull * 1024ull * 1024ull * 1024ull);
 }

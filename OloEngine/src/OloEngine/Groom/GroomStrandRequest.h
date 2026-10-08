@@ -48,6 +48,17 @@
 namespace OloEngine
 {
 
+    enum class EGroomStreamingFallback : u8
+    {
+        None,
+        Pending,
+        ResidentBudget,
+        UploadBudget,
+        PreparationFailed,
+        StagingBudget,
+        CpuDeformationReference
+    };
+
     struct GroomStrandRequest
     {
         /// The cooked groom. Never null in a published request — Scene drops
@@ -372,6 +383,21 @@ namespace OloEngine
         /// per frame would be a megabyte of memcpy per groom.
         const GroomLodLevel* LodLevel = nullptr;
 
+        // Residency changes the effective build before binding/simulation select
+        // roots. Every consumer (beauty, shadow and RT) receives that same answer.
+        u64 StreamingKey = 0;
+        u64 StreamingEntityKey = 0;
+        u32 StreamingSurfaceVertices = 0;
+        u32 StreamingBones = 0;
+        u32 StreamingGuideSlots = 0;
+        u32 StreamingDisplacementPoints = 0;
+        u32 StreamingRequestedStrands = 0;
+        GroomRepresentation StreamingRequestedRepresentation = GroomRepresentation::Strand;
+        EGroomStreamingFallback StreamingFallback = EGroomStreamingFallback::None;
+        bool StreamingEnabled = false;
+        bool StreamingFloor = false;
+        bool StreamingPending = false;
+
         /// The curve set the pass should build from: the level if one was
         /// selected, the base groom otherwise. Assembled at the point of use
         /// for GroomStrandSimulation's reason — a request is MOVED, and a span
@@ -460,7 +486,19 @@ namespace OloEngine
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::ApparentPixelSize)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::LodPolicy)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::Lod)> &&
-                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::LodLevel)>;
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::LodLevel)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::StreamingKey)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::StreamingEntityKey)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::StreamingSurfaceVertices)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::StreamingBones)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::StreamingGuideSlots)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::StreamingDisplacementPoints)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::StreamingRequestedStrands)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::StreamingRequestedRepresentation)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::StreamingFallback)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::StreamingEnabled)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::StreamingFloor)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::StreamingPending)>;
     };
 
     /// The drawn roots on the CPU (#1533 E1): the request's own transforms when

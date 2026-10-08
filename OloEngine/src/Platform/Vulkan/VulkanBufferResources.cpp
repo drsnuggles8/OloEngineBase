@@ -5,6 +5,7 @@
 
 #include "Platform/Vulkan/VulkanBufferResources.h"
 #include "Platform/Vulkan/VulkanTrackedAllocation.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
 #include "Platform/Vulkan/VulkanQueueSelection.h"
 #include "Platform/Vulkan/VulkanRecordingContext.h"
 
@@ -691,6 +692,7 @@ namespace OloEngine
         }
 
         m_RHIHandle.Sync(RHI::ResourceKind::Buffer, VkHandleToU64(m_Buffer), RHI::Backend::Vulkan);
+        RendererMemory::BindBackingResourceHandle(m_Allocation, RHI::HashKey(m_RHIHandle.Get()));
 
         if (initialData != nullptr && m_Size > 0)
         {
@@ -972,6 +974,7 @@ namespace OloEngine
 
         m_RHIHandle.Sync(RHI::ResourceKind::Buffer, VkHandleToU64(m_Buffer), RHI::Backend::Vulkan);
         // Diagnostics-only registration (#810) — see VulkanRootObjectKind.
+        RendererMemory::BindBackingResourceHandle(m_Allocation, RHI::HashKey(m_RHIHandle.Get()));
         VulkanRootObjectRegistry::Get().Register(m_RHIHandle.Get(), VulkanRootObjectKind::IndexBuffer, this);
 
         if (indices != nullptr && sizeBytes > 0)

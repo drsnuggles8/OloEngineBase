@@ -44,6 +44,10 @@
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/Vertex.h"
 #include "OloEngine/Renderer/Model.h"
+#include "OloEngine/Core/DebugLevers.h"
+#include "OloEngine/Groom/GroomBindingBuilder.h"
+#include "OloEngine/Renderer/RayTracing/GroomSurfaceCache.h"
+#include "../../Groom/GroomBindingFixture.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Renderer/Texture.h"
@@ -1217,5 +1221,6 @@ namespace OloEngine::Tests
 
 #include "VegetationExperiment.inl"
 #include "VegetationSurfaceCacheDevice.inl"
+#include "GroomStreamingSurfaceCacheDevice.inl"
 #endif // OLO_WITH_VULKAN
 } // namespace OloEngine::Tests

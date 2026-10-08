@@ -168,6 +168,13 @@ namespace OloEngine
                 {
                     Renderer3D::OnWindowResize(fbWidth, fbHeight);
                 }
+
+                // Lazy 3D initialization draws its own shader-loading screen
+                // after Application restored the title for the initial renderer.
+                const auto& specification = Application::Get().GetSpecification();
+                Application::Get().GetWindow().SetTitle(Renderer::GetAPI() == RendererAPI::API::Vulkan
+                                                            ? specification.Name + " [Vulkan]"
+                                                            : specification.Name);
             }
 
             // Input maps must exist before scene scripts receive OnCreate: the

@@ -48,7 +48,10 @@ namespace OloEngine
         return a.Enabled == b.Enabled && SameBits(a.DefaultLoadRadius, b.DefaultLoadRadius) &&
                SameBits(a.DefaultUnloadRadius, b.DefaultUnloadRadius) && a.MaxLoadedRegions == b.MaxLoadedRegions &&
                a.RegionDirectory == b.RegionDirectory && SameBits(a.MaxResidentMegabytes, b.MaxResidentMegabytes) &&
-               SameBits(a.MaxAdmittedMegabytesPerFrame, b.MaxAdmittedMegabytesPerFrame);
+               SameBits(a.MaxAdmittedMegabytesPerFrame, b.MaxAdmittedMegabytesPerFrame) &&
+               SameBits(a.RepresentationResidentMegabytes, b.RepresentationResidentMegabytes) &&
+               SameBits(a.RepresentationUploadMegabytesPerFrame, b.RepresentationUploadMegabytesPerFrame) &&
+               SameBits(a.RepresentationStagingMegabytes, b.RepresentationStagingMegabytes);
     }
 
     void StreamingPanel::DrawSettingsSection()
@@ -85,6 +88,16 @@ namespace OloEngine
             {
                 ss.MaxAdmittedMegabytesPerFrame = SanitizeStreamingBudgetMegabytes(ss.MaxAdmittedMegabytesPerFrame);
             }
+
+            ImGui::Separator();
+            ImGui::TextUnformatted("Groom / vegetation detail");
+            ImGui::TextDisabled("Complete fallback remains resident; 0 = unlimited");
+            if (ImGui::DragFloat("Detail Resident MB", &ss.RepresentationResidentMegabytes, 1.0f, 0.0f, kMaxStreamingBudgetMegabytes, "%.1f"))
+                ss.RepresentationResidentMegabytes = SanitizeStreamingBudgetMegabytes(ss.RepresentationResidentMegabytes);
+            if (ImGui::DragFloat("Detail Upload MB / Frame", &ss.RepresentationUploadMegabytesPerFrame, 0.1f, 0.0f, kMaxStreamingBudgetMegabytes, "%.1f"))
+                ss.RepresentationUploadMegabytesPerFrame = SanitizeStreamingBudgetMegabytes(ss.RepresentationUploadMegabytesPerFrame);
+            if (ImGui::DragFloat("Detail CPU Staging MB", &ss.RepresentationStagingMegabytes, 1.0f, 0.0f, kMaxStreamingBudgetMegabytes, "%.1f"))
+                ss.RepresentationStagingMegabytes = SanitizeStreamingBudgetMegabytes(ss.RepresentationStagingMegabytes);
 
             char buf[256] = {};
             std::strncpy(buf, ss.RegionDirectory.c_str(), sizeof(buf) - 1);
