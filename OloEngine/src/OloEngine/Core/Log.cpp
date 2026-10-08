@@ -101,10 +101,22 @@ namespace OloEngine
         // against whatever the cwd is by then: the renderer tests move it to
         // OloEditor/, so a later reader opened a different OloEngine.log and saw
         // none of the lines this sink wrote.
+        // Kept relative if the absolute form cannot be expressed as a narrow
+        // string (a cwd outside the active code page): a log that opens beats a
+        // constructor that throws before any logger exists.
+        m_ResolvedLogFileName = ResolveLogFileName();
+        try
         {
             std::error_code ec;
-            const std::filesystem::path absolute = std::filesystem::absolute(ResolveLogFileName(), ec);
-            m_ResolvedLogFileName = ec ? ResolveLogFileName() : absolute.string();
+            const std::filesystem::path absolute = std::filesystem::absolute(m_ResolvedLogFileName, ec);
+            if (!ec)
+            {
+                m_ResolvedLogFileName = absolute.string();
+            }
+        }
+        catch (const std::exception&)
+        {
+            // Keep the relative name.
         }
         std::vector<spdlog::sink_ptr> logSinks;
         logSinks.emplace_back(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
