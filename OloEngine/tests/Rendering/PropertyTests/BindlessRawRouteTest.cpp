@@ -541,6 +541,7 @@ namespace OloEngine::Tests
         }
 
         u32 compute = 0;
+        std::string computePreprocessFailures;
         shaderc::Compiler compiler;
         for (const fs::path& path : SH::EnumerateShaderSources(root / "compute"))
         {
@@ -554,7 +555,7 @@ namespace OloEngine::Tests
                                                        { return stage.Kind == shaderc_glsl_compute_shader; });
             if (!error.empty())
             {
-                preprocessFailures += "\n    " + path.filename().string() + " " + error;
+                computePreprocessFailures += "\n    " + path.filename().string() + " " + error;
                 continue;
             }
             if (!isCompute || IsVulkanOnly(stages))
@@ -576,7 +577,7 @@ namespace OloEngine::Tests
                          << measured;
         EXPECT_GT(programs.size(), 40u) << "too few raw-route programs found; the opt-in scan is broken, not the tree";
         EXPECT_GT(compute, 20u) << "too few bindless compute programs found; the opt-in scan is broken, not the tree";
-        EXPECT_TRUE(preprocessFailures.empty()) << "could not preprocess:" << preprocessFailures;
+        EXPECT_TRUE(computePreprocessFailures.empty()) << "could not preprocess:" << computePreprocessFailures;
         EXPECT_TRUE(offRoute.empty()) << "These programs opt in to the bindless route and were NOT built on it "
                                          "by this driver — OloEngine.log has the driver's reason:"
                                       << offRoute;

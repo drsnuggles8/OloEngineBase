@@ -105,6 +105,7 @@ namespace OloEngine
         // string (a cwd outside the active code page): a log that opens beats a
         // constructor that throws before any logger exists.
         m_ResolvedLogFileName = ResolveLogFileName();
+        bool keptRelative = true;
         try
         {
             std::error_code ec;
@@ -112,11 +113,12 @@ namespace OloEngine
             if (!ec)
             {
                 m_ResolvedLogFileName = absolute.string();
+                keptRelative = false;
             }
         }
         catch (const std::exception&)
         {
-            // Keep the relative name.
+            // Keep the relative name; reported below once a logger exists.
         }
         std::vector<spdlog::sink_ptr> logSinks;
         logSinks.emplace_back(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
@@ -144,6 +146,13 @@ namespace OloEngine
         m_EditorConsoleLogger->flush_on(spdlog::level::trace);
 
         SetDefaultTagSettings();
+
+        if (keptRelative)
+        {
+            m_CoreLogger->warn("Log file name '{}' could not be made absolute; a reader that resolves it after the "
+                               "working directory changes will open a different file.",
+                               m_ResolvedLogFileName);
+        }
 
         s_Initialized.store(true, std::memory_order_release);
     }

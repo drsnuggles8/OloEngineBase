@@ -2816,6 +2816,9 @@ namespace OloEngine
         const bool oldIsBindlessVariant = m_IsBindlessVariant;
         const bool oldWantsBindless = m_WantsBindless;
         const bool oldReadsMaterialHeapOffsets = m_ReadsMaterialHeapOffsets;
+        const bool oldIsDeferredCapable = m_IsDeferredCapable;
+        const bool oldWantsGlslRoute = m_WantsGlslRoute;
+        const bool oldIsGlslTextRoute = m_IsGlslTextRoute;
         OLO_SHADER_RELOAD_START(oldProgram);
 
         m_CompilationStatus = ShaderCompilationStatus::Pending;
@@ -2879,6 +2882,9 @@ namespace OloEngine
             m_IsBindlessVariant = oldIsBindlessVariant;
             m_WantsBindless = oldWantsBindless;
             m_ReadsMaterialHeapOffsets = oldReadsMaterialHeapOffsets;
+            m_IsDeferredCapable = oldIsDeferredCapable;
+            m_WantsGlslRoute = oldWantsGlslRoute;
+            m_IsGlslTextRoute = oldIsGlslTextRoute;
         }
 
         // Async link failure: the parallel-compile path (CreateProgram) commits the fresh
