@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 
 #include <atomic>
+#include <filesystem>
 #include "OloEngine/Core/Log.h"
 
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -94,7 +95,17 @@ namespace OloEngine
         m_RingbufferSink = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(200);
         m_RingbufferSink->set_pattern("[%T] [%l] %n: %v");
 
-        m_ResolvedLogFileName = ResolveLogFileName();
+        // ABSOLUTE, resolved against the cwd at the moment the sink opens the file.
+        // GetLogFileName() is read back later (olo_asset_pack_build re-reads the
+        // build's warnings from it), and a relative name would then resolve
+        // against whatever the cwd is by then: the renderer tests move it to
+        // OloEditor/, so a later reader opened a different OloEngine.log and saw
+        // none of the lines this sink wrote.
+        {
+            std::error_code ec;
+            const std::filesystem::path absolute = std::filesystem::absolute(ResolveLogFileName(), ec);
+            m_ResolvedLogFileName = ec ? ResolveLogFileName() : absolute.string();
+        }
         std::vector<spdlog::sink_ptr> logSinks;
         logSinks.emplace_back(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
         logSinks.emplace_back(std::make_shared<spdlog::sinks::basic_file_sink_mt>(m_ResolvedLogFileName, true));

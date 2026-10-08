@@ -61,6 +61,7 @@ add_executable(OloEngine-Tests
 		# new lever from being added as a bare Env:: read again.
 		Core/CVarTest.cpp
 		Core/DebugLeversTest.cpp
+		Core/LogFileNameTest.cpp
 		Core/FrameTimeTailTest.cpp
 		# Issue #1420: UUID() is called from several threads and must never repeat.
 		Core/UUIDTest.cpp
