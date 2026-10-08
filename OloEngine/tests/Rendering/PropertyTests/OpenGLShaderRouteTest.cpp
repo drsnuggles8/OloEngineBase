@@ -2,6 +2,7 @@
 #include "OloEnginePCH.h"
 
 #include "RenderPropertyTest.h"
+#include "Rendering/ShaderHarness.h"
 
 #include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -47,7 +48,10 @@ namespace OloEngine::Tests
         };
 
         // The production shaders that name the token outside comments, by the
-        // path Shader::Create takes.
+        // path Shader::Create takes. The include closure counts, as it does for
+        // the engine, which scans the include-resolved stages: since #1569 the
+        // terrain depth program names the token in
+        // include/TerrainDepthVertexStage.glsl, not in its own file.
         [[nodiscard]] std::vector<std::string> OptedInShaders()
         {
             std::vector<std::string> paths;
@@ -58,10 +62,14 @@ namespace OloEngine::Tests
                 {
                     continue;
                 }
-                std::ifstream in(entry.path(), std::ios::binary);
-                std::stringstream text;
-                text << in.rdbuf();
-                if (ShaderSourceScan::MentionsOutsideComments(text.str(), "OLO_GL_GLSL_ROUTE"))
+                std::vector<fs::path> files = ShaderHarness::IncludeClosure(root, entry.path());
+                files.push_back(entry.path());
+                if (std::ranges::any_of(files,
+                                        [](const fs::path& file)
+                                        {
+                                            return ShaderSourceScan::MentionsOutsideComments(
+                                                ShaderHarness::ReadWholeFile(file), "OLO_GL_GLSL_ROUTE");
+                                        }))
                 {
                     paths.push_back("assets/shaders/" + entry.path().filename().string());
                 }
