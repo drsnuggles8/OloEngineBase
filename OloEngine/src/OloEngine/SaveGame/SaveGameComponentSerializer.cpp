@@ -2385,12 +2385,15 @@ namespace OloEngine
                 const bool overrunsArchive = total >= 0 && at >= 0 && compressedSize > static_cast<u64>(total - at);
                 if (ar.IsError() || compressedSize == 0 || compressedSize > maxCompressed || overrunsArchive)
                 {
+                    // Fall through: the sanitize below must still run on what was read.
                     ar.SetError();
-                    return;
+                    hasVoxelVolume = false;
+                    compressedSize = 0;
                 }
                 voxelVolume.Compressed.SetNumUninitialized(static_cast<TArray<u8>::SizeType>(compressedSize));
             }
-            ar.Serialize(voxelVolume.Compressed.GetData(), static_cast<i64>(compressedSize));
+            if (compressedSize > 0)
+                ar.Serialize(voxelVolume.Compressed.GetData(), static_cast<i64>(compressedSize));
         }
 
         if (ar.IsLoading())
