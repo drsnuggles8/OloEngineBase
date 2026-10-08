@@ -2809,6 +2809,13 @@ namespace OloEngine
         // consistent id (the pre-reload one), instead of START(old)/END(new) which
         // orphaned the old entry stuck m_IsReloading=true forever.
         const GLuint oldProgram = m_RendererID;
+        // The live program's route, for the same reason: the attempt below
+        // re-decides these, and a failed reload keeps the OLD program, which must
+        // keep publishing the route it was built on (Bind() publishes
+        // m_IsBindlessVariant to the binding seam).
+        const bool oldIsBindlessVariant = m_IsBindlessVariant;
+        const bool oldWantsBindless = m_WantsBindless;
+        const bool oldReadsMaterialHeapOffsets = m_ReadsMaterialHeapOffsets;
         OLO_SHADER_RELOAD_START(oldProgram);
 
         m_CompilationStatus = ShaderCompilationStatus::Pending;
@@ -2867,6 +2874,12 @@ namespace OloEngine
         }
 
         const bool success = (m_CompilationStatus == ShaderCompilationStatus::Ready);
+        if (!success)
+        {
+            m_IsBindlessVariant = oldIsBindlessVariant;
+            m_WantsBindless = oldWantsBindless;
+            m_ReadsMaterialHeapOffsets = oldReadsMaterialHeapOffsets;
+        }
 
         // Async link failure: the parallel-compile path (CreateProgram) commits the fresh
         // program to m_RendererID before the link resolves, and FinalizeAfterLink then

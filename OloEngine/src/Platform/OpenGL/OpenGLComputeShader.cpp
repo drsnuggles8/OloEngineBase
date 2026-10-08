@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
+#include "OloEngine/Renderer/ShaderSourceScan.h"
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ShaderRegistry.h"
@@ -124,8 +125,11 @@ namespace OloEngine
         // compiled while the toggle was off keeps its slot-based program until it
         // is reloaded, exactly as on the graphics route.
         std::string patched = source;
-        m_IsBindlessVariant =
-            RHI::DescriptorHeap::Get().IsEnabled() && source.find("OLO_BINDLESS") != std::string::npos;
+        // Outside comments, as on the graphics route (OpenGLShader::
+        // WantsBindlessVariant): a shader that names the token in prose must not
+        // change route.
+        m_IsBindlessVariant = RHI::DescriptorHeap::Get().IsEnabled() &&
+                              ShaderSourceScan::MentionsOutsideComments(source, "OLO_BINDLESS");
         if (m_IsBindlessVariant)
         {
             static constexpr std::string_view kPrologue =
@@ -196,7 +200,14 @@ namespace OloEngine
             }
         }
 
-        OLO_CORE_ASSERT(false, "Compute shader build failure!");
+        if (compiled == GL_FALSE)
+        {
+            OLO_CORE_ASSERT(false, "Compute shader compilation failure!");
+        }
+        else
+        {
+            OLO_CORE_ASSERT(false, "Compute shader link failure!");
+        }
     }
 
     bool OpenGLComputeShader::Link(u32 shader, const std::string& source)

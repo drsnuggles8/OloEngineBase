@@ -693,11 +693,12 @@ namespace OloEngine
             {
                 return true;
             }
-            // A multisample texture has no sampler state to ask about (querying
-            // it is GL_INVALID_ENUM) and never compares.
+            // Multisample and buffer textures have no sampler state to ask about
+            // (querying it is GL_INVALID_ENUM) and never compare.
             GLint target = 0;
             glGetTextureParameteriv(texture, GL_TEXTURE_TARGET, &target);
-            if (target == GL_TEXTURE_2D_MULTISAMPLE || target == GL_TEXTURE_2D_MULTISAMPLE_ARRAY)
+            if (target == GL_TEXTURE_2D_MULTISAMPLE || target == GL_TEXTURE_2D_MULTISAMPLE_ARRAY ||
+                target == GL_TEXTURE_BUFFER)
             {
                 return true;
             }
