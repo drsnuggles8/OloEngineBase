@@ -12259,10 +12259,14 @@ namespace OloEngine
                         // seed comment above says the MC path avoids. A volume the
                         // USER carved is theirs and is never dropped; only the one
                         // this code seeded is.
+                        // Replaced, not cleared in place: an undo snapshot can share
+                        // the seeded volume and must keep its chunks (#1561).
                         if (terrain.m_VoxelOverride->IsAutoSeeded())
                         {
-                            terrain.m_VoxelOverride->GetChunks().clear();
-                            terrain.m_VoxelOverride->SetAutoSeeded(false);
+                            terrain.m_VoxelOverride = Ref<VoxelOverride>::Create();
+                            terrain.m_VoxelOverride->Initialize(
+                                terrain.m_WorldSizeX, terrain.m_WorldSizeZ,
+                                terrain.m_HeightScale, terrain.m_VoxelSize);
                             terrain.m_VoxelMeshes.clear();
                         }
                         // Switching from greedy: marching cubes has no meshes for
