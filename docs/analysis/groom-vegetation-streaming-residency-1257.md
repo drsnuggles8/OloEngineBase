@@ -5,7 +5,8 @@ The committed-source Editor matrix and four regional runs are complete on source
 retain the 12-cell audit. Runtime and earlier captures keep their own provenance.
 The first GL paired campaign completed but has a post-run background-GPU qualification:
 it is descriptive evidence, not verified idle-host acceptance. Paired Vulkan has never
-run; timing captures are paused and accepted performance remains pending.
+run. The user authorized continuation with reported background load; monitored GL/Vulkan
+runs have not started, and accepted performance remains pending.
 
 The [performance and regions record](groom-vegetation-streaming-residency-1257-performance.md)
 contains actual counters/tails and the qualification. The [public ledger](evidence/groom-vegetation-streaming-residency-1257.json)

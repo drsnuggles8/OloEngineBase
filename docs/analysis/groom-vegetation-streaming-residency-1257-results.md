@@ -110,3 +110,21 @@ Both dumps and the original executable/PDB are preserved with exact hashes. Func
 runs overlapped Debug compilation, so their wall times supply no performance evidence.
 The earlier live captures remain pre-correction records. The final-source matrix above
 and linked regions/performance record supply separate newer evidence.
+
+## CI region-reference test correction
+
+The first remote run is terminal: 24 checks succeeded, seven failed and two skipped.
+Five primary test jobs failed at
+`AllSandboxSceneAssetHandlesAreInTheRegistry`; coverage failures follow the parent test
+failure. Native reproduction reports four references, the two RegionIDs per family,
+falsely required in AssetRegistry. Runtime discovers these IDs through `.oloregion`
+files in `RegionDirectory`; the completed engine captures remain on `c519034ed`.
+
+Test-only commit `083be6c54d50297e6fffd6a608bccb2d0051c92e` removes that namespace
+misclassification and adds directory discovery plus missing-directory/foreign-ID
+negative checks. Incremental Debug build passes (three steps, 2,049 dependency objects).
+The complete AssetContentValidity run executes 29 tests: 28 pass and one historical
+`ShaderCacheEntriesAllHaveLiveGlslSources` skip. One existing disabled
+`DISABLED_RebaseAssetRegistry` is listed separately, not executed. XML reports zero
+failures/errors. The new remote run has not started; no all-green CI claim is made.
+Exact red/green, build and five remote failure-log hashes are in the ledger.

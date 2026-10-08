@@ -2545,9 +2545,10 @@
     }
   ],
   "pending": [
-    "Timing captures paused pending host-load qualification/user direction; no elapsed-time approval inferred",
-    "Verified-idle or explicitly qualified accepted paired performance evidence",
-    "Paired Vulkan campaign never run"
+    "Monitored GL/Vulkan paired campaigns under the user-authorized report-background-load policy have not started",
+    "Explicitly qualified accepted paired performance evidence",
+    "Paired Vulkan campaign never run",
+    "Remote CI rerun after verified test-only region-reference correction has not started"
   ],
   "limitations": [
     "Settings and scheduled graph alone do not prove renderer consumption.",
@@ -14470,7 +14471,114 @@
       "Two independent run pairs per workload; no significance/confidence/regression verdict.",
       "GL numerical comparisons may include unknown background GPU load and are descriptive only; no accepted idle-host or causal speedup claim.",
       "Baseline capture lacks streamingRawFile; optional tier I/O/accounting unavailable there. Physical CSV counters remain separate.",
-      "No paired Vulkan run has occurred. Accepted performance remains pending while timing is paused."
+      "No paired Vulkan run has occurred. The user authorized report-background-load continuation; future monitored campaigns have not started and accepted performance remains pending."
+    ]
+  },
+  "measurementPolicy": {
+    "authorization": "User explicitly stated GPU is free enough go ahead; report background load while continuing measurements",
+    "mode": "report-background-load",
+    "monitoredCampaigns": {
+      "opengl": "not-started",
+      "vulkan": "not-started"
+    },
+    "historicalFirstOpenGLQualification": "Retained unchanged: acceptedIdleHost false; post-run observations do not establish load throughout every measured frame"
+  },
+  "ciRegionTestCorrection": {
+    "status": "First remote CI run terminal; local test-only fix verified; remote rerun not started",
+    "fixCommit": "083be6c54d50297e6fffd6a608bccb2d0051c92e",
+    "scope": "AssetContentValidity tests only; engine captures retain c519034ed provenance and Release Editor binary is unchanged",
+    "diagnosis": "Generic registry test falsely classified four StreamingVolumeComponent.RegionAssetHandle values as AssetRegistry handles; these are .oloregion RegionIDs discovered through StreamingSettings.RegionDirectory",
+    "red": {
+      "tests": 1,
+      "failures": 1,
+      "errors": 0,
+      "test": "AssetContentValidity.AllSandboxSceneAssetHandlesAreInTheRegistry",
+      "misclassifiedRegionIDs": [
+        1257000000000100,
+        1257000000000101,
+        1257000000000110,
+        1257000000000111
+      ]
+    },
+    "fix": "Remove RegionAssetHandle from registry-handle scan; validate declared RegionIDs through immediate directory discovery; negative cases reject missing directory and foreign RegionID",
+    "green": {
+      "executed": 29,
+      "passed": 28,
+      "skipped": 1,
+      "disabledNotExecuted": 1,
+      "xmlTestsIncludingDisabled": 30,
+      "failures": 0,
+      "errors": 0,
+      "skippedTest": "AssetContentValidity.ShaderCacheEntriesAllHaveLiveGlslSources",
+      "disabledTest": "AssetContentValidity.DISABLED_RebaseAssetRegistry"
+    },
+    "build": {
+      "configuration": "Debug",
+      "incrementalSteps": 3,
+      "dependencyObjects": 2049,
+      "result": "PASS"
+    },
+    "remoteSnapshot": {
+      "successfulChecks": 24,
+      "failedTestJobs": 5,
+      "inProgressJobs": 0,
+      "failure": "Same region-reference registry test; coverage failures are consequences of parent test failure",
+      "newRun": "not-started",
+      "failedChecks": 7,
+      "skippedChecks": 2,
+      "failedCoverageChecks": 2
+    },
+    "rawArtifacts": [
+      {
+        "path": "artifacts/residency/ci-region-red.xml",
+        "sha256": "01850f3c9ddaf5bf74e37ef46baf702e5ca4fd4b6cb9b08853b737400eb02ddb",
+        "bytes": 3057
+      },
+      {
+        "path": "artifacts/residency/ci-region-red.log",
+        "sha256": "2ae004595fab6c75a03045df3b450b05736f652d8dba77a95d2fd7e4c72c2eed",
+        "bytes": 2530
+      },
+      {
+        "path": "artifacts/residency/ci-region-green.xml",
+        "sha256": "a724555a74b58b462f35ec9bf3811c224f047b7e2c6135eaec0c726b47fdff67",
+        "bytes": 8522
+      },
+      {
+        "path": "artifacts/residency/ci-region-green.log",
+        "sha256": "f6d066c25aa0b58916f5e7d9c729639962e50422871d7084cfca1136da69ddaa",
+        "bytes": 7103
+      },
+      {
+        "path": "artifacts/residency/build-ci-region-check-debug.log",
+        "sha256": "ba52eb7d84af0efdb90396a1020fa54072f8208d40b5b714492ce32de2902544",
+        "bytes": 690
+      },
+      {
+        "path": "artifacts/residency/ci-job-113089463323.log",
+        "sha256": "c44c45dcb6e7728ef825a59f9339e0450fcaac2bbb123e0fa6a99db8bdca35c0",
+        "bytes": 351099
+      },
+      {
+        "path": "artifacts/residency/ci-job-113026126717.log",
+        "sha256": "a8334c23fc813bc4c8da85fc6cc273d708ea95cdc1b7c4dd1731d4a58b7531f9",
+        "bytes": 12398695
+      },
+      {
+        "path": "artifacts/residency/ci-job-113073439173.log",
+        "sha256": "297f8cd4d03d4b2934389f122415daa11cf155b9d105033e12011c8782665c72",
+        "bytes": 272358
+      },
+      {
+        "path": "artifacts/residency/ci-job-113057516231.log",
+        "sha256": "21d052955f5f13c7156fd2beabd7414aa28b3b9d30743be262bba54496581dbc",
+        "bytes": 464785
+      },
+      {
+        "path": "artifacts/residency/ci-job-113054874877.log",
+        "sha256": "5c60b96aeec85243641e4991b4b8894aceba1c5d3a0fb605643cf842f6a8fc01",
+        "bytes": 475831
+      }
     ]
   }
 }

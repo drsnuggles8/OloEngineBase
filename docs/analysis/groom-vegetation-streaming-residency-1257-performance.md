@@ -4,15 +4,16 @@
 
 ## Host-load qualification
 
-Timing captures are paused. The first OpenGL AB/BA campaign completed 16 retained runs
+The user authorized continuation with reported background load. New monitored GL/Vulkan
+campaigns have not started. The first OpenGL AB/BA campaign completed 16 retained runs
 plus eight warm captures, exit zero, but is **not verified idle-host acceptance**. The
 post-run nvidia-smi sample shows 35% GPU utilization with Editor stopped. Three GPU
 Engine samples identify Firefox PID 5264 VideoDecode 20.42-26.60%, 3D 6.10-7.17%, and
 DWM PID 2260 3D 22.98-26.15%. These are post-run samples, not evidence that the same
 activity persisted throughout every measured frame. Existing host probes check selected
 C++/build/editor competitors and miss browser/desktop GPU engines. No causal speedup
-or regression attribution is made. User direction/host qualification is pending. Paired
-Vulkan has never run; full accepted performance remains pending.
+or regression attribution is made. This historical campaign retains its qualification.
+Paired Vulkan has never run; full accepted performance remains pending.
 
 ## Completed region campaign
 
