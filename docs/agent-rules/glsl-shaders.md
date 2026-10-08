@@ -308,11 +308,6 @@ default** (`OLO_RHI_BINDLESS=1` enables it) and only shaders that opt in take
 it, so the rule for an unrelated shader is still: keep writing
 `layout(binding = N)`.
 
-A converted shader reaches the GL driver as raw GLSL text, so the driver's own front end judges it:
-no identifier named `packed`, `row_major`, `register` or `char`, and at most 14 uniform blocks per
-stage counting `OloHeapOffsetBlock` — see
-[raw-bindless-route-driver-front-end.md](raw-bindless-route-driver-front-end.md).
-
 To convert one, wrap the declarations and leave the body alone:
 
 ```glsl
