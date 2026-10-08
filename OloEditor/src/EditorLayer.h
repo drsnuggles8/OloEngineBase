@@ -518,6 +518,8 @@ namespace OloEngine
         // default), stopped in OnDetach. The user starts it from Window > MCP Server.
         Scope<MCP::McpServer> m_McpServer;
         bool m_ShowMcpPanel = false;
+        std::shared_ptr<std::atomic<bool>> m_McpAssetPackBuilding = std::make_shared<std::atomic<bool>>(false);
+        std::function<void()> m_McpAssetPackCancelAndWait;
         // Tier-0 MCP viewport-size override (#316): when non-zero, UI_Viewport
         // uses this logical size instead of the ImGui panel size so captures
         // have a deterministic resolution. Set/cleared via olo_viewport_set_size.

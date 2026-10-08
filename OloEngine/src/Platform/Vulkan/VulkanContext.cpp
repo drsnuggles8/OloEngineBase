@@ -7,6 +7,7 @@
 // GLFW: glfw3.h only declares its Vulkan entry points (glfwCreateWindowSurface
 // et al.) when VK_VERSION_1_0 is already visible.
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "Platform/Vulkan/VulkanBufferResources.h"
 #include "Platform/Vulkan/VulkanDevice.h"
@@ -252,6 +253,11 @@ namespace OloEngine
         // the flush precondition holds.
         VulkanDeferredReclaim::Get().FlushAll();
         d.Device.Shutdown();
+        // The device releases its parallel recording resources and drains the
+        // final deferred frees too. Only now can physical VMA survivors be
+        // distinguished from resources legitimately owned by this context.
+        if (m_MemoryTrackerShutdownRequested)
+            RendererMemoryTracker::GetInstance().Shutdown();
         OLO_CORE_INFO("[Vulkan] Context shut down cleanly");
     }
 

@@ -1316,6 +1316,7 @@ add_executable(OloEngine-Tests
 		# Pure reasoning behind olo_physics_why_no_collision (#306 item A). Header-
 		# only (MCP/McpPhysicsExplain.h), so no extra editor TU is pulled in.
 		MCP/McpPhysicsExplainTest.cpp
+		MCP/McpPhysics2DTest.cpp
 		# Pure reasoning behind olo_render_why_not_visible (#306 item A, rendering
 		# half). Header-only (MCP/McpRenderExplain.h), no extra editor TU pulled in.
 		MCP/McpRenderExplainTest.cpp
@@ -1602,6 +1603,7 @@ add_executable(OloEngine-Tests
 		# Editor panel visibility and clean viewport-overlay controls (#607).
 		MCP/McpEditorPanelsTest.cpp
 		MCP/McpAssetOpenTest.cpp
+		MCP/McpAssetPackBuildTest.cpp
 		MCP/McpEditorDebugDrawTest.cpp
 		# Consented MCP WRITE tool: olo_editor_select_entity (#607) — select/clear
 		# the Scene Hierarchy panel's selection so the Properties inspector draws a

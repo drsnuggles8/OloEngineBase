@@ -565,6 +565,14 @@ namespace OloEngine
                 return m_SceneState == SceneState::Edit ? &m_CommandHistory : nullptr;
             };
             mcpContext.SceneDocument = CreateSceneDocumentAccess();
+            mcpContext.AcquireAssetPackBuildLease = [this](std::function<void()> cancelAndWait) -> std::shared_ptr<void>
+            {
+                if (m_McpAssetPackBuilding->exchange(true))
+                    return {};
+                m_McpAssetPackCancelAndWait = std::move(cancelAndWait);
+                return std::shared_ptr<void>(m_McpAssetPackBuilding.get(), [state = m_McpAssetPackBuilding](void*)
+                                             { state->store(false); });
+            };
             // olo_reload_script: reload the C# app assembly — the same path as the
             // Script ▸ Reload assembly menu (Ctrl+R). Main-thread-only (Mono domain),
             // so the MCP server calls it from a MarshalRead job. Reports honestly when
@@ -1060,6 +1068,9 @@ namespace OloEngine
         // state while the rest of OnDetach tears it down.
         if (m_McpServer)
             m_McpServer->Stop();
+
+        if (m_McpAssetPackCancelAndWait)
+            m_McpAssetPackCancelAndWait();
 
         // Drop any synthetic input a half-drained plan left held (olo_input_inject,
         // #607) — the overlay is process-wide static state, so a key left "down" here
@@ -4461,6 +4472,11 @@ namespace OloEngine
 
     void EditorLayer::NewProject()
     {
+        if (m_McpAssetPackBuilding->load())
+        {
+            OLO_CORE_WARN("Finish or cancel the MCP asset-pack build before changing projects.");
+            return;
+        }
         if (!ConfirmDiscardChanges())
         {
             return;
@@ -4488,6 +4504,8 @@ namespace OloEngine
 
     bool EditorLayer::OpenProject()
     {
+        if (m_McpAssetPackBuilding->load())
+            return false;
         if (!ConfirmDiscardChanges())
         {
             return false;
@@ -4505,6 +4523,11 @@ namespace OloEngine
 
     bool EditorLayer::OpenProject(const std::filesystem::path& path)
     {
+        if (m_McpAssetPackBuilding->load())
+        {
+            OLO_CORE_WARN("Finish or cancel the MCP asset-pack build before changing projects.");
+            return false;
+        }
         if (Project::Load(path))
         {
             auto editorAssetManager = Ref<EditorAssetManager>::Create();

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="2" failures="0" disabled="0" errors="0" time="2.728" timestamp="2026-10-07T18:56:30.814" random_seed="1" name="AllTests">
+  <testsuite name="EmptyScene" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="2.045" timestamp="2026-10-07T18:56:30.814">
+    <testcase name="RendererInitAndTickDoNotCrash" file="..\OloEngine\tests\Rendering\PropertyTests\RendererAttachedSmokeTest.cpp" line="56" status="run" result="completed" time="2.045" timestamp="2026-10-07T18:56:30.815" classname="EmptyScene" />
+  </testsuite>
+  <testsuite name="VulkanRenderGraphExecutionContext" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0.682" timestamp="2026-10-07T18:56:32.860">
+    <testcase name="GraphDependencyFencePairOrdersProductionVulkanContextSubmissions" file="..\OloEngine\tests\Rendering\VulkanRenderGraphExecutionTest.cpp" line="722" status="run" result="completed" time="0.682" timestamp="2026-10-07T18:56:32.860" classname="VulkanRenderGraphExecutionContext" />
+  </testsuite>
+</testsuites>

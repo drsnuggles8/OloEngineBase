@@ -9,9 +9,38 @@
 #include <filesystem>
 #include <atomic>
 #include <unordered_map>
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
+#include <optional>
 
 namespace OloEngine
 {
+    struct AssetPackBuildRecord
+    {
+        AssetHandle Handle = 0;
+        AssetType Type = AssetType::None;
+        FString Path;
+        u64 Offset = 0;
+        u64 Size = 0;
+        std::optional<u32> TextureFormat;
+        bool TextureSRGB = false;
+        u32 TextureWidth = 0;
+        u32 TextureHeight = 0;
+    };
+    template<>
+    struct TIsTriviallyRelocatable<AssetPackBuildRecord>
+    {
+        static constexpr bool Value =
+            TIsTriviallyRelocatable_V<decltype(AssetPackBuildRecord::Handle)> &&
+            TIsTriviallyRelocatable_V<decltype(AssetPackBuildRecord::Type)> &&
+            TIsTriviallyRelocatable_V<decltype(AssetPackBuildRecord::Path)> &&
+            TIsTriviallyRelocatable_V<decltype(AssetPackBuildRecord::Offset)> &&
+            TIsTriviallyRelocatable_V<decltype(AssetPackBuildRecord::Size)> &&
+            TIsTriviallyRelocatable_V<decltype(AssetPackBuildRecord::TextureFormat)> &&
+            TIsTriviallyRelocatable_V<decltype(AssetPackBuildRecord::TextureSRGB)> &&
+            TIsTriviallyRelocatable_V<decltype(AssetPackBuildRecord::TextureWidth)> &&
+            TIsTriviallyRelocatable_V<decltype(AssetPackBuildRecord::TextureHeight)>;
+    };
     /**
      * @brief Utility class for building asset packs from project assets
      *
@@ -22,6 +51,7 @@ namespace OloEngine
     class AssetPackBuilder final
     {
       public:
+        using AssetRecord = AssetPackBuildRecord;
         /**
          * @brief Build result information
          */
@@ -34,6 +64,7 @@ namespace OloEngine
             std::filesystem::path m_OutputPath;
             // Registered assets that did not load and are therefore NOT in the pack.
             sizet m_FailedAssetCount = 0;
+            TArray<AssetRecord> m_Records;
         };
 
         /**
@@ -131,7 +162,7 @@ namespace OloEngine
          * @param cancelToken Optional cancellation token for cooperative cancellation
          * @return Success status
          */
-        [[nodiscard]] static bool SerializeAllAssets(Ref<AssetManagerBase> assetManager, AssetPackFile& assetPackFile, u64 scriptModuleSize, ProgressRange progress, const std::atomic<bool>* cancelToken = nullptr);
+        [[nodiscard]] static bool SerializeAllAssets(Ref<AssetManagerBase> assetManager, AssetPackFile& assetPackFile, u64 scriptModuleSize, BuildResult& result, ProgressRange progress, const std::atomic<bool>* cancelToken = nullptr);
 
         /**
          * @brief Validate that all assets can be serialized

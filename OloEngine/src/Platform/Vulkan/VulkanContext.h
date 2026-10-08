@@ -74,6 +74,13 @@ namespace OloEngine
             return s_Instance;
         }
 
+        // Renderer::Shutdown delegates its final census until context-owned
+        // allocations are freed. Standalone contexts do not own that census.
+        void RequestMemoryTrackerShutdown()
+        {
+            m_MemoryTrackerShutdownRequested = true;
+        }
+
         // #691: submit everything the frame has recorded so far and
         // WAIT for it, then re-enter the recording bracket on the reset
         // command buffer so the frame continues. This is what makes a
@@ -176,6 +183,7 @@ namespace OloEngine
         FrameRenderCallback m_FrameRenderCallback;
         /// Re-entrancy latch — see the nested-present guard in SwapBuffers.
         bool m_InSwapBuffers = false;
+        bool m_MemoryTrackerShutdownRequested = false;
         /// The vsync the window asked for, and whether the swapchain was made
         /// with another (SetVSync).
         bool m_VSync = true;

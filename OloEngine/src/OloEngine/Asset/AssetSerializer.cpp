@@ -460,6 +460,10 @@ namespace OloEngine
         // Persist the sRGB flag so the pack round-trip preserves colour-space: every
         // albedo / emissive shipped through an .olopack keeps its GL_SRGB8_ALPHA8 conversion.
         stream.WriteRaw<bool>(recordSRGB);
+        outInfo.TextureFormat = static_cast<u32>(std::to_underlying(recordFormat));
+        outInfo.TextureSRGB = IsCompressedFormat(recordFormat) && !haveCooked ? spec.SRGB : recordSRGB;
+        outInfo.TextureWidth = spec.Width;
+        outInfo.TextureHeight = spec.Height;
 
         // Block-compressed textures (#440) cannot be re-created from the path via
         // stb_image, so embed the whole .olotex container blob here, making the pack

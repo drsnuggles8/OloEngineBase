@@ -866,7 +866,8 @@ namespace OloEngine::MCP
                 "Server panel (off by default). A map-typed field (e.g. MorphTargetComponent's per-target 'Weights') "
                 "is addressed one entry at a time with a dotted key, e.g. field 'Weights.Smile' — its current keys "
                 "are only discoverable per-entity, not ahead of time. Discover the exact writable (component, field) "
-                "names, value shapes and ranges for an entity with olo_entity_list_fields.";
+                "names, value shapes and ranges for an entity with olo_entity_list_fields. Requires the GUI "
+                "editor's command-history hooks; project field writes are unavailable in headless attach.";
             tool.InputSchema = GenericFieldWrite::InputSchema();
             tool.OutputSchema = Schema::Object()
                                     .Prop("entity", Schema::String().Desc("Target entity UUID."))
