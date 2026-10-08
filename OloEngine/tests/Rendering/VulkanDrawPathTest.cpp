@@ -561,17 +561,12 @@ TEST_F(VulkanDrawPath, EngineHeapServesShaderReachableSlotsAndPoisonsFreedOnes)
 
     ASSERT_TRUE(VulkanDescriptorHeapBackend::InstallOntoEngineHeap());
 
-    // Both backends' installs now poison in every build (it was Debug-only,
-    // and a Release slot kept the dead texture's descriptor: issue #1087's
-    // Release-vs-Debug split, and on GL a driver crash on a non-resident
-    // handle). Re-initialise with poison ON anyway, so this test states its
-    // own precondition instead of inheriting the install's choice. Legal here
-    // because Initialize retires every live slot first and no view has been
-    // minted yet.
-    RHI::HeapDesc poisoningDesc = engineHeap.GetDesc();
-    poisoningDesc.PoisonOnFree = true;
-    RHI::DescriptorHeap::Get().Initialize(poisoningDesc, engineHeap.GetBackend());
-    ASSERT_TRUE(engineHeap.IsPoisonOnFree());
+    // The install itself must poison, in every build. It used to be Debug-only,
+    // and a Release slot kept the dead texture's descriptor (issue #1087's
+    // Release-vs-Debug split; on GL, a driver crash on a non-resident handle).
+    // Asserted rather than forced, so reverting the install fails this test.
+    ASSERT_TRUE(engineHeap.IsPoisonOnFree())
+        << "VulkanDescriptorHeapBackend::InstallOntoEngineHeap must set HeapDesc::PoisonOnFree in every build";
 
     engineHeap.SetEnabled(true);
     ASSERT_TRUE(engineHeap.IsEnabled());

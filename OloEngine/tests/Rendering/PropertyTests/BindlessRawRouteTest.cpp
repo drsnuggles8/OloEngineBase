@@ -183,6 +183,17 @@ namespace OloEngine::Tests
                                        });
         }
 
+        // OpenGLComputeShader's opt-in, which differs from the graphics one: a
+        // plain substring search of the include-resolved source, comments
+        // included.
+        [[nodiscard]] bool ComputeOptsInToTheBindlessBranch(const fs::path& root, const fs::path& shader)
+        {
+            std::vector<fs::path> files = SH::IncludeClosure(root, shader);
+            files.push_back(shader);
+            return std::ranges::any_of(files, [](const fs::path& file)
+                                       { return SH::ReadWholeFile(file).find("OLO_BINDLESS") != std::string::npos; });
+        }
+
         // The top-level graphics shaders (the files Shader::Create loads).
         [[nodiscard]] std::vector<fs::path> GraphicsShaders(const fs::path& root)
         {
@@ -221,7 +232,7 @@ namespace OloEngine::Tests
         struct RawRouteStage
         {
             shaderc_shader_kind Kind = shaderc_glsl_vertex_shader;
-            std::string Text; // preprocessed, comments blanked
+            std::string Text; // preprocessed: includes resolved, comments already stripped by glslang
         };
 
         // Every stage of a program as the raw route hands it to the driver:
@@ -246,7 +257,7 @@ namespace OloEngine::Tests
                     error = std::string(StageName(kind)) + ": " + result.GetErrorMessage();
                     return {};
                 }
-                stages.push_back({ kind, BlankComments(std::string(result.cbegin(), result.cend())) });
+                stages.push_back({ kind, std::string(result.cbegin(), result.cend()) });
             }
             return stages;
         }
@@ -274,13 +285,19 @@ namespace OloEngine::Tests
             return blocks;
         }
 
+        struct RawRouteProgram
+        {
+            fs::path Path;
+            std::vector<RawRouteStage> Stages;
+        };
+
         // The top-level graphics programs that opt in to the raw route and can
-        // reach GL at all.
-        [[nodiscard]] std::vector<fs::path> RawRoutePrograms(const fs::path& root, std::string& preprocessFailures,
-                                                             u32& vulkanOnly)
+        // reach GL at all, each preprocessed once.
+        [[nodiscard]] std::vector<RawRouteProgram> RawRoutePrograms(const fs::path& root,
+                                                                    std::string& preprocessFailures, u32& vulkanOnly)
         {
             shaderc::Compiler compiler;
-            std::vector<fs::path> programs;
+            std::vector<RawRouteProgram> programs;
             for (const fs::path& shader : GraphicsShaders(root))
             {
                 if (!OptsInToTheRawRoute(root, shader))
@@ -288,7 +305,7 @@ namespace OloEngine::Tests
                     continue;
                 }
                 std::string error;
-                const std::vector<RawRouteStage> stages = PreprocessForRawRoute(root, shader, compiler, error);
+                std::vector<RawRouteStage> stages = PreprocessForRawRoute(root, shader, compiler, error);
                 if (!error.empty())
                 {
                     preprocessFailures += "\n    " + shader.filename().string() + " " + error;
@@ -302,12 +319,16 @@ namespace OloEngine::Tests
                     ++vulkanOnly;
                     continue;
                 }
-                programs.push_back(shader);
+                programs.push_back({ shader, std::move(stages) });
             }
             return programs;
         }
 
-        // Puts the process's descriptor heap back however the test leaves.
+        // Puts the process's descriptor heap back however the test leaves:
+        // re-initialised against the engine's own backend, or shut down if the
+        // process had none (otherwise the singleton would keep pointing at the
+        // test's stack-local backend after it is destroyed). Declare it AFTER
+        // that backend, so it runs first on the way out.
         struct HeapRestore
         {
             RHI::IDescriptorHeapBackend* Backend = RHI::DescriptorHeap::Get().GetBackend();
@@ -319,8 +340,12 @@ namespace OloEngine::Tests
                 if (Backend != nullptr)
                 {
                     RHI::DescriptorHeap::Get().Initialize(Desc, Backend);
+                    RHI::DescriptorHeap::Get().SetEnabled(Enabled);
                 }
-                RHI::DescriptorHeap::Get().SetEnabled(Enabled);
+                else
+                {
+                    RHI::DescriptorHeap::Get().Shutdown();
+                }
             }
         };
     } // namespace
@@ -383,15 +408,13 @@ namespace OloEngine::Tests
         std::string overBudget;
         std::string preprocessFailures;
         u32 vulkanOnly = 0;
-        const std::vector<fs::path> programs = RawRoutePrograms(root, preprocessFailures, vulkanOnly);
-        shaderc::Compiler compiler;
-        for (const fs::path& shader : programs)
+        const std::vector<RawRouteProgram> programs = RawRoutePrograms(root, preprocessFailures, vulkanOnly);
+        for (const RawRouteProgram& rawProgram : programs)
         {
-            std::string error;
-            for (const RawRouteStage& stage : PreprocessForRawRoute(root, shader, compiler, error))
+            for (const RawRouteStage& stage : rawProgram.Stages)
             {
                 const std::vector<std::string> blocks = UniformBlocks(stage);
-                const std::string key = shader.stem().string() + ":" + StageName(stage.Kind);
+                const std::string key = rawProgram.Path.stem().string() + ":" + StageName(stage.Kind);
                 counts[key] = blocks.size();
                 table.emplace(blocks.size(), key);
                 if (blocks.size() > kGlMinimumUniformBlocksPerStage)
@@ -445,8 +468,8 @@ namespace OloEngine::Tests
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
-        HeapRestore restore;
         OpenGLDescriptorHeapBackend backend;
+        HeapRestore restore;
         backend.Initialize(kDescriptorHeapSlots);
         if (!backend.IsBindlessSupported())
         {
@@ -467,10 +490,11 @@ namespace OloEngine::Tests
         std::string measured;
         std::string preprocessFailures;
         u32 vulkanOnly = 0;
-        const std::vector<fs::path> programs = RawRoutePrograms(root, preprocessFailures, vulkanOnly);
+        const std::vector<RawRouteProgram> programs = RawRoutePrograms(root, preprocessFailures, vulkanOnly);
         EXPECT_TRUE(preprocessFailures.empty()) << "could not preprocess:" << preprocessFailures;
-        for (const fs::path& path : programs)
+        for (const RawRouteProgram& rawProgram : programs)
         {
+            const fs::path& path = rawProgram.Path;
             const std::string relative = "assets/shaders/" + path.filename().string();
             Ref<Shader> shader = Shader::Create(relative);
             const auto* gl = shader ? dynamic_cast<const OpenGLShader*>(shader.Raw()) : nullptr;
@@ -483,7 +507,8 @@ namespace OloEngine::Tests
             EXPECT_TRUE(gl->RequestedBindlessVariant())
                 << relative << " opts in by this test's scan but the engine did not ask for the raw route; "
                                "the two opt-in predicates have drifted";
-            if (!shader->IsReady() || !gl->IsBindlessVariant())
+            // The registry the binding seam reads, not a member flag beside it.
+            if (!shader->IsReady() || !Shader::IsProgramBindless(shader->GetRendererID()))
             {
                 offRoute += "\n    " + relative + (shader->IsReady() ? ": fell back to the slotted route" : ": failed");
                 continue;
@@ -516,7 +541,7 @@ namespace OloEngine::Tests
         shaderc::Compiler compiler;
         for (const fs::path& path : SH::EnumerateShaderSources(root / "compute"))
         {
-            if (!OptsInToTheRawRoute(root, path))
+            if (!ComputeOptsInToTheBindlessBranch(root, path))
             {
                 continue;
             }
@@ -532,7 +557,7 @@ namespace OloEngine::Tests
             const std::string relative = "assets/shaders/compute/" + fs::relative(path, root / "compute").generic_string();
             const Ref<ComputeShader> shader = ComputeShader::Create(relative);
             const auto* gl = shader ? dynamic_cast<const OpenGLComputeShader*>(shader.Raw()) : nullptr;
-            if (gl == nullptr || !gl->IsValid() || !gl->IsBindlessVariant())
+            if (gl == nullptr || !gl->IsValid() || !Shader::IsProgramBindless(gl->GetRendererID()))
             {
                 offRoute += "\n    " + relative + ((gl != nullptr && gl->IsValid()) ? ": fell back to the slot-based build" : ": failed");
             }
@@ -542,6 +567,7 @@ namespace OloEngine::Tests
                          << " compute programs on the raw route; GL_MAX_FRAGMENT_UNIFORM_BLOCKS = " << maxFragmentBlocks
                          << measured;
         EXPECT_GT(programs.size(), 40u) << "too few raw-route programs found; the opt-in scan is broken, not the tree";
+        EXPECT_GT(compute, 20u) << "too few bindless compute programs found; the opt-in scan is broken, not the tree";
         EXPECT_TRUE(offRoute.empty()) << "These programs opt in to the bindless route and were NOT built on it "
                                          "by this driver — OloEngine.log has the driver's reason:"
                                       << offRoute;
