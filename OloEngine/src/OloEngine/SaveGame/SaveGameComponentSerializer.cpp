@@ -2312,21 +2312,17 @@ namespace OloEngine
             c.m_LayerRules.SetNum(clampedRules, EAllowShrinking::No);
             for (u32 i = 0; i < clampedRules; ++i)
             {
+                // An error stops reading but not the sanitize below: the fields
+                // already read must still be bounded.
                 SerializeTerrainLayerRule(ar, c.m_LayerRules[i]);
                 if (ar.IsError())
-                {
-                    return;
-                }
+                    break;
             }
             // Drain any excess entries to keep the stream aligned.
-            for (u32 i = clampedRules; i < ruleCount; ++i)
+            for (u32 i = clampedRules; i < ruleCount && !ar.IsError(); ++i)
             {
                 TerrainLayerRule discard{};
                 SerializeTerrainLayerRule(ar, discard);
-                if (ar.IsError())
-                {
-                    return;
-                }
             }
         }
         else
@@ -2458,17 +2454,21 @@ namespace OloEngine
             }
 
             // After the sanitize: the decode sizes the volume from these fields.
-            // Restoring replaces whatever volume the scene had, as the other
-            // fields do; a save without one leaves the terrain to re-seed.
-            c.m_VoxelOverride = nullptr;
-            c.m_VoxelMeshes.clear();
-            c.m_VoxelQuadMeshes = nullptr;
-            if (hasVoxelVolume && !ar.IsError())
+            // A complete restore replaces whatever volume the scene had, as the
+            // other fields do, and a save without one leaves the terrain to
+            // re-seed. A failed read leaves the live volume alone.
+            if (!ar.IsError())
             {
-                c.m_VoxelOverride = VoxelOverride::DecodePersisted(
-                    { voxelVolume.Compressed.GetData(), static_cast<sizet>(voxelVolume.Compressed.Num()) },
-                    voxelVolume.RawSize, voxelVolume.VoxelSize, c.m_WorldSizeX, c.m_WorldSizeZ, c.m_HeightScale,
-                    "SaveGame TerrainComponent");
+                c.m_VoxelOverride = nullptr;
+                c.m_VoxelMeshes.clear();
+                c.m_VoxelQuadMeshes = nullptr;
+                if (hasVoxelVolume)
+                {
+                    c.m_VoxelOverride = VoxelOverride::DecodePersisted(
+                        { voxelVolume.Compressed.GetData(), static_cast<sizet>(voxelVolume.Compressed.Num()) },
+                        voxelVolume.RawSize, voxelVolume.VoxelSize, c.m_WorldSizeX, c.m_WorldSizeZ, c.m_HeightScale,
+                        "SaveGame TerrainComponent");
+                }
             }
         }
         // Runtime pointers (TerrainData, ChunkManager, etc.) are not serialized

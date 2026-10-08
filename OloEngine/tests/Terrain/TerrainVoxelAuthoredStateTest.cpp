@@ -31,6 +31,7 @@
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Serialization/ZlibSection.h"
 #include "OloEngine/Terrain/Voxel/VoxelEdit.h"
+#include "OloEngine/Terrain/Voxel/VoxelGreedyMeshBuilder.h"
 #include "OloEngine/Terrain/Voxel/VoxelOverride.h"
 #include "UndoRedo/ComponentCommands.h"
 #include "UndoRedo/EditorCommand.h"
@@ -252,6 +253,31 @@ TEST(TerrainVoxelAuthoredState, PropertyUndoKeepsTheVoxelContent)
     EXPECT_FLOAT_EQ(entity.GetComponent<TerrainComponent>().m_HeightScale, kHeight);
     EXPECT_EQ(entity.GetComponent<TerrainComponent>().m_VoxelOverride, volume);
     EXPECT_TRUE(SameAuthoredVolume(entity.GetComponent<TerrainComponent>().m_VoxelOverride, current));
+}
+
+// An undo assigns a whole snapshot back. With the same volume the meshes stay
+// (an unrelated field's undo must not re-mesh a large volume); with another
+// volume they go and a full re-mesh is requested.
+TEST(TerrainVoxelAuthoredState, AssignmentKeepsMeshesOnlyForTheSameVolume)
+{
+    TerrainComponent live;
+    AuthorMarchingCubes(live);
+    live.m_VoxelQuadMeshes = Ref<VoxelGreedyMeshBuilder>::Create();
+    live.m_VoxelRemeshAll = false;
+    const auto builder = live.m_VoxelQuadMeshes;
+
+    TerrainComponent sameVolume = live;
+    sameVolume.m_HeightScale = 3.0f;
+    live = sameVolume;
+    EXPECT_EQ(live.m_VoxelQuadMeshes, builder) << "an assignment of the same volume dropped its meshes";
+    EXPECT_FALSE(live.m_VoxelRemeshAll);
+
+    TerrainComponent otherVolume;
+    AuthorMarchingCubes(otherVolume);
+    live = otherVolume;
+    EXPECT_EQ(live.m_VoxelOverride, otherVolume.m_VoxelOverride);
+    EXPECT_FALSE(live.m_VoxelQuadMeshes) << "meshes of the old volume survived a volume change";
+    EXPECT_TRUE(live.m_VoxelRemeshAll);
 }
 
 // An inspector snapshot taken while the volume was still seeded must keep
