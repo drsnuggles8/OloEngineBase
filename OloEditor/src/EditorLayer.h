@@ -381,12 +381,12 @@ namespace OloEngine
         Ref<Scene> m_EditorScene;
         std::filesystem::path m_EditorScenePath;
         // What the renderer drew with when Play started: the edit scene's live,
-        // possibly unsaved settings. A Play-mode scene switch publishes the
-        // incoming scene's settings (#1563); Stop then puts these back.
+        // possibly unsaved settings. Stop puts these back, whatever Play wrote
+        // (weather, a Play-mode scene switch's settings, #1563).
         SceneTransition::SceneRenderSettings m_RenderSettingsAtPlay;
         ShadowSettings m_ShadowSettingsAtPlay;
         RendererSettings m_RendererSettingsAtPlay;
-        bool m_PlaySwitchedScenes = false;
+        bool m_RestoreRenderSettingsOnStop = false;
 
         Entity m_HoveredEntity;
 

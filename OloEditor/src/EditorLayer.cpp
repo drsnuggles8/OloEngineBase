@@ -5041,12 +5041,12 @@ namespace OloEngine
 
         m_SceneState = SceneState::Play;
         // Before anything runtime writes the renderer (a WeatherSystem drives
-        // fog, wind and precipitation): Stop restores this if Play switched
-        // scenes (#1563).
+        // fog, wind and precipitation, a Play-mode scene switch publishes its
+        // own scene's settings): Stop restores the edit session's (#1563).
         m_RenderSettingsAtPlay = SceneTransition::SceneRenderSettings::CaptureRenderer();
         m_ShadowSettingsAtPlay = Renderer3D::GetShadowMap().GetSettings();
         m_RendererSettingsAtPlay = Renderer3D::GetRendererSettings();
-        m_PlaySwitchedScenes = false;
+        m_RestoreRenderSettingsOnStop = true;
 
         m_ActiveScene = Scene::Copy(m_EditorScene);
         ResetRendererForSceneSwap();
@@ -5172,7 +5172,6 @@ namespace OloEngine
         // The incoming scene draws with its own authored settings, as it would in
         // the shipped runtime (#1563). Stop puts back the edit scene's live
         // settings, captured when Play started.
-        m_PlaySwitchedScenes = true;
         SceneTransition::ApplySceneRenderSettings(*m_ActiveScene);
         // Unlike OnScenePlay's Scene::Copy, this scene was just deserialized and
         // has never seen the viewport, so size it before the runtime starts.
@@ -5231,14 +5230,14 @@ namespace OloEngine
 
         m_ActiveScene = m_EditorScene;
         ResetRendererForSceneSwap();
-        if (m_PlaySwitchedScenes)
+        if (m_RestoreRenderSettingsOnStop)
         {
-            // The switch also re-applied the quality tier to the shadow map and
-            // RendererSettings, over any edit-session tweak to them.
+            // Nothing Play wrote to the renderer (weather, a scene switch and
+            // its quality tier, a script) outlives it.
             m_RenderSettingsAtPlay.PublishToRenderer();
             Renderer3D::GetShadowMap().SetSettings(m_ShadowSettingsAtPlay);
             Renderer3D::GetRendererSettings() = m_RendererSettingsAtPlay;
-            m_PlaySwitchedScenes = false;
+            m_RestoreRenderSettingsOnStop = false;
             ApplyRendererSettingsToGraph();
         }
 
