@@ -94,7 +94,8 @@ namespace
         for (i32 z = 0; z < 16; ++z)
             for (i32 y = 0; y < 13; ++y)
                 for (i32 x = 0; x < 16; ++x)
-                    volume->SetVoxel({ x, y, z }, static_cast<f32>(y) - 12.8f, y < 9 ? u8{ 0 } : y < 12 ? u8{ 1 } : u8{ 2 });
+                    volume->SetVoxel({ x, y, z }, static_cast<f32>(y) - 12.8f, y < 9 ? u8{ 0 } : y < 12 ? u8{ 1 }
+                                                                                                        : u8{ 2 });
         volume->SetAutoSeeded(true);
         return volume;
     }

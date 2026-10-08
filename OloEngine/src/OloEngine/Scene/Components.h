@@ -4871,11 +4871,16 @@ namespace OloEngine
                 m_TerrainData = nullptr;
                 m_ChunkManager = nullptr;
                 m_Streamer = nullptr;
-                m_VoxelOverride = other.m_VoxelOverride;
+                // The same volume keeps its meshes: an inspector undo of an
+                // unrelated field must not re-mesh a large authored volume.
+                if (m_VoxelOverride != other.m_VoxelOverride)
+                {
+                    m_VoxelOverride = other.m_VoxelOverride;
+                    m_VoxelMeshes.clear();
+                    m_VoxelQuadMeshes = nullptr;
+                    m_VoxelRemeshAll = m_VoxelOverride != nullptr;
+                }
                 m_VirtualTexture = nullptr;
-                m_VoxelMeshes.clear();
-                m_VoxelQuadMeshes = nullptr;
-                m_VoxelRemeshAll = m_VoxelOverride != nullptr;
                 m_NeedsRebuild = true;
                 m_AutoSplatNeedsRebuild = true;
                 m_RuntimeCollisionBodyToken = 0;
