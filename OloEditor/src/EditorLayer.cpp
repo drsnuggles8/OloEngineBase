@@ -4803,10 +4803,7 @@ namespace OloEngine
                 if (entity)
                     document.Selection.push_back(entity.GetUUID());
             }
-            document.RenderedSettings = { Renderer3D::GetPostProcessSettings(), Renderer3D::GetSnowSettings(),
-                                          Renderer3D::GetWindSettings(), Renderer3D::GetSnowAccumulationSettings(),
-                                          Renderer3D::GetSnowEjectaSettings(), Renderer3D::GetPrecipitationSettings(),
-                                          Renderer3D::GetFogSettings() };
+            document.RenderedSettings = SceneTransition::SceneRenderSettings::CaptureRenderer();
             return document;
         };
         access.Install = [this](const Automation::SceneDocumentSnapshot& document)
@@ -5047,6 +5044,8 @@ namespace OloEngine
         // fog, wind and precipitation): Stop restores this if Play switched
         // scenes (#1563).
         m_RenderSettingsAtPlay = SceneTransition::SceneRenderSettings::CaptureRenderer();
+        m_ShadowSettingsAtPlay = Renderer3D::GetShadowMap().GetSettings();
+        m_RendererSettingsAtPlay = Renderer3D::GetRendererSettings();
         m_PlaySwitchedScenes = false;
 
         m_ActiveScene = Scene::Copy(m_EditorScene);
@@ -5234,7 +5233,11 @@ namespace OloEngine
         ResetRendererForSceneSwap();
         if (m_PlaySwitchedScenes)
         {
+            // The switch also re-applied the quality tier to the shadow map and
+            // RendererSettings, over any edit-session tweak to them.
             m_RenderSettingsAtPlay.PublishToRenderer();
+            Renderer3D::GetShadowMap().SetSettings(m_ShadowSettingsAtPlay);
+            Renderer3D::GetRendererSettings() = m_RendererSettingsAtPlay;
             m_PlaySwitchedScenes = false;
             ApplyRendererSettingsToGraph();
         }

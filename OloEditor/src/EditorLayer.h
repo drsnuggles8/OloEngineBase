@@ -384,6 +384,8 @@ namespace OloEngine
         // possibly unsaved settings. A Play-mode scene switch publishes the
         // incoming scene's settings (#1563); Stop then puts these back.
         SceneTransition::SceneRenderSettings m_RenderSettingsAtPlay;
+        ShadowSettings m_ShadowSettingsAtPlay;
+        RendererSettings m_RendererSettingsAtPlay;
         bool m_PlaySwitchedScenes = false;
 
         Entity m_HoveredEntity;
