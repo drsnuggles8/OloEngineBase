@@ -186,9 +186,25 @@ layout(std140, binding = 16) uniform SnowAccumulationParams {
     vec4 u_DisplacementParams;
 };
 
+// Brush preview UBO (editor-only overlay). Read here and handed to the fragment
+// stage below, as Terrain_PBR does (#1565).
+layout(std140, binding = 11) uniform BrushPreview {
+    vec4 u_BrushPosAndRadius;
+    vec4 u_BrushParams;
+};
+
 layout(location = 0) out vec3 v_WorldPos;
 layout(location = 1) out vec3 v_Normal;
 layout(location = 2) out vec2 v_TexCoord;
+
+// The fragment stage's per-frame snow-clipmap and brush constants as flat
+// varyings, the same four at the same locations as Terrain_PBR (#1565 — see
+// the note there): one transport for both terrain colour programs, which
+// share include/TerrainSnowWeight.glsl.
+layout(location = 3) flat out vec4 v_SnowClip;          // xy = ring-0 centre (world XZ), z = ring-0 extent, w = max depth
+layout(location = 4) flat out float v_SnowAccumulation; // u_DisplacementParams.z: > 0.5 when the clipmap is live
+layout(location = 5) flat out vec4 v_BrushPosAndRadius;
+layout(location = 6) flat out vec4 v_BrushParams;
 
 vec3 interpolate3(vec3 a, vec3 b, vec3 c)
 {
@@ -248,6 +264,10 @@ void main()
     v_WorldPos = worldPos.xyz;
     v_Normal = mat3(instances[0].Normal) * nrm;
     v_TexCoord = uv;
+    v_SnowClip = vec4(u_ClipmapCenterAndExtent[0].xyz, u_AccumulationParams.y);
+    v_SnowAccumulation = u_DisplacementParams.z;
+    v_BrushPosAndRadius = u_BrushPosAndRadius;
+    v_BrushParams = u_BrushParams;
 
     gl_Position = u_ViewProjection * worldPos;
 }
@@ -275,18 +295,8 @@ layout(std140, binding = 0) uniform CameraMatrices {
 
 #include "include/TerrainParamsBlock.glsl"
 
-// Brush preview UBO (editor-only overlay).
-layout(std140, binding = 11) uniform BrushPreview {
-    vec4 u_BrushPosAndRadius;
-    vec4 u_BrushParams;
-};
-
-layout(std140, binding = 16) uniform SnowAccumulationParamsFS {
-    mat4 u_ClipmapViewProjFS[3];
-    vec4 u_ClipmapCenterAndExtentFS[3];
-    vec4 u_AccumulationParamsFS;
-    vec4 u_DisplacementParamsFS;
-};
+// The brush preview (binding 11) and snow accumulation (binding 16) values
+// arrive as the flat varyings below (locations 3-6), not as blocks (#1565).
 
 #include "include/BindlessHeap.glsl"
 #ifdef OLO_BINDLESS
@@ -314,6 +324,10 @@ layout(binding = 30) uniform sampler2D u_SnowDepthMapFS;
 layout(location = 0) in vec3 v_WorldPos;
 layout(location = 1) in vec3 v_Normal;
 layout(location = 2) in vec2 v_TexCoord;
+layout(location = 3) flat in vec4 v_SnowClip;
+layout(location = 4) flat in float v_SnowAccumulation;
+layout(location = 5) flat in vec4 v_BrushPosAndRadius;
+layout(location = 6) flat in vec4 v_BrushParams;
 
 layout(location = 0) out vec4 o_GBufferAlbedo;
 layout(location = 1) out vec4 o_GBufferNormal;
@@ -546,11 +560,11 @@ void main()
     }
 
     // Brush preview overlay (editor).
-    if (u_BrushParams.x > 0.5)
+    if (v_BrushParams.x > 0.5)
     {
-        vec3 brushCenter = u_BrushPosAndRadius.xyz;
-        float brushRadius = u_BrushPosAndRadius.w;
-        float falloff = u_BrushParams.y;
+        vec3 brushCenter = v_BrushPosAndRadius.xyz;
+        float brushRadius = v_BrushPosAndRadius.w;
+        float falloff = v_BrushParams.y;
 
         float dist = length(worldPosAbs.xz - brushCenter.xz);
         float normalizedDist = dist / max(brushRadius, 0.001);
@@ -561,7 +575,7 @@ void main()
             float weight = normalizedDist < innerRadius ? 1.0 :
                 0.5 + 0.5 * cos(3.14159265 * (normalizedDist - innerRadius) / (1.0 - innerRadius));
 
-            vec3 brushColor = u_BrushParams.z < 0.5 ? vec3(0.0, 0.8, 1.0) : vec3(0.2, 1.0, 0.3);
+            vec3 brushColor = v_BrushParams.z < 0.5 ? vec3(0.0, 0.8, 1.0) : vec3(0.2, 1.0, 0.3);
 
             float edgeDist = abs(normalizedDist - 1.0);
             float ring = 1.0 - smoothstep(0.0, 0.03, edgeDist);
@@ -577,7 +591,7 @@ void main()
     // the lighting pass rebuilds the shading normal and adds the sparkle
     // from those two — it used to be dropped here, so Deferred terrain had
     // no blur and no sparkle, and a noise of its own.
-    float snowWeight = oloTerrainSnowWeight(worldPosAbs, v_Normal);
+    float snowWeight = oloTerrainSnowWeight(worldPosAbs, v_Normal, v_SnowClip, v_SnowAccumulation > 0.5);
     vec3 terrainEmissive = vec3(0.0);
     oloSnowLayerBlendMaterial(snowWeight, albedo, metallic, roughness, ao, terrainEmissive);
     N = oloSnowLayerFilledNormal(N, snowWeight);

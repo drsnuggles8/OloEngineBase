@@ -935,6 +935,9 @@ add_executable(OloEngine-Tests
 		# reserves, the per-stage uniform-block budget, and every opted-in program
 		# built on the route by the real driver (skips without bindless).
 		Rendering/PropertyTests/BindlessRawRouteTest.cpp
+		# #1565: the brush and snow-clipmap lanes the terrain colour programs now
+		# take as flat varyings, each A/B'd on Forward, Forward+ and Deferred.
+		Rendering/PropertyTests/TerrainColourConstantsEvidenceTest.cpp
 		Rendering/PropertyTests/AssetPreviewRendererTest.cpp
 		Rendering/PropertyTests/RendererAttachedTest.cpp
 		Rendering/RendererMemoryTrackerTest.cpp

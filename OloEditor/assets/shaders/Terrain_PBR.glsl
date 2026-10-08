@@ -174,9 +174,28 @@ layout(std140, binding = 16) uniform SnowAccumulationParams {
     vec4 u_DisplacementParams;   // x=displacementScale, y=snowDensity, z=enabled, w=numRings
 };
 
+// Brush Preview UBO (binding 11) — editor-only terrain brush visualization.
+// Read HERE and handed to the fragment stage below, not declared there (#1565).
+layout(std140, binding = 11) uniform BrushPreview {
+    vec4 u_BrushPosAndRadius;  // xyz = world position, w = radius
+    vec4 u_BrushParams;        // x = active (1.0/0.0), y = falloff, z = mode, w = unused
+};
+
 layout(location = 0) out vec3 v_WorldPos;
 layout(location = 1) out vec3 v_Normal;
 layout(location = 2) out vec2 v_TexCoord;
+
+// The fragment stage's per-frame snow-clipmap and brush constants, as FLAT
+// varyings rather than the two uniform blocks it used to declare (#1565). On
+// the raw bindless route the driver counts every active fragment block, and
+// NVIDIA allows 14: with OloHeapOffsetBlock the fragment stage needed 15 and
+// Terrain_PBR fell off the route (C5058). Every vertex writes the same values,
+// so `flat` delivers them to the fragment bit-exactly. Terrain_GBuffer carries
+// the same four at the same locations.
+layout(location = 3) flat out vec4 v_SnowClip;          // xy = ring-0 centre (world XZ), z = ring-0 extent, w = max depth
+layout(location = 4) flat out float v_SnowAccumulation; // u_DisplacementParams.z: > 0.5 when the clipmap is live
+layout(location = 5) flat out vec4 v_BrushPosAndRadius;
+layout(location = 6) flat out vec4 v_BrushParams;
 
 vec3 interpolate3(vec3 a, vec3 b, vec3 c)
 {
@@ -246,6 +265,10 @@ void main()
     v_WorldPos = worldPos.xyz;
     v_Normal = mat3(instances[0].Normal) * nrm;
     v_TexCoord = uv;
+    v_SnowClip = vec4(u_ClipmapCenterAndExtent[0].xyz, u_AccumulationParams.y);
+    v_SnowAccumulation = u_DisplacementParams.z;
+    v_BrushPosAndRadius = u_BrushPosAndRadius;
+    v_BrushParams = u_BrushParams;
 
     gl_Position = u_ViewProjection * worldPos;
 }
@@ -297,20 +320,9 @@ layout(std140, binding = 6) uniform ShadowData {
 // Terrain UBO (binding 10)
 #include "include/TerrainParamsBlock.glsl"
 
-// Brush Preview UBO (binding 11) — editor-only terrain brush visualization
-layout(std140, binding = 11) uniform BrushPreview {
-    vec4 u_BrushPosAndRadius;  // xyz = world position, w = radius
-    vec4 u_BrushParams;        // x = active (1.0/0.0), y = falloff, z = mode, w = unused
-};
-
-
-// Snow Accumulation UBO (binding 16) — fragment access
-layout(std140, binding = 16) uniform SnowAccumulationParamsFS {
-    mat4 u_ClipmapViewProjFS[3];
-    vec4 u_ClipmapCenterAndExtentFS[3];
-    vec4 u_AccumulationParamsFS;
-    vec4 u_DisplacementParamsFS;
-};
+// The brush preview (binding 11) and snow accumulation (binding 16) blocks are
+// NOT declared in this stage: their values arrive as the flat varyings below
+// (locations 3-6), written by the tessellation-evaluation stage (#1565).
 
 #include "include/BindlessHeap.glsl"
 #ifdef OLO_BINDLESS
@@ -393,6 +405,10 @@ layout(binding = 28) uniform sampler2D u_TerrainSplatmap1;     // Layers 4-7 wei
 layout(location = 0) in vec3 v_WorldPos;
 layout(location = 1) in vec3 v_Normal;
 layout(location = 2) in vec2 v_TexCoord;
+layout(location = 3) flat in vec4 v_SnowClip;
+layout(location = 4) flat in float v_SnowAccumulation;
+layout(location = 5) flat in vec4 v_BrushPosAndRadius;
+layout(location = 6) flat in vec4 v_BrushParams;
 
 layout(location = 0) out vec4 o_Color;
 layout(location = 1) out int o_EntityID;
@@ -644,7 +660,7 @@ void main()
     // Terrain_GBuffer makes. The material is blended toward snow before any
     // light is evaluated, the FILLED normal is what attachment 2 stores, and
     // the SHADING normal derived from it lights the surface.
-    float snowWeight = oloTerrainSnowWeight(worldPosAbs, v_Normal);
+    float snowWeight = oloTerrainSnowWeight(worldPosAbs, v_Normal, v_SnowClip, v_SnowAccumulation > 0.5);
     vec3 terrainEmissive = vec3(0.0);
     oloSnowLayerBlendMaterial(snowWeight, albedo, metallic, roughness, ao, terrainEmissive);
     vec3 snowFilledN = oloSnowLayerFilledNormal(N, snowWeight);
@@ -838,11 +854,11 @@ void main()
                               ambientSplit.Specular * ambientVisibility, vec3(0.0));
 
     // Brush preview overlay
-    if (u_BrushParams.x > 0.5)
+    if (v_BrushParams.x > 0.5)
     {
-        vec3 brushCenter = u_BrushPosAndRadius.xyz;
-        float brushRadius = u_BrushPosAndRadius.w;
-        float falloff = u_BrushParams.y;
+        vec3 brushCenter = v_BrushPosAndRadius.xyz;
+        float brushRadius = v_BrushPosAndRadius.w;
+        float falloff = v_BrushParams.y;
 
         float dist = length(worldPosAbs.xz - brushCenter.xz);
         float normalizedDist = dist / max(brushRadius, 0.001);
@@ -855,7 +871,7 @@ void main()
                 0.5 + 0.5 * cos(3.14159265 * (normalizedDist - innerRadius) / (1.0 - innerRadius));
 
             // Brush color: cyan for sculpt, green for paint
-            vec3 brushColor = u_BrushParams.z < 0.5 ? vec3(0.0, 0.8, 1.0) : vec3(0.2, 1.0, 0.3);
+            vec3 brushColor = v_BrushParams.z < 0.5 ? vec3(0.0, 0.8, 1.0) : vec3(0.2, 1.0, 0.3);
 
             // Ring at outer edge
             float edgeDist = abs(normalizedDist - 1.0);
