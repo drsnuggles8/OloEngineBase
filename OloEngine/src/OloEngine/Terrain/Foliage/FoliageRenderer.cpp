@@ -8,9 +8,13 @@
 #include "OloEngine/Terrain/Foliage/FoliageInteraction.h"
 #include "OloEngine/Wind/WindSystem.h"
 #include "FoliageRenderer.h"
+#include "FoliageStreamingPayload.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryFormat.h"
+#include "OloEngine/Renderer/AlphaCoverageMips.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
+#include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/Buffer.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -40,6 +44,8 @@
 #include <glm/gtc/constants.hpp>
 
 #include <bit>
+#include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <format>
 #include <span>
@@ -59,13 +65,8 @@ namespace OloEngine
     // borrows the layer's albedo keeps the whole layer on the legacy card.
     f32 FoliageRenderer::MeshLayerCardLane(const LayerRenderData& data)
     {
-        if (!data.MeshVBO || data.MeshParts.IsEmpty())
+        if (!data.CardUsesMeshBake)
             return 0.0f;
-        for (const auto& part : data.MeshParts)
-        {
-            if (!part.Albedo)
-                return 0.0f;
-        }
         return FoliageLod::CardNormalLane(data.CardNormalTilt);
     }
 
@@ -433,6 +434,15 @@ namespace OloEngine
 
     FoliageRenderer::~FoliageRenderer()
     {
+        m_StreamingMemoryReporter.Reset();
+        m_StreamingLoads.Shutdown();
+        for (auto& [index, state] : m_StreamingLayers)
+            DropStreamingLayer(state);
+        RepresentationStreaming::Get().Release(m_StreamingPinnedKey);
+        if (m_StreamingStats.CanonicalCpuBytes)
+            OLO_TRACK_DEALLOC(&m_Registry);
+        if (m_StreamingStats.PreparedCpuBytes)
+            OLO_TRACK_DEALLOC(&m_StreamingLoads);
         for (auto& layer : m_Layers)
             ImpostorBaker::Free(layer.Impostor);
     }
@@ -629,6 +639,9 @@ namespace OloEngine
     bool FoliageRenderer::BuildMeshGeometry(LayerRenderData& data, const FoliageLayer& layer) const
     {
         OLO_PROFILE_FUNCTION();
+        // Eager authoring uploads use the same owner as streamed detail. This
+        // preserves physical retiring accounting when streaming is enabled live.
+        RendererMemoryOwnerScope detailOwner("Foliage streaming detail", MemoryLifetime::Asset);
 
         data.MeshVAO = nullptr;
         data.MeshVBO = nullptr;
@@ -640,9 +653,11 @@ namespace OloEngine
         data.MeshModel = nullptr;
         data.MeshVertexCount = 0;
         data.MeshIndexCount = 0;
+        data.MeshBounds = BoundingBox{};
         data.MeshGeometryPath.Empty();
         data.BoundsProfile = FoliageBoundsProfile{};
         data.CardNormalTilt = 0.0f;
+        data.CardUsesMeshBake = false;
 
         // Project-relative for project content, working-directory-relative for
         // engine content (#1496). An unresolvable path is logged by the resolver
@@ -680,9 +695,12 @@ namespace OloEngine
         data.MeshRayTracingIndices = plant.Indices;
         data.MeshVertexCount = static_cast<u32>(srcVertices.Num());
         data.MeshIndexCount = static_cast<u32>(plant.Indices.Num());
+        data.MeshBounds = plant.Box;
         data.MeshModel = model;
         data.MeshGeometryPath = layer.MeshPath;
         data.CardNormalTilt = MeanFrontFacingNormalElevation(srcVertices, plant.Indices);
+        data.CardUsesMeshBake = std::ranges::all_of(data.MeshParts, [](const auto& part)
+                                                    { return static_cast<bool>(part.Albedo); });
 
         // Conservative bounds from the REAL geometry (issue #1233, second
         // criterion). A quad's box is not a pine's: the canopy is wider than
@@ -722,6 +740,606 @@ namespace OloEngine
                       layer.Name.ToView(), layer.MeshPath.ToView(), data.MeshVertexCount, data.MeshIndexCount, data.MeshParts.Num(),
                       static_cast<f32>(data.MeshVertexCount * sizeof(Vertex) + data.MeshIndexCount * sizeof(u32)) / 1024.0f);
         return true;
+    }
+
+    namespace
+    {
+        std::atomic<u64> s_FoliageStreamingKey{ 0xf100000000000001ull };
+
+        [[nodiscard]] u64 FoliageTextureBytes(const Ref<Texture2D>& texture)
+        {
+            if (!texture)
+                return 0u;
+            const auto& spec = texture->GetSpecification();
+            return RendererMemoryFormat::ImageBytes(spec.Format, spec.Width, spec.Height, texture->GetMipLevelCount(), 1u, spec.Samples).value_or(0u);
+        }
+
+        [[nodiscard]] u64 FoliageDetailPhysicalLiveBytes()
+        {
+            const auto report = RendererMemoryTracker::GetInstance().BuildReport();
+            for (const auto& owner : report.Owners)
+                if (owner.Owner.ToView() == "Foliage streaming detail")
+                    return owner.GpuLiveBytes;
+            return 0u;
+        }
+
+    } // namespace
+
+    FoliageRenderer::FoliageRenderer()
+        : m_StreamingPinnedKey(s_FoliageStreamingKey.fetch_add(1u, std::memory_order_relaxed)),
+          m_StreamingMemoryReporter([this](TArray<MemoryCapacityRow>& rows)
+                                    {
+                                       const auto append = [&](const char* category, u64 bytes, bool gpu)
+                                       {
+                                           MemoryCapacityRow row;
+                                           row.Owner = "FoliageRenderer";
+                                           row.Category = category;
+                                           row.Lifetime = MemoryLifetime::Asset;
+                                           row.IsGpu = gpu;
+                                           row.CapacityBytes = bytes;
+                                           row.ActiveDemandBytes = bytes;
+                                           rows.Add(std::move(row));
+                                       };
+                                       append("Pinned card, material, atlas and instance floor", m_StreamingStats.PinnedGpuBytes, true);
+                                       append("Optional authored plant representations", m_StreamingStats.OptionalGpuBytes, true);
+                                       append("Canonical instance and spatial-group arrays (CPU)", m_StreamingStats.CanonicalCpuBytes, false);
+                                       append("Prepared optional representation payloads (CPU)", m_StreamingStats.PreparedCpuBytes, false);
+                                       u64 metadataBytes = 0;
+                                       for (const auto& layer : m_Layers)
+                                       {
+                                           metadataBytes += layer.MeshRayTracingIndices.GetAllocatedSize() + layer.MeshParts.GetAllocatedSize() +
+                                                            layer.MeshPartSurfaceUVs.GetAllocatedSize() + layer.ImpostorPartSurfaceUVs.GetAllocatedSize() +
+                                                            layer.ImpostorPartTextures.GetAllocatedSize() + layer.ImpostorPartCoverage.GetAllocatedSize();
+                                           for (const auto& part : layer.MeshParts)
+                                               metadataBytes += part.AlbedoSourcePath.GetAllocatedSize();
+                                           for (const auto& uvs : layer.MeshPartSurfaceUVs)
+                                               metadataBytes += uvs.GetAllocatedSize();
+                                           for (const auto& uvs : layer.ImpostorPartSurfaceUVs)
+                                               metadataBytes += uvs.GetAllocatedSize();
+                                           for (const auto& path : layer.ImpostorPartTextures)
+                                               metadataBytes += path.GetAllocatedSize();
+                                       }
+                                       append("Mesh and pinned impostor index, surface and coverage metadata (CPU)", metadataBytes, false); })
+    {
+        m_StreamingLoads.SetStagingBudget(64u * 1024u * 1024u);
+    }
+
+    void FoliageRenderer::DropStreamingLayer(FStreamingLayer& state)
+    {
+        (void)m_StreamingLoads.Cancel(state.Key);
+        m_StreamingLoads.ClearFailure(state.Key);
+        state.Ready.Reset();
+        if (state.StagingTicket)
+            m_StreamingLoads.ReleaseStaging(state.StagingTicket);
+        RepresentationStreaming::Get().Release(state.Key);
+        state.StagingTicket = 0;
+    }
+
+    void FoliageRenderer::EvictStreamingMesh(LayerRenderData& data)
+    {
+        // Vertex arrays retain their streams. Drop EVERY view's alias before
+        // releasing backing, which the resource classes retire on their queues.
+        data.MeshVAO.Reset();
+        for (auto& view : data.CullViews)
+        {
+            view.MeshVAO.Reset();
+            view.Active = false;
+        }
+        data.MeshVBO.Reset();
+        data.MeshIBO.Reset();
+        data.MeshModel.Reset();
+        data.MeshParts.Empty();
+        data.MeshRayTracingIndices.Empty();
+        data.MeshPartSurfaceUVs.Empty();
+        data.MeshVertexCount = 0;
+        data.MeshIndexCount = 0;
+        data.MeshBounds = BoundingBox{};
+        data.AlphaCoverageDirty = true;
+        m_ReflectionSplit.Valid = false;
+        m_MainViewCulled = false;
+        // BoundsProfile, CardNormalTilt and CardUsesMeshBake describe the pinned
+        // card too and intentionally survive. Identity and instances survive.
+    }
+
+    void FoliageRenderer::SetStreamingEnabled(bool enabled)
+    {
+        if (m_StreamingEnabled == enabled)
+            return;
+        m_StreamingEnabled = enabled;
+        m_StreamingModeChanged = true;
+        if (enabled)
+        {
+            // The private raster streams already own the drawable geometry and
+            // MeshParts owns its textures. Drop the eager Model's duplicate GPU
+            // geometry before adopting detail into bounded residency.
+            auto& tracker = RendererMemoryTracker::GetInstance();
+            const auto retagBuffer = [&tracker](const auto& buffer)
+            {
+                if (buffer)
+                    (void)tracker.ReattributeBackingResource(RHI::HashKey(buffer->GetRHIHandle()), "Foliage streaming detail", MemoryLifetime::Asset);
+            };
+            const auto retagVertexArrayStreams = [&retagBuffer](const Ref<VertexArray>& vao)
+            {
+                if (!vao)
+                    return;
+                // Includes the bone, lightmap UV and constant UV stub streams.
+                for (const auto& buffer : vao->GetVertexBuffers())
+                    retagBuffer(buffer);
+                retagBuffer(vao->GetIndexBuffer());
+            };
+            for (auto& layer : m_Layers)
+            {
+                // These streams and material textures survive Model.Reset and
+                // are adopted below. Their later retirement belongs to detail
+                // too, including a refused or distant adoption.
+                retagBuffer(layer.MeshVBO);
+                retagBuffer(layer.MeshIBO);
+                for (const auto& part : layer.MeshParts)
+                    retagBuffer(part.Albedo);
+                if (layer.MeshModel)
+                {
+                    for (const auto& mesh : layer.MeshModel->GetMeshes())
+                    {
+                        if (!mesh)
+                            continue;
+                        const auto source = mesh->GetMeshSource();
+                        if (!source)
+                            continue;
+                        // MeshSource stamps its own eager owner. Transfer only
+                        // this model's exact backing before Reset retires it;
+                        // repeated handles are harmless, and aliases do not move.
+                        if (source->HasVertexBuffer())
+                            retagBuffer(source->GetVertexBuffer());
+                        if (source->IsBuilt() && source->HasVertexBuffer())
+                            retagBuffer(source->GetIndexBuffer());
+                        if (source->HasBoneInfluenceBuffer())
+                            retagBuffer(source->GetBoneInfluenceBuffer());
+                        retagVertexArrayStreams(source->GetVertexArray());
+                        retagVertexArrayStreams(source->GetShadowVertexArray());
+                    }
+                }
+                layer.MeshModel.Reset();
+            }
+        }
+        if (!enabled)
+        {
+            for (auto& [index, state] : m_StreamingLayers)
+                DropStreamingLayer(state);
+            m_StreamingLayers.clear();
+            RepresentationStreaming::Get().Release(m_StreamingPinnedKey);
+            // Restore the synchronous authoring mode on the next reconcile.
+            for (auto& layer : m_Layers)
+                if (layer.MeshRequested && !layer.MeshVBO)
+                    layer.MeshGeometryPath.Empty();
+        }
+    }
+
+    bool FoliageRenderer::UploadStreamingMesh(LayerRenderData& data, FStreamingLayer& state, const FoliageLayer& layer)
+    {
+        if (!state.Ready)
+            return false;
+        auto payloadOwner = state.Ready.As<FFoliageStreamingPayload>();
+        const auto& payload = payloadOwner;
+        u64 textureWorkingBytes = 0;
+        for (const auto& part : payload->Parts)
+            textureWorkingBytes = std::max(textureWorkingBytes, part.AlbedoDecodeBytes);
+        const auto textureStaging = textureWorkingBytes ? FFoliageTextureStaging::Reserve(textureWorkingBytes) : Ref<FFoliageTextureStaging>{};
+        if (textureWorkingBytes && !textureStaging)
+            return false; // no GPU allocation or decode precedes this admission
+        FRepresentationDescriptor descriptor = state.Descriptor;
+        descriptor.CpuBytes = FAssetByteSize::Actual(payload->GetCpuBytes());
+        descriptor.GpuBytes = std::max(payload->GetGpuBytes(), state.Descriptor.GpuBytes);
+        descriptor.UploadBytes = payload->GetUploadBytes(layer.AlphaCutoff);
+        if (!RepresentationStreaming::Get().TryAdmit(state.Key, descriptor))
+            return false;
+        const u64 detailBefore = FoliageDetailPhysicalLiveBytes();
+        const auto uploadStart = std::chrono::steady_clock::now();
+        RendererMemoryOwnerScope detailOwner("Foliage streaming detail", MemoryLifetime::Asset);
+        data.MeshVBO = VertexBuffer::Create(payload->Vertices.GetData(), static_cast<u32>(payload->Vertices.Num() * sizeof(Vertex)));
+        data.MeshVBO->SetLayout(Vertex::GetLayout());
+        // The legacy upload API takes mutable storage, but both backends copy
+        // the source without modifying it. Keep the prepared payload immutable.
+        data.MeshIBO = IndexBuffer::Create(const_cast<u32*>(payload->Indices.GetData()), static_cast<u32>(payload->Indices.Num()));
+        data.MeshVertexCount = static_cast<u32>(payload->Vertices.Num());
+        data.MeshIndexCount = static_cast<u32>(payload->Indices.Num());
+        data.MeshRayTracingIndices = payload->Indices;
+        data.MeshParts.Empty();
+        data.MeshPartSurfaceUVs.Empty();
+        u64 uploadedBytes = static_cast<u64>(payload->Vertices.Num()) * sizeof(Vertex) + static_cast<u64>(payload->Indices.Num()) * sizeof(u32);
+        for (const auto& source : payload->Parts)
+        {
+            FoliageLayerDrawPart part;
+            part.BaseIndex = source.BaseIndex;
+            part.IndexCount = source.IndexCount;
+            auto surfaceUVs = FoliageAlphaCoverage::SampleSurfaceUVs(
+                { payload->Vertices.GetData(), static_cast<sizet>(payload->Vertices.Num()) },
+                { payload->Indices.GetData() + source.BaseIndex, source.IndexCount });
+            if (!source.AlbedoPath.IsEmpty())
+            {
+                const auto image = DecodeFoliageStreamingAlbedo(source, textureStaging);
+                if (!image)
+                {
+                    EvictStreamingMesh(data);
+                    RepresentationStreaming::Get().Release(state.Key);
+                    state.UploadFailed = true;
+                    state.Ready.Reset();
+                    // payload remains alive through this function; release its
+                    // reservation only after dropping our local immutable view.
+                    m_StreamingStats.UploadedBytes += uploadedBytes;
+                    RepresentationStreaming::Get().RecordUpload(uploadedBytes, static_cast<u64>(std::chrono::duration_cast<std::chrono::microseconds>(
+                                                                                                    std::chrono::steady_clock::now() - uploadStart)
+                                                                                                    .count()));
+                    return false;
+                }
+                TextureSpecification spec;
+                spec.Width = image->Width;
+                spec.Height = image->Height;
+                spec.Format = ImageFormat::RGBA8;
+                spec.SRGB = true;
+                part.Albedo = Texture2D::Create(spec);
+                // SetData copies to backend staging; it never writes source bytes.
+                part.Albedo->SetData(const_cast<u8*>(image->Pixels.GetData()), static_cast<u32>(image->Pixels.Num()));
+                // Configure coverage mips while the decode/upload working-set
+                // lease is held; the later reconcile sees an unchanged cutoff.
+                part.Albedo->SetAlphaCoverageCutoff(layer.AlphaCutoff);
+                part.AlbedoSourcePath = source.AlbedoPath;
+                for (const auto& uv : surfaceUVs)
+                    part.SampledAlphaCoverage.Add(image->AlphaAt(uv));
+                uploadedBytes += source.AlbedoUploadBytes;
+                if (AlphaCoverageMips::SanitizeCutoff(layer.AlphaCutoff) > 0.0f)
+                    uploadedBytes += FoliageTextureBytes(part.Albedo); // second base plus CPU-built effective mips
+            }
+            data.MeshParts.Add(std::move(part));
+            data.MeshPartSurfaceUVs.Add(std::move(surfaceUVs));
+        }
+        data.CardUsesMeshBake = std::ranges::all_of(data.MeshParts, [](const auto& part)
+                                                    { return part.Albedo && part.Albedo->IsLoaded(); });
+        data.CardNormalTilt = MeanFrontFacingNormalElevation(payload->Vertices, payload->Indices);
+        const auto& box = payload->Bounds;
+        data.MeshBounds = box;
+        const f32 radius = std::max({ std::abs(box.Min.x), std::abs(box.Max.x), std::abs(box.Min.z), std::abs(box.Max.z) });
+        data.BoundsProfile.m_HalfExtentXZHeightScaled = std::max(data.BoundsProfile.m_HalfExtentXZHeightScaled, radius * glm::root_two<f32>());
+        data.BoundsProfile.m_MinY = std::min(data.BoundsProfile.m_MinY, box.Min.y);
+        data.BoundsProfile.m_MaxY = std::max(data.BoundsProfile.m_MaxY, box.Max.y);
+        data.AlphaCoverageDirty = true;
+        // Bake the pinned atlas from this SAME held preparation and geometry.
+        if (layer.UseImpostor)
+        {
+            RendererMemoryOwnerScope floorOwner("Foliage pinned representations", MemoryLifetime::Asset);
+            UpdateImpostorAtlas(data, layer);
+        }
+        RebuildVertexArrays(data);
+        const u64 detailAfter = FoliageDetailPhysicalLiveBytes();
+        descriptor.GpuBytes = detailAfter >= detailBefore ? detailAfter - detailBefore : descriptor.GpuBytes;
+        auto& budget = RepresentationStreaming::Get();
+        budget.Release(state.Key);
+        FRepresentationDescriptor physical = descriptor;
+        physical.UploadBytes = 0; // the upload has already spent this frame's allowance
+        if (!budget.TryAdmit(state.Key, physical))
+        {
+            state.Descriptor = descriptor; // remember the measured requirement for future admission
+            EvictStreamingMesh(data);
+            ++m_StreamingStats.Evictions;
+            m_StreamingStats.UploadedBytes += uploadedBytes;
+            budget.RecordUpload(uploadedBytes, static_cast<u64>(std::chrono::duration_cast<std::chrono::microseconds>(
+                                                                    std::chrono::steady_clock::now() - uploadStart)
+                                                                    .count()));
+            return false;
+        }
+        if (state.WasResident)
+            ++m_StreamingStats.Reloads;
+        state.WasResident = true;
+        state.Descriptor = descriptor;
+        m_StreamingStats.UploadedBytes += uploadedBytes;
+        RepresentationStreaming::Get().RecordUpload(uploadedBytes, static_cast<u64>(std::chrono::duration_cast<std::chrono::microseconds>(
+                                                                                        std::chrono::steady_clock::now() - uploadStart)
+                                                                                        .count()));
+        state.Ready.Reset();
+        payloadOwner.Reset(); // release our final consumer alias before returning its charge
+        m_StreamingLoads.ReleaseStaging(state.StagingTicket);
+        state.StagingTicket = 0;
+        m_WindHistory.Reset();
+        m_ReflectionSplit.Valid = false;
+        return true;
+    }
+
+    bool FoliageRenderer::UpdateStreamingAlphaCutoffs(LayerRenderData& data, FStreamingLayer& state, const FoliageLayer& layer)
+    {
+        auto& budget = RepresentationStreaming::Get();
+        const f32 cutoff = AlphaCoverageMips::SanitizeCutoff(layer.AlphaCutoff);
+        bool changed = false;
+        for (const auto& part : data.MeshParts)
+        {
+            Ref<Texture2D> texture = part.Albedo;
+            if (!texture || Math::BitwiseEqual(texture->GetAlphaCoverageCutoff(), cutoff))
+                continue;
+            const auto& spec = texture->GetSpecification();
+            const u64 baseBytes = static_cast<u64>(spec.Width) * spec.Height * 4u;
+            const auto staging = FFoliageTextureStaging::Reserve(baseBytes * 8u + 65536u);
+            if (!staging)
+                continue;
+            // The old image remains charged in this key. Admit replacement
+            // backing and conservative transfer before readback/recreation.
+            FRepresentationDescriptor transient = state.Descriptor;
+            const u64 replacementBytes = baseBytes * 4u + 8192u;
+            if (transient.GpuBytes > std::numeric_limits<u64>::max() - replacementBytes)
+                continue;
+            transient.GpuBytes += replacementBytes;
+            transient.UploadBytes = cutoff > 0.0f ? baseBytes * 3u : baseBytes;
+            if (!budget.TryAdmit(state.Key, transient))
+                continue;
+            const u64 before = FoliageDetailPhysicalLiveBytes();
+            const auto start = std::chrono::steady_clock::now();
+            RendererMemoryOwnerScope owner("Foliage streaming detail", MemoryLifetime::Asset);
+            const f32 previousCutoff = texture->GetAlphaCoverageCutoff();
+            texture->SetAlphaCoverageCutoff(cutoff);
+            changed |= !Math::BitwiseEqual(previousCutoff, texture->GetAlphaCoverageCutoff());
+            const u64 transferred = cutoff > 0.0f ? FoliageTextureBytes(texture) : baseBytes;
+            m_StreamingStats.UploadedBytes += transferred;
+            budget.RecordUpload(transferred, static_cast<u64>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count()));
+            const u64 after = FoliageDetailPhysicalLiveBytes();
+            const u64 resident = after >= before ? state.Descriptor.GpuBytes + after - before : state.Descriptor.GpuBytes - std::min(state.Descriptor.GpuBytes, before - after);
+            budget.Release(state.Key);
+            FRepresentationDescriptor physical = state.Descriptor;
+            physical.GpuBytes = resident;
+            physical.UploadBytes = 0;
+            if (!budget.TryAdmit(state.Key, physical))
+            {
+                EvictStreamingMesh(data);
+                ++m_StreamingStats.Evictions;
+                m_WindHistory.Reset();
+                return true;
+            }
+            state.Descriptor.GpuBytes = resident;
+        }
+        return changed;
+    }
+
+    bool FoliageRenderer::UpdateStreamingResidency(const TArray<FoliageLayer>& layers, const glm::vec3& cameraPosition)
+    {
+        bool changed = std::exchange(m_StreamingModeChanged, false);
+        m_StreamingLoads.ReapAbandoned();
+        TArray<FCompletedRepresentationLoad> completed;
+        m_StreamingLoads.RetrieveCompleted(completed);
+        for (auto& load : completed)
+        {
+            auto found = std::ranges::find_if(m_StreamingLayers, [&](const auto& pair)
+                                              { return pair.second.Key == load.Key; });
+            if (found == m_StreamingLayers.end() || !load.Payload)
+            {
+                load.Payload.Reset();
+                m_StreamingLoads.ReleaseStaging(load.StagingTicket);
+                continue;
+            }
+            found->second.Ready = std::move(load.Payload);
+            found->second.StagingTicket = load.StagingTicket;
+        }
+        if (!m_StreamingEnabled)
+        {
+            RefreshStreamingStats();
+            return changed;
+        }
+        bool inactiveDetailEvicted = false;
+        for (u32 i = 0; i < static_cast<u32>(m_Layers.Num()); ++i)
+        {
+            auto& data = m_Layers[static_cast<i32>(i)];
+            const bool active = i < static_cast<u32>(layers.Num()) && layers[static_cast<i32>(i)].Enabled &&
+                                layers[static_cast<i32>(i)].UseAuthoredMesh && !layers[static_cast<i32>(i)].MeshPath.IsEmpty() &&
+                                data.InstanceCount > 0;
+            if (active)
+                continue;
+            const bool hasPrivateDetail = data.MeshVAO || data.MeshVBO || data.MeshIBO || data.MeshModel || !data.MeshParts.IsEmpty() ||
+                                          std::ranges::any_of(data.CullViews, [](const auto& view)
+                                                              { return static_cast<bool>(view.MeshVAO); });
+            if (!hasPrivateDetail)
+                continue;
+            // Eager generation builds detail before placement, so a layer
+            // rejected by its habitat can own GPU resources without ever
+            // receiving a streaming state. Sweep the actual private holders
+            // too; state-only pruning would leave that detail unbudgeted.
+            EvictStreamingMesh(data);
+            ++m_StreamingStats.Evictions;
+            inactiveDetailEvicted = true;
+        }
+        if (inactiveDetailEvicted)
+        {
+            m_WindHistory.Reset();
+            changed = true;
+        }
+        for (auto it = m_StreamingLayers.begin(); it != m_StreamingLayers.end();)
+        {
+            if (it->first >= static_cast<u32>(layers.Num()) || it->first >= static_cast<u32>(m_Layers.Num()) ||
+                !layers[static_cast<i32>(it->first)].Enabled || !layers[static_cast<i32>(it->first)].UseAuthoredMesh ||
+                m_Layers[static_cast<i32>(it->first)].InstanceCount == 0 ||
+                it->second.Path != layers[static_cast<i32>(it->first)].MeshPath)
+            {
+                if (it->first < static_cast<u32>(m_Layers.Num()))
+                    EvictStreamingMesh(m_Layers[static_cast<i32>(it->first)]);
+                DropStreamingLayer(it->second);
+                it = m_StreamingLayers.erase(it);
+                changed = true;
+            }
+            else
+                ++it;
+        }
+        for (u32 i = 0; i < static_cast<u32>(std::min(layers.Num(), m_Layers.Num())); ++i)
+        {
+            const auto& layer = layers[static_cast<i32>(i)];
+            auto& data = m_Layers[static_cast<i32>(i)];
+            if (!layer.Enabled || !layer.UseAuthoredMesh || layer.MeshPath.IsEmpty() || data.InstanceCount == 0)
+                continue;
+            auto& state = m_StreamingLayers[i];
+            if (state.Key == 0)
+            {
+                state.Key = s_FoliageStreamingKey.fetch_add(1u, std::memory_order_relaxed);
+                state.Path = layer.MeshPath;
+            }
+            f32 nearest = std::numeric_limits<f32>::max();
+            for (const auto& group : m_Registry.GetGroups())
+            {
+                if (group.m_LayerIndex != i)
+                    continue;
+                const glm::vec3 closest = glm::clamp(cameraPosition, group.m_WorldBounds.Min, group.m_WorldBounds.Max);
+                nearest = std::min(nearest, glm::length(cameraPosition - closest));
+            }
+            const f32 distance = std::isfinite(layer.MeshViewDistance) ? std::max(layer.MeshViewDistance, 0.0f) : 30.0f;
+            const bool wanted = nearest <= distance * (data.MeshVBO ? 1.1f : 1.0f);
+            auto& budget = RepresentationStreaming::Get();
+            const bool pressure = budget.IsUnderPressure();
+            if (!wanted || pressure)
+            {
+                if (data.MeshVBO)
+                {
+                    EvictStreamingMesh(data);
+                    budget.Release(state.Key);
+                    ++m_StreamingStats.Evictions;
+                    m_WindHistory.Reset();
+                    changed = true;
+                }
+                (void)m_StreamingLoads.Cancel(state.Key);
+                state.Ready.Reset();
+                if (state.StagingTicket)
+                    m_StreamingLoads.ReleaseStaging(std::exchange(state.StagingTicket, 0u));
+                continue;
+            }
+            if (data.MeshVBO)
+            {
+                // Adopt pre-existing authoring geometry when streaming is enabled
+                // live. Refuse it if the optional budget cannot hold it.
+                if (!budget.IsResident(state.Key))
+                {
+                    TArray<u64> backingKeys;
+                    backingKeys.Add(RHI::HashKey(data.MeshVBO->GetRHIHandle()));
+                    if (data.MeshIBO)
+                        backingKeys.Add(RHI::HashKey(data.MeshIBO->GetRHIHandle()));
+                    for (const auto& part : data.MeshParts)
+                        if (part.Albedo)
+                            backingKeys.Add(RHI::HashKey(part.Albedo->GetRHIHandle()));
+                    const auto physicalBytes = RendererMemoryTracker::GetInstance().GetLiveBackingGpuBytes(
+                        std::span<const u64>(backingKeys.GetData(), static_cast<sizet>(backingKeys.Num())));
+                    if (physicalBytes)
+                        state.Descriptor.GpuBytes = *physicalBytes;
+                    // A logical-size fallback would hide missing or padded
+                    // backing accounting. Unknown detail stays on pinned cards.
+                    if (!physicalBytes || !budget.TryAdmit(state.Key, state.Descriptor))
+                    {
+                        EvictStreamingMesh(data);
+                        ++m_StreamingStats.Evictions;
+                        changed = true;
+                    }
+                    else
+                        state.WasResident = true;
+                }
+                if (data.MeshVBO)
+                    changed |= UpdateStreamingAlphaCutoffs(data, state, layer);
+                continue;
+            }
+            if (state.Ready)
+            {
+                changed |= UploadStreamingMesh(data, state, layer);
+                if (state.UploadFailed && state.StagingTicket)
+                    m_StreamingLoads.ReleaseStaging(std::exchange(state.StagingTicket, 0u));
+                continue;
+            }
+            if (state.UploadFailed || m_StreamingLoads.IsPending(state.Key) || m_StreamingLoads.HasFailed(state.Key))
+                continue;
+            const auto file = ResolveContentPath(layer.MeshPath.ToView());
+            std::error_code error;
+            const u64 fileBytes = file.empty() ? 0u : std::filesystem::file_size(file, error);
+            if (file.empty() || error || fileBytes > std::numeric_limits<u64>::max() / 16u)
+                continue;
+            // Source size estimates admission. Preparation reports actual OBJ,
+            // material and image-probe reads through the payload's IOStats.
+            state.Descriptor.DiskBytes = FAssetByteSize::Estimate(fileBytes);
+            state.Descriptor.CpuBytes = FAssetByteSize::Estimate(std::max<u64>(1024u * 1024u, fileBytes * 16u));
+            (void)m_StreamingLoads.Request(state.Key, state.Descriptor, [file]() -> Ref<FRepresentationPayload>
+                                           { return LoadFoliageStreamingPayload(file); });
+        }
+        RefreshStreamingStats();
+        return changed;
+    }
+
+    void FoliageRenderer::RefreshStreamingStats()
+    {
+        const u64 previouslyTrackedCpu = m_StreamingStats.CanonicalCpuBytes;
+        const u64 previouslyPreparedCpu = m_StreamingStats.PreparedCpuBytes;
+        m_StreamingStats.PinnedGpuBytes = 0;
+        m_StreamingStats.OptionalGpuBytes = 0;
+        m_StreamingStats.CanonicalCpuBytes = m_Registry.GetRecords().GetAllocatedSize() + m_Registry.GetGroups().GetAllocatedSize();
+        m_StreamingStats.ResidentLayers = 0;
+        m_StreamingStats.PendingLayers = 0;
+        m_StreamingStats.FallbackLayers = 0;
+        m_StreamingStats.PreparedCpuBytes = 0;
+        for (const auto& group : m_Registry.GetGroups())
+            m_StreamingStats.CanonicalCpuBytes += group.m_Instances.GetAllocatedSize() + group.m_RecordIndices.GetAllocatedSize();
+        u32 layerIndex = 0;
+        for (const auto& data : m_Layers)
+        {
+            const auto streamed = m_StreamingLayers.find(layerIndex++);
+            m_StreamingStats.PinnedGpuBytes += static_cast<u64>(data.InstanceCapacity) * sizeof(FoliageInstanceData);
+            if (data.QuadVBO)
+                m_StreamingStats.PinnedGpuBytes += 4u * sizeof(Vertex) + 6u * sizeof(u32);
+            m_StreamingStats.PinnedGpuBytes += FoliageTextureBytes(data.AlbedoTexture) + FoliageTextureBytes(data.LeafNormalTexture) +
+                                               FoliageTextureBytes(data.LeafRoughnessTexture) + FoliageTextureBytes(data.LeafThicknessTexture) +
+                                               FoliageTextureBytes(data.Impostor.Albedo) + FoliageTextureBytes(data.Impostor.NormalDepth);
+            if (data.CullLayer.LayerBuffer)
+                m_StreamingStats.PinnedGpuBytes += data.CullLayer.LayerBuffer->GetSize();
+            for (const auto& view : data.CullViews)
+            {
+                if (view.Resources.Compacted)
+                    m_StreamingStats.PinnedGpuBytes += static_cast<u64>(view.Resources.Capacity) * sizeof(FoliageInstanceData);
+                if (view.Resources.State)
+                    m_StreamingStats.PinnedGpuBytes += view.Resources.State->GetSize();
+                if (view.Resources.DrawArgs)
+                    m_StreamingStats.PinnedGpuBytes += view.Resources.DrawArgs->GetSize();
+            }
+            if (data.MeshVBO)
+            {
+                ++m_StreamingStats.ResidentLayers;
+                if (m_StreamingEnabled && streamed != m_StreamingLayers.end() && RepresentationStreaming::Get().IsResident(streamed->second.Key))
+                    m_StreamingStats.OptionalGpuBytes += streamed->second.Descriptor.GpuBytes;
+                else
+                {
+                    m_StreamingStats.OptionalGpuBytes += static_cast<u64>(data.MeshVertexCount) * sizeof(Vertex) +
+                                                         static_cast<u64>(data.MeshIndexCount) * sizeof(u32);
+                    for (const auto& part : data.MeshParts)
+                        m_StreamingStats.OptionalGpuBytes += FoliageTextureBytes(part.Albedo);
+                }
+            }
+            else if (data.MeshRequested && data.InstanceCount > 0)
+                ++m_StreamingStats.FallbackLayers;
+        }
+        for (const auto& [index, state] : m_StreamingLayers)
+        {
+            if (state.Ready || m_StreamingLoads.IsPending(state.Key))
+                ++m_StreamingStats.PendingLayers;
+            if (state.Ready)
+                m_StreamingStats.PreparedCpuBytes += state.Ready->GetCpuBytes();
+        }
+        m_StreamingStats.PendingCpuBytes = m_StreamingLoads.GetStats().StagingBytes;
+        RendererMemoryOwnerScope owner("Foliage canonical arrays", MemoryLifetime::Asset);
+        if (previouslyTrackedCpu != m_StreamingStats.CanonicalCpuBytes)
+        {
+            if (previouslyTrackedCpu)
+                OLO_TRACK_DEALLOC(&m_Registry);
+            if (m_StreamingStats.CanonicalCpuBytes)
+                OLO_TRACK_CPU_ALLOC(&m_Registry, m_StreamingStats.CanonicalCpuBytes, RendererMemoryTracker::ResourceType::Other, "Foliage canonical arrays");
+        }
+        if (previouslyPreparedCpu != m_StreamingStats.PreparedCpuBytes)
+        {
+            if (previouslyPreparedCpu)
+                OLO_TRACK_DEALLOC(&m_StreamingLoads);
+            if (m_StreamingStats.PreparedCpuBytes)
+                OLO_TRACK_CPU_ALLOC(&m_StreamingLoads, m_StreamingStats.PreparedCpuBytes, RendererMemoryTracker::ResourceType::Other, "Foliage prepared payloads");
+        }
+        auto& budget = RepresentationStreaming::Get();
+        budget.Release(m_StreamingPinnedKey);
+        if (m_StreamingEnabled)
+        {
+            FRepresentationDescriptor floor;
+            floor.GpuBytes = m_StreamingStats.PinnedGpuBytes;
+            (void)budget.TryAdmit(m_StreamingPinnedKey, floor, true);
+        }
     }
 
     void FoliageRenderer::RebuildVertexArrays(LayerRenderData& data) const
@@ -912,6 +1530,7 @@ namespace OloEngine
         f32 worldSizeX, f32 worldSizeZ, f32 heightScale)
     {
         OLO_PROFILE_FUNCTION();
+        RendererMemoryOwnerScope foliageOwner("Foliage pinned representations", MemoryLifetime::Asset);
 
         m_WindHistory.Reset();
 
@@ -984,14 +1603,25 @@ namespace OloEngine
                     renderData.MeshModel = nullptr;
                     renderData.MeshVertexCount = 0;
                     renderData.MeshIndexCount = 0;
+                    renderData.MeshBounds = BoundingBox{};
                     renderData.MeshGeometryPath.Empty();
+                    renderData.CardUsesMeshBake = false;
+                    renderData.CardNormalTilt = 0.0f;
                     renderData.BoundsProfile = FoliageBoundsProfile{};
                     geometryChanged = true;
                 }
             }
             else if (renderData.MeshGeometryPath != layer.MeshPath)
             {
-                BuildMeshGeometry(renderData, layer);
+                if (!m_StreamingEnabled)
+                    BuildMeshGeometry(renderData, layer);
+                else
+                {
+                    EvictStreamingMesh(renderData);
+                    renderData.BoundsProfile = FoliageBoundsProfile{};
+                    renderData.CardUsesMeshBake = false;
+                    renderData.CardNormalTilt = 0.0f;
+                }
                 // Recorded even when the import FAILED, so a broken path is
                 // reported once per edit rather than re-imported and re-logged
                 // on every regeneration.
@@ -1094,7 +1724,10 @@ namespace OloEngine
             {
                 // By value: Ref<T> propagates the constness of the handle.
                 if (Ref<Texture2D> partAlbedo = part.Albedo)
-                    partAlbedo->SetAlphaCoverageCutoff(layer.AlphaCutoff);
+                {
+                    if (!m_StreamingEnabled)
+                        partAlbedo->SetAlphaCoverageCutoff(layer.AlphaCutoff);
+                }
             }
 
             // ── The leaf material (issue #1234) ─────────────────────────────
@@ -1306,6 +1939,21 @@ namespace OloEngine
 
     void FoliageRenderer::ClearInstances()
     {
+        if (m_StreamingEnabled)
+        {
+            // Disabled and empty components bypass UpdateStreamingResidency.
+            // Release their detail and reservations here; abandoned workers
+            // keep their staging charge until their immutable payload is gone.
+            m_StreamingLoads.ReapAbandoned();
+            const bool hadDetail = !m_StreamingLayers.empty();
+            for (auto& [index, state] : m_StreamingLayers)
+                DropStreamingLayer(state);
+            m_StreamingLayers.clear();
+            for (auto& layer : m_Layers)
+                EvictStreamingMesh(layer);
+            if (hadDetail)
+                m_WindHistory.Reset();
+        }
         m_Registry.Clear();
         for (auto& layer : m_Layers)
         {
@@ -1322,6 +1970,8 @@ namespace OloEngine
             }
         }
         m_MainViewCulled = false;
+        if (m_StreamingEnabled)
+            RefreshStreamingStats();
     }
 
     void FoliageRenderer::Render(
@@ -1745,7 +2395,7 @@ namespace OloEngine
 
             // One part of a mesh, over its own surface samples.
             const auto measurePart = [&](AC::Role kind, i32 index, std::string_view texturePath,
-                                         const TArray<TArray<glm::vec2>>& surfaces)
+                                         const TArray<TArray<glm::vec2>>& surfaces, const AC::Histogram* preparedCoverage = nullptr)
             {
                 if (texturePath.empty())
                     return; // white: passes everywhere
@@ -1753,8 +2403,18 @@ namespace OloEngine
                 entry.Kind = kind;
                 entry.Texture = FString(texturePath);
                 entry.Surface = FString(std::format("part {} of '{}'", index, meshName));
-                const AC::AlphaPlane* plane = planeFor(texturePath);
-                if (plane && index < surfaces.Num() && !surfaces[index].IsEmpty())
+                const bool hasSurface = index < surfaces.Num() && !surfaces[index].IsEmpty();
+                // Live adoption of old eager geometry may have no prepared
+                // histogram. Leave that diagnostic explicitly unmeasured;
+                // optional source files never bypass bounded preparation here.
+                const bool mayDecode = !m_StreamingEnabled || (albedo && texturePath == albedo->GetPath());
+                const AC::AlphaPlane* plane = (preparedCoverage && !preparedCoverage->IsEmpty()) || !hasSurface || !mayDecode ? nullptr : planeFor(texturePath);
+                if (preparedCoverage && !preparedCoverage->IsEmpty())
+                {
+                    entry.Coverage = *preparedCoverage;
+                    entry.Measured = true;
+                }
+                else if (plane && index < surfaces.Num() && !surfaces[index].IsEmpty())
                 {
                     const auto& uvs = surfaces[index];
                     entry.Coverage = AC::MeasureAtUVs(*plane, { uvs.GetData(), static_cast<sizet>(uvs.Num()) });
@@ -1771,8 +2431,9 @@ namespace OloEngine
                 {
                     const auto& part = data.MeshParts[i];
                     const Ref<Texture2D>& drawn = part.Albedo ? part.Albedo : albedo;
-                    measurePart(AC::Role::AuthoredMesh, i, drawable(drawn) ? drawn->GetPath() : std::string_view{},
-                                data.MeshPartSurfaceUVs);
+                    const std::string_view sourcePath = !part.AlbedoSourcePath.IsEmpty() ? part.AlbedoSourcePath.ToView() : (drawable(drawn) ? drawn->GetPath() : std::string_view{});
+                    measurePart(AC::Role::AuthoredMesh, i, sourcePath,
+                                data.MeshPartSurfaceUVs, &part.SampledAlphaCoverage);
                 }
             }
 
@@ -1784,7 +2445,7 @@ namespace OloEngine
             {
                 for (i32 i = 0; i < data.ImpostorPartTextures.Num(); ++i)
                     measurePart(AC::Role::ImpostorBake, i, data.ImpostorPartTextures[i].ToView(),
-                                data.ImpostorPartSurfaceUVs);
+                                data.ImpostorPartSurfaceUVs, i < data.ImpostorPartCoverage.Num() ? &data.ImpostorPartCoverage[i] : nullptr);
             }
         }
 
@@ -1824,9 +2485,24 @@ namespace OloEngine
             {
                 data.ImpostorPartTextures.Reset();
                 data.ImpostorPartSurfaceUVs.Reset();
+                data.ImpostorPartCoverage.Reset();
                 data.AlphaCoverageDirty = true;
             }
             return;
+        }
+
+        const bool streamingGeometry = m_StreamingEnabled && layer.UseAuthoredMesh;
+        if (streamingGeometry)
+        {
+            // CPU preparation is not GPU residency. Bake only this layer's
+            // admitted geometry, including during later material/layout edits;
+            // a sibling's ready payload for the same path cannot supply it.
+            if (!data.MeshVBO || !data.MeshIBO || data.MeshParts.IsEmpty() || data.MeshGeometryPath != layer.MeshPath)
+                return; // retain the pinned atlas/card while optional geometry is absent
+            const f32 cutoff = AlphaCoverageMips::SanitizeCutoff(layer.AlphaCutoff);
+            for (const auto& part : data.MeshParts)
+                if (part.Albedo && !Math::BitwiseEqual(part.Albedo->GetAlphaCoverageCutoff(), cutoff))
+                    return; // the admitted material mip update must finish before recording a new bake
         }
 
         // Re-bake only when anything the atlas is baked FROM changed: mesh, grid,
@@ -1842,7 +2518,14 @@ namespace OloEngine
         // bake and the near geometry are framed from the SAME source, which is
         // also what keeps the impostor card and the mesh the same tree.
         Ref<Model> owned;
-        if (!data.MeshModel || data.MeshGeometryPath != layer.MeshPath)
+        PlantGeometry plant;
+        if (streamingGeometry)
+        {
+            plant.Parts = data.MeshParts;
+            plant.PartSurfaceUVs = data.MeshPartSurfaceUVs;
+            plant.Box = data.MeshBounds;
+        }
+        else if (!data.MeshModel || data.MeshGeometryPath != layer.MeshPath)
         {
             const std::filesystem::path meshFile = ResolveContentPath(layer.MeshPath.ToView());
             if (meshFile.empty())
@@ -1856,13 +2539,13 @@ namespace OloEngine
                 {
                     data.ImpostorPartTextures.Reset();
                     data.ImpostorPartSurfaceUVs.Reset();
+                    data.ImpostorPartCoverage.Reset();
                     data.AlphaCoverageDirty = true;
                 }
                 return;
             }
             owned = Ref<Model>::Create(meshFile.generic_string());
         }
-        const Model& model = owned ? *owned : *data.MeshModel;
         // The coverage diagnostic re-measures only when what is baked changes.
         // A bake that fails, or bakes nothing, leaves nothing to judge.
         const auto dropBakedParts = [&data]()
@@ -1871,10 +2554,11 @@ namespace OloEngine
                 return;
             data.ImpostorPartTextures.Reset();
             data.ImpostorPartSurfaceUVs.Reset();
+            data.ImpostorPartCoverage.Reset();
             data.AlphaCoverageDirty = true;
         };
-        PlantGeometry plant;
-        const char* failure = model.GetMeshCount() == 0 ? "it failed to load" : ExtractPlantGeometry(model, plant);
+        const Model* model = owned ? owned.Raw() : data.MeshModel.Raw();
+        const char* failure = streamingGeometry ? nullptr : (!model || model->GetMeshCount() == 0 ? "it failed to load" : ExtractPlantGeometry(*model, plant));
         if (failure)
         {
             OLO_CORE_WARN("FoliageRenderer: impostor layer '{}' mesh '{}': {} — impostor disabled for this layer",
@@ -1901,12 +2585,15 @@ namespace OloEngine
                                         albedo && albedo->IsLoaded() ? albedo : Ref<Texture2D>{} });
         }
 
-        const auto& vertices = plant.Source->GetVertices();
-        Ref<VertexBuffer> bakeVBO =
-            VertexBuffer::Create(vertices.GetData(), static_cast<u32>(vertices.Num() * sizeof(Vertex)));
+        Ref<VertexBuffer> bakeVBO = data.MeshVBO;
+        Ref<IndexBuffer> bakeIBO = data.MeshIBO;
+        if (!streamingGeometry)
+        {
+            const auto& vertices = plant.Source->GetVertices();
+            bakeVBO = VertexBuffer::Create(vertices.GetData(), static_cast<u32>(vertices.Num() * sizeof(Vertex)));
+            bakeIBO = IndexBuffer::Create(plant.Indices.GetData(), static_cast<u32>(plant.Indices.Num()));
+        }
         bakeVBO->SetLayout(Vertex::GetLayout());
-        Ref<IndexBuffer> bakeIBO =
-            IndexBuffer::Create(plant.Indices.GetData(), static_cast<u32>(plant.Indices.Num()));
         Ref<VertexArray> bakeVAO = VertexArray::Create();
         bakeVAO->AddVertexBuffer(bakeVBO);
         bakeVAO->SetIndexBuffer(bakeIBO);
@@ -1936,8 +2623,8 @@ namespace OloEngine
         // time — and they are released with `parts` when this returns.
         TArray<FString> textures;
         textures.Reserve(parts.Num());
-        for (const auto& part : parts)
-            textures.Add(part.Albedo ? FString(part.Albedo->GetPath()) : FString{});
+        for (i32 i = 0; i < parts.Num(); ++i)
+            textures.Add(!plant.Parts[i].AlbedoSourcePath.IsEmpty() ? plant.Parts[i].AlbedoSourcePath : (parts[i].Albedo ? FString(parts[i].Albedo->GetPath()) : FString{}));
         const bool sameParts = data.ImpostorBakedMeshPath == layer.MeshPath &&
                                data.ImpostorPartTextures == textures &&
                                data.ImpostorPartSurfaceUVs.Num() == plant.PartSurfaceUVs.Num();
@@ -1947,6 +2634,9 @@ namespace OloEngine
             data.ImpostorPartSurfaceUVs = std::move(plant.PartSurfaceUVs);
             data.AlphaCoverageDirty = true;
         }
+        data.ImpostorPartCoverage.Reset();
+        for (const auto& part : plant.Parts)
+            data.ImpostorPartCoverage.Add(part.SampledAlphaCoverage);
 
         data.ImpostorBakedMeshPath = layer.MeshPath;
         data.ImpostorBakedAlbedoPath = layer.AlbedoPath;

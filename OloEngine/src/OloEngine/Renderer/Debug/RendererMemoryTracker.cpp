@@ -528,6 +528,50 @@ namespace OloEngine
         m_BackingByHandle[handleKey] = address;
     }
 
+    bool RendererMemoryTracker::ReattributeBackingResource(u64 handleKey, std::string_view owner, MemoryLifetime lifetime)
+    {
+        if (handleKey == 0 || m_IsShutdown)
+            return false;
+        TUniqueLock<FMutex> lock(m_Mutex);
+        if (m_IsShutdown)
+            return false;
+        const auto backing = m_BackingByHandle.find(handleKey);
+        if (backing == m_BackingByHandle.end())
+            return false;
+        const auto entry = m_Allocations.find(backing->second);
+        if (entry == m_Allocations.end() || entry->second.IsAlias() || entry->second.m_HandleKey != handleKey)
+            return false;
+        entry->second.m_OwnerId = InternOwnerUnlocked(owner);
+        entry->second.m_Lifetime = lifetime;
+        return true;
+    }
+
+    std::optional<u64> RendererMemoryTracker::GetLiveBackingGpuBytes(std::span<const u64> handleKeys) const
+    {
+        TUniqueLock<FMutex> lock(m_Mutex);
+        if (m_IsShutdown)
+            return std::nullopt;
+        TArray<void*> counted;
+        u64 bytes = 0;
+        for (const u64 key : handleKeys)
+        {
+            const auto backing = m_BackingByHandle.find(key);
+            if (key == 0 || backing == m_BackingByHandle.end())
+                return std::nullopt;
+            const auto entry = m_Allocations.find(backing->second);
+            if (entry == m_Allocations.end() || entry->second.IsAlias() || !entry->second.m_IsGPU || entry->second.m_HandleKey != key)
+                return std::nullopt;
+            if (counted.Contains(backing->second))
+                continue;
+            const u64 size = entry->second.m_Size;
+            if (size > std::numeric_limits<u64>::max() - bytes)
+                return std::nullopt;
+            counted.Add(backing->second);
+            bytes += size;
+        }
+        return bytes;
+    }
+
     void RendererMemoryTracker::TrackAliasOfHandle(const u64 aliasHandleKey, const u64 backingHandleKey, const ResourceType type,
                                                    const std::string_view name, const char* file, const u32 line)
     {
@@ -698,6 +742,21 @@ namespace OloEngine
     {
         TUniqueLock<FMutex> lock(m_Mutex);
         return m_CpuLiveBytes + m_CpuRetiringBytes;
+    }
+
+    u64 RendererMemoryTracker::GetOwnerGpuRetiringBytes(std::string_view owner) const
+    {
+        TUniqueLock<FMutex> lock(m_Mutex);
+        const auto found = m_OwnerIds.find(std::string(owner));
+        if (found == m_OwnerIds.end())
+            return 0;
+        u64 bytes = 0;
+        for (const auto& [ticket, info] : m_Retiring)
+        {
+            if (info.m_IsGPU && !info.IsAlias() && info.m_OwnerId == found->second)
+                bytes += info.m_Size;
+        }
+        return bytes;
     }
 
     u64 RendererMemoryTracker::RegisterCapacityReporter(CapacityReporter reporter)

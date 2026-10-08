@@ -29,6 +29,17 @@ namespace OloEngine
         // frame; one region is always admitted per frame so a region larger than
         // this still loads.
         f32 MaxAdmittedMegabytesPerFrame = 0.0f;
+
+        // Groom/vegetation detail working set (#1257). This GPU sub-budget is
+        // independent of region file estimates above. The complete drawable
+        // fallback and required simulation/binding data remain pinned and are
+        // reported separately. Retiring detail allocations still spend it.
+        // All three zeroes retain the eager loading policy used by older scenes.
+        f32 RepresentationResidentMegabytes = 0.0f;
+        f32 RepresentationUploadMegabytesPerFrame = 0.0f;
+        // CPU preparation (queued, running, cancelled-running and ready results),
+        // shared across both families; never added to the GPU byte figure.
+        f32 RepresentationStagingMegabytes = 0.0f;
     };
 
     // 1 TiB. Far above any machine this runs on, and small enough that the
@@ -48,6 +59,13 @@ namespace OloEngine
         return static_cast<u64>(static_cast<f64>(sanitized) * 1024.0 * 1024.0);
     }
 
+    [[nodiscard]] inline bool IsRepresentationStreamingEnabled(const StreamingSettings& settings)
+    {
+        return StreamingBudgetMegabytesToBytes(settings.RepresentationResidentMegabytes) != 0 ||
+               StreamingBudgetMegabytesToBytes(settings.RepresentationUploadMegabytesPerFrame) != 0 ||
+               StreamingBudgetMegabytesToBytes(settings.RepresentationStagingMegabytes) != 0;
+    }
+
     inline void SanitizeStreamingSettings(StreamingSettings& ss)
     {
         if (!std::isfinite(ss.DefaultLoadRadius))
@@ -63,5 +81,8 @@ namespace OloEngine
         // turning a corrupt value into a tiny budget would silently stop streaming.
         ss.MaxResidentMegabytes = SanitizeStreamingBudgetMegabytes(ss.MaxResidentMegabytes);
         ss.MaxAdmittedMegabytesPerFrame = SanitizeStreamingBudgetMegabytes(ss.MaxAdmittedMegabytesPerFrame);
+        ss.RepresentationResidentMegabytes = SanitizeStreamingBudgetMegabytes(ss.RepresentationResidentMegabytes);
+        ss.RepresentationUploadMegabytesPerFrame = SanitizeStreamingBudgetMegabytes(ss.RepresentationUploadMegabytesPerFrame);
+        ss.RepresentationStagingMegabytes = SanitizeStreamingBudgetMegabytes(ss.RepresentationStagingMegabytes);
     }
 } // namespace OloEngine

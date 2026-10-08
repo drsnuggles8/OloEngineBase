@@ -52,6 +52,7 @@
 // =============================================================================
 
 #include "../../TestOptions.h"
+#include "../../TestAsyncLoadHooks.h"
 
 #include "RendererAttachedTest.h"
 #include "TestTempDir.h"
@@ -61,6 +62,7 @@
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/AssetSerializer.h"
+#include "OloEngine/Asset/AssetSystem/RepresentationStreaming.h"
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomBinding.h"
 #include "OloEngine/Groom/GroomBindingBuilder.h"
@@ -88,12 +90,15 @@
 
 #include <stb_image/stb_image_write.h>
 
+#include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -926,5 +931,193 @@ namespace OloEngine::Tests
         RunFrames(1, 1.0f / 60.0f);
         EXPECT_EQ(PassStats().GroomsSimulated, 0u);
         EXPECT_EQ(PassStats().GuidesSimulated, 0u);
+    }
+
+    // #1257: the real Scene producer supplies bound-surface, palette and full
+    // guide capacities before streaming chooses the geometry. Unbound fixtures
+    // and manually assembled requests cannot verify that seam or its history.
+    TEST_F(GroomSimulationVisualEvidenceTest, BoundMovingCoatDemotesAndReloadsWithAccountedGpuState)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        EnsureTaskSchedulerStarted();
+        auto& renderer = Renderer3D::GetRendererSettings();
+        renderer.Path = RenderingPath::Deferred;
+        renderer.GroomGpuDeformation = true;
+        renderer.GroomGpuRootFrames = true;
+        Renderer3D::GetPostProcessSettings().TAAEnabled = false;
+        Renderer3D::ApplyRendererSettings();
+        auto* pass = Renderer3D::GetGroomRenderPass();
+        ASSERT_NE(pass, nullptr);
+        pass->OnReset();
+        auto& budget = RepresentationStreaming::Get();
+        budget.Reset();
+        Tasks::FTaskEvent gate("BoundGroomStreamingEvidence");
+        struct StreamingGuard
+        {
+            Ref<Scene> SceneOwner;
+            GroomRenderPass* Pass;
+            Tasks::FTaskEvent& Gate;
+            StreamingSettings Previous;
+            ~StreamingGuard()
+            {
+                // Open the gate even after an ASSERT before renderer cleanup
+                // can wait for outstanding preparation to finish.
+                Gate.Trigger();
+                Pass->SetStreamingStartGate(std::nullopt);
+                Pass->OnReset();
+                SceneOwner->GetStreamingSettings() = Previous;
+                RepresentationStreaming::Get().Reset();
+            }
+        } guard{ GetSceneRef(), pass, gate, GetScene().GetStreamingSettings() };
+        auto& streaming = GetScene().GetStreamingSettings();
+        streaming.RepresentationResidentMegabytes = 64.0f;
+        streaming.RepresentationUploadMegabytesPerFrame = 16.0f;
+        streaming.RepresentationStagingMegabytes = 64.0f;
+        auto camera = GetScene().FindEntityByName("RuntimeCamera");
+        ASSERT_TRUE(camera);
+        camera.GetComponent<TransformComponent>().Translation = { 0.0f, 0.9f, 4.6f };
+        camera.GetComponent<CameraComponent>().Camera.SetPerspective(glm::radians(60.0f), 0.05f, 1000.0f);
+        pass->SetStreamingStartGate(gate);
+
+        const auto uuid = m_GroomEntity.GetUUID();
+        const auto groomHandle = m_GroomEntity.GetComponent<GroomComponent>().m_Groom;
+        const auto bindingHandle = m_GroomEntity.GetComponent<GroomBindingComponent>().m_Binding;
+        TArray<glm::vec2> rootUvs;
+        rootUvs.Append(m_Groom->GetRootUVs().data(), static_cast<i32>(m_Groom->GetRootUVs().size()));
+        u32 frame = 0;
+        const auto tick = [&]()
+        {
+            SetBodyPose(25.0f + 10.0f * std::sin(static_cast<f32>(frame++) * 0.2f));
+            RunFrames(1, 1.0f / 60.0f);
+        };
+        // Read exactly the runtime frame being asserted. Capture() would tick
+        // two editor frames, hiding a representation transition's history reset.
+        const auto readFrame = [&](const char* phase)
+        {
+            std::vector<u8> pixels; // existing readback/PNG API boundary
+            u32 width = 0;
+            u32 height = 0;
+            if (!ReadbackComposite(pixels, width, height))
+                return false;
+            EXPECT_EQ(width, kWidth);
+            EXPECT_EQ(height, kHeight);
+            EXPECT_EQ(pixels.size(), static_cast<sizet>(width) * height * 4u);
+            EXPECT_GT(CountCoatPixels(pixels), 100u) << phase << ": no drawable coat";
+            if (width != kWidth || height != kHeight || pixels.size() != static_cast<sizet>(width) * height * 4u)
+                return false;
+            const sizet rowBytes = static_cast<sizet>(width) * 4u;
+            for (u32 row = 0; row < height / 2u; ++row)
+                std::swap_ranges(pixels.begin() + static_cast<std::ptrdiff_t>(row * rowBytes),
+                                 pixels.begin() + static_cast<std::ptrdiff_t>((row + 1u) * rowBytes),
+                                 pixels.begin() + static_cast<std::ptrdiff_t>((height - row - 1u) * rowBytes));
+            WriteEvidence(std::string("GroomBoundStreaming_GL_Deferred_") + phase, pixels, width, height);
+            return !HasFatalFailure();
+        };
+        const auto expectBoundFrame = [&]()
+        {
+            const auto stats = PassStats();
+            EXPECT_EQ(stats.GroomsBindingRefused, 0u);
+            EXPECT_EQ(stats.GpuDeformationRefused, 0u);
+            EXPECT_EQ(stats.GroomsGpuDeformed, 1u);
+            EXPECT_EQ(stats.GroomsRootsOnGpu, 1u);
+            EXPECT_EQ(stats.GroomsSimulated, 1u);
+            EXPECT_GT(stats.GuidesSimulated, 0u);
+            EXPECT_GT(stats.GuidePointsSimulated, 0u);
+            EXPECT_GT(stats.Memory.DeformBufferBytes, 0u);
+        };
+        const auto waitForDetail = [&]()
+        {
+            const auto deadline = std::chrono::steady_clock::now() + kLoadHookFailAfter;
+            while (std::chrono::steady_clock::now() < deadline)
+            {
+                tick();
+                if (HasFatalFailure())
+                    return false;
+                if (pass->GetStreamingStats().DetailDraws == 1u)
+                    return true;
+                std::this_thread::yield();
+            }
+            return false;
+        };
+
+        tick();
+        EXPECT_EQ(pass->GetStreamingStats().Pending, 1u);
+        EXPECT_EQ(pass->GetStreamingStats().FallbackDraws, 1u);
+        expectBoundFrame();
+        const u32 floorRoots = PassStats().RootsEvaluatedOnGpu;
+        ASSERT_GT(floorRoots, 0u);
+        EXPECT_LE(floorRoots, 256u);
+        EXPECT_GT(budget.GetStats().StagingCpuBytes, 0u);
+        ASSERT_TRUE(readFrame("Pending"));
+        gate.Trigger();
+        pass->SetStreamingStartGate(std::nullopt);
+        ASSERT_TRUE(waitForDetail());
+        expectBoundFrame();
+        const GroomRenderStats detail = PassStats();
+        EXPECT_GT(detail.RootsEvaluatedOnGpu, floorRoots);
+        EXPECT_EQ(detail.GroomsHistoryRejected, 1u);
+        EXPECT_EQ(budget.GetStats().StagingCpuBytes, 0u);
+        const auto expectedLayout = GroomDeformBufferLayout::Make(detail.RootsEvaluatedOnGpu,
+                                                                  m_Groom->GetGuideCount(), m_Groom->GetGuideCount() * kPoints, BodyView().VertexCount, 2u);
+        EXPECT_EQ(detail.Memory.DeformBufferBytes, expectedLayout.TotalBytes())
+            << "Scene must supply surface, palette and complete guide capacities";
+        const u64 fullCharge = budget.GetStats().OptionalResidentGpuBytes;
+        EXPECT_GE(fullCharge, detail.Memory.GpuBytes());
+        ASSERT_TRUE(readFrame("Detail"));
+        tick();
+        EXPECT_EQ(PassStats().GroomsHistoryRejected, 0u);
+
+        streaming.RepresentationResidentMegabytes = 0.001f;
+        tick();
+        expectBoundFrame();
+        EXPECT_EQ(pass->GetStreamingStats().FallbackDraws, 1u);
+        EXPECT_EQ(PassStats().RootsEvaluatedOnGpu, floorRoots);
+        EXPECT_EQ(PassStats().GroomsHistoryRejected, 1u);
+        EXPECT_GT(budget.GetStats().PinnedResidentGpuBytes, 0u);
+        ASSERT_TRUE(readFrame("Pressure"));
+        tick();
+        EXPECT_EQ(PassStats().GroomsHistoryRejected, 0u);
+        EXPECT_EQ(budget.GetStats().OptionalResidentGpuBytes, 0u);
+
+        // Room for the shared immutable stream, but less than the measured
+        // per-entity deformation backing. Omitting entity admission would let
+        // the detailed coat return under this cap instead of preserving floor.
+        ASSERT_GT(detail.Memory.DeformBufferBytes, 0u);
+        ASSERT_GT(fullCharge, detail.Memory.DeformBufferBytes);
+        const u64 entityLimitedBytes = fullCharge - detail.Memory.DeformBufferBytes / 2u;
+        streaming.RepresentationResidentMegabytes = static_cast<f32>(static_cast<f64>(entityLimitedBytes) / 1048576.0);
+        bool ready = false;
+        const auto deadline = std::chrono::steady_clock::now() + kLoadHookFailAfter;
+        do
+        {
+            tick();
+            const auto stats = budget.GetStats();
+            ready = pass->GetStreamingStats().DetailDraws != 0u ||
+                    (pass->GetStreamingStats().Pending == 0u && stats.HeldCompletedLoads != 0u);
+            std::this_thread::yield();
+        } while (!ready && !HasFatalFailure() && std::chrono::steady_clock::now() < deadline);
+        ASSERT_TRUE(ready);
+        EXPECT_EQ(pass->GetStreamingStats().DetailDraws, 0u) << "entity backing escaped admission";
+        EXPECT_EQ(pass->GetStreamingStats().FallbackDraws, 1u);
+        EXPECT_EQ(pass->GetStreamingStats().Pending, 0u);
+        EXPECT_GT(budget.GetStats().OptionalResidentGpuBytes, 0u) << "shared immutable geometry must fit this cap";
+        expectBoundFrame();
+
+        streaming.RepresentationResidentMegabytes = 64.0f;
+        ASSERT_TRUE(waitForDetail());
+        expectBoundFrame();
+        EXPECT_EQ(PassStats().RootsEvaluatedOnGpu, detail.RootsEvaluatedOnGpu);
+        EXPECT_EQ(PassStats().Memory.DeformBufferBytes, detail.Memory.DeformBufferBytes);
+        EXPECT_EQ(PassStats().GroomsHistoryRejected, 1u);
+        EXPECT_EQ(budget.GetStats().StagingCpuBytes, 0u);
+        EXPECT_EQ(m_GroomEntity.GetUUID(), uuid);
+        EXPECT_EQ(m_GroomEntity.GetComponent<GroomComponent>().m_Groom, groomHandle);
+        EXPECT_EQ(m_GroomEntity.GetComponent<GroomBindingComponent>().m_Binding, bindingHandle);
+        ASSERT_EQ(m_Groom->GetRootUVs().size(), static_cast<sizet>(rootUvs.Num()));
+        for (i32 root = 0; root < rootUvs.Num(); ++root)
+            EXPECT_TRUE(Math::BitwiseEqual(m_Groom->GetRootUVs()[static_cast<sizet>(root)], rootUvs[root]));
+        ASSERT_TRUE(readFrame("Reload"));
+        tick();
+        EXPECT_EQ(PassStats().GroomsHistoryRejected, 0u);
     }
 } // namespace OloEngine::Tests

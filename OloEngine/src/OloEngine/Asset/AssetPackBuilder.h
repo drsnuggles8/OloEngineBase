@@ -162,7 +162,7 @@ namespace OloEngine
          * @param cancelToken Optional cancellation token for cooperative cancellation
          * @return Success status
          */
-        [[nodiscard]] static bool SerializeAllAssets(Ref<AssetManagerBase> assetManager, AssetPackFile& assetPackFile, u64 scriptModuleSize, BuildResult& result, ProgressRange progress, const std::atomic<bool>* cancelToken = nullptr);
+        [[nodiscard]] static bool SerializeAllAssets(Ref<AssetManagerBase> assetManager, AssetPackFile& assetPackFile, const std::filesystem::path& scratchDirectory, u64 scriptModuleSize, BuildResult& result, ProgressRange progress, const std::atomic<bool>* cancelToken = nullptr);
 
         /**
          * @brief Validate that all assets can be serialized

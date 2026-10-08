@@ -270,6 +270,7 @@ namespace OloEngine
                             textureMemory,
                             RendererMemoryTracker::ResourceType::Texture2D,
                             "OpenGL Texture2D (spec)");
+        RendererMemory::BindBackingResourceHandle(this, RHI::HashKey(m_RHIHandle.Get()));
 
         // Register with GPU Resource Inspector
         GPUResourceInspector::GetInstance().RegisterTexture(m_RendererID, "Texture2D (spec)", "Texture2D");
@@ -475,6 +476,7 @@ namespace OloEngine
         }
 
         OLO_TRACK_GPU_ALLOC(this, totalBytes, RendererMemoryTracker::ResourceType::Texture2D, "OpenGL Texture2D (compressed)");
+        RendererMemory::BindBackingResourceHandle(this, RHI::HashKey(m_RHIHandle.Get()));
         GPUResourceInspector::GetInstance().RegisterTexture(m_RendererID, "Texture2D (compressed)", "Texture2D");
 
         glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, m_MipLevels > 1u ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
@@ -570,6 +572,7 @@ namespace OloEngine
 
         OLO_TRACK_GPU_ALLOC(this, totalBytes, RendererMemoryTracker::ResourceType::Texture2D,
                             hdr ? "OpenGL Texture2D (BC6H-fallback)" : "OpenGL Texture2D (compressed-fallback)");
+        RendererMemory::BindBackingResourceHandle(this, RHI::HashKey(m_RHIHandle.Get()));
         GPUResourceInspector::GetInstance().RegisterTexture(
             m_RendererID, hdr ? "Texture2D (BC6H-fallback)" : "Texture2D (compressed-fallback)", "Texture2D");
 
@@ -691,6 +694,7 @@ namespace OloEngine
             RendererMemoryFormat::ImageBytes(m_Specification.Format, m_Width, m_Height, m_MipLevels, 1u, m_Specification.Samples)
                 .value_or(0));
         OLO_TRACK_GPU_ALLOC(this, textureMemory, RendererMemoryTracker::ResourceType::Texture2D, "OpenGL Texture2D (resized)");
+        RendererMemory::BindBackingResourceHandle(this, RHI::HashKey(m_RHIHandle.Get()));
         GPUResourceInspector::GetInstance().RegisterTexture(m_RendererID, "Texture2D (resized)", "Texture2D");
 
         if (m_Specification.Samples == 1u)
@@ -1193,6 +1197,7 @@ namespace OloEngine
                             textureMemory,
                             RendererMemoryTracker::ResourceType::Texture2D,
                             textureName);
+        RendererMemory::BindBackingResourceHandle(this, RHI::HashKey(m_RHIHandle.Get()));
 
         // Register with GPU Resource Inspector
         GPUResourceInspector::GetInstance().RegisterTexture(m_RendererID, std::string(path), textureName);

@@ -21,6 +21,7 @@ namespace OloEngine
                             size,
                             RendererMemoryTracker::ResourceType::VertexBuffer,
                             "OpenGL VertexBuffer (dynamic)");
+        RendererMemory::BindBackingResourceHandle(this, RHI::HashKey(m_RHIHandle.Get()));
 
         // Register with GPU Resource Inspector
         GPUResourceInspector::GetInstance().RegisterBuffer(m_RendererID, GL_ARRAY_BUFFER, "VertexBuffer (dynamic)");
@@ -37,6 +38,7 @@ namespace OloEngine
                             size,
                             RendererMemoryTracker::ResourceType::VertexBuffer,
                             "OpenGL VertexBuffer (storage)");
+        RendererMemory::BindBackingResourceHandle(this, RHI::HashKey(m_RHIHandle.Get()));
 
         // Register with GPU Resource Inspector
         GPUResourceInspector::GetInstance().RegisterBuffer(m_RendererID, GL_ARRAY_BUFFER, "VertexBuffer (storage)");
@@ -53,6 +55,7 @@ namespace OloEngine
                             size,
                             RendererMemoryTracker::ResourceType::VertexBuffer,
                             "OpenGL VertexBuffer (static)");
+        RendererMemory::BindBackingResourceHandle(this, RHI::HashKey(m_RHIHandle.Get()));
 
         // Register with GPU Resource Inspector
         GPUResourceInspector::GetInstance().RegisterBuffer(m_RendererID, GL_ARRAY_BUFFER, "VertexBuffer (static)");
@@ -69,6 +72,7 @@ namespace OloEngine
                             size,
                             RendererMemoryTracker::ResourceType::VertexBuffer,
                             "OpenGL VertexBuffer (static storage)");
+        RendererMemory::BindBackingResourceHandle(this, RHI::HashKey(m_RHIHandle.Get()));
 
         // Register with GPU Resource Inspector
         GPUResourceInspector::GetInstance().RegisterBuffer(m_RendererID, GL_ARRAY_BUFFER, "VertexBuffer (static storage)");
@@ -86,6 +90,7 @@ namespace OloEngine
                             size,
                             RendererMemoryTracker::ResourceType::VertexBuffer,
                             "OpenGL VertexBuffer (static, raw)");
+        RendererMemory::BindBackingResourceHandle(this, RHI::HashKey(m_RHIHandle.Get()));
 
         // Register with GPU Resource Inspector
         GPUResourceInspector::GetInstance().RegisterBuffer(m_RendererID, GL_ARRAY_BUFFER, "VertexBuffer (static, raw)");
@@ -103,6 +108,7 @@ namespace OloEngine
                             size,
                             RendererMemoryTracker::ResourceType::VertexBuffer,
                             "OpenGL VertexBuffer (raw storage)");
+        RendererMemory::BindBackingResourceHandle(this, RHI::HashKey(m_RHIHandle.Get()));
 
         // Register with GPU Resource Inspector
         GPUResourceInspector::GetInstance().RegisterBuffer(m_RendererID, GL_ARRAY_BUFFER, "VertexBuffer (raw storage)");

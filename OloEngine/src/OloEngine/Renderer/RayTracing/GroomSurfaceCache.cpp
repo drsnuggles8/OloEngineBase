@@ -844,6 +844,7 @@ namespace OloEngine::RayTracing
             shape.Mix(request.LodLevel != nullptr);
             shape.Mix(std::to_underlying(decision.Tier));
             shape.Mix(request.WidthScale);
+            shape.Mix(request.StreamingKey);
 
             const bool deformed = IsDeformed(request);
             Entry& entry = m_Entries[key];
@@ -852,6 +853,10 @@ namespace OloEngine::RayTracing
             // buffers: the question below is whether this coat had a usable
             // structure to fall back ON, not whether it has one now.
             const bool wasResident = entry.Vertices && entry.Indices;
+            const bool sameResidentShape = wasResident && entry.ShapeHash == shape.Value &&
+                                           entry.StreamingKey == request.StreamingKey;
+            if (wasResident && entry.StreamingKey != request.StreamingKey)
+                ++m_Stats.StreamingInvalidations;
             if (changed)
             {
                 const GroomProxyRefusalReason failure =
@@ -867,7 +872,7 @@ namespace OloEngine::RayTracing
                 // It is counted as REPRESENTED, because it is, and the frame
                 // is marked incomplete, because a deforming coat held this way
                 // is one frame behind its raster twin.
-                if (failure == GroomProxyRefusalReason::BudgetExhausted && wasResident)
+                if (failure == GroomProxyRefusalReason::BudgetExhausted && sameResidentShape)
                 {
                     ++m_Stats.RefreshDeferred;
                     m_Stats.Complete = false;
@@ -881,10 +886,13 @@ namespace OloEngine::RayTracing
                     continue;
                 }
             }
+
             else
             {
                 ++m_Stats.Reused;
             }
+
+            entry.StreamingKey = request.StreamingKey;
 
             entry.LastSeen = m_Frame;
 

@@ -54,6 +54,7 @@
 #include "OloEngine/Groom/GroomGpuDeformation.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
 #include "OloEngine/Groom/GroomStrandRequest.h"
+#include "OloEngine/Groom/GroomStreaming.h"
 #include "OloEngine/Groom/GroomVisibility.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
@@ -64,6 +65,7 @@
 #include <array>
 #include <unordered_map>
 #include <vector>
+#include <limits>
 
 namespace OloEngine
 {
@@ -432,7 +434,7 @@ namespace OloEngine
     {
       public:
         GroomRenderPass();
-        ~GroomRenderPass() override = default;
+        ~GroomRenderPass() override;
 
         void Init(const FramebufferSpecification& spec) override;
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
@@ -441,6 +443,7 @@ namespace OloEngine
         void AppendDeclarationInputs(RGDeclarationKey& key) const override
         {
             key.Add(!m_Requests.empty());
+            key.Add(!m_StreamingDetails.empty());
         }
         void Execute(RGCommandContext& context) override;
 
@@ -555,6 +558,20 @@ namespace OloEngine
             return m_CacheBudgetBytes;
         }
 
+        // Producer-side once-per-frame boundary, before request publication.
+        // The shared budget has already begun this frame. Binding must be
+        // resolved before ResolveStreamingRequest; pose/root selection follows it.
+        void BeginStreamingFrame(u64 frame, bool enabled, u32 fallbackStrands = 256);
+        void ResolveStreamingRequest(GroomStrandRequest& request);
+        [[nodiscard]] const FGroomStreamingStats& GetStreamingStats() const noexcept
+        {
+            return m_StreamingStats;
+        }
+        void SetStreamingStartGate(std::optional<Tasks::FTaskEvent> gate)
+        {
+            m_StreamingLoads.SetStartGate(std::move(gate));
+        }
+
         /// When a DEFORMED coat's volume is rebuilt (#1426). Engine-wide rather
         /// than per groom: it trades CPU time against shadow lag, which is a
         /// budget decision like the cache's, not an authored look. Sanitised on
@@ -664,6 +681,7 @@ namespace OloEngine
         /// dropped once only the map holds it.
         struct GroomRestStream : public RefCounted
         {
+            u64 StreamingKey = 0;
             Ref<VertexArray> Array;
             Ref<VertexBuffer> Vertices;
             Ref<IndexBuffer> Indices;
@@ -709,6 +727,9 @@ namespace OloEngine
 
         struct CacheEntry
         {
+            u64 StreamingKey = 0;
+            u64 StreamingEntityKey = 0;
+            bool StreamingFloor = false;
             Ref<VertexArray> Array;
             Ref<VertexBuffer> Vertices;
             Ref<IndexBuffer> Indices;
@@ -988,6 +1009,38 @@ namespace OloEngine
         /// start AcquireShadowCaster and Execute take when no BeginFrame did.
         void StartFrame();
         void EvictToBudget();
+        void FinishStreamingFrame();
+        void CompleteStreamingUpload(u64 key, u64 uploadBytes, u64 uploadMicroseconds, u64 physicalBytes, u32 roots);
+        void CompleteStreamingEntityUpload(u64 key, u64 physicalBytes, bool integrated);
+        [[nodiscard]] Ref<FPreparedGroomGeometry> PreparedStreamingGeometry(const GroomStrandRequest& request) const;
+        [[nodiscard]] bool AdmitStreamingEntity(GroomStrandRequest& request, u64 streamKey, bool floor);
+
+        struct FStreamingDetail
+        {
+            Ref<GroomAsset> Groom;
+            Ref<GroomBindingAsset> Binding;
+            FRepresentationDescriptor Descriptor;
+            Ref<FPreparedGroomGeometry> Prepared;
+            u64 StagingTicket = 0;
+            u64 LastWanted = 0;
+            bool Admitted = false;
+            bool Floor = false;
+            bool EntityState = false;
+            bool Integrated = false;
+            u32 RootCount = 0;
+            u64 LayoutKey = 0;
+            u64 IntegratedLayoutKey = 0;
+            u64 UploadAdmittedFrame = std::numeric_limits<u64>::max();
+            u64 UploadAdmittedTick = std::numeric_limits<u64>::max();
+        };
+        FRepresentationLoadQueue m_StreamingLoads;
+        std::unordered_map<u64, FStreamingDetail> m_StreamingDetails;
+        std::unordered_map<const GroomAsset*, Ref<GroomAsset>> m_StreamingBaseAssets;
+        std::unordered_map<const GroomBindingAsset*, Ref<GroomBindingAsset>> m_StreamingBaseBindings;
+        FGroomStreamingStats m_StreamingStats;
+        u64 m_StreamingFrame = 0;
+        u32 m_StreamingFallbackStrands = 256;
+        bool m_StreamingEnabled = false;
 
         // A view of the frame's requests, never an owner: see SetRequests.
         std::span<const GroomStrandRequest> m_Requests;

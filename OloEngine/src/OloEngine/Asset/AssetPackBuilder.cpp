@@ -9,6 +9,7 @@
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Core/UUID.h"
 #include "OloEngine/Debug/Profiler.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/MaterialAsset.h"
@@ -24,9 +25,51 @@
 #include <fstream>
 #include <filesystem>
 #include <mutex>
+#include <stdexcept>
 
 namespace OloEngine
 {
+    namespace
+    {
+        // Asset handles repeat across projects and processes. Claim a directory
+        // exclusively for this build and retain it until all staged data is read.
+        class PackScratchDirectory
+        {
+          public:
+            PackScratchDirectory()
+            {
+                const auto root = std::filesystem::temp_directory_path();
+                for (u32 attempt = 0; attempt < 64; ++attempt)
+                {
+                    const auto candidate = root / ("OloAssetPack-" + std::to_string(static_cast<u64>(UUID{})));
+                    if (std::filesystem::create_directory(candidate))
+                    {
+                        m_Path = candidate;
+                        return;
+                    }
+                }
+                throw std::runtime_error("Could not claim an asset-pack scratch directory");
+            }
+
+            ~PackScratchDirectory()
+            {
+                std::error_code ec;
+                std::filesystem::remove_all(m_Path, ec);
+            }
+
+            PackScratchDirectory(const PackScratchDirectory&) = delete;
+            PackScratchDirectory& operator=(const PackScratchDirectory&) = delete;
+
+            const std::filesystem::path& GetPath() const
+            {
+                return m_Path;
+            }
+
+          private:
+            std::filesystem::path m_Path;
+        };
+    } // namespace
+
     AssetPackBuilder::BuildResult AssetPackBuilder::BuildFromActiveProject(const BuildSettings& settings, std::atomic<f32>& progress, const std::atomic<bool>* cancelToken)
     {
         OLO_PROFILE_FUNCTION();
@@ -290,6 +333,8 @@ namespace OloEngine
             // Create output directory if it doesn't exist
             std::filesystem::create_directories(settings.m_OutputPath.parent_path());
 
+            PackScratchDirectory scratch;
+
             // Initialize asset pack file structure
             AssetPackFile assetPackFile;
 
@@ -349,7 +394,7 @@ namespace OloEngine
                 ColorSpaceIntentScope& operator=(const ColorSpaceIntentScope&) = delete;
             } colorSpaceScope(CollectTextureColorSpaceIntents(assetManager->GetLoadedAssets()));
 
-            if (!SerializeAllAssets(assetManager, assetPackFile, scriptModuleBinary.Size(), result, progress, cancelToken))
+            if (!SerializeAllAssets(assetManager, assetPackFile, scratch.GetPath(), scriptModuleBinary.Size(), result, progress, cancelToken))
             {
                 result.m_ErrorMessage = "Failed to serialize assets or build was cancelled";
                 return result;
@@ -640,7 +685,7 @@ namespace OloEngine
         }
     }
 
-    [[nodiscard]] bool AssetPackBuilder::SerializeAllAssets(Ref<AssetManagerBase> assetManager, AssetPackFile& assetPackFile, u64 scriptModuleSize, BuildResult& result, ProgressRange progress, const std::atomic<bool>* cancelToken)
+    [[nodiscard]] bool AssetPackBuilder::SerializeAllAssets(Ref<AssetManagerBase> assetManager, AssetPackFile& assetPackFile, const std::filesystem::path& scratchDirectory, u64 scriptModuleSize, BuildResult& result, ProgressRange progress, const std::atomic<bool>* cancelToken)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -739,7 +784,7 @@ namespace OloEngine
                 continue; // Scenes are handled separately
 
             // Create a temporary file for this asset
-            std::filesystem::path tempPath = std::filesystem::temp_directory_path() / ("olo_asset_" + std::to_string(assetInfo.Handle) + ".tmp");
+            const auto tempPath = scratchDirectory / ("olo_asset_" + std::to_string(assetInfo.Handle) + ".tmp");
             FileStreamWriter tempWriter(tempPath);
 
             // Record the starting position
@@ -783,7 +828,7 @@ namespace OloEngine
             }
 
             // Create a temporary file for this scene
-            std::filesystem::path tempPath = std::filesystem::temp_directory_path() / ("olo_scene_" + std::to_string(sceneInfo.Handle) + ".tmp");
+            const auto tempPath = scratchDirectory / ("olo_scene_" + std::to_string(sceneInfo.Handle) + ".tmp");
             FileStreamWriter tempWriter(tempPath);
 
             // Record the starting position
