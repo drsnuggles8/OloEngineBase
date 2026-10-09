@@ -456,7 +456,8 @@ function Get-QueueAhead {
     $script:exclusiveWaiterAhead = $false
     for ($i = 0; $i -lt $sorted.Count; $i++) {
         if ($sorted[$i].Pid -eq $me) { return $i }
-        if ($sorted[$i].Exclusive) { $script:exclusiveWaiterAhead = $true; $script:exclusiveWaiterPid = $sorted[$i].Pid }
+        # The FIRST exclusive ticket ahead is the one admission is waiting on.
+        if ($sorted[$i].Exclusive -and -not $script:exclusiveWaiterAhead) { $script:exclusiveWaiterAhead = $true; $script:exclusiveWaiterPid = $sorted[$i].Pid }
     }
     return $null   # our own ticket is gone — fail open rather than wait forever
 }
@@ -743,7 +744,9 @@ try {
         if ((Get-Date) -gt $deadline) {
             $info = Read-ActiveHolderInfo
             $who  = if ($null -ne $info) { "pid=$($info.pid) ($($info.worktree))" } else { "an unidentified holder" }
-            if ($behindExclusive) { $who = "the exclusive request pid=$($script:exclusiveWaiterPid) queued ahead of us (current holder $who)" }
+            # Only when queue depth alone would have admitted us is the exclusive ticket the cause.
+            $heldByExclusive = $behindExclusive -and $null -ne $ahead -and $ahead -lt $MaxConcurrent
+            if ($heldByExclusive) { $who = "the exclusive request pid=$($script:exclusiveWaiterPid) queued ahead of us (current holder $who)" }
             Write-BuildMetric @{ event      = 'timeout'
                                  pid        = $me
                                  worktree   = $here
@@ -753,8 +756,8 @@ try {
                                  queue_ahead_at_end   = $ahead
                                  blocked_by_pid      = $blockedByPid
                                  blocked_by_worktree = $blockedByWorktree
-                                 behind_exclusive_pid = $(if ($behindExclusive) { $script:exclusiveWaiterPid } else { $null }) }
-            $advice = if ($behindExclusive) { 'Check whether that request is still making progress before touching the holder.' }
+                                 behind_exclusive_pid = $(if ($heldByExclusive) { $script:exclusiveWaiterPid } else { $null }) }
+            $advice = if ($heldByExclusive) { 'Check whether that request is still making progress before touching the holder.' }
                       else { 'A build that has held the lock this long is wedged — investigate it rather than overriding.' }
             throw "[build-lock] timed out after ${TimeoutMinutes}m waiting for $who. $advice"
         }

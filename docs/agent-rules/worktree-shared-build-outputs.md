@@ -14,7 +14,7 @@ Until #1386 these intermediates lived in the source tree:
 | engine archives | `bin/<Config>/OloEngine*/OloEngine*.lib` | overwrote them; the first tree's next link used the second tree's archive |
 | vendored static libs | `OloEngine/vendor/{imgui,imguizmo,lua,bc7enc,xatlas}-build/` | same |
 | glad's generated loader | `OloEngine/vendor/glad-build/` | its generate rule runs `remove_directory` first, so a sibling compile failed |
-| copied stb headers, LuaScriptCore's import library | `vendor/stb_image-build/`, `OloEditor/Resources/Scripts/` | same files rewritten by every tree |
+| copied stb headers, LuaScriptCore's import library | `OloEngine/vendor/stb_image-build/`, `OloEditor/Resources/Scripts/` | same files rewritten by every tree |
 
 The glad case is loud. A fresh tree's first build deleted `<glad/gl.h>` while another tree in the
 same worktree was compiling, and that build stopped with
@@ -37,7 +37,7 @@ and it does not distinguish two worktrees from two trees of one worktree.
   build-directory relative for that reason.
 - Vendored libraries, glad's generated loader and the copied stb headers go under the vendor
   directory's binary dir. `OloEngine-LuaScriptCore`'s import library goes to `<build>/lib/`; its
-  DLL stays in `OloEditor/Resources/Scripts/`, where the editor loads it.
+  DLL stays in `OloEditor/Resources/Scripts/` with the other script binaries.
 - Executables and DLLs stay in `bin/<Config>/<target>/`. Scripts, the VS Code tasks and the
   smoke tests run them from there, so the last tree to link one wins. Treat a `bin/` binary as
   belonging to whichever tree linked it last, and relink from the tree you mean before using it
