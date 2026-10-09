@@ -64,6 +64,16 @@
 			}
 		},
 		{
+			"name": "dev-cached-core",
+			"displayName": "Dev: cached tree without OpenUSD (smaller test link)",
+			"description": "dev-cached with OLO_WITH_USD=OFF (issue #1386). USD is force-linked into every executable with /WHOLEARCHIVE, so it is the largest single link input; no test depends on it, and CI already builds without it. Measured: the Debug test link peaks about 29% lower, and a first build next to build-cached hit the compiler cache for 90% of TUs. Its own binaryDir so both trees can stay configured. See docs/agent-rules/windows-codeview-links.md.",
+			"inherits": "dev-cached",
+			"binaryDir": "${sourceDir}/build-cached-core",
+			"cacheVariables": {
+				"OLO_WITH_USD": "OFF"
+			}
+		},
+		{
 			"name": "linux-gcc",
 			"displayName": "Linux GCC (Ninja)",
 			"description": "Base Linux preset using GCC 14 and Ninja Multi-Config. Uses vcpkg's stock x64-linux triplet (static libs, no CRT-linkage concept) rather than a custom one — the static-md triplets exist only to pin the Windows CRT choice.",

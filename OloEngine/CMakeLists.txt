@@ -482,9 +482,25 @@ if(OLO_WITH_USD)
 	# by the install step), so it is NOT FetchContent'd. See docs/agent-rules/asset-import-usd-alembic.md.
 	include(${CMAKE_SOURCE_DIR}/cmake/vendor/OpenUSD.cmake)
 	add_dependencies(OloEngine olo_usd_ext)   # build USD before the engine (and downstream exe) link
+	# OLO_WITH_USD and USD's include directory reach ONLY the TUs that use them (#1386). USD's
+	# install prefix also ships its own oneTBB (2022.2), and as a PUBLIC include directory it sat
+	# ahead of vcpkg's on every engine, editor and test command line: OpenVDBVolumeCook.cpp and
+	# VolumeImportTest.cpp compiled OpenVDB's headers against USD's oneTBB while vcpkg's openvdb.lib
+	# was built against vcpkg's (2023.1). No header outside USD/ tests the macro, and
+	# UsdMeshImporter.h is included only by these TUs. They skip the precompiled header so a define
+	# the PCH was not built with is never mixed into one.
+	set(_olo_usd_tus
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/OloEngine/Asset/AssetExtensions.cpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/OloEngine/Asset/Interchange/MeshImporterRegistry.cpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/OloEngine/Asset/Interchange/USD/UsdMeshImporter.cpp")
+	set_source_files_properties(${_olo_usd_tus}
+		TARGET_DIRECTORY OloEngine
+		PROPERTIES
+			COMPILE_DEFINITIONS "OLO_WITH_USD=1"
+			SKIP_PRECOMPILE_HEADERS ON)
+	unset(_olo_usd_tus)
 	# The USD paths carry a $<CONFIG> genexpr (config-matched build) so a Debug engine links Debug
 	# USD and a Release/RelWithDebInfo engine links Release USD — no CRT mismatch.
-	target_include_directories(OloEngine PUBLIC "${OloEngine_USD_INCLUDE_DIR}")
 	# USD's own headers use C++23-deprecated std::aligned_storage and has_denorm, which the
 	# -Werror=deprecated-declarations rule (#1501) would reject. Silence exactly those two, in
 	# the one TU that includes USD. Not SYSTEM: that reorders the search path and USD's
@@ -494,8 +510,8 @@ if(OLO_WITH_USD)
 	set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/src/OloEngine/Asset/Interchange/USD/UsdMeshImporter.cpp"
 		TARGET_DIRECTORY OloEngine
 		PROPERTIES
-			COMPILE_DEFINITIONS "_SILENCE_CXX23_ALIGNED_STORAGE_DEPRECATION_WARNING;_SILENCE_CXX23_DENORM_DEPRECATION_WARNING"
-			SKIP_PRECOMPILE_HEADERS ON)
+			INCLUDE_DIRECTORIES "${OloEngine_USD_INCLUDE_DIR}"
+			COMPILE_DEFINITIONS "OLO_WITH_USD=1;_SILENCE_CXX23_ALIGNED_STORAGE_DEPRECATION_WARNING;_SILENCE_CXX23_DENORM_DEPRECATION_WARNING")
 	# oneTBB auto-links tbb12(.|_debug.)lib via #pragma comment(lib) inside usd_m, so the config's
 	# lib dir must be on the linker search path. Shlwapi (Path*) + Dbghelp (Sym*) + Ws2_32 are the
 	# Windows system libs USD's Arch/Tf need (verified via the USD smoke test).
@@ -504,7 +520,6 @@ if(OLO_WITH_USD)
 	if(MSVC)
 		target_link_libraries(OloEngine Shlwapi Dbghelp Ws2_32)
 	endif()
-	target_compile_definitions(OloEngine PUBLIC OLO_WITH_USD=1)
 	# USD registers Sdf file formats + schemas via static-init side effects; without a
 	# whole-archive force-link the linker discards those objects and UsdStage::Open fails.
 	#
