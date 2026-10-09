@@ -141,6 +141,11 @@ def pass_ms(arm: dict, name: str) -> float:
     return arm['passMedianMs'].get(name) or 0.0
 
 
+def difference(a, b):
+    """a - b, or None when either side never resolved a GPU time."""
+    return None if a is None or b is None else a - b
+
+
 def render_summary(result: dict) -> str:
     """The doc's Vulkan table. A cell measured beside another engine process is
     listed as contended and kept out of the ranges; per-pass GPU times that came
@@ -154,14 +159,15 @@ def render_summary(result: dict) -> str:
         shipped, none = arms['Shipped'], arms['NoFoliage']
         contended = bool(cell.get('foreignGpuProcesses'))
         nulls = sum(a['gpuNullSamples'] + a['nullPassEntries'] for a in arms.values())
-        values = [shipped['gpuMsMedian'], shipped['gpuMsMedian'] - none['gpuMsMedian'], pass_ms(shipped, 'FoliageCull'),
+        values = [shipped['gpuMsMedian'], difference(shipped['gpuMsMedian'], none['gpuMsMedian']),
+                  pass_ms(shipped, 'FoliageCull'),
                   pass_ms(shipped, 'ShadowPass/FoliageCull'), pass_ms(shipped, 'ShadowPass') - pass_ms(none, 'ShadowPass'),
                   pass_ms(shipped, 'FoliagePass') + pass_ms(shipped, 'FoliagePrepassPass'),
                   pass_ms(shipped, 'ScenePass') - pass_ms(none, 'ScenePass'),
-                  arms['CpuCull']['gpuMsMedian'] - shipped['gpuMsMedian'],
-                  arms['NoDensityLod']['gpuMsMedian'] - shipped['gpuMsMedian']]
+                  difference(arms['CpuCull']['gpuMsMedian'], shipped['gpuMsMedian']),
+                  difference(arms['NoDensityLod']['gpuMsMedian'], shipped['gpuMsMedian'])]
         lines.append('| {} | {} | {} | {} | '.format(cell['subject'], cell['pose'], cell['path'], cell['shadows']) +
-                     ' | '.join('{:.2f}'.format(v) for v in values) +
+                     ' | '.join('n/a' if v is None else '{:.2f}'.format(v) for v in values) +
                      ' | {} | {} |'.format(nulls, 'yes' if contended else ''))
     if result.get('tails'):
         lines += ['', '| pose | path | frames | frame time p50 | p95 | p99 | max | misses (16.67 ms) | GPU p50 | GPU p99 |',
@@ -263,7 +269,11 @@ def main() -> int:
                     for pose in (poses[0], poses[len(poses) // 2], poses[-1]):
                         editor.pose(pose)
                         time.sleep(args.settle)
-                        time.sleep(args.tail_seconds)
+                        # The history is a rolling ring with no reset: wait until
+                        # it can only hold frames of THIS pose and path, with a
+                        # margin, rather than a fixed time a slow frame outlasts.
+                        frame_ms = editor.sample(1, args.spacing)[0]['frameTimeMs'] or 50.0
+                        time.sleep(max(args.tail_seconds, 1.25 * 1024 * frame_ms / 1000.0))
                         history = editor.tool('olo_perf_frame_history', raw=True)
                         result['tails'].append({'pose': pose['name'], 'path': path, 'shadows': 'CSM',
                                                 'history': history})

@@ -158,6 +158,11 @@ def foliage_brackets(passes: dict) -> dict:
     return {'cullMain': cull_main, 'cullShadow': cull_shadow, 'shadowCasters': casters, 'forwardDraw': draw}
 
 
+def run_number(path: Path) -> int:
+    suffix = path.name[len('run-'):]
+    return int(suffix) if suffix.isdigit() else 0
+
+
 def load_contention(output: Path, hosts: list) -> list:
     windows = []
     path = output / 'contention.json'
@@ -257,8 +262,9 @@ def summarise_cell(cell: dict) -> dict:
 
 
 def summarise(output: Path, include_unsampled: bool = False) -> dict:
-    runs = sorted(p for p in output.glob('run-*')
-                  if (p / 'foliage-cost.json').exists() or (p / 'foliage-cost.json.gz').exists())
+    runs = sorted((p for p in output.glob('run-*')
+                   if (p / 'foliage-cost.json').exists() or (p / 'foliage-cost.json.gz').exists()),
+                  key=run_number)
     if not runs:
         raise SystemExit(f'no runs under {output}')
     per_run = []
@@ -435,7 +441,7 @@ def main() -> int:
             parser.error('--exe must name the Release OloEngine-Tests binary')
         environment = dict(item.split('=', 1) for item in args.env)
         args.output.mkdir(parents=True, exist_ok=True)
-        start = len(list(args.output.glob('run-*')))
+        start = max((run_number(p) for p in args.output.glob('run-*')), default=0)
         for k in range(args.runs):
             run = args.output / f'run-{start + k + 1}'
             print(f'[foliage-cost] {run.name} ...', flush=True)
