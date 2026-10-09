@@ -442,9 +442,12 @@ namespace OloEngine::Tests
         {
             m_PreviousProject = Project::GetActive();
             m_PreviousAssetManager = Project::HasAssetManager() ? Project::GetAssetManager() : nullptr;
+            RendererAttachedTest::SetUp();
+            // AFTER the base SetUp: the first GPU fixture in a process moves
+            // into OloEditor/ there, and restoring the directory from before
+            // it would leave every later GPU suite unable to open its shaders.
             std::error_code ec;
             m_PreviousCwd = fs::current_path(ec);
-            RendererAttachedTest::SetUp();
         }
 
         void TearDown() override

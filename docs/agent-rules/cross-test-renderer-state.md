@@ -1,6 +1,6 @@
 # Cross-test renderer state
 
-Two rules, in the order they cost us time:
+Three rules, the first two in the order they cost us time:
 
 1. **Never leave a process-wide renderer singleton dead.** `Renderer3D::Init` owns
    `CommandDispatch`, `GPUPassTimerPool`, `ParticleBatchRenderer` and `MeshPrimitives`. A test that
@@ -18,6 +18,10 @@ Two rules, in the order they cost us time:
    settings structs and the culling toggles are all one static. A guard now restores these
    automatically, so a leak is repaired rather than propagated — but it is still a bug in your test,
    and the run names you in a `[ RENDERER STATE ]` summary.
+3. **A fixture that restores the working directory captures it after `RendererAttachedTest::SetUp()`.**
+   The first GPU fixture in a process moves into `OloEditor/` there. Captured before, the restore
+   puts the process back in the repo root and every later GPU suite fails to open its shaders
+   (`FoliageGPUCullEvidenceTest` lost GPU culling after `FloraLooseCookedParityEvidenceTest`, #1391).
 
 Rule 1 is what actually caused issue #1074. Rule 2 is what everyone assumed had caused it, including
 the issue itself; the guard built to enforce it found 212 leaking tests and fixed **zero** failures.
