@@ -29,8 +29,8 @@ interleaved blocks; a range is over the subject's poses (nine traversal steps, t
 cameras). "Foliage share of the frame" is the whole-frame GPU time minus the NoFoliage arm's; the
 stages beside it are foliage's own brackets, except the G-buffer share, which is
 `ScenePass(Shipped) − ScenePass(NoFoliage)` because Deferred draws foliage among everything else.
-Every cell, with its raw samples, is in `foliage-cost-baseline-1391/summary.md` and the per-run
-`foliage-cost.json.gz`.
+Every cell, with its raw samples, is in [foliage-cost-baseline-1391/summary.md](foliage-cost-baseline-1391/summary.md)
+and the per-run `foliage-cost.json.gz`.
 
 | subject | path | shadows | poses | frame GPU p50 | foliage share of the frame | main-view cull | shadow-view culls | shadow casters | forward draw (+prepass) | G-buffer share (ScenePass Δ) | GPU culling off: frame Δ | density LOD off: frame Δ |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -89,7 +89,8 @@ On Vulkan the CSM region records its cascades in parallel items, where the timer
 so `ShadowPass/FoliageCasters` exists only with VSM (whose views record one after another); the
 foliage share of the shadow pass is given as `ShadowPass(Shipped) − ShadowPass(NoFoliage)`. No frame
 GPU time came back null; a handful of per-pass entries did, and the table counts them rather than
-reading them as zero.
+reading them as zero. Every cell and arm is in
+[foliage-cost-baseline-1391/vulkan-live/summary.md](foliage-cost-baseline-1391/vulkan-live/summary.md).
 
 | subject | pose | path | shadows | frame GPU | foliage share of the frame | main-view cull | shadow-view culls | ShadowPass Δ (casters + culls) | forward draw (+prepass) | G-buffer share (ScenePass Δ) | GPU culling off: frame Δ | density LOD off: frame Δ | null GPU samples | contended |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
