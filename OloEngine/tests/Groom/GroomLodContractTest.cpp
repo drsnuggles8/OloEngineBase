@@ -39,6 +39,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <numbers>
 #include <span>
 #include <string>
@@ -169,6 +170,40 @@ namespace
         return groom;
     }
 
+    // One lock (#1558): `strands` straight strands 0.1 m long on a disc of
+    // `radius`, placed on a golden-angle spiral so the disc is evenly filled,
+    // every root in one clump cell. The shape a real lock has, where
+    // MakeLockAndFan's coincident and spread rows are its two limits.
+    [[nodiscard]] Ref<GroomAsset> MakeSpreadLock(u32 strands, f32 radius, f32 width)
+    {
+        GroomBuilder builder;
+        std::string reason;
+        u16 lock = 0;
+        EXPECT_TRUE(builder.AddGroup("lock", lock, reason)) << reason;
+        const std::vector<f32> widths(3u, width);
+        for (u32 s = 0; s < strands; ++s)
+        {
+            const f32 r = radius * std::sqrt((static_cast<f32>(s) + 0.5f) / static_cast<f32>(strands));
+            const f32 angle = 2.39996323f * static_cast<f32>(s);
+            const f32 x = r * std::cos(angle);
+            const f32 z = r * std::sin(angle);
+            GroomCurveInput strand;
+            strand.Widths = widths;
+            strand.RootUV = glm::vec2(0.5f);
+            const std::vector<glm::vec3> points{ { x, 0.0f, z }, { x, 0.05f, z }, { x, 0.1f, z } };
+            strand.Points = points;
+            strand.GroupId = lock;
+            EXPECT_TRUE(builder.AddCurve(strand, reason)) << reason;
+        }
+        Ref<GroomAsset> groom = builder.Build(reason);
+        EXPECT_TRUE(groom) << reason;
+        if (groom)
+        {
+            EXPECT_TRUE(GroomCooker::Canonicalize(*groom, reason)) << reason;
+        }
+        return groom;
+    }
+
     // The widths the card of `group` carries, root to tip.
     [[nodiscard]] std::vector<f32> CardWidths(const GroomAsset& base, const GroomLodLevel& level, u16 group)
     {
@@ -212,6 +247,47 @@ TEST(GroomLodCompensation, TheRuleIsLinearBecauseAStrandIsABandAndNotASprite)
     // retained 0.37 of a role (which an integer stride will) compensates by
     // 1/0.37, not by the 1/0.5 the policy asked for.
     EXPECT_NEAR(static_cast<f64>(GroomLodWidthCompensation(0.37f, 16.0f)), 1.0 / 0.37, 1.0e-4);
+}
+
+TEST(GroomLodCompensation, AThinnedSubPixelStrandIsDrawnAtTheCoverageItsStrideHas)
+{
+    // #1558. Thinner than a pixel, k strands each drawn at alpha their own width
+    // a cover 1 - (1 - a)^k of it, and that is what the kept one is drawn at:
+    // its built width (a times min(k, cap)) times the widening.
+    for (const f32 k : { 2.0f, 5.0f, 13.0f, 26.0f, 52.0f })
+    {
+        for (const f32 a : { 0.01f, 0.05f, 0.2f, 0.6f })
+        {
+            for (const f32 cap : { 8.0f, 16.0f, 32.0f })
+            {
+                const f32 built = a * std::min(k, cap);
+                const f32 drawn = built * GroomStrandStrideWiden(built, k, cap);
+                EXPECT_NEAR(drawn, 1.0f - std::pow(1.0f - a, k), 1.0e-5f) << k << " strands of " << a << " px, cap " << cap;
+                EXPECT_LE(drawn, 1.0f + 1.0e-6f) << "never wider than the pixel it stands in";
+                EXPECT_GE(drawn, a - 1.0e-6f) << "never thinner than the strand itself";
+            }
+        }
+    }
+    // The laws it replaces, at the adult dog's step-3 stride: the summed width
+    // over-covers the pixel, the cap of 8 covers less than the strands do.
+    const f32 a = 0.05f;
+    const f32 k = 26.0f;
+    EXPECT_GT(a * k, 1.0f - std::pow(1.0f - a, k));
+    EXPECT_LT(a * 8.0f, 1.0f - std::pow(1.0f - a, k));
+    // Wider than a pixel the capped widening holds, continued from one pixel.
+    EXPECT_NEAR(GroomStrandStrideWiden(1.0f * 8.0f, 26.0f, 8.0f) * 8.0f, 1.0f, 1.0e-5f);
+    EXPECT_NEAR(GroomStrandStrideWiden(1.001f * 8.0f, 26.0f, 8.0f) * 1.001f * 8.0f, 1.008f, 1.0e-4f);
+    EXPECT_NEAR(GroomStrandStrideWiden(3.0f * 4.0f, 4.0f, 8.0f) * 12.0f, 1.0f + 2.0f * 4.0f, 1.0e-5f);
+    // An unthinned strand, and anything unmeasurable, is drawn as built.
+    EXPECT_FLOAT_EQ(GroomStrandStrideWiden(0.3f, 1.0f, 8.0f), 1.0f);
+    EXPECT_FLOAT_EQ(GroomStrandStrideWiden(0.0f, 4.0f, 8.0f), 1.0f);
+    EXPECT_FLOAT_EQ(GroomStrandStrideWiden(0.3f, std::numeric_limits<f32>::quiet_NaN(), 8.0f), 1.0f);
+    // The build hands each strand the count its role's stride stands for.
+    EXPECT_FLOAT_EQ(GroomRoleStandsFor(100u, 1u), 1.0f);
+    EXPECT_FLOAT_EQ(GroomRoleStandsFor(0u, 4u), 1.0f);
+    EXPECT_FLOAT_EQ(GroomRoleStandsFor(100u, 4u), 4.0f);
+    EXPECT_FLOAT_EQ(GroomRoleStandsFor(101u, 4u), 101.0f / 26.0f);
+    EXPECT_FLOAT_EQ(GroomRoleStandsFor(296553u, 52u), 296553.0f / 5703.0f) << "uncapped";
 }
 
 TEST(GroomLodCompensation, TheCapIsReportedRatherThanPretendedAway)
@@ -743,6 +819,202 @@ TEST(GroomLodCook, ACardIsAsWideAsWhatItsMembersCoverAndNoWider)
     settings.Width = GroomCardWidth::Count;
     EXPECT_FALSE(GroomLodBuilder::BuildCardLevel(*groom, settings, level, reason, nullptr));
     EXPECT_NE(reason.find("width model"), std::string::npos) << reason;
+}
+
+TEST(GroomLodCook, ACardCarriesHowMuchWiderItsMembersCoverFarAway)
+{
+    // #1558. A card is cooked as wide as its members cover at the hand-over's
+    // pixel. Farther away a pixel spans more, the members' bands overlap within
+    // it, and the strands cover toward their SUMMED width; held at its cooked
+    // width the adult dog's card tier fell 10-15% short of them at three times
+    // the hand-over distance. So every card point carries summed / covered, and
+    // the shader widens the card toward it as the coat shrinks.
+    constexpr u32 kMembers = 16u;
+    constexpr f32 kWidth = 0.001f;
+    const Ref<GroomAsset> groom = MakeLockAndFan(kMembers, kWidth, 20.0f * kWidth);
+    ASSERT_TRUE(groom);
+    GroomCardSettings settings;
+    settings.SourcePixelSize = 256.0f;
+    GroomLodLevel level;
+    GroomCardBuildStats stats;
+    std::string reason;
+    ASSERT_TRUE(GroomLodBuilder::BuildCardLevel(*groom, settings, level, reason, &stats)) << reason;
+    ASSERT_EQ(level.PointCoverageGrowth.Num(), level.Points.size());
+
+    // Growth times the cooked width is the members' sum, at every point, so a
+    // card widened all the way carries what its strands do at any distance.
+    const GroomCurveView view = level.GetCurveView();
+    f64 lockGrowth = 0.0;
+    f64 fanGrowth = 0.0;
+    for (u32 card = 0; card < view.GetCurveCount(); ++card)
+    {
+        const u32 first = view.GetCurveFirstPoint(card);
+        for (u32 p = 0; p < view.GetCurvePointCount(card); ++p)
+        {
+            const f32 growth = level.PointCoverageGrowth[first + p];
+            EXPECT_GE(growth, 1.0f) << "a card never covers more than its members' sum";
+            EXPECT_NEAR(growth * level.PointWidths[first + p], kMembers * kWidth, kMembers * kWidth * 1.0e-4)
+                << "card " << card << " point " << p;
+            (view.CurveGroupIds[card] == 0u ? lockGrowth : fanGrowth) = growth;
+        }
+    }
+    // The lock's sixteen coincident strands cover far less than their sum at the
+    // cook, the fan's spread ones nearly all of it: the lock grows most.
+    EXPECT_GT(lockGrowth, 2.0);
+    EXPECT_LT(fanGrowth, 1.3);
+    EXPECT_GT(lockGrowth, fanGrowth);
+
+    // A summed card already carries the sum: it does not grow.
+    settings.Width = GroomCardWidth::Summed;
+    ASSERT_TRUE(GroomLodBuilder::BuildCardLevel(*groom, settings, level, reason, nullptr)) << reason;
+    for (const f32 growth : level.PointCoverageGrowth)
+    {
+        EXPECT_FLOAT_EQ(growth, 1.0f);
+    }
+
+    // The validator holds the array to its contract: one value per point, finite,
+    // at least 1. The shader widens a card by it without a bound of its own.
+    settings.Width = GroomCardWidth::Covered;
+    ASSERT_TRUE(GroomLodBuilder::BuildCardLevel(*groom, settings, level, reason, nullptr)) << reason;
+    ASSERT_TRUE(level.Validate(groom->GetCurveCount(), groom->GetGroupCount(), reason)) << reason;
+    for (const f32 corrupt : { 0.5f, std::numeric_limits<f32>::quiet_NaN(), 2.0f * GroomLimits::MaxCoverageGrowth })
+    {
+        GroomLodLevel bad = level;
+        bad.PointCoverageGrowth[1] = corrupt;
+        EXPECT_FALSE(bad.Validate(groom->GetCurveCount(), groom->GetGroupCount(), reason)) << corrupt;
+        EXPECT_NE(reason.find("coverage growth"), std::string::npos) << reason;
+    }
+    GroomLodLevel shortLevel = level;
+    shortLevel.PointCoverageGrowth.Pop();
+    EXPECT_FALSE(shortLevel.Validate(groom->GetCurveCount(), groom->GetGroupCount(), reason));
+    EXPECT_NE(reason.find("coverage growth"), std::string::npos) << reason;
+
+    // The stream carries it to the shader per corner, the level's value at each
+    // segment's end; the strand tier carries 1. (The level was rebuilt above, so
+    // its view is taken again: the old one's spans point at freed arrays.)
+    const GroomCurveView cards = level.GetCurveView();
+    GroomStrandBuildSettings build;
+    build.MaxStrands = groom->GetCurveCount();
+    std::vector<GroomStrandVertex> vertices;
+    std::vector<u32> indices;
+    (void)BuildGroomStrandMesh(GroomBuildSource::FromLevel(*groom, level), build, vertices, indices);
+    ASSERT_FALSE(vertices.empty());
+    std::vector<f32> expected;
+    for (u32 card = 0; card < cards.GetCurveCount(); ++card)
+    {
+        const u32 first = cards.GetCurveFirstPoint(card);
+        for (u32 s = 0; s + 1u < cards.GetCurvePointCount(card); ++s)
+        {
+            const f32 g0 = level.PointCoverageGrowth[first + s];
+            const f32 g1 = level.PointCoverageGrowth[first + s + 1u];
+            expected.insert(expected.end(), { g0, g0, g1, g1 });
+        }
+    }
+    ASSERT_EQ(vertices.size(), expected.size());
+    for (sizet v = 0; v < vertices.size(); ++v)
+    {
+        EXPECT_FLOAT_EQ(vertices[v].CoverageGrowth, expected[v]) << "corner " << v;
+    }
+    (void)BuildGroomStrandMesh(GroomBuildSource::FromAsset(*groom), build, vertices, indices);
+    for (const GroomStrandVertex& vertex : vertices)
+    {
+        EXPECT_FLOAT_EQ(vertex.CoverageGrowth, 1.0f) << "an unthinned strand stands for itself";
+    }
+    // Thinned, the strand tier carries how many strands each kept one stands for
+    // (#1558): half the strands kept, two each.
+    build.MaxStrands = groom->GetCurveCount() / 2u;
+    build.MaxWidthCompensation = 8.0f;
+    const GroomStrandMeshStats thinned =
+        BuildGroomStrandMesh(GroomBuildSource::FromAsset(*groom), build, vertices, indices);
+    ASSERT_EQ(thinned.Stride, 2u);
+    ASSERT_FALSE(vertices.empty());
+    for (const GroomStrandVertex& vertex : vertices)
+    {
+        EXPECT_FLOAT_EQ(vertex.CoverageGrowth, 2.0f) << "a strand kept at stride 2 stands for two";
+    }
+}
+
+TEST(GroomLodCook, AWidenedCardCoversWhatItsMembersCoverFartherAway)
+{
+    // #1558. The shader widens a card cooked at one pixel footprint to what its
+    // members cover at a larger one, from its cooked and summed widths alone
+    // (GroomCardCoverageWiden). Cooking the same lock again at the larger
+    // footprint MEASURES that, so the law must predict the second cook from the
+    // first. The lock is the dog's regime: 32 half-millimetre strands on a
+    // 4.5 mm disc, cooked at an 8 mm pixel, about its card cell.
+    constexpr u32 kStrands = 32u;
+    constexpr f32 kWidth = 5.0e-4f;
+    const Ref<GroomAsset> groom = MakeSpreadLock(kStrands, 4.5e-3f, kWidth);
+    ASSERT_TRUE(groom);
+    GroomCardSettings settings;
+    settings.SourcePixelSize = 12.5f; // 0.1 m of lock across 12.5 px: an 8 mm pixel
+    GroomLodLevel cooked;
+    GroomCardBuildStats stats;
+    std::string reason;
+    ASSERT_TRUE(GroomLodBuilder::BuildCardLevel(*groom, settings, cooked, reason, &stats)) << reason;
+    ASSERT_EQ(stats.CardsBuilt, 1u);
+    ASSERT_NEAR(stats.PixelFootprint, 8.0e-3f, 1.0e-3f) << "the fixture must sit in the regime it claims";
+    // The middle point: the strands are straight, so every point measures the same.
+    const f32 summed = static_cast<f32>(kStrands) * kWidth;
+    const f32 width = cooked.PointWidths[1];
+    ASSERT_GT(summed / width, 1.5f) << "a lock whose strands barely overlap tests nothing";
+    EXPECT_NEAR(cooked.PointCoverageGrowth[1] * width, summed, summed * 1.0e-4f);
+
+    for (const f32 farther : { 1.5f, 2.0f, 3.0f })
+    {
+        GroomCardSettings distant = settings;
+        distant.SourcePixelSize = settings.SourcePixelSize / farther;
+        GroomLodLevel measured;
+        GroomCardBuildStats farStats;
+        ASSERT_TRUE(GroomLodBuilder::BuildCardLevel(*groom, distant, measured, reason, &farStats)) << reason;
+        const f32 pixel = farStats.PixelFootprint;
+        const f32 truth = measured.PointWidths[1];
+        ASSERT_GT(truth / width, 1.04f) << farther << "x farther: the members must cover more for this to test growth";
+        // The shader's units: the pixel now, and the cook's footprint as a share of it.
+        const f32 phi = 1.0f - GroomCardCoverageGrowthBlend(distant.SourcePixelSize, settings.SourcePixelSize);
+        ASSERT_NEAR(phi * pixel, stats.PixelFootprint, stats.PixelFootprint * 1.0e-4f);
+        const f32 predicted = width * GroomCardCoverageWiden(width / pixel, summed / pixel, phi);
+        EXPECT_NEAR(predicted / truth, 1.0f, 0.03f) << farther << "x farther";
+        // The negative control, the linear law this replaced: widened by the
+        // share of the footprint closed, it drew the dog's cards 13% over its
+        // strand tier at the hand-over, and here it overshoots by more than
+        // this test's tolerance at every distance.
+        const f32 linear = width * (1.0f + ((summed / width) - 1.0f) * (1.0f - phi));
+        EXPECT_GT(linear / truth, 1.06f) << farther << "x farther: the test no longer tells the laws apart";
+    }
+
+    // The identity at the cook's own footprint and for anything unmeasurable;
+    // never past the members' sum.
+    EXPECT_FLOAT_EQ(GroomCardCoverageWiden(0.5f, 1.0f, 1.0f), 1.0f);
+    EXPECT_NEAR(GroomCardCoverageWiden(0.5f, 1.0f, 0.9999f), 1.0f, 1.0e-3f);
+    EXPECT_FLOAT_EQ(GroomCardCoverageWiden(0.5f, 0.5f, 0.5f), 1.0f);
+    EXPECT_FLOAT_EQ(GroomCardCoverageWiden(0.0f, 1.0f, 0.5f), 1.0f);
+    EXPECT_FLOAT_EQ(GroomCardCoverageWiden(0.5f, std::numeric_limits<f32>::quiet_NaN(), 0.5f), 1.0f);
+    EXPECT_FLOAT_EQ(GroomCardCoverageWiden(0.5f, 1.0f, std::numeric_limits<f32>::infinity()), 1.0f);
+    for (const f32 phi : { 0.9f, 0.5f, 0.1f, 1.0e-3f })
+    {
+        for (const f32 cookedWidth : { 0.05f, 0.3f, 0.9f })
+        {
+            const f32 widen = GroomCardCoverageWiden(cookedWidth, 1.0f, phi);
+            EXPECT_GE(widen, 1.0f) << cookedWidth << " at " << phi;
+            EXPECT_LE(widen * cookedWidth, 1.0f + 1.0e-5f) << cookedWidth << " at " << phi;
+        }
+    }
+}
+
+TEST(GroomLodPolicy, ACardGrowsByTheShareOfItsCookedFootprintTheCoatHasShrunkPast)
+{
+    // #1558: 1 - pixelSize / sourcePixelSize below the cooked size -- one minus
+    // the cook's footprint in pixels now, which the shader's widening reads --
+    // and nothing at or above it, or for a size nobody measured.
+    EXPECT_FLOAT_EQ(GroomCardCoverageGrowthBlend(120.0f, 120.0f), 0.0f);
+    EXPECT_FLOAT_EQ(GroomCardCoverageGrowthBlend(200.0f, 120.0f), 0.0f);
+    EXPECT_FLOAT_EQ(GroomCardCoverageGrowthBlend(60.0f, 120.0f), 0.5f);
+    EXPECT_FLOAT_EQ(GroomCardCoverageGrowthBlend(30.0f, 120.0f), 0.75f);
+    EXPECT_FLOAT_EQ(GroomCardCoverageGrowthBlend(30.0f, 0.0f), 0.0f);
+    EXPECT_FLOAT_EQ(GroomCardCoverageGrowthBlend(0.0f, 120.0f), 0.0f);
+    EXPECT_FLOAT_EQ(GroomCardCoverageGrowthBlend(std::numeric_limits<f32>::quiet_NaN(), 120.0f), 0.0f);
+    EXPECT_FLOAT_EQ(GroomCardCoverageGrowthBlend(30.0f, std::numeric_limits<f32>::infinity()), 0.0f);
 }
 
 TEST(GroomLodCook, TheCardTierShadowIsBakedAtEachGroupsFibreArea)

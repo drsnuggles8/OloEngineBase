@@ -639,6 +639,8 @@ case 2551117928u: // GroomComponent
     comp.m_MaxPreviewStrands = std::clamp(comp.m_MaxPreviewStrands, static_cast<u32>(1), static_cast<u32>(200000));
     if (!SceneBinIO::Read(reader, comp.m_MaxRenderStrands)) return false;
     comp.m_MaxRenderStrands = std::clamp(comp.m_MaxRenderStrands, static_cast<u32>(1), static_cast<u32>(8000000));
+    if (!SceneBinIO::Read(reader, comp.m_MaxRenderSegments)) return false;
+    comp.m_MaxRenderSegments = std::clamp(comp.m_MaxRenderSegments, static_cast<u32>(1), static_cast<u32>(8000000));
     if (!SceneBinIO::Read(reader, comp.m_WidthScale)) return false;
     comp.m_WidthScale = std::clamp(comp.m_WidthScale, static_cast<f32>(0.01f), static_cast<f32>(100.0f));
     if (!SceneBinIO::Read(reader, comp.m_StrandColor)) return false;
@@ -683,7 +685,7 @@ case 2500729774u: // GroomFibreComponent
     {
         decltype(comp.m_PigmentMode) v{};
         if (!SceneBinIO::Read(reader, v)) return false;
-        if (v >= static_cast<decltype(comp.m_PigmentMode)>(0) && v <= static_cast<decltype(comp.m_PigmentMode)>(2))
+        if (v >= static_cast<decltype(comp.m_PigmentMode)>(0) && v <= static_cast<decltype(comp.m_PigmentMode)>(3))
             comp.m_PigmentMode = v;
     }
     {

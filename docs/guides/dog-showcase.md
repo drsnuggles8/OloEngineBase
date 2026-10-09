@@ -1,5 +1,7 @@
 # The furred dog showcase
 
+For the approved Bernese mountain dog and Samoyed, use the editable sources and rebuild commands in [dog-breeds.md](dog-breeds.md).
+
 `Scenes/Dog.olo` is the groom system's close-up subject (#1533): an original, scruffy
 golden-retriever-type dog on a lawn, with a coat you can put the camera into. Where
 [groom-animals.md](groom-animals.md) puts every groom child on three animals at range, this scene is
@@ -40,7 +42,7 @@ back at the origin.
 1. **The body and the coat**: `build_dog.py` (Blender 5.x, headless); see `Models/Dog/README.md`.
    It writes the mesh, the rig, the clips, the eyeball and the textures, then runs
    `build_dog_groom.py`, which grows the coat on the exported mesh and writes it as Alembic hair
-   curves to `.dog-groom/Dog.abc` (a git-ignored build output).
+   curves to `Models/Dog/Dog.abc`, beside the model (a git-ignored build output, #1558).
 2. **The cooked coat, its binding, the skin profiles and the scene**:
    `OLO_DOG_EXPORT=1 OloEngine-Tests --gtest_filter=DogShowcaseEvidenceTest.ExportsTheLiveScene`,
    run from `OloEditor/`. The fixture cooks the `.abc` with `AlembicGroomImporter`, binds it exactly

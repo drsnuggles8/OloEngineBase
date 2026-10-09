@@ -14,6 +14,7 @@
 #include "OloEngine/Groom/GroomLodBuilder.h"
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -101,6 +102,16 @@ namespace OloEngine
     //                          the prim's GroomCoatGroupDesc (every group the
     //                          prim holds gets it; without `groom_role` a group
     //                          keeps the role its NAME implies).
+    //   groom_card_cell_size   ONE value: the card tier's root-UV cell, metres
+    //   groom_card_points      ONE integer: control points per card
+    //                          The card tier the groom's author chose (#1558),
+    //                          for the whole archive: the cook builds it unless
+    //                          the caller passes Options::Cards, so the editor's
+    //                          "Import as Groom" cooks what the author's own
+    //                          pipeline ships. Every prim that authors either
+    //                          must agree, and the tier must pass
+    //                          GroomLodBuilder::ValidateCardSettings; anything
+    //                          else is REJECTED.
     //
     // A value with the wrong count is REJECTED, and so is anything authored
     // twice (`groom_guide` or `groom_role` as both an attribute and a property,
@@ -142,7 +153,11 @@ namespace OloEngine
         // error; the import logs the reason by name and the asset simply
         // never leaves the strand tier, which the inspector says out loud.
         bool BuildCardLod = true;
-        GroomCardSettings Cards;
+        // UNSET, the cook builds the tier the archive authors (the
+        // `groom_card_` user properties) and GroomCardSettings' defaults for
+        // whatever it does not; SET, these replace the archive's, and the
+        // import logs that it overrode them.
+        std::optional<GroomCardSettings> Cards;
     };
 
     class AlembicGroomImporter
@@ -181,6 +196,10 @@ namespace OloEngine
             std::vector<std::string> Warnings;
             u32 CurvesRead = 0;
             u32 PrimsRead = 0;
+            // The card tier the cook built with (or would have, when it built
+            // none), and the one the archive authored, if it authored one.
+            GroomCardSettings Cards;
+            std::optional<GroomCardSettings> AuthoredCards;
 
             [[nodiscard]] bool Succeeded() const noexcept
             {

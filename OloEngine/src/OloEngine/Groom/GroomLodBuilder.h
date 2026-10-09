@@ -266,6 +266,12 @@ namespace OloEngine
                                                  GroomLodLevel& out, std::string& outReason,
                                                  GroomCardBuildStats* outStats = nullptr);
 
+        /// The settings BuildCardLevel accepts: false with a named reason when
+        /// any is outside its bounds. Public so an importer can refuse a card
+        /// tier its SOURCE authored before cooking anything (#1558), with the
+        /// same bounds the build applies rather than a copy of them.
+        [[nodiscard]] static bool ValidateCardSettings(const GroomCardSettings& settings, std::string& outReason);
+
         /// Attaches `levels` to `groom`, replacing whatever it had, and
         /// re-validates. Returns false with a named reason and leaves the groom
         /// UNCHANGED on failure — a groom carrying a level that does not

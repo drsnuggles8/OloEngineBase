@@ -479,6 +479,7 @@ if (entity.HasComponent<GroomComponent>())
     SceneBinIO::Write(out, comp.m_RootMarkerSize);
     SceneBinIO::Write(out, comp.m_MaxPreviewStrands);
     SceneBinIO::Write(out, comp.m_MaxRenderStrands);
+    SceneBinIO::Write(out, comp.m_MaxRenderSegments);
     SceneBinIO::Write(out, comp.m_WidthScale);
     SceneBinIO::Write(out, comp.m_StrandColor);
     SceneBinIO::Write(out, comp.m_ShowPreview);

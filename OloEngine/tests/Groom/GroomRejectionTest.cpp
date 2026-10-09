@@ -637,4 +637,31 @@ TEST(GroomRejection, GroomDataAuthoredTwiceIsRejectedRatherThanOneCopyDropped)
     EXPECT_TRUE(Mentions(c.Diagnostic, "groom_role")) << c.Diagnostic;
 }
 
+TEST(GroomRejection, ACardTierTheArchiveCannotHaveIsRejected)
+{
+    // Issue #1558: the archive's card tier is one tier, and one a cook can build.
+    auto points = TwoStrandPrim("card-points");
+    points.UserDoubles = { { "groom_card_points", { 6.5 } } };
+    const auto a = ImportPrim(points, "card-fractional.abc");
+    EXPECT_FALSE(a.Succeeded());
+    EXPECT_TRUE(Mentions(a.Diagnostic, "groom_card_points")) << a.Diagnostic;
+
+    auto huge = TwoStrandPrim("card-huge");
+    huge.UserDoubles = { { "groom_card_cell_size", { 0.5 } } };
+    const auto b = ImportPrim(huge, "card-huge.abc");
+    EXPECT_FALSE(b.Succeeded());
+    EXPECT_TRUE(Mentions(b.Diagnostic, "card cell size")) << b.Diagnostic;
+
+    auto first = TwoStrandPrim("card-first");
+    first.UserDoubles = { { "groom_card_cell_size", { 0.012 } } };
+    auto second = TwoStrandPrim("card-second");
+    second.Positions = { { 2.0f, 0.0f, 0.0f }, { 2.0f, 1.0f, 0.0f }, { 3.0f, 0.0f, 0.0f }, { 3.0f, 1.0f, 0.0f } };
+    second.UserDoubles = { { "groom_card_cell_size", { 0.02 } } };
+    const std::filesystem::path path = Tests::TempFile("card-disagree.abc");
+    ASSERT_TRUE(Tests::GroomFixture::WriteArchive(path, { first, second }));
+    const auto c = AlembicGroomImporter::Import(path);
+    EXPECT_FALSE(c.Succeeded());
+    EXPECT_TRUE(Mentions(c.Diagnostic, "card tier")) << c.Diagnostic;
+}
+
 #endif // OLO_WITH_ALEMBIC

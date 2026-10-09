@@ -128,8 +128,7 @@ def build(source, output):
     (output/'Bernese.gltf').write_text(json.dumps(asset.doc,indent=2)+'\n')
     (output/'Bernese.bin').write_bytes(asset.data)
     # Reuse the established UV rasterizer without altering the shared generator.
-    sys.path.insert(0,str(Path(__file__).resolve().parent.parent/'Dog'))
-    import build_dog
+    import authoring_maps as build_dog
     base=np.asarray(Image.open(source/'BerneseCoatColor.png').convert('RGB'),dtype=float)/255.
     mask,covered=build_dog.raster_uv(np.concatenate(uv_triangles),np.concatenate(mask_triangles),base.shape[0])
     rust=ramp(.030,.095,base[:,:,0]-base[:,:,1])

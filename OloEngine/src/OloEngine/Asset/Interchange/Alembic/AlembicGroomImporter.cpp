@@ -16,6 +16,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
+#include <optional>
 #include <format>
 #include <fstream>
 #include <string>
@@ -49,6 +51,9 @@ namespace OloEngine
         // Issue #1533: the same data as USER PROPERTIES, the one channel
         // Blender's exporter gives hair curves (see the header's convention).
         constexpr const char* kRootUVPropertyName = "groom_root_uv";
+        // Issue #1558: the card tier the archive's author chose (see the header).
+        constexpr const char* kCardCellPropertyName = "groom_card_cell_size";
+        constexpr const char* kCardPointsPropertyName = "groom_card_points";
 
         // Accumulated across the whole archive. `Failed` short-circuits the
         // traversal: the first rejection is the one reported, and no later prim
@@ -66,6 +71,10 @@ namespace OloEngine
             bool Failed = false;
             std::string Diagnostic;
             std::vector<std::string> Warnings;
+            // The card tier the archive authors, and the first prim that did.
+            std::optional<f32> CardCellSize;
+            std::optional<u32> CardPoints;
+            std::string CardPrim;
 
             void Warn(std::string warning)
             {
@@ -283,6 +292,8 @@ namespace OloEngine
             bool AnyCoat = false;           // any group-coat field authored
             bool HasRole = false;
             GroomCoatGroupDesc Coat;
+            std::optional<f32> CardCellSize; // the archive's card tier, when this prim authors it
+            std::optional<u32> CardPoints;
         };
 
         // Reads every `groom_` user property of one ICurves prim, and REJECTS any
@@ -363,6 +374,27 @@ namespace OloEngine
                                                    primPath, name, v));
                             return false;
                         }
+                    }
+                    continue;
+                }
+                if (name == kCardCellPropertyName || name == kCardPointsPropertyName)
+                {
+                    const bool cell = name == kCardCellPropertyName;
+                    if (values.size() != 1u || !std::isfinite(values[0]) ||
+                        (!cell && (values[0] < 0.0 || values[0] != std::floor(values[0]) ||
+                                   values[0] > static_cast<f64>(std::numeric_limits<u32>::max()))))
+                    {
+                        state.Fail(std::format("'{}' user property '{}' must be one {}", primPath, name,
+                                               cell ? "finite number" : "non-negative integer"));
+                        return false;
+                    }
+                    if (cell)
+                    {
+                        out.CardCellSize = static_cast<f32>(values[0]);
+                    }
+                    else
+                    {
+                        out.CardPoints = static_cast<u32>(values[0]);
                     }
                     continue;
                 }
@@ -508,6 +540,28 @@ namespace OloEngine
             if (!ReadGroomUserProperties(state, schema.getUserProperties(), curveCount, primPath, user))
             {
                 return;
+            }
+            // The card tier is the archive's: a prim that authors it must say
+            // what every other prim that does says, or one of them is dropped.
+            if (user.CardCellSize || user.CardPoints)
+            {
+                const bool cellDisagrees = user.CardCellSize && state.CardCellSize &&
+                                           std::abs(*user.CardCellSize - *state.CardCellSize) >
+                                               1.0e-6f * std::max(1.0f, std::abs(*state.CardCellSize));
+                const bool pointsDisagree = user.CardPoints && state.CardPoints && *user.CardPoints != *state.CardPoints;
+                if (cellDisagrees || pointsDisagree)
+                {
+                    state.Fail(std::format("'{}' authors a different card tier from '{}': an archive cooks one card "
+                                           "tier, and keeping either would drop the other's",
+                                           primPath, state.CardPrim));
+                    return;
+                }
+                if (state.CardPrim.empty())
+                {
+                    state.CardPrim = primPath;
+                }
+                state.CardCellSize = user.CardCellSize ? user.CardCellSize : state.CardCellSize;
+                state.CardPoints = user.CardPoints ? user.CardPoints : state.CardPoints;
             }
 
             // ── Widths ──
@@ -1145,6 +1199,30 @@ namespace OloEngine
         state.Builder.SetProvenance(std::move(provenance));
         state.Builder.SetName(path.stem().string());
 
+        // The card tier: the caller's, else the archive's, else the defaults.
+        std::optional<GroomCardSettings> authoredCards;
+        if (state.CardCellSize || state.CardPoints)
+        {
+            GroomCardSettings authored;
+            authored.CellSize = state.CardCellSize.value_or(authored.CellSize);
+            authored.PointsPerCard = state.CardPoints.value_or(authored.PointsPerCard);
+            if (std::string why; !GroomLodBuilder::ValidateCardSettings(authored, why))
+            {
+                return Result::Failure(std::format("AlembicGroomImporter: '{}' authors a card tier ('{}') no cook can "
+                                                   "build: {}",
+                                                   path.string(), state.CardPrim, why));
+            }
+            authoredCards = authored;
+        }
+        const GroomCardSettings cards = options.Cards.value_or(authoredCards.value_or(GroomCardSettings{}));
+        if (options.Cards && authoredCards)
+        {
+            OLO_CORE_INFO("AlembicGroomImporter: '{}' authors a card tier (cell {:.4f}, {} points); the caller's "
+                          "(cell {:.4f}, {} points) replaces it",
+                          path.filename().string(), authoredCards->CellSize, authoredCards->PointsPerCard,
+                          options.Cards->CellSize, options.Cards->PointsPerCard);
+        }
+
         Ref<GroomAsset> groom = state.Builder.Build(reason);
         if (!groom)
         {
@@ -1179,18 +1257,19 @@ namespace OloEngine
         // GroomLodFallbackReason::LevelNotCooked say so out loud.
         if (options.BuildCardLod)
         {
-            GroomLodLevel cards;
+            GroomLodLevel cardLevel;
             GroomCardBuildStats cardStats;
             std::string cardReason;
-            if (GroomLodBuilder::BuildCardLevel(*groom, options.Cards, cards, cardReason, &cardStats))
+            if (GroomLodBuilder::BuildCardLevel(*groom, cards, cardLevel, cardReason, &cardStats))
             {
-                if (GroomLodBuilder::AttachLodLevels(*groom, { std::move(cards) }, cardReason))
+                if (GroomLodBuilder::AttachLodLevels(*groom, { std::move(cardLevel) }, cardReason))
                 {
-                    OLO_CORE_INFO("AlembicGroomImporter: '{}' cooked {} cards from {} strands (cell {:.4f}, "
-                                  "cluster min {} mean {:.1f} max {})",
+                    OLO_CORE_INFO("AlembicGroomImporter: '{}' cooked {} cards from {} strands (cell {:.4f}, {} points, "
+                                  "{}; cluster min {} mean {:.1f} max {})",
                                   path.filename().string(), cardStats.CardsBuilt, cardStats.CurvesConsidered,
-                                  options.Cards.CellSize, cardStats.SmallestCluster, cardStats.MeanCluster,
-                                  cardStats.LargestCluster);
+                                  cards.CellSize, cards.PointsPerCard,
+                                  options.Cards ? "the caller's" : (authoredCards ? "the archive's" : "the defaults"),
+                                  cardStats.SmallestCluster, cardStats.MeanCluster, cardStats.LargestCluster);
                 }
                 else
                 {
@@ -1219,6 +1298,8 @@ namespace OloEngine
         result.Warnings = std::move(state.Warnings);
         result.CurvesRead = state.CurvesRead;
         result.PrimsRead = state.PrimsRead;
+        result.Cards = cards;
+        result.AuthoredCards = authoredCards;
         return result;
     }
 } // namespace OloEngine

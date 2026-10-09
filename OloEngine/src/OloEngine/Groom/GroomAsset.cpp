@@ -57,6 +57,7 @@ namespace OloEngine
         bytes += static_cast<u64>(CurveGroupIds.size()) * sizeof(u16);
         bytes += static_cast<u64>(CurveFlags.size()) * sizeof(u8);
         bytes += static_cast<u64>(SourceCurves.size()) * sizeof(u32);
+        bytes += static_cast<u64>(PointCoverageGrowth.Num()) * sizeof(f32);
         return bytes;
     }
 
@@ -79,7 +80,9 @@ namespace OloEngine
                Math::BitwiseEqual(SourcePixelSize, other.SourcePixelSize) && CurveOffsets == other.CurveOffsets &&
                CurveGroupIds == other.CurveGroupIds && CurveFlags == other.CurveFlags &&
                SourceCurves == other.SourceCurves && bytesEqual(Points, other.Points) &&
-               bytesEqual(PointWidths, other.PointWidths) && bytesEqual(RootUVs, other.RootUVs);
+               bytesEqual(PointWidths, other.PointWidths) && bytesEqual(RootUVs, other.RootUVs) &&
+               bytesEqual(std::span<const f32>(PointCoverageGrowth.GetData(), PointCoverageGrowth.Num()),
+                          std::span<const f32>(other.PointCoverageGrowth.GetData(), other.PointCoverageGrowth.Num()));
     }
 
     bool GroomLodLevel::Validate(u32 baseCurveCount, u32 groupCount, std::string& outReason) const
@@ -139,6 +142,12 @@ namespace OloEngine
                                     SourceCurves.size(), curveCount);
             return false;
         }
+        if (PointCoverageGrowth.Num() != Points.size())
+        {
+            outReason = std::format("LOD level coverage growth has {} entries but the level has {} points",
+                                    PointCoverageGrowth.Num(), Points.size());
+            return false;
+        }
         for (u32 curve = 0; curve < curveCount; ++curve)
         {
             if (SourceCurves[curve] >= baseCurveCount)
@@ -188,6 +197,16 @@ namespace OloEngine
             if (!std::isfinite(width) || width < 0.0f || width > GroomLimits::MaxWidth)
             {
                 outReason = std::format("LOD level width {} is {}, outside [0, {}]", p, width, GroomLimits::MaxWidth);
+                return false;
+            }
+            // A card never covers more than its members' sum, so growth is at
+            // least 1; the cap bounds a corrupt value the shader would otherwise
+            // widen a card by without limit.
+            const f32 growth = PointCoverageGrowth[p];
+            if (!std::isfinite(growth) || growth < 1.0f || growth > GroomLimits::MaxCoverageGrowth)
+            {
+                outReason = std::format("LOD level coverage growth {} is {}, outside [1, {}]", p, growth,
+                                        GroomLimits::MaxCoverageGrowth);
                 return false;
             }
         }

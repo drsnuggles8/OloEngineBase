@@ -63,6 +63,23 @@ in [groom-representation-lod.md](groom-representation-lod.md).
    depends on its resolution and its march step, and differently for cards and strands (#1508). Pin
    both arms to one converged volume (128^3, half-voxel steps) to judge the representation.
 
+8. **A card widens to what its members cover at the pixel it is drawn at (#1558).** Rule 1's
+   covered width holds at the cook's pixel. Farther away the members cover more, toward their sum `S`:
+   bands spread over an extent `E` cover about `(E + f)(1 - exp(-S / (E + f)))` of a pixel `f` wide.
+   Each card point carries summed / covered (`GroomLodLevel::PointCoverageGrowth`, format v5). The
+   shader fixes `E` from the cooked width at the cook's footprint and widens the card to the same
+   curve at the pixel now (`GroomCardCoverageWiden`). On a lock about the size of the cook's pixel this
+   predicts a second cook at 1.5-3x the footprint within 1.4%. Laws without `E` overshoot: the linear
+   share of the footprint closed drew the dog's cards 13% over its strands at the hand-over, and the
+   compact `f (1 - exp(-S/f))` up to 27%. Held at its cooked width, the adult dog's card tier fell
+   10-15% short of every strand at 45 m.
+
+9. **The card cell sets how far a card averages its lock (#1558).** A wide card reads the body's
+   shadow across its ribbon (receiving no scene shadow recovered a third of the dog's step) and shows
+   its lock's mean tip, not its outer tips. At the 12 mm cell the adult dogs' cards were 7-9% darker
+   than their strands; at 9 mm both coverage and energy are within the 5% bar. Widening the fibre
+   lobes by the members' tangent spread does not help: 0.25 rad moved the step 1.2%.
+
 ## Measured
 
 `TheCoatKeepsItsCoverageFromNearToFar`, GL, frozen pose, ladder on / off, after #1533 (rule 4a,
@@ -98,12 +115,11 @@ coat on cards with the same coat on strands at the same visibility step. `m_Card
 smallest threshold the policy keeps; 0 reads as unset and falls back to 256. Cards cover 0.9-1.6% more
 and send 3.6-4.8% less light, inside the near ladder's 5% step bar.
 
-The split at 22 m, cards over strands in energy: 0.960 shipped, 0.953 at kappa 0, 0.941 without the
-sky, 1.110 with single scattering only, 0.985 unlit (coverage 1.015 throughout). So it is the fibre
-model, not the shadow: a card's single scattering is brighter than its strands', and its
-multiple-scattering back-scatter, a lobe of the tangent, much weaker. A card shades at its kept
-strand's one tangent while its members spread around it. Widening a card's lobes by that spread is
-the fix that would take the step toward zero; it needs the spread cooked per card.
+The split at 22 m, cards over strands in energy (#1533's puppy): 0.960 shipped, 0.953 at kappa 0,
+0.941 without the sky, 1.110 with single scattering only, 0.985 unlit. Unshadowed, cards are darker
+than their strands in every lobe; the coat's self-shadow darkens the strands more, which offsets most
+of it. The adult dogs (#1558) broke that balance at the 12 mm cell (0.91-0.94); rule 9 is the fix,
+and the test now runs for every breed at the golden's distances scaled to the dog.
 
 ## What does not help
 

@@ -367,6 +367,9 @@ jobs:
       # plumbing; WorkerRestartTest exceeds the timeout under instrumentation;
       # the GNS-driving suites are not UBSan/TSan-clean inside vendored code,
       # see #636) are documented on the twins and not repeated.
+      - name: Restore full model and groom assets
+        uses: ./.github/actions/restore-lfs-assets
+
       - name: Resolve sanitizer arm
         id: arm
         shell: bash

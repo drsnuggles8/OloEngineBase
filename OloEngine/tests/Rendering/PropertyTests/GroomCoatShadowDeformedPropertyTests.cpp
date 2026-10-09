@@ -669,8 +669,16 @@ TEST(GroomCoatShadowDeformed, ASubsetBakeKeepsTheShadowItReplaces)
     // EXCESS over the full bake's own error (the representation's bias sits
     // under every arm equally). The shipped target is the stride
     // CoatBakeSubsetStride picks at CoatRebakePolicy's default.
-    const Pelt pelt = MakePelt(40000u);
+    // Enough fine fibres to exercise thinning with a smooth density kernel.
+    // Halving their radii keeps the optical mass of the 40k-strand pelt;
+    // increasing density alone would make an almost opaque test easier.
+    Pelt pelt = MakePelt(80000u);
     ASSERT_TRUE(pelt.Groom);
+    for (CoatSegment& segment : pelt.RestSegments)
+    {
+        segment.RadiusA *= 0.5f;
+        segment.RadiusB *= 0.5f;
+    }
     constexpr u32 kResolution = 32u;
 
     DensityVolumeSettings settings;

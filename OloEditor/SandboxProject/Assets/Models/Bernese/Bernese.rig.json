@@ -1,4 +1,5 @@
 {
+  "eyeProfile": "Models/Bernese/BerneseEye.oloskin",
   "units": "metres, glTF Y-up, the head faces +Z",
   "breed": "bernese",
   "assembly": {

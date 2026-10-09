@@ -78,8 +78,7 @@ def build(source,output):
     profile=(source/'BerneseEye.oloskin').read_text().replace('    - 0.46\n    - 0.48\n    - 0.50','    - 0.36\n    - 0.42\n    - 0.47')
     profile=profile.replace('IrisRadiusMM: 9.6','IrisRadiusMM: 8.4').replace('PupilRadiusMM: 3.5','PupilRadiusMM: 2.8').replace('IrisPlaneDepthMM: 5.0','IrisPlaneDepthMM: 3.4')
     (output/'BerneseEye.oloskin').write_text(profile)
-    sys.path.insert(0,str(Path(__file__).resolve().parent.parent/'Dog'))
-    import build_dog
+    import authoring_maps as build_dog
     build_dog.IRIS_LIMBUS=8.4/12.
     build_dog.IRIS_PUPIL=2.8/12.
     build_dog.IRIS_SCLERA_LINEAR=(.12,.08,.07)
@@ -90,6 +89,7 @@ def build(source,output):
     Image.fromarray(np.uint8(np.clip(pixels*255+.5,0,255))).save(output/'BerneseIrisColor.png')
     for key in ('eyeRadius','lidInnerRadius','socketRadius'):rig[key]*=1.18
     rig['assembly']['lid']=rig['assembly']['pelt']
+    rig['eyeProfile']='Models/Bernese/BerneseEye.oloskin'
     (output/'Bernese.rig.json').write_text(json.dumps(rig,indent=2)+'\n')
     report=dict(rows=rows,animations=animation_report,closedBlinkUsesOriginalAperture=True)
     (output/'bernese-expression-refinement.json').write_text(json.dumps(report,indent=2)+'\n');print(json.dumps(report,indent=2))

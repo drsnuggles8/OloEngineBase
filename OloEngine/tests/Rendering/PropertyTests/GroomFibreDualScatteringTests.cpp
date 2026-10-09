@@ -20,7 +20,8 @@
 //      the BCSDF on screen, not a second description of it.
 //   2. THE CONSTANTS mean what they say: a pale fibre forwards most of what it
 //      intercepts, in its own colour; a dark one forwards little; A_b is
-//      Zinke's series of those two.
+//      Zinke's series of those two, summed to every order (#1558), which a
+//      coat of clear fibres needs to return all of the light.
 //   3. THE LOBE integrates to A_b and vanishes over the forward half-circle.
 //   4. THE TRANSMITTANCE reduces to the #1248 term when nothing is forwarded,
 //      is never below it, and fails bright on corrupt input like it.
@@ -173,23 +174,67 @@ namespace OloEngine::Tests
         }
     }
 
-    TEST(GroomFibreDualScatteringTest, TheMultipleBackScatterIsZinkesSeriesOfTheTwoFractions)
+    TEST(GroomFibreDualScatteringTest, TheMultipleBackScatterIsZinkesSeriesSummedToEveryOrder)
     {
-        // A1 + A3 recomputed from the struct's own a_f and a_b. Exact: the
-        // point is that the stored value IS that series, so a later edit to
-        // one side cannot leave the other describing a different coat.
+        // A_b recomputed from the struct's own a_f and a_b as the reflectance
+        // of a stack of layers that each reflect a_b and transmit a_f, less the
+        // first layer's (#1558). Exact: the stored value IS that sum, so a later
+        // edit to one side cannot leave the other describing a different coat.
         for (const glm::vec3& colour : { kGolden, kBrown, kClear })
         {
             const GroomFibreDualScattering dual = MakeColoured(colour).Dual;
             for (int c = 0; c < 3; ++c)
             {
-                const f32 af = dual.ForwardScatter[c];
-                const f32 ab = dual.BackwardScatter[c];
-                const f32 d = 1.0f - (af * af);
-                const f32 expected = ((ab * af * af) / d) + ((ab * ab * ab * af * af) / (d * d * d));
-                EXPECT_NEAR(dual.MultipleBackScatter[c], expected, 1.0e-5f * std::max(1.0f, expected))
+                const f64 af = dual.ForwardScatter[c];
+                const f64 ab = dual.BackwardScatter[c];
+                const f64 a = 1.0 + (ab * ab) - (af * af);
+                const f64 stack = (a - std::sqrt(std::max((a * a) - (4.0 * ab * ab), 0.0))) / (2.0 * ab);
+                const f64 expected = stack - ab;
+                EXPECT_NEAR(dual.MultipleBackScatter[c], expected, 1.0e-4 * std::max(1.0, expected))
                     << "colour " << colour[c] << " channel " << c;
                 EXPECT_TRUE(std::isfinite(dual.MultipleBackScatter[c]));
+
+                // Zinke's A1 + A3 are its first two terms, and every further
+                // term is positive: the sum never falls below the cut series.
+                const f64 d = 1.0 - (af * af);
+                const f64 cut = ((ab * af * af) / d) + ((ab * ab * ab * af * af) / (d * d * d));
+                EXPECT_GE(dual.MultipleBackScatter[c], cut - 1.0e-5) << "colour " << colour[c] << " channel " << c;
+            }
+        }
+
+        // AN ABSORBING FIBRE LOSES NOTHING TO THE CUT: the terms past A3 carry
+        // a_b^5, and a brown fibre's sum is the paper's series to well inside a
+        // per cent.
+        {
+            const GroomFibreDualScattering brown = MakeColoured(kBrown).Dual;
+            for (int c = 0; c < 3; ++c)
+            {
+                const f32 af = brown.ForwardScatter[c];
+                const f32 ab = brown.BackwardScatter[c];
+                const f32 d = 1.0f - (af * af);
+                const f32 cut = ((ab * af * af) / d) + ((ab * ab * ab * af * af) / (d * d * d));
+                EXPECT_NEAR(brown.MultipleBackScatter[c], cut, 0.005f * cut + 1.0e-6f) << "channel " << c;
+            }
+        }
+
+        // THE WHITE FURNACE. A fibre that absorbs nothing forwards or returns
+        // everything it intercepts (a_f + a_b = 1), so a deep stack of them
+        // reflects everything: a_b off the first layer and A_b = a_f from the
+        // rest. The paper's A1 + A3 stops at about 0.6 of that, which is the
+        // light a white coat lost in the shade before #1558.
+        {
+            const GroomFibreDualScattering clear = MakeColoured(kClear).Dual;
+            for (int c = 0; c < 3; ++c)
+            {
+                const f32 af = clear.ForwardScatter[c];
+                const f32 ab = clear.BackwardScatter[c];
+                ASSERT_NEAR(af + ab, 1.0f, 1.0e-3f) << "a clear fibre absorbs nothing, channel " << c;
+                EXPECT_NEAR(clear.MultipleBackScatter[c] + ab, 1.0f, 2.0e-3f)
+                    << "a deep coat of clear fibres must return all of the light, channel " << c;
+                const f32 d = 1.0f - (af * af);
+                const f32 cut = ((ab * af * af) / d) + ((ab * ab * ab * af * af) / (d * d * d));
+                EXPECT_LT(cut, 0.7f * clear.MultipleBackScatter[c])
+                    << "the cut series no longer falls short for a clear fibre; this assertion's premise moved";
             }
         }
         // And it is what makes a pale coat pale: the local back-scatter of a

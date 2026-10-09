@@ -41,6 +41,9 @@ OloEditor/SandboxProject/Assets/Models/Bernese/Bernese.bin filter=lfs diff=lfs m
 OloEditor/SandboxProject/Assets/Models/Bernese/Bernese.abc filter=lfs diff=lfs merge=lfs -text
 OloEditor/SandboxProject/Assets/Grooms/Bernese/Bernese.ologroom filter=lfs diff=lfs merge=lfs -text
 OloEditor/SandboxProject/Assets/Grooms/Bernese/Bernese.ologroombinding filter=lfs diff=lfs merge=lfs -text
+tools/dog-authoring/sources/Samoyed/Samoyed.bin filter=lfs diff=lfs merge=lfs -text
+tools/dog-authoring/sources/SamoyedLidSource/Samoyed.bin filter=lfs diff=lfs merge=lfs -text
+tools/dog-authoring/sources/Bernese/Bernese.bin filter=lfs diff=lfs merge=lfs -text
 
 # Mark vendor as vendored (hides from GitHub linguist and other tooling)
 vendor/** linguist-vendored

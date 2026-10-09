@@ -559,6 +559,7 @@ if (entity.HasComponent<GroomComponent>())
     out << YAML::Key << "RootMarkerSize" << YAML::Value << comp.m_RootMarkerSize;
     out << YAML::Key << "MaxPreviewStrands" << YAML::Value << comp.m_MaxPreviewStrands;
     out << YAML::Key << "MaxRenderStrands" << YAML::Value << comp.m_MaxRenderStrands;
+    out << YAML::Key << "MaxRenderSegments" << YAML::Value << comp.m_MaxRenderSegments;
     out << YAML::Key << "WidthScale" << YAML::Value << comp.m_WidthScale;
     out << YAML::Key << "StrandColor" << YAML::Value << comp.m_StrandColor;
     out << YAML::Key << "ShowPreview" << YAML::Value << comp.m_ShowPreview;

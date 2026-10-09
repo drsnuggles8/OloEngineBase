@@ -39,6 +39,7 @@
 #include "TestTempDir.h"
 
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
+#include "OloEngine/Animation/MorphTargets/MorphTargetEvaluator.h"
 #include "OloEngine/Animation/Skeleton.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
@@ -141,17 +142,57 @@ namespace OloEngine::Tests
         constexpr u32 kWidth = 1280;
         constexpr u32 kHeight = 720;
 
+        [[nodiscard]] bool IsAuthoringCook()
+        {
+            const auto* test = ::testing::UnitTest::GetInstance()->current_test_info();
+            const char* destination = std::getenv("OLO_DOG_COOK_DIR");
+            return test != nullptr && std::string_view(test->name()) == "CooksTheAuthoredCoatAndBinding" &&
+                   destination != nullptr && destination[0] != '\0';
+        }
+
         [[nodiscard]] fs::path SandboxAssets()
         {
+            if (const char* source = std::getenv("OLO_DOG_ASSET_ROOT"); IsAuthoringCook() && source != nullptr && source[0] != '\0')
+            {
+                return fs::path(source);
+            }
             return fs::path{ OLO_TEST_EDITOR_ROOT } / "SandboxProject" / "Assets";
+        }
+        // THE BREED (#1558). build_dog.py writes each breed's files under its own
+        // prefix into Models/<prefix>/ -- Dog for the golden of #1533, Bernese,
+        // Samoyed -- and the scene export cooks its coat into Grooms/<prefix>/.
+        // OLO_DOG_BREED=<prefix> picks the breed a run draws; unset, the golden.
+        // BreedShowcaseEvidenceTest sets its case's breed over both.
+        [[nodiscard]] std::string& BreedPrefixOverride()
+        {
+            static std::string prefix;
+            return prefix;
+        }
+        [[nodiscard]] const std::string& BreedPrefix()
+        {
+            static const std::string fromEnvironment = []
+            {
+                const char* v = std::getenv("OLO_DOG_BREED");
+                return std::string(v != nullptr && v[0] != '\0' ? v : "Dog");
+            }();
+            return BreedPrefixOverride().empty() ? fromEnvironment : BreedPrefixOverride();
         }
         [[nodiscard]] fs::path DogDir()
         {
-            return SandboxAssets() / "Models" / "Dog";
+            return SandboxAssets() / "Models" / BreedPrefix();
+        }
+        // One of the breed's files: DogFile("CoatColor.png") is Models/Dog/DogCoatColor.png.
+        [[nodiscard]] fs::path DogFile(std::string_view suffix)
+        {
+            return DogDir() / (BreedPrefix() + std::string(suffix));
         }
         [[nodiscard]] fs::path DogPath()
         {
-            return DogDir() / "Dog.gltf";
+            return DogFile(".gltf");
+        }
+        [[nodiscard]] fs::path DogGroomFile(std::string_view suffix)
+        {
+            return SandboxAssets() / "Grooms" / BreedPrefix() / (BreedPrefix() + std::string(suffix));
         }
 
         // ---------------------------------------------------------------------
@@ -169,6 +210,24 @@ namespace OloEngine::Tests
             f32 EyeRadius = 0.0f;
             f32 SocketRadius = 0.0f;
             std::array<EyeDesc, 2> Eyes; // L, R
+            // How the breed is dressed (dog_breeds.py's Assembly), linear RGB:
+            // DogSkin's and DogLid's base colours, which multiply the coat map,
+            // and the strands' base colour under it.
+            glm::vec3 Pelt{ 0.0f };
+            glm::vec3 Lid{ 0.0f };
+            glm::vec3 Fibre{ 0.0f };
+            // How the coat map's colour reaches a strand: BaseColor (a tint on
+            // what the fibre returns, as the golden was graded) or
+            // BaseColorPerStrand (the strand's own pigment inside its fibre).
+            GroomFibrePigmentMode Pigment = GroomFibrePigmentMode::BaseColor;
+            // How fast the Walk clip travels (m/s): build_dog.py's WALK_SPEED times
+            // the breed's stride, which its warp lengthens with the legs.
+            f32 WalkSpeed = 0.0f;
+            // Where the coat's Alembic source is, as the cooked coat records it:
+            // project-relative ("Assets/...") where the editor imports it, else
+            // repository-relative (dog_breeds.py's Breed.coat_source).
+            std::string CoatSource;
+            fs::path EyeProfile = fs::path{ "Materials" } / "DogEye.oloskin";
             bool Valid = false;
         };
 
@@ -180,7 +239,7 @@ namespace OloEngine::Tests
         [[nodiscard]] RigDesc ReadRig()
         {
             RigDesc rig;
-            std::ifstream in(DogDir() / "Dog.rig.json");
+            std::ifstream in(DogFile(".rig.json"));
             if (!in)
             {
                 return rig;
@@ -192,6 +251,18 @@ namespace OloEngine::Tests
             }
             rig.EyeRadius = j.value("eyeRadius", 0.0f);
             rig.SocketRadius = j.value("socketRadius", rig.EyeRadius * 1.15f);
+            rig.EyeProfile = j.value("eyeProfile", rig.EyeProfile.generic_string());
+            if (rig.EyeProfile.empty() || rig.EyeProfile.has_root_path() || rig.EyeProfile.extension() != ".oloskin")
+            {
+                return rig;
+            }
+            for (const auto& part : rig.EyeProfile)
+            {
+                if (part == "..")
+                {
+                    return rig;
+                }
+            }
             const char* sides[2] = { "L", "R" };
             for (u32 i = 0; i < 2u; ++i)
             {
@@ -201,7 +272,27 @@ namespace OloEngine::Tests
                 rig.Eyes[i].Gaze = glm::normalize(Vec3Of(e.at("gaze")));
                 rig.Eyes[i].Up = glm::normalize(Vec3Of(e.at("up")));
             }
-            rig.Valid = rig.EyeRadius > 0.0f;
+            // No assembly, no dog: a default dressing would draw some other breed's coat.
+            if (!j.contains("assembly"))
+            {
+                return rig;
+            }
+            const auto& assembly = j.at("assembly");
+            rig.CoatSource = j.value("coatSource", std::string());
+            rig.WalkSpeed = j.value("walkSpeed", 0.0f);
+            rig.Pelt = Vec3Of(assembly.at("pelt"));
+            rig.Lid = Vec3Of(assembly.at("lid"));
+            rig.Fibre = Vec3Of(assembly.at("fibre"));
+            const std::string pigment = assembly.value("pigment", std::string());
+            if (pigment == "perStrand")
+            {
+                rig.Pigment = GroomFibrePigmentMode::BaseColorPerStrand;
+            }
+            else if (pigment != "baseColor")
+            {
+                return rig; // a dressing this fixture does not know draws no dog rather than the wrong one
+            }
+            rig.Valid = rig.EyeRadius > 0.0f && !rig.CoatSource.empty() && rig.WalkSpeed > 0.0f;
             return rig;
         }
 
@@ -218,15 +309,27 @@ namespace OloEngine::Tests
             glm::vec3 EyeMid{ 0.0f };
         };
 
+        // THE FRAMINGS ARE #1533's GOLDEN'S, scaled to the dog: every view below
+        // is placed round a dog standing at the origin whose eyes are 0.584 m up,
+        // and each dog's views -- the golden's too, whose adult head (#1558) sits
+        // a little lower -- are the same ones scaled about the origin by its eye
+        // height over that. Set from the rig when the dog is installed.
+        constexpr f32 kGoldenEyeHeight = 0.584f;
+        f32 s_BreedViewScale = 1.0f;
+        // The eyes' midpoint, which a head view (View::Head) is placed round.
+        glm::vec3 s_EyeMid{ 0.0f, kGoldenEyeHeight, 0.49f };
+
         // THE COAT is grown in Blender (issue #1533): build_dog_groom.py writes it as
-        // .dog-groom/Dog.abc at the repository root, one hair object per coat group
-        // carrying its coat as `groom_` user properties, and the editor's own
-        // AlembicGroomImporter cooks it. The .abc is a ~60 MB build output, kept
-        // out of SandboxProject/Assets because the editor registers whatever it
-        // finds there; what ships -- and what CI draws -- is its cooked form,
-        // Grooms/Dog/Dog.ologroom, which ExportsTheLiveScene writes. The fixture
-        // cooks the .abc itself only when asked: OLO_DOG_ABC=1 (or a path) for look
-        // development, and OLO_DOG_EXPORT=1, which then ships what it cooked.
+        // one hair object per coat group carrying its coat as `groom_` user
+        // properties, at the breed's coat source (the rig's coatSource: beside the
+        // model, Assets/Models/<prefix>/<prefix>.abc, where the Content Browser
+        // imports it, #1558), and the editor's
+        // own AlembicGroomImporter cooks it. The archive is a ~60 MB build output,
+        // git-ignored; what ships -- and what CI draws -- is its cooked form,
+        // Grooms/<prefix>/<prefix>.ologroom, which ExportsTheLiveScene writes. The
+        // fixture cooks the archive itself only when asked: OLO_DOG_ABC=1 (or a
+        // path) for look development, and OLO_DOG_EXPORT=1, which then ships what
+        // it cooked.
         struct DogCoatAsset
         {
             Ref<GroomAsset> Groom;
@@ -236,13 +339,17 @@ namespace OloEngine::Tests
             bool FromAbc = false;
         };
 
-        [[nodiscard]] fs::path DogCoatAbcPath()
+        [[nodiscard]] fs::path DogCoatAbcPath(const std::string& coatSource)
         {
             if (const char* v = std::getenv("OLO_DOG_ABC"); v != nullptr && v[0] != '\0' && std::string(v) != "1")
             {
                 return fs::path(v);
             }
-            return fs::path{ OLO_TEST_EDITOR_ROOT }.parent_path() / ".dog-groom" / "Dog.abc";
+            if (coatSource.starts_with("Assets/"))
+            {
+                return SandboxAssets() / coatSource.substr(7);
+            }
+            return fs::path{ OLO_TEST_EDITOR_ROOT }.parent_path() / coatSource;
         }
 
         [[nodiscard]] bool DogCoatFromAbc()
@@ -253,37 +360,37 @@ namespace OloEngine::Tests
                    (exporting != nullptr && exporting[0] == '1');
         }
 
-        // The cards the coat hands over to at range: a 1.2 cm root-UV cell for a
-        // subject seen close (the horses' 5 cm default made one card of a cheek).
-        [[nodiscard]] GroomCardSettings DogCardSettings()
-        {
-            GroomCardSettings cards;
-            cards.CellSize = 0.012f;
-            cards.PointsPerCard = 6;
-            return cards;
-        }
-
-        [[nodiscard]] DogCoatAsset LoadDogCoat()
+        [[nodiscard]] DogCoatAsset LoadDogCoat(const RigDesc& rig)
         {
             DogCoatAsset out;
             if (DogCoatFromAbc())
             {
 #if defined(OLO_WITH_ALEMBIC)
-                const fs::path abc = DogCoatAbcPath();
+                const fs::path abc = DogCoatAbcPath(rig.CoatSource);
                 if (!fs::exists(abc))
                 {
                     ADD_FAILURE() << abc.string() << " is missing: build_dog_groom.py writes it (see its header)";
                     return out;
                 }
                 AlembicGroomImporter::Options options;
-                options.ProvenancePath = ".dog-groom/Dog.abc"; // repository-relative, never absolute
+                // Never absolute; project-relative where the editor imports it, so
+                // its "Import as Groom" writes the bytes this ships.
+                options.ProvenancePath = rig.CoatSource;
+                // THE CARD TIER IS THE ARCHIVE'S (#1558): build_dog_groom.py writes the
+                // breed's -- a 1.2 cm root-UV cell for a subject seen close, where the
+                // horses' 5 cm default made one card of a cheek -- so the editor's
+                // "Import as Groom", which passes none, cooks this same coat.
                 options.BuildCardLod = true;
-                options.Cards = DogCardSettings();
                 const auto imported = AlembicGroomImporter::Import(abc, options);
                 if (!imported.Succeeded())
                 {
                     ADD_FAILURE() << "cooking " << abc.string() << ": " << imported.Diagnostic;
                     return out;
+                }
+                if (!imported.AuthoredCards)
+                {
+                    ADD_FAILURE() << abc.string() << " authors no card tier (groom_card_cell_size, groom_card_points): "
+                                  << "an editor import would cook other cards than this one; re-run build_dog_groom.py";
                 }
                 // Every warning is authored data the coat arrived without.
                 for (const std::string& warning : imported.Warnings)
@@ -299,7 +406,7 @@ namespace OloEngine::Tests
             }
             else
             {
-                const fs::path cooked = SandboxAssets() / "Grooms" / "Dog" / "Dog.ologroom";
+                const fs::path cooked = SandboxAssets() / "Grooms" / BreedPrefix() / (BreedPrefix() + ".ologroom");
                 std::ifstream in(cooked, std::ios::binary | std::ios::ate);
                 if (!in)
                 {
@@ -373,6 +480,20 @@ namespace OloEngine::Tests
             RigDesc Rig;
             u32 CardCount = 0;
         };
+
+        // The cases every breed runs (BreedShowcaseEvidenceTest), each also the
+        // golden's TEST_F of the same name.
+        void TheDogIsFurredFromEveryHeroAngle();
+        void TheResolveSettlesTheCoatAtRestAndInMotion();
+        void TheLodLadderKeepsCoverageAndEnergyFromCloseUpTo15m();
+        void TheCoatsRootsStayOnTheSkinThroughEveryClip();
+        void TheShippedCoatAndBindingSurviveTheLooseAndPackedPaths();
+        void TheEyesSitInTheirSocketsAndLookWhereTheRigSays();
+        void TheWalkTravelsWithItsPawsPlanted();
+        void TheRootUVsAreTheSkinsUnderThem();
+        void TheShippedCoatIsWhatTheEditorImportWrites();
+        void TheCardHandOverStepsTheCoatWithinTheNearLaddersBar();
+        void TheTeethStayOutOfTheTongueThroughEveryClip();
 
         DogRig m_Dog;
         Entity m_Sun;
@@ -463,13 +584,13 @@ namespace OloEngine::Tests
         // (the footage, the cost and lighting exports, the scene export, the
         // slices) do not change what is drawn and are only reported. Every one
         // set is printed once.
-        static constexpr std::array<const char*, 14> kLookOverrides{
+        static constexpr std::array<const char*, 15> kLookOverrides{
             "OLO_DOG_POST", "OLO_DOG_LIGHT", "OLO_DOG_SUNDIR", "OLO_DOG_RIMDIR", "OLO_DOG_LAWN",
             "OLO_DOG_PELT", "OLO_DOG_LID", "OLO_DOG_FIBRE", "OLO_DOG_POSEBAKE", "OLO_DOG_SHADOW",
-            "OLO_DOG_SIM", "OLO_DOG_ABC", "OLO_DOG_REGION_DEBUG", "OLO_DOG_REST_SETTLE_OFF"
+            "OLO_DOG_SIM", "OLO_DOG_ABC", "OLO_DOG_REGION_DEBUG", "OLO_DOG_REST_SETTLE_OFF", "OLO_DOG_ASSET_ROOT"
         };
-        static constexpr std::array<const char*, 21> kRecordSwitches{
-            "OLO_DOG_B6_ONLY", "OLO_DOG_B6_MOTION_FLOOR", "OLO_DOG_BODY_SLICES", "OLO_DOG_COST",
+        static constexpr std::array<const char*, 22> kRecordSwitches{
+            "OLO_DOG_B6_ONLY", "OLO_DOG_B6_MOTION_FLOOR", "OLO_DOG_BODY_SLICES", "OLO_DOG_BREED", "OLO_DOG_COST",
             "OLO_DOG_COST_EXPORT", "OLO_DOG_COST_LAWN", "OLO_DOG_COST_SUB", "OLO_DOG_EXPORT",
             "OLO_DOG_FOOTAGE", "OLO_DOG_FOOTAGE_ONLY", "OLO_DOG_LIGHTING", "OLO_DOG_LIGHTING_CLIP",
             "OLO_DOG_LIGHTING_EXPORT", "OLO_DOG_LOOKDEV", "OLO_DOG_LOOKDEV_CLIP", "OLO_DOG_LOOKDEV_FRAMES",
@@ -518,6 +639,10 @@ namespace OloEngine::Tests
             ReportOverrides();
             for (const char* name : kLookOverrides)
             {
+                if (IsAuthoringCook() && (std::string_view(name) == "OLO_DOG_ABC" || std::string_view(name) == "OLO_DOG_ASSET_ROOT"))
+                {
+                    continue;
+                }
                 if (const char* value = SetValue(name); value != nullptr)
                 {
                     ADD_FAILURE() << name << "=" << value
@@ -588,9 +713,9 @@ namespace OloEngine::Tests
         }
 
         // A warm late-afternoon key from the camera's right, high enough to model
-        // the face (55 degrees off the camera axis, 35 up), a cool rim from behind
-        // on the other side, a procedural sky for the fill, the ground, and a
-        // filmic grade.
+        // the face (55 degrees off the camera axis, 35 up), a procedural sky for
+        // the fill, the ground, and a filmic grade. The rear light remains available
+        // to the lighting diagnostics but contributes no unshadowed light to the dogs.
         void BuildStage(Scene& scene)
         {
             const glm::vec3 keyTravels = glm::normalize(glm::vec3(-0.67f, -0.57f, -0.47f));
@@ -605,6 +730,11 @@ namespace OloEngine::Tests
                 // default range the first cascade spans tens of metres and the
                 // dog's contact shadow is a smudge.
                 dl.m_MaxShadowDistance = 25.0f;
+                // The 10 mm default normal offset skips over a dog's small nasal cavities,
+                // lighting their walls through the nose. These sub-millimetre settings preserve
+                // the openings in the live face comparison without changing the stage lights.
+                dl.m_ShadowNormalBias = 0.0005f;
+                dl.m_ShadowDepthBiasTexels = 0.5f;
             }
             m_Rim = scene.CreateEntity("Rim");
             {
@@ -613,7 +743,10 @@ namespace OloEngine::Tests
                 // lit the whole side of the muzzle as a white band.
                 dl.m_Direction = glm::normalize(glm::vec3(0.30f, -0.40f, 0.87f));
                 dl.m_Color = glm::vec3(0.86f, 0.90f, 1.0f);
-                dl.m_Intensity = 2.0f;
+                // Only the sun owns the opaque shadow cascades. An unshadowed rear
+                // light illuminated the nasal cavity walls through the head, making
+                // the nostrils look plugged even with their baked ambient occlusion.
+                dl.m_Intensity = 0.0f;
                 dl.m_CastShadows = false;
             }
             {
@@ -627,6 +760,11 @@ namespace OloEngine::Tests
             // FILMIC. Reinhard, the engine default, rolls the highlights off early
             // and takes the saturation with them: the coat read beige under it.
             Renderer3D::GetPostProcessSettings().Tonemap = TonemapOperator::ACES;
+            // A restrained photographic bloom: the default half-strength veil washed the white
+            // coat into the eyes and nose, hiding their dark pigment (#1558). These values are
+            // exported with the scene and survive the editor quality tier.
+            Renderer3D::GetPostProcessSettings().BloomIntensity = 0.06f;
+            Renderer3D::GetPostProcessSettings().BloomThreshold = 2.0f;
             // OLO_DOG_POST="tonemapOperator,exposure" for tuning the grade.
             if (const char* tune = std::getenv("OLO_DOG_POST"); tune != nullptr)
             {
@@ -859,11 +997,11 @@ namespace OloEngine::Tests
         }
 
         // The scene camera (Play, and the editor's camera preview): the 3/4
-        // close-up of the head and shoulders.
+        // close-up of the head and shoulders, scaled to the breed.
         void FrameSceneCamera()
         {
-            const glm::vec3 eye(0.78f, 0.66f, 1.22f);
-            const glm::vec3 target(0.0f, 0.46f, 0.22f);
+            const glm::vec3 eye = glm::vec3(0.78f, 0.66f, 1.22f) * s_BreedViewScale;
+            const glm::vec3 target = glm::vec3(0.0f, 0.46f, 0.22f) * s_BreedViewScale;
             const glm::vec3 d = glm::normalize(target - eye);
             for (auto e : GetScene().GetAllEntitiesWith<CameraComponent>())
             {
@@ -876,9 +1014,9 @@ namespace OloEngine::Tests
             }
         }
 
-        [[nodiscard]] AssetHandle LoadSkinProfile(const char* file)
+        [[nodiscard]] AssetHandle LoadSkinProfile(const fs::path& file)
         {
-            const fs::path path = SandboxAssets() / "Materials" / file;
+            const fs::path path = SandboxAssets() / file;
             std::ifstream in(path, std::ios::binary);
             std::stringstream buffer;
             buffer << in.rdbuf();
@@ -894,8 +1032,10 @@ namespace OloEngine::Tests
             DogRig& d = m_Dog;
             ASSERT_TRUE(fs::exists(DogPath())) << DogPath().string() << " (run build_dog.py)";
             d.Rig = ReadRig();
-            ASSERT_TRUE(d.Rig.Valid) << "Dog.rig.json missing or malformed";
+            ASSERT_TRUE(d.Rig.Valid) << DogFile(".rig.json").string() << " missing, malformed or without its assembly";
             d.Frame.EyeMid = 0.5f * (d.Rig.Eyes[0].Centre + d.Rig.Eyes[1].Centre);
+            s_BreedViewScale = d.Frame.EyeMid.y / kGoldenEyeHeight;
+            s_EyeMid = d.Frame.EyeMid;
             {
                 // The scene opens without warnings (#1533 D1). A joint that
                 // weights nothing -- an eye bone, kept since the importer stopped
@@ -986,9 +1126,9 @@ namespace OloEngine::Tests
                 const ScopedWarningCapture warnings;
                 for (sizet i = 0; i < kSkinPatches.size(); ++i)
                 {
-                    m_SkinHandles[i] = LoadSkinProfile(kSkinPatches[i].Profile);
+                    m_SkinHandles[i] = LoadSkinProfile(fs::path{ "Materials" } / kSkinPatches[i].Profile);
                 }
-                m_SkinHandles[kEyeSkinSlot] = LoadSkinProfile("DogEye.oloskin");
+                m_SkinHandles[kEyeSkinSlot] = LoadSkinProfile(d.Rig.EyeProfile);
                 EXPECT_EQ(warnings.Count("had out-of-range parameters"), 0u)
                     << "a dog skin profile was clamped on load";
             }
@@ -998,7 +1138,7 @@ namespace OloEngine::Tests
             // what a gap shows in a real coat -- so the few that remain read as
             // depth: as light as the lit fur they read as bald patches, and dark
             // brown they read as mange.
-            glm::vec3 peltColour(0.58f, 0.48f, 0.38f);
+            glm::vec3 peltColour = d.Rig.Pelt;
             if (const char* tune = std::getenv("OLO_DOG_PELT"); tune != nullptr)
             {
                 (void)std::sscanf(tune, "%f,%f,%f", &peltColour.r, &peltColour.g, &peltColour.b);
@@ -1020,7 +1160,7 @@ namespace OloEngine::Tests
                 // margin read as a pale ring. A golden retriever's lids are dark;
                 // the black, moist rim is the margin band (DogLip, build_dog.py's
                 // LID_RIM_BAND).
-                glm::vec3 lidColour(0.20f, 0.14f, 0.10f);
+                glm::vec3 lidColour = d.Rig.Lid;
                 if (const char* tune = std::getenv("OLO_DOG_LID"); tune != nullptr)
                 {
                     (void)std::sscanf(tune, "%f,%f,%f", &lidColour.r, &lidColour.g, &lidColour.b);
@@ -1053,10 +1193,10 @@ namespace OloEngine::Tests
             const Skeleton& skeleton = *d.Body.GetComponent<SkeletonComponent>().m_Skeleton;
             // The eyeball the live scene draws (build_dog.py's 128 x 64 sphere),
             // so the evidence renders the same mesh the export ships.
-            const Ref<Model> eyeball = Ref<Model>::Create((DogDir() / "DogEyeball.gltf").string());
+            const Ref<Model> eyeball = Ref<Model>::Create(DogFile("Eyeball.gltf").string());
             ASSERT_TRUE(eyeball && eyeball->GetMeshCount() > 0 && eyeball->GetMesh(0)->GetMeshSource());
-            const Ref<Texture2D> irisColor = Texture2D::Create((DogDir() / "DogIrisColor.png").string(), true);
-            ASSERT_TRUE(irisColor && irisColor->IsLoaded()) << "build_dog.py writes DogIrisColor.png beside the eyeball";
+            const Ref<Texture2D> irisColor = Texture2D::Create(DogFile("IrisColor.png").string(), true);
+            ASSERT_TRUE(irisColor && irisColor->IsLoaded()) << "build_dog.py writes " << DogFile("IrisColor.png").string();
             for (u32 e = 0; e < 2u; ++e)
             {
                 const EyeDesc& eye = d.Rig.Eyes[e];
@@ -1100,11 +1240,11 @@ namespace OloEngine::Tests
             // The coat (build_dog_groom.py's; see LoadDogCoat).
             const Ref<MeshSource> surface = d.Body.GetComponent<MeshComponent>().m_MeshSource;
             ASSERT_TRUE(surface);
-            d.CoatAsset = LoadDogCoat();
+            d.CoatAsset = LoadDogCoat(d.Rig);
             ASSERT_TRUE(d.CoatAsset.Groom);
             d.CardCount = d.CoatAsset.Cards;
             std::printf("[dog] coat: %u strands, %u guides, %u cards, %s;", d.CoatAsset.Strands, d.CoatAsset.Guides,
-                        d.CardCount, d.CoatAsset.FromAbc ? "cooked from Dog.abc" : "the shipped Dog.ologroom");
+                        d.CardCount, d.CoatAsset.FromAbc ? "cooked from its .abc" : "the shipped .ologroom");
             {
                 // Its groups are build_dog_groom.py's objects, "/<region>_<layer>/<region>_<layer>".
                 std::map<std::string, u32> perRegion;
@@ -1143,10 +1283,28 @@ namespace OloEngine::Tests
             std::vector<u8> bytes;
             GroomBindingBuildStats stats;
             std::string reason;
-            ASSERT_TRUE(GroomBindingCooker::CookPair(*d.CoatAsset.Groom, MakeSurfaceView(*surface, &skeleton), "Dog", bind,
-                                                     bytes, d.Binding, stats, reason))
-                << reason;
+            if (DogCoatFromAbc())
+            {
+                ASSERT_TRUE(GroomBindingCooker::CookPair(*d.CoatAsset.Groom, MakeSurfaceView(*surface, &skeleton), "Dog", bind,
+                                                         bytes, d.Binding, stats, reason))
+                    << reason;
+            }
+            else
+            {
+                const fs::path path = DogGroomFile(".ologroombinding");
+                std::ifstream in(path, std::ios::binary | std::ios::ate);
+                ASSERT_TRUE(in) << path.string();
+                const auto size = in.tellg();
+                ASSERT_GT(size, 0) << path.string();
+                bytes.resize(static_cast<sizet>(size));
+                in.seekg(0);
+                ASSERT_TRUE(in.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size())));
+            }
             ASSERT_TRUE(GroomBindingSerializer::DecodeFromBytes(bytes.data(), bytes.size(), d.Binding, reason)) << reason;
+            ASSERT_EQ(d.Binding->CheckCompatibility(GroomBindingBuilder::SignGroom(*d.CoatAsset.Groom),
+                                                    GroomBindingBuilder::SignTarget(MakeSurfaceView(*surface, &skeleton))),
+                      GroomBindingRejectReason::None)
+                << "the shipped binding must match the shipped mesh and full coat";
             d.GroomHandle = AssetManager::AddMemoryOnlyAsset<GroomAsset>(d.CoatAsset.Groom);
             d.BindingHandle = AssetManager::AddMemoryOnlyAsset<GroomBindingAsset>(d.Binding);
 
@@ -1154,7 +1312,7 @@ namespace OloEngine::Tests
             // TextureCompression::IsLikelyColorTexture): the evidence has to see
             // the tint the live scene draws. Read raw, it was a paler tint than
             // the one that ships, and the look was graded against it.
-            Ref<Texture2D> colorMap = Texture2D::Create((DogDir() / "DogCoatColor.png").string(), true);
+            Ref<Texture2D> colorMap = Texture2D::Create(DogFile("CoatColor.png").string(), true);
             ASSERT_TRUE(colorMap);
             d.ColorMap = AssetManager::AddMemoryOnlyAsset<Texture2D>(colorMap);
 
@@ -1178,6 +1336,11 @@ namespace OloEngine::Tests
             gc.m_ShowPreview = false;
             gc.m_RenderStrands = true;
             gc.m_MaxRenderStrands = strands;
+            if (const Ref<GroomAsset> source = AssetManager::GetAsset<GroomAsset>(groom))
+            {
+                gc.m_MaxRenderSegments = source->GetPointCount() - source->GetCurveCount();
+                EXPECT_LE(gc.m_MaxRenderSegments, 8000000u);
+            }
             gc.m_CompositionMode = static_cast<u8>(GroomCompositionMode::StochasticAlpha);
             gc.m_StrandColor = glm::vec3(1.0f);
 
@@ -1192,8 +1355,8 @@ namespace OloEngine::Tests
             // only gold left -- as brown blotches. A touch of pigment carries
             // the gold through the bright side too.
             auto& fibre = coat.AddComponent<GroomFibreComponent>();
-            fibre.m_PigmentMode = static_cast<u8>(GroomFibrePigmentMode::BaseColor);
-            fibre.m_BaseColor = glm::vec3(1.0f, 0.93f, 0.80f);
+            fibre.m_PigmentMode = static_cast<u8>(m_Dog.Rig.Pigment);
+            fibre.m_BaseColor = m_Dog.Rig.Fibre;
             fibre.m_Intensity = 1.0f;
             // Rougher than a human hair, as a dog's is (scales, a medulla). It
             // also widens TT's forward peak, which at 0.3 was narrow enough that
@@ -1260,6 +1423,16 @@ namespace OloEngine::Tests
             auto& lod = coat.AddComponent<GroomLodComponent>();
             lod.m_Enabled = true;
             lod.m_CardPixelSize = 120.0f; // a hero subject: cards only where they cannot be seen (B7)
+            // THE STRAND BUDGET WIDENS EVERY ROLE BY ALL IT THINNED (#1558). The
+            // role-weighted budget thins one role to a stride of 13 at visibility
+            // step 2 and 26 at step 3, and at the default cap of 8 that role lost
+            // the rest of its coverage: on the adult coat the strand tier covered
+            // 7% less than every strand at the card hand-over, and the cards,
+            // which match every strand, stepped past the near ladder's bar
+            // against it. 32 is the engine's own ceiling. Those steps draw a
+            // dog 64-256 px across, where a strand widened that far is about a
+            // pixel wide at most, not the flat band the cap exists to prevent.
+            lod.m_MaxWidthCompensation = 16.0f;
 
             auto& bc = coat.AddComponent<GroomBindingComponent>();
             bc.m_Binding = binding;
@@ -1275,6 +1448,9 @@ namespace OloEngine::Tests
             sim.m_Enabled = true;
             sim.m_Collide = true;
             sim.m_Stiffness = 1200.0f;
+            // Short facial fur needs sub-millimetre compliance. At 60 Hz the solver
+            // caps its authored group stiffness and gravity exposes the crown.
+            sim.m_FixedHz = 120.0f;
             sim.m_Gravity = glm::vec3(0.0f, -4.0f, 0.0f);
             // OLO_DOG_SIM="stiffness,gravity,collide,enabled,colliderRadiusScale" for tuning.
             if (const char* tune = std::getenv("OLO_DOG_SIM"); tune != nullptr)
@@ -1409,6 +1585,25 @@ namespace OloEngine::Tests
             return rest;
         }
 
+        f32 AuthoredClipDuration(const char* name)
+        {
+            const auto& anim = m_Dog.Body.GetComponent<AnimationStateComponent>();
+            for (const auto& clip : anim.m_AvailableClips)
+            {
+                if (clip && clip->Name == name)
+                {
+                    if (std::isfinite(clip->Duration) && clip->Duration > 0.0f)
+                    {
+                        return clip->Duration;
+                    }
+                    ADD_FAILURE() << "the dog clip '" << name << "' has an invalid duration";
+                    return 0.0f;
+                }
+            }
+            ADD_FAILURE() << "the dog has no clip '" << name << "'";
+            return 0.0f;
+        }
+
         static void AnimationSystemApplyNow(AnimationStateComponent& anim)
         {
             for (sizet i = 0; i < anim.m_AvailableClips.size(); ++i)
@@ -1465,18 +1660,38 @@ namespace OloEngine::Tests
             glm::vec3 Eye;
             glm::vec3 Target;
             f32 Fov = 35.0f;
+            // A head view: Eye and Target are offsets from the eyes' midpoint, so the
+            // framing follows the head wherever the breed carries it (#1558).
+            bool Head = false;
         };
 
         // The hero angles (#1533 F1), around the dog standing at the origin
         // facing +Z. Heights and distances for a dog ~0.62 m tall at the head.
+        [[nodiscard]] static View Scaled(View view)
+        {
+            view.Eye *= s_BreedViewScale;
+            view.Target *= s_BreedViewScale;
+            if (view.Head)
+            {
+                view.Eye += s_EyeMid;
+                view.Target += s_EyeMid;
+            }
+            return view;
+        }
+
         [[nodiscard]] static std::array<View, 6> HeroViews()
         {
-            return { { { "FrontThreeQuarter", { 0.95f, 0.62f, 1.25f }, { 0.0f, 0.36f, 0.05f }, 35.0f },
-                       { "Profile", { 1.75f, 0.45f, 0.02f }, { 0.0f, 0.36f, -0.02f }, 35.0f },
-                       { "FaceCloseUp", { 0.22f, 0.64f, 0.95f }, { 0.0f, 0.57f, 0.40f }, 30.0f },
-                       { "RearTail", { -0.95f, 0.70f, -1.35f }, { 0.0f, 0.40f, -0.25f }, 35.0f },
-                       { "LowHero", { 0.55f, 0.14f, 1.05f }, { 0.0f, 0.42f, 0.10f }, 40.0f },
-                       { "FullBody", { 1.25f, 0.55f, 1.65f }, { 0.0f, 0.32f, 0.0f }, 35.0f } } };
+            std::array<View, 6> views{ { { "FrontThreeQuarter", { 0.95f, 0.62f, 1.25f }, { 0.0f, 0.36f, 0.05f }, 35.0f },
+                                         { "Profile", { 1.75f, 0.45f, 0.02f }, { 0.0f, 0.36f, -0.02f }, 35.0f },
+                                         { "FaceCloseUp", { 0.22f, 0.64f, 0.95f }, { 0.0f, 0.57f, 0.40f }, 30.0f },
+                                         { "RearTail", { -0.95f, 0.70f, -1.35f }, { 0.0f, 0.40f, -0.25f }, 35.0f },
+                                         { "LowHero", { 0.55f, 0.14f, 1.05f }, { 0.0f, 0.42f, 0.10f }, 40.0f },
+                                         { "FullBody", { 1.25f, 0.55f, 1.65f }, { 0.0f, 0.32f, 0.0f }, 35.0f } } };
+            for (View& view : views)
+            {
+                view = Scaled(view);
+            }
+            return views;
         }
 
         // The primary camera AdvanceRuntime and HoldRuntime render through.
@@ -2303,7 +2518,7 @@ namespace OloEngine::Tests
         // the review names. A part therefore stays itself through a sit or a walk,
         // which the world boxes above (CoatRegion, for a paused pose) cannot. The
         // body is skinned here on the CPU from the skeleton's final matrices, the
-        // palette the GPU draws with (bones only: Dog.gltf has no morph targets),
+        // palette and facial morph weights the GPU draws with,
         // and the distance to that vertex is how far a coat pixel stands off the
         // skin.
         //
@@ -2333,7 +2548,8 @@ namespace OloEngine::Tests
 
         struct BodyParts
         {
-            std::vector<glm::vec3> Bind; // model space
+            std::vector<glm::vec3> Bind; // unmorphed model space, also used to classify groom roots
+            std::vector<glm::vec3> BindNormals;
             std::vector<BodyPart> Part;
             std::vector<u8> Furred;            // 1 on DogSkin, where the coat grows; 0 on the bare skins (nose, lips, pads...)
             std::vector<std::string> Material; // the vertex's submesh material: DogSkin, DogNose, DogLid...
@@ -2454,6 +2670,7 @@ namespace OloEngine::Tests
             EXPECT_TRUE(std::ranges::find(parts.Material, std::string("DogNose")) != parts.Material.end())
                 << "the body's submeshes do not name their materials";
             parts.Bind.resize(count);
+            parts.BindNormals.resize(count);
             parts.Part.resize(count);
             parts.Bones.resize(count);
             parts.Weights.resize(count);
@@ -2461,7 +2678,11 @@ namespace OloEngine::Tests
             {
                 const Vertex& vertex = vertices[static_cast<i32>(v)];
                 const BoneInfluence& influence = influences[static_cast<i32>(v)];
-                parts.Bind[v] = vertex.Position;
+                const auto* morph = m_Dog.Body.HasComponent<MorphTargetComponent>()
+                                        ? &m_Dog.Body.GetComponent<MorphTargetComponent>()
+                                        : nullptr;
+                parts.Bind[v] = morph && morph->BasePositions.size() == count ? morph->BasePositions[v] : vertex.Position;
+                parts.BindNormals[v] = morph && morph->BaseNormals.size() == count ? morph->BaseNormals[v] : vertex.Normal;
                 u32 dominant = 0;
                 for (u32 k = 0; k < 4u; ++k)
                 {
@@ -2475,10 +2696,10 @@ namespace OloEngine::Tests
                 const u32 boneIndex = influence.m_BoneIDs[dominant];
                 parts.Dominant[v] = boneIndex;
                 const std::string& bone = boneIndex < skeleton.m_BoneNames.size() ? skeleton.m_BoneNames[boneIndex] : std::string();
-                const glm::vec3 n = glm::length(vertex.Normal) > 0.0f ? glm::normalize(vertex.Normal) : glm::vec3(0.0f, 1.0f, 0.0f);
+                const glm::vec3 n = glm::length(parts.BindNormals[v]) > 0.0f ? glm::normalize(parts.BindNormals[v]) : glm::vec3(0.0f, 1.0f, 0.0f);
                 const f32 forward = n.z;
                 const f32 up = n.y;
-                const f32 y = vertex.Position.y;
+                const f32 y = parts.Bind[v].y;
                 const auto starts = [&](const char* prefix)
                 { return bone.starts_with(prefix); };
                 const bool left = bone.ends_with("_L");
@@ -2659,6 +2880,19 @@ namespace OloEngine::Tests
         {
             const Skeleton& skeleton = *m_Dog.Body.GetComponent<SkeletonComponent>().m_Skeleton;
             const glm::mat4 world = GetScene().GetWorldTransform(static_cast<entt::entity>(m_Dog.Body));
+            std::vector<glm::vec3> morphed;
+            std::vector<glm::vec3> normals;
+            const std::vector<glm::vec3>* localPositions = &parts.Bind;
+            if (m_Dog.Body.HasComponent<MorphTargetComponent>())
+            {
+                const auto& morph = m_Dog.Body.GetComponent<MorphTargetComponent>();
+                if (morph.MorphTargets)
+                {
+                    MorphTargetEvaluator::EvaluateCPU(parts.Bind, parts.BindNormals, *morph.MorphTargets,
+                                                      morph.GetOrderedWeights(), morphed, normals);
+                    localPositions = &morphed;
+                }
+            }
             parts.Posed.resize(parts.Bind.size());
             for (sizet v = 0; v < parts.Bind.size(); ++v)
             {
@@ -2674,7 +2908,8 @@ namespace OloEngine::Tests
                         total += w;
                     }
                 }
-                const glm::vec4 local = total > 0.0f ? (skin / total) * glm::vec4(parts.Bind[v], 1.0f) : glm::vec4(parts.Bind[v], 1.0f);
+                const glm::vec4 position((*localPositions)[v], 1.0f);
+                const glm::vec4 local = total > 0.0f ? (skin / total) * position : position;
                 parts.Posed[v] = glm::vec3(world * local);
             }
             BodyParts::BuildTree(parts.Posed, parts.Tree);
@@ -3692,6 +3927,7 @@ namespace OloEngine::Tests
             auto& gc = coat.GetComponent<GroomComponent>();
             gc.m_Groom = AssetManager::AddMemoryOnlyAsset<GroomAsset>(groom);
             gc.m_MaxRenderStrands = groom->GetCurveCount();
+            gc.m_MaxRenderSegments = groom->GetPointCount() - groom->GetCurveCount();
             coat.GetComponent<GroomBindingComponent>().m_Binding = AssetManager::AddMemoryOnlyAsset<GroomBindingAsset>(binding);
         }
 
@@ -3701,6 +3937,7 @@ namespace OloEngine::Tests
             auto& gc = m_Dog.Coat.GetComponent<GroomComponent>();
             gc.m_Groom = m_Dog.GroomHandle;
             gc.m_MaxRenderStrands = m_Dog.CoatAsset.Strands;
+            gc.m_MaxRenderSegments = m_Dog.CoatAsset.Groom->GetPointCount() - m_Dog.CoatAsset.Strands;
             m_Dog.Coat.GetComponent<GroomBindingComponent>().m_Binding = m_Dog.BindingHandle;
         }
 
@@ -4667,6 +4904,33 @@ namespace OloEngine::Tests
     };
 
     // =========================================================================
+    // THE OTHER BREEDS (#1558) are held to the same evidence. Each case a
+    // breed's sculpt, rig, coat or warp can be wrong in -- the coat covering
+    // the dog from every hero angle and staying on its skin through every
+    // clip (B3), no shimmer at rest or in motion (B6), the LOD ladder (B7),
+    // the eyes in their sockets, the walk's planted paws, and the coat map read
+    // where the skin is -- runs for every breed build_dog.py makes, on the coat
+    // it ships (Grooms/<prefix>/), through the golden's own body.
+    // =========================================================================
+    class BreedShowcaseEvidenceTest : public DogShowcaseEvidenceTest, public ::testing::WithParamInterface<const char*>
+    {
+      protected:
+        void SetUp() override
+        {
+            BreedPrefixOverride() = GetParam();
+            DogShowcaseEvidenceTest::SetUp();
+        }
+        void TearDown() override
+        {
+            DogShowcaseEvidenceTest::TearDown();
+            BreedPrefixOverride().clear();
+        }
+    };
+    INSTANTIATE_TEST_SUITE_P(Breeds, BreedShowcaseEvidenceTest, ::testing::Values("Bernese", "Samoyed"),
+                             [](const ::testing::TestParamInfo<const char*>& info)
+                             { return std::string(info.param); });
+
+    // =========================================================================
     // #1533: the coat is Blender's. build_dog_groom.py grows it, AlembicGroomImporter
     // cooks it, and the shipped Dog.ologroom says so in its provenance. Its coat
     // description rode through the .abc as user properties, which Blender's
@@ -4678,7 +4942,7 @@ namespace OloEngine::Tests
     {
         const GroomAsset& groom = *m_Dog.CoatAsset.Groom;
         EXPECT_EQ(groom.GetProvenance().SourceFormat, "AlembicCurves");
-        EXPECT_EQ(groom.GetProvenance().SourcePath, ".dog-groom/Dog.abc");
+        EXPECT_EQ(groom.GetProvenance().SourcePath, m_Dog.Rig.CoatSource);
 #if defined(OLO_WITH_ALEMBIC)
         EXPECT_EQ(groom.GetProvenance().ImporterVersion, AlembicGroomImporter::kImporterVersion)
             << "the shipped coat was cooked by an older importer: re-export it (OLO_DOG_EXPORT=1)";
@@ -4717,13 +4981,143 @@ namespace OloEngine::Tests
     }
 
     // =========================================================================
+    // #1558: A STRAND'S ROOT UV IS THE SKIN'S UNDER IT. The coat map is read at
+    // each strand's root UV in the engine's texture convention -- images load
+    // bottom row first and the importer flips glTF's v to match -- so a coat
+    // source written in another reads every strand's colour from the mirrored
+    // place in the atlas: invisible on a golden coat, white fur over a
+    // Bernese's black (build_dog_groom.py wrote glTF's v down until #1558).
+    // Every 37th strand: some vertex of the skin within 1.5 cm of its root
+    // carries its root UV to within 0.02 -- a mirrored v misses by ~0.3.
+    // =========================================================================
+    void DogShowcaseEvidenceTest::TheRootUVsAreTheSkinsUnderThem()
+    {
+        const GroomAsset& groom = *m_Dog.CoatAsset.Groom;
+        const auto& vertices = m_Dog.Body.GetComponent<MeshComponent>().m_MeshSource->GetVertices();
+        constexpr f32 kCell = 0.015f;
+        const auto cellOf = [](const glm::vec3& p)
+        { return glm::ivec3(glm::floor(p / kCell)); };
+        const auto keyOf = [](const glm::ivec3& c)
+        {
+            return (static_cast<u64>(static_cast<u32>(c.x + 0x100000) & 0x1FFFFFu) << 42u) |
+                   (static_cast<u64>(static_cast<u32>(c.y + 0x100000) & 0x1FFFFFu) << 21u) |
+                   static_cast<u64>(static_cast<u32>(c.z + 0x100000) & 0x1FFFFFu);
+        };
+        std::unordered_map<u64, std::vector<u32>> grid;
+        for (u32 v = 0; v < static_cast<u32>(vertices.Num()); ++v)
+        {
+            grid[keyOf(cellOf(vertices[v].Position))].push_back(v);
+        }
+        u32 checked = 0;
+        u32 missed = 0;
+        f64 worstMiss = 0.0;
+        for (u32 c = 0; c < groom.GetCurveCount(); c += 37u)
+        {
+            const glm::vec3 root = groom.GetPoints()[groom.GetCurveOffsets()[c]];
+            const glm::vec2 uv = groom.GetRootUVs()[c];
+            const glm::ivec3 cell = cellOf(root);
+            f32 nearest = std::numeric_limits<f32>::max();
+            for (i32 dz = -1; dz <= 1; ++dz)
+            {
+                for (i32 dy = -1; dy <= 1; ++dy)
+                {
+                    for (i32 dx = -1; dx <= 1; ++dx)
+                    {
+                        const auto it = grid.find(keyOf(cell + glm::ivec3(dx, dy, dz)));
+                        if (it == grid.end())
+                        {
+                            continue;
+                        }
+                        for (const u32 v : it->second)
+                        {
+                            if (glm::distance(vertices[v].Position, root) < kCell)
+                            {
+                                nearest = std::min(nearest, glm::distance(vertices[v].TexCoord, uv));
+                            }
+                        }
+                    }
+                }
+            }
+            ++checked;
+            if (nearest > 0.02f)
+            {
+                ++missed;
+                worstMiss = std::max(worstMiss, static_cast<f64>(nearest));
+            }
+        }
+        std::printf("[dog] root UVs: %u of %u sampled strands have no skin within 1.5 cm carrying their UV (worst %.3f)\n",
+                    missed, checked, worstMiss);
+        EXPECT_GT(checked, 1000u);
+        EXPECT_LT(missed, checked / 100u) << "the coat reads its colour map somewhere other than the skin under it";
+    }
+    TEST_F(DogShowcaseEvidenceTest, TheRootUVsAreTheSkinsUnderThem)
+    {
+        TheRootUVsAreTheSkinsUnderThem();
+    }
+    TEST_P(BreedShowcaseEvidenceTest, TheRootUVsAreTheSkinsUnderThem)
+    {
+        TheRootUVsAreTheSkinsUnderThem();
+    }
+
+    // =========================================================================
+    // #1558: THE SHIPPED COAT IS WHAT THE EDITOR'S IMPORT WRITES. A breed's coat
+    // source sits beside its model, where the Content Browser lists it, and its
+    // "Import as Groom" cooks it through ImportAndCookToSidecar with no
+    // settings, recording the source's project-relative path; the card tier
+    // rides in the source. So that import writes the shipped
+    // Grooms/<prefix>/<prefix>.ologroom byte for byte. The source is a
+    // git-ignored build output: where it is not (CI), this skips.
+    // =========================================================================
+    void DogShowcaseEvidenceTest::TheShippedCoatIsWhatTheEditorImportWrites()
+    {
+#if defined(OLO_WITH_ALEMBIC)
+        ASSERT_TRUE(m_Dog.Rig.CoatSource.starts_with("Assets/"))
+            << "the coat source " << m_Dog.Rig.CoatSource
+            << " is outside the project, where the Content Browser cannot list or import it";
+        const fs::path abc = fs::path{ OLO_TEST_EDITOR_ROOT } / "SandboxProject" / m_Dog.Rig.CoatSource;
+        if (!fs::exists(abc))
+        {
+            GTEST_SKIP() << abc.string() << " is not here: build_dog.py writes it (a git-ignored build output)";
+        }
+        AlembicGroomImporter::Options options;
+        options.ProvenancePath = m_Dog.Rig.CoatSource; // what the Content Browser records for it
+        const fs::path written = TempDir("editor-import") / (BreedPrefix() + ".ologroom");
+        const auto cooked = AlembicGroomImporter::ImportAndCookToSidecar(abc, options, written);
+        ASSERT_TRUE(cooked.Ok) << cooked.Diagnostic;
+        const auto readAll = [](const fs::path& path)
+        {
+            std::ifstream in(path, std::ios::binary);
+            return std::vector<char>((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        };
+        const fs::path shipped = SandboxAssets() / "Grooms" / BreedPrefix() / (BreedPrefix() + ".ologroom");
+        const std::vector<char> editorBytes = readAll(written);
+        const std::vector<char> shippedBytes = readAll(shipped);
+        ASSERT_FALSE(shippedBytes.empty()) << shipped.string() << " is missing: OLO_DOG_EXPORT=1 writes it";
+        EXPECT_EQ(editorBytes.size(), shippedBytes.size());
+        EXPECT_TRUE(editorBytes == shippedBytes)
+            << "the editor's import of " << m_Dog.Rig.CoatSource << " is not the coat the scene ships: re-export "
+            << "(OLO_DOG_EXPORT=1 OLO_DOG_BREED=" << BreedPrefix() << ") after regenerating the source";
+#else
+        GTEST_SKIP() << "this build has no Alembic (OLO_WITH_ALEMBIC)";
+#endif
+    }
+    TEST_F(DogShowcaseEvidenceTest, TheShippedCoatIsWhatTheEditorImportWrites)
+    {
+        TheShippedCoatIsWhatTheEditorImportWrites();
+    }
+    TEST_P(BreedShowcaseEvidenceTest, TheShippedCoatIsWhatTheEditorImportWrites)
+    {
+        TheShippedCoatIsWhatTheEditorImportWrites();
+    }
+
+    // =========================================================================
     // F1: the real pipeline from every hero angle, the coat covering the dog.
     // Each view from ONE held state, Idle's frame 40 replayed for each (the pair
     // below hides the coat, which ends a run). Coverage is the coat's entity id
     // over the furred skin it should hide (MeasureAttachment); the beauty pair
     // says the coat visibly changes the frame.
     // =========================================================================
-    TEST_F(DogShowcaseEvidenceTest, TheDogIsFurredFromEveryHeroAngle)
+    void DogShowcaseEvidenceTest::TheDogIsFurredFromEveryHeroAngle()
     {
         SetPath(RenderingPath::Forward);
         BodyParts parts = BuildBodyParts();
@@ -4736,7 +5130,7 @@ namespace OloEngine::Tests
             EXPECT_EQ(motion.MinGroomsDeformed, 1u) << "the coat must follow the body";
             EXPECT_EQ(motion.MaxBindingRefused, 0u) << "the cooked binding must attach to the dog's own mesh";
             const FrameParts covered =
-                MeasureAttachment(parts, view, coat, 6, nullptr, std::string("DogParts_GL_Forward_") + view.Name);
+                MeasureAttachment(parts, view, coat, 6, nullptr, BreedPrefix() + "Parts_GL_Forward_" + view.Name);
             ASSERT_FALSE(HasFatalFailure());
             f64 coatPx = 0.0;
             f64 skinPx = 0.0;
@@ -4746,8 +5140,8 @@ namespace OloEngine::Tests
                 skinPx += part.Skin;
             }
             std::vector<u8> on;
-            const u32 visible = CoatVisibleChange(view, std::string("DogShowcase_GL_Forward_") + view.Name,
-                                                  std::string("DogShowcaseBald_GL_Forward_") + view.Name, &on);
+            const u32 visible = CoatVisibleChange(view, BreedPrefix() + "Showcase_GL_Forward_" + view.Name,
+                                                  BreedPrefix() + "ShowcaseBald_GL_Forward_" + view.Name, &on);
             ASSERT_FALSE(HasFatalFailure());
             const f64 coverage = coatPx + skinPx > 0.0 ? coatPx / (coatPx + skinPx) : 0.0;
             std::printf("[dog] %s: the coat covers %.3f of the furred skin in view (%.0f coat px; %.0f without a depth, %.0f "
@@ -4767,7 +5161,15 @@ namespace OloEngine::Tests
             EXPECT_GT(Fraction(visible), 0.03) << view.Name << ": the coat must visibly change the dog";
             frames.push_back(std::move(on));
         }
-        WriteStrip("DogShowcaseHero_GL_Forward", frames, 3u);
+        WriteStrip(BreedPrefix() + "ShowcaseHero_GL_Forward", frames, 3u);
+    }
+    TEST_F(DogShowcaseEvidenceTest, TheDogIsFurredFromEveryHeroAngle)
+    {
+        TheDogIsFurredFromEveryHeroAngle();
+    }
+    TEST_P(BreedShowcaseEvidenceTest, TheDogIsFurredFromEveryHeroAngle)
+    {
+        TheDogIsFurredFromEveryHeroAngle();
     }
 
     // =========================================================================
@@ -4822,7 +5224,7 @@ namespace OloEngine::Tests
     // OLO_DOG_B6_ONLY=<clip>:<view> (e.g. Walk:RearTail) runs that one arm,
     // for iterating on it; the test is only whole without it.
     // =========================================================================
-    TEST_F(DogShowcaseEvidenceTest, TheResolveSettlesTheCoatAtRestAndInMotion)
+    void DogShowcaseEvidenceTest::TheResolveSettlesTheCoatAtRestAndInMotion()
     {
         SetPath(RenderingPath::Forward);
         BodyParts parts = BuildBodyParts();
@@ -5055,10 +5457,18 @@ namespace OloEngine::Tests
                 std::fflush(stdout);
                 if (std::string_view(view.Name) == views[0].Name)
                 {
-                    WriteSequenceStrip(std::string("DogShimmer_GL_Forward_") + clip, resolved, raw);
+                    WriteSequenceStrip(BreedPrefix() + "Shimmer_GL_Forward_" + clip, resolved, raw);
                 }
             }
         }
+    }
+    TEST_F(DogShowcaseEvidenceTest, TheResolveSettlesTheCoatAtRestAndInMotion)
+    {
+        TheResolveSettlesTheCoatAtRestAndInMotion();
+    }
+    TEST_P(BreedShowcaseEvidenceTest, TheResolveSettlesTheCoatAtRestAndInMotion)
+    {
+        TheResolveSettlesTheCoatAtRestAndInMotion();
     }
 
     // =========================================================================
@@ -5740,7 +6150,7 @@ namespace OloEngine::Tests
     // arms draw the same stochastic frames (the sequences are reset), so where
     // they draw the same strands their noise cancels in the ratio.
     // =========================================================================
-    TEST_F(DogShowcaseEvidenceTest, TheLodLadderKeepsCoverageAndEnergyFromCloseUpTo15m)
+    void DogShowcaseEvidenceTest::TheLodLadderKeepsCoverageAndEnergyFromCloseUpTo15m()
     {
         SetPath(RenderingPath::Forward);
         (void)StartClip("Rest", true, 30);
@@ -5813,7 +6223,7 @@ namespace OloEngine::Tests
             f32 Distance;
         };
         const glm::vec3 face = m_Dog.Frame.EyeMid;
-        const glm::vec3 body(0.0f, 0.38f, 0.05f);
+        const glm::vec3 body = glm::vec3(0.0f, 0.38f, 0.05f) * s_BreedViewScale;
         const std::array<Stop, 6> stops{ { { "face 0.6 m", face, 0.6f },
                                            { "body 1.5 m", body, 1.5f },
                                            { "body 3 m", body, 3.0f },
@@ -5837,6 +6247,14 @@ namespace OloEngine::Tests
         m_Dog.Coat.GetComponent<GroomLodComponent>().m_Enabled = true;
         m_Dog.Body.GetComponent<AnimationStateComponent>().m_IsPlaying = true;
     }
+    TEST_F(DogShowcaseEvidenceTest, TheLodLadderKeepsCoverageAndEnergyFromCloseUpTo15m)
+    {
+        TheLodLadderKeepsCoverageAndEnergyFromCloseUpTo15m();
+    }
+    TEST_P(BreedShowcaseEvidenceTest, TheLodLadderKeepsCoverageAndEnergyFromCloseUpTo15m)
+    {
+        TheLodLadderKeepsCoverageAndEnergyFromCloseUpTo15m();
+    }
 
     // =========================================================================
     // B7 AT THE CARD HAND-OVER, HELD. The extended dolly crosses the hand-over
@@ -5852,16 +6270,18 @@ namespace OloEngine::Tests
     //
     // THE BAR is the near ladder's step: within 5% in coverage and in linear
     // energy, half the criterion's band, at every distance the hand-over can
-    // happen at (17-27 m here: in at about 16 m, out at about 22.5 m). Measured
-    // 0.9-1.6% in coverage and 3.6-4.8% in energy, the cards the darker. Where
-    // that comes from is printed at 22 m (groom-card-coverage.md rule 6): it is
-    // the fibre model, not the coat's shadow or the sky. With single scattering
-    // only, cards are 11% BRIGHTER than their strands; the multiple-scattering
-    // back-scatter, a lobe of the fibre's tangent, comes out much weaker on a
-    // card, which shades at its kept strand's one tangent while its members
-    // spread around it; unlit, a card's colour is 3% darker.
+    // happen at (the golden's 17-27 m, scaled to the dog: in at about 16 m, out
+    // at about 22.5 m). Every breed runs it. Where a step comes from is printed
+    // at 22 m (groom-card-coverage.md rule 6), split by the coat's self-shadow,
+    // the sky, the multiple scattering, the fibre model and the scene shadow the
+    // coat receives. Unshadowed, a card is darker than its strands in every
+    // lobe; the coat's self-shadow darkens the strands more, which offsets most
+    // of it. On the adult dogs (#1558) the 12 mm card cell left the cards 7-9%
+    // darker: a wide card reads the body's shadow across its ribbon (receiving
+    // no scene shadow recovered a third of the step) and averages its lock's
+    // tips away. The 9 mm cell keeps both within the bar.
     // =========================================================================
-    TEST_F(DogShowcaseEvidenceTest, TheCardHandOverStepsTheCoatWithinTheNearLaddersBar)
+    void DogShowcaseEvidenceTest::TheCardHandOverStepsTheCoatWithinTheNearLaddersBar()
     {
         SetPath(RenderingPath::Forward);
         (void)StartClip("Rest", true, 30);
@@ -5945,8 +6365,10 @@ namespace OloEngine::Tests
         };
         const auto ratio = [](f64 a, f64 b)
         { return b > 0.0 ? a / b : 0.0; };
-        for (const f32 distance : { 17.0f, 19.0f, 22.0f, 27.0f, 35.0f })
+        // The golden's distances, scaled to the dog: a bigger dog hands over further away (#1558).
+        for (const f32 golden : { 17.0f, 19.0f, 22.0f, 27.0f, 35.0f })
         {
+            const f32 distance = golden * s_BreedViewScale;
             const Held cards = hold(distance, shippedLod.m_CardPixelSize, true);
             const Held strands = hold(distance, 0.5f, true);
             const Held every = hold(distance, shippedLod.m_CardPixelSize, false);
@@ -5958,7 +6380,7 @@ namespace OloEngine::Tests
                         ratio(cards.Energy, strands.Energy), ratio(cards.Coverage, every.Coverage), ratio(cards.Energy, every.Energy),
                         ratio(strands.Coverage, every.Coverage), ratio(strands.Energy, every.Energy), every.Coverage);
             std::fflush(stdout);
-            if (distance <= 27.0f)
+            if (golden <= 27.0f)
             {
                 EXPECT_EQ(cards.Representation, static_cast<u32>(GroomRepresentation::Card)) << distance << " m: not on cards";
                 EXPECT_EQ(strands.Representation, static_cast<u32>(GroomRepresentation::Strand)) << distance << " m: not on strands";
@@ -5979,19 +6401,24 @@ namespace OloEngine::Tests
             f32 Ibl;
             bool Multiple;
             bool Fibre;
+            bool Receives = true;
         };
+        auto& sceneShadow = m_Dog.Coat.GetComponent<GroomSceneShadowComponent>();
+        const bool shippedReceives = sceneShadow.m_ReceiveShadows;
         for (const Split& split : { Split{ "kappa 0", 0.0f, shippedIbl, shippedMultiple, shippedFibre },
                                     Split{ "no sky", shippedKappa, 0.0f, shippedMultiple, shippedFibre },
                                     Split{ "kappa 0, no sky", 0.0f, 0.0f, shippedMultiple, shippedFibre },
                                     Split{ "single only", shippedKappa, shippedIbl, false, shippedFibre },
-                                    Split{ "unlit", shippedKappa, shippedIbl, shippedMultiple, false } })
+                                    Split{ "unlit", shippedKappa, shippedIbl, shippedMultiple, false },
+                                    Split{ "receives none", shippedKappa, shippedIbl, shippedMultiple, shippedFibre, false } })
         {
             coatShadow.m_Kappa = split.Kappa;
             sky->m_IBLIntensity = split.Ibl;
             coatShadow.m_MultipleScattering = split.Multiple;
             fibre.m_Enabled = split.Fibre;
-            const Held cards = hold(22.0f, shippedLod.m_CardPixelSize, true);
-            const Held strands = hold(22.0f, 0.5f, true);
+            sceneShadow.m_ReceiveShadows = split.Receives;
+            const Held cards = hold(22.0f * s_BreedViewScale, shippedLod.m_CardPixelSize, true);
+            const Held strands = hold(22.0f * s_BreedViewScale, 0.5f, true);
             ASSERT_FALSE(HasFatalFailure());
             std::printf("[dog] hand-over 22.0 m, %-15s: cards/strands coverage %.3f energy %.3f\n", split.Name,
                         ratio(cards.Coverage, strands.Coverage), ratio(cards.Energy, strands.Energy));
@@ -6001,6 +6428,15 @@ namespace OloEngine::Tests
         coatShadow.m_MultipleScattering = shippedMultiple;
         fibre.m_Enabled = shippedFibre;
         sky->m_IBLIntensity = shippedIbl;
+        sceneShadow.m_ReceiveShadows = shippedReceives;
+    }
+    TEST_F(DogShowcaseEvidenceTest, TheCardHandOverStepsTheCoatWithinTheNearLaddersBar)
+    {
+        TheCardHandOverStepsTheCoatWithinTheNearLaddersBar();
+    }
+    TEST_P(BreedShowcaseEvidenceTest, TheCardHandOverStepsTheCoatWithinTheNearLaddersBar)
+    {
+        TheCardHandOverStepsTheCoatWithinTheNearLaddersBar();
     }
 
     // =========================================================================
@@ -6262,6 +6698,19 @@ namespace OloEngine::Tests
         std::error_code ec;
         fs::create_directories(root, ec);
         ASSERT_FALSE(ec) << root.string();
+        // Optional running frames before recording: a full loop lets the coat
+        // and temporal history settle without changing the captured clip phase.
+        u32 prerollFrames = 0u;
+        if (const char* value = std::getenv("OLO_DOG_FOOTAGE_PREROLL"); value != nullptr)
+        {
+            char* end = nullptr;
+            const long parsed = std::strtol(value, &end, 10);
+            ASSERT_NE(end, value);
+            ASSERT_EQ(*end, '\0');
+            ASSERT_GE(parsed, 0);
+            ASSERT_LE(parsed, 600);
+            prerollFrames = static_cast<u32>(parsed);
+        }
         SetPath(RenderingPath::Forward);
         BuildLawn(std::string(OLO_TEST_EDITOR_ROOT) + "/");
         ResizeRenderTarget(1920u, 1080u);
@@ -6302,6 +6751,7 @@ namespace OloEngine::Tests
             manifest["ground"] = "the live scene's lawn (BuildLawn)";
             manifest["lawnClock"] = "pinned (a frozen mock time): the grass holds still here; it sways in the editor";
             manifest["frameStep"] = "1/60 s";
+            manifest["prerollFrames"] = prerollFrames;
         }
 
         const auto write = [&](const fs::path& dir, u32 index)
@@ -6339,8 +6789,8 @@ namespace OloEngine::Tests
         const View walk{ "WalkMidShot", { 2.10f, 1.00f, 2.90f }, { 0.0f, 0.35f, 0.0f }, 32.0f };
         const View rear{ "RearTail", { -0.95f, 0.70f, -1.35f }, { 0.0f, 0.40f, -0.25f }, 35.0f };
         const std::array<Shot, 8> shots{ {
-            { "Idle_FaceCloseUp", "Idle", true, 4.0f, face },
-            { "Idle_FullBody", "Idle", true, 4.0f, body },
+            { "Idle_FaceCloseUp", "Idle", true, AuthoredClipDuration("Idle"), face },
+            { "Idle_FullBody", "Idle", true, AuthoredClipDuration("Idle"), body },
             { "HeadTilt_FaceCloseUp", "HeadTilt", false, 2.5f, face },
             { "Sit_FullBody", "Sit", false, 3.0f, body },
             { "Walk_MidShot", "Walk", true, 2.0f, walk },
@@ -6364,7 +6814,7 @@ namespace OloEngine::Tests
             AimRuntimeCamera(shot.Where);
             Renderer3D::ResetFrameSequences();
             ColdHistory();
-            (void)StartClip(shot.Clip, shot.Loop, 1u);
+            (void)StartClip(shot.Clip, shot.Loop, 1u + prerollFrames);
             const u32 frames = static_cast<u32>(shot.Seconds * 60.0f);
             for (u32 f = 0; f < frames; ++f)
             {
@@ -6878,12 +7328,44 @@ namespace OloEngine::Tests
     // generator rather than from a hand-typed guess. Same shape as
     // GroomAnimalsAcceptanceEvidenceTest::ExportsTheLiveScene.
     // =========================================================================
+    TEST_F(DogShowcaseEvidenceTest, CooksTheAuthoredCoatAndBinding)
+    {
+        const char* destination = std::getenv("OLO_DOG_COOK_DIR");
+        if (destination == nullptr || destination[0] == '\0')
+        {
+            GTEST_SKIP() << "tools/dog-authoring/rebuild.py sets OLO_DOG_COOK_DIR for an isolated source rebuild";
+        }
+        ASSERT_TRUE(m_Dog.CoatAsset.FromAbc) << "an authoring rebuild must import the original Alembic source";
+        const fs::path directory(destination);
+        ASSERT_TRUE(directory.is_absolute());
+        std::error_code ec;
+        fs::create_directories(directory, ec);
+        ASSERT_FALSE(ec) << ec.message();
+        std::string reason;
+        std::vector<u8> bytes;
+        const auto write = [&](std::string_view suffix)
+        {
+            const fs::path path = directory / (BreedPrefix() + std::string(suffix));
+            ASSERT_FALSE(fs::exists(path)) << "never overwrite a previous cook: " << path.string();
+            std::ofstream file(path, std::ios::binary);
+            ASSERT_TRUE(file);
+            file.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+            ASSERT_TRUE(file);
+        };
+        ASSERT_TRUE(GroomSerializer::EncodeToBytes(*m_Dog.CoatAsset.Groom, bytes, reason)) << reason;
+        write(".ologroom");
+        ASSERT_FALSE(HasFatalFailure());
+        ASSERT_TRUE(GroomBindingSerializer::EncodeToBytes(*m_Dog.Binding, bytes, reason)) << reason;
+        write(".ologroombinding");
+    }
+
     TEST_F(DogShowcaseEvidenceTest, ExportsTheLiveScene)
     {
         const char* flag = std::getenv("OLO_DOG_EXPORT");
         if (flag == nullptr || flag[0] != '1')
         {
-            GTEST_SKIP() << "set OLO_DOG_EXPORT=1 to regenerate SandboxProject/Assets/Scenes/Dog.olo";
+            GTEST_SKIP() << "set OLO_DOG_EXPORT=1 to regenerate SandboxProject/Assets/Scenes/<breed>.olo "
+                            "(OLO_DOG_BREED picks the breed)";
         }
 
         const fs::path sandbox = fs::path{ OLO_TEST_EDITOR_ROOT } / "SandboxProject";
@@ -6892,27 +7374,36 @@ namespace OloEngine::Tests
         assets->Initialize(false);
         Project::SetAssetManager(assets);
         const fs::path assetDir = Project::GetAssetDirectory();
-        const fs::path groomDir = assetDir / "Grooms" / "Dog";
+        const std::string& prefix = BreedPrefix();
+        const fs::path groomDir = assetDir / "Grooms" / prefix;
+        const fs::path modelDir = assetDir / "Models" / prefix;
         std::error_code ec;
         fs::create_directories(groomDir, ec);
         ASSERT_FALSE(ec);
 
-        // The coat and its binding, cooked exactly as the fixture drew them.
+        // The coat and its binding, cooked exactly as the fixture drew them --
+        // through GroomCooker::CookToBytes, the call the editor's "Import as
+        // Groom" writes its .ologroom with (TheShippedCoatIsWhatTheEditorImportWrites).
         std::string reason;
         std::vector<u8> groomBytes, bindingBytes;
-        ASSERT_TRUE(GroomSerializer::EncodeToBytes(*m_Dog.CoatAsset.Groom, groomBytes, reason)) << reason;
+        ASSERT_TRUE(GroomCooker::CookToBytes(*m_Dog.CoatAsset.Groom, groomBytes, reason)) << reason;
         ASSERT_TRUE(GroomBindingSerializer::EncodeToBytes(*m_Dog.Binding, bindingBytes, reason)) << reason;
-        const fs::path groomPath = groomDir / "Dog.ologroom";
-        const fs::path bindingPath = groomDir / "Dog.ologroombinding";
-        std::ofstream(groomPath, std::ios::binary)
-            .write(reinterpret_cast<const char*>(groomBytes.data()), static_cast<std::streamsize>(groomBytes.size()));
-        std::ofstream(bindingPath, std::ios::binary)
-            .write(reinterpret_cast<const char*>(bindingBytes.data()), static_cast<std::streamsize>(bindingBytes.size()));
+        const fs::path groomPath = groomDir / (prefix + ".ologroom");
+        const fs::path bindingPath = groomDir / (prefix + ".ologroombinding");
+        for (const auto& [path, bytes] : { std::pair{ groomPath, &groomBytes }, std::pair{ bindingPath, &bindingBytes } })
+        {
+            std::ofstream out(path, std::ios::binary);
+            ASSERT_TRUE(out.is_open()) << "could not replace " << path.string();
+            out.write(reinterpret_cast<const char*>(bytes->data()), static_cast<std::streamsize>(bytes->size()));
+            out.close();
+            ASSERT_TRUE(out.good()) << "could not finish writing " << path.string();
+            ASSERT_EQ(fs::file_size(path), bytes->size()) << path.string();
+        }
         const AssetHandle groom = assets->ImportAsset(groomPath);
         const AssetHandle binding = assets->ImportAsset(bindingPath);
-        const AssetHandle colorMap = assets->ImportAsset(assetDir / "Models" / "Dog" / "DogCoatColor.png");
-        const AssetHandle eyeball = assets->ImportAsset(assetDir / "Models" / "Dog" / "DogEyeball.gltf");
-        const AssetHandle irisColor = assets->ImportAsset(assetDir / "Models" / "Dog" / "DogIrisColor.png");
+        const AssetHandle colorMap = assets->ImportAsset(modelDir / (prefix + "CoatColor.png"));
+        const AssetHandle eyeball = assets->ImportAsset(modelDir / (prefix + "Eyeball.gltf"));
+        const AssetHandle irisColor = assets->ImportAsset(modelDir / (prefix + "IrisColor.png"));
         ASSERT_NE(static_cast<u64>(groom), 0u) << groomPath.string();
         ASSERT_NE(static_cast<u64>(binding), 0u) << bindingPath.string();
         ASSERT_NE(static_cast<u64>(colorMap), 0u);
@@ -6932,7 +7423,7 @@ namespace OloEngine::Tests
             skinHandles[i] = assets->ImportAsset(assetDir / "Materials" / kSkinPatches[i].Profile);
             ASSERT_NE(static_cast<u64>(skinHandles[i]), 0u) << kSkinPatches[i].Profile;
         }
-        const AssetHandle eyeProfile = assets->ImportAsset(assetDir / "Materials" / "DogEye.oloskin");
+        const AssetHandle eyeProfile = assets->ImportAsset(assetDir / m_Dog.Rig.EyeProfile);
         ASSERT_NE(static_cast<u64>(eyeProfile), 0u);
         for (MaterialOverride& patch : m_Dog.Body.GetComponent<MaterialOverridesComponent>().m_Overrides)
         {
@@ -6962,7 +7453,12 @@ namespace OloEngine::Tests
 
         // The grade the look was developed under, on the SCENE (the renderer's
         // copy is the fixture's and is restored in TearDown).
-        GetScene().GetPostProcessSettings().Tonemap = TonemapOperator::ACES;
+        auto& scenePost = GetScene().GetPostProcessSettings();
+        const auto& lookPost = Renderer3D::GetPostProcessSettings();
+        scenePost.Tonemap = lookPost.Tonemap;
+        scenePost.Exposure = lookPost.Exposure;
+        scenePost.BloomIntensity = lookPost.BloomIntensity;
+        scenePost.BloomThreshold = lookPost.BloomThreshold;
         BuildLawn("");
         FrameSceneCamera();
 
@@ -6972,8 +7468,8 @@ namespace OloEngine::Tests
         anim.m_RequestedLoop = true;
         anim.m_IsPlaying = true;
 
-        const fs::path scenePath = assetDir / "Scenes" / "Dog.olo";
-        GetScene().SetName("Dog"); // the harness's scene is "Untitled"
+        const fs::path scenePath = assetDir / "Scenes" / (prefix + ".olo");
+        GetScene().SetName(prefix); // the harness's scene is "Untitled"
         SceneSerializer(GetSceneRef()).Serialize(scenePath);
         ASSERT_TRUE(fs::exists(scenePath));
         std::printf("[dog] exported %s: groom %zu bytes, binding %zu bytes\n", scenePath.string().c_str(),
@@ -7074,20 +7570,31 @@ namespace OloEngine::Tests
         // review, #1533): the neck from its other side, near enough to count
         // strands; the muzzle in profile, near; and the tail from above. Last,
         // the open mouth from the front and below, where the tongue, gums and
-        // teeth of the Pant clip are seen (OLO_DOG_LOOKDEV_CLIP=Pant).
-        const std::array<View, 11> views{ {
-            { "FaceFront", { 0.0f, 0.60f, 1.05f }, { 0.0f, 0.57f, 0.42f }, 30.0f },
-            { "FaceThreeQuarter", { 0.42f, 0.63f, 0.95f }, { 0.0f, 0.57f, 0.40f }, 30.0f },
-            { "FaceProfile", { 0.78f, 0.60f, 0.42f }, { 0.0f, 0.57f, 0.40f }, 30.0f },
+        // teeth of the Pant clip are seen (OLO_DOG_LOOKDEV_CLIP=Pant). Then the
+        // whole dog square from the side and from the front, level with its
+        // chest: the views a breed photo is taken from, where the depth of the
+        // chest, the length of the legs and the size of the head against the
+        // body are read (#1558).
+        std::array<View, 13> views{ {
+            { "FaceFront", { 0.0f, 0.026f, 0.415f }, { 0.0f, -0.004f, 0.015f }, 30.0f, true },
+            { "FaceThreeQuarter", { 0.270f, 0.046f, 0.365f }, { 0.0f, -0.004f, -0.005f }, 30.0f, true },
+            { "FaceProfile", { 0.480f, 0.006f, -0.005f }, { 0.0f, -0.004f, -0.005f }, 30.0f, true },
             { "Body", { 1.05f, 0.58f, 1.35f }, { 0.0f, 0.36f, 0.05f }, 35.0f },
-            { "EyeThreeQuarter", { 0.30f, 0.63f, 0.80f }, { 0.05f, 0.585f, 0.47f }, 24.0f },
+            { "EyeThreeQuarter", { 0.300f, 0.046f, 0.375f }, { 0.050f, 0.001f, 0.045f }, 24.0f, true },
             { "TailRear", { 0.55f, 0.75f, -1.05f }, { 0.0f, 0.50f, -0.36f }, 30.0f },
             { "TailBacklit", { -0.95f, 0.70f, -1.35f }, { 0.0f, 0.40f, -0.25f }, 35.0f },
             { "NeckClose", { -0.30f, 0.40f, 0.22f }, { 0.0f, 0.46f, 0.24f }, 30.0f },
-            { "MuzzleClose", { -0.36f, 0.58f, 0.47f }, { 0.0f, 0.56f, 0.47f }, 24.0f },
+            { "MuzzleClose", { -0.360f, -0.004f, 0.045f }, { 0.0f, -0.024f, 0.045f }, 24.0f, true },
             { "TailTop", { 0.30f, 1.05f, -0.80f }, { 0.0f, 0.48f, -0.40f }, 30.0f },
-            { "MouthOpen", { -0.22f, 0.44f, 0.78f }, { 0.0f, 0.47f, 0.47f }, 24.0f },
+            { "MouthOpen", { -0.220f, -0.144f, 0.355f }, { 0.0f, -0.114f, 0.045f }, 24.0f, true },
+            { "SideBody", { 1.55f, 0.38f, 0.02f }, { 0.0f, 0.38f, 0.02f }, 30.0f },
+            { "FrontBody", { 0.0f, 0.38f, 1.70f }, { 0.0f, 0.38f, 0.0f }, 30.0f },
         } };
+        for (View& view : views)
+        {
+            view = Scaled(view);
+        }
+        const std::string lookDev = BreedPrefix() + "LookDev_GL_Forward";
         // OLO_DOG_LOOKDEV_ONLY=wag skips the stills for the wag flip-book alone.
         const bool wagOnly = []
         { const char* v = std::getenv("OLO_DOG_LOOKDEV_ONLY"); return v != nullptr && std::string(v) == "wag"; }();
@@ -7100,8 +7607,10 @@ namespace OloEngine::Tests
             }
             std::vector<u8> px;
             ColdHistory();
-            CaptureEditorPreview(std::string("DogLookDev_GL_Forward_") + view.Name, view, px, 32);
+            CaptureEditorPreview(lookDev + "_" + view.Name, view, px, 32);
             ASSERT_FALSE(HasFatalFailure());
+            std::printf("[dog-look] %s: %u strands, %u segments\n", view.Name,
+                        PassStats().StrandsDrawn, PassStats().SegmentsDrawn);
             // The middle of the frame, enlarged: the face in the close-ups.
             std::vector<u8> crop(static_cast<sizet>(kWidth) * kHeight * 4u);
             for (u32 y = 0; y < kHeight; ++y)
@@ -7113,13 +7622,13 @@ namespace OloEngine::Tests
                     std::memcpy(&crop[(static_cast<sizet>(y) * kWidth + x) * 4u], &px[(static_cast<sizet>(sy) * kWidth + sx) * 4u], 4u);
                 }
             }
-            WritePng(std::string("DogLookDev_GL_Forward_") + view.Name + "_Crop", crop, kWidth, kHeight);
+            WritePng(lookDev + "_" + view.Name + "_Crop", crop, kWidth, kHeight);
             frames.push_back(std::move(px));
             frames.push_back(std::move(crop));
         }
         if (!frames.empty())
         {
-            WriteStrip("DogLookDev_GL_Forward", frames, 2u);
+            WriteStrip(lookDev, frames, 2u);
         }
         m_Dog.Body.GetComponent<AnimationStateComponent>().m_IsPlaying = true;
 
@@ -7152,7 +7661,7 @@ namespace OloEngine::Tests
                     ASSERT_FALSE(HasFatalFailure());
                     wagFrames.push_back(std::move(px));
                 }
-                WriteStrip(std::string("DogLookDev_GL_Forward_Wag") + view.Name, wagFrames, 4u);
+                WriteStrip(lookDev + "_Wag" + view.Name, wagFrames, 4u);
             }
         }
     }
@@ -7163,7 +7672,7 @@ namespace OloEngine::Tests
     // reads the optical axis from the entity's +Z) and is uniformly scaled to
     // the rig's eye radius; through a clip it keeps its place in the head.
     // =========================================================================
-    TEST_F(DogShowcaseEvidenceTest, TheEyesSitInTheirSocketsAndLookWhereTheRigSays)
+    void DogShowcaseEvidenceTest::TheEyesSitInTheirSocketsAndLookWhereTheRigSays()
     {
         SetPath(RenderingPath::Forward);
         auto& anim = m_Dog.Body.GetComponent<AnimationStateComponent>();
@@ -7244,6 +7753,14 @@ namespace OloEngine::Tests
         }
         std::fflush(stdout);
         anim.m_IsPlaying = true;
+    }
+    TEST_F(DogShowcaseEvidenceTest, TheEyesSitInTheirSocketsAndLookWhereTheRigSays)
+    {
+        TheEyesSitInTheirSocketsAndLookWhereTheRigSays();
+    }
+    TEST_P(BreedShowcaseEvidenceTest, TheEyesSitInTheirSocketsAndLookWhereTheRigSays)
+    {
+        TheEyesSitInTheirSocketsAndLookWhereTheRigSays();
     }
 
     // =========================================================================
@@ -7411,8 +7928,8 @@ namespace OloEngine::Tests
             EXPECT_GT(darkened, brightened) << "an occluder can only remove light";
         }
 
-        // THE RIM, which no shadow map stops: the cascades go to the brightest directional light
-        // that casts, and the scene's rim does not cast. What stops it is the coat's volume, which
+        // THE DIAGNOSTIC RIM, which no shadow map stops: the cascades go to the brightest directional light
+        // that casts. The diagnostic enables a rear light that does not cast. What stops it is the coat's volume, which
         // holds the body as well as the coat (groom-coat-body-in-the-volume.md). What it still
         // sends THROUGH the head onto the face is measured here by making it, for one arm, the
         // light that casts -- over the sun's range, not its own 200 m default, which put the dog on
@@ -7429,6 +7946,8 @@ namespace OloEngine::Tests
             auto& rim = m_Rim.GetComponent<DirectionalLightComponent>();
             const bool sunCasts = sun.m_CastShadows;
             const f32 rimRange = rim.m_MaxShadowDistance;
+            const f32 rimIntensity = rim.m_Intensity;
+            rim.m_Intensity = 2.0f;
             sun.m_CastShadows = false;
             (void)StartClip("Idle", true, 40);
             std::vector<u8> rimOpen;
@@ -7444,6 +7963,7 @@ namespace OloEngine::Tests
             CaptureHeld("", face, bald);
             m_Dog.Coat.GetComponent<GroomComponent>().m_RenderStrands = true;
             sun.m_CastShadows = sunCasts;
+            rim.m_Intensity = rimIntensity;
             ASSERT_FALSE(HasFatalFailure());
             u32 coat = 0;
             u32 throughBody = 0;
@@ -7485,7 +8005,7 @@ namespace OloEngine::Tests
     // the old picture), against BODY-AWARE references built from the engine's
     // own shadowed direct light, in LINEAR scene colour, region by region:
     //   KEY       the sun alone, casting, as shipped: the scale of the rest;
-    //   RIM       the rim alone, as shipped (not casting); twice, for the floor;
+    //   RIM       a rear light at intensity 2 (not casting); twice, for the floor;
     //   RIM+BODY  the rim alone, made the light that owns the cascades;
     //   VSM       the sun alone under the Virtual Shadow Map;
     //   ENV       the sky's irradiance alone, as shipped;
@@ -7546,6 +8066,7 @@ namespace OloEngine::Tests
         };
         const DirectionalLightComponent shippedSun = sun;
         const DirectionalLightComponent shippedRim = rim;
+        constexpr f32 kDiagnosticRimIntensity = 2.0f;
         const f32 shippedIbl = sky->m_IBLIntensity;
         const bool shippedMultiple = coatShadow.m_MultipleScattering;
         struct Restore
@@ -7651,11 +8172,11 @@ namespace OloEngine::Tests
             lights(shippedSun.m_Intensity, true, 0.0f, false, 0.0f);
             capture(view, key);
             ASSERT_FALSE(HasFatalFailure());
-            lights(0.0f, false, shippedRim.m_Intensity, false, 0.0f);
+            lights(0.0f, false, kDiagnosticRimIntensity, false, 0.0f);
             capture(view, rimOpen);
             capture(view, rimAgain);
             captureWithoutBody(view, rimNoBody);
-            lights(0.0f, false, shippedRim.m_Intensity, true, 0.0f);
+            lights(0.0f, false, kDiagnosticRimIntensity, true, 0.0f);
             capture(view, rimBody);
             // The same casting rim at a 4 m range: cascades with a fraction of
             // the shipped texels, to say what of rimLeak is their filtering.
@@ -7682,9 +8203,9 @@ namespace OloEngine::Tests
                 } peltRestore{ pelt, shippedPelt };
                 pelt->BaseColor = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
                 pelt->Roughness = 1.0f;
-                lights(0.0f, false, shippedRim.m_Intensity, false, 0.0f);
+                lights(0.0f, false, kDiagnosticRimIntensity, false, 0.0f);
                 capture(view, rimFur);
-                lights(0.0f, false, shippedRim.m_Intensity, true, 0.0f);
+                lights(0.0f, false, kDiagnosticRimIntensity, true, 0.0f);
                 capture(view, rimBodyFur);
             }
             {
@@ -8289,7 +8810,7 @@ namespace OloEngine::Tests
             f32 Seconds;
         };
         const std::array<View, 2> views{ HeroViews()[5], HeroViews()[3] };
-        for (const ClipCase& clip : { ClipCase{ "Idle", true, 4.0f }, ClipCase{ "HeadTilt", false, 2.5f },
+        for (const ClipCase& clip : { ClipCase{ "Idle", true, AuthoredClipDuration("Idle") }, ClipCase{ "HeadTilt", false, 2.5f },
                                       ClipCase{ "Sit", false, 3.0f }, ClipCase{ "Walk", true, 1.0f },
                                       ClipCase{ "Pant", true, 2.0f } })
         {
@@ -8486,7 +9007,7 @@ namespace OloEngine::Tests
     // is judged -- stubs leave the skin showing everywhere, so baldness says
     // nothing here.
     // =========================================================================
-    TEST_F(DogShowcaseEvidenceTest, TheCoatsRootsStayOnTheSkinThroughEveryClip)
+    void DogShowcaseEvidenceTest::TheCoatsRootsStayOnTheSkinThroughEveryClip()
     {
         SetPath(RenderingPath::Forward);
         BodyParts parts = BuildBodyParts();
@@ -8562,7 +9083,7 @@ namespace OloEngine::Tests
         };
         constexpr u32 kSteps = 6;
         const std::array<View, 2> views{ HeroViews()[5], HeroViews()[3] };
-        for (const ClipCase& clip : { ClipCase{ "Idle", true, 4.0f }, ClipCase{ "HeadTilt", false, 2.5f },
+        for (const ClipCase& clip : { ClipCase{ "Idle", true, AuthoredClipDuration("Idle") }, ClipCase{ "HeadTilt", false, 2.5f },
                                       ClipCase{ "Sit", false, 3.0f }, ClipCase{ "Walk", true, 1.0f },
                                       ClipCase{ "Pant", true, 2.0f } })
         {
@@ -8623,6 +9144,14 @@ namespace OloEngine::Tests
         std::fflush(stdout);
         EXPECT_TRUE(NamesPart(plantedFailures, BodyPart::Tail)) << "the stubs left at rest while the tail wagged did not float in the tail";
     }
+    TEST_F(DogShowcaseEvidenceTest, TheCoatsRootsStayOnTheSkinThroughEveryClip)
+    {
+        TheCoatsRootsStayOnTheSkinThroughEveryClip();
+    }
+    TEST_P(BreedShowcaseEvidenceTest, TheCoatsRootsStayOnTheSkinThroughEveryClip)
+    {
+        TheCoatsRootsStayOnTheSkinThroughEveryClip();
+    }
 
     // =========================================================================
     // The cooked pair the live scene references: the shipped Dog.ologroom and
@@ -8634,11 +9163,10 @@ namespace OloEngine::Tests
     // binding the live scene refuses, which nothing else here would notice:
     // every other case cooks its own.
     // =========================================================================
-    TEST_F(DogShowcaseEvidenceTest, TheShippedCoatAndBindingSurviveTheLooseAndPackedPaths)
+    void DogShowcaseEvidenceTest::TheShippedCoatAndBindingSurviveTheLooseAndPackedPaths()
     {
         auto editorAssets = Project::GetAssetManager().As<EditorAssetManager>();
         ASSERT_TRUE(editorAssets) << "the loose path needs the editor asset manager";
-        const fs::path shipped = SandboxAssets() / "Grooms" / "Dog";
         const auto readAll = [](const fs::path& path)
         {
             std::ifstream in(path, std::ios::binary | std::ios::ate);
@@ -8651,24 +9179,33 @@ namespace OloEngine::Tests
             }
             return bytes;
         };
-        const std::vector<u8> groomBytes = readAll(shipped / "Dog.ologroom");
-        const std::vector<u8> bindingBytes = readAll(shipped / "Dog.ologroombinding");
-        ASSERT_FALSE(groomBytes.empty()) << (shipped / "Dog.ologroom").string();
-        ASSERT_FALSE(bindingBytes.empty()) << (shipped / "Dog.ologroombinding").string();
+        const std::vector<u8> groomBytes = readAll(DogGroomFile(".ologroom"));
+        const std::vector<u8> bindingBytes = readAll(DogGroomFile(".ologroombinding"));
+        ASSERT_FALSE(groomBytes.empty()) << (DogGroomFile(".ologroom")).string();
+        ASSERT_FALSE(bindingBytes.empty()) << (DogGroomFile(".ologroombinding")).string();
 
         // The binding the fixture cooks from the shipped coat and today's body.
         std::string reason;
         std::vector<u8> again;
-        ASSERT_TRUE(GroomBindingSerializer::EncodeToBytes(*m_Dog.Binding, again, reason)) << reason;
+        Ref<GroomBindingAsset> recookedBinding;
+        GroomBindingBuildSettings bind;
+        bind.SurfaceToGroom = glm::mat4(1.0f);
+        GroomBindingBuildStats bindStats;
+        const Ref<AnimatedModel> bindModel = Ref<AnimatedModel>::Create(DogPath().string());
+        ASSERT_TRUE(bindModel && bindModel->GetEntityMeshSource() && bindModel->GetSkeleton());
+        ASSERT_TRUE(GroomBindingCooker::CookPair(*m_Dog.CoatAsset.Groom,
+                                                 MakeSurfaceView(*bindModel->GetEntityMeshSource(), bindModel->GetSkeleton().Raw()),
+                                                 "Dog", bind, again, recookedBinding, bindStats, reason))
+            << reason;
         EXPECT_EQ(again, bindingBytes) << "the shipped binding is not the one Dog.gltf cooks today: re-export with "
                                           "OLO_DOG_EXPORT=1 (DogShowcaseEvidenceTest.ExportsTheLiveScene)";
 
         // Loose: the shipped files, imported by the editor asset manager.
         const fs::path assetsDir = Project::GetAssetDirectory();
         std::error_code ec;
-        fs::copy_file(shipped / "Dog.ologroom", assetsDir / "ShippedDog.ologroom", fs::copy_options::overwrite_existing, ec);
+        fs::copy_file(DogGroomFile(".ologroom"), assetsDir / "ShippedDog.ologroom", fs::copy_options::overwrite_existing, ec);
         ASSERT_FALSE(ec) << ec.message();
-        fs::copy_file(shipped / "Dog.ologroombinding", assetsDir / "ShippedDog.ologroombinding",
+        fs::copy_file(DogGroomFile(".ologroombinding"), assetsDir / "ShippedDog.ologroombinding",
                       fs::copy_options::overwrite_existing, ec);
         ASSERT_FALSE(ec) << ec.message();
         const AssetHandle looseGroom = editorAssets->ImportAsset(assetsDir / "ShippedDog.ologroom");
@@ -8757,6 +9294,15 @@ namespace OloEngine::Tests
             << "the packed pair draws the coat the fixture's own pair draws";
     }
 
+    TEST_F(DogShowcaseEvidenceTest, TheShippedCoatAndBindingSurviveTheLooseAndPackedPaths)
+    {
+        TheShippedCoatAndBindingSurviveTheLooseAndPackedPaths();
+    }
+    TEST_P(BreedShowcaseEvidenceTest, TheShippedCoatAndBindingSurviveTheLooseAndPackedPaths)
+    {
+        TheShippedCoatAndBindingSurviveTheLooseAndPackedPaths();
+    }
+
     // =========================================================================
     // A3: a whole blink, on the skinned lids (#1533 acceptance review,
     // section 5). Idle's first blink, frame by frame on RUNTIME frames:
@@ -8807,7 +9353,8 @@ namespace OloEngine::Tests
         // its neighbourhood and at least half the clip's deepest.
         (void)StartClip("Idle", true, 1u);
         std::vector<f32> turns;
-        for (u32 f = 1; f < 240u; ++f)
+        const auto idleFrames = static_cast<u32>(std::ceil(AuthoredClipDuration("Idle") * 60.0f));
+        for (u32 f = 1; f < idleFrames; ++f)
         {
             (void)AdvanceRuntime(1u);
             turns.push_back(lidTurn());
@@ -9136,9 +9683,9 @@ namespace OloEngine::Tests
     // walk on the spot shows -- slide every stance paw back by most of its
     // stance's share of a stride.
     // =========================================================================
-    TEST_F(DogShowcaseEvidenceTest, TheWalkTravelsWithItsPawsPlanted)
+    void DogShowcaseEvidenceTest::TheWalkTravelsWithItsPawsPlanted()
     {
-        constexpr f32 kWalkSpeed = 0.312f; // m/s, build_dog.py's WALK_SPEED
+        const f32 kWalkSpeed = m_Dog.Rig.WalkSpeed; // m/s: build_dog.py's WALK_SPEED, times the breed's stride
         constexpr f32 kSlide = 0.008f;
         constexpr f32 kDuty = 0.62f; // clip_walk's stance share of the stride
         constexpr u32 kFrames = 120; // two loops at 60 Hz
@@ -9267,6 +9814,14 @@ namespace OloEngine::Tests
         }
         (void)StartClip("Idle", true, 1u);
     }
+    TEST_F(DogShowcaseEvidenceTest, TheWalkTravelsWithItsPawsPlanted)
+    {
+        TheWalkTravelsWithItsPawsPlanted();
+    }
+    TEST_P(BreedShowcaseEvidenceTest, TheWalkTravelsWithItsPawsPlanted)
+    {
+        TheWalkTravelsWithItsPawsPlanted();
+    }
 
     // =========================================================================
     // The teeth stay out of the tongue (A4, #1533). Every clip on runtime
@@ -9279,7 +9834,7 @@ namespace OloEngine::Tests
     // in front of the lower incisors (build_dog.py's clip_pant), and a bend
     // behind them drives the tongue through the whole tooth row.
     // =========================================================================
-    TEST_F(DogShowcaseEvidenceTest, TheTeethStayOutOfTheTongueThroughEveryClip)
+    void DogShowcaseEvidenceTest::TheTeethStayOutOfTheTongueThroughEveryClip()
     {
         constexpr f32 kPierceTolerance = 0.0005f; // half a millimetre
         constexpr f32 kTouching = 0.01f;
@@ -9462,6 +10017,14 @@ namespace OloEngine::Tests
                                      << " mm deep at runtime frame " << w.Frame;
         }
         m_Dog.Body.GetComponent<AnimationStateComponent>().m_IsPlaying = true;
+    }
+    TEST_F(DogShowcaseEvidenceTest, TheTeethStayOutOfTheTongueThroughEveryClip)
+    {
+        TheTeethStayOutOfTheTongueThroughEveryClip();
+    }
+    TEST_P(BreedShowcaseEvidenceTest, TheTeethStayOutOfTheTongueThroughEveryClip)
+    {
+        TheTeethStayOutOfTheTongueThroughEveryClip();
     }
 
     // =========================================================================
@@ -9678,7 +10241,7 @@ namespace OloEngine::Tests
         const auto& anim = m_Dog.Body.GetComponent<AnimationStateComponent>();
 
         // Loops.
-        for (const auto& [clip, seconds] : { std::pair{ "Idle", 4.0f }, std::pair{ "Walk", 1.0f } })
+        for (const auto& [clip, seconds] : { std::pair{ "Idle", AuthoredClipDuration("Idle") }, std::pair{ "Walk", 1.0f } })
         {
             SCOPED_TRACE(clip);
             const u32 frames = static_cast<u32>(seconds * 60.0f * 1.5f);

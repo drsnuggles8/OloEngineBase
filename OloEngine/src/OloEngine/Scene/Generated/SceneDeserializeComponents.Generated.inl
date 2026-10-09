@@ -641,6 +641,7 @@ if (auto node = entity["GroomComponent"]; node)
         comp.m_RootMarkerSize = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
     comp.m_MaxPreviewStrands = std::clamp(node["MaxPreviewStrands"].as<u32>(comp.m_MaxPreviewStrands), static_cast<u32>(1), static_cast<u32>(200000));
     comp.m_MaxRenderStrands = std::clamp(node["MaxRenderStrands"].as<u32>(comp.m_MaxRenderStrands), static_cast<u32>(1), static_cast<u32>(8000000));
+    comp.m_MaxRenderSegments = std::clamp(node["MaxRenderSegments"].as<u32>(comp.m_MaxRenderSegments), static_cast<u32>(1), static_cast<u32>(8000000));
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["WidthScale"], v))
         comp.m_WidthScale = std::clamp(v, static_cast<f32>(0.01f), static_cast<f32>(100.0f));
     comp.m_StrandColor = node["StrandColor"].as<glm::vec3>(comp.m_StrandColor);
@@ -677,7 +678,7 @@ if (auto node = entity["GroomFibreComponent"]; node)
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Intensity"], v))
         comp.m_Intensity = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(64.0f));
     comp.m_HSamples = std::clamp(node["HSamples"].as<u32>(comp.m_HSamples), static_cast<u32>(1), static_cast<u32>(32));
-    if (const decltype(comp.m_PigmentMode) v = node["PigmentMode"].as<decltype(comp.m_PigmentMode)>(comp.m_PigmentMode); v >= static_cast<decltype(comp.m_PigmentMode)>(0) && v <= static_cast<decltype(comp.m_PigmentMode)>(2))
+    if (const decltype(comp.m_PigmentMode) v = node["PigmentMode"].as<decltype(comp.m_PigmentMode)>(comp.m_PigmentMode); v >= static_cast<decltype(comp.m_PigmentMode)>(0) && v <= static_cast<decltype(comp.m_PigmentMode)>(3))
         comp.m_PigmentMode = v;
     if (const decltype(comp.m_DebugMode) v = node["DebugMode"].as<decltype(comp.m_DebugMode)>(comp.m_DebugMode); v >= static_cast<decltype(comp.m_DebugMode)>(0) && v <= static_cast<decltype(comp.m_DebugMode)>(6))
         comp.m_DebugMode = v;

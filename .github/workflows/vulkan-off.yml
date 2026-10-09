@@ -161,6 +161,9 @@ jobs:
       # Python, the Vulkan shader toolchain and the compiler, resolved for whichever
       # runner kind this landed on. The Vulkan SDK is needed even though the Vulkan
       # BACKEND is off — see the note at the top of this file.
+      - name: Restore full model and groom assets
+        uses: ./.github/actions/restore-lfs-assets
+
       - name: Setup Linux build environment
         id: linux
         uses: ./.github/actions/setup-linux-build
