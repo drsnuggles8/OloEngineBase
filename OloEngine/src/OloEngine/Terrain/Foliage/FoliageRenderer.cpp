@@ -335,8 +335,24 @@ namespace OloEngine
             u32 RecordCount = 0u;
         };
         TArray<CastingCandidate> castingCandidates;
-        // The wind clock's step, which sets how often a proxy refreshes.
-        const f32 frameSeconds = m_Time - m_PrevTime;
+        // The wind clock's step since the last plan, which sets how often a
+        // proxy refreshes. The cache times a layer on the clock its wind is
+        // evaluated on: the wind field's for a legacy single-weight layer
+        // (VegetationSurfaceCache's WindTime), the scene animation clock
+        // otherwise.
+        const auto stepSince = [](f32 now, f32 last) -> f32
+        { return last >= 0.0f && std::isfinite(now) && now >= last ? now - last : 0.0f; };
+        const f32 animationStep = stepSince(m_Time, m_PlanAnimationTime);
+        const f32 fieldStep = stepSince(field.TimeAndFlags.x, m_PlanFieldTime);
+        m_PlanAnimationTime = m_Time;
+        m_PlanFieldTime = field.TimeAndFlags.x;
+        const auto frameSecondsFor = [&](const LayerRenderData& layer, bool impostor) -> f32
+        {
+            const bool legacyField = layer.WindWeights.x + layer.WindWeights.y + layer.WindWeights.z <= 0.0f &&
+                                     field.TimeAndFlags.y > 0.5f && !impostor;
+            return legacyField ? fieldStep : animationStep;
+        };
+        f32 frameSeconds = 0.0f;
         TArray<const FoliageInstanceRecord*> castingRecords;
         const auto castingKey = [](u32 layerIndex, u64 firstId)
         { return RayTracing::VegetationPlantTerm(firstId ^ (static_cast<u64>(layerIndex) << 48u)); };
@@ -452,10 +468,13 @@ namespace OloEngine
                     candidate.Cost.WasRequested = m_CastingRequested.contains(castingKey(group.m_LayerIndex, candidate.FirstId));
                     // The steady refresh demand of each tier (RefreshRate).
                     const bool forceDetailed = RayTracing::VegetationDiagnostics::GetForceDetailed();
+                    const f32 requestedStep = frameSecondsFor(layer, representation == 1u);
+                    frameSeconds = std::max(frameSeconds, requestedStep);
                     candidate.Cost.RequestedRate = RayTracing::VegetationPolicy::RefreshRate(
-                        forceDetailed || nearest <= castingDetailedDistance(layer, mesh), velocityBound(layer, representation == 1u), frameSeconds);
+                        forceDetailed || nearest <= castingDetailedDistance(layer, mesh), velocityBound(layer, representation == 1u), requestedStep);
                     candidate.Cost.FallbackRate = RayTracing::VegetationPolicy::RefreshRate(
-                        forceDetailed || nearest <= castingDetailedDistance(layer, false), velocityBound(layer, false), frameSeconds);
+                        forceDetailed || nearest <= castingDetailedDistance(layer, false), velocityBound(layer, false),
+                        frameSecondsFor(layer, false));
                     candidate.Distance = nearest;
                     candidate.FirstRecord = static_cast<u32>(castingRecords.Num());
                     candidate.RecordCount = static_cast<u32>(slice.size());
@@ -512,7 +531,7 @@ namespace OloEngine
                         break;
                 }
             }
-            cache.CountCastingPlan(plan, nearestFallback);
+            cache.CountCastingPlan(plan, nearestFallback, frameSeconds);
         }
 
         // THE REFLECTION-ONLY GROUPS, nearest first: cards while they fit what

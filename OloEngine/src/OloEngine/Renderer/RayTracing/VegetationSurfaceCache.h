@@ -165,6 +165,11 @@ namespace OloEngine::RayTracing
         u32 CastingGroupsPlanned = 0u;
         u32 CastingFallbackGroups = 0u;
         u32 CastingGroupsLeftOut = 0u;
+        /// The casting plan's steady refresh demand, per frame, and the wind
+        /// clock step it was planned for (VegetationPolicy::RefreshRate).
+        f32 CastingDemandBuilds = 0.0f;
+        f32 CastingDemandVertices = 0.0f;
+        f32 PlanFrameSeconds = 0.0f;
         /// The nearest casting group traced below its requested tier, metres;
         /// 0 with none. Near (hero) quality holds while this stays far out.
         f32 NearestCastingFallback = 0.0f;
@@ -199,6 +204,14 @@ namespace OloEngine::RayTracing
         /// RT and TAA histories; now only a representation change does.
         u32 GroupsCreated = 0u;
         u32 GroupsRetired = 0u;
+        /// Why each refreshed or refused group needed a refresh this frame:
+        /// first sight or new content, a reset (parameters, tier, wind
+        /// continuity), a snapshot invalidated by an unrecorded dispatch, or
+        /// its deadline coming due. What the per-frame budget is spent on.
+        u32 RefreshNew = 0u;
+        u32 RefreshReset = 0u;
+        u32 RefreshInvalid = 0u;
+        u32 RefreshDue = 0u;
         /// The traced representation changed: plants entered or left the
         /// scene, changed tier or time resolution, or lost wind continuity
         /// (#1354). Plants regrouped at the same tier are not a change.
@@ -231,7 +244,7 @@ namespace OloEngine::RayTracing
         void Refuse(bool castsShadows, VegetationPressure pressure = VegetationPressure::InvalidContent);
         /// What the producer's casting plan chose (#1354), counted under the
         /// pressure that forced its first fallback.
-        void CountCastingPlan(const VegetationPolicy::CastingPlan& plan, f32 nearestFallback);
+        void CountCastingPlan(const VegetationPolicy::CastingPlan& plan, f32 nearestFallback, f32 frameSeconds);
         /// Reflection-only groups left out by ChooseReflectionTiers, and the
         /// reach of the ones admitted, at any tier and as the mesh.
         void CountBeyondReflectionBudget(u32 groups, u32 plants, f32 reach, f32 detailReach);

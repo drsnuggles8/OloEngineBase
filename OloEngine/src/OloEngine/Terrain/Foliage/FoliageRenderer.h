@@ -779,6 +779,12 @@ namespace OloEngine
         // (VegetationPolicy::UpgradeMarginDivisor), so a group at the edge of
         // the plan keeps its tier instead of flipping every frame.
         mutable std::unordered_set<u64> m_CastingRequested;
+        // The wind clocks at the last casting plan (#1354). The plan's refresh
+        // rates come from the step since then, measured here rather than read
+        // from m_PrevTime: the cache ages its snapshots once per plan, and a
+        // previous time the scene re-seeds reads as a clock that stands still.
+        mutable f32 m_PlanAnimationTime = -1.0f;
+        mutable f32 m_PlanFieldTime = -1.0f;
 
         TArray<LayerRenderData> m_Layers;
         FoliageInstanceRegistry m_Registry;

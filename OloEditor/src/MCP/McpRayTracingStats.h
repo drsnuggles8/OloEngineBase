@@ -225,6 +225,13 @@ namespace OloEngine::MCP::RayTracingStats
             { "historyReset", vegetation.HistoryReset },
             { "groupsCreated", vegetation.GroupsCreated },
             { "groupsRetired", vegetation.GroupsRetired },
+            { "refreshReasons",
+              Json{
+                  { "new", vegetation.RefreshNew },
+                  { "reset", vegetation.RefreshReset },
+                  { "invalid", vegetation.RefreshInvalid },
+                  { "due", vegetation.RefreshDue },
+              } },
             // #1354: the pressure that pushed vegetation below the quality it
             // asked for, what it got instead, and what recovery would cost.
             { "shadowReady", snapshot.VegetationShadowReady },
@@ -244,6 +251,9 @@ namespace OloEngine::MCP::RayTracingStats
                   return byPressure;
               }() },
             { "castingGroupsPlanned", vegetation.CastingGroupsPlanned },
+            { "castingDemandBuilds", vegetation.CastingDemandBuilds },
+            { "castingDemandVertices", vegetation.CastingDemandVertices },
+            { "planFrameSeconds", vegetation.PlanFrameSeconds },
             { "castingFallbackGroups", vegetation.CastingFallbackGroups },
             { "castingGroupsLeftOut", vegetation.CastingGroupsLeftOut },
             { "nearestCastingFallback", vegetation.NearestCastingFallback },

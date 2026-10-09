@@ -205,10 +205,13 @@ namespace OloEngine::RayTracing
             m_Stats.Pressure[static_cast<sizet>(pressure)] += groups;
     }
 
-    void VegetationSurfaceCache::CountCastingPlan(const VegetationPolicy::CastingPlan& plan, f32 nearestFallback)
+    void VegetationSurfaceCache::CountCastingPlan(const VegetationPolicy::CastingPlan& plan, f32 nearestFallback, f32 frameSeconds)
     {
         if (!m_Enabled)
             return;
+        m_Stats.CastingDemandBuilds += static_cast<f32>(plan.DemandBuilds);
+        m_Stats.CastingDemandVertices += static_cast<f32>(plan.DemandVertices);
+        m_Stats.PlanFrameSeconds = frameSeconds;
         m_Stats.CastingGroupsPlanned += plan.Requested + plan.Fallbacks + plan.Out;
         m_Stats.CastingFallbackGroups += plan.Fallbacks;
         m_Stats.CastingGroupsLeftOut += plan.Out;
@@ -489,6 +492,10 @@ namespace OloEngine::RayTracing
             const bool reuse = !reset && found->second.Valid &&
                                (unchangedTime || (proxy && found->second.SnapshotBucket == bucket &&
                                                   VegetationPolicy::CanReuseSnapshot(time, found->second.SnapshotTime, input.VelocityBound, true)));
+            if (!reuse)
+                ++(changed ? m_Stats.RefreshNew : reset              ? m_Stats.RefreshReset
+                                              : !found->second.Valid ? m_Stats.RefreshInvalid
+                                                                     : m_Stats.RefreshDue);
             // A group whose refresh does not fit this frame (#1533, #1354):
             //  1. HOLDS its snapshot while that is inside the declared error
             //     bound (VegetationPolicy::CanHoldSnapshot): the proxies'
