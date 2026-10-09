@@ -366,6 +366,7 @@ $queueDir        = Join-Path $commonDir.Trim() 'olo-build-queue'
 $myTicket        = $null
 $myEnqueuedTicks = 0
 $exclusiveWaiterAhead = $false   # set by Get-QueueAhead
+$exclusiveWaiterPid   = $null
 
 function Get-MyStartTicks {
     try { return (Get-Process -Id $PID -ErrorAction Stop).StartTime.Ticks } catch { return $null }
@@ -455,7 +456,7 @@ function Get-QueueAhead {
     $script:exclusiveWaiterAhead = $false
     for ($i = 0; $i -lt $sorted.Count; $i++) {
         if ($sorted[$i].Pid -eq $me) { return $i }
-        if ($sorted[$i].Exclusive) { $script:exclusiveWaiterAhead = $true }
+        if ($sorted[$i].Exclusive) { $script:exclusiveWaiterAhead = $true; $script:exclusiveWaiterPid = $sorted[$i].Pid }
     }
     return $null   # our own ticket is gone — fail open rather than wait forever
 }
@@ -742,6 +743,7 @@ try {
         if ((Get-Date) -gt $deadline) {
             $info = Read-ActiveHolderInfo
             $who  = if ($null -ne $info) { "pid=$($info.pid) ($($info.worktree))" } else { "an unidentified holder" }
+            if ($behindExclusive) { $who = "the exclusive request pid=$($script:exclusiveWaiterPid) queued ahead of us (current holder $who)" }
             Write-BuildMetric @{ event      = 'timeout'
                                  pid        = $me
                                  worktree   = $here
@@ -750,8 +752,11 @@ try {
                                  queue_ahead_at_start = $queueAheadAtStart
                                  queue_ahead_at_end   = $ahead
                                  blocked_by_pid      = $blockedByPid
-                                 blocked_by_worktree = $blockedByWorktree }
-            throw "[build-lock] timed out after ${TimeoutMinutes}m waiting for $who. A build that has held the lock this long is wedged — investigate it rather than overriding."
+                                 blocked_by_worktree = $blockedByWorktree
+                                 behind_exclusive_pid = $(if ($behindExclusive) { $script:exclusiveWaiterPid } else { $null }) }
+            $advice = if ($behindExclusive) { 'Check whether that request is still making progress before touching the holder.' }
+                      else { 'A build that has held the lock this long is wedged — investigate it rather than overriding.' }
+            throw "[build-lock] timed out after ${TimeoutMinutes}m waiting for $who. $advice"
         }
         Start-Sleep -Seconds $PollSeconds
     }
