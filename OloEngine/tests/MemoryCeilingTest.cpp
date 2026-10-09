@@ -17,7 +17,6 @@
 #include "MemoryCeiling.h"
 #include "TestProcessLaunch.h"
 
-#include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <memory>
@@ -90,25 +89,19 @@ TEST(MemoryCeiling, ARunawayTestIsStoppedAtTheCeilingAndNamedInTheOutput)
     const std::string exe = SelfExecutablePath();
     ASSERT_FALSE(exe.empty()) << "could not resolve the test binary's own path";
 
-    // A ceiling relative to THIS process's resident set, not an absolute number:
-    // the child is the same binary with the same start-up footprint (which
-    // under a sanitizer is hundreds of MB before any test runs), and the probe
-    // adds 512 MB on top, so +128 MB is crossed while the probe is running and
-    // not during start-up.
-    //
-    // The baseline is the larger of the current resident set and the peak this
-    // process reached during start-up. The child's watchdog polls through its
-    // start-up, so a transient start-up peak counts there even though it no
-    // longer shows in this process's current figure: on the ASan (Windows) job
-    // the child reached 376 MB before its first test against a ceiling of
-    // 217 + 128 MB and was stopped with no test running.
-    const u64 baselineMb =
-        std::max(OloEngine::Tests::CurrentResidentBytes(), OloEngine::Tests::StartupPeakResidentBytes()) / kMiB;
-    ASSERT_GT(baselineMb, 0u) << "CurrentResidentBytes() reports nothing on this platform";
-    const u64 ceilingMb = baselineMb + 128;
+    // Without a resident-set figure the watchdog cannot fire, and the child
+    // would pass the probe for a reason that has nothing to do with the ceiling.
+    ASSERT_GT(OloEngine::Tests::CurrentResidentBytes() / kMiB, 0u)
+        << "CurrentResidentBytes() reports nothing on this platform";
 
+    // The child takes its ceiling as 128 MB above ITS OWN start-up, measured
+    // when its first test starts; the probe adds 512 MB on top, so the ceiling
+    // is crossed while the probe runs and never during start-up. A ceiling
+    // computed here from this process's footprint is not one: on the ASan
+    // (Windows) job the child's start-up reached 350 and 376 MB against this
+    // process's 216 MB, and the child was stopped with no test running.
     const std::vector<std::string> args = {
-        "--olo-rss-ceiling-mb=" + std::to_string(ceilingMb),
+        "--olo-rss-ceiling-headroom-mb=128",
         "--gtest_filter=MemoryCeilingProbe.AllocatesAndTouchesHalfAGigabyte",
     };
     const OloEngine::Tests::LaunchResult r =
