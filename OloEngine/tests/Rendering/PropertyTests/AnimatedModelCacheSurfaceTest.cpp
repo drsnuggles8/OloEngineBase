@@ -23,7 +23,10 @@
 #include "OloEngine/Renderer/MeshSource.h"
 
 #include <cstring>
+#include <chrono>
 #include <filesystem>
+#include <fstream>
+#include <nlohmann/json.hpp>
 
 #ifndef OLO_TEST_EDITOR_ROOT
 #error "OLO_TEST_EDITOR_ROOT must be defined by the test target's CMake — see OloEngine/tests/CMakeLists.txt"
@@ -139,5 +142,67 @@ namespace OloEngine::Tests
             }
             MakeCold(path);
         }
+    }
+    TEST(AnimatedModelCacheSurface, AnExternalBufferEditInvalidatesBothCaches)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        namespace fs = std::filesystem;
+        const fs::path source = fs::path{ OLO_TEST_EDITOR_ROOT } / "assets/models/CesiumMan";
+        const fs::path copy = TempDir("buffer-edit");
+        std::error_code ec;
+        fs::copy(source, copy, fs::copy_options::recursive | fs::copy_options::overwrite_existing, ec);
+        ASSERT_FALSE(ec) << ec.message();
+        const fs::path path = copy / "CesiumMan.gltf";
+        std::ifstream input(path);
+        auto gltf = nlohmann::json::parse(input);
+        input.close();
+        const fs::path originalBuffer = copy / gltf.at("buffers").at(0).at("uri").get<std::string>();
+        const fs::path buffer = copy / "editable buffer.bin";
+        fs::rename(originalBuffer, buffer);
+        gltf["buffers"][0]["uri"] = "editable%20buffer.bin";
+        {
+            std::ofstream descriptor(path);
+            descriptor << gltf.dump();
+        }
+        const auto originalTime = fs::last_write_time(path);
+        MakeCold(path);
+        const Ref<AnimatedModel> cold = Ref<AnimatedModel>::Create(path.string());
+        ASSERT_TRUE(cold && cold->HasSkeleton());
+        ASSERT_TRUE(MeshCache::IsMeshCacheValid(path, AnimatedModel::kCachePrefix));
+        ASSERT_TRUE(MeshCache::IsAnimationCacheValid(path));
+        const Ref<AnimatedModel> warm = Ref<AnimatedModel>::Create(path.string());
+        ASSERT_TRUE(warm->WasMeshLoadedFromCache());
+
+        const auto position = gltf.at("meshes").at(0).at("primitives").at(0).at("attributes").at("POSITION").get<u32>();
+        const auto& accessor = gltf.at("accessors").at(position);
+        const auto& view = gltf.at("bufferViews").at(accessor.at("bufferView").get<u32>());
+        ASSERT_EQ(accessor.at("componentType").get<u32>(), 5126u);
+        ASSERT_EQ(view.at("buffer").get<u32>(), 0u);
+        const auto offset = view.value("byteOffset", 0u) + accessor.value("byteOffset", 0u);
+        {
+            std::fstream binary(buffer, std::ios::binary | std::ios::in | std::ios::out);
+            ASSERT_TRUE(binary);
+            binary.seekg(offset);
+            f32 x = 0.0f;
+            ASSERT_TRUE(binary.read(reinterpret_cast<char*>(&x), sizeof(x)));
+            x += 0.125f;
+            binary.seekp(offset);
+            ASSERT_TRUE(binary.write(reinterpret_cast<const char*>(&x), sizeof(x)));
+        }
+        // No clock-resolution assumption, and the glTF itself remains untouched.
+        fs::last_write_time(buffer, fs::last_write_time(buffer) + std::chrono::seconds(2));
+        EXPECT_EQ(fs::last_write_time(path), originalTime);
+        EXPECT_FALSE(MeshCache::IsMeshCacheValid(path, AnimatedModel::kCachePrefix));
+        EXPECT_FALSE(MeshCache::IsAnimationCacheValid(path));
+        const Ref<AnimatedModel> edited = Ref<AnimatedModel>::Create(path.string());
+        ASSERT_TRUE(edited);
+        EXPECT_FALSE(edited->WasMeshLoadedFromCache());
+        EXPECT_FALSE(FirstDifference(*cold->GetEntityMeshSource(), *edited->GetEntityMeshSource()).empty());
+        ASSERT_TRUE(MeshCache::IsMeshCacheValid(path, AnimatedModel::kCachePrefix));
+        ASSERT_TRUE(MeshCache::IsAnimationCacheValid(path));
+        fs::rename(buffer, copy / "removed.bin");
+        EXPECT_FALSE(MeshCache::IsMeshCacheValid(path, AnimatedModel::kCachePrefix));
+        EXPECT_FALSE(MeshCache::IsAnimationCacheValid(path));
+        MakeCold(path);
     }
 } // namespace OloEngine::Tests
