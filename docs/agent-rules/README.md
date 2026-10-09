@@ -20,6 +20,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [cpp-coding-quality.md](cpp-coding-quality.md): the coding rules, including float comparison, `auto`, IWYU, and the defaulted `operator==` MSVC quirk.
 - [glsl-shaders.md](glsl-shaders.md): the SPIR-V rules a shader must follow to compile: no bare uniforms, UBO bindings, MRT outputs, and never `.length()` on a storage buffer (§6b — Vulkan rejects it at pipeline creation, long after the SPIR-V validated). §1a: run `scripts/check_shader_extension_floor.py` after adding any `#extension` — the shader toolchain floor is Vulkan SDK 1.4.357.0 and Ubuntu's apt packages are a year short of it.
 - [gl-shader-route.md](gl-shader-route.md): an OpenGL program reaches the driver as glShaderBinary SPIR-V unless its shader names `OLO_GL_GLSL_ROUTE`, which hands the driver GLSL text instead; opt a shader in only on a measured A/B (the forward lawn and the terrain, not the groom), and `OLO_GL_SHADERS_FROM_GLSL` is the lever.
+- [raw-bindless-route-driver-front-end.md](raw-bindless-route-driver-front-end.md): a shader on the OpenGL bindless route is compiled by the driver's own GLSL front end, so never name an identifier `packed`, `row_major`, `register` or `char`, and keep every stage at 14 uniform blocks counting `OloHeapOffsetBlock`; a rejected program falls back per program and only the log says so.
 - [technique-selection-seams.md](technique-selection-seams.md): when a subsystem grows a second way of computing the same number, the choice is a value carrying the reason it is not what was asked for — not another shader `if`, and not a new row in a path enum.
 - [engine-owned-containers.md](engine-owned-containers.md): new engine-owned sequence and string data is `TArray` / `FString`; the binding surface and every map keep `std::`. How to tell which side you are on, and why a relocation mistake is green on MSVC and red on libstdc++. `TArray::Reset` frees the allocation; clear a per-frame scratch array with `Empty`.
 - [sonarqube-review-alignment.md](sonarqube-review-alignment.md): read before `/code-review` so local findings match the cloud profile.
@@ -471,6 +472,7 @@ No crash, no error, no log line; work or data disappears and the system keeps ru
 
 | Doc | What was dropped |
 |---|---|
+| [raw-bindless-route-driver-front-end.md](raw-bindless-route-driver-front-end.md) | The bindless route itself, per program: NVIDIA rejected a parameter named `packed` in the groom's tint helper and a 15th fragment uniform block in `Terrain_PBR`, both programs fell back to the slotted route and rendered, and every SPIR-V check stayed green. |
 | [ci-oom-read-the-kernel-report.md](ci-oom-read-the-kernel-report.md) | The heavy-TU compile bound, on a runner whose CMake was too old for the pool, and a `-D` flag after a `#` inside a folded `run: >` block. The AMD nightly was OOM-killed for 20 nights. |
 | [binary-greedy-voxel-meshing.md](binary-greedy-voxel-meshing.md) | The neighbour rebuild after a carve, leaving a stale wall. |
 | [component-serializer-codegen.md](component-serializer-codegen.md) | A field, from every save. |

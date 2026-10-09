@@ -1677,4 +1677,86 @@ void main()
             << "The image region must reset to the IMAGE null. Zeroing it would hand image2D a "
                "sampler descriptor — the undefined behaviour the two reserved nulls exist to avoid.";
     }
+
+    // A 3D texture reached through the heap samples with ITS OWN wrap mode. The
+    // froxel fog volume is clamp-to-edge, and a sky pixel fetches it at w = 1.0;
+    // under REPEAT that tap blends the far slice with the near one. On the raw
+    // bindless route the editor's sky under volumetric fog read the near slice's
+    // transmittance into the far edge, while the slotted route and Vulkan agreed.
+    TEST_F(HeapGpuFixture, AClampToEdgeTexture3DKeepsItsWrapThroughTheHeap)
+    {
+        OLO_ENSURE_BINDLESS_OR_SKIP(*this, /*poison*/ false);
+
+        static constexpr const char* kVolumeFragment = R"(#version 460 core
+#extension GL_ARB_bindless_texture : require
+
+layout(std430, binding = 45) readonly buffer OloResourceHeapBlock
+{
+    uvec2 g_OloResourceHeap[];
+};
+
+layout(std140, binding = 56) uniform OloHeapOffsetBlock
+{
+    uvec4 g_OloHeapOffsets[16];
+};
+
+#define OLO_HEAP_OFFSET(texSlot) (g_OloHeapOffsets[(texSlot) >> 2][(texSlot) & 3])
+#define OLO_HEAP_TEX_3D(texSlot) sampler3D(g_OloResourceHeap[OLO_HEAP_OFFSET(texSlot)])
+#define u_FroxelFogVolume OLO_HEAP_TEX_3D(53) // TEX_FROXEL_FOG
+
+layout(location = 0) in vec2 v_TexCoord;
+layout(location = 0) out vec4 o_Color;
+
+void main()
+{
+    // Left half: the far edge (w = 1). Right half: the near edge (w = 0).
+    float w = (v_TexCoord.x < 0.5) ? 1.0 : 0.0;
+    o_Color = texture(u_FroxelFogVolume, vec3(0.5, 0.5, w));
+}
+)";
+        std::string log;
+        glDeleteProgram(Program);
+        Program = BuildProgram(kVolumeFragment, log);
+        ASSERT_NE(Program, 0u) << "3D-sampler bindless GLSL failed to build:\n"
+                               << log;
+
+        // Configured as OpenGLTexture3D configures a non-repeating volume:
+        // immutable storage, linear filtering, clamp-to-edge on all three axes.
+        // Slices 0-2 are black, slice 3 (the far edge) is white.
+        constexpr GLsizei kSide = 2;
+        constexpr GLsizei kSlices = 4;
+        GLuint volume = 0u;
+        glCreateTextures(GL_TEXTURE_3D, 1, &volume);
+        OwnedTextures.push_back(volume);
+        glTextureStorage3D(volume, 1, GL_RGBA8, kSide, kSide, kSlices);
+        glTextureParameteri(volume, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTextureParameteri(volume, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTextureParameteri(volume, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTextureParameteri(volume, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTextureParameteri(volume, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+        std::vector<u8> texels(static_cast<sizet>(kSide * kSide * kSlices * 4), 0u);
+        for (sizet i = static_cast<sizet>(kSide * kSide * (kSlices - 1) * 4); i < texels.size(); ++i)
+        {
+            texels[i] = 255u;
+        }
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        glTextureSubImage3D(volume, 0, 0, 0, 0, kSide, kSide, kSlices, GL_RGBA, GL_UNSIGNED_BYTE, texels.data());
+
+        // The bind FogRenderPass makes: the default (inheriting) sampler desc, a
+        // frame-transient slot, through the real seam.
+        Shader::SetBoundProgramBindless(true);
+        const RGCommandContext context;
+        const RHI::HeapOffset offset = context.BindTextureOrHeapOffset(
+            ShaderBindingLayout::TEX_FROXEL_FOG, RegisterTexture(volume), RHI::HeapSlotLifetime::FrameTransient);
+        ASSERT_TRUE(offset.IsValid()) << "The seam must have taken the heap path, not the fallback bind.";
+        context.FlushHeapOffsets();
+
+        DrawSlotIndexed();
+
+        EXPECT_EQ(SampleAt(1u, 2u)[0], 255u)
+            << "The far edge (w = 1) of a clamp-to-edge volume must read the last slice. A value near 128 is REPEAT "
+               "blending it with slice 0: the heap descriptor did not carry the texture's own wrap mode.";
+        EXPECT_EQ(SampleAt(6u, 2u)[0], 0u) << "The near edge (w = 0) must read slice 0.";
+        RHI::DescriptorHeap::Get().ResetFrameTransients();
+    }
 } // namespace OloEngine::Tests

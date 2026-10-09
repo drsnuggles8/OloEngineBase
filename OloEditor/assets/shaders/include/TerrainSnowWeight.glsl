@@ -13,23 +13,31 @@
 //
 // REQUIREMENTS, declared by the including fragment stage first:
 //   * include/SnowLayer.glsl;
-//   * the SnowAccumulationParamsFS block (u_ClipmapCenterAndExtentFS,
-//     u_AccumulationParamsFS, u_DisplacementParamsFS) and u_SnowDepthMapFS.
+//   * u_SnowDepthMapFS.
+//
+// The clipmap constants are PARAMETERS, not a uniform block, because both
+// callers receive them as flat varyings from their tessellation-evaluation
+// stage (#1565): a SnowAccumulationParams block in the fragment stage was one
+// of the blocks that took Terrain_PBR past NVIDIA's 14 on the raw bindless route.
+//   snowClip      xy = ring-0 centre (world XZ), z = ring-0 extent, w = max depth
+//                 (SnowAccumulationParams u_ClipmapCenterAndExtent[0].xyz and
+//                 u_AccumulationParams.y)
+//   accumulating  the clipmap is live (u_DisplacementParams.z > 0.5)
 // =============================================================================
 
-float oloTerrainSnowWeight(vec3 worldPosAbs, vec3 vertexNormal)
+float oloTerrainSnowWeight(vec3 worldPosAbs, vec3 vertexNormal, vec4 snowClip, bool accumulating)
 {
     float weight = oloSnowLayerCoverage(worldPosAbs, vertexNormal);
-    if (oloSnowLayerEnabled() && u_DisplacementParamsFS.z > 0.5)
+    if (oloSnowLayerEnabled() && accumulating)
     {
         // Boost from the accumulation depth map: thicker snow, stronger cover.
-        vec2 clipCenter = u_ClipmapCenterAndExtentFS[0].xy;
-        float clipExtent = u_ClipmapCenterAndExtentFS[0].z;
+        vec2 clipCenter = snowClip.xy;
+        float clipExtent = snowClip.z;
         vec2 snowUV = (worldPosAbs.xz - clipCenter) / clipExtent + 0.5;
         if (snowUV.x >= 0.0 && snowUV.x <= 1.0 && snowUV.y >= 0.0 && snowUV.y <= 1.0)
         {
             float accumulatedDepth = texture(u_SnowDepthMapFS, snowUV).r;
-            float maxDepth = u_AccumulationParamsFS.y;
+            float maxDepth = snowClip.w;
             weight = max(weight, clamp(accumulatedDepth / max(maxDepth, 0.01), 0.0, 1.0));
         }
     }

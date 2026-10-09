@@ -276,14 +276,14 @@ void main()
     else if (caseIndex == 18) // RT5 LANES ROUND TRIP
     {
         float kernel = oloSkinVarianceKernel(kdNdx, kdNdy, kVarianceStrength);
-        vec4 packed = oloSkinPackGBufferLanes(vec4(0.0), true, kThicknessMM, kernel);
+        vec4 packedLanes = oloSkinPackGBufferLanes(vec4(0.0), true, kThicknessMM, kernel);
         vec4 lightmapped = oloSkinPackGBufferLanes(vec4(0.3, 0.2, 0.1, 1.0), true, kThicknessMM, kernel);
         vec4 noKernel = oloSkinPackGBufferLanes(vec4(0.0), true, kThicknessMM, 0.0);
         vec4 thicknessOnly = oloSkinPackGBufferThickness(vec4(0.0), true, kThicknessMM);
         // red = the kernel read back, green = the thickness read back,
         // blue = the lightmapped texel's kernel (0) plus how far its light moved,
         // alpha = how far the zero-kernel pack is from the thickness-only one.
-        result = vec4(oloSkinUnpackGBufferCoatKernel(packed, true), oloSkinUnpackGBufferThickness(packed, true),
+        result = vec4(oloSkinUnpackGBufferCoatKernel(packedLanes, true), oloSkinUnpackGBufferThickness(packedLanes, true),
                       oloSkinUnpackGBufferCoatKernel(lightmapped, true) +
                           distance(lightmapped, vec4(0.3, 0.2, 0.1, 1.0)),
                       distance(noKernel, thicknessOnly));

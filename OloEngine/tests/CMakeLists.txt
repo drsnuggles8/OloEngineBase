@@ -61,6 +61,7 @@ add_executable(OloEngine-Tests
 		# new lever from being added as a bare Env:: read again.
 		Core/CVarTest.cpp
 		Core/DebugLeversTest.cpp
+		Core/LogFileNameTest.cpp
 		Core/FrameTimeTailTest.cpp
 		# Issue #1420: UUID() is called from several threads and must never repeat.
 		Core/UUIDTest.cpp
@@ -935,6 +936,13 @@ add_executable(OloEngine-Tests
 		# The route a GL program takes to the driver (#1533): GLSL text for a
 		# shader that names OLO_GL_GLSL_ROUTE, glShaderBinary SPIR-V otherwise.
 		Rendering/PropertyTests/OpenGLShaderRouteTest.cpp
+		# The raw-GLSL bindless route (#1565, #1567): identifiers NVIDIA's front end
+		# reserves, the per-stage uniform-block budget, and every opted-in program
+		# built on the route by the real driver (skips without bindless).
+		Rendering/PropertyTests/BindlessRawRouteTest.cpp
+		# #1565: the brush and snow-clipmap lanes the terrain colour programs now
+		# take as flat varyings, each A/B'd on Forward, Forward+ and Deferred.
+		Rendering/PropertyTests/TerrainColourConstantsEvidenceTest.cpp
 		Rendering/PropertyTests/AssetPreviewRendererTest.cpp
 		Rendering/PropertyTests/RendererAttachedTest.cpp
 		Rendering/RendererMemoryTrackerTest.cpp

@@ -53,11 +53,14 @@ namespace OloEngine
         bool Reload() override;
 
       private:
-        void Compile(const std::string& source);
+        // False when neither the bindless branch nor the slot-based retry built.
+        // The constructor asserts on that; Reload keeps the previous program.
+        bool Compile(const std::string& source, bool assertOnFailure = true);
         // Split out of Compile so the bindless branch can retry with the plain
         // source and still reach exactly the same link/label/track path — a second
         // copy of it is how the two builds would drift.
-        void Link(u32 shader, const std::string& source);
+        // False, with the program and `shader` deleted, when the link fails.
+        [[nodiscard]] bool Link(u32 shader, const std::string& source);
 
         [[nodiscard]] GLint GetUniformLocation(const std::string& name) const;
 
@@ -82,5 +85,7 @@ namespace OloEngine
         FString m_Name;
         FString m_FilePath;
         mutable std::unordered_map<std::string, GLint> m_UniformLocationCache;
+        // What Link booked with the memory tracker, so a failed Reload can re-book it.
+        sizet m_TrackedBytes = 0;
     };
 } // namespace OloEngine

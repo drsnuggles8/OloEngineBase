@@ -272,9 +272,9 @@ const float OLO_RESERVOIR_NO_NORMAL = -1.0;
 // how this was found.
 const float OLO_RESERVOIR_EXACT_INTEGER_LIMIT = 8388608.0; // 2^23
 
-float OloReservoirRoundToInteger(float packed)
+float OloReservoirRoundToInteger(float packedValue)
 {
-    float v = max(packed, 0.0);
+    float v = max(packedValue, 0.0);
     return (v < OLO_RESERVOIR_EXACT_INTEGER_LIMIT) ? floor(v + 0.5) : v;
 }
 
@@ -283,10 +283,10 @@ float OloPackReservoirIdentity(uint kind, uint payloadIndex)
     return float((kind & OLO_RESERVOIR_KIND_MASK) | (payloadIndex << OLO_RESERVOIR_KIND_BITS));
 }
 
-void OloUnpackReservoirIdentity(float packed, out uint kind, out uint payloadIndex)
+void OloUnpackReservoirIdentity(float packedValue, out uint kind, out uint payloadIndex)
 {
     // Rounded, not truncated: the value went through a render target and back.
-    uint bits = uint(OloReservoirRoundToInteger(packed));
+    uint bits = uint(OloReservoirRoundToInteger(packedValue));
     kind = bits & OLO_RESERVOIR_KIND_MASK;
     payloadIndex = bits >> OLO_RESERVOIR_KIND_BITS;
 }
@@ -304,11 +304,11 @@ float OloPackReservoirNormal(vec3 n)
     return q.x * OLO_RESERVOIR_OCT_STRIDE + q.y;
 }
 
-vec3 OloUnpackReservoirNormal(float packed)
+vec3 OloUnpackReservoirNormal(float packedValue)
 {
-    if (packed < 0.0)
+    if (packedValue < 0.0)
         return vec3(0.0);
-    float v = OloReservoirRoundToInteger(packed);
+    float v = OloReservoirRoundToInteger(packedValue);
     float qx = floor(v / OLO_RESERVOIR_OCT_STRIDE);
     float qy = v - qx * OLO_RESERVOIR_OCT_STRIDE;
     vec2 p = (vec2(qx, qy) / OLO_RESERVOIR_OCT_SCALE) * 2.0 - 1.0;

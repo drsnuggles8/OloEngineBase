@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
+#include "OloEngine/Renderer/ShaderSourceScan.h"
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ShaderRegistry.h"
@@ -104,7 +105,7 @@ namespace OloEngine
                                                           glDeleteProgram(programId); });
     }
 
-    void OpenGLComputeShader::Compile(const std::string& source)
+    bool OpenGLComputeShader::Compile(const std::string& source, const bool assertOnFailure)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -124,8 +125,11 @@ namespace OloEngine
         // compiled while the toggle was off keeps its slot-based program until it
         // is reloaded, exactly as on the graphics route.
         std::string patched = source;
-        m_IsBindlessVariant =
-            RHI::DescriptorHeap::Get().IsEnabled() && source.find("OLO_BINDLESS") != std::string::npos;
+        // Outside comments, as on the graphics route (OpenGLShader::
+        // WantsBindlessVariant): a shader that names the token in prose must not
+        // change route.
+        m_IsBindlessVariant = RHI::DescriptorHeap::Get().IsEnabled() &&
+                              ShaderSourceScan::MentionsOutsideComments(source, "OLO_BINDLESS");
         if (m_IsBindlessVariant)
         {
             static constexpr std::string_view kPrologue =
@@ -157,41 +161,63 @@ namespace OloEngine
             glGetShaderInfoLog(shader, length, &length, infoLog.data());
             glDeleteShader(shader);
             OLO_CORE_ERROR("Compute shader compilation failed ({0}):\n{1}", GetName(), infoLog);
-
-            // A broken bindless BRANCH must cost the dispatch its optimisation,
-            // never its shader — same degradation policy as the graphics route,
-            // and it matters more here because a compute pass that fails to
-            // compile takes a whole system offline (no snow, no wind, no HZB)
-            // rather than one draw. Retry the slot-based source once.
-            if (m_IsBindlessVariant)
-            {
-                OLO_CORE_WARN("[Bindless] Compute shader '{0}' failed with the bindless branch; "
-                              "falling back to the slot-based build.",
-                              GetName());
-                m_IsBindlessVariant = false;
-                const u32 retry = glCreateShader(GL_COMPUTE_SHADER);
-                const char* plain = source.c_str();
-                glShaderSource(retry, 1, &plain, nullptr);
-                glCompileShader(retry);
-
-                GLint retryCompiled = 0;
-                glGetShaderiv(retry, GL_COMPILE_STATUS, &retryCompiled);
-                if (retryCompiled != GL_FALSE)
-                {
-                    Link(retry, source);
-                    return;
-                }
-                glDeleteShader(retry);
-            }
-
-            OLO_CORE_ASSERT(false, "Compute shader compilation failure!");
-            return;
+        }
+        else if (Link(shader, source))
+        {
+            return true;
         }
 
-        Link(shader, source);
+        // A broken bindless BRANCH must cost the dispatch its optimisation,
+        // never its shader — same degradation policy as the graphics route,
+        // and it matters more here because a compute pass that fails to
+        // build takes a whole system offline (no snow, no wind, no HZB)
+        // rather than one draw. Retry the slot-based source once, after a
+        // failed LINK as well as a failed compile: a uniform-block budget
+        // overflow (C5058, #1565) is a link error.
+        if (m_IsBindlessVariant)
+        {
+            // Error, not warning: a dispatch off the route it was asked for is
+            // a defect on this driver, not a preference (see OpenGLShader's
+            // raw-GLSL fallback line).
+            OLO_CORE_ERROR("[Bindless] Compute shader '{0}' FELL BACK to the slot-based build: its bindless "
+                           "branch did not {1} on this driver (see the error above).",
+                           GetName(), compiled == GL_FALSE ? "compile" : "link");
+            m_IsBindlessVariant = false;
+            const u32 retry = glCreateShader(GL_COMPUTE_SHADER);
+            const char* plain = source.c_str();
+            glShaderSource(retry, 1, &plain, nullptr);
+            glCompileShader(retry);
+
+            GLint retryCompiled = 0;
+            glGetShaderiv(retry, GL_COMPILE_STATUS, &retryCompiled);
+            if (retryCompiled == GL_FALSE)
+            {
+                GLint length = 0;
+                glGetShaderiv(retry, GL_INFO_LOG_LENGTH, &length);
+                std::string infoLog(static_cast<sizet>(length), '\0');
+                glGetShaderInfoLog(retry, length, &length, infoLog.data());
+                glDeleteShader(retry);
+                OLO_CORE_ERROR("Compute shader slot-based retry failed to compile ({0}):\n{1}", GetName(), infoLog);
+            }
+            else if (Link(retry, source))
+            {
+                return true;
+            }
+            compiled = retryCompiled; // name the step that failed last: the retry's
+        }
+
+        if (assertOnFailure && compiled == GL_FALSE)
+        {
+            OLO_CORE_ASSERT(false, "Compute shader compilation failure!");
+        }
+        else if (assertOnFailure)
+        {
+            OLO_CORE_ASSERT(false, "Compute shader link failure!");
+        }
+        return false;
     }
 
-    void OpenGLComputeShader::Link(u32 shader, const std::string& source)
+    bool OpenGLComputeShader::Link(u32 shader, const std::string& source)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -216,8 +242,7 @@ namespace OloEngine
             m_RendererID = 0;
             m_RHIHandle.Sync(RHI::ResourceKind::ShaderProgram, m_RendererID, RHI::Backend::OpenGL);
             OLO_CORE_ERROR("Compute shader link failed ({0}):\n{1}", GetName(), infoLog);
-            OLO_CORE_ASSERT(false, "Compute shader link failure!");
-            return;
+            return false;
         }
 
         glDetachShader(m_RendererID, shader);
@@ -233,12 +258,13 @@ namespace OloEngine
 
         // Source size plus a guessed kilobyte: a CPU-side estimate, not device memory, so it
         // is booked in the CPU column where it cannot inflate the GPU total (#1342).
-        const sizet estimatedMemory = source.size() + 1024;
-        OLO_TRACK_CPU_ALLOC(this, estimatedMemory, RendererMemoryTracker::ResourceType::Shader, "OpenGL Compute Shader");
+        m_TrackedBytes = source.size() + 1024;
+        OLO_TRACK_CPU_ALLOC(this, m_TrackedBytes, RendererMemoryTracker::ResourceType::Shader, "OpenGL Compute Shader");
 
         OLO_SHADER_REGISTER_MANUAL(m_RendererID, GetName(), GetFilePath());
         m_IsValid = true;
         OLO_CORE_INFO("Compiled compute shader '{0}'{1}", GetName(), m_IsBindlessVariant ? " (bindless)" : "");
+        return true;
     }
 
     void OpenGLComputeShader::Bind() const
@@ -362,30 +388,52 @@ namespace OloEngine
             return false;
         }
 
-        // Clean up old program
-        if (m_IsValid)
+        // BUILD FIRST, RETIRE ON SUCCESS. Deleting the old program before
+        // compiling the edited source meant a typo saved during a live session
+        // took the system (snow, wind, HZB) offline until the file was fixed,
+        // while a graphics shader in the same situation kept rendering.
+        const u32 oldProgramId = m_RendererID;
+        const bool oldValid = m_IsValid;
+        const bool oldBindless = m_IsBindlessVariant;
+        if (oldValid)
         {
             OLO_TRACK_DEALLOC(this);
         }
-        OLO_SHADER_UNREGISTER(m_RendererID);
-
-        u32 oldProgramId = m_RendererID;
-        UnregisterGLProgramLabel(oldProgramId);
-        FrameResourceManager::Get().SubmitForDeletion([oldProgramId]()
-                                                      {
-                                                          // See Utils::UnbindProgramIfCurrent (issue #625): the
-                                                          // reloaded-away program may still be bound by the time
-                                                          // this deferred deletion runs.
-                                                          Utils::UnbindProgramIfCurrent(oldProgramId);
-                                                          Shader::UnregisterProgram(oldProgramId);
-                                                          glDeleteProgram(oldProgramId); });
-
         m_RendererID = 0;
-        m_RHIHandle.Sync(RHI::ResourceKind::ShaderProgram, m_RendererID, RHI::Backend::OpenGL);
         m_IsValid = false;
         m_UniformLocationCache.clear();
 
-        Compile(source);
+        if (!Compile(source, /*assertOnFailure*/ false))
+        {
+            m_RendererID = oldProgramId;
+            m_RHIHandle.Sync(RHI::ResourceKind::ShaderProgram, m_RendererID, RHI::Backend::OpenGL);
+            m_IsValid = oldValid;
+            m_IsBindlessVariant = oldBindless;
+            if (oldValid)
+            {
+                OLO_TRACK_CPU_ALLOC(this, m_TrackedBytes, RendererMemoryTracker::ResourceType::Shader,
+                                    "OpenGL Compute Shader");
+            }
+            OLO_CORE_ERROR("Compute shader '{0}' did not rebuild; keeping the previous program (see the error above).",
+                           GetName());
+            OLO_SHADER_RELOAD_END(oldProgramId, false);
+            return false;
+        }
+
+        if (oldProgramId != 0)
+        {
+            OLO_SHADER_UNREGISTER(oldProgramId);
+            UnregisterGLProgramLabel(oldProgramId);
+            FrameResourceManager::Get().SubmitForDeletion([oldProgramId]()
+                                                          {
+                                                              // See Utils::UnbindProgramIfCurrent (issue #625): the
+                                                              // reloaded-away program may still be bound by the time
+                                                              // this deferred deletion runs.
+                                                              Utils::UnbindProgramIfCurrent(oldProgramId);
+                                                              Shader::UnregisterProgram(oldProgramId);
+                                                              glDeleteProgram(oldProgramId); });
+        }
+
         OLO_SHADER_RELOAD_END(m_RendererID, m_IsValid);
         return m_IsValid;
     }

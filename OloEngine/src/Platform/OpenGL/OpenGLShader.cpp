@@ -1395,6 +1395,8 @@ namespace OloEngine
         attached.reserve(sources.size());
 
         bool ok = true;
+        // Which step refused the raw GLSL, for the fallback line below.
+        std::string failedStep;
         for (const auto& [stage, stageSource] : sources)
         {
             // Inject the define AND the extension directive immediately after
@@ -1553,6 +1555,7 @@ namespace OloEngine
                 }
 
                 glDeleteShader(shader);
+                failedStep = std::string("the ") + Utils::GLShaderStageToString(stage) + " stage's compile";
                 ok = false;
                 break;
             }
@@ -1576,6 +1579,7 @@ namespace OloEngine
                 std::vector<char> log(static_cast<sizet>(length > 0 ? length : 1));
                 glGetProgramInfoLog(freshProgram, length, nullptr, log.data());
                 OLO_CORE_ERROR("[Bindless] '{}' failed to link: {}", GetFilePath(), log.data());
+                failedStep = "the link";
                 ok = false;
             }
         }
@@ -1594,6 +1598,14 @@ namespace OloEngine
             // its optimisation, never its shader — the caller retries on the
             // ordinary path, which is the one every device without the extension
             // uses anyway.
+            //
+            // BUT SAY SO, by name and at error level. The driver's message above
+            // does not mention the fallback, and the frame still renders, so a
+            // program quietly off the route it was asked for was invisible in
+            // every bindless run (#1565, #1567).
+            OLO_CORE_ERROR("[Bindless] '{}' FELL BACK to the slot-based route: {} rejected its raw GLSL on "
+                           "this driver (see the error above). It renders, but does not read the descriptor heap.",
+                           GetFilePath(), failedStep);
             m_IsBindlessVariant = false;
             m_OpenGLSourceCode.clear();
             return false;
@@ -2797,6 +2809,16 @@ namespace OloEngine
         // consistent id (the pre-reload one), instead of START(old)/END(new) which
         // orphaned the old entry stuck m_IsReloading=true forever.
         const GLuint oldProgram = m_RendererID;
+        // The live program's route, for the same reason: the attempt below
+        // re-decides these, and a failed reload keeps the OLD program, which must
+        // keep publishing the route it was built on (Bind() publishes
+        // m_IsBindlessVariant to the binding seam).
+        const bool oldIsBindlessVariant = m_IsBindlessVariant;
+        const bool oldWantsBindless = m_WantsBindless;
+        const bool oldReadsMaterialHeapOffsets = m_ReadsMaterialHeapOffsets;
+        const bool oldIsDeferredCapable = m_IsDeferredCapable;
+        const bool oldWantsGlslRoute = m_WantsGlslRoute;
+        const bool oldIsGlslTextRoute = m_IsGlslTextRoute;
         OLO_SHADER_RELOAD_START(oldProgram);
 
         m_CompilationStatus = ShaderCompilationStatus::Pending;
@@ -2812,7 +2834,10 @@ namespace OloEngine
             // capture possible without a restart: flip the heap on, reload the
             // shader, and the same file comes back bindless.
             m_IsBindlessVariant = false;
-            if (WantsBindlessVariant(shaderSources) && CreateProgramFromRawGLSL(shaderSources))
+            // Re-decided here, so RequestedBindlessVariant() answers for the
+            // program this reload builds rather than the one it replaces.
+            m_WantsBindless = WantsBindlessVariant(shaderSources);
+            if (m_WantsBindless && CreateProgramFromRawGLSL(shaderSources))
             {
                 EnsureLinked();
             }
@@ -2852,6 +2877,15 @@ namespace OloEngine
         }
 
         const bool success = (m_CompilationStatus == ShaderCompilationStatus::Ready);
+        if (!success)
+        {
+            m_IsBindlessVariant = oldIsBindlessVariant;
+            m_WantsBindless = oldWantsBindless;
+            m_ReadsMaterialHeapOffsets = oldReadsMaterialHeapOffsets;
+            m_IsDeferredCapable = oldIsDeferredCapable;
+            m_WantsGlslRoute = oldWantsGlslRoute;
+            m_IsGlslTextRoute = oldIsGlslTextRoute;
+        }
 
         // Async link failure: the parallel-compile path (CreateProgram) commits the fresh
         // program to m_RendererID before the link resolves, and FinalizeAfterLink then

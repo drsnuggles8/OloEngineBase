@@ -561,26 +561,12 @@ TEST_F(VulkanDrawPath, EngineHeapServesShaderReachableSlotsAndPoisonsFreedOnes)
 
     ASSERT_TRUE(VulkanDescriptorHeapBackend::InstallOntoEngineHeap());
 
-    // Poison-on-free is a DEBUG diagnostic in both backends' installs
-    // (OpenGLRendererAPI::Init and VulkanDescriptorHeapBackend::
-    // InstallOntoEngineHeap both gate HeapDesc::PoisonOnFree on OLO_DEBUG), so
-    // the install this test just performed leaves it OFF in Release — and the
-    // freed slot below keeps the dead texture's descriptor and samples 0xFF
-    // instead of the poison's 0x00. That is issue #1087's entire Release-vs-
-    // Debug split: not a missing barrier, not robustness2's nullDescriptor
-    // (this backend's nulls are real 1x1 black images precisely because
-    // nullDescriptor is not on the device floor), and not a stale binding.
-    //
-    // Re-initialise with poison ON rather than skipping the assertion in
-    // Release: the contract in this test's name is a property of the heap, not
-    // of the build, and a test that quietly stops checking half its name in
-    // the shipping configuration is the green-run-that-tested-nothing shape.
-    // Legal here because Initialize retires every live slot first and no view
-    // has been minted yet.
-    RHI::HeapDesc poisoningDesc = engineHeap.GetDesc();
-    poisoningDesc.PoisonOnFree = true;
-    RHI::DescriptorHeap::Get().Initialize(poisoningDesc, engineHeap.GetBackend());
-    ASSERT_TRUE(engineHeap.IsPoisonOnFree());
+    // The install itself must poison, in every build. It used to be Debug-only,
+    // and a Release slot kept the dead texture's descriptor (issue #1087's
+    // Release-vs-Debug split; on GL, a driver crash on a non-resident handle).
+    // Asserted rather than forced, so reverting the install fails this test.
+    ASSERT_TRUE(engineHeap.IsPoisonOnFree())
+        << "VulkanDescriptorHeapBackend::InstallOntoEngineHeap must set HeapDesc::PoisonOnFree in every build";
 
     engineHeap.SetEnabled(true);
     ASSERT_TRUE(engineHeap.IsEnabled());

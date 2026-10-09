@@ -133,13 +133,13 @@ layout(binding = 46) uniform sampler2D u_GVelocity;        // RT3: current-minus
 // pixel, which is a whole tier silently disabled. Depth, both normals, roughness
 // and motion are the tests this tier actually has data for, the same set
 // RayTracedShadowResolve.glsl and the DI tier use and for the same reason.
-OloSurfaceHistoryRecord MakeReSTIRGISurface(vec4 packed, vec2 motion)
+OloSurfaceHistoryRecord MakeReSTIRGISurface(vec4 packedSurface, vec2 motion)
 {
     OloSurfaceHistoryRecord result;
-    result.LinearDepth = packed.w;
-    result.GeometricNormal = OloGBufferOctDecode(packed.xy);
+    result.LinearDepth = packedSurface.w;
+    result.GeometricNormal = OloGBufferOctDecode(packedSurface.xy);
     result.ShadingNormal = result.GeometricNormal;
-    result.Roughness = packed.z;
+    result.Roughness = packedSurface.z;
     // This consumer reads an opaque surface and carries no coverage or
     // profile signal, so both #1256 channels take their inert values.
     // Set explicitly rather than left alone: an unassigned GLSL struct

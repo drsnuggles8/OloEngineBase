@@ -75,6 +75,15 @@ namespace OloEngine
             return m_IsGlslTextRoute;
         }
 
+        /// True when the heap was enabled at compile time and the source opts in
+        /// to the bindless route (WantsBindlessVariant). Compare with
+        /// Shader::IsProgramBindless(GetRendererID()): a program that asked and did not get it fell back
+        /// to the slot-based route because the driver rejected its raw GLSL.
+        [[nodiscard]] bool RequestedBindlessVariant() const
+        {
+            return m_WantsBindless;
+        }
+
         // --- Async compilation status (override base class) ---
         [[nodiscard]] ShaderCompilationStatus GetCompilationStatus() const override
         {

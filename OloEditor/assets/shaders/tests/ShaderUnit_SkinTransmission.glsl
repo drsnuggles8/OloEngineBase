@@ -174,20 +174,20 @@ void main()
     }
     else if (caseIndex == 9) // RT5 LANE ROUND-TRIP, no lightmap
     {
-        vec4 packed = oloSkinPackGBufferThickness(vec4(0.0), true, kThicknessMM);
-        float unpacked = oloSkinUnpackGBufferThickness(packed, true);
+        vec4 packedLanes = oloSkinPackGBufferThickness(vec4(0.0), true, kThicknessMM);
+        float unpacked = oloSkinUnpackGBufferThickness(packedLanes, true);
         // red = what came back, green = the coverage the packer wrote (must be
         // 0, or the ambient ladder would read this pixel as lightmapped).
-        result = vec4(unpacked, packed.a, 0.0, 1.0);
+        result = vec4(unpacked, packedLanes.a, 0.0, 1.0);
     }
     else if (caseIndex == 10) // RT5 LANE DEFERS TO THE LIGHTMAP
     {
         vec4 irradiance = vec4(0.25, 0.5, 0.75, 1.0);
-        vec4 packed = oloSkinPackGBufferThickness(irradiance, true, kThicknessMM);
-        float unpacked = oloSkinUnpackGBufferThickness(packed, true);
+        vec4 packedLanes = oloSkinPackGBufferThickness(irradiance, true, kThicknessMM);
+        float unpacked = oloSkinUnpackGBufferThickness(packedLanes, true);
         // red = the thickness a reader would get (must be 0), green/blue/alpha =
         // the irradiance, which must be byte-for-byte what went in.
-        result = vec4(unpacked, packed.r, packed.g, packed.a);
+        result = vec4(unpacked, packedLanes.r, packedLanes.g, packedLanes.a);
     }
     else if (caseIndex == 11) // CPU PARITY — an oblique, partly shadowed configuration
     {

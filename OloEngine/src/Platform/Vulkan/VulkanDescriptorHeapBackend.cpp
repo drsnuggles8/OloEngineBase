@@ -78,11 +78,10 @@ namespace OloEngine
         heapDesc.SamplerSlotCapacity = kDescriptorHeapSamplerSlots;
         heapDesc.FrameTransientRingSlots = kDescriptorHeapTransientSlots;
         heapDesc.FrameTransientRingFrames = kFramesInFlight;
-#ifdef OLO_DEBUG
+        // Every build, for the reason OpenGLRendererAPI::Init gives: without
+        // it a released slot keeps publishing a descriptor for a destroyed
+        // image view, and a stale read is a device fault rather than black.
         heapDesc.PoisonOnFree = true;
-#else
-        heapDesc.PoisonOnFree = false;
-#endif
 
         RHI::DescriptorHeap::Get().Initialize(heapDesc, &Get());
         return true;
