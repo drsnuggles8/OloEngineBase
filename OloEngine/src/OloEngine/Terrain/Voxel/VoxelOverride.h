@@ -5,6 +5,8 @@
 #include "OloEngine/Renderer/BoundingVolume.h"
 
 #include <glm/glm.hpp>
+#include <span>
+#include <string_view>
 #include <unordered_map>
 #include "OloEngine/Containers/Array.h"
 
@@ -225,12 +227,69 @@ namespace OloEngine
             return m_Chunks;
         }
 
+        // True while the volume is a regenerable copy of the height field:
+        // SeedFromHeightmap filled it and no edit has written to it since. Such
+        // a volume is rebuildable state, not authored content, so component
+        // copies and scene files drop it and the terrain re-seeds (#1561). The
+        // first edit (SetVoxel, CarveSphere, AddSphere) makes it authored.
+        [[nodiscard]] bool IsAutoSeeded() const
+        {
+            return m_AutoSeeded;
+        }
+        void SetAutoSeeded(bool autoSeeded)
+        {
+            m_AutoSeeded = autoSeeded;
+        }
+
+        // An independent copy of the content, extent and seeding state. Every
+        // chunk of the copy is dirty: it has no meshes yet.
+        [[nodiscard]] Ref<VoxelOverride> Clone() const;
+
+        // Ask the meshers to rebuild everything, for a holder that shares this
+        // volume but has none of its meshes.
+        void MarkAllChunksDirty();
+
         // RLE serialization. The blob starts with RLEMagic ("VOX1", little-endian) and RLEVersion;
         // DeserializeRLE rejects any other magic or version.
         static constexpr i32 RLEMagic = 0x31584F56;
         static constexpr i32 RLEVersion = 1;
         [[nodiscard]] TArray<u8> SerializeRLE() const;
         bool DeserializeRLE(const TArray<u8>& data);
+
+        // The persisted form of an authored volume (#1566): the VOX1 blob,
+        // zlib-deflated, plus the voxel size the volume was built with (the
+        // component's VoxelSize field can be edited without rebuilding it, and
+        // VOX1 chunk coordinates mean nothing without it). Scene YAML stores
+        // the bytes base64-encoded, the save game raw. The extent is the owning
+        // TerrainComponent's.
+        struct Persisted
+        {
+            u64 RawSize = 0; // VOX1 bytes before deflate
+            f32 VoxelSize = 1.0f;
+            TArray<u8> Compressed;
+        };
+
+        // A persisted volume may hold at most this many chunks (~640 MiB
+        // resident). Above it EncodePersisted refuses, loudly, rather than
+        // write a file the reader would reject.
+        static constexpr u32 MaxPersistedChunks = 4096;
+        // Largest VOX1 blob MaxPersistedChunks can encode to: header, then per
+        // chunk a coordinate, a run count, one run per voxel and the materials.
+        static constexpr u64 MaxPersistedRawSize =
+            12 + static_cast<u64>(MaxPersistedChunks) * (12 + 4 + 6ull * VoxelChunk::TOTAL_VOXELS + 1 + VoxelChunk::TOTAL_VOXELS);
+
+        // Empty Compressed on failure (logged).
+        [[nodiscard]] Persisted EncodePersisted() const;
+
+        // Rebuild a volume from its persisted form, for a terrain of the given
+        // extent. Every size is untrusted: RawSize is checked against the budget
+        // before anything is allocated, the chunk count before decoding, the
+        // voxel size by Initialize, and the VOX1 reader rejects non-finite SDF
+        // values. Null on failure (logged with `context`); the result is
+        // authored, never auto-seeded.
+        [[nodiscard]] static Ref<VoxelOverride> DecodePersisted(std::span<const u8> compressed, u64 rawSize,
+                                                                f32 voxelSize, f32 worldSizeX, f32 worldSizeZ,
+                                                                f32 heightScale, std::string_view context);
 
       private:
         // Get all chunks overlapping a sphere region
@@ -249,5 +308,6 @@ namespace OloEngine
         f32 m_WorldSizeX = 256.0f;
         f32 m_WorldSizeZ = 256.0f;
         f32 m_HeightScale = 64.0f;
+        bool m_AutoSeeded = false;
     };
 } // namespace OloEngine

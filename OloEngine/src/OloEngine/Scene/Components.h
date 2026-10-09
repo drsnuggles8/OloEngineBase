@@ -4765,6 +4765,14 @@ namespace OloEngine
         Ref<TerrainMaterial> m_Material;
         OLO_SERIALIZE(Skip)
         Ref<TerrainStreamer> m_Streamer;
+        // The voxel volume. Copies SHARE it, like m_Material, so an undo
+        // snapshot, the inspector's snapshot and the voxel edit history keep
+        // naming one volume; a copy that becomes a separate world takes its own
+        // with DetachVoxelVolume (Scene::Copy, duplicate, prefab). Only AUTHORED
+        // content (carved, painted, imported) is persisted, by SceneSerializer's
+        // VoxelVolume block and the save game; an auto-seeded volume
+        // (VoxelOverride::IsAutoSeeded) is a copy of the height field and is
+        // re-seeded instead.
         OLO_SERIALIZE(Skip)
         Ref<VoxelOverride> m_VoxelOverride;
         // Owns the indirection map, the physical cache, the feedback ring and the
@@ -4777,11 +4785,11 @@ namespace OloEngine
         // Only created when m_VoxelMesher == GreedyCubic.
         OLO_SERIALIZE(Skip)
         Ref<VoxelGreedyMeshBuilder> m_VoxelQuadMeshes;
-        // True when the voxel volume was filled from the height field by the
-        // cubic path rather than authored/carved. Only an auto-seeded volume is
-        // dropped when the mesher switches back - see Scene.cpp.
+        // Set when this component holds a volume but none of its meshes (a copy,
+        // or an assignment that changed the volume). The next tick dirties every
+        // chunk so the meshers rebuild it.
         OLO_SERIALIZE(Skip)
-        bool m_VoxelAutoSeeded = false;
+        bool m_VoxelRemeshAll = false;
         OLO_SERIALIZE(Skip)
         bool m_NeedsRebuild = true;
         OLO_SERIALIZE(Skip)
@@ -4805,7 +4813,10 @@ namespace OloEngine
             // copy (Scene::Copy) and an undo assignment keep the turf they had.
             // Dropping it drew every textured terrain in Play with the untextured
             // fallback, and an undone terrain edit lost its material in edit mode.
+            // The voxel volume is shared for the same reason (#1561).
             // The rest of the runtime state is not copied: it is rebuilt.
+            m_VoxelOverride = other.m_VoxelOverride;
+            m_VoxelRemeshAll = m_VoxelOverride != nullptr;
         }
         TerrainComponent& operator=(const TerrainComponent& other)
         {
@@ -4852,18 +4863,24 @@ namespace OloEngine
                 m_VoxelEnabled = other.m_VoxelEnabled;
                 m_VoxelSize = other.m_VoxelSize;
                 m_VoxelMesher = other.m_VoxelMesher;
-                // The authored material is shared, with its build state (see the
-                // copy constructor); the runtime state is reset and rebuilt.
+                // The material and the voxel volume are shared, the material with
+                // its build state (see the copy constructor); the runtime state is
+                // reset and rebuilt.
                 m_Material = other.m_Material;
                 m_MaterialNeedsRebuild = other.m_MaterialNeedsRebuild;
                 m_TerrainData = nullptr;
                 m_ChunkManager = nullptr;
                 m_Streamer = nullptr;
-                m_VoxelOverride = nullptr;
+                // The same volume keeps its meshes: an inspector undo of an
+                // unrelated field must not re-mesh a large authored volume.
+                if (m_VoxelOverride != other.m_VoxelOverride)
+                {
+                    m_VoxelOverride = other.m_VoxelOverride;
+                    m_VoxelMeshes.clear();
+                    m_VoxelQuadMeshes = nullptr;
+                    m_VoxelRemeshAll = m_VoxelOverride != nullptr;
+                }
                 m_VirtualTexture = nullptr;
-                m_VoxelMeshes.clear();
-                m_VoxelQuadMeshes = nullptr;
-                m_VoxelAutoSeeded = false;
                 m_NeedsRebuild = true;
                 m_AutoSplatNeedsRebuild = true;
                 m_RuntimeCollisionBodyToken = 0;
@@ -4899,20 +4916,70 @@ namespace OloEngine
             // reseed condition only runs when the builder is absent. Dropping
             // both makes the next tick re-seed from the fresh height field.
             // A volume the USER carved is theirs and is never discarded.
-            if (m_VoxelAutoSeeded)
+            if (m_VoxelOverride && m_VoxelOverride->IsAutoSeeded())
             {
                 m_VoxelOverride = nullptr;
                 m_VoxelQuadMeshes = nullptr;
                 m_VoxelMeshes.clear();
-                m_VoxelAutoSeeded = false;
             }
         }
 
-        // Compares the serialized fields only — runtime state is rebuild-on-load
-        // so it's intentionally not considered for undo equality.
+        // The volume a scene file or save game persists: the authored one, or
+        // none for an auto-seeded copy of the height field, which re-seeds.
+        [[nodiscard]] static Ref<VoxelOverride> AuthoredVoxelVolume(const TerrainComponent& terrain)
+        {
+            return terrain.m_VoxelOverride && !terrain.m_VoxelOverride->IsAutoSeeded() ? terrain.m_VoxelOverride
+                                                                                       : nullptr;
+        }
+
+        // Stop sharing the volume with the component this was copied from.
+        // Called where a copy becomes a separate world (Scene::Copy,
+        // DuplicateEntity, prefab copies), so editing one cannot reach the
+        // other: authored content is cloned, a seeded volume is dropped and
+        // re-seeded from this terrain's own height field.
+        void DetachVoxelVolume()
+        {
+            if (!m_VoxelOverride)
+                return;
+            if (m_VoxelOverride->IsAutoSeeded())
+            {
+                m_VoxelOverride = nullptr;
+                m_VoxelMeshes.clear();
+                m_VoxelQuadMeshes = nullptr;
+            }
+            else
+            {
+                m_VoxelOverride = m_VoxelOverride->Clone();
+            }
+            m_VoxelRemeshAll = false; // nothing shared is left to re-mesh
+        }
+
+        // Bound the scalars that size allocations, divide, or place the voxel
+        // grid. Shared by the scene file and save-game readers, which both read
+        // untrusted values; a non-finite value takes the default.
+        void SanitizeScalars()
+        {
+            auto sanitize = [](f32& v, f32 lo, f32 hi, f32 fallback)
+            { v = std::isfinite(v) ? std::clamp(v, lo, hi) : fallback; };
+            sanitize(m_WorldSizeX, 1.0e-3f, 1.0e6f, 256.0f);
+            sanitize(m_WorldSizeZ, 1.0e-3f, 1.0e6f, 256.0f);
+            sanitize(m_HeightScale, 0.0f, 1.0e6f, 64.0f);
+            sanitize(m_ProceduralFrequency, 0.0f, 1.0e4f, 3.0f);
+            sanitize(m_ProceduralLacunarity, 1.0e-3f, 64.0f, 2.0f);
+            sanitize(m_ProceduralPersistence, 0.0f, 1.0f, 0.45f);
+            sanitize(m_TargetTriangleSize, 1.0e-3f, 1.0e4f, 8.0f);
+            sanitize(m_MorphRegion, 0.0f, 1.0f, 0.3f);
+            sanitize(m_TileWorldSize, 1.0e-3f, 1.0e6f, 256.0f);
+            sanitize(m_VoxelSize, 1.0e-3f, 1.0e6f, 1.0f);
+        }
+
+        // Compares the serialized fields plus WHICH voxel volume is held
+        // (identity, not content: voxel edits have their own undo, and an
+        // inspector snapshot shares the volume). Runtime state is rebuilt on
+        // load so it is not considered for undo equality.
         auto operator==(const TerrainComponent& other) const -> bool
         {
-            return m_HeightmapPath == other.m_HeightmapPath && Math::BitwiseEqual(m_WorldSizeX, other.m_WorldSizeX) && Math::BitwiseEqual(m_WorldSizeZ, other.m_WorldSizeZ) && Math::BitwiseEqual(m_HeightScale, other.m_HeightScale) && m_CollisionEnabled == other.m_CollisionEnabled && m_ProceduralEnabled == other.m_ProceduralEnabled && m_ProceduralSeed == other.m_ProceduralSeed && m_ProceduralResolution == other.m_ProceduralResolution && m_ProceduralOctaves == other.m_ProceduralOctaves && Math::BitwiseEqual(m_ProceduralFrequency, other.m_ProceduralFrequency) && Math::BitwiseEqual(m_ProceduralLacunarity, other.m_ProceduralLacunarity) && Math::BitwiseEqual(m_ProceduralPersistence, other.m_ProceduralPersistence) && m_ProceduralErosionIterations == other.m_ProceduralErosionIterations && m_HeightShaping == other.m_HeightShaping && m_AutoMaterial == other.m_AutoMaterial && m_LayerRules == other.m_LayerRules && m_SplatmapGenResolution == other.m_SplatmapGenResolution && m_TessellationEnabled == other.m_TessellationEnabled && Math::BitwiseEqual(m_TargetTriangleSize, other.m_TargetTriangleSize) && Math::BitwiseEqual(m_MorphRegion, other.m_MorphRegion) && m_StreamingEnabled == other.m_StreamingEnabled && m_TileDirectory == other.m_TileDirectory && m_TileFilePattern == other.m_TileFilePattern && Math::BitwiseEqual(m_TileWorldSize, other.m_TileWorldSize) && m_TileResolution == other.m_TileResolution && m_StreamingLoadRadius == other.m_StreamingLoadRadius && m_StreamingMaxTiles == other.m_StreamingMaxTiles && m_VirtualTextureEnabled == other.m_VirtualTextureEnabled && m_VTVirtualPagesWide == other.m_VTVirtualPagesWide && m_VTPageTexels == other.m_VTPageTexels && m_VTBorderTexels == other.m_VTBorderTexels && m_VTCacheTilesWide == other.m_VTCacheTilesWide && m_VTMaxTileBakesPerFrame == other.m_VTMaxTileBakesPerFrame && m_VTAdaptiveEnabled == other.m_VTAdaptiveEnabled && m_VTSectorsWide == other.m_VTSectorsWide && m_VTMaxImagePagesWide == other.m_VTMaxImagePagesWide && m_VTTrilinearEnabled == other.m_VTTrilinearEnabled && m_VTCompressedCache == other.m_VTCompressedCache && m_VoxelEnabled == other.m_VoxelEnabled && Math::BitwiseEqual(m_VoxelSize, other.m_VoxelSize) && m_VoxelMesher == other.m_VoxelMesher;
+            return m_HeightmapPath == other.m_HeightmapPath && Math::BitwiseEqual(m_WorldSizeX, other.m_WorldSizeX) && Math::BitwiseEqual(m_WorldSizeZ, other.m_WorldSizeZ) && Math::BitwiseEqual(m_HeightScale, other.m_HeightScale) && m_CollisionEnabled == other.m_CollisionEnabled && m_ProceduralEnabled == other.m_ProceduralEnabled && m_ProceduralSeed == other.m_ProceduralSeed && m_ProceduralResolution == other.m_ProceduralResolution && m_ProceduralOctaves == other.m_ProceduralOctaves && Math::BitwiseEqual(m_ProceduralFrequency, other.m_ProceduralFrequency) && Math::BitwiseEqual(m_ProceduralLacunarity, other.m_ProceduralLacunarity) && Math::BitwiseEqual(m_ProceduralPersistence, other.m_ProceduralPersistence) && m_ProceduralErosionIterations == other.m_ProceduralErosionIterations && m_HeightShaping == other.m_HeightShaping && m_AutoMaterial == other.m_AutoMaterial && m_LayerRules == other.m_LayerRules && m_SplatmapGenResolution == other.m_SplatmapGenResolution && m_TessellationEnabled == other.m_TessellationEnabled && Math::BitwiseEqual(m_TargetTriangleSize, other.m_TargetTriangleSize) && Math::BitwiseEqual(m_MorphRegion, other.m_MorphRegion) && m_StreamingEnabled == other.m_StreamingEnabled && m_TileDirectory == other.m_TileDirectory && m_TileFilePattern == other.m_TileFilePattern && Math::BitwiseEqual(m_TileWorldSize, other.m_TileWorldSize) && m_TileResolution == other.m_TileResolution && m_StreamingLoadRadius == other.m_StreamingLoadRadius && m_StreamingMaxTiles == other.m_StreamingMaxTiles && m_VirtualTextureEnabled == other.m_VirtualTextureEnabled && m_VTVirtualPagesWide == other.m_VTVirtualPagesWide && m_VTPageTexels == other.m_VTPageTexels && m_VTBorderTexels == other.m_VTBorderTexels && m_VTCacheTilesWide == other.m_VTCacheTilesWide && m_VTMaxTileBakesPerFrame == other.m_VTMaxTileBakesPerFrame && m_VTAdaptiveEnabled == other.m_VTAdaptiveEnabled && m_VTSectorsWide == other.m_VTSectorsWide && m_VTMaxImagePagesWide == other.m_VTMaxImagePagesWide && m_VTTrilinearEnabled == other.m_VTTrilinearEnabled && m_VTCompressedCache == other.m_VTCompressedCache && m_VoxelEnabled == other.m_VoxelEnabled && Math::BitwiseEqual(m_VoxelSize, other.m_VoxelSize) && m_VoxelMesher == other.m_VoxelMesher && m_VoxelOverride == other.m_VoxelOverride;
         }
     };
 

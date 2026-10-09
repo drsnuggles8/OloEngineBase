@@ -33,7 +33,7 @@ namespace OloEngine::Automation
             target.m_VirtualTexture = source.m_VirtualTexture;
             target.m_VoxelMeshes = source.m_VoxelMeshes;
             target.m_VoxelQuadMeshes = source.m_VoxelQuadMeshes;
-            target.m_VoxelAutoSeeded = source.m_VoxelAutoSeeded;
+            target.m_VoxelRemeshAll = source.m_VoxelRemeshAll;
             target.m_NeedsRebuild = source.m_NeedsRebuild;
             target.m_MaterialNeedsRebuild = source.m_MaterialNeedsRebuild;
             target.m_AutoSplatNeedsRebuild = source.m_AutoSplatNeedsRebuild;

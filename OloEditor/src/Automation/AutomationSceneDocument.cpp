@@ -20,24 +20,6 @@
 
 namespace OloEngine::Automation
 {
-    SceneDocumentSettings SceneDocumentSettings::Capture(const Scene& scene)
-    {
-        return { scene.GetPostProcessSettings(), scene.GetSnowSettings(), scene.GetWindSettings(),
-                 scene.GetSnowAccumulationSettings(), scene.GetSnowEjectaSettings(),
-                 scene.GetPrecipitationSettings(), scene.GetFogSettings() };
-    }
-
-    void SceneDocumentSettings::Apply(Scene& scene) const
-    {
-        scene.SetPostProcessSettings(PostProcess);
-        scene.SetSnowSettings(Snow);
-        scene.SetWindSettings(Wind);
-        scene.SetSnowAccumulationSettings(SnowAccumulation);
-        scene.SetSnowEjectaSettings(SnowEjecta);
-        scene.SetPrecipitationSettings(Precipitation);
-        scene.SetFogSettings(Fog);
-    }
-
     SceneDocumentSnapshot CaptureSceneDocument(const Ref<Scene>& scene, const std::filesystem::path& path)
     {
         if (!scene)

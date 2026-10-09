@@ -14,6 +14,7 @@
 #include "OloEngine/Events/KeyEvent.h"
 #include "OloEngine/Networking/Core/NetworkManager.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Project/ProjectSerializer.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/SceneTransition.h"
 #include "OloEngine/SaveGame/SaveGameManager.h"
@@ -472,6 +473,10 @@ namespace OloEngine
                 {
                     config.StartScene = manifest["StartScene"].as<std::string>();
                 }
+                if (const auto tiering = manifest["QualityTiering"]; tiering && tiering.IsMap())
+                {
+                    DeserializeQualityTiering(tiering, config.QualityTiering);
+                }
             }
             catch (const std::exception& e)
             {
@@ -685,6 +690,12 @@ namespace OloEngine
             m_ScenePath = path;
 
             m_ActiveScene->SetIs3DModeEnabled(m_Is3DMode);
+
+            // The scene's authored render settings with the project's quality tier
+            // on top — the seam the editor opens scenes through (#1563). Before
+            // OnRuntimeStart, so a script or weather system starting this scene
+            // overrides authored values rather than being overwritten by them.
+            SceneTransition::ApplySceneRenderSettings(*m_ActiveScene);
 
             const auto& window = Application::Get().GetWindow();
             u32 w = window.GetFramebufferWidth();

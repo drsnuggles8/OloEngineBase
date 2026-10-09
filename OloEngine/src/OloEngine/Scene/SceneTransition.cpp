@@ -2,6 +2,8 @@
 #include "OloEngine/Scene/SceneTransition.h"
 
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Project/Project.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/SaveGame/SaveGameManager.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/SceneSerializer.h"
@@ -221,5 +223,67 @@ namespace OloEngine::SceneTransition
 
         result.LoadedScene = scene;
         return result;
+    }
+
+    SceneRenderSettings SceneRenderSettings::Capture(const Scene& scene)
+    {
+        return { scene.GetPostProcessSettings(), scene.GetSnowSettings(), scene.GetWindSettings(),
+                 scene.GetSnowAccumulationSettings(), scene.GetSnowEjectaSettings(),
+                 scene.GetPrecipitationSettings(), scene.GetFogSettings() };
+    }
+
+    SceneRenderSettings SceneRenderSettings::CaptureRenderer()
+    {
+        return { Renderer3D::GetPostProcessSettings(), Renderer3D::GetSnowSettings(), Renderer3D::GetWindSettings(),
+                 Renderer3D::GetSnowAccumulationSettings(), Renderer3D::GetSnowEjectaSettings(),
+                 Renderer3D::GetPrecipitationSettings(), Renderer3D::GetFogSettings() };
+    }
+
+    void SceneRenderSettings::Apply(Scene& scene) const
+    {
+        scene.SetPostProcessSettings(PostProcess);
+        scene.SetSnowSettings(Snow);
+        scene.SetWindSettings(Wind);
+        scene.SetSnowAccumulationSettings(SnowAccumulation);
+        scene.SetSnowEjectaSettings(SnowEjecta);
+        scene.SetPrecipitationSettings(Precipitation);
+        scene.SetFogSettings(Fog);
+    }
+
+    void SceneRenderSettings::PublishToRenderer() const
+    {
+        Renderer3D::GetPostProcessSettings() = PostProcess;
+        Renderer3D::GetSnowSettings() = Snow;
+        Renderer3D::GetWindSettings() = Wind;
+        Renderer3D::GetSnowAccumulationSettings() = SnowAccumulation;
+        Renderer3D::GetSnowEjectaSettings() = SnowEjecta;
+        Renderer3D::GetPrecipitationSettings() = Precipitation;
+        Renderer3D::GetFogSettings() = Fog;
+    }
+
+    void ApplySceneRenderSettings(const Scene& scene, const QualityTieringSettings* tiering)
+    {
+        SceneRenderSettings::Capture(scene).PublishToRenderer();
+
+        if (tiering)
+        {
+            ShadowSettings shadow = Renderer3D::GetShadowMap().GetSettings();
+            ApplyTieringToSettings(*tiering, Renderer3D::GetPostProcessSettings(), shadow);
+            Renderer3D::GetShadowMap().SetSettings(shadow);
+            ApplyTieringToRendererSettings(*tiering, Renderer3D::GetRendererSettings());
+        }
+
+        // After the copy: ApplyRendererSettings rebuilds the graph on an
+        // AO-technique change, so the scene's technique must already be live
+        // (#534). Before Renderer3D::Init there is no graph, and Init reads the
+        // values published above.
+        if (Renderer3D::HasInitialized())
+            Renderer3D::ApplyRendererSettings();
+    }
+
+    void ApplySceneRenderSettings(const Scene& scene)
+    {
+        const auto project = Project::GetActive();
+        ApplySceneRenderSettings(scene, project ? &project->GetConfig().QualityTiering : nullptr);
     }
 } // namespace OloEngine::SceneTransition

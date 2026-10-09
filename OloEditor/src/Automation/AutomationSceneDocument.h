@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Scene/SceneTransition.h"
 
 #include <filesystem>
 #include <functional>
@@ -17,19 +18,7 @@ namespace OloEngine::Automation
 {
     // The scene settings mirrored by the editor renderer. Keep authored settings
     // separate from their live quality-tier overlay when retaining a document.
-    struct SceneDocumentSettings
-    {
-        PostProcessSettings PostProcess;
-        SnowSettings Snow;
-        WindSettings Wind;
-        SnowAccumulationSettings SnowAccumulation;
-        SnowEjectaSettings SnowEjecta;
-        PrecipitationSettings Precipitation;
-        FogSettings Fog;
-
-        [[nodiscard]] static SceneDocumentSettings Capture(const Scene& scene);
-        void Apply(Scene& scene) const;
-    };
+    using SceneDocumentSettings = SceneTransition::SceneRenderSettings;
 
     // Retain the actual scene for lifecycle undo: serializing/copying a scene
     // loses editor-only component state and breaks commands holding its Ref.

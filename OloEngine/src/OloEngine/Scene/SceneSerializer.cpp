@@ -1318,11 +1318,8 @@ namespace OloEngine
 
         terrain.m_HeightmapPath = terrainComponent["HeightmapPath"].as<std::string>(terrain.m_HeightmapPath);
         terrain.m_WorldSizeX = terrainComponent["WorldSizeX"].as<f32>(terrain.m_WorldSizeX);
-        SanitizeFloat(terrain.m_WorldSizeX, 1.0e-3f, 1.0e6f, 256.0f);
         terrain.m_WorldSizeZ = terrainComponent["WorldSizeZ"].as<f32>(terrain.m_WorldSizeZ);
-        SanitizeFloat(terrain.m_WorldSizeZ, 1.0e-3f, 1.0e6f, 256.0f);
         terrain.m_HeightScale = terrainComponent["HeightScale"].as<f32>(terrain.m_HeightScale);
-        SanitizeFloat(terrain.m_HeightScale, 0.0f, 1.0e6f, 64.0f);
         terrain.m_CollisionEnabled = terrainComponent["CollisionEnabled"].as<bool>(terrain.m_CollisionEnabled);
 
         // Procedural generation settings
@@ -1331,11 +1328,8 @@ namespace OloEngine
         terrain.m_ProceduralResolution = terrainComponent["ProceduralResolution"].as<u32>(terrain.m_ProceduralResolution);
         terrain.m_ProceduralOctaves = terrainComponent["ProceduralOctaves"].as<u32>(terrain.m_ProceduralOctaves);
         terrain.m_ProceduralFrequency = terrainComponent["ProceduralFrequency"].as<f32>(terrain.m_ProceduralFrequency);
-        SanitizeFloat(terrain.m_ProceduralFrequency, 0.0f, 1.0e4f, 3.0f);
         terrain.m_ProceduralLacunarity = terrainComponent["ProceduralLacunarity"].as<f32>(terrain.m_ProceduralLacunarity);
-        SanitizeFloat(terrain.m_ProceduralLacunarity, 1.0e-3f, 64.0f, 2.0f);
         terrain.m_ProceduralPersistence = terrainComponent["ProceduralPersistence"].as<f32>(terrain.m_ProceduralPersistence);
-        SanitizeFloat(terrain.m_ProceduralPersistence, 0.0f, 1.0f, 0.45f);
         terrain.m_ProceduralErosionIterations = terrainComponent["ProceduralErosionIterations"].as<i32>(terrain.m_ProceduralErosionIterations);
 
         // Advanced height-field shaping
@@ -1408,16 +1402,13 @@ namespace OloEngine
 
         terrain.m_TessellationEnabled = terrainComponent["TessellationEnabled"].as<bool>(terrain.m_TessellationEnabled);
         terrain.m_TargetTriangleSize = terrainComponent["TargetTriangleSize"].as<f32>(terrain.m_TargetTriangleSize);
-        SanitizeFloat(terrain.m_TargetTriangleSize, 1.0e-3f, 1.0e4f, 8.0f);
         terrain.m_MorphRegion = terrainComponent["MorphRegion"].as<f32>(terrain.m_MorphRegion);
-        SanitizeFloat(terrain.m_MorphRegion, 0.0f, 1.0f, 0.3f);
 
         // Streaming settings
         terrain.m_StreamingEnabled = terrainComponent["StreamingEnabled"].as<bool>(terrain.m_StreamingEnabled);
         terrain.m_TileDirectory = terrainComponent["TileDirectory"].as<std::string>(terrain.m_TileDirectory);
         terrain.m_TileFilePattern = terrainComponent["TileFilePattern"].as<std::string>(terrain.m_TileFilePattern);
         terrain.m_TileWorldSize = terrainComponent["TileWorldSize"].as<f32>(terrain.m_TileWorldSize);
-        SanitizeFloat(terrain.m_TileWorldSize, 1.0e-3f, 1.0e6f, 256.0f);
         terrain.m_TileResolution = terrainComponent["TileResolution"].as<u32>(terrain.m_TileResolution);
         terrain.m_StreamingLoadRadius = terrainComponent["StreamingLoadRadius"].as<u32>(terrain.m_StreamingLoadRadius);
         terrain.m_StreamingMaxTiles = terrainComponent["StreamingMaxTiles"].as<u32>(terrain.m_StreamingMaxTiles);
@@ -1453,7 +1444,8 @@ namespace OloEngine
         // Voxel override settings
         terrain.m_VoxelEnabled = terrainComponent["VoxelEnabled"].as<bool>(terrain.m_VoxelEnabled);
         terrain.m_VoxelSize = terrainComponent["VoxelSize"].as<f32>(terrain.m_VoxelSize);
-        SanitizeFloat(terrain.m_VoxelSize, 1.0e-3f, 1.0e6f, 1.0f);
+        // Every sizing scalar read above, with the bounds the save game uses too.
+        terrain.SanitizeScalars();
         // Discriminated mode (issue #727): REJECT an out-of-range value back to
         // the default rather than clamp it — saturating would silently select
         // the other mesher, which is a different valid value, not a repair.
@@ -1465,6 +1457,27 @@ namespace OloEngine
         else
         {
             terrain.m_VoxelMesher = VoxelMesherKind::MarchingCubes;
+        }
+
+        // The authored voxel volume (#1566). A scene without the block has
+        // none, which is what every scene saved before it means; a block that
+        // fails to decode is reported and dropped rather than half-loaded.
+        if (const auto volumeNode = terrainComponent["VoxelVolume"]; volumeNode && volumeNode.IsMap())
+        {
+            try
+            {
+                const u64 rawSize = volumeNode["Size"].as<u64>(0);
+                const f32 voxelSize = volumeNode["VoxelSize"].as<f32>(terrain.m_VoxelSize);
+                const YAML::Binary data = volumeNode["Data"].as<YAML::Binary>();
+                terrain.m_VoxelOverride = VoxelOverride::DecodePersisted(
+                    { data.data(), data.size() }, rawSize, voxelSize, terrain.m_WorldSizeX, terrain.m_WorldSizeZ,
+                    terrain.m_HeightScale, "SceneSerializer");
+            }
+            catch (const YAML::Exception& e)
+            {
+                OLO_CORE_ERROR("SceneSerializer: malformed VoxelVolume block ({}); the volume was not loaded", e.what());
+                terrain.m_VoxelOverride = nullptr;
+            }
         }
 
         // Deserialize terrain material layers
@@ -5846,6 +5859,25 @@ namespace OloEngine
             out << YAML::Key << "VoxelEnabled" << YAML::Value << terrain.m_VoxelEnabled;
             out << YAML::Key << "VoxelSize" << YAML::Value << terrain.m_VoxelSize;
             out << YAML::Key << "VoxelMesher" << YAML::Value << static_cast<i32>(terrain.m_VoxelMesher);
+            // The authored voxel volume (#1566). An auto-seeded one is a copy of
+            // the height field and is re-seeded on load instead.
+            if (const auto volume = TerrainComponent::AuthoredVoxelVolume(terrain); volume && volume->GetChunkCount() > 0)
+            {
+                if (const auto persisted = volume->EncodePersisted(); !persisted.Compressed.IsEmpty())
+                {
+                    out << YAML::Key << "VoxelVolume" << YAML::Value << YAML::BeginMap;
+                    out << YAML::Key << "VoxelSize" << YAML::Value << persisted.VoxelSize;
+                    out << YAML::Key << "Size" << YAML::Value << persisted.RawSize;
+                    out << YAML::Key << "Data" << YAML::Value
+                        << YAML::Binary(persisted.Compressed.GetData(), static_cast<sizet>(persisted.Compressed.Num()));
+                    out << YAML::EndMap;
+                }
+                else
+                {
+                    OLO_CORE_ERROR("SceneSerializer: could not encode the voxel volume of '{}'; it is not saved",
+                                   entity.GetName());
+                }
+            }
 
             // Terrain material layers
             if (terrain.m_Material && terrain.m_Material->GetLayerCount() > 0)

@@ -2312,21 +2312,17 @@ namespace OloEngine
             c.m_LayerRules.SetNum(clampedRules, EAllowShrinking::No);
             for (u32 i = 0; i < clampedRules; ++i)
             {
+                // An error stops reading but not the sanitize below: the fields
+                // already read must still be bounded.
                 SerializeTerrainLayerRule(ar, c.m_LayerRules[i]);
                 if (ar.IsError())
-                {
-                    return;
-                }
+                    break;
             }
             // Drain any excess entries to keep the stream aligned.
-            for (u32 i = clampedRules; i < ruleCount; ++i)
+            for (u32 i = clampedRules; i < ruleCount && !ar.IsError(); ++i)
             {
                 TerrainLayerRule discard{};
                 SerializeTerrainLayerRule(ar, discard);
-                if (ar.IsError())
-                {
-                    return;
-                }
             }
         }
         else
@@ -2358,6 +2354,44 @@ namespace OloEngine
         // Radial island falloff (issue #880).
         ar << c.m_HeightShaping.IslandFalloff << c.m_HeightShaping.IslandFalloffRadius;
 
+        // The authored voxel volume (#1566), in the scene file's persisted form.
+        // An auto-seeded volume is a copy of the height field: not saved, the
+        // restored terrain re-seeds.
+        bool hasVoxelVolume = false;
+        VoxelOverride::Persisted voxelVolume;
+        if (!ar.IsLoading())
+        {
+            if (const auto volume = TerrainComponent::AuthoredVoxelVolume(c); volume && volume->GetChunkCount() > 0)
+            {
+                voxelVolume = volume->EncodePersisted();
+                hasVoxelVolume = !voxelVolume.Compressed.IsEmpty();
+            }
+        }
+        ar << hasVoxelVolume;
+        if (hasVoxelVolume)
+        {
+            u64 compressedSize = static_cast<u64>(voxelVolume.Compressed.Num());
+            ar << voxelVolume.RawSize << voxelVolume.VoxelSize << compressedSize;
+            if (ar.IsLoading())
+            {
+                // Deflate never grows a stream by more than a few bytes per 16 KiB.
+                constexpr u64 maxCompressed = VoxelOverride::MaxPersistedRawSize + VoxelOverride::MaxPersistedRawSize / 256 + 64;
+                const i64 total = ar.TotalSize();
+                const i64 at = ar.Tell();
+                const bool overrunsArchive = total >= 0 && at >= 0 && compressedSize > static_cast<u64>(total - at);
+                if (ar.IsError() || compressedSize == 0 || compressedSize > maxCompressed || overrunsArchive)
+                {
+                    // Fall through: the sanitize below must still run on what was read.
+                    ar.SetError();
+                    hasVoxelVolume = false;
+                    compressedSize = 0;
+                }
+                voxelVolume.Compressed.SetNumUninitialized(static_cast<TArray<u8>::SizeType>(compressedSize));
+            }
+            if (compressedSize > 0)
+                ar.Serialize(voxelVolume.Compressed.GetData(), static_cast<i64>(compressedSize));
+        }
+
         if (ar.IsLoading())
         {
             // Sanitize untrusted on-disk values so corrupt save data can't poison
@@ -2375,6 +2409,9 @@ namespace OloEngine
             sanitize(c.m_HeightShaping.HeightExponent, 0.05f, 16.0f, 1.0f);
             sanitize(c.m_HeightShaping.IslandFalloff, 0.0f, 1.0f, 0.0f);
             sanitize(c.m_HeightShaping.IslandFalloffRadius, 0.0f, 0.5f, 0.3f);
+            // The world size, height scale, voxel size and the other sizing
+            // scalars, with the bounds the scene file reader applies.
+            c.SanitizeScalars();
             c.m_HeightShaping.TerraceSteps = std::min(c.m_HeightShaping.TerraceSteps, 256u);
             c.m_SplatmapGenResolution = std::clamp(c.m_SplatmapGenResolution, 16u, 4096u);
             c.m_ProceduralErosionIterations = std::clamp(c.m_ProceduralErosionIterations, 0, 64);
@@ -2414,6 +2451,24 @@ namespace OloEngine
                     std::swap(r.MinHeight, r.MaxHeight);
                 if (r.MinSlopeDeg > r.MaxSlopeDeg)
                     std::swap(r.MinSlopeDeg, r.MaxSlopeDeg);
+            }
+
+            // After the sanitize: the decode sizes the volume from these fields.
+            // A complete restore replaces whatever volume the scene had, as the
+            // other fields do, and a save without one leaves the terrain to
+            // re-seed. A failed read leaves the live volume alone.
+            if (!ar.IsError())
+            {
+                c.m_VoxelOverride = nullptr;
+                c.m_VoxelMeshes.clear();
+                c.m_VoxelQuadMeshes = nullptr;
+                if (hasVoxelVolume)
+                {
+                    c.m_VoxelOverride = VoxelOverride::DecodePersisted(
+                        { voxelVolume.Compressed.GetData(), static_cast<sizet>(voxelVolume.Compressed.Num()) },
+                        voxelVolume.RawSize, voxelVolume.VoxelSize, c.m_WorldSizeX, c.m_WorldSizeZ, c.m_HeightScale,
+                        "SaveGame TerrainComponent");
+                }
             }
         }
         // Runtime pointers (TerrainData, ChunkManager, etc.) are not serialized
