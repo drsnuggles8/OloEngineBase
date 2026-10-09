@@ -155,6 +155,8 @@ jobs:
       - name: Report archive headroom
         if: always()
         shell: pwsh
+        env:
+          DIST_BUILD_OUTCOME: ${{ steps.dist_build.outcome }}
         run: |
           $limit = 4GB
           # -ErrorAction SilentlyContinue is load-bearing: GitHub's pwsh shell prepends
@@ -174,7 +176,7 @@ jobs:
           if (-not $rows) {
             # After a green build an empty directory means this step looks in the wrong place,
             # which is how the report went blank once before: fail rather than say nothing.
-            if ('${{ steps.dist_build.outcome }}' -eq 'success') {
+            if ($env:DIST_BUILD_OUTCOME -eq 'success') {
               $msg = "The Dist build succeeded but no archive was found under build/lib/Dist."
               $msg | Out-File $env:GITHUB_STEP_SUMMARY -Append
               Write-Host "::error::$msg"
