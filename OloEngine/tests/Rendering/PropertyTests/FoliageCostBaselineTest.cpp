@@ -141,6 +141,25 @@ namespace OloEngine::Tests
             return parsed > 0 ? static_cast<u32>(parsed) : fallback;
         }
 
+        // True when `name` is unset or empty, or lists `value` (comma-separated).
+        [[nodiscard]] bool EnvSelects(const char* name, std::string_view value)
+        {
+            const char* v = std::getenv(name);
+            if (v == nullptr || v[0] == '\0')
+                return true;
+            std::string_view list(v);
+            while (!list.empty())
+            {
+                const sizet comma = list.find(',');
+                if (list.substr(0, comma) == value)
+                    return true;
+                if (comma == std::string_view::npos)
+                    break;
+                list.remove_prefix(comma + 1);
+            }
+            return false;
+        }
+
         [[nodiscard]] const char* PathName(RenderingPath path)
         {
             switch (path)
@@ -1123,23 +1142,48 @@ namespace OloEngine::Tests
         };
 
         // ── The matrix: every subject x path x shadow technique x pose ───────
+        //
+        // OLO_FOLIAGE_COST_{SUBJECTS,PATHS,SHADOWS,POSES} (comma lists) narrow
+        // it, and OLO_FOLIAGE_COST_EXTRAS=0 skips the conditional cells and the
+        // tails: a cell a foreign GPU process overlapped is re-measured on its
+        // own instead of in another full run.
         const std::array paths{ RenderingPath::Forward, RenderingPath::ForwardPlus, RenderingPath::Deferred };
         for (const auto& subject : subjects)
         {
+            if (!EnvSelects("OLO_FOLIAGE_COST_SUBJECTS", subject.Id))
+                continue;
             ASSERT_NO_FATAL_FAILURE(Load(subject.Scene));
             for (const RenderingPath renderPath : paths)
             {
+                if (!EnvSelects("OLO_FOLIAGE_COST_PATHS", PathName(renderPath)))
+                    continue;
                 SetPath(renderPath);
                 for (const bool vsm : { false, true })
                 {
+                    if (!EnvSelects("OLO_FOLIAGE_COST_SHADOWS", vsm ? "VSM" : "CSM"))
+                        continue;
                     ASSERT_TRUE(SetVsm(vsm)) << "the shadow technique did not take";
                     for (const auto& pose : subject.Poses)
                     {
+                        if (!EnvSelects("OLO_FOLIAGE_COST_POSES", pose.Name))
+                            continue;
                         measureCell(subject, pose, renderPath, vsm, 1u, kAllArms);
                         ASSERT_FALSE(HasFatalFailure());
                     }
                 }
             }
+        }
+
+        const char* extras = std::getenv("OLO_FOLIAGE_COST_EXTRAS");
+        if (extras != nullptr && extras[0] == '0')
+        {
+            result["cells"] = std::move(cells);
+            result["coldRebuild"] = { { "frames", coldRebuildFrames }, { "wallMs", TailJson(coldRebuildWallMs) }, { "rawWallMs", RoundedArray(coldRebuildWallMs) } };
+            result["tails"] = nlohmann::json::array();
+            SetPath(RenderingPath::Forward);
+            std::ofstream(outDir / "foliage-cost.json") << result.dump(1);
+            std::printf("[foliage-cost] wrote %s (no conditional cells, no tails)\n", (outDir / "foliage-cost.json").string().c_str());
+            return;
         }
 
         // ── Conditional cells on the traversal: resolution and MSAA ──────────

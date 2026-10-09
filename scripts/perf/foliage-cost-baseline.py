@@ -12,17 +12,30 @@ adjacent frames of one run are not independent samples (docs/guides/
 controlled-performance.md), runs are.
 
 `--summarise-only` rebuilds summary.json / summary.md from existing run folders.
-A run whose host record shows competing processes is kept but marked contended;
-the summary says which runs it used.
+
+GPU contention is excluded per cell, not per run. While a run is measuring, a
+sampler records every 30 s the GPU's clock, power and utilisation and every other
+engine or game process (an editor, runtime or test binary from another worktree
+shares the GPU), with its CPU time. An interval in which such a process gained CPU
+time is a contention window. <output>/contention.json can add windows found any
+other way: [{"start": "2026-10-09T15:48:31", "end": "...", "what": "..."}]. Each
+cell and tail window is timed from the engine log's [HH:MM:SS] stamps, and a
+cell-run that overlaps a window is left out of the summary and counted as such.
+A run with no sampler record cannot show it was uncontended, so it is left out
+entirely unless --include-unsampled is given.
 """
 from __future__ import annotations
 
 import argparse
+import datetime
+import gzip
 import json
+import re
 import os
 import statistics
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -58,19 +71,73 @@ def probe_host() -> dict:
     return state
 
 
+GPU_USERS = ['OloEditor', 'OloRuntime', 'OloEngine-Tests', 'OloServer', 'WowB', 'Wow']
+SAMPLE_SECONDS = 30.0
+
+
+def sample_gpu_users(own_exe: Path) -> dict:
+    script = ("Get-Process -Name " + ",".join(GPU_USERS) + " -ErrorAction SilentlyContinue | "
+              "ForEach-Object { '{0}|{1}|{2}' -f $_.Id,$_.CPU,$_.Path }")
+    out = subprocess.run(['pwsh', '-NoProfile', '-Command', script], capture_output=True, text=True).stdout
+    own = str(own_exe).lower()
+    foreign = []
+    for line in out.splitlines():
+        parts = line.split('|', 2)
+        if len(parts) == 3 and parts[2].lower() != own:
+            foreign.append({'pid': int(parts[0]), 'cpuSeconds': float(parts[1] or 0.0), 'path': parts[2]})
+    try:
+        gpu = subprocess.check_output(['nvidia-smi', '--query-gpu=clocks.gr,power.draw,utilization.gpu',
+                                       '--format=csv,noheader'], text=True).strip()
+    except (OSError, subprocess.CalledProcessError):
+        gpu = None
+    return {'time': datetime.datetime.now().isoformat(timespec='seconds'), 'gpu': gpu, 'foreign': foreign}
+
+
+def contention_from_samples(samples: list) -> list:
+    """Windows in which a foreign GPU user gained CPU time, appeared, or exited
+    (it ran until it exited, somewhere inside the interval)."""
+    windows = []
+    for previous, current in zip(samples, samples[1:]):
+        before = {p['pid']: p['cpuSeconds'] for p in previous['foreign']}
+        now = {p['pid'] for p in current['foreign']}
+        active = [p for p in current['foreign'] if p['pid'] not in before or p['cpuSeconds'] > before[p['pid']] + 0.05]
+        active += [p for p in previous['foreign'] if p['pid'] not in now]
+        if active:
+            window = {'start': previous['time'], 'end': current['time'],
+                      'what': '; '.join(sorted({p['path'] for p in active}))}
+            if windows and windows[-1]['end'] == window['start'] and windows[-1]['what'] == window['what']:
+                windows[-1]['end'] = window['end']
+            else:
+                windows.append(window)
+    return windows
+
+
 def run_once(exe: Path, repo: Path, out: Path, environment: dict) -> dict:
     out.mkdir(parents=True, exist_ok=False)
     before = probe_host()
     env = {**os.environ, **environment, 'OLO_FOLIAGE_COST': '1', 'OLO_FOLIAGE_COST_OUT': str(out.resolve())}
+    samples = [sample_gpu_users(exe)]
+    stop = threading.Event()
+
+    def sampler():
+        while not stop.wait(SAMPLE_SECONDS):
+            samples.append(sample_gpu_users(exe))
+
+    thread = threading.Thread(target=sampler, daemon=True)
+    thread.start()
     started = time.perf_counter()
     with (out / 'stdout.log').open('w', encoding='utf-8') as stdout:
         result = subprocess.run([str(exe), '--gtest_filter=FoliageCostBaselineTest.MeasureBaseline'],
                                 cwd=repo, env=env, stdout=stdout, stderr=subprocess.STDOUT)
     elapsed = time.perf_counter() - started
+    stop.set()
+    thread.join()
+    samples.append(sample_gpu_users(exe))
     after = probe_host()
     host = {'before': before, 'after': after, 'exitCode': result.returncode, 'elapsedSeconds': round(elapsed, 1),
             'environment': {k: v for k, v in environment.items()},
-            'contended': bool(before.get('busyProcesses')) or bool(after.get('busyProcesses'))}
+            'contended': bool(before.get('busyProcesses')) or bool(after.get('busyProcesses')),
+            'samples': samples, 'contention': contention_from_samples(samples)}
     (out / 'host.json').write_text(json.dumps(host, indent=1), encoding='utf-8')
     if result.returncode != 0 or not (out / 'foliage-cost.json').exists():
         raise SystemExit(f'run failed (exit {result.returncode}); see {out / "stdout.log"}')
@@ -89,6 +156,79 @@ def foliage_brackets(passes: dict) -> dict:
     casters = sum(v for k, v in passes.items() if k.endswith('/FoliageCasters'))
     draw = passes.get('FoliagePass', 0.0) + passes.get('FoliagePrepassPass', 0.0)
     return {'cullMain': cull_main, 'cullShadow': cull_shadow, 'shadowCasters': casters, 'forwardDraw': draw}
+
+
+def load_contention(output: Path, hosts: list) -> list:
+    windows = []
+    path = output / 'contention.json'
+    if path.exists():
+        windows += json.loads(path.read_text(encoding='utf-8'))
+    for host in hosts:
+        windows += host.get('contention', [])
+    return [(datetime.datetime.fromisoformat(w['start'][:19]), datetime.datetime.fromisoformat(w['end'][:19]))
+            for w in windows]
+
+
+def timed_entries(run: Path, host: dict) -> dict:
+    """{'cell:<key>' or 'tail:<key>': (start, end)} from the engine log's [HH:MM:SS] stamps."""
+    start_text = host.get('before', {}).get('time')
+    if not start_text:
+        return {}
+    run_start = datetime.datetime.fromisoformat(start_text[:19])
+    stamp = re.compile(r'^\[(\d\d):(\d\d):(\d\d)\]')
+    cell = re.compile(r'^\[foliage-cost\] (\S+) (\S+) (\S+) (\S+) msaa(\d+) (\d+)x(\d+) done')
+    tail = re.compile(r'^\[foliage-cost\] tail (\S+) (\S+) (\S+) rebuild=(\d) done')
+    out = {}
+    previous = run_start
+    last = run_start
+    with (run / 'stdout.log').open(encoding='utf-8', errors='replace') as stream:
+        for line in stream:
+            m = stamp.match(line)
+            if m:
+                t = run_start.replace(hour=int(m.group(1)), minute=int(m.group(2)), second=int(m.group(3)))
+                if t < run_start:
+                    t += datetime.timedelta(days=1)
+                last = t
+                continue
+            m = cell.match(line)
+            if m:
+                out['cell:' + '{}|{}|{}|{}|msaa{}|{}x{}'.format(*m.groups())] = (previous, last)
+                previous = last
+                continue
+            m = tail.match(line)
+            if m:
+                out['tail:{}|{}|{}|{}'.format(*m.groups())] = (previous, last)
+                previous = last
+    return out
+
+
+def load_run(run: Path) -> dict:
+    """A run's foliage-cost.json, or the gzipped copy the analysis commits."""
+    plain = run / 'foliage-cost.json'
+    if plain.exists():
+        return json.loads(plain.read_text(encoding='utf-8'))
+    with gzip.open(run / 'foliage-cost.json.gz', 'rt', encoding='utf-8') as stream:
+        return json.load(stream)
+
+
+def run_timing(run: Path, host: dict) -> dict:
+    """Cell and tail spans from the engine log when it is there (and cached as
+    cell-times.json beside it), else from that cache: the logs are ~11 MB a run
+    and are not committed."""
+    cache = run / 'cell-times.json'
+    if (run / 'stdout.log').exists():
+        spans = timed_entries(run, host)
+        cache.write_text(json.dumps({k: [a.isoformat(), b.isoformat()] for k, (a, b) in spans.items()}, indent=0),
+                         encoding='utf-8')
+        return spans
+    if cache.exists():
+        raw = json.loads(cache.read_text(encoding='utf-8'))
+        return {k: (datetime.datetime.fromisoformat(a), datetime.datetime.fromisoformat(b)) for k, (a, b) in raw.items()}
+    return {}
+
+
+def overlaps(span, windows) -> bool:
+    return span is not None and any(span[0] <= end and start <= span[1] for start, end in windows)
 
 
 def cell_key(cell: dict) -> str:
@@ -116,24 +256,44 @@ def summarise_cell(cell: dict) -> dict:
     return out
 
 
-def summarise(output: Path) -> dict:
-    runs = sorted(p for p in output.glob('run-*') if (p / 'foliage-cost.json').exists())
+def summarise(output: Path, include_unsampled: bool = False) -> dict:
+    runs = sorted(p for p in output.glob('run-*')
+                  if (p / 'foliage-cost.json').exists() or (p / 'foliage-cost.json.gz').exists())
     if not runs:
         raise SystemExit(f'no runs under {output}')
     per_run = []
     hosts = []
+    host_records = []
+    timing = []
+    kept = []
     for run in runs:
-        data = json.loads((run / 'foliage-cost.json').read_text(encoding='utf-8'))
         host = json.loads((run / 'host.json').read_text(encoding='utf-8')) if (run / 'host.json').exists() else {}
-        hosts.append({'run': run.name, 'contended': host.get('contended'), 'elapsedSeconds': host.get('elapsedSeconds')})
-        per_run.append(data)
+        sampled = 'samples' in host
+        hosts.append({'run': run.name, 'sampled': sampled, 'usedInSummary': sampled or include_unsampled,
+                      'buildsOrTestsSeen': host.get('contended'), 'elapsedSeconds': host.get('elapsedSeconds'),
+                      'contentionWindows': host.get('contention', [])})
+        if not (sampled or include_unsampled):
+            continue
+        kept.append(run)
+        host_records.append(host)
+        timing.append(run_timing(run, host))
+        per_run.append(load_run(run))
+    if not per_run:
+        raise SystemExit('no sampled run to summarise (pass --include-unsampled to use unsampled ones)')
+    runs = kept
+    windows = load_contention(output, host_records)
 
     cells = {}
+    excluded = 0
     for index, data in enumerate(per_run):
         for cell in data['cells']:
             entry = cells.setdefault(cell_key(cell), {'cell': {k: cell[k] for k in
                                                                ('subject', 'pose', 'path', 'shadows', 'msaa', 'width',
-                                                                'height')}, 'runs': []})
+                                                                'height')}, 'runs': [], 'excludedRuns': []})
+            if overlaps(timing[index].get('cell:' + cell_key(cell)), windows):
+                entry['excludedRuns'].append(runs[index].name)
+                excluded += 1
+                continue
             entry['runs'].append(summarise_cell(cell))
 
     def spread(values):
@@ -146,27 +306,35 @@ def summarise(output: Path) -> dict:
     summary_cells = []
     for key, entry in cells.items():
         metrics = sorted({m for r in entry['runs'] for m in r})
-        summary_cells.append({**entry['cell'], 'runs': len(entry['runs']),
+        summary_cells.append({**entry['cell'], 'runs': len(entry['runs']), 'excludedRuns': entry['excludedRuns'],
                               'metrics': {m: spread([r.get(m) for r in entry['runs']]) for m in metrics}})
 
     tails = {}
-    for data in per_run:
+    for index, data in enumerate(per_run):
         for tail in data['tails']:
             key = '{pose}|{path}|{shadows}|rebuild{rebuildEvery}'.format(**tail)
             entry = tails.setdefault(key, {'pose': tail['pose'], 'path': tail['path'], 'shadows': tail['shadows'],
-                                           'rebuildEvery': tail['rebuildEvery'], 'runs': []})
+                                           'rebuildEvery': tail['rebuildEvery'], 'runs': [], 'excludedRuns': []})
+            logged = 'tail:{}|{}|{}|{}'.format(tail['pose'], tail['path'], tail['shadows'], 1 if tail['rebuildEvery'] else 0)
+            if overlaps(timing[index].get(logged), windows):
+                entry['excludedRuns'].append(runs[index].name)
+                excluded += 1
+                continue
             entry['runs'].append({'wall': tail['wallMs'], 'gpu': tail['gpuMs'],
                                   'rebuildFrameWallMs': tail['rebuildFrameWallMs']})
     summary_tails = []
     for entry in tails.values():
         row = {k: entry[k] for k in ('pose', 'path', 'shadows', 'rebuildEvery')}
+        row['runs'] = len(entry['runs'])
+        row['excludedRuns'] = entry['excludedRuns']
         for channel in ('wall', 'gpu'):
             for stat in ('p50', 'p95', 'p99', 'max', 'deadlineMisses'):
                 row[channel + stat.capitalize()] = spread([r[channel][stat] for r in entry['runs']])
         row['rebuildFrameWallMs'] = spread([v for r in entry['runs'] for v in r['rebuildFrameWallMs']])
         summary_tails.append(row)
 
-    summary = {'runs': hosts, 'host': per_run[0]['host'], 'protocol': per_run[0]['protocol'],
+    summary = {'runs': hosts, 'contentionWindows': [[a.isoformat(), b.isoformat()] for a, b in windows],
+               'excludedCellRuns': excluded, 'host': per_run[0]['host'], 'protocol': per_run[0]['protocol'],
                'memory': per_run[0]['memory'], 'cells': summary_cells, 'tails': summary_tails,
                'coldRebuild': [d['coldRebuild']['wallMs'] for d in per_run]}
     (output / 'summary.json').write_text(json.dumps(summary, indent=1), encoding='utf-8')
@@ -183,26 +351,67 @@ def fmt(spread_value, digits=3):
     return f'{lo:.{digits}f}–{hi:.{digits}f}'
 
 
+CONDENSED = [('gpuP50', 'frame GPU p50'), ('frameDeltaVsNoFoliage', 'foliage share of the frame'),
+             ('cullMain', 'main-view cull'), ('cullShadow', 'shadow-view culls'), ('shadowCasters', 'shadow casters'),
+             ('forwardDraw', 'forward draw (+prepass)'), ('scenePassDeltaVsNoFoliage', 'G-buffer share (ScenePass Δ)'),
+             ('frameDeltaCpuCull', 'GPU culling off: frame Δ'), ('frameDeltaNoDensityLod', 'density LOD off: frame Δ')]
+
+
+def condensed_rows(summary: dict) -> list:
+    """Per subject x path x shadow technique at the native size: the range over
+    poses of each cell's median across its clean runs."""
+    groups = {}
+    for cell in summary['cells']:
+        if cell['msaa'] != 1 or (cell['width'], cell['height']) != (1920, 1080) or cell['runs'] == 0:
+            continue
+        groups.setdefault((cell['subject'], cell['path'], cell['shadows']), []).append(cell)
+    rows = []
+    for (subject, path, shadows), cells in groups.items():
+        row = {'subject': subject, 'path': path, 'shadows': shadows, 'poses': len(cells)}
+        for key, _ in CONDENSED:
+            values = [c['metrics'][key]['median'] for c in cells if c['metrics'].get(key)]
+            row[key] = (min(values), max(values)) if values else None
+        rows.append(row)
+    return rows
+
+
 def render_markdown(summary: dict) -> str:
     lines = ['# Foliage cost baseline — generated tables', '',
              'Ranges are min–max of each run\'s median over interleaved blocks. Milliseconds of GPU time unless named.', '']
-    lines.append('| subject | pose | path | shadows | size | frame GPU p50 | main-view cull | shadow-view culls | '
-                 'shadow casters | forward draw (+prepass) | ScenePass Δ | frame Δ vs no foliage | CPU-cull Δ | '
-                 'no-density-LOD Δ |')
-    lines.append('|' + '---|' * 14)
+    lines.append('## Condensed: range over poses, 1920x1080, no MSAA')
+    lines.append('')
+    lines.append('| subject | path | shadows | poses | ' + ' | '.join(label for _, label in CONDENSED) + ' |')
+    lines.append('|' + '---|' * (4 + len(CONDENSED)))
+    for row in condensed_rows(summary):
+        values = []
+        for key, _ in CONDENSED:
+            value = row[key]
+            if value is None:
+                values.append('n/a')
+            elif abs(value[1] - value[0]) < 0.005:
+                values.append('{:.2f}'.format(value[0]))
+            else:
+                values.append('{:.2f}–{:.2f}'.format(*value))
+        lines.append('| {} | {} | {} | {} | '.format(row['subject'], row['path'], row['shadows'], row['poses']) +
+                     ' | '.join(values) + ' |')
+    lines += ['', '## Every cell', '']
+    lines.append('| subject | pose | path | shadows | size | clean runs | frame GPU p50 | main-view cull | '
+                 'shadow-view culls | shadow casters | forward draw (+prepass) | ScenePass Δ | frame Δ vs no foliage | '
+                 'CPU-cull Δ | no-density-LOD Δ |')
+    lines.append('|' + '---|' * 15)
     for cell in summary['cells']:
         m = cell['metrics']
         size = '{}x{}'.format(cell['width'], cell['height']) + (' MSAA{}'.format(cell['msaa']) if cell['msaa'] > 1 else '')
-        lines.append('| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |'.format(
-            cell['subject'], cell['pose'], cell['path'], cell['shadows'], size, fmt(m.get('gpuP50')),
+        lines.append('| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |'.format(
+            cell['subject'], cell['pose'], cell['path'], cell['shadows'], size, cell['runs'], fmt(m.get('gpuP50')),
             fmt(m.get('cullMain')), fmt(m.get('cullShadow')), fmt(m.get('shadowCasters')), fmt(m.get('forwardDraw')),
             fmt(m.get('scenePassDeltaVsNoFoliage')), fmt(m.get('frameDeltaVsNoFoliage')), fmt(m.get('frameDeltaCpuCull')),
             fmt(m.get('frameDeltaNoDensityLod'))))
-    lines += ['', '| pose | path | shadows | rebuild every | wall p50 | wall p95 | wall p99 | wall max | misses | '
-                  'GPU p50 | GPU p95 | GPU p99 | rebuild-frame wall |', '|' + '---|' * 13]
+    lines += ['', '| pose | path | shadows | rebuild every | clean runs | wall p50 | wall p95 | wall p99 | wall max | '
+                  'misses | GPU p50 | GPU p95 | GPU p99 | rebuild-frame wall |', '|' + '---|' * 14]
     for tail in summary['tails']:
-        lines.append('| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |'.format(
-            tail['pose'], tail['path'], tail['shadows'], tail['rebuildEvery'] or '—', fmt(tail['wallP50'], 2),
+        lines.append('| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |'.format(
+            tail['pose'], tail['path'], tail['shadows'], tail['rebuildEvery'] or '—', tail['runs'], fmt(tail['wallP50'], 2),
             fmt(tail['wallP95'], 2), fmt(tail['wallP99'], 2), fmt(tail['wallMax'], 2),
             fmt(tail['wallDeadlinemisses'], 0), fmt(tail['gpuP50'], 2), fmt(tail['gpuP95'], 2), fmt(tail['gpuP99'], 2),
             fmt(tail['rebuildFrameWallMs'], 1)))
@@ -217,6 +426,8 @@ def main() -> int:
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--env', action='append', default=[], help='KEY=VALUE passed to the test (e.g. OLO_FOLIAGE_COST_ROUNDS=2)')
     parser.add_argument('--summarise-only', action='store_true')
+    parser.add_argument('--include-unsampled', action='store_true',
+                        help='also summarise runs that have no contention sampler record')
     args = parser.parse_args()
 
     if not args.summarise_only:
@@ -230,7 +441,7 @@ def main() -> int:
             print(f'[foliage-cost] {run.name} ...', flush=True)
             host = run_once(args.exe.resolve(), args.repo.resolve(), run, environment)
             print(f'[foliage-cost] {run.name}: {host["elapsedSeconds"]} s, contended={host["contended"]}', flush=True)
-    summarise(args.output)
+    summarise(args.output, args.include_unsampled)
     print(f'[foliage-cost] summary: {args.output / "summary.md"}')
     return 0
 
