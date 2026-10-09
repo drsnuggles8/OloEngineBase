@@ -326,11 +326,13 @@ namespace OloEngine
         const VkFormat format = VulkanUpload::ImageFormatToVkFormat(m_Specification.Format, m_Specification.SRGB);
         VkFormatProperties props{};
         vkGetPhysicalDeviceFormatProperties(device->GetPhysicalDevice(), format, &props);
+        // TRANSFER_SRC because GetData reads the blocks back with a copy (#1533).
         constexpr VkFormatFeatureFlags kRequired = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT |
+                                                   VK_FORMAT_FEATURE_TRANSFER_SRC_BIT |
                                                    VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
         if ((props.optimalTilingFeatures & kRequired) != kRequired)
         {
-            OLO_CORE_ERROR("VulkanTexture2D: this device cannot sample, filter and receive transfers in {} "
+            OLO_CORE_ERROR("VulkanTexture2D: this device cannot sample, filter and copy to and from {} "
                            "(optimalTilingFeatures {:#x}) — '{}' is not loaded rather than sampled as garbage",
                            BlockFormatName(format), static_cast<u32>(props.optimalTilingFeatures), m_Path.ToView());
             return;
@@ -397,14 +399,11 @@ namespace OloEngine
         // either usage fails image creation.
         const bool isBlockCompressed = IsCompressedFormat(m_Specification.Format);
 
-        // A block image is never a copy SOURCE (GetData has no readback path for
-        // it), and asking for the usage would need a format feature the
-        // compressed constructor does not check.
-        VkImageUsageFlags usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-        if (!isBlockCompressed)
-        {
-            usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-        }
+        // A block image is a copy SOURCE too: GetData reads its blocks back with
+        // vkCmdCopyImageToBuffer (#1533). The compressed constructor checks the
+        // TRANSFER_SRC format feature that this usage needs.
+        VkImageUsageFlags usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                                  VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
         if (isDepth)
         {
             usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
