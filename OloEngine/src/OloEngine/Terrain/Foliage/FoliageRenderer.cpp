@@ -2875,6 +2875,14 @@ namespace OloEngine
             return false;
         }
 
+        // The group tables and per-slot streams are created lazily HERE, on
+        // the first cull after a (re)generation -- outside GenerateInstances'
+        // scope. They are part of the pinned floor (PinnedGpuBytes counts
+        // them there), so they are booked to its owner: the main view's would
+        // otherwise be unattributed and the shadow views' booked as
+        // ShadowPass's own (#1391).
+        const RendererMemoryOwnerScope memoryOwner("Foliage pinned representations", MemoryLifetime::Asset);
+
         bool any = false;
         TArray<LayerDraw> draws;
         TArray<FoliageGPUCuller::Part> parts;
