@@ -1,0 +1,107 @@
+{
+  "units": "metres, glTF Y-up, the head faces +Z",
+  "breed": "bernese",
+  "assembly": {
+    "pelt": [
+      0.55,
+      0.52,
+      0.5
+    ],
+    "lid": [
+      0.55,
+      0.52,
+      0.5
+    ],
+    "fibre": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "pigment": "perStrand"
+  },
+  "coatSource": "Assets/Models/Bernese/Bernese.abc",
+  "walkSpeed": 0.38814720000085196,
+  "eyeRadius": 0.018608128,
+  "lidInnerRadius": 0.019015180800000003,
+  "socketRadius": 0.02035264,
+  "eyes": {
+    "L": {
+      "bone": "eye_L",
+      "centre": [
+        0.03942399911880493,
+        0.6672959887215906,
+        0.4887440303622143
+      ],
+      "gaze": [
+        0.2515867383042381,
+        -0.019352825593500423,
+        0.9676412461501331
+      ],
+      "up": [
+        0.004869826305992728,
+        0.9998127165332253,
+        0.018730100111902927
+      ]
+    },
+    "R": {
+      "bone": "eye_R",
+      "centre": [
+        -0.03942399911880493,
+        0.6672959887215906,
+        0.4887440303622143
+      ],
+      "gaze": [
+        -0.2515867383042381,
+        -0.019352825593500423,
+        0.9676412461501331
+      ],
+      "up": [
+        -0.004869826305992728,
+        0.9998127165332253,
+        0.018730100111902927
+      ]
+    }
+  },
+  "clips": [
+    {
+      "name": "Idle",
+      "seconds": 4.0,
+      "loop": true
+    },
+    {
+      "name": "HeadTilt",
+      "seconds": 2.5,
+      "loop": false
+    },
+    {
+      "name": "Sit",
+      "seconds": 3.0,
+      "loop": false
+    },
+    {
+      "name": "Walk",
+      "seconds": 1.0,
+      "loop": true
+    },
+    {
+      "name": "Pant",
+      "seconds": 2.0,
+      "loop": true
+    },
+    {
+      "name": "Rest",
+      "seconds": 1.0,
+      "loop": true
+    }
+  ],
+  "materials": [
+    "DogSkin",
+    "DogNose",
+    "DogLip",
+    "DogGum",
+    "DogTongue",
+    "DogTeeth",
+    "DogPad",
+    "DogLid"
+  ]
+}
