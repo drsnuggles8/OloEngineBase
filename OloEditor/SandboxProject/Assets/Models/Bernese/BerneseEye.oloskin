@@ -38,7 +38,7 @@ SkinProfile:
     CorneaRadiusMM: 11.5
     IrisRadiusMM: 8.4
     PupilRadiusMM: 2.8
-    IrisPlaneDepthMM: 3.4
+    IrisPlaneDepthMM: 3.430285692214966
     CorneaIor: 1.336
     LimbalRingWidthMM: 0.9
     LimbalRingStrength: 0.6

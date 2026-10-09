@@ -34,7 +34,7 @@ Use `--test-exe PATH` for another native test executable. `--mesh-only` runs the
 
 The output is an asset overlay for this checkout: `Assets/Models/<breed>`, the authored scene, shared skin profiles, and the freshly cooked groom/binding pair in `Assets/Grooms/<breed>`. It is not a standalone project; the scene retains the Sandbox project's registered handles and environment references. `rebuild.json` records input/output hashes, whether native cooking completed, and verification results. Intermediate stages remain editable under `stages/`. The command never installs over the approved assets.
 
-`--verify-shipped` requires exact topology, base positions, skin weights, animation, maps, rig metadata and native groom/binding. Morph position/normal deltas permit at most 1e-9 absolute roundoff between numerical-library implementations; the measured Samoyed rebuild differs by at most 2.33e-10, and Bernese is exact. This tolerance does not cover base geometry or animation.
+`--verify-shipped` requires exact topology, base positions, skin weights, animation, rig metadata and native groom/binding. The authored 8-bit PNG maps require identical dimensions, mode, palette, decoded texels and metadata, including color-space data; lossless compression bytes may differ between Pillow versions and are listed in `pngEncodingDifferences`. Morph position/normal deltas and their accessor bounds permit at most 1e-9 absolute roundoff between numerical-library implementations; the measured Samoyed rebuild differs by at most 2.33e-10, and Bernese is exact. This tolerance does not cover base geometry or animation.
 
 ## Authoring layout
 

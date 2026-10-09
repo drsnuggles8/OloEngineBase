@@ -17,6 +17,7 @@ import subprocess
 import sys
 
 import numpy as np
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[2]
 ASSETS = ROOT / 'OloEditor/SandboxProject/Assets'
@@ -34,10 +35,6 @@ def sha256(path):
 def compare_mesh(shipped, rebuilt):
     """Pin topology, skin, animation and layout exactly; bound morph roundoff."""
     a, b = json.loads(shipped.read_text()), json.loads(rebuilt.read_text())
-    if a != b:
-        raise ValueError(f'Rebuilt glTF structure differs: {shipped.name}')
-    old = (shipped.parent / a['buffers'][0]['uri']).read_bytes()
-    new = bytearray((rebuilt.parent / b['buffers'][0]['uri']).read_bytes())
     maximum = 0.0
     # NumPy/BLAS implementations can differ in the last bit of a computed delta.
     # Only morph position/normal arrays may differ, below one nanometre for
@@ -59,6 +56,31 @@ def compare_mesh(shipped, rebuilt):
     # editable buffer but are no longer referenced by the final mesh.
     targets.update(index for index, accessor in enumerate(a['accessors'])
                    if index not in referenced and accessor['componentType'] == 5126 and accessor['type'] == 'VEC3')
+    if len(a['accessors']) != len(b['accessors']):
+        raise ValueError(f'Rebuilt accessor count differs: {shipped.name}')
+    # The writers derive morph bounds from the same float arrays. Permit only
+    # the same absolute roundoff there, then compare all other metadata exactly.
+    for index in sorted(targets):
+        left, right = a['accessors'][index], b['accessors'][index]
+        for bound in ('min', 'max'):
+            if (bound in left) != (bound in right):
+                raise ValueError(f'Morph accessor {index} {bound} presence differs: {shipped.name}')
+            if bound not in left:
+                continue
+            for values in (left[bound], right[bound]):
+                if not isinstance(values, list) or len(values) != 3 or any(type(v) not in (int, float) for v in values):
+                    raise ValueError(f'Morph accessor {index} has invalid {bound}: {shipped.name}')
+                if not np.isfinite(values).all():
+                    raise ValueError(f'Morph accessor {index} has non-finite {bound}: {shipped.name}')
+            difference = float(np.max(np.abs(np.asarray(left[bound], dtype=float) - np.asarray(right[bound], dtype=float))))
+            if difference > 1e-9:
+                raise ValueError(f'Morph accessor {index} {bound} differs by {difference}: {shipped.name}')
+            maximum = max(maximum, difference)
+            right[bound] = left[bound]
+    if a != b:
+        raise ValueError(f'Rebuilt glTF structure differs: {shipped.name}')
+    old = (shipped.parent / a['buffers'][0]['uri']).read_bytes()
+    new = bytearray((rebuilt.parent / b['buffers'][0]['uri']).read_bytes())
     for index in sorted(targets):
         accessor = a['accessors'][index]
         view = a['bufferViews'][accessor['bufferView']]
@@ -79,20 +101,41 @@ def compare_mesh(shipped, rebuilt):
     return maximum
 
 
+def same_png_texels(shipped, rebuilt):
+    """Allow compression changes only for the authored single-frame 8-bit PNGs."""
+    with shipped.open('rb') as left, rebuilt.open('rb') as right:
+        left_header, right_header = left.read(26), right.read(26)
+    if len(left_header) != 26 or len(right_header) != 26 or left_header[24] != 8 or left_header[24:26] != right_header[24:26]:
+        return False
+    with Image.open(shipped) as left, Image.open(rebuilt) as right:
+        left.load()
+        right.load()
+        return (left.format == right.format == 'PNG' and left.mode == right.mode and left.size == right.size and
+                getattr(left, 'n_frames', 1) == getattr(right, 'n_frames', 1) == 1 and
+                left.info == right.info and left.getpalette() == right.getpalette() and
+                left.tobytes() == right.tobytes())
+
+
 def compare_assets(breed, model, groom=None):
-    """Compare the rebuilt deliverables, allowing only JSON/text line endings."""
+    """Pin authored data, allowing text line endings and lossless PNG encoding changes."""
     checked = []
+    png_encoding_differences = []
     maximum = compare_mesh(ASSETS / 'Models' / breed / (breed + '.gltf'), model / (breed + '.gltf'))
     for shipped in sorted((ASSETS / 'Models' / breed).glob(breed + '*')):
         if shipped.suffix not in ('.gltf', '.bin', '.png', '.json', '.oloskin', '.abc'):
             continue
         rebuilt = model / shipped.name
-        if shipped.name == breed + '.bin':
-            equal = True  # Fully checked above, including every non-morph byte.
+        if shipped.name in (breed + '.bin', breed + '.gltf'):
+            equal = True  # Fully checked above, including metadata and every non-morph byte.
         elif shipped.suffix in ('.gltf', '.json'):
             equal = json.loads(shipped.read_text()) == json.loads(rebuilt.read_text())
         elif shipped.suffix == '.oloskin':
             equal = shipped.read_text() == rebuilt.read_text()
+        elif shipped.suffix == '.png':
+            equal = sha256(shipped) == sha256(rebuilt)
+            if not equal and same_png_texels(shipped, rebuilt):
+                equal = True
+                png_encoding_differences.append(shipped.relative_to(ASSETS).as_posix())
         else:
             equal = sha256(shipped) == sha256(rebuilt)
         if not equal:
@@ -104,7 +147,7 @@ def compare_assets(breed, model, groom=None):
             if sha256(shipped) != sha256(groom / shipped.name):
                 raise ValueError(f'Native cook differs from the approved asset: {shipped.name}')
             checked.append(shipped.relative_to(ASSETS).as_posix())
-    return dict(assets=checked, maximumMorphRoundoff=maximum)
+    return dict(assets=checked, maximumMorphRoundoff=maximum, pngEncodingDifferences=png_encoding_differences)
 
 
 def rebuild(breed, output, test_exe, mesh_only, verify):

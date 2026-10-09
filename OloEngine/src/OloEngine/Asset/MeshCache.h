@@ -16,6 +16,8 @@ namespace OloEngine
 
     // Manages the binary mesh/animation cache under assets/cache/mesh/.
     // Check source metadata (including external glTF buffers), skip Assimp if cached.
+    // Validity does not hash buffer contents. Replacing bytes while preserving both
+    // size and modification time requires InvalidateCache(sourcePath) before reload.
     namespace MeshCache
     {
         // Returns the cache directory path (assets/cache/mesh/).

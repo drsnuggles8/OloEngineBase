@@ -200,6 +200,27 @@ namespace OloEngine::Tests
         EXPECT_FALSE(FirstDifference(*cold->GetEntityMeshSource(), *edited->GetEntityMeshSource()).empty());
         ASSERT_TRUE(MeshCache::IsMeshCacheValid(path, AnimatedModel::kCachePrefix));
         ASSERT_TRUE(MeshCache::IsAnimationCacheValid(path));
+
+        // Metadata-based validity deliberately does not read every buffer byte.
+        // A timestamp-preserving restore must explicitly invalidate the caches.
+        const auto bufferTime = fs::last_write_time(buffer);
+        const auto bufferSize = fs::file_size(buffer);
+        ASSERT_TRUE(fs::copy_file(source / originalBuffer.filename(), buffer, fs::copy_options::overwrite_existing, ec));
+        ASSERT_FALSE(ec) << ec.message();
+        fs::last_write_time(buffer, bufferTime);
+        ASSERT_EQ(fs::file_size(buffer), bufferSize);
+        EXPECT_TRUE(MeshCache::IsMeshCacheValid(path, AnimatedModel::kCachePrefix));
+        EXPECT_TRUE(MeshCache::IsAnimationCacheValid(path));
+        MeshCache::InvalidateCache(path);
+        EXPECT_FALSE(MeshCache::IsMeshCacheValid(path, AnimatedModel::kCachePrefix));
+        EXPECT_FALSE(MeshCache::IsAnimationCacheValid(path));
+        const Ref<AnimatedModel> restored = Ref<AnimatedModel>::Create(path.string());
+        ASSERT_TRUE(restored);
+        EXPECT_FALSE(restored->WasMeshLoadedFromCache());
+        EXPECT_EQ(FirstDifference(*cold->GetEntityMeshSource(), *restored->GetEntityMeshSource()), std::string{});
+        ASSERT_TRUE(MeshCache::IsMeshCacheValid(path, AnimatedModel::kCachePrefix));
+        ASSERT_TRUE(MeshCache::IsAnimationCacheValid(path));
+
         fs::rename(buffer, copy / "removed.bin");
         EXPECT_FALSE(MeshCache::IsMeshCacheValid(path, AnimatedModel::kCachePrefix));
         EXPECT_FALSE(MeshCache::IsAnimationCacheValid(path));

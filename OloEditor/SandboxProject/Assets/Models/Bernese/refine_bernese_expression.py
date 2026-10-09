@@ -76,7 +76,9 @@ def build(source,output):
     scene=(source/'Bernese.olo').read_text().replace('BaseColor: [0.2, 0.18, 0.17, 1]','BaseColor: [0.55, 0.52, 0.5, 1]')
     (output/'Bernese.olo').write_text(scene)
     profile=(source/'BerneseEye.oloskin').read_text().replace('    - 0.46\n    - 0.48\n    - 0.50','    - 0.36\n    - 0.42\n    - 0.47')
-    profile=profile.replace('IrisRadiusMM: 9.6','IrisRadiusMM: 8.4').replace('PupilRadiusMM: 3.5','PupilRadiusMM: 2.8').replace('IrisPlaneDepthMM: 5.0','IrisPlaneDepthMM: 3.4')
+    # Store the exact float32 limbus depth already enforced by SkinOcularParameters::Sanitize.
+    # This removes the load-time clamp without changing the rendered eye.
+    profile=profile.replace('IrisRadiusMM: 9.6','IrisRadiusMM: 8.4').replace('PupilRadiusMM: 3.5','PupilRadiusMM: 2.8').replace('IrisPlaneDepthMM: 5.0','IrisPlaneDepthMM: 3.430285692214966')
     (output/'BerneseEye.oloskin').write_text(profile)
     import authoring_maps as build_dog
     build_dog.IRIS_LIMBUS=8.4/12.

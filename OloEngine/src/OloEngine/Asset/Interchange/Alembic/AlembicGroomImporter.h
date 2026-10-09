@@ -102,7 +102,7 @@ namespace OloEngine
     //                          the prim's GroomCoatGroupDesc (every group the
     //                          prim holds gets it; without `groom_role` a group
     //                          keeps the role its NAME implies).
-    //   groom_card_cell_size   ONE value: the card tier's root-UV cell, metres
+    //   groom_card_cell_size   ONE value: the card tier's cell size in root-UV coordinates
     //   groom_card_points      ONE integer: control points per card
     //                          The card tier the groom's author chose (#1558),
     //                          for the whole archive: the cook builds it unless

@@ -90,7 +90,7 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	mat4 u_GroomPrevModel;
 	vec4 u_GroomColor;       // rgb = neutral albedo, a unused
 	ivec4 u_GroomIDs;        // x = EntityID, yzw unused
-	vec4 u_GroomViewport;    // xy = width/height in pixels, z = card coverage growth blend, w unused
+    vec4 u_GroomViewport;    // xy = width/height in pixels, z = card coverage growth blend, w = strand width cap
 	vec4 u_GroomRampWidth;   // x = ramp floor, y = width scale, z = object scale, w = alpha cutoff
 	ivec4 u_GroomModeFrame;  // x = composition mode, y = frame index, z = stochastic seed, w = depth prepass
 	// Fibre scattering (#1247). The DERIVED GroomFibreParams, mirrored lane for
@@ -645,7 +645,7 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	mat4 u_GroomPrevModel;
 	vec4 u_GroomColor;       // rgb = neutral albedo, a unused
 	ivec4 u_GroomIDs;        // x = EntityID, yzw unused
-	vec4 u_GroomViewport;    // xy = width/height in pixels, z = card coverage growth blend, w unused
+    vec4 u_GroomViewport;    // xy = width/height in pixels, z = card coverage growth blend, w = strand width cap
 	vec4 u_GroomRampWidth;   // x = ramp floor, y = width scale, z = object scale, w = alpha cutoff
 	ivec4 u_GroomModeFrame;  // x = composition mode, y = frame index, z = stochastic seed, w = depth prepass
 	// Fibre scattering (#1247). The DERIVED GroomFibreParams, mirrored lane for
