@@ -155,6 +155,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "Platform/Vulkan/VulkanPipelineCache.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 #include "Platform/Vulkan/VulkanResourceHeap.h"
+#include "Platform/Vulkan/VulkanSamplerHeap.h"
 #include "Platform/Vulkan/VulkanShader.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
@@ -938,6 +939,51 @@ class VulkanPassSuite : public ::testing::Test
     bool m_PreviousDescriptorHeapEnabled = false;
     bool m_HadOpenGlContext = false;
 };
+
+TEST_F(VulkanPassSuite, BackendShutdownReleasesHeapNullImagesAndFrameArenaBeforeTheMemoryCensus)
+{
+    auto& tracker = RendererMemoryTracker::GetInstance();
+    const RendererMemoryReport before = tracker.BuildReport();
+    ASSERT_EQ(before.Observation.Backend, MemoryBackend::Vulkan);
+    ASSERT_TRUE(before.Observation.HasAllocatorTotals);
+
+    // Create the actual context-owned survivors from the Runtime teardown:
+    // descriptor/sampler heaps, typed null images and both frame-arena slots.
+    m_ShutdownDescriptorHeapOnTearDown = true;
+    ASSERT_TRUE(VulkanDescriptorHeapBackend::InstallOntoEngineHeap());
+    ASSERT_TRUE(VulkanSamplerHeap::Get().EnsureCreated());
+    VulkanDescriptorHeapBackend::Get().WarmNullSampledSlots();
+    ASSERT_NE(VulkanDescriptorHeapBackend::Get().NullStorageDescriptor(RHI::Format::R32UInt), 0u);
+    VulkanFrameArena::Get().BeginFrame(0);
+    ASSERT_NE(VulkanFrameArena::Get().GetSlotBuffer(0), VK_NULL_HANDLE);
+    ASSERT_NE(VulkanFrameArena::Get().GetSlotBuffer(1), VK_NULL_HANDLE);
+    ASSERT_NE(VulkanFrameArena::Get().GetNullBlockAddress(), 0u);
+    const RendererMemoryReport populated = tracker.BuildReport();
+    ASSERT_GE(populated.Observation.AllocationBytes, before.Observation.AllocationBytes);
+    ASSERT_GE(populated.Observation.AllocationBytes - before.Observation.AllocationBytes,
+              2u * VulkanFrameArena::Get().GetSlotCapacityBytes());
+    ASSERT_GT(populated.Gpu.LiveBytes, before.Gpu.LiveBytes);
+    ASSERT_GT(VulkanResourceHeap::Get().GetReservedSlots(), 0u);
+
+    // Exercise the production dispatch hook, while the tracker and device
+    // remain alive. A fixture-only cleanup could conceal the original defect.
+    RenderCommand::ShutdownGpuResources();
+    const RendererMemoryReport released = tracker.BuildReport();
+    EXPECT_EQ(released.Gpu.LiveBytes, before.Gpu.LiveBytes);
+    EXPECT_EQ(released.Gpu.RetiringBytes, before.Gpu.RetiringBytes);
+    EXPECT_EQ(released.Observation.AllocationBytes, before.Observation.AllocationBytes);
+    EXPECT_EQ(released.Observation.AllocationCount, before.Observation.AllocationCount);
+    EXPECT_EQ(VulkanResourceHeap::Get().GetReservedSlots(), 0u);
+    EXPECT_EQ(VulkanSamplerHeap::Get().GetLiveSlotCount(), 0u);
+    EXPECT_EQ(VulkanFrameArena::Get().GetSlotBuffer(0), VK_NULL_HANDLE);
+    EXPECT_EQ(VulkanFrameArena::Get().GetSlotBuffer(1), VK_NULL_HANDLE);
+
+    RenderCommand::ShutdownGpuResources();
+    const RendererMemoryReport repeated = tracker.BuildReport();
+    EXPECT_EQ(repeated.Gpu.ResidentBytes(), released.Gpu.ResidentBytes());
+    EXPECT_EQ(repeated.Observation.AllocationBytes, released.Observation.AllocationBytes);
+    EXPECT_EQ(repeated.Observation.AllocationCount, released.Observation.AllocationCount);
+}
 
 TEST_F(VulkanPassSuite, PagedRgba16fLightmapSamplesEveryLayerThroughSlot16)
 {
@@ -13950,6 +13996,135 @@ TEST_F(VulkanPassSuite, GroomProxyVerticesSurviveADelayedRead)
     ASSERT_EQ(bytes.size(), static_cast<sizet>(probeBytes));
     EXPECT_EQ(bytes, expected) << "the delayed BLAS input read the NEXT frame's deformed strands";
     scene.Shutdown();
+}
+
+// #1257: spending the proxy refresh budget may retain the previous pose of
+// the SAME resident representation, but never a representation evicted by the
+// raster streaming consumer. This pins the live GPU Scene records that the AS
+// consumer reads; actual BLAS/TLAS retirement remains the device RT suite's seam.
+TEST_F(VulkanPassSuite, GroomStreamingEvictionRetiresProxyWhenRefreshBudgetIsSpent)
+{
+    struct RestoreLever
+    {
+        bool Previous = Levers::GroomProxyOnCpu();
+        ~RestoreLever()
+        {
+            Levers::SetGroomProxyOnCpu(Previous);
+        }
+    } restoreLever;
+    Levers::SetGroomProxyOnCpu(true);
+
+    using namespace OloEngine::GroomBindingTest;
+    GridSurface grid = MakeGrid(8u);
+    WeightAsHinge(grid);
+    Ref<GroomAsset> groom = MakeCoat(96u, 8u, 0.6f);
+    ASSERT_TRUE(groom);
+    Ref<GroomBindingAsset> binding;
+    GroomBindingBuildStats bindStats;
+    std::string reason;
+    ASSERT_TRUE(GroomBindingBuilder::Build(*groom, grid.View(2u), "StreamingProxyBody",
+                                           GroomBindingBuildSettings{}, binding, bindStats, reason))
+        << reason;
+    const std::vector<glm::mat4> palette{ glm::mat4(1.0f), glm::mat4(1.0f) };
+    GroomStrandRequest request;
+    request.Groom = groom;
+    request.Binding = binding;
+    request.Handle = 0x1257u;
+    request.EntityID = 13;
+    request.WidthScale = 24.0f;
+    request.ApparentPixelSize = 400.0f;
+    request.Build.MaxStrands = 96u;
+    request.StreamingEnabled = true;
+    request.StreamingKey = 0x12570001u;
+    GroomDeformationInputs inputs;
+    inputs.Surface = grid.View(2u);
+    inputs.Skinning = grid.Skinning(palette, palette, true);
+    inputs.HasHistory = true;
+    request.DeformationStats = EvaluateGroomRootTransforms(*groom, *binding, inputs, std::nullopt,
+                                                           request.RootTransforms);
+    ASSERT_GT(request.DeformationStats.RootsDeformed, 0u);
+
+    // Three controls: continuous pose, a smaller fallback, and a reloaded
+    // identity whose geometry happens to match. The last must still invalidate.
+    for (u32 mode = 0; mode < 3u; ++mode)
+    {
+        SCOPED_TRACE(mode);
+        GPUScene scene;
+        scene.InitializeGPU(GPUSceneCapacities{ .m_Instances = 4, .m_Geometries = 4 });
+        RayTracing::GroomSurfaceCache cache;
+        cache.SetEnabled(true);
+        auto competing = request;
+        competing.EntityID = 12;
+        const std::array<GroomStrandRequest, 2> initial{ competing, request };
+        scene.BeginExtraction(0x1257u, glm::vec3(0.0f));
+        cache.Extract(scene, initial, true);
+        (void)scene.EndExtraction();
+        ASSERT_EQ(cache.GetStats().Rebuilds, 2u);
+        const GPUSceneGeometryKey geometryKey{ 13u, 0x1257u, std::numeric_limits<u32>::max() };
+        const GPUSceneInstanceKey instanceKey{ 13u, geometryKey, 0u };
+        const GPUSceneHandle oldGeometry = scene.FindGeometry(geometryKey);
+        const GPUSceneHandle oldInstance = scene.FindInstance(instanceKey);
+        ASSERT_TRUE(scene.IsGeometryHandleLive(oldGeometry));
+        ASSERT_TRUE(scene.IsInstanceHandleLive(oldInstance));
+        const u32 oldVertexCount = scene.GetGeometryRecord(oldGeometry)->VertexCount;
+
+        auto next = request;
+        if (mode != 0u)
+            next.StreamingKey = 0x12570002u;
+        if (mode == 1u)
+        {
+            next.StreamingFloor = true;
+            next.Build.MaxStrands = 48u;
+        }
+        // Extract accepts a candidate span and does not deduplicate it. Repeat
+        // one bound candidate to spend the REAL fixed update budget with two
+        // resident identities, rather than allocating millions of vertices.
+        // This substitution does not test Scene's unique-entity publication.
+        // Both entries were seeded together, so oldest-first sorting preserves
+        // candidate order. CPU proxy builds avoid queued raw GPU-job aliases.
+        std::vector<GroomStrandRequest> saturated(GroomProxyPolicy::UpdatesPerFrame, competing);
+        saturated.push_back(next);
+        scene.BeginExtraction(0x1257u, glm::vec3(0.0f));
+        cache.Extract(scene, saturated, true);
+        (void)scene.EndExtraction();
+        EXPECT_EQ(cache.GetStats().Rebuilds, GroomProxyPolicy::UpdatesPerFrame);
+        EXPECT_FALSE(cache.GetStats().Complete);
+        if (mode == 0u)
+        {
+            EXPECT_EQ(cache.GetStats().RefreshDeferred, 1u);
+            EXPECT_EQ(cache.GetStats().StreamingInvalidations, 0u);
+            EXPECT_TRUE(scene.IsGeometryHandleLive(oldGeometry));
+            EXPECT_TRUE(scene.IsInstanceHandleLive(oldInstance));
+        }
+        else
+        {
+            EXPECT_EQ(cache.GetStats().RefreshDeferred, 0u);
+            EXPECT_EQ(cache.GetStats().StreamingInvalidations, 1u);
+            EXPECT_EQ(cache.GetStats().ByReason[static_cast<sizet>(GroomProxyRefusalReason::BudgetExhausted)], 1u);
+            EXPECT_FALSE(scene.IsGeometryHandleLive(oldGeometry)) << "the AS consumer still sees the evicted proxy";
+            EXPECT_FALSE(scene.IsInstanceHandleLive(oldInstance)) << "the evicted coat remains in TLAS input";
+            EXPECT_EQ(scene.GetLiveGeometryRecordBySlot(oldGeometry.m_Index, oldGeometry.m_Generation), nullptr);
+            EXPECT_EQ(scene.GetLiveInstanceRecordBySlot(oldInstance.m_Index), nullptr);
+
+            const std::array<GroomStrandRequest, 2> reload{ competing, next };
+            scene.BeginExtraction(0x1257u, glm::vec3(0.0f));
+            cache.Extract(scene, reload, true);
+            (void)scene.EndExtraction();
+            EXPECT_EQ(cache.GetStats().Rebuilds, 2u);
+            EXPECT_TRUE(scene.IsGeometryHandleLive(scene.FindGeometry(geometryKey)));
+            EXPECT_TRUE(scene.IsInstanceHandleLive(scene.FindInstance(instanceKey)));
+            EXPECT_FALSE(scene.IsGeometryHandleLive(oldGeometry));
+            EXPECT_FALSE(scene.IsInstanceHandleLive(oldInstance));
+            if (mode == 1u)
+            {
+                const auto* record = scene.GetGeometryRecord(scene.FindGeometry(geometryKey));
+                ASSERT_NE(record, nullptr);
+                EXPECT_LT(record->VertexCount, oldVertexCount) << "the reload reconstructed the evicted fine tier";
+            }
+        }
+        cache.Shutdown();
+        scene.Shutdown();
+    }
 }
 
 // #1533: the coat proxy built on the GPU (GroomProxyDeformToBuffer.comp) traces

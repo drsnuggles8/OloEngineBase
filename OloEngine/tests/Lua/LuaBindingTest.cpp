@@ -1239,6 +1239,15 @@ TEST_F(LuaBindingTest, StreamingSettings_PropertyRoundTrip)
     EXPECT_FLOAT_EQ(ss.MaxResidentMegabytes, 256.0f);
     EXPECT_FLOAT_EQ(ss.MaxAdmittedMegabytesPerFrame, 8.0f);
 
+    lua.script("ss.representationResidentMegabytes = 128; ss.representationUploadMegabytesPerFrame = 4.5; ss.representationStagingMegabytes = 64");
+    EXPECT_FLOAT_EQ(ss.RepresentationResidentMegabytes, 128.0f);
+    EXPECT_FLOAT_EQ(ss.RepresentationUploadMegabytesPerFrame, 4.5f);
+    EXPECT_FLOAT_EQ(ss.RepresentationStagingMegabytes, 64.0f);
+    lua.script("ss.representationResidentMegabytes = math.huge; ss.representationUploadMegabytesPerFrame = -1; ss.representationStagingMegabytes = 0/0");
+    EXPECT_FLOAT_EQ(ss.RepresentationResidentMegabytes, 0.0f);
+    EXPECT_FLOAT_EQ(ss.RepresentationUploadMegabytesPerFrame, 0.0f);
+    EXPECT_FLOAT_EQ(ss.RepresentationStagingMegabytes, 0.0f);
+
     // A script cannot plant a non-finite or negative budget: both mean "no budget".
     lua.script("ss.maxResidentMegabytes = 0/0; ss.maxAdmittedMegabytesPerFrame = -4.0");
     EXPECT_FLOAT_EQ(ss.MaxResidentMegabytes, 0.0f);
@@ -2043,6 +2052,57 @@ class LuaSceneTest : public ::testing::Test
         scene = nullptr;
     }
 };
+
+TEST_F(LuaSceneTest, RepresentationStreamingBudgetsUpdateTheActiveSceneAndReturnAnOwningSnapshot)
+{
+    auto& settings = scene->GetStreamingSettings();
+    settings.Enabled = true;
+    settings.MaxResidentMegabytes = 19.0f;
+    auto result = lua.script("Scene.SetRepresentationStreamingBudgets(16, 2, 32); "
+                             "snapshot = Scene.GetRepresentationStreamingBudgets(); "
+                             "return snapshot.residentMegabytes, snapshot.uploadMegabytesPerFrame, snapshot.stagingMegabytes");
+    ASSERT_TRUE(result.valid());
+    EXPECT_FLOAT_EQ(result.get<f32>(0), 16.0f);
+    EXPECT_FLOAT_EQ(result.get<f32>(1), 2.0f);
+    EXPECT_FLOAT_EQ(result.get<f32>(2), 32.0f);
+    EXPECT_FLOAT_EQ(settings.RepresentationResidentMegabytes, 16.0f);
+    EXPECT_FLOAT_EQ(settings.RepresentationUploadMegabytesPerFrame, 2.0f);
+    EXPECT_FLOAT_EQ(settings.RepresentationStagingMegabytes, 32.0f);
+    EXPECT_TRUE(settings.Enabled);
+    EXPECT_FLOAT_EQ(settings.MaxResidentMegabytes, 19.0f);
+    result = lua.script("snapshot.residentMegabytes = 999; "
+                        "Scene.SetRepresentationStreamingBudgets(8, 1, 12); "
+                        "return snapshot.residentMegabytes, Scene.GetRepresentationStreamingBudgets().residentMegabytes");
+    ASSERT_TRUE(result.valid());
+    EXPECT_FLOAT_EQ(result.get<f32>(0), 999.0f);
+    EXPECT_FLOAT_EQ(result.get<f32>(1), 8.0f);
+    EXPECT_FLOAT_EQ(settings.RepresentationResidentMegabytes, 8.0f);
+    m_ContextGuard.reset();
+    scene.Reset();
+    result = lua.script("Scene.SetRepresentationStreamingBudgets(1, 2, 3); "
+                        "return Scene.GetRepresentationStreamingBudgets() == nil, snapshot.stagingMegabytes");
+    ASSERT_TRUE(result.valid());
+    EXPECT_TRUE(result.get<bool>(0));
+    EXPECT_FLOAT_EQ(result.get<f32>(1), 32.0f); // snapshot outlives its scene
+}
+
+TEST_F(LuaSceneTest, RepresentationStreamingBudgetsSanitizeCorruptNumbersAtTheSceneBoundary)
+{
+    auto result = lua.script("Scene.SetRepresentationStreamingBudgets(0/0, math.huge, -1); "
+                             "local b = Scene.GetRepresentationStreamingBudgets(); "
+                             "return b.residentMegabytes, b.uploadMegabytesPerFrame, b.stagingMegabytes");
+    ASSERT_TRUE(result.valid());
+    EXPECT_FLOAT_EQ(result.get<f32>(0), 0.0f);
+    EXPECT_FLOAT_EQ(result.get<f32>(1), 0.0f);
+    EXPECT_FLOAT_EQ(result.get<f32>(2), 0.0f);
+    result = lua.script("Scene.SetRepresentationStreamingBudgets(2000000, 0, 0.125); "
+                        "local b = Scene.GetRepresentationStreamingBudgets(); "
+                        "return b.residentMegabytes, b.uploadMegabytesPerFrame, b.stagingMegabytes");
+    ASSERT_TRUE(result.valid());
+    EXPECT_FLOAT_EQ(result.get<f32>(0), kMaxStreamingBudgetMegabytes);
+    EXPECT_FLOAT_EQ(result.get<f32>(1), 0.0f);
+    EXPECT_FLOAT_EQ(result.get<f32>(2), 0.125f);
+}
 
 TEST_F(LuaSceneTest, ComponentRegistry_SceneBacked)
 {

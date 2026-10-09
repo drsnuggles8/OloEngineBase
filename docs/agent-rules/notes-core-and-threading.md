@@ -532,3 +532,12 @@ in an unrelated single-threaded test, as entt's `"Unexpected type"` assert. This
 suite when #453 went parallel: headless scenes never run `InitAudioRuntime`, so the audio groups'
 first touch happened on a worker. Every TU including `entt.hpp` must agree on the definition, or the
 `ENTT_MAYBE_ATOMIC` inline definitions violate ODR; that is why it is PUBLIC.
+
+## 17. The log file name is absolute, because the test suite changes directory
+
+`Log::GetLogFileName()` is resolved to an absolute path when the file sink opens it. The sink keeps
+writing the file it opened, but any reader that re-resolves a relative name (the MCP asset-pack tool
+reads its build's warnings back from the log) resolves it against the *current* directory, and the
+test suite moves the cwd to `OloEditor/` for asset paths. The tool then read a stale
+`OloEditor/OloEngine-Tests.log` and returned no warnings, and its test failed only after a large
+slice of the suite had run (#1572). Hand a reader the absolute name; do not reopen by a relative one.

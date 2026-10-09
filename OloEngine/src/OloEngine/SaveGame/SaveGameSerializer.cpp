@@ -207,12 +207,16 @@ namespace OloEngine
         ar << s.Enabled << s.DefaultLoadRadius << s.DefaultUnloadRadius;
         ar << s.MaxLoadedRegions << s.RegionDirectory;
         ar << s.MaxResidentMegabytes << s.MaxAdmittedMegabytesPerFrame; // #1365 byte budgets
+        ar << s.RepresentationResidentMegabytes << s.RepresentationUploadMegabytesPerFrame << s.RepresentationStagingMegabytes;
         if (ar.IsLoading())
         {
             // A save file is untrusted input: a NaN, infinite or negative budget is
             // "no budget", exactly as the scene YAML loader treats it.
             s.MaxResidentMegabytes = SanitizeStreamingBudgetMegabytes(s.MaxResidentMegabytes);
             s.MaxAdmittedMegabytesPerFrame = SanitizeStreamingBudgetMegabytes(s.MaxAdmittedMegabytesPerFrame);
+            s.RepresentationResidentMegabytes = SanitizeStreamingBudgetMegabytes(s.RepresentationResidentMegabytes);
+            s.RepresentationUploadMegabytesPerFrame = SanitizeStreamingBudgetMegabytes(s.RepresentationUploadMegabytesPerFrame);
+            s.RepresentationStagingMegabytes = SanitizeStreamingBudgetMegabytes(s.RepresentationStagingMegabytes);
         }
     }
 

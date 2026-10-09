@@ -6982,18 +6982,10 @@ namespace OloEngine
                 {
                     static const char* kMesherNames[] = { "Marching Cubes (smooth)", "Greedy Cubic (blocky)" };
                     int mesherIndex = static_cast<int>(component.m_VoxelMesher);
+                    // The scene tick re-meshes every chunk when the mesher changes,
+                    // however it changed (here, undo, MCP or a script).
                     if (ImGui::Combo("Voxel Mesher", &mesherIndex, kMesherNames, IM_ARRAYSIZE(kMesherNames)))
-                    {
                         component.m_VoxelMesher = static_cast<VoxelMesherKind>(mesherIndex);
-                        // Every chunk has to be re-meshed by the other algorithm.
-                        if (component.m_VoxelOverride)
-                        {
-                            for (auto& [coord, chunk] : component.m_VoxelOverride->GetChunks())
-                            {
-                                chunk.Dirty = true;
-                            }
-                        }
-                    }
                 }
 
                 if (component.m_VoxelOverride)

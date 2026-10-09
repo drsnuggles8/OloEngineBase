@@ -71,6 +71,33 @@ namespace OloEngine
 
     void GroomRenderPass::AppendMemoryCapacityRows(TArray<MemoryCapacityRow>& rows) const
     {
+        if (m_StreamingEnabled)
+        {
+            MemoryCapacityRow baseline;
+            baseline.Owner = "GroomRenderPass";
+            baseline.Category = "Pinned groom and binding CPU payload (guide/card identity retained)";
+            baseline.Lifetime = MemoryLifetime::Persistent;
+            baseline.Source = MemorySizeSource::FormatEstimate;
+            baseline.IsGpu = false;
+            baseline.CapacityBytes = m_StreamingStats.BaseCpuBytes;
+            baseline.ActiveDemandBytes = m_StreamingStats.BaseCpuBytes;
+            rows.Add(std::move(baseline));
+            MemoryCapacityRow admission;
+            admission.Owner = "GroomRenderPass";
+            admission.Category = "Streaming detail admission (view of existing geometry and deformation)";
+            admission.Lifetime = MemoryLifetime::Persistent;
+            admission.Source = MemorySizeSource::FormatEstimate;
+            admission.CapacityBytes = m_StreamingStats.OptionalGpuBytes;
+            admission.UnknownReason = "logical optional stream charge; physical retiring backing remains in owner totals";
+            rows.Add(std::move(admission));
+            MemoryCapacityRow floor;
+            floor.Owner = "GroomRenderPass";
+            floor.Category = "Pinned drawable groom floor (view of existing geometry and deformation)";
+            floor.Lifetime = MemoryLifetime::Persistent;
+            floor.Source = MemorySizeSource::FormatEstimate;
+            floor.CapacityBytes = m_StreamingStats.FloorGpuBytes;
+            rows.Add(std::move(floor));
+        }
         // Two clocks, as the pass keeps them: entries are stamped with the cache's own tick,
         // coat slots with the frame index every camera shares.
         const auto cacheTick = static_cast<u32>(m_CacheTick);

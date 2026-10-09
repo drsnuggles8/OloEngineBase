@@ -490,11 +490,13 @@ namespace OloEngine::Tests
         // the same place". The marching-cubes COST comparison above is genuine
         // marching cubes, measured on its own volume.
         {
+            // An undo snapshot taken now shares the seeded volume. Dropping it on
+            // the switch must not empty the snapshot's copy (#1561).
+            const TerrainComponent snapshot = terrain;
+            const u32 seededChunks = snapshot.m_VoxelOverride->GetChunkCount();
+            ASSERT_GT(seededChunks, 0u);
+
             terrain.m_VoxelMesher = VoxelMesherKind::MarchingCubes;
-            for (auto& [coord, chunk] : terrain.m_VoxelOverride->GetChunks())
-            {
-                chunk.Dirty = true;
-            }
 
             // The OVERVIEW pose, deliberately, not a grazing one. Seen from
             // above both cover the same terrain footprint; seen from the side
@@ -507,6 +509,9 @@ namespace OloEngine::Tests
             EXPECT_TRUE(terrain.m_VoxelMeshes.empty())
                 << "the reference leg is supposed to render the bare height field: the auto-seeded "
                    "volume should have been dropped on the mesher switch, leaving marching cubes nothing to mesh";
+            EXPECT_NE(terrain.m_VoxelOverride, snapshot.m_VoxelOverride);
+            EXPECT_EQ(snapshot.m_VoxelOverride->GetChunkCount(), seededChunks)
+                << "the mesher switch emptied a seeded volume an undo snapshot still holds";
 
             std::vector<u8> frame;
             std::vector<u8> mcMask;

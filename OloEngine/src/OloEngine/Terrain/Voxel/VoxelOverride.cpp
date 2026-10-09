@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Terrain/Voxel/VoxelOverride.h"
+#include "OloEngine/Serialization/ZlibSection.h"
 #include "OloEngine/Terrain/TerrainData.h"
 
 #include <algorithm>
@@ -7,6 +8,8 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <span>
+#include <tuple>
 
 namespace OloEngine
 {
@@ -43,6 +46,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        m_AutoSeeded = false;
+
         TArray<VoxelCoord> affectedChunks;
         GetChunksInSphere(center, radius, affectedChunks);
 
@@ -70,6 +75,8 @@ namespace OloEngine
     void VoxelOverride::AddSphere(const glm::vec3& center, f32 radius)
     {
         OLO_PROFILE_FUNCTION();
+
+        m_AutoSeeded = false;
 
         TArray<VoxelCoord> affectedChunks;
         GetChunksInSphere(center, radius, affectedChunks);
@@ -171,6 +178,7 @@ namespace OloEngine
                 }
             }
         }
+        m_AutoSeeded = filled > 0;
     }
 
     void VoxelOverride::PaintDepthStrata(const VoxelCoord& coord)
@@ -295,6 +303,28 @@ namespace OloEngine
         chunk.SetMaterialAt(lx, ly, lz, material);
         chunk.Dirty = true;
         MarkNeighbourChunksDirty(chunkCoord, lx, ly, lz);
+        m_AutoSeeded = false;
+    }
+
+    Ref<VoxelOverride> VoxelOverride::Clone() const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto copy = Ref<VoxelOverride>::Create();
+        copy->m_Chunks = m_Chunks;
+        copy->m_VoxelSize = m_VoxelSize;
+        copy->m_WorldSizeX = m_WorldSizeX;
+        copy->m_WorldSizeZ = m_WorldSizeZ;
+        copy->m_HeightScale = m_HeightScale;
+        copy->m_AutoSeeded = m_AutoSeeded;
+        copy->MarkAllChunksDirty();
+        return copy;
+    }
+
+    void VoxelOverride::MarkAllChunksDirty()
+    {
+        for (auto& entry : m_Chunks)
+            entry.second.Dirty = true;
     }
 
     void VoxelOverride::MarkVoxelAndNeighboursDirty(const VoxelGridCoord& voxel)
@@ -432,8 +462,19 @@ namespace OloEngine
         u32 chunkCount = static_cast<u32>(m_Chunks.size());
         writeI32(static_cast<i32>(chunkCount));
 
-        for (const auto& [coord, chunk] : m_Chunks)
+        // Coordinate order, not hash-map order: the same volume must encode to the
+        // same bytes, or every scene save rewrites its voxel payload (#1566).
+        TArray<VoxelCoord> order;
+        order.Reserve(static_cast<TArray<VoxelCoord>::SizeType>(m_Chunks.size()));
+        for (const auto& entry : m_Chunks)
+            order.Add(entry.first);
+        std::ranges::sort(std::span(order.GetData(), static_cast<sizet>(order.Num())),
+                          [](const VoxelCoord& a, const VoxelCoord& b)
+                          { return std::tie(a.Z, a.Y, a.X) < std::tie(b.Z, b.Y, b.X); });
+
+        for (const VoxelCoord& coord : order)
         {
+            const VoxelChunk& chunk = m_Chunks.at(coord);
             writeI32(coord.X);
             writeI32(coord.Y);
             writeI32(coord.Z);
@@ -592,6 +633,74 @@ namespace OloEngine
         }
 
         m_Chunks = std::move(tempChunks);
+        m_AutoSeeded = false;
         return true;
+    }
+
+    VoxelOverride::Persisted VoxelOverride::EncodePersisted() const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        Persisted persisted;
+        if (GetChunkCount() > MaxPersistedChunks)
+        {
+            OLO_CORE_ERROR("VoxelOverride: {} chunks is over the persisted budget of {}; the volume cannot be saved. "
+                           "Raise VoxelSize or remove unused chunks.",
+                           GetChunkCount(), MaxPersistedChunks);
+            return persisted;
+        }
+        const TArray<u8> raw = SerializeRLE();
+        const std::vector<u8> compressed = ZlibSection::Compress(raw.GetData(), static_cast<sizet>(raw.Num()), "VoxelOverride");
+        persisted.RawSize = static_cast<u64>(raw.Num());
+        persisted.VoxelSize = m_VoxelSize;
+        persisted.Compressed.Append(compressed.data(), static_cast<TArray<u8>::SizeType>(compressed.size()));
+        return persisted;
+    }
+
+    Ref<VoxelOverride> VoxelOverride::DecodePersisted(std::span<const u8> compressed, u64 rawSize, f32 voxelSize,
+                                                      f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
+                                                      std::string_view context)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!std::isfinite(voxelSize) || voxelSize < 1.0e-3f || voxelSize > 1.0e6f)
+        {
+            OLO_CORE_ERROR("{}: voxel volume has voxel size {}; the volume was not loaded", context, voxelSize);
+            return nullptr;
+        }
+        if (rawSize < 12 || rawSize > MaxPersistedRawSize)
+        {
+            OLO_CORE_ERROR("{}: voxel volume claims {} bytes, outside [12, {}]; the volume was not loaded", context,
+                           rawSize, MaxPersistedRawSize);
+            return nullptr;
+        }
+        const std::vector<u8> raw = ZlibSection::Decompress(compressed.data(), compressed.size(), rawSize,
+                                                            MaxPersistedRawSize, context);
+        if (raw.empty())
+        {
+            OLO_CORE_ERROR("{}: voxel volume payload did not inflate to {} bytes; the volume was not loaded", context,
+                           rawSize);
+            return nullptr;
+        }
+
+        u32 chunkCount = 0;
+        std::memcpy(&chunkCount, raw.data() + 8, sizeof(chunkCount));
+        if (chunkCount > MaxPersistedChunks)
+        {
+            OLO_CORE_ERROR("{}: voxel volume holds {} chunks, over the budget of {}; the volume was not loaded",
+                           context, chunkCount, MaxPersistedChunks);
+            return nullptr;
+        }
+
+        TArray<u8> blob;
+        blob.Append(raw.data(), static_cast<TArray<u8>::SizeType>(raw.size()));
+        auto volume = Ref<VoxelOverride>::Create();
+        volume->Initialize(worldSizeX, worldSizeZ, heightScale, voxelSize);
+        if (!volume->DeserializeRLE(blob))
+        {
+            OLO_CORE_ERROR("{}: voxel volume payload is not a valid VOX1 volume; the volume was not loaded", context);
+            return nullptr;
+        }
+        return volume;
     }
 } // namespace OloEngine

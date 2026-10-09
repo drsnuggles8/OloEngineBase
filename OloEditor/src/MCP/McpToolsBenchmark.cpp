@@ -248,6 +248,7 @@ namespace OloEngine::MCP
                 f32 PriorRenderScale = 1.0f;
                 FString GpuVendor;
                 FString GpuRenderer;
+                Ref<Scene> StartedStreamer;
             };
             auto applied = std::make_shared<AppliedState>();
             const auto manifestCopy = std::make_shared<Benchmark::BenchmarkManifest>(*manifest);
@@ -285,6 +286,8 @@ namespace OloEngine::MCP
                         Renderer3D::GetShadowMap().SetSettings(state->PriorShadowSettings);
                         Renderer3D::ApplyRendererSettings();
                         Renderer3D::SetRenderScale(state->PriorRenderScale);
+                        if (state->StartedStreamer)
+                            state->StartedStreamer->ShutdownEditorStreamer();
                         return Json{ { "ok", true } }; });
                 }
             } restoreGuard{ &host, applied, /*Armed=*/false };
@@ -339,6 +342,11 @@ namespace OloEngine::MCP
                         if (Ref<Scene> activeScene = host.Context().GetActiveScene())
                         {
                             activeScene->SetGridVisible(false);
+                            if (activeScene->GetStreamingSettings().Enabled && !activeScene->GetSceneStreamer())
+                            {
+                                activeScene->InitializeEditorStreamer();
+                                applied->StartedStreamer = activeScene;
+                            }
                             activeScene->SetWorldAxisHelperVisible(false);
                             activeScene->SetLightGizmosVisible(false);
                             activeScene->SetCameraFrustumsVisible(false);
@@ -464,10 +472,10 @@ namespace OloEngine::MCP
                 // profiler and is removed before attachment readback.
                 CompletedTraceGuard traceGuard{ host };
                 const FString measuredCamera = cameraSpec.Id;
-                const Json traceStarted = host.MarshalRead([measurement, measuredCamera, owns = traceGuard.Owns]() -> Json
+                const Json traceStarted = host.MarshalRead([&host, measurement, measuredCamera, owns = traceGuard.Owns]() -> Json
                                                            {
                     *owns = RendererProfiler::GetInstance().BeginCompletedFrameTrace(
-                        [measurement, measuredCamera, index = 0u, first = true](u64 frameId) mutable
+                        [&host, measurement, measuredCamera, index = 0u, first = true](u64 frameId) mutable
                         {
                             // The first callback finalizes the pre-trace frame.
                             if (first)
@@ -482,6 +490,11 @@ namespace OloEngine::MCP
                             }
                             auto sample = Benchmark::SnapshotEditorMeasuredFrame(measuredCamera.ToView(), index++);
                             sample.CpuFrameId = frameId;
+                            if (host.Context().GetActiveScene)
+                            {
+                                if (Ref<Scene> scene = host.Context().GetActiveScene())
+                                    Benchmark::SnapshotSceneStreaming(*scene, sample);
+                            }
                             measurement->Frames.Add(std::move(sample));
                         });
                     return Json{ { "ok", *owns != 0 } }; }, kBenchmarkMarshalTimeout);
@@ -553,6 +566,8 @@ namespace OloEngine::MCP
                     // (#1342): owners, capacity versus demand, reconciliation, residency.
                     *memoryReport = RendererMemoryTracker::GetInstance().BuildReport();
                     *configuration = Benchmark::SnapshotAppliedConfiguration();
+                    if (applied->StartedStreamer)
+                        applied->StartedStreamer->ShutdownEditorStreamer();
                     // Put the user's editor session back: camera, renderer +
                     // post-process configuration, render scale, viewport
                     // override, and the viewport helpers (restored to their

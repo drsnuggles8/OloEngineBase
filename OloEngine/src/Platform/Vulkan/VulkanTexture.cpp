@@ -8,6 +8,7 @@
 
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/AlphaCoverageMips.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/TextureCompression.h"
@@ -489,6 +490,7 @@ namespace OloEngine
                                                          });
 
         m_RHIHandle.Sync(RHI::ResourceKind::Texture, VulkanUpload::VkHandleToU64(m_Image), RHI::Backend::Vulkan);
+        RendererMemory::BindBackingResourceHandle(m_Allocation, RHI::HashKey(m_RHIHandle.Get()));
     }
 
     void VulkanTexture2D::ReleaseImage()

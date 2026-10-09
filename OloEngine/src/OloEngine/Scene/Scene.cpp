@@ -20,6 +20,9 @@
 #include "SceneLightmapGather.h"
 #include "SystemScheduler.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Asset/AssetSystem/RepresentationStreaming.h"
+#include "OloEngine/Renderer/Passes/GroomRenderPass.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomPreview.h"
 #include "OloEngine/Asset/InstancePlacementAsset.h"
@@ -567,6 +570,11 @@ namespace OloEngine
 
         // Copy components (except IDComponent and TagComponent)
         CopyComponent(AllComponents{}, dstSceneRegistry, srcSceneRegistry, enttMap);
+
+        // The copy is a separate world: a Play-mode voxel edit must not reach the
+        // edit scene, nor an edit-scene undo reach the running copy (#1561).
+        for (auto&& [entity, terrain] : dstSceneRegistry.view<TerrainComponent>().each())
+            terrain.DetachVoxelVolume();
 
         // Propagate navmesh so NavigationSystem works in the copied scene
         if (other->m_NavMesh)
@@ -6453,6 +6461,12 @@ namespace OloEngine
             newEntity.GetComponent<CameraComponent>().Primary = false;
         }
 
+        // TerrainComponent: the duplicate carves its own voxels (#1561)
+        if (newEntity.HasComponent<TerrainComponent>())
+        {
+            newEntity.GetComponent<TerrainComponent>().DetachVoxelVolume();
+        }
+
         return newEntity;
     }
 
@@ -9307,6 +9321,7 @@ namespace OloEngine
         // destroyed mid-session would otherwise keep its counters for the
         // Scene's lifetime.
         std::unordered_set<UUID> liveGroomLodEntities;
+        std::unordered_set<UUID> liveGroomStreamingIdentities;
         const auto groomView = m_Registry.view<TransformComponent, GroomComponent>();
         for (const auto entity : groomView)
         {
@@ -9570,6 +9585,24 @@ namespace OloEngine
                 DeformGroomAgainstSurface(groomEntity, *groom, request);
             }
 
+            const UUID groomIdentity = groomEntity.GetUUID();
+            liveGroomStreamingIdentities.insert(groomIdentity);
+            if (const auto previous = m_GroomStreamingEffectiveKeys.find(groomIdentity);
+                previous != m_GroomStreamingEffectiveKeys.end() && previous->second != request.StreamingKey)
+            {
+                request.GpuRootInputs.HasHistory = false;
+                for (auto& root : request.RootTransforms)
+                {
+                    root.PrevOrigin = root.Origin;
+                    root.PrevRotation = root.Rotation;
+                }
+                request.SimulationPrevDisplacements = request.SimulationDisplacements;
+                Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual,
+                                                        TemporalHistoryEffect::TAA);
+                Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual,
+                                                        TemporalHistoryEffect::RayTracedShadow);
+            }
+            m_GroomStreamingEffectiveKeys[groomIdentity] = request.StreamingKey;
             groomRequests.Add(std::move(request));
         }
 
@@ -9615,6 +9648,10 @@ namespace OloEngine
                           [&liveGroomLodEntities](const auto& entry)
                           { return !liveGroomLodEntities.contains(entry.first); });
         }
+        std::erase_if(m_GroomStreamingGuides, [&liveGrooms](const auto& entry)
+                      { return !liveGrooms.contains(entry.first); });
+        std::erase_if(m_GroomStreamingEffectiveKeys, [&liveGroomStreamingIdentities](const auto& entry)
+                      { return !liveGroomStreamingIdentities.contains(entry.first); });
 
         // THE GROOM CLOCK IS CONSUMED HERE, and this is the whole of the
         // "exactly once per frame" guarantee the guide simulation needs.
@@ -10317,6 +10354,8 @@ namespace OloEngine
             // Not a refusal. A groom with no binding component never asked to be
             // attached to anything, and reporting it as refused would make every
             // #1246 scene read as a scene full of errors.
+            if (auto* pass = Renderer3D::GetGroomRenderPass())
+                pass->ResolveStreamingRequest(request);
             return;
         }
 
@@ -10328,6 +10367,8 @@ namespace OloEngine
             request.BindingReject = reason;
             request.Binding = nullptr;
             request.RootTransforms.Reset();
+            if (auto* pass = Renderer3D::GetGroomRenderPass())
+                pass->ResolveStreamingRequest(request);
             // A refusal is a discontinuity: on the frame it happens, whatever
             // previous positions this entity held describe a coat that is no
             // longer being deformed. Clearing the flag makes the frame AFTER a
@@ -10494,7 +10535,53 @@ namespace OloEngine
         }
         state.m_LastReportedReject = GroomBindingRejectReason::None;
 
+        // Resolve one effective representation before deformation, shadows and
+        // RT read it. Preparation only sees a validated immutable binding; the
+        // selected card/subset retains the cooked base-curve identity.
+        request.Binding = bindingAsset;
+        const auto& rendererSettings = Renderer3D::GetRendererSettings();
+        const bool coatBakesFromPose =
+            request.CoatShadow != GroomCoatShadow::CoatShadowMode::None && !request.CoatBakeAtRest;
+        const bool gpuRootFrames = rendererSettings.GroomGpuDeformation && rendererSettings.GroomGpuRootFrames &&
+                                   skeleton != nullptr && morph == nullptr && !coatBakesFromPose &&
+                                   !binding->m_ShowBindingPreview;
+        request.GpuRootSurfaceKey =
+            (static_cast<u64>(reinterpret_cast<std::uintptr_t>(surface.Raw())) * 1099511628211ull) ^
+            (static_cast<u64>(surface->GetGeneration()) << 20) ^ static_cast<u64>(view.VertexCount);
+        request.StreamingSurfaceVertices = gpuRootFrames ? view.VertexCount : 0;
+        request.StreamingBones = gpuRootFrames ? static_cast<u32>(MakeGroomSkinningView(*surface, skeleton).Palette.size()) : 0;
+        if (const auto* simulation = m_Registry.try_get<GroomSimulationComponent>(groomEntity);
+            simulation && simulation->m_Enabled && IsRepresentationStreamingEnabled(m_StreamingSettings))
+        {
+            request.Influence = ResolveGroomGuideInfluence(request.Handle, request.Groom);
+            auto& metadata = m_GroomStreamingGuides[request.Handle];
+            if (metadata.Source != request.Groom)
+            {
+                metadata = {};
+                metadata.Source = request.Groom;
+                for (u32 curve = 0; curve < groom.GetCurveCount(); ++curve)
+                {
+                    if (groom.IsGuide(curve))
+                    {
+                        ++metadata.Slots;
+                        metadata.Points += groom.GetCurvePointCount(curve);
+                    }
+                }
+            }
+            request.StreamingGuideSlots = metadata.Slots;
+            request.StreamingDisplacementPoints = metadata.Points;
+        }
+        if (auto* pass = Renderer3D::GetGroomRenderPass())
+            pass->ResolveStreamingRequest(request);
+
         // ── History: is the previous frame comparable? ───────────────────────
+
+        if (const auto previous = m_GroomStreamingEffectiveKeys.find(groomId);
+            previous != m_GroomStreamingEffectiveKeys.end() && previous->second != request.StreamingKey)
+        {
+            state.m_HasHistory = false;
+            state.m_ResetCause = GroomHistoryResetCause::Manual;
+        }
         //
         // Every branch names a DIFFERENT cause, because a coat that ghosts has
         // to be diagnosable — "the history was dropped" is not an answer anyone
@@ -10588,12 +10675,6 @@ namespace OloEngine
         // pose, the binding preview drawn from these transforms, and a morphing
         // body, whose positions the GPU is not sent. The pass evaluates them
         // itself if it takes a CPU path after all (GroomCpuRootTransforms).
-        const auto& rendererSettings = Renderer3D::GetRendererSettings();
-        const bool coatBakesFromPose =
-            request.CoatShadow != GroomCoatShadow::CoatShadowMode::None && !request.CoatBakeAtRest;
-        const bool gpuRootFrames = rendererSettings.GroomGpuDeformation && rendererSettings.GroomGpuRootFrames &&
-                                   skeleton != nullptr && morph == nullptr && !coatBakesFromPose &&
-                                   !binding->m_ShowBindingPreview;
         // Chosen again only when what it is chosen from changed (#1533 E1; see
         // GroomBindingRuntimeState::m_DrawnSelection).
         // A coat whose roots the GPU evaluates selects nothing here: the pass
@@ -10743,6 +10824,29 @@ namespace OloEngine
                                           [[maybe_unused]] f32 cameraNearClip, [[maybe_unused]] f32 cameraFarClip)
     {
         OLO_PROFILE_FUNCTION();
+
+        const auto& streaming = m_StreamingSettings;
+        const bool representationStreaming = IsRepresentationStreamingEnabled(streaming);
+        auto& representationBudget = RepresentationStreaming::Get();
+        representationBudget.BeginFrame(Renderer3D::GetStochasticFrameIndex(),
+                                        StreamingBudgetMegabytesToBytes(streaming.RepresentationResidentMegabytes),
+                                        StreamingBudgetMegabytesToBytes(streaming.RepresentationUploadMegabytesPerFrame));
+        representationBudget.SetStagingBudget(StreamingBudgetMegabytesToBytes(streaming.RepresentationStagingMegabytes));
+        // Refresh on each admission: a release earlier in this same frame is
+        // still physical backing until the backend's deletion queue retires it.
+        // Older eager scenes pay no full-report walk.
+        representationBudget.SetRetiringGpuBytesProvider(representationStreaming ? std::function<u64()>([]
+                                                                                                        {
+            const auto& tracker = RendererMemoryTracker::GetInstance();
+            return tracker.GetOwnerGpuRetiringBytes("Groom streaming detail") +
+                   tracker.GetOwnerGpuRetiringBytes("Foliage streaming detail") +
+                   tracker.GetOwnerGpuRetiringBytes("GroomRenderPass"); })
+                                                                                 : std::function<u64()>{});
+        if (auto* pass = Renderer3D::GetGroomRenderPass())
+        {
+            pass->SetGpuDeformationEnabled(Renderer3D::GetRendererSettings().GroomGpuDeformation);
+            pass->BeginStreamingFrame(Renderer3D::GetStochasticFrameIndex(), representationStreaming);
+        }
 
         glm::mat4 viewProjection = projectionMatrix * viewMatrix;
 
@@ -12196,6 +12300,13 @@ namespace OloEngine
                             terrain.m_WorldSizeX, terrain.m_WorldSizeZ,
                             terrain.m_HeightScale, terrain.m_VoxelSize);
                     }
+                    // A copy or an undo shares an authored volume whose chunks
+                    // were meshed for another component (#1561).
+                    if (terrain.m_VoxelRemeshAll)
+                    {
+                        terrain.m_VoxelOverride->MarkAllChunksDirty();
+                        terrain.m_VoxelRemeshAll = false;
+                    }
 
                     if (terrain.m_VoxelMesher == VoxelMesherKind::GreedyCubic)
                     {
@@ -12217,7 +12328,13 @@ namespace OloEngine
                                 terrain.m_VoxelOverride->SeedFromHeightmap(
                                     *terrain.m_TerrainData,
                                     terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
-                                terrain.m_VoxelAutoSeeded = true;
+                            }
+                            else
+                            {
+                                // A new builder has no meshes: after a switch from
+                                // marching cubes, a copy or an undo, every chunk
+                                // of an existing volume needs one.
+                                terrain.m_VoxelOverride->MarkAllChunksDirty();
                             }
                         }
                         terrain.m_VoxelQuadMeshes->Update(*terrain.m_VoxelOverride);
@@ -12235,11 +12352,21 @@ namespace OloEngine
                         // seed comment above says the MC path avoids. A volume the
                         // USER carved is theirs and is never dropped; only the one
                         // this code seeded is.
-                        if (terrain.m_VoxelAutoSeeded)
+                        // Replaced, not cleared in place: an undo snapshot can share
+                        // the seeded volume and must keep its chunks (#1561).
+                        if (terrain.m_VoxelOverride->IsAutoSeeded())
                         {
-                            terrain.m_VoxelOverride->GetChunks().clear();
-                            terrain.m_VoxelAutoSeeded = false;
+                            terrain.m_VoxelOverride = Ref<VoxelOverride>::Create();
+                            terrain.m_VoxelOverride->Initialize(
+                                terrain.m_WorldSizeX, terrain.m_WorldSizeZ,
+                                terrain.m_HeightScale, terrain.m_VoxelSize);
                             terrain.m_VoxelMeshes.clear();
+                        }
+                        // Switching from greedy: marching cubes has no meshes for
+                        // the chunks the cubic path drew.
+                        if (terrain.m_VoxelQuadMeshes)
+                        {
+                            terrain.m_VoxelOverride->MarkAllChunksDirty();
                         }
 
                         // Rebuild dirty voxel meshes on main thread
@@ -12282,6 +12409,8 @@ namespace OloEngine
                         foliage.m_NeedsRebuild = true;
                     }
 
+                    foliage.m_Renderer->SetStreamingEnabled(representationStreaming);
+
                     const auto& globalWind = Renderer3D::GetWindSettings();
                     const f32 envelope = globalWind.Enabled ? std::abs(globalWind.Speed) * (1.0f + std::abs(globalWind.GustStrength)) * 0.1f : 1.118034f;
                     if (foliage.m_Renderer->SetLegacyWindEnvelope(envelope))
@@ -12307,6 +12436,18 @@ namespace OloEngine
                             terrain.m_Material.get(),
                             terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
                         foliage.m_NeedsRebuild = false;
+                    }
+
+                    if (foliage.m_Renderer->UpdateStreamingResidency(foliage.m_Layers, cameraPosition))
+                    {
+                        Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual,
+                                                                TemporalHistoryEffect::TAA);
+                        // Reconcile representation census/bounds without clearing
+                        // the registry that owns canonical plant IDs.
+                        if (terrain.m_TerrainData)
+                            foliage.m_Renderer->GenerateInstances(foliage.m_Layers, *terrain.m_TerrainData,
+                                                                  terrain.m_Material.get(), terrain.m_WorldSizeX,
+                                                                  terrain.m_WorldSizeZ, terrain.m_HeightScale);
                     }
 
                     // Publish this system's representation census (issue #1230).

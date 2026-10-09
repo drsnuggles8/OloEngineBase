@@ -43,15 +43,18 @@ namespace OloEngine
     void VoxelEditStroke::ApplyBefore(VoxelOverride& voxels) const
     {
         ApplySnapshot(voxels, Before);
+        voxels.SetAutoSeeded(BeforeAutoSeeded);
     }
     void VoxelEditStroke::ApplyAfter(VoxelOverride& voxels) const
     {
         ApplySnapshot(voxels, After);
+        voxels.SetAutoSeeded(false);
     }
 
     VoxelEditStroke ApplyVoxelBrush(VoxelOverride& voxels, const VoxelRayHit& hit, const VoxelBrushSettings& settings)
     {
         VoxelEditStroke stroke;
+        stroke.BeforeAutoSeeded = voxels.IsAutoSeeded();
         if (!hit.Hit || settings.Radius < 0.0f)
             return stroke;
 

@@ -30,6 +30,9 @@ namespace OloEngine
     {
         std::unordered_map<VoxelCoord, std::optional<VoxelChunk>, VoxelCoordHash> Before;
         std::unordered_map<VoxelCoord, std::optional<VoxelChunk>, VoxelCoordHash> After;
+        // The volume's seeding state before the stroke. An edit makes a seeded
+        // volume authored, so undo has to hand the seeded state back (#1561).
+        bool BeforeAutoSeeded = false;
 
         [[nodiscard]] bool Empty() const
         {

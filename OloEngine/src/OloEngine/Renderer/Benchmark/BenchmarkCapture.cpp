@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "BenchmarkCapture.h"
+#include "OloEngine/Asset/AssetSystem/RepresentationStreamingDiagnostics.h"
 
 #include "OloEngine/Core/Environment.h"
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
@@ -16,6 +17,9 @@
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Scene/Streaming/SceneStreamer.h"
+#include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
+#include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 
 #include <nlohmann/json.hpp>
@@ -580,6 +584,7 @@ namespace OloEngine::Benchmark
         const auto& tracker = RendererMemoryTracker::GetInstance();
         sample.GpuResidentBytes = tracker.GetGpuResidentBytes();
         sample.CpuTrackedBytes = tracker.GetCpuResidentBytes();
+        sample.Streaming = RepresentationStreaming::Get().GetStats();
         return sample;
     }
 
@@ -587,6 +592,44 @@ namespace OloEngine::Benchmark
     {
         const auto& frame = RendererProfiler::GetInstance().GetLastCompletedFrameData();
         return SnapshotMeasuredFrame(cameraId, index, frame.m_FrameTime);
+    }
+
+    void SnapshotSceneStreaming(const Scene& scene, MeasuredFrame& sample)
+    {
+        if (const auto* groom = Renderer3D::GetGroomRenderPass())
+        {
+            const auto& s = groom->GetStreamingStats();
+            sample.GroomPinnedCpuBytes = s.BaseCpuBytes;
+            sample.GroomPinnedGpuBytes = s.FloorGpuBytes;
+            sample.GroomOptionalGpuBytes = s.OptionalGpuBytes;
+            sample.GroomPendingRequests = s.Pending;
+            sample.GroomFallbackRequests = s.FallbackDraws;
+            sample.GroomEvictions = s.Evictions;
+        }
+        const auto view = scene.GetAllEntitiesWith<FoliageComponent>();
+        for (auto entity : view)
+        {
+            const auto& foliage = view.get<FoliageComponent>(entity);
+            if (!foliage.m_Renderer)
+                continue;
+            const auto s = foliage.m_Renderer->GetStreamingStats();
+            sample.VegetationCanonicalCpuBytes += s.CanonicalCpuBytes;
+            sample.VegetationPinnedGpuBytes += s.PinnedGpuBytes;
+            sample.VegetationOptionalGpuBytes += s.OptionalGpuBytes;
+            sample.VegetationPendingCpuBytes += s.PendingCpuBytes;
+            sample.VegetationPendingLayers += s.PendingLayers;
+            sample.VegetationFallbackLayers += s.FallbackLayers;
+            sample.VegetationEvictions += s.Evictions;
+            sample.VegetationReloads += s.Reloads;
+        }
+        if (const auto* streamer = scene.GetSceneStreamer())
+        {
+            const auto s = streamer->GetStats();
+            sample.RegionStreamingActive = true;
+            sample.LoadedRegions = s.LoadedRegions;
+            sample.PendingRegions = s.PendingLoads;
+            sample.RegionEvictions = s.EvictedForBytes + s.EvictedForCount;
+        }
     }
 
     AppliedConfiguration SnapshotAppliedConfiguration()
@@ -1088,6 +1131,7 @@ namespace OloEngine::Benchmark
             // timestamp being accidentally interpreted as a fast frame.
             std::ofstream raw(outDir / "measurement.csv", std::ios::binary | std::ios::trunc);
             std::ofstream passes(outDir / "measurement-passes.jsonl", std::ios::binary | std::ios::trunc);
+            std::ofstream streaming(outDir / "measurement-streaming.jsonl", std::ios::binary | std::ios::trunc);
             raw << "camera,index,renderCallMs,cpuMs,fenceWaitMs,presentWaitMs,gpuFrameId,gpuMs,gpuStatus,gpuResidentBytes,cpuTrackedBytes,drawCalls,recordingWallMs,recordingJoinWaitMs,cpuFrameId\n";
             std::vector<f64> wall;
             wall.reserve(runInfo.Measurement.Frames.Num());
@@ -1126,10 +1170,36 @@ namespace OloEngine::Benchmark
                                                     { "parent", timing.ParentName.ToStdString() } });
                 }
                 passes << passFrame.dump() << '\n';
+                auto streamingFrame = RepresentationStreaming::ToJson(frame.Streaming);
+                streamingFrame["camera"] = frame.CameraId.ToStdString();
+                streamingFrame["index"] = frame.Index;
+                // Test-host samples have no continuous editor trace ID. Keep a
+                // separate explicit sample identity instead of inventing one.
+                streamingFrame["cpuFrameId"] = frame.CpuFrameId;
+                streamingFrame["host"] = runInfo.Host.ToStdString();
+                streamingFrame["groom"] = { { "residentCpuBytes", frame.GroomPinnedCpuBytes },
+                                            { "pinnedGpuBytes", frame.GroomPinnedGpuBytes },
+                                            { "optionalGpuBytes", frame.GroomOptionalGpuBytes },
+                                            { "pendingRequests", frame.GroomPendingRequests },
+                                            { "fallbackDraws", frame.GroomFallbackRequests },
+                                            { "evictions", frame.GroomEvictions } };
+                streamingFrame["vegetation"] = { { "canonicalCpuBytes", frame.VegetationCanonicalCpuBytes },
+                                                 { "pinnedGpuBytes", frame.VegetationPinnedGpuBytes },
+                                                 { "optionalGpuBytes", frame.VegetationOptionalGpuBytes },
+                                                 { "pendingCpuBytes", frame.VegetationPendingCpuBytes },
+                                                 { "pendingRequests", frame.VegetationPendingLayers },
+                                                 { "fallbackDraws", frame.VegetationFallbackLayers },
+                                                 { "evictions", frame.VegetationEvictions },
+                                                 { "reloads", frame.VegetationReloads } };
+                streamingFrame["regions"] = frame.RegionStreamingActive
+                                                ? nlohmann::json{ { "loaded", frame.LoadedRegions }, { "pending", frame.PendingRegions }, { "evictions", frame.RegionEvictions } }
+                                                : nlohmann::json(nullptr);
+                streaming << streamingFrame.dump() << '\n';
             }
             raw.close();
             passes.close();
-            if (!raw || !passes)
+            streaming.close();
+            if (!raw || !passes || !streaming)
             {
                 outError = "cannot write measurement files in " + outDir.string();
                 return false;
@@ -1142,6 +1212,7 @@ namespace OloEngine::Benchmark
             };
             json["measurement"] = { { "rawFile", "measurement.csv" },
                                     { "passRawFile", "measurement-passes.jsonl" },
+                                    { "streamingRawFile", "measurement-streaming.jsonl" },
                                     { "metric", runInfo.Host == "editor-mcp"
                                                     ? "completed editor frame interval; sampling marshals may perturb it"
                                                     : "wall-clock Scene::OnUpdateEditor call, excluding attachment readback" },

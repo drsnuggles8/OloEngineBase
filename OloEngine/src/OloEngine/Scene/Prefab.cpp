@@ -7,14 +7,28 @@
 
 namespace OloEngine
 {
+    // A prefab and each of its instances are separate objects: a component
+    // copied between them must not keep sharing a resource that copies share
+    // inside one entity's undo history (TerrainComponent's authored voxels,
+    // #1561).
+    template<typename T>
+    static void DetachCopiedComponent(T& /*component*/)
+    {
+    }
+
+    static void DetachCopiedComponent(TerrainComponent& terrain)
+    {
+        terrain.DetachVoxelVolume();
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Helper: copy a single component type from src to dst via AddOrReplaceComponent
     // ─────────────────────────────────────────────────────────────────────────
-#define COPY_COMPONENT(CompType, Name)                \
-    if (sourceEntity.HasComponent<CompType>())        \
-    {                                                 \
-        targetEntity.AddOrReplaceComponent<CompType>( \
-            sourceEntity.GetComponent<CompType>());   \
+#define COPY_COMPONENT(CompType, Name)                                      \
+    if (sourceEntity.HasComponent<CompType>())                              \
+    {                                                                       \
+        DetachCopiedComponent(targetEntity.AddOrReplaceComponent<CompType>( \
+            sourceEntity.GetComponent<CompType>()));                        \
     }
 
 #define CHECK_COMPONENT_PRESENCE(CompType, Name)                                \
@@ -31,39 +45,39 @@ namespace OloEngine
         }                                                                       \
     }
 
-#define REVERT_COMPONENT(CompType, Name)                    \
-    if (componentName == Name)                              \
-    {                                                       \
-        if (prefabRoot.HasComponent<CompType>())            \
-        {                                                   \
-            instanceEntity.AddOrReplaceComponent<CompType>( \
-                prefabRoot.GetComponent<CompType>());       \
-        }                                                   \
-        else                                                \
-        {                                                   \
-            if (instanceEntity.HasComponent<CompType>())    \
-                instanceEntity.RemoveComponent<CompType>(); \
-        }                                                   \
-        return true;                                        \
+#define REVERT_COMPONENT(CompType, Name)                                          \
+    if (componentName == Name)                                                    \
+    {                                                                             \
+        if (prefabRoot.HasComponent<CompType>())                                  \
+        {                                                                         \
+            DetachCopiedComponent(instanceEntity.AddOrReplaceComponent<CompType>( \
+                prefabRoot.GetComponent<CompType>()));                            \
+        }                                                                         \
+        else                                                                      \
+        {                                                                         \
+            if (instanceEntity.HasComponent<CompType>())                          \
+                instanceEntity.RemoveComponent<CompType>();                       \
+        }                                                                         \
+        return true;                                                              \
     }
 
-#define APPLY_COMPONENT(CompType, Name)                       \
-    if (componentName == Name)                                \
-    {                                                         \
-        if (instanceEntity.HasComponent<PrefabComponent>() && \
-            instanceEntity.GetComponent<PrefabComponent>()    \
-                .IsComponentRemoved(Name))                    \
-        {                                                     \
-            if (prefabRoot.HasComponent<CompType>())          \
-                prefabRoot.RemoveComponent<CompType>();       \
-            return true;                                      \
-        }                                                     \
-        if (instanceEntity.HasComponent<CompType>())          \
-        {                                                     \
-            prefabRoot.AddOrReplaceComponent<CompType>(       \
-                instanceEntity.GetComponent<CompType>());     \
-        }                                                     \
-        return true;                                          \
+#define APPLY_COMPONENT(CompType, Name)                                       \
+    if (componentName == Name)                                                \
+    {                                                                         \
+        if (instanceEntity.HasComponent<PrefabComponent>() &&                 \
+            instanceEntity.GetComponent<PrefabComponent>()                    \
+                .IsComponentRemoved(Name))                                    \
+        {                                                                     \
+            if (prefabRoot.HasComponent<CompType>())                          \
+                prefabRoot.RemoveComponent<CompType>();                       \
+            return true;                                                      \
+        }                                                                     \
+        if (instanceEntity.HasComponent<CompType>())                          \
+        {                                                                     \
+            DetachCopiedComponent(prefabRoot.AddOrReplaceComponent<CompType>( \
+                instanceEntity.GetComponent<CompType>()));                    \
+        }                                                                     \
+        return true;                                                          \
     }
 
 #define UPDATE_COMPONENT(CompType, Name)                                                               \
@@ -71,8 +85,8 @@ namespace OloEngine
     {                                                                                                  \
         if (prefabRoot.HasComponent<CompType>())                                                       \
         {                                                                                              \
-            instanceEntity.AddOrReplaceComponent<CompType>(                                            \
-                prefabRoot.GetComponent<CompType>());                                                  \
+            DetachCopiedComponent(instanceEntity.AddOrReplaceComponent<CompType>(                      \
+                prefabRoot.GetComponent<CompType>()));                                                 \
         }                                                                                              \
         else if (instanceEntity.HasComponent<CompType>())                                              \
         {                                                                                              \

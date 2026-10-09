@@ -1,0 +1,520 @@
+# Bound existing Dog coat and Poly Haven fern; opt-in Runtime pack evidence fixture.
+# Exported by RuntimeRepresentationStreamingPackTest.ExportAuthoredBoundDogAndFernForRuntimeEvidence.
+Scene: RuntimeDogAndFernResidency
+Version: 1
+PostProcessSettings:
+  TonemapOperator: 2
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: false
+  FXAAEnabled: false
+  SphereProxyAOEnabled: false
+  SSAOEnabled: false
+  SSREnabled: false
+  AutoExposureEnabled: false
+StreamingSettings:
+  Enabled: false
+  DefaultLoadRadius: 200
+  DefaultUnloadRadius: 250
+  MaxLoadedRegions: 16
+  RegionDirectory: ''
+  MaxResidentMegabytes: 0
+  MaxAdmittedMegabytesPerFrame: 0
+  RepresentationResidentMegabytes: 256
+  RepresentationUploadMegabytesPerFrame: 160
+  RepresentationStagingMegabytes: 4096
+Entities:
+- Entity: 193513189554010833
+  TagComponent:
+    Tag: Dog
+  TransformComponent:
+    Translation: [0, 0, 0]
+    Rotation: [0, 0, 0]
+    Scale: [1, 1, 1]
+  MeshComponent: {}
+  AnimationStateComponent:
+    State: 0
+    CurrentTime: 0
+    BlendDuration: 0.35
+    CurrentClipIndex: 0
+    IsPlaying: false
+    Loop: true
+    PlaybackSpeed: 1
+    RootMotion: false
+    SourceFilePath: Assets/Models/Dog/Dog.gltf
+    CurrentClipName: Idle
+  SkeletonComponent: {}
+  MaterialOverridesComponent:
+    Overrides:
+    - MaterialName: DogSkin
+      Kind: 0
+      SkinProfile: 0
+      ThicknessFactor: 0
+      OverrideBaseColor: true
+      BaseColor: [0.58, 0.48, 0.38, 1]
+      OverrideRoughness: true
+      Roughness: 0.9
+      OverrideMetallic: false
+      Metallic: 0
+    - MaterialName: DogLid
+      Kind: 0
+      SkinProfile: 0
+      ThicknessFactor: 0
+      OverrideBaseColor: true
+      BaseColor: [0.2, 0.14, 0.1, 1]
+      OverrideRoughness: true
+      Roughness: 0.9
+      OverrideMetallic: false
+      Metallic: 0
+    - MaterialName: DogNose
+      Kind: 0
+      SkinProfile: 0
+      ThicknessFactor: 0.003
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideMetallic: false
+      Metallic: 0
+    - MaterialName: DogLip
+      Kind: 0
+      SkinProfile: 0
+      ThicknessFactor: 0.003
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideMetallic: false
+      Metallic: 0
+    - MaterialName: DogGum
+      Kind: 0
+      SkinProfile: 0
+      ThicknessFactor: 0.004
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideMetallic: false
+      Metallic: 0
+    - MaterialName: DogTongue
+      Kind: 0
+      SkinProfile: 0
+      ThicknessFactor: 0.006
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideRoughness: true
+      Roughness: 0.6
+      OverrideMetallic: false
+      Metallic: 0
+    - MaterialName: DogTeeth
+      Kind: 0
+      SkinProfile: 0
+      ThicknessFactor: 0.005
+      OverrideBaseColor: false
+      BaseColor: [1, 1, 1, 1]
+      OverrideRoughness: false
+      Roughness: 0.5
+      OverrideMetallic: false
+      Metallic: 0
+  RelationshipComponent:
+    ParentHandle: 0
+    Children: [13962845770024567391, 5115306550982845187, 1257001]
+- Entity: 13962845770024567391
+  TagComponent:
+    Tag: DogEyeL
+  TransformComponent:
+    Translation: [1.8555808e-09, -3.09326e-08, -5.899686e-08]
+    Rotation: [-1.570796, -0.0011975622, -7.4971524e-08]
+    Scale: [0.0235, 0.0235, 0.0235]
+  MaterialComponent:
+    AlbedoColor: [1, 1, 1]
+    Metallic: 0
+    Roughness: 0.08
+    AlbedoMapPath: Assets/Models/Dog/DogIrisColor.png
+    MaterialKind: 0
+    SkinProfile: 0
+    ThicknessFactor: 0.004
+  BoneAttachmentComponent:
+    BoneName: eye_L
+    Enabled: true
+  RelationshipComponent:
+    ParentHandle: 193513189554010833
+    Children: []
+  ModelComponent:
+    FilePath: Assets/Models/Dog/DogEyeball.gltf
+    Visible: true
+- Entity: 5115306550982845187
+  TagComponent:
+    Tag: DogEyeR
+  TransformComponent:
+    Translation: [-3.7186059e-09, 2.2307167e-10, -8.2399484e-17]
+    Rotation: [-1.570796, 0.0011975619, 7.916247e-09]
+    Scale: [0.0235, 0.0235, 0.0235]
+  MaterialComponent:
+    AlbedoColor: [1, 1, 1]
+    Metallic: 0
+    Roughness: 0.08
+    AlbedoMapPath: Assets/Models/Dog/DogIrisColor.png
+    MaterialKind: 0
+    SkinProfile: 0
+    ThicknessFactor: 0.004
+  BoneAttachmentComponent:
+    BoneName: eye_R
+    Enabled: true
+  RelationshipComponent:
+    ParentHandle: 193513189554010833
+    Children: []
+  ModelComponent:
+    FilePath: Assets/Models/Dog/DogEyeball.gltf
+    Visible: true
+- Entity: 1257001
+  TagComponent:
+    Tag: PackedCoat
+  TransformComponent:
+    Translation: [0, 0, 0]
+    Rotation: [0, 0, 0]
+    Scale: [1, 1, 1]
+  GroomBindingComponent:
+    Binding: 15952688685437936337
+    TargetEntity: 193513189554010833
+    TeleportDistance: 5
+    Enabled: true
+    ShowBindingPreview: false
+  GroomCoatComponent:
+    RegionMap: 0
+    ColorMap: 0
+    UndercoatDensity: 1
+    UndercoatLength: 1
+    UndercoatWidth: 1
+    UndercoatClump: 1
+    GuardDensity: 1
+    GuardLength: 1
+    GuardWidth: 1
+    GuardClump: 1
+    LengthJitter: 0.2
+    WidthJitter: 0
+    ShadeJitter: 0.06
+    ClumpCellSize: 0.014
+    VariationSeed: 0
+    RoleVisibilityMask: 31
+    Enabled: true
+  GroomCoatShadowComponent:
+    Kappa: 0.9
+    Resolution: 256
+    StepVoxels: 1.5
+    MaxLodSteps: 0
+    PixelSizeForLod0: 512
+    MinResolution: 8
+    Mode: 2
+    Enabled: false
+    MultipleScattering: true
+    BakeAtRest: true
+  GroomComponent:
+    Groom: 15952688685437936336
+    RootMarkerSize: 0.01
+    MaxPreviewStrands: 2000
+    MaxRenderStrands: 60000
+    WidthScale: 1
+    StrandColor: [1, 1, 1]
+    ShowPreview: false
+    ShowStrands: true
+    ShowRoots: false
+    ShowDirection: false
+    ColorByGroup: false
+    GuidesOnly: false
+    RenderStrands: true
+    CompositionMode: 1
+  GroomFibreComponent:
+    BaseColor: [1, 0.93, 0.8]
+    Absorption: [0.84, 1.39, 2.74]
+    Eumelanin: 1.3
+    Pheomelanin: 0
+    LongitudinalRoughness: 0.4
+    AzimuthalRoughness: 0.3
+    TiltDegrees: 2
+    IndexOfRefraction: 1.55
+    Intensity: 1
+    HSamples: 4
+    PigmentMode: 1
+    DebugMode: 0
+    Enabled: true
+  GroomLodComponent:
+    CardPixelSize: 120
+    MeshPixelSize: 48
+    Hysteresis: 0.15
+    MaxWidthCompensation: 8
+    VisibilityFullPixelSize: 512
+    SimulationFullPixelSize: 384
+    ShadowFullPixelSize: 512
+    HoldFrames: 4
+    VisibilitySteps: 4
+    SimulationSteps: 4
+    ShadowSteps: 3
+    Enabled: true
+  GroomSceneShadowComponent:
+    ShadowWidthTexels: 1
+    CastShadows: true
+    ReceiveShadows: true
+  GroomSimulationComponent:
+    Gravity: [0, -4, 0]
+    Stiffness: 1200
+    Damping: 6
+    VelocityCorrection: 0.85
+    FixedHz: 60
+    StretchTolerance: 0.01
+    TeleportDistance: 1
+    ColliderRadiusScale: 1
+    ColliderPadding: 0
+    ColliderFriction: 0.35
+    MaxSubsteps: 4
+    Iterations: 4
+    MaxGuidesUnassigned: 256
+    MaxGuidesUndercoat: 128
+    MaxGuidesGuardHair: 512
+    MaxGuidesWhisker: 64
+    MaxGuidesLongHair: 512
+    ResetKey: 0
+    Model: 1
+    DebugView: 0
+    Enabled: false
+    Collide: true
+  RelationshipComponent:
+    ParentHandle: 193513189554010833
+    Children: []
+- Entity: 1257002
+  TagComponent:
+    Tag: StagedPlants
+  TransformComponent:
+    Translation: [-2, 0, -2]
+    Rotation: [0, 0, 0]
+    Scale: [1, 1, 1]
+  TerrainComponent:
+    HeightmapPath: ''
+    WorldSizeX: 4
+    WorldSizeZ: 4
+    HeightScale: 1
+    CollisionEnabled: false
+    ProceduralEnabled: false
+    ProceduralSeed: 42
+    ProceduralResolution: 32
+    ProceduralOctaves: 6
+    ProceduralFrequency: 3
+    ProceduralLacunarity: 2
+    ProceduralPersistence: 0.45
+    ProceduralErosionIterations: 0
+    ShapingRidgeBlend: 0
+    ShapingWarpStrength: 0
+    ShapingWarpFrequency: 2
+    ShapingTerraceSteps: 0
+    ShapingTerraceSharpness: 0.6
+    ShapingHeightExponent: 1
+    ShapingIslandFalloff: 0
+    ShapingIslandFalloffRadius: 0.3
+    AutoMaterial: true
+    SplatmapGenResolution: 512
+    LayerRules:
+    - LayerIndex: 0
+      MinHeight: 0
+      MaxHeight: 1
+      HeightBlend: 0
+      MinSlopeDeg: 0
+      MaxSlopeDeg: 90
+      SlopeBlend: 6
+      Strength: 1
+    TessellationEnabled: false
+    TargetTriangleSize: 8
+    MorphRegion: 0.3
+    StreamingEnabled: false
+    TileDirectory: ''
+    TileFilePattern: tile_%d_%d.raw
+    TileWorldSize: 256
+    TileResolution: 513
+    StreamingLoadRadius: 3
+    StreamingMaxTiles: 25
+    VirtualTextureEnabled: false
+    VTVirtualPagesWide: 256
+    VTPageTexels: 128
+    VTBorderTexels: 4
+    VTCacheTilesWide: 16
+    VTMaxTileBakesPerFrame: 8
+    VTAdaptiveEnabled: true
+    VTSectorsWide: 8
+    VTMaxImagePagesWide: 64
+    VTTrilinearEnabled: true
+    VTCompressedCache: true
+    VoxelEnabled: false
+    VoxelSize: 1
+    VoxelMesher: 0
+    SplatmapPath0: ''
+    SplatmapPath1: ''
+    Layers:
+    - Name: Turf
+      AlbedoPath: ''
+      NormalPath: ''
+      ARMPath: ''
+      TilingScale: 24
+      HeightBlendSharpness: 4
+      TriplanarSharpness: 8
+      BaseColor: [0.11, 0.17, 0.035]
+      Roughness: 0.95
+      Metallic: 0
+  FoliageComponent:
+    Enabled: true
+    Layers:
+    - Name: PolyHavenFern02
+      MeshPath: Assets/Models/Vegetation/fern/fern.obj
+      AlbedoPath: Assets/Models/Vegetation/fern/Textures/fern_card.png
+      Density: 0.55
+      SplatmapChannel: -1
+      MinSlopeAngle: 0
+      MaxSlopeAngle: 45
+      MinScale: 0.9
+      MaxScale: 1.1
+      MinHeight: 0.3
+      MaxHeight: 0.42
+      RandomRotation: true
+      SlopeFeather: 0
+      UseAltitudeBand: false
+      MinAltitude: 0
+      MaxAltitude: 1000
+      AltitudeFeather: 0
+      UseMoisture: false
+      MinMoisture: 0
+      MaxMoisture: 1
+      MoistureFeather: 0
+      ExclusionSplatmapChannel: -1
+      ExclusionThreshold: 0.5
+      ClumpStrength: 0
+      ClumpScale: 12
+      ClumpFalloff: 1
+      ClumpScaleInfluence: 0
+      ClumpGroup: -1
+      GroundOffset: 0
+      SlopeSinkFactor: 0
+      DecorrelatedVariation: true
+      ViewDistance: 30
+      FadeStartDistance: 25
+      UseAuthoredMesh: true
+      MeshViewDistance: 30
+      MeshFadeStartDistance: 25
+      WindStrength: 0
+      WindSpeed: 1.1
+      WindStiffness: 0
+      WindBranchWeight: 0
+      WindLeafWeight: 0
+      WindDebugDisplacement: false
+      InteractionResponse: 0
+      BaseColor: [1, 1, 1]
+      Roughness: 0.75
+      AlphaCutoff: 0.5
+      NormalMapPath: ''
+      RoughnessMapPath: ''
+      ThicknessMapPath: ''
+      NormalStrength: 1
+      TransmissionStrength: 0.5
+      TransmissionColor: [0.45, 0.62, 0.16]
+      Thickness: 0.5
+      TransmissionDistortion: 0.35
+      TransmissionPower: 4
+      TransmissionWrap: 0.5
+      TransmissionAmbient: 0.35
+      UseImpostor: false
+      ImpostorStartDistance: 40
+      ImpostorTransitionBand: 15
+      LodTransitionSpread: 1
+      LodHysteresis: 0
+      LodStochasticCoverage: true
+      UseDensityLod: false
+      DensityLodStartDistance: 6
+      DensityLodEndDistance: 20
+      DensityLodMinFraction: 0.3
+      DensityLodFadeFraction: 0.15
+      DensityLodMaxScale: 2
+      ImpostorFramesPerAxis: 8
+      ImpostorAtlasResolution: 1024
+      ImpostorHemiOctahedral: true
+      Enabled: true
+      CastShadows: true
+- Entity: 1257003
+  TagComponent:
+    Tag: RuntimeCamera
+  TransformComponent:
+    Translation: [1.15, 0.85, 1.45]
+    Rotation: [-0.267, 0.671, 0]
+    Scale: [1, 1, 1]
+  CameraComponent:
+    Camera:
+      ProjectionType: 0
+      PerspectiveFOV: 0.7330382858
+      PerspectiveNear: 0.02
+      PerspectiveFar: 2500
+      OrthographicSize: 10
+      OrthographicNear: -1
+      OrthographicFar: 1
+    Primary: true
+    FixedAspectRatio: false
+    RuntimeControl: false
+    FlySpeed: 5
+- Entity: 9944571689279452715
+  TagComponent:
+    Tag: Sky
+  TransformComponent:
+    Translation: [0, 0, 0]
+    Rotation: [0, 0, 0]
+    Scale: [1, 1, 1]
+  ProceduralSkyComponent:
+    SunDirection: [0.6717826, 0.5715166, 0.4712505]
+    Turbidity: 3
+    Exposure: 0.1
+    SunIntensity: 1
+    SunDiskSize: 1
+    ShowSunDisk: true
+    EnableSkybox: true
+    EnableIBL: true
+    IBLIntensity: 0.3
+    CubemapResolution: 256
+- Entity: 12846372569550906031
+  TagComponent:
+    Tag: Sun
+  TransformComponent:
+    Translation: [0, 0, 0]
+    Rotation: [0, 0, 0]
+    Scale: [1, 1, 1]
+  DirectionalLightComponent:
+    Direction: [-0.6717826, -0.5715166, -0.4712505]
+    Color: [1, 0.86, 0.68]
+    Intensity: 6
+    CastShadows: true
+    CascadeDebugVisualization: false
+    RayTracedShadows: false
+    ShadowDepthBiasTexels: 2
+    ShadowNormalBias: 0.01
+    MaxShadowDistance: 25
+    CascadeSplitLambda: 0.5
+- Entity: 13069695283887200261
+  TagComponent:
+    Tag: Rim
+  TransformComponent:
+    Translation: [0, 0, 0]
+    Rotation: [0, 0, 0]
+    Scale: [1, 1, 1]
+  DirectionalLightComponent:
+    Direction: [0.29897034, -0.3986271, 0.86701393]
+    Color: [0.86, 0.9, 1]
+    Intensity: 2
+    CastShadows: false
+    CascadeDebugVisualization: false
+    RayTracedShadows: false
+    ShadowDepthBiasTexels: 2
+    ShadowNormalBias: 0.01
+    MaxShadowDistance: 200
+    CascadeSplitLambda: 0.5
+- Entity: 1257099
+  TagComponent:
+    Tag: ResidencyObserver
+  TransformComponent:
+    Translation: [0, 0, 0]
+    Rotation: [0, 0, 0]
+    Scale: [1, 1, 1]
+  LuaScriptComponent:
+    ScriptFile: Scripts/ResidencyObserver.lua

@@ -247,7 +247,8 @@ namespace OloEngine
                                          std::span<const GroomStrandRequest>(s_Data.GroomStrandRequests.GetData(),
                                                                              static_cast<sizet>(s_Data.GroomStrandRequests.Num())),
                                          WantsRayTracingGrooms());
-            if (s_Data.RGraph && s_Data.VegetationSurfaces.GetStats().HistoryReset)
+            if (s_Data.RGraph && (s_Data.VegetationSurfaces.GetStats().HistoryReset ||
+                                  s_Data.GroomSurfaces.GetStats().StreamingInvalidations != 0))
             {
                 // A shape/time-resolution switch cannot be reprojected from
                 // raster velocity. Reset the histories that consume hybrid RT.

@@ -23,6 +23,7 @@ namespace OloEngine
                             bufferSize,
                             RendererMemoryTracker::ResourceType::IndexBuffer,
                             "OpenGL IndexBuffer (static)");
+        RendererMemory::BindBackingResourceHandle(this, RHI::HashKey(m_RHIHandle.Get()));
 
         // Register with GPU Resource Inspector
         GPUResourceInspector::GetInstance().RegisterBuffer(m_RendererID, GL_ELEMENT_ARRAY_BUFFER, "IndexBuffer (static)");
@@ -41,6 +42,7 @@ namespace OloEngine
                             bufferSize,
                             RendererMemoryTracker::ResourceType::IndexBuffer,
                             "OpenGL IndexBuffer (storage)");
+        RendererMemory::BindBackingResourceHandle(this, RHI::HashKey(m_RHIHandle.Get()));
 
         // Register with GPU Resource Inspector
         GPUResourceInspector::GetInstance().RegisterBuffer(m_RendererID, GL_ELEMENT_ARRAY_BUFFER, "IndexBuffer (storage)");

@@ -1105,6 +1105,7 @@ namespace OloEngine
             m_StrokeActive = true;
             m_StrokeVoxels = voxels;
             m_VoxelStroke = {};
+            m_VoxelStroke.BeforeAutoSeeded = voxels->IsAutoSeeded();
         }
 
         VoxelEditStroke frame = ApplyVoxelBrush(*voxels, hit, m_VoxelSettings);

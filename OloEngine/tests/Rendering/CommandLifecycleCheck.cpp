@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "CommandLifecycleCheck.h"
 
+#include "OloEngine/Core/Log.h"
 #include "OloEngine/Renderer/Commands/CommandLifecycle.h"
 
 #include <gtest/gtest.h>
@@ -28,9 +29,9 @@ namespace OloEngine::Tests::CommandLifecycleCheck
                 std::string message = "Command lifecycle: " + std::to_string(raised) +
                                       " violation(s) raised during this test outside any "
                                       "CommandLifecycle::ScopedExpectedViolations. A packet, a command bucket or a "
-                                      "FrameDataBuffer range was written after it was frozen for replay; "
-                                      "OloEngine-Tests.log names the operation (search for 'Command lifecycle "
-                                      "violation'). See Renderer/Commands/CommandLifecycle.h.";
+                                      "FrameDataBuffer range was written after it was frozen for replay; " +
+                                      OloEngine::Log::Get().GetLogFileName() + " names the operation (search for 'Command lifecycle "
+                                                                               "violation'). See Renderer/Commands/CommandLifecycle.h.";
                 const char* const file = info.file() != nullptr ? info.file() : __FILE__;
                 const int line = info.file() != nullptr ? info.line() : __LINE__;
                 ADD_FAILURE_AT(file, line) << message;

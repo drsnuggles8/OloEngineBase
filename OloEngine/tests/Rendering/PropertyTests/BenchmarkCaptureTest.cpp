@@ -208,6 +208,8 @@ TEST(BenchmarkCapture, RunWhenRequested)
         SceneSerializer serializer(scene);
         ASSERT_TRUE(serializer.Deserialize(scenePath)) << "scene failed to deserialize — see the engine log";
     }
+    if (scene->GetStreamingSettings().Enabled)
+        scene->InitializeEditorStreamer();
 
     // A benchmark capture is a picture of the SCENE, not of the editor: turn
     // off every editor-only viewport helper the editor render path would
@@ -316,7 +318,9 @@ TEST(BenchmarkCapture, RunWhenRequested)
                 std::this_thread::sleep_for(std::chrono::milliseconds(injectedDelayMs));
             }
             const f64 renderCallMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - begin).count();
-            runInfoMeasurement.Frames.Add(Benchmark::SnapshotMeasuredFrame(cameraSpec.Id.ToView(), i, renderCallMs));
+            auto sample = Benchmark::SnapshotMeasuredFrame(cameraSpec.Id.ToView(), i, renderCallMs);
+            Benchmark::SnapshotSceneStreaming(*scene, sample);
+            runInfoMeasurement.Frames.Add(std::move(sample));
             ++frameIndex;
         }
 
