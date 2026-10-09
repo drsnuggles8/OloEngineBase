@@ -7133,7 +7133,11 @@ namespace OloEngine::MCP
                 // A TLAS that has never been built is noData, NOT ready with
                 // zeros — an unsupported GPU and an empty scene must not
                 // produce the same payload.
-                snapshot.State.HasData = snapshot.Capabilities.Supported && scene.GetTlasDeviceAddress() != 0u;
+                // A WITHHELD TLAS has data (#1354): it exists, the vegetation
+                // readiness holds it back, and its resident and producer
+                // counters are what explain why.
+                snapshot.State.HasData = snapshot.Capabilities.Supported &&
+                                         (scene.GetTlasDeviceAddress() != 0u || scene.IsTlasWithheld() || scene.IsShadowTlasWithheld());
                 // The canonical scene the structures are built from (issue
                 // #1065). Reported whatever the RT status is: "nothing was
                 // offered" and "nothing could be built" produce the same RT

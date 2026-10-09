@@ -256,8 +256,10 @@ namespace OloEngine
                 // the histories whose samples hit that stand-in (#1354): the
                 // shadow mask, and the reservoirs whose visibility and bounce
                 // rays trace the same TLAS. TAA accumulates the raster frame,
-                // which did not change; resetting it here aliased the whole
-                // screen on every frame the camera re-sliced the plants.
+                // which did not change, so it is left alone: before #1354 a
+                // camera move that re-sliced the plants (10 of 12 frames of a
+                // live dolly through the IntegratedRenderer meadow) threw the
+                // whole raster history away with it.
                 for (const TemporalHistoryEffect effect : { TemporalHistoryEffect::RayTracedShadow, TemporalHistoryEffect::ReSTIRDI,
                                                             TemporalHistoryEffect::ReSTIRGI })
                     s_Data.RGraph->InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual, effect);
