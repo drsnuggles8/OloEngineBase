@@ -223,11 +223,11 @@ namespace OloEngine::Tests
         struct Window
         {
             std::vector<f64> WallMs;
-            std::vector<u64> Frames;   // frame numbers with a valid GPU sample
-            std::vector<f64> GpuMs;    // aligned with Frames
+            std::vector<u64> Frames;        // frame numbers with a valid GPU sample
+            std::vector<f64> GpuMs;         // aligned with Frames
             std::vector<PassTotals> Passes; // aligned with Frames
-            u32 MissingGpu = 0;        // frames whose GPU sample never resolved or was invalid
-            u32 OverflowFrames = 0;    // frames the pool could not bracket in full
+            u32 MissingGpu = 0;             // frames whose GPU sample never resolved or was invalid
+            u32 OverflowFrames = 0;         // frames the pool could not bracket in full
             // How many brackets of each name the LAST resolved frame stamped: a
             // sub-pass is stamped once per shadow view, and the per-name totals
             // above cannot say how many views that was.
@@ -251,10 +251,7 @@ namespace OloEngine::Tests
             for (const f64 s : samples)
                 tail.Push(static_cast<f32>(s));
             const FrameTimeTailStats stats = tail.Query(kDeadlineMs);
-            return { { "count", stats.SampleCount }, { "min", stats.MinMs }, { "mean", stats.MeanMs },
-                     { "p50", stats.P50Ms },         { "p95", stats.P95Ms }, { "p99", stats.P99Ms },
-                     { "max", stats.MaxMs },          { "deadlineMs", stats.BudgetMs },
-                     { "deadlineMisses", stats.OverBudgetFrames } };
+            return { { "count", stats.SampleCount }, { "min", stats.MinMs }, { "mean", stats.MeanMs }, { "p50", stats.P50Ms }, { "p95", stats.P95Ms }, { "p99", stats.P99Ms }, { "max", stats.MaxMs }, { "deadlineMs", stats.BudgetMs }, { "deadlineMisses", stats.OverBudgetFrames } };
         }
 
         [[nodiscard]] f64 Round4(f64 v)
@@ -315,9 +312,12 @@ namespace OloEngine::Tests
         {
             m_PreviousProject = Project::GetActive();
             m_PreviousAssetManager = Project::HasAssetManager() ? Project::GetAssetManager() : nullptr;
+            RendererAttachedTest::SetUp();
+            // AFTER the base SetUp: the first GPU fixture in a process moves
+            // into OloEditor/ there, and restoring the directory from before
+            // it would leave every later GPU suite unable to open its shaders.
             std::error_code ec;
             m_PreviousCwd = fs::current_path(ec);
-            RendererAttachedTest::SetUp();
         }
 
         void TearDown() override
@@ -905,10 +905,8 @@ namespace OloEngine::Tests
             { "glVendor", reinterpret_cast<const char*>(glGetString(GL_VENDOR)) },
             { "glRenderer", reinterpret_cast<const char*>(glGetString(GL_RENDERER)) },
             { "glVersion", reinterpret_cast<const char*>(glGetString(GL_VERSION)) },
-#if defined(OLO_RELEASE)
-            { "buildConfig", "Release" },
-#elif defined(OLO_DIST)
-            { "buildConfig", "Dist" },
+#if defined(NDEBUG)
+            { "buildConfig", "optimised (NDEBUG)" },
 #else
             { "buildConfig", "Debug" },
 #endif
@@ -947,7 +945,7 @@ namespace OloEngine::Tests
             memory["Traversal"] = MemoryJson();
         }
         for (const auto& [id, manifestFile] : { std::pair{ "Meadow", "meadow.diagnostic.yaml" },
-                                               std::pair{ "Woodland", "woodland.diagnostic.yaml" } })
+                                                std::pair{ "Woodland", "woodland.diagnostic.yaml" } })
         {
             const auto manifest = ManifestPoses(manifestFile);
             ASSERT_TRUE(manifest.has_value()) << manifestFile;
@@ -976,6 +974,20 @@ namespace OloEngine::Tests
         nlohmann::json cells = nlohmann::json::array();
         u64 coldRebuildFrames = 0;
         std::vector<f64> coldRebuildWallMs;
+        // Every switch back on after NoFoliage regenerates every layer: the
+        // cold rebuild, timed on its own and never inside a window.
+        const auto switchArm = [&](Arm arm, const Pose& pose)
+        {
+            const bool wasOff = !FoliageOf().m_Enabled;
+            ApplyArm(arm);
+            if (wasOff && arm != Arm::NoFoliage)
+            {
+                const auto t0 = std::chrono::steady_clock::now();
+                Tick(pose, 1);
+                coldRebuildWallMs.push_back(std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count());
+                ++coldRebuildFrames;
+            }
+        };
         const auto measureCell = [&](const Subject& subject, const Pose& pose, RenderingPath renderPath, bool vsm,
                                      u32 msaa, std::span<const Arm> arms)
         {
@@ -985,23 +997,12 @@ namespace OloEngine::Tests
                 for (sizet k = 0; k < arms.size(); ++k)
                 {
                     const Arm arm = arms[(k + round) % arms.size()];
-                    const bool wasOff = !FoliageOf().m_Enabled;
-                    ApplyArm(arm);
-                    if (wasOff && arm != Arm::NoFoliage)
-                    {
-                        // Re-enabling regenerates every layer: the cold
-                        // rebuild, timed on its own and never in a window.
-                        const auto t0 = std::chrono::steady_clock::now();
-                        Tick(pose, 1);
-                        coldRebuildWallMs.push_back(
-                            std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count());
-                        ++coldRebuildFrames;
-                    }
+                    switchArm(arm, pose);
                     Tick(pose, warmup);
                     windows[arm].push_back(Measure(pose, frames));
                 }
             }
-            ApplyArm(Arm::Shipped);
+            switchArm(Arm::Shipped, pose);
 
             nlohmann::json cell = { { "subject", subject.Id },
                                     { "pose", pose.Name },
@@ -1111,8 +1112,7 @@ namespace OloEngine::Tests
             measureCell(traversal, pose, RenderingPath::Deferred, false, msaa, kControlArms);
         SetPath(RenderingPath::Deferred, 1u);
         result["cells"] = std::move(cells);
-        result["coldRebuild"] = { { "frames", coldRebuildFrames }, { "wallMs", TailJson(coldRebuildWallMs) },
-                                  { "rawWallMs", RoundedArray(coldRebuildWallMs) } };
+        result["coldRebuild"] = { { "frames", coldRebuildFrames }, { "wallMs", TailJson(coldRebuildWallMs) }, { "rawWallMs", RoundedArray(coldRebuildWallMs) } };
 
         // ── Tails: steady windows, and the same with an in-place rebuild ─────
         nlohmann::json tails = nlohmann::json::array();
