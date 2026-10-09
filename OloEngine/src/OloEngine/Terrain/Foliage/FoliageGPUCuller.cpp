@@ -420,6 +420,28 @@ namespace OloEngine
         return true;
     }
 
+    namespace
+    {
+        // Read [offset, offset + size) of a buffer the cull and the draws keep
+        // using by copying it into a throwaway buffer and reading THAT.
+        //
+        // Reading the live buffer straight back (glGetNamedBufferSubData) lets
+        // the GL driver move it to memory the CPU can read, and it never moves
+        // back: on an RTX 4090 one readback left the main view's cull ~20x and
+        // its forward foliage draw ~6x slower for the rest of the process,
+        // with identical survivor counts (#1391). A diagnostic that permanently
+        // degrades the thing it inspects poisons every measurement after it.
+        void ReadThroughStaging(RHI::ResourceHandle source, u32 offset, u32 size, void* dest)
+        {
+            if (size == 0u)
+                return;
+            const Ref<VertexBuffer> staging = VertexBuffer::Create(size);
+            RenderCommand::CopyBufferSubData(source, staging->GetRHIHandle(), offset, 0, size);
+            RenderCommand::MemoryBarrier(MemoryBarrierFlags::BufferUpdate);
+            RenderCommand::ReadBufferSubData(staging->GetRHIHandle(), 0, size, dest);
+        }
+    } // namespace
+
     bool FoliageGPUCuller::ReadbackResult(const LayerResources& layer, const ViewResources& view,
                                           Readback& out) const
     {
@@ -439,13 +461,13 @@ namespace OloEngine
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::BufferUpdate);
 
         FoliageCullStateHeader header{};
-        view.State->GetData(&header, static_cast<u32>(sizeof(header)), 0);
+        ReadThroughStaging(view.State->GetRHIHandle(), 0, static_cast<u32>(sizeof(header)), &header);
 
         // The all-survivor list's count is on any part that does NOT draw the
         // mesh region (#1533); a mesh part's count is the region's.
         std::array<FoliageCullDrawArgs, kMaxParts> partArgs{};
         const u32 readParts = std::min(view.PartCount, kMaxParts);
-        view.DrawArgs->GetData(partArgs.data(), readParts * kDrawArgsStride, 0);
+        ReadThroughStaging(view.DrawArgs->GetRHIHandle(), 0, readParts * kDrawArgsStride, partArgs.data());
         FoliageCullDrawArgs args = partArgs[0];
         for (u32 i = 0; i < readParts; ++i)
         {
@@ -477,12 +499,11 @@ namespace OloEngine
         out.SourceRows.SetNum(out.Submitted, EAllowShrinking::No);
         const u32 rowByteOffset =
             static_cast<u32>(sizeof(FoliageCullStateHeader)) + header.SourceRowOffset * 4u;
-        view.State->GetData(out.SourceRows.GetData(), out.Submitted * 4u, rowByteOffset);
+        ReadThroughStaging(view.State->GetRHIHandle(), rowByteOffset, out.Submitted * 4u, out.SourceRows.GetData());
 
         out.Compacted.SetNum(out.Submitted, EAllowShrinking::No);
-        RenderCommand::ReadBufferSubData(view.Compacted->GetRHIHandle(), 0,
-                                         out.Submitted * static_cast<u32>(sizeof(FoliageInstanceData)),
-                                         out.Compacted.GetData());
+        ReadThroughStaging(view.Compacted->GetRHIHandle(), 0,
+                           out.Submitted * static_cast<u32>(sizeof(FoliageInstanceData)), out.Compacted.GetData());
         return true;
     }
 } // namespace OloEngine

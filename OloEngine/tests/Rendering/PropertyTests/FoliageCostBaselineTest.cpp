@@ -14,7 +14,10 @@
 //     were split out of, the report's capacity rows carry them, and the cull
 //     streams are booked to the foliage owner rather than to nobody;
 //   * OLO_FOLIAGE_NO_DENSITY_LOD reaches the cull as well as the draw, so the
-//     density-LOD A/B measures the thing it names.
+//     density-LOD A/B measures the thing it names;
+//   * reading the cull back (the census each cell records) leaves the frames
+//     after it as cheap as they were: it used to slow the main view's cull
+//     ~20x and its draw ~6x for the rest of the process.
 //
 // THE MEASUREMENT (OLO_FOLIAGE_COST=1). Walks the committed
 // Scenes/FoliageMeadowToWoodland.olo along the meadow-to-woodland path
@@ -878,6 +881,54 @@ namespace OloEngine::Tests
         ASSERT_GT(shipped, 0u) << "the pose sees no density-LOD layer at all";
         EXPECT_GT(unthinned, shipped) << "the lever did not stop the cull's density drop";
         EXPECT_EQ(restored, shipped) << "clearing the lever did not restore the shipped cull";
+    }
+
+    // Reading the cull back is a diagnostic, so it must leave the frames after
+    // it costing what they did before it. It read the live draw buffers
+    // straight back, and the GL driver then kept them where the CPU could read
+    // them: on an RTX 4090 the main view's cull went from 0.09 to 1.9 ms and
+    // its forward draw from 3 to 21 ms, with identical survivor counts, for the
+    // rest of the process (#1391). Bounded at 2x, well inside that.
+    TEST_F(FoliageCostBaselineTest, ReadingTheCullBackLeavesLaterFramesAsCheap)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        SetPath(RenderingPath::Forward);
+        ASSERT_TRUE(SetVsm(false));
+        ASSERT_NO_FATAL_FAILURE(Load(kTraversalScene));
+        const auto path = DeriveTraversal();
+        ASSERT_TRUE(path.has_value());
+        const Pose& pose = (*path)[path->size() / 2u];
+
+        const auto medians = [&]()
+        {
+            Tick(pose, 8);
+            const Window window = Measure(pose, 12);
+            std::vector<f64> cull;
+            std::vector<f64> draw;
+            for (const auto& frame : window.Passes)
+            {
+                cull.push_back(frame.contains("FoliageCull") ? frame.at("FoliageCull") : 0.0);
+                draw.push_back(frame.contains("FoliagePass") ? frame.at("FoliagePass") : 0.0);
+            }
+            return std::pair{ Percentile(cull, 0.5), Percentile(draw, 0.5) };
+        };
+
+        const auto [cullBefore, drawBefore] = medians();
+        u32 readLayers = 0;
+        for (u32 i = 0; i < Plants().GetLayerCount(); ++i)
+        {
+            FoliageGPUCuller::Readback readback;
+            readLayers += Plants().ReadbackCull(i, FoliageGPUCuller::ViewSlot::Main, readback) ? 1u : 0u;
+        }
+        const auto [cullAfter, drawAfter] = medians();
+        std::printf("[foliage-cost] main view before/after a cull readback: cull %.3f/%.3f ms, draw %.2f/%.2f ms\n",
+                    cullBefore, cullAfter, drawBefore, drawAfter);
+
+        ASSERT_GT(readLayers, 0u) << "nothing was read back, so nothing was tested";
+        ASSERT_GT(cullBefore, 0.0);
+        ASSERT_GT(drawBefore, 0.0);
+        EXPECT_LT(cullAfter, 2.0 * cullBefore + 0.05) << "the readback left the main view's cull slower";
+        EXPECT_LT(drawAfter, 2.0 * drawBefore + 0.5) << "the readback left the main view's draw slower";
     }
 
     // ── The measurement ──────────────────────────────────────────────────────
