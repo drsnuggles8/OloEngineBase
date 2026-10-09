@@ -63,7 +63,8 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md): never build msvc and clangcl trees together; caches, link bounds, memory, the local ASan recipe.
 - [worktree-shared-build-outputs.md](worktree-shared-build-outputs.md): write archives and generated headers under the build tree, never the source tree, or a second tree in the same worktree overwrites or deletes them.
 - [build-memory-per-tu.md](build-memory-per-tu.md): set `--parallel` and every memory cap from the published per-TU peak-RSS ranking, not from a remembered number.
-- [windows-codeview-links.md](windows-codeview-links.md): retain `/Z7`, bound lld workers as well as processes, and compare full-input link measurements before enabling GHASH.
+- [windows-codeview-links.md](windows-codeview-links.md): Windows link memory follows link input, so cut the input (USD via `dev-cached-core`, ThinLTO jobs); GHASH stays off and splitting the test binary does not help while the engine archives form a cycle.
+- [windows-link-measurements.md](windows-link-measurements.md): the dated full-input link tables (GHASH, archive repetition, split-binary floor, ThinLTO, worker limits) behind that guide.
 - [ci-oom-read-the-kernel-report.md](ci-oom-read-the-kernel-report.md): for a CI OOM kill, read the kernel's OOM report, which names the full cgroup and every resident process, before blaming a neighbour.
 - [concurrent-cmake-configure.md](concurrent-cmake-configure.md): one configure at a time per build tree; the error blames your CMakeLists.txt and LTO instead.
 - [static-archive-4gib-ceiling.md](static-archive-4gib-ceiling.md): a .lib cannot exceed 4 GiB, and `LNK1248` under-reports the overshoot.
@@ -449,7 +450,7 @@ The same fact written in more than one place, with nothing enforcing agreement.
 | [audio-voice-budget.md](audio-voice-budget.md) | One config field costs four edits, one of them silent. |
 | [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) | Two build trees writing the same generated files. |
 | [worktree-shared-build-outputs.md](worktree-shared-build-outputs.md) | A second build tree in the same worktree deleted glad's generated header mid-compile and overwrote the engine archives, which the first tree then linked without rebuilding. |
-| [windows-codeview-links.md](windows-codeview-links.md) | A process-count limit leaves lld worker pools unbounded; `/INCREMENTAL` can make CMake invoke lld twice. |
+| [windows-codeview-links.md](windows-codeview-links.md) | A process-count limit leaves lld worker pools unbounded; `/INCREMENTAL` can make CMake invoke lld twice; GHASH promised a cheaper CodeView merge and moved peak link memory by under 0.5%; the local Release and ASan test links are ThinLTO and peak at 20-28 GiB; an exclusive build-lock request starved behind cached requests queued after it. |
 | [build-memory-per-tu.md](build-memory-per-tu.md) | A build-memory number nobody re-measures: five sources disagreed by 3x while `--parallel` and two cgroup caps rested on it. An absolute records path silently zeroes the compiler cache's cross-tree hit rate; a relative one yields one file per subdirectory under Makefiles, and reading only the top-level file ranks the wrong fraction of the build. |
 | [build-trees-and-windows-asan.md §4b](build-trees-and-windows-asan.md#4b-live-toolchain-bug-a-throw-from-inside-a-catch-handler-avs-clang-cl--asan) | A throw executed inside a `catch` handler AVs under clang-cl ASan; the catch type and rethrow form are irrelevant. |
 | [thread-local-lifetime-at-exit.md](thread-local-lifetime-at-exit.md) | A static destructor reading a `thread_local` that `__dyn_tls_dtor` already destroyed; 219 failures, one bug. |

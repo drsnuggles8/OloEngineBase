@@ -19,9 +19,10 @@
 
 option(OLO_ENABLE_COMPILER_CACHE "Use sccache/ccache as a compiler launcher when available (Ninja/Makefiles only)" OFF)
 
-# CodeView hashes preserve type information and /Z7 cacheability. Keep opt-in
-# until build-memory.yml publishes the Windows cost (issue #1386). This lives
-# outside the cache-enabled branch so uncached measurement builds can price it.
+# CodeView hashes preserve type information and /Z7 cacheability. Opt-in: on the
+# full-input test link they moved peak working set by under 1% and slowed the
+# Release link by 14% (#1386, docs/agent-rules/windows-link-measurements.md). This
+# lives outside the cache-enabled branch so uncached measurement builds can price it.
 option(OLO_CODEVIEW_GHASH "Precompute CodeView type hashes for clang-cl/lld-link" OFF)
 if(OLO_CODEVIEW_GHASH)
     get_filename_component(_olo_linker_name "${CMAKE_LINKER}" NAME_WE)
