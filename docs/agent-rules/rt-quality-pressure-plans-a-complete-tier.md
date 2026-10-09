@@ -67,7 +67,24 @@ refused it.
 
 ## Measured
 
-MEASURED_PLACEHOLDER
+Vulkan, RTX 4090, Release editor, `Benchmark/IntegratedRenderer.olo` in Deferred with RT shadows (3
+lights) and RT reflections. The editor stepped its clock 0.1 s a frame, so every proxy was due every
+frame.
+
+| View | Casting groups | Traced as cards | Out | TLAS | Pressure |
+|---|---|---|---|---|---|
+| Overview, 200 m | 83 | 0 | 0 | published, 166 instances | none |
+| Budget at 1/16 | 83 | 0 (all cards already) | 19 | withheld | frameWork |
+| Meadow edge | 1,954 | 215 (nearest 5.0 m) | 930 | withheld | frameWork |
+| Inside the meadow | 1,681 | 233 (nearest 2.8 m) | 657 | withheld | frameWork |
+
+- One fallback engagement per real change (a cut, a budget change, a path switch), never one per
+  frame. After the budget was restored, the TLAS came back after the eight-frame recovery run.
+- The meadow is limited by builds, not memory: a card group is still one build, and 1,681 groups
+  refreshing every frame need more than the 1,024 a frame allows. That limit needs a design call,
+  filed as #1578.
+- Skinned characters, all views: 41 surfaces dispatched, 0 refused, 0 deferred builds, 0 animated
+  instances refused. Khronos validation with sync checks over the run: 0 errors, 0 warnings.
 
 ## Checking a producer for a quality cliff
 
