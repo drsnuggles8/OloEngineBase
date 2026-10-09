@@ -1,0 +1,237 @@
+{
+ "before": {
+  "gpu": [
+   {
+    "Name": "NVIDIA GeForce RTX 4090",
+    "DriverVersion": "32.0.16.1714"
+   }
+  ],
+  "cpu": [
+   {
+    "Name": "Intel(R) Core(TM) i7-14700KF",
+    "NumberOfCores": 20,
+    "NumberOfLogicalProcessors": 28
+   }
+  ],
+  "os": "10.0.22631",
+  "busyProcesses": [
+   {
+    "ProcessName": "OloEditor",
+    "Id": 103380,
+    "StartTime": "2026-10-09T19:24:49.832503+02:00"
+   }
+  ],
+  "ramBytes": 68498157568,
+  "nvidiaSmi": {
+   "gpu": "NVIDIA GeForce RTX 4090, 617.14, 1035 MHz, 810 MHz, 38.21 W, 39 %, 47",
+   "computeApps": [
+    "8828, C:\\Windows\\SystemApps\\Microsoft.Windows.StartMenuExperienceHost_cw5n1h2txyewy\\StartMenuExperienceHost.exe, [N/A]",
+    "4548, C:\\Windows\\SystemApps\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\SearchHost.exe, [N/A]",
+    "7504, C:\\Windows\\explorer.exe, [N/A]",
+    "14720, C:\\Windows\\SystemApps\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\TextInputHost.exe, [N/A]",
+    "17316, C:\\Program Files\\LGHUB\\system_tray\\lghub_system_tray.exe, [N/A]",
+    "23464, C:\\Windows\\SystemApps\\ShellExperienceHost_cw5n1h2txyewy\\ShellExperienceHost.exe, [N/A]",
+    "18476, C:\\Windows\\explorer.exe, [N/A]",
+    "48520, C:\\Program Files\\WindowsApps\\Microsoft.YourPhone_1.26072.255.0_x64__8wekyb3d8bbwe\\PhoneExperienceHost.exe, [N/A]",
+    "24600, C:\\Program Files\\WindowsApps\\Microsoft.ScreenSketch_11.2607.23.0_x64__8wekyb3d8bbwe\\SnippingTool\\SnippingTool.exe, [N/A]",
+    "86608, C:\\Windows\\SystemApps\\Microsoft.LockApp_cw5n1h2txyewy\\LockApp.exe, [N/A]",
+    "88536, C:\\Program Files (x86)\\ASUS\\ArmouryDevice\\asus_framework.exe, [N/A]",
+    "11028, C:\\Program Files (x86)\\Steam\\bin\\cef\\cef.win64\\steamwebhelper.exe, [N/A]",
+    "37124, C:\\Windows\\ImmersiveControlPanel\\SystemSettings.exe, [N/A]",
+    "95324, C:\\Users\\ole\\AppData\\Local\\Programs\\CurseForge Windows\\CurseForge.exe, [N/A]",
+    "3852, C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\154.0.4258.62\\msedgewebview2.exe, [N/A]",
+    "105536, C:\\Program Files\\WindowsApps\\Claude_2.31226.0.0_x64__pzs8sxrjxfjjc\\app\\claude.exe, [N/A]",
+    "95688, C:\\Program Files\\WindowsApps\\Claude_2.31226.0.0_x64__pzs8sxrjxfjjc\\app\\claude.exe, [N/A]",
+    "71940, C:\\Users\\ole\\AppData\\Local\\Programs\\Microsoft VS Code Insiders\\Code - Insiders.exe, [N/A]",
+    "14828, C:\\Program Files\\WindowsApps\\Microsoft.WindowsTerminal_1.24.12741.0_x64__8wekyb3d8bbwe\\WindowsTerminal.exe, [N/A]",
+    "103380, C:\\repos\\OloEngine-foliage-cost-baseline-1391\\bin\\Release\\OloEditor\\OloEditor.exe, [N/A]",
+    "96128, C:\\Program Files (x86)\\Steam\\steamapps\\common\\Slay the Spire 2\\SlayTheSpire2.exe, [N/A]"
+   ],
+   "processTable": []
+  },
+  "time": "2026-10-09T21:10:42+0200"
+ },
+ "after": {
+  "busyProcesses": [
+   {
+    "ProcessName": "OloEditor",
+    "Id": 103380,
+    "StartTime": "2026-10-09T19:24:49.832503+02:00"
+   }
+  ],
+  "ramBytes": 68498157568,
+  "cpu": [
+   {
+    "Name": "Intel(R) Core(TM) i7-14700KF",
+    "NumberOfCores": 20,
+    "NumberOfLogicalProcessors": 28
+   }
+  ],
+  "gpu": [
+   {
+    "Name": "NVIDIA GeForce RTX 4090",
+    "DriverVersion": "32.0.16.1714"
+   }
+  ],
+  "os": "10.0.22631",
+  "nvidiaSmi": {
+   "gpu": "NVIDIA GeForce RTX 4090, 617.14, 2655 MHz, 10501 MHz, 56.74 W, 10 %, 51",
+   "computeApps": [
+    "8828, C:\\Windows\\SystemApps\\Microsoft.Windows.StartMenuExperienceHost_cw5n1h2txyewy\\StartMenuExperienceHost.exe, [N/A]",
+    "4548, C:\\Windows\\SystemApps\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\SearchHost.exe, [N/A]",
+    "7504, C:\\Windows\\explorer.exe, [N/A]",
+    "14720, C:\\Windows\\SystemApps\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\TextInputHost.exe, [N/A]",
+    "17316, C:\\Program Files\\LGHUB\\system_tray\\lghub_system_tray.exe, [N/A]",
+    "23464, C:\\Windows\\SystemApps\\ShellExperienceHost_cw5n1h2txyewy\\ShellExperienceHost.exe, [N/A]",
+    "18476, C:\\Windows\\explorer.exe, [N/A]",
+    "48520, C:\\Program Files\\WindowsApps\\Microsoft.YourPhone_1.26072.255.0_x64__8wekyb3d8bbwe\\PhoneExperienceHost.exe, [N/A]",
+    "24600, C:\\Program Files\\WindowsApps\\Microsoft.ScreenSketch_11.2607.23.0_x64__8wekyb3d8bbwe\\SnippingTool\\SnippingTool.exe, [N/A]",
+    "86608, C:\\Windows\\SystemApps\\Microsoft.LockApp_cw5n1h2txyewy\\LockApp.exe, [N/A]",
+    "88536, C:\\Program Files (x86)\\ASUS\\ArmouryDevice\\asus_framework.exe, [N/A]",
+    "11028, C:\\Program Files (x86)\\Steam\\bin\\cef\\cef.win64\\steamwebhelper.exe, [N/A]",
+    "37124, C:\\Windows\\ImmersiveControlPanel\\SystemSettings.exe, [N/A]",
+    "95324, C:\\Users\\ole\\AppData\\Local\\Programs\\CurseForge Windows\\CurseForge.exe, [N/A]",
+    "3852, C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\154.0.4258.62\\msedgewebview2.exe, [N/A]",
+    "105536, C:\\Program Files\\WindowsApps\\Claude_2.31226.0.0_x64__pzs8sxrjxfjjc\\app\\claude.exe, [N/A]",
+    "95688, C:\\Program Files\\WindowsApps\\Claude_2.31226.0.0_x64__pzs8sxrjxfjjc\\app\\claude.exe, [N/A]",
+    "71940, C:\\Users\\ole\\AppData\\Local\\Programs\\Microsoft VS Code Insiders\\Code - Insiders.exe, [N/A]",
+    "14828, C:\\Program Files\\WindowsApps\\Microsoft.WindowsTerminal_1.24.12741.0_x64__8wekyb3d8bbwe\\WindowsTerminal.exe, [N/A]",
+    "103380, C:\\repos\\OloEngine-foliage-cost-baseline-1391\\bin\\Release\\OloEditor\\OloEditor.exe, [N/A]",
+    "96128, C:\\Program Files (x86)\\Steam\\steamapps\\common\\Slay the Spire 2\\SlayTheSpire2.exe, [N/A]"
+   ],
+   "processTable": []
+  },
+  "time": "2026-10-09T21:14:48+0200"
+ },
+ "exitCode": 0,
+ "elapsedSeconds": 243.1,
+ "environment": {
+  "OLO_FOLIAGE_COST_ROUNDS": "3",
+  "OLO_FOLIAGE_COST_WARMUP": "8",
+  "OLO_FOLIAGE_COST_FRAMES": "12",
+  "OLO_FOLIAGE_COST_SUBJECTS": "Traversal",
+  "OLO_FOLIAGE_COST_PATHS": "Forward",
+  "OLO_FOLIAGE_COST_SHADOWS": "CSM",
+  "OLO_FOLIAGE_COST_EXTRAS": "0"
+ },
+ "contended": true,
+ "samples": [
+  {
+   "time": "2026-10-09T21:10:42",
+   "gpu": "1035 MHz, 38.16 W, 36 %",
+   "foreign": [
+    {
+     "pid": 103380,
+     "cpuSeconds": 699.1875,
+     "path": "C:\\repos\\OloEngine-foliage-cost-baseline-1391\\bin\\Release\\OloEditor\\OloEditor.exe"
+    }
+   ]
+  },
+  {
+   "time": "2026-10-09T21:11:12",
+   "gpu": "2640 MHz, 232.10 W, 89 %",
+   "foreign": [
+    {
+     "pid": 103380,
+     "cpuSeconds": 714.375,
+     "path": "C:\\repos\\OloEngine-foliage-cost-baseline-1391\\bin\\Release\\OloEditor\\OloEditor.exe"
+    }
+   ]
+  },
+  {
+   "time": "2026-10-09T21:11:42",
+   "gpu": "2640 MHz, 227.02 W, 100 %",
+   "foreign": [
+    {
+     "pid": 103380,
+     "cpuSeconds": 732.0625,
+     "path": "C:\\repos\\OloEngine-foliage-cost-baseline-1391\\bin\\Release\\OloEditor\\OloEditor.exe"
+    }
+   ]
+  },
+  {
+   "time": "2026-10-09T21:12:13",
+   "gpu": "2640 MHz, 245.04 W, 100 %",
+   "foreign": [
+    {
+     "pid": 103380,
+     "cpuSeconds": 751.25,
+     "path": "C:\\repos\\OloEngine-foliage-cost-baseline-1391\\bin\\Release\\OloEditor\\OloEditor.exe"
+    }
+   ]
+  },
+  {
+   "time": "2026-10-09T21:12:43",
+   "gpu": "2640 MHz, 242.52 W, 100 %",
+   "foreign": [
+    {
+     "pid": 103380,
+     "cpuSeconds": 769.109375,
+     "path": "C:\\repos\\OloEngine-foliage-cost-baseline-1391\\bin\\Release\\OloEditor\\OloEditor.exe"
+    }
+   ]
+  },
+  {
+   "time": "2026-10-09T21:13:13",
+   "gpu": "2640 MHz, 246.87 W, 100 %",
+   "foreign": [
+    {
+     "pid": 103380,
+     "cpuSeconds": 786.125,
+     "path": "C:\\repos\\OloEngine-foliage-cost-baseline-1391\\bin\\Release\\OloEditor\\OloEditor.exe"
+    }
+   ]
+  },
+  {
+   "time": "2026-10-09T21:13:43",
+   "gpu": "2640 MHz, 244.76 W, 100 %",
+   "foreign": [
+    {
+     "pid": 103380,
+     "cpuSeconds": 799.859375,
+     "path": "C:\\repos\\OloEngine-foliage-cost-baseline-1391\\bin\\Release\\OloEditor\\OloEditor.exe"
+    }
+   ]
+  },
+  {
+   "time": "2026-10-09T21:14:14",
+   "gpu": "2640 MHz, 200.18 W, 59 %",
+   "foreign": [
+    {
+     "pid": 103380,
+     "cpuSeconds": 810.546875,
+     "path": "C:\\repos\\OloEngine-foliage-cost-baseline-1391\\bin\\Release\\OloEditor\\OloEditor.exe"
+    }
+   ]
+  },
+  {
+   "time": "2026-10-09T21:14:44",
+   "gpu": "2640 MHz, 245.44 W, 100 %",
+   "foreign": [
+    {
+     "pid": 103380,
+     "cpuSeconds": 822.734375,
+     "path": "C:\\repos\\OloEngine-foliage-cost-baseline-1391\\bin\\Release\\OloEditor\\OloEditor.exe"
+    }
+   ]
+  },
+  {
+   "time": "2026-10-09T21:14:45",
+   "gpu": "2640 MHz, 204.76 W, 55 %",
+   "foreign": [
+    {
+     "pid": 103380,
+     "cpuSeconds": 823.28125,
+     "path": "C:\\repos\\OloEngine-foliage-cost-baseline-1391\\bin\\Release\\OloEditor\\OloEditor.exe"
+    }
+   ]
+  }
+ ],
+ "contention": [
+  {
+   "start": "2026-10-09T21:10:42",
+   "end": "2026-10-09T21:14:45",
+   "what": "C:\\repos\\OloEngine-foliage-cost-baseline-1391\\bin\\Release\\OloEditor\\OloEditor.exe"
+  }
+ ]
+}

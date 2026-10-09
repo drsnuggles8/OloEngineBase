@@ -1,0 +1,1021 @@
+{
+ "before": {
+  "os": "10.0.22631",
+  "gpu": [
+   {
+    "Name": "NVIDIA GeForce RTX 4090",
+    "DriverVersion": "32.0.16.1714"
+   }
+  ],
+  "ramBytes": 68498157568,
+  "cpu": [
+   {
+    "Name": "Intel(R) Core(TM) i7-14700KF",
+    "NumberOfCores": 20,
+    "NumberOfLogicalProcessors": 28
+   }
+  ],
+  "busyProcesses": [
+   {
+    "ProcessName": "cl",
+    "Id": 107736,
+    "StartTime": "2026-10-09T17:35:22.1770576+02:00"
+   },
+   {
+    "ProcessName": "cmake",
+    "Id": 113484,
+    "StartTime": "2026-10-09T17:23:21.8009479+02:00"
+   },
+   {
+    "ProcessName": "MSBuild",
+    "Id": 72544,
+    "StartTime": "2026-10-09T17:23:23.0097839+02:00"
+   },
+   {
+    "ProcessName": "MSBuild",
+    "Id": 90320,
+    "StartTime": "2026-10-09T17:23:23.0096761+02:00"
+   },
+   {
+    "ProcessName": "MSBuild",
+    "Id": 107488,
+    "StartTime": "2026-10-09T17:23:23.009696+02:00"
+   },
+   {
+    "ProcessName": "MSBuild",
+    "Id": 114136,
+    "StartTime": "2026-10-09T17:23:23.0096793+02:00"
+   },
+   {
+    "ProcessName": "MSBuild",
+    "Id": 116220,
+    "StartTime": "2026-10-09T17:23:23.0097227+02:00"
+   },
+   {
+    "ProcessName": "MSBuild",
+    "Id": 117788,
+    "StartTime": "2026-10-09T17:23:22.10107+02:00"
+   },
+   {
+    "ProcessName": "MSBuild",
+    "Id": 118792,
+    "StartTime": "2026-10-09T17:23:23.0097051+02:00"
+   },
+   {
+    "ProcessName": "OloEngine-Tests",
+    "Id": 52820,
+    "StartTime": "2026-10-09T15:48:31.6008034+02:00"
+   }
+  ],
+  "nvidiaSmi": {
+   "gpu": "NVIDIA GeForce RTX 4090, 617.14, 885 MHz, 810 MHz, 27.88 W, 27 %, 42",
+   "computeApps": [
+    "8828, C:\\Windows\\SystemApps\\Microsoft.Windows.StartMenuExperienceHost_cw5n1h2txyewy\\StartMenuExperienceHost.exe, [N/A]",
+    "4548, C:\\Windows\\SystemApps\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\SearchHost.exe, [N/A]",
+    "7504, C:\\Windows\\explorer.exe, [N/A]",
+    "14720, C:\\Windows\\SystemApps\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\TextInputHost.exe, [N/A]",
+    "17316, C:\\Program Files\\LGHUB\\system_tray\\lghub_system_tray.exe, [N/A]",
+    "23464, C:\\Windows\\SystemApps\\ShellExperienceHost_cw5n1h2txyewy\\ShellExperienceHost.exe, [N/A]",
+    "18476, C:\\Windows\\explorer.exe, [N/A]",
+    "48520, C:\\Program Files\\WindowsApps\\Microsoft.YourPhone_1.26072.255.0_x64__8wekyb3d8bbwe\\PhoneExperienceHost.exe, [N/A]",
+    "24600, C:\\Program Files\\WindowsApps\\Microsoft.ScreenSketch_11.2607.23.0_x64__8wekyb3d8bbwe\\SnippingTool\\SnippingTool.exe, [N/A]",
+    "86608, C:\\Windows\\SystemApps\\Microsoft.LockApp_cw5n1h2txyewy\\LockApp.exe, [N/A]",
+    "88536, C:\\Program Files (x86)\\ASUS\\ArmouryDevice\\asus_framework.exe, [N/A]",
+    "11028, C:\\Program Files (x86)\\Steam\\bin\\cef\\cef.win64\\steamwebhelper.exe, [N/A]",
+    "37124, C:\\Windows\\ImmersiveControlPanel\\SystemSettings.exe, [N/A]",
+    "72240, C:\\Program Files (x86)\\Battle.net\\Battle.net.exe, [N/A]",
+    "95324, C:\\Users\\ole\\AppData\\Local\\Programs\\CurseForge Windows\\CurseForge.exe, [N/A]",
+    "71420, C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.1002.7124.0_x64__2p2nqsd0c76g0\\app\\ChatGPT.exe, [N/A]",
+    "43300, C:\\Users\\ole\\AppData\\Local\\OpenAI\\Codex\\runtimes\\cua_node\\3dd31cfff853001c\\bin\\node_modules\\@oai\\sky\\bin\\windows\\swift\\x64\\codex-computer-use-swift.exe, [N/A]",
+    "98512, C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.1002.7124.0_x64__2p2nqsd0c76g0\\app\\ChatGPT.exe, [N/A]",
+    "5264, C:\\Program Files\\Mozilla Firefox\\firefox.exe, [N/A]",
+    "26412, C:\\Program Files\\Mozilla Firefox\\firefox.exe, [N/A]",
+    "3852, C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\154.0.4258.62\\msedgewebview2.exe, [N/A]",
+    "2864, C:\\Users\\ole\\AppData\\Local\\Discord\\app-1.0.9261\\Discord.exe, [N/A]",
+    "105536, C:\\Program Files\\WindowsApps\\Claude_2.31226.0.0_x64__pzs8sxrjxfjjc\\app\\claude.exe, [N/A]",
+    "95688, C:\\Program Files\\WindowsApps\\Claude_2.31226.0.0_x64__pzs8sxrjxfjjc\\app\\claude.exe, [N/A]",
+    "71940, C:\\Users\\ole\\AppData\\Local\\Programs\\Microsoft VS Code Insiders\\Code - Insiders.exe, [N/A]",
+    "52820, C:\\repos\\OloEngine-windows-link-memory-1386\\build-cached\\OloEngine\\tests\\Debug\\OloEngine-Tests.exe, [N/A]"
+   ],
+   "processTable": []
+  },
+  "time": "2026-10-09T17:47:32+0200"
+ },
+ "after": {
+  "gpu": [
+   {
+    "Name": "NVIDIA GeForce RTX 4090",
+    "DriverVersion": "32.0.16.1714"
+   }
+  ],
+  "os": "10.0.22631",
+  "ramBytes": 68498157568,
+  "busyProcesses": [
+   {
+    "ProcessName": "clang-cl",
+    "Id": 99448,
+    "StartTime": "2026-10-09T19:03:18.6116819+02:00"
+   },
+   {
+    "ProcessName": "clang-cl",
+    "Id": 107776,
+    "StartTime": "2026-10-09T19:03:19.0049493+02:00"
+   },
+   {
+    "ProcessName": "clang-cl",
+    "Id": 109228,
+    "StartTime": "2026-10-09T19:03:18.7006368+02:00"
+   },
+   {
+    "ProcessName": "clang-cl",
+    "Id": 115464,
+    "StartTime": "2026-10-09T19:03:18.1560341+02:00"
+   },
+   {
+    "ProcessName": "clang-cl",
+    "Id": 116876,
+    "StartTime": "2026-10-09T19:03:18.1218831+02:00"
+   },
+   {
+    "ProcessName": "clang-cl",
+    "Id": 117260,
+    "StartTime": "2026-10-09T19:03:18.9611735+02:00"
+   },
+   {
+    "ProcessName": "cmake",
+    "Id": 108168,
+    "StartTime": "2026-10-09T18:46:29.8214479+02:00"
+   },
+   {
+    "ProcessName": "cmake",
+    "Id": 111788,
+    "StartTime": "2026-10-09T19:02:40.9616181+02:00"
+   },
+   {
+    "ProcessName": "cmake",
+    "Id": 114244,
+    "StartTime": "2026-10-09T18:50:38.9072549+02:00"
+   },
+   {
+    "ProcessName": "cmake",
+    "Id": 117596,
+    "StartTime": "2026-10-09T19:02:40.990858+02:00"
+   },
+   {
+    "ProcessName": "lld-link",
+    "Id": 36132,
+    "StartTime": "2026-10-09T19:02:41.4425062+02:00"
+   },
+   {
+    "ProcessName": "ninja",
+    "Id": 65932,
+    "StartTime": "2026-10-09T18:46:29.8538432+02:00"
+   },
+   {
+    "ProcessName": "ninja",
+    "Id": 113328,
+    "StartTime": "2026-10-09T18:50:38.9608878+02:00"
+   }
+  ],
+  "cpu": [
+   {
+    "Name": "Intel(R) Core(TM) i7-14700KF",
+    "NumberOfCores": 20,
+    "NumberOfLogicalProcessors": 28
+   }
+  ],
+  "nvidiaSmi": {
+   "gpu": "NVIDIA GeForce RTX 4090, 617.14, 435 MHz, 810 MHz, 31.40 W, 24 %, 47",
+   "computeApps": [
+    "8828, C:\\Windows\\SystemApps\\Microsoft.Windows.StartMenuExperienceHost_cw5n1h2txyewy\\StartMenuExperienceHost.exe, [N/A]",
+    "4548, C:\\Windows\\SystemApps\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\SearchHost.exe, [N/A]",
+    "7504, C:\\Windows\\explorer.exe, [N/A]",
+    "14720, C:\\Windows\\SystemApps\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\TextInputHost.exe, [N/A]",
+    "17316, C:\\Program Files\\LGHUB\\system_tray\\lghub_system_tray.exe, [N/A]",
+    "23464, C:\\Windows\\SystemApps\\ShellExperienceHost_cw5n1h2txyewy\\ShellExperienceHost.exe, [N/A]",
+    "18476, C:\\Windows\\explorer.exe, [N/A]",
+    "48520, C:\\Program Files\\WindowsApps\\Microsoft.YourPhone_1.26072.255.0_x64__8wekyb3d8bbwe\\PhoneExperienceHost.exe, [N/A]",
+    "24600, C:\\Program Files\\WindowsApps\\Microsoft.ScreenSketch_11.2607.23.0_x64__8wekyb3d8bbwe\\SnippingTool\\SnippingTool.exe, [N/A]",
+    "86608, C:\\Windows\\SystemApps\\Microsoft.LockApp_cw5n1h2txyewy\\LockApp.exe, [N/A]",
+    "88536, C:\\Program Files (x86)\\ASUS\\ArmouryDevice\\asus_framework.exe, [N/A]",
+    "11028, C:\\Program Files (x86)\\Steam\\bin\\cef\\cef.win64\\steamwebhelper.exe, [N/A]",
+    "37124, C:\\Windows\\ImmersiveControlPanel\\SystemSettings.exe, [N/A]",
+    "72240, C:\\Program Files (x86)\\Battle.net\\Battle.net.exe, [N/A]",
+    "95324, C:\\Users\\ole\\AppData\\Local\\Programs\\CurseForge Windows\\CurseForge.exe, [N/A]",
+    "71420, C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.1002.7124.0_x64__2p2nqsd0c76g0\\app\\ChatGPT.exe, [N/A]",
+    "43300, C:\\Users\\ole\\AppData\\Local\\OpenAI\\Codex\\runtimes\\cua_node\\3dd31cfff853001c\\bin\\node_modules\\@oai\\sky\\bin\\windows\\swift\\x64\\codex-computer-use-swift.exe, [N/A]",
+    "98512, C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.1002.7124.0_x64__2p2nqsd0c76g0\\app\\ChatGPT.exe, [N/A]",
+    "5264, C:\\Program Files\\Mozilla Firefox\\firefox.exe, [N/A]",
+    "26412, C:\\Program Files\\Mozilla Firefox\\firefox.exe, [N/A]",
+    "3852, C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\154.0.4258.62\\msedgewebview2.exe, [N/A]",
+    "2864, C:\\Users\\ole\\AppData\\Local\\Discord\\app-1.0.9261\\Discord.exe, [N/A]",
+    "105536, C:\\Program Files\\WindowsApps\\Claude_2.31226.0.0_x64__pzs8sxrjxfjjc\\app\\claude.exe, [N/A]",
+    "95688, C:\\Program Files\\WindowsApps\\Claude_2.31226.0.0_x64__pzs8sxrjxfjjc\\app\\claude.exe, [N/A]",
+    "71940, C:\\Users\\ole\\AppData\\Local\\Programs\\Microsoft VS Code Insiders\\Code - Insiders.exe, [N/A]",
+    "112752, C:\\Program Files (x86)\\GOM\\GOMPlayer\\modules\\WebView2\\msedgewebview2.exe, [N/A]",
+    "105960, C:\\Program Files (x86)\\GOM\\GOMPlayer\\GOM.exe, [N/A]"
+   ],
+   "processTable": []
+  },
+  "time": "2026-10-09T19:03:23+0200"
+ },
+ "exitCode": 0,
+ "elapsedSeconds": 4546.2,
+ "environment": {
+  "OLO_FOLIAGE_COST_ROUNDS": "3",
+  "OLO_FOLIAGE_COST_WARMUP": "8",
+  "OLO_FOLIAGE_COST_FRAMES": "12"
+ },
+ "contended": true,
+ "samples": [
+  {
+   "time": "2026-10-09T17:47:29",
+   "gpu": "705MHz,24.77W,37%",
+   "foreign": [
+    {
+     "pid": 52820,
+     "cpuSeconds": 3723.84375,
+     "path": "C:/repos/OloEngine-windows-link-memory-1386/build-cached/OloEngine/tests/Debug/OloEngine-Tests.exe"
+    }
+   ]
+  },
+  {
+   "time": "2026-10-09T17:48:00",
+   "gpu": "2640MHz,251.75W,100%",
+   "foreign": [
+    {
+     "pid": 52820,
+     "cpuSeconds": 3733.359375,
+     "path": "C:/repos/OloEngine-windows-link-memory-1386/build-cached/OloEngine/tests/Debug/OloEngine-Tests.exe"
+    }
+   ]
+  },
+  {
+   "time": "2026-10-09T17:48:31",
+   "gpu": "2640MHz,257.68W,100%",
+   "foreign": [
+    {
+     "pid": 52820,
+     "cpuSeconds": 3750.5625,
+     "path": "C:/repos/OloEngine-windows-link-memory-1386/build-cached/OloEngine/tests/Debug/OloEngine-Tests.exe"
+    }
+   ]
+  },
+  {
+   "time": "2026-10-09T17:49:01",
+   "gpu": "2640MHz,255.81W,100%",
+   "foreign": [
+    {
+     "pid": 52820,
+     "cpuSeconds": 3771.609375,
+     "path": "C:/repos/OloEngine-windows-link-memory-1386/build-cached/OloEngine/tests/Debug/OloEngine-Tests.exe"
+    }
+   ]
+  },
+  {
+   "time": "2026-10-09T17:49:32",
+   "gpu": "2640MHz,259.53W,100%",
+   "foreign": [
+    {
+     "pid": 52820,
+     "cpuSeconds": 3787.046875,
+     "path": "C:/repos/OloEngine-windows-link-memory-1386/build-cached/OloEngine/tests/Debug/OloEngine-Tests.exe"
+    }
+   ]
+  },
+  {
+   "time": "2026-10-09T17:50:02",
+   "gpu": "2640MHz,248.37W,100%",
+   "foreign": [
+    {
+     "pid": 52820,
+     "cpuSeconds": 3805.984375,
+     "path": "C:/repos/OloEngine-windows-link-memory-1386/build-cached/OloEngine/tests/Debug/OloEngine-Tests.exe"
+    }
+   ]
+  },
+  {
+   "time": "2026-10-09T17:50:33",
+   "gpu": "2640MHz,189.07W,60%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T17:51:03",
+   "gpu": "2640MHz,254.14W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T17:51:34",
+   "gpu": "2640MHz,283.56W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T17:52:04",
+   "gpu": "2640MHz,283.60W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T17:52:35",
+   "gpu": "2640MHz,285.90W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T17:53:05",
+   "gpu": "2640MHz,286.27W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T17:53:36",
+   "gpu": "2640MHz,286.08W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T17:54:06",
+   "gpu": "2640MHz,285.64W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T17:54:37",
+   "gpu": "2640MHz,217.41W,47%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T17:55:07",
+   "gpu": "2640MHz,283.82W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T17:55:38",
+   "gpu": "2640MHz,284.76W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T17:56:08",
+   "gpu": "2640MHz,279.89W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T17:56:39",
+   "gpu": "2640MHz,284.74W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T17:57:09",
+   "gpu": "2640MHz,284.08W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T17:57:40",
+   "gpu": "2640MHz,283.50W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T17:58:10",
+   "gpu": "2640MHz,206.78W,89%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T17:58:41",
+   "gpu": "2640MHz,284.05W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T17:59:11",
+   "gpu": "2640MHz,284.26W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T17:59:41",
+   "gpu": "2640MHz,283.70W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:00:12",
+   "gpu": "2640MHz,283.11W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:00:42",
+   "gpu": "2640MHz,282.89W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:01:13",
+   "gpu": "2640MHz,282.87W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:01:43",
+   "gpu": "2640MHz,283.36W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:02:14",
+   "gpu": "2640MHz,253.42W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:02:44",
+   "gpu": "2640MHz,250.27W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:03:15",
+   "gpu": "2655MHz,209.90W,66%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:03:45",
+   "gpu": "2640MHz,252.88W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:04:16",
+   "gpu": "2640MHz,251.36W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:04:46",
+   "gpu": "2640MHz,252.46W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:05:17",
+   "gpu": "2640MHz,250.98W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:05:47",
+   "gpu": "2640MHz,281.76W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:06:18",
+   "gpu": "2640MHz,191.34W,32%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:06:48",
+   "gpu": "2640MHz,283.89W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:07:19",
+   "gpu": "2640MHz,284.00W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:07:49",
+   "gpu": "2640MHz,283.93W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:08:20",
+   "gpu": "2640MHz,281.19W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:08:50",
+   "gpu": "2640MHz,285.19W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:09:21",
+   "gpu": "2640MHz,281.87W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:09:51",
+   "gpu": "2640MHz,221.50W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:10:21",
+   "gpu": "2640MHz,282.16W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:10:52",
+   "gpu": "2640MHz,281.38W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:11:22",
+   "gpu": "2640MHz,281.02W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:11:53",
+   "gpu": "2640MHz,280.56W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:12:23",
+   "gpu": "2640MHz,282.10W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:12:54",
+   "gpu": "2640MHz,286.19W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:13:25",
+   "gpu": "2640MHz,228.14W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:13:55",
+   "gpu": "2640MHz,285.77W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:14:26",
+   "gpu": "2640MHz,285.61W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:14:56",
+   "gpu": "2640MHz,281.10W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:15:27",
+   "gpu": "2640MHz,280.50W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:15:57",
+   "gpu": "2640MHz,280.52W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:16:28",
+   "gpu": "2640MHz,260.22W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:16:58",
+   "gpu": "2640MHz,260.42W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:17:29",
+   "gpu": "2640MHz,258.82W,99%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:17:59",
+   "gpu": "2640MHz,258.30W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:18:29",
+   "gpu": "2640MHz,261.52W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:19:00",
+   "gpu": "2640MHz,261.32W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:19:30",
+   "gpu": "2640MHz,259.79W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:20:01",
+   "gpu": "2640MHz,260.50W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:20:31",
+   "gpu": "2640MHz,285.35W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:21:02",
+   "gpu": "2640MHz,285.40W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:21:32",
+   "gpu": "2640MHz,285.51W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:22:02",
+   "gpu": "2640MHz,236.15W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:22:33",
+   "gpu": "2640MHz,288.01W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:23:03",
+   "gpu": "2640MHz,286.01W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:23:34",
+   "gpu": "2640MHz,286.88W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:24:04",
+   "gpu": "2640MHz,285.28W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:24:35",
+   "gpu": "2640MHz,232.97W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:25:05",
+   "gpu": "2640MHz,284.66W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:25:36",
+   "gpu": "2640MHz,285.43W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:26:06",
+   "gpu": "2640MHz,285.54W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:26:36",
+   "gpu": "2640MHz,285.29W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:27:07",
+   "gpu": "2640MHz,285.65W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:27:37",
+   "gpu": "2640MHz,286.23W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:28:08",
+   "gpu": "2640MHz,285.56W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:28:38",
+   "gpu": "2640MHz,285.48W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:29:09",
+   "gpu": "2640MHz,285.39W,99%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:29:39",
+   "gpu": "2640MHz,284.96W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:30:09",
+   "gpu": "2640MHz,284.38W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:30:40",
+   "gpu": "2640MHz,284.89W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:31:10",
+   "gpu": "2640MHz,236.86W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:31:41",
+   "gpu": "2640MHz,228.65W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:32:11",
+   "gpu": "2640MHz,203.09W,83%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:32:42",
+   "gpu": "2640MHz,264.40W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:33:12",
+   "gpu": "2640MHz,265.80W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:33:42",
+   "gpu": "2640MHz,228.26W,69%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:34:13",
+   "gpu": "2640MHz,229.81W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:34:43",
+   "gpu": "2640MHz,264.77W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:35:14",
+   "gpu": "2640MHz,230.32W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:35:44",
+   "gpu": "2640MHz,259.57W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:36:15",
+   "gpu": "2640MHz,263.40W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:36:45",
+   "gpu": "2640MHz,264.61W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:37:16",
+   "gpu": "2640MHz,264.56W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:37:46",
+   "gpu": "2640MHz,265.34W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:38:16",
+   "gpu": "2640MHz,211.75W,68%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:38:47",
+   "gpu": "2640MHz,268.71W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:39:17",
+   "gpu": "2640MHz,285.05W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:39:48",
+   "gpu": "2640MHz,269.93W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:40:18",
+   "gpu": "2640MHz,270.70W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:40:49",
+   "gpu": "2640MHz,270.04W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:41:19",
+   "gpu": "2640MHz,219.28W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:41:49",
+   "gpu": "2640MHz,256.30W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:42:20",
+   "gpu": "2640MHz,256.78W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:42:50",
+   "gpu": "2640MHz,259.78W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:43:21",
+   "gpu": "2640MHz,259.82W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:43:51",
+   "gpu": "2640MHz,259.28W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:44:22",
+   "gpu": "2640MHz,226.55W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:44:52",
+   "gpu": "2640MHz,256.90W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:45:22",
+   "gpu": "2640MHz,260.10W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:45:53",
+   "gpu": "2640MHz,289.69W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:46:23",
+   "gpu": "2640MHz,259.66W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:46:54",
+   "gpu": "2640MHz,231.39W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:47:25",
+   "gpu": "2640MHz,261.44W,96%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:47:55",
+   "gpu": "2640MHz,288.03W,78%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:48:26",
+   "gpu": "2640MHz,264.68W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:48:56",
+   "gpu": "2640MHz,267.76W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:49:27",
+   "gpu": "2640MHz,267.19W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:49:58",
+   "gpu": "945MHz,73.76W,26%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:50:28",
+   "gpu": "2655MHz,226.45W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:50:59",
+   "gpu": "2655MHz,151.58W,5%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:51:33",
+   "gpu": "2655MHz,113.96W,50%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:52:03",
+   "gpu": "2640MHz,272.50W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:52:34",
+   "gpu": "2640MHz,214.32W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:53:05",
+   "gpu": "2640MHz,298.42W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:53:35",
+   "gpu": "2640MHz,255.86W,63%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:54:06",
+   "gpu": "2640MHz,295.15W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:54:37",
+   "gpu": "2640MHz,245.40W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:55:08",
+   "gpu": "2655MHz,177.79W,40%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:55:38",
+   "gpu": "2640MHz,205.65W,75%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:56:09",
+   "gpu": "2640MHz,259.50W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:56:40",
+   "gpu": "2640MHz,272.92W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:57:11",
+   "gpu": "2640MHz,274.54W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:57:42",
+   "gpu": "2640MHz,297.32W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:58:12",
+   "gpu": "2640MHz,165.64W,69%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:58:43",
+   "gpu": "2640MHz,246.04W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:59:13",
+   "gpu": "2640MHz,246.32W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T18:59:44",
+   "gpu": "2640MHz,247.80W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T19:00:15",
+   "gpu": "2640MHz,144.36W,43%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T19:00:45",
+   "gpu": "2640MHz,300.98W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T19:01:16",
+   "gpu": "2640MHz,302.53W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T19:01:47",
+   "gpu": "2640MHz,298.93W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T19:02:18",
+   "gpu": "2640MHz,290.20W,100%",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T19:02:49",
+   "gpu": "2640MHz,259.82W,100%",
+   "foreign": []
+  }
+ ],
+ "samplesSource": "run3-sampler.csv, an external sampler run beside this run with a 30 s period: the GPU clock/power/utilisation, the CPU time of OloEngine-Tests processes from other worktrees, and the count of other OloEditor/OloRuntime processes (0 throughout)",
+ "contention": [
+  {
+   "start": "2026-10-09T17:47:29",
+   "end": "2026-10-09T17:50:33",
+   "what": "C:/repos/OloEngine-windows-link-memory-1386/build-cached/OloEngine/tests/Debug/OloEngine-Tests.exe"
+  }
+ ]
+}

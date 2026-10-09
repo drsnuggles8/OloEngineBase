@@ -118,6 +118,12 @@ class Editor:
                 seen[key] = {'frameTimeMs': frame.get('frameTimeMs'), 'gpuMs': frame.get('gpuMs'),
                              'gpuStatus': frame.get('gpuStatus'), 'passes': passes, 'nullPasses': nulls}
             time.sleep(spacing)
+        if len(seen) < count:
+            # Never a short block: an editor that stopped presenting (minimised,
+            # occluded, stalled) keeps answering with the same few frames, and
+            # a block of those reads as a real, and identical, arm.
+            raise RuntimeError(f'only {len(seen)} of {count} distinct frames resolved in the sampling window; '
+                               'is the editor rendering (not minimised, not stalled)?')
         return list(seen.values())
 
 
@@ -221,6 +227,7 @@ def main() -> int:
         previous = json.loads(args.output.read_text(encoding='utf-8'))
         result['cells'] = previous.get('cells', [])
         result['memory'] = previous.get('memory', {})
+        result['tails'] = previous.get('tails', [])
     done = {(c['subject'], c['pose'], c['path'], c['shadows']) for c in result['cells']}
     try:
         for subject in args.subjects.split(','):
@@ -262,7 +269,7 @@ def main() -> int:
                                                 'arms': {a: summarise_arm(s) for a, s in arms.items()}})
                         print(f'[foliage-live] {subject} {pose["name"]} {path} {shadows} done', flush=True)
                         args.output.write_text(json.dumps(result, indent=1), encoding='utf-8')
-            if subject == 'Traversal':
+            if subject == 'Traversal' and not result['tails']:
                 for path in args.paths.split(','):
                     editor.setting('renderpath', path)
                     editor.setting('virtualshadowmaps', 'off')

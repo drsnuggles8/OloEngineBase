@@ -1,0 +1,150 @@
+{
+ "before": {
+  "busyProcesses": [],
+  "ramBytes": 68498157568,
+  "cpu": [
+   {
+    "Name": "Intel(R) Core(TM) i7-14700KF",
+    "NumberOfCores": 20,
+    "NumberOfLogicalProcessors": 28
+   }
+  ],
+  "os": "10.0.22631",
+  "gpu": [
+   {
+    "Name": "NVIDIA GeForce RTX 4090",
+    "DriverVersion": "32.0.16.1714"
+   }
+  ],
+  "nvidiaSmi": {
+   "gpu": "NVIDIA GeForce RTX 4090, 617.14, 255 MHz, 810 MHz, 27.30 W, 35 %, 45",
+   "computeApps": [
+    "8828, C:\\Windows\\SystemApps\\Microsoft.Windows.StartMenuExperienceHost_cw5n1h2txyewy\\StartMenuExperienceHost.exe, [N/A]",
+    "4548, C:\\Windows\\SystemApps\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\SearchHost.exe, [N/A]",
+    "7504, C:\\Windows\\explorer.exe, [N/A]",
+    "14720, C:\\Windows\\SystemApps\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\TextInputHost.exe, [N/A]",
+    "17316, C:\\Program Files\\LGHUB\\system_tray\\lghub_system_tray.exe, [N/A]",
+    "23464, C:\\Windows\\SystemApps\\ShellExperienceHost_cw5n1h2txyewy\\ShellExperienceHost.exe, [N/A]",
+    "18476, C:\\Windows\\explorer.exe, [N/A]",
+    "48520, C:\\Program Files\\WindowsApps\\Microsoft.YourPhone_1.26072.255.0_x64__8wekyb3d8bbwe\\PhoneExperienceHost.exe, [N/A]",
+    "24600, C:\\Program Files\\WindowsApps\\Microsoft.ScreenSketch_11.2607.23.0_x64__8wekyb3d8bbwe\\SnippingTool\\SnippingTool.exe, [N/A]",
+    "86608, C:\\Windows\\SystemApps\\Microsoft.LockApp_cw5n1h2txyewy\\LockApp.exe, [N/A]",
+    "88536, C:\\Program Files (x86)\\ASUS\\ArmouryDevice\\asus_framework.exe, [N/A]",
+    "11028, C:\\Program Files (x86)\\Steam\\bin\\cef\\cef.win64\\steamwebhelper.exe, [N/A]",
+    "37124, C:\\Windows\\ImmersiveControlPanel\\SystemSettings.exe, [N/A]",
+    "95324, C:\\Users\\ole\\AppData\\Local\\Programs\\CurseForge Windows\\CurseForge.exe, [N/A]",
+    "3852, C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\154.0.4258.62\\msedgewebview2.exe, [N/A]",
+    "105536, C:\\Program Files\\WindowsApps\\Claude_2.31226.0.0_x64__pzs8sxrjxfjjc\\app\\claude.exe, [N/A]",
+    "95688, C:\\Program Files\\WindowsApps\\Claude_2.31226.0.0_x64__pzs8sxrjxfjjc\\app\\claude.exe, [N/A]",
+    "71940, C:\\Users\\ole\\AppData\\Local\\Programs\\Microsoft VS Code Insiders\\Code - Insiders.exe, [N/A]",
+    "96128, C:\\Program Files (x86)\\Steam\\steamapps\\common\\Slay the Spire 2\\SlayTheSpire2.exe, [N/A]"
+   ],
+   "processTable": []
+  },
+  "time": "2026-10-09T21:33:16+0200"
+ },
+ "after": {
+  "gpu": [
+   {
+    "Name": "NVIDIA GeForce RTX 4090",
+    "DriverVersion": "32.0.16.1714"
+   }
+  ],
+  "busyProcesses": [],
+  "ramBytes": 68498157568,
+  "os": "10.0.22631",
+  "cpu": [
+   {
+    "Name": "Intel(R) Core(TM) i7-14700KF",
+    "NumberOfCores": 20,
+    "NumberOfLogicalProcessors": 28
+   }
+  ],
+  "nvidiaSmi": {
+   "gpu": "NVIDIA GeForce RTX 4090, 617.14, 2565 MHz, 10501 MHz, 68.89 W, 4 %, 50",
+   "computeApps": [
+    "8828, C:\\Windows\\SystemApps\\Microsoft.Windows.StartMenuExperienceHost_cw5n1h2txyewy\\StartMenuExperienceHost.exe, [N/A]",
+    "4548, C:\\Windows\\SystemApps\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\SearchHost.exe, [N/A]",
+    "7504, C:\\Windows\\explorer.exe, [N/A]",
+    "14720, C:\\Windows\\SystemApps\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\TextInputHost.exe, [N/A]",
+    "17316, C:\\Program Files\\LGHUB\\system_tray\\lghub_system_tray.exe, [N/A]",
+    "23464, C:\\Windows\\SystemApps\\ShellExperienceHost_cw5n1h2txyewy\\ShellExperienceHost.exe, [N/A]",
+    "18476, C:\\Windows\\explorer.exe, [N/A]",
+    "48520, C:\\Program Files\\WindowsApps\\Microsoft.YourPhone_1.26072.255.0_x64__8wekyb3d8bbwe\\PhoneExperienceHost.exe, [N/A]",
+    "24600, C:\\Program Files\\WindowsApps\\Microsoft.ScreenSketch_11.2607.23.0_x64__8wekyb3d8bbwe\\SnippingTool\\SnippingTool.exe, [N/A]",
+    "86608, C:\\Windows\\SystemApps\\Microsoft.LockApp_cw5n1h2txyewy\\LockApp.exe, [N/A]",
+    "88536, C:\\Program Files (x86)\\ASUS\\ArmouryDevice\\asus_framework.exe, [N/A]",
+    "37124, C:\\Windows\\ImmersiveControlPanel\\SystemSettings.exe, [N/A]",
+    "95324, C:\\Users\\ole\\AppData\\Local\\Programs\\CurseForge Windows\\CurseForge.exe, [N/A]",
+    "3852, C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\154.0.4258.62\\msedgewebview2.exe, [N/A]",
+    "105536, C:\\Program Files\\WindowsApps\\Claude_2.31226.0.0_x64__pzs8sxrjxfjjc\\app\\claude.exe, [N/A]",
+    "95688, C:\\Program Files\\WindowsApps\\Claude_2.31226.0.0_x64__pzs8sxrjxfjjc\\app\\claude.exe, [N/A]",
+    "71940, C:\\Users\\ole\\AppData\\Local\\Programs\\Microsoft VS Code Insiders\\Code - Insiders.exe, [N/A]",
+    "118720, C:\\Program Files\\Mozilla Firefox\\firefox.exe, [N/A]",
+    "116980, C:\\Program Files\\Mozilla Firefox\\firefox.exe, [N/A]"
+   ],
+   "processTable": []
+  },
+  "time": "2026-10-09T21:37:03+0200"
+ },
+ "exitCode": 0,
+ "elapsedSeconds": 224.3,
+ "environment": {
+  "OLO_FOLIAGE_COST_ROUNDS": "3",
+  "OLO_FOLIAGE_COST_WARMUP": "8",
+  "OLO_FOLIAGE_COST_FRAMES": "12",
+  "OLO_FOLIAGE_COST_SUBJECTS": "Traversal",
+  "OLO_FOLIAGE_COST_PATHS": "Forward",
+  "OLO_FOLIAGE_COST_SHADOWS": "CSM",
+  "OLO_FOLIAGE_COST_EXTRAS": "0"
+ },
+ "contended": false,
+ "samples": [
+  {
+   "time": "2026-10-09T21:33:17",
+   "gpu": "255 MHz, 27.30 W, 35 %",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T21:33:47",
+   "gpu": "2640 MHz, 249.75 W, 100 %",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T21:34:17",
+   "gpu": "2640 MHz, 251.19 W, 100 %",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T21:34:47",
+   "gpu": "2655 MHz, 174.09 W, 68 %",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T21:35:18",
+   "gpu": "2640 MHz, 250.59 W, 100 %",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T21:35:48",
+   "gpu": "2640 MHz, 248.36 W, 100 %",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T21:36:18",
+   "gpu": "2640 MHz, 246.38 W, 100 %",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T21:36:48",
+   "gpu": "2640 MHz, 247.56 W, 100 %",
+   "foreign": []
+  },
+  {
+   "time": "2026-10-09T21:37:01",
+   "gpu": "2640 MHz, 230.53 W, 82 %",
+   "foreign": []
+  }
+ ],
+ "contention": []
+}
