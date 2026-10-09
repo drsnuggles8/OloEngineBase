@@ -25,11 +25,13 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 #include "TestTempDir.h"
+#include "TestAssetPackWriter.h"
 
 #include "RenderPropertyTest.h" // OLO_ENSURE_GPU_OR_SKIP
 
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
+#include "OloEngine/Asset/AssetManager/RuntimeAssetManager.h"
 #include "OloEngine/Asset/AssetPackBuilder.h"
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Asset/MeshCache.h"
@@ -287,6 +289,81 @@ TEST_F(ImportedMaterialPackTest, EverySubmeshResolvesItsMaterialAfterThePackRoun
     ASSERT_TRUE(unpacked) << "DeserializeFromAssetPack returned null";
 
     ExpectMaterialsMatch(unpacked);
+}
+
+TEST_F(ImportedMaterialPackTest, ColdRuntimeMeshLoadResolvesItsPackedTexture)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+    const std::string textureIdentity = "Assets/cold-runtime-albedo.png";
+    const auto texturePath = m_TempDir / textureIdentity;
+    const std::array<u8, 4> expectedPixels{ 255, 128, 64, 255 };
+    ASSERT_NE(stbi_write_png(texturePath.string().c_str(), 1, 1, 4, expectedPixels.data(), 4), 0);
+    // Material realization must go through the packed handle, not its direct-path
+    // shortcut. The raw texture record can still resolve its project-relative file.
+    ASSERT_FALSE(fs::exists(textureIdentity));
+    const auto texture = Texture2D::Create(texturePath.string(), true, textureIdentity);
+    ASSERT_TRUE(texture);
+    ASSERT_TRUE(texture->IsLoaded());
+    ASSERT_EQ(fs::weakly_canonical(Texture2D::ResolveStoredSourcePath(textureIdentity)),
+              fs::weakly_canonical(texturePath));
+    AssetManager::AddMemoryOnlyAsset(texture);
+    auto material = Material::CreatePBR("PackedAlbedo", glm::vec3(1.0f));
+    material->SetAlbedoMap(texture);
+    auto source = MakeTwoMaterialMesh();
+    source->SetImportedMaterials({ material, material });
+    const AssetHandle meshHandle = AssetManager::AddMemoryOnlyAsset(source);
+
+    // Production record writers, without unrelated pack-builder dependencies.
+    const auto serialize = [&](const AssetSerializer& serializer, AssetHandle handle)
+    {
+        const auto path = m_TempDir / "record.bin";
+        AssetSerializationInfo info{};
+        {
+            FileStreamWriter writer(path);
+            EXPECT_TRUE(serializer.SerializeToAssetPack(handle, writer, info));
+        }
+        std::ifstream input(path, std::ios::binary);
+        return std::string(std::istreambuf_iterator<char>(input), {});
+    };
+    const auto packPath = m_TempDir / "cold.olopack";
+    OloEngine::Tests::WritePack(packPath, {
+                                              { meshHandle, AssetType::MeshSource, serialize(MeshSourceSerializer{}, meshHandle) },
+                                              { texture->GetHandle(), AssetType::Texture2D, serialize(TextureSerializer{}, texture->GetHandle()) },
+                                          });
+
+    struct RestoreManager
+    {
+        Ref<AssetManagerBase> Previous = Project::GetAssetManager();
+        ~RestoreManager()
+        {
+            Project::SetAssetManager(Previous);
+        }
+    } restore;
+    // Warm loading is the control: it masked the nested importer lock in earlier
+    // serializer tests. The cold case must resolve the texture from inside the mesh.
+    for (const bool preload : { true, false })
+    {
+        SCOPED_TRACE(preload ? "warm texture" : "cold texture");
+        auto runtime = Ref<RuntimeAssetManager>::Create(false);
+        ASSERT_TRUE(runtime->LoadAssetPack(packPath));
+        Project::SetAssetManager(runtime);
+        ASSERT_TRUE(runtime->GetLoadedAssets().empty());
+        if (preload)
+            ASSERT_TRUE(runtime->GetAsset(texture->GetHandle()));
+        const auto loaded = runtime->GetAsset(meshHandle).As<MeshSource>();
+        ASSERT_TRUE(loaded);
+        const auto loadedMaterial = loaded->GetImportedMaterialForSubmesh(0);
+        ASSERT_TRUE(loadedMaterial);
+        const auto loadedTexture = loadedMaterial->GetAlbedoMap();
+        ASSERT_TRUE(loadedTexture);
+        EXPECT_EQ(loadedTexture->GetHandle(), texture->GetHandle());
+        EXPECT_NE(loadedTexture.Raw(), texture.Raw());
+        EXPECT_EQ(runtime->GetLoadedAssets().size(), 2u);
+        std::array<u8, 4> pixels{};
+        glGetTextureImage(loadedTexture->GetRendererID(), 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                          static_cast<GLsizei>(pixels.size()), pixels.data());
+        EXPECT_EQ(pixels, expectedPixels);
+    }
 }
 
 // Issue #1462, the Sponza path: a MeshSource's IMPORTED materials tell the pack

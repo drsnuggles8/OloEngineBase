@@ -143,14 +143,16 @@ namespace OloEngine::Tests
         auto runtime = Ref<RuntimeAssetManager>::Create(false);
         ASSERT_TRUE(runtime->LoadAssetPack(package / "Assets/AssetPack.olopack"));
         Project::SetAssetManager(runtime);
+        // Load the scene cold, as the shipped runtime does. Preloading its textures
+        // masks recursive asset-dispatch locks while a mesh resolves its materials.
+        auto scene = runtime->GetAsset(sceneHandle).As<Scene>();
+        ASSERT_TRUE(scene);
         for (const auto& metadata : selected.GetAllAssets())
         {
             const auto asset = runtime->GetAsset(metadata.Handle);
             ASSERT_TRUE(asset) << metadata.FilePath.string();
             EXPECT_FALSE(PlaceholderAssetManager::IsPlaceholderAsset(asset)) << metadata.FilePath.string();
         }
-        auto scene = runtime->GetAsset(sceneHandle).As<Scene>();
-        ASSERT_TRUE(scene);
         scene->SetRenderingEnabled(false);
         scene->OnUpdateRuntime(Timestep(1.0f / 60.0f));
         const auto bodies = scene->GetAllEntitiesWith<AnimationStateComponent, MorphTargetComponent>();

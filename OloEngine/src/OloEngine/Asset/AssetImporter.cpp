@@ -290,13 +290,19 @@ namespace OloEngine
 
     Ref<Asset> AssetImporter::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo)
     {
-        TUniqueLock<FMutex> lock(GetSerializersMutex());
-        auto& serializers = GetSerializers();
-        auto it = serializers.find(assetInfo.Type);
-        if (it == serializers.end())
+        // As with TryLoadData, guard only the process-lifetime registry lookup.
+        // A packed mesh resolves textures through this same dispatch recursively.
+        AssetSerializer* serializer = nullptr;
         {
-            OLO_CORE_WARN("No serializer available for asset type: {}", AssetUtils::AssetTypeToString(assetInfo.Type));
-            return nullptr;
+            TUniqueLock<FMutex> lock(GetSerializersMutex());
+            const auto& serializers = GetSerializers();
+            auto it = serializers.find(assetInfo.Type);
+            if (it == serializers.end())
+            {
+                OLO_CORE_WARN("No serializer available for asset type: {}", AssetUtils::AssetTypeToString(assetInfo.Type));
+                return nullptr;
+            }
+            serializer = it->second.get();
         }
 
         // Every reader starts AT ITS RECORD (#1533). Most serializers seek there
@@ -306,21 +312,23 @@ namespace OloEngine
         // every one of them as garbage, and the packaged dog was bald.
         stream.SetStreamPosition(assetInfo.PackedOffset);
         const RendererMemoryOwnerScope memoryOwner(AssetUtils::AssetTypeToString(assetInfo.Type), MemoryLifetime::Asset);
-        return it->second->DeserializeFromAssetPack(stream, assetInfo);
+        return serializer->DeserializeFromAssetPack(stream, assetInfo);
     }
 
     Ref<Scene> AssetImporter::DeserializeSceneFromAssetPack(FileStreamReader& stream, const AssetPackFile::SceneInfo& assetInfo)
     {
-        TUniqueLock<FMutex> lock(GetSerializersMutex());
-        auto& serializers = GetSerializers();
-        auto it = serializers.find(AssetType::Scene);
-        if (it == serializers.end())
+        AssetSerializer* sceneSerializer = nullptr;
         {
-            OLO_CORE_WARN("Scene serializer not available");
-            return nullptr;
+            TUniqueLock<FMutex> lock(GetSerializersMutex());
+            const auto& serializers = GetSerializers();
+            auto it = serializers.find(AssetType::Scene);
+            if (it == serializers.end())
+            {
+                OLO_CORE_WARN("Scene serializer not available");
+                return nullptr;
+            }
+            sceneSerializer = it->second.get();
         }
-
-        auto sceneSerializer = it->second.get();
         stream.SetStreamPosition(assetInfo.PackedOffset); // at its record, as above
         return sceneSerializer->DeserializeSceneFromAssetPack(stream, assetInfo);
     }
