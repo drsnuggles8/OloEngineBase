@@ -299,7 +299,7 @@ python scripts/perf/foliage-cost-live.py --port <port> --editor-pid <pid> `
 python scripts/perf/foliage-cost-live.py --summarise vulkan-summary.md --output vulkan-live.json
 ```
 
-The committed data under `foliage-cost-baseline-1391/` reproduces `summary.json` byte for byte with
+The committed data under `foliage-cost-baseline-1391/` reproduces the same `summary.json` (compared as parsed JSON) with
 `--summarise-only` (the raw runs are gzipped, with each run's cell times extracted from its engine
 log). `FoliageCostBaselineTest`'s four contract tests run in the normal suite and pin the
 instruments; `MeasureBaseline` runs only with `OLO_FOLIAGE_COST=1`.
