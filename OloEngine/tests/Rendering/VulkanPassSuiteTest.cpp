@@ -13884,6 +13884,59 @@ TEST_F(VulkanPassSuite, SkeletalPaletteSurvivesADelayedRead)
     EXPECT_FLOAT_EQ(seen[3].x, 0.25f) << "the delayed deformation read the NEXT frame's palette";
 }
 
+// #1354: a deformed stream the records name as rewritten, but which no
+// dispatch wrote this frame, is not trusted: RayTracingScene keeps the previous
+// structure instead of building over it. Here the deformation pass never ran
+// (an extraction with no frame behind it); the next frame's rollback offers
+// the surface again and starts trusted.
+TEST_F(VulkanPassSuite, ADeformedStreamNoDispatchWroteIsNotTrusted)
+{
+    TArray<Vertex> vertices;
+    vertices.Add(Vertex({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, glm::vec2(0.0f)));
+    vertices.Add(Vertex({ 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, glm::vec2(1.0f, 0.0f)));
+    vertices.Add(Vertex({ 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, glm::vec2(0.0f, 1.0f)));
+    TArray<u32> indices;
+    indices.Add(0u);
+    indices.Add(1u);
+    indices.Add(2u);
+    auto source = Ref<MeshSource>::Create(MoveTemp(vertices), MoveTemp(indices));
+    BoneInfluence influence;
+    influence.SetBoneData(0, /*boneId=*/0, /*weight=*/1.0f);
+    for (u32 i = 0; i < 3u; ++i)
+        source->SetVertexBoneData(i, influence);
+    Submesh submesh;
+    submesh.m_IndexCount = 3;
+    submesh.m_VertexCount = 3;
+    submesh.m_IsRigged = true;
+    source->AddSubmesh(submesh);
+    source->SetSkeleton(Ref<Skeleton>::Create(static_cast<sizet>(1)));
+    source->Build();
+    ASSERT_TRUE(source->GetBoneInfluenceBuffer()) << "the rigged mesh built no influence buffer";
+
+    RayTracing::DeformedSurfaceCache cache;
+    cache.SetEnabled(true);
+    const RayTracing::DeformedSurfaceKey key{ .EntityId = 9u, .RestVertexBuffer = 1u };
+    const std::array<glm::mat4, 1> pose{ glm::mat4(1.0f) };
+
+    cache.BeginFrame();
+    EXPECT_TRUE(cache.IsOutputTrusted()) << "an empty frame has nothing to distrust";
+    const RayTracing::DeformedSurfaceBinding binding = cache.Acquire(key, true, source, pose, 0u);
+    ASSERT_TRUE(binding.IsValid());
+    cache.EndFrame();
+    EXPECT_FALSE(cache.IsOutputTrusted()) << "a queued dispatch is not yet a written stream";
+
+    // No SkeletalDeformPass this frame. The next one rolls the queue back and
+    // counts it, offers the surface again at a NEW revision, and is trusted
+    // only once its own dispatch is recorded.
+    cache.BeginFrame();
+    const RayTracing::DeformedSurfaceBinding again = cache.Acquire(key, true, source, pose, 0u);
+    EXPECT_GT(again.ContentRevision, binding.ContentRevision) << "the rolled-back surface was not offered again";
+    cache.EndFrame();
+    EXPECT_FALSE(cache.IsOutputTrusted());
+    cache.Shutdown();
+    EXPECT_TRUE(cache.IsOutputTrusted());
+}
+
 // The ray-traced groom proxy's vertices: a same-shape deformed coat publishes a
 // fresh vertex allocation per frame on Vulkan, so a BLAS build from an earlier
 // frame keeps the strands it was recorded with. GroomSurfaceCache itself is

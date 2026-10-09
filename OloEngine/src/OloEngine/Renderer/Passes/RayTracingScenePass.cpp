@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingProbe.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingScene.h"
+#include "OloEngine/Renderer/RayTracing/DeformedSurfaceCache.h"
 #include "OloEngine/Renderer/RayTracing/GroomSurfaceCache.h"
 #include "OloEngine/Renderer/RayTracing/VegetationSurfaceCache.h"
 
@@ -127,7 +128,10 @@ namespace OloEngine
             gpuTimers.EndSubPass();
         }
         gpuTimers.BeginSubPass("AccelerationStructureBuild");
-        m_Scene->Update(*m_GPUScene, vegetationOutputTrusted);
+        // SkeletalDeformPass ran before this node; a dispatch it could not
+        // record leaves streams the records already name as rewritten (#1354).
+        const bool deformedOutputTrusted = m_Deformed == nullptr || m_Deformed->IsOutputTrusted();
+        m_Scene->Update(*m_GPUScene, vegetationOutputTrusted, deformedOutputTrusted);
         gpuTimers.EndSubPass();
         // The vegetation builds the backend could not record come back next
         // frame; the producer leaves room for them (VegetationBuildDebt).

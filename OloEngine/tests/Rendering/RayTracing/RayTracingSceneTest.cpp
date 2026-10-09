@@ -746,6 +746,55 @@ namespace OloEngine::Tests
         EXPECT_EQ(m_Backend->Builds[0].Reason, BuildReason::DeformedRefit);
     }
 
+    // #1354: the skinning producer rolled this frame's dispatches back after
+    // the records already named the new revision, so the deformed stream holds
+    // the previous pose (or zeros, for a surface seen for the first time).
+    // Building over it would publish obsolete output as current geometry. The
+    // previous structure stays, and the build happens once a dispatch lands.
+    TEST_F(RayTracingSceneFixture, ASkinnedBuildWaitsForAStreamItsProducerRolledBack)
+    {
+        const GPUSceneGeometryKey key = MakeGeometryKey(10, 20);
+        const auto stage = [&](u32 revision, bool trusted)
+        {
+            m_Backend->ClearRecording();
+            BeginFrame();
+            StageDeformedInstance(1, key, MakeTraceableGeometry(), MakeMaterial(), revision);
+            EndFrame();
+            m_Scene.Update(m_GPUScene, /*vegetationOutputTrusted*/ true, trusted);
+        };
+
+        // First sight with nothing written: no structure, so the instance stays
+        // out of the TLAS rather than tracing zeros.
+        stage(1u, false);
+        EXPECT_TRUE(m_Backend->Builds.empty()) << "a BLAS was built over a stream nothing wrote";
+        EXPECT_TRUE(m_Backend->LastInstances.empty());
+        EXPECT_EQ(m_Scene.GetStats().Frame.DeformedBuildsDeferred, 1u);
+
+        stage(1u, true);
+        ASSERT_EQ(m_Backend->Builds.size(), 1u);
+        EXPECT_EQ(m_Scene.GetStats().Frame.DeformedBuildsDeferred, 0u);
+
+        // A pose the producer rolled back: the resident structure stays, still
+        // matching the stream, and the refit is not committed as done.
+        stage(2u, false);
+        EXPECT_TRUE(m_Backend->Builds.empty());
+        EXPECT_EQ(m_Backend->LastInstances.size(), 1u) << "the character left the TLAS over one rolled-back frame";
+        stage(2u, true);
+        ASSERT_EQ(m_Backend->Builds.size(), 1u) << "the deferred refit was committed as though it ran";
+        EXPECT_EQ(m_Backend->Builds[0].Reason, BuildReason::DeformedRefit);
+
+        // Only skinned streams wait: a vegetation group has its own producer flag.
+        auto vegetation = MakeTraceableGeometry(0x5000, 0x6000);
+        vegetation.m_Flags |= GPUSceneGeometryFlagVegetation;
+        m_Backend->ClearRecording();
+        BeginFrame();
+        StageDeformedInstance(2, MakeGeometryKey(30, 40), vegetation, MakeMaterial(), 1u);
+        EndFrame();
+        m_Scene.Update(m_GPUScene, true, /*deformedOutputTrusted*/ false);
+        ASSERT_EQ(m_Backend->Builds.size(), 1u);
+        EXPECT_TRUE(m_Backend->Builds[0].Vegetation);
+    }
+
     TEST_F(RayTracingSceneFixture, GroomVertexVersionsRefitButShapeChangesRebuild)
     {
         const GPUSceneGeometryKey key = MakeGeometryKey(17, 23, std::numeric_limits<u32>::max());

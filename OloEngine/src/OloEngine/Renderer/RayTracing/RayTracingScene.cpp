@@ -355,7 +355,7 @@ namespace OloEngine::RayTracing
         return TlasBuildReason::Update;
     }
 
-    void RayTracingScene::Update(const GPUScene& scene, bool vegetationOutputTrusted)
+    void RayTracingScene::Update(const GPUScene& scene, bool vegetationOutputTrusted, bool deformedOutputTrusted)
     {
         OLO_PERF_SCOPE_AUTO("RayTracing::SceneUpdate");
         m_Stats.Frame.Reset();
@@ -578,8 +578,16 @@ namespace OloEngine::RayTracing
                 // frame's contents, or nothing at all. Dropping the request leaves
                 // the previous structure resident and untouched, which is exactly
                 // what a build the backend declines to record already means.
-                const bool buildableThisFrame =
-                    vegetationOutputTrusted || (entry.Record->Flags & GPUSceneGeometryFlagVegetation) == 0u;
+                // The same for a skinned surface (#1354): its producer rolled
+                // back this frame's dispatches after the record named the new
+                // revision, so the stream holds the previous pose (or zeros).
+                const u32 flags = entry.Record->Flags;
+                const bool vegetation = (flags & GPUSceneGeometryFlagVegetation) != 0u;
+                const bool skinned = (flags & GPUSceneGeometryFlagDeformed) != 0u && !vegetation &&
+                                     (flags & GPUSceneGeometryFlagGroom) == 0u;
+                const bool buildableThisFrame = (!vegetation || vegetationOutputTrusted) && (!skinned || deformedOutputTrusted);
+                if (reason.has_value() && skinned && !deformedOutputTrusted)
+                    ++m_Stats.Frame.DeformedBuildsDeferred;
                 if (reason.has_value() && buildableThisFrame)
                 {
                     // The pose and the refit run are NOT committed here. Reaching

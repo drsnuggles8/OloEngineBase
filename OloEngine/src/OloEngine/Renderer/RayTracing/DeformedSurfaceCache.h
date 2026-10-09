@@ -306,6 +306,18 @@ namespace OloEngine::RayTracing
             return !m_Queue.IsEmpty();
         }
 
+        // Whether every deformed stream this frame's GPU Scene records name
+        // holds what their content revision says (#1354). False when this
+        // frame's queue was rolled back (no palette, no shader) or was never
+        // recorded: Acquire has already handed out the new revision, so a
+        // build now would publish the previous pose, or zeros for a surface
+        // seen for the first time, as current geometry. RayTracingScene keeps
+        // the previous structures instead and builds once a dispatch lands.
+        [[nodiscard]] bool IsOutputTrusted() const
+        {
+            return !m_RolledBackThisFrame && m_Queue.IsEmpty();
+        }
+
         // --- Policy, exposed because it is the testable half -----------------
 
         // Bytes one surface's deformed stream needs. Named rather than
@@ -396,6 +408,8 @@ namespace OloEngine::RayTracing
         Ref<ComputeShader> m_Shader;
         Ref<UniformBuffer> m_Params;
         bool m_ShaderUnavailable = false;
+        // This frame's queue was rolled back after Acquire published it.
+        bool m_RolledBackThisFrame = false;
 
         DeformedSurfaceStats m_Stats{};
     };

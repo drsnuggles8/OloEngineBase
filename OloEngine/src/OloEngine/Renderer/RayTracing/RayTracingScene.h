@@ -300,7 +300,11 @@ namespace OloEngine::RayTracing
         // frame-level flag rather than a per-key set because readiness is
         // already all-or-nothing, so the TLAS is withheld from consumers on
         // that frame anyway and the unaffected groups rebuild on the next one.
-        void Update(const GPUScene& scene, bool vegetationOutputTrusted = true);
+        // `deformedOutputTrusted` is the same statement for skinned surfaces
+        // (DeformedSurfaceCache::IsOutputTrusted, #1354): false keeps every
+        // skinned structure as it is, consistent with the stream nothing
+        // rewrote, rather than building over the previous pose or over zeros.
+        void Update(const GPUScene& scene, bool vegetationOutputTrusted = true, bool deformedOutputTrusted = true);
 
         // Emit the AS-build -> AS-read barrier. Called by the render graph
         // pass that owns the hazard, not by Update, so the barrier sits where
