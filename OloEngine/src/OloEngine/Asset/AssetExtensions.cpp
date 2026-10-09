@@ -148,8 +148,9 @@ namespace OloEngine
         s_ExtensionMap["ply"] = AssetType::MeshSource;
 
         // Interchange formats (#655), each registered only when its translator is compiled in
-        // (OLO_WITH_* PUBLIC compile definitions), so an extension never maps to a type the
-        // build can't actually import.
+        // (the OLO_WITH_* compile definitions; OLO_WITH_USD reaches only this file and the USD
+        // importer's TUs, see OloEngine/CMakeLists.txt), so an extension never maps to a type
+        // the build can't actually import.
 #if defined(OLO_WITH_ALEMBIC)
         s_ExtensionMap["abc"] = AssetType::MeshSource; // Alembic geometry cache
 #endif

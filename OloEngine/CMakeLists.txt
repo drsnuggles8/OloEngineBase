@@ -467,10 +467,10 @@ if(OLO_WITH_MATERIALX)
 		# build: usd_m.lib's headers declare its symbols __declspec(dllimport) (the
 		# upstream default targets a shared build), so every one of the hundreds of
 		# pxr symbols UsdMeshImporter references is reported as "locally defined
-		# symbol imported". It is a linkage-style mismatch, not a correctness one —
-		# the symbols resolve to the static definitions and MeshInterchangeTest's USD
-		# cases verify importing works at runtime. Nothing actionable, hundreds of
-		# lines per link, so it buries real warnings.
+		# symbol imported". It is a linkage-style mismatch, not a correctness one:
+		# the symbols resolve to the static definitions. (No test imports a USD stage,
+		# so nothing in the suite checks that at runtime.) Nothing actionable, hundreds
+		# of lines per link, so it buries real warnings.
 		target_link_options(OloEngine PUBLIC "/FORCE:MULTIPLE" "/IGNORE:4006" "/IGNORE:4217")
 	endif()
 endif()
@@ -481,36 +481,33 @@ if(OLO_WITH_USD)
 	# by the install step), so it is NOT FetchContent'd. See docs/agent-rules/asset-import-usd-alembic.md.
 	include(${CMAKE_SOURCE_DIR}/cmake/vendor/OpenUSD.cmake)
 	add_dependencies(OloEngine olo_usd_ext)   # build USD before the engine (and downstream exe) link
-	# OLO_WITH_USD and USD's include directory reach ONLY the TUs that use them (#1386). USD's
-	# install prefix also ships its own oneTBB (2022.2), and as a PUBLIC include directory it sat
-	# ahead of vcpkg's on every engine, editor and test command line: OpenVDBVolumeCook.cpp and
-	# VolumeImportTest.cpp compiled OpenVDB's headers against USD's oneTBB while vcpkg's openvdb.lib
-	# was built against vcpkg's (2023.1). No header outside USD/ tests the macro, and
-	# UsdMeshImporter.h is included only by these TUs. They skip the precompiled header so a define
-	# the PCH was not built with is never mixed into one.
+	# OLO_WITH_USD and USD's include directory reach ONLY the TUs that use them (#1386). No header
+	# outside USD/ tests the macro, and UsdMeshImporter.h is included only by these TUs; a new
+	# `#if defined(OLO_WITH_USD)` elsewhere must be added to this list. USD's install prefix ships
+	# its own oneTBB headers (2022.2), and as a PUBLIC include directory they shadowed vcpkg's
+	# (2023.1) in every TU, OpenVDB's users included. The two static oneTBB libraries are still
+	# both linked (#1575). These TUs skip the precompiled header: a define the PCH was not
+	# built with must not be mixed into one, and MSVC's STL fixes its deprecation macros when the
+	# PCH is built, so the silencers below would arrive too late.
 	set(_olo_usd_tus
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/OloEngine/Asset/AssetExtensions.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/OloEngine/Asset/Interchange/MeshImporterRegistry.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/OloEngine/Asset/Interchange/USD/UsdMeshImporter.cpp")
-	set_source_files_properties(${_olo_usd_tus}
-		TARGET_DIRECTORY OloEngine
-		PROPERTIES
-			COMPILE_DEFINITIONS "OLO_WITH_USD=1"
-			SKIP_PRECOMPILE_HEADERS ON)
+	set_property(SOURCE ${_olo_usd_tus} TARGET_DIRECTORY OloEngine APPEND PROPERTY COMPILE_DEFINITIONS OLO_WITH_USD=1)
+	set_property(SOURCE ${_olo_usd_tus} TARGET_DIRECTORY OloEngine PROPERTY SKIP_PRECOMPILE_HEADERS ON)
 	unset(_olo_usd_tus)
 	# The USD paths carry a $<CONFIG> genexpr (config-matched build) so a Debug engine links Debug
 	# USD and a Release/RelWithDebInfo engine links Release USD — no CRT mismatch.
 	# USD's own headers use C++23-deprecated std::aligned_storage and has_denorm, which the
 	# -Werror=deprecated-declarations rule (#1501) would reject. Silence exactly those two, in
 	# the one TU that includes USD. Not SYSTEM: that reorders the search path and USD's
-	# headers then find vcpkg's oneTBB instead of the one USD was built against. The TU skips the
-	# precompiled header because MSVC's STL fixes its deprecation macros when the PCH is built, so
-	# a define on the source file alone arrives too late there.
-	set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/src/OloEngine/Asset/Interchange/USD/UsdMeshImporter.cpp"
-		TARGET_DIRECTORY OloEngine
-		PROPERTIES
-			INCLUDE_DIRECTORIES "${OloEngine_USD_INCLUDE_DIR}"
-			COMPILE_DEFINITIONS "OLO_WITH_USD=1;_SILENCE_CXX23_ALIGNED_STORAGE_DEPRECATION_WARNING;_SILENCE_CXX23_DENORM_DEPRECATION_WARNING")
+	# headers then find vcpkg's oneTBB instead of the one USD was built against.
+	set(_olo_usd_importer "${CMAKE_CURRENT_SOURCE_DIR}/src/OloEngine/Asset/Interchange/USD/UsdMeshImporter.cpp")
+	set_property(SOURCE "${_olo_usd_importer}" TARGET_DIRECTORY OloEngine APPEND PROPERTY
+		INCLUDE_DIRECTORIES "${OloEngine_USD_INCLUDE_DIR}")
+	set_property(SOURCE "${_olo_usd_importer}" TARGET_DIRECTORY OloEngine APPEND PROPERTY
+		COMPILE_DEFINITIONS _SILENCE_CXX23_ALIGNED_STORAGE_DEPRECATION_WARNING _SILENCE_CXX23_DENORM_DEPRECATION_WARNING)
+	unset(_olo_usd_importer)
 	# oneTBB auto-links tbb12(.|_debug.)lib via #pragma comment(lib) inside usd_m, so the config's
 	# lib dir must be on the linker search path. Shlwapi (Path*) + Dbghelp (Sym*) + Ws2_32 are the
 	# Windows system libs USD's Arch/Tf need (verified via the USD smoke test).
