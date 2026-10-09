@@ -133,10 +133,13 @@ namespace OloEngine::Tests
         EXPECT_EQ(Build::ExpandArtifact(runtime->Artifact, "Debug", /*windows*/ true),
                   "bin/Debug/OloRuntime/OloRuntime.exe");
 
+        // Archives are per build tree (#1386): a second tree in the worktree used to overwrite
+        // bin/<Config>/OloEngine/OloEngine.lib and the first tree then linked it unrebuilt.
         const Build::TargetSpec* engine = Build::FindTarget("OloEngine");
         ASSERT_NE(engine, nullptr);
-        EXPECT_EQ(Build::ExpandArtifact(engine->Artifact, "Debug", /*windows*/ true), "bin/Debug/OloEngine/OloEngine.lib");
-        EXPECT_EQ(Build::ExpandArtifact(engine->Artifact, "Debug", /*windows*/ false), "bin/Debug/OloEngine/libOloEngine.a");
+        EXPECT_TRUE(engine->ArtifactUnderBuildDir);
+        EXPECT_EQ(Build::ExpandArtifact(engine->Artifact, "Debug", /*windows*/ true), "lib/Debug/OloEngine/OloEngine.lib");
+        EXPECT_EQ(Build::ExpandArtifact(engine->Artifact, "Debug", /*windows*/ false), "lib/Debug/OloEngine/libOloEngine.a");
     }
 
     TEST(AutomationBuildTablesTest, TheBuildCommandIsAlwaysParallelCapped)

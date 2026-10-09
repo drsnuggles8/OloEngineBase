@@ -255,7 +255,6 @@ endif()
 target_include_directories(OloEngine PUBLIC
 	src
 	${filewatch_SOURCE_DIR}
-	vendor/glad-build/include
 	${pl_mpeg_SOURCE_DIR}
 	${lua_SOURCE_DIR}
 	${imgui_SOURCE_DIR}

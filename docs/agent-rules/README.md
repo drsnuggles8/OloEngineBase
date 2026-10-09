@@ -61,6 +61,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 ## Build and dependencies
 
 - [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md): never build msvc and clangcl trees together; caches, link bounds, memory, the local ASan recipe.
+- [worktree-shared-build-outputs.md](worktree-shared-build-outputs.md): write archives and generated headers under the build tree, never the source tree, or a second tree in the same worktree overwrites or deletes them.
 - [build-memory-per-tu.md](build-memory-per-tu.md): set `--parallel` and every memory cap from the published per-TU peak-RSS ranking, not from a remembered number.
 - [windows-codeview-links.md](windows-codeview-links.md): retain `/Z7`, bound lld workers as well as processes, and compare full-input link measurements before enabling GHASH.
 - [ci-oom-read-the-kernel-report.md](ci-oom-read-the-kernel-report.md): for a CI OOM kill, read the kernel's OOM report, which names the full cgroup and every resident process, before blaming a neighbour.
@@ -447,6 +448,7 @@ The same fact written in more than one place, with nothing enforcing agreement.
 | [runtime-scene-switching.md](runtime-scene-switching.md) | The build pipeline and the runtime must agree on an asset layout. |
 | [audio-voice-budget.md](audio-voice-budget.md) | One config field costs four edits, one of them silent. |
 | [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) | Two build trees writing the same generated files. |
+| [worktree-shared-build-outputs.md](worktree-shared-build-outputs.md) | A second build tree in the same worktree deleted glad's generated header mid-compile and overwrote the engine archives, which the first tree then linked without rebuilding. |
 | [windows-codeview-links.md](windows-codeview-links.md) | A process-count limit leaves lld worker pools unbounded; `/INCREMENTAL` can make CMake invoke lld twice. |
 | [build-memory-per-tu.md](build-memory-per-tu.md) | A build-memory number nobody re-measures: five sources disagreed by 3x while `--parallel` and two cgroup caps rested on it. An absolute records path silently zeroes the compiler cache's cross-tree hit rate; a relative one yields one file per subdirectory under Makefiles, and reading only the top-level file ranks the wrong fraction of the build. |
 | [build-trees-and-windows-asan.md §4b](build-trees-and-windows-asan.md#4b-live-toolchain-bug-a-throw-from-inside-a-catch-handler-avs-clang-cl--asan) | A throw executed inside a `catch` handler AVs under clang-cl ASan; the catch type and rethrow form are irrelevant. |
