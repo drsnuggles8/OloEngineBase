@@ -332,6 +332,44 @@ namespace OloEngine::Tests
         EXPECT_EQ(tier[0], Tier::Requested) << "a group that held its tier lost it while it still fitted";
     }
 
+    // A group that misses only the margin stays a card, and the pass goes on:
+    // a farther group that held its tier last frame keeps it while it fits.
+    // Ending the disc at a margin miss downgraded every group behind it, which
+    // then needed the margin too: the flip cascade the margin exists to stop.
+    TEST(VegetationCastingPlan, AMarginOnlyMisfitDoesNotDowngradeTheGroupsBehindIt)
+    {
+        const u64 margin = VegetationPolicy::GeometryBytes / VegetationPolicy::UpgradeMarginDivisor;
+        const CastingCost nearNotHeld{ { VegetationPolicy::GeometryBytes - margin / 2u, 0u, 0u, 0u, 1u }, { 1u, 0u, 0u, 0u, 1u }, true, false };
+        const CastingCost farHeld{ { margin / 2u, 0u, 0u, 0u, 1u }, { 1u, 0u, 0u, 0u, 1u }, true, true };
+        std::array<CastingCost, 2> groups{ nearNotHeld, farHeld };
+        std::array<Tier, 2> tiers{};
+        const auto plan = VegetationPolicy::ChooseCastingTiers(groups, tiers);
+        EXPECT_EQ(tiers[0], Tier::Fallback) << "an upgrade into the margin was granted to a group that did not hold its tier";
+        EXPECT_EQ(tiers[1], Tier::Requested) << "a margin miss in front took a held group's tier";
+        EXPECT_EQ(plan.Pressure, RayTracing::VegetationPressure::GeometryMemory);
+    }
+
+    // Several foliage systems share one cache: a plan starts from what the
+    // cache already holds this frame, or the second terrain's casters are
+    // admitted at the mesh into room the first one spent, and refused.
+    TEST(VegetationCastingPlan, APlanStartsFromWhatOtherProducersAlreadyHold)
+    {
+        const CastingCost group = MeshGroup(4u);
+        std::array<CastingCost, 2> two{ group, group };
+        std::array<Tier, 2> tiers{};
+        VegetationPolicy::PlanRoom room;
+        room.Take(VegetationPolicy::GeometryBytes - group.Fallback.GeometryBytes, 0u, 0u, 0.0, 0.0, 0.0);
+        const auto plan = VegetationPolicy::ChooseCastingTiers(two, tiers, room);
+        EXPECT_EQ(tiers, (std::array{ Tier::Fallback, Tier::Out })) << "the plan spent room another producer holds";
+        EXPECT_EQ(plan.Pressure, RayTracing::VegetationPressure::GeometryMemory);
+
+        VegetationPolicy::PlanRoom saturated;
+        saturated.Take(std::numeric_limits<u64>::max(), std::numeric_limits<u64>::max(), std::numeric_limits<u32>::max(), 1e30, 1e30, 1e30);
+        EXPECT_EQ(saturated.Geometry, 0u);
+        EXPECT_EQ(saturated.Groups, 0u);
+        EXPECT_DOUBLE_EQ(saturated.Builds, 0.0);
+    }
+
     // Reflection-only groups charge the resident-group cap as well: a group
     // the planner admits past it would be refused by the cache, and a refusal
     // withholds the TLAS from every reflection ray.

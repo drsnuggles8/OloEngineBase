@@ -300,11 +300,14 @@ namespace OloEngine::RayTracing
         // frame-level flag rather than a per-key set because readiness is
         // already all-or-nothing, so the TLAS is withheld from consumers on
         // that frame anyway and the unaffected groups rebuild on the next one.
-        // `deformedOutputTrusted` is the same statement for skinned surfaces
-        // (DeformedSurfaceCache::IsOutputTrusted, #1354): false keeps every
-        // skinned structure as it is, consistent with the stream nothing
-        // rewrote, rather than building over the previous pose or over zeros.
-        void Update(const GPUScene& scene, bool vegetationOutputTrusted = true, bool deformedOutputTrusted = true);
+        // `untrustedDeformedOutputs` is the same statement for skinned
+        // surfaces, per stream (DeformedSurfaceCache::GetUntrustedOutputs,
+        // #1354): a skinned geometry whose vertex address is listed keeps its
+        // structure as it is, consistent with the stream nothing rewrote,
+        // rather than being built over the previous pose or over zeros.
+        // Every other skinned surface builds as usual.
+        void Update(const GPUScene& scene, bool vegetationOutputTrusted = true,
+                    std::span<const u64> untrustedDeformedOutputs = {});
 
         // Emit the AS-build -> AS-read barrier. Called by the render graph
         // pass that owns the hazard, not by Update, so the barrier sits where
@@ -493,8 +496,6 @@ namespace OloEngine::RayTracing
         // run: nothing has failed yet, so the first complete frame publishes.
         u32 m_VegetationCleanFrames = VegetationPolicy::RecoveryFrames;
         u32 m_VegetationShadowCleanFrames = VegetationPolicy::RecoveryFrames;
-        bool m_VegetationPublished = true;
-        bool m_VegetationShadowPublished = true;
         u32 m_VegetationEngagements = 0u;
         u32 m_VegetationShadowEngagements = 0u;
         u64 m_FrameNumber = 0;

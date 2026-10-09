@@ -317,6 +317,15 @@ namespace OloEngine::RayTracing
         {
             return !m_RolledBackThisFrame && m_Queue.IsEmpty();
         }
+        // The device addresses of exactly those streams: rolled back this
+        // frame, or queued and not yet recorded. Every other deformed stream
+        // holds what its revision says and may be built over as usual.
+        void GetUntrustedOutputs(TArray<u64>& addresses) const
+        {
+            addresses = m_RolledBackOutputs;
+            for (const QueuedDispatch& item : m_Queue)
+                addresses.Add(item.OutputAddress);
+        }
 
         // --- Policy, exposed because it is the testable half -----------------
 
@@ -408,8 +417,10 @@ namespace OloEngine::RayTracing
         Ref<ComputeShader> m_Shader;
         Ref<UniformBuffer> m_Params;
         bool m_ShaderUnavailable = false;
-        // This frame's queue was rolled back after Acquire published it.
+        // This frame's queue was rolled back after Acquire published it,
+        // and the streams it named.
         bool m_RolledBackThisFrame = false;
+        TArray<u64> m_RolledBackOutputs;
 
         DeformedSurfaceStats m_Stats{};
     };

@@ -142,6 +142,7 @@ namespace OloEngine::RayTracing
         m_Params.Reset();
         m_ShaderUnavailable = false;
         m_RolledBackThisFrame = false;
+        m_RolledBackOutputs.Reset();
         m_Stats = DeformedSurfaceStats{};
     }
 
@@ -189,6 +190,8 @@ namespace OloEngine::RayTracing
         // frame's number.
         m_Stats.Refused += static_cast<u32>(m_Queue.Num());
         m_RolledBackThisFrame = m_RolledBackThisFrame || !m_Queue.IsEmpty();
+        for (const QueuedDispatch& item : m_Queue)
+            m_RolledBackOutputs.Add(item.OutputAddress);
         m_Queue.Reset();
     }
 
@@ -206,6 +209,7 @@ namespace OloEngine::RayTracing
         RollbackQueuedDispatches();
         // That rollback belongs to the frame before; this frame starts trusted.
         m_RolledBackThisFrame = false;
+        m_RolledBackOutputs.Reset();
         ++m_FrameNumber;
         m_Stats.ResetFrame();
         m_PaletteStaging.Reset();

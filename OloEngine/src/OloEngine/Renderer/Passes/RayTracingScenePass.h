@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -92,6 +93,8 @@ namespace OloEngine
         RayTracing::VegetationSurfaceCache* m_Vegetation = nullptr;
         RayTracing::GroomSurfaceCache* m_Grooms = nullptr;
         const RayTracing::DeformedSurfaceCache* m_Deformed = nullptr;
+        // Scratch: this frame's unwritten skinned streams (#1354).
+        TArray<u64> m_UntrustedDeformedOutputs;
         RayTracing::RayTracingProbe* m_Probe = nullptr;
     };
 } // namespace OloEngine

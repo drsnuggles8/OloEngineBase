@@ -754,13 +754,15 @@ namespace OloEngine::Tests
     TEST_F(RayTracingSceneFixture, ASkinnedBuildWaitsForAStreamItsProducerRolledBack)
     {
         const GPUSceneGeometryKey key = MakeGeometryKey(10, 20);
+        const std::array<u64, 1> unwritten{ MakeTraceableGeometry().m_VertexAddress };
         const auto stage = [&](u32 revision, bool trusted)
         {
             m_Backend->ClearRecording();
             BeginFrame();
             StageDeformedInstance(1, key, MakeTraceableGeometry(), MakeMaterial(), revision);
             EndFrame();
-            m_Scene.Update(m_GPUScene, /*vegetationOutputTrusted*/ true, trusted);
+            m_Scene.Update(m_GPUScene, /*vegetationOutputTrusted*/ true,
+                           trusted ? std::span<const u64>{} : std::span<const u64>{ unwritten });
         };
 
         // First sight with nothing written: no structure, so the instance stays
@@ -783,16 +785,22 @@ namespace OloEngine::Tests
         ASSERT_EQ(m_Backend->Builds.size(), 1u) << "the deferred refit was committed as though it ran";
         EXPECT_EQ(m_Backend->Builds[0].Reason, BuildReason::DeformedRefit);
 
-        // Only skinned streams wait: a vegetation group has its own producer flag.
-        auto vegetation = MakeTraceableGeometry(0x5000, 0x6000);
+        // Only the listed streams wait: another character whose stream was
+        // written builds, and a vegetation group at that address has its own
+        // producer flag.
+        auto vegetation = MakeTraceableGeometry(unwritten[0], 0x6000);
         vegetation.m_Flags |= GPUSceneGeometryFlagVegetation;
         m_Backend->ClearRecording();
         BeginFrame();
+        StageDeformedInstance(1, key, MakeTraceableGeometry(), MakeMaterial(), 2u);
         StageDeformedInstance(2, MakeGeometryKey(30, 40), vegetation, MakeMaterial(), 1u);
+        StageDeformedInstance(3, MakeGeometryKey(50, 60), MakeTraceableGeometry(0x7000, 0x8000), MakeMaterial(), 1u);
         EndFrame();
-        m_Scene.Update(m_GPUScene, true, /*deformedOutputTrusted*/ false);
-        ASSERT_EQ(m_Backend->Builds.size(), 1u);
-        EXPECT_TRUE(m_Backend->Builds[0].Vegetation);
+        m_Scene.Update(m_GPUScene, true, unwritten);
+        ASSERT_EQ(m_Backend->Builds.size(), 2u) << "a written stream waited for another one's rollback";
+        EXPECT_EQ(m_Scene.GetStats().Frame.DeformedBuildsDeferred, 0u) << "the resident character needed nothing";
+        for (const auto& build : m_Backend->Builds)
+            EXPECT_TRUE(build.Vegetation || build.VertexAddress == 0x7000u);
     }
 
     TEST_F(RayTracingSceneFixture, GroomVertexVersionsRefitButShapeChangesRebuild)

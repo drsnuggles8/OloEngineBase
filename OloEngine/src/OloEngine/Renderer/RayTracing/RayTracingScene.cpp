@@ -146,8 +146,6 @@ namespace OloEngine::RayTracing
         m_VegetationBuildDebt = {};
         m_VegetationCleanFrames = VegetationPolicy::RecoveryFrames;
         m_VegetationShadowCleanFrames = VegetationPolicy::RecoveryFrames;
-        m_VegetationPublished = true;
-        m_VegetationShadowPublished = true;
         m_VegetationEngagements = 0u;
         m_VegetationShadowEngagements = 0u;
     }
@@ -361,7 +359,7 @@ namespace OloEngine::RayTracing
         return TlasBuildReason::Update;
     }
 
-    void RayTracingScene::Update(const GPUScene& scene, bool vegetationOutputTrusted, bool deformedOutputTrusted)
+    void RayTracingScene::Update(const GPUScene& scene, bool vegetationOutputTrusted, std::span<const u64> untrustedDeformedOutputs)
     {
         OLO_PERF_SCOPE_AUTO("RayTracing::SceneUpdate");
         m_Stats.Frame.Reset();
@@ -591,8 +589,10 @@ namespace OloEngine::RayTracing
                 const bool vegetation = (flags & GPUSceneGeometryFlagVegetation) != 0u;
                 const bool skinned = (flags & GPUSceneGeometryFlagDeformed) != 0u && !vegetation &&
                                      (flags & GPUSceneGeometryFlagGroom) == 0u;
-                const bool buildableThisFrame = (!vegetation || vegetationOutputTrusted) && (!skinned || deformedOutputTrusted);
-                if (reason.has_value() && skinned && !deformedOutputTrusted)
+                const bool streamUntrusted = skinned && std::ranges::find(untrustedDeformedOutputs, entry.Record->VertexAddress) !=
+                                                            untrustedDeformedOutputs.end();
+                const bool buildableThisFrame = (!vegetation || vegetationOutputTrusted) && !streamUntrusted;
+                if (reason.has_value() && streamUntrusted)
                     ++m_Stats.Frame.DeformedBuildsDeferred;
                 if (reason.has_value() && buildableThisFrame)
                 {
@@ -681,17 +681,15 @@ namespace OloEngine::RayTracing
                                               { return !build.Vegetation || m_Backend->WasBlasBuildRecorded(build.Key); });
         // The technique's hysteresis (#1354), once a frame: this frame's raw
         // readiness extends or breaks the run of complete frames.
-        const auto publish = [](bool complete, u32& cleanFrames, bool& published, u32& engagements)
+        const auto publish = [](bool complete, u32& cleanFrames, u32& engagements)
         {
+            const bool was = cleanFrames >= VegetationPolicy::RecoveryFrames;
             const bool now = VegetationPolicy::Recovered(complete, cleanFrames);
-            if (published && !now)
+            if (was && !now)
                 ++engagements;
-            published = now;
         };
-        publish(m_VegetationProducerReady && m_VegetationBuildsReady, m_VegetationCleanFrames, m_VegetationPublished,
-                m_VegetationEngagements);
-        publish(m_VegetationCastersReady && m_VegetationBuildsReady, m_VegetationShadowCleanFrames, m_VegetationShadowPublished,
-                m_VegetationShadowEngagements);
+        publish(m_VegetationProducerReady && m_VegetationBuildsReady, m_VegetationCleanFrames, m_VegetationEngagements);
+        publish(m_VegetationCastersReady && m_VegetationBuildsReady, m_VegetationShadowCleanFrames, m_VegetationShadowEngagements);
         if (!everyBuildRecorded)
         {
             OLO_CORE_WARN("[RayTracing] {} of {} BLAS builds could not be recorded this frame",

@@ -84,6 +84,10 @@ namespace OloEngine::RayTracing
         /// read as no change, and a tier switch reads as one. 0: derived from
         /// FirstPlantId and the plant count.
         u64 PlantSetSum = 0u;
+        /// The producer's content generation (the foliage registry's): it
+        /// advances when plants are edited in place, which moves geometry
+        /// the plant ids alone cannot see, so it is part of the signature.
+        u64 ContentGeneration = 0u;
     };
 
     /// One plant's share of VegetationSurfaceInput::PlantSetSum.
@@ -118,7 +122,8 @@ namespace OloEngine
                                       TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::AccelerationBytes)>::Value &&
                                       TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::ContentKey)>::Value &&
                                       TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::HeldPlantCount)>::Value &&
-                                      TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::PlantSetSum)>::Value;
+                                      TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::PlantSetSum)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::ContentGeneration)>::Value;
     };
 } // namespace OloEngine
 
@@ -169,6 +174,7 @@ namespace OloEngine::RayTracing
         /// clock step it was planned for (VegetationPolicy::RefreshRate).
         f32 CastingDemandBuilds = 0.0f;
         f32 CastingDemandVertices = 0.0f;
+        f32 CastingDemandTriangles = 0.0f;
         f32 PlanFrameSeconds = 0.0f;
         /// The nearest casting group traced below its requested tier, metres;
         /// 0 with none. Near (hero) quality holds while this stays far out.

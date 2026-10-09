@@ -785,6 +785,9 @@ namespace OloEngine
         // previous time the scene re-seeds reads as a clock that stands still.
         mutable f32 m_PlanAnimationTime = -1.0f;
         mutable f32 m_PlanFieldTime = -1.0f;
+        // The last step each clock actually took, kept while it stands still.
+        mutable f32 m_PlanAnimationStep = 0.0f;
+        mutable f32 m_PlanFieldStep = 0.0f;
 
         TArray<LayerRenderData> m_Layers;
         FoliageInstanceRegistry m_Registry;

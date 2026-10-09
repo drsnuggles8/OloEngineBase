@@ -371,6 +371,16 @@ namespace OloEngine::RayTracing
                     return VegetationPressure::FrameWork;
                 return VegetationPressure::None;
             }
+            // What other producers already hold this frame, saturating.
+            void Take(u64 geometry, u64 acceleration, u32 groups, f64 vertices, f64 triangles, f64 builds) noexcept
+            {
+                Geometry -= std::min(Geometry, geometry);
+                Acceleration -= std::min(Acceleration, acceleration);
+                Groups -= std::min(Groups, groups);
+                Vertices = std::max(Vertices - vertices, 0.0);
+                Triangles = std::max(Triangles - triangles, 0.0);
+                Builds = std::max(Builds - builds, 0.0);
+            }
             void Spend(const PlanCharge& charge) noexcept
             {
                 Groups -= charge.Groups;
@@ -433,17 +443,23 @@ namespace OloEngine::RayTracing
                 if (!group.HasFallback)
                     continue; // already at its requested tier: no misfit
                 const PlanCharge extra = PlanCharge::Upgrade(requested(group), cheapest(group));
-                const VegetationPressure misfit = upgrading ? room.Misfit(extra, group.WasRequested ? 0u : UpgradeMarginDivisor)
-                                                            : VegetationPressure::FrameWork;
-                if (misfit == VegetationPressure::None)
+                // A group that only misses the margin (it was not at its
+                // requested tier last frame) stays a card and the pass goes
+                // on: the groups behind it that held their tier keep it while
+                // it still fits. Only a real misfit ends the disc.
+                const VegetationPressure misfit = upgrading ? room.Misfit(extra, 0u) : VegetationPressure::FrameWork;
+                const bool fitsWithMargin = misfit == VegetationPressure::None &&
+                                            (group.WasRequested || room.Misfit(extra, UpgradeMarginDivisor) == VegetationPressure::None);
+                if (fitsWithMargin)
                 {
                     room.Spend(extra);
                     tiers[i] = CastingTier::Requested;
                     continue;
                 }
                 if (upgrading && plan.Pressure == VegetationPressure::None)
-                    plan.Pressure = misfit;
-                upgrading = false;
+                    plan.Pressure = misfit != VegetationPressure::None ? misfit : room.Misfit(extra, UpgradeMarginDivisor);
+                if (misfit != VegetationPressure::None)
+                    upgrading = false;
                 Accumulate(plan.Recovery, Difference(group.Requested, group.Fallback));
             }
             for (sizet i = 0u; i < count; ++i)

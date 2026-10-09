@@ -211,6 +211,7 @@ namespace OloEngine::RayTracing
             return;
         m_Stats.CastingDemandBuilds += static_cast<f32>(plan.DemandBuilds);
         m_Stats.CastingDemandVertices += static_cast<f32>(plan.DemandVertices);
+        m_Stats.CastingDemandTriangles += static_cast<f32>(plan.DemandTriangles);
         m_Stats.PlanFrameSeconds = frameSeconds;
         m_Stats.CastingGroupsPlanned += plan.Requested + plan.Fallbacks + plan.Out;
         m_Stats.CastingFallbackGroups += plan.Fallbacks;
@@ -641,6 +642,7 @@ namespace OloEngine::RayTracing
             tier.Mix(RHI::HashKey(input.Rest->GetRHIHandle()));
             tier.Mix(input.VertexCount);
             tier.Mix(static_cast<u32>(proxy) | (static_cast<u32>(input.CastShadows) << 1u));
+            tier.Mix(input.ContentGeneration);
             const u64 plantSet = input.PlantSetSum != 0u ? input.PlantSetSum
                                                          : VegetationPlantTerm(input.FirstPlantId) * static_cast<u64>(plants);
             signature += plantSet * (tier.Value | 1u);
