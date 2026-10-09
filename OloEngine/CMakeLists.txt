@@ -262,7 +262,6 @@ target_include_directories(OloEngine PUBLIC
 	${imgui_SOURCE_DIR}/examples
 	${imguizmo_SOURCE_DIR}
 	${sol2_SOURCE_DIR}/include
-	vendor/stb_image-build/include
 	mono/include
 	# The pinned Vulkan 1.4.357 headers (#691 Phase 4) must come BEFORE the installed
 	# SDK's include dir on the next line — /I order decides which <vulkan/vulkan_core.h>

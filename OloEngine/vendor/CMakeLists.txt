@@ -340,10 +340,12 @@ FetchContent_Declare(stb_image
 	GIT_SHALLOW FALSE)
 FetchContent_MakeAvailable(stb_image)
 add_library(stb_image INTERFACE)
-file(COPY ${stb_image_SOURCE_DIR}/stb_image.h DESTINATION "${PROJECT_SOURCE_DIR}/vendor/stb_image-build/include/stb_image")
-file(COPY ${stb_image_SOURCE_DIR}/stb_image_write.h DESTINATION "${PROJECT_SOURCE_DIR}/vendor/stb_image-build/include/stb_image")
-file(COPY ${stb_image_SOURCE_DIR}/stb_truetype.h DESTINATION "${PROJECT_SOURCE_DIR}/vendor/stb_image-build/include/stb_image")
-set(STBIMAGE_INSTALL_DIR "${PROJECT_SOURCE_DIR}/vendor/stb_image-build")
+# Copied into this build tree, like glad above (#1386), and published through the target.
+foreach(_olo_stb_header stb_image.h stb_image_write.h stb_truetype.h)
+	file(COPY ${stb_image_SOURCE_DIR}/${_olo_stb_header} DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/stb_image-build/include/stb_image")
+endforeach()
+unset(_olo_stb_header)
+target_include_directories(stb_image INTERFACE "${CMAKE_CURRENT_BINARY_DIR}/stb_image-build/include")
 
 CPMAddPackage(NAME imgui
 	GITHUB_REPOSITORY ocornut/imgui
