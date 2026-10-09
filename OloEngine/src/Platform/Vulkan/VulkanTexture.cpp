@@ -397,10 +397,11 @@ namespace OloEngine
         // either usage fails image creation.
         const bool isBlockCompressed = IsCompressedFormat(m_Specification.Format);
 
-        // Every image is a copy SOURCE where the format allows it: GetData reads
-        // a block image back with vkCmdCopyImageToBuffer too (#1533). A block
-        // format is asked for the feature rather than assumed, and one without
-        // it still loads and samples; only its readback is refused.
+        // Images are copy SOURCES: GetData reads them back with
+        // vkCmdCopyImageToBuffer, block images included (#1533). Only a block
+        // format is asked for the TRANSFER_SRC feature (an uncompressed or depth
+        // format is assumed to have it, as before); one without it still loads
+        // and samples, and only its readback is refused.
         VkImageUsageFlags usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         bool copySource = true;
         if (isBlockCompressed)

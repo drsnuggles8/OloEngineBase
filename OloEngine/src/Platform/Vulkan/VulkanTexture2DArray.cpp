@@ -63,10 +63,14 @@ namespace OloEngine
         // the device can actually sample and receive transfers in that format.
         // Ask, and say so by name if the answer is no — an unsupported format
         // must not become a plausible-looking image that samples as garbage.
+        // TRANSFER_SRC is not part of that requirement: it is requested below
+        // only where the format reports it (#1386), as VulkanTexture2D does.
+        bool copySource = true;
         if (spec.Format == Texture2DArrayFormat::BC7)
         {
             VkFormatProperties props{};
             vkGetPhysicalDeviceFormatProperties(device->GetPhysicalDevice(), format, &props);
+            copySource = (props.optimalTilingFeatures & VK_FORMAT_FEATURE_TRANSFER_SRC_BIT) != 0;
             // LINEAR filtering is part of the requirement, not a nicety: the
             // terrain VT cache binds with a default RHI::SamplerDesc, whose
             // Vulkan lowering is VK_FILTER_LINEAR on both min and mag. Accepting
@@ -125,7 +129,7 @@ namespace OloEngine
         {
             colourUsage = 0;
         }
-        imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+        imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | (copySource ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0u) |
                           VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                           (isDepth ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT : colourUsage);
         imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
