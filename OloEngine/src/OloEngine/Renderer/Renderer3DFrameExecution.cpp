@@ -247,8 +247,22 @@ namespace OloEngine
                                          std::span<const GroomStrandRequest>(s_Data.GroomStrandRequests.GetData(),
                                                                              static_cast<sizet>(s_Data.GroomStrandRequests.Num())),
                                          WantsRayTracingGrooms());
-            if (s_Data.RGraph && (s_Data.VegetationSurfaces.GetStats().HistoryReset ||
-                                  s_Data.GroomSurfaces.GetStats().StreamingInvalidations != 0))
+            if (s_Data.RGraph && s_Data.VegetationSurfaces.GetStats().HistoryReset)
+            {
+                // A change of the TRACED vegetation (plants entering or leaving
+                // the scene, a tier or time-resolution switch, a lost wind
+                // history) cannot be reprojected from raster velocity: the
+                // raster plant did not move, its ray-traced stand-in did. Reset
+                // the histories whose samples hit that stand-in (#1354): the
+                // shadow mask, and the reservoirs whose visibility and bounce
+                // rays trace the same TLAS. TAA accumulates the raster frame,
+                // which did not change; resetting it here aliased the whole
+                // screen on every frame the camera re-sliced the plants.
+                for (const TemporalHistoryEffect effect : { TemporalHistoryEffect::RayTracedShadow, TemporalHistoryEffect::ReSTIRDI,
+                                                            TemporalHistoryEffect::ReSTIRGI })
+                    s_Data.RGraph->InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual, effect);
+            }
+            if (s_Data.RGraph && s_Data.GroomSurfaces.GetStats().StreamingInvalidations != 0)
             {
                 // A shape/time-resolution switch cannot be reprojected from
                 // raster velocity. Reset the histories that consume hybrid RT.

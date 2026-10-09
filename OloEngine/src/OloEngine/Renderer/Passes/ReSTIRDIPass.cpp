@@ -269,6 +269,7 @@ namespace OloEngine
             .ShadersReady = IsReadyForExecution(),
             .RayTracingAvailable = rayTracingAvailable,
             .TlasReady = tlasReady,
+            .TlasWithheld = rayTracingAvailable && m_RayTracingScene->IsShadowTlasWithheld(),
             .GPUSceneAvailable = gpuSceneAvailable,
             .TargetsAvailable = graphResourcesResolved,
             // Fed by the pipeline from the registry's RECORDED descriptors, not

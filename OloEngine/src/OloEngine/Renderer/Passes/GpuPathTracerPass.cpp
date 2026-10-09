@@ -278,7 +278,8 @@ namespace OloEngine
         // A zero TLAS address is a DIFFERENT state from "no RT device": no
         // structure has been built yet, or the scene staged nothing traceable.
         else if (m_RayTracingScene->GetTlasDeviceAddress() == 0u)
-            reason = GpuPathTracerFallbackReason::AccelerationStructureEmpty;
+            reason = m_RayTracingScene->IsTlasWithheld() ? GpuPathTracerFallbackReason::AccelerationStructureWithheld
+                                                         : GpuPathTracerFallbackReason::AccelerationStructureEmpty;
         else if (m_GPUScene == nullptr || m_GPUScene->GetInstanceSlotCount() == 0u)
             reason = GpuPathTracerFallbackReason::GPUSceneUnavailable;
         // The area-light gather is decided at BeginScene from the same setting

@@ -144,6 +144,12 @@ namespace OloEngine::RayTracing
         m_VegetationCastersReady = true;
         m_VegetationBuildsReady = true;
         m_VegetationBuildDebt = {};
+        m_VegetationCleanFrames = VegetationPolicy::RecoveryFrames;
+        m_VegetationShadowCleanFrames = VegetationPolicy::RecoveryFrames;
+        m_VegetationPublished = true;
+        m_VegetationShadowPublished = true;
+        m_VegetationEngagements = 0u;
+        m_VegetationShadowEngagements = 0u;
     }
 
     void RayTracingScene::SetBackendForTesting(std::unique_ptr<IRayTracingBackend> backend)
@@ -673,6 +679,19 @@ namespace OloEngine::RayTracing
         m_VegetationBuildsReady = everyBuildRecorded ||
                                   std::all_of(m_PendingBuilds.begin(), m_PendingBuilds.end(), [this](const auto& build)
                                               { return !build.Vegetation || m_Backend->WasBlasBuildRecorded(build.Key); });
+        // The technique's hysteresis (#1354), once a frame: this frame's raw
+        // readiness extends or breaks the run of complete frames.
+        const auto publish = [](bool complete, u32& cleanFrames, bool& published, u32& engagements)
+        {
+            const bool now = VegetationPolicy::Recovered(complete, cleanFrames);
+            if (published && !now)
+                ++engagements;
+            published = now;
+        };
+        publish(m_VegetationProducerReady && m_VegetationBuildsReady, m_VegetationCleanFrames, m_VegetationPublished,
+                m_VegetationEngagements);
+        publish(m_VegetationCastersReady && m_VegetationBuildsReady, m_VegetationShadowCleanFrames, m_VegetationShadowPublished,
+                m_VegetationShadowEngagements);
         if (!everyBuildRecorded)
         {
             OLO_CORE_WARN("[RayTracing] {} of {} BLAS builds could not be recorded this frame",
@@ -776,6 +795,16 @@ namespace OloEngine::RayTracing
     u64 RayTracingScene::GetShadowTlasDeviceAddress() const
     {
         return IsAvailable() && IsVegetationReadyForShadowRays() ? m_Backend->GetTlasDeviceAddress() : 0u;
+    }
+
+    bool RayTracingScene::IsTlasWithheld() const
+    {
+        return IsAvailable() && !IsVegetationReady() && m_Backend->GetTlasDeviceAddress() != 0u;
+    }
+
+    bool RayTracingScene::IsShadowTlasWithheld() const
+    {
+        return IsAvailable() && !IsVegetationReadyForShadowRays() && m_Backend->GetTlasDeviceAddress() != 0u;
     }
 
     u64 RayTracingScene::GetShadowTlasDeviceAddressForTrace() const

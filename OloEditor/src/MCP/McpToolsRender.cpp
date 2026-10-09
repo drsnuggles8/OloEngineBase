@@ -7143,6 +7143,14 @@ namespace OloEngine::MCP
                 snapshot.Deformed = Renderer3D::GetDeformedSurfaceCache().GetStats();
                 snapshot.Vegetation = Renderer3D::GetVegetationSurfaceCache().GetStats();
                 snapshot.VegetationReady = Renderer3D::GetRayTracingScene().IsVegetationReady();
+                snapshot.VegetationShadowReady = Renderer3D::GetRayTracingScene().IsVegetationReadyForShadowRays();
+                snapshot.TlasWithheld = Renderer3D::GetRayTracingScene().IsTlasWithheld();
+                snapshot.ShadowTlasWithheld = Renderer3D::GetRayTracingScene().IsShadowTlasWithheld();
+                const auto recovery = Renderer3D::GetRayTracingScene().GetVegetationRecovery();
+                snapshot.RecoveryFramesRemaining = recovery.FramesRemaining;
+                snapshot.ShadowRecoveryFramesRemaining = recovery.ShadowFramesRemaining;
+                snapshot.FallbackEngagements = recovery.Engagements;
+                snapshot.ShadowFallbackEngagements = recovery.ShadowEngagements;
                 snapshot.Grooms = Renderer3D::GetGroomSurfaceCache().GetStats();
             }
             snapshot.State.Freshness = StatsSnapshot::FreshnessModel::PreviousFrame;
@@ -9969,11 +9977,17 @@ namespace OloEngine::MCP
             tool.Name = "olo_rt_vegetation_diagnostic";
             tool.Toolset = "render";
             tool.Title = "Vegetation update benchmark override";
-            tool.Description = "Transient diagnostic override for detailed-versus-temporal benchmarks. Does not change canonical plants, raster LOD, wind or budgets. Not saved to scenes or assets. Omit forceDetailed to read; false restores automatic distance selection.";
+            tool.Description = "Transient diagnostic overrides for vegetation ray tracing. forceDetailed: every group refreshes at full detail every frame (the complete high-quality reference). budgetDivisor: every vegetation budget behaves as 1/N of itself, to stress the complete fallbacks (#1354); 1 restores it. Does not change canonical plants, raster LOD or wind. Not saved to scenes or assets. Omit both to read.";
             tool.Annotations = MutatingAnnotations(true);
             tool.ProjectWrite = true;
-            tool.InputSchema = Schema::Object().Prop("forceDetailed", Schema::Bool()).NoAdditional();
-            tool.OutputSchema = Schema::Object().Prop("forceDetailed", Schema::Bool()).Required({ "forceDetailed" });
+            tool.InputSchema = Schema::Object()
+                                   .Prop("forceDetailed", Schema::Bool())
+                                   .Prop("budgetDivisor", Schema::Int().Min(1).Max(1024))
+                                   .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("forceDetailed", Schema::Bool())
+                                    .Prop("budgetDivisor", Schema::Int().Min(1))
+                                    .Required({ "forceDetailed", "budgetDivisor" });
             tool.MainMarshaled = true;
             tool.Handler = [](IAutomationHost& host, const Json& args) -> ToolResult
             {
@@ -9985,7 +9999,10 @@ namespace OloEngine::MCP
                                                                {
                     if (args.contains("forceDetailed"))
                         RayTracing::VegetationDiagnostics::SetForceDetailed(args["forceDetailed"].get<bool>());
-                    return Json{ { "forceDetailed", RayTracing::VegetationDiagnostics::GetForceDetailed() } }; }));
+                    if (args.contains("budgetDivisor"))
+                        RayTracing::VegetationDiagnostics::SetBudgetDivisor(static_cast<u32>(std::clamp<i64>(args["budgetDivisor"].get<i64>(), 1, 1024)));
+                    return Json{ { "forceDetailed", RayTracing::VegetationDiagnostics::GetForceDetailed() },
+                                 { "budgetDivisor", RayTracing::VegetationDiagnostics::GetBudgetDivisor() } }; }));
             };
             registry.Register(std::move(tool));
         }
@@ -10086,6 +10103,7 @@ namespace OloEngine::MCP
                                        .Prop("tlasUpdates", Schema::Int().Min(0))
                                        .Prop("instancesTraced", Schema::Int().Min(0))
                                        .Prop("instancesSkipped", Schema::Int().Min(0))
+                                       .Prop("deformedBuildsDeferred", Schema::Int().Min(0).Desc("Skinned-surface builds held back because the deformation producer rolled back this frame's dispatches; the previous structure stays (#1354)."))
                                        .Prop("blasBuildGpuTimeChannel", Schema::String().Desc("Where the AS build's GPU time actually lives. The former blasBuildGpuNs/tlasBuildGpuNs counters were never written by anything and reported 0 forever, so they are gone (#1337).")))
                     .Prop("vegetation", Schema::Object()
                                             .Prop("ready", Schema::Bool())
@@ -10109,7 +10127,28 @@ namespace OloEngine::MCP
                                             .Prop("verticesDeformed", Schema::Int().Min(0))
                                             .Prop("reused", Schema::Int().Min(0))
                                             .Prop("refused", Schema::Int().Min(0))
-                                            .Prop("historyReset", Schema::Bool()))
+                                            .Prop("historyReset", Schema::Bool().Desc("The traced vegetation changed (plants in or out, a tier or time-resolution switch, lost wind history); the RT shadow and ReSTIR histories are reset. A regroup at the same tier is not a change (#1354)."))
+                                            .Prop("groupsCreated", Schema::Int().Min(0).Desc("Groups first seen this frame: with groupsRetired, the churn a camera move causes by re-slicing plants, which is not a representation change by itself (#1354)."))
+                                            .Prop("groupsRetired", Schema::Int().Min(0))
+                                            .Prop("shadowReady", Schema::Bool())
+                                            .Prop("tlasWithheld", Schema::Bool().Desc("A TLAS exists and vegetation readiness withholds it from reflections, ReSTIR GI and the path tracer: the explicit technique fallback (#1354)."))
+                                            .Prop("shadowTlasWithheld", Schema::Bool().Desc("The same for ray-traced shadows and ReSTIR DI."))
+                                            .Prop("recoveryFramesRemaining", Schema::Int().Min(0).Desc("Consecutive complete frames still needed before the withheld TLAS is published again (hysteresis)."))
+                                            .Prop("shadowRecoveryFramesRemaining", Schema::Int().Min(0))
+                                            .Prop("fallbackEngagements", Schema::Int().Min(0).Desc("Times the TLAS was withheld after being published; oscillation shows here first."))
+                                            .Prop("shadowFallbackEngagements", Schema::Int().Min(0))
+                                            .Prop("pressure", Schema::String().Desc("The pressure source that pushed the most groups below their requested quality this frame: none, frameWork, buildDebt, geometryMemory, accelerationMemory, residentGroups, invalidContent or producerFailure."))
+                                            .Prop("pressureGroups", Schema::Object().Desc("Groups each pressure source pushed below their request this frame."))
+                                            .Prop("castingGroupsPlanned", Schema::Int().Min(0))
+                                            .Prop("castingFallbackGroups", Schema::Int().Min(0).Desc("Casting groups traced as their complete lower-cost tier (cards) because the requested mesh did not fit memory or a full refresh."))
+                                            .Prop("castingGroupsLeftOut", Schema::Int().Min(0).Desc("Casting groups that fit at no tier: refused, so shadow rays fall back to the raster."))
+                                            .Prop("nearestCastingFallback", Schema::Number().Min(0).Desc("Metres to the nearest casting group below its requested tier; 0 with none."))
+                                            .Prop("cadenceHolds", Schema::Int().Min(0).Desc("Casting groups that kept a snapshot inside the proxy deadline because their refresh did not fit."))
+                                            .Prop("deferredReflectionGroups", Schema::Int().Min(0).Desc("Reflection-only groups with no usable snapshot whose build did not fit: left out this frame and counted."))
+                                            .Prop("deferredReflectionPlants", Schema::Int().Min(0))
+                                            .Prop("oldestSnapshotAge", Schema::Number().Min(0).Desc("Seconds: the oldest wind snapshot published this frame."))
+                                            .Prop("oldestSnapshotError", Schema::Number().Min(0).Desc("Metres: the displacement its velocity bound allows."))
+                                            .Prop("recovery", Schema::Object().Desc("What restoring the requested quality would cost: geometryBytes, accelerationBytes, vertices, triangles, builds.")))
                     // Groom coat proxies (issue #1253). Emitted for EVERY status, like
                     // gpuScene and vegetation and for the same reason: a coat that could
                     // not be represented is one of the things that makes the RT scene

@@ -22,6 +22,7 @@
 #include <functional>
 #include <string>
 #include <map>
+#include <unordered_set>
 #include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
@@ -773,6 +774,11 @@ namespace OloEngine
         };
         static constexpr f32 kReflectionSplitTolerance = 0.25f;
         mutable ReflectionSplit m_ReflectionSplit;
+        // The casting groups traced at their requested tier last frame
+        // (#1354), by layer and first plant: their upgrade needs no margin
+        // (VegetationPolicy::UpgradeMarginDivisor), so a group at the edge of
+        // the plan keeps its tier instead of flipping every frame.
+        mutable std::unordered_set<u64> m_CastingRequested;
 
         TArray<LayerRenderData> m_Layers;
         FoliageInstanceRegistry m_Registry;

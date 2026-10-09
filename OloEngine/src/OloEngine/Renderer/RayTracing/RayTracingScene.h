@@ -343,13 +343,41 @@ namespace OloEngine::RayTracing
         {
             m_VegetationCastersReady = ready;
         }
+        // Readiness with the technique's hysteresis (#1354): a gap withholds
+        // the TLAS at once, and it is published again only after
+        // VegetationPolicy::RecoveryFrames consecutive complete Updates, so
+        // demand at the budget degrades the technique once instead of
+        // switching it on and off every frame.
         [[nodiscard]] bool IsVegetationReady() const
         {
-            return m_VegetationProducerReady && m_VegetationBuildsReady;
+            return m_VegetationProducerReady && m_VegetationBuildsReady &&
+                   m_VegetationCleanFrames >= VegetationPolicy::RecoveryFrames;
         }
         [[nodiscard]] bool IsVegetationReadyForShadowRays() const
         {
-            return m_VegetationCastersReady && m_VegetationBuildsReady;
+            return m_VegetationCastersReady && m_VegetationBuildsReady &&
+                   m_VegetationShadowCleanFrames >= VegetationPolicy::RecoveryFrames;
+        }
+        // A TLAS exists and vegetation readiness withholds it (#1354): the
+        // explicit technique fallback, distinct from "no TLAS was ever built".
+        [[nodiscard]] bool IsTlasWithheld() const;
+        [[nodiscard]] bool IsShadowTlasWithheld() const;
+        struct VegetationRecovery
+        {
+            /// Complete Updates still needed before each TLAS is published.
+            u32 FramesRemaining = 0u;
+            u32 ShadowFramesRemaining = 0u;
+            /// Times each was withheld after being published: the technique
+            /// fallback engaging. Oscillation shows here first.
+            u32 Engagements = 0u;
+            u32 ShadowEngagements = 0u;
+        };
+        [[nodiscard]] VegetationRecovery GetVegetationRecovery() const
+        {
+            const auto remaining = [](u32 clean)
+            { return clean >= VegetationPolicy::RecoveryFrames ? 0u : VegetationPolicy::RecoveryFrames - clean; };
+            return { remaining(m_VegetationCleanFrames), remaining(m_VegetationShadowCleanFrames), m_VegetationEngagements,
+                     m_VegetationShadowEngagements };
         }
         /// The vegetation builds the backend did not record in the last
         /// Update, which it is asked for again next frame (#1533).
@@ -461,6 +489,14 @@ namespace OloEngine::RayTracing
         bool m_VegetationCastersReady = true;
         VegetationBuildDebt m_VegetationBuildDebt;
         bool m_VegetationBuildsReady = true;
+        // The hysteresis (VegetationPolicy::Recovered). Starting at the full
+        // run: nothing has failed yet, so the first complete frame publishes.
+        u32 m_VegetationCleanFrames = VegetationPolicy::RecoveryFrames;
+        u32 m_VegetationShadowCleanFrames = VegetationPolicy::RecoveryFrames;
+        bool m_VegetationPublished = true;
+        bool m_VegetationShadowPublished = true;
+        u32 m_VegetationEngagements = 0u;
+        u32 m_VegetationShadowEngagements = 0u;
         u64 m_FrameNumber = 0;
         u32 m_PreviousInstanceCount = 0;
         bool m_EverBuiltTlas = false;

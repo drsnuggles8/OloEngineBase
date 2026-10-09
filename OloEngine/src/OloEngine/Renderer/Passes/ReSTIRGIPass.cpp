@@ -281,6 +281,7 @@ namespace OloEngine
             .ShadersReady = IsReadyForExecution(),
             .RayTracingAvailable = rayTracingAvailable,
             .TlasReady = tlasReady,
+            .TlasWithheld = rayTracingAvailable && m_RayTracingScene->IsTlasWithheld(),
             .GPUSceneAvailable = gpuSceneAvailable,
             .TargetsAvailable = graphResourcesResolved,
             .HistoryLayoutMatches = m_HistoryLayoutMatches,
