@@ -467,10 +467,13 @@ namespace OloEngine
     };
 
     // GPU bytes a FoliageRenderer holds, by what they are for (issue #1391).
-    // Logical sizes, from the same walk over the layers that produces
-    // FFoliageStreamingStats::PinnedGpuBytes and OptionalGpuBytes, so the
-    // categories add up to those two figures by construction rather than
-    // being a second tally beside them.
+    // Logical sizes. The pinned categories ARE FFoliageStreamingStats::
+    // PinnedGpuBytes, split: RefreshStreamingStats takes it from PinnedBytes(),
+    // so the two cannot drift. The optional categories are the near-field
+    // mesh's logical sizes, which is what OptionalGpuBytes charges too EXCEPT
+    // for a streamed layer the representation budget admitted, which it charges
+    // the physical bytes it was admitted at; with streaming on the two may
+    // differ by the allocator's padding.
     struct FFoliageMemoryBreakdown
     {
         // Pinned: the drawable floor every layer keeps.
@@ -828,6 +831,7 @@ namespace OloEngine
         mutable bool m_WarnedCullUnavailable = false;
         bool m_WarnedShadowViewOverflow = false;
         bool m_WarnedTooManyParts = false;
+        bool m_WarnedCullBracketSkipped = false;
         glm::mat4 m_TerrainTransform{ 1.0f };
         u32 m_VisibleInstances = 0;
         f32 m_LegacyWindEnvelope = 2.0f;

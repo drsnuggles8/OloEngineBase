@@ -106,6 +106,15 @@ Consequences you must not undo:
   migration is permanent, so one read poisons every subsequent frame. Staging it fixed it
   (0 × 131188, verified with the copy and the staged read traced to prove the path still
   ran — a silenced warning and a disabled poll look identical, see §0).
+  **`FoliageGPUCuller::ReadbackResult` was the second (#1391).** The cull census read the
+  state header, indirect args and compacted instance stream straight off the buffers the next
+  frame's cull writes and the foliage pass draws from. Every count it returned was right; what
+  moved was everything after it. One readback of the main view left its cull 0.09 → 1.9 ms
+  and its forward draw 3 → 21 ms for the rest of the process (RTX 4090, GL), with identical
+  survivor counts, while the shadow views it never read stayed put. The foliage cost baseline
+  had been measuring the readback for every cell after its first census. It now goes through
+  `StagedBufferReadback`, and `FoliageCostBaselineTest.ReadingTheCullBackLeavesLaterFramesAsCheap`
+  times the cull before and after a readback (red at 13x with the direct read).
 - **The poll needs a flush to make progress.** In the engine, SwapBuffers flushes every frame, so
   this is free. A *test* presents nothing, so it must flush itself — see
   `GPUReadbackStatsEvidenceTest::FlushAndWaitForGPU`. Without it the fences never submit and the

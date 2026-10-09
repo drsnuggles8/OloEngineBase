@@ -2874,6 +2874,15 @@ namespace OloEngine
         const bool timed = !gpuTimers.IsPassOpen() && !RenderCommand::IsRecordingParallelItem();
         if (timed)
             gpuTimers.BeginPass("FoliageCull");
+        else if (!m_WarnedCullBracketSkipped)
+        {
+            // Never silent: without the bracket the cull is back in no pass at
+            // all, and a baseline reading 'FoliageCull' would read it as free.
+            OLO_CORE_WARN("FoliageRenderer: the main-view cull was dispatched inside another GPU timer bracket (or "
+                          "a parallel recording item), so its time is not in 'FoliageCull'. Further frames not "
+                          "logged.");
+            m_WarnedCullBracketSkipped = true;
+        }
         m_MainViewCulled = CullForView(static_cast<u32>(FoliageGPUCuller::ViewSlot::Main),
                                        MakeCullInputs(worldViewProjection, viewWorldPosition));
         if (timed)
