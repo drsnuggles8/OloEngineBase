@@ -47,9 +47,6 @@ jobs:
       # The same action, and therefore the same cache entry, the hosted sanitizer
       # jobs use. That is the point: this job's verdict is only worth something if
       # its toolchain IS theirs.
-      - name: Restore full model and groom assets
-        uses: ./.github/actions/restore-lfs-assets
-
       - name: Setup pinned shader toolchain
         id: shaderc
         uses: ./.github/actions/setup-shader-toolchain-linux

@@ -1,0 +1,10 @@
+# Keep the repository UI settings and review source changes, not opaque asset blobs.
+inheritance: true
+reviews:
+  path_filters:
+    # Exact override of CodeRabbit's default shader exclusion; other source stays eligible.
+    - '**/*.glsl'
+    - '!**/*.abc'
+    - '!**/*.oar'
+    - '!**/*.ologroom'
+    - '!**/*.ologroombinding'

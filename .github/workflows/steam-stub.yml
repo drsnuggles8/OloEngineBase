@@ -260,9 +260,6 @@ jobs:
       # runner kind this landed on. The jinja2 pin, the apt-repo scrub and the
       # clang/libstdc++ reasoning that used to be spelled out here all live in that
       # action now -- they were identical in four workflows and drifted twice.
-      - name: Restore full model and groom assets
-        uses: ./.github/actions/restore-lfs-assets
-
       - name: Setup Linux build environment
         id: linux
         uses: ./.github/actions/setup-linux-build
