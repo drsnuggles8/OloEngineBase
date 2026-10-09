@@ -269,18 +269,22 @@ def main() -> int:
                                                 'arms': {a: summarise_arm(s) for a, s in arms.items()}})
                         print(f'[foliage-live] {subject} {pose["name"]} {path} {shadows} done', flush=True)
                         args.output.write_text(json.dumps(result, indent=1), encoding='utf-8')
-            if subject == 'Traversal' and not result['tails']:
+            if subject == 'Traversal':
+                measured_tails = {(t['pose'], t['path']) for t in result['tails']}
                 for path in args.paths.split(','):
                     editor.setting('renderpath', path)
                     editor.setting('virtualshadowmaps', 'off')
                     for pose in (poses[0], poses[len(poses) // 2], poses[-1]):
+                        if (pose['name'], path) in measured_tails:
+                            continue
                         editor.pose(pose)
                         time.sleep(args.settle)
                         # The history is a rolling ring with no reset: wait until
                         # it can only hold frames of THIS pose and path, with a
                         # margin, rather than a fixed time a slow frame outlasts.
-                        frame_ms = editor.sample(1, args.spacing)[0]['frameTimeMs'] or 50.0
-                        time.sleep(max(args.tail_seconds, 1.25 * 1024 * frame_ms / 1000.0))
+                        frame_ms = median([s['frameTimeMs'] for s in editor.sample(5, args.spacing)]) or 50.0
+                        ring = editor.tool('olo_perf_frame_history', points=1).get('totalFrames') or 1024
+                        time.sleep(max(args.tail_seconds, 1.5 * ring * frame_ms / 1000.0))
                         history = editor.tool('olo_perf_frame_history', raw=True)
                         result['tails'].append({'pose': pose['name'], 'path': path, 'shadows': 'CSM',
                                                 'history': history})

@@ -149,13 +149,30 @@ def median(values):
     return statistics.median(values) if values else None
 
 
+def finite(value):
+    """A pass median, or None: a bracket whose every sample was invalid has a
+    null median, and None must stay None rather than turn into 0 ms."""
+    return value if isinstance(value, (int, float)) and value == value else None
+
+
+def total(values):
+    values = list(values)
+    return None if any(v is None for v in values) else sum(values)
+
+
 def foliage_brackets(passes: dict) -> dict:
-    """Split one arm's pass medians into foliage's own brackets."""
-    cull_main = passes.get('FoliageCull', 0.0)
-    cull_shadow = sum(v for k, v in passes.items() if k.endswith('/FoliageCull'))
-    casters = sum(v for k, v in passes.items() if k.endswith('/FoliageCasters'))
-    draw = passes.get('FoliagePass', 0.0) + passes.get('FoliagePrepassPass', 0.0)
-    return {'cullMain': cull_main, 'cullShadow': cull_shadow, 'shadowCasters': casters, 'forwardDraw': draw}
+    """Split one arm's pass medians into foliage's own brackets. An absent
+    bracket is a pass that did not run (0 ms); a null one is unmeasured."""
+    def ms(name):
+        return finite(passes[name]) if name in passes else 0.0
+    return {'cullMain': ms('FoliageCull'),
+            'cullShadow': total(finite(v) for k, v in passes.items() if k.endswith('/FoliageCull')),
+            'shadowCasters': total(finite(v) for k, v in passes.items() if k.endswith('/FoliageCasters')),
+            'forwardDraw': total((ms('FoliagePass'), ms('FoliagePrepassPass')))}
+
+
+def delta(a, b):
+    return None if a is None or b is None else a - b
 
 
 def run_number(path: Path) -> int:
@@ -249,15 +266,16 @@ def summarise_cell(cell: dict) -> dict:
     if 'NoFoliage' in arms:
         none = arms['NoFoliage']
         out['frameDeltaVsNoFoliage'] = shipped['gpuMs']['p50'] - none['gpuMs']['p50']
-        out['scenePassDeltaVsNoFoliage'] = (shipped['passMedianMs'].get('ScenePass', 0.0) -
-                                            none['passMedianMs'].get('ScenePass', 0.0))
-        out['shadowPassDeltaVsNoFoliage'] = (shipped['passMedianMs'].get('ShadowPass', 0.0) -
-                                             none['passMedianMs'].get('ShadowPass', 0.0))
+        out['scenePassDeltaVsNoFoliage'] = delta(finite(shipped['passMedianMs'].get('ScenePass', 0.0)),
+                                                 finite(none['passMedianMs'].get('ScenePass', 0.0)))
+        out['shadowPassDeltaVsNoFoliage'] = delta(finite(shipped['passMedianMs'].get('ShadowPass', 0.0)),
+                                                  finite(none['passMedianMs'].get('ShadowPass', 0.0)))
     for arm in ('CpuCull', 'NoDensityLod'):
         if arm in arms:
             out['frameDelta' + arm] = arms[arm]['gpuMs']['p50'] - shipped['gpuMs']['p50']
     out['missingGpuSamples'] = sum(a['missingGpuSamples'] for a in arms.values())
     out['overflowFrames'] = sum(a['overflowFrames'] for a in arms.values())
+    out['invalidBracketSamples'] = sum(a.get('invalidBracketSamples', 0) for a in arms.values())
     return out
 
 

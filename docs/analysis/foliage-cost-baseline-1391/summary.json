@@ -603,6 +603,11 @@
      "median": 13.4646,
      "max": 13.4646
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -693,6 +698,11 @@
      "min": 18.0613,
      "median": 18.0613,
      "max": 18.0613
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 1,
@@ -785,6 +795,11 @@
      "median": 19.7837,
      "max": 19.7837
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -875,6 +890,11 @@
      "min": 18.7566,
      "median": 18.7566,
      "max": 18.7566
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -967,6 +987,11 @@
      "median": 16.0942,
      "max": 16.0942
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -1057,6 +1082,11 @@
      "min": 21.0022,
      "median": 21.0022,
      "max": 21.0022
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -1149,6 +1179,11 @@
      "median": 17.5442,
      "max": 17.5442
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -1238,6 +1273,11 @@
      "min": 10.582,
      "median": 11.5594,
      "max": 12.5368
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0.0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -1329,6 +1369,11 @@
      "median": 12.6858,
      "max": 13.0263
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0.0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0.0,
@@ -1416,6 +1461,11 @@
      "min": 47.8566,
      "median": 47.8566,
      "max": 47.8566
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 1,
@@ -1505,6 +1555,11 @@
      "median": 65.751,
      "max": 65.751
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -1592,6 +1647,11 @@
      "min": 68.2435,
      "median": 68.2435,
      "max": 68.2435
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -1681,6 +1741,11 @@
      "median": 57.2662,
      "max": 57.2662
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -1768,6 +1833,11 @@
      "min": 59.9101,
      "median": 59.9101,
      "max": 59.9101
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -1857,6 +1927,11 @@
      "median": 68.3674,
      "max": 68.3674
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -1944,6 +2019,11 @@
      "min": 57.7372,
      "median": 57.7372,
      "max": 57.7372
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -2033,6 +2113,11 @@
      "median": 34.8416,
      "max": 34.8416
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -2120,6 +2205,11 @@
      "min": 35.7908,
      "median": 35.7908,
      "max": 35.7908
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -2209,6 +2299,11 @@
      "median": 15.5208,
      "max": 15.5208
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -2296,6 +2391,11 @@
      "min": 21.0033,
      "median": 21.0033,
      "max": 21.0033
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -2385,6 +2485,11 @@
      "median": 20.6756,
      "max": 20.6756
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -2472,6 +2577,11 @@
      "min": 19.8533,
      "median": 19.8533,
      "max": 19.8533
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -2561,6 +2671,11 @@
      "median": 17.4459,
      "max": 17.4459
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -2648,6 +2763,11 @@
      "min": 24.1736,
      "median": 24.1736,
      "max": 24.1736
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -2737,6 +2857,11 @@
      "median": 18.6173,
      "max": 18.6173
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -2824,6 +2949,11 @@
      "min": 12.3689,
      "median": 12.3689,
      "max": 12.3689
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -2913,6 +3043,11 @@
      "median": 13.1308,
      "max": 13.1308
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -3000,6 +3135,11 @@
      "min": 48.6513,
      "median": 48.6513,
      "max": 48.6513
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 1,
@@ -3089,6 +3229,11 @@
      "median": 66.7095,
      "max": 66.7095
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -3176,6 +3321,11 @@
      "min": 67.9588,
      "median": 67.9588,
      "max": 67.9588
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -3265,6 +3415,11 @@
      "median": 59.6838,
      "max": 59.6838
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -3352,6 +3507,11 @@
      "min": 59.8374,
      "median": 59.8374,
      "max": 59.8374
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -3441,6 +3601,11 @@
      "median": 67.4601,
      "max": 67.4601
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -3528,6 +3693,11 @@
      "min": 54.0457,
      "median": 54.0457,
      "max": 54.0457
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -3617,6 +3787,11 @@
      "median": 32.4311,
      "max": 32.4311
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -3704,6 +3879,11 @@
      "min": 36.5773,
      "median": 36.5773,
      "max": 36.5773
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -3793,6 +3973,11 @@
      "median": 15.4819,
      "max": 15.4819
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -3880,6 +4065,11 @@
      "min": 20.8189,
      "median": 20.8189,
      "max": 20.8189
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -3969,6 +4159,11 @@
      "median": 22.014,
      "max": 22.014
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -4056,6 +4251,11 @@
      "min": 16.6195,
      "median": 16.6195,
      "max": 16.6195
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -4145,6 +4345,11 @@
      "median": 17.6097,
      "max": 17.6097
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -4232,6 +4437,11 @@
      "min": 19.8164,
      "median": 19.8164,
      "max": 19.8164
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -4321,6 +4531,11 @@
      "median": 16.7393,
      "max": 16.7393
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -4408,6 +4623,11 @@
      "min": 11.735,
      "median": 11.735,
      "max": 11.735
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -4497,6 +4717,11 @@
      "median": 10.4346,
      "max": 10.4346
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -4584,6 +4809,11 @@
      "min": 48.8663,
      "median": 48.8663,
      "max": 48.8663
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -4673,6 +4903,11 @@
      "median": 66.6235,
      "max": 66.6235
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -4760,6 +4995,11 @@
      "min": 67.1672,
      "median": 67.1672,
      "max": 67.1672
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -4849,6 +5089,11 @@
      "median": 47.9191,
      "max": 47.9191
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -4936,6 +5181,11 @@
      "min": 56.7511,
      "median": 56.7511,
      "max": 56.7511
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -5025,6 +5275,11 @@
      "median": 59.1841,
      "max": 59.1841
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -5112,6 +5367,11 @@
      "min": 51.6946,
      "median": 51.6946,
      "max": 51.6946
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -5201,6 +5461,11 @@
      "median": 32.4803,
      "max": 32.4803
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -5288,6 +5553,11 @@
      "min": 29.695,
      "median": 29.695,
      "max": 29.695
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -5377,6 +5647,11 @@
      "median": 21.1988,
      "max": 21.1988
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -5464,6 +5739,11 @@
      "min": 16.9912,
      "median": 16.9912,
      "max": 16.9912
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -5553,6 +5833,11 @@
      "median": 21.801,
      "max": 21.801
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -5640,6 +5925,11 @@
      "min": 75.8292,
      "median": 75.8292,
      "max": 75.8292
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -5729,6 +6019,11 @@
      "median": 72.2801,
      "max": 72.2801
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -5816,6 +6111,11 @@
      "min": 71.0564,
      "median": 71.0564,
      "max": 71.0564
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -5905,6 +6205,11 @@
      "median": 20.7688,
      "max": 20.7688
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -5992,6 +6297,11 @@
      "min": 16.6584,
      "median": 16.6584,
      "max": 16.6584
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -6081,6 +6391,11 @@
      "median": 21.4415,
      "max": 21.4415
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -6168,6 +6483,11 @@
      "min": 76.1836,
      "median": 76.1836,
      "max": 76.1836
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -6257,6 +6577,11 @@
      "median": 72.2166,
      "max": 72.2166
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -6344,6 +6669,11 @@
      "min": 70.9366,
      "median": 70.9366,
      "max": 70.9366
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -6433,6 +6763,11 @@
      "median": 10.0178,
      "max": 10.0178
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -6520,6 +6855,11 @@
      "min": 9.003,
      "median": 9.003,
      "max": 9.003
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -6609,6 +6949,11 @@
      "median": 9.6758,
      "max": 9.6758
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -6696,6 +7041,11 @@
      "min": 65.1049,
      "median": 65.1049,
      "max": 65.1049
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -6785,6 +7135,11 @@
      "median": 68.4575,
      "max": 68.4575
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -6872,6 +7227,11 @@
      "min": 69.8931,
      "median": 69.8931,
      "max": 69.8931
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -6961,6 +7321,11 @@
      "median": 18.5283,
      "max": 18.5283
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -7048,6 +7413,11 @@
      "min": 17.3967,
      "median": 17.3967,
      "max": 17.3967
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -7137,6 +7507,11 @@
      "median": 16.98,
      "max": 16.98
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -7224,6 +7599,11 @@
      "min": 80.2785,
      "median": 80.2785,
      "max": 80.2785
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -7313,6 +7693,11 @@
      "median": 98.2467,
      "max": 98.2467
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -7400,6 +7785,11 @@
      "min": 80.1096,
      "median": 80.1096,
      "max": 80.1096
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -7489,6 +7879,11 @@
      "median": 18.4238,
      "max": 18.4238
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -7576,6 +7971,11 @@
      "min": 16.9155,
      "median": 16.9155,
      "max": 16.9155
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -7665,6 +8065,11 @@
      "median": 17.0865,
      "max": 17.0865
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -7752,6 +8157,11 @@
      "min": 80.4157,
      "median": 80.4157,
      "max": 80.4157
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -7841,6 +8251,11 @@
      "median": 98.9501,
      "max": 98.9501
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -7928,6 +8343,11 @@
      "min": 80.0512,
      "median": 80.0512,
      "max": 80.0512
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -8017,6 +8437,11 @@
      "median": 12.715,
      "max": 12.715
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -8104,6 +8529,11 @@
      "min": 12.6362,
      "median": 12.6362,
      "max": 12.6362
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 1,
@@ -8193,6 +8623,11 @@
      "median": 12.0433,
      "max": 12.0433
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -8280,6 +8715,11 @@
      "min": 100.8282,
      "median": 100.8282,
      "max": 100.8282
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 1,
@@ -8369,6 +8809,11 @@
      "median": 115.328,
      "max": 115.328
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -8457,6 +8902,11 @@
      "median": 109.1738,
      "max": 109.1738
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -8534,6 +8984,11 @@
      "min": 14.4753,
      "median": 14.4753,
      "max": 14.4753
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 2,
@@ -8613,6 +9068,11 @@
      "median": 15.3221,
      "max": 15.3221
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 3,
      "median": 3,
@@ -8690,6 +9150,11 @@
      "min": 9.6041,
      "median": 9.6041,
      "max": 9.6041
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 6,
@@ -8769,6 +9234,11 @@
      "median": 15.9457,
      "max": 15.9457
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -8846,6 +9316,11 @@
      "min": 19.3085,
      "median": 19.3085,
      "max": 19.3085
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -8925,6 +9400,11 @@
      "median": 11.8241,
      "max": 11.8241
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -9002,6 +9482,11 @@
      "min": 17.1059,
      "median": 17.1059,
      "max": 17.1059
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,
@@ -9081,6 +9566,11 @@
      "median": 20.6254,
      "max": 20.6254
     },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
+    },
     "missingGpuSamples": {
      "min": 0,
      "median": 0,
@@ -9158,6 +9648,11 @@
      "min": 12.6423,
      "median": 12.6423,
      "max": 12.6423
+    },
+    "invalidBracketSamples": {
+     "min": 0,
+     "median": 0,
+     "max": 0
     },
     "missingGpuSamples": {
      "min": 0,

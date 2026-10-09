@@ -791,7 +791,8 @@ namespace OloEngine::Tests
             EXPECT_EQ(window.OverflowFrames, 0u) << "frames ran out of GPU timer brackets";
             const PassTotals& frame = window.Passes.back();
             for (const auto& bracket : cell.Brackets)
-                EXPECT_TRUE(frame.contains(bracket)) << "no valid '" << bracket << "' bracket";
+                EXPECT_TRUE(frame.contains(bracket) && std::isfinite(frame.at(bracket)))
+                    << "no valid '" << bracket << "' bracket";
             const auto culls = window.LastFrameBracketCounts.find("ShadowPass/FoliageCull");
             const u32 shadowCulls = culls == window.LastFrameBracketCounts.end() ? 0u : culls->second;
             std::printf("[foliage-cost] %s %s: %u shadow-view cull bracket(s), %zu bracket names\n", PathName(cell.Path),
@@ -932,12 +933,17 @@ namespace OloEngine::Tests
         {
             Tick(pose, 8);
             const Window window = Measure(pose, 12);
+            // Only frames that stamped the bracket: a missing one is a broken
+            // instrument, which the finiteness check below fails on, not a
+            // zero-cost cull.
             std::vector<f64> cull;
             std::vector<f64> draw;
             for (const auto& frame : window.Passes)
             {
-                cull.push_back(frame.contains("FoliageCull") ? frame.at("FoliageCull") : 0.0);
-                draw.push_back(frame.contains("FoliagePass") ? frame.at("FoliagePass") : 0.0);
+                if (frame.contains("FoliageCull"))
+                    cull.push_back(frame.at("FoliageCull"));
+                if (frame.contains("FoliagePass"))
+                    draw.push_back(frame.at("FoliagePass"));
             }
             return std::pair{ Percentile(cull, 0.5), Percentile(draw, 0.5) };
         };
@@ -954,6 +960,8 @@ namespace OloEngine::Tests
                     cullBefore, cullAfter, drawBefore, drawAfter);
 
         ASSERT_GT(readLayers, 0u) << "nothing was read back, so nothing was tested";
+        ASSERT_TRUE(std::isfinite(cullBefore) && std::isfinite(cullAfter))
+            << "no valid 'FoliageCull' bracket to compare (see FoliageRenderer::DispatchMainViewCulling)";
         if (cullBefore <= 0.0)
             GTEST_SKIP() << "the timestamps are too coarse to time a sub-millisecond cull on this device";
         // On the CULL, whose regression was 13-22x: a 4x bound sits far from it

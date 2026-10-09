@@ -446,6 +446,18 @@ namespace OloEngine
             return false;
         }
 
+        // The staging buffer grows to the whole compacted stream; a census is
+        // occasional, so it is handed back after every read rather than held
+        // as host-visible memory the memory report does not count.
+        struct ReleaseStaging
+        {
+            StagedBufferReadback& Staging;
+            ~ReleaseStaging()
+            {
+                Staging.Release();
+            }
+        } releaseStaging{ m_Readback };
+
         // Everything the kernels wrote has to have landed before the read. This
         // is the one place a full barrier is the right instrument rather than a
         // targeted one: the call is a deliberate stall already, and getting the
