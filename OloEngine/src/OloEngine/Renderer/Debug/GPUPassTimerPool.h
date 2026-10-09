@@ -196,6 +196,16 @@ namespace OloEngine
             return m_Initialized;
         }
 
+        /// @brief True while a top-level bracket is open. Work stamped from
+        /// outside the render graph (a dispatch made at scene submission)
+        /// opens its own top-level bracket only when this is false: BeginPass
+        /// would ignore it, and the matching EndPass would then close the
+        /// bracket that was already open.
+        [[nodiscard]] bool IsPassOpen() const
+        {
+            return m_PassOpen;
+        }
+
         /// @brief The most recently resolved frame's timings, frame identity and
         /// age, as one consistent snapshot. Returns a copy so callers reading
         /// via a main-thread marshal (e.g. the MCP diagnostics server) get a

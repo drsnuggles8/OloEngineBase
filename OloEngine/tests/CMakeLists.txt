@@ -854,6 +854,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/CookedCutoutCoverageEvidenceTest.cpp
 		Rendering/PropertyTests/FloraTraversalEvidenceTest.cpp
 		Rendering/PropertyTests/FloraLooseCookedParityEvidenceTest.cpp
+		Rendering/PropertyTests/FoliageCostBaselineTest.cpp
         Rendering/PropertyTests/FoliageGPUCullEvidenceTest.cpp
         Rendering/PropertyTests/FoliageWindEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageLeafMaterialTest.cpp
