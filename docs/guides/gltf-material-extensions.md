@@ -130,7 +130,7 @@ data still loads with the neutral defaults:
 |---|---|
 | Scene YAML (`MaterialComponent`) | Keys omitted at their defaults, so pre-#970 scenes re-serialize byte-identical. A missing `AttenuationDistance` means `+∞`. |
 | `.omaterial` (`MaterialAssetSerializer`) | A `PhysicalMaterial` block, written only when the material is non-neutral. Deliberately *not* in the generic `Properties` bag, which round-trips into uniforms rather than the typed setters. |
-| `.omesh` / asset pack (`ImportedMaterialCodec`) | Read unconditionally. The codec accepts only its current wire version (3 since #1499) and rejects an older blob, so the mesh must be re-imported; `OMeshFormat::CurrentVersion` moves with each codec bump so a warm `.omesh` is re-imported rather than decode-failing into a material-less mesh, and `AssetPackFile::Version` moves with it (6 since #1496) so an older pack is rejected with "rebuild the pack". |
+| `.omesh` / asset pack (`ImportedMaterialCodec`) | Read unconditionally. The codec accepts only its current wire version (4 since #1259, which added the thickness map; 3 since #1499) and rejects an older blob, so the mesh must be re-imported; `OMeshFormat::CurrentVersion` moves with each codec bump so a warm `.omesh` is re-imported rather than decode-failing into a material-less mesh, and `AssetPackFile::Version` moves with it (8 since #1259) so an older pack is rejected with "rebuild the pack". |
 | Save-game | Read unconditionally. The save game reads one format version and rejects any other (#1498). |
 
 ## Authoring

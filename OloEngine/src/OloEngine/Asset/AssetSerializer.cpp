@@ -3456,7 +3456,7 @@ namespace OloEngine
             // the last moment a developer can fix it by importing the texture.
             for (const auto& desc : materialDescs)
             {
-                for (const auto* slot : { &desc.Albedo, &desc.MetallicRoughness, &desc.Normal, &desc.AO, &desc.Emissive })
+                for (const auto* slot : { &desc.Albedo, &desc.MetallicRoughness, &desc.Normal, &desc.AO, &desc.Emissive, &desc.Thickness })
                 {
                     if (static_cast<u64>(slot->Handle) == 0 && !slot->Path.empty())
                     {

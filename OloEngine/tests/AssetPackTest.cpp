@@ -113,8 +113,8 @@ TEST(AssetPackFileTest, DefaultHeaderHasCorrectMagicAndVersion)
 {
     AssetPackFile::FileHeader header;
     EXPECT_EQ(header.MagicNumber, 0x504C4F4F);
-    // v7 (#1533): v6 packs recorded every offset 4 bytes per index entry late.
-    EXPECT_EQ(header.Version, 7u);
+    // v8 (#1259): the MeshSource record's imported-material blob carries the thickness map.
+    EXPECT_EQ(header.Version, 8u);
     EXPECT_EQ(header.Version, AssetPackFile::Version);
 }
 

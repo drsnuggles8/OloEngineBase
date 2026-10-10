@@ -126,7 +126,12 @@ namespace OloEngine
         // skeleton the file holds, so a cached rig would keep its missing sockets -- and a
         // groom binding cooked against the full skeleton would be refused against it --
         // after the importer began keeping them.
-        constexpr u32 CurrentVersion = 14;
+        //
+        // v15 adds no section. It invalidates every v14 cache because ImportedMaterialCodec
+        // went to wire version 4 (#1259: each record now carries the KHR_materials_volume
+        // thickness map) and rejects the v3 blob a v14 file holds. Without the bump a warm
+        // load would decode-fail that section and serve the mesh with NO materials.
+        constexpr u32 CurrentVersion = 15;
 
         constexpr u32 FlagCompressed = 1;   // Payload is zlib-compressed (always set; required by the reader)
         constexpr u32 FlagPreOptimized = 2; // Mesh was already optimized before caching
