@@ -357,6 +357,7 @@ namespace OloEngine
             key.Add(entry.Descriptor.MipLevels);
             key.Add(entry.Descriptor.Samples);
             key.Add(entry.Descriptor.LayoutVersion);
+            key.Add(entry.Descriptor.Backend);
         }
         return key.Get();
     }

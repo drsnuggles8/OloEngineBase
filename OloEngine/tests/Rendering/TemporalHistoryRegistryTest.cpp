@@ -25,6 +25,25 @@ namespace OloEngine::Tests
         // reproject, and the reprojecting SSGI/SSR fixtures here must not.
         // Its cause mapping is pinned in EveryLifecycleCauseTargetsItsDeclaredDependency.
 
+        // The stale-history lever, restored however the test leaves the scope.
+        class ScopedStaleHistoryFault
+        {
+          public:
+            ScopedStaleHistoryFault() : m_Previous(Levers::FaultKeepStaleTemporalHistory())
+            {
+                Levers::SetFaultKeepStaleTemporalHistory(true);
+            }
+            ~ScopedStaleHistoryFault()
+            {
+                Levers::SetFaultKeepStaleTemporalHistory(m_Previous);
+            }
+            ScopedStaleHistoryFault(const ScopedStaleHistoryFault&) = delete;
+            ScopedStaleHistoryFault& operator=(const ScopedStaleHistoryFault&) = delete;
+
+          private:
+            bool m_Previous;
+        };
+
         TemporalHistoryDescriptor MakeDescriptor(u32 width = 640, u32 height = 360)
         {
             return {
@@ -337,13 +356,13 @@ namespace OloEngine::Tests
     {
         TemporalHistoryRegistry registry;
         const auto acquired = registry.Acquire(MakeKey(), MakeDescriptor(), kAllViewDependencies);
-        const bool previous = Levers::FaultKeepStaleTemporalHistory();
-        Levers::SetFaultKeepStaleTemporalHistory(true);
-        EXPECT_EQ(registry.Invalidate(TemporalHistoryInvalidationCause::CameraCut), 0u);
-        EXPECT_EQ(registry.Invalidate(TemporalHistoryInvalidationCause::SamplingSequenceReset), 0u);
-        EXPECT_EQ(registry.Invalidate(TemporalHistoryInvalidationCause::Manual), 0u);
-        EXPECT_TRUE(registry.IsCurrent(acquired.Token));
-        Levers::SetFaultKeepStaleTemporalHistory(previous);
+        {
+            const ScopedStaleHistoryFault fault;
+            EXPECT_EQ(registry.Invalidate(TemporalHistoryInvalidationCause::CameraCut), 0u);
+            EXPECT_EQ(registry.Invalidate(TemporalHistoryInvalidationCause::SamplingSequenceReset), 0u);
+            EXPECT_EQ(registry.Invalidate(TemporalHistoryInvalidationCause::Manual), 0u);
+            EXPECT_TRUE(registry.IsCurrent(acquired.Token));
+        }
 
         EXPECT_EQ(registry.Invalidate(TemporalHistoryInvalidationCause::CameraCut), 1u);
         EXPECT_FALSE(registry.IsCurrent(acquired.Token));
@@ -382,10 +401,10 @@ namespace OloEngine::Tests
             << "the lineage cause is what started the lineage, not cleared by a produced frame";
 
         // The negative control keeps the lineage climbing through a cut.
-        const bool previous = Levers::FaultKeepStaleTemporalHistory();
-        Levers::SetFaultKeepStaleTemporalHistory(true);
-        EXPECT_EQ(registry.Invalidate(TemporalHistoryInvalidationCause::CameraCut), 0u);
-        Levers::SetFaultKeepStaleTemporalHistory(previous);
+        {
+            const ScopedStaleHistoryFault fault;
+            EXPECT_EQ(registry.Invalidate(TemporalHistoryInvalidationCause::CameraCut), 0u);
+        }
         EXPECT_EQ(produce().Age, 3u);
     }
 

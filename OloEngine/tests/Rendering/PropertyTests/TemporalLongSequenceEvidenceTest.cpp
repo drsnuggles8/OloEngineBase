@@ -95,6 +95,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <limits>
 #include <optional>
 #include <span>
 #include <string>
@@ -936,9 +937,14 @@ namespace OloEngine::Tests
                 ratios.push_back(run.VarianceRatio);
                 EXPECT_GT(run.StepPixels, 0u) << cell << ": the perturbation moved no pixel of the reconstruction";
                 // The clip can only shorten the exponential; a history slower
-                // than its own feedback allows is holding on to something.
-                EXPECT_LE(run.Response, std::max(bound, run.RawResponse + bound)) << cell;
-                EXPECT_LE(run.RestoreResponse, std::max(bound, run.RawResponse + bound)) << cell;
+                // than its own feedback allows is holding on to something. A raw
+                // signal that never settled (kNeverSettled) allows anything;
+                // the sum saturates rather than wrapping below `bound`.
+                const u32 allowance = run.RawResponse > std::numeric_limits<u32>::max() - bound
+                                          ? std::numeric_limits<u32>::max()
+                                          : std::max(bound, run.RawResponse + bound);
+                EXPECT_LE(run.Response, allowance) << cell;
+                EXPECT_LE(run.RestoreResponse, allowance) << cell;
                 EXPECT_LE(run.RestoredResidual, kRestoredResidual) << cell << ": residual ghosting after the restore";
             }
             const RunInterval bias = MeanOverIndependentRuns(biases, SampleProvenance::IndependentRunSummaries);
@@ -1155,6 +1161,45 @@ namespace OloEngine::Tests
 
         // ---- order independence ------------------------------------------------
 
+        // The motion half of the replay contract: the first frame after
+        // ResetFrameSequences measures velocity against itself, so a pre-roll
+        // from another camera leaves no motion behind. Before #1348's review
+        // that frame's camera velocity was taken against the pre-roll's
+        // view-projection, which motion blur and every velocity reader saw.
+        void CheckFirstFrameMotion()
+        {
+            SetPath(RenderingPath::Deferred);
+            ConfigureEstimator(Estimator::TAA, ShippedFeedback(Estimator::TAA));
+            std::array<std::vector<f32>, 2> velocity;
+            for (u32 arm = 0; arm < 2u; ++arm)
+            {
+                if (arm == 1u)
+                    RunEditorFrames(MakeCamera(50.0f, kEye + glm::vec3(-3.0f, 2.0f, 2.0f), -0.6f), 20);
+                Renderer3D::ResetFrameSequences(kSeeds[1]);
+                RunEditorFrames(MakeCamera(), 1);
+                const u32 texture = Renderer3D::ResolveFrameGraphTexture(ResourceNames::Velocity);
+                ASSERT_NE(texture, 0u) << "no velocity target on Deferred";
+                i32 width = 0;
+                i32 height = 0;
+                glGetTextureLevelParameteriv(texture, 0, GL_TEXTURE_WIDTH, &width);
+                glGetTextureLevelParameteriv(texture, 0, GL_TEXTURE_HEIGHT, &height);
+                ASSERT_GT(width, 0);
+                ASSERT_GT(height, 0);
+                ReadbackRgbaFloat(texture, static_cast<u32>(width), static_cast<u32>(height), velocity[arm]);
+            }
+            f32 largest = 0.0f;
+            for (sizet i = 0; i + 1u < velocity[0].size(); i += 4u)
+                largest = std::max({ largest, std::abs(velocity[0][i]), std::abs(velocity[0][i + 1u]) });
+            std::printf("[temporal-reset] first-frame motion: clean max |v| %.9f, pre-roll vs clean %.9f\n", largest,
+                        MaxAbsDifference(velocity[0], velocity[1]));
+            std::fflush(stdout);
+            // A still camera over a still scene, on a frame that is its own
+            // history: no motion at all, jitter included.
+            EXPECT_EQ(largest, 0.0f) << "the first replayed frame reports motion";
+            EXPECT_EQ(MaxAbsDifference(velocity[0], velocity[1]), 0.0f)
+                << "the first replayed frame's velocity depends on the pre-roll";
+        }
+
         // The replay contract stated as the failure #1489 reported: a render
         // must not depend on what rendered before it. A sequence replayed from
         // one seed after a DIFFERENT pre-roll (another camera, the lamp off, the
@@ -1246,6 +1291,36 @@ namespace OloEngine::Tests
             CheckOrderIndependence(Estimator::TAA, path);
         CheckOrderIndependence(Estimator::SSR, RenderingPath::Deferred);
         CheckOrderIndependence(Estimator::SSGI, RenderingPath::Deferred);
+    }
+
+    TEST_F(TemporalLongSequenceEvidenceTest, AReplayedFirstFrameCarriesNoMotionFromThePreRoll)
+    {
+        CheckFirstFrameMotion();
+    }
+
+    // The engine TAA jitter has eight phases. Seeds k and k + 8 start at the
+    // same phase, so the second lap shifts the pattern on the torus: their
+    // jitter must still differ, or two "independent" TAA runs repeat each
+    // other's sub-pixel samples exactly.
+    TEST_F(TemporalLongSequenceEvidenceTest, SeedsAPhaseLapApartJitterDifferently)
+    {
+        SetPath(RenderingPath::Forward);
+        ConfigureEstimator(Estimator::TAA, ShippedFeedback(Estimator::TAA));
+        const EditorCamera camera = MakeCamera();
+        for (const u32 seed : { 0u, 3u, 7u })
+        {
+            Renderer3D::ResetFrameSequences(seed);
+            RunEditorFrames(camera, 1);
+            const glm::vec2 first = Renderer3D::GetFrameSamplingContext().CurrJitterUV;
+            Renderer3D::ResetFrameSequences(seed + 8u);
+            RunEditorFrames(camera, 1);
+            const glm::vec2 second = Renderer3D::GetFrameSamplingContext().CurrJitterUV;
+            std::printf("[temporal-reset] jitter seed %u (%.6f, %.6f) vs seed %u (%.6f, %.6f)\n", seed, first.x, first.y,
+                        seed + 8u, second.x, second.y);
+            EXPECT_GT(glm::length(first - second), 1.0e-6f) << "seeds " << seed << " and " << seed + 8u
+                                                            << " jitter identically";
+        }
+        Renderer3D::ResetFrameSequences(0u);
     }
 
     // ---- reset policy ----------------------------------------------------------

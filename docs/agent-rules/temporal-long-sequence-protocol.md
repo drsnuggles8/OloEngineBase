@@ -34,7 +34,9 @@ Executable halves:
 
 `ResetFrameSequences(seed)` restarts everything a frame's sampling depends on:
 
-- the stochastic, TAA-jitter, FSR2-phase, cloud and fog indices;
+- the stochastic, TAA-jitter, FSR2-phase, cloud and fog indices, and the cloud, fog and wind clocks;
+- the motion history: the next frame takes its own view-projection, jitter and transforms as the
+  previous ones, so a pre-roll from another camera or pose leaves no velocity behind;
 - each pass's own counters, through `RenderGraphNode::ResetFrameSequence(seed)`. These are the
   froxel fog's index and history, GTAO's noise index, DDGI's ray rotation and capture schedule,
   ReSTIR GI's previous frame, ReSTIR PT's lineage and the tone mapper's metered exposure;
@@ -51,8 +53,9 @@ dimension. GTAO's classifier stamp is one: rewinding it can match a stamp alread
 classification.
 
 `seed` selects an independent run, `0..15`. Seed `k` starts the stochastic index and every pass's
-own index `k * 2^16` frames in, the TAA jitter at phase `k`, and the cloud and fog indices at
-`64k` (they wrap at 1024). Seed 16 would start where seed 0 does, so the call asserts. Two arms of
+own index `k * 2^16` frames in, the TAA jitter at phase `k` (seeds 8..15 also shift its 8-phase
+pattern on the torus, so `k` and `k + 8` differ), and the cloud and fog indices at `64k` (they
+wrap at 1024). Scene-held state (animation clocks, bone palettes, simulation) is the caller's. Seed 16 would start where seed 0 does, so the call asserts. Two arms of
 a pair share a seed; repeats of a claim use different seeds.
 
 ## The lineage AOV

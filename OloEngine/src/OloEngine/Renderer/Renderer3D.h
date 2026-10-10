@@ -476,7 +476,14 @@ namespace OloEngine
         // 1024), and every pass's own index (ResetFrameSequence) from k too.
         // Two arms of a paired A/B use the SAME seed; independent repeats of a
         // claim use different seeds. Sixteen is the ceiling: seed 16 would
-        // start where seed 0 does, and the call asserts.
+        // start where seed 0 does, and the call asserts. The TAA jitter has
+        // eight phases, so seeds 8..15 also shift it by a seed-dependent
+        // toroidal offset: seed k and k+8 do not repeat each other's jitter.
+        // It also restarts the renderer's clocks (cloud advection, fog noise,
+        // wind gusts) and makes the next frame its own motion history: camera,
+        // entity and GPU Scene instance velocity are zero on it, as on a fresh
+        // renderer's first frame. Scene-held state (animation clocks, bone
+        // palettes, simulation) is the caller's to replay.
         static constexpr u32 kSequenceSeedStride = 1u << 16u;
         static void ResetFrameSequences(u32 sequenceSeed = 0);
 
@@ -495,6 +502,15 @@ namespace OloEngine
             u32 FogFrameIndex = 0;
             glm::vec2 CurrJitterUV{ 0.0f };
             glm::vec2 PrevJitterUV{ 0.0f };
+            // The seed's toroidal shift of the 8-phase TAA jitter.
+            glm::vec2 TAAJitterRotation{ 0.0f };
+            // The renderer-side clocks: cloud advection, fog noise, wind gusts.
+            glm::vec2 CloudWindOffset{ 0.0f };
+            f32 CloudTime = 0.0f;
+            f32 FogTime = 0.0f;
+            f32 WindTime = 0.0f;
+            // Whether the next frame computes motion against itself.
+            bool MotionHistoryResetPending = false;
             // Folded RenderGraphNode::GetFrameSequenceState of every pass.
             u64 PassSequenceState = 0;
             // Every registry history's key, validity and age.
@@ -2952,6 +2968,11 @@ namespace OloEngine
             SnowEjectaSettings SnowEjecta;
             PrecipitationSettings Precipitation;
             glm::mat4 PrevViewProjectionMatrix = glm::mat4(1.0f);
+            // The next frame has no previous camera or object pose of its own
+            // (#1348): PrepareFrame aliases the previous view-projection and
+            // jitter to the current ones and drops the transform caches. True
+            // on a fresh renderer, whose identity "previous" VP is no pose.
+            bool MotionHistoryResetPending = true;
             // Unjittered camera projection observed at BeginScene. A bitwise
             // change is an explicit temporal discontinuity (FOV/projection mode,
             // near/far plane); per-frame jitter is applied later and excluded.
@@ -3008,6 +3029,9 @@ namespace OloEngine
             // The run ResetFrameSequences last started (#1348); 0 for a fresh
             // renderer. Reported by GetFrameSamplingContext only.
             u32 FrameSequenceSeed = 0;
+            // The seed's toroidal shift of the TAA Halton jitter (#1348): zero
+            // for seeds 0..7, so seed 0 stays the fresh renderer.
+            glm::vec2 TAAJitterRotation{ 0.0f };
 
             // Global IBL fallback (from scene's EnvironmentMap)
             RHI::ResourceHandle GlobalIrradianceMapID{};

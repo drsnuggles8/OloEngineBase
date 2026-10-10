@@ -49,6 +49,10 @@ namespace OloEngine
         {
             m_HaveHistory = false;
             m_LastFrame = 0;
+            // The counter readback lags a frame: without this the new run's
+            // first frame reports the previous run's counters as its own.
+            m_HaveCounters = false;
+            m_Stats.CountersValid = false;
         }
         [[nodiscard]] u64 GetFrameSequenceState() const override
         {

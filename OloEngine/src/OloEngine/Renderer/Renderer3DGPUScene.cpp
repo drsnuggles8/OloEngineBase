@@ -9,6 +9,7 @@
 #include "OloEngine/Renderer/Renderer3DInternal.h"
 #include "OloEngine/Renderer/SubmeshMaterialResolve.h"
 #include "OloEngine/Utils/PlatformUtils.h"
+#include "OloEngine/Wind/WindSystem.h"
 
 #include <algorithm>
 #include <bit>
@@ -707,12 +708,42 @@ namespace OloEngine
         // The same 2^20 wrap the per-frame advance applies.
         s_Data.StochasticFrameIndex = (sequenceSeed * kSequenceSeedStride) & 0xFFFFFu;
         s_Data.TAAJitterFrameIndex = sequenceSeed;
+        // The jitter repeats every eight phases, so the second lap of seeds
+        // shifts the whole pattern on the torus: seed k and k+8 start at the
+        // same phase and still sample different sub-pixel positions.
+        {
+            constexpr u32 kTAAJitterPhases = 8u; // RenderPipeline's kHaltonSequenceLength
+            const u32 lap = sequenceSeed / kTAAJitterPhases;
+            const auto radicalInverse = [](u32 index, u32 base)
+            {
+                f32 result = 0.0f;
+                f32 fraction = 1.0f / static_cast<f32>(base);
+                for (; index > 0u; index /= base, fraction /= static_cast<f32>(base))
+                    result += static_cast<f32>(index % base) * fraction;
+                return result;
+            };
+            s_Data.TAAJitterRotation = glm::vec2(radicalInverse(lap, 5u), radicalInverse(lap, 7u));
+        }
         s_Data.TemporalUpscalePhaseIndex = 0;
         s_Data.CurrJitterUV = glm::vec2(0.0f);
         s_Data.PrevJitterUV = glm::vec2(0.0f);
         // These two wrap at 1024: sixteen seeds get sixteen phases.
         s_Data.CloudFrameIndex = (sequenceSeed * 64u) & 0x3FFu;
         s_Data.FogFrameIndex = (sequenceSeed * 64u) & 0x3FFu;
+        // The renderer's clocks restart as Init starts them: accumulators at
+        // zero, baselines at the current (mockable) time so the first dt is 0.
+        s_Data.CloudWindOffset = glm::vec2(0.0f);
+        s_Data.CloudTime = 0.0f;
+        s_Data.CloudPrevTimeSeconds = Time::GetTime();
+        s_Data.FogTime = 0.0f;
+        s_Data.FogPrevTimeSeconds = Time::GetTime();
+        s_Data.WindPrevTimeSeconds = Time::GetTime();
+        s_Data.AutoExposurePrevTimeSeconds = Time::GetTime();
+        if (WindSystem::IsInitialized())
+            WindSystem::ResetClock();
+        // Velocity on the next frame is measured against that frame itself,
+        // not against the pose a different pre-roll left behind.
+        s_Data.MotionHistoryResetPending = true;
         if (s_Data.Pipeline)
         {
             s_Data.Pipeline->ForEachPass(
@@ -749,6 +780,14 @@ namespace OloEngine
         mix(bits(CurrJitterUV.y));
         mix(bits(PrevJitterUV.x));
         mix(bits(PrevJitterUV.y));
+        mix(bits(TAAJitterRotation.x));
+        mix(bits(TAAJitterRotation.y));
+        mix(bits(CloudWindOffset.x));
+        mix(bits(CloudWindOffset.y));
+        mix(bits(CloudTime));
+        mix(bits(FogTime));
+        mix(bits(WindTime));
+        mix(static_cast<u64>(MotionHistoryResetPending));
         mix(PassSequenceState);
         mix(HistoryLineage);
         mix(static_cast<u64>(MockTimeActive));
@@ -767,6 +806,12 @@ namespace OloEngine
         context.FogFrameIndex = s_Data.FogFrameIndex;
         context.CurrJitterUV = s_Data.CurrJitterUV;
         context.PrevJitterUV = s_Data.PrevJitterUV;
+        context.TAAJitterRotation = s_Data.TAAJitterRotation;
+        context.CloudWindOffset = s_Data.CloudWindOffset;
+        context.CloudTime = s_Data.CloudTime;
+        context.FogTime = s_Data.FogTime;
+        context.WindTime = WindSystem::IsInitialized() ? WindSystem::GetAccumulatedTime() : 0.0f;
+        context.MotionHistoryResetPending = s_Data.MotionHistoryResetPending;
         u64 passState = 0;
         if (s_Data.Pipeline)
         {
@@ -824,6 +869,9 @@ namespace OloEngine
         s_Data.CullFarClip = 1000.0f;
         s_Data.CullPrevViewProjectionMatrix = glm::mat4(1.0f);
         s_Data.CullViewProjectionRelative = glm::mat4(1.0f);
+        // The identity view-projection above is no pose: the next frame is
+        // its own motion history, as on a fresh renderer.
+        s_Data.MotionHistoryResetPending = true;
         s_Data.CullViewPosRelative = glm::vec3(0.0f);
         s_Data.CullProjParams = glm::vec2(1.0f, 0.1f);
         s_Data.LODView = LODViewParams{};

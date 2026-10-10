@@ -557,6 +557,16 @@ namespace OloEngine
         data.CurrEntityTransforms.clear();
         data.PrevInstanceTransforms = std::move(data.CurrInstanceTransforms);
         data.CurrInstanceTransforms.clear();
+        // A frame with no motion history of its own (#1348): every submission
+        // finds no previous transform and reports zero object motion, and the
+        // GPU Scene commits its instances the same way. The camera half is
+        // below, once this frame's jittered view-projection exists.
+        if (data.MotionHistoryResetPending)
+        {
+            data.PrevEntityTransforms.clear();
+            data.PrevInstanceTransforms.clear();
+            data.SceneGPU.ForgetMotionHistory();
+        }
 
         // The water-surface-depth and planar-reflection texture publications are
         // strictly per-frame: the owning pass re-publishes when it executes.
@@ -861,8 +871,10 @@ namespace OloEngine
                 const u32 idx = (data.TAAJitterFrameIndex % kHaltonSequenceLength) + 1;
                 // Halton samples land in [0, 1]; remap to [-0.5, 0.5] so the
                 // jitter is centred around the unperturbed pixel.
-                const f32 jx = HaltonSample(idx, 2) - 0.5f;
-                const f32 jy = HaltonSample(idx, 3) - 0.5f;
+                // TAAJitterRotation is the run seed's toroidal shift (#1348),
+                // zero for seeds 0..7; fract(h + 0) == h for these samples.
+                const f32 jx = glm::fract(HaltonSample(idx, 2) + data.TAAJitterRotation.x) - 0.5f;
+                const f32 jy = glm::fract(HaltonSample(idx, 3) + data.TAAJitterRotation.y) - 0.5f;
 
                 // Convert pixel offset to NDC — 2 NDC units span the screen,
                 // so one pixel in NDC = 2 / resolution.
@@ -932,6 +944,14 @@ namespace OloEngine
         const glm::mat4 relativeView = MakeViewRelative(data.ViewMatrix, renderOrigin);
         const glm::mat4 relativeViewProjection =
             MakeViewProjectionRelative(data.ProjectionMatrix, data.ViewMatrix, renderOrigin);
+        // The camera half of a frame with no motion history (#1348): last
+        // frame IS this frame, jitter included, so camera velocity is zero.
+        if (data.MotionHistoryResetPending)
+        {
+            data.PrevViewProjectionMatrix = data.ViewProjectionMatrix;
+            data.PrevJitterUV = data.CurrJitterUV;
+            data.MotionHistoryResetPending = false;
+        }
         const glm::mat4 relativePrevViewProjection = MakeViewProjectionRelative(data.PrevViewProjectionMatrix, renderOrigin);
 
         // CommandDispatch keeps the *world* camera matrices — depth sort keys and
