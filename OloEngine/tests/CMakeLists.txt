@@ -335,6 +335,7 @@ add_executable(OloEngine-Tests
 		Asset/TextureSourcePathResolutionTest.cpp
 		Rendering/FoliageImpostorPlacementTest.cpp
 		Rendering/FoliageLodTransitionContractTest.cpp
+		Rendering/FoliageCullStreamSizingContractTest.cpp
 		Rendering/FoliageAuthoredMeshContractTest.cpp
 		Rendering/FoliageAlphaCoverageContractTest.cpp
 		Rendering/AlphaCoverageMipsContractTest.cpp

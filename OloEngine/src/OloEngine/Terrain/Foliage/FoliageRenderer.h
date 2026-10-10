@@ -229,6 +229,10 @@ namespace OloEngine
             // the latched-flag bug TerrainGPUQuadtree::HasDispatched
             // documents.
             bool Active = false;
+            // What the slot's last read-back demand pair asked for beyond its
+            // capacity (#1581), applied by the next cull into it. 0 = no grow.
+            u32 GrowList = 0;
+            u32 GrowMesh = 0;
         };
         std::array<CullViewSlot, FoliageGPUCuller::kViewSlotCount> CullViews;
         f32 ViewDistance = 100.0f;
@@ -321,7 +325,9 @@ namespace OloEngine
         static constexpr bool Value = TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::CullViewSlot::Resources)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::CullViewSlot::CardVAO)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::CullViewSlot::MeshVAO)>::Value &&
-                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::CullViewSlot::Active)>::Value;
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::CullViewSlot::Active)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::CullViewSlot::GrowList)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::CullViewSlot::GrowMesh)>::Value;
     };
 
     // std::array has only inline element storage; this concrete array follows its audited slot type.
@@ -576,6 +582,30 @@ namespace OloEngine
         // other light could see.
         void ResetShadowViewCulling();
 
+        // Copy every slot's demand pair out for the non-stalling overflow
+        // readback (#1581). ShadowRenderPass calls it once its culls for the
+        // frame are done, so the fence covers them; the main-view cull calls it
+        // too when no shadow pass did, for the frame before. Never from inside
+        // a parallel recording item.
+        void CaptureCullDemand();
+
+        // The compacted stream a (layer, slot) holds, in instances: the
+        // all-survivor list and the mesh region (#1581). {0, 0} when the slot
+        // has none.
+        struct CullStreamCapacity
+        {
+            u32 List = 0;
+            u32 Mesh = 0;
+        };
+        [[nodiscard]] CullStreamCapacity GetCullStreamCapacity(u32 layerIndex, u32 slot) const;
+
+        // How many times a slot has grown because its view overflowed it
+        // (#1581). Every grow is also one log line.
+        [[nodiscard]] u32 GetCullStreamGrowCount() const
+        {
+            return m_CullStreamGrows;
+        }
+
         // ── GPU patch + instance culling (issue #1235) ────────────────────
 
         // Dispatch the MAIN view's cull. Called at submission, before
@@ -762,6 +792,9 @@ namespace OloEngine
         // Run one view's cull over every layer. Returns true when at least one
         // layer produced a compacted draw.
         bool CullForView(u32 slotIndex, const FoliageGPUCuller::ViewInputs& inputs);
+        // Retire every demand capture the GPU has finished and mark each slot
+        // that overflowed to grow at its next cull (#1581).
+        void PollCullDemand();
         // (Re)create the vertex arrays that stream `slot`'s compacted buffer.
         void RebuildCulledVertexArrays(LayerRenderData& data, u32 slot) const;
 
@@ -838,6 +871,12 @@ namespace OloEngine
         TArray<LayerRenderData> m_Layers;
         FoliageInstanceRegistry m_Registry;
         FoliageGPUCuller m_Culler;
+        // The overflow readback (#1581): entry layer * kViewSlotCount + slot.
+        FoliageCullDemandReadback m_CullDemand;
+        TArray<FoliageCullDemand> m_CullDemandRetired;
+        // A cull ran since the last capture, so there is demand to copy out.
+        bool m_CullDemandUncaptured = false;
+        u32 m_CullStreamGrows = 0;
         bool m_MainViewCulled = false;
         // Warn-once latches: a capability failure or a per-layer refusal must
         // say so, but a renderer that says it every frame at 60 Hz is the same

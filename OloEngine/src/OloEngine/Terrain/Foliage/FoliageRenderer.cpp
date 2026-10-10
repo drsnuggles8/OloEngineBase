@@ -3085,6 +3085,11 @@ namespace OloEngine
                           "logged.");
             m_WarnedCullBracketSkipped = true;
         }
+        // The previous frame's culls not yet captured (no shadow pass ran, so
+        // nothing called CaptureCullDemand after them): capture them now,
+        // before this frame's cull adds to the same running maxima.
+        if (m_CullDemandUncaptured)
+            CaptureCullDemand();
         m_MainViewCulled = CullForView(static_cast<u32>(FoliageGPUCuller::ViewSlot::Main),
                                        MakeCullInputs(worldViewProjection, viewWorldPosition));
         if (timed)
@@ -3098,6 +3103,58 @@ namespace OloEngine
             for (u32 i = 0; i < FoliageGPUCuller::kMaxShadowViews; ++i)
                 layer.CullViews[FoliageGPUCuller::ShadowSlot(i)].Active = false;
         }
+    }
+
+    void FoliageRenderer::CaptureCullDemand()
+    {
+        OLO_PROFILE_FUNCTION();
+        if (RenderCommand::IsRecordingParallelItem())
+            return; // a copy and a fence from a parallel item are hard errors on Vulkan
+        TArray<RHI::ResourceHandle> states;
+        states.SetNum(m_Layers.Num() * static_cast<i32>(FoliageGPUCuller::kViewSlotCount));
+        for (i32 layer = 0; layer < m_Layers.Num(); ++layer)
+        {
+            for (u32 slot = 0; slot < FoliageGPUCuller::kViewSlotCount; ++slot)
+            {
+                const auto& state = m_Layers[layer].CullViews[slot].Resources.State;
+                states[layer * static_cast<i32>(FoliageGPUCuller::kViewSlotCount) + static_cast<i32>(slot)] =
+                    state ? state->GetRHIHandle() : RHI::NullResource;
+            }
+        }
+        // A skipped capture (ring full) loses nothing: the pairs stay in the
+        // State buffers until their slot grows.
+        if (m_CullDemand.Capture({ states.GetData(), static_cast<sizet>(states.Num()) }))
+            m_CullDemandUncaptured = false;
+    }
+
+    void FoliageRenderer::PollCullDemand()
+    {
+        if (!m_CullDemand.Poll(m_CullDemandRetired))
+            return;
+        const auto slotCount = static_cast<i32>(FoliageGPUCuller::kViewSlotCount);
+        for (i32 entry = 0; entry < m_CullDemandRetired.Num(); ++entry)
+        {
+            const FoliageCullDemand demand = m_CullDemandRetired[entry];
+            const i32 layerIndex = entry / slotCount;
+            if (layerIndex >= m_Layers.Num() || (demand.List == 0u && demand.Mesh == 0u))
+                continue;
+            auto& view = m_Layers[layerIndex].CullViews[static_cast<u32>(entry % slotCount)];
+            // Compared with the slot's CURRENT capacity: a capture taken before
+            // a grow carries the old buffer's demand, which the grown slot
+            // already holds.
+            if (demand.List > view.Resources.ListCapacity)
+                view.GrowList = std::max(view.GrowList, demand.List);
+            if (demand.Mesh > view.Resources.MeshCapacity)
+                view.GrowMesh = std::max(view.GrowMesh, demand.Mesh);
+        }
+    }
+
+    FoliageRenderer::CullStreamCapacity FoliageRenderer::GetCullStreamCapacity(u32 layerIndex, u32 slot) const
+    {
+        if (layerIndex >= static_cast<u32>(m_Layers.Num()) || slot >= FoliageGPUCuller::kViewSlotCount)
+            return {};
+        const auto& view = m_Layers[static_cast<i32>(layerIndex)].CullViews[slot].Resources;
+        return { view.ListCapacity, view.MeshCapacity };
     }
 
     bool FoliageRenderer::DispatchShadowViewCulling(u32 shadowViewIndex, const FoliageGPUCuller::ViewInputs& cullInputs)
@@ -3156,6 +3213,10 @@ namespace OloEngine
         // ShadowPass's own (#1391).
         const RendererMemoryOwnerScope memoryOwner("Foliage pinned representations", MemoryLifetime::Asset);
 
+        // Overflows the GPU has already reported mark their slots to grow
+        // before this cull uses them (#1581). A poll, never a wait.
+        PollCullDemand();
+
         bool any = false;
         TArray<LayerDraw> draws;
         TArray<FoliageGPUCuller::Part> parts;
@@ -3201,17 +3262,48 @@ namespace OloEngine
                 hasMeshPart = hasMeshPart || draw.IsAuthoredMesh;
             }
 
-            // Room for the mesh region beside the all-survivor list (#1533):
-            // the region starts at the instance count, so the buffer holds two.
-            auto& view = layer.CullViews[slotIndex];
-            const u32 capacityWanted = hasMeshPart ? layer.InstanceCount * 2u : layer.InstanceCount;
-            const bool recreated =
-                m_Culler.EnsureViewCapacity(view.Resources, capacityWanted, layer.CullLayer.GroupCount);
-            if (recreated || (!view.CardVAO && !view.MeshVAO))
-                RebuildCulledVertexArrays(layer, slotIndex);
-
             FoliageGPUCuller::ViewInputs layerInputs = inputs;
             layerInputs.MaxDistance = layer.ViewDistance;
+
+            // Every draw of a layer carries the same hand-over band.
+            const f32 meshReach = hasMeshPart ? FoliageLod::MeshRegionReach(draws[0].HandoverStart, draws[0].HandoverEnd,
+                                                                            layer.Lod.TransitionSpread, layer.Lod.Hysteresis)
+                                              : 0.0f;
+
+            // SIZED FROM THIS VIEW (#1581), see FoliageGPUCuller::ViewResources:
+            // a new slot from the groups its first view can survive, a slot
+            // whose view overflowed it from the demand that came back.
+            auto& view = layer.CullViews[slotIndex];
+            u32 listWanted = 0;
+            u32 meshWanted = 0;
+            // Also when a mesh became drawable after the slot was made (a
+            // streamed mesh going resident): its region is sized the same way.
+            if (!view.Resources.Compacted || (hasMeshPart && view.Resources.MeshCapacity == 0u))
+            {
+                const auto estimate = FoliageGPUCuller::EstimateSurvivors(m_Registry, layerIndex, layerInputs, meshReach);
+                listWanted = FoliageGPUCuller::StreamCapacityFor(estimate.List, layer.InstanceCount);
+                meshWanted = hasMeshPart ? FoliageGPUCuller::StreamCapacityFor(estimate.Mesh, layer.InstanceCount) : 0u;
+            }
+            if (view.GrowList != 0u || view.GrowMesh != 0u)
+            {
+                listWanted = std::max(listWanted, FoliageGPUCuller::StreamCapacityFor(view.GrowList, layer.InstanceCount));
+                if (hasMeshPart)
+                    meshWanted = std::max(meshWanted, FoliageGPUCuller::StreamCapacityFor(view.GrowMesh, layer.InstanceCount));
+                // Loud, once per grow: an overflow is a frame that drew short.
+                OLO_CORE_INFO("FoliageRenderer: layer {} cull slot {} overflowed (wanted {} list / {} mesh entries, held "
+                              "{} / {}); growing it to {} / {}. That frame's dropped plants were counted in "
+                              "FoliageCullDropped.",
+                              layerIndex, slotIndex, view.GrowList, view.GrowMesh, view.Resources.ListCapacity,
+                              view.Resources.MeshCapacity, std::max(listWanted, view.Resources.ListCapacity),
+                              std::max(meshWanted, view.Resources.MeshCapacity));
+                view.GrowList = 0;
+                view.GrowMesh = 0;
+                ++m_CullStreamGrows;
+            }
+            const bool recreated = m_Culler.EnsureViewCapacity(view.Resources, listWanted, meshWanted,
+                                                               layer.CullLayer.GroupCount);
+            if (recreated || (!view.CardVAO && !view.MeshVAO))
+                RebuildCulledVertexArrays(layer, slotIndex);
 
             // Only the MAIN view publishes the ratio counters — see the
             // s_EmitStats comment in FoliageCullCommon.glsl.
@@ -3224,10 +3316,8 @@ namespace OloEngine
             const FoliageLod::Params lod = ActiveLod(layer);
             lodInputs.Transition0 = FoliageLodTransition0(lod);
             lodInputs.Transition1 = FoliageLodTransition1(lod);
-            // Every draw of a layer carries the same hand-over band.
-            if (hasMeshPart)
-                lodInputs.MeshReach = FoliageLod::MeshRegionReach(draws[0].HandoverStart, draws[0].HandoverEnd,
-                                                                  layer.Lod.TransitionSpread, layer.Lod.Hysteresis);
+            lodInputs.MeshReach = meshReach;
+            m_CullDemandUncaptured = true;
             if (m_Culler.Cull(layer.CullLayer, view.Resources, layer.InstanceVBO->GetRHIHandle(), std::span(parts.GetData(), static_cast<sizet>(parts.Num())), layerInputs,
                               emitStats, lodInputs))
             {

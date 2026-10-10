@@ -691,6 +691,15 @@ namespace OloEngine
         m_ShadowFramebuffer->Unbind();
         RenderCommand::SetViewport(prevViewport.x, prevViewport.y, prevViewport.width, prevViewport.height);
 
+        // Every foliage cull of the frame is behind us: copy their slots'
+        // overflow demand out now, so the fence covers them and a slot that
+        // overflowed grows on the next frame (#1581).
+        for (const auto& caster : m_FoliageCasters)
+        {
+            if (caster.renderer)
+                caster.renderer->CaptureCullDemand();
+        }
+
         // Clear caster lists for next frame (vectors keep their allocation)
         m_MeshCasters.Reset();
         m_SkinnedCasters.Reset();

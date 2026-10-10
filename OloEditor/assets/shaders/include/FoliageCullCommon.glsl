@@ -106,6 +106,18 @@ layout(std430, binding = 19) buffer FoliageCullState
     // property rather than a hope.
     vec4 s_LodTransition0;
     vec4 s_LodTransition1;
+    // The mesh region's own size (#1581); it starts at s_MeshRegionBase, the
+    // all-survivor list's capacity.
+    uint s_MeshCapacity;
+    // THE DEMAND PAIR (#1581): one more than the largest append index that
+    // found the list / the mesh region full, as a running maximum over every
+    // cull into this buffer. Written ONLY on overflow and never seeded by the
+    // CPU (it uploads the header up to here), so a later cull into the same
+    // slot cannot erase it before FoliageCullDemandReadback copies it out and
+    // the slot grows to it.
+    uint s_ListDemand;
+    uint s_MeshDemand;
+    uint s_Pad3;
     // Tail: group visibility (one uint per group, 1 = visible) followed by the
     // compacted slot -> SOURCE ROW map (one uint per output capacity). The
     // second is what makes "compaction preserved identity" a checkable claim
