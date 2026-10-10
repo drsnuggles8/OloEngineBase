@@ -30,6 +30,7 @@ import argparse
 import datetime
 import gzip
 import json
+import math
 import re
 import os
 import statistics
@@ -112,7 +113,7 @@ def contention_from_samples(samples: list) -> list:
     return windows
 
 
-def run_once(exe: Path, repo: Path, out: Path, environment: dict) -> dict:
+def run_once(exe: Path, repo: Path, out: Path, environment: dict, timeout_seconds: float) -> dict:
     out.mkdir(parents=True, exist_ok=False)
     before = probe_host()
     env = {**os.environ, **environment, 'OLO_FOLIAGE_COST': '1', 'OLO_FOLIAGE_COST_OUT': str(out.resolve())}
@@ -126,21 +127,33 @@ def run_once(exe: Path, repo: Path, out: Path, environment: dict) -> dict:
     thread = threading.Thread(target=sampler, daemon=True)
     thread.start()
     started = time.perf_counter()
-    with (out / 'stdout.log').open('w', encoding='utf-8') as stdout:
-        result = subprocess.run([str(exe), '--gtest_filter=FoliageCostBaselineTest.MeasureBaseline'],
-                                cwd=repo, env=env, stdout=stdout, stderr=subprocess.STDOUT)
+    exit_code = None
+    timed_out = False
+    try:
+        with (out / 'stdout.log').open('w', encoding='utf-8') as stdout:
+            # A stalled measurement must not hold the runner forever; run kills
+            # the child when the timeout expires.
+            exit_code = subprocess.run([str(exe), '--gtest_filter=FoliageCostBaselineTest.MeasureBaseline'],
+                                       cwd=repo, env=env, stdout=stdout, stderr=subprocess.STDOUT,
+                                       timeout=timeout_seconds).returncode
+    except subprocess.TimeoutExpired:
+        timed_out = True
+    finally:
+        stop.set()
+        thread.join()
     elapsed = time.perf_counter() - started
-    stop.set()
-    thread.join()
     samples.append(sample_gpu_users(exe))
     after = probe_host()
-    host = {'before': before, 'after': after, 'exitCode': result.returncode, 'elapsedSeconds': round(elapsed, 1),
+    host = {'before': before, 'after': after, 'exitCode': exit_code, 'timedOut': timed_out,
+            'elapsedSeconds': round(elapsed, 1),
             'environment': {k: v for k, v in environment.items()},
             'contended': bool(before.get('busyProcesses')) or bool(after.get('busyProcesses')),
             'samples': samples, 'contention': contention_from_samples(samples)}
     (out / 'host.json').write_text(json.dumps(host, indent=1), encoding='utf-8')
-    if result.returncode != 0 or not (out / 'foliage-cost.json').exists():
-        raise SystemExit(f'run failed (exit {result.returncode}); see {out / "stdout.log"}')
+    if timed_out:
+        raise SystemExit(f'run timed out after {timeout_seconds / 60:.0f} min; see {out / "stdout.log"}')
+    if exit_code != 0 or not (out / 'foliage-cost.json').exists():
+        raise SystemExit(f'run failed (exit {exit_code}); see {out / "stdout.log"}')
     return host
 
 
@@ -250,7 +263,37 @@ def run_timing(run: Path, host: dict) -> dict:
 
 
 def overlaps(span, windows) -> bool:
-    return span is not None and any(span[0] <= end and start <= span[1] for start, end in windows)
+    return any(span[0] <= end and start <= span[1] for start, end in windows)
+
+
+ARM_ORDER = ['Shipped', 'CpuCull', 'NoDensityLod', 'NoFoliage']
+
+
+def cold_rebuilds_per_cell(data: dict) -> list:
+    """Each cell's cold-rebuild wall times. A run records them in the cell; an
+    older run holds one run-wide list in cell order, which splits exactly by
+    replaying each cell's rotated arm order: a rebuild is every switch from
+    NoFoliage to a lit arm, including the cell's closing switch to Shipped."""
+    if all('coldRebuildWallMs' in c for c in data['cells']):
+        return [c['coldRebuildWallMs'] for c in data['cells']]
+    rounds = data['protocol']['rounds']
+    raw = data['coldRebuild']['rawWallMs']
+    out = []
+    at = 0
+    for cell in data['cells']:
+        arms = [a for a in ARM_ORDER if a in cell['arms']]
+        sequence = [arms[(k + r) % len(arms)] for r in range(rounds) for k in range(len(arms))] + ['Shipped']
+        count = sum(1 for a, b in zip(sequence, sequence[1:]) if a == 'NoFoliage' and b != 'NoFoliage')
+        out.append(raw[at:at + count])
+        at += count
+    if at != len(raw):
+        raise SystemExit(f'cold rebuilds do not split by cell ({at} attributed, {len(raw)} recorded)')
+    return out
+
+
+def nearest_rank(values: list, q: float) -> float:
+    ordered = sorted(values)
+    return ordered[max(0, math.ceil(len(ordered) * q) - 1)]
 
 
 def cell_key(cell: dict) -> str:
@@ -307,18 +350,28 @@ def summarise(output: Path, include_unsampled: bool = False) -> dict:
     runs = kept
     windows = load_contention(output, host_records)
 
+    # A cell or tail is clean only if its span is known and overlaps no
+    # contention window: a measurement with no span cannot be judged, so it is
+    # left out as unverified rather than counted as uncontended.
     cells = {}
     excluded = 0
+    unverified = 0
+    cold = [{'run': run.name, 'wallMs': [], 'excludedSamples': 0} for run in runs]
     for index, data in enumerate(per_run):
-        for cell in data['cells']:
+        for cell, rebuilds in zip(data['cells'], cold_rebuilds_per_cell(data)):
             entry = cells.setdefault(cell_key(cell), {'cell': {k: cell[k] for k in
                                                                ('subject', 'pose', 'path', 'shadows', 'msaa', 'width',
-                                                                'height')}, 'runs': [], 'excludedRuns': []})
-            if overlaps(timing[index].get('cell:' + cell_key(cell)), windows):
-                entry['excludedRuns'].append(runs[index].name)
-                excluded += 1
+                                                                'height')}, 'runs': [], 'excludedRuns': [],
+                                                      'unverifiedRuns': []})
+            span = timing[index].get('cell:' + cell_key(cell))
+            if span is None or overlaps(span, windows):
+                entry['unverifiedRuns' if span is None else 'excludedRuns'].append(runs[index].name)
+                unverified += span is None
+                excluded += span is not None
+                cold[index]['excludedSamples'] += len(rebuilds)
                 continue
             entry['runs'].append(summarise_cell(cell))
+            cold[index]['wallMs'] += rebuilds
 
     def spread(values):
         values = [v for v in values if v is not None]
@@ -331,6 +384,7 @@ def summarise(output: Path, include_unsampled: bool = False) -> dict:
     for key, entry in cells.items():
         metrics = sorted({m for r in entry['runs'] for m in r})
         summary_cells.append({**entry['cell'], 'runs': len(entry['runs']), 'excludedRuns': entry['excludedRuns'],
+                              'unverifiedRuns': entry['unverifiedRuns'],
                               'metrics': {m: spread([r.get(m) for r in entry['runs']]) for m in metrics}})
 
     tails = {}
@@ -338,11 +392,14 @@ def summarise(output: Path, include_unsampled: bool = False) -> dict:
         for tail in data['tails']:
             key = '{pose}|{path}|{shadows}|rebuild{rebuildEvery}'.format(**tail)
             entry = tails.setdefault(key, {'pose': tail['pose'], 'path': tail['path'], 'shadows': tail['shadows'],
-                                           'rebuildEvery': tail['rebuildEvery'], 'runs': [], 'excludedRuns': []})
+                                           'rebuildEvery': tail['rebuildEvery'], 'runs': [], 'excludedRuns': [],
+                                           'unverifiedRuns': []})
             logged = 'tail:{}|{}|{}|{}'.format(tail['pose'], tail['path'], tail['shadows'], 1 if tail['rebuildEvery'] else 0)
-            if overlaps(timing[index].get(logged), windows):
-                entry['excludedRuns'].append(runs[index].name)
-                excluded += 1
+            span = timing[index].get(logged)
+            if span is None or overlaps(span, windows):
+                entry['unverifiedRuns' if span is None else 'excludedRuns'].append(runs[index].name)
+                unverified += span is None
+                excluded += span is not None
                 continue
             entry['runs'].append({'wall': tail['wallMs'], 'gpu': tail['gpuMs'],
                                   'rebuildFrameWallMs': tail['rebuildFrameWallMs']})
@@ -351,6 +408,7 @@ def summarise(output: Path, include_unsampled: bool = False) -> dict:
         row = {k: entry[k] for k in ('pose', 'path', 'shadows', 'rebuildEvery')}
         row['runs'] = len(entry['runs'])
         row['excludedRuns'] = entry['excludedRuns']
+        row['unverifiedRuns'] = entry['unverifiedRuns']
         for channel in ('wall', 'gpu'):
             for stat in ('p50', 'p95', 'p99', 'max', 'deadlineMisses'):
                 row[channel + stat.capitalize()] = spread([r[channel][stat] for r in entry['runs']])
@@ -358,9 +416,13 @@ def summarise(output: Path, include_unsampled: bool = False) -> dict:
         summary_tails.append(row)
 
     summary = {'runs': hosts, 'contentionWindows': [[a.isoformat(), b.isoformat()] for a, b in windows],
-               'excludedCellRuns': excluded, 'host': per_run[0]['host'], 'protocol': per_run[0]['protocol'],
-               'memory': per_run[0]['memory'], 'cells': summary_cells, 'tails': summary_tails,
-               'coldRebuild': [d['coldRebuild']['wallMs'] for d in per_run]}
+               'excludedCellRuns': excluded, 'unverifiedCellRuns': unverified, 'host': per_run[0]['host'],
+               'protocol': per_run[0]['protocol'], 'memory': per_run[0]['memory'], 'cells': summary_cells,
+               'tails': summary_tails,
+               'coldRebuild': [{'run': c['run'], 'count': len(c['wallMs']), 'excludedSamples': c['excludedSamples'],
+                                **({'min': min(c['wallMs']), 'p50': nearest_rank(c['wallMs'], 0.5),
+                                    'p95': nearest_rank(c['wallMs'], 0.95), 'max': max(c['wallMs'])}
+                                   if c['wallMs'] else {})} for c in cold]}
     (output / 'summary.json').write_text(json.dumps(summary, indent=1), encoding='utf-8')
     (output / 'summary.md').write_text(render_markdown(summary), encoding='utf-8')
     return summary
@@ -447,6 +509,8 @@ def main() -> int:
     parser.add_argument('--exe', type=Path)
     parser.add_argument('--repo', type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument('--runs', type=int, default=3)
+    parser.add_argument('--run-timeout-hours', type=float, default=6.0,
+                        help='kill a run that has not finished after this long (a full run takes ~1.3 h)')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--env', action='append', default=[], help='KEY=VALUE passed to the test (e.g. OLO_FOLIAGE_COST_ROUNDS=2)')
     parser.add_argument('--summarise-only', action='store_true')
@@ -463,7 +527,8 @@ def main() -> int:
         for k in range(args.runs):
             run = args.output / f'run-{start + k + 1}'
             print(f'[foliage-cost] {run.name} ...', flush=True)
-            host = run_once(args.exe.resolve(), args.repo.resolve(), run, environment)
+            host = run_once(args.exe.resolve(), args.repo.resolve(), run, environment,
+                            args.run_timeout_hours * 3600.0)
             print(f'[foliage-cost] {run.name}: {host["elapsedSeconds"]} s, contended={host["contended"]}', flush=True)
     summarise(args.output, args.include_unsampled)
     print(f'[foliage-cost] summary: {args.output / "summary.md"}')

@@ -1082,6 +1082,7 @@ namespace OloEngine::Tests
                                      u32 msaa, std::span<const Arm> arms)
         {
             std::map<Arm, std::vector<Window>> windows;
+            const sizet firstColdRebuild = coldRebuildWallMs.size();
             for (u32 round = 0; round < rounds; ++round)
             {
                 for (sizet k = 0; k < arms.size(); ++k)
@@ -1101,6 +1102,10 @@ namespace OloEngine::Tests
                                     { "msaa", msaa },
                                     { "width", m_Width },
                                     { "height", m_Height } };
+            // The cell's own cold rebuilds, so a cell excluded for contention
+            // takes its rebuilds out of the summary with it.
+            cell["coldRebuildWallMs"] = RoundedArray(std::vector<f64>(
+                coldRebuildWallMs.begin() + static_cast<std::ptrdiff_t>(firstColdRebuild), coldRebuildWallMs.end()));
             for (const Arm arm : arms)
             {
                 std::vector<f64> wall;
