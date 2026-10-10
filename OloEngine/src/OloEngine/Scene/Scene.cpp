@@ -4918,6 +4918,14 @@ namespace OloEngine
         const AnimalSchedule* schedule = FindAnimalSchedule(id);
         if (schedule == nullptr)
         {
+            // A body posed for the budgeted coat bound to it (#1259).
+            if (const auto body = m_AnimalBodySchedules.find(id); body != m_AnimalBodySchedules.end())
+            {
+                schedule = &body->second;
+            }
+        }
+        if (schedule == nullptr)
+        {
             // Every entity without an AnimalBudgetComponent, which is every
             // entity in every scene authored before #1258. The pre-existing
             // behaviour is therefore exactly "no component", not "a component
@@ -5087,6 +5095,7 @@ namespace OloEngine
         m_FrameTimeTail.Push(ts.GetSeconds() * 1000.0f);
 
         m_AnimalSchedules.clear();
+        m_AnimalBodySchedules.clear();
         m_AnimalSchedulerStats = AnimalSchedulerStats{};
 
         const auto budgetView = m_Registry.view<TransformComponent, AnimalBudgetComponent>();
@@ -5128,6 +5137,8 @@ namespace OloEngine
 
         TArray<AnimalWorkItem> items;
         TArray<UUID> ids;
+        // Parallel to `ids`: the body a budgeted coat is bound to, or 0.
+        TArray<UUID> boundBodies;
         std::unordered_set<UUID> liveAnimals;
 
         for (const auto entity : budgetView)
@@ -5194,8 +5205,24 @@ namespace OloEngine
             item.StrandCount = strandCount;
 
             // ── The per-axis work this animal would submit at full rate ──
-            if (const auto* skeletonComp = m_Registry.try_get<SkeletonComponent>(entity);
-                skeletonComp != nullptr && skeletonComp->m_Skeleton)
+            //
+            // THE SKELETON IS THE BODY'S. A budgeted coat bound to a body
+            // (#1259) carries no skeleton of its own: the one its deformation
+            // costs, and the pose its schedule gates, belong to the binding's
+            // target. A body with its own budget is scheduled as itself.
+            const SkeletonComponent* skeletonComp = m_Registry.try_get<SkeletonComponent>(entity);
+            UUID boundBody = 0;
+            if (const auto* binding = m_Registry.try_get<GroomBindingComponent>(entity);
+                skeletonComp == nullptr && binding != nullptr && binding->m_Enabled && binding->m_TargetEntity != 0)
+            {
+                if (const auto target = TryGetEntityWithUUID(binding->m_TargetEntity);
+                    target && !target->HasComponent<AnimalBudgetComponent>() && target->HasComponent<SkeletonComponent>())
+                {
+                    skeletonComp = &target->GetComponent<SkeletonComponent>();
+                    boundBody = binding->m_TargetEntity;
+                }
+            }
+            if (skeletonComp != nullptr && skeletonComp->m_Skeleton)
             {
                 // The final palette's size IS the bone count, and it is what
                 // the deformation axis is actually priced per: a skeleton whose
@@ -5285,6 +5312,7 @@ namespace OloEngine
 
             items.Add(item);
             ids.Add(id);
+            boundBodies.Add(boundBody);
             liveAnimals.insert(id);
         }
 
@@ -5326,6 +5354,28 @@ namespace OloEngine
         for (const AnimalSchedule& schedule : schedules)
         {
             m_AnimalSchedules.emplace(schedule.Id, schedule);
+        }
+
+        // The bodies the budgeted coats are bound to, posed by their coat's
+        // deformation step. Two budgeted coats on one body: the finer step,
+        // so neither coat's schedule is overruled toward coarser.
+        constexpr sizet deformAxis = static_cast<sizet>(AnimalWorkAxis::Deformation);
+        for (sizet i = 0; i < ids.Num(); ++i)
+        {
+            if (boundBodies[i] == 0)
+            {
+                continue;
+            }
+            const auto scheduled = m_AnimalSchedules.find(ids[i]);
+            if (scheduled == m_AnimalSchedules.end())
+            {
+                continue;
+            }
+            const auto [it, inserted] = m_AnimalBodySchedules.try_emplace(boundBodies[i], scheduled->second);
+            if (!inserted && scheduled->second.Step[deformAxis] < it->second.Step[deformAxis])
+            {
+                it->second = scheduled->second;
+            }
         }
     }
 

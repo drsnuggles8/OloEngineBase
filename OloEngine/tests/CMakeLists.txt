@@ -785,6 +785,10 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/GroomBindingVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomSimulationVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomAnimalsAcceptanceEvidenceTest.cpp
+		# The herd's coats (#1259): short and long fox coats grown on the Fox's
+		# bind-pose surface, bound and parented, ridden through the walk, judged
+		# for skin showing at the hero framings and across the LOD ladder.
+		Rendering/PropertyTests/FoxCoatEvidenceTest.cpp
 		# The furred dog showcase (#1533): the coat grown region by region on
 		# the generated body, bound, lit and judged from every hero angle.
 		Rendering/PropertyTests/DogShowcaseEvidenceTest.cpp

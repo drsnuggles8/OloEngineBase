@@ -41,12 +41,23 @@
 #   python OloEngine/tests/scripts/generate_animal_population_scene.py
 #
 # Every YAML key is verified against SceneSerializer.cpp or copied from a
-# committed scene that uses it (GroomStrandCoat.olo, AnimalShortCoat.olo).
+# committed scene that uses it (GroomStrandCoat.olo, AnimalShortCoat.olo, and
+# for the bound coats Dog.olo and GroomAnimals.olo).
+#
+# THE COATS ARE BOUND (#1259). Each animal is two entities: the Fox body (its
+# model, clip and path) and its coat, parented to it and bound to it, the way
+# a-bound-coat-rides-its-body.md says a bound coat is authored. The coats are
+# FoxShortCoat / FoxLongCoat, grown on the Fox's bind-pose surface and cooked
+# by FoxCoatEvidenceTest.ExportsTheFoxCoats (OLO_FOX_COATS_EXPORT=1), which is
+# also the evidence for how they look. Their handles are READ from
+# AssetRegistry.oar by path, so a re-export that assigns new ones needs only a
+# re-run of this script.
 # =============================================================================
 
 import argparse
 import math
 import pathlib
+import struct
 import sys
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
@@ -55,13 +66,35 @@ SCENE_PATH = SCENE_DIR / "AnimalPopulation.olo"
 
 SEED = 1258
 
-# Cooked groom handles, read out of OloEditor/SandboxProject/AssetRegistry.oar.
-# The registry is a BINARY file (grepping it for a handle returns nothing), so
-# these are recorded here rather than looked up — and a wrong one fails loudly:
-# AssetManager logs the miss and the entity renders with no coat, which is
-# visible in the first capture rather than subtle.
-GROOM_LONGCOAT = 15952688685437936287
-GROOM_SHORTCOAT = 15952688685437936285
+# The cooked coats, by their path in OloEditor/SandboxProject/AssetRegistry.oar.
+REGISTRY_PATH = REPO_ROOT / "OloEditor" / "SandboxProject" / "AssetRegistry.oar"
+FOX_SHORT_COAT = "Assets/Grooms/Animals/FoxShortCoat.ologroom"
+FOX_SHORT_BINDING = "Assets/Grooms/Animals/FoxShortCoat.ologroombinding"
+FOX_LONG_COAT = "Assets/Grooms/Animals/FoxLongCoat.ologroom"
+FOX_LONG_BINDING = "Assets/Grooms/Animals/FoxLongCoat.ologroombinding"
+FOX_COAT_COLOR = "Assets/Grooms/Animals/FoxCoatColor.png"
+EXPORT_COMMAND = ("OLO_FOX_COATS_EXPORT=1 OloEngine-Tests "
+                  "--gtest_filter=FoxCoatEvidenceTest.ExportsTheFoxCoats (cwd OloEditor/)")
+
+# The coats are grown in METRES on the Fox's space times this (FoxCoatEvidenceTest's
+# kFoxCookScale), and each coat entity carries the inverse under its fox. Then
+# inverse(coatWorld) * foxWorld is the binding's SurfaceToGroom at every fox
+# scale, and a fox placed at 0.014 wears the coat 12% larger than one at 0.0125.
+FOX_COOK_SCALE = 0.0125
+COAT_LOCAL_SCALE = 1.0 / FOX_COOK_SCALE  # exactly 80
+
+# The whole cooked coat, EXACTLY: the strand counts ExportsTheFoxCoats prints.
+# The distance ladder and the population budget thin it; the authored budget
+# does not (density is not cut to buy frames). Not a round "everything" number:
+# the strand cache keys a stream by the raw budget, so 1000000 and its ladder
+# halvings 500000 and 250000 all built the same full coat under three keys, and
+# the herd filled the 1 GiB strand cache several times over.
+FOX_SHORT_STRANDS = 265724
+FOX_LONG_STRANDS = 232394
+
+# The card tier's hand-over, in pixels across the coat: what the cards were
+# cooked for (GroomCardSettings::SourcePixelSize in FoxCoatEvidenceTest).
+CARD_PIXEL_SIZE = 220.0
 
 # AnimalRole, as AnimalBudgetComponent stores it.
 ROLE_HERO = 0
@@ -75,6 +108,10 @@ ROLE_BACKGROUND = 2
 HERD_COUNT = 36
 FEATURED_COUNT = 4
 
+# The hero faces the camera three-quarter on: the close-up is where the coat is
+# judged, and a fox seen from behind shows a tail and two haunches.
+HERO_YAW = 0.6
+
 
 def f(x):
     """Compact float formatting: 4 significant decimals, no trailing zeros."""
@@ -84,6 +121,32 @@ def f(x):
 
 def vec(v):
     return "[" + ", ".join(f(c) for c in v) + "]"
+
+
+def registry_handles(path=REGISTRY_PATH):
+    """{asset path: handle} from AssetRegistry.oar (AssetRegistry::Serialize, v2).
+
+    u32 version, u32 count, then per asset: u64 handle, u32 type, u32 status,
+    u32 path length, the path's bytes (project-relative, forward slashes).
+    """
+    data = path.read_bytes()
+    version, count = struct.unpack_from("<II", data, 0)
+    if version != 2:
+        raise SystemExit(f"{path}: registry format v{version}, this reader knows v2")
+    offset = 8
+    handles = {}
+    for _ in range(count):
+        handle, _type, _status, length = struct.unpack_from("<QIII", data, offset)
+        offset += 20
+        handles[data[offset:offset + length].decode("utf-8")] = handle
+        offset += length
+    return handles
+
+
+def handle_of(handles, asset_path):
+    if asset_path not in handles:
+        raise SystemExit(f"{asset_path} is not in {REGISTRY_PATH}; cook and register it with: {EXPORT_COMMAND}")
+    return handles[asset_path]
 
 
 class Lcg:
@@ -125,10 +188,10 @@ class SceneWriter:
         return self._handle
 
     def entity(self, tag, translation=(0, 0, 0), rotation=(0, 0, 0), scale=(1, 1, 1),
-               components="", comment=None):
+               components="", comment=None, handle=None):
         if comment:
             self._lines.append(f"  # {comment}")
-        self._lines.append(f"  - Entity: {self.next_handle()}")
+        self._lines.append(f"  - Entity: {handle if handle is not None else self.next_handle()}")
         self._lines.append("    TagComponent:")
         self._lines.append(f"      Tag: {tag}")
         self._lines.append("    TransformComponent:")
@@ -227,19 +290,154 @@ def animated_model(source_path, clip_index=1, blend=0.3):
     )
 
 
-def groom(handle, max_strands, width_scale, color):
+def groom(handle, strands):
+    # Every key as Dog.olo spells it (SceneSerializer's own output).
     return (
         "    GroomComponent:\n"
         f"      Groom: {handle}\n"
-        "      RenderStrands: true\n"
-        f"      MaxRenderStrands: {max_strands}\n"
-        f"      WidthScale: {f(width_scale)}\n"
-        f"      StrandColor: {vec(color)}\n"
+        "      RootMarkerSize: 0.01\n"
+        "      MaxPreviewStrands: 2000\n"
+        f"      MaxRenderStrands: {strands}\n"
+        "      WidthScale: 1\n"
+        "      StrandColor: [1, 1, 1]\n"
         "      ShowPreview: false\n"
+        "      ShowStrands: true\n"
+        "      ShowRoots: true\n"
+        "      ShowDirection: true\n"
+        "      ColorByGroup: true\n"
+        "      GuidesOnly: false\n"
+        "      RenderStrands: true\n"
+        "      CompositionMode: 1\n"
     )
 
 
-def groom_lod(card_px=220.0, mesh_px=8.0):
+# THE COAT'S LOOK, as FoxCoatEvidenceTest::MakeCoat authors it. Keep the two in
+# step, or the evidence stops being evidence for this scene.
+def groom_fibre():
+    # Pale fibres; FoxCoatColor.png carries the fox's colours.
+    return (
+        "    GroomFibreComponent:\n"
+        "      BaseColor: [1, 0.94, 0.86]\n"
+        "      Absorption: [0.84, 1.39, 2.74]\n"
+        "      Eumelanin: 1.3\n"
+        "      Pheomelanin: 0\n"
+        "      LongitudinalRoughness: 0.4\n"
+        "      AzimuthalRoughness: 0.3\n"
+        "      TiltDegrees: 2\n"
+        "      IndexOfRefraction: 1.55\n"
+        "      Intensity: 1\n"
+        "      HSamples: 4\n"
+        "      PigmentMode: 1\n"
+        "      DebugMode: 0\n"
+        "      Enabled: true\n"
+    )
+
+
+def groom_coat(color_map):
+    # VariationSeed 0 on EVERY fox, deliberately. The seed is folded into the
+    # coat's build digest (GroomRenderPass::CacheKey), so a fox with its own seed
+    # gets its own ~350 MiB rest stream: with a seed per animal the 41 foxes asked
+    # for ~15 GiB of strand geometry against the 1 GiB cache and the editor
+    # stalled rebuilding them. One seed lets every fox share the two cooked
+    # coats' streams.
+    return (
+        "    GroomCoatComponent:\n"
+        "      RegionMap: 0\n"
+        f"      ColorMap: {color_map}\n"
+        "      UndercoatDensity: 1\n"
+        "      UndercoatLength: 1\n"
+        "      UndercoatWidth: 1\n"
+        "      UndercoatClump: 1\n"
+        "      GuardDensity: 1\n"
+        "      GuardLength: 1\n"
+        "      GuardWidth: 1\n"
+        "      GuardClump: 1\n"
+        "      LengthJitter: 0.2\n"
+        "      WidthJitter: 0\n"
+        "      ShadeJitter: 0.06\n"
+        "      ClumpCellSize: 0.01\n"
+        "      VariationSeed: 0\n"
+        "      RoleVisibilityMask: 31\n"
+        "      Enabled: true\n"
+    )
+
+
+def groom_coat_shadow():
+    return (
+        "    GroomCoatShadowComponent:\n"
+        "      Kappa: 0.9\n"
+        "      Resolution: 128\n"
+        "      StepVoxels: 1.5\n"
+        "      MaxLodSteps: 3\n"
+        "      PixelSizeForLod0: 512\n"
+        "      MinResolution: 8\n"
+        "      Mode: 2\n"
+        "      Enabled: true\n"
+        "      MultipleScattering: true\n"
+        "      BakeAtRest: true\n"
+    )
+
+
+def groom_scene_shadow():
+    return (
+        "    GroomSceneShadowComponent:\n"
+        "      ShadowWidthTexels: 1\n"
+        "      CastShadows: true\n"
+        "      ReceiveShadows: true\n"
+    )
+
+
+def groom_simulation():
+    # The engine defaults, as the evidence runs them.
+    return (
+        "    GroomSimulationComponent:\n"
+        "      Gravity: [0, -9.81, 0]\n"
+        "      Stiffness: 90\n"
+        "      Damping: 6\n"
+        "      VelocityCorrection: 0.85\n"
+        "      FixedHz: 60\n"
+        "      StretchTolerance: 0.01\n"
+        "      TeleportDistance: 1\n"
+        "      ColliderRadiusScale: 1\n"
+        "      ColliderPadding: 0\n"
+        "      ColliderFriction: 0.35\n"
+        "      MaxSubsteps: 4\n"
+        "      Iterations: 4\n"
+        "      MaxGuidesUnassigned: 256\n"
+        "      MaxGuidesUndercoat: 128\n"
+        "      MaxGuidesGuardHair: 512\n"
+        "      MaxGuidesWhisker: 64\n"
+        "      MaxGuidesLongHair: 512\n"
+        "      ResetKey: 0\n"
+        "      Model: 1\n"
+        "      DebugView: 0\n"
+        "      Enabled: true\n"
+        "      Collide: true\n"
+    )
+
+
+def groom_binding(binding, target):
+    return (
+        "    GroomBindingComponent:\n"
+        f"      Binding: {binding}\n"
+        f"      TargetEntity: {target}\n"
+        "      TeleportDistance: 5\n"
+        "      Enabled: true\n"
+        "      ShowBindingPreview: false\n"
+    )
+
+
+def relationship(parent, children):
+    # Both sides of the link, as Dog.olo writes them.
+    lines = ["    RelationshipComponent:\n", f"      ParentHandle: {parent}\n", "      Children:\n"]
+    if children:
+        lines += [f"        - {child}\n" for child in children]
+    else:
+        lines.append("        []\n")
+    return "".join(lines)
+
+
+def groom_lod(card_px=CARD_PIXEL_SIZE, mesh_px=8.0):
     """The per-entity distance ladder from #1252.
 
     PRESENT ON EVERY ANIMAL, and that matters for what this scene measures:
@@ -310,7 +508,7 @@ def settings():
 
 
 NOTE = [
-    "MIXED-DISTANCE ANIMAL POPULATION (issue #1258).",
+    "MIXED-DISTANCE ANIMAL POPULATION (issue #1258), with bound fox coats (#1259).",
     "",
     "GENERATED — edit OloEngine/tests/scripts/generate_animal_population_scene.py,",
     "never this file.",
@@ -347,26 +545,55 @@ NOTE = [
     "the fixed LCG in the generator — not Python's `random`, whose stream is an",
     "interpreter implementation detail.",
     "",
-    "KNOWN LIMITATION, STATED RATHER THAN HIDDEN. The grooms here are drawn at",
-    "each animal's own transform, NOT bound to the fox body: there is no cooked",
-    "GroomBindingComponent binding for the Fox rig, and building one is #1249's",
-    "surface rather than #1258's. The Fox is authored in centimetres and placed",
-    "at a scale of ~0.012, so each coat renders as a small blob at the animal's",
-    "origin instead of sitting on its back.",
-    "",
-    "That does not affect what this scene is FOR. The budget is measured on the",
-    "work each animal submits — strand counts, guide counts, bone counts — and",
-    "the editor log shows the scheduler assigning different strides (1, 2, 3, 4)",
-    "across this population, which is the whole point. But this is a SCHEDULING",
-    "fixture, not a finished groomed herd, and it should not be cited as one.",
-    "The budget's visual evidence lives in",
-    "OloEngine/tests/Rendering/PropertyTests/AnimalBudgetVisualEvidenceTest.cpp,",
-    "whose grooms are correctly scaled.",
+    "THE COATS ARE BOUND. Each animal is a Fox body (model, clip, path) and a",
+    "coat entity parented to it: FoxShortCoat or FoxLongCoat, grown on the Fox's",
+    "own bind-pose surface, with a cooked card level, and bound to the body",
+    "through GroomBindingComponent (a-bound-coat-rides-its-body.md). The coat is",
+    f"authored in metres; its local scale {f(COAT_LOCAL_SCALE)} undoes the Fox's",
+    "centimetres, so a fox placed at 0.011-0.014 wears it in proportion.",
+    "The AnimalBudgetComponent sits on the coat, which holds the groom, and the",
+    "scheduler poses the coat's body by it (multi-animal-scheduling-budgets.md",
+    "rule 21). Evidence for how the coats look and that they stay on the walking",
+    "fox: OloEngine/tests/Rendering/PropertyTests/FoxCoatEvidenceTest.cpp.",
 ]
+
+
+def fox(w, handles, tag, translation, rotation, scale, long_coat, budget, path="", comment=None, casts=True):
+    """One animal: the Fox body, and its coat parented to it and bound to it.
+
+    `casts`: whether the coat casts into the scene's shadow maps. The hero and the
+    featured foxes do; the herd does not. Each casting coat holds a caster entry
+    per shadow step in the strand cache, and forty of them took the cache to
+    217 entries and ~6 GiB; the herd's bodies still cast, and a background
+    coat's own shadow is a few pixels.
+    """
+    body = w.next_handle()
+    coat = w.next_handle()
+    w.entity(
+        tag, translation, rotation, scale,
+        animated_model("assets/models/Fox/Fox.gltf", clip_index=1) + path + relationship(0, [coat]),
+        comment=comment, handle=body,
+    )
+    groom_path, binding_path = (FOX_LONG_COAT, FOX_LONG_BINDING) if long_coat else (FOX_SHORT_COAT, FOX_SHORT_BINDING)
+    w.entity(
+        f"{tag} Coat", (0, 0, 0), (0, 0, 0), (COAT_LOCAL_SCALE,) * 3,
+        groom_binding(handle_of(handles, binding_path), body)
+        + groom_coat(handle_of(handles, FOX_COAT_COLOR))
+        + groom_coat_shadow()
+        + groom(handle_of(handles, groom_path), FOX_LONG_STRANDS if long_coat else FOX_SHORT_STRANDS)
+        + groom_fibre()
+        + groom_lod()
+        + (groom_scene_shadow() if casts else "")
+        + groom_simulation()
+        + budget
+        + relationship(body, []),
+        handle=coat,
+    )
 
 
 def build():
     rng = Lcg(SEED)
+    handles = registry_handles()
     w = SceneWriter("AnimalPopulation", 1_258_000_000_000_000, NOTE)
 
     w.entity("Camera", (0, 1.6, 9.0), (-0.06, 0, 0), (1, 1, 1), camera(),
@@ -380,35 +607,24 @@ def build():
     # halvings: the hero is the thing the budget exists to protect, and an
     # assertion that it stayed at full rate is only meaningful if its caps
     # would have allowed it to move.
-    w.entity(
-        "Hero",
-        (0.0, 0.0, 5.6), (0, math.pi, 0), (0.014, 0.014, 0.014),
-        animated_model("assets/models/Fox/Fox.gltf", clip_index=1)
-        + groom(GROOM_LONGCOAT, 60000, 1.0, (0.58, 0.44, 0.31))
-        + groom_lod(card_px=220.0)
-        + animal_budget(ROLE_HERO, motion_metres=0.06, deform=3, sim=4, vis=4, shadow=3),
-        comment="── THE HERO: close-up, full coat, protected by the budget ──",
-    )
+    fox(w, handles, "Hero", (0.0, 0.0, 5.6), (0, HERO_YAW, 0), (0.014, 0.014, 0.014), True,
+        animal_budget(ROLE_HERO, motion_metres=0.06, deform=3, sim=4, vis=4, shadow=3),
+        comment="── THE HERO: close-up, full coat, protected by the budget ──")
 
     # ── Featured animals ────────────────────────────────────────────────
     for i in range(FEATURED_COUNT):
         angle = (i / FEATURED_COUNT) * math.tau
         x = 6.0 * math.cos(angle)
         z = -2.0 + 4.0 * math.sin(angle)
-        w.entity(
-            f"Featured {i}",
-            (x, 0.0, z), (0, rng.range(0.0, math.tau), 0), (0.012, 0.012, 0.012),
-            animated_model("assets/models/Fox/Fox.gltf", clip_index=1)
-            + groom(GROOM_LONGCOAT, 24000, 1.0, (0.54, 0.41, 0.29))
-            + groom_lod()
-            + animal_budget(ROLE_FEATURED, motion_metres=rng.range(0.04, 0.09))
-            + animal_path(
-                radius_x=rng.range(3.0, 6.0), radius_z=rng.range(2.0, 4.5),
-                rate_x=rng.range(0.18, 0.34), rate_z=rng.range(0.25, 0.47),
-                phase_x=rng.range(0.0, math.tau), phase_z=rng.range(0.0, math.tau),
-            ),
-            comment=("── Featured animals: mid distance, long coats ──" if i == 0 else None),
+        rotation = (0, rng.range(0.0, math.tau), 0)
+        budget = animal_budget(ROLE_FEATURED, motion_metres=rng.range(0.04, 0.09))
+        path = animal_path(
+            radius_x=rng.range(3.0, 6.0), radius_z=rng.range(2.0, 4.5),
+            rate_x=rng.range(0.18, 0.34), rate_z=rng.range(0.25, 0.47),
+            phase_x=rng.range(0.0, math.tau), phase_z=rng.range(0.0, math.tau),
         )
+        fox(w, handles, f"Featured {i}", (x, 0.0, z), rotation, (0.012, 0.012, 0.012), True, budget, path,
+            comment=("── Featured animals: mid distance, long coats ──" if i == 0 else None))
 
     # ── The herd ────────────────────────────────────────────────────────
     #
@@ -420,25 +636,15 @@ def build():
         long_coat = (i % 2) == 1
         depth = -8.0 - (i / HERD_COUNT) * 70.0
         lateral = rng.range(-26.0, 26.0)
-        w.entity(
-            f"Herd {i}",
-            (lateral, 0.0, depth), (0, rng.range(0.0, math.tau), 0), (0.011, 0.011, 0.011),
-            animated_model("assets/models/Fox/Fox.gltf", clip_index=1)
-            + groom(
-                GROOM_LONGCOAT if long_coat else GROOM_SHORTCOAT,
-                24000 if long_coat else 4000,
-                1.0,
-                (0.52, 0.40, 0.28) if long_coat else (0.62, 0.47, 0.33),
-            )
-            + groom_lod()
-            + animal_budget(ROLE_BACKGROUND, motion_metres=rng.range(0.03, 0.10))
-            + animal_path(
-                radius_x=rng.range(4.0, 14.0), radius_z=rng.range(3.0, 10.0),
-                rate_x=rng.range(0.14, 0.40), rate_z=rng.range(0.21, 0.58),
-                phase_x=rng.range(0.0, math.tau), phase_z=rng.range(0.0, math.tau),
-            ),
-            comment=("── The herd: alternating short and long coats, receding ──" if i == 0 else None),
+        rotation = (0, rng.range(0.0, math.tau), 0)
+        budget = animal_budget(ROLE_BACKGROUND, motion_metres=rng.range(0.03, 0.10))
+        path = animal_path(
+            radius_x=rng.range(4.0, 14.0), radius_z=rng.range(3.0, 10.0),
+            rate_x=rng.range(0.14, 0.40), rate_z=rng.range(0.21, 0.58),
+            phase_x=rng.range(0.0, math.tau), phase_z=rng.range(0.0, math.tau),
         )
+        fox(w, handles, f"Herd {i}", (lateral, 0.0, depth), rotation, (0.011, 0.011, 0.011), long_coat, budget, path,
+            comment=("── The herd: alternating short and long coats, receding ──" if i == 0 else None), casts=False)
 
     w.entity("Ground", (0, -0.02, 0), (0, 0, 0), (240, 0.04, 240),
              mesh(1) + material((0.24, 0.26, 0.18), 0.0, 0.92),

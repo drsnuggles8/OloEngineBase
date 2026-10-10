@@ -1786,6 +1786,16 @@ namespace OloEngine
         /// of counters that drift apart by construction.
         std::unordered_map<UUID, AnimalSchedule> m_AnimalSchedules;
 
+        /// The schedule a BODY is posed by when its budget sits on a coat bound
+        /// to it (#1259), keyed by the body's UUID. A bound coat is its own
+        /// entity, parented to the body it rides (a-bound-coat-rides-its-body.md),
+        /// so the budgeted entity carries the groom and the skeleton is one
+        /// binding away. Without this the deformation axis priced no bones and
+        /// gated no pose: a herd of bound coats silently lost a whole axis.
+        /// Only for a body that has no AnimalBudgetComponent of its own; with
+        /// two budgeted coats on one body, the finer deformation step wins.
+        std::unordered_map<UUID, AnimalSchedule> m_AnimalBodySchedules;
+
         AnimalSchedulerStats m_AnimalSchedulerStats;
 
         /// The clock the deformation stagger is phased on, advanced once per

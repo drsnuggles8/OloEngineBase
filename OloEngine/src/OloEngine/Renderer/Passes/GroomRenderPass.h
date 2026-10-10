@@ -1193,6 +1193,8 @@ namespace OloEngine
         /// slot — so alternating groups of eight coats retained more than
         /// kMaxResidentCoatVolumes textures indefinitely.
         [[nodiscard]] u32 CountResidentCoatVolumes() const noexcept;
+        /// The bytes those volumes hold, against kMaxResidentCoatVolumeBytes.
+        [[nodiscard]] u64 CountResidentCoatVolumeBytes() const noexcept;
 
         /// Frees the least-recently-used coat volume that is NOT in use this
         /// frame, so a newly visible coat can take its slot. Returns false when
