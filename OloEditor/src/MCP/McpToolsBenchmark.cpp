@@ -427,13 +427,12 @@ namespace OloEngine::MCP
                                                              glm::radians(pose->PitchDegrees), fovDegrees);
                             }
                             Time::SetMockTime(seconds);
-                            bool ok = true;
-                            if (!manifestCopy->EntityMotions.IsEmpty())
-                            {
-                                std::string error;
-                                Ref<Scene> active = host.Context().GetActiveScene();
-                                ok = active && Benchmark::ApplyEntityMotion(*active, *manifestCopy, motionFrame, error);
-                            }
+                            // Every step, not only for a manifest with EntityMotion:
+                            // ApplyEntityMotion also advances the scene's animal
+                            // paths, which an edit-mode tick never runs (#1259).
+                            std::string error;
+                            Ref<Scene> active = host.Context().GetActiveScene();
+                            const bool ok = active && Benchmark::ApplyEntityMotion(*active, *manifestCopy, motionFrame, error);
                             const u64 frameIndex = host.Context().GetFrameIndex ? host.Context().GetFrameIndex() : 0;
                             return Json{ { "ok", ok }, { "frame", frameIndex } };
                         },

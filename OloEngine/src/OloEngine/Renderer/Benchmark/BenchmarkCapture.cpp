@@ -647,6 +647,9 @@ namespace OloEngine::Benchmark
     bool ApplyEntityMotion(Scene& scene, const BenchmarkManifest& manifest, u32 frameIndex,
                            std::string& outError)
     {
+        // The scene's own authored motion first: animal paths advance one fixed
+        // step per rendered frame on both hosts, as the runtime tick would.
+        scene.AdvanceAnimalPaths(Timestep{ manifest.FixedDtSeconds });
         const f32 elapsed = static_cast<f32>(frameIndex) * manifest.FixedDtSeconds;
         for (const auto& motion : manifest.EntityMotions)
         {

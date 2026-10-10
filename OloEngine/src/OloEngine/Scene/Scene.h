@@ -278,6 +278,15 @@ namespace OloEngine
             return m_AnimalSchedulerStats;
         }
 
+        /// Walk the animal paths one step outside the gameplay scheduler. Edit
+        /// mode never runs "AnimalPaths", so a benchmark capture (an edit-mode
+        /// tick on a pinned clock) calls this once per rendered frame; without
+        /// it the herd played its walk cycle on the spot (issue #1259).
+        void AdvanceAnimalPaths(Timestep ts)
+        {
+            UpdateAnimalPaths(ts);
+        }
+
         /// This frame's per-animal decisions, keyed by entity UUID. Empty when
         /// nothing in the scene carries an AnimalBudgetComponent.
         [[nodiscard]] const std::unordered_map<UUID, AnimalSchedule>& GetAnimalSchedules() const noexcept
