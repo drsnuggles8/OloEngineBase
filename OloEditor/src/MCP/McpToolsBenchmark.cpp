@@ -394,7 +394,6 @@ namespace OloEngine::MCP
             measurement->DeadlineMs = manifest->MeasurementDeadlineMs;
             measurement->ContinuousEditorFrames = true;
             const FString backendCopy = backend;
-            u32 totalWarmFrames = 0;
             u32 trajectoryFrame = 0;
             bool warmupTimedOut = false;
 
@@ -402,7 +401,6 @@ namespace OloEngine::MCP
             {
                 const f32 fovDegrees = cameraSpec.FovDegrees;
                 const u32 warmFrames = cameraSpec.WarmupFrames.value_or(manifest->WarmupFrames);
-                totalWarmFrames += warmFrames;
 
                 // Everything one capture step changes — camera pose, pinned
                 // clock, entity motion — plus the frame index the await counts
@@ -615,7 +613,9 @@ namespace OloEngine::MCP
             runInfo.CommitSha = Benchmark::QueryCommitShaViaGit();
             runInfo.MachineTag = Benchmark::ResolveMachineTag({});
             runInfo.Host = "editor-mcp";
-            runInfo.TotalFramesRendered = totalWarmFrames;
+            // Every stepped frame (warm-up, measured, sequence), as the test-binary
+            // host counts them; the warm-up count alone dropped the measured frames.
+            runInfo.TotalFramesRendered = trajectoryFrame;
             // Carried into result.json so a reader of the capture sees it too — the
             // MCP summary alone is not part of the result directory, and capturedPose
             // is derived from the DECLARED frame count.
