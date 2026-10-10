@@ -325,7 +325,49 @@ TEST(BenchmarkCapture, RunWhenRequested)
         }
 
         const Benchmark::CaptureContext captureContext{ cameraSpec.NearClip, cameraSpec.FarClip };
+
+        // A frame sequence (#1259) continues the camera's and the scene's motion
+        // past the measured frames, reading back its attachments every step.
+        TArray<Benchmark::CameraSequenceFrame> sequenceFrames;
+        if (cameraSpec.HasSequence())
+        {
+            u32 frameInCamera = warmFrames + manifest->MeasurementFrames;
+            for (u32 step = 0; step < cameraSpec.Sequence.Count; ++step)
+            {
+                for (u32 f = 0; f < cameraSpec.Sequence.Every; ++f)
+                {
+                    const auto pose = Benchmark::CameraPoseAtFrame(cameraSpec, frameInCamera, dt);
+                    camera.SetPose(pose.Position, glm::radians(pose.YawDegrees), glm::radians(pose.PitchDegrees));
+                    Time::SetMockTime(manifest->StartTimeSeconds + static_cast<f32>(frameIndex) * dt);
+                    std::string entityMotionError;
+                    ASSERT_TRUE(Benchmark::ApplyEntityMotion(*scene, *manifest, frameIndex, entityMotionError))
+                        << entityMotionError;
+                    {
+                        GLStateGuard guard("BenchmarkSequence", GLStateGuard::Policy::Restore);
+                        scene->OnUpdateEditor(ts, camera);
+                    }
+                    ++frameIndex;
+                    ++frameInCamera;
+                }
+                Benchmark::CameraSequenceFrame sequenceFrame;
+                sequenceFrame.Step = step;
+                sequenceFrame.FrameInCamera = frameInCamera - 1u;
+                sequenceFrame.CaptureFrameIndex = frameIndex;
+                sequenceFrame.MockTimeSeconds = manifest->StartTimeSeconds + static_cast<f32>(frameIndex - 1u) * dt;
+                sequenceFrame.Attachments =
+                    Benchmark::CaptureSequenceAttachments(*manifest, cameraSpec.Sequence, "opengl", captureContext);
+                for (const auto& attachment : sequenceFrame.Attachments)
+                {
+                    EXPECT_TRUE(attachment.Error.IsEmpty())
+                        << "camera '" << cameraSpec.Id.ToView() << "' sequence step " << step << " attachment '"
+                        << attachment.Spec.Name.ToView() << "': " << attachment.Error.ToView();
+                }
+                sequenceFrames.Add(std::move(sequenceFrame));
+            }
+        }
+
         auto set = Benchmark::CaptureCameraSet(*manifest, cameraSpec.Id.ToView(), frameIndex, "opengl", captureContext);
+        set.Sequence = std::move(sequenceFrames);
         for (const auto& attachment : set.Attachments)
         {
             EXPECT_TRUE(attachment.Error.IsEmpty()) << "camera '" << cameraSpec.Id.ToView() << "' attachment '"

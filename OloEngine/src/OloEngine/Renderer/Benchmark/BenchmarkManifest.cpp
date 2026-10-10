@@ -267,12 +267,57 @@ namespace OloEngine::Benchmark
             return motion;
         }
 
+        // Bounds keep a sequence a piece of footage, not an unbounded readback
+        // loop: 600 steps is ten seconds of one-frame steps at 60 Hz.
+        constexpr u32 kMaxSequenceEvery = 600u;
+        constexpr u32 kMaxSequenceCount = 600u;
+
+        std::optional<ManifestCameraSequence> ParseCameraSequence(const YAML::Node& node,
+                                                                  const std::string& parentContext, ErrorList& errors)
+        {
+            const std::string context = parentContext + ".Sequence";
+            RequireKnownKeys(node, { "Every", "Count", "Attachments" }, context, errors);
+            ManifestCameraSequence sequence;
+            // Decoded without a fallback: a typo must not become a 0-step or
+            // 1-frame sequence that still "succeeds".
+            try
+            {
+                sequence.Every = node["Every"] ? node["Every"].as<u32>() : 1u;
+                sequence.Count = node["Count"] ? node["Count"].as<u32>() : 0u;
+            }
+            catch (const YAML::Exception&)
+            {
+                errors.Add(context + ": Every and Count must be non-negative integers");
+                return std::nullopt;
+            }
+            if (sequence.Every < 1u || sequence.Every > kMaxSequenceEvery)
+            {
+                errors.Add(context + ": Every must be in [1, " + std::to_string(kMaxSequenceEvery) + "]");
+            }
+            if (sequence.Count < 2u || sequence.Count > kMaxSequenceCount)
+            {
+                // One step is just the end-of-camera capture under another name.
+                errors.Add(context + ": Count must be in [2, " + std::to_string(kMaxSequenceCount) + "]");
+            }
+            const auto names = node["Attachments"];
+            if (!names || !names.IsSequence() || names.size() == 0)
+            {
+                errors.Add(context + ": Attachments must list at least one attachment Name");
+                return std::nullopt;
+            }
+            for (const auto& name : names)
+            {
+                sequence.Attachments.Add(FString(name.as<std::string>("")));
+            }
+            return sequence;
+        }
+
         std::optional<ManifestCamera> ParseCamera(const YAML::Node& node, ErrorList& errors, sizet index)
         {
             const std::string context = "Cameras[" + std::to_string(index) + "]";
             RequireKnownKeys(node,
                              { "Id", "Position", "YawDegrees", "PitchDegrees", "FovDegrees", "Near", "Far",
-                               "WarmupFrames", "Motion" },
+                               "WarmupFrames", "Motion", "Sequence" },
                              context, errors);
 
             ManifestCamera camera;
@@ -327,9 +372,19 @@ namespace OloEngine::Benchmark
             {
                 camera.Motion = ParseCameraMotion(motion, context, errors);
             }
+            if (const auto sequence = node["Sequence"]; sequence)
+            {
+                if (auto parsed = ParseCameraSequence(sequence, context, errors))
+                    camera.Sequence = std::move(*parsed);
+            }
             return camera;
         }
     } // namespace
+
+    u32 SequenceFrameCount(const ManifestCameraSequence& sequence)
+    {
+        return sequence.Every * sequence.Count;
+    }
 
     ManifestCameraPose CameraPoseAtFrame(const ManifestCamera& camera, u32 frameInCamera, f32 fixedDtSeconds)
     {
@@ -556,7 +611,7 @@ namespace OloEngine::Benchmark
             RequireKnownKeys(rs,
                              { "Path", "EnableDDGI", "DepthPrepassEnabled", "OcclusionCullingEnabled",
                                "HZBOcclusionCullingEnabled", "TAAEnabled", "GpuPathTracerEnabled",
-                               "GpuPathTracerSamplesPerFrame", "RayTracedShadowsEnabled",
+                               "GpuPathTracerSamplesPerFrame", "RayTracedShadowsEnabled", "VirtualShadowMaps",
                                "MSAASampleCount", "Upscale", "UpscaleTechnique", "LightingTap" },
                              "RendererSettings", errors);
             if (rs["Path"])
@@ -603,6 +658,21 @@ namespace OloEngine::Benchmark
             if (rs["RayTracedShadowsEnabled"])
             {
                 manifest.RendererSettings.RayTracedShadowsEnabled = rs["RayTracedShadowsEnabled"].as<bool>(false);
+            }
+            if (rs["VirtualShadowMaps"])
+            {
+                // Decoded explicitly, like GpuPathTracerEnabled: a typo must not
+                // turn into a CSM run filed under a VSM gate.
+                bool enabled = false;
+                if (!rs["VirtualShadowMaps"].IsScalar() ||
+                    !YAML::convert<bool>::decode(rs["VirtualShadowMaps"], enabled))
+                {
+                    errors.Add("RendererSettings.VirtualShadowMaps must be true or false");
+                }
+                else
+                {
+                    manifest.RendererSettings.VirtualShadowMapsEnabled = enabled;
+                }
             }
             if (rs["MSAASampleCount"])
             {
@@ -939,6 +1009,27 @@ namespace OloEngine::Benchmark
                 {
                     errors.Add("duplicate attachment Name '" + manifest.Attachments[i].Name.ToStdString() + "'");
                 }
+            }
+        }
+
+        // A sequence names attachments from the list above, and it reads back
+        // mid-run, so it cannot share a manifest with timed frames (issue #1259).
+        for (const auto& camera : manifest.Cameras)
+        {
+            if (!camera.HasSequence())
+                continue;
+            const std::string context = "Cameras '" + camera.Id.ToStdString() + "'.Sequence";
+            if (manifest.MeasurementFrames > 0u)
+            {
+                errors.Add(context + ": a sequence reads attachments back between frames, so it cannot share a "
+                                     "manifest with a Measurement block (the readbacks would be timed)");
+            }
+            for (const auto& name : camera.Sequence.Attachments)
+            {
+                const bool known = std::ranges::any_of(manifest.Attachments, [&name](const ManifestAttachment& a)
+                                                       { return a.Name == name; });
+                if (!known)
+                    errors.Add(context + ": attachment '" + name.ToStdString() + "' is not in Attachments");
             }
         }
 

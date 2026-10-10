@@ -27,6 +27,7 @@
 #include "MCP/McpSceneControl.h"
 #include "MCP/BenchmarkCaptureCleanup.h"
 
+#include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/FastRandom.h"
 #include "OloEngine/Renderer/Benchmark/BenchmarkCapture.h"
 #include "OloEngine/Renderer/Benchmark/BenchmarkManifest.h"
@@ -515,14 +516,66 @@ namespace OloEngine::MCP
 
                 const FString cameraId = cameraSpec.Id;
                 const Benchmark::CaptureContext captureContext{ cameraSpec.NearClip, cameraSpec.FarClip };
+
+                // A frame sequence (#1259): the same one-frame steps, continuing
+                // past the measured frames, with a readback after every step.
+                // The parser refuses a sequence beside a Measurement block, so no
+                // timed frame ever contains one of these readbacks.
+                auto sequenceFrames = std::make_shared<TArray<Benchmark::CameraSequenceFrame>>();
+                if (cameraSpec.HasSequence() && !warmupTimedOut)
+                {
+                    u32 frameInCamera = warmFrames + manifest->MeasurementFrames;
+                    const Benchmark::ManifestCameraSequence sequence = cameraSpec.Sequence;
+                    for (u32 step = 0; step < sequence.Count && !warmupTimedOut; ++step)
+                    {
+                        for (u32 f = 0; f < sequence.Every; ++f)
+                        {
+                            const std::optional<u32> poseFrame =
+                                cameraSpec.Motion ? std::optional<u32>(frameInCamera) : std::nullopt;
+                            const f32 seconds = clockStart + static_cast<f32>(trajectoryFrame) * clockDt;
+                            const std::optional<u64> baseFrame = applyStep(poseFrame, trajectoryFrame++);
+                            if (!baseFrame)
+                                return ToolResult::Error("EntityMotion target missing from the active scene");
+                            if (!AwaitBenchmarkFrames(host, *baseFrame, 1u))
+                            {
+                                warmupTimedOut = true;
+                                break;
+                            }
+                            ++frameInCamera;
+                            if (f + 1u == sequence.Every)
+                            {
+                                const u32 stepFrameInCamera = frameInCamera - 1u;
+                                host.MarshalRead(
+                                    [&host, sequenceFrames, manifestCopy, sequence, backendCopy, captureContext, step,
+                                     stepFrameInCamera, seconds]() -> Json
+                                    {
+                                        Benchmark::CameraSequenceFrame frame;
+                                        frame.Step = step;
+                                        frame.FrameInCamera = stepFrameInCamera;
+                                        frame.CaptureFrameIndex = host.Context().GetFrameIndex
+                                                                      ? static_cast<u32>(host.Context().GetFrameIndex())
+                                                                      : 0u;
+                                        frame.MockTimeSeconds = seconds;
+                                        frame.Attachments = Benchmark::CaptureSequenceAttachments(
+                                            *manifestCopy, sequence, backendCopy.ToView(), captureContext);
+                                        sequenceFrames->Add(std::move(frame));
+                                        return Json{ { "ok", true } };
+                                    },
+                                    kBenchmarkMarshalTimeout);
+                            }
+                        }
+                    }
+                }
+
                 host.MarshalRead(
-                    [&host, cameraSets, manifestCopy, cameraId, backendCopy, captureContext]() -> Json
+                    [&host, cameraSets, manifestCopy, cameraId, backendCopy, captureContext, sequenceFrames]() -> Json
                     {
                         const u32 captureFrame = host.Context().GetFrameIndex
                                                      ? static_cast<u32>(host.Context().GetFrameIndex())
                                                      : 0u;
                         auto set = Benchmark::CaptureCameraSet(*manifestCopy, cameraId.ToView(), captureFrame, backendCopy.ToView(),
                                                                captureContext);
+                        set.Sequence = std::move(*sequenceFrames);
                         // See the loop-header comment: linear-depth derives are
                         // not metric in this host.
                         for (auto& attachment : set.Attachments)
@@ -612,6 +665,8 @@ namespace OloEngine::MCP
             runInfo.CommitSha = Benchmark::QueryCommitShaViaGit();
             runInfo.MachineTag = Benchmark::ResolveMachineTag({});
             runInfo.Host = "editor-mcp";
+            runInfo.Presentation = "window";
+            runInfo.VSync = Application::Get().GetWindow().IsVSync();
             // Every stepped frame (warm-up, measured, sequence), as the test-binary
             // host counts them; the warm-up count alone dropped the measured frames.
             runInfo.TotalFramesRendered = trajectoryFrame;

@@ -92,11 +92,40 @@ namespace OloEngine
 
 namespace OloEngine::Benchmark
 {
+    // One step of a camera's frame sequence (issue #1259): the attachments the
+    // sequence names, read back after `FrameInCamera + 1` frames of that camera.
+    struct CameraSequenceFrame
+    {
+        u32 Step = 0;
+        u32 FrameInCamera = 0;     // 0-based frame of this camera the readback follows
+        u32 CaptureFrameIndex = 0; // frames rendered in the run when it was taken
+        f32 MockTimeSeconds = 0.0f;
+        TArray<CapturedAttachment> Attachments;
+    };
+} // namespace OloEngine::Benchmark
+
+namespace OloEngine
+{
+    template<>
+    struct TIsTriviallyRelocatable<Benchmark::CameraSequenceFrame>
+    {
+        using Record = Benchmark::CameraSequenceFrame;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::Step)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::FrameInCamera)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::CaptureFrameIndex)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::MockTimeSeconds)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Attachments)>;
+    };
+} // namespace OloEngine
+
+namespace OloEngine::Benchmark
+{
     struct CameraCaptureSet
     {
         FString CameraId;
         u32 CaptureFrameIndex = 0; // frames rendered when this capture was taken
         TArray<CapturedAttachment> Attachments;
+        TArray<CameraSequenceFrame> Sequence; // empty unless the camera declares one
     };
 
     struct PassTimingRecord
@@ -123,7 +152,8 @@ namespace OloEngine
         using Record = Benchmark::CameraCaptureSet;
         static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::CameraId)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::CaptureFrameIndex)> &&
-                                      TIsTriviallyRelocatable_V<decltype(Record::Attachments)>;
+                                      TIsTriviallyRelocatable_V<decltype(Record::Attachments)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Sequence)>;
     };
     template<>
     struct TIsTriviallyRelocatable<Benchmark::PassTimingRecord>
@@ -312,6 +342,7 @@ namespace OloEngine::Benchmark
         UpscaleMode Upscale = UpscaleMode::Off;
         UpscalerTechnique Technique = UpscalerTechnique::Spatial;
         bool RayTracedShadowsRequested = false;
+        bool VirtualShadowMapsEnabled = false;
         LightingTap LightingDebugTap = LightingTap::None; ///< A tapped run's SceneColor is that term (#1526).
     };
     [[nodiscard]] AppliedConfiguration SnapshotAppliedConfiguration();
@@ -329,6 +360,12 @@ namespace OloEngine::Benchmark
         FString CommitSha; // "unknown" when unavailable
         FString MachineTag;
         FString Host; // "test-binary" | "editor-mcp"
+        // How frames reached a display (#1259). The editor host's frame time is
+        // the completed-frame interval, which includes present, so a VSync'd
+        // window snaps it to the refresh; a reader needs this to read a 16.7 ms
+        // tail. "offscreen" (no present), or "window" with the window's VSync.
+        FString Presentation = "offscreen";
+        std::optional<bool> VSync; // nullopt: not applicable (offscreen)
         u32 TotalFramesRendered = 0;
         // Set when a host could not confirm the declared warm-up frames
         // actually rendered (the editor host counts live frames and can time
@@ -389,6 +426,17 @@ namespace OloEngine::Benchmark
     [[nodiscard]] CameraCaptureSet CaptureCameraSet(const BenchmarkManifest& manifest, std::string_view cameraId,
                                                     u32 captureFrameIndex, std::string_view backend,
                                                     const CaptureContext& context);
+
+    /// Capture ONLY the attachments `sequence` names, as one sequence step.
+    /// Same rules and readback as CaptureCameraSet; run on the render thread.
+    [[nodiscard]] TArray<CapturedAttachment> CaptureSequenceAttachments(const BenchmarkManifest& manifest,
+                                                                        const ManifestCameraSequence& sequence,
+                                                                        std::string_view backend,
+                                                                        const CaptureContext& context);
+
+    /// Frames one camera renders in a run: warm-up, then the measured frames,
+    /// then its sequence. Its last frame is the one the end-of-camera capture shows.
+    [[nodiscard]] u32 CameraFrameCount(const BenchmarkManifest& manifest, const ManifestCamera& camera);
 
     /// The per-pass GPU timings of the most recently resolved frame, each with
     /// its validity.

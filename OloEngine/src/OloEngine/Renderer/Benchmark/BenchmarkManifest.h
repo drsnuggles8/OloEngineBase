@@ -101,6 +101,20 @@ namespace OloEngine::Benchmark
         f32 PitchRateDegreesPerSecond = 0.0f;
     };
 
+    // A frame sequence (issue #1259): after its warm-up the camera renders
+    // `Count` more steps of `Every` frames each, continuing its motion and the
+    // scene's, and captures the named attachments at the end of every step.
+    // That is the motion footage a single end-of-camera capture cannot give.
+    // A sequence reads back mid-run, so it never shares a manifest with a
+    // timed Measurement block.
+    struct ManifestCameraSequence
+    {
+        u32 Every = 1;
+        u32 Count = 0;
+        TArray<FString> Attachments; // names from the manifest's Attachments list
+    };
+    [[nodiscard]] u32 SequenceFrameCount(const ManifestCameraSequence& sequence);
+
     struct ManifestCamera
     {
         FString Id;
@@ -116,6 +130,15 @@ namespace OloEngine::Benchmark
         std::optional<u32> WarmupFrames;
         // Absent = the still pose above, unchanged.
         std::optional<ManifestCameraMotion> Motion;
+        // Count == 0 (the default): no sequence, one capture at the end of the
+        // camera as before. A plain member rather than an optional so the
+        // record stays trivially relocatable for TArray.
+        ManifestCameraSequence Sequence;
+
+        [[nodiscard]] bool HasSequence() const
+        {
+            return Sequence.Count > 0u;
+        }
     };
 
     // The camera state a host must apply before rendering one warm-up frame.
@@ -247,6 +270,10 @@ namespace OloEngine::Benchmark
         // not carry TAAEnabled) — the temporal-history axis needs it pinned.
         std::optional<bool> TAAEnabled;
         std::optional<bool> RayTracedShadowsEnabled;
+        // Virtual shadow maps (ShadowMap::Settings.VSM.Enabled) are a runtime
+        // renderer setting no scene serializes; the #1259 acceptance gate is
+        // measured with them on, so a manifest has to be able to pin them.
+        std::optional<bool> VirtualShadowMapsEnabled;
         std::optional<u32> MSAASampleCount;
         std::optional<UpscaleMode> Upscale;
         std::optional<UpscalerTechnique> UpscaleTechnique;
@@ -279,6 +306,14 @@ namespace OloEngine
                                       TIsTriviallyRelocatable_V<decltype(Record::PhaseRadians)>;
     };
     template<>
+    struct TIsTriviallyRelocatable<Benchmark::ManifestCameraSequence>
+    {
+        using Record = Benchmark::ManifestCameraSequence;
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(Record::Every)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Count)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Attachments)>;
+    };
+    template<>
     struct TIsTriviallyRelocatable<Benchmark::ManifestCamera>
     {
         using Record = Benchmark::ManifestCamera;
@@ -290,7 +325,8 @@ namespace OloEngine
                                       TIsTriviallyRelocatable_V<decltype(Record::NearClip)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::FarClip)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::WarmupFrames)> &&
-                                      TIsTriviallyRelocatable_V<decltype(Record::Motion)>;
+                                      TIsTriviallyRelocatable_V<decltype(Record::Motion)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::Sequence)>;
     };
     template<>
     struct TIsTriviallyRelocatable<Benchmark::ManifestAttachment>
