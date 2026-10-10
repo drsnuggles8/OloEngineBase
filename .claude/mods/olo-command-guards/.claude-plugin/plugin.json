@@ -1,0 +1,8 @@
+{
+  "name": "olo-command-guards",
+  "version": "0.1.0",
+  "description": "Enforces OloEngine's git/publish rules (no bare or master pushes, no chained --amend, gated actions need the user's approval, no push while local checks run) and flags timing runs on a busy GPU.",
+  "author": {
+    "name": "OloEngine"
+  }
+}
