@@ -51,7 +51,7 @@ CC BY 3.0 attribution.
 
 ## Using it
 
-It is authored at roughly 1.4 units tall for the whole bust and its origin is at the base of the
+`Head.fbx` is 0.84 units tall for the whole bust (as loaded; measured by `SkinRiggedHeadEvidenceTest`) and its origin is at the base of the
 neck, **not** at the head's centre. `DigitalHuman.olo` therefore scales it by `0.38` and drops it
 by `0.285` to put the head on the scene origin. Anything positioned relative to the face must be
 placed against that transform — the first attempt kept coordinates authored for a 0.2 m sphere and
