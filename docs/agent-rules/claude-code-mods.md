@@ -22,37 +22,46 @@ allow or block.
 | `olo-output-truth` | Reads Bash, PowerShell and Read output and the log behind a background task's "exit code 0" notification. It flags a failed build, a filter that selected no tests, a run that ended inside a test, an all-skipped run and failing tests (counted with gtest's two-space `[  FAILED  ]`). |
 | `olo-command-guards` | Refuses a bare `git push`, a `--amend` after `;`/`\|\|`/newline and a pipe into `Set-Content -NoNewline`. Refuses CLAUDE.md's gated actions (push to master, force push, `reset --hard`, `--no-verify`, `gh pr merge`, `gh issue close`) unless the user approved them. Refuses a push or `gh pr create` while this worktree's build or tests still run, and flags a timing run started on a busy GPU. |
 | `olo-read-gates` | Before an edit to a shader, a header declaring a `*Component`, or a new test `.cpp`, the matching guide must have been read in the session. Refuses edits to vendor, vcpkg and OloHeaderTool-generated files. Says when a new test source is missing from `OloEngine/tests/CMakeLists.txt` or lacks `OLO_TEST_LAYER`. |
-| `olo-evidence` | Records every build, test run, evidence PNG read and live editor capture per branch, across sessions. `/evidence` shows the record. `gh pr create` is refused while the record does not back the PR: failing or unfinished runs, a Debug/Release claim with no passing run, or a renderer change with no frame looked at. |
+| `olo-evidence` | Records every build, test run, evidence PNG read and live editor capture per branch, across sessions. `/evidence` shows the record. `gh pr create` is refused while the record does not back the PR: failing or unfinished runs (gtest or ctest), runs whose outcome is unknown, a Debug/Release claim with no passing run, or a renderer change with no frame looked at. A run counts only when the statement runs the build or test, and an earlier run keeps the outcome its log held before a later run overwrote that log. |
 | `olo-known-traps` | Recognises the error text of traps already recorded in memory notes and attaches the recorded fix, once per 20 minutes per trap. The table is `hooks/traps.ts`. |
 | `olo-context-saver` | Collapses ninja progress lines and passing gtest RUN/OK pairs in large logs before they are stored in the conversation; every other line stays verbatim. |
 | `olo-fleet` | `/fleet`: every worktree with its changes, PR, CI, open review threads, and who holds and waits for the build lock. A notification when a PR's CI settles. |
 
 ## Markers
 
-Text in the command is the only channel a guard has, so three literal markers exist. Each is
-meant to be used only when it is true.
+Text in the command is the only channel a guard has, so two literal markers exist. Each is meant
+to be used only when it is true.
+
+**A marker counts only in the trailing `#` comment of the statement it approves.** Inside a quoted
+argument it is data: a PR body or an issue comment that mentions it approves nothing. On a chain it
+approves only the statement it ends. For example, `gh issue close 1 && git reset --hard # MARKER`
+approves the reset and still refuses the close.
 
 - `OLO_USER_APPROVED`: the user approved this specific gated action in this conversation. It lets
   `olo-command-guards` and `olo-evidence` through, and is logged in the mod's store. A past approval
   does not carry forward.
 - `OLO_LEDGER_INCOMPLETE`: the runs a PR relies on happened outside the record (an earlier session,
-  another machine). It waives only "no runs recorded" and "unbacked claim"; say so in the PR body.
-- A failing test named in the PR body (as pre-existing, with evidence) clears that failure from
-  `olo-evidence`'s check. A body that says "could not inspect a frame" clears the visual rule, as
-  CLAUDE.md asks.
+  another machine). It waives only "no runs with a known outcome", "unproven run" and "unbacked
+  claim"; say so in the PR body.
+
+Two things in the PR body clear a check without a marker:
+
+- A failing test named in the body (as pre-existing, with evidence) clears that failure from
+  `olo-evidence`'s check.
+- A body that says "could not inspect a frame" clears the visual rule, as CLAUDE.md asks.
 
 ## Installing them
 
 The folder is a plugin marketplace that is read in place, so an edit or a pull reaches sessions on
-`/reload-plugins` with no reinstall. Once per machine, in a terminal session:
+`/reload-plugins` with no reinstall. Once per machine, from the root of the base checkout (the main
+one, not a worktree: worktrees come and go):
 
 ```text
-claude plugin marketplace add C:\repos\OloEngineBaseBase\.claude\mods
-/plugin install olo-output-truth@olo-mods
+claude plugin marketplace add ./.claude/mods
 ```
 
-Repeat `/plugin install` for each mod, at the user scope. Point the marketplace at the base repo,
-not a worktree: worktrees come and go.
+Then, in a terminal Claude Code session, `/plugin install olo-output-truth@olo-mods`, and the same
+for each other mod, at the user scope.
 
 ## What the VS Code extension shows
 

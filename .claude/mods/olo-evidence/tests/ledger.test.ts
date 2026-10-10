@@ -7,8 +7,12 @@ import {
   claims,
   judge,
   latestPerKey,
+  markersOf,
+  outcomeOf,
   parseInvocations,
+  prBodySource,
   prProblems,
+  prStatement,
   redirectTarget,
   summaryMarkdown,
   testOutcome,
@@ -29,6 +33,47 @@ test('invocations: a locked build, a test run, both on one line, ctest', () => {
   expect(parseInvocations('OloEngine-Tests.exe --gtest_list_tests --gtest_filter=X.*')).toEqual([])
   expect(parseInvocations('ctest -N')).toEqual([])
   expect(parseInvocations('git log --oneline')).toEqual([])
+})
+
+test('invocations: a statement must RUN the build or test, not mention it', () => {
+  expect(parseInvocations('rg -n OloEngine-Tests docs')).toEqual([])
+  expect(parseInvocations('git log --grep ctest')).toEqual([])
+  expect(parseInvocations('gh pr create --body "ran build-cached/OloEngine/tests/Debug/OloEngine-Tests.exe and ctest -C Debug"')).toEqual([])
+  expect(parseInvocations('grep "cmake --build" notes.md')).toEqual([])
+  expect(parseInvocations('timeout 600 build-cached/OloEngine/tests/Debug/OloEngine-Tests.exe --gtest_filter=A.*')).toEqual([
+    { kind: 'test', config: 'Debug', scope: 'A.*' },
+  ])
+  expect(parseInvocations('& "C:/r/build-cached/OloEngine/tests/Release/OloEngine-Tests.exe" "--gtest_filter=B.*"')).toEqual([
+    { kind: 'test', config: 'Release', scope: 'B.*' },
+  ])
+})
+
+test('ctest summaries are read, passing and failing', () => {
+  const failing = [
+    '80% tests passed, 1 tests failed out of 5',
+    '',
+    'The following tests FAILED:',
+    '\t  3 - Water.Foam (Failed)',
+    'Errors while running CTest',
+  ].join('\n')
+  expect(testOutcome(failing)).toEqual(expect.objectContaining({ state: 'failed', failed: ['Water.Foam'], ran: 5 }))
+  expect(testOutcome('100% tests passed, 0 tests failed out of 12').state).toBe('passed')
+})
+
+test('colour sequences, CRs and NULs do not hide a result', () => {
+  const coloured = '\u001b[0;32m[==========] \u001b[mRunning 1 test from 1 test suite.\r\n[ RUN      ] A.B\r\n\u001b[0;31m[  FAILED  ] \u001b[mA.B (1 ms)\r\n[==========] 1 test from 1 test suite ran.\u0000'
+  expect(outcomeOf('test', coloured)).toEqual(expect.objectContaining({ state: 'failed', failed: ['A.B'] }))
+})
+
+test('the PR statement, its body source and its markers come from the parsed command', () => {
+  const s = prStatement('cd x && gh pr create --title "a; b" --body-file C:/t/body.md # OLO_LEDGER_INCOMPLETE')
+  expect(s === undefined ? undefined : prBodySource(s)).toEqual({ file: 'C:/t/body.md' })
+  expect(s === undefined ? '' : markersOf(s)).toContain('OLO_LEDGER_INCOMPLETE')
+  const quoted = prStatement('gh pr create --body "this mentions OLO_USER_APPROVED"')
+  expect(quoted === undefined ? 'missing' : markersOf(quoted)).toBe('')
+  expect(prStatement('gh pr view 1585')).toBeUndefined()
+  expect(prStatement('gh pr edit 1585 --add-label x')).toBeUndefined()
+  expect(prStatement('gh pr edit 1585 --body-file b.md')).toBeDefined()
 })
 
 test('redirects: the file a run writes to, not 2>&1 or /dev/null', () => {
@@ -102,6 +147,18 @@ test('PR problems: no runs, failing runs, unbacked claims, missing visual eviden
   expect(prProblems(green, views, shader, '').map(p => p.rule)).toEqual(['visual-evidence'])
   expect(prProblems(green, [...views, { at: 1, kind: 'live-capture', what: 'olo_screenshot' }], shader, '')).toEqual([])
   expect(prProblems(green, [], shader, 'I could not inspect a frame: no GPU in this session.')).toEqual([])
+})
+
+test('runs with no known outcome are not evidence', () => {
+  const unknown = judge(run({ scope: 'Lost.*', logPath: 'C:/gone.log' }), undefined)
+  expect(unknown.outcome.state).toBe('unknown')
+  // Only unknown runs: the branch has no evidence at all.
+  const alone = prProblems([unknown], [], ['a.cpp'], '')
+  expect(alone.map(p => p.rule)).toEqual(['no-runs'])
+  expect(alone[0]?.message).toContain('no recorded build or test run has a known outcome')
+  // Beside a known run, the unknown one is reported as unproven.
+  const mixed = prProblems([judge(run({ captured: passed }), undefined), unknown], [], ['a.cpp'], '')
+  expect(mixed.map(p => p.rule)).toEqual(['unproven-run'])
 })
 
 test('markers waive only what they cover', () => {

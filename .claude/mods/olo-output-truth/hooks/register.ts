@@ -72,7 +72,11 @@ function surface($: EngineInterface, findings: Finding[]): void {
   }
 }
 
-/** The last few MB of a log: `$.fs.read` takes files up to 4 MiB, larger ones go through `tail`. */
+/**
+ * A log's text: whole when `$.fs.read` takes it (up to 4 MiB), else its last few MB through
+ * this mod's scripts/tail.ps1 (`$.process.run` has no shell, and pwsh is always present
+ * here), else `tail` where one is on PATH.
+ */
 async function readTail($: EngineInterface, path: string): Promise<string | undefined> {
   try {
     const stat = await $.fs.stat(path)
@@ -82,9 +86,22 @@ async function readTail($: EngineInterface, path: string): Promise<string | unde
     if (stat.size <= FS_READ_LIMIT) {
       return await $.fs.read(path)
     }
-    const tail = await $.process.run(['tail', '-c', String(TAIL_BYTES), path], { timeoutMs: 15_000 })
-    return tail.exitCode === 0 ? tail.stdout : undefined
   } catch {
     return undefined
   }
+  const attempts: string[][] = [
+    ['pwsh', '-NoProfile', '-NonInteractive', '-File', `${$.plugin.root}/scripts/tail.ps1`, '-Path', path, '-Bytes', String(TAIL_BYTES)],
+    ['tail', '-c', String(TAIL_BYTES), path],
+  ]
+  for (const argv of attempts) {
+    try {
+      const r = await $.process.run(argv, { timeoutMs: 15_000 })
+      if (r.exitCode === 0) {
+        return r.stdout
+      }
+    } catch {
+      // Try the next way.
+    }
+  }
+  return undefined
 }

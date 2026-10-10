@@ -4,13 +4,13 @@ import {
   checkCommand,
   contenders,
   formatRefusal,
-  hasApproval,
   isTimingRun,
   loadNote,
   localChecksRunning,
   parseGpuSample,
   parseProcessRows,
   publishes,
+  publishingApproved,
   refusals,
 } from './guards'
 
@@ -36,14 +36,14 @@ export const register: Register = on => {
       return { deny: formatRefusal(refused) }
     }
 
-    const approvedGated = hasApproval(command) ? checkCommand(command, branch).filter(v => v.isGated) : []
+    const approvedGated = checkCommand(command, branch).filter(v => v.isGated && v.isApproved)
     if (approvedGated.length > 0) {
       await audit($, command, approvedGated.map(v => v.rule))
     }
 
     // Memory no-pr-before-local-checks-finish: push and open the PR only once every
     // local build and test run of this worktree has finished.
-    if (publishes(command) && !hasApproval(command)) {
+    if (publishes(command) && !publishingApproved(command)) {
       const running = await runningLocalChecks($)
       if (running.length > 0) {
         const list = running.map(r => `${r.name} (pid ${r.pid})`).join(', ')

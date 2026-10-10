@@ -2,6 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import {
   checkCommand,
+  commentOf,
   contenders,
   isTimingRun,
   loadNote,
@@ -9,6 +10,7 @@ import {
   parseGpuSample,
   parseProcessRows,
   publishes,
+  publishingApproved,
   refusals,
   splitStatements,
   tokenize,
@@ -82,6 +84,17 @@ test('the approval marker lets gated actions through, never ungated ones', () =>
   expect(refusals('git push origin master # OLO_USER_APPROVED').map(v => v.rule)).toEqual([])
   expect(refusals('git push # OLO_USER_APPROVED').map(v => v.rule)).toEqual(['bare-push'])
   expect(refusals('git revert x ; git commit --amend # OLO_USER_APPROVED').map(v => v.rule)).toEqual(['chained-amend'])
+})
+
+test('the marker counts only in its own statement\'s trailing comment, never inside quotes', () => {
+  expect(refusals('gh issue close 1 --comment "OLO_USER_APPROVED"').map(v => v.rule)).toEqual(['issue-close'])
+  expect(refusals("gh issue close 1 --comment 'see # OLO_USER_APPROVED'").map(v => v.rule)).toEqual(['issue-close'])
+  expect(refusals('git push origin master -o "OLO_USER_APPROVED"').map(v => v.rule)).toEqual(['push-to-master'])
+  // One marker on a chain approves the statement it ends, not the ones before it.
+  expect(refusals('gh issue close 1 && git reset --hard # OLO_USER_APPROVED').map(v => v.rule)).toEqual(['issue-close'])
+  expect(commentOf('gh issue close 1 --comment "a # b" # OLO_USER_APPROVED')).toBe(' OLO_USER_APPROVED')
+  expect(publishingApproved('gh pr create --body "OLO_USER_APPROVED"')).toBe(false)
+  expect(publishingApproved('git push -u origin feature/x # OLO_USER_APPROVED')).toBe(true)
 })
 
 test('a pipe into Set-Content -NoNewline is refused; a plain Set-Content is not', () => {

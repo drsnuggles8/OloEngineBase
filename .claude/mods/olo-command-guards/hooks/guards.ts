@@ -144,16 +144,50 @@ export type Violation = {
   rule: string
   /** True for CLAUDE.md's "gated in every context" actions: the approval marker lets them through. */
   isGated: boolean
+  /** The statement that broke the rule carries the approval marker in its own trailing comment. */
+  isApproved: boolean
   reason: string
+}
+
+/**
+ * The trailing comment of one statement (`# ...`, outside any quotes), or ''. The approval
+ * marker counts only here: inside a quoted argument (a PR body, an issue comment) it is
+ * data, and on one statement of a chain it approves that statement alone.
+ */
+export function commentOf(text: string): string {
+  let quote: '"' | "'" | undefined
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text[i] ?? ''
+    if (quote !== undefined) {
+      if (c === quote) {
+        quote = undefined
+      }
+      continue
+    }
+    if (c === '"' || c === "'") {
+      quote = c
+      continue
+    }
+    if (c === '#' && (i === 0 || /\s/.test(text[i - 1] ?? ''))) {
+      return text.slice(i + 1)
+    }
+  }
+  return ''
+}
+
+function isApprovedStatement(statement: Statement): boolean {
+  return commentOf(statement.text).includes(APPROVAL_MARKER)
 }
 
 const PROTECTED_BRANCHES = new Set(['master', 'main'])
 
-function pushViolations(args: string[], branch: string | undefined): Violation[] {
+type Found = Omit<Violation, 'isApproved'>
+
+function pushViolations(args: string[], branch: string | undefined): Found[] {
   const rest = args.slice(1)
   const flags = rest.filter(w => w.startsWith('-'))
   const positional = rest.filter(w => !w.startsWith('-'))
-  const out: Violation[] = []
+  const out: Found[] = []
   const suggestion = branch && !PROTECTED_BRANCHES.has(branch) ? `git push -u origin ${branch}` : 'git push -u origin feature/<slug>'
 
   const isForce =
@@ -196,8 +230,9 @@ function pushViolations(args: string[], branch: string | undefined): Violation[]
  * suggestion and for `git push origin HEAD` from master.
  */
 export function checkCommand(command: string, branch?: string): Violation[] {
-  const out: Violation[] = []
+  const all: Violation[] = []
   for (const statement of splitStatements(command)) {
+    const out: Found[] = []
     const words = statement.words
     const args = gitArgs(words)
     const sub = args?.[0]
@@ -253,18 +288,16 @@ export function checkCommand(command: string, branch?: string): Violation[] {
           'It flattened a GLSL file and a scene here (#1360). Use Bash redirection (`git show <sha>:path > path`) or the Write/Edit tools.',
       })
     }
+
+    const approved = isApprovedStatement(statement)
+    all.push(...out.map(v => ({ ...v, isApproved: approved })))
   }
-  return out
+  return all
 }
 
-export function hasApproval(command: string): boolean {
-  return command.includes(APPROVAL_MARKER)
-}
-
-/** What the guard refuses: everything ungated, and gated rules unless the marker is present. */
+/** What the guard refuses: everything ungated, and a gated rule unless its own statement carries the marker. */
 export function refusals(command: string, branch?: string): Violation[] {
-  const approved = hasApproval(command)
-  return checkCommand(command, branch).filter(v => !v.isGated || !approved)
+  return checkCommand(command, branch).filter(v => !v.isGated || !v.isApproved)
 }
 
 export function formatRefusal(violations: readonly Violation[]): string {
@@ -278,13 +311,21 @@ export function formatRefusal(violations: readonly Violation[]): string {
   return `olo-command-guards refused this command:\n${lines.join('\n')}`
 }
 
+function isPublishing(s: Statement): boolean {
+  const args = gitArgs(s.words)
+  const first = (s.words[0] ?? '').replace(/^.*[\\/]/, '').replace(/\.exe$/i, '')
+  return (args?.[0] === 'push' && !args.includes('--dry-run') && !args.includes('-n')) || (first === 'gh' && s.words[1] === 'pr' && s.words[2] === 'create')
+}
+
 /** Does the command publish work (a push, a new PR)? Local checks must have finished first. */
 export function publishes(command: string): boolean {
-  return splitStatements(command).some(s => {
-    const args = gitArgs(s.words)
-    const first = (s.words[0] ?? '').replace(/^.*[\\/]/, '').replace(/\.exe$/i, '')
-    return (args?.[0] === 'push' && !args.includes('--dry-run') && !args.includes('-n')) || (first === 'gh' && s.words[1] === 'pr' && s.words[2] === 'create')
-  })
+  return splitStatements(command).some(isPublishing)
+}
+
+/** Every publishing statement carries the approval marker in its own trailing comment. */
+export function publishingApproved(command: string): boolean {
+  const publishing = splitStatements(command).filter(isPublishing)
+  return publishing.length > 0 && publishing.every(isApprovedStatement)
 }
 
 // ------------------------------------------------------------ timing runs ---

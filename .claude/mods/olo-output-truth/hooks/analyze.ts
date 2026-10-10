@@ -18,11 +18,15 @@ const MAX_LINE = 220
 
 /**
  * Normalises tool output for line-anchored matching: drops NULs (the engine logger
- * embeds them, which is why `grep` calls the test log binary), folds CRLF, and for
+ * embeds them, which is why `grep` calls the test log binary) and ANSI colour sequences
+ * (gtest colours its markers with --gtest_color or on a terminal), folds CRLF, and for
  * the Read tool strips its `cat -n` line-number gutter.
  */
 export function normalize(text: string, isNumberedListing = false): string {
-  let t = text.replace(/\u0000/g, '').replace(/\r\n?/g, '\n')
+  let t = text
+    .replace(/\u0000/g, '')
+    .replace(/\u001b\[[0-9;]*[A-Za-z]/g, '')
+    .replace(/\r\n?/g, '\n')
   if (isNumberedListing) {
     t = t.replace(/^ *\d+\t/gm, '')
   }
@@ -140,6 +144,18 @@ export function analyzeTests(text: string): Finding[] {
     })
   }
 
+  // ctest's own summary (it prints no gtest header without -V).
+  const ctest = /^\s*\d+% tests passed, (\d+) tests? failed out of (\d+)/m.exec(text)
+  if (ctest !== null && Number(ctest[1]) > 0) {
+    const list = text.slice(text.indexOf('The following tests FAILED:'))
+    const failedTests = unique([...list.matchAll(/^\s*\d+ - (\S+) \(/gm)].map(m => m[1] ?? ''))
+    findings.push({
+      id: `ctest:failed:${failedTests.join(',') || ctest[1]}`,
+      severity: 'error',
+      message: `ctest: ${ctest[1]} of ${ctest[2]} test(s) FAILED${failedTests.length > 0 ? `: ${listed(failedTests)}` : ''}.`,
+    })
+  }
+
   const segments = gtestSegments(text)
   if (segments.length === 0) {
     return findings
@@ -148,6 +164,7 @@ export function analyzeTests(text: string): Finding[] {
   let zeroRuns = 0
   const failed = new Set<string>()
   const incomplete: string[] = []
+  const unfinished: string[] = []
   let ran = 0
   let skipped = 0
 
@@ -169,11 +186,14 @@ export function analyzeTests(text: string): Finding[] {
     ran += runs.length
     skipped += [...skips].filter(name => runs.includes(name)).length
 
+    // No final summary: the segment did not finish, whether or not its last test did.
     if (!GTEST_DONE.test(segment)) {
       const last = runs[runs.length - 1]
       const settled = (name: string) => oks.has(name) || fails.includes(name) || skips.has(name)
       if (last !== undefined && !settled(last)) {
         incomplete.push(last)
+      } else {
+        unfinished.push(`${runs.length} of ${declared} declared test(s)${last !== undefined ? `, last ${last}` : ''}`)
       }
     }
   }
@@ -196,7 +216,17 @@ export function analyzeTests(text: string): Finding[] {
       severity: 'error',
       message:
         `The log ends inside ${listed(incomplete)} with no result line and no final summary: the run is either still going or the process died there (crash, abort, timeout). ` +
-        'Treat it as NOT passed. If you stopped it, check for a surviving OloEngine-Tests.exe / bash loop from THIS worktree before rebuilding.',
+        'Treat it as NOT passed. If you stopped it, check for a surviving OloEngine-Tests.exe / bash loop from THIS worktree before rebuilding. (If this is only part of the log, read its end.)',
+    })
+  }
+
+  if (unfinished.length > 0) {
+    findings.push({
+      id: `gtest:unfinished:${unfinished.join(',')}`,
+      severity: 'error',
+      message:
+        `The run has no final \`[==========] … ran.\` summary after ${unfinished.join('; ')}: it stopped between tests (still going, or the process died). ` +
+        'Treat it as NOT passed. (If this is only part of the log, read its end.)',
     })
   }
 

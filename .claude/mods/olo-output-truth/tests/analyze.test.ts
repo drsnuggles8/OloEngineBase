@@ -132,6 +132,29 @@ test('ctest with no matching tests is an error', () => {
   expect(analyzeTests('Test project C:/x\nNo tests were found!!!\n')[0]?.id).toBe('ctest:none')
 })
 
+test('a ctest summary with failures is an error naming them', () => {
+  const log = '80% tests passed, 1 tests failed out of 5\n\nThe following tests FAILED:\n\t  3 - Water.Foam (Failed)\n'
+  expect(analyzeTests(log)[0]?.message).toContain('Water.Foam')
+  expect(analyzeTests('100% tests passed, 0 tests failed out of 5\n')).toEqual([])
+})
+
+test('a run that stops between tests, without its final summary, is not passed', () => {
+  const stopped = ['[==========] Running 2 tests from 1 test suite.', '[ RUN      ] A.B', '[       OK ] A.B (1 ms)'].join('\n')
+  const [finding] = analyzeTests(stopped)
+  expect(finding?.id).toContain('gtest:unfinished')
+  expect(finding?.message).toContain('1 of 2 declared')
+})
+
+test('ANSI colour sequences do not hide a failure', () => {
+  const coloured = [
+    '\u001b[0;32m[==========] \u001b[mRunning 1 test from 1 test suite.',
+    '\u001b[0;32m[ RUN      ] \u001b[mA.B',
+    '\u001b[0;31m[  FAILED  ] \u001b[mA.B (1 ms)',
+    '\u001b[0;32m[==========] \u001b[m1 test from 1 test suite ran. (1 ms total)',
+  ].join('\n')
+  expect(analyzeTests(normalize(coloured)).map(f => f.id.split(':')[1])).toEqual(['failed'])
+})
+
 test('Read-tool listings and NUL-laden logs normalise to plain lines', () => {
   const listing = GTEST_ZERO.split('\n').map((l, i) => `${String(i + 1).padStart(6)}\t${l}`).join('\n')
   expect(analyzeTests(normalize(listing, true))[0]?.id).toContain('gtest:zero')

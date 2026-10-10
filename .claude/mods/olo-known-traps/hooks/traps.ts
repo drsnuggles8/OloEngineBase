@@ -75,8 +75,10 @@ export const TRAPS: readonly Trap[] = [
     memory: 'merge-state-can-be-lost-leaving-a-bare-uu-entry.md',
     matches: c => isShell(c) && /\bgit\b[^\n]*\bstatus\b/.test(c.command) && /^UU /m.test(c.text) && !/still merging|unmerged paths/i.test(c.text),
     advice: () =>
-      'If `git rev-parse -q --verify MERGE_HEAD` fails, the merge marker is gone while stages 1/2/3 are intact: committing now records no merge parent. ' +
-      'Check `git ls-files -u`, then write the marker back (`git rev-parse origin/master > "$(git rev-parse --absolute-git-dir)/MERGE_HEAD"`) and finish the merge. No reset needed.',
+      'First find which operation left it: `git rev-parse -q --verify` MERGE_HEAD, CHERRY_PICK_HEAD and REVERT_HEAD, and `rebase-merge/` or `rebase-apply/` under ' +
+      '`git rev-parse --absolute-git-dir`. A cherry-pick, revert or rebase in progress is not this trap: finish it with its own `--continue`. ' +
+      'Only if you were MERGING and none of those exists has the merge marker been lost while stages 1/2/3 are intact, and committing would record no merge parent. ' +
+      "Then confirm the merge target from `git ls-files -u` (stage 3 must match that branch's blob), write THAT commit back as MERGE_HEAD, and finish the merge. No reset needed.",
   },
   {
     id: 'worktree-add-powershell',

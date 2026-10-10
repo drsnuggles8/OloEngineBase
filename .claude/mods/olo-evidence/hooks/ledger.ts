@@ -2,6 +2,7 @@
 // outcome from a log, and judging a branch's evidence against what a PR claims.
 
 import type { EvidenceLedger, EvidenceOutcome, EvidenceRun, EvidenceRunKind, EvidenceVisual } from '../types'
+import { commentOf, splitStatements, type Statement } from './shell'
 
 // ------------------------------------------------------------ invocations ---
 
@@ -13,40 +14,85 @@ function cap(s: string): string {
   return s.length === 0 ? s : s[0]!.toUpperCase() + s.slice(1).toLowerCase()
 }
 
-/** Every build and test run a shell command starts (a `build && test` line is two). */
+function exeName(word: string | undefined): string {
+  return (word ?? '').replace(/^.*[\\/]/, '').replace(/\.exe$/i, '').toLowerCase()
+}
+
+/** A statement's words from the command it runs: drops `&`, `call`, `VAR=x`, `env`, `timeout N`. */
+function commandWords(words: string[]): string[] {
+  let i = 0
+  while (i < words.length) {
+    const w = words[i] ?? ''
+    if (w === '&' || /^(?:call|env|time|nice)$/i.test(w) || /^\w+=/.test(w)) {
+      i += 1
+    } else if (/^timeout$/i.test(w)) {
+      i += 2
+    } else {
+      break
+    }
+  }
+  return words.slice(i)
+}
+
+/** The word after `flag`, or the value of `flag=value`. */
+function flagValue(words: string[], ...flags: string[]): string | undefined {
+  for (let i = 0; i < words.length; i += 1) {
+    const w = words[i] ?? ''
+    for (const f of flags) {
+      if (w === f) {
+        return words[i + 1]
+      }
+      if (w.startsWith(`${f}=`)) {
+        return w.slice(f.length + 1)
+      }
+    }
+  }
+  return undefined
+}
+
+function config(value: string | undefined): string {
+  return value !== undefined && CONFIGS.test(value) ? cap(value) : '?'
+}
+
+/**
+ * Every build and test run a shell command starts (a `build && test` line is two). Only a
+ * statement whose COMMAND is the build or test counts: `rg OloEngine-Tests`, `git log --grep
+ * ctest` or a PR body naming the exe start nothing, and `--target OloEngine-Tests` is a target.
+ * A `pwsh ... -Command '<cmd>'` (build-lock.ps1) is looked into.
+ */
 export function parseInvocations(command: string): Invocation[] {
   const out: Invocation[] = []
+  for (const statement of splitStatements(command)) {
+    const words = commandWords(statement.words)
+    const name = exeName(words[0])
 
-  for (const m of command.matchAll(/\bcmake(?:\.exe)?\s+--build\s+("?)([^"\s]+)\1([^\n;|&]*)/g)) {
-    const rest = m[3] ?? ''
-    const config = /--config\s+(\w+)/.exec(rest)?.[1]
-    const targets = /--target\s+((?:[^\s-'"][^\s'"]*\s*)+)/.exec(rest)?.[1]?.trim().split(/\s+/) ?? []
-    const tree = (m[2] ?? '').replace(/\\/g, '/').replace(/\/$/, '').split('/').pop() ?? ''
-    out.push({ kind: 'build', config: config && CONFIGS.test(config) ? cap(config) : '?', scope: `${tree}${targets.length > 0 ? ` ${targets.join(' ')}` : ''}` })
-  }
-
-  // `--target OloEngine-Tests` names a build target, not a run: scan for test runs with the
-  // build invocations blanked out.
-  const withoutBuilds = command.replace(/\bcmake(?:\.exe)?\s+--build\s+[^\n;|&]*/g, m => ' '.repeat(m.length))
-  for (const m of withoutBuilds.matchAll(/OloEngine-Tests(?:\.exe)?([^\n;|&]*)/g)) {
-    const before = withoutBuilds.slice(0, m.index ?? 0).split(/[\s"']/).pop() ?? ''
-    // A path segment names the config (build-cached/OloEngine/tests/Debug/OloEngine-Tests.exe).
-    const config = /[\\/](Debug|Release|RelWithDebInfo|MinSizeRel|Dist)[\\/]?$/i.exec(before)?.[1]
-    const filter = /--gtest_filter[= ]("?)([^"\s]+)\1/.exec(m[1] ?? '')?.[2]
-    if (/--gtest_list_tests/.test(m[1] ?? '')) {
-      continue
+    if (name === 'cmake' && words[1] === '--build') {
+      const tree = (words[2] ?? '').replace(/\\/g, '/').replace(/\/$/, '').split('/').pop() ?? ''
+      const at = words.indexOf('--target')
+      const targets: string[] = []
+      for (let i = at + 1; at >= 0 && i < words.length && !(words[i] ?? '-').startsWith('-'); i += 1) {
+        targets.push(words[i] ?? '')
+      }
+      out.push({ kind: 'build', config: config(flagValue(words, '--config')), scope: `${tree}${targets.length > 0 ? ` ${targets.join(' ')}` : ''}` })
+    } else if (name === 'pwsh' || name === 'powershell') {
+      const inner = flagValue(words, '-Command', '-c')
+      if (inner !== undefined) {
+        out.push(...parseInvocations(inner))
+      }
+    } else if (name === 'oloengine-tests') {
+      if (words.includes('--gtest_list_tests')) {
+        continue
+      }
+      // A path segment names the config (build-cached/OloEngine/tests/Debug/OloEngine-Tests.exe).
+      const fromPath = /[\\/](Debug|Release|RelWithDebInfo|MinSizeRel|Dist)[\\/][^\\/]*$/i.exec(words[0] ?? '')?.[1]
+      out.push({ kind: 'test', config: config(fromPath), scope: flagValue(words, '--gtest_filter') ?? '(all)' })
+    } else if (name === 'ctest') {
+      if (words.includes('-N') || words.includes('--show-only')) {
+        continue
+      }
+      const regex = flagValue(words, '-R', '--tests-regex')
+      out.push({ kind: 'test', config: config(flagValue(words, '-C', '--build-config')), scope: regex ? `ctest -R ${regex}` : 'ctest (all)' })
     }
-    out.push({ kind: 'test', config: config ? cap(config) : '?', scope: filter ?? '(all)' })
-  }
-
-  for (const m of command.matchAll(/\bctest(?:\.exe)?\s([^\n;|&]*)/g)) {
-    const args = m[1] ?? ''
-    if (/(?:^|\s)-N\b/.test(args)) {
-      continue
-    }
-    const config = /(?:-C|--build-config)\s+(\w+)/.exec(args)?.[1]
-    const regex = /(?:-R|--tests-regex)\s+("?)([^"\s]+)\1/.exec(args)?.[2]
-    out.push({ kind: 'test', config: config && CONFIGS.test(config) ? cap(config) : '?', scope: regex ? `ctest -R ${regex}` : 'ctest (all)' })
   }
   return out
 }
@@ -94,9 +140,33 @@ export function buildOutcome(log: string): EvidenceOutcome {
   return { state: /\[build-lock\] (?:acquired|waiting|queued)|^\[\d+\/\d+\]/m.test(log) ? 'running' : 'unknown', detail: 'no result in the log yet', failed: [], ran: 0, skipped: 0 }
 }
 
+const CTEST_SUMMARY = /^\s*(\d+)% tests passed, (\d+) tests? failed out of (\d+)/m
+
+/** ctest's own summary, which it prints without -V where no gtest header appears. */
+function ctestOutcome(log: string): EvidenceOutcome | undefined {
+  const m = CTEST_SUMMARY.exec(log)
+  if (m === null) {
+    return undefined
+  }
+  const failedCount = Number(m[2])
+  const total = Number(m[3])
+  const list = log.slice(log.indexOf('The following tests FAILED:'))
+  const names = failedCount > 0 ? unique([...list.matchAll(/^\s*\d+ - (\S+) \(/gm)].map(x => x[1] ?? '')) : []
+  if (total === 0) {
+    return { state: 'failed', detail: 'ctest ran no tests', failed: [], ran: 0, skipped: 0 }
+  }
+  return failedCount > 0
+    ? { state: 'failed', detail: `${failedCount} failed of ${total} (ctest)`, failed: names, ran: total, skipped: 0 }
+    : { state: 'passed', detail: `${total} passed (ctest)`, failed: [], ran: total, skipped: 0 }
+}
+
 export function testOutcome(log: string): EvidenceOutcome {
   if (/^No tests were found!!!\s*$/m.test(log)) {
     return { state: 'failed', detail: 'ctest found no tests', failed: [], ran: 0, skipped: 0 }
+  }
+  const ctest = ctestOutcome(log)
+  if (ctest !== undefined) {
+    return ctest
   }
   const starts = [...log.matchAll(GTEST_HEADER)]
   if (starts.length === 0) {
@@ -137,8 +207,17 @@ export function testOutcome(log: string): EvidenceOutcome {
   return { state: 'passed', detail: `${ran - skipped} passed${skipped > 0 ? `, ${skipped} skipped` : ''}`, failed: [], ran, skipped }
 }
 
+/** NULs (the engine logger), CRs and ANSI colour sequences (gtest with --gtest_color) out. */
+export function cleanLog(text: string): string {
+  return text
+    .replace(/\u0000/g, '')
+    .replace(/\u001b\[[0-9;]*[A-Za-z]/g, '')
+    .replace(/\r\n?/g, '\n')
+}
+
 export function outcomeOf(kind: EvidenceRunKind, log: string): EvidenceOutcome {
-  return kind === 'build' ? buildOutcome(log) : testOutcome(log)
+  const clean = cleanLog(log)
+  return kind === 'build' ? buildOutcome(clean) : testOutcome(clean)
 }
 
 /** Does this output carry a result at all (so it is worth keeping as the captured outcome)? */
@@ -212,15 +291,28 @@ export function prProblems(judged: readonly Judged[], visuals: readonly Evidence
   const latest = latestPerKey(judged)
   const codeChanged = changed.some(f => CODE_PATH.test(f))
 
-  if (codeChanged && judged.length === 0) {
+  // A run counts as evidence only once its outcome is known: one whose log is gone, or that
+  // printed no result, proves nothing either way.
+  const known = judged.filter(j => j.outcome.state !== 'unknown')
+  if (codeChanged && known.length === 0) {
     problems.push({
       rule: 'no-runs',
-      message: 'The branch changes code, and no local build or test run is recorded for it. Build and run the relevant tests first (CLAUDE.md, Definition of done).',
+      message:
+        judged.length === 0
+          ? 'The branch changes code, and no local build or test run is recorded for it. Build and run the relevant tests first (CLAUDE.md, Definition of done).'
+          : 'The branch changes code, and no recorded build or test run has a known outcome (their logs are gone or printed no result). Run them again so the result is read.',
       waivedBy: [LEDGER_MARKER, APPROVAL_MARKER],
     })
   }
 
   for (const { run, outcome } of latest) {
+    if (outcome.state === 'unknown' && known.length > 0) {
+      problems.push({
+        rule: 'unproven-run',
+        message: `The latest ${run.kind} ${run.config} ${run.scope} has no known outcome (${outcome.detail}). Re-run it, or say in the PR body where its result is.`,
+        waivedBy: [LEDGER_MARKER, APPROVAL_MARKER],
+      })
+    }
     if (outcome.state === 'running') {
       problems.push({
         rule: 'still-running',
@@ -280,8 +372,37 @@ export function claims(body: string, config: 'Debug' | 'Release'): boolean {
   return body.split('\n').some(line => named.test(line) && VERDICT.test(line))
 }
 
-export function unwaived(problems: readonly PrProblem[], command: string): PrProblem[] {
-  return problems.filter(p => !p.waivedBy.some(marker => command.includes(marker)))
+/**
+ * The problems no marker waives. `markers` is the trailing comment of the `gh pr` statement
+ * (see prStatement): a marker inside a quoted PR body or another statement is data.
+ */
+export function unwaived(problems: readonly PrProblem[], markers: string): PrProblem[] {
+  return problems.filter(p => !p.waivedBy.some(marker => markers.includes(marker)))
+}
+
+/** The `gh pr create` (or `gh pr edit` that sets the body) statement of a command, if any. */
+export function prStatement(command: string): Statement | undefined {
+  return splitStatements(command).find(s => {
+    const w = s.words
+    if (exeName(w[0]) !== 'gh' || w[1] !== 'pr') {
+      return false
+    }
+    return w[2] === 'create' || (w[2] === 'edit' && w.some(x => /^(?:--body|--body-file|-b|-F)(?:=|$)/.test(x)))
+  })
+}
+
+/** Where that statement's PR body comes from: a file, inline text, or neither. */
+export function prBodySource(statement: Statement): { file?: string; inline?: string } {
+  const file = flagValue(statement.words, '--body-file', '-F')
+  if (file !== undefined) {
+    return { file }
+  }
+  const inline = flagValue(statement.words, '--body', '-b')
+  return inline !== undefined ? { inline } : {}
+}
+
+export function markersOf(statement: Statement): string {
+  return commentOf(statement.text)
 }
 
 // ---------------------------------------------------------------- display ---

@@ -133,14 +133,21 @@ async function refresh($: EngineInterface, opts: { force?: boolean } = {}): Prom
     )
     const worktrees: FleetWorktree[] = listed.map((w, i) => ({ ...w, dirty: dirtyCounts[i] ?? null }))
 
-    let prs: FleetPr[] = []
+    // A failed or garbled GitHub reply keeps the last PRs known (marked stale) rather than
+    // an empty list, so the next good reply still compares against real CI states.
+    const previous = await $.state.get(SNAPSHOT)
+    let prs: FleetPr[] = previous.value?.prs ?? []
     const repo = remote === undefined ? undefined : /github\.com[:/]([^/]+)\/(.+?)(?:\.git)?\s*$/.exec(remote)
     if (repo?.[1] !== undefined && repo[2] !== undefined) {
       const out = await run($, ['gh', 'api', 'graphql', '-f', `query=${PR_QUERY}`, '-F', `owner=${repo[1]}`, '-F', `name=${repo[2]}`], 30_000)
       if (out === undefined) {
-        errors.push('GitHub query failed (gh not authenticated, or offline)')
+        errors.push('GitHub query failed (gh not authenticated, or offline); PR states are from the last good query')
       } else {
-        prs = parsePrs(out)
+        try {
+          prs = parsePrs(out)
+        } catch {
+          errors.push('GitHub replied with something that is not the expected JSON (a proxy page?); PR states are from the last good query')
+        }
       }
     }
 
@@ -155,7 +162,6 @@ async function refresh($: EngineInterface, opts: { force?: boolean } = {}): Prom
       }
     }
 
-    const previous = await $.state.get(SNAPSHOT)
     const snapshot: FleetSnapshot = { takenAt: await $.clock.now(), base, worktrees, prs, ...lock, errors }
     await update($, snapshotAtom, () => snapshot)
 
@@ -167,8 +173,11 @@ async function refresh($: EngineInterface, opts: { force?: boolean } = {}): Prom
           ? `PR #${t.number} CI is green: ${t.title}`
           : `PR #${t.number} CI failed${t.failing.length > 0 ? ` (${t.failing.slice(0, 3).join(', ')})` : ''}: ${t.title}`
       $.ui.toast(text, { timeoutMs: 10_000 })
-      void $.ui.notify(text, { title: 'OloEngine CI' })
+      void $.ui.notify(text, { title: 'OloEngine CI' }).catch(() => undefined)
     }
+  } catch {
+    // Every caller fires refresh and forgets it (`void refresh($)`): a rejection here would be
+    // unhandled. The next tick tries again.
   } finally {
     isRefreshing = false
   }

@@ -15,36 +15,77 @@ export const DOCS = {
   tests: 'docs/agent-rules/testing-architecture.md',
 } as const
 
-/** Forward slashes, lower case: how paths are compared here (Windows is case-insensitive). */
+/**
+ * Forward slashes and `.` / `..` segments resolved, case kept: `<root>/OloEngine/src/../vendor/x`
+ * is the vendor file it names, whatever the spelling.
+ */
+export function resolvePath(p: string): string {
+  const slashed = p.replace(/\\/g, '/')
+  const drive = /^[A-Za-z]:/.exec(slashed)?.[0] ?? ''
+  const rest = slashed.slice(drive.length)
+  const isAbsolute = rest.startsWith('/')
+  const out: string[] = []
+  for (const part of rest.split('/')) {
+    if (part === '' || part === '.') {
+      continue
+    }
+    if (part === '..') {
+      if (out.length > 0 && out[out.length - 1] !== '..') {
+        out.pop()
+      } else if (!isAbsolute) {
+        out.push('..')
+      }
+      continue
+    }
+    out.push(part)
+  }
+  return `${drive}${isAbsolute ? '/' : ''}${out.join('/')}`
+}
+
+/** Resolved and lower case: how paths are compared here (Windows is case-insensitive). */
 export function normPath(p: string): string {
-  return p.replace(/\\/g, '/').toLowerCase()
+  return resolvePath(p).toLowerCase()
+}
+
+/** Every directory above a file, nearest first: where to look for the checkout's `.git`. */
+export function ancestors(path: string): string[] {
+  const parts = resolvePath(path).split('/')
+  const out: string[] = []
+  for (let i = parts.length - 1; i > 0; i -= 1) {
+    const dir = parts.slice(0, i).join('/')
+    if (dir.length > 0 && !/^[A-Za-z]:$/.test(dir)) {
+      out.push(dir)
+    }
+  }
+  return out
 }
 
 /**
- * The repository root a path lies in, found by the first top-level directory the repo
- * has. Undefined outside an OloEngine checkout.
+ * A fallback root, for when the file system cannot be asked: the directory above the first
+ * top-level directory this repo has. The engine's own answer is the nearest `.git` (see
+ * register), which also places a nested checkout (`.claude/worktrees/<name>`) right.
  */
-export function repoRoot(path: string): string | undefined {
-  const m = /^(.*?)[\\/](?:OloEngine|OloEditor|OloRuntime|OloServer|OloEngine-ScriptCore|docs|tools|cmake|scripts|build[\w-]*|\.claude|\.github)[\\/]/.exec(path)
+export function guessRoot(path: string): string | undefined {
+  const m = /^(.*?)\/(?:OloEngine|OloEditor|OloRuntime|OloServer|OloEngine-ScriptCore|docs|tools|cmake|scripts|build[\w-]*|\.github)\//.exec(resolvePath(path))
   return m?.[1]
 }
 
-export function isUnderRepo(path: string, dir: string): boolean {
-  const root = repoRoot(path)
-  return root !== undefined && normPath(path).startsWith(`${normPath(root)}/${dir.toLowerCase()}`)
+/** The path relative to `root`, lower case; undefined when it lies outside. */
+export function relativeTo(path: string, root: string): string | undefined {
+  const p = normPath(path)
+  const r = normPath(root).replace(/\/$/, '')
+  return p.startsWith(`${r}/`) ? p.slice(r.length + 1) : undefined
 }
 
 /**
- * What an edit of `path` needs. `text` is the file's current text where it matters
- * (a header that may declare a component), `incoming` the text the edit writes.
+ * What an edit of `path` in the checkout at `root` needs. `text` is the file's current text
+ * where it matters (a header that may declare a component), `incoming` the text written.
  */
-export function gateFor(path: string, opts: { isNew: boolean; text?: string; incoming?: string }): Gate {
-  const p = normPath(path)
-  const root = repoRoot(path)
-  if (root === undefined) {
+export function gateFor(path: string, root: string, opts: { isNew: boolean; text?: string; incoming?: string }): Gate {
+  const rel = relativeTo(path, root)
+  if (rel === undefined) {
     return { kind: 'none' }
   }
-  const rel = p.slice(normPath(root).length + 1)
 
   if (rel.startsWith('oloengine/vendor/') || rel.includes('/vcpkg_installed/') || rel.startsWith('vcpkg_installed/')) {
     return {
@@ -101,24 +142,47 @@ export function gateFor(path: string, opts: { isNew: boolean; text?: string; inc
   return { kind: 'none' }
 }
 
-export function readGateMessage(gate: { doc: string; why: string }, path: string): string {
+export function readGateMessage(gate: { doc: string; why: string }, path: string, root: string): string {
   return (
-    `olo-read-gates: read ${gate.doc} before editing ${path.replace(/\\/g, '/').split('/').slice(-2).join('/')}. ` +
-    `It covers ${gate.why}. Read it (any part counts; read the part you need), then retry the edit.`
+    `olo-read-gates: read ${resolvePath(root)}/${gate.doc} before editing ${resolvePath(path).split('/').slice(-2).join('/')}. ` +
+    `It covers ${gate.why}. Read that checkout's copy (any part counts; read the part you need), then retry the edit.`
   )
 }
 
-/** After a new test .cpp is written: is it built and classified? */
-export function newTestFileNotes(path: string, content: string, cmakeLists: string | undefined, catalogue: string | undefined): string[] {
-  const base = path.replace(/\\/g, '/').split('/').pop() ?? path
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * After a new test .cpp is written: is it built and classified? An entry counts only as a
+ * whole source entry (CMakeLists.txt lists paths relative to OloEngine/tests/) or a
+ * file_layer_map key (repo-relative): `OldNewThingTest.cpp` is no entry for `NewThingTest.cpp`.
+ */
+export function newTestFileNotes(path: string, root: string, content: string, cmakeLists: string | undefined, catalogue: string | undefined): string[] {
+  const rel = relativeTo(path, root) ?? ''
+  const relToTests = rel.startsWith('oloengine/tests/') ? rel.slice('oloengine/tests/'.length) : rel
+  const base = resolvePath(path).split('/').pop() ?? path
   const notes: string[] = []
-  if (cmakeLists !== undefined && !cmakeLists.includes(base)) {
-    notes.push(
-      `${base} is not listed in OloEngine/tests/CMakeLists.txt, which names every test source: until it is, the file is never compiled and a --gtest_filter for it runs NOTHING (and the run still says PASSED).`,
-    )
+
+  if (cmakeLists !== undefined) {
+    const entry = new RegExp(`(?:^|[\\s"(])${escapeRegExp(relToTests)}(?=[\\s")]|$)`, 'im')
+    if (!entry.test(cmakeLists.replace(/\\/g, '/'))) {
+      notes.push(
+        `${base} is not listed in OloEngine/tests/CMakeLists.txt (as \`${relToTests}\`), which names every test source: until it is, the file is never compiled and a --gtest_filter for it runs NOTHING (and the run still says PASSED).`,
+      )
+    }
   }
+
   const hasLayer = /^\s*\/\/\s*OLO_TEST_LAYER:\s*\S+/m.test(content)
-  const inCatalogue = catalogue !== undefined && catalogue.includes(base)
+  let inCatalogue = false
+  if (catalogue !== undefined) {
+    try {
+      const map = (JSON.parse(catalogue) as { file_layer_map?: Record<string, unknown> }).file_layer_map ?? {}
+      inCatalogue = Object.keys(map).some(key => normPath(key) === rel)
+    } catch {
+      inCatalogue = false
+    }
+  }
   if (!hasLayer && !inCatalogue) {
     notes.push(`${base} has no \`// OLO_TEST_LAYER: <id>\` line near the top and no file_layer_map entry in test_catalogue.json: every test .cpp must be classified (CLAUDE.md, Definition of done 2).`)
   }

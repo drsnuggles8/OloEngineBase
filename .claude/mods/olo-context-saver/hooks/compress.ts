@@ -19,7 +19,9 @@ export function compressLog(text: string): Compressed | undefined {
     return undefined
   }
   const lines = text.split('\n')
-  const bare = lines.map(l => l.replace(/\r$/, '').replace(GUTTER, ''))
+  // Matched without CR, Read's line gutter and ANSI colour (gtest colours its markers); the
+  // lines kept are written back as they came.
+  const bare = lines.map(l => l.replace(/\r$/, '').replace(GUTTER, '').replace(/\u001b\[[0-9;]*[A-Za-z]/g, ''))
   const out: string[] = []
   let progress = 0
   let passing = 0

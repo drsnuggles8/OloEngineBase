@@ -176,3 +176,34 @@ test('the markdown summary lists worktrees, PRs without a worktree, the lock and
   expect(md).toContain('- 1. OloEngine-x Debug, 20 min waiting')
   expect(md).toContain('1 stale ticket(s)')
 })
+
+test('a garbled GitHub reply still publishes the rest, and says so', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  const answer = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
+  on('process.run', ($, e) => {
+    const argv = e.argv.join(' ')
+    if (argv.includes('--git-common-dir')) return answer('C:/repos/Base/.git\n')
+    if (argv.includes('worktree list')) return answer(PORCELAIN)
+    if (argv.includes('remote get-url')) return answer('https://github.com/o/r.git\n')
+    if (argv.includes('--abbrev-ref')) return answer('feature/dogs\n')
+    if (argv.includes('lock-status.ps1')) return answer(LOCK)
+    if (argv.includes('status --porcelain')) return answer('')
+    if (argv.startsWith('gh api graphql')) return answer('<html><body>Proxy authentication required</body></html>')
+    return { value: { exitCode: 1, stdout: '', stderr: 'unexpected', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  on('tool.call', () => ({ result: { stdout: '', stderr: '', interrupted: false }, text: '' }))
+
+  await $.tool.call({ tool: 'Bash', command: 'git push -u origin feature/dogs' })
+  await clock.advance(61_000)
+
+  const ui = await $.ui.mount({
+    plugin: 'olo-fleet',
+    surface: 'vscode',
+    component: 'Pane',
+    requestId: 'olo-fleet',
+    props: { title: 'OloEngine fleet', isFocused: false, bodyColumns: 200, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
+  })
+  expect(await ui.find({ type: 'Text', text: /held by OloEngine-dogs/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /not the expected JSON/ })).toBeDefined()
+  await ui.unmount()
+})

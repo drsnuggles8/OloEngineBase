@@ -62,3 +62,61 @@ test('ordinary commands are untouched and record nothing', async ($, on) => {
   expect(r.text).toBe('ok')
   expect(store.size).toBe(0)
 })
+
+test('a run that shares a log file with a later run keeps the outcome the log held for it', async ($, on) => {
+  mock.clock(on, { now: Date.UTC(2026, 9, 10, 12) })
+  world(on, () => '')
+  // The log file both runs redirect into; the "tool" writes it when it runs.
+  // Keyed the way the engine may hand a path on: either slash, any case.
+  const key = (p: string) => p.replace(/\\/g, '/').toLowerCase()
+  const files = new Map<string, string>()
+  const seen: string[] = []
+  on('fs.stat', ($, e) => {
+    seen.push(e.path)
+    const text = files.get(key(e.path))
+    return text === undefined ? { deny: 'ENOENT' } : { value: { kind: 'file', size: text.length, mtimeMs: 0, isLink: false } }
+  })
+  on('fs.read', ($, e) => {
+    const text = files.get(key(e.path))
+    return text === undefined ? { deny: 'ENOENT' } : { value: text }
+  })
+  let nextLog = FAILED_TESTS
+  on('tool.call', ($, e) => {
+    const command = (e as { command?: string }).command ?? ''
+    if (command.includes('> C:/t/run.log')) {
+      files.set(key('C:/t/run.log'), nextLog)
+    }
+    return { result: { stdout: '', stderr: '', interrupted: false }, text: '' }
+  })
+
+  await $.tool.call({ tool: 'Bash', command: 'build-cached/OloEngine/tests/Debug/OloEngine-Tests.exe --gtest_filter=Water.* > C:/t/run.log 2>&1' })
+  nextLog = FAILED_TESTS.replace('[  FAILED  ] Water.B (1 ms)', '[       OK ] Water.B (1 ms)')
+  await $.tool.call({ tool: 'Bash', command: 'build-cached/OloEngine/tests/Release/OloEngine-Tests.exe --gtest_filter=Water.* > C:/t/run.log 2>&1' })
+
+  // The Debug run failed; the Release run's passing log must not stand in for it.
+  const refused = await $.tool.call({ tool: 'Bash', command: 'gh pr create --title t --body "Debug run green." # OLO_LEDGER_INCOMPLETE' })
+  const why = String(refused.deny ?? refused.text)
+  expect(why).toContain('Debug')
+  expect(why).toContain('Water.B')
+})
+
+test('a failure while recording never re-runs or fails the call it records', async ($, on) => {
+  mock.clock(on, { now: 1 })
+  on('store.get', () => ({ value: undefined }))
+  on('store.set', () => {
+    throw new Error('store unavailable')
+  })
+  on('process.run', ($, e) => {
+    const argv = e.argv.join(' ')
+    const out = argv.includes('--show-toplevel') ? 'C:/repos/x\n' : argv.includes('--abbrev-ref') ? 'feature/x\n' : ''
+    return { value: { exitCode: 0, stdout: out, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  let calls = 0
+  on('tool.call', () => {
+    calls += 1
+    return { result: { stdout: 'ok', stderr: '', interrupted: false }, text: 'ok' }
+  })
+  const r = await $.tool.call({ tool: 'Bash', command: 'cmake --build build-cached --config Debug' })
+  expect(r.text).toBe('ok')
+  expect(calls).toBe(1)
+})
