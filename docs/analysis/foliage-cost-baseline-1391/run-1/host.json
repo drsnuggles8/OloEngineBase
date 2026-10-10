@@ -1,0 +1,148 @@
+{
+ "before": {
+  "ramBytes": 68498157568,
+  "cpu": [
+   {
+    "Name": "Intel(R) Core(TM) i7-14700KF",
+    "NumberOfCores": 20,
+    "NumberOfLogicalProcessors": 28
+   }
+  ],
+  "busyProcesses": [
+   {
+    "ProcessName": "cmake",
+    "Id": 98744,
+    "StartTime": "2026-10-09T15:01:21.5487403+02:00"
+   },
+   {
+    "ProcessName": "cmake",
+    "Id": 101204,
+    "StartTime": "2026-10-09T15:02:06.0276752+02:00"
+   },
+   {
+    "ProcessName": "cmake",
+    "Id": 108488,
+    "StartTime": "2026-10-09T15:02:06.0421059+02:00"
+   },
+   {
+    "ProcessName": "lld-link",
+    "Id": 101016,
+    "StartTime": "2026-10-09T15:02:06.2791151+02:00"
+   },
+   {
+    "ProcessName": "ninja",
+    "Id": 99700,
+    "StartTime": "2026-10-09T15:01:21.5657659+02:00"
+   }
+  ],
+  "os": "10.0.22631",
+  "gpu": [
+   {
+    "Name": "NVIDIA GeForce RTX 4090",
+    "DriverVersion": "32.0.16.1714"
+   }
+  ],
+  "nvidiaSmi": {
+   "gpu": "NVIDIA GeForce RTX 4090, 617.14, 210 MHz, 405 MHz, 13.26 W, 15 %, 39",
+   "computeApps": [
+    "8828, C:\\Windows\\SystemApps\\Microsoft.Windows.StartMenuExperienceHost_cw5n1h2txyewy\\StartMenuExperienceHost.exe, [N/A]",
+    "4548, C:\\Windows\\SystemApps\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\SearchHost.exe, [N/A]",
+    "7504, C:\\Windows\\explorer.exe, [N/A]",
+    "14720, C:\\Windows\\SystemApps\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\TextInputHost.exe, [N/A]",
+    "17316, C:\\Program Files\\LGHUB\\system_tray\\lghub_system_tray.exe, [N/A]",
+    "23464, C:\\Windows\\SystemApps\\ShellExperienceHost_cw5n1h2txyewy\\ShellExperienceHost.exe, [N/A]",
+    "18476, C:\\Windows\\explorer.exe, [N/A]",
+    "48520, C:\\Program Files\\WindowsApps\\Microsoft.YourPhone_1.26072.255.0_x64__8wekyb3d8bbwe\\PhoneExperienceHost.exe, [N/A]",
+    "24600, C:\\Program Files\\WindowsApps\\Microsoft.ScreenSketch_11.2607.23.0_x64__8wekyb3d8bbwe\\SnippingTool\\SnippingTool.exe, [N/A]",
+    "86608, C:\\Windows\\SystemApps\\Microsoft.LockApp_cw5n1h2txyewy\\LockApp.exe, [N/A]",
+    "88536, C:\\Program Files (x86)\\ASUS\\ArmouryDevice\\asus_framework.exe, [N/A]",
+    "11028, C:\\Program Files (x86)\\Steam\\bin\\cef\\cef.win64\\steamwebhelper.exe, [N/A]",
+    "37124, C:\\Windows\\ImmersiveControlPanel\\SystemSettings.exe, [N/A]",
+    "72240, C:\\Program Files (x86)\\Battle.net\\Battle.net.exe, [N/A]",
+    "95324, C:\\Users\\ole\\AppData\\Local\\Programs\\CurseForge Windows\\CurseForge.exe, [N/A]",
+    "71420, C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.1002.7124.0_x64__2p2nqsd0c76g0\\app\\ChatGPT.exe, [N/A]",
+    "43300, C:\\Users\\ole\\AppData\\Local\\OpenAI\\Codex\\runtimes\\cua_node\\3dd31cfff853001c\\bin\\node_modules\\@oai\\sky\\bin\\windows\\swift\\x64\\codex-computer-use-swift.exe, [N/A]",
+    "98512, C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.1002.7124.0_x64__2p2nqsd0c76g0\\app\\ChatGPT.exe, [N/A]",
+    "5264, C:\\Program Files\\Mozilla Firefox\\firefox.exe, [N/A]",
+    "26412, C:\\Program Files\\Mozilla Firefox\\firefox.exe, [N/A]",
+    "3852, C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\154.0.4258.62\\msedgewebview2.exe, [N/A]",
+    "2864, C:\\Users\\ole\\AppData\\Local\\Discord\\app-1.0.9261\\Discord.exe, [N/A]",
+    "105536, C:\\Program Files\\WindowsApps\\Claude_2.31226.0.0_x64__pzs8sxrjxfjjc\\app\\claude.exe, [N/A]",
+    "95688, C:\\Program Files\\WindowsApps\\Claude_2.31226.0.0_x64__pzs8sxrjxfjjc\\app\\claude.exe, [N/A]",
+    "71940, C:\\Users\\ole\\AppData\\Local\\Programs\\Microsoft VS Code Insiders\\Code - Insiders.exe, [N/A]"
+   ],
+   "processTable": []
+  },
+  "time": "2026-10-09T15:02:57+0200"
+ },
+ "after": {
+  "os": "10.0.22631",
+  "ramBytes": 68498157568,
+  "gpu": [
+   {
+    "Name": "NVIDIA GeForce RTX 4090",
+    "DriverVersion": "32.0.16.1714"
+   }
+  ],
+  "cpu": [
+   {
+    "Name": "Intel(R) Core(TM) i7-14700KF",
+    "NumberOfCores": 20,
+    "NumberOfLogicalProcessors": 28
+   }
+  ],
+  "busyProcesses": [
+   {
+    "ProcessName": "lld-link",
+    "Id": 102168,
+    "StartTime": "2026-10-09T16:18:43.6891944+02:00"
+   },
+   {
+    "ProcessName": "OloEngine-Tests",
+    "Id": 52820,
+    "StartTime": "2026-10-09T15:48:31.6008034+02:00"
+   }
+  ],
+  "nvidiaSmi": {
+   "gpu": "NVIDIA GeForce RTX 4090, 617.14, 450 MHz, 810 MHz, 33.19 W, 7 %, 47",
+   "computeApps": [
+    "8828, C:\\Windows\\SystemApps\\Microsoft.Windows.StartMenuExperienceHost_cw5n1h2txyewy\\StartMenuExperienceHost.exe, [N/A]",
+    "4548, C:\\Windows\\SystemApps\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\SearchHost.exe, [N/A]",
+    "7504, C:\\Windows\\explorer.exe, [N/A]",
+    "14720, C:\\Windows\\SystemApps\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\TextInputHost.exe, [N/A]",
+    "17316, C:\\Program Files\\LGHUB\\system_tray\\lghub_system_tray.exe, [N/A]",
+    "23464, C:\\Windows\\SystemApps\\ShellExperienceHost_cw5n1h2txyewy\\ShellExperienceHost.exe, [N/A]",
+    "18476, C:\\Windows\\explorer.exe, [N/A]",
+    "48520, C:\\Program Files\\WindowsApps\\Microsoft.YourPhone_1.26072.255.0_x64__8wekyb3d8bbwe\\PhoneExperienceHost.exe, [N/A]",
+    "24600, C:\\Program Files\\WindowsApps\\Microsoft.ScreenSketch_11.2607.23.0_x64__8wekyb3d8bbwe\\SnippingTool\\SnippingTool.exe, [N/A]",
+    "86608, C:\\Windows\\SystemApps\\Microsoft.LockApp_cw5n1h2txyewy\\LockApp.exe, [N/A]",
+    "88536, C:\\Program Files (x86)\\ASUS\\ArmouryDevice\\asus_framework.exe, [N/A]",
+    "11028, C:\\Program Files (x86)\\Steam\\bin\\cef\\cef.win64\\steamwebhelper.exe, [N/A]",
+    "37124, C:\\Windows\\ImmersiveControlPanel\\SystemSettings.exe, [N/A]",
+    "72240, C:\\Program Files (x86)\\Battle.net\\Battle.net.exe, [N/A]",
+    "95324, C:\\Users\\ole\\AppData\\Local\\Programs\\CurseForge Windows\\CurseForge.exe, [N/A]",
+    "71420, C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.1002.7124.0_x64__2p2nqsd0c76g0\\app\\ChatGPT.exe, [N/A]",
+    "43300, C:\\Users\\ole\\AppData\\Local\\OpenAI\\Codex\\runtimes\\cua_node\\3dd31cfff853001c\\bin\\node_modules\\@oai\\sky\\bin\\windows\\swift\\x64\\codex-computer-use-swift.exe, [N/A]",
+    "98512, C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.1002.7124.0_x64__2p2nqsd0c76g0\\app\\ChatGPT.exe, [N/A]",
+    "5264, C:\\Program Files\\Mozilla Firefox\\firefox.exe, [N/A]",
+    "26412, C:\\Program Files\\Mozilla Firefox\\firefox.exe, [N/A]",
+    "3852, C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\154.0.4258.62\\msedgewebview2.exe, [N/A]",
+    "2864, C:\\Users\\ole\\AppData\\Local\\Discord\\app-1.0.9261\\Discord.exe, [N/A]",
+    "105536, C:\\Program Files\\WindowsApps\\Claude_2.31226.0.0_x64__pzs8sxrjxfjjc\\app\\claude.exe, [N/A]",
+    "95688, C:\\Program Files\\WindowsApps\\Claude_2.31226.0.0_x64__pzs8sxrjxfjjc\\app\\claude.exe, [N/A]",
+    "71940, C:\\Users\\ole\\AppData\\Local\\Programs\\Microsoft VS Code Insiders\\Code - Insiders.exe, [N/A]",
+    "52820, C:\\repos\\OloEngine-windows-link-memory-1386\\build-cached\\OloEngine\\tests\\Debug\\OloEngine-Tests.exe, [N/A]"
+   ],
+   "processTable": []
+  },
+  "time": "2026-10-09T16:26:51+0200"
+ },
+ "exitCode": 0,
+ "elapsedSeconds": 5030.9,
+ "environment": {
+  "OLO_FOLIAGE_COST_ROUNDS": "3",
+  "OLO_FOLIAGE_COST_WARMUP": "8",
+  "OLO_FOLIAGE_COST_FRAMES": "12"
+ },
+ "contended": true
+}

@@ -467,6 +467,43 @@ namespace OloEngine
         u64 Reloads = 0;
     };
 
+    // GPU bytes a FoliageRenderer holds, by what they are for (issue #1391).
+    // Logical sizes. The pinned categories ARE FFoliageStreamingStats::
+    // PinnedGpuBytes, split: RefreshStreamingStats takes it from PinnedBytes(),
+    // so the two cannot drift. The optional categories are the near-field
+    // mesh's logical sizes, which is what OptionalGpuBytes charges too EXCEPT
+    // for a streamed layer the representation budget admitted, which it charges
+    // the physical bytes it was admitted at; with streaming on the two may
+    // differ by the allocator's padding.
+    struct FFoliageMemoryBreakdown
+    {
+        // Pinned: the drawable floor every layer keeps.
+        u64 InstanceBufferBytes = 0; // the per-instance stream each layer draws from
+        u64 CullLayerBytes = 0;      // the cull's group bounds + row -> group table
+        u64 CardGeometryBytes = 0;   // the unit quad and its indices
+        u64 CardTextureBytes = 0;    // albedo and the three leaf maps
+        u64 ImpostorAtlasBytes = 0;  // albedo + normal-depth, at the baked resolution
+        // One entry per cull view slot (FoliageGPUCuller::ViewSlot): the
+        // compacted stream, its state header and its indirect args.
+        std::array<u64, FoliageGPUCuller::kViewSlotCount> CullStreamBytes{};
+        // Optional: the authored near-field plant, while it is resident.
+        u64 MeshGeometryBytes = 0;    // the layer's private vertex/index copy
+        u64 MeshPartTextureBytes = 0; // the textures its submeshes draw with
+
+        [[nodiscard]] u64 CullStreamTotalBytes() const
+        {
+            u64 total = 0;
+            for (const u64 bytes : CullStreamBytes)
+                total += bytes;
+            return total;
+        }
+        [[nodiscard]] u64 PinnedBytes() const
+        {
+            return InstanceBufferBytes + CullLayerBytes + CardGeometryBytes + CardTextureBytes + ImpostorAtlasBytes +
+                   CullStreamTotalBytes();
+        }
+    };
+
     class FoliageRenderer : public RefCounted
     {
       public:
@@ -663,6 +700,10 @@ namespace OloEngine
         {
             return m_StreamingStats;
         }
+        // What the layers hold right now, by category. Computed on demand from
+        // the layers rather than read from the stats, which refresh once a
+        // frame before that frame's culls run.
+        [[nodiscard]] FFoliageMemoryBreakdown GetMemoryBreakdown() const;
         void SetStreamingLoadGate(std::optional<Tasks::FTaskEvent> gate)
         {
             m_StreamingLoads.SetStartGate(std::move(gate));
@@ -708,6 +749,11 @@ namespace OloEngine
         // them decides what to draw.
         using LayerDraw = FoliageLayerDraw;
         void EnumerateLayerDraws(const LayerRenderData& data, TArray<LayerDraw>& out) const;
+        // The density LOD the layer's draws AND its cull read this frame: the
+        // authored one, or none under OLO_FOLIAGE_NO_DENSITY_LOD (#1391). One
+        // accessor, so the cull can never drop a plant the draw still thins
+        // to alpha zero by a different rule.
+        [[nodiscard]] static FoliageLod::Params ActiveLod(const LayerRenderData& data);
         // u_MeshParams.w of the layer's far card (#1533): FoliageLod::CardNormalLane
         // when the card is the mesh's bake, 0 for the legacy tuft. See the
         // definition for when a card counts as a bake.
@@ -800,6 +846,7 @@ namespace OloEngine
         mutable bool m_WarnedCullUnavailable = false;
         bool m_WarnedShadowViewOverflow = false;
         bool m_WarnedTooManyParts = false;
+        bool m_WarnedCullBracketSkipped = false;
         glm::mat4 m_TerrainTransform{ 1.0f };
         u32 m_VisibleInstances = 0;
         f32 m_LegacyWindEnvelope = 2.0f;

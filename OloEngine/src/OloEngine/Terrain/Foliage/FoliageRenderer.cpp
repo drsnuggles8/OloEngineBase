@@ -9,6 +9,7 @@
 #include "OloEngine/Wind/WindSystem.h"
 #include "FoliageRenderer.h"
 #include "FoliageStreamingPayload.h"
+#include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryFormat.h"
 #include "OloEngine/Renderer/AlphaCoverageMips.h"
 #include "OloEngine/Renderer/VertexArray.h"
@@ -956,6 +957,23 @@ namespace OloEngine
             return RendererMemoryFormat::ImageBytes(spec.Format, spec.Width, spec.Height, texture->GetMipLevelCount(), 1u, spec.Samples).value_or(0u);
         }
 
+        [[nodiscard]] u64 LayerMeshGeometryBytes(const FoliageLayerRenderData& data)
+        {
+            if (!data.MeshVBO)
+                return 0u;
+            return static_cast<u64>(data.MeshVertexCount) * sizeof(Vertex) + static_cast<u64>(data.MeshIndexCount) * sizeof(u32);
+        }
+
+        [[nodiscard]] u64 LayerMeshPartTextureBytes(const FoliageLayerRenderData& data)
+        {
+            if (!data.MeshVBO)
+                return 0u;
+            u64 bytes = 0u;
+            for (const auto& part : data.MeshParts)
+                bytes += FoliageTextureBytes(part.Albedo);
+            return bytes;
+        }
+
         [[nodiscard]] u64 FoliageDetailPhysicalLiveBytes()
         {
             const auto report = RendererMemoryTracker::GetInstance().BuildReport();
@@ -982,8 +1000,20 @@ namespace OloEngine
                                            row.ActiveDemandBytes = bytes;
                                            rows.Add(std::move(row));
                                        };
-                                       append("Pinned card, material, atlas and instance floor", m_StreamingStats.PinnedGpuBytes, true);
-                                       append("Optional authored plant representations", m_StreamingStats.OptionalGpuBytes, true);
+                                       // By category (#1391). The pinned rows add up to
+                                       // FFoliageStreamingStats::PinnedGpuBytes as of its last
+                                       // refresh; read live, so a view's first cull shows at once.
+                                       const FFoliageMemoryBreakdown memory = GetMemoryBreakdown();
+                                       const u64 mainStream = memory.CullStreamBytes[static_cast<u32>(FoliageGPUCuller::ViewSlot::Main)];
+                                       append("Pinned: instance buffers", memory.InstanceBufferBytes, true);
+                                       append("Pinned: GPU cull group tables", memory.CullLayerBytes, true);
+                                       append("Pinned: GPU cull streams, main view", mainStream, true);
+                                       append("Pinned: GPU cull streams, shadow views", memory.CullStreamTotalBytes() - mainStream, true);
+                                       append("Pinned: card geometry", memory.CardGeometryBytes, true);
+                                       append("Pinned: card albedo and leaf maps", memory.CardTextureBytes, true);
+                                       append("Pinned: impostor atlases (albedo + normal-depth)", memory.ImpostorAtlasBytes, true);
+                                       append("Optional: authored mesh vertex/index copies", memory.MeshGeometryBytes, true);
+                                       append("Optional: authored mesh part textures", memory.MeshPartTextureBytes, true);
                                        append("Canonical instance and spatial-group arrays (CPU)", m_StreamingStats.CanonicalCpuBytes, false);
                                        append("Prepared optional representation payloads (CPU)", m_StreamingStats.PreparedCpuBytes, false);
                                        u64 metadataBytes = 0;
@@ -1461,6 +1491,35 @@ namespace OloEngine
         return changed;
     }
 
+    FFoliageMemoryBreakdown FoliageRenderer::GetMemoryBreakdown() const
+    {
+        FFoliageMemoryBreakdown out;
+        for (const auto& data : m_Layers)
+        {
+            out.InstanceBufferBytes += static_cast<u64>(data.InstanceCapacity) * sizeof(FoliageInstanceData);
+            if (data.QuadVBO)
+                out.CardGeometryBytes += 4u * sizeof(Vertex) + 6u * sizeof(u32);
+            out.CardTextureBytes += FoliageTextureBytes(data.AlbedoTexture) + FoliageTextureBytes(data.LeafNormalTexture) +
+                                    FoliageTextureBytes(data.LeafRoughnessTexture) + FoliageTextureBytes(data.LeafThicknessTexture);
+            out.ImpostorAtlasBytes += FoliageTextureBytes(data.Impostor.Albedo) + FoliageTextureBytes(data.Impostor.NormalDepth);
+            if (data.CullLayer.LayerBuffer)
+                out.CullLayerBytes += data.CullLayer.LayerBuffer->GetSize();
+            for (u32 slot = 0; slot < FoliageGPUCuller::kViewSlotCount; ++slot)
+            {
+                const auto& view = data.CullViews[slot].Resources;
+                if (view.Compacted)
+                    out.CullStreamBytes[slot] += static_cast<u64>(view.Capacity) * sizeof(FoliageInstanceData);
+                if (view.State)
+                    out.CullStreamBytes[slot] += view.State->GetSize();
+                if (view.DrawArgs)
+                    out.CullStreamBytes[slot] += view.DrawArgs->GetSize();
+            }
+            out.MeshGeometryBytes += LayerMeshGeometryBytes(data);
+            out.MeshPartTextureBytes += LayerMeshPartTextureBytes(data);
+        }
+        return out;
+    }
+
     void FoliageRenderer::RefreshStreamingStats()
     {
         const u64 previouslyTrackedCpu = m_StreamingStats.CanonicalCpuBytes;
@@ -1474,39 +1533,22 @@ namespace OloEngine
         m_StreamingStats.PreparedCpuBytes = 0;
         for (const auto& group : m_Registry.GetGroups())
             m_StreamingStats.CanonicalCpuBytes += group.m_Instances.GetAllocatedSize() + group.m_RecordIndices.GetAllocatedSize();
+        const FFoliageMemoryBreakdown breakdown = GetMemoryBreakdown();
+        m_StreamingStats.PinnedGpuBytes = breakdown.PinnedBytes();
         u32 layerIndex = 0;
         for (const auto& data : m_Layers)
         {
             const auto streamed = m_StreamingLayers.find(layerIndex++);
-            m_StreamingStats.PinnedGpuBytes += static_cast<u64>(data.InstanceCapacity) * sizeof(FoliageInstanceData);
-            if (data.QuadVBO)
-                m_StreamingStats.PinnedGpuBytes += 4u * sizeof(Vertex) + 6u * sizeof(u32);
-            m_StreamingStats.PinnedGpuBytes += FoliageTextureBytes(data.AlbedoTexture) + FoliageTextureBytes(data.LeafNormalTexture) +
-                                               FoliageTextureBytes(data.LeafRoughnessTexture) + FoliageTextureBytes(data.LeafThicknessTexture) +
-                                               FoliageTextureBytes(data.Impostor.Albedo) + FoliageTextureBytes(data.Impostor.NormalDepth);
-            if (data.CullLayer.LayerBuffer)
-                m_StreamingStats.PinnedGpuBytes += data.CullLayer.LayerBuffer->GetSize();
-            for (const auto& view : data.CullViews)
-            {
-                if (view.Resources.Compacted)
-                    m_StreamingStats.PinnedGpuBytes += static_cast<u64>(view.Resources.Capacity) * sizeof(FoliageInstanceData);
-                if (view.Resources.State)
-                    m_StreamingStats.PinnedGpuBytes += view.Resources.State->GetSize();
-                if (view.Resources.DrawArgs)
-                    m_StreamingStats.PinnedGpuBytes += view.Resources.DrawArgs->GetSize();
-            }
             if (data.MeshVBO)
             {
                 ++m_StreamingStats.ResidentLayers;
+                // A resident streamed layer is charged what the budget
+                // admitted it at (its physical bytes); anything else at the
+                // logical size the breakdown carries.
                 if (m_StreamingEnabled && streamed != m_StreamingLayers.end() && RepresentationStreaming::Get().IsResident(streamed->second.Key))
                     m_StreamingStats.OptionalGpuBytes += streamed->second.Descriptor.GpuBytes;
                 else
-                {
-                    m_StreamingStats.OptionalGpuBytes += static_cast<u64>(data.MeshVertexCount) * sizeof(Vertex) +
-                                                         static_cast<u64>(data.MeshIndexCount) * sizeof(u32);
-                    for (const auto& part : data.MeshParts)
-                        m_StreamingStats.OptionalGpuBytes += FoliageTextureBytes(part.Albedo);
-                }
+                    m_StreamingStats.OptionalGpuBytes += LayerMeshGeometryBytes(data) + LayerMeshPartTextureBytes(data);
             }
             else if (data.MeshRequested && data.InstanceCount > 0)
                 ++m_StreamingStats.FallbackLayers;
@@ -1664,11 +1706,21 @@ namespace OloEngine
         }
     } // namespace
 
+    FoliageLod::Params FoliageRenderer::ActiveLod(const LayerRenderData& data)
+    {
+        FoliageLod::Params lod = data.Lod;
+        if (Levers::FoliageNoDensityLod())
+            lod.Enabled = false;
+        return lod;
+    }
+
     void FoliageRenderer::EnumerateLayerDraws(const LayerRenderData& data, TArray<LayerDraw>& out) const
     {
         out.Reset();
         if (data.InstanceCount == 0)
             return;
+
+        const FoliageLod::Params lod = ActiveLod(data);
 
         const bool meshDrawable = data.MeshVAO && !data.MeshParts.IsEmpty() && data.MeshViewDistance > 0.0f;
         // The card is the mesh's bake whenever a textured mesh LOADED (#1533),
@@ -1696,8 +1748,8 @@ namespace OloEngine
                 draw.CardNormalLane = cardLane;
                 draw.FadeStart = data.FadeStartDistance;
                 draw.ViewDistance = data.ViewDistance;
-                draw.LodTransition0 = FoliageLodTransition0(data.Lod);
-                draw.LodTransition1 = FoliageLodTransition1(data.Lod);
+                draw.LodTransition0 = FoliageLodTransition0(lod);
+                draw.LodTransition1 = FoliageLodTransition1(lod);
                 out.Add(std::move(draw));
             }
         }
@@ -1719,8 +1771,8 @@ namespace OloEngine
             draw.CardNormalLane = cardLane;
             draw.FadeStart = data.FadeStartDistance;
             draw.ViewDistance = data.ViewDistance;
-            draw.LodTransition0 = FoliageLodTransition0(data.Lod);
-            draw.LodTransition1 = FoliageLodTransition1(data.Lod);
+            draw.LodTransition0 = FoliageLodTransition0(lod);
+            draw.LodTransition1 = FoliageLodTransition1(lod);
             out.Add(std::move(draw));
         }
     }
@@ -3016,8 +3068,27 @@ namespace OloEngine
                                                   const glm::vec3& viewWorldPosition)
     {
         OLO_PROFILE_FUNCTION();
+        // Its own GPU bracket (#1391). This dispatch runs at scene submission,
+        // outside every render-graph pass, so without one its cost is in the
+        // frame's total and in no pass at all. Top-level, because no pass is
+        // open here; skipped rather than nested if one somehow is.
+        auto& gpuTimers = GPUPassTimerPool::GetInstance();
+        const bool timed = !gpuTimers.IsPassOpen() && !RenderCommand::IsRecordingParallelItem();
+        if (timed)
+            gpuTimers.BeginPass("FoliageCull");
+        else if (!m_WarnedCullBracketSkipped)
+        {
+            // Never silent: without the bracket the cull is back in no pass at
+            // all, and a baseline reading 'FoliageCull' would read it as free.
+            OLO_CORE_WARN("FoliageRenderer: the main-view cull was dispatched inside another GPU timer bracket (or "
+                          "a parallel recording item), so its time is not in 'FoliageCull'. Further frames not "
+                          "logged.");
+            m_WarnedCullBracketSkipped = true;
+        }
         m_MainViewCulled = CullForView(static_cast<u32>(FoliageGPUCuller::ViewSlot::Main),
                                        MakeCullInputs(worldViewProjection, viewWorldPosition));
+        if (timed)
+            gpuTimers.EndPass();
     }
 
     void FoliageRenderer::ResetShadowViewCulling()
@@ -3076,6 +3147,14 @@ namespace OloEngine
             }
             return false;
         }
+
+        // The group tables and per-slot streams are created lazily HERE, on
+        // the first cull after a (re)generation -- outside GenerateInstances'
+        // scope. They are part of the pinned floor (PinnedGpuBytes counts
+        // them there), so they are booked to its owner: the main view's would
+        // otherwise be unattributed and the shadow views' booked as
+        // ShadowPass's own (#1391).
+        const RendererMemoryOwnerScope memoryOwner("Foliage pinned representations", MemoryLifetime::Asset);
 
         bool any = false;
         TArray<LayerDraw> draws;
@@ -3142,8 +3221,9 @@ namespace OloEngine
             // same plants — a cascade that kept a thinned-out plant would cast
             // a shadow with nothing above it.
             FoliageGPUCuller::LodInputs lodInputs;
-            lodInputs.Transition0 = FoliageLodTransition0(layer.Lod);
-            lodInputs.Transition1 = FoliageLodTransition1(layer.Lod);
+            const FoliageLod::Params lod = ActiveLod(layer);
+            lodInputs.Transition0 = FoliageLodTransition0(lod);
+            lodInputs.Transition1 = FoliageLodTransition1(lod);
             // Every draw of a layer carries the same hand-over band.
             if (hasMeshPart)
                 lodInputs.MeshReach = FoliageLod::MeshRegionReach(draws[0].HandoverStart, draws[0].HandoverEnd,

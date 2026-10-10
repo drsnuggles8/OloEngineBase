@@ -161,7 +161,13 @@ namespace OloEngine
         static GPUPassTimerPool& GetInstance();
 
         /// @brief Allocate query objects. Call once after the graphics device is live.
-        void Initialize(u32 maxPassesPerFrame = 96);
+        ///
+        /// 256 brackets a frame, each two timestamp queries. A VSM frame
+        /// brackets each virtual view's foliage cull and casters (#1391) --
+        /// 32 for the 16 clip levels before a single local light -- and a pass
+        /// past the budget is counted as untimed, which costs every bracket
+        /// AFTER it in the frame, not the one that overflowed.
+        void Initialize(u32 maxPassesPerFrame = 256);
 
         /// @brief Delete all query objects.
         void Shutdown();
@@ -194,6 +200,16 @@ namespace OloEngine
         [[nodiscard]] bool IsInitialized() const
         {
             return m_Initialized;
+        }
+
+        /// @brief True while a top-level bracket is open. Work stamped from
+        /// outside the render graph (a dispatch made at scene submission)
+        /// opens its own top-level bracket only when this is false: BeginPass
+        /// would ignore it, and the matching EndPass would then close the
+        /// bracket that was already open.
+        [[nodiscard]] bool IsPassOpen() const
+        {
+            return m_PassOpen;
         }
 
         /// @brief The most recently resolved frame's timings, frame identity and
