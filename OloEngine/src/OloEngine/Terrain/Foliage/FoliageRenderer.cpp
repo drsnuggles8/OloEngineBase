@@ -23,6 +23,8 @@
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Project/ContentPath.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/RayTracing/VegetationDiagnostics.h"
+#include "OloEngine/Renderer/RayTracing/VegetationSurfaceCache.h"
 #include "OloEngine/Renderer/Passes/DeferredLightingPass.h"
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Core/DebugLevers.h"
@@ -116,6 +118,30 @@ namespace OloEngine
                                                                        static_cast<u32>(plants * (part.IndexCount / 3u)));
             return bytes;
         };
+        // How fast a layer's plants can move, world units a second.
+        const auto velocityBound = [&](const LayerRenderData& layer, bool impostor) -> f32
+        {
+            const bool hierarchy = layer.WindWeights.x + layer.WindWeights.y + layer.WindWeights.z > 0.0f;
+            f32 bound = RayTracing::VegetationPolicy::WindVelocityBound(
+                layer.WindStrength, layer.WindSpeed, layer.WindWeights.y, layer.WindWeights.z,
+                hierarchy, field.TimeAndFlags.y > 0.5f && (hierarchy || !impostor), field.DirectionAndSpeed.w,
+                field.GustAndTurbulence.x, field.GustAndTurbulence.y, transformNorm);
+            // A running actor moves a plant far faster than wind does,
+            // and ProxyAgeLimit is error/velocity — so a bound that
+            // ignored interaction would keep serving a snapshot taken
+            // before the actor arrived. Reported by the field from its
+            // own springs rather than estimated here.
+            if (const f32 bendRate = FoliageInteractionField::GetMaximumBendRate();
+                std::isfinite(bendRate) && std::isfinite(bound))
+                bound += bendRate * layer.InteractionResponse * transformNorm;
+            return bound;
+        };
+        // Where a casting group stops refreshing every frame (#1354, and
+        // queueGroup's DetailedDistance below).
+        const auto castingDetailedDistance = [](const LayerRenderData& layer, bool mesh)
+        {
+            return mesh ? std::max(50.0f, layer.MeshFadeStartDistance) : RayTracing::VegetationPolicy::DetailedCardDistance;
+        };
         // One group of one layer's plants in one representation, described and
         // queued -- or refused, counted against that layer's completeness.
         const auto queueGroup = [&](const LayerRenderData& layer, u32 representation,
@@ -127,7 +153,12 @@ namespace OloEngine
             if (!cache.HasQueueCapacity() || estimatedBytes > RayTracing::VegetationPolicy::GeometryBytes ||
                 estimatedAccelerationBytes > RayTracing::VegetationPolicy::AccelerationStructureBytes)
             {
-                cache.Refuse(layer.CastShadows);
+                using RayTracing::VegetationPressure;
+                cache.Refuse(layer.CastShadows, estimatedAccelerationBytes > RayTracing::VegetationPolicy::AccelerationStructureBytes
+                                                    ? VegetationPressure::AccelerationMemory
+                                                : cache.GetQueuedGroups() >= RayTracing::VegetationPolicy::ResidentGroups
+                                                    ? VegetationPressure::ResidentGroups
+                                                    : VegetationPressure::GeometryMemory);
                 return;
             }
             RayTracing::VegetationSurfaceInput input;
@@ -139,9 +170,7 @@ namespace OloEngine
             // A reflection-only layer is a SNAPSHOT everywhere (#1533): its wind is
             // refreshed within the proxies' error deadline, not every frame, which
             // is what lets the lawn's near field fit the per-frame budget at all.
-            input.DetailedDistance = !layer.CastShadows ? 0.0f
-                                                        : (mesh ? std::max(50.0f, layer.MeshFadeStartDistance)
-                                                                : RayTracing::VegetationPolicy::DetailedCardDistance);
+            input.DetailedDistance = !layer.CastShadows ? 0.0f : castingDetailedDistance(layer, mesh);
             input.DistanceToView = distanceToView;
             const u32 partCount = mesh ? static_cast<u32>(layer.MeshParts.Num()) : 1u;
             bool validParts = true;
@@ -183,7 +212,7 @@ namespace OloEngine
             }
             if (!validParts)
             {
-                cache.Refuse(layer.CastShadows);
+                cache.Refuse(layer.CastShadows, RayTracing::VegetationPressure::InvalidContent);
                 return;
             }
             // The rows' content key (#1533): the registry generation advances on
@@ -201,9 +230,17 @@ namespace OloEngine
             mixKey(input.VertexCount);
             mixKey(std::bit_cast<u32>(layer.BaseColor.x) | (static_cast<u64>(std::bit_cast<u32>(layer.BaseColor.y)) << 32u));
             mixKey(std::bit_cast<u32>(layer.BaseColor.z) | (static_cast<u64>(std::bit_cast<u32>(layer.AlphaCutoff)) << 32u));
+            // And the plants' identity without their order (#1354), which the
+            // cache reads to tell a regroup from a representation change.
+            u64 plantSet = 0u;
             for (const FoliageInstanceRecord* record : records)
+            {
                 mixKey(record->m_Id);
+                plantSet += RayTracing::VegetationPlantTerm(record->m_Id);
+            }
             input.ContentKey = contentKey != 0u ? contentKey : 1u;
+            input.PlantSetSum = plantSet != 0u ? plantSet : 1u;
+            input.ContentGeneration = m_Registry.GetGeneration();
             if (cache.HoldsContent(owner, input.FirstPlantId, input.Rest, input.ContentKey))
                 input.HeldPlantCount = static_cast<u32>(records.size());
             else
@@ -249,19 +286,7 @@ namespace OloEngine
             input.HistoryContinuous = WindSystem::HasStableParameters() && m_Time >= m_PrevTime;
             input.CastShadows = layer.CastShadows;
             input.AccelerationBytes = estimatedAccelerationBytes;
-            const bool hierarchy = layer.WindWeights.x + layer.WindWeights.y + layer.WindWeights.z > 0.0f;
-            input.VelocityBound = RayTracing::VegetationPolicy::WindVelocityBound(
-                layer.WindStrength, layer.WindSpeed, layer.WindWeights.y, layer.WindWeights.z,
-                hierarchy, field.TimeAndFlags.y > 0.5f && (hierarchy || !impostor), field.DirectionAndSpeed.w,
-                field.GustAndTurbulence.x, field.GustAndTurbulence.y, transformNorm);
-            // A running actor moves a plant far faster than wind does,
-            // and ProxyAgeLimit is error/velocity — so a bound that
-            // ignored interaction would keep serving a snapshot taken
-            // before the actor arrived. Reported by the field from its
-            // own springs rather than estimated here.
-            if (const f32 bendRate = FoliageInteractionField::GetMaximumBendRate();
-                std::isfinite(bendRate) && std::isfinite(input.VelocityBound))
-                input.VelocityBound += bendRate * layer.InteractionResponse * transformNorm;
+            input.VelocityBound = velocityBound(layer, impostor);
             cache.Queue(std::move(input));
         };
         // What the cached split was taken from, besides the camera: every
@@ -295,8 +320,97 @@ namespace OloEngine
             reflectionCandidates.Reset();
             reflectionRecords.Reset();
         }
+        // The casting groups, planned before any is queued (#1354): a caster
+        // that does not fit is no longer refused on its own, taking every
+        // ray-traced effect with it, while a complete cheaper tier would fit.
+        struct CastingCandidate
+        {
+            u32 LayerIndex = 0u;
+            u32 Representation = 0u;
+            RayTracing::VegetationPolicy::CastingGroupCost Cost;
+            /// The registry cell the group was sliced from: the hysteresis key.
+            u32 Cell = 0u;
+            f32 Distance = 0.0f;
+            u64 FirstId = 0u;
+            u32 FirstRecord = 0u;
+            u32 RecordCount = 0u;
+        };
+        TArray<CastingCandidate> castingCandidates;
+        // The wind clock's step since the last plan, which sets how often a
+        // proxy refreshes. The cache times a layer on the clock its wind is
+        // evaluated on: the wind field's for a legacy single-weight layer
+        // (VegetationSurfaceCache's WindTime), the scene animation clock
+        // otherwise.
+        // A clock that did not move since the last plan (a second view this
+        // frame, a paused scene) keeps the last real step: a zero step would
+        // charge no refresh and flip every group to the mesh until it moves.
+        const auto stepSince = [](f32 now, f32 last, f32& kept) -> f32
+        {
+            if (last >= 0.0f && std::isfinite(now) && now > last)
+                kept = now - last;
+            return kept;
+        };
+        const f32 animationStep = stepSince(m_Time, m_PlanAnimationTime, m_PlanAnimationStep);
+        const f32 fieldStep = stepSince(field.TimeAndFlags.x, m_PlanFieldTime, m_PlanFieldStep);
+        m_PlanAnimationTime = m_Time;
+        m_PlanFieldTime = field.TimeAndFlags.x;
+        const auto frameSecondsFor = [&](const LayerRenderData& layer, bool impostor) -> f32
+        {
+            const bool legacyField = layer.WindWeights.x + layer.WindWeights.y + layer.WindWeights.z <= 0.0f &&
+                                     field.TimeAndFlags.y > 0.5f && !impostor;
+            return legacyField ? fieldStep : animationStep;
+        };
+        // Per layer, once: each tier's velocity bound and clock step.
+        struct LayerRates
+        {
+            f32 MeshVelocity = 0.0f;
+            f32 ImpostorVelocity = 0.0f;
+            f32 MeshStep = 0.0f;
+            f32 ImpostorStep = 0.0f;
+        };
+        TArray<LayerRates> layerRates;
+        layerRates.Reserve(m_Layers.Num());
+        f32 frameSeconds = 0.0f;
+        for (const auto& layer : m_Layers)
+        {
+            const LayerRates rates{ velocityBound(layer, false), velocityBound(layer, true), frameSecondsFor(layer, false),
+                                    frameSecondsFor(layer, true) };
+            frameSeconds = std::max({ frameSeconds, rates.MeshStep, rates.ImpostorStep });
+            layerRates.Add(rates);
+        }
+        const bool forceDetailed = RayTracing::VegetationDiagnostics::GetForceDetailed();
+        TArray<const FoliageInstanceRecord*> castingRecords;
+        // Keyed by registry cell, which a camera move does not re-slice.
+        const auto castingKey = [](u32 layerIndex, u32 cell)
+        { return RayTracing::VegetationPlantTerm(static_cast<u64>(cell) ^ (static_cast<u64>(layerIndex) << 48u)); };
+        // A tier's memory and the full refresh of it, in the backend's units:
+        // one build per part, each over the group's whole vertex stream.
+        const auto groupCost = [&](const LayerRenderData& layer, bool mesh, u64 plants) -> RayTracing::VegetationPolicy::GroupCost
+        {
+            RayTracing::VegetationPolicy::GroupCost cost;
+            cost.GeometryBytes = geometryBytes(layer, mesh, plants);
+            cost.AccelerationBytes = accelerationBytes(layer, mesh, plants);
+            if (!mesh)
+            {
+                cost.RefreshVertices = 4u * plants;
+                cost.RefreshTriangles = 2u * plants;
+                cost.RefreshBuilds = 1u;
+                return cost;
+            }
+            for (const auto& part : layer.MeshParts)
+            {
+                if (part.IndexCount == 0u)
+                    continue;
+                cost.RefreshVertices += plants * layer.MeshVertexCount;
+                cost.RefreshTriangles += plants * (part.IndexCount / 3u);
+                ++cost.RefreshBuilds;
+            }
+            return cost;
+        };
+        u32 cell = 0u;
         for (const auto& group : m_Registry.GetGroups())
         {
+            const u32 groupCell = cell++;
             if (group.m_LayerIndex >= m_Layers.Num())
                 continue;
             const auto& layer = m_Layers[group.m_LayerIndex];
@@ -306,7 +420,7 @@ namespace OloEngine
             {
                 // An atlas without its source mesh cannot produce a ray-space
                 // canopy. Count refusal and retain the whole raster tier.
-                cache.Refuse(layer.CastShadows);
+                cache.Refuse(layer.CastShadows, RayTracing::VegetationPressure::InvalidContent);
                 continue;
             }
             if (!layer.CastShadows && splitReused)
@@ -367,9 +481,91 @@ namespace OloEngine
                         reflectionCandidates.Add(std::move(candidate));
                         continue;
                     }
-                    queueGroup(layer, representation, slice, estimatedBytes, accelerationBytes(layer, mesh, count), nearest);
+                    // A caster's complete lower-cost tier is its card: the
+                    // raster's own LOD past the mesh distance. An impostor
+                    // layer has none (its far LOD is the atlas, and a card
+                    // from the layer's albedo is not this plant).
+                    CastingCandidate candidate;
+                    candidate.LayerIndex = group.m_LayerIndex;
+                    candidate.Representation = representation;
+                    candidate.Cost.Requested = groupCost(layer, mesh, count);
+                    candidate.Cost.HasFallback = representation == 0u && layer.QuadVBO && !(layer.UseImpostor && layer.Impostor.IsValid());
+                    if (candidate.Cost.HasFallback)
+                        candidate.Cost.Fallback = groupCost(layer, false, count);
+                    candidate.FirstId = slice.front()->m_Id;
+                    candidate.Cell = groupCell;
+                    candidate.Cost.WasRequested = m_CastingRequested.contains(castingKey(group.m_LayerIndex, groupCell));
+                    // The steady refresh demand of each tier (RefreshRate).
+                    const LayerRates& rates = layerRates[static_cast<i32>(group.m_LayerIndex)];
+                    candidate.Cost.RequestedRate = RayTracing::VegetationPolicy::RefreshRate(
+                        forceDetailed || nearest <= castingDetailedDistance(layer, mesh), impostor ? rates.ImpostorVelocity : rates.MeshVelocity,
+                        impostor ? rates.ImpostorStep : rates.MeshStep);
+                    candidate.Cost.FallbackRate = RayTracing::VegetationPolicy::RefreshRate(
+                        forceDetailed || nearest <= castingDetailedDistance(layer, false), rates.MeshVelocity, rates.MeshStep);
+                    candidate.Distance = nearest;
+                    candidate.FirstRecord = static_cast<u32>(castingRecords.Num());
+                    candidate.RecordCount = static_cast<u32>(slice.size());
+                    castingRecords.Append(slice.data(), static_cast<i32>(slice.size()));
+                    castingCandidates.Add(std::move(candidate));
                 }
             }
+        }
+
+        // THE CASTING GROUPS, nearest first (VegetationPolicy::ChooseCastingTiers):
+        // every one at its cheapest complete tier, then the nearest at their
+        // requested tier while that fits, memory and refresh demand alike.
+        // The room is what the shared cache has left: another terrain's
+        // foliage queued this frame has already spent part of it.
+        {
+            OLO_PERF_SCOPE_AUTO("Vegetation::QueueCasters");
+            using RayTracing::VegetationPolicy;
+            std::ranges::sort(castingCandidates, [](const CastingCandidate& a, const CastingCandidate& b)
+                              { return std::make_pair(a.Distance, a.FirstId) < std::make_pair(b.Distance, b.FirstId); });
+            TArray<VegetationPolicy::CastingGroupCost> costs;
+            TArray<VegetationPolicy::CastingTier> tiers;
+            costs.Reserve(castingCandidates.Num());
+            for (const CastingCandidate& candidate : castingCandidates)
+            {
+                costs.Add(candidate.Cost);
+                tiers.Add(VegetationPolicy::CastingTier::Out);
+            }
+            VegetationPolicy::PlanRoom room = VegetationPolicy::PlanRoom::Scaled(RayTracing::VegetationDiagnostics::GetBudgetDivisor());
+            const auto& held = cache.GetStats();
+            room.Take(cache.GetStagedBytes(), cache.GetStagedAccelerationBytes(), cache.GetQueuedGroups(), held.CastingDemandVertices,
+                      held.CastingDemandTriangles, held.CastingDemandBuilds);
+            const VegetationPolicy::CastingPlan plan = VegetationPolicy::ChooseCastingTiers(
+                std::span<const VegetationPolicy::CastingGroupCost>{ costs.GetData(), static_cast<sizet>(costs.Num()) },
+                std::span<VegetationPolicy::CastingTier>{ tiers.GetData(), static_cast<sizet>(tiers.Num()) }, room);
+            m_CastingRequested.clear();
+            f32 nearestFallback = 0.0f;
+            bool anyFallback = false;
+            for (i32 i = 0; i < castingCandidates.Num(); ++i)
+            {
+                const CastingCandidate& candidate = castingCandidates[i];
+                const auto& layer = m_Layers[candidate.LayerIndex];
+                const std::span<const FoliageInstanceRecord* const> records{ castingRecords.GetData() + candidate.FirstRecord,
+                                                                             candidate.RecordCount };
+                switch (tiers[i])
+                {
+                    case VegetationPolicy::CastingTier::Requested:
+                        if (candidate.Cost.HasFallback)
+                            m_CastingRequested.insert(castingKey(candidate.LayerIndex, candidate.Cell));
+                        queueGroup(layer, candidate.Representation, records, candidate.Cost.Requested.GeometryBytes,
+                                   candidate.Cost.Requested.AccelerationBytes, candidate.Distance);
+                        break;
+                    case VegetationPolicy::CastingTier::Fallback:
+                        if (!anyFallback)
+                            nearestFallback = candidate.Distance; // nearest first: the first is the nearest
+                        anyFallback = true;
+                        queueGroup(layer, 2u, records, candidate.Cost.Fallback.GeometryBytes, candidate.Cost.Fallback.AccelerationBytes,
+                                   candidate.Distance);
+                        break;
+                    case VegetationPolicy::CastingTier::Out:
+                        cache.Refuse(true, plan.Pressure);
+                        break;
+                }
+            }
+            cache.CountCastingPlan(plan, nearestFallback, frameSeconds);
         }
 
         // THE REFLECTION-ONLY GROUPS, nearest first: cards while they fit what
@@ -396,9 +592,15 @@ namespace OloEngine
             costs.Add(candidate.Cost);
             tiers.Add(VegetationPolicy::ReflectionTier::Out);
         }
+        // The stress lever takes the same share of the reflection room.
+        const u32 divisor = RayTracing::VegetationDiagnostics::GetBudgetDivisor();
+        const auto withheld = [divisor](u64 limit) -> u64
+        { return limit - limit / divisor; };
         VegetationPolicy::ChooseReflectionTiers(std::span<const VegetationPolicy::ReflectionGroupCost>{ costs.GetData(), static_cast<sizet>(costs.Num()) },
-                                                cache.GetStagedBytes(), cache.GetStagedAccelerationBytes(),
-                                                std::span<VegetationPolicy::ReflectionTier>{ tiers.GetData(), static_cast<sizet>(tiers.Num()) });
+                                                cache.GetStagedBytes() + withheld(VegetationPolicy::GeometryBytes),
+                                                cache.GetStagedAccelerationBytes() + withheld(VegetationPolicy::AccelerationStructureBytes),
+                                                std::span<VegetationPolicy::ReflectionTier>{ tiers.GetData(), static_cast<sizet>(tiers.Num()) },
+                                                cache.GetQueuedGroups() + static_cast<u32>(withheld(VegetationPolicy::ResidentGroups)));
         f32 reach = 0.0f;
         f32 detailReach = 0.0f;
         u32 groupsLeftOut = 0u;

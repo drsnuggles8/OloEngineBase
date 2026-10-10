@@ -22,6 +22,7 @@
 #include <functional>
 #include <string>
 #include <map>
+#include <unordered_set>
 #include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
@@ -773,6 +774,20 @@ namespace OloEngine
         };
         static constexpr f32 kReflectionSplitTolerance = 0.25f;
         mutable ReflectionSplit m_ReflectionSplit;
+        // The casting groups traced at their requested tier last frame
+        // (#1354), by layer and first plant: their upgrade needs no margin
+        // (VegetationPolicy::UpgradeMarginDivisor), so a group at the edge of
+        // the plan keeps its tier instead of flipping every frame.
+        mutable std::unordered_set<u64> m_CastingRequested;
+        // The wind clocks at the last casting plan (#1354). The plan's refresh
+        // rates come from the step since then, measured here rather than read
+        // from m_PrevTime: the cache ages its snapshots once per plan, and a
+        // previous time the scene re-seeds reads as a clock that stands still.
+        mutable f32 m_PlanAnimationTime = -1.0f;
+        mutable f32 m_PlanFieldTime = -1.0f;
+        // The last step each clock actually took, kept while it stands still.
+        mutable f32 m_PlanAnimationStep = 0.0f;
+        mutable f32 m_PlanFieldStep = 0.0f;
 
         TArray<LayerRenderData> m_Layers;
         FoliageInstanceRegistry m_Registry;

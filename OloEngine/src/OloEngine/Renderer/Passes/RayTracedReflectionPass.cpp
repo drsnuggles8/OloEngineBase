@@ -175,7 +175,8 @@ namespace OloEngine
         // about, where a near-empty TLAS looks exactly like a tier correctly
         // falling through to the probes.
         else if (m_RayTracingScene->GetTlasDeviceAddress() == 0u)
-            reason = ReflectionTierFallbackReason::AccelerationStructureEmpty;
+            reason = m_RayTracingScene->IsTlasWithheld() ? ReflectionTierFallbackReason::AccelerationStructureWithheld
+                                                         : ReflectionTierFallbackReason::AccelerationStructureEmpty;
         else if (m_GPUScene == nullptr || m_GPUScene->GetInstanceSlotCount() == 0u)
             reason = ReflectionTierFallbackReason::GPUSceneUnavailable;
         else if (!m_Enabled || !graphResourcesResolved)

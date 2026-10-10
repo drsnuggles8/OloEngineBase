@@ -6025,13 +6025,15 @@ namespace OloEngine
         }
         else
         {
-            // No primary camera or rendering disabled: the 3D render path
-            // is skipped entirely, so the animation-time cache wasn't
-            // advanced. Mirror the 2D-only branch's reset so whenever 3D
-            // resumes (camera re-acquired or rendering re-enabled) the
-            // next frame re-seeds `prevAnimationTime == animationTime`
-            // instead of using whatever timestamp was last recorded.
-            m_LastAnimationTime = -1.0f;
+            // NO sentinel reset here. A throttled editor (EditorLayer's
+            // skipRender) ticks the scene without rendering between rendered
+            // frames, so a reset here re-seeded `prevAnimationTime ==
+            // animationTime` on EVERY rendered frame: wind, water and foliage
+            // reported zero velocity, and the foliage ray-tracing plan read a
+            // clock that never moved (#1354). Nothing needs it: the animation
+            // clock advances only on rendered frames and by at most 0.1 s per
+            // frame (ProcessScene3DSharedLogic), so the step a resumed frame
+            // sees is bounded already.
         }
 
         // Restore the authoritative fixed-tick poses overwritten for the
@@ -6129,10 +6131,16 @@ namespace OloEngine
         }
         else
         {
-            // Rendering disabled: skip both 3D and 2D paths. Reset the
-            // animation-time sentinel so resuming rendering re-seeds
-            // `prevAnimationTime == animationTime` on the first 3D frame.
-            m_LastAnimationTime = -1.0f;
+            // Rendering disabled: skip both 3D and 2D paths.
+            // NO sentinel reset here. A throttled editor (EditorLayer's
+            // skipRender) ticks the scene without rendering between rendered
+            // frames, so a reset here re-seeded `prevAnimationTime ==
+            // animationTime` on EVERY rendered frame: wind, water and foliage
+            // reported zero velocity, and the foliage ray-tracing plan read a
+            // clock that never moved (#1354). Nothing needs it: the animation
+            // clock advances only on rendered frames and by at most 0.1 s per
+            // frame (ProcessScene3DSharedLogic), so the step a resumed frame
+            // sees is bounded already.
         }
     }
 
@@ -6383,10 +6391,16 @@ namespace OloEngine
         }
         else
         {
-            // Rendering disabled in editor: skip 3D and 2D. Reset the
-            // animation-time sentinel so toggling rendering back on
-            // re-seeds `prevAnimationTime == animationTime`.
-            m_LastAnimationTime = -1.0f;
+            // Rendering disabled in editor: skip 3D and 2D.
+            // NO sentinel reset here. A throttled editor (EditorLayer's
+            // skipRender) ticks the scene without rendering between rendered
+            // frames, so a reset here re-seeded `prevAnimationTime ==
+            // animationTime` on EVERY rendered frame: wind, water and foliage
+            // reported zero velocity, and the foliage ray-tracing plan read a
+            // clock that never moved (#1354). Nothing needs it: the animation
+            // clock advances only on rendered frames and by at most 0.1 s per
+            // frame (ProcessScene3DSharedLogic), so the step a resumed frame
+            // sees is bounded already.
         }
     }
 

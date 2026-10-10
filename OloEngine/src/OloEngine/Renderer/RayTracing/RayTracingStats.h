@@ -33,6 +33,10 @@ namespace OloEngine::RayTracing
         u32 TlasUpdates = 0;      ///< TLAS refits (0 or 1 in practice).
         u32 InstancesTraced = 0;  ///< Instances written into the TLAS build.
         u32 InstancesSkipped = 0; ///< Live GPU Scene instances that could not be traced.
+        /// Skinned-surface builds held back because the deformation producer
+        /// rolled back this frame's dispatches (#1354): the previous structure
+        /// stays, matching the stream nothing rewrote.
+        u32 DeformedBuildsDeferred = 0;
 
         // NO GPU-TIME FIELDS HERE. There were two — BlasBuildGpuNs and
         // TlasBuildGpuNs, declared by #978 — and nothing ever wrote either. They

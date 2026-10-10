@@ -141,6 +141,8 @@ namespace OloEngine::RayTracing
         m_Shader.Reset();
         m_Params.Reset();
         m_ShaderUnavailable = false;
+        m_RolledBackThisFrame = false;
+        m_RolledBackOutputs.Reset();
         m_Stats = DeformedSurfaceStats{};
     }
 
@@ -187,6 +189,9 @@ namespace OloEngine::RayTracing
         // so a rollback of last frame's leftovers cannot leak into the new
         // frame's number.
         m_Stats.Refused += static_cast<u32>(m_Queue.Num());
+        m_RolledBackThisFrame = m_RolledBackThisFrame || !m_Queue.IsEmpty();
+        for (const QueuedDispatch& item : m_Queue)
+            m_RolledBackOutputs.Add(item.OutputAddress);
         m_Queue.Reset();
     }
 
@@ -202,6 +207,9 @@ namespace OloEngine::RayTracing
         // below, reached by a different route, and it is the easier of the two
         // to miss because nothing failed: the queue simply was not asked for.
         RollbackQueuedDispatches();
+        // That rollback belongs to the frame before; this frame starts trusted.
+        m_RolledBackThisFrame = false;
+        m_RolledBackOutputs.Reset();
         ++m_FrameNumber;
         m_Stats.ResetFrame();
         m_PaletteStaging.Reset();
@@ -303,6 +311,14 @@ namespace OloEngine::RayTracing
         // an animated surface, so a surface that leaves without a stream is one
         // the ray tracer will not see.
         if (!meshSource || palette.empty())
+        {
+            return refuse();
+        }
+        // A deformation shader that failed to load stays failed (EnsureShader
+        // latches it). Refused here, before a binding is handed out, so no
+        // record names a stream nothing will ever write (#1354): the surface
+        // is counted and kept out of the TLAS, not traced as zeros.
+        if (m_ShaderUnavailable)
         {
             return refuse();
         }

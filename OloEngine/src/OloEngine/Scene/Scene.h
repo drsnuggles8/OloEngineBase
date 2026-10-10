@@ -648,6 +648,12 @@ namespace OloEngine
         {
             m_RenderingEnabled = enabled;
         }
+        /// The animation time the last rendered frame used; -1 before the
+        /// first one. An unrendered (throttled) tick leaves it alone.
+        [[nodiscard]] f32 GetLastAnimationTime() const
+        {
+            return m_LastAnimationTime;
+        }
 
         // Viewport grid settings (editor only)
         void SetGridVisible(bool visible)

@@ -71,6 +71,11 @@ namespace OloEngine
         EmissiveTableNotGathered,   ///< The setting flipped on mid-frame, after the area-light gather was decided.
         TargetUnavailable,          ///< The graph produced no output target this frame.
 
+        // A TLAS exists but is withheld (#1354): vegetation in this frame's
+        // scene could not be traced complete within its budget, or its
+        // producer failed, so tracing it would miss plants. The explicit
+        // technique fallback, with its pressure source in olo_rt_scene_stats.
+        AccelerationStructureWithheld,
         Count
     };
 
@@ -88,6 +93,8 @@ namespace OloEngine
                 return "hardware ray tracing is unavailable on this device (see RayTracing::UnsupportedReason)";
             case GpuPathTracerFallbackReason::AccelerationStructureEmpty:
                 return "no TLAS has been built yet, so there is nothing to trace against";
+            case GpuPathTracerFallbackReason::AccelerationStructureWithheld:
+                return "the TLAS is withheld: vegetation could not be traced complete within its budget, or its producer failed (see olo_rt_scene_stats vegetation.pressure)";
             case GpuPathTracerFallbackReason::GPUSceneUnavailable:
                 return "the GPU Scene tables are unavailable, so a ray hit could not be shaded";
             case GpuPathTracerFallbackReason::EmissiveTableNotGathered:
