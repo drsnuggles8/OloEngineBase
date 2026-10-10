@@ -1829,10 +1829,34 @@ namespace OloEngine::Tests
                 }
             }
         }
-        // The pair together, for a look at the two coats side by side.
+        // THE PAIR, BOTH FROM THE SUN'S SIDE, AND HELD TO THE SOLO FRAMES. A coat
+        // can hide the skin and still be the wrong colour -- a coat refused its
+        // density volume renders near-black (AHerdKeepsEveryCoatVolume) -- so
+        // each coat's mean linear luma in the two-coat frame must stay within a
+        // factor of its own lit side view. The first pair framing looked from
+        // x = 0, between the foxes: the long fox showed the flank facing away
+        // from the sun, and in this sky-less scene that flank is near-black for
+        // either coat (long 0.059, short seen the same way 0.039, against
+        // 0.10-0.13 from the lit side), which read as a broken long coat.
+        const View pair{ glm::vec3(4.6f, 1.4f, 4.2f), glm::vec3(-0.4f, 0.45f, -0.2f), 38.0f };
+        for (FoxRig* f : Foxes())
+        {
+            const View lit = HeroViews(*f)[2].second; // the side view, from +x
+            const IdCount solo = CountIds(lit, IdOf(f->Coat), IdOf(f->Body), 12, true);
+            const IdCount both = CountIds(pair, IdOf(f->Coat), IdOf(f->Body), 12, true);
+            ASSERT_GT(solo.Coat, 1000.0) << f->Name;
+            ASSERT_GT(both.Coat, 1000.0) << f->Name << ": both coats must be in the pair frame";
+            const f64 soloLuma = solo.CoatLuma / solo.Coat;
+            const f64 pairLuma = both.CoatLuma / both.Coat;
+            std::printf("[fox] pair %s: mean coat luma %.4f in the pair, %.4f alone (ratio %.2f)\n", f->Tag.c_str(),
+                        pairLuma, soloLuma, pairLuma / soloLuma);
+            std::fflush(stdout);
+            EXPECT_GT(pairLuma / soloLuma, 0.65) << f->Name << ": the coat went dark in the two-coat frame";
+            EXPECT_LT(pairLuma / soloLuma, 1.5) << f->Name;
+        }
         std::vector<u8> frame;
         ColdHistory();
-        Capture("FoxCoat_GL_Forward_Pair", { glm::vec3(0.0f, 1.25f, 4.6f), glm::vec3(0.0f, 0.5f, 0.0f), 38.0f }, frame);
+        Capture("FoxCoat_GL_Forward_Pair", pair, frame);
     }
 
     // =========================================================================
