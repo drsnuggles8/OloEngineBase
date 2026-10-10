@@ -134,6 +134,13 @@ quietly breaking the picture.
     [geometry-lod-measure-the-unreachable-cost.md](geometry-lod-measure-the-unreachable-cost.md)
     rule 10.
 
+21. **A budget on a bound coat schedules the coat's BODY.** A bound coat is its own entity,
+    parented to the body (a-bound-coat-rides-its-body.md), so the budgeted entity holds the groom
+    and the skeleton is one binding away. The gather prices the bones of the binding's target, and
+    `ShouldPoseAnimalThisFrame` gates that body by its coat's schedule (`m_AnimalBodySchedules`),
+    unless the body carries a budget of its own. Before #1259 such a herd priced no bones and posed
+    every frame. `BoundCoatPopulationFixture` holds it, with the bindings-off arm as its control.
+
 ## What a wrong schedule looks like, and which counter names it
 
 | Symptom | Counter that says so |
