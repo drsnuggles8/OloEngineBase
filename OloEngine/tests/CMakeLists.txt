@@ -902,6 +902,7 @@ add_executable(OloEngine-Tests
 		# rendering path, the compensation's A/B, and the two hysteresis bounds
 		# driven as CAMERA MOTION, which is the only shape in which "does not
 		# thrash" has a truth value.
+		Rendering/PropertyTests/AcceptanceSceneEvidenceTest.cpp
 		Rendering/PropertyTests/AnimalBudgetVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomLodVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomVegetationStreamingEvidenceTest.cpp
