@@ -5,8 +5,12 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <limits>
+#include <map>
+#include <utility>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -444,5 +448,157 @@ namespace OloEngine::Tests
             right += RayTracing::VegetationPlantTerm(id);
         EXPECT_EQ(left + right, whole);
         EXPECT_NE(RayTracing::VegetationPlantTerm(1u), RayTracing::VegetationPlantTerm(2u));
+    }
+
+    // --- #1578: the far casting field is grouped by area ---------------------
+
+    namespace
+    {
+        constexpr f32 kRegistryCell = 16.0f; // FoliageInstanceRegistry::kGroupSize
+
+        struct FieldGroups
+        {
+            u32 AreaGroups = 0u;
+            u32 LegacyGroups = 0u; // the same far plants as 256-plant slices per registry cell
+            u32 NearPlants = 0u;
+            u32 FarPlants = 0u;
+            u32 LargestGroup = 0u;
+        };
+
+        // A square field of `side` metres centred on the origin, one plant per
+        // `spacing` metres (cell-centred, so none sits on a cell edge), seen
+        // from the origin out to `viewDistance`: the producer's routing and
+        // slicing, without the registry.
+        FieldGroups GroupField(f32 side, f32 spacing, f32 viewDistance)
+        {
+            const u32 ratio = VegetationPolicy::CastingAreaCellRatio(viewDistance, kRegistryCell);
+            const auto cellOf = [](f32 v)
+            { return static_cast<i32>(std::floor(v / kRegistryCell)); };
+            const auto pack = [](i32 x, i32 z)
+            { return (static_cast<u64>(static_cast<u32>(x)) << 32u) | static_cast<u32>(z); };
+            FieldGroups out;
+            std::vector<u64> keys;
+            std::map<u64, u32> legacyCells;
+            const i32 count = static_cast<i32>(side / spacing);
+            for (i32 i = 0; i < count; ++i)
+                for (i32 j = 0; j < count; ++j)
+                {
+                    const f32 x = -side * 0.5f + spacing * (static_cast<f32>(i) + 0.5f);
+                    const f32 z = -side * 0.5f + spacing * (static_cast<f32>(j) + 0.5f);
+                    const f32 distance = std::sqrt(x * x + z * z);
+                    if (distance > viewDistance)
+                        continue;
+                    if (!VegetationPolicy::GroupsCardByArea(true, distance))
+                    {
+                        ++out.NearPlants;
+                        continue;
+                    }
+                    ++out.FarPlants;
+                    keys.push_back(pack(VegetationPolicy::CastingAreaCoordinate(cellOf(x), ratio),
+                                        VegetationPolicy::CastingAreaCoordinate(cellOf(z), ratio)));
+                    ++legacyCells[pack(cellOf(x), cellOf(z))];
+                }
+            std::ranges::sort(keys);
+            u32 covered = 0u;
+            VegetationPolicy::SliceCastingAreas(keys, [&](sizet first, sizet plants)
+                                                {
+                                                    EXPECT_EQ(first, covered) << "groups must tile the sorted plants in order";
+                                                    covered += static_cast<u32>(plants);
+                                                    ++out.AreaGroups;
+                                                    out.LargestGroup = std::max(out.LargestGroup, static_cast<u32>(plants)); });
+            EXPECT_EQ(covered, out.FarPlants) << "a far plant was left out of every group";
+            for (const auto& [cell, plants] : legacyCells)
+                out.LegacyGroups += (plants + VegetationPolicy::CardPlantsPerGroup - 1u) / VegetationPolicy::CardPlantsPerGroup;
+            return out;
+        }
+    } // namespace
+
+    // The area cell is the smallest whole number of registry cells whose
+    // count over the layer's view disc fits an eighth of the frame's builds.
+    // The IntegratedRenderer meadow's three layers: 32 m, 48 m and 32 m.
+    TEST(VegetationCastingAreas, TheAreaCellIsSizedFromTheBuildBudgetAndTheViewDistance)
+    {
+        EXPECT_EQ(VegetationPolicy::CastingAreaCellsPerLayer, VegetationPolicy::UpdatesPerFrame / 8u);
+        for (const auto& [viewDistance, expected] : { std::pair{ 150.0f, 2u }, std::pair{ 170.0f, 3u }, std::pair{ 90.0f, 2u },
+                                                      std::pair{ 20.0f, 1u }, std::pair{ 1000.0f, 13u } })
+        {
+            const u32 ratio = VegetationPolicy::CastingAreaCellRatio(viewDistance, kRegistryCell);
+            EXPECT_EQ(ratio, expected) << "view distance " << viewDistance;
+            const f32 cell = kRegistryCell * static_cast<f32>(ratio);
+            EXPECT_LE(VegetationPolicy::CastingAreaCellBound(viewDistance, cell), static_cast<f64>(VegetationPolicy::CastingAreaCellsPerLayer));
+            if (ratio > 1u)
+                EXPECT_GT(VegetationPolicy::CastingAreaCellBound(viewDistance, cell - kRegistryCell),
+                          static_cast<f64>(VegetationPolicy::CastingAreaCellsPerLayer))
+                    << "a smaller cell would have fitted";
+        }
+        EXPECT_EQ(VegetationPolicy::CastingAreaCellRatio(std::numeric_limits<f32>::quiet_NaN(), kRegistryCell), 1u);
+        EXPECT_EQ(VegetationPolicy::CastingAreaCellRatio(150.0f, 0.0f), 1u);
+
+        // Floor division: the cells left of the origin are as wide as the rest.
+        EXPECT_EQ(VegetationPolicy::CastingAreaCoordinate(0, 2u), 0);
+        EXPECT_EQ(VegetationPolicy::CastingAreaCoordinate(3, 2u), 1);
+        EXPECT_EQ(VegetationPolicy::CastingAreaCoordinate(-1, 2u), -1);
+        EXPECT_EQ(VegetationPolicy::CastingAreaCoordinate(-2, 2u), -1);
+        EXPECT_EQ(VegetationPolicy::CastingAreaCoordinate(-3, 2u), -2);
+    }
+
+    // A 192 m field at 4 plants per square metre, seen from its centre out to
+    // 150 m: 36 groups of 32 m instead of 572 per-registry-cell slices. Each
+    // group is one build, so the far field is a fixed handful of builds
+    // however dense it is, and the plan admits every one of them.
+    TEST(VegetationCastingAreas, AFarFieldCostsOneBuildPerAreaCellNotOnePer256Plants)
+    {
+        const FieldGroups field = GroupField(192.0f, 0.5f, 150.0f);
+        EXPECT_EQ(field.AreaGroups, 36u);
+        EXPECT_EQ(field.LegacyGroups, 572u);
+        EXPECT_EQ(field.LargestGroup, 4096u) << "a full 32 m cell at 4 plants per square metre";
+        EXPECT_GT(field.NearPlants, 0u);
+        EXPECT_EQ(field.NearPlants + field.FarPlants, 192u * 192u * 4u);
+
+        // As casting card groups refreshed every frame (a frame longer than
+        // the proxy deadline), they fit; the per-cell slices of the same
+        // plants needed 572 builds of the 1,024 for one layer alone.
+        std::vector<CastingCost> groups(field.AreaGroups);
+        const u64 plants = field.FarPlants / field.AreaGroups;
+        for (CastingCost& group : groups)
+            group = CastingCost{ { plants * 200u, plants * 160u, 4u * plants, 2u * plants, 1u }, {}, false, false };
+        std::vector<Tier> tiers(groups.size());
+        const auto plan = VegetationPolicy::ChooseCastingTiers(groups, tiers);
+        EXPECT_EQ(plan.Out, 0u);
+        EXPECT_DOUBLE_EQ(plan.DemandBuilds, 36.0);
+    }
+
+    // Near the camera nothing changes: a plant the detailed tier refreshes
+    // every frame keeps its registry cell's slice, mesh groups keep 32
+    // plants, a layer that casts nothing is never area-grouped, and no group
+    // is so large that one build overruns a frame's vertices.
+    TEST(VegetationCastingAreas, NearGroupsAndTheErrorBoundAreUnchanged)
+    {
+        EXPECT_FALSE(VegetationPolicy::GroupsCardByArea(true, VegetationPolicy::DetailedCardDistance));
+        EXPECT_TRUE(VegetationPolicy::GroupsCardByArea(true, VegetationPolicy::DetailedCardDistance + 0.01f));
+        EXPECT_FALSE(VegetationPolicy::GroupsCardByArea(false, 100.0f)) << "a reflection-only layer has its own plan";
+        EXPECT_EQ(VegetationPolicy::PlantsPerGroup, 32u);
+        EXPECT_EQ(VegetationPolicy::CardPlantsPerGroup, 256u);
+        EXPECT_EQ(VegetationPolicy::UpdatesPerFrame, 1024u);
+        EXPECT_FLOAT_EQ(VegetationPolicy::MaximumWorldDisplacementError, 0.25f);
+        EXPECT_FLOAT_EQ(VegetationPolicy::MaximumProxyAge, 0.05f);
+        EXPECT_LE(4ull * VegetationPolicy::CastingAreaPlantsPerGroup, VegetationPolicy::VerticesPerFrame / 4u);
+        EXPECT_GE(VegetationPolicy::MaxPlantsPerGroup, VegetationPolicy::CastingAreaPlantsPerGroup);
+
+        // A cell denser than the cap splits into near-equal contiguous groups.
+        std::vector<u64> keys(10u, 1u);
+        keys.insert(keys.end(), 2u * VegetationPolicy::CastingAreaPlantsPerGroup + 1u, 2u);
+        keys.insert(keys.end(), 5u, 3u);
+        std::vector<std::pair<sizet, sizet>> slices;
+        VegetationPolicy::SliceCastingAreas(keys, [&slices](sizet first, sizet count)
+                                            { slices.emplace_back(first, count); });
+        ASSERT_EQ(slices.size(), 5u);
+        EXPECT_EQ(slices[0], (std::pair<sizet, sizet>{ 0u, 10u }));
+        for (sizet i = 1u; i < 4u; ++i)
+        {
+            EXPECT_LE(slices[i].second, VegetationPolicy::CastingAreaPlantsPerGroup);
+            EXPECT_GE(slices[i].second, VegetationPolicy::CastingAreaPlantsPerGroup * 2u / 3u);
+        }
+        EXPECT_EQ(slices[4], (std::pair<sizet, sizet>{ keys.size() - 5u, 5u }));
     }
 } // namespace OloEngine::Tests
