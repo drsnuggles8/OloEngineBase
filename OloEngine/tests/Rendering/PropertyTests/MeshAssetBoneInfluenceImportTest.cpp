@@ -434,8 +434,10 @@ namespace OloEngine::Tests
         // routing then never reads. No GPU needed — this is a cache-header question.
         const std::filesystem::path source = m_TempDir / "Assets" / "rigged_source.gltf";
         {
+            // The smallest valid glTF: the cache key reads the descriptor for its external
+            // buffers (a .gltf that does not parse is never cached), and it has none.
             std::ofstream f(source);
-            f << "not really a glTF — only its timestamp is read here\n";
+            f << R"({ "asset": { "version": "2.0" } })" << '\n';
         }
         ASSERT_TRUE(std::filesystem::exists(source));
 

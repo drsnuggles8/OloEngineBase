@@ -116,7 +116,8 @@ namespace OloEngine
             {
                 std::ifstream input(sourcePath);
                 const auto document = nlohmann::json::parse(input);
-                for (const auto& buffer : document.at("buffers"))
+                // "buffers" is optional: a glTF with no geometry has none.
+                for (const auto& buffer : document.value("buffers", nlohmann::json::array()))
                 {
                     const auto uri = buffer.at("uri").get<std::string>();
                     if (uri.starts_with("data:"))
