@@ -7370,8 +7370,12 @@ namespace OloEngine
         /// for a capture that needs a still frame of a moving population.
         bool m_Enabled = true;
 
-        OLO_SERIALIZE(Skip)
-        u8 Pad0 = 0;
+        /// Stand on the ground under the path (issue #1259): each tick the
+        /// animal's height is the terrain surface at its XZ, so a herd crosses
+        /// hills instead of floating over them or sinking into them. The
+        /// origin's Y is then unused. Where no terrain covers the point the
+        /// last height stays, so an animal is never dropped to zero.
+        bool m_FollowTerrain = false;
 
         AnimalPathComponent() = default;
         AnimalPathComponent(const AnimalPathComponent&) = default;

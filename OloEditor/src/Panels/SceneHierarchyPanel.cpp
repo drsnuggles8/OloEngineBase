@@ -10092,6 +10092,7 @@ namespace OloEngine
 
             ImGui::Checkbox("Enabled", &component.m_Enabled);
             ImGui::Checkbox("Orient to path", &component.m_FaceAlongMotion);
+            ImGui::Checkbox("Follow terrain", &component.m_FollowTerrain);
             if (ImGui::IsItemHovered())
             {
                 ImGui::SetTooltip("Yaw the animal along its own velocity, from the analytic derivative rather\n"

@@ -1781,6 +1781,7 @@ add_executable(OloEngine-Tests
 		Functional/AI/BehaviorTreeSequenceShortCircuitsOnFailureTest.cpp
 		Functional/AI/PerceptionMatchesBruteForceViaSpatialIndexTest.cpp
 		Functional/AI/FlockingViaSceneTickTest.cpp
+		Functional/Rendering/AnimalPathFollowsTerrainTest.cpp
 		Functional/Rendering/AnimalPopulationViaSceneTickTest.cpp
 		Functional/Rendering/MaterialOverridesPatchImportedMaterialsTest.cpp
 		Functional/Scripting/LuaReadsTransformOfAnotherEntityTest.cpp

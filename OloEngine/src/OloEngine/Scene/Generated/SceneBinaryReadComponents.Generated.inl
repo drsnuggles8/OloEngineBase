@@ -115,6 +115,7 @@ case 37445965u: // AnimalPathComponent
     if (!SceneBinIO::Read(reader, comp.m_HasOrigin)) return false;
     if (!SceneBinIO::Read(reader, comp.m_FaceAlongMotion)) return false;
     if (!SceneBinIO::Read(reader, comp.m_Enabled)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_FollowTerrain)) return false;
     break;
 }
 case 2678681430u: // BoatComponent

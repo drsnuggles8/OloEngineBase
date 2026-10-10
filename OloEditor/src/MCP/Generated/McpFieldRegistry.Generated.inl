@@ -77,6 +77,7 @@ registry.push_back(OLO_GFW_FIELD_RANGE(AnimalPathComponent, "ElapsedSeconds", m_
 registry.push_back(OLO_GFW_FIELD(AnimalPathComponent, "HasOrigin", m_HasOrigin));
 registry.push_back(OLO_GFW_FIELD(AnimalPathComponent, "FaceAlongMotion", m_FaceAlongMotion));
 registry.push_back(OLO_GFW_FIELD(AnimalPathComponent, "Enabled", m_Enabled));
+registry.push_back(OLO_GFW_FIELD(AnimalPathComponent, "FollowTerrain", m_FollowTerrain));
 
 }
 

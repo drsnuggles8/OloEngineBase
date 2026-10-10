@@ -121,6 +121,7 @@
 #include "OloEngine/Renderer/DDGI/DDGIProbeUpdatePass.h"
 #include "OloEngine/Renderer/LightProbeVolumeAsset.h"
 #include "OloEngine/Terrain/TerrainData.h"
+#include "OloEngine/Scene/TerrainGround.h"
 #include "OloEngine/Terrain/TerrainGenerator.h"
 #include "OloEngine/Terrain/TerrainChunk.h"
 #include "OloEngine/Terrain/TerrainChunkManager.h"
@@ -5021,7 +5022,29 @@ namespace OloEngine
             // populations — which is criterion 1 failing silently.
             const glm::vec3 origin{ path.m_OriginX, path.m_OriginY, path.m_OriginZ };
             const glm::vec3 offset = AnimalPathOffsetAt(path, path.m_ElapsedSeconds);
+            const f32 previousY = transform.Translation.y;
             transform.Translation = origin + offset;
+            if (path.m_FollowTerrain)
+            {
+                // Issue #1259. Off every terrain (or before a height field
+                // exists, which a headless host never builds) the animal keeps
+                // its height, and says so once rather than silently.
+                if (const auto ground = SampleTerrainGroundHeight(*this, transform.Translation.x, transform.Translation.z))
+                {
+                    transform.Translation.y = *ground;
+                }
+                else
+                {
+                    transform.Translation.y = previousY;
+                    static std::atomic<bool> s_WarnedNoGround{ false };
+                    if (!s_WarnedNoGround.exchange(true))
+                    {
+                        OLO_CORE_WARN("AnimalPathComponent: FollowTerrain is set but no terrain height field covers "
+                                      "({}, {}); the animal keeps its height",
+                                      transform.Translation.x, transform.Translation.z);
+                    }
+                }
+            }
 
             if (!path.m_FaceAlongMotion)
             {
