@@ -408,6 +408,38 @@ namespace OloEngine
             }
             return cost;
         };
+        // A casting layer's far card plants, grouped by area after the loop
+        // (VegetationPolicy::GroupsCardByArea, #1578): sorted by area key,
+        // then by canonical id, so a group's first plant -- the cache key --
+        // does not move while the camera does.
+        struct AreaPlant
+        {
+            u64 AreaKey = 0u;
+            u64 Id = 0u;
+            const FoliageInstanceRecord* Record = nullptr;
+            f32 Distance = 0.0f;
+        };
+        TArray<AreaPlant> areaPlants;
+        // Each layer's area cell, in registry cells, from its view distance in
+        // terrain-local units (the registry slices local positions).
+        TArray<u32> areaRatios;
+        areaRatios.Reserve(m_Layers.Num());
+        for (const auto& layer : m_Layers)
+        {
+            const f32 localViewDistance = transformNorm > 0.0f && std::isfinite(transformNorm) ? layer.ViewDistance / transformNorm
+                                                                                               : layer.ViewDistance;
+            areaRatios.Add(RayTracing::VegetationPolicy::CastingAreaCellRatio(localViewDistance, FoliageInstanceRegistry::kGroupSize));
+        }
+        const auto areaKey = [](u32 layerIndex, glm::ivec2 registryCell, u32 ratio) -> u64
+        {
+            // 16 bits of layer, 24 of each signed area coordinate (a 16 m
+            // registry cell reaches 2^23 * 16 m before this wraps).
+            const auto lane = [](i32 coordinate) -> u64
+            { return static_cast<u64>(static_cast<u32>(coordinate) & 0xffffffu); };
+            return (static_cast<u64>(layerIndex & 0xffffu) << 48u) |
+                   (lane(RayTracing::VegetationPolicy::CastingAreaCoordinate(registryCell.x, ratio)) << 24u) |
+                   lane(RayTracing::VegetationPolicy::CastingAreaCoordinate(registryCell.y, ratio));
+        };
         u32 cell = 0u;
         for (const auto& group : m_Registry.GetGroups())
         {
@@ -444,6 +476,12 @@ namespace OloEngine
                                   ((layer.UseImpostor && layer.Impostor.IsValid()) || distance <= layer.MeshViewDistance);
                 const bool impostor = mesh && layer.UseImpostor && layer.Impostor.IsValid() &&
                                       distance > layer.MeshViewDistance;
+                if (!mesh && RayTracing::VegetationPolicy::GroupsCardByArea(layer.CastShadows, distance))
+                {
+                    areaPlants.Add({ areaKey(group.m_LayerIndex, group.m_Cell, areaRatios[static_cast<i32>(group.m_LayerIndex)]),
+                                     record->m_Id, record, distance });
+                    continue;
+                }
                 (impostor ? impostorRecords : (mesh ? meshRecords : cardRecords)).Add(record);
                 (impostor ? impostorDistances : (mesh ? meshDistances : cardDistances)).Add(distance);
             }
@@ -510,6 +548,44 @@ namespace OloEngine
                     castingCandidates.Add(std::move(candidate));
                 }
             }
+        }
+        // THE FAR CASTING CARDS, one group per area cell (#1578). Cards have
+        // no lower tier, so each is requested at its card cost, refreshed on
+        // the card's proxy deadline like the per-cell card groups it replaces.
+        if (!areaPlants.IsEmpty())
+        {
+            std::ranges::sort(areaPlants, [](const AreaPlant& a, const AreaPlant& b)
+                              { return std::make_pair(a.AreaKey, a.Id) < std::make_pair(b.AreaKey, b.Id); });
+            TArray<u64> keys;
+            keys.Reserve(areaPlants.Num());
+            for (const AreaPlant& plant : areaPlants)
+                keys.Add(plant.AreaKey);
+            RayTracing::VegetationPolicy::SliceCastingAreas(
+                std::span<const u64>{ keys.GetData(), static_cast<sizet>(keys.Num()) }, [&](sizet first, sizet count)
+                {
+                    const u32 layerIndex = static_cast<u32>(areaPlants[static_cast<i32>(first)].AreaKey >> 48u);
+                    const auto& layer = m_Layers[static_cast<i32>(layerIndex)];
+                    const LayerRates& rates = layerRates[static_cast<i32>(layerIndex)];
+                    CastingCandidate candidate;
+                    candidate.LayerIndex = layerIndex;
+                    candidate.Representation = 2u;
+                    candidate.Cost.Requested = groupCost(layer, false, count);
+                    candidate.Cost.HasFallback = false;
+                    candidate.FirstId = areaPlants[static_cast<i32>(first)].Id;
+                    candidate.FirstRecord = static_cast<u32>(castingRecords.Num());
+                    candidate.RecordCount = static_cast<u32>(count);
+                    f32 nearest = std::numeric_limits<f32>::max();
+                    for (sizet i = first; i < first + count; ++i)
+                    {
+                        const AreaPlant& plant = areaPlants[static_cast<i32>(i)];
+                        nearest = std::min(nearest, plant.Distance);
+                        castingRecords.Add(plant.Record);
+                    }
+                    candidate.Distance = nearest;
+                    candidate.Cost.RequestedRate = RayTracing::VegetationPolicy::RefreshRate(
+                        forceDetailed || nearest <= castingDetailedDistance(layer, false), rates.MeshVelocity, rates.MeshStep);
+                    candidate.Cost.FallbackRate = candidate.Cost.RequestedRate;
+                    castingCandidates.Add(std::move(candidate)); });
         }
 
         // THE CASTING GROUPS, nearest first (VegetationPolicy::ChooseCastingTiers):
