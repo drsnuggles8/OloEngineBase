@@ -46,6 +46,7 @@
 #include "OloEngine/Renderer/MaterialOverride.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Model.h"
+#include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/SkinDiffusion.h"
 #include "OloEngine/Renderer/SkinProfile.h"
@@ -59,6 +60,7 @@
 #include "OloEngine/Utils/PlatformUtils.h"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <gtest/gtest.h>
 #include <stb_image/stb_image.h>
@@ -601,7 +603,6 @@ namespace OloEngine::Tests
                 cc.Camera.SetViewportSize(kSize, kSize);
             }
             m_SoftKey = GetScene().CreateEntity("Soft Key");
-            m_SoftKey.GetComponent<TransformComponent>().Translation = HeadWorld({ 0.30f, 0.40f, 0.56f });
             {
                 auto& p = m_SoftKey.AddComponent<PointLightComponent>();
                 p.m_Color = { 1.0f, 0.97f, 0.93f };
@@ -609,7 +610,6 @@ namespace OloEngine::Tests
                 p.m_CastShadows = true;
             }
             m_HardSide = GetScene().CreateEntity("Hard Side");
-            m_HardSide.GetComponent<TransformComponent>().Translation = HeadWorld({ -0.62f, 0.05f, 0.08f });
             {
                 auto& p = m_HardSide.AddComponent<PointLightComponent>();
                 p.m_Color = { 1.0f, 0.96f, 0.90f };
@@ -619,10 +619,10 @@ namespace OloEngine::Tests
             m_Backlight = GetScene().CreateEntity("Backlight");
             {
                 auto& d = m_Backlight.AddComponent<DirectionalLightComponent>();
-                d.m_Direction = kBacklightDirection;
                 d.m_Color = { 0.94f, 0.95f, 1.0f };
                 d.m_CastShadows = false;
             }
+            PlaceLights();
             SetRig(Rig::Studio);
             HoldPose(0.0f);
         }
@@ -667,9 +667,35 @@ namespace OloEngine::Tests
             Project::SetAssetManager(m_AssetManager);
         }
 
+        // Bust space (the glTF's metres) to world, through the body's CURRENT
+        // placement, so every camera, light and window follows a moved body.
+        [[nodiscard]] glm::vec3 BustToWorld(const glm::vec3& bust) const
+        {
+            return glm::vec3(m_Body * glm::vec4(bust, 1.0f));
+        }
+
         [[nodiscard]] glm::vec3 HeadWorld(const glm::vec3& offsetFromCentre) const
         {
-            return kHumanPosition + kHeadCentre + offsetFromCentre;
+            return BustToWorld(kHeadCentre + offsetFromCentre);
+        }
+
+        // The lights are authored relative to the head, so they move with it.
+        void PlaceLights()
+        {
+            m_SoftKey.GetComponent<TransformComponent>().Translation = HeadWorld({ 0.30f, 0.40f, 0.56f });
+            m_HardSide.GetComponent<TransformComponent>().Translation = HeadWorld({ -0.62f, 0.05f, 0.08f });
+            m_Backlight.GetComponent<DirectionalLightComponent>().m_Direction =
+                glm::normalize(glm::mat3(m_Body) * kBacklightDirection);
+        }
+
+        // Puts the body somewhere else and turns it about +Y, as a scene does.
+        void PlaceBody(const glm::vec3& translation, f32 yawRadians)
+        {
+            auto& transform = m_Human.GetComponent<TransformComponent>();
+            transform.Translation = translation;
+            transform.SetRotationEuler(glm::vec3(0.0f, yawRadians, 0.0f));
+            m_Body = transform.GetTransform();
+            PlaceLights();
         }
 
         void SetRig(Rig rig)
@@ -714,8 +740,8 @@ namespace OloEngine::Tests
             f32 maxY = -1.0e9f;
             for (u32 corner = 0; corner < 8u; ++corner)
             {
-                const glm::vec3 p = kHumanPosition + glm::vec3{ (corner & 1u) ? hi.x : lo.x, (corner & 2u) ? hi.y : lo.y,
-                                                                (corner & 4u) ? hi.z : lo.z };
+                const glm::vec3 p = BustToWorld(glm::vec3{ (corner & 1u) ? hi.x : lo.x, (corner & 2u) ? hi.y : lo.y,
+                                                           (corner & 4u) ? hi.z : lo.z });
                 const glm::vec4 clip = viewProjection * glm::vec4(p, 1.0f);
                 if (clip.w <= 0.0f)
                     return false;
@@ -821,6 +847,7 @@ namespace OloEngine::Tests
         Entity m_HardSide;
         Entity m_Backlight;
         Ref<Texture2D> m_RemovedMap;
+        glm::mat4 m_Body = glm::translate(glm::mat4(1.0f), kHumanPosition);
         RenderingPath m_SavedPath = RenderingPath::Forward;
     };
 
@@ -1120,5 +1147,145 @@ namespace OloEngine::Tests
         EXPECT_GT(rig.RedPixels, ear.Area() / 200u) << "the rigged ear does not transmit";
         EXPECT_GT(rig.RedPixels * 3u, ref.RedPixels) << "the rigged ear transmits far less than the reference's";
         EXPECT_GT(ref.RedPixels * 3u, rig.RedPixels) << "the rigged ear transmits far more than the reference's";
+    }
+
+    // THE ACCEPTANCE SCENE'S PLACEMENT. There the bust stands at
+    // [-34, 1.24, 196], turned -2.2143 rad about +Y, and HumanCoat is PARENTED to
+    // Human with an identity local transform -- while the cooked binding was
+    // built with the body at [0, 1.24, 3.6] and the coat at the origin. A binding
+    // is surface-relative: the Scene maps the body into the groom's space every
+    // frame (inverse(groomWorld) * bodyWorld), so a moved, turned, re-parented
+    // pair must bind, deform every root, and draw the same coat on the same
+    // scalp. Measured as the hair's coverage of the frame from a camera placed
+    // identically relative to the head, at both placements.
+    TEST_F(SkinRiggedHeadCloseUp, TheCoatBindsAndFollowsAtTheAcceptanceScenePlacement)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        SetRig(Rig::Studio);
+
+        struct Arm
+        {
+            std::vector<u8> Hair; // 1 where the coat changes the frame
+            u64 HairPixels = 0;
+            u64 HairInsideHead = 0;
+            u32 MinDeformed = 0xFFFFFFFFu;
+            u32 MaxRefused = 0;
+            u32 MaxHeldAtRest = 0;
+            u32 StrandsDrawn = 0; // the last frame's: what the coat's LOD bought
+        };
+        const auto measure = [this](const char* name, Arm& arm)
+        {
+            ShowHair(true);
+            // The camera first: the coat's LOD answers to it, and a camera left
+            // where the body USED to be measures a coat 200 m away.
+            PoseCamera(kThreeQuarter);
+            for (u32 f = 0; f < 48u; ++f)
+            {
+                RunFrames(1, 1.0f / 60.0f);
+                const auto* pass = Renderer3D::GetGroomRenderPass();
+                ASSERT_NE(pass, nullptr);
+                const GroomRenderStats& stats = pass->GetStats();
+                arm.MinDeformed = std::min(arm.MinDeformed, stats.GroomsDeformed);
+                arm.MaxRefused = std::max(arm.MaxRefused, stats.GroomsBindingRefused);
+                arm.MaxHeldAtRest = std::max(arm.MaxHeldAtRest, stats.RootsHeldAtRest);
+                arm.StrandsDrawn = stats.StrandsDrawn;
+            }
+            const Settings s{ RenderingPath::Forward, MaterialDebugView::None, /*Taa=*/true, /*Frames=*/48 };
+            Capture with;
+            Capture without;
+            ASSERT_TRUE(CaptureFrame(s, kThreeQuarter, std::string("SkinRiggedHeadPlacement_GL_Forward_") + name, with));
+            ShowHair(false);
+            ASSERT_TRUE(CaptureFrame(s, kThreeQuarter, {}, without));
+            ShowHair(true);
+            arm.Hair = Coverage(with, without);
+            Window head;
+            ASSERT_TRUE(ProjectBox(kThreeQuarter, glm::vec3(-0.16f, 0.05f, -0.18f), glm::vec3(0.16f, 0.47f, 0.20f), head));
+            for (u32 y = 0; y < kSize; ++y)
+            {
+                for (u32 x = 0; x < kSize; ++x)
+                {
+                    if (arm.Hair[static_cast<sizet>(y) * kSize + x] == 0u)
+                        continue;
+                    ++arm.HairPixels;
+                    if (x >= head.X0 && x <= head.X1 && y >= head.Y0 && y <= head.Y1)
+                        ++arm.HairInsideHead;
+                }
+            }
+        };
+
+        Arm cooked;
+        ASSERT_NO_FATAL_FAILURE(measure("Cooked", cooked));
+
+        constexpr f32 kAcceptanceYaw = -2.2143f;
+        m_Coat.SetParent(m_Human);
+        auto& coatTransform = m_Coat.GetComponent<TransformComponent>();
+        coatTransform.Translation = glm::vec3(0.0f);
+        coatTransform.SetRotationEuler(glm::vec3(0.0f));
+        coatTransform.Scale = glm::vec3(1.0f);
+        PlaceBody(glm::vec3(-34.0f, 1.24f, 196.0f), kAcceptanceYaw);
+        Arm acceptance;
+        ASSERT_NO_FATAL_FAILURE(measure("Acceptance", acceptance));
+
+        // Coverage compared in 16-pixel cells: the coat is stochastic, so
+        // per-pixel masks differ by dither even for one placement.
+        constexpr u32 kCell = 16;
+        f64 cellError = 0.0;
+        u32 cells = 0;
+        for (u32 cy = 0; cy < kSize / kCell; ++cy)
+        {
+            for (u32 cx = 0; cx < kSize / kCell; ++cx)
+            {
+                u32 a = 0;
+                u32 b = 0;
+                for (u32 y = cy * kCell; y < (cy + 1u) * kCell; ++y)
+                {
+                    for (u32 x = cx * kCell; x < (cx + 1u) * kCell; ++x)
+                    {
+                        a += cooked.Hair[static_cast<sizet>(y) * kSize + x];
+                        b += acceptance.Hair[static_cast<sizet>(y) * kSize + x];
+                    }
+                }
+                if (a == 0u && b == 0u)
+                    continue;
+                cellError += std::abs(static_cast<f64>(a) - static_cast<f64>(b)) / static_cast<f64>(kCell * kCell);
+                ++cells;
+            }
+        }
+        const f64 meanCellError = cells > 0 ? cellError / cells : 1.0;
+        std::printf("[RiggedHead placement] cooked: %llu hair px (%.3f inside the head box), deformed>=%u refused<=%u "
+                    "held<=%u; acceptance: %llu hair px (%.3f inside), deformed>=%u refused<=%u held<=%u; mean cell "
+                    "coverage difference %.4f over %u cells\n",
+                    static_cast<unsigned long long>(cooked.HairPixels),
+                    static_cast<f64>(cooked.HairInsideHead) / std::max<f64>(1.0, static_cast<f64>(cooked.HairPixels)),
+                    cooked.MinDeformed, cooked.MaxRefused, cooked.MaxHeldAtRest,
+                    static_cast<unsigned long long>(acceptance.HairPixels),
+                    static_cast<f64>(acceptance.HairInsideHead) /
+                        std::max<f64>(1.0, static_cast<f64>(acceptance.HairPixels)),
+                    acceptance.MinDeformed, acceptance.MaxRefused, acceptance.MaxHeldAtRest, meanCellError, cells);
+
+        for (const Arm* arm : { &cooked, &acceptance })
+        {
+            const char* which = arm == &cooked ? "the cooked placement" : "the acceptance placement";
+            EXPECT_EQ(arm->MaxRefused, 0u) << which << ": the binding was refused";
+            EXPECT_GE(arm->MinDeformed, 1u) << which << ": the coat was not deformed by its body";
+            EXPECT_EQ(arm->MaxHeldAtRest, 0u) << which << ": roots were held at rest instead of following the scalp";
+            EXPECT_GT(arm->HairPixels, static_cast<u64>(kSize) * kSize / 20u) << which << ": the coat is not in the frame";
+            EXPECT_GT(static_cast<f64>(arm->HairInsideHead), 0.9 * static_cast<f64>(arm->HairPixels))
+                << which << ": the coat is drawn away from the head it is bound to";
+        }
+        EXPECT_NEAR(static_cast<f64>(acceptance.HairPixels) / static_cast<f64>(std::max<u64>(1u, cooked.HairPixels)), 1.0, 0.15)
+            << "the coat covers a different share of the frame once the body is moved, turned and parented";
+        // 0.11 before the coat's LOD measured the coat where the body puts it
+        // (the rest bounds read it as 3.7 m away and thinned it), 0.013 after.
+        EXPECT_LT(meanCellError, 0.05) << "the coat lands in a different place relative to the head";
+        // The same coat, the same camera relative to the head: the LOD must buy
+        // the same strands. It is measured from where the coat IS, and a coat
+        // measured at its cook-time placement reads as metres away once the
+        // body moves, and thins out under the camera.
+        std::printf("[RiggedHead placement] strands drawn: cooked %u, acceptance %u\n", cooked.StrandsDrawn,
+                    acceptance.StrandsDrawn);
+        EXPECT_NEAR(static_cast<f64>(acceptance.StrandsDrawn), static_cast<f64>(cooked.StrandsDrawn),
+                    0.02 * static_cast<f64>(cooked.StrandsDrawn))
+            << "the coat's LOD sees the moved body's coat at a different size than the same coat at its cook placement";
     }
 } // namespace OloEngine::Tests

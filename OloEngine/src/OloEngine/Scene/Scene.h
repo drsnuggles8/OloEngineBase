@@ -1584,6 +1584,16 @@ namespace OloEngine
             /// a teleport emit zero motion rather than the teleport itself.
             glm::mat4 m_PrevSurfaceToGroom{ 1.0f };
 
+            /// The binding's centre at bind time and the same roots on the
+            /// body's surface (BoundGroomPlacementOffset), cached on the binding
+            /// handle and the surface generation they were averaged from: a
+            /// pass over every root is not a per-frame cost.
+            AssetHandle m_AnchorBinding = 0;
+            u64 m_AnchorGeneration = 0;
+            glm::vec3 m_AnchorRest{ 0.0f };
+            glm::vec3 m_AnchorSurface{ 0.0f };
+            bool m_AnchorValid = false;
+
             // ── The compatibility verdict, cached ───────────────────────
             //
             // Signing a target means an FNV pass over every index AND every
@@ -1955,6 +1965,11 @@ namespace OloEngine
         /// part of the body is the failure this whole feature exists to prevent
         /// (GroomBinding.h says so at more length).
         void DeformGroomAgainstSurface(Entity groomEntity, const GroomAsset& groom, GroomStrandRequest& request);
+        // Where a BOUND groom's coat is drawn, as a translation of the groom's
+        // rest bounds in its own object space (#1259). False for an unbound
+        // groom, or one whose binding cannot address the body: those draw at
+        // rest, where the asset's bounds already are.
+        [[nodiscard]] bool BoundGroomPlacementOffset(Entity groomEntity, const GroomAsset& groom, glm::vec3& outOffset);
 
         /// Drop every bound groom's previous-frame data, attributing the cause.
         /// For wholesale discontinuities: scene load, play-mode transitions —

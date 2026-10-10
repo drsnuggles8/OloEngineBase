@@ -5140,6 +5140,12 @@ namespace OloEngine
                 {
                     localBounds.Min = groom->GetBoundsMin();
                     localBounds.Max = groom->GetBoundsMax();
+                    // Where a bound coat is drawn, as the groom LOD measures it.
+                    if (glm::vec3 offset{ 0.0f }; BoundGroomPlacementOffset(animal, *groom, offset))
+                    {
+                        localBounds.Min += offset;
+                        localBounds.Max += offset;
+                    }
                     haveBounds = true;
                     // What the coat would build at FULL rate — the static
                     // budget, not this frame's. The scheduler prices the work
@@ -9493,6 +9499,17 @@ namespace OloEngine
                 BoundingBox localBounds;
                 localBounds.Min = groom->GetBoundsMin();
                 localBounds.Max = groom->GetBoundsMax();
+                // A BOUND coat is drawn where its body is, not where the groom
+                // was authored (#1259): the rest bounds are measured at the
+                // placement the binding was cooked at, and a body moved, turned
+                // or re-parented since read as a coat metres from the camera --
+                // the rigged head's hair dropped to a third of its strands in
+                // a close-up.
+                if (glm::vec3 offset{ 0.0f }; BoundGroomPlacementOffset(groomEntity, *groom, offset))
+                {
+                    localBounds.Min += offset;
+                    localBounds.Max += offset;
+                }
                 request.ApparentPixelSize = EstimateProjectedPixelSize(localBounds, worldTransform, lodView);
             }
 
@@ -10358,6 +10375,81 @@ namespace OloEngine
                 }
             }
         }
+    }
+
+    bool Scene::BoundGroomPlacementOffset(Entity groomEntity, const GroomAsset& groom, glm::vec3& outOffset)
+    {
+        // The deformation maps the body into the groom's space with THIS frame's
+        // matrix (inverse(groomWorld) * bodyWorld), while the asset's bounds sit
+        // where the coat was when the binding was cooked. The two coincide only
+        // at the cook placement. The binding records, for every root, the
+        // bind-time origin in groom space and the triangle and barycentrics it
+        // sits on, so averaging both gives one point seen two ways: where the
+        // roots were authored, and where the body puts them now.
+        const auto* binding = m_Registry.try_get<GroomBindingComponent>(groomEntity);
+        if (binding == nullptr || !binding->m_Enabled || binding->m_Binding == 0)
+            return false;
+        const auto bindingAsset = AssetManager::GetAsset<GroomBindingAsset>(binding->m_Binding);
+        if (!bindingAsset || bindingAsset->GetRoots().empty() || bindingAsset->GetRoots().size() != groom.GetCurveCount())
+            return false;
+
+        Entity targetEntity = groomEntity;
+        if (binding->m_TargetEntity != 0)
+        {
+            const auto found = TryGetEntityWithUUID(binding->m_TargetEntity);
+            if (!found)
+                return false;
+            targetEntity = *found;
+        }
+        const auto* meshComponent = m_Registry.try_get<MeshComponent>(targetEntity);
+        if (meshComponent == nullptr)
+            return false;
+        const Ref<MeshSource> surface =
+            AnimatedSurfaceSource(m_Registry.try_get<LODGroupComponent>(targetEntity), *meshComponent);
+        if (!surface)
+            return false;
+        const auto& vertices = surface->GetVertices();
+        const auto& indices = surface->GetIndices();
+        // The counts the binding addresses; anything else is a surface the
+        // deformation will refuse, and a refused coat draws at rest.
+        const GroomBindingTargetSignature& signature = bindingAsset->GetTargetSignature();
+        if (static_cast<u32>(vertices.Num()) != signature.VertexCount || static_cast<u32>(indices.Num()) != signature.IndexCount)
+            return false;
+
+        auto& state = m_GroomBindingRuntime[groomEntity.GetUUID()];
+        if (!state.m_AnchorValid || state.m_AnchorBinding != binding->m_Binding ||
+            state.m_AnchorGeneration != surface->GetGeneration())
+        {
+            glm::dvec3 rest{ 0.0 };
+            glm::dvec3 onSurface{ 0.0 };
+            const u32 triangleCount = static_cast<u32>(indices.Num()) / 3u;
+            u64 used = 0;
+            for (const GroomRootBinding& root : bindingAsset->GetRoots())
+            {
+                if (root.TriangleIndex >= triangleCount)
+                    continue;
+                const u32 base = root.TriangleIndex * 3u;
+                const glm::vec3 p = vertices[static_cast<i32>(indices[static_cast<i32>(base)])].Position * root.Barycentric.x +
+                                    vertices[static_cast<i32>(indices[static_cast<i32>(base + 1u)])].Position * root.Barycentric.y +
+                                    vertices[static_cast<i32>(indices[static_cast<i32>(base + 2u)])].Position * root.Barycentric.z;
+                rest += glm::dvec3(root.RestOrigin);
+                onSurface += glm::dvec3(p);
+                ++used;
+            }
+            if (used == 0u)
+                return false;
+            state.m_AnchorRest = glm::vec3(rest / static_cast<f64>(used));
+            state.m_AnchorSurface = glm::vec3(onSurface / static_cast<f64>(used));
+            state.m_AnchorBinding = binding->m_Binding;
+            state.m_AnchorGeneration = surface->GetGeneration();
+            state.m_AnchorValid = true;
+        }
+
+        const glm::mat4 surfaceToGroom =
+            MakeGroomSurfaceToGroomMatrix(GetWorldTransform(groomEntity), GetWorldTransform(targetEntity));
+        const glm::vec3 now = glm::vec3(surfaceToGroom * glm::vec4(state.m_AnchorSurface, 1.0f));
+        outOffset = now - state.m_AnchorRest;
+        return std::isfinite(outOffset.x) && std::isfinite(outOffset.y) && std::isfinite(outOffset.z);
     }
 
     void Scene::DeformGroomAgainstSurface(Entity groomEntity, const GroomAsset& groom, GroomStrandRequest& request)
