@@ -110,6 +110,11 @@ namespace OloEngine::MCP::RenderGraphTopology
         std::string Backend;
         std::string Format;
         std::string LastInvalidation;
+        // The lineage AOV (#1348): frames the current history has accumulated,
+        // and the cause that started it (it survives a produced frame, where
+        // lastInvalidation reads None again).
+        std::string LineageCause;
+        u32 Age = 0;
         u64 View = 0;
         u32 Width = 0;
         u32 Height = 0;
@@ -309,6 +314,8 @@ namespace OloEngine::MCP::RenderGraphTopology
                 { "valid", history.Valid },
                 { "hasTexture", history.HasTexture },
                 { "lastInvalidation", history.LastInvalidation },
+                { "age", history.Age },
+                { "lineageCause", history.LineageCause },
                 { "descriptor", Json{ { "width", history.Width },
                                       { "height", history.Height },
                                       { "format", history.Format },

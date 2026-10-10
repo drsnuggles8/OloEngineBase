@@ -10,8 +10,9 @@ it and re-arms the cache under the same key.
 The declaration cache has two layers keyed on one value: the blackboard (`PopulateBlackboard`) and
 the graph build (`BuildFrameGraph`, which runs every pass's `Setup()`). They usually miss together.
 They part when a populate invalidates the blackboard cache for the next frame without the key
-moving. The SSR history resize does this: `EnsureHistoryStorage` clears the valid flag after the
-key was hashed from it.
+moving. The SSR history resize did this: `EnsureHistoryStorage` cleared the valid flag after the
+key was hashed from it. (Since #1348 the SSR history is a registry history and that invalidation is
+gone, but the rule holds for any populate that wants to take effect next frame.)
 
 The old code invalidated both caches there, and called the second call "the load-bearing half".
 But `BuildFrameGraph` ran later in the same frame and re-armed the build cache. So on the next

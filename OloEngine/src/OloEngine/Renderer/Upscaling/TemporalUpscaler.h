@@ -188,7 +188,7 @@ namespace OloEngine
 
         // The jitter sequence is the upscaler's, not the engine's: FSR2 derives
         // both the phase count and the offsets from the render/display ratio, and
-        // feeding it the engine's Halton-16 TAA sequence instead would under-sample
+        // feeding it the engine's 8-sample Halton TAA sequence instead would under-sample
         // the reconstruction it is built around.
         [[nodiscard]] virtual i32 GetJitterPhaseCount(u32 renderWidth, u32 displayWidth) const = 0;
         [[nodiscard]] virtual glm::vec2 GetJitterOffset(i32 phaseIndex, i32 phaseCount) const = 0;

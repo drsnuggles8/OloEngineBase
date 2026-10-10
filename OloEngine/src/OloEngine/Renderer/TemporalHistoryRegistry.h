@@ -25,6 +25,10 @@ namespace OloEngine
         PathTracer,      ///< GPU reference path tracer's progressive accumulation (issue #1055)
         ReSTIRDI,        ///< ReSTIR DI screen-space reservoirs (issue #1140)
         ReSTIRGI,        ///< ReSTIR GI screen-space reservoirs (issue #1169)
+        // ReSTIR PT's path records live in the pass's own buffers; the registry
+        // holds their LINEAGE only (an external entry, #1348), so a camera cut
+        // or a scene reset reaches them like every other history.
+        ReSTIRPT,
     };
 
     enum class TemporalHistoryPlane : u8
@@ -147,6 +151,11 @@ namespace OloEngine
         // that cannot reproject declares — a reprojecting history survives a
         // moving object by design (issue #1055).
         SceneMutated,
+        // Renderer3D::ResetFrameSequences restarted every sampling sequence (the
+        // stochastic frame index, the jitter phase, the pass-local indices).
+        // Every history was accumulated from the old sequence, whatever it
+        // declares, so this reaches every entry, like Manual (#1348).
+        SamplingSequenceReset,
     };
 
     struct TemporalHistoryToken
@@ -182,6 +191,14 @@ namespace OloEngine
         TemporalHistoryToken Token{};
         TemporalHistoryDependency Dependencies = TemporalHistoryDependency::None;
         TemporalHistoryInvalidationCause LastInvalidation = TemporalHistoryInvalidationCause::None;
+        // The lineage AOV (#1348). Age counts the frames the current history
+        // has accumulated: 1 on the frame it was produced with nothing to read,
+        // +1 on every later frame that read it and wrote it back. LineageCause
+        // is what started that lineage and survives MarkProduced, where
+        // LastInvalidation is cleared. A reset policy is read off these two: a
+        // camera cut that kept Age climbing kept a stale history.
+        u32 Age = 0;
+        TemporalHistoryInvalidationCause LineageCause = TemporalHistoryInvalidationCause::FirstUse;
         bool Valid = false;
         bool HasTexture = false;
         FString DebugName;
@@ -193,8 +210,19 @@ namespace OloEngine
         TemporalHistoryDescriptor Descriptor{};
         TemporalHistoryDependency Dependencies = TemporalHistoryDependency::None;
         TemporalHistoryInvalidationCause LastInvalidation = TemporalHistoryInvalidationCause::FirstUse;
+        // A break waiting for the next MarkProduced to start a new lineage
+        // with; None while the lineage continues.
+        TemporalHistoryInvalidationCause PendingLineageBreak = TemporalHistoryInvalidationCause::FirstUse;
+        TemporalHistoryInvalidationCause LineageCause = TemporalHistoryInvalidationCause::FirstUse;
         u32 Generation = 1;
+        u32 Age = 0;
         bool Valid = false;
+        // Whether the history was valid when this frame's extraction began,
+        // that is whether the frame read it. MarkCopyFailed latches it.
+        bool ValidAtExtraction = false;
+        // A lineage whose storage a pass owns (AcquireExternal): no texture,
+        // never imported, so it stays out of the validity key.
+        bool External = false;
         Ref<Texture2D> Texture;
         FString DebugName;
     };
@@ -207,8 +235,13 @@ namespace OloEngine
                                       TIsTriviallyRelocatable<decltype(TemporalHistoryEntry::Descriptor)>::Value &&
                                       TIsTriviallyRelocatable<decltype(TemporalHistoryEntry::Dependencies)>::Value &&
                                       TIsTriviallyRelocatable<decltype(TemporalHistoryEntry::LastInvalidation)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TemporalHistoryEntry::PendingLineageBreak)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TemporalHistoryEntry::LineageCause)>::Value &&
                                       TIsTriviallyRelocatable<decltype(TemporalHistoryEntry::Generation)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TemporalHistoryEntry::Age)>::Value &&
                                       TIsTriviallyRelocatable<decltype(TemporalHistoryEntry::Valid)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TemporalHistoryEntry::ValidAtExtraction)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TemporalHistoryEntry::External)>::Value &&
                                       TIsTriviallyRelocatable<decltype(TemporalHistoryEntry::Texture)>::Value &&
                                       TIsTriviallyRelocatable<decltype(TemporalHistoryEntry::DebugName)>::Value;
     };
@@ -222,6 +255,8 @@ namespace OloEngine
                                       TIsTriviallyRelocatable<decltype(TemporalHistorySnapshot::Token)>::Value &&
                                       TIsTriviallyRelocatable<decltype(TemporalHistorySnapshot::Dependencies)>::Value &&
                                       TIsTriviallyRelocatable<decltype(TemporalHistorySnapshot::LastInvalidation)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TemporalHistorySnapshot::Age)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TemporalHistorySnapshot::LineageCause)>::Value &&
                                       TIsTriviallyRelocatable<decltype(TemporalHistorySnapshot::Valid)>::Value &&
                                       TIsTriviallyRelocatable<decltype(TemporalHistorySnapshot::HasTexture)>::Value &&
                                       TIsTriviallyRelocatable<decltype(TemporalHistorySnapshot::DebugName)>::Value;
@@ -234,6 +269,15 @@ namespace OloEngine
     {
       public:
         [[nodiscard]] TemporalHistoryAcquireResult Acquire(
+            const TemporalHistoryKey& key,
+            const TemporalHistoryDescriptor& descriptor,
+            TemporalHistoryDependency dependencies,
+            std::string debugName = {});
+
+        // A history whose storage a pass keeps itself (#1348: ReSTIR PT's path
+        // records): the registry owns its validity and lineage, nothing else.
+        // MarkProduced accepts it without a texture; ComputeValidityKey skips it.
+        [[nodiscard]] TemporalHistoryAcquireResult AcquireExternal(
             const TemporalHistoryKey& key,
             const TemporalHistoryDescriptor& descriptor,
             TemporalHistoryDependency dependencies,
@@ -256,6 +300,15 @@ namespace OloEngine
 
         u32 Invalidate(TemporalHistoryInvalidationCause cause,
                        std::optional<TemporalHistoryEffect> effect = std::nullopt);
+        // Drop one history's texture as well as its validity: for an effect
+        // that stopped declaring its history, so it neither holds the memory
+        // nor resumes the old lineage when it comes back. Unlike Invalidate it
+        // ignores the stale-history fault, which is about reset policy, not
+        // storage. Returns false when there was nothing to release.
+        bool Release(const TemporalHistoryKey& key, TemporalHistoryInvalidationCause cause);
+        // Whether any history of `effect` holds a texture or a valid frame:
+        // the cheap test before a release that would otherwise snapshot.
+        [[nodiscard]] bool HoldsAny(TemporalHistoryEffect effect) const;
         void Clear();
 
         [[nodiscard]] TArray<TemporalHistorySnapshot> Snapshot() const;

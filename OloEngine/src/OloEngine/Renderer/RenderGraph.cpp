@@ -2404,6 +2404,43 @@ namespace OloEngine
         return m_TemporalHistoryRegistry.Invalidate(cause, effect);
     }
 
+    bool RenderGraph::ReleaseTemporalHistory(const TemporalHistoryKey& key, TemporalHistoryInvalidationCause cause)
+    {
+        const TemporalHistoryToken token = m_TemporalHistoryRegistry.Find(key);
+        const std::string debugName(m_TemporalHistoryRegistry.GetDebugName(token));
+        if (!m_TemporalHistoryRegistry.Release(key, cause))
+            return false;
+        if (!debugName.empty())
+            m_HistoryTextureSinks.erase(debugName);
+        return true;
+    }
+
+    u32 RenderGraph::ReleaseTemporalHistories(TemporalHistoryEffect effect, TemporalHistoryInvalidationCause cause)
+    {
+        u32 released = 0;
+        if (!m_TemporalHistoryRegistry.HoldsAny(effect))
+            return released;
+        for (const TemporalHistorySnapshot& history : m_TemporalHistoryRegistry.Snapshot())
+        {
+            if (history.Key.Effect == effect && ReleaseTemporalHistory(history.Key, cause))
+                ++released;
+        }
+        return released;
+    }
+
+    bool RenderGraph::AdvanceTemporalLineage(const TemporalHistoryKey& key,
+                                             TemporalHistoryDescriptor descriptor,
+                                             const TemporalHistoryDependency dependencies,
+                                             std::string_view debugName)
+    {
+        descriptor.Backend = CurrentTemporalHistoryBackend();
+        const auto acquired =
+            m_TemporalHistoryRegistry.AcquireExternal(key, descriptor, dependencies, std::string(debugName));
+        const bool continues = m_TemporalHistoryRegistry.IsValid(acquired.Token);
+        (void)m_TemporalHistoryRegistry.MarkProduced(acquired.Token);
+        return continues;
+    }
+
     void RenderGraph::RefreshHistorySinkTokens()
     {
         for (auto& [historyResource, sink] : m_HistoryTextureSinks)

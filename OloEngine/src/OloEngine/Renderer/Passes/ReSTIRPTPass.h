@@ -43,6 +43,17 @@ namespace OloEngine
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
+        // ReSTIR PT keeps its own ping-pong pools outside the registry, so a
+        // sequence restart drops their lineage here (#1348).
+        void ResetFrameSequence() override
+        {
+            m_HaveHistory = false;
+            m_LastFrame = 0;
+        }
+        [[nodiscard]] u64 GetFrameSequenceState() const override
+        {
+            return (static_cast<u64>(m_HaveHistory) << 32u) | m_LastFrame;
+        }
         void SetEnabled(bool enabled) noexcept
         {
             m_Enabled = enabled;
@@ -80,6 +91,13 @@ namespace OloEngine
             m_FrameIndex = frame;
         }
         void SetSceneEpoch(u64 epoch) noexcept;
+        // Whether the registry lineage of the path records continued from the
+        // previous frame (#1348): false after any invalidation that reaches
+        // the reprojecting histories, a camera cut first among them.
+        void SetLineageContinues(bool continues) noexcept
+        {
+            m_LineageContinues = continues;
+        }
         void ResolveAvailabilityForFrame(bool deferredPathActive = true, bool participatingMedia = false);
         [[nodiscard("Use PT engagement and measured diagnostics")]] const ReSTIRPTStats& GetStats() const noexcept
         {
@@ -93,6 +111,7 @@ namespace OloEngine
         bool m_DeferredPathActive = false;
         bool m_ParticipatingMedia = false;
         bool m_HaveHistory = false;
+        bool m_LineageContinues = true;
         bool m_HaveCounters = false;
         u32 m_FrameIndex = 0;
         u32 m_LastFrame = 0;

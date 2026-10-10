@@ -168,6 +168,20 @@ namespace OloEngine
         void Execute(RGCommandContext& context) override;
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
+        // The probe-ray rotation and the capture schedule both run on
+        // m_FrameIndex; a sequence restart rewinds them together (#1348). The
+        // probe volume itself is a world-space cache and keeps its contents.
+        void ResetFrameSequence() override
+        {
+            m_FrameIndex = 0;
+            m_CaptureCursor = 0;
+            for (ProbeRecord& record : m_Records)
+                record.LastCaptureFrame = 0;
+        }
+        [[nodiscard]] u64 GetFrameSequenceState() const override
+        {
+            return (static_cast<u64>(static_cast<u32>(m_CaptureCursor)) << 32u) | m_FrameIndex;
+        }
 
         [[nodiscard]] bool IsReadyForExecution() const noexcept override;
 

@@ -630,6 +630,20 @@ namespace OloEngine
                                     u32 colorAttachmentIndex = 0);
         u32 InvalidateTemporalHistories(TemporalHistoryInvalidationCause cause,
                                         std::optional<TemporalHistoryEffect> effect = std::nullopt);
+        // TemporalHistoryRegistry::Release, plus the history's sink, whose
+        // texture handle the release just made dangling.
+        bool ReleaseTemporalHistory(const TemporalHistoryKey& key, TemporalHistoryInvalidationCause cause);
+        // Every history of one effect, for a tier that stopped declaring them
+        // (#1348): a disabled pass is culled, so nothing else would end the
+        // lineage, and re-enabling it would read reservoirs from whenever it
+        // last ran.
+        u32 ReleaseTemporalHistories(TemporalHistoryEffect effect, TemporalHistoryInvalidationCause cause);
+        // One frame of an external lineage (TemporalHistoryRegistry::
+        // AcquireExternal): whether it continued from the previous frame, after
+        // which this frame's records are next frame's history.
+        [[nodiscard]] bool AdvanceTemporalLineage(const TemporalHistoryKey& key,
+                                                  TemporalHistoryDescriptor descriptor,
+                                                  TemporalHistoryDependency dependencies, std::string_view debugName);
 
         // Bring every history sink's token to its history's CURRENT generation
         // (issue #1333). A sink latches its token when PopulateBlackboard

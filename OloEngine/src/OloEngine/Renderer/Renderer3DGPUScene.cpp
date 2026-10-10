@@ -8,8 +8,10 @@
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
 #include "OloEngine/Renderer/SubmeshMaterialResolve.h"
+#include "OloEngine/Utils/PlatformUtils.h"
 
 #include <algorithm>
+#include <bit>
 #include <span>
 #include <utility>
 
@@ -693,15 +695,105 @@ namespace OloEngine
         return s_Data.RGraph ? s_Data.RGraph->InvalidateTemporalHistories(cause, effect) : 0u;
     }
 
-    void Renderer3D::ResetFrameSequences()
+    void Renderer3D::ResetFrameSequences(u32 sequenceSeed)
     {
-        s_Data.StochasticFrameIndex = 0;
-        s_Data.TAAJitterFrameIndex = 0;
+        s_Data.FrameSequenceSeed = sequenceSeed;
+        // The same 2^20 wrap the per-frame advance applies.
+        s_Data.StochasticFrameIndex = (sequenceSeed * kSequenceSeedStride) & 0xFFFFFu;
+        s_Data.TAAJitterFrameIndex = sequenceSeed;
+        s_Data.TemporalUpscalePhaseIndex = 0;
         s_Data.CurrJitterUV = glm::vec2(0.0f);
         s_Data.PrevJitterUV = glm::vec2(0.0f);
         s_Data.CloudFrameIndex = 0;
         s_Data.FogFrameIndex = 0;
-        InvalidateTemporalHistories(TemporalHistoryInvalidationCause::JitterReset);
+        if (s_Data.Pipeline)
+        {
+            s_Data.Pipeline->ForEachPass(
+                [](const auto& pass)
+                {
+                    // ForEachPass hands out const Refs; the passes themselves
+                    // are the pipeline's to mutate, so reset through a copy.
+                    if (auto mutablePass = pass)
+                        mutablePass->ResetFrameSequence();
+                });
+        }
+        // Every history, not only those that declare the jitter: a ReSTIR
+        // reservoir or a path-traced sum is as much a product of the old
+        // sequence as TAA's colour is.
+        InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SamplingSequenceReset);
+    }
+
+    u64 Renderer3D::FrameSamplingContext::Fingerprint() const
+    {
+        u64 hash = 0xcbf29ce484222325ull;
+        const auto mix = [&hash](u64 value)
+        {
+            hash ^= value + 0x9e3779b97f4a7c15ull + (hash << 6u) + (hash >> 2u);
+        };
+        const auto bits = [](f32 value)
+        { return static_cast<u64>(std::bit_cast<u32>(value)); };
+        mix(SequenceSeed);
+        mix(StochasticFrameIndex);
+        mix(TAAJitterFrameIndex);
+        mix(TemporalUpscalePhaseIndex);
+        mix(CloudFrameIndex);
+        mix(FogFrameIndex);
+        mix(bits(CurrJitterUV.x));
+        mix(bits(CurrJitterUV.y));
+        mix(bits(PrevJitterUV.x));
+        mix(bits(PrevJitterUV.y));
+        mix(PassSequenceState);
+        mix(HistoryLineage);
+        mix(static_cast<u64>(MockTimeActive));
+        mix(MockTimeActive ? bits(MockTime) : 0u);
+        return hash;
+    }
+
+    Renderer3D::FrameSamplingContext Renderer3D::GetFrameSamplingContext()
+    {
+        FrameSamplingContext context;
+        context.SequenceSeed = s_Data.FrameSequenceSeed;
+        context.StochasticFrameIndex = s_Data.StochasticFrameIndex;
+        context.TAAJitterFrameIndex = s_Data.TAAJitterFrameIndex;
+        context.TemporalUpscalePhaseIndex = s_Data.TemporalUpscalePhaseIndex;
+        context.CloudFrameIndex = s_Data.CloudFrameIndex;
+        context.FogFrameIndex = s_Data.FogFrameIndex;
+        context.CurrJitterUV = s_Data.CurrJitterUV;
+        context.PrevJitterUV = s_Data.PrevJitterUV;
+        u64 passState = 0;
+        if (s_Data.Pipeline)
+        {
+            s_Data.Pipeline->ForEachPass(
+                [&passState](const auto& pass)
+                {
+                    const u64 state = pass ? pass->GetFrameSequenceState() : 0u;
+                    passState = passState * 0x100000001b3ull ^ state;
+                });
+        }
+        context.PassSequenceState = passState;
+        u64 lineage = 0;
+        if (s_Data.RGraph)
+        {
+            for (const TemporalHistorySnapshot& history : s_Data.RGraph->GetTemporalHistoryRegistry().Snapshot())
+            {
+                // Only live lineages: an entry with no valid frame and no age
+                // carries nothing into the next frame, and whether one exists
+                // depends on which effects have EVER run in this process.
+                if (!history.Valid && history.Age == 0u)
+                    continue;
+                const u64 key = (static_cast<u64>(history.Key.Effect) << 24u) |
+                                (static_cast<u64>(history.Key.Resolution) << 16u) |
+                                (static_cast<u64>(history.Key.Plane) << 8u);
+                // Not the generation: it counts every invalidation the process
+                // has seen, so two arms reset the same way would never match.
+                const u64 state = (static_cast<u64>(history.Valid) << 32u) | history.Age;
+                lineage = (lineage * 0x100000001b3ull) ^ (key + history.Key.View) ^ (state * 0x9e3779b97f4a7c15ull);
+            }
+        }
+        context.HistoryLineage = lineage;
+        context.MockTimeActive = Time::HasMockTime();
+        context.MockTime = Time::GetMockTime();
+        return context;
     }
 
     void Renderer3D::ResetFrameCamera()

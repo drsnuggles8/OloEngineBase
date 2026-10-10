@@ -111,6 +111,16 @@ namespace OloEngine
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
+        // The previous frame's matrices feed the temporal Jacobian; a sequence
+        // restart starts without them, as the first frame does (#1348).
+        void ResetFrameSequence() override
+        {
+            m_HavePrevFrame = false;
+        }
+        [[nodiscard]] u64 GetFrameSequenceState() const override
+        {
+            return static_cast<u64>(m_HavePrevFrame);
+        }
 
         void SetEnabled(bool enabled) noexcept
         {

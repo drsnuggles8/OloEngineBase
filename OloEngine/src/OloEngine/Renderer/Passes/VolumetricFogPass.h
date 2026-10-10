@@ -84,6 +84,17 @@ namespace OloEngine
         [[nodiscard]] RGPreparedPass PrepareParallelRecording(RGCommandContext& context) override;
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
+        // The froxel scatter volume is a temporal history of the fog's own,
+        // jittered by m_FrameIndex; a sequence restart drops both (#1348).
+        void ResetFrameSequence() override
+        {
+            m_FrameIndex = 0;
+            m_HistoryValid = false;
+        }
+        [[nodiscard]] u64 GetFrameSequenceState() const override
+        {
+            return (static_cast<u64>(m_HistoryValid) << 32u) | m_FrameIndex;
+        }
 
         [[nodiscard]] bool IsReadyForExecution() const noexcept override
         {

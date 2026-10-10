@@ -333,6 +333,19 @@ namespace OloEngine
 
         virtual void OnReset() {}
 
+        // The sampling context (#1348). A pass that keeps a frame index or a
+        // previous-frame flag of its own restarts it here, from
+        // Renderer3D::ResetFrameSequences, so a paired A/B replay starts both
+        // arms from the same sequence; GetFrameSequenceState reports it, folded
+        // into Renderer3D::GetFrameSamplingContext, so a test can assert the
+        // arms really did start equal. A pass with no sequence of its own keeps
+        // both defaults.
+        virtual void ResetFrameSequence() {}
+        [[nodiscard]] virtual u64 GetFrameSequenceState() const
+        {
+            return 0;
+        }
+
         // Side-effect storage and accessors.
         void SetSideEffects(SideEffect effects)
         {

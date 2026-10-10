@@ -456,14 +456,54 @@ namespace OloEngine
         static u32 InvalidateTemporalHistories(
             TemporalHistoryInvalidationCause cause,
             std::optional<TemporalHistoryEffect> effect = std::nullopt);
-        // Restart every per-frame sampling sequence (the stochastic, TAA jitter,
-        // cloud and fog frame indices) at the values a freshly initialised
-        // renderer starts from, and drop the temporal histories built on the old
-        // sequence. The indices are process-global and never reset otherwise, so
-        // without this a render depends on how many frames ran before it: the
-        // test harness calls it per test so a visual test renders the same
-        // frames whether it runs first in its process or after 800 others.
-        static void ResetFrameSequences();
+        // Restart every per-frame sampling sequence at the values a freshly
+        // initialised renderer starts from, and drop EVERY temporal history,
+        // each of which was accumulated on the old sequence. That is the
+        // stochastic, TAA jitter, FSR2 phase, cloud and fog frame indices here,
+        // and each pass's own (RenderGraphNode::ResetFrameSequence: the froxel
+        // fog's index and history, GTAO's noise index, DDGI's ray rotation and
+        // capture schedule, ReSTIR GI's previous frame, ReSTIR PT's lineage).
+        // The indices are process-global and never reset otherwise, so without
+        // this a render depends on how many frames ran before it: the test
+        // harness calls it per test so a visual test renders the same frames
+        // whether it runs first in its process or after 800 others.
+        //
+        // `sequenceSeed` selects an independent run (#1348). Seed 0 is the
+        // fresh renderer. Seed k starts the stochastic index k strides of 2^16
+        // frames in, so runs shorter than 65 536 frames draw disjoint index
+        // ranges of the hashed and blue-noise sequences, and starts the TAA
+        // jitter at phase k of its cycle. Two arms of a paired A/B use the SAME
+        // seed; independent repeats of a claim use different seeds.
+        static constexpr u32 kSequenceSeedStride = 1u << 16u;
+        static void ResetFrameSequences(u32 sequenceSeed = 0);
+
+        // Every input a rendered frame's stochastic sampling depends on, as of
+        // now (#1348). Two arms of a paired replay are only paired if they start
+        // from equal contexts; compare Fingerprint(), not the fields, so a
+        // dimension added later cannot be left out of the comparison by a test
+        // written earlier.
+        struct FrameSamplingContext
+        {
+            u32 SequenceSeed = 0;
+            u32 StochasticFrameIndex = 0;
+            u32 TAAJitterFrameIndex = 0;
+            u32 TemporalUpscalePhaseIndex = 0;
+            u32 CloudFrameIndex = 0;
+            u32 FogFrameIndex = 0;
+            glm::vec2 CurrJitterUV{ 0.0f };
+            glm::vec2 PrevJitterUV{ 0.0f };
+            // Folded RenderGraphNode::GetFrameSequenceState of every pass.
+            u64 PassSequenceState = 0;
+            // Every registry history's key, validity and age.
+            u64 HistoryLineage = 0;
+            // The clock every renderer-side accumulator and the scene's
+            // animation read under Time::SetMockTime.
+            bool MockTimeActive = false;
+            f32 MockTime = 0.0f;
+
+            [[nodiscard]] u64 Fingerprint() const;
+        };
+        [[nodiscard]] static FrameSamplingContext GetFrameSamplingContext();
         // Put the per-frame camera state (render and culling camera matrices,
         // view positions, the camera-relative render origin, the LOD view) back
         // to what it is before any scene has rendered. BeginScene overwrites all
@@ -2962,6 +3002,9 @@ namespace OloEngine
             // Wrapped to 2^20 so it stays exactly representable in the f32 the
             // SSR / SSGI params blocks carry it in.
             u32 StochasticFrameIndex = 0;
+            // The run ResetFrameSequences last started (#1348); 0 for a fresh
+            // renderer. Reported by GetFrameSamplingContext only.
+            u32 FrameSequenceSeed = 0;
 
             // Global IBL fallback (from scene's EnvironmentMap)
             RHI::ResourceHandle GlobalIrradianceMapID{};
