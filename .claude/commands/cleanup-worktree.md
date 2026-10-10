@@ -154,7 +154,10 @@ For each candidate that is **still OPEN** (`gh issue view <N> --json state`):
     (additive, low-risk — no ask):
         gh issue comment <N> --repo <owner/repo> --body "Completed by #<PR> (merged <date>); worktree removed. Flagging for closure."
     then add it to a *close-recommendation list* and **close ONLY after I confirm** (closing
-    is the outward, decisive step — an explicit opt-in, like commit/push).
+    is the outward, decisive step — an explicit opt-in, like commit/push). Once I have
+    confirmed, close with a trailing `# OLO_USER_APPROVED` on the `gh issue close` line: the
+    `olo-command-guards` mod refuses an issue close without it (and logs the ones it lets
+    through), see `docs/agent-rules/claude-code-mods.md`.
 - **Umbrella / multi-item issue** the merge only partially advanced — one checklist item of
     many, e.g. a `#308`-style follow-ups tracker → comment WHICH item is now done, **leave it
     open**, and do NOT add it to the close list. Merging one item ≠ the issue is finished.

@@ -1,0 +1,387 @@
+// Pure command analysis for the guards. No engine calls: the tests drive every rule.
+//
+// Text matching on a shell command is best effort by nature. Every rule here is biased
+// the same way the repo's Python guards are: a false positive costs one re-issued call
+// with a clear reason, a false negative costs the incident the rule was written after.
+
+/** The marker that lets a gated action through once the user approved that action. */
+export const APPROVAL_MARKER = 'OLO_USER_APPROVED'
+
+export type Separator = 'start' | '&&' | '||' | ';' | '|' | '\n' | '&'
+
+export type Statement = { separator: Separator; text: string; words: string[] }
+
+/**
+ * Splits a shell command into statements, remembering which separator led into each,
+ * and tokenises each one. Quote-aware (single, double, and PowerShell backtick escapes
+ * are left as literal characters), so a `;` inside a commit message is not a split.
+ */
+export function splitStatements(command: string): Statement[] {
+  const statements: Statement[] = []
+  let current = ''
+  let separator: Separator = 'start'
+  let quote: '"' | "'" | undefined
+  let i = 0
+
+  const flush = (next: Separator) => {
+    if (current.trim().length > 0) {
+      statements.push({ separator, text: current.trim(), words: tokenize(current) })
+    }
+    current = ''
+    separator = next
+  }
+
+  while (i < command.length) {
+    const c = command[i] ?? ''
+    const two = command.slice(i, i + 2)
+    if (quote !== undefined) {
+      if (c === '\\' && quote === '"' && i + 1 < command.length) {
+        current += two
+        i += 2
+        continue
+      }
+      if (c === quote) {
+        quote = undefined
+      }
+      current += c
+      i += 1
+      continue
+    }
+    if (c === '"' || c === "'") {
+      quote = c
+      current += c
+      i += 1
+      continue
+    }
+    if (c === '#' && (current.length === 0 || /\s$/.test(current))) {
+      // A comment runs to the end of the line; keep it in the text (markers live there)
+      // but out of the words.
+      const end = command.indexOf('\n', i)
+      const stop = end === -1 ? command.length : end
+      current += command.slice(i, stop)
+      i = stop
+      continue
+    }
+    if (two === '&&' || two === '||') {
+      flush(two)
+      i += 2
+      continue
+    }
+    if (c === ';' || c === '\n' || c === '|' || (c === '&' && command[i + 1] !== '>' && command[i - 1] !== '>')) {
+      flush(c as Separator)
+      i += 1
+      continue
+    }
+    current += c
+    i += 1
+  }
+  flush('start')
+  return statements
+}
+
+/** Words of one statement, quotes removed, a trailing `#` comment dropped. */
+export function tokenize(text: string): string[] {
+  const words: string[] = []
+  let word = ''
+  let quote: '"' | "'" | undefined
+  let started = false
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text[i] ?? ''
+    if (quote !== undefined) {
+      if (c === quote) {
+        quote = undefined
+      } else {
+        word += c
+      }
+      continue
+    }
+    if (c === '"' || c === "'") {
+      quote = c
+      started = true
+      continue
+    }
+    if (c === '#' && !started) {
+      break
+    }
+    if (/\s/.test(c)) {
+      if (started) {
+        words.push(word)
+      }
+      word = ''
+      started = false
+      continue
+    }
+    word += c
+    started = true
+  }
+  if (started) {
+    words.push(word)
+  }
+  return words
+}
+
+/** The words after `git [-C dir] [-c k=v]...`, starting at the subcommand; undefined if not git. */
+export function gitArgs(words: string[]): string[] | undefined {
+  const first = (words[0] ?? '').replace(/^.*[\\/]/, '').replace(/\.exe$/i, '')
+  if (first !== 'git') {
+    return undefined
+  }
+  let i = 1
+  while (i < words.length) {
+    const w = words[i] ?? ''
+    if (w === '-C' || w === '-c' || w === '--git-dir' || w === '--work-tree') {
+      i += 2
+    } else if (w.startsWith('--git-dir=') || w.startsWith('--work-tree=') || w === '--no-pager') {
+      i += 1
+    } else {
+      break
+    }
+  }
+  return words.slice(i)
+}
+
+export type Violation = {
+  rule: string
+  /** True for CLAUDE.md's "gated in every context" actions: the approval marker lets them through. */
+  isGated: boolean
+  reason: string
+}
+
+const PROTECTED_BRANCHES = new Set(['master', 'main'])
+
+function pushViolations(args: string[], branch: string | undefined): Violation[] {
+  const rest = args.slice(1)
+  const flags = rest.filter(w => w.startsWith('-'))
+  const positional = rest.filter(w => !w.startsWith('-'))
+  const out: Violation[] = []
+  const suggestion = branch && !PROTECTED_BRANCHES.has(branch) ? `git push -u origin ${branch}` : 'git push -u origin feature/<slug>'
+
+  const isForce =
+    flags.some(f => f === '-f' || f === '--force' || f.startsWith('--force-with-lease') || f === '--force-if-includes') ||
+    positional.slice(1).some(r => r.startsWith('+'))
+  if (isForce) {
+    out.push({
+      rule: 'force-push',
+      isGated: true,
+      reason: 'A force push is gated in every context (CLAUDE.md, Committing and publishing): ask the user first.',
+    })
+  }
+
+  const destinations = positional.slice(1).map(r => {
+    const dest = r.includes(':') ? r.slice(r.lastIndexOf(':') + 1) : r
+    return dest.replace(/^\+/, '').replace(/^refs\/heads\//, '')
+  })
+  const pushesHeadFromProtected = positional.length >= 2 && destinations.includes('HEAD') && branch !== undefined && PROTECTED_BRANCHES.has(branch)
+  if (destinations.some(d => PROTECTED_BRANCHES.has(d)) || pushesHeadFromProtected) {
+    out.push({
+      rule: 'push-to-master',
+      isGated: true,
+      reason: 'Pushing to master is gated in every context (CLAUDE.md, Committing and publishing): work lands through a PR.',
+    })
+  }
+
+  const isWholeRepoForm = flags.some(f => f === '--tags' || f === '--all' || f === '--mirror' || f === '--delete' || f === '-d')
+  if (positional.length < 2 && !isWholeRepoForm) {
+    out.push({
+      rule: 'bare-push',
+      isGated: false,
+      reason: `Never a bare \`git push\`: under push.default it can land on master, which has happened here. Name the remote and the branch: \`${suggestion}\`.`,
+    })
+  }
+  return out
+}
+
+/**
+ * Every rule a command breaks. `branch` is the current branch, when known, for the
+ * suggestion and for `git push origin HEAD` from master.
+ */
+export function checkCommand(command: string, branch?: string): Violation[] {
+  const out: Violation[] = []
+  for (const statement of splitStatements(command)) {
+    const words = statement.words
+    const args = gitArgs(words)
+    const sub = args?.[0]
+
+    if (args !== undefined && sub === 'commit' && args.includes('--amend') && statement.separator !== 'start' && statement.separator !== '&&') {
+      out.push({
+        rule: 'chained-amend',
+        isGated: false,
+        reason:
+          `\`git commit --amend\` runs after \`${statement.separator === '\n' ? 'a newline' : statement.separator}\`, so it runs even when the command before it failed. ` +
+          'A failed `git revert -q` followed by `; git commit --amend` rewrote an already-pushed commit here (#1405). Chain with `&&`, or better, pass the message to the first command.',
+      })
+    }
+
+    if (args !== undefined && (sub === 'push' || sub === 'commit') && args.includes('--no-verify')) {
+      out.push({
+        rule: 'no-verify',
+        isGated: true,
+        reason: 'Skipping hooks with --no-verify needs the user to have asked for it: fix what the hook reports instead.',
+      })
+    }
+
+    if (args !== undefined && sub === 'push') {
+      out.push(...pushViolations(args, branch))
+    }
+
+    if (args !== undefined && sub === 'reset' && args.includes('--hard')) {
+      out.push({
+        rule: 'reset-hard',
+        isGated: true,
+        reason: '`git reset --hard` is gated in every context (CLAUDE.md): it discards work. Prefer `git stash` or a new branch, or ask the user.',
+      })
+    }
+
+    const first = (words[0] ?? '').replace(/^.*[\\/]/, '').replace(/\.exe$/i, '')
+    if (first === 'gh' && words[1] === 'pr' && words[2] === 'merge') {
+      out.push({ rule: 'pr-merge', isGated: true, reason: 'Merging a PR is the user\'s call in every context (CLAUDE.md).' })
+    }
+    if (first === 'gh' && words[1] === 'issue' && words[2] === 'close') {
+      out.push({
+        rule: 'issue-close',
+        isGated: true,
+        reason: 'Closing an issue is the user\'s call (CLAUDE.md): post the evidence, recommend closure, let the user close.',
+      })
+    }
+
+    if (statement.separator === '|' && /^(?:Set-Content|sc|Add-Content|ac|Out-File)$/i.test(words[0] ?? '') && words.some(w => /^-NoNewline$/i.test(w))) {
+      out.push({
+        rule: 'set-content-nonewline',
+        isGated: false,
+        reason:
+          'A pipe into `Set-Content -NoNewline` joins every line into ONE: the pipe hands over an array of lines and -NoNewline drops the separator between them. ' +
+          'It flattened a GLSL file and a scene here (#1360). Use Bash redirection (`git show <sha>:path > path`) or the Write/Edit tools.',
+      })
+    }
+  }
+  return out
+}
+
+export function hasApproval(command: string): boolean {
+  return command.includes(APPROVAL_MARKER)
+}
+
+/** What the guard refuses: everything ungated, and gated rules unless the marker is present. */
+export function refusals(command: string, branch?: string): Violation[] {
+  const approved = hasApproval(command)
+  return checkCommand(command, branch).filter(v => !v.isGated || !approved)
+}
+
+export function formatRefusal(violations: readonly Violation[]): string {
+  const gated = violations.some(v => v.isGated)
+  const lines = violations.map(v => `- ${v.reason}`)
+  if (gated) {
+    lines.push(
+      `If the user explicitly approved THIS action in this conversation, re-issue it with the literal marker ${APPROVAL_MARKER} in a trailing comment (it is logged). Otherwise ask them.`,
+    )
+  }
+  return `olo-command-guards refused this command:\n${lines.join('\n')}`
+}
+
+/** Does the command publish work (a push, a new PR)? Local checks must have finished first. */
+export function publishes(command: string): boolean {
+  return splitStatements(command).some(s => {
+    const args = gitArgs(s.words)
+    const first = (s.words[0] ?? '').replace(/^.*[\\/]/, '').replace(/\.exe$/i, '')
+    return (args?.[0] === 'push' && !args.includes('--dry-run') && !args.includes('-n')) || (first === 'gh' && s.words[1] === 'pr' && s.words[2] === 'create')
+  })
+}
+
+// ------------------------------------------------------------ timing runs ---
+
+const TIMING_FLAGS = /--olo-perf-rebase|--olo-capture-manifest|--olo-perf\b/
+const TIMING_FILTER = /--gtest_filter=\S*(?:Perf|Timing|Cost|Baseline|Benchmark|Budget|Throughput|Latency)/i
+
+/** A run whose numbers mean something only on a quiet GPU. */
+export function isTimingRun(command: string): boolean {
+  return /OloEngine-Tests|OloEditor|OloRuntime/i.test(command) && (TIMING_FLAGS.test(command) || TIMING_FILTER.test(command))
+}
+
+export type GpuSample = { clockMHz: number; powerW: number; utilization: number }
+
+/** Parses `nvidia-smi --query-gpu=clocks.gr,power.draw,utilization.gpu --format=csv,noheader,nounits`. */
+export function parseGpuSample(stdout: string): GpuSample | undefined {
+  const line = stdout.split(/\r?\n/).find(l => l.trim().length > 0)
+  if (line === undefined) {
+    return undefined
+  }
+  const [clock, power, util] = line.split(',').map(v => Number.parseFloat(v.trim()))
+  if (clock === undefined || power === undefined || util === undefined || [clock, power, util].some(Number.isNaN)) {
+    return undefined
+  }
+  return { clockMHz: clock, powerW: power, utilization: util }
+}
+
+// Heavy processes that contend with a measurement, by image name.
+const CONTENDERS = /^(?:OloEngine-Tests|OloEditor|OloRuntime|OloServer|ninja|lld-link|clang-cl|cl|link|MSBuild|blender)\.exe$/i
+
+/** Image names from `tasklist /FO CSV /NH` that contend with a measurement. */
+export function contenders(tasklistCsv: string): string[] {
+  const out = new Map<string, number>()
+  for (const line of tasklistCsv.split(/\r?\n/)) {
+    const name = /^"([^"]+)"/.exec(line)?.[1]
+    if (name !== undefined && CONTENDERS.test(name)) {
+      out.set(name, (out.get(name) ?? 0) + 1)
+    }
+  }
+  return [...out].map(([name, count]) => (count > 1 ? `${name} x${count}` : name))
+}
+
+/**
+ * Whether the box looked busy before a timing run. At its 210 MHz floor the 4090 reads
+ * ~30% utilisation from the compositor alone, so utilisation is not the signal: the
+ * graphics clock (busy above ~1 GHz) and the power draw (busy above ~60 W) are.
+ * Memory: check-for-other-gpu-load-before-trusting-timings.
+ */
+export function loadNote(sample: GpuSample | undefined, others: string[]): string | undefined {
+  const busyGpu = sample !== undefined && (sample.clockMHz > 1000 || sample.powerW > 60)
+  if (!busyGpu && others.length === 0) {
+    return undefined
+  }
+  const parts = [
+    busyGpu && sample ? `the GPU was busy before this run started (graphics clock ${sample.clockMHz} MHz, ${sample.powerW} W)` : '',
+    others.length > 0 ? `other heavy processes were running: ${others.join(', ')}` : '',
+  ].filter(Boolean)
+  return (
+    `olo-command-guards: this is a timing run, and ${parts.join('; ')}. ` +
+    'GPU and frame timings from it are contended: do not record or compare them as a baseline. Pixels and correctness results are unaffected. ' +
+    'Check `nvidia-smi` and the process list again and re-run timing on a quiet box (memory: check-for-other-gpu-load-before-trusting-timings).'
+  )
+}
+
+// ----------------------------------------------------- local checks running ---
+
+// Not cmake: a configure is no check, and an IDE's cmake would pin the guard shut.
+const LOCAL_CHECK_IMAGES = /^(?:ninja|OloEngine-Tests|clang-cl|lld-link|ctest)\.exe$/i
+
+export type ProcessRow = { name: string; pid: number; commandLine: string; executablePath: string }
+
+/** Parses the JSON of `Get-CimInstance Win32_Process | Select Name,ProcessId,CommandLine,ExecutablePath | ConvertTo-Json`. */
+export function parseProcessRows(json: string): ProcessRow[] {
+  if (json.trim().length === 0) {
+    return []
+  }
+  const raw: unknown = JSON.parse(json)
+  const list = Array.isArray(raw) ? raw : [raw]
+  return list.flatMap(r => {
+    if (typeof r !== 'object' || r === null) {
+      return []
+    }
+    const o = r as Record<string, unknown>
+    return [
+      {
+        name: String(o.Name ?? ''),
+        pid: Number(o.ProcessId ?? 0),
+        commandLine: String(o.CommandLine ?? ''),
+        executablePath: String(o.ExecutablePath ?? ''),
+      },
+    ]
+  })
+}
+
+/** Builds and test runs that belong to the worktree at `root` (paths compared case-insensitively, either slash). */
+export function localChecksRunning(rows: readonly ProcessRow[], root: string): ProcessRow[] {
+  const norm = (p: string) => p.replace(/\\/g, '/').toLowerCase()
+  const prefix = `${norm(root).replace(/\/$/, '')}/`
+  return rows.filter(r => LOCAL_CHECK_IMAGES.test(r.name) && (norm(r.commandLine).includes(prefix) || norm(r.executablePath).startsWith(prefix)))
+}

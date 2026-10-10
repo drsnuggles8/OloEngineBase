@@ -1,0 +1,8 @@
+{
+  "name": "olo-known-traps",
+  "version": "0.1.0",
+  "description": "Recognises error output from traps already recorded in OloEngine's memory notes and attaches the recorded fix at the moment the error appears.",
+  "author": {
+    "name": "OloEngine"
+  }
+}

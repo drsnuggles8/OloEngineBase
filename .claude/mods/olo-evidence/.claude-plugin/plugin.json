@@ -1,0 +1,8 @@
+{
+  "name": "olo-evidence",
+  "version": "0.1.0",
+  "description": "Records every OloEngine build, test run and visual check per branch, shows it with /evidence, and refuses `gh pr create` when the record does not back the PR (failing or unfinished runs, unbacked Debug/Release claims, renderer changes with no frame looked at).",
+  "author": {
+    "name": "OloEngine"
+  }
+}

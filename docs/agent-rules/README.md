@@ -263,6 +263,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [mcp-protocol-eras.md](mcp-protocol-eras.md): the stateless core is a second transport; adding `server/discover` alone breaks working clients.
 - [automation-build-invocation.md](automation-build-invocation.md): a build started from inside the editor goes through `build-lock.ps1` or it does not happen, the editor process is the lock's identity, cancellation kills the job object rather than the shim, and `OloEditor` is refused by allow-list.
 - [automation-event-bus.md](automation-event-bus.md): an event carries identities, never a read's content; a subscriber holds a cursor into the one 512-record ring and is told the count it lost; only a mutating command publishes its completion.
+- [claude-code-mods.md](claude-code-mods.md): an agent-process rule broken more than once is held by a Claude Code mod in `.claude/mods/` (build/test output truth, git and publish guards, read-before-edit gates, the per-branch evidence ledger, known traps, `/fleet`), not by another memory note; the VS Code extension draws no mod panes or status lines.
 
 ## Concurrency and memory
 
@@ -534,6 +535,7 @@ The check passes for a correct implementation and for a broken one.
 
 | Doc | The instrument that failed |
 |---|---|
+| [claude-code-mods.md](claude-code-mods.md) | A build piped into `tail` reported exit code 0 after ninja stopped; a `--gtest_filter` that matched nothing printed `PASSED`; a PR body claimed a Debug run that never happened. |
 | [measure-in-the-frame-the-pixels-came-from.md](measure-in-the-frame-the-pixels-came-from.md) | The walking dog's B6 regions unprojected 60 frames through the camera of the first, 31 cm stale by the end, and the rest bake classified world points as dog-local; both passed, the lost pixels dropped from every region and the walking tail never measured. |
 | [retained-scratch-has-an-owner-and-a-ledger.md](retained-scratch-has-an-owner-and-a-ledger.md) | The groom memory report looked complete while seven function-local `thread_local` scratch vectors (the caster pose's and the root skinning's) held the largest coat's working set outside it until their threads exited. |
 | [caster-bounds-come-from-the-geometry.md](caster-bounds-come-from-the-geometry.md) | The caster share's "lower bound" took a scaled 128-strand sample for the moments, bones' images plus 15% for the box and corner rays for a lamp's fan: 146 claimed of 137, a blended strand's tip outside its box, 19.8 NDC credited of 0.0002. |

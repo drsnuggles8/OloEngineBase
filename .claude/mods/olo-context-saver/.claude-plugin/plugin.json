@@ -1,0 +1,8 @@
+{
+  "name": "olo-context-saver",
+  "version": "0.1.0",
+  "description": "Collapses ninja progress lines and passing gtest RUN/OK pairs in large OloEngine build and test logs before they are stored in the conversation; every warning, error and failure stays verbatim.",
+  "author": {
+    "name": "OloEngine"
+  }
+}
