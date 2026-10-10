@@ -260,8 +260,9 @@ namespace OloEngine
                 // camera move that re-sliced the plants (10 of 12 frames of a
                 // live dolly through the IntegratedRenderer meadow) threw the
                 // whole raster history away with it.
+                // ReSTIR PT's path records bounce off the same stand-ins (#1348).
                 for (const TemporalHistoryEffect effect : { TemporalHistoryEffect::RayTracedShadow, TemporalHistoryEffect::ReSTIRDI,
-                                                            TemporalHistoryEffect::ReSTIRGI })
+                                                            TemporalHistoryEffect::ReSTIRGI, TemporalHistoryEffect::ReSTIRPT })
                     s_Data.RGraph->InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual, effect);
             }
             if (s_Data.RGraph && s_Data.GroomSurfaces.GetStats().StreamingInvalidations != 0)
@@ -413,7 +414,9 @@ namespace OloEngine
             }
         }
 
+        pipeline.BeginExternalLineages(s_Data);
         s_Data.RGraph->Execute();
+        pipeline.EndExternalLineages(s_Data);
 
         // Rebuild the persistent Hi-Z occlusion pyramid (#431) from this frame's
         // final scene depth and retain it for next frame's GPU instance cull.

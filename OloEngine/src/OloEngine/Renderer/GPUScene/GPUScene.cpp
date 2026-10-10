@@ -455,6 +455,7 @@ namespace OloEngine
         bool m_HasOwner = false;
         glm::vec3 m_RenderOrigin{ 0.0f };
         bool m_Extracting = false;
+        bool m_ForgetMotionHistory = false;
         std::chrono::steady_clock::time_point m_ExtractionStart;
 
         RecordTable<GPUSceneGeometryKey, GPUSceneGeometryInput, GPUSceneGeometry> m_Geometries;
@@ -620,6 +621,11 @@ namespace OloEngine
         m_Impl->m_UnsupportedCounts[index] += count;
     }
 
+    void GPUScene::ForgetMotionHistory()
+    {
+        m_Impl->m_ForgetMotionHistory = true;
+    }
+
     void GPUScene::ReportFoliageCensus(const GPUSceneFoliageStats& census)
     {
         OLO_CORE_ASSERT(m_Impl->m_Extracting, "GPUScene::ReportFoliageCensus requires BeginExtraction");
@@ -706,9 +712,11 @@ namespace OloEngine
             [&impl](const GPUSceneInstanceKey& key, const GPUSceneInstanceInput& input, u32 index, const auto& slot)
             {
                 // A live slot's stored input is last frame's transform; a fresh
-                // or reused slot has no history and starts static.
-                const glm::mat4& previousWorldTransform =
-                    slot.m_Live ? slot.m_Input.m_WorldTransform : input.m_WorldTransform;
+                // or reused slot, or any slot after ForgetMotionHistory, has no
+                // history and starts static.
+                const glm::mat4& previousWorldTransform = slot.m_Live && !impl.m_ForgetMotionHistory
+                                                              ? slot.m_Input.m_WorldTransform
+                                                              : input.m_WorldTransform;
                 const GPUSceneHandle geometryHandle = impl.m_Geometries.Find(key.m_Geometry);
                 const GPUSceneHandle materialHandle = impl.m_Materials.Find(input.m_Material);
 
@@ -733,6 +741,7 @@ namespace OloEngine
                 return record;
             },
             AlwaysCompatible{});
+        impl.m_ForgetMotionHistory = false; // one commit, see ForgetMotionHistory
 
         impl.m_Extracting = false;
         const auto extractionEnd = std::chrono::steady_clock::now();

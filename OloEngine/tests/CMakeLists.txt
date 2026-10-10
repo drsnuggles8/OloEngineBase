@@ -887,6 +887,11 @@ add_executable(OloEngine-Tests
 		# matrix. A settled capture cannot see any of these, which is what the
 		# issue means by "static accumulated captures are insufficient".
 		Rendering/PropertyTests/TemporalSubjectSequenceEvidenceTest.cpp
+		# #1348: long-running temporal feedback as paired replays from one
+		# sampling context: secondary-light and secondary-occluder perturb and
+		# restore, run-level bias / drift / variance / response, and the reset
+		# policy with its stale-history negative control.
+		Rendering/PropertyTests/TemporalLongSequenceEvidenceTest.cpp
 		Rendering/PropertyTests/GBufferCoverageChannelContractTest.cpp
 		Rendering/PropertyTests/GBufferFlagsResolveEvidenceTest.cpp
 		Rendering/PropertyTests/OITPropertyTests.cpp

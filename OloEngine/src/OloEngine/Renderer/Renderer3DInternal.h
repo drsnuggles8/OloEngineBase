@@ -397,18 +397,8 @@ namespace OloEngine
         SceneCompositionPassSet SceneCompositePasses;
         RenderStreamPassSet RenderStreamPasses;
         PostProcessPassChain PostProcessPasses;
-        Ref<Texture2D> TAAHistoryTexture;
-        bool TAAHistoryValid = false;
-        // Half-resolution cloudscape resolve history (issue #633) — same
-        // sink/import mechanics as the TAA history above.
-        Ref<Texture2D> CloudsHistoryTexture;
-        bool CloudsHistoryValid = false;
-        // Per-pass stochastic-signal histories (issue #902) — SSGI and SSR
-        // each accumulate their OWN signal, so each needs its own sink. Same
-        // mechanics as the two above, at the scene-band resolution the
-        // SSGISignal / SSRSignal scratch targets are declared at.
-        Ref<Texture2D> SSRHistoryTexture;
-        bool SSRHistoryValid = false;
+        // TAA's, the cloudscape's and SSR's histories are registry histories
+        // (#1348), owned by the render graph's TemporalHistoryRegistry.
         // Surface weather response UBO (binding 53, issue #633): wetness +
         // cloud-shadow map transform for the PBR surface shaders. Uploaded
         // every frame by UploadExecutionState (zeroed when nothing is
@@ -484,6 +474,10 @@ namespace OloEngine
         // Under OLO_RG_VERIFY_DECLARATION_CACHE a frame that would have been
         // served from the cache is rebuilt and the two plans compared.
         void CompileFrameGraph(Renderer3DData& data);
+        // The external temporal lineages (ReSTIR PT, froxel fog) around the
+        // frame's execution (#1348): after CompileFrameGraph, after Execute.
+        void BeginExternalLineages(Renderer3DData& data);
+        void EndExternalLineages(Renderer3DData& data);
 
         void PrepareDeclarationInputs(Renderer3DData& data);
         // `passKeys`, when given, receives each pass's own key in ForEachPass
@@ -511,12 +505,6 @@ namespace OloEngine
             SceneCompositePasses.Reset();
             RenderStreamPasses.Reset();
             PostProcessPasses.Reset();
-            TAAHistoryTexture.Reset();
-            TAAHistoryValid = false;
-            CloudsHistoryTexture.Reset();
-            CloudsHistoryValid = false;
-            SSRHistoryTexture.Reset();
-            SSRHistoryValid = false;
             AtmosphereShadingUBO.Reset();
             // The passes are gone, so the configuration and plan compiled from
             // them are too; the next compile is a first compile, not a diff

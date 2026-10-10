@@ -34,10 +34,12 @@
 #include <gtest/gtest.h>
 
 #include "OloEngine/Renderer/ReSTIR/ReservoirDI.h"
+#include "Rendering/Oracles/OracleStatistics.h"
 
 #include <glm/glm.hpp>
 
 #include <cmath>
+#include <cstdio>
 #include <numbers>
 #include <random>
 #include <vector>
@@ -472,71 +474,239 @@ namespace OloEngine::Tests
     // Temporal reuse and the M cap
     // -------------------------------------------------------------------------
 
+    namespace
+    {
+        // One screen's worth of temporal reuse, one frame at a time (#1348):
+        // every pixel carries its own capped history, as the screen-space
+        // buffers do, and merges one fresh 4-candidate reservoir into it per
+        // frame, exactly as TemporalReuseUnderTheMCapDoesNotDrift always did.
+        // `lightsAt(frame)` is the light set THIS frame shades with; a reused
+        // sample's radiance is re-read from it by light index, which is what
+        // ReSTIR_DI's OloReSTIRUnshadowedContribution does since #1483, so a
+        // light switched off stops lighting through the history at once. The
+        // returned field is each frame's mean resolved luminance over pixels.
+        template<typename LightsAt>
+        [[nodiscard]] std::vector<f64> RunTemporalChain(const LambertianSurface& surface, LightsAt&& lightsAt,
+                                                        u32 frames, u32 pixels, f32 mCap, u64 seed,
+                                                        f32* maxM = nullptr)
+        {
+            std::mt19937 rng(static_cast<u32>(seed ^ (seed >> 32u)));
+            std::uniform_real_distribution<f32> uniform(0.0f, 1.0f);
+            std::vector<Reservoir> history(pixels);
+            std::vector<f64> frameMeans;
+            frameMeans.reserve(frames);
+            for (u32 frame = 0; frame < frames; ++frame)
+            {
+                const PunctualLightSet& set = lightsAt(frame);
+                const auto refreshed = [&set](LightSample sample)
+                {
+                    if (sample.LightIndex < set.Lights.size())
+                        sample.Radiance = set.Lights[sample.LightIndex].Radiance;
+                    return sample;
+                };
+                f64 luminance = 0.0;
+                for (u32 pixel = 0; pixel < pixels; ++pixel)
+                {
+                    const Reservoir fresh = SampleInitialReservoir(surface, set, 4, rng);
+                    Reservoir& previous = history[pixel];
+                    if (!previous.IsEmpty())
+                        previous.Sample = refreshed(previous.Sample);
+
+                    Reservoir merged{};
+                    const f32 freshTarget = TargetPdf(surface, fresh.Sample);
+                    const f32 previousTarget = TargetPdf(surface, previous.Sample);
+                    ReservoirUpdate(merged, fresh.Sample, fresh.M * freshTarget * fresh.W, freshTarget, uniform(rng));
+                    if (!previous.IsEmpty())
+                        ReservoirUpdate(merged, previous.Sample, previous.M * previousTarget * previous.W,
+                                        previousTarget, uniform(rng));
+                    FinalizeCombined(merged, BiasMode::Biased, fresh.M + previous.M);
+                    ApplyTemporalMCap(merged, mCap);
+                    previous = merged;
+                    luminance += glm::dot(glm::dvec3(ResolveReservoir(surface, merged)),
+                                          glm::dvec3(0.2126, 0.7152, 0.0722));
+                }
+                frameMeans.push_back(luminance / static_cast<f64>(pixels));
+            }
+            if (maxM)
+            {
+                *maxM = 0.0f;
+                for (const auto& r : history)
+                    *maxM = std::max(*maxM, r.M);
+            }
+            return frameMeans;
+        }
+
+        [[nodiscard]] f64 Luminance(const glm::vec3& rgb)
+        {
+            return glm::dot(glm::dvec3(rgb), glm::dvec3(0.2126, 0.7152, 0.0722));
+        }
+
+        [[nodiscard]] f64 MeanOf(const std::vector<f64>& values, u32 from, u32 to)
+        {
+            f64 sum = 0.0;
+            for (u32 i = from; i < to; ++i)
+                sum += values[i];
+            return sum / static_cast<f64>(to - from);
+        }
+    } // namespace
+
     // A reservoir merged into itself frame after frame, capped at M, must not
     // drift. This is the arithmetic behind "the lighting is stable" — and a cap
     // that rescaled M without WeightSum would make this test brighten every
     // iteration, which is the failure mode nobody would attribute to a cap.
+    //
+    // #1348: the claim is made over INDEPENDENT RUNS. The frames of one run
+    // share their history, so averaging 200 of them is one correlated sample,
+    // however many pixels it spans; the interval is over five seeded runs,
+    // each summarised by its own late-frame mean (Oracle::
+    // MeanOverIndependentRuns). Drift is the second half of the saturated
+    // window against the first, per run.
     TEST(ReSTIRDIOracle, TemporalReuseUnderTheMCapDoesNotDrift)
     {
         const PunctualLightSet set = MakeManyPointLights(64, 0x111u);
         LambertianSurface surface{};
-        const glm::vec3 truth = set.AnalyticDirectLighting(surface);
-        ASSERT_GT(glm::length(truth), 0.0f);
+        const f64 truth = Luminance(set.AnalyticDirectLighting(surface));
+        ASSERT_GT(truth, 0.0);
 
         constexpr f32 kMCap = 20.0f;
         constexpr u32 kFrames = 400;
-        constexpr u32 kPixels = 2000;
+        constexpr u32 kPixels = 1000;
+        const Oracle::IndependentRuns runs{ 5 };
 
-        std::mt19937 rng(0xFEEDu);
-        std::uniform_real_distribution<f32> uniform(0.0f, 1.0f);
-
-        // Every pixel carries its own history, as the screen-space buffers do.
-        std::vector<Reservoir> history(kPixels);
-        glm::dvec3 accumulatedLateFrames(0.0);
-        u32 lateFrameSamples = 0;
-
-        for (u32 frame = 0; frame < kFrames; ++frame)
+        std::vector<f64> lateErrors;
+        std::vector<f64> drifts;
+        for (u32 r = 0; r < runs.Count; ++r)
         {
-            for (u32 pixel = 0; pixel < kPixels; ++pixel)
-            {
-                const Reservoir fresh = SampleInitialReservoir(surface, set, 4, rng);
-                Reservoir& previous = history[pixel];
-
-                Reservoir merged{};
-                const f32 freshTarget = TargetPdf(surface, fresh.Sample);
-                const f32 previousTarget = TargetPdf(surface, previous.Sample);
-                ReservoirUpdate(merged, fresh.Sample, fresh.M * freshTarget * fresh.W, freshTarget,
-                                uniform(rng));
-                if (!previous.IsEmpty())
-                    ReservoirUpdate(merged, previous.Sample, previous.M * previousTarget * previous.W,
-                                    previousTarget, uniform(rng));
-
-                FinalizeCombined(merged, BiasMode::Biased, fresh.M + previous.M);
-                ApplyTemporalMCap(merged, kMCap);
-                previous = merged;
-
-                // Measure only once the history has saturated at the cap: the
-                // first frames are legitimately a different (smaller) M, and
-                // averaging them in would hide a drift that starts later.
-                if (frame >= kFrames / 2)
-                {
-                    accumulatedLateFrames += glm::dvec3(ResolveReservoir(surface, merged));
-                    ++lateFrameSamples;
-                }
-            }
+            f32 maxM = 0.0f;
+            const std::vector<f64> means = RunTemporalChain(
+                surface, [&set](u32) -> const PunctualLightSet&
+                { return set; }, kFrames, kPixels, kMCap,
+                runs.Seed(r), &maxM);
+            // Only once the history has saturated at the cap: the first frames
+            // are legitimately a different (smaller) M, and averaging them in
+            // would hide a drift that starts later.
+            const f64 early = MeanOf(means, kFrames / 2u, 3u * kFrames / 4u);
+            const f64 late = MeanOf(means, 3u * kFrames / 4u, kFrames);
+            lateErrors.push_back((MeanOf(means, kFrames / 2u, kFrames) - truth) / truth);
+            drifts.push_back((late - early) / truth);
+            // And the cap actually bound. A test that never reached it would
+            // prove nothing about the rescale.
+            EXPECT_NEAR(maxM, kMCap, 1.0e-3f) << "run " << r;
         }
 
-        ASSERT_GT(lateFrameSamples, 0u);
-        const glm::vec3 mean = glm::vec3(accumulatedLateFrames / static_cast<f64>(lateFrameSamples));
-        EXPECT_LT(RelativeError(mean, truth), 0.03f)
-            << "after " << kFrames << " frames at an M cap of " << kMCap << ": mean (" << mean.x << ", "
-            << mean.y << ", " << mean.z << ") vs truth (" << truth.x << ", " << truth.y << ", " << truth.z << ")";
+        const Oracle::RunInterval error =
+            Oracle::MeanOverIndependentRuns(lateErrors, Oracle::SampleProvenance::IndependentRunSummaries);
+        const Oracle::RunInterval drift =
+            Oracle::MeanOverIndependentRuns(drifts, Oracle::SampleProvenance::IndependentRunSummaries);
+        ASSERT_TRUE(error.Valid && drift.Valid);
+        EXPECT_LT(std::max(std::abs(error.Lo()), std::abs(error.Hi())), 0.03)
+            << "after " << kFrames << " frames at an M cap of " << kMCap << ", relative error " << error.Describe();
+        EXPECT_TRUE(drift.Lo() <= 0.01 && drift.Hi() >= -0.01)
+            << "the saturated history drifted between its two halves: " << drift.Describe();
+    }
 
-        // And the cap actually bound. A test that never reached it would prove
-        // nothing about the rescale.
-        f32 maxM = 0.0f;
-        for (const auto& r : history)
-            maxM = std::max(maxM, r.M);
-        EXPECT_NEAR(maxM, kMCap, 1.0e-3f);
+    // #1348: a SECONDARY light switched off and back on while the receiver
+    // stays put. The receiver's history passes every validity test (nothing
+    // about the surface changed), so only the estimator decides how fast the
+    // changed integrand is tracked.
+    //
+    //   OFF: the reused sample's radiance is re-read from the light table, so a
+    //   light switched off drops out of the history on the frame it goes off.
+    //   ON: the history holds no sample of the returning light and its
+    //   resampling weights were normalised against the integrand without it.
+    //   Only fresh candidates bring it back, and the cap keeps cap/(cap + M
+    //   fresh) of the stale history each frame: 20/24, so the stale share falls
+    //   to 10% after ceil(ln 0.1 / ln(20/24)) = 13 frames. The response may be
+    //   no slower than that exponential.
+    TEST(ReSTIRDIOracle, ASecondaryLightSwitchedOffAndOnIsTrackedWithinTheMCapResponse)
+    {
+        PunctualLightSet on = MakeManyPointLights(64, 0x1348u);
+        // The secondary light: one of the 64, made dominant so the step is far
+        // above the per-frame noise of a 1000-pixel mean.
+        on.Lights[0].Position = glm::vec3(1.0f, 0.5f, 2.0f);
+        on.Lights[0].Radiance = glm::vec3(100.0f, 70.0f, 40.0f);
+        PunctualLightSet off = on;
+        off.Lights[0].Radiance = glm::vec3(0.0f);
+        LambertianSurface surface{};
+        const f64 truthOn = Luminance(on.AnalyticDirectLighting(surface));
+        const f64 truthOff = Luminance(off.AnalyticDirectLighting(surface));
+        ASSERT_GT(truthOn - truthOff, 0.5 * truthOn) << "the secondary light does not dominate the step";
+
+        constexpr f32 kMCap = 20.0f;
+        constexpr u32 kOff = 120;
+        constexpr u32 kOn = 240;
+        constexpr u32 kEnd = 360;
+        constexpr u32 kPixels = 4000;
+        constexpr u32 kSteadyFrames = 60;
+        constexpr f64 kSettled = 0.1;
+        const u32 bound = static_cast<u32>(std::ceil(std::log(kSettled) / std::log(kMCap / (kMCap + 4.0))));
+        const Oracle::IndependentRuns runs{ 5 };
+        const f64 step = truthOn - truthOff;
+
+        // The per-frame noise of a phase's screen mean, from its settled tail:
+        // a mean over pixels still wanders frame to frame, and a residual
+        // judged against a bare 10% would report the last excursion above it,
+        // long after the response, as the response (run 1 read 108 frames).
+        const auto frameNoise = [&](const std::vector<f64>& means, u32 to)
+        {
+            const f64 mean = MeanOf(means, to - kSteadyFrames, to);
+            f64 squares = 0.0;
+            for (u32 t = to - kSteadyFrames; t < to; ++t)
+                squares += (means[t] - mean) * (means[t] - mean);
+            return std::sqrt(squares / static_cast<f64>(kSteadyFrames - 1u));
+        };
+        // Frames after `from` until the residual against `target` stays within
+        // 10% of the step plus four standard deviations of that noise, scanned
+        // backwards.
+        const auto response = [&](const std::vector<f64>& means, u32 from, u32 to, f64 target, f64 noise)
+        {
+            const f64 tolerance = kSettled * step + 4.0 * noise;
+            u32 settled = to - from;
+            for (u32 t = to; t-- > from;)
+            {
+                if (std::abs(means[t] - target) > tolerance)
+                    break;
+                settled = t - from;
+            }
+            return settled;
+        };
+
+        std::vector<f64> offErrors;
+        std::vector<f64> onErrors;
+        for (u32 r = 0; r < runs.Count; ++r)
+        {
+            const std::vector<f64> means = RunTemporalChain(
+                surface, [&](u32 frame) -> const PunctualLightSet&
+                { return frame >= kOff && frame < kOn ? off : on; },
+                kEnd, kPixels, kMCap, runs.Seed(r));
+            const f64 offNoise = frameNoise(means, kOn);
+            const f64 onNoise = frameNoise(means, kEnd);
+            // The instrument must resolve the level it judges: four standard
+            // deviations of noise inside the 10% band, or the response below
+            // is measured by the noise instead of the history.
+            EXPECT_LT(4.0 * std::max(offNoise, onNoise), kSettled * step)
+                << "run " << r << ": the screen mean is too noisy to resolve a 10% response";
+            const u32 offResponse = response(means, kOff, kOn, truthOff, offNoise);
+            const u32 onResponse = response(means, kOn, kEnd, truthOn, onNoise);
+            offErrors.push_back((MeanOf(means, kOn - kSteadyFrames, kOn) - truthOff) / truthOff);
+            onErrors.push_back((MeanOf(means, kEnd - kSteadyFrames, kEnd) - truthOn) / truthOn);
+            std::printf("[restir-di-oracle] run %u: off response %u, on response %u (bound %u), noise/step %.4f / "
+                        "%.4f\n",
+                        r, offResponse, onResponse, bound, offNoise / step, onNoise / step);
+            EXPECT_LE(offResponse, 1u) << "run " << r << ": a switched-off light kept lighting through the history";
+            EXPECT_LE(onResponse, bound) << "run " << r << ": the returning light was tracked slower than the cap's "
+                                                           "exponential allows";
+        }
+
+        // And each phase settles on its own truth, not on a blend of the two.
+        const Oracle::RunInterval offError =
+            Oracle::MeanOverIndependentRuns(offErrors, Oracle::SampleProvenance::IndependentRunSummaries);
+        const Oracle::RunInterval onError =
+            Oracle::MeanOverIndependentRuns(onErrors, Oracle::SampleProvenance::IndependentRunSummaries);
+        ASSERT_TRUE(offError.Valid && onError.Valid);
+        std::printf("[restir-di-oracle] settled error: light off %s, light back on %s\n", offError.Describe().c_str(),
+                    onError.Describe().c_str());
+        EXPECT_LT(std::max(std::abs(offError.Lo()), std::abs(offError.Hi())), 0.03) << offError.Describe();
+        EXPECT_LT(std::max(std::abs(onError.Lo()), std::abs(onError.Hi())), 0.03) << onError.Describe();
     }
 } // namespace OloEngine::Tests

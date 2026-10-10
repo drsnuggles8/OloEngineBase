@@ -219,10 +219,15 @@ namespace OloEngine
             m_Settings.TAASharpness,
             velocityTextureID.IsValid() ? 1.0f : 0.0f,
             hasSurfaceHistory ? 1.0f : 0.0f);
+        // z: whether u_History holds a history at all (#1348). Without one the
+        // pass binds the CURRENT frame there, and reprojecting it by this
+        // frame's velocity blended the frame with a displaced copy of itself
+        // on exactly the frames a reset exists for: a camera cut, a projection
+        // change, a restarted sequence.
         taaData.TexelSize = glm::vec4(
             1.0f / static_cast<f32>(outSpec.Width),
             1.0f / static_cast<f32>(outSpec.Height),
-            0.0f,
+            historyTextureID.IsValid() ? 1.0f : 0.0f,
             0.0f);
         m_TAAUBO->SetData(&taaData, TAAUBOData::GetSize());
         m_TAAUBO->Bind();

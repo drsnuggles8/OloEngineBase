@@ -68,6 +68,11 @@ namespace OloEngine::Tests::Oracle
         LowDiscrepancy,   // Hammersley / Sobol / Owen: quadrature only
         ReservoirM,       // a ReSTIR confidence weight, not a sample count
         CorrelatedFrames, // frames of one pixel under temporal reuse
+        // One summary statistic per independently seeded run of a temporal
+        // sequence (#1348). The frames inside a run are correlated; the runs
+        // are not, so their summaries are the samples a run-level interval
+        // (section 5) is computed over.
+        IndependentRunSummaries,
     };
 
     [[nodiscard]] constexpr bool IsValidForGoodnessOfFit(SampleProvenance provenance)
@@ -87,6 +92,8 @@ namespace OloEngine::Tests::Oracle
                 return "reservoir M (a confidence weight, not a sample count)";
             case SampleProvenance::CorrelatedFrames:
                 return "correlated frames (temporal reuse)";
+            case SampleProvenance::IndependentRunSummaries:
+                return "one summary per independently seeded run";
         }
         return "unknown";
     }
@@ -372,5 +379,98 @@ namespace OloEngine::Tests::Oracle
                               (runPasses ? "" : "  <-- below alpha/runs") + "\n";
         }
         return verdict;
+    }
+
+    // ---- 5. run-level intervals (#1348) ---------------------------------------
+    //
+    // A temporal estimator's frames are not independent samples: frame t+1
+    // reuses frame t's history, so a variance taken over frames understates the
+    // uncertainty of anything measured from them, and a reservoir's M is a
+    // confidence weight, not a count. The unit of independence is the RUN: one
+    // summary per independently seeded run, and the interval is a Student-t
+    // interval over those summaries. Two runs is the minimum that has an
+    // interval at all; it is a wide one (t = 12.7), which is the honest price of
+    // running only two.
+
+    // Two-sided 95% Student-t critical value t(0.975, df). Exact table to 30
+    // degrees of freedom (Abramowitz & Stegun table 26.10), then
+    // 1.96 + 2.5 / df, within 0.003 of the exact value from 31 upward.
+    [[nodiscard]] inline f64 StudentT975(u32 degreesOfFreedom)
+    {
+        static constexpr f64 kTable[] = { 12.706, 4.303, 3.182, 2.776, 2.571, 2.447, 2.365, 2.306, 2.262, 2.228,
+                                          2.201, 2.179, 2.160, 2.145, 2.131, 2.120, 2.110, 2.101, 2.093, 2.086,
+                                          2.080, 2.074, 2.069, 2.064, 2.060, 2.056, 2.052, 2.048, 2.045, 2.042 };
+        if (degreesOfFreedom == 0u)
+            return std::numeric_limits<f64>::infinity();
+        if (degreesOfFreedom <= std::size(kTable))
+            return kTable[degreesOfFreedom - 1u];
+        return 1.96 + 2.5 / static_cast<f64>(degreesOfFreedom);
+    }
+
+    struct RunInterval
+    {
+        bool Valid = false;
+        std::string WhyInvalid;
+        u32 Runs = 0;
+        f64 Mean = 0.0;
+        f64 StandardError = 0.0;
+        f64 HalfWidth = 0.0; // 95%
+
+        [[nodiscard]] f64 Lo() const
+        {
+            return Mean - HalfWidth;
+        }
+        [[nodiscard]] f64 Hi() const
+        {
+            return Mean + HalfWidth;
+        }
+        [[nodiscard]] std::string Describe() const
+        {
+            if (!Valid)
+                return "INVALID (" + WhyInvalid + ")";
+            return std::to_string(Mean) + " +/- " + std::to_string(HalfWidth) + " (95%, " + std::to_string(Runs) +
+                   " runs, SE " + std::to_string(StandardError) + ")";
+        }
+    };
+
+    // The mean of one summary per run and its 95% interval. Refuses anything
+    // that is not one value per independent run, and fewer than two runs,
+    // rather than returning a zero-width interval nobody earned.
+    [[nodiscard]] inline RunInterval MeanOverIndependentRuns(const std::vector<f64>& perRun,
+                                                             SampleProvenance provenance)
+    {
+        RunInterval interval;
+        interval.Runs = static_cast<u32>(perRun.size());
+        if (provenance != SampleProvenance::IndependentRunSummaries &&
+            provenance != SampleProvenance::IidPseudoRandom)
+        {
+            interval.WhyInvalid = std::string("refused: ") + ToString(provenance) +
+                                  " are not independent samples; summarise each run first";
+            return interval;
+        }
+        if (perRun.size() < 2u)
+        {
+            interval.WhyInvalid = "fewer than two independent runs";
+            return interval;
+        }
+        f64 sum = 0.0;
+        for (const f64 value : perRun)
+        {
+            if (!std::isfinite(value))
+            {
+                interval.WhyInvalid = "a run summary is not finite";
+                return interval;
+            }
+            sum += value;
+        }
+        const f64 n = static_cast<f64>(perRun.size());
+        interval.Mean = sum / n;
+        f64 squares = 0.0;
+        for (const f64 value : perRun)
+            squares += (value - interval.Mean) * (value - interval.Mean);
+        interval.StandardError = std::sqrt(squares / (n - 1.0) / n);
+        interval.HalfWidth = StudentT975(interval.Runs - 1u) * interval.StandardError;
+        interval.Valid = true;
+        return interval;
     }
 } // namespace OloEngine::Tests::Oracle

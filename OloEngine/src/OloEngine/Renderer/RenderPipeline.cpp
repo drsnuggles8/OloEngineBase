@@ -32,6 +32,7 @@
 #include "OloEngine/Renderer/VolumetricShadowMap.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RenderPipelineBuilder.h"
+#include "OloEngine/Renderer/ReSTIR/ReSTIRPTGPU.h"
 #include "OloEngine/Renderer/LightingSignalContract.h"
 #include "OloEngine/Renderer/ShaderLibrary.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -112,6 +113,38 @@ namespace OloEngine
             .View = 0,
             .Resolution = TemporalHistoryResolution::Display,
             .Plane = TemporalHistoryPlane::SurfaceGeometry,
+        };
+        // TAA's, SSR's and the cloudscape's accumulated colour (#1348). They
+        // were renderer-owned textures with a bool of their own until #1348, so
+        // no invalidation ever reached them: a camera cut, a projection change,
+        // a sampling-sequence restart and every Manual(TAA) reset dropped the
+        // registry planes around them and kept the colour they blend with.
+        // Dropping TAA's surface plane alone even turned its coverage term
+        // OFF, so the history it kept was trusted more, not less. In the
+        // registry they share SSGI's reprojection dependencies and lineage.
+        constexpr u32 kTAAHistoryLayoutVersion = 1u;
+        constexpr TemporalHistoryKey kTAAHistoryKey{
+            .Effect = TemporalHistoryEffect::TAA,
+            .View = 0,
+            .Resolution = TemporalHistoryResolution::Display,
+            .Plane = TemporalHistoryPlane::Signal,
+        };
+        // Alpha carries the view depth its depth-confidence test reads.
+        constexpr u32 kSSRHistoryLayoutVersion = 1u;
+        constexpr TemporalHistoryKey kSSRHistoryKey{
+            .Effect = TemporalHistoryEffect::SSR,
+            .View = 0,
+            .Resolution = TemporalHistoryResolution::Scene,
+            .Plane = TemporalHistoryPlane::Signal,
+        };
+        // Half the cloudscape pass's size, rounded up: the resolved scratch the
+        // pass extracts from.
+        constexpr u32 kCloudsHistoryLayoutVersion = 1u;
+        constexpr TemporalHistoryKey kCloudsHistoryKey{
+            .Effect = TemporalHistoryEffect::Cloudscape,
+            .View = 0,
+            .Resolution = TemporalHistoryResolution::Half,
+            .Plane = TemporalHistoryPlane::Signal,
         };
         constexpr TemporalHistoryKey kSSGISurfaceHistoryKey{
             .Effect = TemporalHistoryEffect::SSGI,
@@ -268,6 +301,24 @@ namespace OloEngine
             .Resolution = TemporalHistoryResolution::Scene,
             .Plane = TemporalHistoryPlane::MomentsFirst,
         };
+        // ReSTIR PT's path records (#1348): an external lineage. The records
+        // live in the pass's ping-pong buffers; the registry decides whether
+        // they still describe the frame the pass is about to render.
+        constexpr TemporalHistoryKey kReSTIRPTLineageKey{
+            .Effect = TemporalHistoryEffect::ReSTIRPT,
+            .View = 0,
+            .Resolution = TemporalHistoryResolution::Scene,
+            .Plane = TemporalHistoryPlane::ReservoirState,
+        };
+        // The froxel fog's scatter volume (#1348): an external lineage too. The
+        // volume lives in VolumetricFogPass and is reprojected through last
+        // frame's view-projection, so a camera cut must reach it.
+        constexpr TemporalHistoryKey kVolumetricFogLineageKey{
+            .Effect = TemporalHistoryEffect::VolumetricFog,
+            .View = 0,
+            .Resolution = TemporalHistoryResolution::Scene,
+            .Plane = TemporalHistoryPlane::Signal,
+        };
 
         // The path tracer's accumulation: everything a reprojecting history
         // depends on EXCEPT the jitter (its rays come from the unjittered
@@ -349,12 +400,6 @@ namespace OloEngine
         // no evidence that the two passes want different values.
         constexpr f32 kScreenSpaceTemporalClipGamma = 1.25f;
 
-        void ResetHistoryStorage(Ref<Texture2D>& historyTexture, bool& historyValid)
-        {
-            historyTexture.Reset();
-            historyValid = false;
-        }
-
         // The ONE mockable per-frame dt idiom (issue #974) shared by every
         // renderer-side accumulator (auto-exposure adaptation, fog noise, wind
         // field, wake decay, cloud advection): sample Time::GetTime() — the
@@ -376,43 +421,24 @@ namespace OloEngine
             return dt;
         }
 
-        void EnsureHistoryStorage(Ref<Texture2D>& historyTexture,
-                                  bool& historyValid,
-                                  const u32 width,
-                                  const u32 height)
+        // A registry history's texture and whether it holds a usable previous
+        // frame, for the code outside PopulateBlackboard that hands a history to
+        // a pass by handle rather than through the blackboard.
+        struct RegistryHistoryView
         {
-            if (width == 0 || height == 0)
-            {
-                ResetHistoryStorage(historyTexture, historyValid);
-                return;
-            }
-
-            TextureSpecification historySpec;
-            historySpec.Width = width;
-            historySpec.Height = height;
-            historySpec.Format = kTemporalHistoryFormat;
-            historySpec.GenerateMips = false;
-            historySpec.MipLevels = 1u;
-
-            if (!historyTexture)
-            {
-                historyTexture = Texture2D::Create(historySpec);
-                historyValid = false;
-                return;
-            }
-
-            if (const auto& currentSpec = historyTexture->GetSpecification(); currentSpec.Format != kTemporalHistoryFormat)
-            {
-                historyTexture = Texture2D::Create(historySpec);
-                historyValid = false;
-                return;
-            }
-
-            if (historyTexture->GetWidth() != width || historyTexture->GetHeight() != height)
-            {
-                historyTexture->Resize(width, height);
-                historyValid = false;
-            }
+            RHI::ResourceHandle Texture{};
+            bool Valid = false;
+        };
+        [[nodiscard]] RegistryHistoryView LookUpHistory(const RenderGraph* graph, const TemporalHistoryKey& key)
+        {
+            if (!graph)
+                return {};
+            const TemporalHistoryRegistry& registry = graph->GetTemporalHistoryRegistry();
+            const TemporalHistoryToken token = registry.Find(key);
+            const Ref<Texture2D> texture = registry.GetTexture(token);
+            if (!texture)
+                return {};
+            return { .Texture = texture->GetRHIHandle(), .Valid = registry.IsValid(token) };
         }
 
         // Whether precipitation draws its screen-space effects this frame. One
@@ -531,6 +557,16 @@ namespace OloEngine
         data.CurrEntityTransforms.clear();
         data.PrevInstanceTransforms = std::move(data.CurrInstanceTransforms);
         data.CurrInstanceTransforms.clear();
+        // A frame with no motion history of its own (#1348): every submission
+        // finds no previous transform and reports zero object motion, and the
+        // GPU Scene commits its instances the same way. The camera half is
+        // below, once this frame's jittered view-projection exists.
+        if (data.MotionHistoryResetPending)
+        {
+            data.PrevEntityTransforms.clear();
+            data.PrevInstanceTransforms.clear();
+            data.SceneGPU.ForgetMotionHistory();
+        }
 
         // The water-surface-depth and planar-reflection texture publications are
         // strictly per-frame: the owning pass re-publishes when it executes.
@@ -770,10 +806,10 @@ namespace OloEngine
         const glm::mat4 unjitteredProjection = data.ProjectionMatrix;
 
         // Jitter is needed by EITHER temporal accumulator, and the two disagree on
-        // the sequence: engine TAA walks a fixed Halton-16, while FSR2 derives
+        // the sequence: engine TAA walks a fixed 8-sample Halton(2,3), while FSR2 derives
         // both the phase count and the offsets from the render/display ratio
         // (a 67% scale needs ~2.2x more phases than a 100% one to cover the
-        // display grid). Feeding FSR2 the Halton-16 would under-sample exactly the
+        // display grid). Feeding FSR2 that 8-sample cycle would under-sample exactly the
         // reconstruction it exists to perform, so the branch below picks the
         // upscaler's sequence whenever it owns the frame.
         if (data.TemporalUpscaleActive && FrameCorePasses.Scene)
@@ -835,8 +871,10 @@ namespace OloEngine
                 const u32 idx = (data.TAAJitterFrameIndex % kHaltonSequenceLength) + 1;
                 // Halton samples land in [0, 1]; remap to [-0.5, 0.5] so the
                 // jitter is centred around the unperturbed pixel.
-                const f32 jx = HaltonSample(idx, 2) - 0.5f;
-                const f32 jy = HaltonSample(idx, 3) - 0.5f;
+                // TAAJitterRotation is the run seed's toroidal shift (#1348),
+                // zero for seeds 0..7; fract(h + 0) == h for these samples.
+                const f32 jx = glm::fract(HaltonSample(idx, 2) + data.TAAJitterRotation.x) - 0.5f;
+                const f32 jy = glm::fract(HaltonSample(idx, 3) + data.TAAJitterRotation.y) - 0.5f;
 
                 // Convert pixel offset to NDC — 2 NDC units span the screen,
                 // so one pixel in NDC = 2 / resolution.
@@ -906,6 +944,14 @@ namespace OloEngine
         const glm::mat4 relativeView = MakeViewRelative(data.ViewMatrix, renderOrigin);
         const glm::mat4 relativeViewProjection =
             MakeViewProjectionRelative(data.ProjectionMatrix, data.ViewMatrix, renderOrigin);
+        // The camera half of a frame with no motion history (#1348): last
+        // frame IS this frame, jitter included, so camera velocity is zero.
+        if (data.MotionHistoryResetPending)
+        {
+            data.PrevViewProjectionMatrix = data.ViewProjectionMatrix;
+            data.PrevJitterUV = data.CurrJitterUV;
+            data.MotionHistoryResetPending = false;
+        }
         const glm::mat4 relativePrevViewProjection = MakeViewProjectionRelative(data.PrevViewProjectionMatrix, renderOrigin);
 
         // CommandDispatch keeps the *world* camera matrices — depth sort keys and
@@ -2055,10 +2101,10 @@ namespace OloEngine
                 cloudUBO.Light = glm::vec4(cloud.SunLightScale, cloud.AmbientScale, cloud.MultiScatterStrength, cloud.PowderStrength);
                 // Misc.x (temporal blend) is re-gated against the
                 // post-PopulateBlackboard history validity inside
-                // CloudscapeRenderPass::UploadAndBindUBO — the value here uses
-                // last frame's flag, which EnsureHistoryStorage may still
-                // reset on a resize later in EndScene.
-                cloudUBO.Misc = glm::vec4(CloudsHistoryValid ? cloud.TemporalBlend : 0.0f,
+                // CloudscapeRenderPass::UploadAndBindUBO — the value here is
+                // the registry's validity before this frame's populate, which
+                // a resize may still invalidate later in EndScene.
+                cloudUBO.Misc = glm::vec4(LookUpHistory(data.RGraph.get(), kCloudsHistoryKey).Valid ? cloud.TemporalBlend : 0.0f,
                                           static_cast<f32>(data.CloudFrameIndex),
                                           cloud.ShadowStrength,
                                           1.0f);
@@ -2778,12 +2824,11 @@ namespace OloEngine
                 PostProcessPasses.Cloudscape->SetNoiseTextures(CloudNoise::GetBaseNoiseTexture(),
                                                                CloudNoise::GetDetailNoiseTexture(),
                                                                weatherMapID);
-                // History AFTER PopulateBlackboard: EnsureHistoryStorage may
-                // have (re)created the texture this frame, so the id handed
-                // to the pass must be read post-populate.
-                PostProcessPasses.Cloudscape->SetHistory(
-                    CloudsHistoryTexture ? CloudsHistoryTexture->GetRHIHandle() : RHI::NullResource,
-                    CloudsHistoryValid);
+                // History AFTER PopulateBlackboard: an acquire there may have
+                // (re)created the texture this frame, so the id handed to the
+                // pass must be read post-populate.
+                const RegistryHistoryView cloudsHistory = LookUpHistory(data.RGraph.get(), kCloudsHistoryKey);
+                PostProcessPasses.Cloudscape->SetHistory(cloudsHistory.Texture, cloudsHistory.Valid);
 
                 PostProcessPasses.Cloudscape->UploadAndBindUBO();
 
@@ -3037,13 +3082,6 @@ namespace OloEngine
         config.OverdrawDebugView = post.OverdrawDebugView;
         config.ColorBlind = Accessibility::Get().ColorBlind;
 
-        // Sampled here, AFTER PrepareDeclarationInputs has resized the history
-        // storage (which clears these flags), so a resize is seen on the frame
-        // it happens rather than being hidden until something else moves.
-        config.TAAHistoryValid = TAAHistoryValid;
-        config.CloudsHistoryValid = CloudsHistoryValid;
-        config.SSRHistoryValid = SSRHistoryValid;
-
         RGDeclarationKey passStates;
         if (passKeys)
             passKeys->Reset();
@@ -3139,6 +3177,15 @@ namespace OloEngine
                     // eviction chokepoint, as RenderGraph::Resize does.
                     graph.NotifyNodeFramebufferResized();
 
+                    // A render-scale change, raised as RenderGraph::SetRenderScale
+                    // raises it for a dynamic scale (#1348). The scene-band
+                    // histories are resized anyway (DescriptorChanged); TAA's is
+                    // display-sized, kept its lineage through every preset
+                    // toggle, and blended a history accumulated at another scale,
+                    // whose jitter offsets were other texels, into the first
+                    // upscaled frames.
+                    (void)graph.InvalidateTemporalHistories(TemporalHistoryInvalidationCause::DynamicResolutionChanged);
+
                     // A physical resize also clears each resized framebuffer's
                     // render viewport, which is where a dynamic render scale
                     // lives. RenderGraph::Resize re-applies it; this path did
@@ -3150,23 +3197,6 @@ namespace OloEngine
                         graph.SetRenderScale(graph.GetRenderScale());
                 }
             }
-        }
-
-        // TAA and cloudscape history storage. Unconditional, as it was inside
-        // PopulateBlackboard: both follow their pass's display-sized spec. SSR's
-        // storage stays in PopulateBlackboard because it is gated on SSR's
-        // scratch being declared; its declared-but-not-imported case is handled
-        // there with an explicit invalidation.
-        if (PostProcessPasses.TAA)
-        {
-            const auto& taaSpec = PostProcessPasses.TAA->GetFramebufferSpecification();
-            EnsureHistoryStorage(TAAHistoryTexture, TAAHistoryValid, taaSpec.Width, taaSpec.Height);
-        }
-        if (PostProcessPasses.Cloudscape)
-        {
-            const auto& cloudsSpec = PostProcessPasses.Cloudscape->GetFramebufferSpecification();
-            EnsureHistoryStorage(CloudsHistoryTexture, CloudsHistoryValid, (cloudsSpec.Width + 1u) / 2u,
-                                 (cloudsSpec.Height + 1u) / 2u);
         }
     }
 
@@ -3220,6 +3250,82 @@ namespace OloEngine
             return out;
         }
     } // namespace
+
+    // The external lineages (#1348): ReSTIR PT's path records and the froxel
+    // fog's scatter volume live in their passes, and the registry decides
+    // whether they still describe the frame about to render. Begun after the
+    // frame is compiled, so every invalidation the frame raised (a resize, a
+    // render-scale change, a populate release) is seen this frame rather
+    // than the next; ended after it executed, so a pass that did not run
+    // breaks its lineage instead of aging it.
+    void Renderer3D::RenderPipeline::BeginExternalLineages(Renderer3DData& data)
+    {
+        if (!data.RGraph)
+            return;
+        auto& graph = *data.RGraph;
+        const auto& sceneSpec = FrameCorePasses.Scene ? FrameCorePasses.Scene->GetFramebufferSpecification()
+                                                      : FramebufferSpecification{};
+        const bool sized = sceneSpec.Width > 0u && sceneSpec.Height > 0u;
+
+        if (SceneCompositePasses.ReSTIRPT)
+        {
+            if (data.PostProcess.ReSTIRPT.Enabled && sized)
+            {
+                // ReSTIR DI's dependencies, for DI's reasons (unjittered,
+                // reprojected, gated per pixel). Its receiver test compares a
+                // normal and a roughness, which a cut to a similar surface
+                // passes, so before the registry a cut never reached it.
+                TemporalHistoryDescriptor descriptor;
+                descriptor.Width = sceneSpec.Width;
+                descriptor.Height = sceneSpec.Height;
+                descriptor.Format = ImageFormat::RGBA32F;
+                descriptor.LayoutVersion = ReSTIR::PT::kLayoutVersion;
+                SceneCompositePasses.ReSTIRPT->SetLineageContinues(graph.BeginTemporalLineage(
+                    kReSTIRPTLineageKey, descriptor, kReSTIRDIHistoryDependencies, "ReSTIRPTPathRecords"));
+            }
+            else
+            {
+                (void)graph.ReleaseTemporalHistory(kReSTIRPTLineageKey, TemporalHistoryInvalidationCause::FeatureToggled);
+            }
+        }
+
+        if (PostProcessPasses.VolumetricFog)
+        {
+            if (data.Fog.Enabled && data.Fog.EnableVolumetric && sized)
+            {
+                TemporalHistoryDescriptor descriptor;
+                descriptor.Width = sceneSpec.Width;
+                descriptor.Height = sceneSpec.Height;
+                descriptor.Format = ImageFormat::RGBA16F;
+                descriptor.LayoutVersion = 1u;
+                PostProcessPasses.VolumetricFog->SetLineageContinues(graph.BeginTemporalLineage(
+                    kVolumetricFogLineageKey, descriptor, kReSTIRDIHistoryDependencies, "VolumetricFogScatter"));
+            }
+            else
+            {
+                (void)graph.ReleaseTemporalHistory(kVolumetricFogLineageKey,
+                                                   TemporalHistoryInvalidationCause::FeatureToggled);
+            }
+        }
+    }
+
+    void Renderer3D::RenderPipeline::EndExternalLineages(Renderer3DData& data)
+    {
+        if (!data.RGraph)
+            return;
+        auto& graph = *data.RGraph;
+        const TemporalHistoryRegistry& registry = graph.GetTemporalHistoryRegistry();
+        if (SceneCompositePasses.ReSTIRPT && registry.IsCurrent(registry.Find(kReSTIRPTLineageKey)) &&
+            data.PostProcess.ReSTIRPT.Enabled)
+        {
+            graph.EndTemporalLineage(kReSTIRPTLineageKey, SceneCompositePasses.ReSTIRPT->ProducedRecordsThisFrame());
+        }
+        if (PostProcessPasses.VolumetricFog && registry.IsCurrent(registry.Find(kVolumetricFogLineageKey)) &&
+            data.Fog.Enabled && data.Fog.EnableVolumetric)
+        {
+            graph.EndTemporalLineage(kVolumetricFogLineageKey, PostProcessPasses.VolumetricFog->RanThisFrame());
+        }
+    }
 
     void Renderer3D::RenderPipeline::CompileFrameGraph(Renderer3DData& data)
     {
@@ -3395,6 +3501,9 @@ namespace OloEngine
         // Clear prior-frame handles so stale handles are never accidentally resolved.
         graph.ClearBlackboard();
         graph.ClearImportedResources();
+        // Every history this populate acquires is marked; the end of the body
+        // releases the rest (#1348).
+        graph.BeginTemporalHistoryPopulate();
 
         auto& board = graph.GetBlackboard();
         board.Config = config;
@@ -5409,24 +5518,28 @@ namespace OloEngine
         // ------------------------------------------------------------------
         // Temporal histories (imported from prior frame)
         // ------------------------------------------------------------------
-        // TAAHistory persists in renderer-owned storage, is registered as a
-        // graph-managed sink every frame, and is imported only when the
-        // previous frame produced a valid history. Its storage is sized by
-        // PrepareDeclarationInputs, before the configuration captures the
-        // valid flag that decides the import.
-        if (pipeline.PostProcessPasses.TAA)
+        // TAAHistory is a registry history (#1348) at the TAA pass's display
+        // size, imported only when the previous frame produced a valid one and
+        // nothing has invalidated it since. The registry's validity key is part
+        // of the declaration configuration, so a history that becomes valid or
+        // is invalidated re-runs this block. Gated on TAA running, as its pass
+        // is: a history acquired while TAA is off is never released by the
+        // populate sweep, and stays allocated for nothing.
+        if (pipeline.PostProcessPasses.TAA && config.EngineTAA)
         {
-            graph.RegisterHistoryTextureSink(
-                ResourceNames::TAAHistory,
-                pipeline.TAAHistoryTexture ? pipeline.TAAHistoryTexture->GetRHIHandle() : RHI::NullResource,
-                pipeline.TAAHistoryTexture ? pipeline.TAAHistoryTexture->GetWidth() : 0u,
-                pipeline.TAAHistoryTexture ? pipeline.TAAHistoryTexture->GetHeight() : 0u,
-                &pipeline.TAAHistoryValid);
-        }
-        if (config.TAAHistoryValid && pipeline.TAAHistoryTexture)
-        {
-            board.Temporal.TAAHistory = graph.ImportHistoryHandle(
-                ResourceNames::TAAHistory, pipeline.TAAHistoryTexture->GetRHIHandle());
+            const auto& taaSpec = pipeline.PostProcessPasses.TAA->GetFramebufferSpecification();
+            if (taaSpec.Width > 0u && taaSpec.Height > 0u)
+            {
+                TemporalHistoryDescriptor descriptor;
+                descriptor.Width = taaSpec.Width;
+                descriptor.Height = taaSpec.Height;
+                descriptor.Format = kTemporalHistoryFormat;
+                descriptor.LayoutVersion = kTAAHistoryLayoutVersion;
+                board.Temporal.TAAHistory = graph.AcquireTemporalHistory(
+                                                     kTAAHistoryKey, descriptor, kSSGIHistoryDependencies,
+                                                     ResourceNames::TAAHistory)
+                                                .Previous;
+            }
         }
 
         // TAA's surface plane (#1256). Gated on the pass running AND on a
@@ -5434,7 +5547,7 @@ namespace OloEngine
         // and the forward paths that reconstruct velocity from depth carry no
         // coverage at all. The shader's own u_HasSurfaceHistory gate means an
         // absent plane costs the term nothing rather than reading garbage.
-        if (pipeline.PostProcessPasses.TAA && board.Scene.SceneVelocity.IsValid())
+        if (pipeline.PostProcessPasses.TAA && config.EngineTAA && board.Scene.SceneVelocity.IsValid())
         {
             const auto& taaSurfaceSpec = pipeline.PostProcessPasses.TAA->GetFramebufferSpecification();
             if (taaSurfaceSpec.Width > 0u && taaSurfaceSpec.Height > 0u)
@@ -5452,32 +5565,32 @@ namespace OloEngine
         }
 
         // CloudsHistory (issue #633): half-resolution resolved-cloud
-        // accumulation — the same sink/import mechanics as TAAHistory above,
-        // at ceil(viewport/2) to match the CloudsResolved scratch the pass
+        // accumulation — the same registry mechanics as TAAHistory above, at
+        // ceil(viewport/2) to match the CloudsResolved scratch the pass
         // extracts from.
         if (pipeline.PostProcessPasses.Cloudscape)
         {
-            graph.RegisterHistoryTextureSink(
-                ResourceNames::CloudsHistory,
-                pipeline.CloudsHistoryTexture ? pipeline.CloudsHistoryTexture->GetRHIHandle() : RHI::NullResource,
-                pipeline.CloudsHistoryTexture ? pipeline.CloudsHistoryTexture->GetWidth() : 0u,
-                pipeline.CloudsHistoryTexture ? pipeline.CloudsHistoryTexture->GetHeight() : 0u,
-                &pipeline.CloudsHistoryValid);
-        }
-        if (config.CloudsHistoryValid && pipeline.CloudsHistoryTexture)
-        {
-            board.Temporal.CloudsHistory = graph.ImportHistoryHandle(
-                ResourceNames::CloudsHistory, pipeline.CloudsHistoryTexture->GetRHIHandle());
+            const auto& cloudsSpec = pipeline.PostProcessPasses.Cloudscape->GetFramebufferSpecification();
+            if (cloudsSpec.Width > 0u && cloudsSpec.Height > 0u)
+            {
+                TemporalHistoryDescriptor descriptor;
+                descriptor.Width = (cloudsSpec.Width + 1u) / 2u;
+                descriptor.Height = (cloudsSpec.Height + 1u) / 2u;
+                descriptor.Format = kTemporalHistoryFormat;
+                descriptor.LayoutVersion = kCloudsHistoryLayoutVersion;
+                board.Temporal.CloudsHistory = graph.AcquireTemporalHistory(
+                                                        kCloudsHistoryKey, descriptor, kSSGIHistoryDependencies,
+                                                        ResourceNames::CloudsHistory)
+                                                   .Previous;
+            }
         }
 
         // SSGIHistory / SSRHistory (issue #902): the per-pass stochastic-signal
         // accumulators. Unlike TAA and the cloudscape above, these are gated on
         // the pass having actually declared its scratch this frame — SSR and
         // SSGI are both off by default and deferred-only, so an unconditional
-        // EnsureHistoryStorage would hold two scene-band RGBA16F textures for
-        // every scene that never enables them. The else branch releases the
-        // storage AND clears the valid flag, which the fingerprint hashes, so
-        // re-enabling the pass re-runs this block.
+        // acquire would hold scene-band RGBA16F textures for every scene that
+        // never enables them.
         if (board.Scratch.SSGIResolved.IsValid())
         {
             TemporalHistoryDescriptor descriptor;
@@ -5722,48 +5835,15 @@ namespace OloEngine
 
         if (board.Scratch.SSRResolved.IsValid())
         {
-            EnsureHistoryStorage(pipeline.SSRHistoryTexture, pipeline.SSRHistoryValid, sceneBandWidth, sceneBandHeight);
-            graph.RegisterHistoryTextureSink(
-                ResourceNames::SSRHistory,
-                pipeline.SSRHistoryTexture ? pipeline.SSRHistoryTexture->GetRHIHandle() : RHI::NullResource,
-                pipeline.SSRHistoryTexture ? pipeline.SSRHistoryTexture->GetWidth() : 0u,
-                pipeline.SSRHistoryTexture ? pipeline.SSRHistoryTexture->GetHeight() : 0u,
-                &pipeline.SSRHistoryValid);
-        }
-        else
-        {
-            ResetHistoryStorage(pipeline.SSRHistoryTexture, pipeline.SSRHistoryValid);
-        }
-        if (pipeline.SSRHistoryValid && pipeline.SSRHistoryTexture)
-        {
-            board.Temporal.SSRHistory = graph.ImportHistoryHandle(
-                ResourceNames::SSRHistory, pipeline.SSRHistoryTexture->GetRHIHandle());
-        }
-
-        // Force a re-populate next frame whenever a declared history did NOT
-        // get imported this frame.
-        //
-        // SSR is the one history whose import is read from the LIVE flag rather
-        // than from `config`, and this invalidation is why that is safe. Its
-        // storage is sized HERE, gated on SSRResolved having been declared a few
-        // lines up, so it cannot move to PrepareDeclarationInputs the way the
-        // TAA and cloud storage did (#1333). The configuration therefore saw the
-        // flag as it was BEFORE EnsureHistoryStorage; a resize clears it and the
-        // import is skipped, FlushExtractions sets it true again at the end of
-        // the frame, and next frame's key would match the one cached this frame.
-        // Invalidating here is one extra populate on exactly the frames where
-        // the history is not usable anyway. Do not remove it without moving the
-        // storage ahead of the capture.
-        const bool ssrHistoryDeclaredButNotImported =
-            board.Scratch.SSRResolved.IsValid() && !board.Temporal.SSRHistory.IsValid();
-        if (ssrHistoryDeclaredButNotImported)
-        {
-            // The blackboard cache only. BuildFrameGraph keeps its own cache on
-            // the same key, and invalidating it HERE did nothing: this frame's
-            // BuildFrameGraph runs after this function and re-arms it. The next
-            // frame's re-populate re-runs every Setup() because
-            // RenderGraph::ClearImportedResources invalidates the build cache.
-            pipeline.InvalidateBlackboardCache();
+            TemporalHistoryDescriptor descriptor;
+            descriptor.Width = sceneBandWidth;
+            descriptor.Height = sceneBandHeight;
+            descriptor.Format = kTemporalHistoryFormat;
+            descriptor.LayoutVersion = kSSRHistoryLayoutVersion;
+            board.Temporal.SSRHistory = graph.AcquireTemporalHistory(
+                                                 kSSRHistoryKey, descriptor, kSSGIHistoryDependencies,
+                                                 ResourceNames::SSRHistory)
+                                            .Previous;
         }
 
         // (The 2D FogHistory sink/import died with the screen-space fog
@@ -5832,6 +5912,14 @@ namespace OloEngine
             [[maybe_unused]] const RGTextureHandle handle =
                 graph.ImportTextureHandle(kVolumetricShadowTargetName, volumetricShadow, desc);
         }
+
+        // A history this populate did not acquire belongs to an effect that
+        // stopped declaring it: disabled, stood down, or off this path. Its pass
+        // is culled and will never acquire it again, so release it here, or a
+        // re-enable resumes the lineage from whenever it last ran and the
+        // texture stays allocated meanwhile (#1348). One sweep rather than a
+        // branch per effect, so an effect added later cannot be left out.
+        (void)graph.ReleaseUnacquiredTemporalHistories(TemporalHistoryInvalidationCause::FeatureToggled);
     }
 
     auto Renderer3D::RenderPipeline::BuildInputs(Renderer3DData& data) -> RenderPipelineInputs

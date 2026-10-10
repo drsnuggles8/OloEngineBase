@@ -199,4 +199,57 @@ namespace OloEngine::TemporalSequenceMetrics
             result.ReferenceVariance > 0.0 ? result.MeasuredVariance / result.ReferenceVariance : 1.0;
         return result;
     }
+
+    PairedResponseResult MeasurePairedResponse(std::span<const std::vector<f32>> frames,
+                                               std::span<const std::vector<f32>> targets,
+                                               std::span<const std::vector<f32>> baselines,
+                                               const f64 settledFraction, const f32 stepThreshold)
+    {
+        PairedResponseResult result{};
+        if (frames.empty() || frames.size() != targets.size() || frames.size() != baselines.size())
+            return result;
+
+        u64 stepPixelsTotal = 0u;
+        f64 stepMagnitudeTotal = 0.0;
+        for (std::size_t t = 0u; t < frames.size(); ++t)
+        {
+            const std::vector<f32>& f = frames[t];
+            const std::vector<f32>& target = targets[t];
+            const std::vector<f32>& baseline = baselines[t];
+            if (f.size() != target.size() || f.size() != baseline.size())
+                return PairedResponseResult{};
+
+            f64 residual = 0.0;
+            f64 step = 0.0;
+            u64 stepPixels = 0u;
+            for (std::size_t i = 0u; i < f.size(); ++i)
+            {
+                if (!std::isfinite(f[i]) || !std::isfinite(target[i]) || !std::isfinite(baseline[i]))
+                    continue;
+                const f64 stepHere = std::abs(static_cast<f64>(baseline[i]) - static_cast<f64>(target[i]));
+                if (stepHere <= static_cast<f64>(stepThreshold))
+                    continue;
+                residual += std::abs(static_cast<f64>(f[i]) - static_cast<f64>(target[i]));
+                step += stepHere;
+                ++stepPixels;
+            }
+            result.NormalisedResidual.push_back(step > 0.0 ? residual / step : 0.0);
+            stepPixelsTotal += stepPixels;
+            stepMagnitudeTotal += stepPixels > 0u ? step / static_cast<f64>(stepPixels) : 0.0;
+        }
+
+        const f64 frameCount = static_cast<f64>(frames.size());
+        result.StepPixels = static_cast<u32>(static_cast<f64>(stepPixelsTotal) / frameCount);
+        result.StepMagnitude = stepMagnitudeTotal / frameCount;
+        result.FinalResidual = result.NormalisedResidual.back();
+        // Backwards, for SettlingFrames' reason: a residual that dips through
+        // the fraction and comes back out has not responded.
+        for (std::size_t i = result.NormalisedResidual.size(); i-- > 0u;)
+        {
+            if (result.NormalisedResidual[i] > settledFraction)
+                break;
+            result.ResponseFrames = static_cast<u32>(i);
+        }
+        return result;
+    }
 } // namespace OloEngine::TemporalSequenceMetrics

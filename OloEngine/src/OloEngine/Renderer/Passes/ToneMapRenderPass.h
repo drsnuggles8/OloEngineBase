@@ -55,6 +55,14 @@ namespace OloEngine
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
+        // Eye adaptation is a temporal accumulator too (#1348): a sequence
+        // restart puts the metered exposure back to its uninitialised state,
+        // so a paired arm does not start from the previous arm's adaptation.
+        void ResetFrameSequence(u32 sequenceSeed) override;
+        [[nodiscard]] u64 GetFrameSequenceState() const override
+        {
+            return static_cast<u64>(m_AutoExposureActiveLastFrame);
+        }
 
         void SetEnabled(bool enabled) noexcept
         {

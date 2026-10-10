@@ -330,6 +330,10 @@ namespace OloEngine::MCP
                     return "restir-di";
                 case TemporalHistoryEffect::PathTracer:
                     return "PathTracer";
+                case TemporalHistoryEffect::ReSTIRPT:
+                    return "ReSTIRPT";
+                case TemporalHistoryEffect::VolumetricFog:
+                    return "VolumetricFog";
             }
             return "Unknown";
         }
@@ -426,6 +430,8 @@ namespace OloEngine::MCP
                     return "Manual";
                 case TemporalHistoryInvalidationCause::SceneMutated:
                     return "SceneMutated";
+                case TemporalHistoryInvalidationCause::SamplingSequenceReset:
+                    return "SamplingSequenceReset";
             }
             return "Unknown";
         }
@@ -802,6 +808,8 @@ namespace OloEngine::MCP
                         .Backend = TemporalBackendName(history.Descriptor.Backend),
                         .Format = ImageFormatName(history.Descriptor.Format),
                         .LastInvalidation = TemporalInvalidationName(history.LastInvalidation),
+                        .LineageCause = TemporalInvalidationName(history.LineageCause),
+                        .Age = history.Age,
                         .View = history.Key.View,
                         .Width = history.Descriptor.Width,
                         .Height = history.Descriptor.Height,
@@ -8212,6 +8220,8 @@ namespace OloEngine::MCP
                                                                          .Prop("valid", Schema::Bool())
                                                                          .Prop("hasTexture", Schema::Bool())
                                                                          .Prop("lastInvalidation", Schema::String())
+                                                                         .Prop("age", Schema::Int().Min(0).Desc("Frames the current lineage has accumulated: 1 on the frame it started from nothing, +1 for every frame that read it and wrote it back. A reset policy that kept a stale history shows here as an age that kept climbing through the event."))
+                                                                         .Prop("lineageCause", Schema::String().Desc("What started the current lineage (FirstUse, CameraCut, JitterReset, CopyFailed, ...). Unlike lastInvalidation it is not cleared when the history is produced again."))
                                                                          .Prop("descriptor", Schema::Object()
                                                                                                  .Prop("width", Schema::Int().Min(0))
                                                                                                  .Prop("height", Schema::Int().Min(0))

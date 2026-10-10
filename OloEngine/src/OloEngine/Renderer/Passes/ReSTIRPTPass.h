@@ -43,6 +43,21 @@ namespace OloEngine
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
+        // ReSTIR PT keeps its own ping-pong pools outside the registry, so a
+        // sequence restart drops their lineage here (#1348).
+        void ResetFrameSequence([[maybe_unused]] u32 sequenceSeed) override
+        {
+            m_HaveHistory = false;
+            m_LastFrame = 0;
+            // The counter readback lags a frame: without this the new run's
+            // first frame reports the previous run's counters as its own.
+            m_HaveCounters = false;
+            m_Stats.CountersValid = false;
+        }
+        [[nodiscard]] u64 GetFrameSequenceState() const override
+        {
+            return (static_cast<u64>(m_HaveHistory) << 32u) | m_LastFrame;
+        }
         void SetEnabled(bool enabled) noexcept
         {
             m_Enabled = enabled;
@@ -80,6 +95,20 @@ namespace OloEngine
             m_FrameIndex = frame;
         }
         void SetSceneEpoch(u64 epoch) noexcept;
+        // Whether the registry lineage of the path records continued from the
+        // previous frame (#1348): false after any invalidation that reaches
+        // the reprojecting histories, a camera cut first among them.
+        void SetLineageContinues(bool continues) noexcept
+        {
+            m_LineageContinues = continues;
+        }
+        // Whether this frame's Execute wrote the path records next frame
+        // reuses (the end of its external lineage, #1348). The frame index
+        // advances every frame, so a frame that never ran leaves it behind.
+        [[nodiscard]] bool ProducedRecordsThisFrame() const noexcept
+        {
+            return m_HaveHistory && m_LastFrame == m_FrameIndex;
+        }
         void ResolveAvailabilityForFrame(bool deferredPathActive = true, bool participatingMedia = false);
         [[nodiscard("Use PT engagement and measured diagnostics")]] const ReSTIRPTStats& GetStats() const noexcept
         {
@@ -93,6 +122,7 @@ namespace OloEngine
         bool m_DeferredPathActive = false;
         bool m_ParticipatingMedia = false;
         bool m_HaveHistory = false;
+        bool m_LineageContinues = true;
         bool m_HaveCounters = false;
         u32 m_FrameIndex = 0;
         u32 m_LastFrame = 0;

@@ -664,13 +664,19 @@ namespace OloEngine::Tests
             }
         }
 
-        // The premise: the SSR history resize re-populated the blackboard on a
-        // frame whose key did NOT move. Each toggle moves the key once; the
-        // out-of-band re-populate is the compile beyond that. Without one, the
+        // The premise: each toggle compiles twice. Once on the toggle frame, and
+        // once on the frame after it, which imports the SSR history the toggle
+        // resized. Until #1348 that second compile was the out-of-band
+        // re-populate this test was written for: a history resized inside
+        // PopulateBlackboard after the key was captured. Since #1348 the
+        // registry's validity key carries the descriptor, so the resize moves
+        // the key itself and both caches miss together. Without the second
+        // compile, the resized history is never imported again (the
+        // state-machine cached-vs-rebuild pair caught exactly that), and the
         // assertions above passed on ordinary key changes and proved nothing.
         const auto stats = Renderer3D::GetFrameGraphDeclarationStats();
         EXPECT_GT(stats.Compiles, static_cast<u64>(kModes.size()))
-            << "no toggle produced a second compile, so the re-populate-under-an-unchanged-key frame this test "
-               "exists for never happened (is SSR still declared on Deferred?)";
+            << "no toggle produced a second compile, so the frame that imports the resized SSR history never "
+               "happened (is SSR still declared on Deferred, and does the validity key carry the descriptor?)";
     }
 } // namespace OloEngine::Tests

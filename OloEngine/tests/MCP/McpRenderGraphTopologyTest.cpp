@@ -79,6 +79,8 @@ namespace
             .Backend = "OpenGL",
             .Format = "RGBA16F",
             .LastInvalidation = "None",
+            .LineageCause = "CameraCut",
+            .Age = 17,
             .View = 42,
             .Width = 640,
             .Height = 360,
@@ -120,6 +122,8 @@ TEST(McpRenderGraphTopology, PersistentTemporalHistoriesExposeValidityAndDescrip
     EXPECT_EQ(history["generation"].get<u32>(), 3u);
     EXPECT_TRUE(history["valid"].get<bool>());
     EXPECT_TRUE(history["hasTexture"].get<bool>());
+    EXPECT_EQ(history["age"].get<u32>(), 17u);
+    EXPECT_EQ(history["lineageCause"], "CameraCut");
     EXPECT_EQ(history["descriptor"]["width"].get<u32>(), 640u);
     EXPECT_EQ(history["descriptor"]["format"], "RGBA16F");
     EXPECT_EQ(history["descriptor"]["backend"], "OpenGL");

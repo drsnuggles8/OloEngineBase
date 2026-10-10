@@ -40,60 +40,57 @@ namespace OloEngine
     // walks every pass the pipeline owns and folds each one's
     // RenderGraphNode::AppendDeclarationInputs into PassStates.
     // =========================================================================
-#define OLO_FRAME_GRAPH_DECLARATION_FIELDS(X)                                                         \
-    /* Graph identity: bumped by every ResetTopology(), which wipes the blackboard. */                \
-    X(u64, TopologyGeneration)                                                                        \
-    /* Sizes. The display size drives the post chain, the scene band the lit scene. */                \
-    X(u32, DisplayWidth)                                                                              \
-    X(u32, DisplayHeight)                                                                             \
-    X(u32, SceneBandWidth)                                                                            \
-    X(u32, SceneBandHeight)                                                                           \
-    /* Path and the G-Buffer populate declares from (the object, not the setting). */                 \
-    X(RenderingPath, Path)                                                                            \
-    X(u32, GBufferWidth)                                                                              \
-    X(u32, GBufferHeight)                                                                             \
-    X(u32, GBufferSamples)                                                                            \
-    X(bool, OITEnabled)                                                                               \
-    X(AOTechnique, GraphAOTechnique)                                                                  \
-    /* Shadow storage, by identity. */                                                                \
-    X(u32, ShadowResolution)                                                                          \
-    X(u32, ShadowAtlasResolution)                                                                     \
-    X(RHI::ResourceHandle, ShadowCSM)                                                                 \
-    X(RHI::ResourceHandle, ShadowAtlas)                                                               \
-    X(RHI::ResourceHandle, ShadowCSMRaw)                                                              \
-    X(RHI::ResourceHandle, ShadowAtlasRaw)                                                            \
-    /* Imported long-lived textures, by identity. */                                                  \
-    X(RHI::ResourceHandle, IrradianceMap)                                                             \
-    X(RHI::ResourceHandle, PrefilterMap)                                                              \
-    X(RHI::ResourceHandle, BRDFLut)                                                                   \
-    X(RHI::ResourceHandle, VolumetricShadowVolume)                                                    \
-    /* Settings PopulateBlackboard gates a declaration on. Resolved verdicts where one exists. */     \
-    X(bool, SSAOEnabled)                                                                              \
-    X(bool, GTAOEnabled)                                                                              \
-    X(bool, SSGIHalfResolution)                                                                       \
-    X(UpscaleMode, Upscale)                                                                           \
-    X(bool, TemporalUpscaleActive)                                                                    \
-    X(bool, DOFEnabled)                                                                               \
-    X(bool, MotionBlurEnabled)                                                                        \
-    X(bool, EngineTAA)                                                                                \
-    X(bool, CloudscapeEnabled)                                                                        \
-    X(bool, PrecipitationScreenEffects)                                                               \
-    X(bool, FogEnabled)                                                                               \
-    X(bool, ChromaticAberrationEnabled)                                                               \
-    X(bool, ColorGradingEnabled)                                                                      \
-    X(bool, LateSharpen)                                                                              \
-    X(bool, VignetteEnabled)                                                                          \
-    X(bool, FXAAEnabled)                                                                              \
-    X(bool, SkinDiffusionEnabled)                                                                     \
-    X(bool, SelectionOutlineActive)                                                                   \
-    X(bool, OverdrawDebugView)                                                                        \
-    X(ColorBlindMode, ColorBlind)                                                                     \
-    /* History imports: whether last frame left something to import, sampled AFTER storage resize. */ \
-    X(bool, TAAHistoryValid)                                                                          \
-    X(bool, CloudsHistoryValid)                                                                       \
-    X(bool, SSRHistoryValid)                                                                          \
-    X(u64, TemporalHistoryValidity)                                                                   \
-    /* Every pipeline pass: present, enabled, ready, and its own Setup() inputs. */                   \
+#define OLO_FRAME_GRAPH_DECLARATION_FIELDS(X)                                                      \
+    /* Graph identity: bumped by every ResetTopology(), which wipes the blackboard. */             \
+    X(u64, TopologyGeneration)                                                                     \
+    /* Sizes. The display size drives the post chain, the scene band the lit scene. */             \
+    X(u32, DisplayWidth)                                                                           \
+    X(u32, DisplayHeight)                                                                          \
+    X(u32, SceneBandWidth)                                                                         \
+    X(u32, SceneBandHeight)                                                                        \
+    /* Path and the G-Buffer populate declares from (the object, not the setting). */              \
+    X(RenderingPath, Path)                                                                         \
+    X(u32, GBufferWidth)                                                                           \
+    X(u32, GBufferHeight)                                                                          \
+    X(u32, GBufferSamples)                                                                         \
+    X(bool, OITEnabled)                                                                            \
+    X(AOTechnique, GraphAOTechnique)                                                               \
+    /* Shadow storage, by identity. */                                                             \
+    X(u32, ShadowResolution)                                                                       \
+    X(u32, ShadowAtlasResolution)                                                                  \
+    X(RHI::ResourceHandle, ShadowCSM)                                                              \
+    X(RHI::ResourceHandle, ShadowAtlas)                                                            \
+    X(RHI::ResourceHandle, ShadowCSMRaw)                                                           \
+    X(RHI::ResourceHandle, ShadowAtlasRaw)                                                         \
+    /* Imported long-lived textures, by identity. */                                               \
+    X(RHI::ResourceHandle, IrradianceMap)                                                          \
+    X(RHI::ResourceHandle, PrefilterMap)                                                           \
+    X(RHI::ResourceHandle, BRDFLut)                                                                \
+    X(RHI::ResourceHandle, VolumetricShadowVolume)                                                 \
+    /* Settings PopulateBlackboard gates a declaration on. Resolved verdicts where one exists. */  \
+    X(bool, SSAOEnabled)                                                                           \
+    X(bool, GTAOEnabled)                                                                           \
+    X(bool, SSGIHalfResolution)                                                                    \
+    X(UpscaleMode, Upscale)                                                                        \
+    X(bool, TemporalUpscaleActive)                                                                 \
+    X(bool, DOFEnabled)                                                                            \
+    X(bool, MotionBlurEnabled)                                                                     \
+    X(bool, EngineTAA)                                                                             \
+    X(bool, CloudscapeEnabled)                                                                     \
+    X(bool, PrecipitationScreenEffects)                                                            \
+    X(bool, FogEnabled)                                                                            \
+    X(bool, ChromaticAberrationEnabled)                                                            \
+    X(bool, ColorGradingEnabled)                                                                   \
+    X(bool, LateSharpen)                                                                           \
+    X(bool, VignetteEnabled)                                                                       \
+    X(bool, FXAAEnabled)                                                                           \
+    X(bool, SkinDiffusionEnabled)                                                                  \
+    X(bool, SelectionOutlineActive)                                                                \
+    X(bool, OverdrawDebugView)                                                                     \
+    X(ColorBlindMode, ColorBlind)                                                                  \
+    /* History imports: which registry histories exist and hold a usable previous frame.        */ \
+    X(u64, TemporalHistoryValidity)                                                                \
+    /* Every pipeline pass: present, enabled, ready, and its own Setup() inputs. */                \
     X(u64, PassStates)
 
     struct FrameGraphDeclarationConfig

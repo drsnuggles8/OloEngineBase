@@ -100,6 +100,16 @@ namespace OloEngine
         OLO_CORE_INFO("ToneMapRenderPass: Initialized with viewport {}x{}", spec.Width, spec.Height);
     }
 
+    void ToneMapRenderPass::ResetFrameSequence([[maybe_unused]] u32 sequenceSeed)
+    {
+        if (m_ExposureStateBuffer)
+        {
+            const std::array<f32, 4> initial = { -1.0f, 0.0f, 0.0f, 0.0f }; // as Init: manual exposure, uninitialised
+            m_ExposureStateBuffer->SetData(initial.data(), static_cast<u32>(initial.size() * sizeof(f32)));
+        }
+        m_AutoExposureActiveLastFrame = false;
+    }
+
     void ToneMapRenderPass::CreateFramebuffer(u32 width, u32 height)
     {
         if (width == 0 || height == 0)

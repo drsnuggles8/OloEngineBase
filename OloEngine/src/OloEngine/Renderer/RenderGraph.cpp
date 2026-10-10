@@ -2404,6 +2404,52 @@ namespace OloEngine
         return m_TemporalHistoryRegistry.Invalidate(cause, effect);
     }
 
+    bool RenderGraph::ReleaseTemporalHistory(const TemporalHistoryKey& key, TemporalHistoryInvalidationCause cause)
+    {
+        // Release first: the common call (a disabled tier, every frame) has
+        // nothing to release and must not pay for the debug-name lookup.
+        if (!m_TemporalHistoryRegistry.Release(key, cause))
+            return false;
+        const std::string_view debugName = m_TemporalHistoryRegistry.GetDebugName(m_TemporalHistoryRegistry.Find(key));
+        if (!debugName.empty())
+            m_HistoryTextureSinks.erase(std::string(debugName));
+        return true;
+    }
+
+    void RenderGraph::BeginTemporalHistoryPopulate()
+    {
+        m_TemporalHistoryRegistry.BeginPopulate();
+    }
+
+    u32 RenderGraph::ReleaseUnacquiredTemporalHistories(TemporalHistoryInvalidationCause cause)
+    {
+        TArray<FString> released;
+        const u32 count = m_TemporalHistoryRegistry.ReleaseUnacquired(cause, &released);
+        for (const FString& name : released)
+            m_HistoryTextureSinks.erase(name.ToStdString());
+        return count;
+    }
+
+    bool RenderGraph::BeginTemporalLineage(const TemporalHistoryKey& key,
+                                           TemporalHistoryDescriptor descriptor,
+                                           const TemporalHistoryDependency dependencies,
+                                           std::string_view debugName)
+    {
+        descriptor.Backend = CurrentTemporalHistoryBackend();
+        const auto acquired =
+            m_TemporalHistoryRegistry.AcquireExternal(key, descriptor, dependencies, std::string(debugName));
+        return m_TemporalHistoryRegistry.IsValid(acquired.Token);
+    }
+
+    void RenderGraph::EndTemporalLineage(const TemporalHistoryKey& key, const bool produced)
+    {
+        const TemporalHistoryToken token = m_TemporalHistoryRegistry.Find(key);
+        if (produced)
+            (void)m_TemporalHistoryRegistry.MarkProduced(token);
+        else
+            (void)m_TemporalHistoryRegistry.MarkCopyFailed(token); // nothing written: the lineage breaks here
+    }
+
     void RenderGraph::RefreshHistorySinkTokens()
     {
         for (auto& [historyResource, sink] : m_HistoryTextureSinks)

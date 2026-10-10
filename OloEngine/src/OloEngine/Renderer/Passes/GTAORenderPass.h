@@ -51,6 +51,18 @@ namespace OloEngine
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
+        // The temporal noise index is a sampling dimension (#1348). The
+        // classifier's frame stamp is not, and keeps counting: rewinding it
+        // could match a stamp already used and skip a classification.
+        void ResetFrameSequence(u32 sequenceSeed) override
+        {
+            if (m_GPUData)
+                m_GPUData->NoiseIndex = static_cast<i32>(sequenceSeed % 256u); // the index wraps at 256
+        }
+        [[nodiscard]] u64 GetFrameSequenceState() const override
+        {
+            return m_GPUData ? static_cast<u64>(static_cast<u32>(m_GPUData->NoiseIndex)) : 0u;
+        }
 
         void SetSettings(const PostProcessSettings& settings)
         {

@@ -921,7 +921,7 @@ namespace OloEngine
         //        hasSurfaceHistory (0/1) — the #1256 coverage/profile term is
         //        inert without last frame's RT3 to compare against.
         glm::vec4 FeedbackSharpnessHasVelocity = glm::vec4(0.9f, 0.25f, 0.0f, 0.0f);
-        // xyzw = 1/width, 1/height, pad, pad
+        // xyzw = 1/width, 1/height, hasHistory (0/1, #1348), pad
         glm::vec4 TexelSize = glm::vec4(0.0f);
 
         static constexpr u32 GetSize()

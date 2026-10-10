@@ -84,6 +84,32 @@ namespace OloEngine
         [[nodiscard]] RGPreparedPass PrepareParallelRecording(RGCommandContext& context) override;
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
+        // The froxel scatter volume is a temporal history of the fog's own,
+        // jittered by m_FrameIndex; a sequence restart drops both (#1348).
+        void ResetFrameSequence(u32 sequenceSeed) override
+        {
+            // Seed-dependent, like the renderer's own indices: a seed's
+            // stride in the stochastic index is 2^16 frames, which the jitter
+            // takes as a float exactly.
+            m_FrameIndex = sequenceSeed * kFrameSequenceSeedStride;
+            m_HistoryValid = false;
+        }
+        [[nodiscard]] u64 GetFrameSequenceState() const override
+        {
+            return (static_cast<u64>(m_HistoryValid) << 32u) | m_FrameIndex;
+        }
+        // The registry's verdict on the scatter volume's lineage (#1348): a
+        // camera cut, a projection or scene change, a sequence restart. The
+        // volume is reprojected through last frame's view-projection, so a
+        // broken lineage drops both.
+        void SetLineageContinues(bool continues) noexcept
+        {
+            if (!continues)
+            {
+                m_HistoryValid = false;
+                m_PrevViewProjectionValid = false;
+            }
+        }
 
         [[nodiscard]] bool IsReadyForExecution() const noexcept override
         {
