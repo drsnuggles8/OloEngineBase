@@ -49,6 +49,40 @@ def foreign_gpu_processes(own_pid=None) -> list:
     return [{'pid': int(pid), 'path': path} for pid, path in rows if own_pid is None or int(pid) != own_pid]
 
 
+class ForeignWatch:
+    """Polls foreign_gpu_processes for the whole cell, so a process that starts
+    and exits between the cell's first and last sample is still recorded."""
+
+    def __init__(self, own_pid, interval: float = 5.0):
+        import threading
+        self.own_pid = own_pid
+        self.interval = interval
+        self.seen = {}
+        self.stop = threading.Event()
+        self.thread = threading.Thread(target=self._run, daemon=True)
+
+    def _poll(self):
+        for process in foreign_gpu_processes(self.own_pid):
+            self.seen.setdefault(process['pid'], process)
+
+    def _run(self):
+        while not self.stop.wait(self.interval):
+            self._poll()
+
+    def __enter__(self):
+        self._poll()
+        self.thread.start()
+        return self
+
+    def __exit__(self, *_):
+        self.stop.set()
+        self.thread.join()
+        self._poll()
+
+    def processes(self) -> list:
+        return list(self.seen.values())
+
+
 class Editor:
     def __init__(self, port: int):
         discovery = Path(os.environ.get('TEMP', '/tmp')) / f'oloengine-mcp-{port}.json'
@@ -143,8 +177,15 @@ def summarise_arm(samples: list[dict]) -> dict:
             'raw': samples}
 
 
-def pass_ms(arm: dict, name: str) -> float:
-    return arm['passMedianMs'].get(name) or 0.0
+def pass_ms(arm: dict, name: str):
+    """A pass's median: 0.0 for a pass that never ran, None for one that ran
+    but whose every GPU time came back null."""
+    medians = arm['passMedianMs']
+    return medians[name] if name in medians else 0.0
+
+
+def plus(a, b):
+    return None if a is None or b is None else a + b
 
 
 def difference(a, b):
@@ -153,28 +194,37 @@ def difference(a, b):
 
 
 def render_summary(result: dict) -> str:
-    """The doc's Vulkan table. A cell measured beside another engine process is
-    listed as contended and kept out of the ranges; per-pass GPU times that came
-    back null are counted, never read as zero."""
-    lines = ['| subject | pose | path | shadows | frame GPU | foliage share of the frame | main-view cull | '
-             'shadow-view culls | ShadowPass Δ (casters + culls) | forward draw (+prepass) | G-buffer share (ScenePass Δ) | '
-             'GPU culling off: frame Δ | density LOD off: frame Δ | null GPU samples | contended |',
-             '|' + '---|' * 15]
-    for cell in result['cells']:
+    """The doc's Vulkan table. A cell measured beside another engine process
+    stays in the raw JSON but is listed in a separate excluded table, never
+    beside the baseline; per-pass GPU times that came back null are counted and
+    shown as n/a, never read as zero."""
+    header = ['| subject | pose | path | shadows | frame GPU | foliage share of the frame | main-view cull | '
+              'shadow-view culls | ShadowPass Δ (casters + culls) | forward draw (+prepass) | G-buffer share (ScenePass Δ) | '
+              'GPU culling off: frame Δ | density LOD off: frame Δ | null GPU samples |',
+              '|' + '---|' * 14]
+
+    def row(cell):
         arms = cell['arms']
         shipped, none = arms['Shipped'], arms['NoFoliage']
-        contended = bool(cell.get('foreignGpuProcesses'))
         nulls = sum(a['gpuNullSamples'] + a['nullPassEntries'] for a in arms.values())
         values = [shipped['gpuMsMedian'], difference(shipped['gpuMsMedian'], none['gpuMsMedian']),
-                  pass_ms(shipped, 'FoliageCull'),
-                  pass_ms(shipped, 'ShadowPass/FoliageCull'), pass_ms(shipped, 'ShadowPass') - pass_ms(none, 'ShadowPass'),
-                  pass_ms(shipped, 'FoliagePass') + pass_ms(shipped, 'FoliagePrepassPass'),
-                  pass_ms(shipped, 'ScenePass') - pass_ms(none, 'ScenePass'),
+                  pass_ms(shipped, 'FoliageCull'), pass_ms(shipped, 'ShadowPass/FoliageCull'),
+                  difference(pass_ms(shipped, 'ShadowPass'), pass_ms(none, 'ShadowPass')),
+                  plus(pass_ms(shipped, 'FoliagePass'), pass_ms(shipped, 'FoliagePrepassPass')),
+                  difference(pass_ms(shipped, 'ScenePass'), pass_ms(none, 'ScenePass')),
                   difference(arms['CpuCull']['gpuMsMedian'], shipped['gpuMsMedian']),
                   difference(arms['NoDensityLod']['gpuMsMedian'], shipped['gpuMsMedian'])]
-        lines.append('| {} | {} | {} | {} | '.format(cell['subject'], cell['pose'], cell['path'], cell['shadows']) +
-                     ' | '.join('n/a' if v is None else '{:.2f}'.format(v) for v in values) +
-                     ' | {} | {} |'.format(nulls, 'yes' if contended else ''))
+        return ('| {} | {} | {} | {} | '.format(cell['subject'], cell['pose'], cell['path'], cell['shadows']) +
+                ' | '.join('n/a' if v is None else '{:.2f}'.format(v) for v in values) + ' | {} |'.format(nulls))
+
+    clean = [c for c in result['cells'] if not c.get('foreignGpuProcesses')]
+    contended = [c for c in result['cells'] if c.get('foreignGpuProcesses')]
+    lines = header + [row(c) for c in clean]
+    if contended:
+        lines += ['', 'Excluded: measured beside another engine or game process (not a baseline).', '',
+                  header[0] + ' beside |', '|' + '---|' * 15]
+        lines += [row(c) + ' {} |'.format('; '.join(sorted({p['path'] for p in c['foreignGpuProcesses']})))
+                  for c in contended]
     if result.get('tails'):
         lines += ['', '| pose | path | frames | frame time p50 | p95 | p99 | max | misses (16.67 ms) | GPU p50 | GPU p99 |',
                   '|' + '---|' * 10]
@@ -251,21 +301,20 @@ def main() -> int:
                         if (subject, pose['name'], path, shadows.upper()) in done:
                             continue
                         editor.pose(pose)
-                        foreign_before = foreign_gpu_processes(args.editor_pid)
                         started = time.strftime('%Y-%m-%dT%H:%M:%S')
                         arms = {arm: [] for arm in ARMS}
-                        for round_index in range(args.rounds):
-                            for k in range(len(ARMS)):
-                                arm = ARMS[(k + round_index) % len(ARMS)]
-                                editor.arm(arm)
-                                time.sleep(args.settle)
-                                arms[arm] += editor.sample(args.samples, args.spacing)
-                        editor.arm('Shipped')
-                        foreign_after = foreign_gpu_processes(args.editor_pid)
+                        with ForeignWatch(args.editor_pid) as watch:
+                            for round_index in range(args.rounds):
+                                for k in range(len(ARMS)):
+                                    arm = ARMS[(k + round_index) % len(ARMS)]
+                                    editor.arm(arm)
+                                    time.sleep(args.settle)
+                                    arms[arm] += editor.sample(args.samples, args.spacing)
+                            editor.arm('Shipped')
                         result['cells'].append({'subject': subject, 'pose': pose['name'], 'path': path,
                                                 'shadows': shadows.upper(), 'started': started,
                                                 'finished': time.strftime('%Y-%m-%dT%H:%M:%S'),
-                                                'foreignGpuProcesses': foreign_before + [p for p in foreign_after if p not in foreign_before],
+                                                'foreignGpuProcesses': watch.processes(),
                                                 'arms': {a: summarise_arm(s) for a, s in arms.items()}})
                         print(f'[foliage-live] {subject} {pose["name"]} {path} {shadows} done', flush=True)
                         args.output.write_text(json.dumps(result, indent=1), encoding='utf-8')
