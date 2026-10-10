@@ -486,8 +486,21 @@ namespace OloEngine
                     ImGui::Text("  %.2f MB, %u updates in %u dispatches, %u reused, %u refused",
                                 static_cast<f64>(vegetation.ResidentBytes) / (1024.0 * 1024.0),
                                 vegetation.Dispatched, vegetation.DispatchBatches, vegetation.SnapshotsReused, vegetation.Refused);
+                    // #1354: what pressure pushed vegetation below its request,
+                    // what it got instead, and how far the fallback is from
+                    // recovering. The divisor is the stress lever behind it.
+                    i32 budgetDivisor = static_cast<i32>(RayTracing::VegetationDiagnostics::GetBudgetDivisor());
+                    if (ImGui::SliderInt("Vegetation budget divisor (diagnostic)", &budgetDivisor, 1, 64))
+                        RayTracing::VegetationDiagnostics::SetBudgetDivisor(static_cast<u32>(budgetDivisor));
+                    ImGui::Text("  pressure: %s   casters as cards %u / %u (nearest %.1f m)   held %u   deferred %u",
+                                RayTracing::ToString(vegetation.DominantPressure()), vegetation.CastingFallbackGroups,
+                                vegetation.CastingGroupsPlanned, vegetation.NearestCastingFallback, vegetation.CadenceHolds,
+                                vegetation.DeferredReflectionGroups);
+                    const auto recovery = Renderer3D::GetRayTracingScene().GetVegetationRecovery();
                     if (!Renderer3D::GetRayTracingScene().IsVegetationReady())
-                        ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.2f, 1.0f), "Vegetation incomplete: hybrid raster fallback");
+                        ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.2f, 1.0f),
+                                           "Vegetation incomplete: hybrid raster fallback (recovers after %u complete frames)",
+                                           recovery.FramesRemaining);
                     // Groom coat proxies (#1253). Criterion 4 asks for proxy
                     // error, update time, memory and unsupported cases to be
                     // reported; the first three are here and the fourth is the

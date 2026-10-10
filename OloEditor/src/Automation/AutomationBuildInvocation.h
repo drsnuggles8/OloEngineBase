@@ -63,11 +63,12 @@ namespace OloEngine::Automation::BuildInvocation
     // inside a RUNNING editor.
     //
     // The layout is not guessed: `olo_configure_app` -> `olo_set_output_directories`
-    // (cmake/CommonProperties.cmake) puts every app and the engine archive under
-    // `<repo>/bin/<Config>/<target>/`, which is the SOURCE tree, not the build
-    // tree — so two build trees write the same file and the path alone cannot
-    // say which one produced it. OloEngine-Tests calls neither, so it keeps the
-    // Ninja-multi-config default under the build directory.
+    // (cmake/CommonProperties.cmake) puts every app under `<repo>/bin/<Config>/<target>/`,
+    // which is the SOURCE tree, not the build tree — so two build trees write the same
+    // file and the path alone cannot say which one produced it. Static archives, the
+    // engine's included, stay in `<build>/lib/<Config>/<target>/` (#1386).
+    // OloEngine-Tests calls neither, so it keeps the Ninja-multi-config default under
+    // the build directory.
     struct TargetSpec
     {
         std::string_view Name;
@@ -87,7 +88,7 @@ namespace OloEngine::Automation::BuildInvocation
     // ask for. A name that is not here is refused as unknown rather than passed
     // through — see the injection note above.
     inline constexpr std::array<TargetSpec, 8> kTargets{ {
-        { "OloEngine", "bin/{CONFIG}/OloEngine/{LIB}OloEngine{LIBEXT}", false, "",
+        { "OloEngine", "lib/{CONFIG}/OloEngine/{LIB}OloEngine{LIBEXT}", true, "",
           "The engine static library. Depends on GenerateBindings, so building it can rewrite the "
           "tracked generated sources under OloEngine/src/Generated." },
         { "OloEngine-Tests", "OloEngine/tests/{CONFIG}/OloEngine-Tests{EXE}", true, "",

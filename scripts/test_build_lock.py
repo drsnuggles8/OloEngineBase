@@ -103,6 +103,51 @@ try {
     def test_two_ordinary_cached_requests_can_still_overlap(self):
         self._assert_cached_admission(2)
 
+    def test_cached_waiter_does_not_pass_an_exclusive_waiter(self):
+        # #1386: an exclusive request at the head of the queue starved while cached
+        # requests queued behind it took each slot as it freed.
+        with tempfile.TemporaryDirectory(prefix='olo-build-gate-') as temporary:
+            root = Path(temporary)
+            subprocess.run(['git', 'init', '-q', str(root)], check=True)
+            (root / 'hold.ps1').write_text(
+                "param($Ready, $Release)\nSet-Content $Ready yes\n"
+                "while (-not (Test-Path $Release)) { Start-Sleep -Milliseconds 50 }\n")
+            common = ['pwsh', '-NoProfile', '-File', str(WRAPPER), '-Jobs', '-1',
+                      '-PollSeconds', '1', '-NoParentWatch', '-ConcurrentMinFreeGB', '0']
+            logs = {name: (root / f'{name}.log').open('w') for name in ('holder', 'exclusive', 'cached')}
+            processes = []
+            try:
+                def start(name, limit, command):
+                    processes.append(subprocess.Popen([*common, '-MaxConcurrent', str(limit), '-Command', command],
+                                                      cwd=root, stdout=logs[name], stderr=subprocess.STDOUT))
+                start('holder', 2, '& ./hold.ps1 holder_ready release_holder # build-cached')
+                wait_for(lambda: (root / 'holder_ready').exists())
+                start('exclusive', 1, '& ./hold.ps1 exclusive_started release_exclusive # build-cached')
+                wait_for(lambda: 'waiting' in (root / 'exclusive.log').read_text())
+                start('cached', 2, 'Set-Content cached_started yes # build-cached')
+                wait_for(lambda: (root / 'cached_started').exists() or 'waiting' in (root / 'cached.log').read_text())
+                time.sleep(3)  # three polls with slot 1 free
+                self.assertFalse((root / 'cached_started').exists(), 'A cached waiter passed the exclusive waiter')
+                (root / 'release_holder').touch()
+                wait_for(lambda: (root / 'exclusive_started').exists())
+                time.sleep(3)
+                self.assertFalse((root / 'cached_started').exists(), 'A cached waiter joined the exclusive job')
+                (root / 'release_exclusive').touch()
+                wait_for(lambda: (root / 'cached_started').exists())
+                for process in processes:
+                    self.assertEqual(process.wait(timeout=15), 0)
+            finally:
+                for marker in ('release_holder', 'release_exclusive'):
+                    (root / marker).touch()
+                for process in processes:
+                    try:
+                        process.wait(timeout=15)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+                for log in logs.values():
+                    log.close()
+
 
 if __name__ == '__main__':
     unittest.main()

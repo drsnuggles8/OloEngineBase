@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
+#include "OloEngine/Containers/Array.h"
 
 namespace OloEngine
 {
@@ -11,6 +12,7 @@ namespace OloEngine
     {
         class RayTracingProbe;
         class RayTracingScene;
+        class DeformedSurfaceCache;
         class GroomSurfaceCache;
         class VegetationSurfaceCache;
     } // namespace RayTracing
@@ -68,6 +70,12 @@ namespace OloEngine
         {
             m_Grooms = cache;
         }
+        /// The skinned-surface producer (#1354), read only for whether this
+        /// frame's deformed streams were written.
+        void SetDeformedSurfaceCache(const RayTracing::DeformedSurfaceCache* cache) noexcept
+        {
+            m_Deformed = cache;
+        }
         // The live-frame ray probe behind olo_rt_trace_ray (#607). Borrowed,
         // never owned, like the two above.
         void SetRayTracingProbe(RayTracing::RayTracingProbe* probe) noexcept
@@ -84,6 +92,9 @@ namespace OloEngine
         const GPUScene* m_GPUScene = nullptr;
         RayTracing::VegetationSurfaceCache* m_Vegetation = nullptr;
         RayTracing::GroomSurfaceCache* m_Grooms = nullptr;
+        const RayTracing::DeformedSurfaceCache* m_Deformed = nullptr;
+        // Scratch: this frame's unwritten skinned streams (#1354).
+        TArray<u64> m_UntrustedDeformedOutputs;
         RayTracing::RayTracingProbe* m_Probe = nullptr;
     };
 } // namespace OloEngine

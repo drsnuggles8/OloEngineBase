@@ -110,6 +110,11 @@ namespace OloEngine
         // the ONLY one, and why DI's count comparison has no GI analogue.
         NoIndirectSourceInScene,
 
+        // A TLAS exists but is withheld (#1354): vegetation in this frame's
+        // scene could not be traced complete within its budget, or its
+        // producer failed, so tracing it would miss plants. The explicit
+        // technique fallback, with its pressure source in olo_rt_scene_stats.
+        AccelerationStructureWithheld,
         Count
     };
 
@@ -129,6 +134,8 @@ namespace OloEngine
                 return "hardware ray tracing is unavailable on this device (see RayTracing::UnsupportedReason)";
             case ReSTIRGIFallbackReason::AccelerationStructureEmpty:
                 return "no TLAS has been built yet, so no bounce ray could be traced";
+            case ReSTIRGIFallbackReason::AccelerationStructureWithheld:
+                return "the TLAS is withheld: vegetation could not be traced complete within its budget, or its producer failed (see olo_rt_scene_stats vegetation.pressure)";
             case ReSTIRGIFallbackReason::GPUSceneUnavailable:
                 return "the GPU Scene tables are unavailable, so a bounce vertex could not be shaded";
             case ReSTIRGIFallbackReason::TargetUnavailable:
@@ -479,6 +486,8 @@ namespace OloEngine
         bool ShadersReady = false;        ///< All four reservoir shaders loaded.
         bool RayTracingAvailable = false; ///< RayTracingScene::IsAvailable().
         bool TlasReady = false;           ///< GetTlasDeviceAddress() != 0.
+        /// A TLAS exists but vegetation readiness withholds it (#1354).
+        bool TlasWithheld = false;
         bool GPUSceneAvailable = false;   ///< Instance / geometry / material / light tables are addressable.
         bool TargetsAvailable = false;    ///< The graph produced this frame's reservoir targets.
         bool HistoryLayoutMatches = true; ///< The history planes were written at kGIReservoirLayoutVersion.
@@ -526,7 +535,8 @@ namespace OloEngine
         if (support.Status == RendererSupport::Outcome::Unsupported)
             return fallback(ReSTIRGIFallbackReason::RayTracingUnavailable);
         if (!inputs.TlasReady)
-            return fallback(ReSTIRGIFallbackReason::AccelerationStructureEmpty);
+            return fallback(inputs.TlasWithheld ? ReSTIRGIFallbackReason::AccelerationStructureWithheld
+                                                : ReSTIRGIFallbackReason::AccelerationStructureEmpty);
         if (!inputs.GPUSceneAvailable)
             return fallback(ReSTIRGIFallbackReason::GPUSceneUnavailable);
         if (!inputs.TargetsAvailable)

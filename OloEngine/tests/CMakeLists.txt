@@ -856,6 +856,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/CookedCutoutCoverageEvidenceTest.cpp
 		Rendering/PropertyTests/FloraTraversalEvidenceTest.cpp
 		Rendering/PropertyTests/FloraLooseCookedParityEvidenceTest.cpp
+		Rendering/PropertyTests/FoliageCostBaselineTest.cpp
         Rendering/PropertyTests/FoliageGPUCullEvidenceTest.cpp
         Rendering/PropertyTests/FoliageWindEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageLeafMaterialTest.cpp
@@ -975,6 +976,7 @@ add_executable(OloEngine-Tests
 		# render-budget throttle transient before returning. Same McpHeadlessHost
 		# infra as McpHeadlessAttachTest.cpp above.
 		Rendering/PropertyTests/McpPerfSettleTest.cpp
+		Rendering/PropertyTests/AnimationClockThrottleTest.cpp
 		Rendering/PropertyTests/VideoOverlayVisualEvidenceTest.cpp
 		Rendering/PropertyTests/AutoExposureEvidenceTest.cpp
 		Rendering/PropertyTests/GLAttachmentBlendOpinionTest.cpp

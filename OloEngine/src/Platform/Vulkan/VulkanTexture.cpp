@@ -397,14 +397,24 @@ namespace OloEngine
         // either usage fails image creation.
         const bool isBlockCompressed = IsCompressedFormat(m_Specification.Format);
 
-        // A block image is never a copy SOURCE (GetData has no readback path for
-        // it), and asking for the usage would need a format feature the
-        // compressed constructor does not check.
+        // Images are copy SOURCES: GetData reads them back with
+        // vkCmdCopyImageToBuffer, block images included (#1533). Only a block
+        // format is asked for the TRANSFER_SRC feature (an uncompressed or depth
+        // format is assumed to have it, as before); one without it still loads
+        // and samples, and only its readback is refused.
         VkImageUsageFlags usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-        if (!isBlockCompressed)
+        bool copySource = true;
+        if (isBlockCompressed)
+        {
+            VkFormatProperties props{};
+            vkGetPhysicalDeviceFormatProperties(device->GetPhysicalDevice(), format, &props);
+            copySource = (props.optimalTilingFeatures & VK_FORMAT_FEATURE_TRANSFER_SRC_BIT) != 0;
+        }
+        if (copySource)
         {
             usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
         }
+        m_CopySourceUsage = copySource;
         if (isDepth)
         {
             usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
@@ -1570,6 +1580,13 @@ namespace OloEngine
         // cooked to BC7, and every CPU reader of one -- a coat's colour map -- used
         // to get nothing at all.
         const bool blockCompressed = IsCompressedFormat(m_Specification.Format);
+        if (!m_CopySourceUsage)
+        {
+            OLO_CORE_ERROR("VulkanTexture2D::GetData: '{}' cannot be read back: this device does not support "
+                           "copying from its format",
+                           m_Path.ToView());
+            return false;
+        }
         const u32 texelBytes = blockCompressed ? 0u : VkFormatTexelBytes(m_Specification.Format);
         if ((!blockCompressed && texelBytes == 0) || m_Specification.Samples > 1u)
         {

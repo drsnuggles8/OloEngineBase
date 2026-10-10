@@ -665,3 +665,197 @@ TEST_F(RayTracingDevice, VegetationDispatchReadsItsOwnParamsAfterAnotherProducer
     reference.Shutdown();
     cache.Shutdown();
 }
+
+// #1354: one quad group, the shape every test below starts from.
+namespace VegetationPressureTest
+{
+    inline RT::VegetationSurfaceInput Quad(u64 owner, u64 firstPlantId, const Ref<VertexBuffer>& rest, bool castShadows)
+    {
+        RT::VegetationSurfaceInput input;
+        input.Owner = owner;
+        input.FirstPlantId = firstPlantId;
+        input.Rest = rest;
+        input.VertexCount = 4u;
+        input.Rows.Add({ glm::vec4(0, 0, 0, 1), glm::vec4(0, 1, 1, FoliageWindPhase(firstPlantId)), glm::vec4(1) });
+        input.Parts.Add({ 0u, { 0u, 1u, 2u, 2u, 3u, 0u }, {} });
+        input.DetailedDistance = 12.0f;
+        input.HistoryContinuous = true;
+        input.CastShadows = castShadows;
+        input.PlantSetSum = RT::VegetationPlantTerm(firstPlantId);
+        return input;
+    }
+
+    // A casting group, new this frame, whose refresh takes the frame's whole
+    // triangle budget (new groups are served first among casters).
+    inline RT::VegetationSurfaceInput Hog(u64 owner, u64 firstPlantId, const Ref<VertexBuffer>& rest)
+    {
+        constexpr u32 plants = 64u;
+        RT::VegetationSurfaceInput hog = Quad(owner, firstPlantId, rest, true);
+        hog.Rows.Reset();
+        for (u32 plant = 0u; plant < plants; ++plant)
+            hog.Rows.Add({ glm::vec4(static_cast<f32>(plant), 0, 0, 1), glm::vec4(0, 1, 1, 0), glm::vec4(1) });
+        hog.Parts.Reset();
+        RT::VegetationSurfacePart part;
+        for (u32 triangle = 0u; triangle < RT::VegetationPolicy::TrianglesPerFrame / plants; ++triangle)
+            for (const u32 corner : { 0u, 1u, 2u })
+                part.Indices.Add(corner);
+        hog.Parts.Add(std::move(part));
+        hog.PlantSetSum = 0u;
+        return hog;
+    }
+
+    inline Ref<VertexBuffer> QuadRest()
+    {
+        const std::array<Vertex, 4> vertices{
+            Vertex({ -0.5f, 0, 0 }, { 0, 1, 0 }, { 0, 0 }), Vertex({ 0.5f, 0, 0 }, { 0, 1, 0 }, { 1, 0 }),
+            Vertex({ 0.5f, 1, 0 }, { 0, 1, 0 }, { 1, 1 }), Vertex({ -0.5f, 1, 0 }, { 0, 1, 0 }, { 0, 1 })
+        };
+        return VertexBuffer::Create(vertices.data(), sizeof(vertices));
+    }
+} // namespace VegetationPressureTest
+
+// #1354: a CASTING group whose refresh does not fit keeps its snapshot while
+// that is inside the proxies' deadline: reduced cadence within the declared
+// shadow error, and the casters stay complete, so no ray-traced effect is
+// withheld. Past the deadline the snapshot is obsolete; the group is refused
+// and the pressure is named.
+TEST_F(RayTracingDevice, ACastingGroupOverTheFrameBudgetHoldsItsSnapshotInsideTheProxyDeadline)
+{
+    using namespace VegetationPressureTest;
+    ScopedVulkanRenderCommandSelection selection;
+    const Ref<VertexBuffer> rest = QuadRest();
+    RT::VegetationSurfaceInput caster = Quad(41u, 5u, rest, true);
+    caster.VelocityBound = 5.0f; // proxy deadline 0.05 s, 0.25 m at 5 m/s
+    RT::VegetationSurfaceInput hog = Hog(42u, 6u, rest);
+
+    GPUScene scene;
+    RT::VegetationSurfaceCache cache;
+    cache.SetEnabled(true);
+    const auto extract = [&](std::initializer_list<const RT::VegetationSurfaceInput*> inputs)
+    {
+        cache.BeginFrame();
+        scene.BeginExtraction(41u, glm::vec3(0));
+        for (const RT::VegetationSurfaceInput* input : inputs)
+            cache.Queue(*input);
+        cache.FinishExtraction(scene);
+        static_cast<void>(scene.EndExtraction());
+    };
+    extract({ &caster });
+    RecordAndSubmit([&]
+                    { EXPECT_GT(cache.Dispatch(), 0u); });
+
+    // 20 ms later the hog takes the budget: the caster holds its snapshot.
+    caster.Wind.Time += 0.02f;
+    extract({ &caster, &hog });
+    EXPECT_EQ(cache.GetStats().CadenceHolds, 1u);
+    EXPECT_EQ(cache.GetStats().Refused, 0u);
+    EXPECT_TRUE(cache.GetStats().CastersComplete) << "a caster inside its error bound withheld the shadow TLAS";
+    EXPECT_GT(cache.GetStats().OldestSnapshotAge, 0.019f) << "the held age is not reported";
+    EXPECT_LE(cache.GetStats().OldestSnapshotError, RT::VegetationPolicy::MaximumWorldDisplacementError);
+    EXPECT_EQ(cache.GetStats().DominantPressure(), RT::VegetationPressure::FrameWork);
+    EXPECT_GT(cache.GetStats().Recovery.RefreshTriangles, 0u) << "the held refresh is recovery work";
+    RecordAndSubmit([&]
+                    { EXPECT_GT(cache.Dispatch(), 0u); });
+
+    // 100 ms after its snapshot, past the deadline, with a new hog in front:
+    // the snapshot is obsolete and must not be published as current.
+    caster.Wind.Time += 0.08f;
+    hog.FirstPlantId = 7u;
+    extract({ &caster, &hog });
+    EXPECT_EQ(cache.GetStats().CadenceHolds, 0u);
+    EXPECT_EQ(cache.GetStats().Refused, 1u);
+    EXPECT_FALSE(cache.GetStats().CastersComplete) << "an obsolete caster snapshot was published as current";
+    EXPECT_EQ(cache.GetStats().DominantPressure(), RT::VegetationPressure::FrameWork);
+    cache.Shutdown();
+}
+
+// #1354: a REFLECTION-ONLY group with no snapshot whose build does not fit
+// (a camera cut re-slices every group) is deferred: left out of the scene for
+// the frame and counted, not refused, so reflections keep the TLAS. It is
+// first in line next frame.
+TEST_F(RayTracingDevice, ANewReflectionGroupThatDoesNotFitIsDeferredNotRefused)
+{
+    using namespace VegetationPressureTest;
+    ScopedVulkanRenderCommandSelection selection;
+    const Ref<VertexBuffer> rest = QuadRest();
+    const RT::VegetationSurfaceInput reflection = Quad(51u, 11u, rest, false);
+    const RT::VegetationSurfaceInput hog = Hog(52u, 12u, rest);
+
+    GPUScene scene;
+    RT::VegetationSurfaceCache cache;
+    cache.SetEnabled(true);
+    const auto extract = [&](std::initializer_list<const RT::VegetationSurfaceInput*> inputs)
+    {
+        cache.BeginFrame();
+        scene.BeginExtraction(51u, glm::vec3(0));
+        for (const RT::VegetationSurfaceInput* input : inputs)
+            cache.Queue(*input);
+        cache.FinishExtraction(scene);
+        static_cast<void>(scene.EndExtraction());
+    };
+    extract({ &reflection, &hog });
+    EXPECT_EQ(cache.GetStats().DeferredReflectionGroups, 1u);
+    EXPECT_EQ(cache.GetStats().DeferredReflectionPlants, 1u);
+    EXPECT_EQ(cache.GetStats().Refused, 0u);
+    EXPECT_TRUE(cache.GetStats().Complete) << "a deferred reflection group withheld the TLAS from every reflection ray";
+    EXPECT_EQ(cache.GetStats().PlantsRepresented, 64u) << "the deferred plants were published anyway";
+    RecordAndSubmit([&]
+                    { EXPECT_GT(cache.Dispatch(), 0u); });
+
+    // The hog's snapshot is reused (its time did not move), so the deferred
+    // group fits now.
+    extract({ &reflection, &hog });
+    EXPECT_EQ(cache.GetStats().DeferredReflectionGroups, 0u);
+    EXPECT_EQ(cache.GetStats().PlantsRepresented, 65u);
+    EXPECT_TRUE(cache.GetStats().HistoryReset) << "plants entering the traced scene are a representation change";
+    RecordAndSubmit([&]
+                    { EXPECT_GT(cache.Dispatch(), 0u); });
+    cache.Shutdown();
+}
+
+// #1354: the RT histories reset when the TRACED representation changes, not
+// whenever a group is created or retired. A camera move re-slices the same
+// plants into new groups at the same tier; resetting on that wiped the
+// shadow and TAA histories on every frame of camera motion. Plants leaving,
+// or changing tier, still reset.
+TEST_F(RayTracingDevice, ARegroupAtTheSameTierIsNotARepresentationChange)
+{
+    using namespace VegetationPressureTest;
+    ScopedVulkanRenderCommandSelection selection;
+    const Ref<VertexBuffer> rest = QuadRest();
+    const Ref<VertexBuffer> otherTier = QuadRest();
+    const auto group = [&](u64 firstPlantId, std::initializer_list<u64> plants, const Ref<VertexBuffer>& stream)
+    {
+        RT::VegetationSurfaceInput input = Quad(61u, firstPlantId, stream, true);
+        input.Rows.Reset();
+        input.PlantSetSum = 0u;
+        for (const u64 plant : plants)
+        {
+            input.Rows.Add({ glm::vec4(static_cast<f32>(plant), 0, 0, 1), glm::vec4(0, 1, 1, FoliageWindPhase(plant)), glm::vec4(1) });
+            input.PlantSetSum += RT::VegetationPlantTerm(plant);
+        }
+        return input;
+    };
+    GPUScene scene;
+    RT::VegetationSurfaceCache cache;
+    cache.SetEnabled(true);
+    const auto extract = [&](std::initializer_list<RT::VegetationSurfaceInput> inputs)
+    {
+        cache.BeginFrame();
+        scene.BeginExtraction(61u, glm::vec3(0));
+        for (const RT::VegetationSurfaceInput& input : inputs)
+            cache.Queue(input);
+        cache.FinishExtraction(scene);
+        static_cast<void>(scene.EndExtraction());
+        RecordAndSubmit([&]
+                        { static_cast<void>(cache.Dispatch()); });
+        return cache.GetStats().HistoryReset;
+    };
+    EXPECT_TRUE(extract({ group(1u, { 1u, 2u }, rest), group(3u, { 3u }, rest) })) << "first sight";
+    EXPECT_FALSE(extract({ group(1u, { 1u, 2u }, rest), group(3u, { 3u }, rest) }));
+    EXPECT_FALSE(extract({ group(1u, { 1u }, rest), group(2u, { 2u, 3u }, rest) })) << "a regroup reset the RT histories";
+    EXPECT_EQ(cache.GetStats().PlantsRepresented, 3u);
+    EXPECT_TRUE(extract({ group(1u, { 1u }, rest), group(2u, { 2u, 3u }, otherTier) })) << "a tier switch went unnoticed";
+    EXPECT_TRUE(extract({ group(1u, { 1u }, rest), group(2u, { 2u }, otherTier) })) << "a plant leaving went unnoticed";
+    cache.Shutdown();
+}

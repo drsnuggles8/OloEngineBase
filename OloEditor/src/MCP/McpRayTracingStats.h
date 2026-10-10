@@ -51,6 +51,16 @@ namespace OloEngine::MCP::RayTracingStats
         OloEngine::RayTracing::DeformedSurfaceStats Deformed;
         OloEngine::RayTracing::VegetationSurfaceStats Vegetation;
         bool VegetationReady = true;
+        // The technique's side of vegetation pressure (#1354): whether each
+        // TLAS is withheld from its passes, and the hysteresis before it
+        // comes back (RayTracingScene::GetVegetationRecovery).
+        bool VegetationShadowReady = true;
+        bool TlasWithheld = false;
+        bool ShadowTlasWithheld = false;
+        u32 RecoveryFramesRemaining = 0u;
+        u32 ShadowRecoveryFramesRemaining = 0u;
+        u32 FallbackEngagements = 0u;
+        u32 ShadowFallbackEngagements = 0u;
         /// Groom coat proxies (issue #1253).
         OloEngine::GroomProxyStats Grooms;
     };
@@ -213,6 +223,52 @@ namespace OloEngine::MCP::RayTracingStats
             { "reused", vegetation.SnapshotsReused },
             { "refused", vegetation.Refused },
             { "historyReset", vegetation.HistoryReset },
+            { "groupsCreated", vegetation.GroupsCreated },
+            { "groupsRetired", vegetation.GroupsRetired },
+            { "refreshReasons",
+              Json{
+                  { "new", vegetation.RefreshNew },
+                  { "reset", vegetation.RefreshReset },
+                  { "invalid", vegetation.RefreshInvalid },
+                  { "due", vegetation.RefreshDue },
+              } },
+            // #1354: the pressure that pushed vegetation below the quality it
+            // asked for, what it got instead, and what recovery would cost.
+            { "shadowReady", snapshot.VegetationShadowReady },
+            { "tlasWithheld", snapshot.TlasWithheld },
+            { "shadowTlasWithheld", snapshot.ShadowTlasWithheld },
+            { "recoveryFramesRemaining", snapshot.RecoveryFramesRemaining },
+            { "shadowRecoveryFramesRemaining", snapshot.ShadowRecoveryFramesRemaining },
+            { "fallbackEngagements", snapshot.FallbackEngagements },
+            { "shadowFallbackEngagements", snapshot.ShadowFallbackEngagements },
+            { "pressure", OloEngine::RayTracing::ToString(vegetation.DominantPressure()) },
+            { "pressureGroups", [&vegetation]
+              {
+                  Json byPressure = Json::object();
+                  for (sizet i = 1u; i < vegetation.Pressure.size(); ++i)
+                      byPressure[OloEngine::RayTracing::ToString(static_cast<OloEngine::RayTracing::VegetationPressure>(i))] =
+                          vegetation.Pressure[i];
+                  return byPressure;
+              }() },
+            { "castingGroupsPlanned", vegetation.CastingGroupsPlanned },
+            { "castingDemandBuilds", vegetation.CastingDemandBuilds },
+            { "castingDemandVertices", vegetation.CastingDemandVertices },
+            { "planFrameSeconds", vegetation.PlanFrameSeconds },
+            { "castingFallbackGroups", vegetation.CastingFallbackGroups },
+            { "castingGroupsLeftOut", vegetation.CastingGroupsLeftOut },
+            { "nearestCastingFallback", vegetation.NearestCastingFallback },
+            { "cadenceHolds", vegetation.CadenceHolds },
+            { "deferredReflectionGroups", vegetation.DeferredReflectionGroups },
+            { "deferredReflectionPlants", vegetation.DeferredReflectionPlants },
+            { "oldestSnapshotAge", vegetation.OldestSnapshotAge },
+            { "oldestSnapshotError", vegetation.OldestSnapshotError },
+            { "recovery", Json{
+                              { "geometryBytes", vegetation.Recovery.GeometryBytes },
+                              { "accelerationBytes", vegetation.Recovery.AccelerationBytes },
+                              { "vertices", vegetation.Recovery.RefreshVertices },
+                              { "triangles", vegetation.Recovery.RefreshTriangles },
+                              { "builds", vegetation.Recovery.RefreshBuilds },
+                          } },
         };
 
         // Also before the readiness early-return, and for the same reason:
@@ -320,6 +376,9 @@ namespace OloEngine::MCP::RayTracingStats
             { "tlasUpdates", frame.TlasUpdates },
             { "instancesTraced", frame.InstancesTraced },
             { "instancesSkipped", frame.InstancesSkipped },
+            // Skinned builds held back because their producer rolled back this
+            // frame's dispatches (#1354); the previous structure stays.
+            { "deformedBuildsDeferred", frame.DeformedBuildsDeferred },
             // Nanoseconds, resolved a frame or more late. Zero means "no
             // sample resolved yet", which is normal for the frames right after
             // a build — not "it was free".

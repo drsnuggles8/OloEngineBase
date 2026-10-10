@@ -746,6 +746,63 @@ namespace OloEngine::Tests
         EXPECT_EQ(m_Backend->Builds[0].Reason, BuildReason::DeformedRefit);
     }
 
+    // #1354: the skinning producer rolled this frame's dispatches back after
+    // the records already named the new revision, so the deformed stream holds
+    // the previous pose (or zeros, for a surface seen for the first time).
+    // Building over it would publish obsolete output as current geometry. The
+    // previous structure stays, and the build happens once a dispatch lands.
+    TEST_F(RayTracingSceneFixture, ASkinnedBuildWaitsForAStreamItsProducerRolledBack)
+    {
+        const GPUSceneGeometryKey key = MakeGeometryKey(10, 20);
+        const std::array<u64, 1> unwritten{ MakeTraceableGeometry().m_VertexAddress };
+        const auto stage = [&](u32 revision, bool trusted)
+        {
+            m_Backend->ClearRecording();
+            BeginFrame();
+            StageDeformedInstance(1, key, MakeTraceableGeometry(), MakeMaterial(), revision);
+            EndFrame();
+            m_Scene.Update(m_GPUScene, /*vegetationOutputTrusted*/ true,
+                           trusted ? std::span<const u64>{} : std::span<const u64>{ unwritten });
+        };
+
+        // First sight with nothing written: no structure, so the instance stays
+        // out of the TLAS rather than tracing zeros.
+        stage(1u, false);
+        EXPECT_TRUE(m_Backend->Builds.empty()) << "a BLAS was built over a stream nothing wrote";
+        EXPECT_TRUE(m_Backend->LastInstances.empty());
+        EXPECT_EQ(m_Scene.GetStats().Frame.DeformedBuildsDeferred, 1u);
+
+        stage(1u, true);
+        ASSERT_EQ(m_Backend->Builds.size(), 1u);
+        EXPECT_EQ(m_Scene.GetStats().Frame.DeformedBuildsDeferred, 0u);
+
+        // A pose the producer rolled back: the resident structure stays, still
+        // matching the stream, and the refit is not committed as done.
+        stage(2u, false);
+        EXPECT_TRUE(m_Backend->Builds.empty());
+        EXPECT_EQ(m_Backend->LastInstances.size(), 1u) << "the character left the TLAS over one rolled-back frame";
+        stage(2u, true);
+        ASSERT_EQ(m_Backend->Builds.size(), 1u) << "the deferred refit was committed as though it ran";
+        EXPECT_EQ(m_Backend->Builds[0].Reason, BuildReason::DeformedRefit);
+
+        // Only the listed streams wait: another character whose stream was
+        // written builds, and a vegetation group at that address has its own
+        // producer flag.
+        auto vegetation = MakeTraceableGeometry(unwritten[0], 0x6000);
+        vegetation.m_Flags |= GPUSceneGeometryFlagVegetation;
+        m_Backend->ClearRecording();
+        BeginFrame();
+        StageDeformedInstance(1, key, MakeTraceableGeometry(), MakeMaterial(), 2u);
+        StageDeformedInstance(2, MakeGeometryKey(30, 40), vegetation, MakeMaterial(), 1u);
+        StageDeformedInstance(3, MakeGeometryKey(50, 60), MakeTraceableGeometry(0x7000, 0x8000), MakeMaterial(), 1u);
+        EndFrame();
+        m_Scene.Update(m_GPUScene, true, unwritten);
+        ASSERT_EQ(m_Backend->Builds.size(), 2u) << "a written stream waited for another one's rollback";
+        EXPECT_EQ(m_Scene.GetStats().Frame.DeformedBuildsDeferred, 0u) << "the resident character needed nothing";
+        for (const auto& build : m_Backend->Builds)
+            EXPECT_TRUE(build.Vegetation || build.VertexAddress == 0x7000u);
+    }
+
     TEST_F(RayTracingSceneFixture, GroomVertexVersionsRefitButShapeChangesRebuild)
     {
         const GPUSceneGeometryKey key = MakeGeometryKey(17, 23, std::numeric_limits<u32>::max());
@@ -1083,15 +1140,72 @@ namespace OloEngine::Tests
         const auto first = m_Backend->Builds[0].Key;
         EXPECT_FALSE(m_Scene.IsVegetationReady());
         EXPECT_EQ(m_Scene.GetTlasDeviceAddress(), 0u);
+        EXPECT_TRUE(m_Scene.IsTlasWithheld()) << "a TLAS was built; it is withheld, not empty (#1354)";
         m_Backend->ClearRecording();
         stage();
         ASSERT_EQ(m_Backend->Builds.size(), 1u);
         EXPECT_NE(m_Backend->Builds[0].Key, first);
+        // Complete again, and published only after a stable run (#1354).
+        for (u32 frame = 1u; frame < RT::VegetationPolicy::RecoveryFrames; ++frame)
+        {
+            EXPECT_FALSE(m_Scene.IsVegetationReady()) << "published after " << frame << " complete frames";
+            m_Backend->ClearRecording();
+            stage();
+            EXPECT_TRUE(m_Backend->Builds.empty());
+        }
         EXPECT_TRUE(m_Scene.IsVegetationReady());
         EXPECT_NE(m_Scene.GetTlasDeviceAddress(), 0u);
-        m_Backend->ClearRecording();
-        stage();
-        EXPECT_TRUE(m_Backend->Builds.empty());
+        EXPECT_FALSE(m_Scene.IsTlasWithheld());
+    }
+
+    // #1354: demand at the budget makes vegetation complete on one frame and
+    // not the next. Withheld at once, published only after RecoveryFrames
+    // complete frames in a row: every ray-traced effect degrades ONCE and
+    // stays degraded, instead of switching on and off frame to frame. Shadow
+    // rays keep their own readiness and their own run.
+    TEST_F(RayTracingSceneFixture, AWithheldTlasComesBackOnlyAfterAStableRun)
+    {
+        const auto frame = [&](bool complete, bool castersComplete)
+        {
+            BeginFrame();
+            StageInstance(1, MakeGeometryKey(10, 20), MakeTraceableGeometry(), MakeMaterial());
+            EndFrame();
+            m_Scene.SetVegetationReady(complete);
+            m_Scene.SetVegetationCastersReady(castersComplete);
+            m_Scene.Update(m_GPUScene);
+        };
+        frame(true, true);
+        ASSERT_NE(m_Scene.GetTlasDeviceAddress(), 0u) << "nothing had failed: the first complete frame publishes";
+
+        u32 published = 0u;
+        for (u32 i = 0u; i < 32u; ++i)
+        {
+            frame(i % 2u == 1u, true);
+            published += m_Scene.GetTlasDeviceAddress() != 0u ? 1u : 0u;
+            EXPECT_NE(m_Scene.GetShadowTlasDeviceAddress(), 0u) << "a reflection-only gap took ray-traced shadows away";
+        }
+        EXPECT_EQ(published, 0u) << "the technique oscillated with the demand";
+        EXPECT_EQ(m_Scene.GetVegetationRecovery().Engagements, 1u) << "the fallback engaged more than once";
+        EXPECT_EQ(m_Scene.GetVegetationRecovery().ShadowEngagements, 0u);
+        EXPECT_TRUE(m_Scene.IsTlasWithheld());
+        EXPECT_FALSE(m_Scene.IsShadowTlasWithheld());
+
+        frame(false, true); // the run starts after the last gap
+        for (u32 i = 1u; i < RT::VegetationPolicy::RecoveryFrames; ++i)
+        {
+            frame(true, true);
+            EXPECT_EQ(m_Scene.GetVegetationRecovery().FramesRemaining, RT::VegetationPolicy::RecoveryFrames - i);
+            EXPECT_EQ(m_Scene.GetTlasDeviceAddress(), 0u);
+        }
+        frame(true, true);
+        EXPECT_NE(m_Scene.GetTlasDeviceAddress(), 0u);
+        EXPECT_EQ(m_Scene.GetVegetationRecovery().FramesRemaining, 0u);
+
+        // A casting gap withholds the shadow TLAS at once, too.
+        frame(true, false);
+        EXPECT_EQ(m_Scene.GetShadowTlasDeviceAddress(), 0u);
+        EXPECT_TRUE(m_Scene.IsShadowTlasWithheld());
+        EXPECT_EQ(m_Scene.GetVegetationRecovery().ShadowEngagements, 1u);
     }
 
     // #1533: a pass that traces only shadow rays reads the shadow TLAS, which
@@ -1113,6 +1227,11 @@ namespace OloEngine::Tests
         EXPECT_EQ(m_Scene.GetShadowTlasDeviceAddress(), 0u) << "a missing caster would leak light";
         m_Scene.SetVegetationReady(true);
         m_Scene.SetVegetationCastersReady(true);
+        // The reflection TLAS was withheld by the Update above, so it comes
+        // back after the recovery run (#1354); the shadow TLAS never was.
+        EXPECT_EQ(m_Scene.GetTlasDeviceAddress(), 0u);
+        for (u32 frame = 0u; frame < RT::VegetationPolicy::RecoveryFrames; ++frame)
+            m_Scene.Update(m_GPUScene);
         EXPECT_NE(m_Scene.GetTlasDeviceAddress(), 0u);
         EXPECT_EQ(m_Scene.GetTlasDeviceAddress(), m_Scene.GetShadowTlasDeviceAddress()) << "one TLAS, two readiness rules";
     }

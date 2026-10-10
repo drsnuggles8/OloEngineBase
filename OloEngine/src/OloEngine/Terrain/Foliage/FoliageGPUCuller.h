@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Renderer/Debug/StagedBufferReadback.h"
 #include "OloEngine/Renderer/Frustum.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Terrain/Foliage/FoliageInstanceRegistry.h"
@@ -327,8 +328,14 @@ namespace OloEngine
         }
 
       private:
+        // One staged GPU -> CPU read for ReadbackResult (see StagedBufferReadback).
+        [[nodiscard]] bool ReadStaged(RHI::ResourceHandle source, u32 offset, u32 size, void* dest) const;
+
         Ref<ComputeShader> m_GroupCullShader;
         Ref<ComputeShader> m_InstanceCullShader;
+        // Grow-only staging for ReadbackResult. Mutable because the read is a
+        // const query of the cull's result; the staging buffer is scratch.
+        mutable StagedBufferReadback m_Readback;
         bool m_Initialised = false;
         bool m_LoadFailed = false;
         u32 m_DebugOutputCapacity = 0;

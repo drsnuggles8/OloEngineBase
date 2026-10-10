@@ -105,6 +105,11 @@ namespace OloEngine
         LightNotShadowCasting,      ///< The light casts no shadow at all; neither technique runs.
         LightNotInLightBuffer,      ///< The light has no multi-light UBO slot, so no channel can be routed to it.
 
+        // A TLAS exists but is withheld (#1354): vegetation in this frame's
+        // scene could not be traced complete within its budget, or its
+        // producer failed, so tracing it would miss plants. The explicit
+        // technique fallback, with its pressure source in olo_rt_scene_stats.
+        AccelerationStructureWithheld,
         Count
     };
 
@@ -122,6 +127,8 @@ namespace OloEngine
                 return "hardware ray tracing is unavailable on this device (see RayTracing::UnsupportedReason)";
             case ShadowTechniqueFallbackReason::AccelerationStructureEmpty:
                 return "no TLAS has been built yet, so there is nothing to trace against";
+            case ShadowTechniqueFallbackReason::AccelerationStructureWithheld:
+                return "the TLAS is withheld: vegetation could not be traced complete within its budget, or its producer failed (see olo_rt_scene_stats vegetation.pressure)";
             case ShadowTechniqueFallbackReason::MaskUnavailable:
                 return "the ray-traced shadow mask was not produced this frame";
             case ShadowTechniqueFallbackReason::MaskChannelBudgetExhausted:
@@ -307,7 +314,9 @@ namespace OloEngine
         bool DeferredPathActive = false;  ///< A G-Buffer exists this frame.
         bool RayTracingAvailable = false; ///< RayTracingScene::IsAvailable().
         bool TlasReady = false;           ///< GetTlasDeviceAddress() != 0.
-        bool MaskAvailable = false;       ///< The graph produced the mask target this frame.
+        /// A TLAS exists but vegetation readiness withholds it (#1354).
+        bool TlasWithheld = false;
+        bool MaskAvailable = false; ///< The graph produced the mask target this frame.
         // Explicit backend; production fills this from RendererAPI::GetAPI().
         // Vulkan is the synthetic ray-capable default used by pure policy tests.
         RendererSupport::Backend Api = RendererSupport::Backend::Vulkan;
@@ -364,7 +373,8 @@ namespace OloEngine
         if (support.Status == RendererSupport::Outcome::Unsupported)
             return fallback(ShadowTechniqueFallbackReason::RayTracingUnavailable);
         if (!inputs.TlasReady)
-            return fallback(ShadowTechniqueFallbackReason::AccelerationStructureEmpty);
+            return fallback(inputs.TlasWithheld ? ShadowTechniqueFallbackReason::AccelerationStructureWithheld
+                                                : ShadowTechniqueFallbackReason::AccelerationStructureEmpty);
         if (!inputs.MaskAvailable)
             return fallback(ShadowTechniqueFallbackReason::MaskUnavailable);
         // Last of the prerequisites, not first: every guard above it names

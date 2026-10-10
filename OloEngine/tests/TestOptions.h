@@ -92,6 +92,12 @@ namespace OloEngine::Tests
         // largest resident set any of the 8,205 cases reached on the Windows dev box
         // was 1.7 GB (RuntimeAssetPackTest), with a median of 0.44 GB.
         u32 RssCeilingMb = 6144;
+        // --olo-rss-ceiling-headroom-mb=<n> : when the first test starts, lower
+        // the ceiling to this process's own resident set (its start-up peak if
+        // that was higher) plus <n> MB. 0 keeps RssCeilingMb throughout. Start-up
+        // differs between processes of the same binary on the same runner, so a
+        // ceiling meant to sit a fixed distance above it has to be taken here.
+        u32 RssCeilingHeadroomMb = 0;
         // --olo-gl-backend=<egl|glfw|none|auto> : force the context-creation
         // path. `auto` is the default and is also accepted explicitly.
         // `egl` is the headless surfaceless route the GPU runners need. `none`

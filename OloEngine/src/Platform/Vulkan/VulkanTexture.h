@@ -218,6 +218,10 @@ namespace OloEngine
         // rather than re-derived, because a host copy into an image that
         // lacks the usage bit is invalid usage, not a slow path.
         bool m_HostTransferUsage = false;
+        // Set by CreateImage: the image carries VK_IMAGE_USAGE_TRANSFER_SRC_BIT, so
+        // GetData may copy from it. False only for a block format whose device
+        // lacks the TRANSFER_SRC feature.
+        bool m_CopySourceUsage = false;
         // See the constructor: true for framebuffer attachments, which never
         // take a client-data upload and so must not carry the usage bit.
         bool m_RenderTargetOnly = false;

@@ -233,6 +233,7 @@ namespace OloEngine
                 .DeferredPathActive = true,
                 .RayTracingAvailable = rayTracingAvailable,
                 .TlasReady = tlasReady,
+                .TlasWithheld = rayTracingAvailable && m_RayTracingScene->IsShadowTlasWithheld(),
                 .MaskAvailable = maskAvailable,
                 .Api = RendererAPI::GetAPI() == RendererAPI::API::Vulkan
                            ? RendererSupport::Backend::Vulkan

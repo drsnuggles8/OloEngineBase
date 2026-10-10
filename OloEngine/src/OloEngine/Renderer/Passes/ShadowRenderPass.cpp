@@ -742,6 +742,16 @@ namespace OloEngine
         // writes -- both hard errors under amendment (92) rule 6, and both
         // observed before this moved out. Each item's draws then only READ the
         // slot this loop filled for it.
+        //
+        // Its own GPU bracket (#1391), beside FoliageCasters: the culls for
+        // every view of the region are dispatched here, before any of them
+        // draws, so the casters' bracket cannot contain them.
+        auto* foliageCullTimers =
+            (filter != ShadowCasterFilter::GroomsOnly && !m_FoliageCasters.IsEmpty() && !RenderCommand::IsRecordingParallelItem())
+                ? &GPUPassTimerPool::GetInstance()
+                : nullptr;
+        if (foliageCullTimers)
+            foliageCullTimers->BeginSubPass("FoliageCull");
         for (auto& caster : m_FoliageCasters)
         {
             if (!caster.renderer || filter == ShadowCasterFilter::GroomsOnly)
@@ -767,6 +777,8 @@ namespace OloEngine
                                                           Renderer3D::GetCullViewPosition()));
             }
         }
+        if (foliageCullTimers)
+            foliageCullTimers->EndSubPass();
         // THE GROOM DRAW TALLY, counted HERE and not inside recordItem: the
         // region forks, so an item incrementing a shared counter would race its
         // siblings. The same cull test the items will run, on the render
@@ -2123,6 +2135,13 @@ namespace OloEngine
             params.BoundsMax = glm::vec4(bounds.Max - origin, 0.0f);
             m_FamilyViewUBO->SetData(&params, sizeof(params));
             m_FamilyViewUBO->Bind();
+            // The same bracket the CSM region gives its culls (#1391); here
+            // each view culls just before it draws.
+            auto* foliageCullTimers = (!m_FoliageCasters.IsEmpty() && !RenderCommand::IsRecordingParallelItem())
+                                          ? &GPUPassTimerPool::GetInstance()
+                                          : nullptr;
+            if (foliageCullTimers)
+                foliageCullTimers->BeginSubPass("FoliageCull");
             for (const auto& caster : m_FoliageCasters)
             {
                 if (!caster.renderer)
@@ -2130,6 +2149,8 @@ namespace OloEngine
                 caster.renderer->ResetShadowViewCulling();
                 caster.renderer->DispatchShadowViewCulling(0, caster.renderer->MakeCullInputs(worldVP, Renderer3D::GetCullViewPosition()));
             }
+            if (foliageCullTimers)
+                foliageCullTimers->EndSubPass();
             RenderCascadeOrFace(worldVP, local ? ShadowPassType::Atlas : ShadowPassType::CSM, view, &frustum,
                                 m_FamilyVsmShaders, m_ItemResources[0], nullptr, nullptr, 0, &vsm);
             // The next view rewrites the foliage compacted streams and draw

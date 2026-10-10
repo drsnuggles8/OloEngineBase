@@ -26,7 +26,8 @@ namespace OloEngine::RayTracing
         namespace
         {
             bool s_ForceDetailed = false;
-        }
+            u32 s_BudgetDivisor = 1u;
+        } // namespace
         void SetForceDetailed(bool enabled)
         {
             s_ForceDetailed = enabled;
@@ -34,6 +35,14 @@ namespace OloEngine::RayTracing
         bool GetForceDetailed()
         {
             return s_ForceDetailed;
+        }
+        void SetBudgetDivisor(u32 divisor)
+        {
+            s_BudgetDivisor = std::clamp(divisor, 1u, 1024u);
+        }
+        u32 GetBudgetDivisor()
+        {
+            return s_BudgetDivisor;
         }
     } // namespace VegetationDiagnostics
     namespace
@@ -186,7 +195,34 @@ namespace OloEngine::RayTracing
         m_Enabled = false;
         m_PreviousComplete = true;
         m_PreviousLeftOut = false;
+        m_PreviousSignature = 0u;
         m_BuildDebt = {};
+    }
+
+    void VegetationSurfaceCache::CountPressure(VegetationPressure pressure, u32 groups)
+    {
+        if (pressure != VegetationPressure::None && pressure != VegetationPressure::Count)
+            m_Stats.Pressure[static_cast<sizet>(pressure)] += groups;
+    }
+
+    void VegetationSurfaceCache::CountCastingPlan(const VegetationPolicy::CastingPlan& plan, f32 nearestFallback, f32 frameSeconds)
+    {
+        if (!m_Enabled)
+            return;
+        m_Stats.CastingDemandBuilds += static_cast<f32>(plan.DemandBuilds);
+        m_Stats.CastingDemandVertices += static_cast<f32>(plan.DemandVertices);
+        m_Stats.CastingDemandTriangles += static_cast<f32>(plan.DemandTriangles);
+        m_Stats.PlanFrameSeconds = frameSeconds;
+        m_Stats.CastingGroupsPlanned += plan.Requested + plan.Fallbacks + plan.Out;
+        m_Stats.CastingFallbackGroups += plan.Fallbacks;
+        m_Stats.CastingGroupsLeftOut += plan.Out;
+        if (plan.Fallbacks > 0u)
+            m_Stats.NearestCastingFallback = m_Stats.NearestCastingFallback > 0.0f ? std::min(m_Stats.NearestCastingFallback, nearestFallback)
+                                                                                   : nearestFallback;
+        VegetationPolicy::Accumulate(m_Stats.Recovery, plan.Recovery);
+        // The groups left out are refused by the producer (Refuse), which
+        // counts their pressure; the fallbacks are counted here.
+        CountPressure(plan.Pressure, plan.Fallbacks);
     }
 
     void VegetationSurfaceCache::RollbackJobs()
@@ -221,7 +257,7 @@ namespace OloEngine::RayTracing
         return found != m_Entries.end() && found->second.ContentKey == contentKey;
     }
 
-    void VegetationSurfaceCache::Refuse(bool castsShadows)
+    void VegetationSurfaceCache::Refuse(bool castsShadows, VegetationPressure pressure)
     {
         if (!m_Enabled)
             return;
@@ -229,6 +265,7 @@ namespace OloEngine::RayTracing
         ++m_Stats.Refused;
         m_Stats.Complete = false;
         m_Stats.CastersComplete = m_Stats.CastersComplete && !castsShadows;
+        CountPressure(pressure);
     }
 
     void VegetationSurfaceCache::CountBeyondReflectionBudget(u32 groups, u32 plants, f32 reach, f32 detailReach)
@@ -251,6 +288,7 @@ namespace OloEngine::RayTracing
             ++m_Stats.Refused;
             m_Stats.Complete = false;
             m_Stats.CastersComplete = m_Stats.CastersComplete && !input.CastShadows;
+            CountPressure(VegetationPressure::InvalidContent);
             return;
         }
         u64 sourceIndices = 0u;
@@ -264,6 +302,12 @@ namespace OloEngine::RayTracing
             ++m_Stats.Refused;
             m_Stats.Complete = false;
             m_Stats.CastersComplete = m_Stats.CastersComplete && !input.CastShadows;
+            if (static_cast<u32>(m_Inputs.Num()) >= VegetationPolicy::ResidentGroups)
+                CountPressure(VegetationPressure::ResidentGroups);
+            else if (input.AccelerationBytes > VegetationPolicy::AccelerationStructureBytes - m_Stats.StagedAccelerationBytes)
+                CountPressure(VegetationPressure::AccelerationMemory);
+            else
+                CountPressure(VegetationPressure::GeometryMemory);
             return;
         }
         m_StagedBytes += stagedBytes;
@@ -292,13 +336,18 @@ namespace OloEngine::RayTracing
         for (const auto& input : m_Inputs)
             if (auto found = m_Entries.find(Key{ input.Owner, input.FirstPlantId, RHI::HashKey(input.Rest->GetRHIHandle()) }); found != m_Entries.end())
                 found->second.LastSeen = m_Frame;
+        // A retired group is not a history reset by itself (#1354): a camera
+        // move re-slices plants into new groups at the same tier, and the
+        // representation signature below says whether the traced plants or
+        // their tiers actually changed.
         std::erase_if(m_Entries, [this](const auto& item)
                       {
             if (item.second.LastSeen == m_Frame)
                 return false;
             m_Stats.ResidentBytes -= item.second.Bytes;
-            m_Stats.HistoryReset = true;
+            ++m_Stats.GroupsRetired;
             return true; });
+        u64 signature = 0u;
         // Casting groups first: shadow rays need every one of them, and a
         // reflection-only group can keep its snapshot when its refresh does not
         // fit (below), so it must not take the budget a caster needs (#1533).
@@ -332,6 +381,12 @@ namespace OloEngine::RayTracing
             return a.SnapshotTime < b.SnapshotTime || (!(b.SnapshotTime < a.SnapshotTime) && a.Identity < b.Identity); });
         VegetationFrameBudget budget;
         budget.Charge(m_BuildDebt);
+        // The stress lever (VegetationDiagnostics::SetBudgetDivisor): all but
+        // 1/divisor of the frame is spent before anything is reserved.
+        if (const u32 divisor = VegetationDiagnostics::GetBudgetDivisor(); divisor > 1u)
+            budget.Charge({ VegetationPolicy::UpdatesPerFrame - VegetationPolicy::UpdatesPerFrame / divisor,
+                            VegetationPolicy::VerticesPerFrame - VegetationPolicy::VerticesPerFrame / divisor,
+                            VegetationPolicy::TrianglesPerFrame - VegetationPolicy::TrianglesPerFrame / divisor });
         m_Stats.CarriedBuilds = m_BuildDebt.Builds;
         m_BuildDebt = {};
         const bool shaderReady = m_Inputs.IsEmpty() || EnsureShader();
@@ -347,17 +402,32 @@ namespace OloEngine::RayTracing
             const u64 bytes = vertices * sizeof(Vertex) + indexCount * sizeof(u32) + plants * sizeof(FoliageInstanceData);
             auto found = m_Entries.find(key);
             const u64 oldBytes = found == m_Entries.end() ? 0u : found->second.Bytes;
-            const auto refuse = [this, casts = input.CastShadows]()
+            const auto refuse = [this, casts = input.CastShadows](VegetationPressure pressure)
             {
                 ++m_Stats.Refused;
                 m_Stats.Complete = false;
                 m_Stats.CastersComplete = m_Stats.CastersComplete && !casts;
+                CountPressure(pressure);
             };
-            if (!shaderReady || (found == m_Entries.end() && m_Entries.size() >= VegetationPolicy::ResidentGroups) || bytes > VegetationPolicy::GeometryBytes - (m_Stats.ResidentBytes - oldBytes) ||
-                vertices > std::numeric_limits<u32>::max() / sizeof(Vertex) ||
+            if (!shaderReady)
+            {
+                refuse(VegetationPressure::ProducerFailure);
+                continue;
+            }
+            if (found == m_Entries.end() && m_Entries.size() >= VegetationPolicy::ResidentGroups)
+            {
+                refuse(VegetationPressure::ResidentGroups);
+                continue;
+            }
+            if (bytes > VegetationPolicy::GeometryBytes - (m_Stats.ResidentBytes - oldBytes))
+            {
+                refuse(VegetationPressure::GeometryMemory);
+                continue;
+            }
+            if (vertices > std::numeric_limits<u32>::max() / sizeof(Vertex) ||
                 indexCount > std::numeric_limits<u32>::max() / sizeof(u32))
             {
-                refuse();
+                refuse(VegetationPressure::InvalidContent);
                 continue;
             }
 
@@ -414,31 +484,54 @@ namespace OloEngine::RayTracing
             if (input.Rows.IsEmpty() && (changed || found->second.ContentKey != input.ContentKey))
             {
                 OLO_CORE_WARN("[RayTracing] a vegetation group named rows the cache does not hold; refused");
-                refuse();
+                refuse(VegetationPressure::InvalidContent);
                 continue;
             }
-            const bool reset = changed || found->second.ParameterHash != parameters.Value ||
-                               found->second.Proxy != proxy || !input.HistoryContinuous;
+            const bool parametersChanged = found != m_Entries.end() && found->second.ParameterHash != parameters.Value;
+            const bool reset = changed || parametersChanged || found->second.Proxy != proxy || !input.HistoryContinuous;
             const bool unchangedTime = !changed && Math::BitwiseEqual(time, found->second.SnapshotTime);
             const bool reuse = !reset && found->second.Valid &&
                                (unchangedTime || (proxy && found->second.SnapshotBucket == bucket &&
                                                   VegetationPolicy::CanReuseSnapshot(time, found->second.SnapshotTime, input.VelocityBound, true)));
-            // A REFLECTION-ONLY group whose refresh does not fit this frame keeps
-            // the snapshot it has (#1533): a reflection of grass a few frames old
-            // in its wind is a reflection of grass, and refusing it would take the
-            // TLAS from every pass. A casting group, or one with no snapshot, is
-            // refused as before.
+            if (!reuse)
+                ++(changed ? m_Stats.RefreshNew : reset              ? m_Stats.RefreshReset
+                                              : !found->second.Valid ? m_Stats.RefreshInvalid
+                                                                     : m_Stats.RefreshDue);
+            // A group whose refresh does not fit this frame (#1533, #1354):
+            //  1. HOLDS its snapshot while that is inside the declared error
+            //     bound (VegetationPolicy::CanHoldSnapshot): the proxies'
+            //     deadline for a caster, the looser reflection bound otherwise.
+            //     Reduced cadence, never an obsolete pose.
+            //  2. A reflection-only group with nothing holdable is DEFERRED:
+            //     left out of the scene this frame and counted. Its plants are
+            //     missing from reflections for a frame; refusing them would
+            //     take the TLAS from every reflection ray instead.
+            //  3. A caster with nothing holdable is refused: a missing caster
+            //     leaks light, so shadow rays fall back to the raster.
+            // Oldest snapshots are served first, so whatever was held or
+            // deferred is first in line next frame.
             bool stale = false;
             // Charged as the backend will charge the builds: one per part, each
             // with the group's whole vertex stream (VegetationFrameBudget).
             const u32 parts = static_cast<u32>(input.Parts.Num());
             if (!reuse && !budget.Reserve(vertices * parts, indexCount / 3u, parts))
             {
-                const bool keepStale = !input.CastShadows && !changed && found->second.Valid &&
-                                       found->second.ParameterHash == parameters.Value && found->second.Proxy == proxy;
-                if (!keepStale)
+                const VegetationPressure pressure = m_Stats.CarriedBuilds > 0u ? VegetationPressure::BuildDebt : VegetationPressure::FrameWork;
+                VegetationPolicy::Accumulate(m_Stats.Recovery, { 0u, 0u, vertices * parts, indexCount / 3u, parts });
+                const bool holdable = !reset && found->second.Valid &&
+                                      VegetationPolicy::CanHoldSnapshot(time, found->second.SnapshotTime, input.VelocityBound, input.CastShadows);
+                CountPressure(pressure);
+                if (!holdable)
                 {
-                    refuse();
+                    if (!input.CastShadows)
+                    {
+                        ++m_Stats.DeferredReflectionGroups;
+                        m_Stats.DeferredReflectionPlants += plants;
+                        continue;
+                    }
+                    ++m_Stats.Refused;
+                    m_Stats.Complete = false;
+                    m_Stats.CastersComplete = false;
                     continue;
                 }
                 stale = true;
@@ -460,11 +553,13 @@ namespace OloEngine::RayTracing
                     replacement.Rows->GetDeviceAddress() == 0u || replacement.Output->GetDeviceAddress() == 0u ||
                     replacement.Indices->GetDeviceAddress() == 0u)
                 {
-                    refuse();
+                    refuse(VegetationPressure::ProducerFailure);
                     continue;
                 }
                 replacement.Bytes = bytes;
                 replacement.ContentKey = input.ContentKey;
+                if (found == m_Entries.end())
+                    ++m_Stats.GroupsCreated;
                 m_Stats.ResidentBytes = m_Stats.ResidentBytes - oldBytes + bytes;
                 found = m_Entries.insert_or_assign(key, std::move(replacement)).first;
             }
@@ -473,13 +568,15 @@ namespace OloEngine::RayTracing
             entry.StateHash = state.Value;
             entry.ParameterHash = parameters.Value;
             entry.Proxy = proxy;
-            m_Stats.HistoryReset |= reset;
+            // A parameter edit or a wind discontinuity is a reset; a new or
+            // changed group is one only if the signature below says so.
+            m_Stats.HistoryReset |= parametersChanged || !input.HistoryContinuous;
             if (proxy)
                 ++m_Stats.ProxyGroups;
             else
                 ++m_Stats.DetailedGroups;
             if (stale)
-                ++m_Stats.StaleReflectionSnapshots;
+                ++(input.CastShadows ? m_Stats.CadenceHolds : m_Stats.StaleReflectionSnapshots);
             if (reuse || stale)
                 ++m_Stats.SnapshotsReused;
             else
@@ -487,7 +584,7 @@ namespace OloEngine::RayTracing
                 if (entry.Revision == std::numeric_limits<u32>::max())
                 {
                     entry.Valid = false;
-                    refuse();
+                    refuse(VegetationPressure::ProducerFailure);
                     continue;
                 }
                 ++entry.Revision;
@@ -531,8 +628,28 @@ namespace OloEngine::RayTracing
                 firstIndex += partIndices;
             }
             m_Stats.PlantsRepresented += plants;
+            // The far groups' fairness: how old a published snapshot gets,
+            // and the displacement its velocity bound allows.
+            const f32 age = std::max(time - entry.SnapshotTime, 0.0f);
+            if (age > m_Stats.OldestSnapshotAge)
+            {
+                m_Stats.OldestSnapshotAge = age;
+                m_Stats.OldestSnapshotError = age * input.VelocityBound;
+            }
+            // Order-free over plants: each plant's term scaled by an odd
+            // factor naming its tier, so regrouping sums to the same value.
+            Hash tier;
+            tier.Mix(RHI::HashKey(input.Rest->GetRHIHandle()));
+            tier.Mix(input.VertexCount);
+            tier.Mix(static_cast<u32>(proxy) | (static_cast<u32>(input.CastShadows) << 1u));
+            tier.Mix(input.ContentGeneration);
+            const u64 plantSet = input.PlantSetSum != 0u ? input.PlantSetSum
+                                                         : VegetationPlantTerm(input.FirstPlantId) * static_cast<u64>(plants);
+            signature += plantSet * (tier.Value | 1u);
         }
         m_Inputs.Reset();
+        m_Stats.HistoryReset |= signature != m_PreviousSignature;
+        m_PreviousSignature = signature;
         m_Stats.HistoryReset |= m_Stats.Complete != m_PreviousComplete;
         const bool leftOut = m_Stats.BeyondReflectionBudget > 0u;
         if (leftOut && !m_PreviousLeftOut)
@@ -557,6 +674,7 @@ namespace OloEngine::RayTracing
             m_Stats.Complete = false;
             m_Stats.ProducerFailed = true;
             m_Stats.Refused += static_cast<u32>(m_Jobs.Num());
+            CountPressure(VegetationPressure::ProducerFailure, static_cast<u32>(m_Jobs.Num()));
             RollbackJobs();
             return 0u;
         }
@@ -605,6 +723,7 @@ namespace OloEngine::RayTracing
                 m_Stats.ProducerFailed = true;
                 m_Stats.HistoryReset = true;
                 m_Stats.Refused += static_cast<u32>(batch.Jobs.Num());
+                CountPressure(VegetationPressure::ProducerFailure, static_cast<u32>(batch.Jobs.Num()));
                 for (const auto* job : batch.Jobs)
                     m_Entries.at(job->Identity).Valid = false;
                 continue;
@@ -639,6 +758,7 @@ namespace OloEngine::RayTracing
                 m_Stats.ProducerFailed = true;
                 m_Stats.HistoryReset = true;
                 m_Stats.Refused += static_cast<u32>(batch.Jobs.Num());
+                CountPressure(VegetationPressure::ProducerFailure, static_cast<u32>(batch.Jobs.Num()));
                 for (const auto* job : batch.Jobs)
                     m_Entries.at(job->Identity).Valid = false;
                 continue;

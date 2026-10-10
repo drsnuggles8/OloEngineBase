@@ -188,7 +188,8 @@ int main(int argc, char** argv)
     // kernel with no test name and, on the self-hosted box, sometimes with the
     // runner. Past the ceiling the process stops itself with exit code 77 and
     // says which test was running.
-    OloEngine::Tests::StartMemoryCeilingWatchdog(OloEngine::Tests::Options().RssCeilingMb);
+    OloEngine::Tests::StartMemoryCeilingWatchdog(OloEngine::Tests::Options().RssCeilingMb,
+                                                 OloEngine::Tests::Options().RssCeilingHeadroomMb);
 
     // No one is here to click OK. Without this, ANY blocking modal in a test run
     // parks the process forever at ~0% CPU — it presents as a hung/slow test,

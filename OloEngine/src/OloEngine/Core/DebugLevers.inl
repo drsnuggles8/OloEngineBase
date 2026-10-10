@@ -254,6 +254,11 @@ OLO_LEVER_EXACT(FoliageCpuCull, "OLO_FOLIAGE_CPU_CULL",
                 "missing from a frame: if it comes back under this, the cull removed it. Exact-match for the "
                 "same reason OLO_TERRAIN_CPU_LOD is -- a typo here would be a silent performance cliff, not a "
                 "visible failure.")
+OLO_LEVER_EXACT(FoliageNoDensityLod, "OLO_FOLIAGE_NO_DENSITY_LOD",
+                "Draw and cull every foliage layer as if it had not authored a density LOD (issue #1237): no "
+                "distance thinning and no coverage-compensating scale-up. The other half of the foliage cost A/B "
+                "(#1391) beside OLO_FOLIAGE_CPU_CULL, live and without a rebuild; group bounds keep the authored "
+                "scale-up, so the cull can only keep more than it needs, never drop a drawn plant.")
 OLO_LEVER_EXACT(TerrainCpuPick, "OLO_TERRAIN_CPU_PICK",
                 "Force the CPU terrain raycast (a 1-unit march over the CPU heightmap mirror) instead of the "
                 "GPU pick pass (issue #717). The twin of OLO_TERRAIN_CPU_LOD, and for the same reason: when "

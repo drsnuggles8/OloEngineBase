@@ -77,7 +77,27 @@ namespace OloEngine::RayTracing
         /// plant count instead -- 216k rows a frame for the showcase lawn.
         u64 ContentKey = 0u;
         u32 HeldPlantCount = 0u;
+        /// The plants' identity, order-free (#1354): the sum of
+        /// VegetationPlantTerm over the group's plant ids. The cache folds it
+        /// with the tier into a signature of the traced representation, so
+        /// plants regrouped at the same tier (a camera move re-slices them)
+        /// read as no change, and a tier switch reads as one. 0: derived from
+        /// FirstPlantId and the plant count.
+        u64 PlantSetSum = 0u;
+        /// The producer's content generation (the foliage registry's): it
+        /// advances when plants are edited in place, which moves geometry
+        /// the plant ids alone cannot see, so it is part of the signature.
+        u64 ContentGeneration = 0u;
     };
+
+    /// One plant's share of VegetationSurfaceInput::PlantSetSum.
+    [[nodiscard]] constexpr u64 VegetationPlantTerm(u64 plantId) noexcept
+    {
+        u64 x = plantId + 0x9e3779b97f4a7c15ull;
+        x = (x ^ (x >> 30u)) * 0xbf58476d1ce4e5b9ull;
+        x = (x ^ (x >> 27u)) * 0x94d049bb133111ebull;
+        return x ^ (x >> 31u);
+    }
 
 } // namespace OloEngine::RayTracing
 
@@ -101,7 +121,9 @@ namespace OloEngine
                                       TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::CastShadows)>::Value &&
                                       TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::AccelerationBytes)>::Value &&
                                       TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::ContentKey)>::Value &&
-                                      TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::HeldPlantCount)>::Value;
+                                      TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::HeldPlantCount)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::PlantSetSum)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RayTracing::VegetationSurfaceInput::ContentGeneration)>::Value;
     };
 } // namespace OloEngine
 
@@ -139,6 +161,66 @@ namespace OloEngine::RayTracing
         /// Builds the backend did not record last frame, charged to this
         /// frame's budget before any refresh (VegetationBuildDebt).
         u32 CarriedBuilds = 0u;
+
+        // --- Requested against realized quality (#1354) -----------------
+        /// Casting groups the producer planned, how many it traces as their
+        /// complete lower-cost tier (cards) instead of the requested one, and
+        /// how many fit at no tier (refused: the casters are incomplete and
+        /// shadow rays fall back to the raster).
+        u32 CastingGroupsPlanned = 0u;
+        u32 CastingFallbackGroups = 0u;
+        u32 CastingGroupsLeftOut = 0u;
+        /// The casting plan's steady refresh demand, per frame, and the wind
+        /// clock step it was planned for (VegetationPolicy::RefreshRate).
+        f32 CastingDemandBuilds = 0.0f;
+        f32 CastingDemandVertices = 0.0f;
+        f32 CastingDemandTriangles = 0.0f;
+        f32 PlanFrameSeconds = 0.0f;
+        /// The nearest casting group traced below its requested tier, metres;
+        /// 0 with none. Near (hero) quality holds while this stays far out.
+        f32 NearestCastingFallback = 0.0f;
+        /// Casting groups whose refresh did not fit and that kept a snapshot
+        /// inside the proxy deadline (VegetationPolicy::CanHoldSnapshot).
+        u32 CadenceHolds = 0u;
+        /// Reflection-only groups with no usable snapshot whose build did not
+        /// fit: left out of the scene this frame and counted, not refused.
+        u32 DeferredReflectionGroups = 0u;
+        u32 DeferredReflectionPlants = 0u;
+        /// The oldest snapshot published this frame, seconds, and the world
+        /// displacement its velocity bound allows, metres: the far groups'
+        /// fairness, bounded by CanHoldSnapshot for every published group.
+        f32 OldestSnapshotAge = 0.0f;
+        f32 OldestSnapshotError = 0.0f;
+        /// What restoring the requested quality would cost: the difference
+        /// for every group below its requested tier, the requested cost of
+        /// every group left out, and the refresh of every held or deferred one.
+        VegetationPolicy::GroupCost Recovery;
+        /// Groups each pressure source pushed below their request this frame.
+        std::array<u32, static_cast<sizet>(VegetationPressure::Count)> Pressure{};
+        [[nodiscard]] VegetationPressure DominantPressure() const
+        {
+            sizet dominant = 0u;
+            for (sizet i = 1u; i < Pressure.size(); ++i)
+                if (Pressure[i] > Pressure[dominant])
+                    dominant = i;
+            return Pressure[dominant] == 0u ? VegetationPressure::None : static_cast<VegetationPressure>(dominant);
+        }
+        /// Groups first seen and groups retired this frame: the churn a camera
+        /// move causes by re-slicing plants. Before #1354 any of it reset the
+        /// RT and TAA histories; now only a representation change does.
+        u32 GroupsCreated = 0u;
+        u32 GroupsRetired = 0u;
+        /// Why each refreshed or refused group needed a refresh this frame:
+        /// first sight or new content, a reset (parameters, tier, wind
+        /// continuity), a snapshot invalidated by an unrecorded dispatch, or
+        /// its deadline coming due. What the per-frame budget is spent on.
+        u32 RefreshNew = 0u;
+        u32 RefreshReset = 0u;
+        u32 RefreshInvalid = 0u;
+        u32 RefreshDue = 0u;
+        /// The traced representation changed: plants entered or left the
+        /// scene, changed tier or time resolution, or lost wind continuity
+        /// (#1354). Plants regrouped at the same tier are not a change.
         bool HistoryReset = false;
         bool ProducerFailed = false;
         /// Every queued group is resident and current.
@@ -165,13 +247,22 @@ namespace OloEngine::RayTracing
         /// A group the producer could not even describe, refused as Queue
         /// refuses an invalid input; `castsShadows` says whose completeness it
         /// costs (#1533).
-        void Refuse(bool castsShadows);
+        void Refuse(bool castsShadows, VegetationPressure pressure = VegetationPressure::InvalidContent);
+        /// What the producer's casting plan chose (#1354), counted under the
+        /// pressure that forced its first fallback.
+        void CountCastingPlan(const VegetationPolicy::CastingPlan& plan, f32 nearestFallback, f32 frameSeconds);
         /// Reflection-only groups left out by ChooseReflectionTiers, and the
         /// reach of the ones admitted, at any tier and as the mesh.
         void CountBeyondReflectionBudget(u32 groups, u32 plants, f32 reach, f32 detailReach);
         [[nodiscard]] u64 GetStagedBytes() const
         {
             return m_StagedBytes;
+        }
+        /// The groups queued so far this frame: each takes one of
+        /// VegetationPolicy::ResidentGroups.
+        [[nodiscard]] u32 GetQueuedGroups() const
+        {
+            return static_cast<u32>(m_Inputs.Num());
         }
         /// Whether this group's rows are resident under `contentKey`, so its
         /// input may carry HeldPlantCount instead of rows.
@@ -245,7 +336,10 @@ namespace OloEngine::RayTracing
 
         [[nodiscard]] bool EnsureShader();
         void RollbackJobs();
+        void CountPressure(VegetationPressure pressure, u32 groups = 1u);
         bool m_Enabled = false;
+        // The last frame's representation signature (HistoryReset).
+        u64 m_PreviousSignature = 0u;
         bool m_PreviousComplete = true;
         // Whether last frame left reflection-only groups out, so the log says it
         // when that starts and when it stops, not every frame (#1533).

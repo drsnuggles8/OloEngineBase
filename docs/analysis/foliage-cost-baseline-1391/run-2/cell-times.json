@@ -1,0 +1,542 @@
+{
+"cell:Traversal|Step0|Forward|CSM|msaa1|1920x1080": [
+"2026-10-09T16:26:54",
+"2026-10-09T16:27:53"
+],
+"cell:Traversal|Step1|Forward|CSM|msaa1|1920x1080": [
+"2026-10-09T16:27:53",
+"2026-10-09T16:28:39"
+],
+"cell:Traversal|Step2|Forward|CSM|msaa1|1920x1080": [
+"2026-10-09T16:28:39",
+"2026-10-09T16:29:04"
+],
+"cell:Traversal|Step3|Forward|CSM|msaa1|1920x1080": [
+"2026-10-09T16:29:04",
+"2026-10-09T16:29:29"
+],
+"cell:Traversal|Step4|Forward|CSM|msaa1|1920x1080": [
+"2026-10-09T16:29:29",
+"2026-10-09T16:29:53"
+],
+"cell:Traversal|Step5|Forward|CSM|msaa1|1920x1080": [
+"2026-10-09T16:29:53",
+"2026-10-09T16:30:19"
+],
+"cell:Traversal|Step6|Forward|CSM|msaa1|1920x1080": [
+"2026-10-09T16:30:19",
+"2026-10-09T16:30:45"
+],
+"cell:Traversal|Step7|Forward|CSM|msaa1|1920x1080": [
+"2026-10-09T16:30:45",
+"2026-10-09T16:31:08"
+],
+"cell:Traversal|Step8|Forward|CSM|msaa1|1920x1080": [
+"2026-10-09T16:31:08",
+"2026-10-09T16:31:33"
+],
+"cell:Traversal|Step0|Forward|VSM|msaa1|1920x1080": [
+"2026-10-09T16:31:33",
+"2026-10-09T16:32:43"
+],
+"cell:Traversal|Step1|Forward|VSM|msaa1|1920x1080": [
+"2026-10-09T16:32:43",
+"2026-10-09T16:33:56"
+],
+"cell:Traversal|Step2|Forward|VSM|msaa1|1920x1080": [
+"2026-10-09T16:33:56",
+"2026-10-09T16:35:08"
+],
+"cell:Traversal|Step3|Forward|VSM|msaa1|1920x1080": [
+"2026-10-09T16:35:08",
+"2026-10-09T16:36:24"
+],
+"cell:Traversal|Step4|Forward|VSM|msaa1|1920x1080": [
+"2026-10-09T16:36:24",
+"2026-10-09T16:37:46"
+],
+"cell:Traversal|Step5|Forward|VSM|msaa1|1920x1080": [
+"2026-10-09T16:37:46",
+"2026-10-09T16:39:08"
+],
+"cell:Traversal|Step6|Forward|VSM|msaa1|1920x1080": [
+"2026-10-09T16:39:08",
+"2026-10-09T16:40:31"
+],
+"cell:Traversal|Step7|Forward|VSM|msaa1|1920x1080": [
+"2026-10-09T16:40:31",
+"2026-10-09T16:41:47"
+],
+"cell:Traversal|Step8|Forward|VSM|msaa1|1920x1080": [
+"2026-10-09T16:41:47",
+"2026-10-09T16:43:00"
+],
+"cell:Traversal|Step0|ForwardPlus|CSM|msaa1|1920x1080": [
+"2026-10-09T16:43:00",
+"2026-10-09T16:43:23"
+],
+"cell:Traversal|Step1|ForwardPlus|CSM|msaa1|1920x1080": [
+"2026-10-09T16:43:23",
+"2026-10-09T16:43:49"
+],
+"cell:Traversal|Step2|ForwardPlus|CSM|msaa1|1920x1080": [
+"2026-10-09T16:43:49",
+"2026-10-09T16:44:13"
+],
+"cell:Traversal|Step3|ForwardPlus|CSM|msaa1|1920x1080": [
+"2026-10-09T16:44:13",
+"2026-10-09T16:44:37"
+],
+"cell:Traversal|Step4|ForwardPlus|CSM|msaa1|1920x1080": [
+"2026-10-09T16:44:37",
+"2026-10-09T16:45:00"
+],
+"cell:Traversal|Step5|ForwardPlus|CSM|msaa1|1920x1080": [
+"2026-10-09T16:45:00",
+"2026-10-09T16:45:25"
+],
+"cell:Traversal|Step6|ForwardPlus|CSM|msaa1|1920x1080": [
+"2026-10-09T16:45:25",
+"2026-10-09T16:45:49"
+],
+"cell:Traversal|Step7|ForwardPlus|CSM|msaa1|1920x1080": [
+"2026-10-09T16:45:49",
+"2026-10-09T16:46:12"
+],
+"cell:Traversal|Step8|ForwardPlus|CSM|msaa1|1920x1080": [
+"2026-10-09T16:46:12",
+"2026-10-09T16:46:34"
+],
+"cell:Traversal|Step0|ForwardPlus|VSM|msaa1|1920x1080": [
+"2026-10-09T16:46:34",
+"2026-10-09T16:47:42"
+],
+"cell:Traversal|Step1|ForwardPlus|VSM|msaa1|1920x1080": [
+"2026-10-09T16:47:42",
+"2026-10-09T16:48:54"
+],
+"cell:Traversal|Step2|ForwardPlus|VSM|msaa1|1920x1080": [
+"2026-10-09T16:48:54",
+"2026-10-09T16:50:05"
+],
+"cell:Traversal|Step3|ForwardPlus|VSM|msaa1|1920x1080": [
+"2026-10-09T16:50:05",
+"2026-10-09T16:51:14"
+],
+"cell:Traversal|Step4|ForwardPlus|VSM|msaa1|1920x1080": [
+"2026-10-09T16:51:14",
+"2026-10-09T16:52:23"
+],
+"cell:Traversal|Step5|ForwardPlus|VSM|msaa1|1920x1080": [
+"2026-10-09T16:52:23",
+"2026-10-09T16:53:34"
+],
+"cell:Traversal|Step6|ForwardPlus|VSM|msaa1|1920x1080": [
+"2026-10-09T16:53:34",
+"2026-10-09T16:54:44"
+],
+"cell:Traversal|Step7|ForwardPlus|VSM|msaa1|1920x1080": [
+"2026-10-09T16:54:44",
+"2026-10-09T16:55:50"
+],
+"cell:Traversal|Step8|ForwardPlus|VSM|msaa1|1920x1080": [
+"2026-10-09T16:55:50",
+"2026-10-09T16:56:55"
+],
+"cell:Traversal|Step0|Deferred|CSM|msaa1|1920x1080": [
+"2026-10-09T16:56:55",
+"2026-10-09T16:57:23"
+],
+"cell:Traversal|Step1|Deferred|CSM|msaa1|1920x1080": [
+"2026-10-09T16:57:23",
+"2026-10-09T16:57:52"
+],
+"cell:Traversal|Step2|Deferred|CSM|msaa1|1920x1080": [
+"2026-10-09T16:57:52",
+"2026-10-09T16:58:23"
+],
+"cell:Traversal|Step3|Deferred|CSM|msaa1|1920x1080": [
+"2026-10-09T16:58:23",
+"2026-10-09T16:58:52"
+],
+"cell:Traversal|Step4|Deferred|CSM|msaa1|1920x1080": [
+"2026-10-09T16:58:52",
+"2026-10-09T16:59:21"
+],
+"cell:Traversal|Step5|Deferred|CSM|msaa1|1920x1080": [
+"2026-10-09T16:59:21",
+"2026-10-09T16:59:51"
+],
+"cell:Traversal|Step6|Deferred|CSM|msaa1|1920x1080": [
+"2026-10-09T16:59:51",
+"2026-10-09T17:00:20"
+],
+"cell:Traversal|Step7|Deferred|CSM|msaa1|1920x1080": [
+"2026-10-09T17:00:20",
+"2026-10-09T17:00:48"
+],
+"cell:Traversal|Step8|Deferred|CSM|msaa1|1920x1080": [
+"2026-10-09T17:00:48",
+"2026-10-09T17:01:17"
+],
+"cell:Traversal|Step0|Deferred|VSM|msaa1|1920x1080": [
+"2026-10-09T17:01:17",
+"2026-10-09T17:02:39"
+],
+"cell:Traversal|Step1|Deferred|VSM|msaa1|1920x1080": [
+"2026-10-09T17:02:39",
+"2026-10-09T17:03:55"
+],
+"cell:Traversal|Step2|Deferred|VSM|msaa1|1920x1080": [
+"2026-10-09T17:03:55",
+"2026-10-09T17:05:11"
+],
+"cell:Traversal|Step3|Deferred|VSM|msaa1|1920x1080": [
+"2026-10-09T17:05:11",
+"2026-10-09T17:06:34"
+],
+"cell:Traversal|Step4|Deferred|VSM|msaa1|1920x1080": [
+"2026-10-09T17:06:34",
+"2026-10-09T17:07:49"
+],
+"cell:Traversal|Step5|Deferred|VSM|msaa1|1920x1080": [
+"2026-10-09T17:07:49",
+"2026-10-09T17:09:07"
+],
+"cell:Traversal|Step6|Deferred|VSM|msaa1|1920x1080": [
+"2026-10-09T17:09:07",
+"2026-10-09T17:10:23"
+],
+"cell:Traversal|Step7|Deferred|VSM|msaa1|1920x1080": [
+"2026-10-09T17:10:23",
+"2026-10-09T17:11:37"
+],
+"cell:Traversal|Step8|Deferred|VSM|msaa1|1920x1080": [
+"2026-10-09T17:11:37",
+"2026-10-09T17:12:50"
+],
+"cell:Meadow|frontal|Forward|CSM|msaa1|1920x1080": [
+"2026-10-09T17:12:50",
+"2026-10-09T17:13:10"
+],
+"cell:Meadow|grazing|Forward|CSM|msaa1|1920x1080": [
+"2026-10-09T17:13:10",
+"2026-10-09T17:13:26"
+],
+"cell:Meadow|backlit|Forward|CSM|msaa1|1920x1080": [
+"2026-10-09T17:13:26",
+"2026-10-09T17:13:43"
+],
+"cell:Meadow|frontal|Forward|VSM|msaa1|1920x1080": [
+"2026-10-09T17:13:43",
+"2026-10-09T17:14:33"
+],
+"cell:Meadow|grazing|Forward|VSM|msaa1|1920x1080": [
+"2026-10-09T17:14:33",
+"2026-10-09T17:15:21"
+],
+"cell:Meadow|backlit|Forward|VSM|msaa1|1920x1080": [
+"2026-10-09T17:15:21",
+"2026-10-09T17:16:08"
+],
+"cell:Meadow|frontal|ForwardPlus|CSM|msaa1|1920x1080": [
+"2026-10-09T17:16:08",
+"2026-10-09T17:16:26"
+],
+"cell:Meadow|grazing|ForwardPlus|CSM|msaa1|1920x1080": [
+"2026-10-09T17:16:26",
+"2026-10-09T17:16:42"
+],
+"cell:Meadow|backlit|ForwardPlus|CSM|msaa1|1920x1080": [
+"2026-10-09T17:16:42",
+"2026-10-09T17:16:59"
+],
+"cell:Meadow|frontal|ForwardPlus|VSM|msaa1|1920x1080": [
+"2026-10-09T17:16:59",
+"2026-10-09T17:17:49"
+],
+"cell:Meadow|grazing|ForwardPlus|VSM|msaa1|1920x1080": [
+"2026-10-09T17:17:49",
+"2026-10-09T17:18:38"
+],
+"cell:Meadow|backlit|ForwardPlus|VSM|msaa1|1920x1080": [
+"2026-10-09T17:18:38",
+"2026-10-09T17:19:27"
+],
+"cell:Meadow|frontal|Deferred|CSM|msaa1|1920x1080": [
+"2026-10-09T17:19:27",
+"2026-10-09T17:19:44"
+],
+"cell:Meadow|grazing|Deferred|CSM|msaa1|1920x1080": [
+"2026-10-09T17:19:44",
+"2026-10-09T17:20:01"
+],
+"cell:Meadow|backlit|Deferred|CSM|msaa1|1920x1080": [
+"2026-10-09T17:20:01",
+"2026-10-09T17:20:19"
+],
+"cell:Meadow|frontal|Deferred|VSM|msaa1|1920x1080": [
+"2026-10-09T17:20:19",
+"2026-10-09T17:21:10"
+],
+"cell:Meadow|grazing|Deferred|VSM|msaa1|1920x1080": [
+"2026-10-09T17:21:10",
+"2026-10-09T17:22:06"
+],
+"cell:Meadow|backlit|Deferred|VSM|msaa1|1920x1080": [
+"2026-10-09T17:22:06",
+"2026-10-09T17:22:59"
+],
+"cell:Woodland|frontal|Forward|CSM|msaa1|1920x1080": [
+"2026-10-09T17:22:59",
+"2026-10-09T17:23:14"
+],
+"cell:Woodland|grazing|Forward|CSM|msaa1|1920x1080": [
+"2026-10-09T17:23:14",
+"2026-10-09T17:23:31"
+],
+"cell:Woodland|backlit|Forward|CSM|msaa1|1920x1080": [
+"2026-10-09T17:23:31",
+"2026-10-09T17:23:50"
+],
+"cell:Woodland|frontal|Forward|VSM|msaa1|1920x1080": [
+"2026-10-09T17:23:50",
+"2026-10-09T17:24:43"
+],
+"cell:Woodland|grazing|Forward|VSM|msaa1|1920x1080": [
+"2026-10-09T17:24:43",
+"2026-10-09T17:25:34"
+],
+"cell:Woodland|backlit|Forward|VSM|msaa1|1920x1080": [
+"2026-10-09T17:25:34",
+"2026-10-09T17:26:22"
+],
+"cell:Woodland|frontal|ForwardPlus|CSM|msaa1|1920x1080": [
+"2026-10-09T17:26:22",
+"2026-10-09T17:26:35"
+],
+"cell:Woodland|grazing|ForwardPlus|CSM|msaa1|1920x1080": [
+"2026-10-09T17:26:35",
+"2026-10-09T17:26:49"
+],
+"cell:Woodland|backlit|ForwardPlus|CSM|msaa1|1920x1080": [
+"2026-10-09T17:26:49",
+"2026-10-09T17:27:07"
+],
+"cell:Woodland|frontal|ForwardPlus|VSM|msaa1|1920x1080": [
+"2026-10-09T17:27:07",
+"2026-10-09T17:28:11"
+],
+"cell:Woodland|grazing|ForwardPlus|VSM|msaa1|1920x1080": [
+"2026-10-09T17:28:11",
+"2026-10-09T17:29:09"
+],
+"cell:Woodland|backlit|ForwardPlus|VSM|msaa1|1920x1080": [
+"2026-10-09T17:29:09",
+"2026-10-09T17:30:00"
+],
+"cell:Woodland|frontal|Deferred|CSM|msaa1|1920x1080": [
+"2026-10-09T17:30:00",
+"2026-10-09T17:30:20"
+],
+"cell:Woodland|grazing|Deferred|CSM|msaa1|1920x1080": [
+"2026-10-09T17:30:20",
+"2026-10-09T17:30:34"
+],
+"cell:Woodland|backlit|Deferred|CSM|msaa1|1920x1080": [
+"2026-10-09T17:30:34",
+"2026-10-09T17:30:48"
+],
+"cell:Woodland|frontal|Deferred|VSM|msaa1|1920x1080": [
+"2026-10-09T17:30:48",
+"2026-10-09T17:31:42"
+],
+"cell:Woodland|grazing|Deferred|VSM|msaa1|1920x1080": [
+"2026-10-09T17:31:42",
+"2026-10-09T17:32:37"
+],
+"cell:Woodland|backlit|Deferred|VSM|msaa1|1920x1080": [
+"2026-10-09T17:32:37",
+"2026-10-09T17:33:30"
+],
+"cell:Traversal|Step0|Deferred|CSM|msaa1|1280x720": [
+"2026-10-09T17:33:30",
+"2026-10-09T17:33:34"
+],
+"cell:Traversal|Step4|Deferred|CSM|msaa1|1280x720": [
+"2026-10-09T17:33:34",
+"2026-10-09T17:33:37"
+],
+"cell:Traversal|Step8|Deferred|CSM|msaa1|1280x720": [
+"2026-10-09T17:33:37",
+"2026-10-09T17:33:39"
+],
+"cell:Traversal|Step0|Deferred|CSM|msaa1|2560x1440": [
+"2026-10-09T17:33:39",
+"2026-10-09T17:33:42"
+],
+"cell:Traversal|Step4|Deferred|CSM|msaa1|2560x1440": [
+"2026-10-09T17:33:42",
+"2026-10-09T17:33:45"
+],
+"cell:Traversal|Step8|Deferred|CSM|msaa1|2560x1440": [
+"2026-10-09T17:33:45",
+"2026-10-09T17:33:47"
+],
+"cell:Traversal|Step0|Deferred|CSM|msaa4|1920x1080": [
+"2026-10-09T17:33:47",
+"2026-10-09T17:33:50"
+],
+"cell:Traversal|Step4|Deferred|CSM|msaa4|1920x1080": [
+"2026-10-09T17:33:50",
+"2026-10-09T17:33:53"
+],
+"cell:Traversal|Step8|Deferred|CSM|msaa4|1920x1080": [
+"2026-10-09T17:33:53",
+"2026-10-09T17:33:56"
+],
+"tail:Step0|Forward|CSM|0": [
+"2026-10-09T17:33:56",
+"2026-10-09T17:34:05"
+],
+"tail:Step0|Forward|CSM|1": [
+"2026-10-09T17:34:05",
+"2026-10-09T17:34:19"
+],
+"tail:Step4|Forward|CSM|0": [
+"2026-10-09T17:34:19",
+"2026-10-09T17:34:29"
+],
+"tail:Step4|Forward|CSM|1": [
+"2026-10-09T17:34:29",
+"2026-10-09T17:34:44"
+],
+"tail:Step8|Forward|CSM|0": [
+"2026-10-09T17:34:44",
+"2026-10-09T17:34:51"
+],
+"tail:Step8|Forward|CSM|1": [
+"2026-10-09T17:34:51",
+"2026-10-09T17:35:02"
+],
+"tail:Step0|Forward|VSM|0": [
+"2026-10-09T17:35:02",
+"2026-10-09T17:35:32"
+],
+"tail:Step0|Forward|VSM|1": [
+"2026-10-09T17:35:32",
+"2026-10-09T17:36:04"
+],
+"tail:Step4|Forward|VSM|0": [
+"2026-10-09T17:36:04",
+"2026-10-09T17:36:40"
+],
+"tail:Step4|Forward|VSM|1": [
+"2026-10-09T17:36:40",
+"2026-10-09T17:37:20"
+],
+"tail:Step8|Forward|VSM|0": [
+"2026-10-09T17:37:20",
+"2026-10-09T17:37:42"
+],
+"tail:Step8|Forward|VSM|1": [
+"2026-10-09T17:37:42",
+"2026-10-09T17:38:07"
+],
+"tail:Step0|ForwardPlus|CSM|0": [
+"2026-10-09T17:38:07",
+"2026-10-09T17:38:17"
+],
+"tail:Step0|ForwardPlus|CSM|1": [
+"2026-10-09T17:38:17",
+"2026-10-09T17:38:30"
+],
+"tail:Step4|ForwardPlus|CSM|0": [
+"2026-10-09T17:38:30",
+"2026-10-09T17:38:40"
+],
+"tail:Step4|ForwardPlus|CSM|1": [
+"2026-10-09T17:38:40",
+"2026-10-09T17:38:55"
+],
+"tail:Step8|ForwardPlus|CSM|0": [
+"2026-10-09T17:38:55",
+"2026-10-09T17:39:04"
+],
+"tail:Step8|ForwardPlus|CSM|1": [
+"2026-10-09T17:39:04",
+"2026-10-09T17:39:16"
+],
+"tail:Step0|ForwardPlus|VSM|0": [
+"2026-10-09T17:39:16",
+"2026-10-09T17:39:45"
+],
+"tail:Step0|ForwardPlus|VSM|1": [
+"2026-10-09T17:39:45",
+"2026-10-09T17:40:21"
+],
+"tail:Step4|ForwardPlus|VSM|0": [
+"2026-10-09T17:40:21",
+"2026-10-09T17:40:56"
+],
+"tail:Step4|ForwardPlus|VSM|1": [
+"2026-10-09T17:40:56",
+"2026-10-09T17:41:37"
+],
+"tail:Step8|ForwardPlus|VSM|0": [
+"2026-10-09T17:41:37",
+"2026-10-09T17:42:01"
+],
+"tail:Step8|ForwardPlus|VSM|1": [
+"2026-10-09T17:42:01",
+"2026-10-09T17:42:28"
+],
+"tail:Step0|Deferred|CSM|0": [
+"2026-10-09T17:42:28",
+"2026-10-09T17:42:38"
+],
+"tail:Step0|Deferred|CSM|1": [
+"2026-10-09T17:42:38",
+"2026-10-09T17:42:54"
+],
+"tail:Step4|Deferred|CSM|0": [
+"2026-10-09T17:42:54",
+"2026-10-09T17:43:06"
+],
+"tail:Step4|Deferred|CSM|1": [
+"2026-10-09T17:43:06",
+"2026-10-09T17:43:22"
+],
+"tail:Step8|Deferred|CSM|0": [
+"2026-10-09T17:43:22",
+"2026-10-09T17:43:28"
+],
+"tail:Step8|Deferred|CSM|1": [
+"2026-10-09T17:43:28",
+"2026-10-09T17:43:37"
+],
+"tail:Step0|Deferred|VSM|0": [
+"2026-10-09T17:43:37",
+"2026-10-09T17:44:05"
+],
+"tail:Step0|Deferred|VSM|1": [
+"2026-10-09T17:44:05",
+"2026-10-09T17:44:37"
+],
+"tail:Step4|Deferred|VSM|0": [
+"2026-10-09T17:44:37",
+"2026-10-09T17:45:07"
+],
+"tail:Step4|Deferred|VSM|1": [
+"2026-10-09T17:45:07",
+"2026-10-09T17:45:42"
+],
+"tail:Step8|Deferred|VSM|0": [
+"2026-10-09T17:45:42",
+"2026-10-09T17:45:59"
+],
+"tail:Step8|Deferred|VSM|1": [
+"2026-10-09T17:45:59",
+"2026-10-09T17:46:21"
+]
+}
