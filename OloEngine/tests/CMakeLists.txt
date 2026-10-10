@@ -744,6 +744,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/MeshAssetBoneInfluenceImportTest.cpp
 		Rendering/PropertyTests/StaticMeshCoincidentCornerImportTest.cpp
 		Rendering/PropertyTests/AnimatedModelCacheSurfaceTest.cpp
+		Rendering/PropertyTests/GroomAnimalsCookedBindingTest.cpp
 		Rendering/PropertyTests/VirtualGeometryRasterParityTest.cpp
 		Rendering/PropertyTests/VirtualRasterSubSampleEvidenceTest.cpp
 		Rendering/PropertyTests/VirtualMeshAssetPackTest.cpp
