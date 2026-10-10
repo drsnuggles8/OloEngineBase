@@ -10,7 +10,7 @@ namespace OloEngine
 {
     class Material;
 
-    // Import of the three physical glTF material extensions (issue #970):
+    // Import of normalTexture.scale and the three physical glTF material extensions (issue #970):
     // KHR_materials_transmission, KHR_materials_ior and KHR_materials_volume.
     //
     // ONE implementation, called from BOTH glTF import routes —

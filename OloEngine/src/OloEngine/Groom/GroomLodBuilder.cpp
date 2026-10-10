@@ -242,6 +242,17 @@ namespace OloEngine
             return std::min(covered, summed);
         }
 
+        // A card point's summed width over the width it carries (GroomLodLevel::
+        // PointCoverageGrowth): 1 where it carries the sum or nothing.
+        [[nodiscard]] f32 CoverageGrowth(f64 summedWidth, f64 cardWidth) noexcept
+        {
+            if (!(cardWidth > 0.0) || !(summedWidth > cardWidth))
+            {
+                return 1.0f;
+            }
+            return static_cast<f32>(std::min(summedWidth / cardWidth, static_cast<f64>(GroomLimits::MaxCoverageGrowth)));
+        }
+
         // Central difference along a polyline's points, one-sided at the ends.
         [[nodiscard]] glm::vec3 PolylineTangent(std::span<const glm::vec3> points, u32 p) noexcept
         {
@@ -252,18 +263,8 @@ namespace OloEngine
         }
     } // namespace
 
-    bool GroomLodBuilder::BuildCardLevel(const GroomAsset& base, const GroomCardSettings& settings, GroomLodLevel& out,
-                                         std::string& outReason, GroomCardBuildStats* outStats)
+    bool GroomLodBuilder::ValidateCardSettings(const GroomCardSettings& settings, std::string& outReason)
     {
-        out = GroomLodLevel{};
-        GroomCardBuildStats stats;
-
-        // ── The settings, validated rather than clamped ─────────────────
-        //
-        // A card level is a cooked artifact: silently repairing the settings
-        // would put a level on disk that nobody asked for and that nothing
-        // records the parameters of. The cook is a place where a named refusal
-        // is cheap and a wrong answer is permanent.
         if (!std::isfinite(settings.CellSize) || settings.CellSize < GroomCoatLimits::MinClumpCellSize ||
             settings.CellSize > GroomCoatLimits::MaxClumpCellSize)
         {
@@ -299,6 +300,25 @@ namespace OloEngine
         {
             outReason = std::format("card cap {} is outside [1, {}]", settings.MaxCards,
                                     GroomLimits::MaxCurveCount);
+            return false;
+        }
+        return true;
+    }
+
+    bool GroomLodBuilder::BuildCardLevel(const GroomAsset& base, const GroomCardSettings& settings, GroomLodLevel& out,
+                                         std::string& outReason, GroomCardBuildStats* outStats)
+    {
+        out = GroomLodLevel{};
+        GroomCardBuildStats stats;
+
+        // ── The settings, validated rather than clamped ─────────────────
+        //
+        // A card level is a cooked artifact: silently repairing the settings
+        // would put a level on disk that nobody asked for and that nothing
+        // records the parameters of. The cook is a place where a named refusal
+        // is cheap and a wrong answer is permanent.
+        if (!ValidateCardSettings(settings, outReason))
+        {
             return false;
         }
 
@@ -425,6 +445,7 @@ namespace OloEngine
         out.CurveOffsets.reserve(static_cast<sizet>(cardCount) + 1u);
         out.Points.reserve(static_cast<sizet>(cardCount) * pointsPerCard);
         out.PointWidths.reserve(static_cast<sizet>(cardCount) * pointsPerCard);
+        out.PointCoverageGrowth.Reserve(static_cast<sizet>(cardCount) * pointsPerCard);
         out.RootUVs.reserve(cardCount);
         out.CurveGroupIds.reserve(cardCount);
         out.CurveFlags.reserve(cardCount);
@@ -545,6 +566,7 @@ namespace OloEngine
                     out.Points.push_back(ownPoints[p]);
                     out.PointWidths.push_back(
                         static_cast<f32>(std::min(clusterWidth, static_cast<f64>(GroomLimits::MaxWidth))));
+                    out.PointCoverageGrowth.Add(CoverageGrowth(summedWidth, clusterWidth));
                     stats.MemberWidthSum += summedWidth;
                     stats.MemberCoveredWidthSum += coveredClusterWidth;
                     stats.CardWidthSum += static_cast<f64>(out.PointWidths.back());
@@ -582,6 +604,7 @@ namespace OloEngine
                     out.Points.push_back(meanPoints[j]);
                     out.PointWidths.push_back(
                         static_cast<f32>(std::min(clusterWidth, static_cast<f64>(GroomLimits::MaxWidth))));
+                    out.PointCoverageGrowth.Add(CoverageGrowth(widthSum[j], clusterWidth));
                     stats.MemberWidthSum += widthSum[j];
                     stats.MemberCoveredWidthSum += coveredClusterWidth;
                     stats.CardWidthSum += static_cast<f64>(out.PointWidths.back());

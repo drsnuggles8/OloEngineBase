@@ -273,6 +273,9 @@ jobs:
       # its test program with gcc. With the order reversed a missing compiler
       # surfaces as a bare `gcc: command not found` from the GL step instead of
       # the remediation message here — do not reorder these two.
+      - name: Restore full model and groom assets
+        uses: ./.github/actions/restore-lfs-assets
+
       - name: Preflight — build toolchain
         run: |
           set -euo pipefail

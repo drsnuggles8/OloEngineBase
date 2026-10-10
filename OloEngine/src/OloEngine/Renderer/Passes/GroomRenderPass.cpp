@@ -43,6 +43,30 @@ namespace OloEngine
         // verification matrix becomes a comparison of two noise fields.
         constexpr u32 kStochasticSeed = 1246;
 
+        // The u_GroomViewport.z the shader widens a card by (#1558): 0 on the
+        // strand tier, whose growth is 1 anyway.
+        [[nodiscard]] f32 GroomCardCoverageGrowthBlend(const GroomStrandRequest& request) noexcept
+        {
+            if (request.LodLevel == nullptr || request.LodLevel->Representation != GroomRepresentation::Card)
+            {
+                return 0.0f;
+            }
+            return OloEngine::GroomCardCoverageGrowthBlend(request.Lod.PixelSize, request.LodLevel->SourcePixelSize);
+        }
+
+        // The u_GroomViewport.w the shader draws a thinned strand by (#1558): the
+        // width-compensation cap on the strand tier, 0 on a card level (whose
+        // coverage slot carries its growth) and where nothing is compensated.
+        [[nodiscard]] f32 GroomStrandStrideCap(const GroomStrandRequest& request) noexcept
+        {
+            const f32 cap = request.Build.MaxWidthCompensation;
+            if (request.LodLevel != nullptr || !std::isfinite(cap) || !(cap > 1.0f))
+            {
+                return 0.0f;
+            }
+            return cap;
+        }
+
         // Microseconds since `start`, for the per-stage counters.
         [[nodiscard]] u64 MicrosecondsSince(std::chrono::steady_clock::time_point start) noexcept
         {
@@ -122,7 +146,7 @@ namespace OloEngine
                                  // vertex-shader variant per groom (GL debug id
                                  // 131218) and would need a second shader.
                                  { ShaderDataType::Float3, "a_PrevPosition" },
-                                 { ShaderDataType::Float, "a_Pad1" } };
+                                 { ShaderDataType::Float, "a_CoverageGrowth" } };
         }
     } // namespace
 
@@ -2558,7 +2582,8 @@ namespace OloEngine
             params.PrevModel = MakeModelRelative(request.PreviousTransform, renderOrigin);
             params.Color = glm::vec4(request.Color, 1.0f);
             params.IDs = glm::ivec4(request.EntityID, 0, 0, 0);
-            params.Viewport = glm::vec4(static_cast<f32>(viewportWidth), static_cast<f32>(viewportHeight), 0.0f, 0.0f);
+            params.Viewport = glm::vec4(static_cast<f32>(viewportWidth), static_cast<f32>(viewportHeight),
+                                        GroomCardCoverageGrowthBlend(request), GroomStrandStrideCap(request));
             params.RampWidth =
                 glm::vec4(request.RampFloor, request.WidthScale, objectScale, request.AlphaCutoff);
             params.ModeFrame = glm::ivec4(static_cast<i32>(decision.Effective),
@@ -2584,6 +2609,16 @@ namespace OloEngine
             const i32 substitutions = (Levers::GroomNoCoatMarch() ? 1 : 0) | (Levers::GroomConstantFibre() ? 2 : 0);
             params.FibreModes = glm::ivec4(request.Lit ? 1 : 0, static_cast<i32>(request.Fibre.HSamples),
                                            static_cast<i32>(request.FibreDebug), substitutions);
+            // The per-strand pigment (#1558), for the one mode that reads it.
+            static_assert(kGroomFibrePigmentTableSize == 4u * std::tuple_size_v<decltype(params.FibrePigmentTable)>);
+            if (request.Fibre.PerStrand)
+            {
+                params.FibrePigment = glm::vec4(request.Fibre.PigmentBase, 1.0f);
+                for (u32 i = 0; i < kGroomFibrePigmentTableSize; ++i)
+                {
+                    params.FibrePigmentTable[i / 4u][static_cast<glm::length_t>(i % 4u)] = request.Fibre.PigmentTable[i];
+                }
+            }
 
             // THE RECEIVE LANE GOES UP ON EVERY DRAW (#1323), outside the block
             // below: whether this coat samples the scene's shadow is a different
@@ -2710,7 +2745,8 @@ namespace OloEngine
                             {
                                 const GroomFibreDualScattering& dual = request.Fibre.Dual;
                                 params.FibreForwardScatter = glm::vec4(dual.ForwardScatter, kGroomCoatDensityFactor);
-                                params.FibreBackScatter = glm::vec4(dual.MultipleBackScatter, kGroomCoatDensityFactor);
+                                params.FibreBackScatter =
+                                    glm::vec4(dual.MultipleBackScatter, kGroomCoatBackDensityFactor);
                                 params.FibreBackLobe = glm::vec4(dual.BackShift, dual.BackWidth, 0.0f, 0.0f);
                             }
                         }

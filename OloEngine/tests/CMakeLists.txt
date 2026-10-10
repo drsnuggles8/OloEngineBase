@@ -126,6 +126,7 @@ add_executable(OloEngine-Tests
 		# A scene holding a stochastic groom requests its own temporal resolve
 		# (#1429): the policy, the producer and the shipped scene it was filed against.
 		Groom/GroomSceneTemporalResolveTest.cpp
+		Groom/GroomRenderBudgetTest.cpp
 		# Dense-coat self-shadowing (#1248). The pure selection seam: which
 		# representation a coat gets and why it is not what was asked for.
 		Groom/GroomCoatShadowSelectionTest.cpp
@@ -786,6 +787,7 @@ add_executable(OloEngine-Tests
 		# The furred dog showcase (#1533): the coat grown region by region on
 		# the generated body, bound, lit and judged from every hero angle.
 		Rendering/PropertyTests/DogShowcaseEvidenceTest.cpp
+		Rendering/PropertyTests/DogAssetDeliveryTest.cpp
 		# Criterion 4's pictures: both reference animals under front/side/backlight,
 		# on all three rendering paths, plus the silhouette-under-budget and
 		# layer-separability measurements a screenshot cannot make (#1251).

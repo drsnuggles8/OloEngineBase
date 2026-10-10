@@ -1,0 +1,113 @@
+{
+  "units": "metres, glTF Y-up, the head faces +Z",
+  "breed": "samoyed",
+  "assembly": {
+    "pelt": [
+      0.78,
+      0.76,
+      0.74
+    ],
+    "lid": [
+      0.78,
+      0.76,
+      0.74
+    ],
+    "fibre": [
+      0.98,
+      0.98,
+      0.98
+    ],
+    "pigment": "perStrand"
+  },
+  "coatSource": "Assets/Models/Samoyed/Samoyed.abc",
+  "walkSpeed": 0.35347200000092527,
+  "eyeRadius": 0.013803000000000001,
+  "lidInnerRadius": 0.014104,
+  "socketRadius": 0.015093000000000002,
+  "eyes": {
+    "L": {
+      "bone": "eye_L",
+      "centre": [
+        0.028379999846220017,
+        0.5566400053320032,
+        0.28045459359169006
+      ],
+      "gaze": [
+        0.2515867383042978,
+        -0.01935282559349216,
+        0.9676412461501177
+      ],
+      "up": [
+        0.004869826305991805,
+        0.9998127165332255,
+        0.01873010011189463
+      ]
+    },
+    "R": {
+      "bone": "eye_R",
+      "centre": [
+        -0.028379999846220017,
+        0.5566400053320032,
+        0.28045459359169006
+      ],
+      "gaze": [
+        -0.2515867383042978,
+        -0.01935282559349216,
+        0.9676412461501177
+      ],
+      "up": [
+        -0.004869826305991805,
+        0.9998127165332255,
+        0.01873010011189463
+      ]
+    }
+  },
+  "clips": [
+    {
+      "name": "Idle",
+      "seconds": 12.0,
+      "loop": true
+    },
+    {
+      "name": "HeadTilt",
+      "seconds": 2.5,
+      "loop": false
+    },
+    {
+      "name": "Sit",
+      "seconds": 3.0,
+      "loop": false
+    },
+    {
+      "name": "Walk",
+      "seconds": 1.0,
+      "loop": true
+    },
+    {
+      "name": "Pant",
+      "seconds": 2.0,
+      "loop": true
+    },
+    {
+      "name": "Rest",
+      "seconds": 1.0,
+      "loop": true
+    }
+  ],
+  "materials": [
+    "DogSkin",
+    "DogNose",
+    "DogLip",
+    "DogGum",
+    "DogTongue",
+    "DogTeeth",
+    "DogPad",
+    "DogLid"
+  ],
+  "faceSculptAnchor": [
+    0.0,
+    0.5566400125404398,
+    0.2848779033946991
+  ],
+  "eyeProfile": "Models/Samoyed/SamoyedEye.oloskin"
+}

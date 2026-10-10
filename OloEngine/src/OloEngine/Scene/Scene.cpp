@@ -9370,6 +9370,7 @@ namespace OloEngine
             request.EntityID = entityID;
             request.RequestedMode = RequestedGroomMode(groomComponent);
             request.Build.MaxStrands = groomComponent.m_MaxRenderStrands;
+            request.Build.MaxSegments = groomComponent.m_MaxRenderSegments;
             request.Build.GuidesOnly = groomComponent.m_GuidesOnly;
 
             // The fibre material, if this groom has one (#1247). Its ABSENCE is

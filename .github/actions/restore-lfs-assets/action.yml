@@ -1,0 +1,95 @@
+name: Restore versioned LFS assets
+description: Materialize the full model and groom assets, reusing their content-addressed objects across CI runs.
+inputs:
+  artifact-name:
+    description: Optional workflow-local object bundle shared by a build and its test shards.
+    default: ''
+  restore-artifact:
+    description: Download artifact-name from this workflow instead of fetching the objects again.
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - name: Locate this checkout's LFS objects
+      id: objects
+      shell: bash
+      env:
+        RUNNER_KIND: ${{ runner.environment }}
+      run: |
+        set -euo pipefail
+        if ! git lfs version; then
+          echo "::error::Git LFS is required for the versioned model and fur assets. Provision it on this runner before retrying (Rocky: sudo dnf install git-lfs; Windows: install Git for Windows with Git LFS)."
+          exit 1
+        fi
+        git lfs install --local
+        if [ "$RUNNER_KIND" = self-hosted ]; then
+          # Persistent disk, shared by this runner account's checkout slots.
+          git config --local lfs.storage "$HOME/.cache/oloengine-lfs"
+          object_path="$HOME/.cache/oloengine-lfs/objects"
+        else
+          object_path=$(git rev-parse --git-path lfs/objects)
+        fi
+        mkdir -p "$object_path"
+        echo "path=$object_path" >> "$GITHUB_OUTPUT"
+        digest=$(git lfs ls-files --long | awk '{print $1}' | sort | sha256sum | awk '{print $1}')
+        echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+    - name: Restore cached LFS objects
+      id: cache
+      if: runner.environment == 'github-hosted' && inputs.restore-artifact != 'true'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.objects.outputs.path }}
+        key: olo-lfs-v1-${{ steps.objects.outputs.digest }}
+        restore-keys: olo-lfs-v1-
+        enableCrossOsArchive: true
+
+    - name: Restore this workflow's LFS objects
+      if: inputs.restore-artifact == 'true' && runner.environment == 'github-hosted'
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ steps.objects.outputs.path }}
+
+    - name: Fetch and verify full asset contents
+      shell: bash
+      run: |
+        set -euo pipefail
+        git lfs pull
+        git lfs fsck
+
+    # No PR-scoped large caches. A build publishes one short-lived artifact to
+    # its shards, which would otherwise each charge another full LFS download.
+    - name: Select the current LFS objects for test shards
+      id: bundle
+      if: github.event_name != 'push' && inputs.artifact-name != '' && inputs.restore-artifact != 'true'
+      shell: bash
+      env:
+        OBJECT_PATH: ${{ steps.objects.outputs.path }}
+      run: |
+        set -euo pipefail
+        bundle=$(mktemp -d "$RUNNER_TEMP/olo-lfs.XXXXXX")
+        while read -r oid; do
+          relative="${oid:0:2}/${oid:2:2}/$oid"
+          mkdir -p "$bundle/$(dirname "$relative")"
+          cp "$OBJECT_PATH/$relative" "$bundle/$relative"
+        done < <(git lfs ls-files --long | awk '{print $1}' | sort -u)
+        echo "path=$bundle" >> "$GITHUB_OUTPUT"
+
+    - name: Publish LFS objects for this workflow's test shards
+      if: github.event_name != 'push' && inputs.artifact-name != '' && inputs.restore-artifact != 'true'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ steps.bundle.outputs.path }}
+        retention-days: 1
+        compression-level: 0
+        if-no-files-found: error
+
+    - name: Save the shared default-branch LFS snapshot
+      if: runner.environment == 'github-hosted' && github.ref == 'refs/heads/master' && inputs.restore-artifact != 'true' && steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.objects.outputs.path }}
+        key: olo-lfs-v1-${{ steps.objects.outputs.digest }}
+        enableCrossOsArchive: true

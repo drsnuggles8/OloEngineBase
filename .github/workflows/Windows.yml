@@ -268,6 +268,11 @@ jobs:
         # .git/config where a later step or a compromised dependency could read it.
         persist-credentials: false
 
+    - name: Restore full model and groom assets
+      uses: ./.github/actions/restore-lfs-assets
+      with:
+        artifact-name: windows-lfs
+
     - name: Install Python 3.10
       id: py
       uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -929,6 +934,12 @@ jobs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
+
+    - name: Restore full model and groom assets
+      uses: ./.github/actions/restore-lfs-assets
+      with:
+        artifact-name: windows-lfs
+        restore-artifact: 'true'
 
     - name: Download the test tree
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1

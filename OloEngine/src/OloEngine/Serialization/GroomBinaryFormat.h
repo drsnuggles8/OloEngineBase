@@ -8,7 +8,7 @@
 namespace OloEngine
 {
     // ============================================================================
-    // .ologroom Binary Groom Format — Version 4 (issues #1232, #1251, #1252, #1533)
+    // .ologroom Binary Groom Format — Version 5 (issues #1232, #1251, #1252, #1533, #1558)
     //
     // The engine-native cooked groom. Produced from an Alembic ICurves archive
     // (or any other curve source) by GroomCooker::CookToBytes; read back by
@@ -52,8 +52,9 @@ namespace OloEngine
     //   Section 10 LodLevels   — u32 level count, then per level a
     //                            LodLevelHeader followed by that level's own
     //                            curve arrays in sections 1-6's order, then its
-    //                            SourceCurves map (u32 * CurveCount). Issue
-    //                            #1252. ZERO LEVELS IS THE COMMON CASE and is
+    //                            SourceCurves map (u32 * CurveCount), then its
+    //                            PointCoverageGrowth (f32 * PointCount, #1558).
+    //                            Issue #1252. ZERO LEVELS IS THE COMMON CASE and is
     //                            written as a count of 0 with nothing after it,
     //                            so the section is always present and the
     //                            reader never has to decide whether a missing
@@ -84,7 +85,9 @@ namespace OloEngine
         // Version 2 added section 9 (per-group coat authoring, issue #1251);
         // version 3 added section 10 (cooked LOD levels, issue #1252);
         // version 4 grew each section-9 entry from 32 to 64 bytes for the tip
-        // tint, curl, wave and stiffness scale (coat authoring v4, issue #1533).
+        // tint, curl, wave and stiffness scale (coat authoring v4, issue #1533);
+        // version 5 appends each LOD level's per-point coverage growth after its
+        // source map (GroomLodLevel::PointCoverageGrowth, issue #1558).
         // An older file is REJECTED BY VERSION rather than read without the new
         // section: a .ologroom is a derived artifact, so the minimum moves with
         // the current one and the fix is one re-import — the policy
@@ -99,8 +102,8 @@ namespace OloEngine
         // version error and must be re-imported. That is the deliberate cost of
         // this policy, and GroomLodRoundTripTest pins the refusal so the
         // failure is the readable one rather than a mis-parse.
-        constexpr u32 CurrentVersion = 4;
-        constexpr u32 MinSupportedVersion = 4; // == CurrentVersion, on purpose — see header comment
+        constexpr u32 CurrentVersion = 5;
+        constexpr u32 MinSupportedVersion = 5; // == CurrentVersion, on purpose — see header comment
 
         constexpr u32 FlagCompressed = 1; // Bit 0: payload is zlib-compressed
 
@@ -182,7 +185,8 @@ namespace OloEngine
         };
 
         // Section 10, one per level. The level's own curve arrays follow
-        // immediately, in sections 1-6's order, then its u32 SourceCurves map.
+        // immediately, in sections 1-6's order, then its u32 SourceCurves map,
+        // then its f32 PointCoverageGrowth.
         //
         // The level's counts are HERE rather than in the Info section because
         // they differ per level; the reader bounds each one against the payload

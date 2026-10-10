@@ -53,16 +53,15 @@ bool oloFinite3(vec3 v)
     return !any(isnan(v)) && !any(isinf(v));
 }
 
-// GroomRayTracingProxy.cpp's PerpendicularTo: the axis least aligned with the
-// tangent, never a fixed one.
+// GroomRayTracingProxy.cpp's PerpendicularTo: crossed with the body diagonal,
+// or with an axis perpendicular to it inside a 25.8-degree cone around it, so
+// the choice never jumps for a strand along or between the world axes.
 vec3 oloPerpendicularTo(vec3 tangent)
 {
-    vec3 magnitude = abs(tangent);
-    vec3 axis = vec3(0.0, 0.0, 1.0);
-    if (magnitude.x <= magnitude.y && magnitude.x <= magnitude.z)
-        axis = vec3(1.0, 0.0, 0.0);
-    else if (magnitude.y <= magnitude.z)
-        axis = vec3(0.0, 1.0, 0.0);
+    const float kDiagonal = 0.57735026919; // 1 / sqrt(3)
+    const float kHalf = 0.70710678118;     // 1 / sqrt(2)
+    vec3 diagonal = vec3(kDiagonal);
+    vec3 axis = abs(dot(tangent, diagonal)) > 0.9 ? vec3(kHalf, -kHalf, 0.0) : diagonal;
     return normalize(cross(tangent, axis));
 }
 

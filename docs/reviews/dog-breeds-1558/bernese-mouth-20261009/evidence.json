@@ -1,0 +1,1378 @@
+{
+  "modelCandidate": "bernese-mouth-round2",
+  "previousReview": "../bernese-refinement-20261009/index.html",
+  "nativeReport": {
+    "ClosedBlink-front": {
+      "camera": "editor camera",
+      "frameIndex": 249,
+      "liveness": {
+        "captureUnready": true,
+        "focused": false,
+        "frameIndex": 249,
+        "iconified": false,
+        "msSinceLastFrame": 176.6,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false,
+      "rejectedAttempts": [
+        {
+          "frameIndex": 220,
+          "stale": true,
+          "liveness": {
+            "captureUnready": true,
+            "focused": false,
+            "frameIndex": 220,
+            "iconified": false,
+            "msSinceLastFrame": 877.02,
+            "stallReason": "The editor has not completed a frame in 877 ms, so its update/render loop is stalled or blocked (a modal dialog, a long synchronous load, or a hung frame). Nothing that depends on frames advancing \u2014 synthetic input, fresh captures \u2014 can make progress until it resumes.",
+            "ticking": false,
+            "visible": true
+          }
+        }
+      ],
+      "cameraApplied": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          0.0,
+          0.7072880268096924,
+          2.088426113128662
+        ],
+        "forward": [
+          0.0,
+          -0.03823915868997574,
+          -0.9992685914039612
+        ],
+        "fovDegrees": 11.5,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 2.191476583480835,
+        "position": [
+          0.0,
+          0.7072880268096924,
+          2.088426113128662
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": 0.0
+      },
+      "cameraBeforeCapture": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          0.0,
+          0.7072880268096924,
+          2.088426113128662
+        ],
+        "forward": [
+          0.0,
+          -0.03823915868997574,
+          -0.9992685914039612
+        ],
+        "fovDegrees": 11.5,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 2.191476583480835,
+        "position": [
+          0.0,
+          0.7072880268096924,
+          2.088426113128662
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": 0.0
+      },
+      "cameraAfterCapture": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          0.0,
+          0.7072880268096924,
+          2.088426113128662
+        ],
+        "forward": [
+          0.0,
+          -0.03823915868997574,
+          -0.9992685914039612
+        ],
+        "fovDegrees": 11.5,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 2.191476583480835,
+        "position": [
+          0.0,
+          0.7072880268096924,
+          2.088426113128662
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": 0.0
+      },
+      "requestedCamera": {
+        "position": [
+          0.0,
+          0.7072880428401791,
+          2.0884261951057534
+        ],
+        "target": [
+          0.0,
+          0.6467286466034593,
+          0.5058834821273237
+        ],
+        "fov": 11.5
+      },
+      "warmupFrames": [
+        83,
+        117,
+        150,
+        184
+      ]
+    },
+    "ClosedBlink-threequarter": {
+      "camera": "editor camera",
+      "frameIndex": 406,
+      "liveness": {
+        "captureUnready": true,
+        "focused": false,
+        "frameIndex": 406,
+        "iconified": false,
+        "msSinceLastFrame": 677.48,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false,
+      "rejectedAttempts": [],
+      "cameraApplied": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          0.9712355732917786,
+          0.7815589904785156,
+          1.8370475769042969
+        ],
+        "forward": [
+          -0.5874447226524353,
+          -0.08155114948749542,
+          -0.8051447868347168
+        ],
+        "fovDegrees": 11.5,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 4.677731513977051,
+        "position": [
+          0.9712355732917786,
+          0.7815589904785156,
+          1.8370475769042969
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": -36.11500549316406
+      },
+      "cameraBeforeCapture": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          0.9712355732917786,
+          0.7815589904785156,
+          1.8370475769042969
+        ],
+        "forward": [
+          -0.5874447226524353,
+          -0.08155114948749542,
+          -0.8051447868347168
+        ],
+        "fovDegrees": 11.5,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 4.677731513977051,
+        "position": [
+          0.9712355732917786,
+          0.7815589904785156,
+          1.8370475769042969
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": -36.11500549316406
+      },
+      "cameraAfterCapture": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          0.9712355732917786,
+          0.7815589904785156,
+          1.8370475769042969
+        ],
+        "forward": [
+          -0.5874447226524353,
+          -0.08155114948749542,
+          -0.8051447868347168
+        ],
+        "fovDegrees": 11.5,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 4.677731513977051,
+        "position": [
+          0.9712355732917786,
+          0.7815589904785156,
+          1.8370475769042969
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": -36.11500549316406
+      },
+      "requestedCamera": {
+        "position": [
+          0.9712356000228631,
+          0.7815590004889863,
+          1.837047569217483
+        ],
+        "target": [
+          0.0,
+          0.6467286466034593,
+          0.5058834821273237
+        ],
+        "fov": 11.5
+      },
+      "warmupFrames": [
+        283,
+        310,
+        343,
+        374
+      ]
+    },
+    "Rest-front": {
+      "camera": "editor camera",
+      "frameIndex": 576,
+      "liveness": {
+        "captureUnready": true,
+        "focused": false,
+        "frameIndex": 576,
+        "iconified": false,
+        "msSinceLastFrame": 445.67,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false,
+      "rejectedAttempts": [],
+      "cameraApplied": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          0.0,
+          0.7072880268096924,
+          2.088426113128662
+        ],
+        "forward": [
+          0.0,
+          -0.03823915868997574,
+          -0.9992685914039612
+        ],
+        "fovDegrees": 11.5,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 2.191476583480835,
+        "position": [
+          0.0,
+          0.7072880268096924,
+          2.088426113128662
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": 0.0
+      },
+      "cameraBeforeCapture": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          0.0,
+          0.7072880268096924,
+          2.088426113128662
+        ],
+        "forward": [
+          0.0,
+          -0.03823915868997574,
+          -0.9992685914039612
+        ],
+        "fovDegrees": 11.5,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 2.191476583480835,
+        "position": [
+          0.0,
+          0.7072880268096924,
+          2.088426113128662
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": 0.0
+      },
+      "cameraAfterCapture": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          0.0,
+          0.7072880268096924,
+          2.088426113128662
+        ],
+        "forward": [
+          0.0,
+          -0.03823915868997574,
+          -0.9992685914039612
+        ],
+        "fovDegrees": 11.5,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 2.191476583480835,
+        "position": [
+          0.0,
+          0.7072880268096924,
+          2.088426113128662
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": 0.0
+      },
+      "requestedCamera": {
+        "position": [
+          0.0,
+          0.7072880428401791,
+          2.0884261951057534
+        ],
+        "target": [
+          0.0,
+          0.6467286466034593,
+          0.5058834821273237
+        ],
+        "fov": 11.5
+      },
+      "warmupFrames": [
+        445,
+        479,
+        513,
+        544
+      ]
+    },
+    "Rest-threequarter": {
+      "camera": "editor camera",
+      "frameIndex": 748,
+      "liveness": {
+        "captureUnready": true,
+        "focused": false,
+        "frameIndex": 748,
+        "iconified": false,
+        "msSinceLastFrame": 507.98,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false,
+      "rejectedAttempts": [],
+      "cameraApplied": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          0.9712355732917786,
+          0.7815589904785156,
+          1.8370475769042969
+        ],
+        "forward": [
+          -0.5874447226524353,
+          -0.08155114948749542,
+          -0.8051447868347168
+        ],
+        "fovDegrees": 11.5,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 4.677731513977051,
+        "position": [
+          0.9712355732917786,
+          0.7815589904785156,
+          1.8370475769042969
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": -36.11500549316406
+      },
+      "cameraBeforeCapture": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          0.9712355732917786,
+          0.7815589904785156,
+          1.8370475769042969
+        ],
+        "forward": [
+          -0.5874447226524353,
+          -0.08155114948749542,
+          -0.8051447868347168
+        ],
+        "fovDegrees": 11.5,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 4.677731513977051,
+        "position": [
+          0.9712355732917786,
+          0.7815589904785156,
+          1.8370475769042969
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": -36.11500549316406
+      },
+      "cameraAfterCapture": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          0.9712355732917786,
+          0.7815589904785156,
+          1.8370475769042969
+        ],
+        "forward": [
+          -0.5874447226524353,
+          -0.08155114948749542,
+          -0.8051447868347168
+        ],
+        "fovDegrees": 11.5,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 4.677731513977051,
+        "position": [
+          0.9712355732917786,
+          0.7815589904785156,
+          1.8370475769042969
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": -36.11500549316406
+      },
+      "requestedCamera": {
+        "position": [
+          0.9712356000228631,
+          0.7815590004889863,
+          1.837047569217483
+        ],
+        "target": [
+          0.0,
+          0.6467286466034593,
+          0.5058834821273237
+        ],
+        "fov": 11.5
+      },
+      "warmupFrames": [
+        612,
+        646,
+        679,
+        713
+      ]
+    },
+    "Rest-body": {
+      "camera": "editor camera",
+      "frameIndex": 890,
+      "liveness": {
+        "captureUnready": true,
+        "focused": false,
+        "frameIndex": 890,
+        "iconified": false,
+        "msSinceLastFrame": 523.67,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false,
+      "rejectedAttempts": [],
+      "cameraApplied": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          1.4282876253128052,
+          0.6627254486083984,
+          1.9996026754379272
+        ],
+        "forward": [
+          -0.5825749635696411,
+          -0.10253318399190903,
+          -0.806283712387085
+        ],
+        "fovDegrees": 25.0,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 5.885060787200928,
+        "position": [
+          1.4282876253128052,
+          0.6627254486083984,
+          1.9996026754379272
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": -35.8497428894043
+      },
+      "cameraBeforeCapture": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          1.4282876253128052,
+          0.6627254486083984,
+          1.9996026754379272
+        ],
+        "forward": [
+          -0.5825749635696411,
+          -0.10253318399190903,
+          -0.806283712387085
+        ],
+        "fovDegrees": 25.0,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 5.885060787200928,
+        "position": [
+          1.4282876253128052,
+          0.6627254486083984,
+          1.9996026754379272
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": -35.8497428894043
+      },
+      "cameraAfterCapture": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          1.4282876253128052,
+          0.6627254486083984,
+          1.9996026754379272
+        ],
+        "forward": [
+          -0.5825749635696411,
+          -0.10253318399190903,
+          -0.806283712387085
+        ],
+        "fovDegrees": 25.0,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 5.885060787200928,
+        "position": [
+          1.4282876253128052,
+          0.6627254486083984,
+          1.9996026754379272
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": -35.8497428894043
+      },
+      "requestedCamera": {
+        "position": [
+          1.4282876470924457,
+          0.6627254682508948,
+          1.9996027059294241
+        ],
+        "target": [
+          0.0,
+          0.41134684236262437,
+          0.02285260235347913
+        ],
+        "fov": 25.0
+      },
+      "warmupFrames": [
+        777,
+        801,
+        830,
+        862
+      ]
+    },
+    "Rest-side": {
+      "camera": "editor camera",
+      "frameIndex": 1041,
+      "liveness": {
+        "captureUnready": true,
+        "focused": false,
+        "frameIndex": 1041,
+        "iconified": false,
+        "msSinceLastFrame": 532.21,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false,
+      "rejectedAttempts": [],
+      "cameraApplied": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          1.9996026754379272,
+          0.44562575221061707,
+          0.0
+        ],
+        "forward": [
+          -0.999897837638855,
+          -0.01142740249633789,
+          0.008570432662963867
+        ],
+        "fovDegrees": 30.0,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 0.6547563076019287,
+        "position": [
+          1.9996026754379272,
+          0.44562575221061707,
+          0.0
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": -90.49109649658203
+      },
+      "cameraBeforeCapture": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          1.9996026754379272,
+          0.44562575221061707,
+          0.0
+        ],
+        "forward": [
+          -0.999897837638855,
+          -0.01142740249633789,
+          0.008570432662963867
+        ],
+        "fovDegrees": 30.0,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 0.6547563076019287,
+        "position": [
+          1.9996026754379272,
+          0.44562575221061707,
+          0.0
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": -90.49109649658203
+      },
+      "cameraAfterCapture": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          1.9996026754379272,
+          0.44562575221061707,
+          0.0
+        ],
+        "forward": [
+          -0.999897837638855,
+          -0.01142740249633789,
+          0.008570432662963867
+        ],
+        "fovDegrees": 30.0,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 0.6547563076019287,
+        "position": [
+          1.9996026754379272,
+          0.44562575221061707,
+          0.0
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": -90.49109649658203
+      },
+      "requestedCamera": {
+        "position": [
+          1.9996027059294241,
+          0.4456257458928431,
+          0.0
+        ],
+        "target": [
+          0.0,
+          0.42277314353936396,
+          0.017139451765109347
+        ],
+        "fov": 30.0
+      },
+      "warmupFrames": [
+        918,
+        951,
+        985,
+        1011
+      ]
+    },
+    "Rest-frontbody": {
+      "camera": "editor camera",
+      "frameIndex": 1204,
+      "liveness": {
+        "captureUnready": true,
+        "focused": false,
+        "frameIndex": 1204,
+        "iconified": false,
+        "msSinceLastFrame": 517.2,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false,
+      "rejectedAttempts": [],
+      "cameraApplied": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          0.0,
+          0.4570520520210266,
+          2.113865613937378
+        ],
+        "forward": [
+          0.0,
+          -0.016346588730812073,
+          -0.9998663663864136
+        ],
+        "fovDegrees": 30.0,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 0.9366322755813599,
+        "position": [
+          0.0,
+          0.4570520520210266,
+          2.113865613937378
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": 0.0
+      },
+      "cameraBeforeCapture": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          0.0,
+          0.4570520520210266,
+          2.113865613937378
+        ],
+        "forward": [
+          0.0,
+          -0.016346588730812073,
+          -0.9998663663864136
+        ],
+        "fovDegrees": 30.0,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 0.9366322755813599,
+        "position": [
+          0.0,
+          0.4570520520210266,
+          2.113865613937378
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": 0.0
+      },
+      "cameraAfterCapture": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          0.0,
+          0.4570520520210266,
+          2.113865613937378
+        ],
+        "forward": [
+          0.0,
+          -0.016346588730812073,
+          -0.9998663663864136
+        ],
+        "fovDegrees": 30.0,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 0.9366322755813599,
+        "position": [
+          0.0,
+          0.4570520520210266,
+          2.113865613937378
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": 0.0
+      },
+      "requestedCamera": {
+        "position": [
+          0.0,
+          0.4570520470695827,
+          2.11386571769682
+        ],
+        "target": [
+          0.0,
+          0.42277314353936396,
+          0.017139451765109347
+        ],
+        "fov": 30.0
+      },
+      "warmupFrames": [
+        1072,
+        1106,
+        1140,
+        1174
+      ]
+    },
+    "Pant-front": {
+      "camera": "editor camera",
+      "frameIndex": 1352,
+      "liveness": {
+        "captureUnready": true,
+        "focused": false,
+        "frameIndex": 1352,
+        "iconified": false,
+        "msSinceLastFrame": 565.69,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false,
+      "rejectedAttempts": [],
+      "cameraApplied": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          0.0,
+          0.7072880268096924,
+          2.088426113128662
+        ],
+        "forward": [
+          0.0,
+          -0.03823915868997574,
+          -0.9992685914039612
+        ],
+        "fovDegrees": 11.5,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 2.191476583480835,
+        "position": [
+          0.0,
+          0.7072880268096924,
+          2.088426113128662
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": 0.0
+      },
+      "cameraBeforeCapture": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          0.0,
+          0.7072880268096924,
+          2.088426113128662
+        ],
+        "forward": [
+          0.0,
+          -0.03823915868997574,
+          -0.9992685914039612
+        ],
+        "fovDegrees": 11.5,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 2.191476583480835,
+        "position": [
+          0.0,
+          0.7072880268096924,
+          2.088426113128662
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": 0.0
+      },
+      "cameraAfterCapture": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          0.0,
+          0.7072880268096924,
+          2.088426113128662
+        ],
+        "forward": [
+          0.0,
+          -0.03823915868997574,
+          -0.9992685914039612
+        ],
+        "fovDegrees": 11.5,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 2.191476583480835,
+        "position": [
+          0.0,
+          0.7072880268096924,
+          2.088426113128662
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": 0.0
+      },
+      "requestedCamera": {
+        "position": [
+          0.0,
+          0.7072880428401791,
+          2.0884261951057534
+        ],
+        "target": [
+          0.0,
+          0.6467286466034593,
+          0.5058834821273237
+        ],
+        "fov": 11.5
+      },
+      "warmupFrames": [
+        1238,
+        1272,
+        1298,
+        1324
+      ]
+    },
+    "Pant-threequarter": {
+      "camera": "editor camera",
+      "frameIndex": 1509,
+      "liveness": {
+        "captureUnready": true,
+        "focused": false,
+        "frameIndex": 1509,
+        "iconified": false,
+        "msSinceLastFrame": 131.07,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false,
+      "rejectedAttempts": [],
+      "cameraApplied": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          0.9712355732917786,
+          0.7815589904785156,
+          1.8370475769042969
+        ],
+        "forward": [
+          -0.5874447226524353,
+          -0.08155114948749542,
+          -0.8051447868347168
+        ],
+        "fovDegrees": 11.5,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 4.677731513977051,
+        "position": [
+          0.9712355732917786,
+          0.7815589904785156,
+          1.8370475769042969
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": -36.11500549316406
+      },
+      "cameraBeforeCapture": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          0.9712355732917786,
+          0.7815589904785156,
+          1.8370475769042969
+        ],
+        "forward": [
+          -0.5874447226524353,
+          -0.08155114948749542,
+          -0.8051447868347168
+        ],
+        "fovDegrees": 11.5,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 4.677731513977051,
+        "position": [
+          0.9712355732917786,
+          0.7815589904785156,
+          1.8370475769042969
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": -36.11500549316406
+      },
+      "cameraAfterCapture": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          0.9712355732917786,
+          0.7815589904785156,
+          1.8370475769042969
+        ],
+        "forward": [
+          -0.5874447226524353,
+          -0.08155114948749542,
+          -0.8051447868347168
+        ],
+        "fovDegrees": 11.5,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 4.677731513977051,
+        "position": [
+          0.9712355732917786,
+          0.7815589904785156,
+          1.8370475769042969
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": -36.11500549316406
+      },
+      "requestedCamera": {
+        "position": [
+          0.9712356000228631,
+          0.7815590004889863,
+          1.837047569217483
+        ],
+        "target": [
+          0.0,
+          0.6467286466034593,
+          0.5058834821273237
+        ],
+        "fov": 11.5
+      },
+      "warmupFrames": [
+        1388,
+        1416,
+        1443,
+        1472
+      ]
+    },
+    "errors": "(no matching log messages)",
+    "groom": {
+      "animalBudget": {
+        "animalsAtDesired": 0,
+        "animalsAtPoseStepCap": 0,
+        "animalsAtVisibilityFloor": 0,
+        "animalsCapHeld": 0,
+        "animalsCoarsened": 0,
+        "animalsConsidered": 0,
+        "animalsHeldByHysteresis": 0,
+        "budgetExceeded": false,
+        "byAxis": [
+          {
+            "axis": "Deformation",
+            "budgetUnits": 0.0,
+            "desiredCostUnits": 0.0,
+            "scheduledCostUnits": 0.0,
+            "shareOfScheduled": 0.0
+          },
+          {
+            "axis": "Simulation",
+            "budgetUnits": 0.0,
+            "desiredCostUnits": 0.0,
+            "scheduledCostUnits": 0.0,
+            "shareOfScheduled": 0.0
+          },
+          {
+            "axis": "Visibility",
+            "budgetUnits": 0.0,
+            "desiredCostUnits": 0.0,
+            "scheduledCostUnits": 0.0,
+            "shareOfScheduled": 0.0
+          },
+          {
+            "axis": "Shadow",
+            "budgetUnits": 0.0,
+            "desiredCostUnits": 0.0,
+            "scheduledCostUnits": 0.0,
+            "shareOfScheduled": 0.0
+          }
+        ],
+        "drawCallCostUnits": 0.0,
+        "drawCalls": 0,
+        "enabled": true,
+        "estimatedCostUnits": 0.0,
+        "frameBudgetUnits": 0.0,
+        "heroesCoarsened": 0,
+        "heroesConsidered": 0,
+        "maxStarvedFrames": 0,
+        "stepChanges": 0
+      },
+      "availability": {
+        "available": true,
+        "enabled": true,
+        "hasData": true,
+        "status": "ready"
+      },
+      "coatShadow": {
+        "bakeMicroseconds": 0,
+        "deformedRebakes": 0,
+        "dominantFallbackReason": "None",
+        "fallback": 0,
+        "maxDriftVoxels": 0.0,
+        "rebuilds": 0,
+        "residentBytes": 42283008,
+        "resolutionInForce": 256,
+        "shadowed": 1,
+        "unshadowedByChoice": 0
+      },
+      "frameTime": {
+        "budgetMs": 16.66666603088379,
+        "maxMs": 250.0,
+        "meanMs": 117.63320922851562,
+        "overBudgetFrames": 186,
+        "p50Ms": 46.93603515625,
+        "p95Ms": 250.0,
+        "p99Ms": 250.0,
+        "samples": 306
+      },
+      "freshness": {
+        "model": "previousFrame",
+        "sampleAgeFrames": null,
+        "stale": false
+      },
+      "groom": {
+        "byRepresentation": [
+          {
+            "bytes": 2076781072,
+            "grooms": 1,
+            "representation": "Strand",
+            "strands": 1615603
+          },
+          {
+            "bytes": 0,
+            "grooms": 0,
+            "representation": "Card",
+            "strands": 0
+          },
+          {
+            "bytes": 0,
+            "grooms": 0,
+            "representation": "Mesh",
+            "strands": 0
+          }
+        ],
+        "dominantFallbackReason": "the groom is on the representation its apparent size selects",
+        "groomsAtCompensationCap": 0,
+        "groomsFellBack": 0,
+        "groomsOnSelectedTier": 1,
+        "groomsSubmitted": 1,
+        "maxWidthCompensation": 1.0,
+        "representationChanges": 0,
+        "segmentsDrawn": 6134310,
+        "strandsDrawn": 1615603
+      },
+      "sceneShadow": {
+        "atlasDraws": 0,
+        "cascadeDraws": 4,
+        "groomsAskedToCast": 1,
+        "groomsCasting": 1,
+        "segmentsCast": 8204307,
+        "segmentsWhole": 24537240,
+        "virtualShadowLevelDraws": 0
+      },
+      "strandCache": {
+        "budgetBytes": 1073741824,
+        "cachedBytes": 2119064080,
+        "cachedGrooms": 1,
+        "evictions": 0,
+        "memory": {
+          "accounting": "logical bytes requested, not driver-reported VRAM; cpu rows by capacity",
+          "cpu": {
+            "bakeInputBytes": 0,
+            "deformMirrorBytes": 423968764,
+            "poseSegmentBytes": 0,
+            "rootTableBytes": 36812556,
+            "scratchBytes": 0
+          },
+          "entries": 1,
+          "gpu": {
+            "casterIndexBytes": 147223440,
+            "coatVolumeBytes": 42283008,
+            "deformBufferBytes": 211950832,
+            "strandIndexBytes": 147223440,
+            "strandVertexBytes": 1570383360
+          },
+          "restStreams": 1
+        },
+        "overBudgetBytes": 1045322256
+      }
+    }
+  },
+  "integrity": {
+    "baseMeshAndSevenPriorMorphsExact": true,
+    "rigAndMaterialsExact": true,
+    "eyesAndBodyExact": true,
+    "totalMorphTargets": 8,
+    "triangleChecks": [
+      {
+        "material": "DogSkin",
+        "minimumDoubleTriangleArea": 1.9970592748318907e-08
+      },
+      {
+        "material": "DogNose",
+        "minimumDoubleTriangleArea": 7.77060129187928e-09
+      },
+      {
+        "material": "DogLip",
+        "minimumDoubleTriangleArea": 5.551146359722957e-10
+      },
+      {
+        "material": "DogGum",
+        "minimumDoubleTriangleArea": 1.4038362601592226e-08
+      },
+      {
+        "material": "DogTongue",
+        "minimumDoubleTriangleArea": 6.589082739934083e-08
+      },
+      {
+        "material": "DogTeeth",
+        "minimumDoubleTriangleArea": 2.5669856575132643e-08
+      },
+      {
+        "material": "DogPad",
+        "minimumDoubleTriangleArea": 1.4278745157345667e-08
+      },
+      {
+        "material": "DogLid",
+        "minimumDoubleTriangleArea": 1.3481151864861744e-08
+      }
+    ],
+    "blinkClosureSamplesChecked": 31,
+    "clips": [
+      {
+        "name": "Idle",
+        "keys": 121,
+        "oldSevenWeightTracksExact": true
+      },
+      {
+        "name": "HeadTilt",
+        "keys": 76,
+        "oldSevenWeightTracksExact": true
+      },
+      {
+        "name": "Sit",
+        "keys": 91,
+        "oldSevenWeightTracksExact": true
+      },
+      {
+        "name": "Walk",
+        "keys": 2,
+        "oldSevenWeightTracksExact": true
+      },
+      {
+        "name": "Pant",
+        "keys": 61,
+        "oldSevenWeightTracksExact": true
+      },
+      {
+        "name": "Rest",
+        "keys": 2,
+        "oldSevenWeightTracksExact": true
+      }
+    ],
+    "unchangedAssets": [
+      "Bernese.abc",
+      "Bernese.rig.json",
+      "BerneseCoatColor.png",
+      "BerneseEye.oloskin",
+      "BerneseEyeball.bin",
+      "BerneseEyeball.gltf",
+      "BerneseGumColor.png",
+      "BerneseGumOcclusion.png",
+      "BerneseIrisColor.png",
+      "BerneseLipOcclusion.png",
+      "BerneseNoseNormal.png",
+      "BerneseNoseOcclusion.png",
+      "BernesePadOcclusion.png",
+      "BerneseTeethOcclusion.png",
+      "BerneseTongueColor.png",
+      "BerneseTongueNormal.png",
+      "BerneseTongueOcclusion.png"
+    ],
+    "frozenOtherAssetFiles": 50
+  },
+  "recipe": {
+    "parent": "bernese-face-current2",
+    "rows": [
+      {
+        "material": "DogSkin",
+        "maximumMM": 5.808393331054374,
+        "minimumJacobian": 0.7482578260597755,
+        "minimumTriangleAlignment": 0.9342618957394139
+      },
+      {
+        "material": "DogNose",
+        "maximumMM": 0.0,
+        "minimumJacobian": 0.9999999999908569,
+        "minimumTriangleAlignment": 0.9999999999999996
+      },
+      {
+        "material": "DogLip",
+        "maximumMM": 5.048732228293934,
+        "minimumJacobian": 0.8135670797511843,
+        "minimumTriangleAlignment": 0.9581540612388249
+      },
+      {
+        "material": "DogGum",
+        "maximumMM": 4.03888908026423,
+        "minimumJacobian": 0.810890394174535,
+        "minimumTriangleAlignment": 0.9720899680332709
+      },
+      {
+        "material": "DogTongue",
+        "maximumMM": 0.20829650196774185,
+        "minimumJacobian": 0.913409075254748,
+        "minimumTriangleAlignment": 0.9997702450188466
+      },
+      {
+        "material": "DogTeeth",
+        "maximumMM": 0.9038513739427535,
+        "minimumJacobian": 0.9093258040502157,
+        "minimumTriangleAlignment": 0.9999999999999996
+      },
+      {
+        "material": "DogPad",
+        "maximumMM": 0.0,
+        "minimumJacobian": 0.9999999999908569,
+        "minimumTriangleAlignment": 0.9999999999999996
+      },
+      {
+        "material": "DogLid",
+        "maximumMM": 0.0,
+        "minimumJacobian": 0.9999999999908569,
+        "minimumTriangleAlignment": 0.9999999999999996
+      }
+    ],
+    "baseBindingSurfaceExact": true,
+    "existingSevenMorphTargetsExact": true,
+    "existingAnimationSamplesExact": true,
+    "eyesNoseBodyLegsAndCoatExact": true
+  },
+  "assets": {
+    "OloEditor/SandboxProject/Assets/Models/Bernese/bernese-mouth-refinement.json": "90f920b1729c3d29792d29ed70985dc10ba73969e1fce848ba09a2d02c29cd86",
+    "OloEditor/SandboxProject/Assets/Models/Bernese/Bernese.abc": "74fbcc6bde87001d168ac8fd79a8481734c237d985db9ba3985a1339cd85fe93",
+    "OloEditor/SandboxProject/Assets/Models/Bernese/Bernese.bin": "5347ab33775d29e758213176ead86b07a0ad18b78113a5513bb99f655e427f50",
+    "OloEditor/SandboxProject/Assets/Models/Bernese/Bernese.gltf": "8ffb85f2555107a97a8d09b574b59d4303417f241b291076afaca35cf1b1e5c3",
+    "OloEditor/SandboxProject/Assets/Models/Bernese/Bernese.rig.json": "cd212ce2a927779bc938ee7e34301edd5a71c36f8dae6dca1b5cf099ba8f03c7",
+    "OloEditor/SandboxProject/Assets/Models/Bernese/BerneseCoatColor.png": "a57f19368147f9674ba4bba8a1695d9454babff1fbc2d0550351cb353b5ab5e5",
+    "OloEditor/SandboxProject/Assets/Models/Bernese/BerneseEye.oloskin": "3abf2ff30cc6b5d4258f0372a2ca5ef5f9ee392162483400357719066468703d",
+    "OloEditor/SandboxProject/Assets/Models/Bernese/BerneseEyeball.bin": "23276958ae9627af830502dd3c7d63658705745cc2198f37c8fcdee403bc0f45",
+    "OloEditor/SandboxProject/Assets/Models/Bernese/BerneseEyeball.gltf": "f0553b865e36e7ae4ee721d08b29196fafd1b5211a63b3558eb82774fef3c394",
+    "OloEditor/SandboxProject/Assets/Models/Bernese/BerneseGumColor.png": "3fee100b5e772f33297c1d4c6af76bbc8b0217527af2835634f0057043561c1d",
+    "OloEditor/SandboxProject/Assets/Models/Bernese/BerneseGumOcclusion.png": "cee6235be2a0b0522d780f64cb7b9d0d845370063ac9de61d4f236e9bc0379ec",
+    "OloEditor/SandboxProject/Assets/Models/Bernese/BerneseIrisColor.png": "7f575df246685b9d643a8d2b230886b5ae69ff4092b5507d36f13d4e84cd38ba",
+    "OloEditor/SandboxProject/Assets/Models/Bernese/BerneseLipOcclusion.png": "fc25d3685f62d2917fcccf4d51f89d2a19340566427109af206b802a4b3b263a",
+    "OloEditor/SandboxProject/Assets/Models/Bernese/BerneseNoseNormal.png": "0cb79d20c0abd95ea0366dbf467cc4537e8b83123336766ddae0eba1e3fc75e6",
+    "OloEditor/SandboxProject/Assets/Models/Bernese/BerneseNoseOcclusion.png": "b3bfea0a5255a19180ec7310ff2b5851728a0d2df7840931041da8688e3c0acb",
+    "OloEditor/SandboxProject/Assets/Models/Bernese/BernesePadOcclusion.png": "4a822b57eb41f816fb3fcb0796b21e7f8eec73d821d3e3424b04024278e44f7d",
+    "OloEditor/SandboxProject/Assets/Models/Bernese/BerneseTeethOcclusion.png": "d814d5bcb47729423b3a5308cdf574d41d192ddcb091ed1be5baa772f1c292b8",
+    "OloEditor/SandboxProject/Assets/Models/Bernese/BerneseTongueColor.png": "cbd6f61fb126556b1251c255114107f2e1f46d628a587f6b0b149663f9b1c6f5",
+    "OloEditor/SandboxProject/Assets/Models/Bernese/BerneseTongueNormal.png": "90c04aff7b2ac2a0284401ab0051f2a34c3cdb4d3477fd9fc5eb5996b447bd27",
+    "OloEditor/SandboxProject/Assets/Models/Bernese/BerneseTongueOcclusion.png": "bb108e9d0b59871428de13d473d4b0a2bfd4ac971e89ec0529e36576ec429bdc",
+    "OloEditor/SandboxProject/Assets/Models/Bernese/build_bernese.py": "ea391d1462641d5357c7af0331acd52458a05a3c0ff17caf4e90f498a21ce86b",
+    "OloEditor/SandboxProject/Assets/Models/Bernese/refine_bernese.py": "99d650c4b3a51ed8bd735a5c82792ecc960b3e5e479bccd9056bc5a185fff398",
+    "OloEditor/SandboxProject/Assets/Models/Bernese/refine_bernese_blink.py": "5fc5d5312422e834dc2989211834926dacaca2ef8fa00320ae60fc1669310a1c",
+    "OloEditor/SandboxProject/Assets/Models/Bernese/refine_bernese_expression.py": "96b35a5fc8a4941f740a00658ac2a1c3ae05ffb303f47032399664a863d03c32",
+    "OloEditor/SandboxProject/Assets/Models/Bernese/refine_bernese_face.py": "4f9c11426bc1deb76e5d49db339c168d30a06ba83203ff512a5854a3e34b5fa7",
+    "OloEditor/SandboxProject/Assets/Models/Bernese/refine_bernese_mouth.py": "be58b661c6eca94ff341674645e197990bd1e555f15414f2322d27721220e90d",
+    "OloEditor/SandboxProject/Assets/Grooms/Bernese/Bernese.ologroom": "270c3496fe051acab66abe4b4bfe3fbf31cf764ec848ec0c76ec95e9826afa7e",
+    "OloEditor/SandboxProject/Assets/Grooms/Bernese/Bernese.ologroombinding": "de5f9ec7055d967c298b9b6c11b00d5acdc7c1f7e131dc1eea5064c957c0147b",
+    "OloEditor/SandboxProject/Assets/Scenes/Bernese.olo": "732ae9dc4edbe60043ea41aefa98b6ce0af662442238a158d6c07c9d01bd1361"
+  },
+  "images": {
+    "before/ClosedBlink-front.png": "57381c7b95f369585be3c2ccc91eb7a81da8091ee1c283c93a3255c6533f8a93",
+    "before/ClosedBlink-threequarter.png": "3f146aba0071ec0e159382ca1b781ef9923628ec1c20cb0ce326a90cf52ab369",
+    "before/Pant-front.png": "df4566ef7d88c05c3f1805ff3da98429a017aaa9d78ff9098fea02661d20d682",
+    "before/Pant-threequarter.png": "9aec60ba8fba3557c52a412fdf7b29618725296dc5c7aa20765626a7f7c95495",
+    "before/Rest-body.png": "3c7b0e93996deaba0bc50436a1c06548c4ac899af9ea2d176afea09b0023462a",
+    "before/Rest-front.png": "52d55dade1f68280d04671816737143300158982c6dde9dfd2aae5fde775f2ca",
+    "before/Rest-frontbody.png": "f93cfa91f69be700735a8910cc49df046452040afac4edd701fbf71a92ce3568",
+    "before/Rest-side.png": "8969bddbe747de18924638073303850dab46761265ab8774a3b6a75837f24da7",
+    "before/Rest-threequarter.png": "9d1e6e59c5536cdef6f5b618a4c60f3cd4cc8f5c746c80ff41446df0323a183e",
+    "current/ClosedBlink-front.png": "fa95ec52adebf98fa82fa8594cf490f80b417c0c685317f5301543fad9ee94ba",
+    "current/ClosedBlink-threequarter.png": "c56688a1433b1376fd4eeb5874a42f1421e2184cf1a2287469d64c62beb7988f",
+    "current/Pant-front.png": "17d3c02d9371dfdb0dc82421eab5ecf5e7fdf21acb13e9b5724bb78e789ceaae",
+    "current/Pant-threequarter.png": "425fefa96b52b18e904149d7a420e53708281755f2976f3dce6f8a98080ce7ba",
+    "current/Rest-body.png": "c5d43e9d7b2246629864060cec4977cb6b14bfbd94b4c54a9305e340b7c8051c",
+    "current/Rest-front.png": "ba0c6049091ef100cea8ee083ea834f9462e7df0e6fa54b6cbee182a37972d24",
+    "current/Rest-frontbody.png": "d7d40157b5f00fc4a42d34cffe1cb83202630fe5b407dbec320a39f9ef579322",
+    "current/Rest-side.png": "71a72ec83ea5027c347040cda90224d42a010aaec323b1a320809f9b38d4f8ea",
+    "current/Rest-threequarter.png": "c745eccdd84c2203042593c87cf56f473b88fd6d3ec73cc590f5bc65b1197867"
+  },
+  "limitations": [
+    "Windows Release OpenGL Forward appearance verification.",
+    "Real photographs use different poses, optics and lighting."
+  ],
+  "excludedStudies": [
+    "mouth-round1: centre dip and lip lobes too pronounced; softened in round2"
+  ],
+  "validation": {
+    "validNativeViews": 9,
+    "rejectedAndRecapturedAttempts": 1,
+    "nativeErrorMessages": 0,
+    "precommitHooksPassed": 8,
+    "precommitLog": ".dog-groom/lookdev/final/bernese-mouth-precommit.log",
+    "allViewsVisuallyInspected": true
+  }
+}

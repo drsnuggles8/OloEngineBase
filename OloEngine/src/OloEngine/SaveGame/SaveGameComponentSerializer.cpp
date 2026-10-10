@@ -3314,7 +3314,7 @@ namespace OloEngine
         ar << c.m_ShowPreview << c.m_ShowStrands << c.m_ShowRoots;
         ar << c.m_ShowDirection << c.m_ColorByGroup << c.m_GuidesOnly;
         // Production strand rendering (issue #1246).
-        ar << c.m_MaxRenderStrands << c.m_WidthScale << c.m_StrandColor;
+        ar << c.m_MaxRenderStrands << c.m_MaxRenderSegments << c.m_WidthScale << c.m_StrandColor;
         ar << c.m_RenderStrands << c.m_CompositionMode;
 
         if (ar.IsLoading())
@@ -3334,6 +3334,7 @@ namespace OloEngine
             // stream, so an unbounded value here is an allocation, not a
             // stall. GroomLimits::MaxCurveCount is the format's own ceiling.
             c.m_MaxRenderStrands = std::clamp(c.m_MaxRenderStrands, 1u, GroomLimits::MaxCurveCount);
+            c.m_MaxRenderSegments = std::clamp(c.m_MaxRenderSegments, 1u, 8000000u);
 
             if (!std::isfinite(c.m_WidthScale))
             {

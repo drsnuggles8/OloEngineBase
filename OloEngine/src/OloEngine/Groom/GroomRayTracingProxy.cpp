@@ -14,25 +14,24 @@ namespace OloEngine
         // A unit vector perpendicular to `tangent`, chosen DETERMINISTICALLY
         // and without a branch anyone has to reason about at a use site.
         //
-        // The axis is picked by the tangent's SMALLEST component, so the cross
-        // product is never near-degenerate: the chosen axis makes an angle of
-        // at least 54.7 degrees with the tangent (the worst case is a tangent
-        // with three equal components), and sin of that is 0.816. Picking a
-        // fixed axis instead would produce a zero-length cross for every strand
-        // that happens to run along it — one flank of an animal, silently
-        // missing from every shadow.
+        // No choice is continuous over every direction, so the one place it
+        // jumps is put where a strand rarely points: the tangent is crossed
+        // with the body diagonal, or, inside a 25.8-degree cone around that
+        // diagonal, with an axis perpendicular to it. The cross is never
+        // near-degenerate (sin >= 0.436), and a strand along or between the
+        // world axes -- an authored coat's commonest direction -- turns its
+        // ribbons smoothly. Picking the axis by the tangent's smallest
+        // component jumped exactly there: a strand rising along +Y has two
+        // components of ~0, so the CPU and GPU builds' roundoff picked
+        // different axes and their crossed ribbons stood 90 degrees apart.
+        // GroomProxyDeformToBuffer.comp's oloPerpendicularTo is the twin.
         [[nodiscard]] glm::vec3 PerpendicularTo(const glm::vec3& tangent) noexcept
         {
-            const glm::vec3 magnitude{ std::abs(tangent.x), std::abs(tangent.y), std::abs(tangent.z) };
-            glm::vec3 axis{ 0.0f, 0.0f, 1.0f };
-            if (magnitude.x <= magnitude.y && magnitude.x <= magnitude.z)
-            {
-                axis = glm::vec3{ 1.0f, 0.0f, 0.0f };
-            }
-            else if (magnitude.y <= magnitude.z)
-            {
-                axis = glm::vec3{ 0.0f, 1.0f, 0.0f };
-            }
+            constexpr f32 kDiagonal = 0.57735026919f; // 1 / sqrt(3)
+            constexpr f32 kHalf = 0.70710678118f;     // 1 / sqrt(2)
+            const glm::vec3 diagonal{ kDiagonal, kDiagonal, kDiagonal };
+            const glm::vec3 axis =
+                std::abs(glm::dot(tangent, diagonal)) > 0.9f ? glm::vec3{ kHalf, -kHalf, 0.0f } : diagonal;
             return glm::normalize(glm::cross(tangent, axis));
         }
 

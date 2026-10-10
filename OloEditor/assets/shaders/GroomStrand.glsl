@@ -58,7 +58,7 @@ layout(location = 4) in vec2 a_Coords;     // x = root-to-tip parameter, y = acr
 layout(location = 5) in float a_SegmentId;   // uintBitsToFloat of the stochastic-hash segment identity
 layout(location = 6) in float a_Tint;       // packed coat tint, see oloGroomUnpackTint
 layout(location = 7) in vec3 a_PrevPosition; // this centreline point as it was LAST frame, object space
-layout(location = 8) in float a_Pad1;
+layout(location = 8) in float a_CoverageGrowth; // a card's summed over covered width, 1 on strands (#1558)
 #endif
 
 // The shared camera block (include/CameraCommon.glsl), identical in every
@@ -90,7 +90,7 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	mat4 u_GroomPrevModel;
 	vec4 u_GroomColor;       // rgb = neutral albedo, a unused
 	ivec4 u_GroomIDs;        // x = EntityID, yzw unused
-	vec4 u_GroomViewport;    // xy = width/height in pixels, zw unused
+    vec4 u_GroomViewport;    // xy = width/height in pixels, z = card coverage growth blend, w = strand width cap
 	vec4 u_GroomRampWidth;   // x = ramp floor, y = width scale, z = object scale, w = alpha cutoff
 	ivec4 u_GroomModeFrame;  // x = composition mode, y = frame index, z = stochastic seed, w = depth prepass
 	// Fibre scattering (#1247). The DERIVED GroomFibreParams, mirrored lane for
@@ -129,6 +129,12 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	vec4 u_GroomFibreForwardScatter; // rgb = a_f, w = d_f
 	vec4 u_GroomFibreBackScatter;    // rgb = A_b, w = d_b
 	vec4 u_GroomFibreBackLobe;       // x = shift, y = width (radians of theta_h), zw unused
+
+	// The per-strand pigment (#1558): mirrored lane for lane from
+	// UBOStructures::GroomStrandParamsUBO. .w is 0 unless the coat's pigment
+	// mode is BaseColorPerStrand, and then neither is read.
+	vec4 u_GroomFibrePigment;         // rgb = the base colour each strand's tint multiplies, w = 1 per strand
+	vec4 u_GroomFibrePigmentTable[8]; // sigma_a at 32 albedos, 2^-10 to 1 (GroomFibreParams::PigmentTable)
 };
 
 layout(location = 0) out vec2 v_Coords;
@@ -160,6 +166,66 @@ layout(location = 11) flat out vec4 v_CoatRestFrame;
 // for, which the coat-shadow march starts outside of (see oloGroomCoatTauAndBody).
 layout(location = 12) out float v_TubeRadius;
 
+// The width bands of summed width `summed` cover when spread over a region
+// `span` wide (their extent plus one pixel), each drawn at alpha width/pixel
+// and composited as independent layers: span (1 - exp(-summed / span)) (#1558).
+float oloGroomOverlapCoverage(float summed, float span)
+{
+	return span * (1.0 - exp(-summed / max(span, 1.0e-9)));
+}
+
+// How much wider a card covers at a pixel one unit wide than it was cooked at a
+// footprint `phi` units wide, given its cooked width and its members' summed
+// width in the same units: (E + 1)(1 - exp(-S / (E + 1))) over the cooked
+// width, where the extent E >= 0 is the one that reproduces the cooked width at
+// phi. A cooked width under the compact (E = 0) curve -- the cook's directional
+// average can land there -- scales that curve instead. Clamped to [1, S / C0].
+float oloGroomCardCoverageWiden(float cooked, float summed, float phi)
+{
+	float compact = oloGroomOverlapCoverage(summed, phi);
+	float now;
+	if (cooked <= compact)
+	{
+		now = oloGroomOverlapCoverage(summed, 1.0) * (cooked / max(compact, 1.0e-9));
+	}
+	else
+	{
+		// Solve span (1 - exp(-S / span)) = C0 for span = E + phi, which rises
+		// from `compact` at span = phi toward S: bisection in log span.
+		float lo = log(phi);
+		float hi = log(max(phi, summed * summed / max(2.0 * (summed - cooked), 1.0e-9)) * 4.0);
+		for (int i = 0; i < 24; ++i)
+		{
+			float mid = 0.5 * (lo + hi);
+			if (oloGroomOverlapCoverage(summed, exp(mid)) < cooked)
+			{
+				lo = mid;
+			}
+			else
+			{
+				hi = mid;
+			}
+		}
+		float extent = max(exp(0.5 * (lo + hi)) - phi, 0.0);
+		now = oloGroomOverlapCoverage(summed, extent + 1.0);
+	}
+	return clamp(now / max(cooked, 1.0e-9), 1.0, summed / max(cooked, 1.0e-9));
+}
+
+// How much wider a thinned strand is drawn than it was built (#1558): built
+// `drawn` pixels wide, its own width times min(standsFor, cap). Thinner than a
+// pixel, the standsFor strands it replaces, each drawn at alpha its own width,
+// cover 1 - (1 - own)^standsFor of a pixel -- never more than one, so the cap
+// does not apply. Wider, the build's capped widening holds, continued from one
+// pixel. The CPU twin is GroomStrandStrideWiden.
+float oloGroomStrandStrideWiden(float drawn, float standsFor, float cap)
+{
+	float applied = clamp(standsFor, 1.0, max(cap, 1.0));
+	float own = drawn / applied;
+	float covered = 1.0 - pow(1.0 - min(own, 1.0), standsFor) + max(own - 1.0, 0.0) * applied;
+	return covered / max(drawn, 1.0e-9);
+}
+
 void main()
 {
 #ifdef OLO_PULLED_VERTEX
@@ -172,6 +238,7 @@ void main()
 	float a_SegmentId = b_Vertices.v[base + 10];
 	float a_Tint = b_Vertices.v[base + 11];
 	vec3 a_PrevPosition = vec3(b_Vertices.v[base + 12], b_Vertices.v[base + 13], b_Vertices.v[base + 14]);
+	float a_CoverageGrowth = b_Vertices.v[base + 15];
 #endif
 
 	// The three object-space points everything below is built from. On a
@@ -272,6 +339,44 @@ void main()
 
 	float radiusWorld = a_Radius * u_GroomRampWidth.y * u_GroomRampWidth.z;
 	float halfWidthPixels = radiusWorld * oloGroomPixelsPerUnitAtUnitW(u_Projection, viewport.y) / clipCurr.w;
+	// A CARD FOLLOWS ITS MEMBERS' COVERAGE AS THE COAT SHRINKS (#1558). Bands
+	// of summed width S spread over an extent E, each drawn a pixel f wide at
+	// alpha w/f, cover about (E + f)(1 - exp(-S / (E + f))): the union of the
+	// spread lock while a pixel is smaller than it, one pixel's Poisson
+	// coverage once the pixel outgrows it, S in the limit. The cooked width C0
+	// is that at the cook's footprint, which fixes E; the card is then widened
+	// to the same curve at this pixel, capped at S. In this pixel's units:
+	// S = growth * C0, and the cook's footprint is phi = pixelSize /
+	// SourcePixelSize of one pixel now (u_GroomViewport.z = 1 - phi; 0 nearer
+	// than the cook and on strands). Without E a lock a centimetre across grew
+	// as if all its strands shared one pixel, several times what a spread lock
+	// gains (GroomLodCook.AWidenedCardCoversWhatItsMembersCoverFartherAway).
+	float blend = clamp(u_GroomViewport.z, 0.0, 1.0);
+	float growth = max(a_CoverageGrowth, 1.0);
+	if (blend > 0.0 && growth > 1.0)
+	{
+		float phi = max(1.0 - blend, 1.0e-3);
+		float cooked = 2.0 * halfWidthPixels;
+		float summed = growth * cooked;
+		float widen = oloGroomCardCoverageWiden(cooked, summed, phi);
+		radiusWorld *= widen;
+		halfWidthPixels *= widen;
+	}
+	// A THINNED STRAND CARRIES ITS STRIDE'S COVERAGE (#1558). On the strand
+	// tier the pass hands the width cap in u_GroomViewport.w (0 elsewhere), and
+	// a_CoverageGrowth is how many strands a kept one stands for; the build
+	// widened it by that many, capped: their summed width. Thinner than a
+	// pixel, that many strands each drawn at alpha its own width cover
+	// 1 - (1 - a)^k of it, so the full stride over-covered (the adult dog's
+	// strand tier 4.5% over every strand at stride 26) and the cap of 8
+	// under-covered (7% under).
+	float strandCap = u_GroomViewport.w;
+	if (strandCap > 0.0 && growth > 1.0)
+	{
+		float widen = oloGroomStrandStrideWiden(2.0 * halfWidthPixels, growth, strandCap);
+		radiusWorld *= widen;
+		halfWidthPixels *= widen;
+	}
 	float rasterHalfWidth = oloGroomRasterHalfWidth(halfWidthPixels);
 
 	vec2 offsetPixels = normal * (rasterHalfWidth * a_Side);
@@ -540,7 +645,7 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	mat4 u_GroomPrevModel;
 	vec4 u_GroomColor;       // rgb = neutral albedo, a unused
 	ivec4 u_GroomIDs;        // x = EntityID, yzw unused
-	vec4 u_GroomViewport;    // xy = width/height in pixels, zw unused
+    vec4 u_GroomViewport;    // xy = width/height in pixels, z = card coverage growth blend, w = strand width cap
 	vec4 u_GroomRampWidth;   // x = ramp floor, y = width scale, z = object scale, w = alpha cutoff
 	ivec4 u_GroomModeFrame;  // x = composition mode, y = frame index, z = stochastic seed, w = depth prepass
 	// Fibre scattering (#1247). The DERIVED GroomFibreParams, mirrored lane for
@@ -579,6 +684,12 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	vec4 u_GroomFibreForwardScatter; // rgb = a_f, w = d_f
 	vec4 u_GroomFibreBackScatter;    // rgb = A_b, w = d_b
 	vec4 u_GroomFibreBackLobe;       // x = shift, y = width (radians of theta_h), zw unused
+
+	// The per-strand pigment (#1558): mirrored lane for lane from
+	// UBOStructures::GroomStrandParamsUBO. .w is 0 unless the coat's pigment
+	// mode is BaseColorPerStrand, and then neither is read.
+	vec4 u_GroomFibrePigment;         // rgb = the base colour each strand's tint multiplies, w = 1 per strand
+	vec4 u_GroomFibrePigmentTable[8]; // sigma_a at 32 albedos, 2^-10 to 1 (GroomFibreParams::PigmentTable)
 };
 
 vec2 octEncode(vec3 n)
@@ -593,6 +704,13 @@ OloGroomFibre oloGroomFibreFromUniforms()
 {
 	OloGroomFibre fibre;
 	fibre.SigmaA = u_GroomFibreSigmaEta.rgb;
+	// PER STRAND (#1558): the strand's own colour -- the base times its coat
+	// tint -- absorbs inside its fibre, so a black strand transmits nothing
+	// however clear the coat's base fibre is.
+	if (u_GroomFibrePigment.w > 0.5)
+	{
+		fibre.SigmaA = oloGroomFibrePigmentSigmaA(u_GroomFibrePigment.rgb * v_CoatTint, u_GroomFibrePigmentTable);
+	}
 	fibre.Eta = u_GroomFibreSigmaEta.w;
 	fibre.V0 = u_GroomFibreLobe.x;
 	fibre.S = u_GroomFibreLobe.y;
@@ -988,6 +1106,15 @@ OloGroomShading oloGroomShadeFibre()
 
 	bool dualScattering = u_GroomFibreBackScatter.w > 0.0;
 	vec3 forwardScatter = u_GroomFibreForwardScatter.rgb;
+	// PER STRAND (#1558): the neighbours a light crossed to reach this strand
+	// are its own coat, with its pigment, and forward what their albedo lets
+	// through -- the strand's colour over the base's, its tint. A black coat
+	// forwards nothing; the base fibre's a_f would carry a pale coat's light
+	// through it.
+	if (u_GroomFibrePigment.w > 0.5)
+	{
+		forwardScatter *= v_CoatTint;
+	}
 	float densityForward = u_GroomFibreForwardScatter.w;
 	vec3 multipleBackScatter = u_GroomFibreBackScatter.rgb;
 	float densityBack = u_GroomFibreBackScatter.w;
@@ -1245,8 +1372,15 @@ OloGroomShading oloGroomShadeFibre()
 			total.Residual += ambient.Residual * (0.5 * (front + behind));
 			// The sky's back-scatter: the lobe integrates to A_b over a uniform
 			// hemisphere, times cos(theta_o) as every ambient path here is.
+			//
+			// ONLY AS MUCH AS THERE IS COAT BEHIND TO RETURN IT (#1558). A_b is
+			// the light a deep coat behind the strand sends back; where the march
+			// behind leaves the coat into the sky (a fringe, an ear's edge, the
+			// tail's plume) that light goes on, and TT already counts the sky it
+			// meets. Without the share, a thin part counted the same light twice
+			// and a coat of clear fibres read brighter than the sky lighting it.
 			float cosThetaO = sqrt(max(0.0, 1.0 - (sinThetaO * sinThetaO)));
-			multiple += multipleBackScatter * (densityBack * cosThetaO) * front;
+			multiple += multipleBackScatter * (densityBack * cosThetaO * (1.0 - behindShadow)) * front;
 		}
 	}
 
@@ -1266,12 +1400,18 @@ OloGroomShading oloGroomShadeFibre()
 // the cuticle's surface reflection and carries the light's colour — the white
 // sheen on a golden coat. Tinting R as well (#1251's first form) coloured the
 // sheen with the coat and left the coat looking matte.
+//
+// PER STRAND (#1558) the pigment is already inside the fibre
+// (oloGroomFibreFromUniforms): the paths through it are not tinted again. The
+// coat's back-scatter is still: it is the neighbours' albedo, which the tint
+// scales as the forwarded light's (oloGroomShadeFibre).
 vec3 oloGroomComposite(OloGroomShading shading, int debugMode, vec3 tint)
 {
+	vec3 pathTint = (u_GroomFibrePigment.w > 0.5) ? vec3(1.0) : tint;
 	OloGroomFibreLobes tinted = shading.Single;
-	tinted.TT *= tint;
-	tinted.TRT *= tint;
-	tinted.Residual *= tint;
+	tinted.TT *= pathTint;
+	tinted.TRT *= pathTint;
+	tinted.Residual *= pathTint;
 	vec3 multiple = shading.Multiple * tint;
 	if (debugMode == OLO_GROOM_FIBRE_DEBUG_MULTIPLE)
 	{

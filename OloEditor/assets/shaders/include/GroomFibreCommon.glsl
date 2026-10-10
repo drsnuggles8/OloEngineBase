@@ -537,4 +537,35 @@ float oloGroomFibreCosineWeight(vec3 tangent, vec3 wi)
 	return oloGroomFibreSafeSqrt(1.0 - oloGroomFibreSqr(sinTheta));
 }
 
+// THE PER-STRAND PIGMENT (#1558, GroomFibrePigmentMode::BaseColorPerStrand).
+// sigma_a of a strand whose colour -- the coat's base colour times the strand's
+// own tint -- is `colour`, read from the table GroomFibreParams::PigmentTable
+// carries, four entries to a lane: BaseColor's inversion at 32 albedos spaced
+// evenly in log2 over ten octaves, linear between neighbours. The C++ twin is
+// GroomFibrePigmentSigmaA, held to this by GroomFibreGpuParityTest.
+#define OLO_GROOM_FIBRE_PIGMENT_TABLE_SIZE 32
+#define OLO_GROOM_FIBRE_PIGMENT_OCTAVES 10.0
+
+float oloGroomFibrePigmentEntry(vec4 table[8], int i)
+{
+	return table[i >> 2][i & 3];
+}
+
+vec3 oloGroomFibrePigmentSigmaA(vec3 colour, vec4 table[8])
+{
+	vec3 sigma = vec3(0.0);
+	for (int c = 0; c < 3; ++c)
+	{
+		float a = clamp(colour[c], exp2(-OLO_GROOM_FIBRE_PIGMENT_OCTAVES), 1.0);
+		float u = (log2(a) + OLO_GROOM_FIBRE_PIGMENT_OCTAVES) / OLO_GROOM_FIBRE_PIGMENT_OCTAVES *
+		          float(OLO_GROOM_FIBRE_PIGMENT_TABLE_SIZE - 1);
+		int i = clamp(int(floor(u)), 0, OLO_GROOM_FIBRE_PIGMENT_TABLE_SIZE - 2);
+		float f = clamp(u - float(i), 0.0, 1.0);
+		float lo = oloGroomFibrePigmentEntry(table, i);
+		float hi = oloGroomFibrePigmentEntry(table, i + 1);
+		sigma[c] = lo + ((hi - lo) * f);
+	}
+	return sigma;
+}
+
 #endif // GROOM_FIBRE_COMMON_GLSL

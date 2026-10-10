@@ -116,8 +116,10 @@ namespace OloEngine
         // BoneAttachment, MaterialOverrides and GroomSceneShadow components are
         // new. A v6 sidecar read against the new layout would slide every
         // entity after the first coat-shadow block.
-        constexpr u32 CurrentVersion = 7;
-        constexpr u32 MinSupportedVersion = 7;
+        // v8 (#1558): GroomComponent gains its segment budget. Rebuild the
+        // fixed-order binary component payload from the source YAML.
+        constexpr u32 CurrentVersion = 8;
+        constexpr u32 MinSupportedVersion = 8;
 
         // Per-entity storage kind (the u8 that prefixes each EntityRecord).
         enum EntityKind : u8

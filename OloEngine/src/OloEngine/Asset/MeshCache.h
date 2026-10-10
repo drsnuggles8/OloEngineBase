@@ -15,7 +15,9 @@ namespace OloEngine
     class AnimationClip;
 
     // Manages the binary mesh/animation cache under assets/cache/mesh/.
-    // Mirrors the shader cache pattern: check source timestamp, skip Assimp if cached.
+    // Check source metadata (including external glTF buffers), skip Assimp if cached.
+    // Validity does not hash buffer contents. Replacing bytes while preserving both
+    // size and modification time requires InvalidateCache(sourcePath) before reload.
     namespace MeshCache
     {
         // Returns the cache directory path (assets/cache/mesh/).
@@ -44,7 +46,7 @@ namespace OloEngine
         std::filesystem::path GetAnimationCachePath(const std::filesystem::path& sourcePath);
 
         // Check if a valid cache exists for the given source file.
-        // Returns true if cached file exists AND source timestamp matches.
+        // Returns true if cached file exists AND source/dependency metadata matches.
         bool IsMeshCacheValid(const std::filesystem::path& sourcePath, const std::string& prefix = {});
 
         // Did the SOURCE FILE behind this cache entry contain bones (issue #1272)?

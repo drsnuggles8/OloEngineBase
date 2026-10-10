@@ -101,7 +101,9 @@ TEST(GroomStrandMesh, VertexIsExactlySixteenFloats)
     // pull's existing reads all still land where they did and only the stride
     // moved.
     EXPECT_EQ(offsetof(GroomStrandVertex, PrevPosition), 48u);
-    EXPECT_EQ(offsetof(GroomStrandVertex, Pad1), 60u);
+    // #1558: the last float, padding until then, is a card's coverage growth --
+    // the Vulkan pull's v[base + 15].
+    EXPECT_EQ(offsetof(GroomStrandVertex, CoverageGrowth), 60u);
 }
 
 TEST(GroomStrandMesh, AnUnboundGroomWritesPreviousPositionEqualToPosition)
