@@ -1,0 +1,25 @@
+#version 450 core
+
+// Foliage PATCH cull into one VIRTUAL SHADOW MAP clip level (#1580).
+//
+// FoliageGroupCull.comp plus one test: a group whose footprint in this clip
+// level covers no page being redrawn this frame is rejected, so the instance
+// kernel skips its members and the level's indirect draw does not place them.
+// That is what lets a clip level keep its cached foliage pages for real: the
+// invalidation policy (FoliageShadowInvalidation.h) decides which pages are
+// dirty, and this is what stops the redraw of every page that is not.
+//
+// A separate program rather than a branch in FoliageGroupCull.comp, because
+// this one reads the dirty-page pyramid (SSBO_VSM_HPB, binding 70) and a
+// statically used storage binding has to be bound on Vulkan whether or not
+// the branch runs; the ordinary cull never binds it.
+//
+// The test is the one VSM_CullCasters.comp and the virtual-geometry cull ask
+// (vsmFootprintHasDirtyPage), over the page rectangle the group's eight
+// corners project to -- exact for the ortho clip projection, and the same
+// rectangle VSM_InvalidatePages.comp dirties for a box.
+
+layout(local_size_x = 64) in;
+
+#define OLO_FOLIAGE_GROUP_CULL_VSM 1
+#include "../include/FoliageGroupCullKernel.glsl"

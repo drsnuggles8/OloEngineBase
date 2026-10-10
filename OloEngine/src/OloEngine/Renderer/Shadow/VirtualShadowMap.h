@@ -760,7 +760,17 @@ namespace OloEngine
         // Marks every allocated page a moving caster's swept bounds touch, so a
         // cached page containing a dynamic object is redrawn. Submitted during the
         // shadow pass, consumed by UpdatePages() in the same frame.
-        void AddDynamicInvalidation(const glm::vec3& boundsMin, const glm::vec3& boundsMax);
+        //
+        // `clipLevelMask` limits it to some directional clip levels (bit L =
+        // level L; 0 = every level, the default). Foliage uses it to keep its
+        // cached pages in levels too coarse to resolve its motion (#1580, see
+        // FoliageShadowInvalidation.h). Local-light layers ignore it.
+        void AddDynamicInvalidation(const glm::vec3& boundsMin, const glm::vec3& boundsMax, u32 clipLevelMask = 0u);
+
+        // The dirty-page pyramid's buffer (SSBO_VSM_HPB), for a pass that culls
+        // its own casters against it outside RenderCasters' bindings -- the
+        // foliage clip-level cull (#1580). Null when VSM is not initialised.
+        [[nodiscard]] RHI::ResourceHandle GetHPBHandle() const;
 
         // Finds this frame's movers and submits their swept bounds. MUST be called
         // BEFORE UpdatePages(), which is what consumes the invalidations — running

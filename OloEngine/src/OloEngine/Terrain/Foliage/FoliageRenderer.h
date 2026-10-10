@@ -229,6 +229,10 @@ namespace OloEngine
             // the latched-flag bug TerrainGPUQuadtree::HasDispatched
             // documents.
             bool Active = false;
+            // What the slot's last read-back demand pair asked for beyond its
+            // capacity (#1581), applied by the next cull into it. 0 = no grow.
+            u32 GrowList = 0;
+            u32 GrowMesh = 0;
         };
         std::array<CullViewSlot, FoliageGPUCuller::kViewSlotCount> CullViews;
         f32 ViewDistance = 100.0f;
@@ -264,6 +268,10 @@ namespace OloEngine
         f32 LeafTransmissionAmbient = 0.35f;
 
         BoundingBox Bounds; // Precomputed AABB encompassing all instances
+        // The farthest any point of one plant's padded bound gets from its root,
+        // terrain-local (#1580): what an interaction influence's invalidation box
+        // is grown by, so a bent plant rooted inside it stays inside.
+        f32 PlantReach = 0.0f;
 
         // Octahedral impostor (issue #433). Baked lazily from the layer mesh;
         // the *Baked* fields cache the config the atlas was baked for so a
@@ -321,7 +329,9 @@ namespace OloEngine
         static constexpr bool Value = TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::CullViewSlot::Resources)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::CullViewSlot::CardVAO)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::CullViewSlot::MeshVAO)>::Value &&
-                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::CullViewSlot::Active)>::Value;
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::CullViewSlot::Active)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::CullViewSlot::GrowList)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::CullViewSlot::GrowMesh)>::Value;
     };
 
     // std::array has only inline element storage; this concrete array follows its audited slot type.
@@ -385,6 +395,7 @@ namespace OloEngine
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::LeafTransmissionWrap)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::LeafTransmissionAmbient)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::Bounds)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::PlantReach)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::Impostor)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::UseImpostor)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::ImpostorStartDistance)>::Value &&
@@ -564,6 +575,44 @@ namespace OloEngine
 
         [[nodiscard]] BoundingBox GetShadowBounds() const;
 
+        // ── Virtual shadow map page caching (#1580) ──────────────────────
+        //
+        // What changes the foliage's shadow silhouette WITHOUT any motion:
+        // the canonical records, the terrain transform, and every layer
+        // parameter the shadow draw or its cull reads. ShadowRenderPass hands
+        // it to ShadowFamilyCache, which invalidates every clip level when it
+        // moves; motion is CollectVsmInvalidations' business.
+        [[nodiscard]] u64 GetShadowRevision() const;
+
+        // This frame's motion-driven invalidations for the directional clip
+        // levels, from DECLARED displacement bounds -- see
+        // FoliageShadowInvalidation.h for the policy and its error bound.
+        struct VsmInvalidationInputs
+        {
+            // World size of one texel of each clip level, finest first.
+            std::span<const f32> TexelWorldSizes;
+            // VirtualShadowMapSettings, for the level a distance selects.
+            f32 Clip0HalfExtent = 2.0f;
+            f32 ClipSelectionBias = 1.0f;
+            // The rotation's frame counter and whether the main eye moved since
+            // the last frame.
+            u64 Frame = 0;
+            bool EyeMoved = false;
+        };
+        struct VsmInvalidation
+        {
+            BoundingBox WorldBounds;
+            u32 ClipLevelMask = 0; // bit L = level L; never 0 here
+        };
+        void CollectVsmInvalidations(const VsmInvalidationInputs& inputs, TArray<VsmInvalidation>& out) const;
+
+        // MakeCullInputs for one directional clip level, with what the group
+        // pass needs to reject groups over no dirty page (#1580).
+        [[nodiscard]] FoliageGPUCuller::ViewInputs MakeVsmClipCullInputs(const glm::mat4& worldViewProjection,
+                                                                         const glm::vec3& mainViewWorldPosition,
+                                                                         u32 clipLevel, const glm::ivec2& pageOffset,
+                                                                         RHI::ResourceHandle dirtyPagePyramid) const;
+
         // Cull ONE shadow view into its own slot. Call once per active view,
         // BEFORE the region's parallel recording starts; `shadowViewIndex` is
         // the item index. Returns false when the index is past kMaxShadowViews
@@ -575,6 +624,30 @@ namespace OloEngine
         // (or the previous frame) would have a later cascade draw the plants some
         // other light could see.
         void ResetShadowViewCulling();
+
+        // Copy every slot's demand pair out for the non-stalling overflow
+        // readback (#1581). ShadowRenderPass calls it once its culls for the
+        // frame are done, so the fence covers them; the main-view cull calls it
+        // too when no shadow pass did, for the frame before. Never from inside
+        // a parallel recording item.
+        void CaptureCullDemand();
+
+        // The compacted stream a (layer, slot) holds, in instances: the
+        // all-survivor list and the mesh region (#1581). {0, 0} when the slot
+        // has none.
+        struct CullStreamCapacity
+        {
+            u32 List = 0;
+            u32 Mesh = 0;
+        };
+        [[nodiscard]] CullStreamCapacity GetCullStreamCapacity(u32 layerIndex, u32 slot) const;
+
+        // How many times a slot has grown because its view overflowed it
+        // (#1581). Every grow is also one log line.
+        [[nodiscard]] u32 GetCullStreamGrowCount() const
+        {
+            return m_CullStreamGrows;
+        }
 
         // ── GPU patch + instance culling (issue #1235) ────────────────────
 
@@ -762,6 +835,9 @@ namespace OloEngine
         // Run one view's cull over every layer. Returns true when at least one
         // layer produced a compacted draw.
         bool CullForView(u32 slotIndex, const FoliageGPUCuller::ViewInputs& inputs);
+        // Retire every demand capture the GPU has finished and mark each slot
+        // that overflowed to grow at its next cull (#1581).
+        void PollCullDemand();
         // (Re)create the vertex arrays that stream `slot`'s compacted buffer.
         void RebuildCulledVertexArrays(LayerRenderData& data, u32 slot) const;
 
@@ -838,6 +914,12 @@ namespace OloEngine
         TArray<LayerRenderData> m_Layers;
         FoliageInstanceRegistry m_Registry;
         FoliageGPUCuller m_Culler;
+        // The overflow readback (#1581): entry layer * kViewSlotCount + slot.
+        FoliageCullDemandReadback m_CullDemand;
+        TArray<FoliageCullDemand> m_CullDemandRetired;
+        // A cull ran since the last capture, so there is demand to copy out.
+        bool m_CullDemandUncaptured = false;
+        u32 m_CullStreamGrows = 0;
         bool m_MainViewCulled = false;
         // Warn-once latches: a capability failure or a per-layer refusal must
         // say so, but a renderer that says it every frame at 60 Hz is the same
@@ -848,6 +930,10 @@ namespace OloEngine
         bool m_WarnedTooManyParts = false;
         bool m_WarnedCullBracketSkipped = false;
         glm::mat4 m_TerrainTransform{ 1.0f };
+        // The interaction boxes CollectVsmInvalidations submitted last frame:
+        // invalidated once more after an influence moves or retires, so its
+        // last bend does not stay baked into a page (#1580).
+        mutable TArray<BoundingBox> m_PreviousInfluenceBoxes;
         u32 m_VisibleInstances = 0;
         f32 m_LegacyWindEnvelope = 2.0f;
         Ref<Shader> m_ImpostorDepthShader;

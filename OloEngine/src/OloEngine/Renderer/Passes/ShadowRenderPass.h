@@ -286,6 +286,13 @@ namespace OloEngine
                             u32 instanceCount = 0, const ShadowCasterFootprint& footprint = {});
         void AddFoliageCaster(FoliageRenderer* renderer, const Ref<Shader>& depthShader, f32 time);
 
+        // Copy this frame's foliage cull-slot overflow demand out (#1581).
+        // Called from the frame EPILOGUE (Renderer3D, right after
+        // GPUReadbackStats::EndFrame), not at the end of Execute: the copy has
+        // to wait for every shader write before it, and issued mid-frame that
+        // wait serialised the shadow pass against the passes after it.
+        void CaptureFoliageCullDemand();
+
       private:
         // Fills m_GroomCasters from this frame's published groom requests.
         //
@@ -459,6 +466,14 @@ namespace OloEngine
         void SubmitFamilyDynamicInvalidations(VirtualShadowMap& vsm);
         u32 RenderFamilyVirtualViews(VirtualShadowMap& vsm, bool local);
         std::array<ShadowFamilyCache, 3> m_FamilyCaches;
+        // The foliage renderers this frame's Execute culled for, whose demand
+        // the epilogue copies out (CaptureFoliageCullDemand).
+        TArray<FoliageRenderer*> m_FoliageDemandCaptures;
+        // Foliage's motion-driven VSM invalidation (#1580): the rotation's
+        // frame counter and the main eye it last saw.
+        u64 m_FoliageVsmFrame = 0;
+        glm::vec3 m_FoliageVsmEye{ 0.0f };
+        bool m_FoliageVsmEyeValid = false;
         struct FamilyViewParams
         {
             glm::ivec4 View{ 0 }; // domain, level/layer, unbounded

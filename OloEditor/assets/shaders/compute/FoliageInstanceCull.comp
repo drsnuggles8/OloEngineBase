@@ -172,14 +172,19 @@ void main()
     // overflow would, under concurrency, hand two invocations the same slot and
     // turn a truncation into a duplicated-and-lost plant.
     uint outIdx = atomicAdd(s_ReserveCursor, 1u);
-    // The all-survivor list ends where the mesh region starts (#1533).
-    uint listCapacity = (s_MeshRegionBase != 0u) ? min(s_OutputCapacity, s_MeshRegionBase) : s_OutputCapacity;
-    if (outIdx >= listCapacity)
+    // The all-survivor list's own bound; the mesh region after it has its own
+    // (s_MeshCapacity). Since #1581 a list is sized from what its VIEW can
+    // survive, not from the layer, so this is a path a camera move can take.
+    if (outIdx >= s_OutputCapacity)
     {
         // Bounded and LOUD, never a quiet short draw: the flag names the
-        // condition and the counter says by how much. The CPU reads both back
-        // and warns (FoliageGPUCuller::PollOverflow).
+        // condition and the counter says by how much. And the slot GROWS: the
+        // demand pair records what the list would have needed, and the CPU
+        // reads it back without stalling and resizes the slot for the next
+        // frame (FoliageCullDemandReadback). Only the overflowing invocations
+        // pay for the atomic.
         oloStatOverflow(OLO_STATFLAG_FoliageCullOutput, OLO_STAT_FoliageCullDropped, 1u);
+        atomicMax(s_ListDemand, outIdx + 1u);
         return;
     }
 
@@ -198,10 +203,11 @@ void main()
     {
         uint meshIdx = atomicAdd(s_MeshCursor, 1u);
         uint meshSlot = s_MeshRegionBase + meshIdx;
-        // The region holds s_MeshRegionBase rows (the layer's instance count),
-        // so it cannot fill unless every plant is in reach; the bound is still
-        // checked, and a row past it is counted rather than written.
-        if (meshIdx < s_MeshRegionBase && meshSlot < s_OutputCapacity)
+        // The region holds s_MeshCapacity rows, sized from the plants within
+        // the mesh band's reach of the main eye (#1581); a row past it is
+        // counted, its demand recorded for the slot to grow to, and not
+        // written.
+        if (meshIdx < s_MeshCapacity)
         {
             b_DstInstances[meshSlot] = row;
             s_Tail[s_SourceRowOffset + meshSlot] = idx;
@@ -210,6 +216,7 @@ void main()
         else
         {
             oloStatOverflow(OLO_STATFLAG_FoliageCullOutput, OLO_STAT_FoliageCullDropped, 1u);
+            atomicMax(s_MeshDemand, meshIdx + 1u);
         }
     }
     for (uint part = 0u; part < s_PartCount; ++part)

@@ -129,6 +129,15 @@ void main()
     vec3 boundsMin = b_InvalidationBounds[invalidation * 2u].xyz;
     vec3 boundsMax = b_InvalidationBounds[invalidation * 2u + 1u].xyz;
 
+    // The clip levels this box invalidates (#1580): bit L for level L, carried
+    // as an exactly representable float in the min's w; 0 is every level, what
+    // every caster but foliage submits. Foliage names only the levels whose
+    // texel can resolve its declared displacement, so a coarser level keeps
+    // its cached pages (FoliageShadowInvalidation.h has the error bound).
+    uint levelMask = uint(b_InvalidationBounds[invalidation * 2u].w + 0.5);
+    if (levelMask != 0u && (levelMask & (1u << uint(clipLevel))) == 0u)
+        return;
+
     // Project the eight corners and take the NDC-space extent. An ortho VP makes
     // this exact rather than conservative-with-slop, since the projection is
     // affine and the corner set is the AABB's own.
