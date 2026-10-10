@@ -2,6 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import {
   checkCommand,
+  commandWords,
   commentOf,
   contenders,
   isTimingRun,
@@ -99,6 +100,16 @@ test('prefixes and shell wrappers do not hide a command from the rules', () => {
   expect(publishes('GH_TOKEN=x gh pr create --fill')).toBe(true)
   expect(publishes('pwsh -Command "git push -u origin feature/x"')).toBe(true)
   expect(publishingApproved('pwsh -Command "git push -u origin feature/x" # OLO_USER_APPROVED')).toBe(true)
+  // Launcher options and combined shell flags.
+  expect(rules("bash -ec 'git reset --hard'")).toEqual(['reset-hard'])
+  expect(rules("bash -o pipefail -euxc 'gh pr merge 1'")).toEqual(['pr-merge'])
+  expect(rules('env -i gh pr merge 1')).toEqual(['pr-merge'])
+  expect(rules('env -u HOME -i GH_TOKEN=x gh issue close 1')).toEqual(['issue-close'])
+  expect(rules("env -S 'gh pr merge 1'")).toEqual(['pr-merge'])
+  expect(rules('timeout -s KILL 60 git push origin master')).toEqual(['push-to-master'])
+  expect(rules('nice -n 10 git reset --hard')).toEqual(['reset-hard'])
+  expect(rules('env')).toEqual([])
+  expect(commandWords(['env', '-i', '-u', 'X', 'A=1', 'git', 'status'])).toEqual(['git', 'status'])
   // Ordinary wrapped commands stay quiet.
   expect(rules('pwsh -NoProfile -File .claude/skills/run-oloengine/build-lock.ps1 -Command "cmake --build build-cached"')).toEqual([])
 })

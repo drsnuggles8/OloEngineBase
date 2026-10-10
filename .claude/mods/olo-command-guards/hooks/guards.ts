@@ -229,45 +229,84 @@ export function exeName(word: string | undefined): string {
   return (word ?? '').replace(/^.*[\\/]/, '').replace(/\.exe$/i, '').toLowerCase()
 }
 
-/**
- * A statement's words from the command it runs: drops `&`, `call`, `env`, `time`, `nice`,
- * `VAR=value` assignments and `timeout N`, so `GH_TOKEN=x gh pr merge` is still `gh pr merge`.
- */
-export function commandWords(words: readonly string[]): string[] {
-  let i = 0
-  while (i < words.length) {
-    const w = words[i] ?? ''
-    if (w === '&' || /^(?:call|env|time|nice|command|builtin)$/i.test(w) || /^\w+=/.test(w)) {
-      i += 1
-    } else if (/^timeout$/i.test(w)) {
-      i += 2
-    } else {
-      break
-    }
-  }
-  return words.slice(i)
+// Launchers that run the command after them, with the options of theirs that take a value.
+// `env -S '<cmd>'` splits its value into the command it runs.
+const LAUNCHERS: Record<string, { withValue: string[]; positional?: number }> = {
+  env: { withValue: ['-u', '--unset', '-C', '--chdir', '-P'] },
+  timeout: { withValue: ['-s', '--signal', '-k', '--kill-after'], positional: 1 },
+  nice: { withValue: ['-n', '--adjustment'] },
+  time: { withValue: ['-o', '--output', '-f', '--format'] },
+  call: { withValue: [] },
+  command: { withValue: [] },
+  builtin: { withValue: [] },
+  exec: { withValue: ['-a'] },
 }
 
 /**
- * The command a shell wrapper runs: `pwsh/powershell -Command|-c <cmd>`, `bash/sh -c <cmd>`,
- * `cmd /c <cmd...>`. Undefined when the statement is no such wrapper.
+ * A statement's words from the command it runs. Drops `&`, `VAR=value` assignments and the
+ * launchers above with their own options (`env -i -u X`, `timeout -s KILL 60`, `nice -n 5`),
+ * so `env -i GH_TOKEN=x gh pr merge` is still `gh pr merge`. Normalising only exposes the
+ * command that runs: it never removes a word the rules would have refused.
+ */
+export function commandWords(words: readonly string[]): string[] {
+  let rest = [...words]
+  for (;;) {
+    const w = rest[0] ?? ''
+    if (w === '&' || /^\w+=/.test(w)) {
+      rest = rest.slice(1)
+      continue
+    }
+    const launcher = LAUNCHERS[exeName(w)]
+    if (launcher === undefined) {
+      return rest
+    }
+    let i = 1
+    while (i < rest.length && (rest[i] ?? '').startsWith('-') && rest[i] !== '-') {
+      const flag = rest[i] ?? ''
+      if (exeName(w) === 'env' && (flag === '-S' || flag === '--split-string')) {
+        // env -S 'cmd args' [more]: the value is the command line.
+        rest = [...tokenize(rest[i + 1] ?? ''), ...rest.slice(i + 2)]
+        i = -1
+        break
+      }
+      if (flag.startsWith('--split-string=') && exeName(w) === 'env') {
+        rest = [...tokenize(flag.slice('--split-string='.length)), ...rest.slice(i + 1)]
+        i = -1
+        break
+      }
+      i += launcher.withValue.includes(flag) ? 2 : 1
+    }
+    if (i === -1) {
+      continue
+    }
+    if (rest[i] === '-') {
+      i += 1
+    }
+    rest = rest.slice(i + (launcher.positional ?? 0))
+  }
+}
+
+/**
+ * The command a shell wrapper runs: `pwsh/powershell -Command|-c <cmd>`, `bash/sh/zsh` with
+ * any single-dash flag group containing `c` (`-c`, `-lc`, `-ec`, `-euxc`) then `<cmd>`, and
+ * `cmd /c|/k <cmd...>`. Undefined when the statement is no such wrapper.
  */
 export function innerCommand(words: readonly string[]): string | undefined {
   const name = exeName(words[0])
-  const after = (...flags: string[]) => {
-    const at = words.findIndex(w => flags.includes(w.toLowerCase()))
+  const find = (test: (w: string) => boolean) => {
+    const at = words.findIndex((w, i) => i > 0 && test(w))
     return at >= 0 ? at : undefined
   }
   if (name === 'pwsh' || name === 'powershell') {
-    const at = after('-command', '-c')
+    const at = find(w => /^-(?:command|c)$/i.test(w))
     return at === undefined ? undefined : words.slice(at + 1).join(' ')
   }
-  if (name === 'bash' || name === 'sh' || name === 'zsh') {
-    const at = after('-c', '-lc')
+  if (name === 'bash' || name === 'sh' || name === 'zsh' || name === 'dash') {
+    const at = find(w => /^-[A-Za-z]*c[A-Za-z]*$/.test(w))
     return at === undefined ? undefined : words[at + 1]
   }
   if (name === 'cmd') {
-    const at = after('/c', '/k')
+    const at = find(w => /^\/[ck]$/i.test(w))
     return at === undefined ? undefined : words.slice(at + 1).join(' ')
   }
   return undefined

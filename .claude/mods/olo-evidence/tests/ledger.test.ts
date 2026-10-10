@@ -83,6 +83,10 @@ test('the PR statement is found through prefixes and shell wrappers', () => {
     'pwsh -NoProfile -Command "gh pr create --body-file C:/t/b.md"',
     "bash -c 'gh pr create --fill'",
     'cmd /c gh pr create --fill',
+    "bash -ec 'gh pr create --fill'",
+    'env -i GH_TOKEN=x gh pr create --fill',
+    "env -S 'gh pr create --fill'",
+    'timeout -s KILL 60 gh pr create --fill',
   ]) {
     expect({ command, found: prStatement(command) !== undefined }).toEqual({ command, found: true })
   }
