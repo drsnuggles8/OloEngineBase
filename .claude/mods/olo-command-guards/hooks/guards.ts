@@ -263,14 +263,21 @@ export function commandWords(words: readonly string[]): string[] {
     let i = 1
     while (i < rest.length && (rest[i] ?? '').startsWith('-') && rest[i] !== '-') {
       const flag = rest[i] ?? ''
-      if (exeName(w) === 'env' && (flag === '-S' || flag === '--split-string')) {
-        // env -S 'cmd args' [more]: the value is the command line.
-        rest = [...tokenize(rest[i + 1] ?? ''), ...rest.slice(i + 2)]
-        i = -1
-        break
-      }
-      if (flag.startsWith('--split-string=') && exeName(w) === 'env') {
-        rest = [...tokenize(flag.slice('--split-string='.length)), ...rest.slice(i + 1)]
+      // env -S '<string>' [more]: the string is split into env's own arguments, and may
+      // itself start with env options (`env -S '-i gh pr merge 1'` runs `gh pr merge 1`), so
+      // the expanded words go back through env, not straight to the command.
+      const split =
+        exeName(w) !== 'env'
+          ? undefined
+          : flag === '-S' || flag === '--split-string'
+            ? { value: rest[i + 1] ?? '', after: i + 2 }
+            : flag.startsWith('--split-string=')
+              ? { value: flag.slice('--split-string='.length), after: i + 1 }
+              : /^-S./.test(flag)
+                ? { value: flag.slice(2), after: i + 1 }
+                : undefined
+      if (split !== undefined) {
+        rest = [w, ...rest.slice(1, i), ...tokenize(split.value), ...rest.slice(split.after)]
         i = -1
         break
       }
@@ -286,28 +293,84 @@ export function commandWords(words: readonly string[]): string[] {
   }
 }
 
+// PowerShell options that take a value (the rest are switches).
+const PWSH_WITH_VALUE = new Set([
+  '-executionpolicy', '-ep', '-ex', '-workingdirectory', '-wd', '-windowstyle', '-w', '-configurationname', '-config',
+  '-outputformat', '-o', '-of', '-inputformat', '-if', '-in', '-version', '-v', '-settingsfile', '-custompipename', '-psconsolefile',
+])
+// bash/sh options that take a value.
+const SH_WITH_VALUE = new Set(['-o', '+o', '-O', '+O', '--rcfile', '--init-file'])
+// A script that runs its own -Command parameter: build-lock.ps1 runs the build it is handed.
+const RUNS_ITS_COMMAND = /^build-lock\.ps1$/i
+
 /**
- * The command a shell wrapper runs: `pwsh/powershell -Command|-c <cmd>`, `bash/sh/zsh` with
- * any single-dash flag group containing `c` (`-c`, `-lc`, `-ec`, `-euxc`) then `<cmd>`, and
- * `cmd /c|/k <cmd...>`. Undefined when the statement is no such wrapper.
+ * The command a shell wrapper runs, read from the wrapper's OWN options only (words after a
+ * script operand are the script's arguments, not the shell's): `pwsh/powershell -Command|-c
+ * <cmd>`; `bash/sh/zsh/dash` with a single-dash flag group containing `c` (`-c`, `-lc`, `-ec`)
+ * then `<cmd>`; `cmd /c|/k <cmd...>`. The one script whose `-Command` IS what runs is
+ * build-lock.ps1. Undefined when the statement is no such wrapper.
  */
 export function innerCommand(words: readonly string[]): string | undefined {
   const name = exeName(words[0])
-  const find = (test: (w: string) => boolean) => {
-    const at = words.findIndex((w, i) => i > 0 && test(w))
-    return at >= 0 ? at : undefined
-  }
   if (name === 'pwsh' || name === 'powershell') {
-    const at = find(w => /^-(?:command|c)$/i.test(w))
-    return at === undefined ? undefined : words.slice(at + 1).join(' ')
+    for (let i = 1; i < words.length; i += 1) {
+      const w = words[i] ?? ''
+      const lower = w.toLowerCase()
+      if (lower === '-command' || lower === '-c') {
+        return words.slice(i + 1).join(' ')
+      }
+      if (lower === '-file' || lower === '-f') {
+        const script = words[i + 1] ?? ''
+        if (!RUNS_ITS_COMMAND.test(script.replace(/^.*[\\/]/, ''))) {
+          return undefined
+        }
+        const at = words.findIndex((x, j) => j > i + 1 && /^-command$/i.test(x))
+        return at >= 0 ? words[at + 1] : undefined
+      }
+      if (lower === '-encodedcommand' || lower === '-e' || lower === '-ec') {
+        return undefined
+      }
+      if (!w.startsWith('-')) {
+        // A bare operand: pwsh runs it as a script file, Windows PowerShell as a command.
+        return name === 'powershell' ? words.slice(i).join(' ') : undefined
+      }
+      if (PWSH_WITH_VALUE.has(lower)) {
+        i += 1
+      }
+    }
+    return undefined
   }
   if (name === 'bash' || name === 'sh' || name === 'zsh' || name === 'dash') {
-    const at = find(w => /^-[A-Za-z]*c[A-Za-z]*$/.test(w))
-    return at === undefined ? undefined : words[at + 1]
+    for (let i = 1; i < words.length; i += 1) {
+      const w = words[i] ?? ''
+      if (w === '--' || w === '-') {
+        return undefined
+      }
+      if (SH_WITH_VALUE.has(w)) {
+        i += 1
+        continue
+      }
+      if (/^-[A-Za-z]*c[A-Za-z]*$/.test(w)) {
+        return words[i + 1]
+      }
+      if (!/^[-+]/.test(w)) {
+        // The script operand: every word after it is the script's.
+        return undefined
+      }
+    }
+    return undefined
   }
   if (name === 'cmd') {
-    const at = find(w => /^\/[ck]$/i.test(w))
-    return at === undefined ? undefined : words.slice(at + 1).join(' ')
+    for (let i = 1; i < words.length; i += 1) {
+      const w = words[i] ?? ''
+      if (/^\/[ck]$/i.test(w)) {
+        return words.slice(i + 1).join(' ')
+      }
+      if (!w.startsWith('/')) {
+        return undefined
+      }
+    }
+    return undefined
   }
   return undefined
 }

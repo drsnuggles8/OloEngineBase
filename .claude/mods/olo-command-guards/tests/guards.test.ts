@@ -109,6 +109,18 @@ test('prefixes and shell wrappers do not hide a command from the rules', () => {
   expect(rules('timeout -s KILL 60 git push origin master')).toEqual(['push-to-master'])
   expect(rules('nice -n 10 git reset --hard')).toEqual(['reset-hard'])
   expect(rules('env')).toEqual([])
+  // Options inside env -S's split string are env's own (GNU env), not the command.
+  expect(rules("env -S '-i gh pr merge 1'")).toEqual(['pr-merge'])
+  expect(rules("env -S '-u HOME GH_TOKEN=x git push origin master'")).toEqual(['push-to-master'])
+  expect(rules("env --split-string='-i git reset --hard'")).toEqual(['reset-hard'])
+  // Words after a script operand belong to the script, not to the shell.
+  expect(rules("bash deploy.sh -c 'git reset --hard'")).toEqual([])
+  expect(rules("pwsh -File tools/x.ps1 -Command 'git reset --hard'")).toEqual([])
+  expect(rules("bash -o pipefail -c 'git reset --hard'")).toEqual(['reset-hard'])
+  // build-lock.ps1 is the one script that runs its -Command.
+  expect(rules("pwsh -NoProfile -File .claude/skills/run-oloengine/build-lock.ps1 -Command 'git push origin master'")).toEqual(['push-to-master'])
+  // Windows PowerShell runs a bare operand as a command; pwsh runs it as a script file.
+  expect(rules("powershell 'git reset --hard'")).toEqual(['reset-hard'])
   expect(commandWords(['env', '-i', '-u', 'X', 'A=1', 'git', 'status'])).toEqual(['git', 'status'])
   // Ordinary wrapped commands stay quiet.
   expect(rules('pwsh -NoProfile -File .claude/skills/run-oloengine/build-lock.ps1 -Command "cmake --build build-cached"')).toEqual([])

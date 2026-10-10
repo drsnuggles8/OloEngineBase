@@ -86,6 +86,7 @@ test('the PR statement is found through prefixes and shell wrappers', () => {
     "bash -ec 'gh pr create --fill'",
     'env -i GH_TOKEN=x gh pr create --fill',
     "env -S 'gh pr create --fill'",
+    "env -S '-i gh pr create --fill'",
     'timeout -s KILL 60 gh pr create --fill',
   ]) {
     expect({ command, found: prStatement(command) !== undefined }).toEqual({ command, found: true })
@@ -99,6 +100,14 @@ test('the PR statement is found through prefixes and shell wrappers', () => {
   expect(parseInvocations("bash -c 'build-cached/OloEngine/tests/Debug/OloEngine-Tests.exe --gtest_filter=A.*'")).toEqual([
     { kind: 'test', config: 'Debug', scope: 'A.*' },
   ])
+})
+
+test('words after a script operand are the script arguments, not a command', () => {
+  expect(parseInvocations("bash script.sh -c 'ctest -C Release'")).toEqual([])
+  expect(parseInvocations("pwsh -File tools/x.ps1 -Command 'cmake --build build-cached'")).toEqual([])
+  expect(prStatement("bash script.sh -c 'gh pr create --fill'")).toBeUndefined()
+  // build-lock.ps1 runs its -Command: still a build.
+  expect(parseInvocations(LOCKED_BUILD).map(i => i.kind)).toEqual(['build'])
 })
 
 test('redirects: the file a run writes to, not 2>&1 or /dev/null', () => {
