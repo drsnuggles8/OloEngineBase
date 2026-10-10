@@ -1100,11 +1100,17 @@ namespace OloEngine
                                kLocalLayersOffset);
     }
 
-    void VirtualShadowMap::AddDynamicInvalidation(const glm::vec3& boundsMin, const glm::vec3& boundsMax)
+    void VirtualShadowMap::AddDynamicInvalidation(const glm::vec3& boundsMin, const glm::vec3& boundsMax,
+                                                  u32 clipLevelMask)
     {
         if (!IsActive())
             return;
-        AppendBoundedShadowInvalidation(m_PendingInvalidations, boundsMin, boundsMax, kMaxInvalidations);
+        AppendBoundedShadowInvalidation(m_PendingInvalidations, boundsMin, boundsMax, kMaxInvalidations, clipLevelMask);
+    }
+
+    RHI::ResourceHandle VirtualShadowMap::GetHPBHandle() const
+    {
+        return m_HPB ? m_HPB->GetRHIHandle() : RHI::NullResource;
     }
 
     void VirtualShadowMap::SubmitDynamicInvalidations(std::span<const ShadowMeshCaster> meshCasters,

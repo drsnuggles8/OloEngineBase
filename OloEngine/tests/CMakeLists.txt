@@ -336,6 +336,7 @@ add_executable(OloEngine-Tests
 		Rendering/FoliageImpostorPlacementTest.cpp
 		Rendering/FoliageLodTransitionContractTest.cpp
 		Rendering/FoliageCullStreamSizingContractTest.cpp
+		Rendering/FoliageShadowInvalidationContractTest.cpp
 		Rendering/FoliageAuthoredMeshContractTest.cpp
 		Rendering/FoliageAlphaCoverageContractTest.cpp
 		Rendering/AlphaCoverageMipsContractTest.cpp
@@ -857,6 +858,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/FloraLooseCookedParityEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageCostBaselineTest.cpp
         Rendering/PropertyTests/FoliageGPUCullEvidenceTest.cpp
+        Rendering/PropertyTests/FoliageVsmCacheVisualEvidenceTest.cpp
         Rendering/PropertyTests/FoliageWindEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageLeafMaterialTest.cpp
 		Rendering/PropertyTests/FoliageLeafTransmissionTest.cpp

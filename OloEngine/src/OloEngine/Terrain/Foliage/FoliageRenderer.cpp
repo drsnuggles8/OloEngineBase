@@ -28,6 +28,8 @@
 #include "OloEngine/Renderer/RayTracing/VegetationSurfaceCache.h"
 #include "OloEngine/Renderer/Passes/DeferredLightingPass.h"
 #include "OloEngine/Renderer/CameraRelative.h"
+#include "OloEngine/Renderer/Shadow/FoliageShadowInvalidation.h"
+#include "OloEngine/Renderer/Shadow/VirtualShadowMap.h"
 #include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/Instancing/InstanceBuffer.h"
@@ -2167,6 +2169,7 @@ namespace OloEngine
             {
                 glm::vec3 bMin(std::numeric_limits<f32>::max());
                 glm::vec3 bMax(std::numeric_limits<f32>::lowest());
+                f32 reach = 0.0f;
                 for (const auto& inst : instances)
                 {
                     const glm::vec3 pos(inst.PositionScale.x, inst.PositionScale.y, inst.PositionScale.z);
@@ -2177,12 +2180,16 @@ namespace OloEngine
                         pos, inst.PositionScale.w, inst.RotationHeight.y, renderData.BoundsProfile);
                     bMin = glm::min(bMin, instanceBox.Min);
                     bMax = glm::max(bMax, instanceBox.Max);
+                    const glm::vec3 fromRoot = glm::max(instanceBox.Max - pos, pos - instanceBox.Min);
+                    reach = std::max({ reach, fromRoot.x, fromRoot.y, fromRoot.z });
                 }
                 renderData.Bounds = BoundingBox(bMin, bMax);
+                renderData.PlantReach = reach;
             }
             else
             {
                 renderData.Bounds = BoundingBox(glm::vec3(0.0f), glm::vec3(0.0f));
+                renderData.PlantReach = 0.0f;
             }
 
             UploadInstances(renderData, instances);
@@ -2402,6 +2409,170 @@ namespace OloEngine
             bounds = bounds.Min.x >= std::numeric_limits<f32>::max() ? world : bounds.Union(world);
         }
         return bounds;
+    }
+
+    u64 FoliageRenderer::GetShadowRevision() const
+    {
+        // FNV-1a over everything that changes what the shadow draw or its cull
+        // produces without the plants moving (#1580). A parameter missed here
+        // leaves a stale shadow in the cached coarse levels until the rotation
+        // reaches them, so this errs toward including.
+        u64 h = 1469598103934665603ull;
+        const auto mix = [&h](const void* bytes, sizet size)
+        {
+            const auto* p = static_cast<const u8*>(bytes);
+            for (sizet i = 0; i < size; ++i)
+                h = (h ^ p[i]) * 1099511628211ull;
+        };
+        const u64 generation = m_Registry.GetGeneration();
+        mix(&generation, sizeof(generation));
+        mix(&m_TerrainTransform, sizeof(m_TerrainTransform));
+        mix(&m_LegacyWindEnvelope, sizeof(m_LegacyWindEnvelope));
+        for (const auto& layer : m_Layers)
+        {
+            const FoliageLod::Params lod = ActiveLod(layer);
+            const glm::vec4 lod0 = FoliageLodTransition0(lod);
+            const glm::vec4 lod1 = FoliageLodTransition1(lod);
+            const std::array<u8, 4> flags{ static_cast<u8>(layer.CastShadows), static_cast<u8>(layer.UseImpostor),
+                                           static_cast<u8>(layer.MeshVBO != nullptr),
+                                           static_cast<u8>(layer.CardUsesMeshBake) };
+            mix(flags.data(), flags.size());
+            mix(&layer.InstanceCount, sizeof(layer.InstanceCount));
+            mix(&layer.ViewDistance, sizeof(layer.ViewDistance));
+            mix(&layer.FadeStartDistance, sizeof(layer.FadeStartDistance));
+            mix(&layer.MeshViewDistance, sizeof(layer.MeshViewDistance));
+            mix(&layer.MeshFadeStartDistance, sizeof(layer.MeshFadeStartDistance));
+            mix(&layer.ImpostorStartDistance, sizeof(layer.ImpostorStartDistance));
+            mix(&layer.ImpostorTransitionBand, sizeof(layer.ImpostorTransitionBand));
+            mix(&layer.AlphaCutoff, sizeof(layer.AlphaCutoff));
+            mix(&layer.WindStrength, sizeof(layer.WindStrength));
+            mix(&layer.WindSpeed, sizeof(layer.WindSpeed));
+            mix(&layer.WindWeights, sizeof(layer.WindWeights));
+            mix(&layer.InteractionResponse, sizeof(layer.InteractionResponse));
+            mix(&lod0, sizeof(lod0));
+            mix(&lod1, sizeof(lod1));
+            const void* albedo = layer.AlbedoTexture.Raw();
+            mix(&albedo, sizeof(albedo));
+        }
+        return h;
+    }
+
+    void FoliageRenderer::CollectVsmInvalidations(const VsmInvalidationInputs& inputs, TArray<VsmInvalidation>& out) const
+    {
+        OLO_PROFILE_FUNCTION();
+        namespace FSI = FoliageShadowInvalidation;
+        out.Reset();
+        const auto levelCount = static_cast<u32>(inputs.TexelWorldSizes.size());
+        if (levelCount == 0u)
+            return;
+        const u32 allLevels = levelCount >= 32u ? ~0u : (1u << levelCount) - 1u;
+
+        // Per layer: the levels its WIND can be resolved in, invalidated every
+        // frame across its whole footprint. The union of what is left over is
+        // the set the rotation walks.
+        struct LayerPlan
+        {
+            BoundingBox World;
+            u32 Wind = 0u;
+            u32 EyeLevels = 0u;
+        };
+        TArray<LayerPlan> plans;
+        u32 coarseUnion = 0u;
+        f32 interactionBound = 0.0f;
+        f32 plantReach = 0.0f;
+        BoundingBox footprint = NoBounds;
+        // Terrain-local lengths into world ones. Every authored terrain is
+        // rigid; this keeps a scaled one conservative.
+        const f32 terrainScale = std::max({ glm::length(glm::vec3(m_TerrainTransform[0])),
+                                            glm::length(glm::vec3(m_TerrainTransform[1])),
+                                            glm::length(glm::vec3(m_TerrainTransform[2])) });
+        for (const auto& layer : m_Layers)
+        {
+            if (layer.InstanceCount == 0 || !layer.CastShadows)
+                continue;
+            LayerPlan plan;
+            plan.World = layer.Bounds.Transform(m_TerrainTransform);
+            const f32 wind = layer.BoundsProfile.m_WindDisplacement * terrainScale;
+            plan.Wind = FSI::LevelsFinerThan(inputs.TexelWorldSizes, wind);
+            // A moved eye changes density fades, mesh/card hand-overs and card
+            // facing within the layer's view distance, none of which the
+            // displacement bound describes. Refresh the levels a receiver out
+            // to twice that distance selects (shadows cast long at a low sun),
+            // plus the next coarser one the marker also backs as a fallback.
+            if (inputs.EyeMoved)
+            {
+                const i32 level = VirtualShadowMap::SelectClipLevel(2.0f * layer.ViewDistance * terrainScale,
+                                                                    inputs.Clip0HalfExtent, inputs.ClipSelectionBias);
+                plan.EyeLevels = FSI::LevelsUpTo(level + 1, levelCount);
+            }
+            coarseUnion |= allLevels & ~plan.Wind;
+            interactionBound =
+                std::max(interactionBound, wind + layer.BoundsProfile.m_InteractionDisplacement * terrainScale);
+            plantReach = std::max(plantReach, layer.PlantReach * terrainScale);
+            footprint = footprint.Min.x >= std::numeric_limits<f32>::max() ? plan.World : footprint.Union(plan.World);
+            plans.Add(plan);
+        }
+        if (plans.IsEmpty())
+        {
+            m_PreviousInfluenceBoxes.Reset();
+            return;
+        }
+
+        const u32 refresh = FSI::CoarseRefreshLevel(coarseUnion, inputs.Frame);
+        for (const LayerPlan& plan : plans)
+        {
+            const u32 mask = (plan.Wind | plan.EyeLevels | (refresh & ~plan.Wind)) & allLevels;
+            if (mask != 0u)
+                out.Add({ plan.World, mask });
+        }
+
+        // Around each live interaction influence: the levels wind PLUS the
+        // interaction bound can be resolved in -- the only place the
+        // interaction moves anything, since its contribution is exactly zero
+        // outside the cylinder. Last frame's boxes once more, so an influence
+        // that moved on or retired leaves no bend baked into a page.
+        TArray<BoundingBox> influenceBoxes;
+        const u32 interactionLevels = FSI::LevelsFinerThan(inputs.TexelWorldSizes, interactionBound);
+        if (interactionLevels != 0u && FoliageInteractionField::GetActiveCount() > 0u)
+        {
+            const auto field = FoliageInteractionField::GetGPUData();
+            const u32 count = std::min(static_cast<u32>(field.Params.x + 0.5f), kFoliageInteractionSlots);
+            for (u32 i = 0; i < count; ++i)
+            {
+                const auto& slot = field.Slots[i];
+                if (!(slot.Center.w > 0.0f))
+                    continue;
+                const BoundingBox box = FSI::InfluenceBounds(glm::vec3(slot.Center), glm::vec3(slot.PrevCenter),
+                                                             slot.Center.w, slot.PrevCenter.w,
+                                                             plantReach + interactionBound);
+                const bool overlaps = box.Max.x >= footprint.Min.x && box.Min.x <= footprint.Max.x &&
+                                      box.Max.y >= footprint.Min.y && box.Min.y <= footprint.Max.y &&
+                                      box.Max.z >= footprint.Min.z && box.Min.z <= footprint.Max.z;
+                if (overlaps)
+                    influenceBoxes.Add(box);
+            }
+        }
+        for (const BoundingBox& box : influenceBoxes)
+            out.Add({ box, interactionLevels });
+        for (const BoundingBox& box : m_PreviousInfluenceBoxes)
+            out.Add({ box, interactionLevels != 0u ? interactionLevels : allLevels });
+        m_PreviousInfluenceBoxes = std::move(influenceBoxes);
+    }
+
+    FoliageGPUCuller::ViewInputs FoliageRenderer::MakeVsmClipCullInputs(const glm::mat4& worldViewProjection,
+                                                                        const glm::vec3& mainViewWorldPosition,
+                                                                        u32 clipLevel, const glm::ivec2& pageOffset,
+                                                                        RHI::ResourceHandle dirtyPagePyramid) const
+    {
+        FoliageGPUCuller::ViewInputs inputs = MakeCullInputs(worldViewProjection, mainViewWorldPosition);
+        inputs.VsmClipLevel = static_cast<i32>(clipLevel);
+        inputs.VsmPageOffset = pageOffset;
+        // The matrix MakeCullInputs built the frustum from: terrain-local ->
+        // the level's clip space, in the same render-relative frame.
+        inputs.VsmLocalToClip =
+            MakeObjectLocalViewProjection(worldViewProjection, m_TerrainTransform, Renderer3D::GetRenderOrigin());
+        inputs.VsmHPB = dirtyPagePyramid;
+        return inputs;
     }
 
     void FoliageRenderer::RenderShadows(const Ref<Shader>& depthShader, f32 time, u32 shadowViewIndex,

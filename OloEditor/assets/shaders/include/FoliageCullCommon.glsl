@@ -118,6 +118,14 @@ layout(std430, binding = 19) buffer FoliageCullState
     uint s_ListDemand;
     uint s_MeshDemand;
     uint s_Pad3;
+    // A VIRTUAL SHADOW MAP clip level being culled for (#1580): the level's
+    // math-flavour projection composed with the terrain transform
+    // (terrain-local -> clip), and .x = level + 1 (0 = not a clip level),
+    // .yz = the level's page offset. Only FoliageGroupCullVsm.comp reads them:
+    // a group whose footprint covers no page being redrawn this frame is
+    // rejected, so a level that keeps its cached pages draws nothing.
+    mat4 s_VsmLocalToClip;
+    ivec4 s_VsmLevel;
     // Tail: group visibility (one uint per group, 1 = visible) followed by the
     // compacted slot -> SOURCE ROW map (one uint per output capacity). The
     // second is what makes "compaction preserved identity" a checkable claim

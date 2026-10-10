@@ -14,33 +14,10 @@
 // interaction displacement padding (FoliageBoundsProfile, #1236 / #1238). A
 // group can therefore never reject an instance its own instance test would have
 // kept.
+//
+// The body is shared with FoliageGroupCullVsm.comp, which adds the virtual
+// shadow map's dirty-page test (#1580).
 
 layout(local_size_x = 64) in;
 
-#include "../include/FoliageCullCommon.glsl"
-#include "../include/GPUReadbackStats.glsl"
-
-void main()
-{
-    uint group = gl_GlobalInvocationID.x;
-    if (group >= s_GroupCount)
-        return;
-
-    if (s_EmitStats != 0u)
-        oloStatAdd(OLO_STAT_FoliageCullGroupsTested, 1u);
-
-    vec3 lo;
-    vec3 hi;
-    oloFoliageGroupBounds(group, lo, hi);
-
-    bool visible = oloFoliageBoxVisible(lo, hi) &&
-                   oloFoliageBoxDistance(lo, hi) <= s_DistanceOrigin.w;
-
-    s_Tail[group] = visible ? 1u : 0u;
-    if (visible)
-    {
-        atomicAdd(s_GroupsVisible, 1u);
-        if (s_EmitStats != 0u)
-            oloStatAdd(OLO_STAT_FoliageCullGroupsVisible, 1u);
-    }
-}
+#include "../include/FoliageGroupCullKernel.glsl"

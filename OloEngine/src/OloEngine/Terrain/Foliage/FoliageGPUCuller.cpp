@@ -72,6 +72,17 @@ namespace OloEngine
             return;
         }
 
+        // Optional (#1580): the clip-level variant only adds the dirty-page
+        // test. Without it a clip level culls like any view -- every group in
+        // its frustum -- which draws more and is still correct; said once.
+        m_GroupCullVsmShader = ComputeShader::Create("assets/shaders/compute/FoliageGroupCullVsm.comp");
+        if (!m_GroupCullVsmShader || !m_GroupCullVsmShader->IsValid())
+        {
+            OLO_CORE_ERROR("FoliageGPUCuller: FoliageGroupCullVsm.comp did not load -- virtual-shadow-map clip levels "
+                           "cull foliage without the dirty-page test and redraw every cached page they cover");
+            m_GroupCullVsmShader.Reset();
+        }
+
         m_Initialised = true;
     }
 
@@ -444,8 +455,28 @@ namespace OloEngine
         state.MeshReach = meshRegion ? lod.MeshReach : 0.0f;
         state.MeshCursor = 0;
         state.MeshCapacity = meshRegion ? view.MeshCapacity : 0u;
+        // A clip level is culled against the VSM's dirty pages as well (#1580)
+        // when the variant and the pyramid are both there.
+        const bool vsmLevel = inputs.VsmClipLevel >= 0 && inputs.VsmHPB.IsValid() && m_GroupCullVsmShader;
+        if (inputs.VsmClipLevel >= 0 && !vsmLevel && !m_WarnedVsmGroupCullUnavailable)
+        {
+            OLO_CORE_WARN("FoliageGPUCuller: clip level {} is culled without the dirty-page test (pyramid {}, variant "
+                          "{}) -- its cached foliage pages are redrawn. Further levels not logged.",
+                          inputs.VsmClipLevel, inputs.VsmHPB.IsValid(), m_GroupCullVsmShader != nullptr);
+            m_WarnedVsmGroupCullUnavailable = true;
+        }
+        if (vsmLevel)
+        {
+            state.VsmLocalToClip = inputs.VsmLocalToClip;
+            state.VsmLevel = glm::ivec4(inputs.VsmClipLevel + 1, inputs.VsmPageOffset.x, inputs.VsmPageOffset.y, 0);
+        }
         // Up to the demand pair, never over it -- see kFoliageCullSeededHeaderBytes.
         view.State->SetData(&state, kFoliageCullSeededHeaderBytes, 0);
+        if (vsmLevel)
+        {
+            view.State->SetData(reinterpret_cast<const u8*>(&state) + kFoliageCullVsmHeaderOffset,
+                                static_cast<u32>(sizeof(state)) - kFoliageCullVsmHeaderOffset, kFoliageCullVsmHeaderOffset);
+        }
 
         // ── 3. Bind and dispatch ──
         layer.LayerBuffer->Bind(); // 18
@@ -454,7 +485,15 @@ namespace OloEngine
         RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_INSTANCE_CULL_INPUT, sourceInstances);
         RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_INSTANCE_DATA, view.Compacted->GetRHIHandle());
 
-        m_GroupCullShader->Bind();
+        if (vsmLevel)
+        {
+            RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_VSM_HPB, inputs.VsmHPB);
+            m_GroupCullVsmShader->Bind();
+        }
+        else
+        {
+            m_GroupCullShader->Bind();
+        }
         RenderCommand::DispatchCompute(DispatchGroups(layer.GroupCount, kGroupWorkgroupSize), 1, 1);
 
         // The instance kernel READS the group bits this dispatch wrote. Without

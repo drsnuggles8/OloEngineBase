@@ -268,6 +268,10 @@ namespace OloEngine
         f32 LeafTransmissionAmbient = 0.35f;
 
         BoundingBox Bounds; // Precomputed AABB encompassing all instances
+        // The farthest any point of one plant's padded bound gets from its root,
+        // terrain-local (#1580): what an interaction influence's invalidation box
+        // is grown by, so a bent plant rooted inside it stays inside.
+        f32 PlantReach = 0.0f;
 
         // Octahedral impostor (issue #433). Baked lazily from the layer mesh;
         // the *Baked* fields cache the config the atlas was baked for so a
@@ -391,6 +395,7 @@ namespace OloEngine
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::LeafTransmissionWrap)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::LeafTransmissionAmbient)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::Bounds)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::PlantReach)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::Impostor)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::UseImpostor)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::ImpostorStartDistance)>::Value &&
@@ -569,6 +574,44 @@ namespace OloEngine
                            const std::function<void()>& afterProgramBind = {}) const;
 
         [[nodiscard]] BoundingBox GetShadowBounds() const;
+
+        // ── Virtual shadow map page caching (#1580) ──────────────────────
+        //
+        // What changes the foliage's shadow silhouette WITHOUT any motion:
+        // the canonical records, the terrain transform, and every layer
+        // parameter the shadow draw or its cull reads. ShadowRenderPass hands
+        // it to ShadowFamilyCache, which invalidates every clip level when it
+        // moves; motion is CollectVsmInvalidations' business.
+        [[nodiscard]] u64 GetShadowRevision() const;
+
+        // This frame's motion-driven invalidations for the directional clip
+        // levels, from DECLARED displacement bounds -- see
+        // FoliageShadowInvalidation.h for the policy and its error bound.
+        struct VsmInvalidationInputs
+        {
+            // World size of one texel of each clip level, finest first.
+            std::span<const f32> TexelWorldSizes;
+            // VirtualShadowMapSettings, for the level a distance selects.
+            f32 Clip0HalfExtent = 2.0f;
+            f32 ClipSelectionBias = 1.0f;
+            // The rotation's frame counter and whether the main eye moved since
+            // the last frame.
+            u64 Frame = 0;
+            bool EyeMoved = false;
+        };
+        struct VsmInvalidation
+        {
+            BoundingBox WorldBounds;
+            u32 ClipLevelMask = 0; // bit L = level L; never 0 here
+        };
+        void CollectVsmInvalidations(const VsmInvalidationInputs& inputs, TArray<VsmInvalidation>& out) const;
+
+        // MakeCullInputs for one directional clip level, with what the group
+        // pass needs to reject groups over no dirty page (#1580).
+        [[nodiscard]] FoliageGPUCuller::ViewInputs MakeVsmClipCullInputs(const glm::mat4& worldViewProjection,
+                                                                         const glm::vec3& mainViewWorldPosition,
+                                                                         u32 clipLevel, const glm::ivec2& pageOffset,
+                                                                         RHI::ResourceHandle dirtyPagePyramid) const;
 
         // Cull ONE shadow view into its own slot. Call once per active view,
         // BEFORE the region's parallel recording starts; `shadowViewIndex` is
@@ -887,6 +930,10 @@ namespace OloEngine
         bool m_WarnedTooManyParts = false;
         bool m_WarnedCullBracketSkipped = false;
         glm::mat4 m_TerrainTransform{ 1.0f };
+        // The interaction boxes CollectVsmInvalidations submitted last frame:
+        // invalidated once more after an influence moves or retires, so its
+        // last bend does not stay baked into a page (#1580).
+        mutable TArray<BoundingBox> m_PreviousInfluenceBoxes;
         u32 m_VisibleInstances = 0;
         f32 m_LegacyWindEnvelope = 2.0f;
         Ref<Shader> m_ImpostorDepthShader;

@@ -152,6 +152,17 @@ namespace OloEngine
             // s_DistanceOrigin comment in FoliageCullCommon.glsl.
             glm::vec3 DistanceOrigin{ 0.0f };
             f32 MaxDistance = 0.0f;
+            // A virtual-shadow-map clip level (#1580): -1 = not one. When set,
+            // the group pass also rejects every group whose footprint in the
+            // level covers no page being redrawn this frame, read from the
+            // VSM's dirty-page pyramid -- the test VSM_CullCasters asks of a
+            // mesh caster. That is what lets a level keep its cached foliage
+            // pages (FoliageShadowInvalidation.h) without redrawing them.
+            i32 VsmClipLevel = -1;
+            glm::ivec2 VsmPageOffset{ 0 };
+            // Terrain-local -> the level's clip space (MATH flavour).
+            glm::mat4 VsmLocalToClip{ 1.0f };
+            RHI::ResourceHandle VsmHPB{};
         };
 
         // The layer's LOD transition + density parameters (issue #1237),
@@ -393,6 +404,11 @@ namespace OloEngine
         [[nodiscard]] bool ReadStaged(RHI::ResourceHandle source, u32 offset, u32 size, void* dest) const;
 
         Ref<ComputeShader> m_GroupCullShader;
+        // The group pass for a virtual-shadow-map clip level (#1580). Optional:
+        // without it a clip level is culled like any view, and draws every
+        // group in its frustum, which is correct and slower.
+        Ref<ComputeShader> m_GroupCullVsmShader;
+        bool m_WarnedVsmGroupCullUnavailable = false;
         Ref<ComputeShader> m_InstanceCullShader;
         // Grow-only staging for ReadbackResult. Mutable because the read is a
         // const query of the cull's result; the staging buffer is scratch.
@@ -475,12 +491,24 @@ namespace OloEngine
         u32 ListDemand = 0;
         u32 MeshDemand = 0;
         u32 Pad3 = 0;
+        // A virtual-shadow-map clip level being culled for (#1580): its
+        // math-flavour projection composed with the terrain transform, and
+        // x = level + 1 (0 = not a clip level), yz = its page offset. Read by
+        // FoliageGroupCullVsm.comp only -- see ViewInputs::VsmClipLevel. After
+        // the demand pair, so #1581's part of the layout is untouched; Cull()
+        // uploads this range separately (kFoliageCullVsmHeaderOffset).
+        glm::mat4 VsmLocalToClip{ 1.0f };
+        glm::ivec4 VsmLevel{ 0 };
     };
-    static_assert(sizeof(FoliageCullStateHeader) == 208, "FoliageCullStateHeader must match the std430 block");
+    static_assert(sizeof(FoliageCullStateHeader) == 288, "FoliageCullStateHeader must match the std430 block");
     // The part of the header the CPU writes for every cull: everything before
     // the demand pair.
     inline constexpr u32 kFoliageCullSeededHeaderBytes = static_cast<u32>(offsetof(FoliageCullStateHeader, ListDemand));
     static_assert(kFoliageCullSeededHeaderBytes == 196, "the demand pair must follow MeshCapacity");
+    // The clip-level lanes (#1580), written after the demand pair for a
+    // virtual-shadow-map clip level only.
+    inline constexpr u32 kFoliageCullVsmHeaderOffset = static_cast<u32>(offsetof(FoliageCullStateHeader, VsmLocalToClip));
+    static_assert(kFoliageCullVsmHeaderOffset == 208, "std430 puts the mat4 at 208, right after the demand pair");
 
     // One view slot's demand pair, as FoliageCullDemandReadback hands it back.
     struct FoliageCullDemand
