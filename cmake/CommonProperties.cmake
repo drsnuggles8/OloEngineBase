@@ -11,12 +11,16 @@ set(OLO_COMMON_PROPERTIES_INCLUDED TRUE)
 include(CMakePrintHelpers)
 include(CheckIPOSupported)
 
-# Configure output directories for a target based on project name
+# Configure output directories for a target based on project name.
+# Executables and DLLs go to the shared <repo>/bin/<Config>/<target>/, where the tasks, scripts and
+# smoke tests run them. Static and import libraries stay in THIS build tree (#1386): a second tree
+# in the same worktree used to overwrite them, and Ninja then linked the newer foreign archive
+# without rebuilding. See docs/agent-rules/worktree-shared-build-outputs.md.
 function(olo_set_output_directories target_name)
     set_target_properties(${target_name} PROPERTIES
-        ARCHIVE_OUTPUT_DIRECTORY_DEBUG     ${CMAKE_SOURCE_DIR}/bin/Debug/${target_name}
-        ARCHIVE_OUTPUT_DIRECTORY_RELEASE   ${CMAKE_SOURCE_DIR}/bin/Release/${target_name}
-        ARCHIVE_OUTPUT_DIRECTORY_DIST      ${CMAKE_SOURCE_DIR}/bin/Dist/${target_name}
+        ARCHIVE_OUTPUT_DIRECTORY_DEBUG     ${CMAKE_BINARY_DIR}/lib/Debug/${target_name}
+        ARCHIVE_OUTPUT_DIRECTORY_RELEASE   ${CMAKE_BINARY_DIR}/lib/Release/${target_name}
+        ARCHIVE_OUTPUT_DIRECTORY_DIST      ${CMAKE_BINARY_DIR}/lib/Dist/${target_name}
         LIBRARY_OUTPUT_DIRECTORY_DEBUG     ${CMAKE_SOURCE_DIR}/bin/Debug/${target_name}
         LIBRARY_OUTPUT_DIRECTORY_RELEASE   ${CMAKE_SOURCE_DIR}/bin/Release/${target_name}
         LIBRARY_OUTPUT_DIRECTORY_DIST      ${CMAKE_SOURCE_DIR}/bin/Dist/${target_name}

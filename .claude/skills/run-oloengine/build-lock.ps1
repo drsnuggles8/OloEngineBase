@@ -365,6 +365,8 @@ function Get-FreeMemoryGB {
 $queueDir        = Join-Path $commonDir.Trim() 'olo-build-queue'
 $myTicket        = $null
 $myEnqueuedTicks = 0
+$exclusiveWaiterAhead = $false   # set by Get-QueueAhead
+$exclusiveWaiterPid   = $null
 
 function Get-MyStartTicks {
     try { return (Get-Process -Id $PID -ErrorAction Stop).StartTime.Ticks } catch { return $null }
@@ -389,6 +391,7 @@ function Add-QueueTicket {
                    enqueuedText  = $now.ToString('o')
                    worktree      = $here
                    priority      = [bool] $Priority
+                   exclusive     = [bool] $exclusiveBuild
                    command       = $Command } | ConvertTo-Json -Compress
         Set-Content -LiteralPath $path -Value $rec -Encoding UTF8
         $script:myEnqueuedTicks = $now.Ticks
@@ -435,9 +438,14 @@ function Get-QueueAhead {
         }
         $prio = $false
         try { if ($null -ne $rec.priority) { $prio = [bool] $rec.priority } } catch { }
+        # A ticket written before this field existed reads as non-exclusive, which is what
+        # every caller assumed until #1386.
+        $excl = $false
+        try { if ($null -ne $rec.exclusive) { $excl = [bool] $rec.exclusive } } catch { }
         $live += [pscustomobject]@{ EnqueuedTicks = [long] $rec.enqueuedTicks
                                     Pid           = [int] $rec.pid
                                     Worktree      = [string] $rec.worktree
+                                    Exclusive     = $excl
                                     # Sort key: 0 sorts before 1, so priority first.
                                     PrioKey       = $(if ($prio) { 0 } else { 1 }) }
     }
@@ -445,8 +453,11 @@ function Get-QueueAhead {
     # Priority first, then arrival. FIFO still holds WITHIN each band, so an override
     # jumps the queue without turning the rest of it back into a lottery.
     $sorted = @($live | Sort-Object PrioKey, EnqueuedTicks, Pid)
+    $script:exclusiveWaiterAhead = $false
     for ($i = 0; $i -lt $sorted.Count; $i++) {
         if ($sorted[$i].Pid -eq $me) { return $i }
+        # The FIRST exclusive ticket ahead is the one admission is waiting on.
+        if ($sorted[$i].Exclusive -and -not $script:exclusiveWaiterAhead) { $script:exclusiveWaiterAhead = $true; $script:exclusiveWaiterPid = $sorted[$i].Pid }
     }
     return $null   # our own ticket is gone — fail open rather than wait forever
 }
@@ -646,7 +657,13 @@ try {
         # The head of the queue attempts slot 0; the next $MaxConcurrent-1 waiters may
         # attempt a further slot. $null = the queue could not be trusted, so we race
         # exactly as the original implementation did.
-        if ($null -eq $ahead -or $ahead -lt $MaxConcurrent) {
+        #
+        # Not past an exclusive waiter (#1386). An exclusive request needs EVERY slot free
+        # at once; a cached waiter behind it that took whichever slot freed first kept that
+        # moment from ever arriving. A 2026-10-09 measurement window queued at the head
+        # while two other worktrees took 15:01 and 15:03 slots behind it.
+        $behindExclusive = $null -ne $ahead -and $ahead -gt 0 -and $script:exclusiveWaiterAhead
+        if ($null -eq $ahead -or ($ahead -lt $MaxConcurrent -and -not $behindExclusive)) {
             # Serialize admission plus acquisition: otherwise two arrivals can
             # both observe an idle machine and then take different slots.
             $admission = $null
@@ -727,6 +744,9 @@ try {
         if ((Get-Date) -gt $deadline) {
             $info = Read-ActiveHolderInfo
             $who  = if ($null -ne $info) { "pid=$($info.pid) ($($info.worktree))" } else { "an unidentified holder" }
+            # Only when queue depth alone would have admitted us is the exclusive ticket the cause.
+            $heldByExclusive = $behindExclusive -and $null -ne $ahead -and $ahead -lt $MaxConcurrent
+            if ($heldByExclusive) { $who = "the exclusive request pid=$($script:exclusiveWaiterPid) queued ahead of us (current holder $who)" }
             Write-BuildMetric @{ event      = 'timeout'
                                  pid        = $me
                                  worktree   = $here
@@ -735,8 +755,11 @@ try {
                                  queue_ahead_at_start = $queueAheadAtStart
                                  queue_ahead_at_end   = $ahead
                                  blocked_by_pid      = $blockedByPid
-                                 blocked_by_worktree = $blockedByWorktree }
-            throw "[build-lock] timed out after ${TimeoutMinutes}m waiting for $who. A build that has held the lock this long is wedged — investigate it rather than overriding."
+                                 blocked_by_worktree = $blockedByWorktree
+                                 behind_exclusive_pid = $(if ($heldByExclusive) { $script:exclusiveWaiterPid } else { $null }) }
+            $advice = if ($heldByExclusive) { 'Check whether that request is still making progress before touching the holder.' }
+                      else { 'A build that has held the lock this long is wedged — investigate it rather than overriding.' }
+            throw "[build-lock] timed out after ${TimeoutMinutes}m waiting for $who. $advice"
         }
         Start-Sleep -Seconds $PollSeconds
     }

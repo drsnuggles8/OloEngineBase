@@ -326,7 +326,13 @@ FetchContent_MakeAvailable(filewatch glad pl_mpeg)
 # a fresh tree, so every one of them pays that risk exactly once. We pin a single fixed API
 # surface (gl:core=4.6, stable for years), so generating from the bundled spec costs us
 # nothing but the very latest registry revision.
-glad_add_library(glad STATIC REPRODUCIBLE API gl:core=4.6 LOCATION ${PROJECT_SOURCE_DIR}/vendor/glad-build/${TARGET})
+#
+# LOCATION is in THIS build tree (#1386). glad's generate rule starts with remove_directory, and
+# the old source-tree vendor/glad-build/ was shared by every build tree in the worktree, so a fresh
+# tree's first build deleted <glad/gl.h> under a sibling tree's running compile. The vendored
+# static libs below are kept per tree for the same reason; see
+# docs/agent-rules/worktree-shared-build-outputs.md.
+glad_add_library(glad STATIC REPRODUCIBLE API gl:core=4.6 LOCATION ${CMAKE_CURRENT_BINARY_DIR}/glad-build)
 
 FetchContent_Declare(stb_image
 	GIT_REPOSITORY https://github.com/nothings/stb.git
@@ -334,10 +340,12 @@ FetchContent_Declare(stb_image
 	GIT_SHALLOW FALSE)
 FetchContent_MakeAvailable(stb_image)
 add_library(stb_image INTERFACE)
-file(COPY ${stb_image_SOURCE_DIR}/stb_image.h DESTINATION "${PROJECT_SOURCE_DIR}/vendor/stb_image-build/include/stb_image")
-file(COPY ${stb_image_SOURCE_DIR}/stb_image_write.h DESTINATION "${PROJECT_SOURCE_DIR}/vendor/stb_image-build/include/stb_image")
-file(COPY ${stb_image_SOURCE_DIR}/stb_truetype.h DESTINATION "${PROJECT_SOURCE_DIR}/vendor/stb_image-build/include/stb_image")
-set(STBIMAGE_INSTALL_DIR "${PROJECT_SOURCE_DIR}/vendor/stb_image-build")
+# Copied into this build tree, like glad above (#1386), and published through the target.
+foreach(_olo_stb_header stb_image.h stb_image_write.h stb_truetype.h)
+	file(COPY ${stb_image_SOURCE_DIR}/${_olo_stb_header} DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/stb_image-build/include/stb_image")
+endforeach()
+unset(_olo_stb_header)
+target_include_directories(stb_image INTERFACE "${CMAKE_CURRENT_BINARY_DIR}/stb_image-build/include")
 
 CPMAddPackage(NAME imgui
 	GITHUB_REPOSITORY ocornut/imgui
@@ -355,12 +363,12 @@ if(imgui_ADDED)
 
 	add_library(imgui STATIC ${IMGUI_SOURCES} ${IMGUI_HEADERS} "${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp" "${IMGUI_DIR}/backends/imgui_impl_opengl3.h" "${IMGUI_DIR}/backends/imgui_impl_opengl3_loader.h")
 	target_compile_definitions(imgui PRIVATE IMGUI_IMPL_OPENGL_LOADER_GLAD=1)
-	target_include_directories(imgui PUBLIC ${IMGUI_DIR} "glad-build/include")
-	target_link_libraries(imgui PUBLIC glfw)
+	target_include_directories(imgui PUBLIC ${IMGUI_DIR})
+	target_link_libraries(imgui PUBLIC glfw glad)
 	set_target_properties(imgui PROPERTIES
-		ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imgui-build"
-		LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imgui-build"
-		RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imgui-build")
+		ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/imgui-build"
+		LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/imgui-build"
+		RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/imgui-build")
 endif()
 
 CPMAddPackage(NAME imguizmo
@@ -381,9 +389,9 @@ if (imguizmo_ADDED)
 	add_library(imguizmo STATIC ${IMGUIZMO_SOURCES} ${IMGUIZMO_HEADERS})
 	target_include_directories(imguizmo PUBLIC ${IMGUIZMO_SRC_DIR} ${imgui_SOURCE_DIR})
 	set_target_properties(imguizmo	PROPERTIES
-		ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imguizmo-build"
-		LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imguizmo-build"
-		RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imguizmo-build")
+		ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/imguizmo-build"
+		LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/imguizmo-build"
+		RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/imguizmo-build")
 endif()
 
 CPMAddPackage(NAME lua
@@ -396,9 +404,9 @@ if(lua_ADDED)
   add_library(lua STATIC ${lua_sources})
   target_include_directories(lua SYSTEM PUBLIC $<BUILD_INTERFACE:${lua_SOURCE_DIR}>)
   set_target_properties(lua	PROPERTIES
-		ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/lua-build"
-		LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/lua-build"
-		RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/lua-build")
+		ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/lua-build"
+		LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/lua-build"
+		RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/lua-build")
 endif()
 
 # bc7enc_rdo: Rich Geldreich's BC1-7 / BC6H block-compression encoders + decoders.
@@ -422,9 +430,9 @@ if(bc7enc_rdo_ADDED)
 	# SYSTEM so the encoder's own warnings don't count against OloEngine's /W4-ish flags.
 	target_include_directories(bc7enc SYSTEM PUBLIC "${bc7enc_rdo_SOURCE_DIR}")
 	set_target_properties(bc7enc PROPERTIES FOLDER "Utilities/bc7enc"
-		ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/bc7enc-build"
-		LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/bc7enc-build"
-		RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/bc7enc-build")
+		ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bc7enc-build"
+		LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bc7enc-build"
+		RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bc7enc-build")
 	# clang-cl maps our /WX onto -Werror; the vendored encoder trips a raft of
 	# Clang-only warnings (unused, sign-compare, ...). Suppress -Werror on it only.
 	# This is now the ONLY -Wno-error block left in this file: every other library
@@ -477,9 +485,9 @@ if(xatlas_ADDED)
 	# xatlas's internal task scheduling, and the unwrap is not on a hot path.
 	target_compile_definitions(xatlas PRIVATE XA_MULTITHREADED=0)
 	set_target_properties(xatlas PROPERTIES FOLDER "Utilities/xatlas"
-		ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/xatlas-build"
-		LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/xatlas-build"
-		RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/xatlas-build")
+		ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/xatlas-build"
+		LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/xatlas-build"
+		RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/xatlas-build")
 	# clang-cl maps our /WX onto -Werror; suppress it for the vendored TU only,
 	# same rationale as the bc7enc block above.
 	if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")

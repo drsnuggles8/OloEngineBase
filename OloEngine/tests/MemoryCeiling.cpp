@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -25,10 +26,16 @@ namespace OloEngine::Tests
         std::mutex s_RunningTestMutex;
         std::string s_RunningTest;
 
-        // The process's peak resident set when its first test started: start-up
-        // plus the global test environment, the part every process of this
-        // binary pays before any test runs. 0 until then.
-        std::atomic<u64> s_StartupPeakBytes{ 0 };
+        // The ceiling the watchdog enforces, in bytes; 0 enforces nothing. Set
+        // by StartMemoryCeilingWatchdog, and lowered once by the listener when
+        // the first test starts if a headroom was asked for.
+        std::atomic<u64> s_CeilingBytes{ 0 };
+
+        // --olo-rss-ceiling-headroom-mb in bytes, applied when the first test
+        // starts; 0 keeps the absolute ceiling. s_FirstTestStarted makes that
+        // a one-shot.
+        std::atomic<u64> s_HeadroomBytes{ 0 };
+        std::atomic<bool> s_FirstTestStarted{ false };
 
         // The watchdog is OWNED, not detached: main stops and joins it before
         // returning, so it can never outlive the statics above and read them
@@ -40,8 +47,19 @@ namespace OloEngine::Tests
         {
             void OnTestStart(const ::testing::TestInfo& info) override
             {
-                if (s_StartupPeakBytes.load(std::memory_order_relaxed) == 0)
-                    s_StartupPeakBytes.store(FPlatformMemory::GetStats().PeakUsedPhysical, std::memory_order_relaxed);
+                const u64 headroom = s_HeadroomBytes.load(std::memory_order_relaxed);
+                if (headroom != 0 && !s_FirstTestStarted.exchange(true, std::memory_order_relaxed))
+                {
+                    // Start-up is measured in THIS process, not in whoever chose
+                    // the headroom: two processes of the same binary on the same
+                    // runner differ there by more than 128 MB under ASan.
+                    const auto stats = FPlatformMemory::GetStats();
+                    const u64 startup = std::max(stats.UsedPhysical, stats.PeakUsedPhysical);
+                    const u64 absolute = s_CeilingBytes.load(std::memory_order_relaxed);
+                    const u64 relative = startup + headroom;
+                    s_CeilingBytes.store(absolute == 0 ? relative : std::min(absolute, relative),
+                                         std::memory_order_relaxed);
+                }
                 const std::lock_guard<std::mutex> lock(s_RunningTestMutex);
                 s_RunningTest = std::string(info.test_suite_name()) + "." + info.name();
             }
@@ -67,33 +85,30 @@ namespace OloEngine::Tests
         return FPlatformMemory::GetStats().UsedPhysical;
     }
 
-    u64 StartupPeakResidentBytes()
-    {
-        return s_StartupPeakBytes.load(std::memory_order_relaxed);
-    }
-
     void RegisterMemoryCeilingListener()
     {
         ::testing::UnitTest::GetInstance()->listeners().Append(new RunningTestNameListener());
     }
 
-    void StartMemoryCeilingWatchdog(const u64 ceilingMb)
+    void StartMemoryCeilingWatchdog(const u64 ceilingMb, const u64 headroomMb)
     {
-        if (ceilingMb == 0 || s_Watchdog.joinable())
+        if ((ceilingMb == 0 && headroomMb == 0) || s_Watchdog.joinable())
         {
             return;
         }
 
+        s_CeilingBytes.store(ceilingMb * 1024ull * 1024ull, std::memory_order_relaxed);
+        s_HeadroomBytes.store(headroomMb * 1024ull * 1024ull, std::memory_order_relaxed);
         s_StopRequested.store(false, std::memory_order_release);
         s_Watchdog = std::thread(
-            [ceilingMb]
+            []
             {
-                const u64 ceilingBytes = ceilingMb * 1024ull * 1024ull;
                 while (!s_StopRequested.load(std::memory_order_acquire))
                 {
                     std::this_thread::sleep_for(kPollInterval);
+                    const u64 ceilingBytes = s_CeilingBytes.load(std::memory_order_relaxed);
                     const u64 resident = CurrentResidentBytes();
-                    if (resident <= ceilingBytes)
+                    if (ceilingBytes == 0 || resident <= ceilingBytes)
                     {
                         continue;
                     }
@@ -108,7 +123,8 @@ namespace OloEngine::Tests
                                  "box; fix the growth, and raise or disable the ceiling with "
                                  "--olo-rss-ceiling-mb=<n> (0 disables) only when the footprint is legitimate.\n",
                                  static_cast<unsigned long long>(resident / (1024ull * 1024ull)),
-                                 static_cast<unsigned long long>(ceilingMb), test.c_str(), kMemoryCeilingExitCode);
+                                 static_cast<unsigned long long>(ceilingBytes / (1024ull * 1024ull)), test.c_str(),
+                                 kMemoryCeilingExitCode);
                     std::fflush(stderr);
                     // _Exit, not exit: no destructors, no atexit -- the process is
                     // over its budget and unwinding it could push it further.

@@ -143,6 +143,7 @@ jobs:
       # and build-trees-and-windows-asan.md §5e (a bare --parallel means a different thing per
       # generator, and only some of them are bounded).
       - name: Build the Dist archives
+        id: dist_build
         run: >
           cmake --build "${{ github.workspace }}/build" --config Dist
           --target OloEngine OloEngineRenderer OloEngineContent
@@ -154,13 +155,16 @@ jobs:
       - name: Report archive headroom
         if: always()
         shell: pwsh
+        env:
+          DIST_BUILD_OUTCOME: ${{ steps.dist_build.outcome }}
         run: |
           $limit = 4GB
           # -ErrorAction SilentlyContinue is load-bearing: GitHub's pwsh shell prepends
-          # $ErrorActionPreference = 'stop', so a missing bin/Dist (the build died before
+          # $ErrorActionPreference = 'stop', so a missing lib/Dist (the build died before
           # archiving) would throw out of this step before reaching the fallback below - turning
           # one real failure into two red steps and no summary.
-          $rows = Get-ChildItem -Path "${{ github.workspace }}/bin/Dist" -Recurse -Filter *.lib -ErrorAction SilentlyContinue |
+          # Archives live in the build tree, not bin/ (#1386).
+          $rows = Get-ChildItem -Path "${{ github.workspace }}/build/lib/Dist" -Recurse -Filter *.lib -ErrorAction SilentlyContinue |
             Sort-Object Length -Descending |
             ForEach-Object {
               [pscustomobject]@{
@@ -170,7 +174,15 @@ jobs:
               }
             }
           if (-not $rows) {
-            "No archives found under bin/Dist — the build did not get that far." |
+            # After a green build an empty directory means this step looks in the wrong place,
+            # which is how the report went blank once before: fail rather than say nothing.
+            if ($env:DIST_BUILD_OUTCOME -eq 'success') {
+              $msg = "The Dist build succeeded but no archive was found under build/lib/Dist."
+              $msg | Out-File $env:GITHUB_STEP_SUMMARY -Append
+              Write-Host "::error::$msg"
+              exit 1
+            }
+            "No archives found under build/lib/Dist — the build did not get that far." |
               Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
             exit 0
           }
