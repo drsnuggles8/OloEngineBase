@@ -225,15 +225,70 @@ function pushViolations(args: string[], branch: string | undefined): Found[] {
   return out
 }
 
+export function exeName(word: string | undefined): string {
+  return (word ?? '').replace(/^.*[\\/]/, '').replace(/\.exe$/i, '').toLowerCase()
+}
+
+/**
+ * A statement's words from the command it runs: drops `&`, `call`, `env`, `time`, `nice`,
+ * `VAR=value` assignments and `timeout N`, so `GH_TOKEN=x gh pr merge` is still `gh pr merge`.
+ */
+export function commandWords(words: readonly string[]): string[] {
+  let i = 0
+  while (i < words.length) {
+    const w = words[i] ?? ''
+    if (w === '&' || /^(?:call|env|time|nice|command|builtin)$/i.test(w) || /^\w+=/.test(w)) {
+      i += 1
+    } else if (/^timeout$/i.test(w)) {
+      i += 2
+    } else {
+      break
+    }
+  }
+  return words.slice(i)
+}
+
+/**
+ * The command a shell wrapper runs: `pwsh/powershell -Command|-c <cmd>`, `bash/sh -c <cmd>`,
+ * `cmd /c <cmd...>`. Undefined when the statement is no such wrapper.
+ */
+export function innerCommand(words: readonly string[]): string | undefined {
+  const name = exeName(words[0])
+  const after = (...flags: string[]) => {
+    const at = words.findIndex(w => flags.includes(w.toLowerCase()))
+    return at >= 0 ? at : undefined
+  }
+  if (name === 'pwsh' || name === 'powershell') {
+    const at = after('-command', '-c')
+    return at === undefined ? undefined : words.slice(at + 1).join(' ')
+  }
+  if (name === 'bash' || name === 'sh' || name === 'zsh') {
+    const at = after('-c', '-lc')
+    return at === undefined ? undefined : words[at + 1]
+  }
+  if (name === 'cmd') {
+    const at = after('/c', '/k')
+    return at === undefined ? undefined : words.slice(at + 1).join(' ')
+  }
+  return undefined
+}
+
 /**
  * Every rule a command breaks. `branch` is the current branch, when known, for the
- * suggestion and for `git push origin HEAD` from master.
+ * suggestion and for `git push origin HEAD` from master. A shell wrapper is looked into:
+ * its own trailing comment approves what it runs.
  */
 export function checkCommand(command: string, branch?: string): Violation[] {
   const all: Violation[] = []
   for (const statement of splitStatements(command)) {
     const out: Found[] = []
-    const words = statement.words
+    const words = commandWords(statement.words)
+    const inner = innerCommand(words)
+    if (inner !== undefined) {
+      const outerApproved = isApprovedStatement(statement)
+      all.push(...checkCommand(inner, branch).map(v => ({ ...v, isApproved: v.isApproved || outerApproved })))
+      continue
+    }
     const args = gitArgs(words)
     const sub = args?.[0]
 
@@ -312,9 +367,13 @@ export function formatRefusal(violations: readonly Violation[]): string {
 }
 
 function isPublishing(s: Statement): boolean {
-  const args = gitArgs(s.words)
-  const first = (s.words[0] ?? '').replace(/^.*[\\/]/, '').replace(/\.exe$/i, '')
-  return (args?.[0] === 'push' && !args.includes('--dry-run') && !args.includes('-n')) || (first === 'gh' && s.words[1] === 'pr' && s.words[2] === 'create')
+  const words = commandWords(s.words)
+  const inner = innerCommand(words)
+  if (inner !== undefined) {
+    return publishes(inner)
+  }
+  const args = gitArgs(words)
+  return (args?.[0] === 'push' && !args.includes('--dry-run') && !args.includes('-n')) || (exeName(words[0]) === 'gh' && words[1] === 'pr' && words[2] === 'create')
 }
 
 /** Does the command publish work (a push, a new PR)? Local checks must have finished first. */
@@ -322,10 +381,19 @@ export function publishes(command: string): boolean {
   return splitStatements(command).some(isPublishing)
 }
 
-/** Every publishing statement carries the approval marker in its own trailing comment. */
+/** Every publishing statement carries the approval marker in its own (or its wrapper's) trailing comment. */
 export function publishingApproved(command: string): boolean {
   const publishing = splitStatements(command).filter(isPublishing)
-  return publishing.length > 0 && publishing.every(isApprovedStatement)
+  return (
+    publishing.length > 0 &&
+    publishing.every(s => {
+      if (isApprovedStatement(s)) {
+        return true
+      }
+      const inner = innerCommand(commandWords(s.words))
+      return inner !== undefined && publishingApproved(inner)
+    })
+  )
 }
 
 // ------------------------------------------------------------ timing runs ---

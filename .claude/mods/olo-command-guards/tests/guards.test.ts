@@ -86,6 +86,23 @@ test('the approval marker lets gated actions through, never ungated ones', () =>
   expect(refusals('git revert x ; git commit --amend # OLO_USER_APPROVED').map(v => v.rule)).toEqual(['chained-amend'])
 })
 
+test('prefixes and shell wrappers do not hide a command from the rules', () => {
+  expect(rules('GH_TOKEN=x gh pr merge 1585')).toEqual(['pr-merge'])
+  expect(rules('env gh issue close 1')).toEqual(['issue-close'])
+  expect(rules('timeout 60 git push origin master')).toEqual(['push-to-master'])
+  expect(rules('pwsh -NoProfile -Command "git push origin master"')).toEqual(['push-to-master'])
+  expect(rules("bash -c 'git revert x ; git commit --amend'")).toEqual(['chained-amend'])
+  expect(rules('cmd /c git reset --hard')).toEqual(['reset-hard'])
+  // The wrapper's own trailing comment approves what it runs; a quoted mention does not.
+  expect(refusals('pwsh -Command "gh pr merge 1" # OLO_USER_APPROVED')).toEqual([])
+  expect(refusals('pwsh -Command "gh pr merge 1 --body OLO_USER_APPROVED"').map(v => v.rule)).toEqual(['pr-merge'])
+  expect(publishes('GH_TOKEN=x gh pr create --fill')).toBe(true)
+  expect(publishes('pwsh -Command "git push -u origin feature/x"')).toBe(true)
+  expect(publishingApproved('pwsh -Command "git push -u origin feature/x" # OLO_USER_APPROVED')).toBe(true)
+  // Ordinary wrapped commands stay quiet.
+  expect(rules('pwsh -NoProfile -File .claude/skills/run-oloengine/build-lock.ps1 -Command "cmake --build build-cached"')).toEqual([])
+})
+
 test('the marker counts only in its own statement\'s trailing comment, never inside quotes', () => {
   expect(refusals('gh issue close 1 --comment "OLO_USER_APPROVED"').map(v => v.rule)).toEqual(['issue-close'])
   expect(refusals("gh issue close 1 --comment 'see # OLO_USER_APPROVED'").map(v => v.rule)).toEqual(['issue-close'])

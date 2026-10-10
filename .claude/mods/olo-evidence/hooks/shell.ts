@@ -134,3 +134,51 @@ export function commentOf(text: string): string {
   }
   return ''
 }
+
+export function exeName(word: string | undefined): string {
+  return (word ?? '').replace(/^.*[\\/]/, '').replace(/\.exe$/i, '').toLowerCase()
+}
+
+/**
+ * A statement's words from the command it runs: drops `&`, `call`, `env`, `time`, `nice`,
+ * `VAR=value` assignments and `timeout N`, so `GH_TOKEN=x gh pr merge` is still `gh pr merge`.
+ */
+export function commandWords(words: readonly string[]): string[] {
+  let i = 0
+  while (i < words.length) {
+    const w = words[i] ?? ''
+    if (w === '&' || /^(?:call|env|time|nice|command|builtin)$/i.test(w) || /^\w+=/.test(w)) {
+      i += 1
+    } else if (/^timeout$/i.test(w)) {
+      i += 2
+    } else {
+      break
+    }
+  }
+  return words.slice(i)
+}
+
+/**
+ * The command a shell wrapper runs: `pwsh/powershell -Command|-c <cmd>`, `bash/sh -c <cmd>`,
+ * `cmd /c <cmd...>`. Undefined when the statement is no such wrapper.
+ */
+export function innerCommand(words: readonly string[]): string | undefined {
+  const name = exeName(words[0])
+  const after = (...flags: string[]) => {
+    const at = words.findIndex(w => flags.includes(w.toLowerCase()))
+    return at >= 0 ? at : undefined
+  }
+  if (name === 'pwsh' || name === 'powershell') {
+    const at = after('-command', '-c')
+    return at === undefined ? undefined : words.slice(at + 1).join(' ')
+  }
+  if (name === 'bash' || name === 'sh' || name === 'zsh') {
+    const at = after('-c', '-lc')
+    return at === undefined ? undefined : words[at + 1]
+  }
+  if (name === 'cmd') {
+    const at = after('/c', '/k')
+    return at === undefined ? undefined : words.slice(at + 1).join(' ')
+  }
+  return undefined
+}

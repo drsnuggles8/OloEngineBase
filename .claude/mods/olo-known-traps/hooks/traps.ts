@@ -78,7 +78,9 @@ export const TRAPS: readonly Trap[] = [
       'First find which operation left it: `git rev-parse -q --verify` MERGE_HEAD, CHERRY_PICK_HEAD and REVERT_HEAD, and `rebase-merge/` or `rebase-apply/` under ' +
       '`git rev-parse --absolute-git-dir`. A cherry-pick, revert or rebase in progress is not this trap: finish it with its own `--continue`. ' +
       'Only if you were MERGING and none of those exists has the merge marker been lost while stages 1/2/3 are intact, and committing would record no merge parent. ' +
-      "Then confirm the merge target from `git ls-files -u` (stage 3 must match that branch's blob), write THAT commit back as MERGE_HEAD, and finish the merge. No reset needed.",
+      'Restore MERGE_HEAD only with the EXACT commit that merge named (the sha `git merge <ref>` resolved at the time, e.g. from `git reflog show <ref>` or FETCH_HEAD for a pull), not the ref\'s current tip: ' +
+      'a stage-3 blob identifies a file version, not a commit, so a matching blob is only a consistency check. ' +
+      'If the exact commit cannot be recovered, do not restore the marker: copy the resolved files aside, `git merge --abort`, redo the merge, and re-apply the resolution.',
   },
   {
     id: 'worktree-add-powershell',

@@ -76,6 +76,27 @@ test('the PR statement, its body source and its markers come from the parsed com
   expect(prStatement('gh pr edit 1585 --body-file b.md')).toBeDefined()
 })
 
+test('the PR statement is found through prefixes and shell wrappers', () => {
+  for (const command of [
+    'GH_TOKEN=x gh pr create --fill',
+    'env gh pr create --fill',
+    'pwsh -NoProfile -Command "gh pr create --body-file C:/t/b.md"',
+    "bash -c 'gh pr create --fill'",
+    'cmd /c gh pr create --fill',
+  ]) {
+    expect({ command, found: prStatement(command) !== undefined }).toEqual({ command, found: true })
+  }
+  const wrapped = prStatement('pwsh -Command "gh pr create --body-file C:/t/b.md" # OLO_LEDGER_INCOMPLETE')
+  expect(wrapped === undefined ? undefined : prBodySource(wrapped)).toEqual({ file: 'C:/t/b.md' })
+  expect(wrapped === undefined ? '' : markersOf(wrapped)).toContain('OLO_LEDGER_INCOMPLETE')
+  const quoted = prStatement('pwsh -Command "gh pr create --body OLO_USER_APPROVED"')
+  expect(quoted === undefined ? 'missing' : markersOf(quoted)).not.toContain('OLO_USER_APPROVED')
+  // Invocations look through the same wrappers.
+  expect(parseInvocations("bash -c 'build-cached/OloEngine/tests/Debug/OloEngine-Tests.exe --gtest_filter=A.*'")).toEqual([
+    { kind: 'test', config: 'Debug', scope: 'A.*' },
+  ])
+})
+
 test('redirects: the file a run writes to, not 2>&1 or /dev/null', () => {
   expect(redirectTarget(LOCKED_BUILD)).toBe('C:/t/build.log')
   expect(redirectTarget('x 2>&1 | tee -a C:/t/run.log')).toBe('C:/t/run.log')

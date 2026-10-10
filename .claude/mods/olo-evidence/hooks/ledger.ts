@@ -2,7 +2,7 @@
 // outcome from a log, and judging a branch's evidence against what a PR claims.
 
 import type { EvidenceLedger, EvidenceOutcome, EvidenceRun, EvidenceRunKind, EvidenceVisual } from '../types'
-import { commentOf, splitStatements, type Statement } from './shell'
+import { commandWords, commentOf, exeName, innerCommand, splitStatements, type Statement } from './shell'
 
 // ------------------------------------------------------------ invocations ---
 
@@ -12,26 +12,6 @@ const CONFIGS = /^(?:Debug|Release|RelWithDebInfo|MinSizeRel|Dist)$/i
 
 function cap(s: string): string {
   return s.length === 0 ? s : s[0]!.toUpperCase() + s.slice(1).toLowerCase()
-}
-
-function exeName(word: string | undefined): string {
-  return (word ?? '').replace(/^.*[\\/]/, '').replace(/\.exe$/i, '').toLowerCase()
-}
-
-/** A statement's words from the command it runs: drops `&`, `call`, `VAR=x`, `env`, `timeout N`. */
-function commandWords(words: string[]): string[] {
-  let i = 0
-  while (i < words.length) {
-    const w = words[i] ?? ''
-    if (w === '&' || /^(?:call|env|time|nice)$/i.test(w) || /^\w+=/.test(w)) {
-      i += 1
-    } else if (/^timeout$/i.test(w)) {
-      i += 2
-    } else {
-      break
-    }
-  }
-  return words.slice(i)
 }
 
 /** The word after `flag`, or the value of `flag=value`. */
@@ -58,15 +38,18 @@ function config(value: string | undefined): string {
  * Every build and test run a shell command starts (a `build && test` line is two). Only a
  * statement whose COMMAND is the build or test counts: `rg OloEngine-Tests`, `git log --grep
  * ctest` or a PR body naming the exe start nothing, and `--target OloEngine-Tests` is a target.
- * A `pwsh ... -Command '<cmd>'` (build-lock.ps1) is looked into.
+ * A shell wrapper (`pwsh -Command`, build-lock.ps1's form, `bash -c`, `cmd /c`) is looked into.
  */
 export function parseInvocations(command: string): Invocation[] {
   const out: Invocation[] = []
   for (const statement of splitStatements(command)) {
     const words = commandWords(statement.words)
     const name = exeName(words[0])
+    const inner = innerCommand(words)
 
-    if (name === 'cmake' && words[1] === '--build') {
+    if (inner !== undefined) {
+      out.push(...parseInvocations(inner))
+    } else if (name === 'cmake' && words[1] === '--build') {
       const tree = (words[2] ?? '').replace(/\\/g, '/').replace(/\/$/, '').split('/').pop() ?? ''
       const at = words.indexOf('--target')
       const targets: string[] = []
@@ -74,11 +57,6 @@ export function parseInvocations(command: string): Invocation[] {
         targets.push(words[i] ?? '')
       }
       out.push({ kind: 'build', config: config(flagValue(words, '--config')), scope: `${tree}${targets.length > 0 ? ` ${targets.join(' ')}` : ''}` })
-    } else if (name === 'pwsh' || name === 'powershell') {
-      const inner = flagValue(words, '-Command', '-c')
-      if (inner !== undefined) {
-        out.push(...parseInvocations(inner))
-      }
     } else if (name === 'oloengine-tests') {
       if (words.includes('--gtest_list_tests')) {
         continue
@@ -380,15 +358,31 @@ export function unwaived(problems: readonly PrProblem[], markers: string): PrPro
   return problems.filter(p => !p.waivedBy.some(marker => markers.includes(marker)))
 }
 
-/** The `gh pr create` (or `gh pr edit` that sets the body) statement of a command, if any. */
+/**
+ * The `gh pr create` (or `gh pr edit` that sets the body) statement of a command, if any:
+ * through prefixes (`GH_TOKEN=x`, `env`) and shell wrappers (`pwsh -Command`, `bash -c`,
+ * `cmd /c`). Its words are the gh command's own; its comment is the gh statement's plus the
+ * wrapper's, so a marker on either counts and a quoted one on neither.
+ */
 export function prStatement(command: string): Statement | undefined {
-  return splitStatements(command).find(s => {
-    const w = s.words
-    if (exeName(w[0]) !== 'gh' || w[1] !== 'pr') {
-      return false
+  for (const s of splitStatements(command)) {
+    const words = commandWords(s.words)
+    const inner = innerCommand(words)
+    if (inner !== undefined) {
+      const found = prStatement(inner)
+      if (found !== undefined) {
+        return { ...found, text: `${found.text} # ${commentOf(s.text)}` }
+      }
+      continue
     }
-    return w[2] === 'create' || (w[2] === 'edit' && w.some(x => /^(?:--body|--body-file|-b|-F)(?:=|$)/.test(x)))
-  })
+    if (exeName(words[0]) !== 'gh' || words[1] !== 'pr') {
+      continue
+    }
+    if (words[2] === 'create' || (words[2] === 'edit' && words.some(x => /^(?:--body|--body-file|-b|-F)(?:=|$)/.test(x)))) {
+      return { ...s, words }
+    }
+  }
+  return undefined
 }
 
 /** Where that statement's PR body comes from: a file, inline text, or neither. */
