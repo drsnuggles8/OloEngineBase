@@ -1849,6 +1849,14 @@ target_link_libraries(OloEngine-Tests
 	GTest::gtest
 	httplib::httplib)
 
+# A Release test binary with a program PDB (#1259), as olo_set_link_options gives
+# the apps: the GL capture host is the timing host for Release benchmarks, and a
+# crash or a profile in it was unreadable without symbols. Objects already carry
+# /Z7 debug info; this only asks the linker to write it out.
+if(MSVC)
+	target_link_options(OloEngine-Tests PRIVATE $<$<CONFIG:Release>:/DEBUG>)
+endif()
+
 # OpenVDB import (#724) CPU contract-test coverage — same reasoning as the
 # editor link in OloEditor/CMakeLists.txt: OloEngine-VolumeCook is linked
 # here only, never into OloEngine/OloRuntime/OloServer.
