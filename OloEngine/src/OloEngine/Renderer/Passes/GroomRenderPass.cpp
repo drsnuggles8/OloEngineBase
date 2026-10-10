@@ -58,6 +58,24 @@ namespace OloEngine
         // (BudgetExhausted), which is the loud answer.
         constexpr u32 kMaxResidentCoatVolumes = 8;
 
+        // ...AND THE BUDGET IS BYTES PAST THAT COUNT (#1259). Eight slots of any
+        // size let eight close-up coats hold gigabytes while a herd of small
+        // ones -- 16^3 volumes of a few hundred KiB -- was refused, and a coat
+        // refused its volume loses its dual scattering with it: the fox herd's
+        // hero rendered dark brown where it is orange, because forty other
+        // foxes had been reached first. Past the eighth volume a newcomer is
+        // admitted while the resident set stays within this many bytes.
+        constexpr u64 kMaxResidentCoatVolumeBytes = 256ull * 1024ull * 1024ull;
+
+        // An upper bound on a newly built volume's bytes at `resolution`: the
+        // whole ring at RGBA32F plus the body texture. The real grid is that
+        // long only on its longest axis, so this over-counts, never under.
+        [[nodiscard]] u64 EstimateCoatVolumeBytes(u32 resolution, u32 ringSlots) noexcept
+        {
+            const u64 voxels = static_cast<u64>(resolution) * resolution * resolution;
+            return voxels * ((16ull * ringSlots) + 4ull);
+        }
+
         // Releasing a coat volume is FOUR steps that must never be separated:
         // give the bytes back to the cache total, drop the texture, clear the
         // resolution that says a bake is resident, and drop the pose a bound
@@ -1337,6 +1355,19 @@ namespace OloEngine
             std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - poseStart).count());
     }
 
+    u64 GroomRenderPass::CountResidentCoatVolumeBytes() const noexcept
+    {
+        u64 bytes = 0;
+        for (const auto& [key, entry] : m_Cache)
+        {
+            if (entry.CoatVolume)
+            {
+                bytes += entry.CoatBytes;
+            }
+        }
+        return bytes;
+    }
+
     u32 GroomRenderPass::CountResidentCoatVolumes() const noexcept
     {
         u32 resident = 0;
@@ -1844,7 +1875,9 @@ namespace OloEngine
         {
             inputs.GrantedSlot = 0u;
         }
-        else if (residentVolumes < kMaxResidentCoatVolumes)
+        else if (residentVolumes < kMaxResidentCoatVolumes ||
+                 CountResidentCoatVolumeBytes() + EstimateCoatVolumeBytes(resolution, kCoatVolumeRing) <=
+                     kMaxResidentCoatVolumeBytes)
         {
             inputs.GrantedSlot = residentVolumes;
         }
