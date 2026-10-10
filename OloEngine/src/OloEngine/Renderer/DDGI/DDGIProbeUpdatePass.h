@@ -171,16 +171,23 @@ namespace OloEngine
         // The probe-ray rotation and the capture schedule both run on
         // m_FrameIndex; a sequence restart rewinds them together (#1348). The
         // probe volume itself is a world-space cache and keeps its contents.
-        void ResetFrameSequence() override
+        void ResetFrameSequence(u32 sequenceSeed) override
         {
-            m_FrameIndex = 0;
+            m_FrameIndex = sequenceSeed * kFrameSequenceSeedStride;
             m_CaptureCursor = 0;
             for (ProbeRecord& record : m_Records)
-                record.LastCaptureFrame = 0;
+                record.LastCaptureFrame = m_FrameIndex; // every probe ages from the restart
         }
+        // The probe volume itself is NOT restarted: it is a world-space
+        // cache a scene converges over many frames. Its capture state is
+        // folded in, so two arms that start from differently warmed volumes
+        // report different contexts instead of passing as a pair.
         [[nodiscard]] u64 GetFrameSequenceState() const override
         {
-            return (static_cast<u64>(static_cast<u32>(m_CaptureCursor)) << 32u) | m_FrameIndex;
+            u64 captures = 0;
+            for (const ProbeRecord& record : m_Records)
+                captures = captures * 31u + record.CaptureCount;
+            return ((static_cast<u64>(static_cast<u32>(m_CaptureCursor)) << 32u) | m_FrameIndex) ^ (captures << 1u);
         }
 
         [[nodiscard]] bool IsReadyForExecution() const noexcept override;

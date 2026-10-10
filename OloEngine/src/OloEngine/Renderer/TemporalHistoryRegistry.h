@@ -29,6 +29,9 @@ namespace OloEngine
         // holds their LINEAGE only (an external entry, #1348), so a camera cut
         // or a scene reset reaches them like every other history.
         ReSTIRPT,
+        // The froxel fog's 3D scatter volume, kept by VolumetricFogPass: an
+        // external lineage like ReSTIR PT's (#1348).
+        VolumetricFog,
     };
 
     enum class TemporalHistoryPlane : u8
@@ -223,6 +226,9 @@ namespace OloEngine
         // A lineage whose storage a pass owns (AcquireExternal): no texture,
         // never imported, so it stays out of the validity key.
         bool External = false;
+        // Set by Acquire, cleared by BeginPopulate: whether the populate in
+        // progress declared this history. ReleaseUnacquired frees the rest.
+        bool AcquiredThisPopulate = false;
         Ref<Texture2D> Texture;
         FString DebugName;
     };
@@ -242,6 +248,7 @@ namespace OloEngine
                                       TIsTriviallyRelocatable<decltype(TemporalHistoryEntry::Valid)>::Value &&
                                       TIsTriviallyRelocatable<decltype(TemporalHistoryEntry::ValidAtExtraction)>::Value &&
                                       TIsTriviallyRelocatable<decltype(TemporalHistoryEntry::External)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TemporalHistoryEntry::AcquiredThisPopulate)>::Value &&
                                       TIsTriviallyRelocatable<decltype(TemporalHistoryEntry::Texture)>::Value &&
                                       TIsTriviallyRelocatable<decltype(TemporalHistoryEntry::DebugName)>::Value;
     };
@@ -309,6 +316,15 @@ namespace OloEngine
         // Whether any history of `effect` holds a texture or a valid frame:
         // the cheap test before a release that would otherwise snapshot.
         [[nodiscard]] bool HoldsAny(TemporalHistoryEffect effect) const;
+        // The populate sweep (#1348). A pass that stops declaring its history
+        // is culled and never acquires it again, so nothing else would end the
+        // lineage: re-enabling it resumed a history from whenever it last ran,
+        // and the texture stayed allocated. BeginPopulate forgets which
+        // histories were acquired; ReleaseUnacquired releases, with `cause`,
+        // every texture-backed history the populate did not acquire, and
+        // reports their debug names. External lineages are their owner's.
+        void BeginPopulate();
+        u32 ReleaseUnacquired(TemporalHistoryInvalidationCause cause, TArray<FString>* releasedNames = nullptr);
         void Clear();
 
         [[nodiscard]] TArray<TemporalHistorySnapshot> Snapshot() const;

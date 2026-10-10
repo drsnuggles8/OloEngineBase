@@ -332,6 +332,8 @@ namespace OloEngine::MCP
                     return "PathTracer";
                 case TemporalHistoryEffect::ReSTIRPT:
                     return "ReSTIRPT";
+                case TemporalHistoryEffect::VolumetricFog:
+                    return "VolumetricFog";
             }
             return "Unknown";
         }

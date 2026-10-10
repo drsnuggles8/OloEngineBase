@@ -633,17 +633,21 @@ namespace OloEngine
         // TemporalHistoryRegistry::Release, plus the history's sink, whose
         // texture handle the release just made dangling.
         bool ReleaseTemporalHistory(const TemporalHistoryKey& key, TemporalHistoryInvalidationCause cause);
-        // Every history of one effect, for a tier that stopped declaring them
-        // (#1348): a disabled pass is culled, so nothing else would end the
-        // lineage, and re-enabling it would read reservoirs from whenever it
-        // last ran.
-        u32 ReleaseTemporalHistories(TemporalHistoryEffect effect, TemporalHistoryInvalidationCause cause);
+        // The populate sweep (TemporalHistoryRegistry::BeginPopulate /
+        // ReleaseUnacquired), plus the released histories' sinks. Called at the
+        // start and the end of PopulateBlackboard's body.
+        void BeginTemporalHistoryPopulate();
+        u32 ReleaseUnacquiredTemporalHistories(TemporalHistoryInvalidationCause cause);
         // One frame of an external lineage (TemporalHistoryRegistry::
-        // AcquireExternal): whether it continued from the previous frame, after
-        // which this frame's records are next frame's history.
-        [[nodiscard]] bool AdvanceTemporalLineage(const TemporalHistoryKey& key,
-                                                  TemporalHistoryDescriptor descriptor,
-                                                  TemporalHistoryDependency dependencies, std::string_view debugName);
+        // AcquireExternal), in two halves around the frame's execution, so the
+        // first sees every invalidation the frame raised before it and the
+        // second knows whether the owning pass produced anything.
+        // BeginTemporalLineage answers whether the lineage continues into this
+        // frame; EndTemporalLineage marks it produced, or breaks it when the
+        // pass did not run.
+        [[nodiscard]] bool BeginTemporalLineage(const TemporalHistoryKey& key, TemporalHistoryDescriptor descriptor,
+                                                TemporalHistoryDependency dependencies, std::string_view debugName);
+        void EndTemporalLineage(const TemporalHistoryKey& key, bool produced);
 
         // Bring every history sink's token to its history's CURRENT generation
         // (issue #1333). A sink latches its token when PopulateBlackboard

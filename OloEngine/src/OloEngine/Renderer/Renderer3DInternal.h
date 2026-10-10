@@ -474,6 +474,10 @@ namespace OloEngine
         // Under OLO_RG_VERIFY_DECLARATION_CACHE a frame that would have been
         // served from the cache is rebuilt and the two plans compared.
         void CompileFrameGraph(Renderer3DData& data);
+        // The external temporal lineages (ReSTIR PT, froxel fog) around the
+        // frame's execution (#1348): after CompileFrameGraph, after Execute.
+        void BeginExternalLineages(Renderer3DData& data);
+        void EndExternalLineages(Renderer3DData& data);
 
         void PrepareDeclarationInputs(Renderer3DData& data);
         // `passKeys`, when given, receives each pass's own key in ForEachPass

@@ -695,8 +695,14 @@ namespace OloEngine
         return s_Data.RGraph ? s_Data.RGraph->InvalidateTemporalHistories(cause, effect) : 0u;
     }
 
+    static_assert(Renderer3D::kSequenceSeedStride == kFrameSequenceSeedStride);
+
     void Renderer3D::ResetFrameSequences(u32 sequenceSeed)
     {
+        // Seed 16 would start where seed 0 does: past it the runs repeat.
+        OLO_CORE_ASSERT(sequenceSeed < kMaxFrameSequenceSeeds,
+                        "ResetFrameSequences: seed {} has no index range of its own (seeds are 0..{})", sequenceSeed,
+                        kMaxFrameSequenceSeeds - 1u);
         s_Data.FrameSequenceSeed = sequenceSeed;
         // The same 2^20 wrap the per-frame advance applies.
         s_Data.StochasticFrameIndex = (sequenceSeed * kSequenceSeedStride) & 0xFFFFFu;
@@ -704,17 +710,18 @@ namespace OloEngine
         s_Data.TemporalUpscalePhaseIndex = 0;
         s_Data.CurrJitterUV = glm::vec2(0.0f);
         s_Data.PrevJitterUV = glm::vec2(0.0f);
-        s_Data.CloudFrameIndex = 0;
-        s_Data.FogFrameIndex = 0;
+        // These two wrap at 1024: sixteen seeds get sixteen phases.
+        s_Data.CloudFrameIndex = (sequenceSeed * 64u) & 0x3FFu;
+        s_Data.FogFrameIndex = (sequenceSeed * 64u) & 0x3FFu;
         if (s_Data.Pipeline)
         {
             s_Data.Pipeline->ForEachPass(
-                [](const auto& pass)
+                [sequenceSeed](const auto& pass)
                 {
                     // ForEachPass hands out const Refs; the passes themselves
                     // are the pipeline's to mutate, so reset through a copy.
                     if (auto mutablePass = pass)
-                        mutablePass->ResetFrameSequence();
+                        mutablePass->ResetFrameSequence(sequenceSeed);
                 });
         }
         // Every history, not only those that declare the jitter: a ReSTIR

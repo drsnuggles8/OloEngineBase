@@ -310,6 +310,15 @@ namespace OloEngine
             .Resolution = TemporalHistoryResolution::Scene,
             .Plane = TemporalHistoryPlane::ReservoirState,
         };
+        // The froxel fog's scatter volume (#1348): an external lineage too. The
+        // volume lives in VolumetricFogPass and is reprojected through last
+        // frame's view-projection, so a camera cut must reach it.
+        constexpr TemporalHistoryKey kVolumetricFogLineageKey{
+            .Effect = TemporalHistoryEffect::VolumetricFog,
+            .View = 0,
+            .Resolution = TemporalHistoryResolution::Scene,
+            .Plane = TemporalHistoryPlane::Signal,
+        };
 
         // The path tracer's accumulation: everything a reprojecting history
         // depends on EXCEPT the jitter (its rays come from the unjittered
@@ -1474,31 +1483,6 @@ namespace OloEngine
                                  Renderer3D::GetRenderOrigin());
             pt.SetFrameIndex(data.StochasticFrameIndex);
             pt.SetSceneEpoch(ReSTIRPTSceneEpoch);
-            // The path records' lineage (#1348). Until it was in the registry
-            // ReSTIR PT ignored every invalidation the reprojecting histories
-            // answer, a camera cut and a projection change first among them:
-            // its receiver test compares a normal and a roughness, which a cut
-            // to a similar surface passes. Its dependencies are ReSTIR DI's,
-            // for DI's reasons (unjittered, reprojected, gated per pixel).
-            if (data.RGraph)
-            {
-                if (data.PostProcess.ReSTIRPT.Enabled && data.RGraph->GetPhysicalWidth() > 0u &&
-                    data.RGraph->GetPhysicalHeight() > 0u)
-                {
-                    TemporalHistoryDescriptor descriptor;
-                    descriptor.Width = data.RGraph->GetPhysicalWidth();
-                    descriptor.Height = data.RGraph->GetPhysicalHeight();
-                    descriptor.Format = ImageFormat::RGBA32F;
-                    descriptor.LayoutVersion = ReSTIR::PT::kLayoutVersion;
-                    pt.SetLineageContinues(data.RGraph->AdvanceTemporalLineage(
-                        kReSTIRPTLineageKey, descriptor, kReSTIRDIHistoryDependencies, "ReSTIRPTPathRecords"));
-                }
-                else
-                {
-                    (void)data.RGraph->ReleaseTemporalHistory(kReSTIRPTLineageKey,
-                                                              TemporalHistoryInvalidationCause::FeatureToggled);
-                }
-            }
             pt.ResolveAvailabilityForFrame(data.Settings.Path == RenderingPath::Deferred, data.Fog.Enabled);
         }
         const auto ptOwnership = SelectReSTIRPTOwnership({
@@ -3247,6 +3231,82 @@ namespace OloEngine
         }
     } // namespace
 
+    // The external lineages (#1348): ReSTIR PT's path records and the froxel
+    // fog's scatter volume live in their passes, and the registry decides
+    // whether they still describe the frame about to render. Begun after the
+    // frame is compiled, so every invalidation the frame raised (a resize, a
+    // render-scale change, a populate release) is seen this frame rather
+    // than the next; ended after it executed, so a pass that did not run
+    // breaks its lineage instead of aging it.
+    void Renderer3D::RenderPipeline::BeginExternalLineages(Renderer3DData& data)
+    {
+        if (!data.RGraph)
+            return;
+        auto& graph = *data.RGraph;
+        const auto& sceneSpec = FrameCorePasses.Scene ? FrameCorePasses.Scene->GetFramebufferSpecification()
+                                                      : FramebufferSpecification{};
+        const bool sized = sceneSpec.Width > 0u && sceneSpec.Height > 0u;
+
+        if (SceneCompositePasses.ReSTIRPT)
+        {
+            if (data.PostProcess.ReSTIRPT.Enabled && sized)
+            {
+                // ReSTIR DI's dependencies, for DI's reasons (unjittered,
+                // reprojected, gated per pixel). Its receiver test compares a
+                // normal and a roughness, which a cut to a similar surface
+                // passes, so before the registry a cut never reached it.
+                TemporalHistoryDescriptor descriptor;
+                descriptor.Width = sceneSpec.Width;
+                descriptor.Height = sceneSpec.Height;
+                descriptor.Format = ImageFormat::RGBA32F;
+                descriptor.LayoutVersion = ReSTIR::PT::kLayoutVersion;
+                SceneCompositePasses.ReSTIRPT->SetLineageContinues(graph.BeginTemporalLineage(
+                    kReSTIRPTLineageKey, descriptor, kReSTIRDIHistoryDependencies, "ReSTIRPTPathRecords"));
+            }
+            else
+            {
+                (void)graph.ReleaseTemporalHistory(kReSTIRPTLineageKey, TemporalHistoryInvalidationCause::FeatureToggled);
+            }
+        }
+
+        if (PostProcessPasses.VolumetricFog)
+        {
+            if (data.Fog.Enabled && data.Fog.EnableVolumetric && sized)
+            {
+                TemporalHistoryDescriptor descriptor;
+                descriptor.Width = sceneSpec.Width;
+                descriptor.Height = sceneSpec.Height;
+                descriptor.Format = ImageFormat::RGBA16F;
+                descriptor.LayoutVersion = 1u;
+                PostProcessPasses.VolumetricFog->SetLineageContinues(graph.BeginTemporalLineage(
+                    kVolumetricFogLineageKey, descriptor, kReSTIRDIHistoryDependencies, "VolumetricFogScatter"));
+            }
+            else
+            {
+                (void)graph.ReleaseTemporalHistory(kVolumetricFogLineageKey,
+                                                   TemporalHistoryInvalidationCause::FeatureToggled);
+            }
+        }
+    }
+
+    void Renderer3D::RenderPipeline::EndExternalLineages(Renderer3DData& data)
+    {
+        if (!data.RGraph)
+            return;
+        auto& graph = *data.RGraph;
+        const TemporalHistoryRegistry& registry = graph.GetTemporalHistoryRegistry();
+        if (SceneCompositePasses.ReSTIRPT && registry.IsCurrent(registry.Find(kReSTIRPTLineageKey)) &&
+            data.PostProcess.ReSTIRPT.Enabled)
+        {
+            graph.EndTemporalLineage(kReSTIRPTLineageKey, SceneCompositePasses.ReSTIRPT->ProducedRecordsThisFrame());
+        }
+        if (PostProcessPasses.VolumetricFog && registry.IsCurrent(registry.Find(kVolumetricFogLineageKey)) &&
+            data.Fog.Enabled && data.Fog.EnableVolumetric)
+        {
+            graph.EndTemporalLineage(kVolumetricFogLineageKey, PostProcessPasses.VolumetricFog->RanThisFrame());
+        }
+    }
+
     void Renderer3D::RenderPipeline::CompileFrameGraph(Renderer3DData& data)
     {
         OLO_PROFILE_FUNCTION();
@@ -3421,6 +3481,9 @@ namespace OloEngine
         // Clear prior-frame handles so stale handles are never accidentally resolved.
         graph.ClearBlackboard();
         graph.ClearImportedResources();
+        // Every history this populate acquires is marked; the end of the body
+        // releases the rest (#1348).
+        graph.BeginTemporalHistoryPopulate();
 
         auto& board = graph.GetBlackboard();
         board.Config = config;
@@ -5439,8 +5502,10 @@ namespace OloEngine
         // size, imported only when the previous frame produced a valid one and
         // nothing has invalidated it since. The registry's validity key is part
         // of the declaration configuration, so a history that becomes valid or
-        // is invalidated re-runs this block.
-        if (pipeline.PostProcessPasses.TAA)
+        // is invalidated re-runs this block. Gated on TAA running, as its pass
+        // is: a history acquired while TAA is off is never released by the
+        // populate sweep, and stays allocated for nothing.
+        if (pipeline.PostProcessPasses.TAA && config.EngineTAA)
         {
             const auto& taaSpec = pipeline.PostProcessPasses.TAA->GetFramebufferSpecification();
             if (taaSpec.Width > 0u && taaSpec.Height > 0u)
@@ -5462,7 +5527,7 @@ namespace OloEngine
         // and the forward paths that reconstruct velocity from depth carry no
         // coverage at all. The shader's own u_HasSurfaceHistory gate means an
         // absent plane costs the term nothing rather than reading garbage.
-        if (pipeline.PostProcessPasses.TAA && board.Scene.SceneVelocity.IsValid())
+        if (pipeline.PostProcessPasses.TAA && config.EngineTAA && board.Scene.SceneVelocity.IsValid())
         {
             const auto& taaSurfaceSpec = pipeline.PostProcessPasses.TAA->GetFramebufferSpecification();
             if (taaSurfaceSpec.Width > 0u && taaSurfaceSpec.Height > 0u)
@@ -5564,15 +5629,6 @@ namespace OloEngine
                                              ResourceNames::RayTracedShadowMomentsHistory);
             board.Temporal.RayTracedShadowMomentsHistory = momentsBinding.Previous;
         }
-        else
-        {
-            // The technique stopped declaring its history: a disabled pass is
-            // culled, so without this the planes stay valid and a later switch
-            // back to ray-traced shadows blends the mask from whenever it last
-            // ran (#1348).
-            (void)graph.ReleaseTemporalHistories(TemporalHistoryEffect::RayTracedShadow,
-                                                 TemporalHistoryInvalidationCause::FeatureToggled);
-        }
 
         // ReSTIR DI's five planes (issue #1140), gated on the pass having
         // declared its radiance target this frame for the reason the ones above
@@ -5656,12 +5712,6 @@ namespace OloEngine
                 SceneCompositePasses.ReSTIRDI->SetHistoryLayoutMatches(restirLayoutMatches);
             }
         }
-        else
-        {
-            // Released for the ray-traced shadows' reason above (#1348).
-            (void)graph.ReleaseTemporalHistories(TemporalHistoryEffect::ReSTIRDI,
-                                                 TemporalHistoryInvalidationCause::FeatureToggled);
-        }
 
         // ReSTIR GI's five planes (#1169), gated on its radiance target having
         // been declared this frame for the reason DI's are: the tier is off by
@@ -5728,12 +5778,6 @@ namespace OloEngine
                 SceneCompositePasses.ReSTIRGI->SetHistoryLayoutMatches(giLayoutMatches);
             }
         }
-        else
-        {
-            // Released for the ray-traced shadows' reason above (#1348).
-            (void)graph.ReleaseTemporalHistories(TemporalHistoryEffect::ReSTIRGI,
-                                                 TemporalHistoryInvalidationCause::FeatureToggled);
-        }
 
         // The GPU path tracer's accumulation (issue #1055), gated on its target
         // having been declared this frame for the reason the two above are:
@@ -5780,13 +5824,6 @@ namespace OloEngine
                                                  kSSRHistoryKey, descriptor, kSSGIHistoryDependencies,
                                                  ResourceNames::SSRHistory)
                                             .Previous;
-        }
-        else
-        {
-            // SSR stopped declaring its history: free it, and make sure a later
-            // re-enable starts a new lineage instead of blending a reflection
-            // from however long ago SSR last ran.
-            (void)graph.ReleaseTemporalHistory(kSSRHistoryKey, TemporalHistoryInvalidationCause::FeatureToggled);
         }
 
         // (The 2D FogHistory sink/import died with the screen-space fog
@@ -5855,6 +5892,14 @@ namespace OloEngine
             [[maybe_unused]] const RGTextureHandle handle =
                 graph.ImportTextureHandle(kVolumetricShadowTargetName, volumetricShadow, desc);
         }
+
+        // A history this populate did not acquire belongs to an effect that
+        // stopped declaring it: disabled, stood down, or off this path. Its pass
+        // is culled and will never acquire it again, so release it here, or a
+        // re-enable resumes the lineage from whenever it last ran and the
+        // texture stays allocated meanwhile (#1348). One sweep rather than a
+        // branch per effect, so an effect added later cannot be left out.
+        (void)graph.ReleaseUnacquiredTemporalHistories(TemporalHistoryInvalidationCause::FeatureToggled);
     }
 
     auto Renderer3D::RenderPipeline::BuildInputs(Renderer3DData& data) -> RenderPipelineInputs

@@ -1,6 +1,6 @@
 # Judging a temporal estimator: paired replays, runs as samples, every reset checked on its frame
 
-**The rules, first.** From #1348, which built the protocol and found six defects with it.
+**The rules, first.** From #1348, which built the protocol and found the defects listed at the end.
 
 1. **Measure from paired replays.** Start every arm with `Renderer3D::ResetFrameSequences(seed)`.
    Arms with the same seed share every stochastic sample, frame by frame, and differ only in what
@@ -35,13 +35,14 @@ Executable halves:
 `ResetFrameSequences(seed)` restarts everything a frame's sampling depends on:
 
 - the stochastic, TAA-jitter, FSR2-phase, cloud and fog indices;
-- each pass's own counters, through `RenderGraphNode::ResetFrameSequence`. These are the froxel
-  fog's index and history, GTAO's noise index, DDGI's ray rotation and capture schedule, ReSTIR GI's
-  previous frame, and ReSTIR PT's lineage;
+- each pass's own counters, through `RenderGraphNode::ResetFrameSequence(seed)`. These are the
+  froxel fog's index and history, GTAO's noise index, DDGI's ray rotation and capture schedule,
+  ReSTIR GI's previous frame, ReSTIR PT's lineage and the tone mapper's metered exposure;
 - **every** registry history, through `TemporalHistoryInvalidationCause::SamplingSequenceReset`.
 
-`Renderer3D::GetFrameSamplingContext().Fingerprint()` hashes all of it, plus the mock clock and
-each history's validity and age. Compare fingerprints, not fields, so that a dimension added later
+`Renderer3D::GetFrameSamplingContext().Fingerprint()` hashes all of it, plus the mock clock,
+each history's validity and age, and DDGI's per-probe capture counts. The probe volume itself is
+not restarted, so two arms that start from differently warmed volumes report different contexts. Compare fingerprints, not fields, so that a dimension added later
 cannot be left out of an old test.
 
 A pass that keeps a frame index of its own overrides `ResetFrameSequence` and
@@ -49,9 +50,10 @@ A pass that keeps a frame index of its own overrides `ResetFrameSequence` and
 dimension. GTAO's classifier stamp is one: rewinding it can match a stamp already used and skip a
 classification.
 
-`seed` selects an independent run. Seed `k` starts the stochastic index `k * 2^16` frames in and
-the TAA jitter at phase `k`. Two arms of a pair share a seed; repeats of a claim use different
-seeds.
+`seed` selects an independent run, `0..15`. Seed `k` starts the stochastic index and every pass's
+own index `k * 2^16` frames in, the TAA jitter at phase `k`, and the cloud and fog indices at
+`64k` (they wrap at 1024). Seed 16 would start where seed 0 does, so the call asserts. Two arms of
+a pair share a seed; repeats of a claim use different seeds.
 
 ## The lineage AOV
 
@@ -63,9 +65,16 @@ Every registry history reports `Age` and `LineageCause` (in `TemporalHistorySnap
 
 A reset policy is read off these two fields. A cut that left `Age` climbing kept a stale history.
 
-ReSTIR PT keeps its path records in its own buffers, so it holds an **external** registry lineage
-(`AcquireExternal`, advanced each frame by `RenderGraph::AdvanceTemporalLineage`). It has a lineage
-and an age but no texture, and it stays out of the declaration key.
+ReSTIR PT's path records and the froxel fog's scatter volume live in their passes' own storage,
+so each holds an **external** registry lineage (`AcquireExternal`). `RenderGraph::BeginTemporalLineage`
+before the graph executes tells the pass whether its lineage continues; `EndTemporalLineage` after
+it marks the frame produced only when the pass really wrote its history. An external lineage has an
+age but no texture, and it stays out of the declaration key.
+
+**Every populate sweeps.** `BeginTemporalHistoryPopulate` clears each history's acquired mark;
+`ReleaseUnacquiredTemporalHistories(FeatureToggled)` at the end releases every texture-backed
+history the populate did not acquire. A history acquire must therefore be gated exactly as its
+pass's declaration is, or the sweep never sees it go.
 
 ## The reset policy
 
@@ -76,7 +85,7 @@ and an age but no texture, and it stays out of the declaration key.
 | render-scale change (Forward paths; Deferred ignores dynamic scale, #1537) | new lineage | `DynamicResolutionChanged` |
 | FSR1 upscale preset change (every path) | new lineage, then imported again the next frame | `DynamicResolutionChanged` (TAA), `DescriptorChanged` (scene band) |
 | `ResetFrameSequences` | new lineage, every history | `SamplingSequenceReset` |
-| a tier stops declaring its history (disabled, stood down) | released | `FeatureToggled` |
+| a tier stops declaring its history (disabled, stood down) | released by the populate sweep | `FeatureToggled`; TAA re-enabled: `JitterReset`, raised after the release |
 | pause | kept | none |
 | shader-library hot reload, layout unchanged | kept | none |
 | history layout edit | new lineage | `DescriptorChanged` (registry tests) |
@@ -104,9 +113,11 @@ hot-reloaded.
   reset exists for, TAA blended the frame with a displaced copy of itself. The UBO now carries
   `hasHistory` and a frame without history outputs the current frame.
 - **`ResetFrameSequences` was not a complete reset.** It raised `JitterReset`, which ReSTIR DI/GI
-  and the path tracer do not declare, and it left the FSR2 phase and every pass-local index running.
-- **ReSTIR PT ignored every invalidation.** Its receiver test compares a normal and a roughness,
-  which a cut to a similar surface passes.
+  and the path tracer do not declare, and it left the FSR2 phase, every pass-local index and the
+  metered exposure running.
+- **ReSTIR PT and the froxel fog ignored every invalidation.** PT's receiver test compares a normal
+  and a roughness, which a cut to a similar surface passes. The fog reprojects its scatter volume
+  through last frame's view-projection, across a cut as well.
 - **SSGI's resolve is 12.8% darker than its own estimator** (SSR's 2.7%), with no drift. Without
   the clip it is 0.4%. The neighbourhood box intersects the 3x3 min/max, so raising gamma never
   turns the clip off. On a sparse estimator, most neighbourhoods miss the rare bright samples and
@@ -120,4 +131,6 @@ hot-reloaded.
 - **An FSR1 upscale-preset change did not reset TAA**, while a dynamic render scale did. It now
   raises `DynamicResolutionChanged` like `RenderGraph::SetRenderScale`.
 - **A disabled tier kept its history valid.** A culled pass never re-acquires, so re-enabling RT
-  shadows or ReSTIR DI/GI resumed reservoirs from whenever they last ran.
+  shadows or ReSTIR DI/GI resumed reservoirs from whenever they last ran. TAA acquired its history
+  whenever its pass object existed, so switched off it held the texture for nothing.
+  `TogglingAResolveOffReleasesItsHistoryAndRestartsItsLineage` pins the sweep.

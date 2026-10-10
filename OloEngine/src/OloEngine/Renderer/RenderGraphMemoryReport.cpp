@@ -41,6 +41,8 @@ namespace OloEngine
                     return "ReSTIR GI reservoir history";
                 case TemporalHistoryEffect::ReSTIRPT:
                     return "ReSTIR PT path-record lineage";
+                case TemporalHistoryEffect::VolumetricFog:
+                    return "Froxel fog scatter lineage";
             }
             return "Temporal history";
         }

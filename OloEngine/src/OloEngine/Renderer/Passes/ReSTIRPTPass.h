@@ -45,7 +45,7 @@ namespace OloEngine
         void OnReset() override;
         // ReSTIR PT keeps its own ping-pong pools outside the registry, so a
         // sequence restart drops their lineage here (#1348).
-        void ResetFrameSequence() override
+        void ResetFrameSequence([[maybe_unused]] u32 sequenceSeed) override
         {
             m_HaveHistory = false;
             m_LastFrame = 0;
@@ -97,6 +97,13 @@ namespace OloEngine
         void SetLineageContinues(bool continues) noexcept
         {
             m_LineageContinues = continues;
+        }
+        // Whether this frame's Execute wrote the path records next frame
+        // reuses (the end of its external lineage, #1348). The frame index
+        // advances every frame, so a frame that never ran leaves it behind.
+        [[nodiscard]] bool ProducedRecordsThisFrame() const noexcept
+        {
+            return m_HaveHistory && m_LastFrame == m_FrameIndex;
         }
         void ResolveAvailabilityForFrame(bool deferredPathActive = true, bool participatingMedia = false);
         [[nodiscard("Use PT engagement and measured diagnostics")]] const ReSTIRPTStats& GetStats() const noexcept

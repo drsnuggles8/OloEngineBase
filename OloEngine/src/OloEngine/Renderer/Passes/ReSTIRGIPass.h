@@ -113,7 +113,7 @@ namespace OloEngine
         void OnReset() override;
         // The previous frame's matrices feed the temporal Jacobian; a sequence
         // restart starts without them, as the first frame does (#1348).
-        void ResetFrameSequence() override
+        void ResetFrameSequence([[maybe_unused]] u32 sequenceSeed) override
         {
             m_HavePrevFrame = false;
         }

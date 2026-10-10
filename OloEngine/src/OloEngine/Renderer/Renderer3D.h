@@ -468,12 +468,15 @@ namespace OloEngine
         // harness calls it per test so a visual test renders the same frames
         // whether it runs first in its process or after 800 others.
         //
-        // `sequenceSeed` selects an independent run (#1348). Seed 0 is the
-        // fresh renderer. Seed k starts the stochastic index k strides of 2^16
-        // frames in, so runs shorter than 65 536 frames draw disjoint index
-        // ranges of the hashed and blue-noise sequences, and starts the TAA
-        // jitter at phase k of its cycle. Two arms of a paired A/B use the SAME
-        // seed; independent repeats of a claim use different seeds.
+        // `sequenceSeed` selects an independent run (#1348), 0..15. Seed 0 is
+        // the fresh renderer. Seed k starts the stochastic index k strides of
+        // 2^16 frames in, so runs shorter than 65 536 frames draw disjoint index
+        // ranges of the hashed and blue-noise sequences; it starts the TAA
+        // jitter at phase k, the cloud and fog indices at 64k (they wrap at
+        // 1024), and every pass's own index (ResetFrameSequence) from k too.
+        // Two arms of a paired A/B use the SAME seed; independent repeats of a
+        // claim use different seeds. Sixteen is the ceiling: seed 16 would
+        // start where seed 0 does, and the call asserts.
         static constexpr u32 kSequenceSeedStride = 1u << 16u;
         static void ResetFrameSequences(u32 sequenceSeed = 0);
 

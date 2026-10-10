@@ -38,6 +38,7 @@ namespace OloEngine
         if (const auto it = m_Indices.find(key); it != m_Indices.end())
         {
             Entry& entry = m_Entries[it->second];
+            entry.AcquiredThisPopulate = true;
             const bool descriptorChanged = entry.Descriptor != descriptor;
             entry.Dependencies = dependencies;
             if (!debugName.empty())
@@ -71,6 +72,7 @@ namespace OloEngine
             .Key = key,
             .Descriptor = descriptor,
             .Dependencies = dependencies,
+            .AcquiredThisPopulate = true,
             .DebugName = FString(debugName),
         });
         m_Indices.emplace(key, index);
@@ -282,6 +284,30 @@ namespace OloEngine
         entry.PendingLineageBreak = cause;
         entry.Age = 0;
         return true;
+    }
+
+    void TemporalHistoryRegistry::BeginPopulate()
+    {
+        for (Entry& entry : m_Entries)
+            entry.AcquiredThisPopulate = false;
+    }
+
+    u32 TemporalHistoryRegistry::ReleaseUnacquired(TemporalHistoryInvalidationCause cause, TArray<FString>* releasedNames)
+    {
+        u32 released = 0;
+        for (const Entry& entry : m_Entries)
+        {
+            if (entry.External || entry.AcquiredThisPopulate || (!entry.Texture && !entry.Valid))
+                continue;
+            const FString name = entry.DebugName;
+            if (Release(entry.Key, cause))
+            {
+                ++released;
+                if (releasedNames)
+                    releasedNames->Add(name);
+            }
+        }
+        return released;
     }
 
     bool TemporalHistoryRegistry::HoldsAny(TemporalHistoryEffect effect) const

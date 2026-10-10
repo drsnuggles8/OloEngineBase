@@ -426,6 +426,27 @@ namespace OloEngine::Tests
         EXPECT_FALSE(registry.HoldsAny(TemporalHistoryEffect::ReSTIRDI));
     }
 
+    // The populate sweep releases only what a populate could have acquired:
+    // an external lineage is acquired by its owner around the graph's
+    // execution, never by the populate, and must outlive every sweep.
+    TEST(TemporalHistoryRegistry, ThePopulateSweepLeavesExternalLineagesToTheirOwner)
+    {
+        TemporalHistoryRegistry registry;
+        const auto key = MakeKey(TemporalHistoryEffect::VolumetricFog, TemporalHistoryPlane::Signal);
+        const auto acquired = registry.AcquireExternal(key, MakeDescriptor(), kAllViewDependencies, "Fog");
+        ASSERT_TRUE(registry.MarkProduced(acquired.Token));
+        // A texture-less history the populate declared and never produced has
+        // nothing to release either.
+        (void)registry.Acquire(MakeKey(), MakeDescriptor(), kAllViewDependencies, "SSGI");
+
+        registry.BeginPopulate();
+        TArray<FString> released;
+        EXPECT_EQ(registry.ReleaseUnacquired(TemporalHistoryInvalidationCause::FeatureToggled, &released), 0u);
+        EXPECT_EQ(released.Num(), 0);
+        EXPECT_TRUE(registry.IsValid(acquired.Token));
+        EXPECT_EQ(registry.Snapshot()[0].Age, 1u);
+    }
+
     // Releasing a live history ends its lineage with the stated cause, and a
     // second release has nothing left to do.
     TEST(TemporalHistoryRegistry, ReleasingALiveHistoryEndsItsLineage)

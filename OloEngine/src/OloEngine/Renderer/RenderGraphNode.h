@@ -69,6 +69,12 @@ namespace OloEngine
     // side-effect flags, work-type, and DRS viewport state — i.e. the surface
     // that was previously split out into `RenderPass`. Concrete passes override
     // `Setup(RGBuilder&, FrameBlackboard&)` and `Execute(RGCommandContext&)`.
+    // A sampling-sequence seed's stride in a frame index, and how many seeds
+    // the 2^20-frame stochastic index holds disjointly (#1348). Here rather
+    // than on Renderer3D so a pass's ResetFrameSequence can use them.
+    inline constexpr u32 kFrameSequenceSeedStride = 1u << 16u;
+    inline constexpr u32 kMaxFrameSequenceSeeds = (1u << 20u) / kFrameSequenceSeedStride;
+
     class RenderGraphNode : public RefCounted
     {
       public:
@@ -340,7 +346,10 @@ namespace OloEngine
         // into Renderer3D::GetFrameSamplingContext, so a test can assert the
         // arms really did start equal. A pass with no sequence of its own keeps
         // both defaults.
-        virtual void ResetFrameSequence() {}
+        // `sequenceSeed` is Renderer3D::ResetFrameSequences' run selector: a pass
+        // whose own index is a sampling dimension starts it seed-dependent,
+        // so independent runs do not share that dimension.
+        virtual void ResetFrameSequence([[maybe_unused]] u32 sequenceSeed) {}
         [[nodiscard]] virtual u64 GetFrameSequenceState() const
         {
             return 0;

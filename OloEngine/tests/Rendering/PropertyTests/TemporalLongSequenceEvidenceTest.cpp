@@ -298,11 +298,18 @@ namespace OloEngine::Tests
             {
                 if (history.Key.Effect == effect && history.Key.Plane == TemporalHistoryPlane::Signal)
                 {
-                    return { .Found = true, .Valid = history.Valid, .Age = history.Age,
-                             .LineageCause = history.LineageCause };
+                    return { .Found = true, .Valid = history.Valid, .Age = history.Age, .LineageCause = history.LineageCause };
                 }
             }
             return {};
+        }
+
+        // Whether any history of `effect`, on any plane, still holds storage or
+        // a usable frame.
+        [[nodiscard]] bool HoldsAnyHistory(TemporalHistoryEffect effect)
+        {
+            const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
+            return graph && graph->GetTemporalHistoryRegistry().HoldsAny(effect);
         }
 
         // A float target's luminance, read at the target's own size. With
@@ -746,7 +753,7 @@ namespace OloEngine::Tests
 
         // Frames [from, to) of an arm, as offsets into its recorded fields.
         [[nodiscard]] static std::span<const std::vector<f32>> Window(const std::vector<std::vector<f32>>& fields,
-                                                                       u32 from, u32 to)
+                                                                      u32 from, u32 to)
         {
             return std::span<const std::vector<f32>>(fields).subspan(from - kRecordFrom, to - from);
         }
@@ -1106,6 +1113,46 @@ namespace OloEngine::Tests
             EXPECT_GT(o.Lineage.Age, 3u) << cell << ": the stale-history fault did not reach the lineage check";
         }
 
+        // The populate sweep: a resolve switched off for a frame stops
+        // declaring its history, so the populate releases it, and switched
+        // back on it starts a new lineage instead of resuming the old one.
+        void CheckFeatureToggle(Estimator e, RenderingPath path)
+        {
+            SetPath(path);
+            const std::string cell = std::string(EstimatorName(e)) + "_GL_" + PathName(path) + "_FeatureToggle";
+            ConfigureEstimator(e, ShippedFeedback(e));
+            ApplyPerturbation(Perturbation::SecondaryLight, false);
+            Renderer3D::ResetFrameSequences(kSeeds[0]);
+            const EditorCamera camera = MakeCamera();
+            RunEditorFrames(camera, 24);
+            const LineageView settled = SignalLineage(EffectOf(e));
+            ASSERT_TRUE(settled.Found) << cell;
+            EXPECT_GE(settled.Age, 24u) << cell << ": the lineage never got going, so a restart cannot show";
+
+            auto& pp = Renderer3D::GetPostProcessSettings();
+            pp.TAAEnabled = false;
+            pp.SSREnabled = false;
+            pp.SSGIEnabled = false;
+            RunEditorFrames(camera, 1);
+            EXPECT_FALSE(HoldsAnyHistory(EffectOf(e))) << cell << ": a history its effect stopped declaring was kept";
+
+            ConfigureEstimator(e, ShippedFeedback(e));
+            RunEditorFrames(camera, 2);
+            const LineageView resumed = SignalLineage(EffectOf(e));
+            std::printf("[temporal-reset] %s: settled age %u, re-enabled age %u cause %u\n", cell.c_str(), settled.Age,
+                        resumed.Age, static_cast<u32>(resumed.LineageCause));
+            std::fflush(stdout);
+            ASSERT_TRUE(resumed.Found) << cell;
+            EXPECT_LE(resumed.Age, 2u) << cell << ": re-enabling resumed the lineage from before the toggle";
+            // TAA's re-enable also switches the projection jitter back on, and
+            // that invalidation lands after the release: the newer break names
+            // the lineage.
+            const TemporalHistoryInvalidationCause expected = e == Estimator::TAA
+                                                                  ? TemporalHistoryInvalidationCause::JitterReset
+                                                                  : TemporalHistoryInvalidationCause::FeatureToggled;
+            EXPECT_EQ(resumed.LineageCause, expected) << cell;
+        }
+
         // ---- order independence ------------------------------------------------
 
         // The replay contract stated as the failure #1489 reported: a render
@@ -1264,6 +1311,14 @@ namespace OloEngine::Tests
         CheckResetPolicy(Estimator::TAA, RenderingPath::Deferred, ResetEvent::ShaderLibraryReload);
         CheckResetPolicy(Estimator::SSR, RenderingPath::Deferred, ResetEvent::ShaderLibraryReload);
         CheckResetPolicy(Estimator::SSGI, RenderingPath::Deferred, ResetEvent::ShaderLibraryReload);
+    }
+
+    TEST_F(TemporalLongSequenceEvidenceTest, TogglingAResolveOffReleasesItsHistoryAndRestartsItsLineage)
+    {
+        CheckFeatureToggle(Estimator::TAA, RenderingPath::Forward);
+        CheckFeatureToggle(Estimator::TAA, RenderingPath::Deferred);
+        CheckFeatureToggle(Estimator::SSR, RenderingPath::Deferred);
+        CheckFeatureToggle(Estimator::SSGI, RenderingPath::Deferred);
     }
 
     // The stale-history negative control. Both checks above must FAIL when no
