@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from check_sccache_health import assess
 
@@ -17,6 +18,16 @@ def statistics(hits=1998, misses=2):
                       'cache_misses': {'counts': {'C/C++': misses}, 'adv_counts': {}},
                       'cache_read_errors': 0, 'cache_write_errors': 0, 'compile_fails': 0},
             'cache_size': 2146000000, 'max_cache_size': 2147483648}
+
+
+def cli_environment(restored_key, summary=None):
+    # Fixture results must not be written into the real Actions job summary.
+    environment = {k: v for k, v in os.environ.items()
+                   if k not in ('GITHUB_STEP_SUMMARY', 'GITHUB_OUTPUT')}
+    environment.update(OLO_CACHE_RESTORED_KEY=restored_key, OLO_CACHE_BUILD_OUTCOME='success')
+    if summary:
+        environment['GITHUB_STEP_SUMMARY'] = str(summary)
+    return environment
 
 
 class SccacheHealthTest(unittest.TestCase):
@@ -44,7 +55,7 @@ class SccacheHealthTest(unittest.TestCase):
     def test_malformed_or_missing_counters_are_unavailable(self):
         cases = [None, {}, {'stats': {}}, statistics()]
         cases[-1]['stats']['cache_hits']['counts']['C/C++'] = -1
-        for value in (True, '2000', 2.5):
+        for value in (True, '2000', 2.5, 2**64):
             bad = statistics()
             bad['stats']['requests_executed'] = value
             cases.append(bad)
@@ -73,8 +84,7 @@ class SccacheHealthTest(unittest.TestCase):
                     source.write_text(content, encoding='utf-8')
                 result = subprocess.run([sys.executable, str(Path(__file__).with_name('check_sccache_health.py')),
                                          '--stats', str(source), '--output', str(destination)],
-                                        env={**os.environ, 'OLO_CACHE_RESTORED_KEY': 'restored',
-                                             'OLO_CACHE_BUILD_OUTCOME': 'success'},
+                                        env=cli_environment('restored'),
                                         capture_output=True, text=True, timeout=10)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn('::error::', result.stdout)
@@ -89,8 +99,7 @@ class SccacheHealthTest(unittest.TestCase):
             source.write_text(json.dumps(statistics(0, 2000)), encoding='utf-8')
             result = subprocess.run([sys.executable, str(Path(__file__).with_name('check_sccache_health.py')),
                                      '--stats', str(source), '--output', str(destination)],
-                                    env={**os.environ, 'OLO_CACHE_RESTORED_KEY': 'restored',
-                                         'OLO_CACHE_BUILD_OUTCOME': 'success', 'GITHUB_STEP_SUMMARY': str(summary)},
+                                    env=cli_environment('restored', summary),
                                     capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 1)
             self.assertEqual(json.loads(destination.read_text())['misses'], 2000)
@@ -99,16 +108,18 @@ class SccacheHealthTest(unittest.TestCase):
     def test_cli_allows_complete_cold_and_healthy_warm_builds(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
-            for key, data in (('', statistics(0, 2000)), ('restored', statistics())):
-                source = directory / 'stats.json'
-                source.write_text(json.dumps(data), encoding='utf-8')
-                result = subprocess.run([sys.executable, str(Path(__file__).with_name('check_sccache_health.py')),
-                                         '--stats', str(source), '--output', str(directory / 'health.json')],
-                                        env={**os.environ, 'OLO_CACHE_RESTORED_KEY': key,
-                                             'OLO_CACHE_BUILD_OUTCOME': 'success'},
-                                        capture_output=True, text=True, timeout=10)
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertIn('::notice::', result.stdout)
+            inherited_summary = directory / 'real-job-summary.md'
+            with patch.dict(os.environ, {'GITHUB_STEP_SUMMARY': str(inherited_summary)}):
+                for key, data in (('', statistics(0, 2000)), ('restored', statistics())):
+                    source = directory / 'stats.json'
+                    source.write_text(json.dumps(data), encoding='utf-8')
+                    result = subprocess.run([sys.executable, str(Path(__file__).with_name('check_sccache_health.py')),
+                                             '--stats', str(source), '--output', str(directory / 'health.json')],
+                                            env=cli_environment(key),
+                                            capture_output=True, text=True, timeout=10)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn('::notice::', result.stdout)
+            self.assertFalse(inherited_summary.exists())
 
 
 if __name__ == '__main__':

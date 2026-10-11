@@ -6,8 +6,8 @@ from pathlib import Path
 
 
 def counter(value):
-    if type(value) is not int or value < 0:
-        raise ValueError('expected a nonnegative integer counter')
+    if type(value) is not int or not 0 <= value <= 2**64 - 1:
+        raise ValueError('expected an unsigned 64-bit integer counter')
     return value
 
 
