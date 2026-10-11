@@ -438,6 +438,51 @@ Do not assume one cause explains every cold cache in a repo; check each prefix's
 `created_at` (is anything written?) and `created_at == last_accessed_at` (is anything
 read?) separately.
 
+## 2026-10-11 MSVC Release capacity
+
+Size Release from unique objects requested by a complete build, then account for
+concurrent saves and key rotations before choosing its cap. #1584's no-save hosted
+probe [38177455638](https://github.com/drsnuggles8/OloEngineBase/actions/runs/38177455638)
+measured **2070 current objects / 2,818,896,940 bytes (2688.31 MiB)**, all resident at
+completion. The previous 2G cap caused LRU eviction before reuse; the older 4.55 GB
+union included obsolete source keys and overstated current needs. Release now uses
+**3200M**, leaving **511.69 MiB (19.03%)** for growth. See the
+[matched controls](windows-sccache-warm-reuse.md) for the root-cause evidence.
+
+The live REST storage-limit endpoint confirmed **25 GB**. The cache listing contained
+12 entries / **10,596,655,761 bytes**: the legacy Release snapshot cost **2,146,601,232
+bytes**, and everything else cost **8,450,054,529 bytes**. Budget the new snapshot at
+its full cap, not an assumed archive-compression discount:
+
+| Selected overlap scenario | Conservative bytes | Limit remaining |
+|---|---:|---:|
+| Other entries + one full new Release snapshot | 11,805,497,729 | 13,194,502,271 |
+| Other entries + three full new snapshots + legacy 2G snapshot | 20,662,985,361 | 4,337,014,639 |
+| Above + Windows vcpkg, Vulkan SDK, Windows ASan and Linux vcpkg rotations | 24,326,580,474 | 673,419,526 |
+
+Three snapshots allow the old entry plus simultaneous push/nightly saves before
+confirmed-save pruning. The additional legacy identity can survive until the janitor
+groups it with the fingerprinted lineage. Rotation allowances use the current entry
+sizes: Windows vcpkg **1,482,075,738**, Windows Vulkan **268,769,601**, Windows ASan
+**1,568,935,714**, Linux vcpkg **343,814,060** bytes. This stress case retains **642.22
+MiB** under the limit. This is not a bound for simultaneous replacement of the whole
+fleet: also overlapping all three Linux sanitizer snapshots adds **3,863,327,875
+bytes**, making this scenario **28,189,908,349 bytes**, over the limit. Do not schedule
+extra branch producers or deliberately rotate all lineages together on the strength
+of this table. The diagnostic 8G probe cannot save, and PRs still cannot save compiler
+snapshots. Confirmed-save pruning and the janitor remain necessary; remeasure peak
+occupancy if producer concurrency or save cadence changes.
+
+Keep the **20000 MiB** working ceiling: it leaves **3841.86 MiB** below 25 GB, exceeding
+the new largest single capped entry (3200 MiB). No quota increase, cache purge or ASan
+cap change is part of this fix. These are dated measurements, not a permanent budget: remeasure
+the complete object set and listing after graph, image or dependency changes. The
+current MSVC cache has no separate preprocessor entries in the native control; if
+compiler/direct-mode behavior changes, budget the full archived directory as well
+as the requested object set. Actual
+matched master/following-PR recovery remains required; capacity arithmetic is not that
+acceptance evidence.
+
 ## See also
 
 - [sccache-cap-vs-object-set.md](sccache-cap-vs-object-set.md) — how to pick a

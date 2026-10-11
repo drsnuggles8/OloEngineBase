@@ -141,12 +141,15 @@ env:
   # job). One local-disk directory gives us a bounded snapshot; its capacity and
   # actual compiler reuse still have to be measured.
   SCCACHE_DIR: ${{ github.workspace }}/.sccache
-  # Size from the measured object set and the shared store's worst case, including
-  # overlapping snapshots. The repository cap is now 25 GB; cache-prune.yml uses a
+  # Size from the measured object set and dated shared-store overlap scenarios.
+  # The repository cap is now 25 GB; cache-prune.yml uses a
   # 20000 MiB working ceiling. A configured billing budget can still refuse saves
   # (#1073), so a green save step alone is not proof that a snapshot exists.
   # Budget arithmetic: docs/agent-rules/actions-cache-budget.md.
-  SCCACHE_CACHE_SIZE: "2G"
+  # #1584 measured 2070 current objects at 2688.31 MiB on 2026-10-11. Reserve
+  # 511.69 MiB (19%) for growth; 2G evicted objects before their reuse. Re-measure
+  # when this reserve shrinks rather than restoring an undersized snapshot forever.
+  SCCACHE_CACHE_SIZE: "3200M"
   # PREVENTIVE, and copied from asan.yml where the same setting is a bug fix (#1082 --
   # that file's env block carries the full mechanism and the measurement).
   #

@@ -61,8 +61,22 @@ globally changing hash input, as the cause of the zero-hit regression.
 The final snapshot also retains obsolete source keys. It is an upper bound on the
 current object set, not its exact size. The refined probe measures unique requested
 keys separately and requires every requested key to remain resident before claiming
-a complete object-set measurement. A following no-save probe restores the fresh
-`ada41984c` master snapshot to obtain that measurement before selecting a cap.
+a complete object-set measurement.
+
+Following no-save probe
+[38177455638](https://github.com/drsnuggles8/OloEngineBase/actions/runs/38177455638)
+restored fresh master `38166502504` at the same image/compiler. It reused all **1208
+keys resident at restore**, with 862 misses and no errors/non-cacheable calls. Its
+complete successful build took **61m57s**. All **2070 unique requested objects** remained
+resident, totaling **2,818,896,940 bytes (2688.31 MiB)**, with no obsolete objects left
+in this snapshot. The native JSON and complete probe are in `windows-cache-health`
+and `windows-cache-probe` artifacts. This is sizing evidence; 58.36% reuse from the
+truncated 2G snapshot is not the recovery criterion.
+
+Production uses **3200M (3,355,443,200 bytes)**, reserving **511.69 MiB / 19.03%** above
+the measured current set. Keep measuring as the compiled graph grows. The shared-store
+arithmetic, including overlapping snapshots and dependency rotations, is in
+[actions-cache-budget.md](actions-cache-budget.md#2026-10-11-msvc-release-capacity).
 
 ## Controlled eviction reproduction
 
