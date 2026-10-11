@@ -27,6 +27,7 @@ Read the relevant file before non-trivial work; don't duplicate its content into
 - [testing/restir-pt-1211-evidence.md](testing/restir-pt-1211-evidence.md) — numerical validation of the experimental ReSTIR PT prototype (#1211): what it supports, what makes it stand down, and the measured bias and variance.
 - [testing/restir-pt-1211-live.md](testing/restir-pt-1211-live.md) — the same prototype in motion in a live Vulkan editor, and what it still gets wrong.
 - [testing/evidence/render-graph-attachment-feedback-1554/README.md](testing/evidence/render-graph-attachment-feedback-1554/README.md) — physical attachment feedback contracts, snapshot copies and the complete OpenGL/Vulkan verification matrix (#1554).
+- [testing/evidence/integrated-acceptance-1259/vulkan-live/README.md](testing/evidence/integrated-acceptance-1259/vulkan-live/README.md) — the raw live-editor Vulkan runs behind the #1259 acceptance results: per-camera frame, CPU and GPU splits, attribution passes, the validation walk and the reload memory trace.
 
 ## Renderer — status, support contract and roadmap owners
 
