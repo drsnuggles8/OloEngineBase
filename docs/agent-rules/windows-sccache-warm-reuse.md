@@ -40,10 +40,55 @@ returned 448/1777; its successor
 returned 1/1783. All used MSVC `19.51.36256.0`. These different source revisions locate
 the degradation; they do not isolate its cause.
 
+## Hosted capacity contrast identifies eviction
+
+Fresh master run [38166502504](https://github.com/drsnuggles8/OloEngineBase/actions/runs/38166502504)
+restored the same `38104242016` snapshot and returned **0/2070 hits** at 2G.
+The successful build took 135m33s and confirmed its cache save. The no-save 8G probe
+[38168947158](https://github.com/drsnuggles8/OloEngineBase/actions/runs/38168947158)
+compiled the same C++ tree (`ada41984c`; only the localized BuildInfo commit input
+differs) from that same restored snapshot. Its complete capture recorded **586 hits /
+1484 misses**: all **586 keys resident at restore** were reused. There were no cache
+read/write errors or failed/non-cacheable compilations.
+
+The original snapshot held 1235 objects / 2,146,612,421 bytes. The probe finished with
+2719 objects / 4,548,515,240 bytes. Its 1484 new objects added **2,401,902,819 bytes**,
+already exceeding the 2,147,483,648-byte production cap without counting the 586
+reused objects. At 2G, early misses evict matching objects before their turn; the
+enlarged arm preserves them. This establishes capacity/LRU eviction, rather than a
+globally changing hash input, as the cause of the zero-hit regression.
+
+The final snapshot also retains obsolete source keys. It is an upper bound on the
+current object set, not its exact size. The refined probe measures unique requested
+keys separately and requires every requested key to remain resident before claiming
+a complete object-set measurement. A following no-save probe restores the fresh
+`ada41984c` master snapshot to obtain that measurement before selecting a cap.
+
+## Controlled eviction reproduction
+
+A local control used sccache 0.15.0 and five deterministic MSVC translation units,
+each exporting 65,536 random unsigned integers, with `/O2 /Z7 /MD`. Inputs, paths and
+compile order stayed identical; the daemon restarted between every pass. Builds used
+the build lock and a separate cache/server port. Native JSON recorded:
+
+| Pass | Cap | Hits / requests | Resident bytes |
+|---|---|---|---|
+| Cold | 1MiB | 0/5 | 791,015 |
+| Warm, same order | 1MiB | 0/5 | 791,015 |
+| First enlarged pass | 8MiB | 3/5 | 1,318,365 |
+| Warm, same order | 8MiB | 5/5 | 1,318,365 |
+
+The smaller cache retained three objects, but earlier misses evicted them before their
+turn. Enlarging it preserved all three restored objects and then the entire set. This
+isolates the zero-hit eviction mechanism; it does not measure the engine's object set
+or establish the hosted regression's cause.
+
 ## Probe and health contract
 
 `Windows.yml`'s opt-in `cache_probe` dispatch uses an 8G temporary cap and **does not save
-that compiler cache**. It snapshots object keys before configure, captures generated keys,
+that compiler cache**. It explicitly restores the original pre-fingerprint lineage for
+diagnosis; normal production restores have no such fallback. Independent probes do not
+share a concurrency lane with each other's test shards. It snapshots object keys before configure, captures generated keys,
 and reports which were resident at restore. Raw daemon logs stay on the disposable runner;
 only derived records and native statistics are uploaded. A missing log or incomplete capture
 cannot be reported as a complete probe. `windows_cache_probe.py` scans object entries, not

@@ -15,6 +15,7 @@ def report(before, log, after):
     hits = 0
     misses = 0
     for line in log.splitlines():
+        line = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', line)
         match = re.search(r'\[([^\]]+)\]: Hash key: ([0-9a-f]{64})', line)
         if match:
             obj, key = match.groups()
@@ -23,8 +24,13 @@ def report(before, log, after):
         if match:
             hits += match[2] == 'hit'
             misses += match[2] == 'miss'
+    requested = {record['key'] for record in records}
+    present = requested & after.keys()
     return {'restored_entries': len(before), 'restored_bytes': sum(before.values()),
             'final_entries': len(after), 'final_bytes': sum(after.values()),
+            'requested_entries': len(requested),
+            'missing_requested_entries': len(requested - after.keys()),
+            'requested_bytes': sum(after[key] for key in present),
             'requests': len(records),
             'completed_lookups': hits + misses,
             'hits': hits, 'misses': misses,
@@ -53,6 +59,8 @@ def main():
         result['statistics'] = json.loads(Path(args.stats).read_text(encoding='utf-8-sig'))
         result['complete'] = (result['requests'] == result['completed_lookups'] ==
                               result['statistics']['stats']['requests_executed'])
+        result['object_set_complete'] = (result['complete'] and
+                                         result['missing_requested_entries'] == 0)
         print(json.dumps({k: v for k, v in result.items() if k != 'records'}, indent=2))
     Path(args.output).write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
 

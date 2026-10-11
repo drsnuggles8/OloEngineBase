@@ -111,7 +111,9 @@ concurrency:
   # a group keeps at most one pending run. The nightly is the full test run and must
   # never be cancelled, so the two lanes are kept apart. Splitting `workflow_dispatch`
   # off as well is the same reasoning applied to a dispatch fired beside either.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
+  # Independent no-save probes may compare snapshots without waiting for a previous
+  # probe's test shards. Producer and PR concurrency stays unchanged.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}${{ inputs.cache_probe && format('-probe-{0}', github.run_id) || '' }}
   # PULL REQUESTS ONLY. A cancelled run banks no cache -- `actions/cache/save` runs
   # `if: always()`, which survives a cancel, but the run still stops mid-build, so
   # what it banks is a partial snapshot at best. The nightly and the `push` warm are
@@ -277,8 +279,8 @@ jobs:
         python -m pip install jinja2==3.1.6
         python -c "import jinja2; print(f'jinja2 {jinja2.__version__} installed at {jinja2.__file__}')"
 
-    - name: Check compiler cache health guard
-      run: python -m unittest discover -s scripts -p test_sccache_health.py
+    - name: Check compiler cache statistics helpers
+      run: python -m unittest discover -s scripts -p 'test_sccache_*.py'
     
     # `id: vulkan` so the sccache key below can carry the version this action
     # actually installed -- see the restore step for why it has to.
@@ -304,6 +306,7 @@ jobs:
       shell: pwsh
       env:
         OLO_CACHE_VULKAN_VERSION: ${{ steps.vulkan.outputs.version }}
+        OLO_CACHE_PROBE: ${{ inputs.cache_probe }}
       run: |
         $compiler = (Get-Command cl.exe).Source
         $identity = [ordered]@{
@@ -320,7 +323,13 @@ jobs:
         $json = $identity | ConvertTo-Json -Compress
         $fingerprint = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
           [Text.Encoding]::UTF8.GetBytes($json))).ToLowerInvariant()
-        "prefix=sccache-windows-2025-release-vk$env:OLO_CACHE_VULKAN_VERSION-$fingerprint-" >> $env:GITHUB_OUTPUT
+        $prefix = "sccache-windows-2025-release-vk$env:OLO_CACHE_VULKAN_VERSION-$fingerprint-"
+        if ($env:OLO_CACHE_PROBE -eq 'true') {
+          # Diagnostic-only: inspect the original failing master lineage. Probes
+          # force hosted execution and never save; normal restores stay fingerprinted.
+          $prefix = "sccache-windows-2025-release-vk$env:OLO_CACHE_VULKAN_VERSION-"
+        }
+        "prefix=$prefix" >> $env:GITHUB_OUTPUT
         $json | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/cache-toolchain.json"
         Write-Host $json
 
