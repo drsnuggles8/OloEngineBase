@@ -16,6 +16,8 @@
 //   * a walking animal off the terrain, or not following it, floats or sinks;
 //   * more foliage-interaction sources than the field's slots only evict each
 //     other;
+//   * a shadowed light that does not request the ray-traced tier makes the
+//     hybrid cell a copy of Deferred;
 //   * a camera path that dips under a hill captures the inside of the terrain;
 //   * a camera that does not see its subject captures nothing worth gating.
 //
@@ -55,6 +57,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -194,7 +197,8 @@ namespace OloEngine::Tests
 
     // Every coat rides the body its binding targets; every walking animal
     // follows the ground, stays on the terrain and stands on it after walking;
-    // the interaction field is not oversubscribed.
+    // the interaction field is not oversubscribed; every shadowed light can be
+    // traced.
     TEST_F(AcceptanceSceneTest, EverySubjectIsBoundGroundedAndOnTheTerrain)
     {
         OLO_ENSURE_GPU_OR_SKIP();
@@ -255,6 +259,29 @@ namespace OloEngine::Tests
             ASSERT_TRUE(ground.has_value()) << walker.GetComponent<TagComponent>().Tag << " walked off the terrain";
             EXPECT_NEAR(p.y, *ground, 0.01f) << walker.GetComponent<TagComponent>().Tag;
         }
+
+        // The hybrid cell turns the renderer's ray-traced shadows on, which
+        // traces only the lights that request it; one that does not leaves the
+        // cell a copy of Deferred.
+        u32 shadowedLights = 0;
+        const auto expectTraced = [this, &shadowedLights]<typename TLight>(std::type_identity<TLight>)
+        {
+            for (const auto e : m_Scene->GetAllEntitiesWith<TLight>())
+            {
+                Entity entity{ e, m_Scene.get() };
+                const auto& light = entity.GetComponent<TLight>();
+                if (!light.m_CastShadows)
+                    continue;
+                ++shadowedLights;
+                EXPECT_TRUE(light.m_RayTracedShadows)
+                    << entity.GetComponent<TagComponent>().Tag << " casts a shadow but does not request the ray-traced tier";
+            }
+        };
+        expectTraced(std::type_identity<DirectionalLightComponent>{});
+        expectTraced(std::type_identity<PointLightComponent>{});
+        expectTraced(std::type_identity<SpotLightComponent>{});
+        // The sun, the head's key and side lights, and the moving lantern.
+        EXPECT_GE(shadowedLights, 4u);
     }
 
     // The generator cannot evaluate the procedural terrain, so it places

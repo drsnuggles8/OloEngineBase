@@ -568,6 +568,7 @@ Entities:
       Color: [1, 0.9607843, 0.8980392]
       Intensity: 2.5
       CastShadows: true
+      RayTracedShadows: true
       ShadowDepthBiasTexels: 2
       ShadowNormalBias: 0.01
       MaxShadowDistance: 500
@@ -7596,6 +7597,7 @@ Entities:
       Intensity: 6
       Range: 3
       CastShadows: true
+      RayTracedShadows: true
   # -- HARD SIDE (dimmed). Almost in the head's own plane, which is where the
   #    layered specular of #1243 and the pore band are legible. Raise to ~9 and
   #    drop the soft key to ~0.5 for the hard-side cell. --
@@ -7611,6 +7613,7 @@ Entities:
       Intensity: 0.6
       Range: 3
       CastShadows: true
+      RayTracedShadows: true
   # -- BACKLIGHT (dimmed). From behind the head toward the lens, slightly down
   #    and from the ear's side, so it reaches the BACK of the pinna past the
   #    skull. Raise to ~6 and drop the other two to ~0.3 for the backlight cell:
@@ -7641,5 +7644,6 @@ Entities:
       Range: 14
       Attenuation: 1
       CastShadows: true
+      RayTracedShadows: true
       ShadowBias: 0.005
       ShadowNormalBias: 0.01
