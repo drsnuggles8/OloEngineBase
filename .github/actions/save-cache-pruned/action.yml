@@ -10,13 +10,14 @@ description: >
   VERIFIED present, so each lineage holds one entry per ref without waiting for the
   `cache-prune` sweep -- which two crons a day could not keep up with (#1073).
 
-  The repo's Actions cache store is capped at 10 GB, and past the cap GitHub does not
-  evict -- it turns the WHOLE STORE READ-ONLY ("Cache reservation failed: You have
-  reached your configured budget, your cache is now read only"). The steady set of live
+  In #1073, the configured Actions cache budget made the WHOLE STORE READ-ONLY
+  ("Cache reservation failed: You have reached your configured budget, your cache is
+  now read only"). The repository cap was then 10 GB; it is now 25 GB, as documented in
+  docs/agent-rules/actions-cache-budget.md. The steady set of live
   entries measured ~5 GB before this job's own snapshot is counted, and the three Linux
-  sanitizer entries are ~1.25 GB apiece -- so the moment two or three heavy jobs each hold
-  an old AND a new snapshot at once, the cap is breached and every save in the repo is
-  refused until the next sweep. A twice-daily sweep cannot fix that: the breach happens
+  sanitizer entries were ~1.25 GB apiece. When two or three heavy jobs each held an old
+  AND a new snapshot at once, the configured budget refused every save in the repository
+  until the next sweep. A twice-daily sweep could not prevent that failure: it happened
   between two saves minutes apart, not between two days.
 
   It is not a hypothetical. It is the measured state that made
@@ -360,6 +361,6 @@ runs:
           exit 0
         fi
         gh api "repos/${GH_REPO}/actions/cache/usage" \
-          --jq '"cache store: \(.active_caches_count) entries, \(.active_caches_size_in_bytes/1048576|floor) MiB against a 10 GB cap"' || true
+          --jq '"cache store (usage API may lag): \(.active_caches_count) entries, \(.active_caches_size_in_bytes/1048576|floor) MiB"' || true
         echo "::error::cache entry '${KEY}' was NOT written even after pruning this ref. The next run WILL start cold."
         echo "::error::This is the repo Actions cache budget (#1073): look for 'Cache reservation failed ... your cache is now read only' in the save steps above, then see docs/agent-rules/actions-cache-budget.md."

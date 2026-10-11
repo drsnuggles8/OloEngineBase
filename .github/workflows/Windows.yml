@@ -134,24 +134,16 @@ env:
   # SINGLE actions/cache entry (see the "Restore/Save sccache storage" steps below).
   # We deliberately do NOT use sccache's GitHub Actions cache backend
   # (SCCACHE_GHA_ENABLED): it stores one cache entry PER OBJECT FILE, which
-  # flooded the repo's 10 GB Actions-cache cap with 20k+ tiny entries and made
+  # flooded the repo's former 10 GB Actions-cache cap with 20k+ tiny entries and made
   # EVERY write fail (observed 0% hit rate, write-errors == misses on every
-  # job). One bounded local-disk dir wrapped in actions/cache stays under the
-  # cap and actually warms between runs.
+  # job). One local-disk directory gives us a bounded snapshot; its capacity and
+  # actual compiler reuse still have to be measured.
   SCCACHE_DIR: ${{ github.workspace }}/.sccache
-  # Bound the on-disk cache so the saved actions/cache entry stays small — every
-  # cache (this, Vulkan, FFmpeg, the sanitizer jobs' sccache dirs) shares the
-  # repo's single 10 GB Actions-cache cap.
-  #
-  # That cap is a HARD WALL, not an eviction threshold (#1073). Past it GitHub does
-  # not make room by dropping the oldest entry; it turns the entire store read-only
-  # ("Cache reservation failed: You have reached your configured budget, your cache
-  # is now read only") and refuses every save in the repository until something is
-  # deleted. This job's snapshot is the single largest entry in the store, so it is
-  # the first casualty and the last thing to come back — for weeks the entry did not
-  # exist AT ALL, which is what a 0.00 % hit rate on 1630 compilations actually meant.
-  # The budget arithmetic and the rules that keep it solvent:
-  # docs/agent-rules/actions-cache-budget.md.
+  # Size from the measured object set and the shared store's worst case, including
+  # overlapping snapshots. The repository cap is now 25 GB; cache-prune.yml uses a
+  # 20000 MiB working ceiling. A configured billing budget can still refuse saves
+  # (#1073), so a green save step alone is not proof that a snapshot exists.
+  # Budget arithmetic: docs/agent-rules/actions-cache-budget.md.
   SCCACHE_CACHE_SIZE: "2G"
   # PREVENTIVE, and copied from asan.yml where the same setting is a bug fix (#1082 --
   # that file's env block carries the full mechanism and the measurement).
