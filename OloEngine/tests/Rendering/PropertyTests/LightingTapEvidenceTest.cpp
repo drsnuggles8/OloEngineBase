@@ -35,7 +35,15 @@
 // =============================================================================
 
 #include "RendererAttachedTest.h"
+#include "TestTempDir.h"
 
+#include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
+#include "OloEngine/Groom/GroomAsset.h"
+#include "OloEngine/Groom/GroomBuilder.h"
+#include "OloEngine/Groom/GroomCooker.h"
+#include "OloEngine/Groom/GroomVisibility.h"
+#include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
@@ -53,6 +61,7 @@
 #include <array>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -346,6 +355,92 @@ namespace OloEngine::Tests
             // Emission lands in the remainder, so the fifth term is exercised too.
             addMesh("Emitter", MeshPrimitive::Cube, { 0.0f, 0.35f, 1.6f }, glm::vec3(0.5f),
                     glm::vec4(0.1f, 0.1f, 0.1f, 1.0f), 0.0f, 0.9f, glm::vec3(0.2f, 0.8f, 1.5f));
+            AddLitTuft(scene);
+        }
+
+        // A lit groom between the spheres. A coat is composited after the
+        // deferred lighting pass by its own shader, which carried its full colour
+        // into every tap until it split its own terms (#1259): the five taps
+        // then counted a coat five times. The tuft covers a few percent of the
+        // frame, well past kMaxOutlierFraction, so a coat outside the partition
+        // fails the check. OpaqueRibbon and no simulation, so the separately
+        // rendered frames a partition compares draw the same strands.
+        void AddLitTuft(Scene& scene)
+        {
+            if (!Project::GetActive() || !Project::HasAssetManager())
+            {
+                const fs::path projectDir = TempDir("project");
+                std::error_code ec;
+                fs::create_directories(projectDir / "Assets", ec);
+                ASSERT_FALSE(ec) << "failed to create the temp project dir";
+                {
+                    std::ofstream proj(projectDir / "Evidence.oloproj");
+                    proj << "Project:\n"
+                            "  Name: LightingTapEvidence\n"
+                            "  StartScene: \"\"\n"
+                            "  AssetDirectory: \"Assets\"\n"
+                            "  ScriptModulePath: \"\"\n";
+                }
+                ASSERT_TRUE(Project::Load(projectDir / "Evidence.oloproj"));
+                auto assetManager = Ref<EditorAssetManager>::Create();
+                assetManager->Initialize(false);
+                Project::SetAssetManager(assetManager);
+            }
+
+            GroomBuilder builder;
+            std::string reason;
+            u16 group = 0;
+            ASSERT_TRUE(builder.AddGroup("tuft", group, reason)) << reason;
+            constexpr u32 kStrands = 1500u;
+            constexpr u32 kPoints = 6u;
+            constexpr f32 kRadius = 0.35f;
+            constexpr f32 kLength = 0.6f;
+            constexpr f32 kGoldenAngle = 2.39996323f;
+            for (u32 s = 0u; s < kStrands; ++s)
+            {
+                const f32 t = (static_cast<f32>(s) + 0.5f) / static_cast<f32>(kStrands);
+                const f32 cosTheta = 1.0f - t;
+                const f32 sinTheta = std::sqrt(std::max(0.0f, 1.0f - (cosTheta * cosTheta)));
+                const f32 phi = kGoldenAngle * static_cast<f32>(s);
+                const glm::vec3 normal(sinTheta * std::cos(phi), cosTheta, sinTheta * std::sin(phi));
+                std::vector<glm::vec3> points;
+                std::vector<f32> widths;
+                for (u32 p = 0u; p < kPoints; ++p)
+                {
+                    const f32 along = static_cast<f32>(p) / static_cast<f32>(kPoints - 1u);
+                    glm::vec3 point = normal * (kRadius + (kLength * along));
+                    point.y -= kLength * 0.5f * along * along;
+                    points.push_back(point);
+                    // Wide enough that OpaqueRibbon's cutoff keeps every strand.
+                    widths.push_back(0.02f);
+                }
+                GroomCurveInput input;
+                input.Points = points;
+                input.Widths = widths;
+                input.RootUV = { std::fmod(phi / (2.0f * 3.14159265f), 1.0f), t };
+                input.GroupId = group;
+                input.IsGuide = (s % 25u) == 0u;
+                ASSERT_TRUE(builder.AddCurve(input, reason)) << reason;
+            }
+            builder.SetName("LightingTapTuft");
+            Ref<GroomAsset> groom = builder.Build(reason);
+            ASSERT_TRUE(groom) << reason;
+            ASSERT_TRUE(GroomCooker::Canonicalize(*groom, reason)) << reason;
+            const AssetHandle handle = AssetManager::AddMemoryOnlyAsset<GroomAsset>(groom);
+            ASSERT_NE(static_cast<u64>(handle), 0u);
+
+            Entity tuft = scene.CreateEntity("Tuft");
+            tuft.GetComponent<TransformComponent>().Translation = { 0.0f, 2.0f, 0.6f };
+            auto& gc = tuft.AddComponent<GroomComponent>();
+            gc.m_Groom = handle;
+            gc.m_ShowPreview = false;
+            gc.m_RenderStrands = true;
+            gc.m_MaxRenderStrands = kStrands;
+            gc.m_CompositionMode = static_cast<u8>(GroomCompositionMode::OpaqueRibbon);
+            // Lit, so the fibre's direct and environment paths both carry light.
+            auto& fibre = tuft.AddComponent<GroomFibreComponent>();
+            fibre.m_PigmentMode = static_cast<u8>(GroomFibrePigmentMode::BaseColor);
+            fibre.m_BaseColor = glm::vec3(0.85f, 0.62f, 0.38f);
         }
 
         [[nodiscard]] EditorCamera MakeCamera(bool high) const

@@ -972,6 +972,11 @@ struct OloGroomShading
 	vec3 Multiple;             // what the coat's other fibres scattered back to it
 };
 
+// The lights' share of oloGroomShadeFibre's result, scaled as the result is, so
+// the lighting tap (#1526) can split direct from environment light: the
+// environment's share is the result minus this.
+OloGroomShading g_GroomDirectShading;
+
 OloGroomShading oloGroomShadeFibre()
 {
 	OloGroomFibre fibre = oloGroomFibreFromUniforms();
@@ -1068,6 +1073,11 @@ OloGroomShading oloGroomShadeFibre()
 		// `!(> 0)`, so a NaN still reaches the colour and shows.
 		bool occlusionKnown = false;
 		float sceneShadow = oloGroomSceneShadow(light, i, lightType, L, occlusionKnown);
+		// The primary sun's scene visibility, for the lighting tap (#1526).
+		if (i == 0 && lightType == DIRECTIONAL_LIGHT)
+		{
+			oloRecordLightingTapShadow(sceneShadow);
+		}
 		if (sceneShadow <= 0.0)
 		{
 			continue;
@@ -1142,6 +1152,12 @@ OloGroomShading oloGroomShadeFibre()
 			            ((vec3(coatShadow) * densityBack) + (forwarded * (densityForward * OLO_GROOM_FIBRE_PI * densityBack)));
 		}
 	}
+
+	g_GroomDirectShading.Single.R = total.R * fibre.Intensity;
+	g_GroomDirectShading.Single.TT = total.TT * fibre.Intensity;
+	g_GroomDirectShading.Single.TRT = total.TRT * fibre.Intensity;
+	g_GroomDirectShading.Single.Residual = total.Residual * fibre.Intensity;
+	g_GroomDirectShading.Multiple = multiple * fibre.Intensity;
 
 	// THE ENVIRONMENT, through the SAME material parameters and the same
 	// attenuations the loop above used — criterion 4's consistency as an
@@ -1369,7 +1385,35 @@ void main()
 			// is darker near the root because it is deeper in the coat), not of
 			// the lighting, and dropping it when the material arrives would
 			// make the two paths differ by more than the lighting.
-			colour = oloGroomComposite(oloGroomShadeFibre(), u_GroomFibreModes.z, v_CoatTint) * ramp;
+			OloGroomShading shading = oloGroomShadeFibre();
+			colour = oloGroomComposite(shading, u_GroomFibreModes.z, v_CoatTint) * ramp;
+
+			// THE LIGHTING TAP (#1526). A coat is composited after the deferred
+			// lighting pass, so without its own split it carried its full colour
+			// into every tap and the five taps counted it five times. R is the
+			// cuticle's surface reflection, the specular term; what entered the
+			// fibre (TT, TRT, the residual and the coat's multiple scattering)
+			// is the diffuse one. Lights are direct, the environment indirect.
+			// The composite is linear, so the four terms sum to `colour`.
+			if (u_GroomFibreModes.z == OLO_GROOM_FIBRE_DEBUG_FULL)
+			{
+				OloGroomShading ambient;
+				ambient.Single.R = shading.Single.R - g_GroomDirectShading.Single.R;
+				ambient.Single.TT = shading.Single.TT - g_GroomDirectShading.Single.TT;
+				ambient.Single.TRT = shading.Single.TRT - g_GroomDirectShading.Single.TRT;
+				ambient.Single.Residual = shading.Single.Residual - g_GroomDirectShading.Single.Residual;
+				ambient.Multiple = shading.Multiple - g_GroomDirectShading.Multiple;
+				vec3 direct = oloGroomComposite(g_GroomDirectShading, OLO_GROOM_FIBRE_DEBUG_FULL, v_CoatTint) * ramp;
+				vec3 indirect = oloGroomComposite(ambient, OLO_GROOM_FIBRE_DEBUG_FULL, v_CoatTint) * ramp;
+				vec3 directSpecular = g_GroomDirectShading.Single.R * ramp;
+				vec3 indirectSpecular = ambient.Single.R * ramp;
+				oloRecordLightingTapTerms(direct - directSpecular, directSpecular, indirect - indirectSpecular,
+				                          indirectSpecular, vec3(0.0));
+			}
+			else
+			{
+				oloRecordLightingTapTerms(vec3(0.0), vec3(0.0), vec3(0.0), vec3(0.0), colour);
+			}
 		}
 	}
 	else
@@ -1400,8 +1444,14 @@ void main()
 	{
 		colour *= v_CoatTint;
 	}
+	// An unlit coat and the tangent diagnostic are not lit, so the whole
+	// colour is the tap's remainder, as emission is.
+	if (u_GroomFibreModes.x == 0 || u_GroomFibreModes.z == OLO_GROOM_FIBRE_DEBUG_TANGENT)
+	{
+		oloRecordLightingTapTerms(vec3(0.0), vec3(0.0), vec3(0.0), vec3(0.0), colour);
+	}
 
-	o_Color = vec4(colour, 1.0);
+	o_Color = vec4(oloLightingTapOutput(colour, u_LightingTap), 1.0);
 	o_EntityID = u_GroomIDs.x;
 	o_ViewNormal = octEncode(normalize(v_ViewNormal));
 
