@@ -46,11 +46,19 @@ arrays; Alembic container metadata is not used as a geometry determinism oracle.
 
 Roots are sampled on the scan's triangles with their interpolated glTF root UVs.
 There is a curved frontal hairline, clearance above the ears, and a narrow part.
+Small hairline irregularities and a 3 mm density taper soften the forehead edge.
+The part's roots have 2.5 times the base density. Short regrowth from those
+sampled follicles combs backwards beneath the long locks, keeping the part
+covered through motion without turning the two sides into separate sheets.
+Regrowth uses the existing undercoat role and tapered 60–85 micrometre fibres;
+the scene's guide caps remain 512 long-hair and 128 undercoat guides.
 Voronoi locks are separated at the part; each lock follows the scalp before a
 tangent-continuous hanging section. Arc-length sampling concentrates controls
 near the scalp to follow its curvature. The curves
 carry tapered 65–95 micrometre root diameters. Guides and card-cook settings ride
-on Blender's hair-curve attributes and Alembic user properties.
+on Blender's hair-curve attributes and Alembic user properties. Locks gather
+less at their tips and individual fibres shorten along the tip tangent by up
+to 12 mm. Short emergence hairs soften the front boundary above the eyes.
 The ellipsoid is only a styling scaffold: non-root controls that enter the scan
 are projected onto its triangles with 6 mm crown volume and 1 mm lower clearance.
 The extra crown volume gives the dynamic guides room to sag above the scanned

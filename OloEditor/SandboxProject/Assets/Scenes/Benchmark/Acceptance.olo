@@ -7494,7 +7494,7 @@ Entities:
       Groom: 15952688685437936319
       RootMarkerSize: 0.01
       MaxPreviewStrands: 2000
-      MaxRenderStrands: 88974
+      MaxRenderStrands: 123974
       WidthScale: 1
       StrandColor: [1, 1, 1]
       ShowPreview: false

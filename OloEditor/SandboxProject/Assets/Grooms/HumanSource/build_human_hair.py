@@ -56,13 +56,22 @@ def mesh_data(path):
             read(primitive["indices"]).reshape(-1, 3).astype(np.int64))
 
 
-def scalp_mask(p):
-    """A curved frontal hairline, ear clearance and a narrow visible part."""
+def hairline(p):
+    """Small irregularities and a centre dip keep the edge from forming a cap."""
     front = np.clip((p[..., 2] + 0.015) / 0.09, 0, 1)
-    line = 0.245 + 0.126 * front ** 2
+    x = p[..., 0] + .004
+    irregular = .0014 * np.sin(x * 470) + .0008 * np.sin(x * 1090 + 1.1)
+    line = 0.245 + 0.126 * front ** 2 + irregular * front
+    line -= .003 * np.exp(-(x / .009) ** 2) * front
     line = np.where(np.abs(p[..., 0] + 0.004) > 0.07, np.maximum(line, 0.322), line)
-    # Keep the part narrow; it is a scalp feature rather than an empty crown.
-    part = (np.abs(p[..., 0] + 0.004) < 0.00065) & (p[..., 2] > -0.05) & (p[..., 1] > 0.394)
+    return line
+
+
+def scalp_mask(p):
+    """A feathered frontal hairline, ear clearance and a narrow visible part."""
+    line = hairline(p)
+    part_centre = -.004 + .0007 * np.sin(p[..., 2] * 65)
+    part = (np.abs(p[..., 0] - part_centre) < .00025) & (p[..., 2] > -0.05) & (p[..., 1] > 0.394)
     return (p[..., 1] > line) & ~part
 
 
@@ -71,7 +80,10 @@ def sample_roots(vertices, normals, uvs, triangles):
     ps = vertices[triangles]
     areas = 0.5 * np.linalg.norm(np.cross(ps[:, 1] - ps[:, 0], ps[:, 2] - ps[:, 0]), axis=1)
     possible = np.any(scalp_mask(ps), axis=1)
-    counts = np.floor(areas * DENSITY + rng.random(len(areas))).astype(int)
+    centres = ps.mean(axis=1)
+    part_band = (np.abs(centres[:, 0] - CENTRE[0]) < .025) & (centres[:, 1] > .37) & (centres[:, 2] > -.055)
+    density = DENSITY * np.where(part_band, 2.5, 1.)
+    counts = np.floor(areas * density + rng.random(len(areas))).astype(int)
     counts[~possible] = 0
     ids = np.repeat(np.arange(len(areas)), counts)
     a, b = rng.random((2, len(ids)))
@@ -81,7 +93,10 @@ def sample_roots(vertices, normals, uvs, triangles):
     roots = np.einsum("ni,nij->nj", weights, ps[ids])
     ns = np.einsum("ni,nij->nj", weights, normals[triangles[ids]])
     uv = np.einsum("ni,nij->nj", weights, uvs[triangles[ids]])
-    accepted = scalp_mask(roots) & (ns[:, 1] > -0.25)
+    # Taper root density over the first three millimetres rather than stopping
+    # the same dense long locks at a perfectly continuous forehead boundary.
+    edge_density = np.clip((roots[:, 1] - hairline(roots)) / .003, 0, 1)
+    accepted = scalp_mask(roots) & (ns[:, 1] > -0.25) & (rng.random(len(roots)) < edge_density)
     return roots[accepted], uv[accepted], rng
 
 
@@ -148,7 +163,7 @@ def lock_path(roots, noise):
     for i in range(len(roots)):
         # More controls close to the scalp prevent the first straight segment
         # from cutting through its curvature; retain the full hanging section.
-        samples = np.linspace(0, 1, POINTS) ** 1.45 * cumulative[i, -1]
+        samples = np.linspace(0, 1, POINTS) ** 1.9 * cumulative[i, -1]
         for axis in range(3):
             result[i, :, axis] = np.interp(samples, cumulative[i], path[i, :, axis])
     return result
@@ -172,13 +187,27 @@ def author(path):
     centreline = lock_path(anchors, lock_noise)[lock_ids]
     t = np.linspace(0, 1, POINTS)[None, :, None]
     # Each lock gathers gradually; retain its fine fibres and a little tip spread.
-    attraction = .88 * np.sin(math.pi * t / 2) ** 1.5
+    attraction = (.72 - .25 * t ** 5) * np.sin(math.pi * t / 2) ** 1.5
     points = base * (1 - attraction) + centreline * attraction
     points += (roots - points[:, 0])[:, None, :] * (1 - t) ** 5
     phases = rng.uniform(0, 2 * math.pi, (len(roots), 1))
     ripple = .00045 * np.sin(np.linspace(0, 2.5 * math.pi, POINTS)[None, :] + phases)
     points[..., 0] += ripple * t[..., 0]
     points[..., 2] += ripple * .6 * t[..., 0]
+    # Break up the end of each lock without adding independent noisy kinks.
+    # Shortening along its own tangent keeps the authored shoulder clearance.
+    tip_tangent = points[:, -1] - points[:, -2]
+    tip_tangent /= np.linalg.norm(tip_tangent, axis=1)[:, None]
+    points -= tip_tangent[:, None] * rng.uniform(0, .012, (len(roots), 1, 1)) * t ** 6
+    # Short emergence hairs soften the frontal boundary. They follow the same
+    # swept curve, ending on the scalp rather than hanging in front of the eyes.
+    emergence = ((roots[:, 1] - hairline(roots) < .007) &
+                 (roots[:, 2] > .035) & (rng.random(len(roots)) < .6))
+    for index in np.flatnonzero(emergence):
+        strand = points[index]
+        distances = np.concatenate([[0.], np.cumsum(np.linalg.norm(np.diff(strand, axis=0), axis=1))])
+        samples = np.linspace(0, rng.uniform(.012, .028), POINTS)
+        points[index] = np.stack([np.interp(samples, distances, strand[:, axis]) for axis in range(3)], axis=1)
     # Ellipsoid flow is a styling scaffold, not the scanned scalp. Keep the
     # sampled roots exact and project interior non-root controls onto the
     # actual surface with root volume, especially around the part. The solver
@@ -189,6 +218,20 @@ def author(path):
     from mathutils.bvhtree import BVHTree
     from mathutils import Vector
     surface = BVHTree.FromPolygons(vertices.tolist(), triangles.tolist(), all_triangles=True)
+    # Short regrowth lies underneath the long combed locks at the part. Comb
+    # these fine fibres backwards along the scanned scalp; the long locks alone
+    # diverge laterally and leave an unnaturally broad transparent root stripe.
+    regrowth_ids = np.flatnonzero((np.abs(roots[:, 0] - CENTRE[0]) < .014) &
+                                 (roots[:, 1] > .37) & (roots[:, 2] > -.055))
+    short_roots = roots[regrowth_ids]
+    short = np.repeat(short_roots[:, None], POINTS, axis=1)
+    short_t = np.linspace(0, 1, POINTS)[None, :]
+    short[..., 2] -= rng.uniform(.018, .035, (len(short), 1)) * short_t
+    short[..., 0] += rng.uniform(-.004, .004, (len(short), 1)) * short_t
+    for strand in short:
+        for i in range(1, POINTS):
+            hit, normal, _, _ = surface.find_nearest(tuple(strand[i]))
+            strand[i] = np.asarray(hit) + np.asarray(normal) * .006 * min(i / 3, 1)
     projected = 0
     max_correction = 0.
     for strand in points:
@@ -211,39 +254,49 @@ def author(path):
     guides = np.zeros(len(roots), dtype=np.int32)
     _, first = np.unique(lock_ids, return_index=True)
     guides[first] = 1
+    short_guides = np.zeros(len(short), dtype=np.int32)
+    short_guides[::40] = 1
+    short_widths = rng.uniform(.00006, .000085, (len(short), 1)) * (1 - .8 * short_t ** 2)
+    points = np.concatenate([points, short])
+    widths = np.concatenate([widths, short_widths])
+    uv = np.concatenate([uv, uv[regrowth_ids]])
+    guides = np.concatenate([guides, short_guides])
     if not np.isfinite(points).all() or not np.isfinite(widths).all():
         raise ValueError("non-finite authored curve")
-    return points, widths, uv, guides, len(anchors), {"controlsProjected": projected, "maxCorrection": max_correction}
+    return points, widths, uv, guides, len(anchors), {"controlsProjected": projected, "maxCorrection": max_correction,
+                                                     "regrowthStrands": len(short)}
 
 
-def export(points, widths, uv, guides, output, blend):
+def export(points, widths, uv, guides, output, blend, regrowth):
     import bpy
     bpy.ops.wm.read_factory_settings(use_empty=True)
     collection = bpy.data.collections.new("HumanHair")
     bpy.context.scene.collection.children.link(collection)
-    cv = bpy.data.hair_curves.new("Scalp_longhair")
-    cv.add_curves([POINTS] * len(points))
-    # Blender (Z up, face -Y), converted to Y-up by its Alembic exporter.
-    world = points + ORIGIN
-    blender = np.stack([world[..., 0], -world[..., 2], world[..., 1]], axis=-1)
-    cv.attributes["position"].data.foreach_set("vector", blender.reshape(-1).astype(np.float32))
-    radius = cv.attributes.new("radius", "FLOAT", "POINT")
-    radius.data.foreach_set("value", (.5 * widths).reshape(-1).astype(np.float32))
-    cv.set_types(type="POLY")
-    guide = cv.attributes.new("groom_guide", "INT", "CURVE")
-    guide.data.foreach_set("value", guides)
-    root_uv = cv.attributes.new("surface_uv_coordinate", "FLOAT2", "CURVE")
-    root_uv.data.foreach_set("vector", np.stack([uv[:, 0], 1 - uv[:, 1]], axis=-1).reshape(-1).astype(np.float32))
-    cv["groom_role"] = 4
-    cv["groom_tint"] = [1., 1., 1.]
-    cv["groom_clump"] = 0.  # locks are already authored into the curves
-    cv["groom_stiffness"] = 1.
-    cv["groom_guide"] = guides.tolist()
-    cv["groom_root_uv"] = uv.reshape(-1).tolist()
-    cv["groom_card_cell_size"] = .007
-    cv["groom_card_points"] = 12
-    ob = bpy.data.objects.new("Scalp_longhair", cv)
-    collection.objects.link(ob)
+    for name, role, rows in [("Scalp_longhair", 4, slice(0, len(points) - regrowth)),
+                             ("Part_regrowth", 1, slice(len(points) - regrowth, None))]:
+        cv = bpy.data.hair_curves.new(name)
+        cv.add_curves([POINTS] * len(points[rows]))
+        # Blender (Z up, face -Y), converted to Y-up by its Alembic exporter.
+        world = points[rows] + ORIGIN
+        blender = np.stack([world[..., 0], -world[..., 2], world[..., 1]], axis=-1)
+        cv.attributes["position"].data.foreach_set("vector", blender.reshape(-1).astype(np.float32))
+        radius = cv.attributes.new("radius", "FLOAT", "POINT")
+        radius.data.foreach_set("value", (.5 * widths[rows]).reshape(-1).astype(np.float32))
+        cv.set_types(type="POLY")
+        guide = cv.attributes.new("groom_guide", "INT", "CURVE")
+        guide.data.foreach_set("value", guides[rows])
+        root_uv = cv.attributes.new("surface_uv_coordinate", "FLOAT2", "CURVE")
+        root_uv.data.foreach_set("vector", np.stack([uv[rows, 0], 1 - uv[rows, 1]], axis=-1).reshape(-1).astype(np.float32))
+        cv["groom_role"] = role
+        cv["groom_tint"] = [1., 1., 1.]
+        cv["groom_clump"] = 0.  # locks are already authored into the curves
+        cv["groom_stiffness"] = 1.
+        cv["groom_guide"] = guides[rows].tolist()
+        cv["groom_root_uv"] = uv[rows].reshape(-1).tolist()
+        cv["groom_card_cell_size"] = .007
+        cv["groom_card_points"] = 12
+        ob = bpy.data.objects.new(name, cv)
+        collection.objects.link(ob)
     output.parent.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.alembic_export(filepath=str(output.resolve()), collection=collection.name,
                               selected=False, start=1, end=1, export_hair=True,
@@ -263,7 +316,7 @@ def main():
     repo = Path(__file__).resolve().parents[5]
     mesh = repo / "OloEditor/assets/models/InfiniteScanHead/HeadRigged.gltf"
     points, widths, uv, guides, locks, clearance = author(mesh)
-    export(points, widths, uv, guides, args.out, args.blend)
+    export(points, widths, uv, guides, args.out, args.blend, clearance["regrowthStrands"])
     import bpy
     import scipy
     buffers = json.loads(mesh.read_text(encoding="utf-8"))["buffers"]
