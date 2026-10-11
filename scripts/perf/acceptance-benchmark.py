@@ -835,12 +835,28 @@ def referenced_asset_hash(repo: Path, references: dict, unresolved: list, reason
                           'scenes are hashed; assets reached only through an AssetHandle are not covered'}
 
 
+def asset_input_files(root: Path) -> list:
+    """The asset tree's INPUTS: tracked files plus untracked ones git does not
+    ignore. A capture writes generated, git-ignored files under the asset root
+    (the mesh cache, a scene's .scenebin sidecar), so hashing every file on
+    disk made the fingerprint change mid-campaign and abort it. Outside a git
+    work tree, every file counts."""
+    try:
+        listed = subprocess.run(['git', '-C', str(root), 'ls-files', '-z', '--cached', '--others',
+                                 '--exclude-standard', '--', '.'],
+                                capture_output=True, check=True).stdout.decode('utf-8').split('\0')
+        files = [root / name for name in listed if name and (root / name).is_file()]
+        return sorted(files)
+    except (OSError, subprocess.CalledProcessError):
+        return sorted(p for p in root.rglob('*') if p.is_file())
+
+
 def asset_provenance(root: Path, repo: Path, references: dict, unresolved: list,
                      budget_seconds: float = ASSET_HASH_BUDGET_SECONDS, clock=time.monotonic) -> dict:
     """The whole asset tree's hash, or, when that takes longer than the budget,
     the hash of the files the manifests reference (and the output says so)."""
     start = clock()
-    files = sorted(p for p in Path(root).rglob('*') if p.is_file())
+    files = asset_input_files(Path(root))
     if not files:
         raise ValueError(f'empty asset root: {root}')
     records = {}
