@@ -30,7 +30,7 @@ namespace OloEngine
     //     REDUCED scene depth / G-Buffer velocity, before DepthVelocityUpscalePass
     //     turns them into display-res copies for the post band.
     //   * It OWNS the jitter. RenderPipeline drives its projection jitter from
-    //     TemporalUpscaler::GetJitterOffset rather than the engine's Halton-16
+    //     TemporalUpscaler::GetJitterOffset rather than the engine's 8-sample Halton(2,3)
     //     TAA sequence, and hands the same offset back here — the upscaler
     //     subtracts what it believes it asked for, so the two must not disagree.
     //   * It SUBSUMES engine TAA, which the pipeline forces off while this runs.

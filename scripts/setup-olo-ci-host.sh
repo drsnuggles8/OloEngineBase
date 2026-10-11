@@ -93,6 +93,13 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
+# Versioned model buffers and full fur sources are Git LFS objects. Provision
+# the client here; CI only verifies it and configures its checkout-local hooks.
+if ! git lfs version >/dev/null 2>&1; then
+  dnf install -y git-lfs
+fi
+git lfs version
+
 # ------------------------------------------------- 1. sanitizer runtimes + lld
 # Asked of the compiler itself rather than hardcoded: the runtime directory
 # layout is the distro's business, and it moves between clang majors.

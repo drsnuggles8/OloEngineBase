@@ -550,6 +550,7 @@ namespace OloEngine
                 params.SigmaA = GroomFibreSigmaAFromMelanin(authored.Eumelanin, authored.Pheomelanin);
                 break;
             case GroomFibrePigmentMode::BaseColor:
+            case GroomFibrePigmentMode::BaseColorPerStrand: // the base's own, for the dual-scattering constants
                 // Inverted against THIS renderer's albedo, not through
                 // Chiang's assembly fit — see GroomFibreSigmaAForAlbedo for
                 // why, and for what the fit would have done instead.
@@ -590,9 +591,55 @@ namespace OloEngine
         params.Eta = authored.IndexOfRefraction;
         params.Intensity = authored.Intensity;
         params.HSamples = authored.HSamples;
+        if (authored.PigmentMode == GroomFibrePigmentMode::BaseColorPerStrand)
+        {
+            params.PerStrand = true;
+            params.PigmentBase = authored.BaseColor;
+            params.PigmentTable = GroomFibrePigmentTable(params.Eta, params.HSamples);
+        }
         // LAST: it reads every field above.
         params.Dual = GroomFibreComputeDualScattering(params);
         return params;
+    }
+
+    std::array<f32, kGroomFibrePigmentTableSize> GroomFibrePigmentTable(f32 eta, u32 hSamples) noexcept
+    {
+        // Three albedos to a call: the inversion solves its channels apart.
+        std::array<f32, kGroomFibrePigmentTableSize> table{};
+        const auto albedoAt = [](u32 k) noexcept
+        {
+            const f32 u = static_cast<f32>(k) / static_cast<f32>(kGroomFibrePigmentTableSize - 1u);
+            return std::exp2(kGroomFibrePigmentTableOctaves * (u - 1.0f));
+        };
+        for (u32 k = 0; k < kGroomFibrePigmentTableSize; k += 3u)
+        {
+            const u32 k1 = std::min(k + 1u, kGroomFibrePigmentTableSize - 1u);
+            const u32 k2 = std::min(k + 2u, kGroomFibrePigmentTableSize - 1u);
+            const glm::vec3 sigma =
+                GroomFibreSigmaAForAlbedo(glm::vec3(albedoAt(k), albedoAt(k1), albedoAt(k2)), eta, hSamples);
+            table[k] = sigma.x;
+            table[k1] = sigma.y;
+            table[k2] = sigma.z;
+        }
+        return table;
+    }
+
+    glm::vec3 GroomFibrePigmentSigmaA(const GroomFibreParams& params, const glm::vec3& colour) noexcept
+    {
+        constexpr f32 kLast = static_cast<f32>(kGroomFibrePigmentTableSize - 1u);
+        const f32 darkest = std::exp2(-kGroomFibrePigmentTableOctaves);
+        glm::vec3 sigma(0.0f);
+        for (int ch = 0; ch < 3; ++ch)
+        {
+            const f32 a = std::clamp(std::isfinite(colour[ch]) ? colour[ch] : 0.0f, darkest, 1.0f);
+            const f32 u = (std::log2(a) + kGroomFibrePigmentTableOctaves) / kGroomFibrePigmentTableOctaves * kLast;
+            const i32 i = std::clamp(static_cast<i32>(std::floor(u)), 0, static_cast<i32>(kGroomFibrePigmentTableSize) - 2);
+            const f32 f = std::clamp(u - static_cast<f32>(i), 0.0f, 1.0f);
+            const f32 lo = params.PigmentTable[static_cast<sizet>(i)];
+            const f32 hi = params.PigmentTable[static_cast<sizet>(i) + 1u];
+            sigma[ch] = lo + ((hi - lo) * f);
+        }
+        return sigma;
     }
 
     namespace
@@ -719,15 +766,43 @@ namespace OloEngine
         // through the strands in front, back once off a strand behind, and
         // forward out again — any number of forward passes, hence the
         // geometric 1 / (1 - a_f^2). A3 is the same with three back scatters.
-        // The series is cut there, as in the paper: every further term carries
-        // another a_b^2, and a_b is a few per cent. The floor on 1 - a_f^2 is
-        // for a fibre that absorbs nothing, where R alone keeps a_f below one
-        // and the floor never binds; it is there so no authored value can
-        // divide by zero.
+        // The floor on 1 - a_f^2 is for a fibre that absorbs nothing, where R
+        // alone keeps a_f below one and the floor never binds; it is there so
+        // no authored value can divide by zero. A1 alone still shapes the lobe
+        // below.
         const glm::vec3 oneMinusAf2 = glm::max(glm::vec3(1.0f) - (af * af), glm::vec3(1.0e-3f));
         const glm::vec3 a1 = (ab * af * af) / oneMinusAf2;
-        const glm::vec3 a3 = (ab * ab * ab * af * af) / (oneMinusAf2 * oneMinusAf2 * oneMinusAf2);
-        dual.MultipleBackScatter = a1 + a3;
+
+        // A_b IS THE WHOLE SERIES, SUMMED (#1558). A1 + A3 are the first two
+        // terms of the reflectance of a stack of identical layers, each
+        // reflecting a_b and transmitting a_f (Stokes 1862), less the first
+        // layer's own reflection: R - a_b, expanded in a_b, is exactly A1 + A3
+        // + O(a_b^5). The paper cut the series there because a_b is a few per
+        // cent -- but every further term also carries another 1 / (1 - a_f^2)^2,
+        // which grows as a fibre clears. For a fibre that absorbs nothing
+        // (a_f + a_b = 1) the stack reflects everything, R = 1 and A_b = a_f,
+        // where A1 + A3 stopped at 0.51 of the 0.85: a white coat lost two
+        // fifths of the light its depths return and read grey in the shade.
+        // For an absorbing fibre the two agree to a fraction of a per cent (a
+        // golden coat's tinted strand, a brown one), so the cut only ever cost
+        // the clearest fibres.
+        //
+        // R in the rationalised form 2 r / (a + sqrt(a^2 - 4 r^2)), a = 1 + r^2
+        // - t^2, which stays finite as r goes to zero. The discriminant is
+        // (1 + r + t)(1 + r - t)(1 - r + t)(1 - r - t), zero exactly for a
+        // clear fibre, and clamped there against rounding. In double: near
+        // that zero the square root turns f32 rounding of a_f + a_b into a few
+        // parts in ten thousand of A_b. Once per groom.
+        glm::vec3 stack(0.0f);
+        for (int c = 0; c < 3; ++c)
+        {
+            const f64 r = ab[c];
+            const f64 t = af[c];
+            const f64 a = 1.0 + (r * r) - (t * t);
+            const f64 discriminant = std::max((a * a) - (4.0 * r * r), 0.0);
+            stack[c] = static_cast<f32>((2.0 * r) / std::max(a + std::sqrt(discriminant), 1.0e-9));
+        }
+        dual.MultipleBackScatter = glm::max(stack - ab, glm::vec3(0.0f));
 
         // THE LOBE. Each single-scatter lobe peaks at a known theta_h: the tilt
         // rotates R's outgoing angle by -2 alpha, TT's by +alpha and TRT's by
@@ -738,9 +813,10 @@ namespace OloEngine
         //
         // A back-scatter path of k back scatters and two forward passes shifts
         // by the sum of its lobes' shifts and spreads by the sum of their
-        // variances; the lobe is the A1/A3-weighted mean of the two paths,
-        // widened by Zinke's (1 + d_b a_f^2) for the scattering the cut series
-        // leaves out. Channel-averaged, because a per-channel Gaussian would
+        // variances; the lobe is the weighted mean of the one-scatter path (A1)
+        // and the three-scatter path, which every higher order joins (A_b -
+        // A1: they spread at least that wide), widened by Zinke's (1 + d_b
+        // a_f^2). Channel-averaged, because a per-channel Gaussian would
         // triple the shader's cost for a difference below what the coat's
         // other approximations resolve.
         const f32 alpha = std::asin(std::clamp(params.Sin2kAlpha[0], -1.0f, 1.0f));
@@ -752,15 +828,16 @@ namespace OloEngine
         const f32 shiftForward = -0.5f * alpha;
         const f32 varianceForward = params.V[1] / 4.0f;
 
+        const glm::vec3 higher = glm::max(dual.MultipleBackScatter - a1, glm::vec3(0.0f));
         const f32 w1 = (a1.x + a1.y + a1.z) / 3.0f;
-        const f32 w3 = (a3.x + a3.y + a3.z) / 3.0f;
+        const f32 w3 = (higher.x + higher.y + higher.z) / 3.0f;
         const f32 wTotal = std::max(w1 + w3, 1.0e-6f);
         dual.BackShift = ((w1 * ((2.0f * shiftForward) + shiftBack)) + (w3 * ((2.0f * shiftForward) + (3.0f * shiftBack)))) /
                          wTotal;
         const f32 width1 = std::sqrt((2.0f * varianceForward) + varianceBack);
         const f32 width3 = std::sqrt((2.0f * varianceForward) + (3.0f * varianceBack));
         const f32 afMean = (af.x + af.y + af.z) / 3.0f;
-        const f32 widen = 1.0f + (kGroomCoatDensityFactor * afMean * afMean);
+        const f32 widen = 1.0f + (kGroomCoatBackDensityFactor * afMean * afMean);
         // Floored so a mirror-smooth fibre still gets a lobe the shader can
         // normalise; capped at pi/2, past which theta_h has no room left.
         dual.BackWidth = std::clamp(widen * (((w1 * width1) + (w3 * width3)) / wTotal), 0.02f, 0.5f * kPi);

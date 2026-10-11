@@ -177,7 +177,14 @@ namespace OloEngine
 
             if (asset)
             {
-                // Safe to insert our loaded asset
+                // Like async integration, do not resurrect a handle whose pack was
+                // unloaded while decoding. The assets -> packs lock order matches
+                // UnloadAssetPack and serializes this publication with its eviction.
+                if (!AssetExistsInPacks(assetHandle))
+                {
+                    lock.Unlock(); // Release the rejected asset outside manager locks.
+                    return nullptr;
+                }
                 m_LoadedAssets[assetHandle] = asset;
                 return asset;
             }
@@ -729,56 +736,66 @@ namespace OloEngine
 
     Ref<Asset> RuntimeAssetManager::LoadAssetFromPack(AssetHandle handle)
     {
-        // m_AssetMetadata and m_LoadedPacks are both guarded by m_PacksMutex; hold a
-        // single shared lock across the metadata check and the pack scan so the view
-        // stays consistent with a concurrent Load/Unload.
-        TSharedLock<FSharedMutex> lock(m_PacksMutex);
-
-        // Check if we have metadata for this asset
-        auto metaIt = m_AssetMetadata.find(handle);
-        if (metaIt == m_AssetMetadata.end())
+        // Snapshot record metadata and independently owned streams under the pack
+        // lock, then release it before decoding. A scene/mesh decoder resolves other
+        // assets through this manager, which would recursively acquire m_PacksMutex.
+        // No pack object or registry iterator may escape the locked scope: Unload
+        // can clear them while these already-open file streams remain valid.
+        struct PackedRead : RefCounted
         {
-            OLO_CORE_ERROR("RuntimeAssetManager::LoadAssetFromPack - No metadata found for asset: {}", handle);
-            return nullptr;
+            FileStreamReaderPtr Stream;
+            AssetPackFile::AssetInfo AssetInfo{};
+            AssetPackFile::SceneInfo SceneInfo{};
+        };
+        // SceneInfo owns an std::map, so keep each record at a stable address;
+        // only Ref handles (which are trivially relocatable) move in the array.
+        TArray<Ref<PackedRead>> reads;
+        bool isScene = false;
+        {
+            TSharedLock<FSharedMutex> lock(m_PacksMutex);
+            const auto metaIt = m_AssetMetadata.find(handle);
+            if (metaIt == m_AssetMetadata.end())
+            {
+                OLO_CORE_ERROR("RuntimeAssetManager::LoadAssetFromPack - No metadata found for asset: {}", handle);
+                return nullptr;
+            }
+
+            // Scenes use their dedicated SceneInfo table; their AssetInfo contains
+            // only a type, with no valid payload offset.
+            isScene = (metaIt->second.Type == AssetType::Scene);
+            for (const auto& [packPath, assetPack] : m_LoadedPacks)
+            {
+                auto read = Ref<PackedRead>::Create();
+                if (isScene)
+                {
+                    const auto info = assetPack->GetSceneInfo(handle);
+                    if (!info)
+                        continue;
+                    read->SceneInfo = *info;
+                }
+                else
+                {
+                    const auto info = assetPack->GetAssetInfo(handle);
+                    if (!info)
+                        continue;
+                    read->AssetInfo = *info;
+                }
+                read->Stream = assetPack->GetAssetStreamReader();
+                if (read->Stream)
+                    reads.Add(MoveTemp(read));
+            }
         }
 
-        // Scenes are stored in a dedicated SceneInfo table; their entry in the regular
-        // AssetInfo table is a type-only record whose PackedOffset is never populated by
-        // the builder. Routing a scene through the AssetInfo path would seek to offset 0
-        // (the file header) and read garbage, so dispatch scenes to the scene path.
-        const bool isScene = (metaIt->second.Type == AssetType::Scene);
-
-        // Find which pack contains the asset
-        for (const auto& [packPath, assetPack] : m_LoadedPacks)
+        for (auto& read : reads)
         {
             Ref<Asset> asset;
-
             if (isScene)
             {
-                auto sceneInfo = assetPack->GetSceneInfo(handle);
-                if (!sceneInfo.has_value())
-                    continue;
-
-                auto stream = assetPack->GetAssetStreamReader();
-                if (!stream)
-                    continue;
-
-                asset = AssetImporter::DeserializeSceneFromAssetPack(*stream, sceneInfo.value());
+                asset = AssetImporter::DeserializeSceneFromAssetPack(*read->Stream, read->SceneInfo);
             }
             else
             {
-                if (!assetPack->IsAssetAvailable(handle))
-                    continue;
-
-                auto assetInfo = assetPack->GetAssetInfo(handle);
-                if (!assetInfo.has_value())
-                    continue;
-
-                auto stream = assetPack->GetAssetStreamReader();
-                if (!stream)
-                    continue;
-
-                asset = AssetImporter::DeserializeFromAssetPack(*stream, assetInfo.value());
+                asset = AssetImporter::DeserializeFromAssetPack(*read->Stream, read->AssetInfo);
             }
 
             if (asset)

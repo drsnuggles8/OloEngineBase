@@ -54,6 +54,8 @@
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -259,6 +261,59 @@ namespace OloEngine::Tests
             }
         }
         EXPECT_EQ(mismatches, 0u);
+    }
+
+    // #1558: the per-strand pigment's table lookup, the shader's
+    // oloGroomFibrePigmentSigmaA against GroomFibrePigmentSigmaA, over colours
+    // that run past both ends of the table (where both clamp) and across every
+    // entry, each channel a different fraction of the column's albedo.
+    TEST(GroomFibreGpuParity, CppPigmentTableLookupMatchesTheCompiledShader)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        GroomFibreAuthoring authored;
+        authored.PigmentMode = GroomFibrePigmentMode::BaseColorPerStrand;
+        authored.BaseColor = glm::vec3(1.0f, 0.98f, 0.95f);
+        const GroomFibreParams params = MakeGroomFibreParams(authored);
+        ASSERT_TRUE(params.PerStrand);
+
+        FibreProbeHarness harness("assets/shaders/tests/GroomFibrePigmentParityProbe.glsl");
+        // The probe's PigmentProbeTable block is declared at binding 7.
+        static_assert(ShaderBindingLayout::UBO_USER_0 == 7u);
+        Ref<UniformBuffer> table =
+            UniformBuffer::Create(static_cast<u32>(sizeof(params.PigmentTable)), ShaderBindingLayout::UBO_USER_0);
+        table->SetData(params.PigmentTable.data(), static_cast<u32>(sizeof(params.PigmentTable)));
+        table->Bind();
+        harness.Draw();
+        std::vector<f32> pixels;
+        harness.ReadOutput(pixels);
+        ASSERT_EQ(pixels.size(), static_cast<sizet>(kWidth) * kHeight * 4u);
+
+        u32 mismatches = 0;
+        f32 largest = 0.0f;
+        for (u32 x = 0; x < kWidth; ++x)
+        {
+            // GroomFibrePigmentParityProbe.glsl's colour, restated.
+            const f32 albedo = std::exp2(-12.0f + (12.5f * static_cast<f32>(x) / 63.0f));
+            const glm::vec3 colour(albedo, albedo * 0.6f, albedo * 0.25f);
+            const glm::vec3 expected = GroomFibrePigmentSigmaA(params, colour);
+            for (u32 y = 0; y < kHeight; y += 21u)
+            {
+                const sizet i = (static_cast<sizet>(y) * kWidth + x) * 4u;
+                for (u32 c = 0; c < 3u; ++c)
+                {
+                    largest = std::max(largest, expected[static_cast<glm::length_t>(c)]);
+                    if (!WithinTolerance(pixels[i + c], expected[static_cast<glm::length_t>(c)]))
+                    {
+                        ++mismatches;
+                        ADD_FAILURE() << "pigment drift at column " << x << " channel " << c << ": shader "
+                                      << pixels[i + c] << " vs C++ " << expected[static_cast<glm::length_t>(c)];
+                    }
+                }
+            }
+        }
+        EXPECT_EQ(mismatches, 0u);
+        EXPECT_GT(largest, 1.0f) << "the colours never reached the table's dark end, so it was not exercised";
     }
 
     // A grid that never reached the interesting part of the model would pass

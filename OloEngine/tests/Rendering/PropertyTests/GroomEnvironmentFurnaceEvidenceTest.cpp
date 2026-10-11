@@ -42,6 +42,7 @@
 #include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomBuilder.h"
+#include "OloEngine/Groom/GroomCoatShadow.h"
 #include "OloEngine/Groom/GroomCooker.h"
 #include "OloEngine/Groom/GroomFibreScattering.h"
 #include "OloEngine/Groom/GroomVisibility.h"
@@ -516,6 +517,79 @@ namespace OloEngine::Tests
                 EXPECT_LT(coatBright / sphere, 1.15f) << "the coat reads brighter than the Lambertian sphere";
             }
         }
+    }
+
+    // THE COAT'S FURNACE (#1558). The cells above shade every strand as a lone
+    // fibre: no coat volume, so no neighbours, and each lobe sees the whole sky.
+    // A dog's coat has a volume, and there the paths split -- R and TRT see the
+    // sky in front, TT the coat behind -- and the coat's depths return light
+    // through dual scattering's local back-scatter, A_b. A coat of fibres that
+    // absorb nothing, lit by a uniform sky, must then still read near the sky:
+    // nothing in it removes light -- and never above it.
+    //
+    // The prediction, from the constants: a strand in the coat's depths
+    // returns its front lobes (R + TRT + half the residual, 0.10 of the sky)
+    // plus d_b A_b = 1 x 0.85, 0.95 in all; one at a thin edge trades A_b for
+    // the sky its TT sees through the coat. Measured (#1558): bright end 0.89,
+    // median 0.73 (edge pixels blend with the black clear colour). Every model
+    // this replaced fails one of the bounds, each measured on this coat:
+    //
+    //   Zinke's series cut at three back scatters, d_b 0.7   0.74 / 0.39
+    //   the series summed, d_b 0.7                           0.80 / 0.56
+    //   summed, d_b 1, A_b where no coat is behind           1.33 / 0.77
+    //
+    // the last brighter than the sky at a thin part, where TT already counts
+    // the sky A_b claimed to return. The occluder-only coat (dual scattering
+    // off, 0.77 / 0.52) is the control for the transport itself.
+    TEST_F(GroomEnvironmentFurnaceEvidenceTest, ACoatOfClearFibresReturnsTheSkyThatLightsIt)
+    {
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+
+        auto& fibre = m_GroomEntity.GetComponent<GroomFibreComponent>();
+        fibre.m_BaseColor = glm::vec3(1.0f);
+        auto& coat = m_GroomEntity.AddComponent<GroomCoatShadowComponent>();
+        coat.m_Enabled = true;
+        coat.m_Mode = static_cast<u8>(GroomCoatShadow::CoatShadowMode::AnisotropicDensityVolume);
+        coat.m_Resolution = 64;
+        coat.m_StepVoxels = 1.5f;
+
+        Frame strandless;
+        SetStrandsVisible(false);
+        Capture("", strandless);
+        SetStrandsVisible(true);
+
+        std::array<f32, 2> bright{};
+        std::array<f32, 2> median{};
+        for (const bool transport : { true, false })
+        {
+            coat.m_MultipleScattering = transport;
+            Frame frame;
+            // Two settling captures: the volume bakes on the first frames.
+            Capture("", frame);
+            Capture(transport ? "GroomCoatFurnace_GL_Forward" : "GroomCoatFurnaceNoTransport_GL_Forward", frame);
+            if (::testing::Test::HasFatalFailure())
+            {
+                return;
+            }
+            const std::vector<f32> values = CoatGreen(frame, strandless);
+            EXPECT_GT(values.size(), 5000u) << "the coat barely rendered";
+            bright[transport ? 0 : 1] = Percentile(values, 0.9f) / kSkyRadiance.g;
+            median[transport ? 0 : 1] = Percentile(values, 0.5f) / kSkyRadiance.g;
+        }
+        std::printf("[groom-coat-furnace] clear coat in a uniform sky, as a share of the sky: p90 %.3f median %.3f "
+                    "with dual scattering; p90 %.3f median %.3f without\n",
+                    bright[0], median[0], bright[1], median[1]);
+
+        EXPECT_GT(bright[0], 0.84f)
+            << "A COAT OF CLEAR FIBRES RETURNS TOO LITTLE OF THE SKY: its bright end is " << bright[0]
+            << " of the sky. The series cut at three back scatters read 0.74, summed with d_b 0.7 0.80.";
+        EXPECT_GT(median[0], 0.65f) << "most of a clear coat reads far below the sky: its median is " << median[0];
+        EXPECT_LT(bright[0], 1.0f)
+            << "A COAT THAT ABSORBS NOTHING RETURNS MORE THAN THE SKY: " << bright[0]
+            << ". A_b counted where no coat is behind the strand, on top of the sky its TT sees, read 1.33.";
+        EXPECT_GT(median[0], 1.25f * median[1])
+            << "the coat's depths return no more light with the transport than without it";
     }
 
     TEST_F(GroomEnvironmentFurnaceEvidenceTest, TheSkysIblIntensityScalesTheCoatWithTheSphere)

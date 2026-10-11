@@ -594,6 +594,37 @@ namespace OloEngine::Tests
 
     // ── #1431: over budget is said on change, not every frame ───────────────
 
+    TEST_F(GroomStrandVisualEvidenceTest, AnAuthoredSegmentBudgetReachesTheRendererAndInvalidatesItsMesh)
+    {
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        const auto* pass = Renderer3D::GetGroomRenderPass();
+        ASSERT_NE(pass, nullptr);
+        auto& groom = m_GroomEntity.GetComponent<GroomComponent>();
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 1000.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose({ 0.0f, 0.9f, 4.6f }, 0.0f, 0.10f);
+
+        // 4000 curves with seven segments each. Strand count is held fixed:
+        // only the component's segment budget can change the submitted mesh.
+        groom.m_MaxRenderSegments = 7000u;
+        RunEditorFrames(camera, 4);
+        const u32 limited = pass->GetStats().StrandsDrawn;
+        EXPECT_GT(limited, 0u);
+        EXPECT_LT(limited, 4000u);
+        EXPECT_LE(pass->GetStats().SegmentsDrawn, 7000u);
+
+        groom.m_MaxRenderSegments = 28000u;
+        RunEditorFrames(camera, 4);
+        EXPECT_EQ(pass->GetStats().StrandsDrawn, 4000u);
+        EXPECT_EQ(pass->GetStats().SegmentsDrawn, 28000u);
+
+        groom.m_MaxRenderSegments = 7000u;
+        RunEditorFrames(camera, 4);
+        EXPECT_EQ(pass->GetStats().StrandsDrawn, limited);
+        EXPECT_LE(pass->GetStats().SegmentsDrawn, 7000u);
+    }
+
     TEST_F(GroomStrandVisualEvidenceTest, AStrandCacheOverBudgetIsLoggedOnChangeNotEveryFrame)
     {
         // The real pass, not the gate on its own: a budget far below what one

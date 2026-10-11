@@ -456,14 +456,73 @@ namespace OloEngine
         static u32 InvalidateTemporalHistories(
             TemporalHistoryInvalidationCause cause,
             std::optional<TemporalHistoryEffect> effect = std::nullopt);
-        // Restart every per-frame sampling sequence (the stochastic, TAA jitter,
-        // cloud and fog frame indices) at the values a freshly initialised
-        // renderer starts from, and drop the temporal histories built on the old
-        // sequence. The indices are process-global and never reset otherwise, so
-        // without this a render depends on how many frames ran before it: the
-        // test harness calls it per test so a visual test renders the same
-        // frames whether it runs first in its process or after 800 others.
-        static void ResetFrameSequences();
+        // Restart every per-frame sampling sequence at the values a freshly
+        // initialised renderer starts from, and drop EVERY temporal history,
+        // each of which was accumulated on the old sequence. That is the
+        // stochastic, TAA jitter, FSR2 phase, cloud and fog frame indices here,
+        // and each pass's own (RenderGraphNode::ResetFrameSequence: the froxel
+        // fog's index and history, GTAO's noise index, DDGI's ray rotation and
+        // capture schedule, ReSTIR GI's previous frame, ReSTIR PT's lineage).
+        // The indices are process-global and never reset otherwise, so without
+        // this a render depends on how many frames ran before it: the test
+        // harness calls it per test so a visual test renders the same frames
+        // whether it runs first in its process or after 800 others.
+        //
+        // `sequenceSeed` selects an independent run (#1348), 0..15. Seed 0 is
+        // the fresh renderer. Seed k starts the stochastic index k strides of
+        // 2^16 frames in, so runs shorter than 65 536 frames draw disjoint index
+        // ranges of the hashed and blue-noise sequences; it starts the TAA
+        // jitter at phase k, the cloud and fog indices at 64k (they wrap at
+        // 1024), and every pass's own index (ResetFrameSequence) from k too.
+        // Two arms of a paired A/B use the SAME seed; independent repeats of a
+        // claim use different seeds. Sixteen is the ceiling: seed 16 would
+        // start where seed 0 does, and the call asserts. The TAA jitter has
+        // eight phases, so seeds 8..15 also shift it by a seed-dependent
+        // toroidal offset: seed k and k+8 do not repeat each other's jitter.
+        // It also restarts the renderer's clocks (cloud advection, fog noise,
+        // wind gusts) and makes the next frame its own motion history: camera,
+        // entity and GPU Scene instance velocity are zero on it, as on a fresh
+        // renderer's first frame. Scene-held state (animation clocks, bone
+        // palettes, simulation) is the caller's to replay.
+        static constexpr u32 kSequenceSeedStride = 1u << 16u;
+        static void ResetFrameSequences(u32 sequenceSeed = 0);
+
+        // Every input a rendered frame's stochastic sampling depends on, as of
+        // now (#1348). Two arms of a paired replay are only paired if they start
+        // from equal contexts; compare Fingerprint(), not the fields, so a
+        // dimension added later cannot be left out of the comparison by a test
+        // written earlier.
+        struct FrameSamplingContext
+        {
+            u32 SequenceSeed = 0;
+            u32 StochasticFrameIndex = 0;
+            u32 TAAJitterFrameIndex = 0;
+            u32 TemporalUpscalePhaseIndex = 0;
+            u32 CloudFrameIndex = 0;
+            u32 FogFrameIndex = 0;
+            glm::vec2 CurrJitterUV{ 0.0f };
+            glm::vec2 PrevJitterUV{ 0.0f };
+            // The seed's toroidal shift of the 8-phase TAA jitter.
+            glm::vec2 TAAJitterRotation{ 0.0f };
+            // The renderer-side clocks: cloud advection, fog noise, wind gusts.
+            glm::vec2 CloudWindOffset{ 0.0f };
+            f32 CloudTime = 0.0f;
+            f32 FogTime = 0.0f;
+            f32 WindTime = 0.0f;
+            // Whether the next frame computes motion against itself.
+            bool MotionHistoryResetPending = false;
+            // Folded RenderGraphNode::GetFrameSequenceState of every pass.
+            u64 PassSequenceState = 0;
+            // Every registry history's key, validity and age.
+            u64 HistoryLineage = 0;
+            // The clock every renderer-side accumulator and the scene's
+            // animation read under Time::SetMockTime.
+            bool MockTimeActive = false;
+            f32 MockTime = 0.0f;
+
+            [[nodiscard]] u64 Fingerprint() const;
+        };
+        [[nodiscard]] static FrameSamplingContext GetFrameSamplingContext();
         // Put the per-frame camera state (render and culling camera matrices,
         // view positions, the camera-relative render origin, the LOD view) back
         // to what it is before any scene has rendered. BeginScene overwrites all
@@ -2909,6 +2968,11 @@ namespace OloEngine
             SnowEjectaSettings SnowEjecta;
             PrecipitationSettings Precipitation;
             glm::mat4 PrevViewProjectionMatrix = glm::mat4(1.0f);
+            // The next frame has no previous camera or object pose of its own
+            // (#1348): PrepareFrame aliases the previous view-projection and
+            // jitter to the current ones and drops the transform caches. True
+            // on a fresh renderer, whose identity "previous" VP is no pose.
+            bool MotionHistoryResetPending = true;
             // Unjittered camera projection observed at BeginScene. A bitwise
             // change is an explicit temporal discontinuity (FOV/projection mode,
             // near/far plane); per-frame jitter is applied later and excluded.
@@ -2962,6 +3026,12 @@ namespace OloEngine
             // Wrapped to 2^20 so it stays exactly representable in the f32 the
             // SSR / SSGI params blocks carry it in.
             u32 StochasticFrameIndex = 0;
+            // The run ResetFrameSequences last started (#1348); 0 for a fresh
+            // renderer. Reported by GetFrameSamplingContext only.
+            u32 FrameSequenceSeed = 0;
+            // The seed's toroidal shift of the TAA Halton jitter (#1348): zero
+            // for seeds 0..7, so seed 0 stays the fresh renderer.
+            glm::vec2 TAAJitterRotation{ 0.0f };
 
             // Global IBL fallback (from scene's EnvironmentMap)
             RHI::ResourceHandle GlobalIrradianceMapID{};

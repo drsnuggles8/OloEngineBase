@@ -3,6 +3,7 @@
 #include "FunctionalTest.h"
 
 #include "OloEngine/Physics3D/Physics3DSystem.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Task/Scheduler.h"
 #include "OloEngine/Task/NamedThreads.h"
 #include "OloEngine/Scene/Entity.h"
@@ -92,6 +93,14 @@ namespace OloEngine::Functional
         // because it requires Application::Get(). Renderer-attached tests
         // will flip this back on in their own fixture base.
         m_Scene->SetRenderingEnabled(false);
+
+        // A headless tick still reads renderer camera state: animated-surface
+        // LOD selection reads the LOD view of the last rendered frame, which is
+        // process-global. Left as the previous renderer-attached test left it,
+        // a level chosen at 3 m and at 400 m came out the same after a full
+        // sweep and AnimatedSurfaceLODTest failed only in order (#1348). Start
+        // every functional test from the camera a fresh renderer has.
+        Renderer3D::ResetFrameCamera();
 
         BuildScene();
     }

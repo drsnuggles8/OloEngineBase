@@ -30,13 +30,16 @@
 #include "OloEngine/Renderer/Material.h"
 
 #include <assimp/Importer.hpp>
+#include <assimp/GltfMaterial.h>
 #include <assimp/material.h>
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
 
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <limits>
+#include <nlohmann/json.hpp>
 #include <string>
 
 using namespace OloEngine;
@@ -213,4 +216,56 @@ TEST_F(GltfPhysicalMaterialImportTest, TheFixtureCarriesNoUnsupportedTexturesSoN
     const PhysicalMaterialStats stats = GetPhysicalMaterialStats();
     EXPECT_EQ(stats.TransmissionMapsIgnored, 0u);
     EXPECT_EQ(stats.ThicknessMapsIgnored, 0u);
+}
+
+TEST_F(GltfPhysicalMaterialImportTest, AuthoredNormalTextureScaleSurvivesTheRealGltfReader)
+{
+    std::ifstream input(FixturePath());
+    ASSERT_TRUE(input.good());
+    auto document = nlohmann::json::parse(input);
+    document["images"] = { { { "uri", "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=" } } };
+    document["textures"] = { { { "source", 0 } } };
+
+    for (const f32 scale : { 0.0f, 0.3f, 1.0f, 2.0f, -0.5f })
+    {
+        SCOPED_TRACE(scale);
+        for (auto& entry : document["materials"])
+        {
+            if (entry["name"] == "OpaqueControl")
+                entry["normalTexture"] = { { "index", 0 }, { "scale", scale } };
+        }
+        const auto bytes = document.dump();
+        Assimp::Importer importer;
+        const auto* scene = importer.ReadFileFromMemory(bytes.data(), bytes.size(), aiProcess_Triangulate, "gltf");
+        ASSERT_NE(scene, nullptr) << importer.GetErrorString();
+        const auto* source = FindMaterial(scene, "OpaqueControl");
+        ASSERT_NE(source, nullptr);
+        ASSERT_EQ(source->GetTextureCount(aiTextureType_NORMALS), 1u);
+
+        f32 importedScale = 1.0f;
+        ASSERT_EQ(source->Get(AI_MATKEY_GLTF_TEXTURE_SCALE(aiTextureType_NORMALS, 0), importedScale), AI_SUCCESS);
+        EXPECT_FLOAT_EQ(importedScale, scale);
+        Material material;
+        ImportGltfPhysicalMaterial(source, material);
+        EXPECT_FLOAT_EQ(material.GetNormalScale(), scale);
+    }
+}
+
+TEST_F(GltfPhysicalMaterialImportTest, MissingNormalTextureScaleKeepsTheMaterialDefault)
+{
+    Material material;
+    ImportGltfPhysicalMaterial(FindMaterial(m_Scene, "OpaqueControl"), material);
+    EXPECT_FLOAT_EQ(material.GetNormalScale(), 1.0f);
+}
+
+TEST_F(GltfPhysicalMaterialImportTest, NonFiniteNormalTextureScaleCannotReachTheMaterial)
+{
+    for (const f32 scale : { std::numeric_limits<f32>::quiet_NaN(), std::numeric_limits<f32>::infinity() })
+    {
+        aiMaterial source;
+        source.AddProperty(&scale, 1, AI_MATKEY_GLTF_TEXTURE_SCALE(aiTextureType_NORMALS, 0));
+        Material material;
+        ImportGltfPhysicalMaterial(&source, material);
+        EXPECT_FLOAT_EQ(material.GetNormalScale(), 1.0f);
+    }
 }

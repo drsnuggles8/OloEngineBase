@@ -1568,7 +1568,7 @@ namespace OloEngine
             glm::mat4 PrevModel{ 1.0f };
             glm::vec4 Color{ 1.0f };       // rgb = neutral albedo, a unused
             glm::ivec4 IDs{ -1, 0, 0, 0 }; // x = EntityID
-            glm::vec4 Viewport{ 0.0f };    // xy = pixels, zw unused
+            glm::vec4 Viewport{ 0.0f };    // xy = pixels, z = card coverage growth blend, w = strand width cap
             glm::vec4 RampWidth{ 0.0f };   // x = ramp floor, y = width scale, z = object scale, w = alpha cutoff
             glm::ivec4 ModeFrame{ 0 };     // x = GroomCompositionMode, y = frame index, z = stochastic seed
 
@@ -1687,6 +1687,16 @@ namespace OloEngine
             glm::vec4 FibreBackScatter{ 0.0f };    // rgb = A_b, w = d_b
             glm::vec4 FibreBackLobe{ 0.0f };       // x = shift, y = width (radians of theta_h), zw unused
 
+            // ── The per-strand pigment (#1558) ───────────────────────
+            //
+            // GroomFibrePigmentMode::BaseColorPerStrand: the base colour every
+            // strand's coat tint multiplies (.w 1), and the table the shader
+            // reads the product's absorption from (GroomFibreParams::
+            // PigmentTable, four entries to a lane). .w is 0 for every other
+            // mode, and then neither is read.
+            glm::vec4 FibrePigment{ 0.0f };
+            std::array<glm::vec4, 8> FibrePigmentTable{};
+
             static constexpr u32 GetSize()
             {
                 return static_cast<u32>(sizeof(GroomStrandParamsUBO));
@@ -1698,11 +1708,12 @@ namespace OloEngine
         // 480 B: 208 through #1246's lanes, the five vec4/ivec4 lanes #1247's
         // fibre material added (288), #1248's coat-shadow block — one mat4
         // and three vec4-sized lanes (112) — #1427's two deformation lanes
-        // (32) and #1533's three dual-scattering lanes (48). Every lane is
-        // vec4-sized or a mat4, so the std140 layout is the C++ layout and the
-        // number is a plain sum — which is what makes this assertion able to
-        // catch a lane added to one side and not the other.
-        static_assert(sizeof(GroomStrandParamsUBO) == 480,
+        // (32), #1533's three dual-scattering lanes (48) and #1558's pigment
+        // lane and eight-lane table (144). Every lane is vec4-sized or a mat4,
+        // so the std140 layout is the C++ layout and the number is a plain sum
+        // — which is what makes this assertion able to catch a lane added to
+        // one side and not the other.
+        static_assert(sizeof(GroomStrandParamsUBO) == 624,
                       "GroomStrandParamsUBO std140 size drifted from GLSL expectation (480 B)");
 
         // @brief One groom shadow-caster draw (issue #1323), uploaded at

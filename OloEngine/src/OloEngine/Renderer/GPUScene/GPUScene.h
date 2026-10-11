@@ -96,6 +96,11 @@ namespace OloEngine
         // would let whichever ran last erase the other's count.
         void ReportAnimatedCensus(const GPUSceneAnimatedStats& census);
         [[nodiscard]] GPUSceneFrameUpdate EndExtraction();
+        // The next EndExtraction commits every instance with its current
+        // transform as its previous one: zero object motion for one frame. A
+        // replayed run (#1348) must not compute velocity against whatever pose
+        // a different pre-roll left behind.
+        void ForgetMotionHistory();
 
         // GPU resources are explicit so CPU-only tools/tests can use the
         // registry without a renderer context. Resize preserves the RHI

@@ -267,12 +267,20 @@ namespace OloEngine::Tests
         // exaggerated width — at a real 70 um this capture would be a picture of
         // an almost-empty frame, which is a true fact about hair (measured
         // properly by the CPU coverage tests) and a useless golden image.
-        static Ref<GroomAsset> BuildEvidenceGroom()
+        // `tint` below one gives the coat's group that tint (#1558's black coat).
+        static Ref<GroomAsset> BuildEvidenceGroom(f32 tint = 1.0f)
         {
             GroomBuilder builder;
             std::string reason;
             u16 group = 0;
             EXPECT_TRUE(builder.AddGroup("coat", group, reason)) << reason;
+            if (tint < 1.0f)
+            {
+                GroomCoatGroupDesc coat = DefaultGroomCoatGroupDesc();
+                coat.Tint = glm::vec3(tint);
+                std::vector<std::string> reasons;
+                EXPECT_TRUE(builder.SetGroupCoat(group, coat, reasons));
+            }
 
             constexpr u32 kStrands = 4000;
             constexpr u32 kPoints = 8;
@@ -1057,5 +1065,95 @@ namespace OloEngine::Tests
         const f64 modelHue = static_cast<f64>(albedo.r) / std::max(static_cast<f64>(albedo.b), 1.0e-6);
         std::printf("[groom-fibre] model albedo ratio %.3f\n", modelHue);
         EXPECT_GT(modelHue, 1.0);
+    }
+
+    // ── 6. The per-strand pigment (#1558) ───────────────────────────────────
+
+    TEST_F(GroomFibreVisualEvidenceTest, APerStrandBlackCoatStaysBlackBacklitOnEveryRenderingPath)
+    {
+        // A coat of near-black strands (a group tint of 0.02) over a nearly
+        // clear base fibre, backlit: a Bernese's black. Under BaseColor the tint
+        // multiplies the light each fibre returns, which backlit is TT through
+        // a clear fibre, so the black coat glows. Per strand the tint is the
+        // fibre's own pigment, the TT is absorbed inside it, and the coat keeps
+        // its sheen. Same geometry, camera and light on each path; only the
+        // pigment mode moves, and BaseColor is the control.
+        //
+        // MEASURED ON THE TT LOBE ALONE, as transmission is everywhere in this
+        // file: the full frames are the evidence, but what is left of a black
+        // coat is its sheen, which the pigment cannot touch and this fixture
+        // lights at eight times unit intensity, so a ratio of full frames reads
+        // the sheen (0.19 per strand against 0.33, measured) rather than the
+        // transmission the mode removes.
+        Ref<GroomAsset> black = BuildEvidenceGroom(0.02f);
+        ASSERT_TRUE(black);
+        m_GroomEntity.GetComponent<GroomComponent>().m_Groom = AssetManager::AddMemoryOnlyAsset<GroomAsset>(black);
+        // A coat component is what evaluates the group's tint per strand (an
+        // entity without one draws the groom untinted); both arms carry it.
+        m_GroomEntity.AddComponent<GroomCoatComponent>().m_Enabled = true;
+        Fibre().m_BaseColor = glm::vec3(1.0f, 0.98f, 0.95f);
+        SetLightDirection(glm::vec3(0.1f, -0.15f, 1.0f));
+        const glm::vec3 eye{ 0.0f, 0.9f, 4.6f };
+
+        struct PathCase
+        {
+            const char* Name;
+            RenderingPath Path;
+        };
+        const std::array<PathCase, 3> paths = { {
+            { "Forward", RenderingPath::Forward },
+            { "ForwardPlus", RenderingPath::ForwardPlus },
+            { "Deferred", RenderingPath::Deferred },
+        } };
+        for (const PathCase& pathCase : paths)
+        {
+            Renderer3D::GetRendererSettings().Path = pathCase.Path;
+            Renderer3D::ApplyRendererSettings();
+
+            m_GroomEntity.GetComponent<GroomComponent>().m_RenderStrands = false;
+            std::vector<u8> strandless;
+            Capture("", eye, 0.0f, 0.10f, strandless);
+            m_GroomEntity.GetComponent<GroomComponent>().m_RenderStrands = true;
+            if (::testing::Test::HasFatalFailure())
+            {
+                return;
+            }
+
+            std::array<f64, 2> full{};
+            std::array<f64, 2> transmitted{};
+            u32 coatPixels = 0;
+            for (u32 arm = 0; arm < 2u; ++arm)
+            {
+                const bool perStrand = arm == 1u;
+                Fibre().m_PigmentMode = static_cast<u8>(perStrand ? GroomFibrePigmentMode::BaseColorPerStrand
+                                                                  : GroomFibrePigmentMode::BaseColor);
+                Fibre().m_DebugMode = static_cast<u8>(GroomFibreDebugMode::Full);
+                std::vector<u8> frame;
+                Capture(std::string(perStrand ? "GroomPerStrandPigment_GL_" : "GroomPerStrandPigmentOff_GL_") +
+                            pathCase.Name,
+                        eye, 0.0f, 0.10f, frame);
+                Fibre().m_DebugMode = static_cast<u8>(GroomFibreDebugMode::LobeTT);
+                std::vector<u8> tt;
+                Capture("", eye, 0.0f, 0.10f, tt);
+                Fibre().m_DebugMode = static_cast<u8>(GroomFibreDebugMode::Full);
+                if (::testing::Test::HasFatalFailure())
+                {
+                    return;
+                }
+                full[arm] = MeanCoatLuminance(frame, strandless);
+                transmitted[arm] = MeanCoatLuminance(tt, strandless);
+                if (perStrand)
+                {
+                    coatPixels = CountDifferingPixels(frame, strandless);
+                }
+            }
+            std::printf("[groom-fibre] %-11s black coat backlit: mean coat luminance %.4f exit-tinted, %.4f per strand; "
+                        "TT alone %.4f exit-tinted, %.4f per strand (%u coat px)\n",
+                        pathCase.Name, full[0], full[1], transmitted[0], transmitted[1], coatPixels);
+            EXPECT_LT(transmitted[1], 0.05 * transmitted[0])
+                << pathCase.Name << ": per strand, the black coat still transmits the light that made it glow";
+            EXPECT_LT(full[1], full[0]) << pathCase.Name << ": the per-strand black coat is not the darker one";
+            EXPECT_GT(coatPixels, 2000u) << pathCase.Name << ": the black coat vanished; its sheen should remain";
+        }
     }
 } // namespace OloEngine::Tests

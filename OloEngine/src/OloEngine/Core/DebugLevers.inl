@@ -157,6 +157,12 @@ OLO_LEVER_EXACT(FaultCountAliasAsBacking, "OLO_FAULT_COUNT_ALIAS_AS_BACKING",
                 "FAULT (#1342 negative control): book every view/alias RendererMemoryTracker::TrackAlias receives "
                 "as its own BACKING allocation, so a view onto an existing image is counted twice in the physical "
                 "totals. Re-creates the logical-versus-physical double count the memory report must reject.")
+OLO_LEVER_EXACT(FaultKeepStaleTemporalHistory, "OLO_FAULT_KEEP_STALE_TEMPORAL_HISTORY",
+                "FAULT (#1348 negative control): TemporalHistoryRegistry::Invalidate drops nothing, so a camera cut, "
+                "a projection or render-scale change, a scene reset and a sampling-sequence restart all keep "
+                "reading the previous lineage. Re-creates the gap TAA, SSR and the cloudscape shipped with before "
+                "they joined the registry; the long-sequence reset-policy tests prove their stale-history check "
+                "sees it.")
 
 // --- RHI --------------------------------------------------------------------
 OLO_LEVER_TOGGLE(BindlessDescriptorHeap, "OLO_RHI_BINDLESS",

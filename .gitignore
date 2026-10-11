@@ -151,6 +151,12 @@ OloEditor/cmake_test_discovery_*.json
 # Helper scripts the commands under .claude/commands/ invoke by path. Same reasoning as
 # hooks/: without this the command files reference scripts that exist only on this machine.
 !.claude/scripts/
+# Claude Code mods (function-hook plugins) that hold the repo's rules in the agent loop.
+# See docs/agent-rules/claude-code-mods.md. The engine writes each mod's API typings and a
+# tsconfig.json beside it on every load; those are regenerated, never committed.
+!.claude/mods/
+.claude/mods/*/.claude-plugin/types/
+.claude/mods/*/tsconfig.json
 !.claude/.markdownlint-cli2.jsonc
 .claude/skills/**/shots/
 

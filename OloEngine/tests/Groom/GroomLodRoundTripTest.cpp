@@ -39,7 +39,9 @@
 #include "OloEngine/Serialization/GroomBinaryFormat.h"
 #include "OloEngine/Serialization/ZlibSection.h"
 
+#include <bit>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -237,24 +239,29 @@ TEST(GroomLodRoundTrip, AChecksumValidFileWithACorruptSourceMapIsRejectedByTheDE
     ASSERT_EQ(payload.size(), header.UncompressedPayloadSize);
     ASSERT_GE(payload.size(), sizeof(u32));
 
-    // THE LAST FOUR BYTES OF THE PAYLOAD ARE THE LAST CARD'S SOURCE MAP ENTRY.
-    // Section 10 is the last section, a level's SourceCurves is its last array,
-    // and there is one level — so the tail of the payload is that u32.
+    // THE LAST CARD'S SOURCE MAP ENTRY ENDS JUST BEFORE THE LEVEL'S COVERAGE
+    // GROWTH. Section 10 is the last section, there is one level, and since
+    // format v5 (#1558) a level's SourceCurves is followed only by its
+    // PointCoverageGrowth (f32 * PointCount) -- so that u32 sits that many bytes
+    // before the payload's end.
     //
     // ASSERTED, NOT ASSUMED. If the layout ever changes this reads back
     // something else and the case fails HERE, naming the reason, rather than
     // silently patching an unrelated field and then "passing" because the
     // decoder rejected the file for a completely different reason. That is the
     // difference between testing the prediction and testing a coincidence.
+    const sizet growthBytes = coat.Level.PointCoverageGrowth.Num() * sizeof(f32);
+    ASSERT_GE(payload.size(), growthBytes + sizeof(u32));
+    const sizet entry = payload.size() - growthBytes - sizeof(u32);
     u32 tail = 0;
-    std::memcpy(&tail, payload.data() + payload.size() - sizeof(u32), sizeof(u32));
+    std::memcpy(&tail, payload.data() + entry, sizeof(u32));
     ASSERT_EQ(tail, coat.Level.SourceCurves.back())
-        << "the payload no longer ends with the level's source map; this case is patching the wrong bytes";
+        << "the level's source map no longer ends where the format says; this case is patching the wrong bytes";
 
     // One past the end of the base groom — the index that would read past the
     // binding's root-transform array in the renderer's innermost loop.
     const u32 corrupt = coat.Groom->GetCurveCount();
-    std::memcpy(payload.data() + payload.size() - sizeof(u32), &corrupt, sizeof(corrupt));
+    std::memcpy(payload.data() + entry, &corrupt, sizeof(corrupt));
 
     std::vector<u8> recompressed = ZlibSection::Compress(payload.data(), payload.size(), "GroomLodRoundTripTest");
     ASSERT_FALSE(recompressed.empty());
@@ -279,7 +286,7 @@ TEST(GroomLodRoundTrip, AChecksumValidFileWithACorruptSourceMapIsRejectedByTheDE
     // produce a file that loads. Without it, this case would pass for a
     // decoder that rejected every re-compressed file — which is a different
     // bug wearing this one's clothes.
-    std::memcpy(payload.data() + payload.size() - sizeof(u32), &tail, sizeof(tail));
+    std::memcpy(payload.data() + entry, &tail, sizeof(tail));
     std::vector<u8> clean = ZlibSection::Compress(payload.data(), payload.size(), "GroomLodRoundTripTest");
     ASSERT_FALSE(clean.empty());
     OloGroomFormat::FileHeader cleanHeader = header;
@@ -292,6 +299,62 @@ TEST(GroomLodRoundTrip, AChecksumValidFileWithACorruptSourceMapIsRejectedByTheDE
     Ref<GroomAsset> control;
     reason.clear();
     EXPECT_TRUE(GroomSerializer::DecodeFromBytes(rebuilt.data(), rebuilt.size(), control, reason)) << reason;
+    EXPECT_TRUE(control);
+}
+
+TEST(GroomLodRoundTrip, AChecksumValidFileWithACorruptCoverageGrowthIsRejectedByTheDECODER)
+{
+    // #1558's array, held to the same standard as the source map: the shader
+    // widens a card by it with no bound of its own, so a file that arrives with
+    // a growth under 1 (or a NaN) must be refused at load, not drawn.
+    const CookedCoat coat = MakeCoatWithCards();
+    ASSERT_TRUE(coat.Groom);
+    ASSERT_FALSE(coat.Level.PointCoverageGrowth.IsEmpty());
+
+    std::vector<u8> bytes;
+    std::string reason;
+    ASSERT_TRUE(GroomCooker::CookToBytes(*coat.Groom, bytes, reason)) << reason;
+    OloGroomFormat::FileHeader header{};
+    std::memcpy(&header, bytes.data(), sizeof(header));
+    std::vector<u8> payload = ZlibSection::Decompress(
+        bytes.data() + sizeof(header), bytes.size() - sizeof(header), header.UncompressedPayloadSize,
+        OloGroomFormat::MaxUncompressedPayloadSize, "GroomLodRoundTripTest");
+    ASSERT_EQ(payload.size(), header.UncompressedPayloadSize);
+
+    // The payload's last f32 is the last card point's growth (section 10 is last,
+    // one level, the growth its last array). Asserted, as above.
+    f32 tail = 0.0f;
+    std::memcpy(&tail, payload.data() + payload.size() - sizeof(f32), sizeof(f32));
+    ASSERT_EQ(std::bit_cast<u32>(tail), std::bit_cast<u32>(coat.Level.PointCoverageGrowth.Last()))
+        << "the payload no longer ends with the level's coverage growth; this case is patching the wrong bytes";
+
+    const auto forge = [&](f32 value)
+    {
+        std::vector<u8> patched = payload;
+        std::memcpy(patched.data() + patched.size() - sizeof(f32), &value, sizeof(value));
+        std::vector<u8> recompressed = ZlibSection::Compress(patched.data(), patched.size(), "GroomLodRoundTripTest");
+        OloGroomFormat::FileHeader forgedHeader = header;
+        forgedHeader.Checksum = Hash::CRC32(recompressed.data(), recompressed.size());
+        forgedHeader.UncompressedPayloadSize = patched.size();
+        std::vector<u8> forged(sizeof(forgedHeader) + recompressed.size());
+        std::memcpy(forged.data(), &forgedHeader, sizeof(forgedHeader));
+        std::memcpy(forged.data() + sizeof(forgedHeader), recompressed.data(), recompressed.size());
+        return forged;
+    };
+    for (const f32 corrupt : { 0.5f, std::numeric_limits<f32>::quiet_NaN() })
+    {
+        const std::vector<u8> forged = forge(corrupt);
+        Ref<GroomAsset> reloaded;
+        reason.clear();
+        EXPECT_FALSE(GroomSerializer::DecodeFromBytes(forged.data(), forged.size(), reloaded, reason)) << corrupt;
+        EXPECT_EQ(reloaded, nullptr);
+        EXPECT_NE(reason.find("coverage growth"), std::string::npos) << "the refusal did not name it: " << reason;
+    }
+    // The control: the same forging with the original value loads.
+    const std::vector<u8> clean = forge(tail);
+    Ref<GroomAsset> control;
+    reason.clear();
+    EXPECT_TRUE(GroomSerializer::DecodeFromBytes(clean.data(), clean.size(), control, reason)) << reason;
     EXPECT_TRUE(control);
 }
 

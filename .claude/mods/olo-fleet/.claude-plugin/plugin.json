@@ -1,0 +1,9 @@
+{
+  "name": "olo-fleet",
+  "version": "0.1.0",
+  "description": "A live view of every OloEngine worktree, its PR's CI and review threads, and the cross-worktree build lock (who builds, who waits); notifies when a PR's CI settles.",
+  "author": {
+    "name": "OloEngine"
+  },
+  "types": "./types/index.d.ts"
+}

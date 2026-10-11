@@ -32,9 +32,16 @@ flat or plush.
    front of the animal with the sky behind it. Before this, that uniform TT term was most of the
    dog's brightness, and it lit the coat evenly from everywhere, which is the flat look.
 
+   **The light the coat behind returns is A_b, and only as much as there is coat behind** (#1558):
+   the sky's back-scatter is scaled by `1 - T` of that same march. Where the march leaves the coat
+   into the sky (a fringe, an ear's edge, the tail), TT already counts the sky it meets, and A_b at
+   full strength counted the same light twice: a coat of clear fibres read 1.33 of the sky lighting
+   it.
+
 4. **Dual scattering runs only where a volume counts the neighbours, and it has its own switch.**
    The `.w` density factors in `FibreForwardScatter` / `FibreBackScatter` go up zero. Only the
-   coat-volume success path in `GroomRenderPass` writes Zinke's `0.7`, and only when
+   coat-volume success path in `GroomRenderPass` writes them (`d_f` Zinke's 0.7, `d_b` 1, rule 8),
+   and only when
    `GroomCoatShadowComponent::m_MultipleScattering` is on (the default). A coat without a volume is a
    lone-fibre picture and stays #1247's exactly, the same structural fallback as `CoatModes.x`.
    #1248's occlusion evidence, and the horse fixture graded before this, run with the switch off.
@@ -52,6 +59,13 @@ flat or plush.
    depths, which read as brown blotches. An intensity above 1 was compensation for the missing
    transport; do not bring it back.
 
+   **Near 1, a hundredth is a colour.** With A_b summed (rule 7) a clear channel returns all of its
+   light from the coat's depths, and one at 0.97 returns half of it: a fibre colour of `(1.0, 0.99,
+   0.97)` turned a white coat pink in the shade, and the golden's `(1.0, 0.93, 0.80)` went orange.
+   A white coat's fibres are neutral `(1, 1, 1)`, its roots near clear, and its creams the map's; the
+   golden's red is 0.985, which returns what its graded coat did. Check a fibre colour's A_b with the
+   constants before grading by eye.
+
 6. **The coat tint is pigment and never colours R.** `oloGroomComposite` tints TT, TRT, the
    residual and the multiple back-scatter, and leaves R white. R is the cuticle's surface
    reflection. #1251's first form tinted the whole sum, which coloured the sheen with the coat and
@@ -62,8 +76,17 @@ flat or plush.
    mass from the trimmed logistic's closed-form CDF. They are averaged over the sphere (4-node
    Gauss-Legendre in `sin theta`). `GroomFibreDualScatteringTests` pins that the split partitions
    the albedo exactly and matches the far field integrated over each half-space. `A_b` is Zinke's
-   `A1 + A3`, and the back lobe integrates to it. `GroomCoatTransmittanceParityTest` pins both GLSL
-   twins against the compiled shader.
+   series summed to every order: the reflectance of a stack of layers that each reflect `a_b` and
+   transmit `a_f`, less the first layer's, whose expansion is exactly `A1 + A3 + O(a_b^5)`. The paper
+   cut it after `A3`; for a clear fibre that kept 0.51 of the 0.85 the stack returns. The back lobe
+   integrates to it. `GroomCoatTransmittanceParityTest` pins both GLSL twins against the compiled
+   shader.
+
+8. **A coat that absorbs nothing returns the sky, and never more.**
+   `GroomEnvironmentFurnaceEvidenceTest.ACoatOfClearFibresReturnsTheSkyThatLightsIt` holds a clear
+   coat under a uniform sky between 0.84 and 1 of it at its bright end, and above 0.65 at its median.
+   That is why `d_b` is 1: the paper's 0.7, fitted to its cut series on heads of hair, lost a further
+   30 % in that furnace. Each model this replaced fails a bound there, and the test lists the numbers.
 
 ## Declared approximations
 
@@ -71,7 +94,10 @@ flat or plush.
   spread it picked up, so highlights in the coat's depths are a little crisper than they should be.
 - The back lobe is one Gaussian in `theta_h` for all three channels, with a cosine over the backward
   azimuths instead of a constant.
-- The Zinke series stops at three back scatters, as in the paper.
+- The coat behind a strand is marched through the coat only, so on a strand's near side it counts
+  the far side's coat beyond the body too: A_b is at full strength over any body, thin coat or not.
+- The direct lights' back-scatter is not scaled by the coat behind them; that would cost a march per
+  light.
 
 ## Diagnosing
 

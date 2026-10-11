@@ -107,13 +107,17 @@ layout(std140, binding = 8) uniform MotionBlurMatrices
 layout(std140, binding = 32) uniform TAAParams
 {
     vec4 u_TAA_FeedbackSharpnessHasVelocity; // x=feedback, y=sharpness, z=hasVelocity (0/1), w=pad
-    vec4 u_TAA_TexelSize;                    // xy=1/size, zw=pad
+    vec4 u_TAA_TexelSize;                    // xy=1/size, z=hasHistory (0/1, #1348), w=pad
 };
 
 #define u_Feedback           (u_TAA_FeedbackSharpnessHasVelocity.x)
 #define u_Sharpness          (u_TAA_FeedbackSharpnessHasVelocity.y)
 #define u_HasVelocityTexture (int(u_TAA_FeedbackSharpnessHasVelocity.z))
 #define u_TexelSize          (u_TAA_TexelSize.xy)
+// Whether u_History holds a history at all (#1348). Without one the pass binds
+// the CURRENT frame there, so reprojecting it would blend this frame with a
+// copy of itself displaced by this frame's velocity.
+#define u_HasHistory         (u_TAA_TexelSize.z > 0.5)
 // w was pad; #1256 uses it as the has-surface-history flag.
 #define u_HasSurfaceHistory  (u_TAA_FeedbackSharpnessHasVelocity.w > 0.5)
 
@@ -235,10 +239,13 @@ void main()
 
     // 2) Sample current + history
     vec3 currentColor = texture(u_Current, uv).rgb;
+
     vec3 historyColor = texture(u_History, prevUV).rgb;
 
-    // Guard history against sampling outside the viewport (first frame / disocclusion)
-    if (!OloTemporalHistoryUVValid(prevUV))
+    // Guard history against sampling outside the viewport (disocclusion). Only
+    // for a real history: a frame without one resolves to the current frame
+    // at the blend below and is sharpened like every other frame.
+    if (u_HasHistory && !OloTemporalHistoryUVValid(prevUV))
     {
         o_Color = vec4(currentColor, 1.0);
         o_History = o_Color;
@@ -434,7 +441,13 @@ void main()
             OloEvaluateTemporalReactivity(currentRecord, previousRecord, reactivity));
     }
 
-    vec3 resolved = OloTemporalBlend(currentColor, clampedHistory, effectiveFeedback, confidence);
+    // No history (the first frame, or any reset: a camera cut, a projection or
+    // render-scale change, a restarted sampling sequence): the resolve IS the
+    // current frame. u_History holds the current frame then, reprojected by
+    // this frame's velocity, and these are exactly the frames with a large
+    // velocity, so blending it smeared every reset (#1348).
+    vec3 resolved =
+        u_HasHistory ? OloTemporalBlend(currentColor, clampedHistory, effectiveFeedback, confidence) : currentColor;
 
     // The history keeps the resolve, not the sharpened frame (#1533): the
     // sharpen below adds the current frame's high-pass, and fed back into the

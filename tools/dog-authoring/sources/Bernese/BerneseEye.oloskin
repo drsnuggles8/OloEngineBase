@@ -1,0 +1,50 @@
+# Bernese-specific dark iris and smooth corneal finish.
+SkinProfile:
+  Name: Bernese Eye
+  EvaluationModel: 5
+  Units: 'colours: linear Rec.709 (unitless 0..1); lengths: millimetres'
+  ScatterColor:
+  - 0.8
+  - 0.72
+  - 0.66
+  ScatterRadiusMM:
+  - 0.015
+  - 0.01
+  - 0.008
+  ThicknessScale: 1000
+  SpecularTint:
+  - 0.5
+  - 0.5
+  - 0.5
+  Transmission:
+    Strength: 0.25
+    Anisotropy: 0.7
+    Power: 4
+  Specular:
+    LobeMix: 0.2
+    LobeRoughnessScale: 1.5
+    NormalVarianceStrength: 0.25
+    DetailStrength: 0
+    ExpressionDetailGain: 0
+  Oral:
+    CoatStrength: 0.65
+    CoatRoughness: 0.04
+    CoatIor: 1.337
+    CavityOcclusion: 0
+  Ocular:
+    OcularStrength: 1
+    RefractionStrength: 1
+    EyeRadiusMM: 12
+    CorneaRadiusMM: 11.5
+    IrisRadiusMM: 9.6
+    PupilRadiusMM: 3.5
+    IrisPlaneDepthMM: 5.0
+    CorneaIor: 1.336
+    LimbalRingWidthMM: 0.9
+    LimbalRingStrength: 0.6
+    PupilDarkening: 1
+    IrisConcavity: 0.0
+    IrisColor:
+    - 0.25
+    - 0.34
+    - 0.43

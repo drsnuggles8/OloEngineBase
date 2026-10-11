@@ -1,0 +1,8 @@
+{
+  "name": "olo-output-truth",
+  "version": "0.1.0",
+  "description": "Makes OloEngine build and test output tell the truth: failed builds behind an exit-0 wrapper, gtest filters that select nothing, runs that died mid-test, all-skipped runs.",
+  "author": {
+    "name": "OloEngine"
+  }
+}

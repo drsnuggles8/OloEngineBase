@@ -1,0 +1,37 @@
+{
+  "name": "olo-mods",
+  "owner": {
+    "name": "OloEngine"
+  },
+  "description": "OloEngine's Claude Code mods: the repo's agent rules held as code in the agent loop. See docs/agent-rules/claude-code-mods.md.",
+  "plugins": [
+    {
+      "name": "olo-output-truth",
+      "source": "./olo-output-truth"
+    },
+    {
+      "name": "olo-command-guards",
+      "source": "./olo-command-guards"
+    },
+    {
+      "name": "olo-read-gates",
+      "source": "./olo-read-gates"
+    },
+    {
+      "name": "olo-evidence",
+      "source": "./olo-evidence"
+    },
+    {
+      "name": "olo-known-traps",
+      "source": "./olo-known-traps"
+    },
+    {
+      "name": "olo-context-saver",
+      "source": "./olo-context-saver"
+    },
+    {
+      "name": "olo-fleet",
+      "source": "./olo-fleet"
+    }
+  ]
+}

@@ -547,14 +547,26 @@ namespace OloEngine::Tests
         std::vector<u8> compensated;
         Capture("GroomLodCompensated_GL_Forward", kPixelSize, compensated);
         ASSERT_FALSE(::testing::Test::HasFatalFailure());
-        const GroomRenderStats& stats = PassStats();
-        const u32 strandsCompensated = stats.StrandsDrawn;
+        const u32 strandsCompensated = PassStats().StrandsDrawn;
+        const f32 widestCompensation = PassStats().Lod.MaxWidthCompensation;
         const u32 coatCompensated = CountCoatPixels(compensated);
 
+        // THE REFERENCE: every strand at the same size, the LOD off. What the
+        // compensation is for is putting the thinned coat back where the full
+        // coat is (#1558): above it is as wrong as below it -- the summed width
+        // drawn at alpha covered more of a pixel than the strands it replaced.
+        Lod().m_Enabled = false;
+        std::vector<u8> every;
+        Capture("GroomLodEveryStrand_GL_Forward", kPixelSize, every);
+        ASSERT_FALSE(::testing::Test::HasFatalFailure());
+        const u32 strandsEvery = PassStats().StrandsDrawn;
+        const u32 coatEvery = CountCoatPixels(every);
+        Lod().m_Enabled = true;
+
         std::printf("[groom-lod-evidence] compensation off: %u strands / %u coat px   on: %u strands / %u coat px "
-                    "(widest %.2fx)\n",
+                    "(widest %.2fx)   every strand: %u strands / %u coat px\n",
                     strandsUncompensated, coatUncompensated, strandsCompensated, coatCompensated,
-                    static_cast<f64>(stats.Lod.MaxWidthCompensation));
+                    static_cast<f64>(widestCompensation), strandsEvery, coatEvery);
 
         // The two arms must draw the SAME geometry — the compensation is a UBO
         // value, not a rebuild. If they differ, something else moved and the
@@ -563,7 +575,7 @@ namespace OloEngine::Tests
             << "the two arms drew different amounts of geometry, so this is not a compensation A/B";
         ASSERT_GT(coatUncompensated, 1000u) << "the uncompensated frame has almost no coat in it";
 
-        EXPECT_GT(stats.Lod.MaxWidthCompensation, 1.5f)
+        EXPECT_GT(widestCompensation, 1.5f)
             << "the budget did not thin the coat at this size, so there was nothing to compensate";
         EXPECT_GT(coatCompensated, coatUncompensated)
             << "widening the survivors did not put any coat back on screen";

@@ -5,7 +5,9 @@
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Animation/AnimationClip.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Containers/String.h"
 
+#include <nlohmann/json.hpp>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -66,7 +68,10 @@ namespace OloEngine
             return fmt::format("{:016X}", hash);
         }
 
-        // Get source file's last-write-time as a u64 for timestamp comparison.
+        // glTF keeps vertex, morph and animation data in external buffers. A
+        // facial edit can change only that .bin, leaving the descriptor untouched.
+        // The cache header's timestamp slot therefore stores a metadata fingerprint
+        // for glTF, and the original last-write-time for self-contained formats.
         u64 GetSourceTimestamp(const std::filesystem::path& sourcePath)
         {
             std::error_code ec;
@@ -75,7 +80,72 @@ namespace OloEngine
             {
                 return 0;
             }
-            return static_cast<u64>(ftime.time_since_epoch().count());
+            const u64 timestamp = static_cast<u64>(ftime.time_since_epoch().count());
+            auto extension = sourcePath.extension().string();
+            std::ranges::transform(extension, extension.begin(), [](unsigned char c)
+                                   { return static_cast<char>(std::tolower(c)); });
+            if (extension != ".gltf")
+            {
+                return timestamp;
+            }
+
+            u64 fingerprint = 14695981039346656037ULL;
+            const auto add = [&fingerprint](u64 value)
+            {
+                for (u32 byte = 0; byte < 8; ++byte)
+                {
+                    fingerprint ^= (value >> (byte * 8)) & 0xffu;
+                    fingerprint *= 1099511628211ULL;
+                }
+            };
+            const auto addFile = [&](const std::filesystem::path& path)
+            {
+                const auto time = std::filesystem::last_write_time(path, ec);
+                if (ec)
+                    return false;
+                const auto size = std::filesystem::file_size(path, ec);
+                if (ec)
+                    return false;
+                add(static_cast<u64>(time.time_since_epoch().count()));
+                add(size);
+                return true;
+            };
+            if (!addFile(sourcePath))
+                return 0;
+            try
+            {
+                std::ifstream input(sourcePath);
+                const auto document = nlohmann::json::parse(input);
+                // "buffers" is optional: a glTF with no geometry has none.
+                for (const auto& buffer : document.value("buffers", nlohmann::json::array()))
+                {
+                    const auto uri = buffer.at("uri").get<std::string>();
+                    if (uri.starts_with("data:"))
+                        continue; // Its bytes are in the descriptor itself.
+                    FString decoded;
+                    for (sizet i = 0; i < uri.size(); ++i)
+                    {
+                        if (uri[i] == '%' && i + 2 < uri.size() &&
+                            std::isxdigit(static_cast<unsigned char>(uri[i + 1])) &&
+                            std::isxdigit(static_cast<unsigned char>(uri[i + 2])))
+                        {
+                            decoded += static_cast<char>(std::stoi(uri.substr(i + 1, 2), nullptr, 16));
+                            i += 2;
+                        }
+                        else
+                        {
+                            decoded += uri[i];
+                        }
+                    }
+                    if (!addFile(sourcePath.parent_path() / *decoded))
+                        return 0; // A missing dependency must never use an old cache.
+                }
+            }
+            catch (const nlohmann::json::exception&)
+            {
+                return 0; // Let the importer diagnose an unreadable descriptor.
+            }
+            return fingerprint;
         }
     } // anonymous namespace
 

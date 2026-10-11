@@ -60,6 +60,18 @@ namespace OloEngine
         /// Bind the 3D wind-field texture to TEX_WIND_FIELD (slot 29).
         static void BindWindTexture();
 
+        // The gust clock, restarted by Renderer3D::ResetFrameSequences so a
+        // replayed run sways from the same phase whatever ran before (#1348).
+        static void ResetClock()
+        {
+            s_Data.m_AccumulatedTime = 0.0f;
+            s_Data.m_PrevAccumulatedTime = 0.0f;
+        }
+        [[nodiscard]] static f32 GetAccumulatedTime()
+        {
+            return s_Data.m_AccumulatedTime;
+        }
+
         [[nodiscard]] static bool HasStableParameters()
         {
             return !s_Data.m_Initialized || s_Data.m_FoliageHistoryValid;

@@ -711,4 +711,72 @@ namespace OloEngine::Tests
             EXPECT_LT(ambient.g, clearAmbient.g) << fibre.Name;
         }
     }
+
+    // ── 4. The per-strand pigment (#1558) ───────────────────────────────────
+
+    namespace
+    {
+        [[nodiscard]] GroomFibreParams PerStrandFibre(u32 hSamples = 4)
+        {
+            // A nearly clear base fibre, as a coat map with black, rust and
+            // white regions is drawn over: the Bernese's.
+            GroomFibreAuthoring authored;
+            authored.PigmentMode = GroomFibrePigmentMode::BaseColorPerStrand;
+            authored.BaseColor = glm::vec3(1.0f, 0.98f, 0.95f);
+            authored.HSamples = hSamples;
+            return MakeGroomFibreParams(authored);
+        }
+    } // namespace
+
+    TEST(GroomFibreParametersTest, ThePerStrandTableReproducesTheBaseColourInversion)
+    {
+        // A strand's absorption is read from a table of BaseColor's own
+        // inversion, interpolated in log2 between its entries: so it is the
+        // inversion to within the interpolation, and at a tint of one -- the
+        // base colour itself -- it is the base's absorption.
+        const GroomFibreParams params = PerStrandFibre();
+        ASSERT_TRUE(params.PerStrand);
+        for (const f32 albedo : { 0.95f, 0.7f, 0.4f, 0.2f, 0.1f, 0.07f })
+        {
+            const f32 exact = GroomFibreSigmaAForAlbedo(glm::vec3(albedo), params.Eta, params.HSamples).g;
+            const f32 tabled = GroomFibrePigmentSigmaA(params, glm::vec3(albedo)).g;
+            EXPECT_NEAR(tabled, exact, std::max(0.03f * exact, 0.005f)) << "albedo " << albedo;
+        }
+        const glm::vec3 base = GroomFibrePigmentSigmaA(params, params.PigmentBase);
+        for (int c = 0; c < 3; ++c)
+        {
+            EXPECT_NEAR(base[c], params.SigmaA[c], std::max(0.03f * params.SigmaA[c], 0.005f)) << "channel " << c;
+        }
+        // Every other mode carries no table and says so.
+        GroomFibreAuthoring plain;
+        plain.PigmentMode = GroomFibrePigmentMode::BaseColor;
+        EXPECT_FALSE(MakeGroomFibreParams(plain).PerStrand);
+    }
+
+    TEST(GroomFibreAppearanceTest, APerStrandBlackStrandAbsorbsWhatAnExitTintLetsThrough)
+    {
+        // WHY THE MODE EXISTS. Under BaseColor a strand's tint multiplies the
+        // light its fibre returns, and over a nearly clear base fibre that
+        // light is almost all TT backlit (see above): a black tint leaves a
+        // fiftieth of a very bright lobe. Per strand, the black is the fibre's
+        // own pigment, the TT is absorbed away inside it, and what is left is
+        // the surface reflection, which never entered: black hair, sheen and
+        // all.
+        const GroomFibreParams base = PerStrandFibre(16);
+        const glm::vec3 tint(0.02f);
+        GroomFibreParams black = base;
+        black.SigmaA = GroomFibrePigmentSigmaA(base, base.PigmentBase * tint);
+
+        const f32 phi = glm::radians(175.0f);
+        const GroomFibreLobeSet exit = GroomFibreEvaluateReference(base, 0.0f, 0.0f, phi);
+        const GroomFibreLobeSet pigmented = GroomFibreEvaluateReference(black, 0.0f, 0.0f, phi);
+        const f32 exitTT = exit[GroomFibreLobe::TT].g * tint.g;
+
+        EXPECT_LT(pigmented[GroomFibreLobe::TT].g, 0.01f * exitTT);
+        const f32 inside = pigmented[GroomFibreLobe::TT].g + pigmented[GroomFibreLobe::TRT].g +
+                           pigmented[GroomFibreLobe::Residual].g;
+        EXPECT_LT(inside, 0.05f * pigmented[GroomFibreLobe::R].g) << "a black strand is left with its sheen";
+        EXPECT_NEAR(pigmented[GroomFibreLobe::R].g, exit[GroomFibreLobe::R].g, 1.0e-6f)
+            << "the sheen never enters the fibre, so the pigment cannot touch it";
+    }
 } // namespace OloEngine::Tests

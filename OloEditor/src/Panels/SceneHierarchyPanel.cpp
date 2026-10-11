@@ -8943,6 +8943,18 @@ namespace OloEngine
                                       "be one side of the animal.");
                 }
 
+                int renderSegments = static_cast<int>(component.m_MaxRenderSegments);
+                if (ImGui::DragInt("Max Render Segments", &renderSegments, 1024.0f, 1, 8000000))
+                {
+                    component.m_MaxRenderSegments = static_cast<u32>(std::clamp(renderSegments, 1, 8000000));
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Limits ribbon geometry memory independently of the strand count. "
+                                      "Longer curves need more segments; increase this budget to draw a "
+                                      "dense coat at its authored strand count and fibre widths.");
+                }
+
                 // What the buffer will actually hold. Same argument as the
                 // preview plan above: a budget that silently thins a coat is
                 // indistinguishable from a broken asset.
@@ -8952,6 +8964,7 @@ namespace OloEngine
                     {
                         GroomStrandBuildSettings build;
                         build.MaxStrands = component.m_MaxRenderStrands;
+                        build.MaxSegments = component.m_MaxRenderSegments;
                         build.GuidesOnly = component.m_GuidesOnly;
                         const GroomStrandMeshStats plan = PlanGroomStrandMesh(*groom, build);
                         ImGui::Text("Geometry: %u of %u strands (every %u%s), %u segments, %.2f MiB",
@@ -9008,11 +9021,12 @@ namespace OloEngine
 
             ImGui::SeparatorText("Pigment");
             {
-                constexpr std::array<const char*, 3> kModes{ "Melanin (measured)", "Base colour", "Absorption" };
+                constexpr std::array<const char*, 4> kModes{ "Melanin (measured)", "Base colour", "Absorption",
+                                                             "Base colour, per strand" };
                 int mode = static_cast<int>(component.m_PigmentMode);
                 if (ImGui::Combo("Mode", &mode, kModes.data(), static_cast<int>(kModes.size())))
                 {
-                    component.m_PigmentMode = static_cast<u8>(std::clamp(mode, 0, 2));
+                    component.m_PigmentMode = static_cast<u8>(std::clamp(mode, 0, static_cast<int>(kModes.size()) - 1));
                 }
             }
 
@@ -9027,6 +9041,11 @@ namespace OloEngine
                     ImGui::ColorEdit3("Base colour", glm::value_ptr(component.m_BaseColor));
                     ImGui::TextDisabled("Inverted to an absorption that reproduces this colour once");
                     ImGui::TextDisabled("multiple scattering has had its say, so it moves with roughness.");
+                    break;
+                case GroomFibrePigmentMode::BaseColorPerStrand:
+                    ImGui::ColorEdit3("Base colour", glm::value_ptr(component.m_BaseColor));
+                    ImGui::TextDisabled("Each strand absorbs as this colour times its own coat tint: a coat");
+                    ImGui::TextDisabled("map's black, rust and white each get their own pigment.");
                     break;
                 case GroomFibrePigmentMode::Absorption:
                 case GroomFibrePigmentMode::Count:
@@ -9382,6 +9401,7 @@ namespace OloEngine
                 ImGui::SeparatorText("Resulting build");
                 GroomStrandBuildSettings build;
                 build.MaxStrands = groomComponent.m_MaxRenderStrands;
+                build.MaxSegments = groomComponent.m_MaxRenderSegments;
                 build.GuidesOnly = groomComponent.m_GuidesOnly;
                 GroomCoatSettings settings = MakeGroomCoatSettings(component);
                 // The MAPS are deliberately not resolved for this readout: the

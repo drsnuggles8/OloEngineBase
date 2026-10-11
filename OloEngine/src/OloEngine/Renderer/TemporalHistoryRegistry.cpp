@@ -2,6 +2,7 @@
 
 #include "OloEngine/Renderer/TemporalHistoryRegistry.h"
 #include "OloEngine/Renderer/RenderGraphDeclarationKey.h"
+#include "OloEngine/Core/DebugLevers.h"
 
 namespace OloEngine
 {
@@ -37,6 +38,7 @@ namespace OloEngine
         if (const auto it = m_Indices.find(key); it != m_Indices.end())
         {
             Entry& entry = m_Entries[it->second];
+            entry.AcquiredThisPopulate = true;
             const bool descriptorChanged = entry.Descriptor != descriptor;
             entry.Dependencies = dependencies;
             if (!debugName.empty())
@@ -56,6 +58,8 @@ namespace OloEngine
                 entry.Valid = false;
                 entry.Texture.Reset();
                 entry.LastInvalidation = TemporalHistoryInvalidationCause::DescriptorChanged;
+                entry.PendingLineageBreak = TemporalHistoryInvalidationCause::DescriptorChanged;
+                entry.Age = 0;
             }
             return {
                 .Token = { it->second, entry.Generation },
@@ -68,6 +72,7 @@ namespace OloEngine
             .Key = key,
             .Descriptor = descriptor,
             .Dependencies = dependencies,
+            .AcquiredThisPopulate = true,
             .DebugName = FString(debugName),
         });
         m_Indices.emplace(key, index);
@@ -77,6 +82,18 @@ namespace OloEngine
             .Token = { index, 1 },
             .Created = true,
         };
+    }
+
+    TemporalHistoryAcquireResult TemporalHistoryRegistry::AcquireExternal(
+        const TemporalHistoryKey& key,
+        const TemporalHistoryDescriptor& descriptor,
+        TemporalHistoryDependency dependencies,
+        std::string debugName)
+    {
+        const TemporalHistoryAcquireResult result = Acquire(key, descriptor, dependencies, std::move(debugName));
+        if (Entry* entry = Resolve(result.Token))
+            entry->External = true;
+        return result;
     }
 
     TemporalHistoryRegistry::Entry* TemporalHistoryRegistry::Resolve(TemporalHistoryToken token)
@@ -152,9 +169,32 @@ namespace OloEngine
     bool TemporalHistoryRegistry::MarkProduced(TemporalHistoryToken token)
     {
         Entry* entry = Resolve(token);
-        if (!entry || !entry->Texture)
+        if (!entry || (!entry->Texture && !entry->External))
             return false;
+        // An external lineage has no extraction to latch its read at: the
+        // frame read it exactly when it was valid as it is marked produced.
+        if (entry->External)
+            entry->ValidAtExtraction = entry->Valid;
+        // The lineage continues only when this frame read a valid history and
+        // nothing broke it since. Otherwise the frame starts a new one, which
+        // carries the cause that ended the old: the pending break, or a copy
+        // that never landed (valid before, invalid when this frame began).
+        const bool continues = entry->ValidAtExtraction &&
+                               entry->PendingLineageBreak == TemporalHistoryInvalidationCause::None;
+        if (continues)
+        {
+            entry->Age = entry->Age == ~0u ? entry->Age : entry->Age + 1u;
+        }
+        else
+        {
+            entry->Age = 1u;
+            entry->LineageCause = entry->PendingLineageBreak != TemporalHistoryInvalidationCause::None
+                                      ? entry->PendingLineageBreak
+                                      : TemporalHistoryInvalidationCause::CopyFailed;
+            entry->PendingLineageBreak = TemporalHistoryInvalidationCause::None;
+        }
         entry->Valid = true;
+        entry->ValidAtExtraction = true;
         entry->LastInvalidation = TemporalHistoryInvalidationCause::None;
         return true;
     }
@@ -164,6 +204,9 @@ namespace OloEngine
         Entry* entry = Resolve(token);
         if (!entry)
             return false;
+        // RenderGraph calls this on every sink before the frame's copies, then
+        // MarkProduced on each copy that lands, so latch what the frame read.
+        entry->ValidAtExtraction = entry->Valid;
         entry->Valid = false;
         entry->LastInvalidation = TemporalHistoryInvalidationCause::CopyFailed;
         return true;
@@ -200,6 +243,10 @@ namespace OloEngine
         TemporalHistoryInvalidationCause cause,
         std::optional<TemporalHistoryEffect> effect)
     {
+        // The #1348 negative control: every reset policy keeps the old lineage.
+        if (Levers::FaultKeepStaleTemporalHistory())
+            return 0;
+
         const TemporalHistoryDependency dependency = DependencyForCause(cause);
         u32 invalidated = 0;
         for (Entry& entry : m_Entries)
@@ -215,9 +262,62 @@ namespace OloEngine
             entry.Generation = NextTemporalHistoryGeneration(entry.Generation);
             entry.Valid = false;
             entry.LastInvalidation = cause;
+            entry.PendingLineageBreak = cause;
+            entry.Age = 0;
             ++invalidated;
         }
         return invalidated;
+    }
+
+    bool TemporalHistoryRegistry::Release(const TemporalHistoryKey& key, TemporalHistoryInvalidationCause cause)
+    {
+        const auto it = m_Indices.find(key);
+        if (it == m_Indices.end())
+            return false;
+        Entry& entry = m_Entries[it->second];
+        if (!entry.Texture && !entry.Valid)
+            return false;
+        entry.Texture.Reset();
+        entry.Generation = NextTemporalHistoryGeneration(entry.Generation);
+        entry.Valid = false;
+        entry.LastInvalidation = cause;
+        entry.PendingLineageBreak = cause;
+        entry.Age = 0;
+        return true;
+    }
+
+    void TemporalHistoryRegistry::BeginPopulate()
+    {
+        for (Entry& entry : m_Entries)
+            entry.AcquiredThisPopulate = false;
+    }
+
+    u32 TemporalHistoryRegistry::ReleaseUnacquired(TemporalHistoryInvalidationCause cause, TArray<FString>* releasedNames)
+    {
+        u32 released = 0;
+        for (const Entry& entry : m_Entries)
+        {
+            if (entry.External || entry.AcquiredThisPopulate || (!entry.Texture && !entry.Valid))
+                continue;
+            const FString name = entry.DebugName;
+            if (Release(entry.Key, cause))
+            {
+                ++released;
+                if (releasedNames)
+                    releasedNames->Add(name);
+            }
+        }
+        return released;
+    }
+
+    bool TemporalHistoryRegistry::HoldsAny(TemporalHistoryEffect effect) const
+    {
+        for (const Entry& entry : m_Entries)
+        {
+            if (entry.Key.Effect == effect && (entry.Texture || entry.Valid))
+                return true;
+        }
+        return false;
     }
 
     void TemporalHistoryRegistry::Clear()
@@ -233,6 +333,8 @@ namespace OloEngine
         key.Add(static_cast<u64>(m_Entries.Num()));
         for (const Entry& entry : m_Entries)
         {
+            if (entry.External)
+                continue;
             key.Add(entry.Key.Effect);
             key.Add(entry.Key.View);
             key.Add(entry.Key.Resolution);
@@ -240,6 +342,22 @@ namespace OloEngine
             // Valid implies a texture (MarkProduced refuses without one), so the
             // texture's creation inside a populate adds nothing but a rebuild.
             key.Add(entry.Valid);
+            // The descriptor too (#1348). A resize changes it INSIDE the
+            // populate that acquires the history, after this frame's key was
+            // captured with the history valid: the acquire drops it, the frame
+            // extracts a new one and leaves it valid again, and without the
+            // descriptor the next frame's key equals this one, so the cached
+            // graph that skipped the import is served until something else
+            // moves the key. SSR's history ran without history after every
+            // upscale toggle that way (RendererStateMachineEvidence's
+            // cached-vs-rebuild pair caught it).
+            key.Add(entry.Descriptor.Width);
+            key.Add(entry.Descriptor.Height);
+            key.Add(entry.Descriptor.Format);
+            key.Add(entry.Descriptor.MipLevels);
+            key.Add(entry.Descriptor.Samples);
+            key.Add(entry.Descriptor.LayoutVersion);
+            key.Add(entry.Descriptor.Backend);
         }
         return key.Get();
     }
@@ -257,6 +375,8 @@ namespace OloEngine
                 .Token = { index, entry.Generation },
                 .Dependencies = entry.Dependencies,
                 .LastInvalidation = entry.LastInvalidation,
+                .Age = entry.Age,
+                .LineageCause = entry.LineageCause,
                 .Valid = entry.Valid,
                 .HasTexture = static_cast<bool>(entry.Texture),
                 .DebugName = entry.DebugName,

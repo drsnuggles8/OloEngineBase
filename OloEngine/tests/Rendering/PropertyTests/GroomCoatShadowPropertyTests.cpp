@@ -336,9 +336,8 @@ TEST(GroomCoatShadowReference, TheGridChangesTheCostAndNotTheAnswer)
 
 TEST(GroomCoatShadowVolume, BinningConservesTheCoatsFibreAreaExactly)
 {
-    // A build that loses fibre area loses shadow, silently. Nearest-voxel
-    // deposit is chosen over a trilinear splat precisely so this is an EXACT
-    // identity rather than an approximate one.
+    // A build that loses fibre area loses shadow, silently. Check the stored
+    // field as well as the build's running mass counter.
     const auto pelt = Tests::GroomStrandFixture::MakePelt(2000u, 6u);
     ASSERT_TRUE(pelt.Groom) << pelt.FailureReason;
 
@@ -365,9 +364,76 @@ TEST(GroomCoatShadowVolume, BinningConservesTheCoatsFibreAreaExactly)
 
     EXPECT_NEAR(stats.TotalArealMass, expected, expected * 1.0e-4)
         << "binned " << stats.TotalArealMass << " expected " << expected;
+    const glm::vec3 voxel = volume.VoxelSize();
+    f64 storedMass = 0.0;
+    for (const f32 density : volume.Density)
+    {
+        storedMass += static_cast<f64>(density) * static_cast<f64>(voxel.x) *
+                      static_cast<f64>(voxel.y) * static_cast<f64>(voxel.z);
+    }
+    EXPECT_NEAR(storedMass, expected, expected * 1.0e-4);
     EXPECT_EQ(stats.SegmentsBinned, segments.size());
     EXPECT_GT(stats.OccupiedVoxels, 0u);
     EXPECT_LT(stats.OccupiedVoxels, stats.TotalVoxels) << "a coat that fills its whole bounding box is not a coat";
+}
+
+TEST(GroomCoatShadowVolume, AShortFibreCrossingAVoxelBoundaryDoesNotJumpInShadow)
+{
+    // The two remote strands pin the box. A short surface hair moves across
+    // its centre voxel boundary by 0.00032 voxels, along with its receiver.
+    // The physical query barely changes; nearest-cell deposition moved all
+    // its area by a whole voxel and produced contours across short face fur.
+    const auto opticalDepth = [](f32 x)
+    {
+        const std::vector<CoatSegment> segments{
+            { glm::vec3(-1.0f), glm::vec3(-0.99f, -1.0f, -1.0f), 1.0e-6f, 1.0e-6f },
+            { glm::vec3(1.0f), glm::vec3(0.99f, 1.0f, 1.0f), 1.0e-6f, 1.0e-6f },
+            { glm::vec3(x, -0.03f, 0.0f), glm::vec3(x, 0.03f, 0.0f), 0.0001f, 0.0001f }
+        };
+        DensityVolumeSettings settings;
+        settings.Resolution = 32u;
+        settings.BoundsPadding = 0.0f;
+        DensityVolume volume;
+        EXPECT_TRUE(BuildDensityVolume(segments, settings, volume));
+        return SampleDensityVolume(volume, glm::vec3(x, 0.0f, 0.0f), glm::vec3(1.0f, 0.0f, 0.0f), true, 0.25f);
+    };
+    const f64 before = opticalDepth(-1.0e-5f);
+    const f64 after = opticalDepth(1.0e-5f);
+    ASSERT_GT(before, 1.0e-6);
+    ASSERT_GT(after, 1.0e-6);
+    EXPECT_LT(std::abs(after - before) / std::max(before, after), 0.01)
+        << "optical depth before " << before << ", after " << after;
+}
+
+TEST(GroomCoatShadowVolume, AThinCoatsSelfShadowDoesNotPulseWithinAVoxel)
+{
+    // A short fibre and its receiver translate together through one cell of
+    // a fixed grid. Linear deposition is continuous but still changes the
+    // fraction of the fibre's density lying in front of itself with grid phase.
+    // On a smooth curved muzzle that periodic variation becomes contour bands.
+    f64 minimum = std::numeric_limits<f64>::max();
+    f64 maximum = 0.0;
+    for (i32 phase = 0; phase <= 8; ++phase)
+    {
+        const f32 x = (static_cast<f32>(phase) / 8.0f - 0.5f) * (2.0f / 32.0f);
+        const std::vector<CoatSegment> segments{
+            { glm::vec3(-1.0f), glm::vec3(-0.99f, -1.0f, -1.0f), 1.0e-6f, 1.0e-6f },
+            { glm::vec3(1.0f), glm::vec3(0.99f, 1.0f, 1.0f), 1.0e-6f, 1.0e-6f },
+            { glm::vec3(x, -0.03f, 0.0f), glm::vec3(x, 0.03f, 0.0f), 0.0001f, 0.0001f }
+        };
+        DensityVolumeSettings settings;
+        settings.Resolution = 32u;
+        settings.BoundsPadding = 0.0f;
+        DensityVolume volume;
+        ASSERT_TRUE(BuildDensityVolume(segments, settings, volume));
+        const f64 depth = SampleDensityVolume(volume, glm::vec3(x, 0.0f, 0.0f),
+                                              glm::vec3(1.0f, 0.0f, 0.0f), true, 0.125f);
+        minimum = std::min(minimum, depth);
+        maximum = std::max(maximum, depth);
+    }
+    ASSERT_GT(minimum, 1.0e-6);
+    EXPECT_LT((maximum - minimum) / maximum, 0.10)
+        << "minimum optical depth " << minimum << ", maximum " << maximum;
 }
 
 TEST(GroomCoatShadowVolume, AnEmptyOrDegenerateInputIsRefusedRatherThanBuilt)

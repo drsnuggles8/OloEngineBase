@@ -380,6 +380,7 @@ namespace OloEngine
         // bounded every entry against it, on cook and on load.
         source.BaseCurveCount = base.GetCurveCount();
         source.BaseGroupRanges = base.GetGroupRanges();
+        source.CoverageGrowth = { level.PointCoverageGrowth.GetData(), static_cast<sizet>(level.PointCoverageGrowth.Num()) };
         return source;
     }
 
@@ -583,6 +584,9 @@ namespace OloEngine
             f32 T1 = 0.0f;
             f32 Radius0 = 0.0f;
             f32 Radius1 = 0.0f;
+            // A card's coverage growth at each end (#1558), 1 on the strand tier.
+            f32 Growth0 = 1.0f;
+            f32 Growth1 = 1.0f;
             f32 SegmentId = 0.0f;
             // The coat tint at each END (#1533): a strand runs from its root tint
             // to its tip tint, so the two corners at P0 carry one value and the
@@ -698,10 +702,14 @@ namespace OloEngine
             // (#1428), so the coverage each role carries survives the step and
             // a role the budget did not thin is not widened at all.
             std::array<f32, GroomCoatRoleCount> roleCompensation{};
+            // And how many strands each kept one stands for, uncapped (#1558): the
+            // shader draws a sub-pixel strand at the coverage that many have.
+            std::array<f32, GroomCoatRoleCount> roleStride{};
             for (sizet role = 0; role < GroomCoatRoleCount; ++role)
             {
                 roleCompensation[role] = GroomRoleWidthCompensation(selection.Available[role], selection.Stride[role],
                                                                     settings.MaxWidthCompensation);
+                roleStride[role] = GroomRoleStandsFor(selection.Available[role], selection.Stride[role]);
             }
 
             // One curve's REST polyline through the coat, rebuilt per curve into
@@ -832,6 +840,16 @@ namespace OloEngine
                     const f32 widthScale = curveCoat.Params.Width * roleCompensation[static_cast<sizet>(curveCoat.Role)];
                     segment.Radius0 = widths[first + i] * 0.5f * widthScale;
                     segment.Radius1 = widths[first + i + 1u] * 0.5f * widthScale;
+                    if (!source.CoverageGrowth.empty())
+                    {
+                        segment.Growth0 = source.CoverageGrowth[first + i];
+                        segment.Growth1 = source.CoverageGrowth[first + i + 1u];
+                    }
+                    else
+                    {
+                        segment.Growth0 = roleStride[static_cast<sizet>(curveCoat.Role)];
+                        segment.Growth1 = segment.Growth0;
+                    }
                     segment.SegmentId = std::bit_cast<f32>(GroomSegmentIdentity(curve, i));
                     segment.Tint0 = tintRuns ? PackGroomCoatTintAt(curveCoat.Params, segment.T0) : rootTint;
                     segment.Tint1 = tintRuns ? PackGroomCoatTintAt(curveCoat.Params, segment.T1) : rootTint;
@@ -894,6 +912,7 @@ namespace OloEngine
 
             atP0(vertex);
             vertex.Radius = segment.Radius0;
+            vertex.CoverageGrowth = segment.Growth0;
             vertex.Tint = segment.Tint0;
             vertex.Side = -1.0f;
             vertex.Coords = { segment.T0, -1.0f };
@@ -905,6 +924,7 @@ namespace OloEngine
 
             atP1(vertex);
             vertex.Radius = segment.Radius1;
+            vertex.CoverageGrowth = segment.Growth1;
             vertex.Tint = segment.Tint1;
             vertex.Side = 1.0f;
             vertex.Coords = { segment.T1, 1.0f };
@@ -1772,6 +1792,17 @@ namespace OloEngine
             });
         stats.SegmentCount = static_cast<u32>(outCentrelines.size());
         return stats;
+    }
+
+    f32 GroomRoleStandsFor(u32 available, u32 stride) noexcept
+    {
+        if (available == 0u || stride <= 1u)
+        {
+            return 1.0f;
+        }
+        // The count the stride keeps, exactly as SelectCurves counts it.
+        const u32 kept = (available + stride - 1u) / stride;
+        return static_cast<f32>(available) / static_cast<f32>(kept);
     }
 
     f32 GroomRoleWidthCompensation(u32 available, u32 stride, f32 maxCompensation, bool* outCapped) noexcept

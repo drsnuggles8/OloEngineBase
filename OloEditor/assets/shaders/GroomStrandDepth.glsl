@@ -68,7 +68,7 @@ layout(location = 4) in vec2 a_Coords;
 layout(location = 5) in float a_SegmentId;
 layout(location = 6) in float a_Tint;
 layout(location = 7) in vec3 a_PrevPosition;
-layout(location = 8) in float a_Pad1;
+layout(location = 8) in float a_CoverageGrowth; // unused here: the caster draws at the shadow's own width
 #endif
 
 // The shadow camera UBO ShadowRenderPass fills per item: u_ViewProjection is

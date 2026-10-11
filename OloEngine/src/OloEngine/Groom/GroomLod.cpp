@@ -342,4 +342,80 @@ namespace OloEngine
         decision.SimulationFraction = GroomLodStepFraction(decision.SimulationStep);
         return decision;
     }
+
+    f32 GroomCardCoverageGrowthBlend(f32 pixelSize, f32 sourcePixelSize) noexcept
+    {
+        if (!(sourcePixelSize > 0.0f) || !(pixelSize > 0.0f) || !std::isfinite(sourcePixelSize) ||
+            !std::isfinite(pixelSize) || pixelSize >= sourcePixelSize)
+        {
+            return 0.0f;
+        }
+        return 1.0f - (pixelSize / sourcePixelSize);
+    }
+
+    namespace
+    {
+        // span (1 - exp(-summed / span)): bands of summed width `summed` spread
+        // over a region `span` wide, composited as independent layers. Mirrors
+        // GroomStrand.glsl's oloGroomOverlapCoverage.
+        [[nodiscard]] f32 OverlapCoverage(f32 summed, f32 span) noexcept
+        {
+            return span * (1.0f - std::exp(-summed / std::max(span, 1.0e-9f)));
+        }
+    } // namespace
+
+    f32 GroomCardCoverageWiden(f32 cooked, f32 summed, f32 footprint) noexcept
+    {
+        if (!std::isfinite(cooked) || !std::isfinite(summed) || !std::isfinite(footprint) || !(cooked > 0.0f) ||
+            !(summed > cooked) || !(footprint > 0.0f) || footprint >= 1.0f)
+        {
+            return 1.0f;
+        }
+        // The statements below are GroomStrand.glsl's, one for one.
+        const f32 compact = OverlapCoverage(summed, footprint);
+        f32 now = 0.0f;
+        if (cooked <= compact)
+        {
+            now = OverlapCoverage(summed, 1.0f) * (cooked / std::max(compact, 1.0e-9f));
+        }
+        else
+        {
+            // span (1 - exp(-S / span)) = C0 for span = E + footprint, which
+            // rises from `compact` at span = footprint toward S: bisection in
+            // log span. The upper end is four times the span the curve's
+            // large-span expansion S - S^2 / (2 span) puts at C0, which always
+            // brackets the root.
+            f32 lo = std::log(footprint);
+            f32 hi = std::log(std::max(footprint, summed * summed / std::max(2.0f * (summed - cooked), 1.0e-9f)) * 4.0f);
+            for (int i = 0; i < 24; ++i)
+            {
+                const f32 mid = 0.5f * (lo + hi);
+                if (OverlapCoverage(summed, std::exp(mid)) < cooked)
+                {
+                    lo = mid;
+                }
+                else
+                {
+                    hi = mid;
+                }
+            }
+            const f32 extent = std::max(std::exp(0.5f * (lo + hi)) - footprint, 0.0f);
+            now = OverlapCoverage(summed, extent + 1.0f);
+        }
+        return std::clamp(now / cooked, 1.0f, summed / cooked);
+    }
+
+    f32 GroomStrandStrideWiden(f32 drawn, f32 standsFor, f32 cap) noexcept
+    {
+        if (!std::isfinite(drawn) || !std::isfinite(standsFor) || !std::isfinite(cap) || !(drawn > 0.0f) ||
+            !(standsFor > 1.0f))
+        {
+            return 1.0f;
+        }
+        // GroomStrand.glsl's statements, one for one.
+        const f32 applied = std::clamp(standsFor, 1.0f, std::max(cap, 1.0f));
+        const f32 own = drawn / applied;
+        const f32 covered = 1.0f - std::pow(1.0f - std::min(own, 1.0f), standsFor) + std::max(own - 1.0f, 0.0f) * applied;
+        return covered / drawn;
+    }
 } // namespace OloEngine

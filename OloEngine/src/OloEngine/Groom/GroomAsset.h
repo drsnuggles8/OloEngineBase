@@ -27,6 +27,7 @@
 
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Asset/AssetTypes.h"
+#include "OloEngine/Containers/Array.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Groom/GroomCoat.h"
 #include "OloEngine/Groom/GroomLod.h"
@@ -71,6 +72,8 @@ namespace OloEngine
         // convention). Zero is legal (a strand tapering to nothing); negative
         // is not.
         constexpr f32 MaxWidth = 1.0e4f;
+        /// A card point's summed-over-covered width (GroomLodLevel::PointCoverageGrowth).
+        constexpr f32 MaxCoverageGrowth = 1024.0f;
 
         // Object-space coordinate bound. Anything past it is a unit-scale
         // accident, not a groom, and would poison the bounds.
@@ -260,6 +263,17 @@ namespace OloEngine
         /// groom's curve count. Validated on cook AND on load: a corrupt entry
         /// here indexes the root-transform array out of bounds.
         std::vector<u32> SourceCurves;
+
+        /// PointCount: the members' SUMMED width over the width they COVER at
+        /// the cook's pixel footprint (PointWidths), >= 1 -- the most a card may
+        /// widen once a pixel spans far more than the cook's (#1558). As the coat
+        /// shrinks, the strands a card stands for cover toward their summed
+        /// width; a card held at its cooked width fell 10-15% short of them at
+        /// three times the hand-over distance. The shader widens it to what its
+        /// members cover at the pixel it is drawn at, from this and the cooked
+        /// width alone (GroomCardCoverageWiden), capped here. 1 where the width
+        /// is summed.
+        TArray<f32> PointCoverageGrowth;
 
         /// Which tier this level serves.
         GroomRepresentation Representation = GroomRepresentation::Card;

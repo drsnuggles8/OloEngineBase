@@ -5932,6 +5932,11 @@ namespace OloEngine
         OLO_SERIALIZE(Clamp, Min = 1, Max = 8000000)
         u32 m_MaxRenderStrands = 100000; // ribbon geometry budget — see GroomStrandMesh.h
 
+        // A long, dense coat can reach this budget before its strand cap.
+        // Expose both so authored fine fibres are not silently thinned and widened.
+        OLO_SERIALIZE(Clamp, Min = 1, Max = 8000000)
+        u32 m_MaxRenderSegments = 2000000;
+
         // Multiplies the cooked object-space DIAMETERS. An authoring lever for
         // a groom exported at a different unit scale, not a quality knob: at
         // 1.0 a 70 um hair is 70 um, which is what the coverage comparison was
@@ -5970,15 +5975,6 @@ namespace OloEngine
         // ComponentReflection.h names exactly this case as the motivating one.
         OLO_SERIALIZE(Reject, Min = 0, Max = 3)
         u8 m_CompositionMode = static_cast<u8>(GroomCompositionMode::StochasticAlpha);
-
-        OLO_SERIALIZE(Skip)
-        u8 Pad0 = 0;
-        OLO_SERIALIZE(Skip)
-        u8 Pad1 = 0;
-        OLO_SERIALIZE(Skip)
-        u8 Pad2 = 0;
-        OLO_SERIALIZE(Skip)
-        u8 Pad3 = 0;
 
         GroomComponent() = default;
         GroomComponent(const GroomComponent&) = default;
@@ -6187,7 +6183,7 @@ namespace OloEngine
         /// turns a corrupt value into a DIFFERENT valid one and the coat
         /// renders a colour nobody authored. Same reasoning, and the same
         /// reference, as GroomComponent::m_CompositionMode.
-        OLO_SERIALIZE(Reject, Min = 0, Max = 2)
+        OLO_SERIALIZE(Reject, Min = 0, Max = 3)
         u8 m_PigmentMode = static_cast<u8>(GroomFibrePigmentMode::Melanin);
 
         /// GroomFibreDebugMode — which contribution the pass renders. The

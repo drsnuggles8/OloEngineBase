@@ -564,7 +564,7 @@ namespace OloEngine::Tests
             << onExcess << " of frame-to-frame movement over the SSR-disabled floor, against "
             << offExcess
             << " at feedback 0. Either the history is never valid (check the SSRHistory "
-               "sink/import and the SSRHistoryValid fingerprint hash), or the feedback collapses "
+               "registry entry and its validity key), or the feedback collapses "
                "every frame (check OloTemporalMotionFeedback's sub-pixel dead zone against a "
                "stationary camera).";
     }

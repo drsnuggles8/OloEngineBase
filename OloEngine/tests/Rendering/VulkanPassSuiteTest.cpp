@@ -4628,6 +4628,113 @@ TEST_F(VulkanPassSuite, TaaResolvesIdentityAndBlendsTheImportedHistory)
 }
 
 // =============================================================================
+// TAA without a history resolves to its input, WHATEVER THE VELOCITY (#1348).
+// With no history the pass binds the current frame where the history goes.
+// The shader used to reproject that by the frame's velocity and blend, which
+// is a no-op only at zero velocity, as in the test above, and a camera cut, a
+// projection change or a restarted sequence is exactly a frame with a large
+// one. Here: a 1-pixel checkerboard and a uniform 3-pixel velocity, an odd
+// shift, so the reprojected "history" is the INVERTED board, inside the
+// neighbourhood box. Blended, every pixel lands far from the input; resolved
+// as a history-less frame, every pixel is the input.
+// =============================================================================
+TEST_F(VulkanPassSuite, TaaWithoutHistoryResolvesToItsInputWhateverTheVelocity)
+{
+    constexpr u32 kSize = 128;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    constexpr u8 kLow = 96;
+    constexpr u8 kHigh = 160;
+    TArray64<u8> pixels(static_cast<sizet>(kSize) * kSize * 4);
+    for (u32 y = 0; y < kSize; ++y)
+    {
+        for (u32 x = 0; x < kSize; ++x)
+        {
+            const u8 v = ((x + y) & 1u) ? kHigh : kLow;
+            const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+            pixels[i + 0] = v;
+            pixels[i + 1] = v;
+            pixels[i + 2] = v;
+            pixels[i + 3] = 255;
+        }
+    }
+    TextureSpecification spec;
+    spec.Width = kSize;
+    spec.Height = kSize;
+    spec.Format = ImageFormat::RGBA8;
+    spec.GenerateMips = false;
+    auto checker = Texture2D::Create(spec);
+    ASSERT_NE(checker, nullptr);
+    checker->SetData(pixels.GetData(), static_cast<u32>(pixels.Num()));
+
+    auto depthTexture = MakeSolidTexture(kSize, 0, 0, 0, 255);
+    ASSERT_NE(depthTexture, nullptr);
+    // 6/255 of the frame in x is 3.01 pixels at 128: an odd shift.
+    auto velocityTexture = MakeSolidTexture(kSize, 6, 0, 0, 255);
+    ASSERT_NE(velocityTexture, nullptr);
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+    MotionBlurUBOData motionData{};
+    auto motionUbo = UniformBuffer::Create(sizeof(MotionBlurUBOData), 8);
+    motionUbo->SetData(&motionData, sizeof(motionData));
+
+    m_ExtraSetup = [&](RenderGraph& graph, FrameBlackboard& blackboard)
+    {
+        RGResourceDesc auxDesc;
+        auxDesc.Kind = RGResourceHandle::Kind::Texture2D;
+        auxDesc.Format = RGResourceFormat::RGBA8UNorm;
+        auxDesc.Width = kSize;
+        auxDesc.Height = kSize;
+        blackboard.Scene.SceneDepth =
+            graph.ImportTextureHandle(ResourceNames::SceneDepth, depthTexture->GetRHIHandle(), auxDesc);
+        blackboard.Scene.SceneVelocity =
+            graph.ImportTextureHandle(ResourceNames::Velocity, velocityTexture->GetRHIHandle(), auxDesc);
+        // No TAAHistory import: this is the first frame of a lineage.
+    };
+
+    auto taa = Ref<TAARenderPass>::Create();
+    FramebufferSpecification initSpec;
+    initSpec.Width = kSize;
+    initSpec.Height = kSize;
+    initSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+    taa->Init(initSpec);
+    taa->SetEnabled(true);
+    PostProcessSettings settings{};
+    settings.TAAFeedback = 0.9f;
+    settings.TAASharpness = 0.0f;
+    taa->SetSettings(settings);
+    auto producer = Ref<PatternProducerPass>::Create(checker, blitShader);
+    const auto frame = RunSinglePassChain(
+        kSize, producer, taa, "TAAPass", ResourceNames::TAAColor,
+        [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
+        { blackboard.Post.TAAColor = handle; }, 2u, 2u);
+    ASSERT_EQ(frame.Num(), static_cast<sizet>(kSize) * kSize * 4);
+
+    // Away from the left/right borders, where a 3-pixel shift leaves the frame.
+    u32 maxDiff = 0;
+    for (u32 y = 0; y < kSize; ++y)
+    {
+        for (u32 x = 8; x < kSize - 8; ++x)
+        {
+            const int expected = ((x + y) & 1u) ? kHigh : kLow;
+            const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+            maxDiff = std::max(maxDiff, static_cast<u32>(std::abs(static_cast<int>(frame[i]) - expected)));
+        }
+    }
+    EXPECT_LE(maxDiff, 2u) << "a history-less frame blended the current frame with a copy of itself displaced by "
+                              "the velocity";
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
+    m_ExtraSetup = nullptr;
+}
+
+// =============================================================================
 // TAA's sharpen stays inside the range it sharpens (#1533). The unsharp mask
 // ran unbounded on linear colour, so beside one bright sample a dark pixel's
 // 3x3 mean was far above its own value and the mask drove it below zero: the

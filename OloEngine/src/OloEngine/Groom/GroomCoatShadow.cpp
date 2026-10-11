@@ -1237,15 +1237,42 @@ namespace OloEngine::GroomCoatShadow
                     continue;
                 }
 
-                // NEAREST-voxel deposit, not a trilinear splat. Nearest
-                // conserves the fibre area EXACTLY — the sum over voxels is the
-                // sum over segments, which is what TotalArealMass asserts — and
-                // a splat that leaked mass out of the boundary voxels would
-                // lose shadow without saying so.
-                const sizet index = VoxelIndex(dims, vx, vy, vz);
+                // A cubic B-spline deposit keeps a thin coat's density smooth
+                // as its fibres cross the grid. A nearest-cell deposit jumps;
+                // a linear deposit is continuous but its self-shadow still
+                // pulses with sub-voxel phase, drawing contours on a muzzle.
+                // The separable weights sum to one. Clamping destinations
+                // preserves all area even when BoundsPadding is zero.
+                const glm::vec3 centred = local - glm::vec3(0.5f);
+                const glm::vec3 base = glm::floor(centred);
+                const glm::vec3 frac = centred - base;
+                const glm::vec3 squared = frac * frac;
+                const glm::vec3 cubed = squared * frac;
+                const glm::vec3 complement = glm::vec3(1.0f) - frac;
+                const std::array<glm::vec3, 4> weights{
+                    complement * complement * complement / 6.0f,
+                    (3.0f * cubed - 6.0f * squared + glm::vec3(4.0f)) / 6.0f,
+                    (-3.0f * cubed + 3.0f * squared + 3.0f * frac + glm::vec3(1.0f)) / 6.0f,
+                    cubed / 6.0f
+                };
                 const f32 mass = dl * diameter;
-                outVolume.Density[index] += mass;
-                outVolume.Direction[index] += dir * mass;
+                for (i32 dz = 0; dz < 4; ++dz)
+                {
+                    const i32 z = std::clamp(static_cast<i32>(base.z) + dz - 1, 0, dims.z - 1);
+                    for (i32 dy = 0; dy < 4; ++dy)
+                    {
+                        const i32 y = std::clamp(static_cast<i32>(base.y) + dy - 1, 0, dims.y - 1);
+                        const f32 yzWeight = weights[dy].y * weights[dz].z;
+                        for (i32 dx = 0; dx < 4; ++dx)
+                        {
+                            const i32 x = std::clamp(static_cast<i32>(base.x) + dx - 1, 0, dims.x - 1);
+                            const sizet index = VoxelIndex(dims, x, y, z);
+                            const f32 weightedMass = mass * weights[dx].x * yzWeight;
+                            outVolume.Density[index] += weightedMass;
+                            outVolume.Direction[index] += dir * weightedMass;
+                        }
+                    }
+                }
                 totalMass += static_cast<f64>(mass);
             }
 

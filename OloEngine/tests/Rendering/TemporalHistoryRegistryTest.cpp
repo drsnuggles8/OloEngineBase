@@ -2,6 +2,7 @@
 
 #include "OloEnginePCH.h"
 
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/TemporalHistoryRegistry.h"
 
 #include <gtest/gtest.h>
@@ -23,6 +24,25 @@ namespace OloEngine::Tests
         // accumulating history (the GPU path tracer) declares because it cannot
         // reproject, and the reprojecting SSGI/SSR fixtures here must not.
         // Its cause mapping is pinned in EveryLifecycleCauseTargetsItsDeclaredDependency.
+
+        // The stale-history lever, restored however the test leaves the scope.
+        class ScopedStaleHistoryFault
+        {
+          public:
+            ScopedStaleHistoryFault() : m_Previous(Levers::FaultKeepStaleTemporalHistory())
+            {
+                Levers::SetFaultKeepStaleTemporalHistory(true);
+            }
+            ~ScopedStaleHistoryFault()
+            {
+                Levers::SetFaultKeepStaleTemporalHistory(m_Previous);
+            }
+            ScopedStaleHistoryFault(const ScopedStaleHistoryFault&) = delete;
+            ScopedStaleHistoryFault& operator=(const ScopedStaleHistoryFault&) = delete;
+
+          private:
+            bool m_Previous;
+        };
 
         TemporalHistoryDescriptor MakeDescriptor(u32 width = 640, u32 height = 360)
         {
@@ -98,6 +118,27 @@ namespace OloEngine::Tests
             registry.Acquire(MakeKey(TemporalHistoryEffect::SSR), MakeDescriptor(), kAllViewDependencies, "SSRHistory");
         ASSERT_TRUE(second.Created);
         EXPECT_NE(registry.ComputeValidityKey(), one);
+    }
+
+    // #1348: the key moves when a history's descriptor does. A resize changes
+    // it inside the populate that acquires the history, after the frame's key
+    // was captured with the history valid; the frame then produces it valid
+    // again. Valid before, valid after: only the descriptor tells the next
+    // frame that the cached graph never imported the resized history. The
+    // external validity in this test stands in for the produced frame.
+    TEST(TemporalHistoryRegistry, ValidityKeyMovesWhenADescriptorChanges)
+    {
+        TemporalHistoryRegistry registry;
+        (void)registry.Acquire(MakeKey(), MakeDescriptor(640, 360), kAllViewDependencies, "SSRHistory");
+        const u64 before = registry.ComputeValidityKey();
+
+        (void)registry.Acquire(MakeKey(), MakeDescriptor(320, 180), kAllViewDependencies, "SSRHistory");
+        EXPECT_NE(registry.ComputeValidityKey(), before)
+            << "a resized history kept the key: the cached graph that skipped its import would be served again";
+
+        const u64 resized = registry.ComputeValidityKey();
+        (void)registry.Acquire(MakeKey(), MakeDescriptor(320, 180), kAllViewDependencies, "SSRHistory");
+        EXPECT_EQ(registry.ComputeValidityKey(), resized) << "an unchanged descriptor must not move the key";
     }
 
     // A holder that latched a token when a history was acquired (the render
@@ -253,5 +294,194 @@ namespace OloEngine::Tests
         EXPECT_EQ(snapshots[0].LastInvalidation, TemporalHistoryInvalidationCause::SceneReset);
         EXPECT_EQ(snapshots[0].DebugName, "SSGI.Signal");
         EXPECT_FALSE(snapshots[0].Valid);
+    }
+
+    // #1348: a sequence restart breaks every lineage, whatever it declares. A
+    // ReSTIR reservoir set declares no jitter dependency and the path tracer
+    // no jitter either, yet both were accumulated on the old sequence; the
+    // JitterReset ResetFrameSequences used to raise left them alive.
+    TEST(TemporalHistoryRegistry, SamplingSequenceResetReachesEveryHistoryWhateverItDeclares)
+    {
+        TemporalHistoryRegistry registry;
+        const auto none = registry.Acquire(MakeKey(TemporalHistoryEffect::ReSTIRDI), MakeDescriptor(),
+                                           TemporalHistoryDependency::None);
+        const auto noJitter = registry.Acquire(MakeKey(TemporalHistoryEffect::ReSTIRGI), MakeDescriptor(),
+                                               TemporalHistoryDependency::ViewTransform);
+        const auto jitter = registry.Acquire(MakeKey(TemporalHistoryEffect::TAA), MakeDescriptor(),
+                                             TemporalHistoryDependency::Jitter);
+
+        EXPECT_EQ(registry.Invalidate(TemporalHistoryInvalidationCause::SamplingSequenceReset), 3u);
+        EXPECT_FALSE(registry.IsCurrent(none.Token));
+        EXPECT_FALSE(registry.IsCurrent(noJitter.Token));
+        EXPECT_FALSE(registry.IsCurrent(jitter.Token));
+        for (const auto& history : registry.Snapshot())
+        {
+            EXPECT_EQ(history.LastInvalidation, TemporalHistoryInvalidationCause::SamplingSequenceReset);
+            EXPECT_EQ(history.Age, 0u);
+        }
+    }
+
+    // The lineage AOV starts empty: no frame accumulated, started by first use.
+    TEST(TemporalHistoryRegistry, ANewHistoryReportsAnEmptyFirstUseLineage)
+    {
+        TemporalHistoryRegistry registry;
+        (void)registry.Acquire(MakeKey(), MakeDescriptor(), kAllViewDependencies, "SSGI.Signal");
+        const auto snapshots = registry.Snapshot();
+        ASSERT_EQ(snapshots.Num(), 1u);
+        EXPECT_EQ(snapshots[0].Age, 0u);
+        EXPECT_EQ(snapshots[0].LineageCause, TemporalHistoryInvalidationCause::FirstUse);
+    }
+
+    // Release on a history that holds neither a texture nor a valid frame has
+    // nothing to free and must not advance its generation: the SSR branch that
+    // calls it runs on every populate while SSR is off.
+    TEST(TemporalHistoryRegistry, ReleasingAnEmptyHistoryIsANoOp)
+    {
+        TemporalHistoryRegistry registry;
+        const auto acquired = registry.Acquire(MakeKey(TemporalHistoryEffect::SSR), MakeDescriptor(),
+                                               kAllViewDependencies, "SSRHistory");
+        EXPECT_FALSE(registry.Release(MakeKey(TemporalHistoryEffect::SSR),
+                                      TemporalHistoryInvalidationCause::FeatureToggled));
+        EXPECT_TRUE(registry.IsCurrent(acquired.Token));
+        EXPECT_FALSE(registry.Release(MakeKey(TemporalHistoryEffect::Cloudscape),
+                                      TemporalHistoryInvalidationCause::FeatureToggled))
+            << "a key that was never acquired has nothing to release";
+    }
+
+    // The #1348 negative-control lever: with it on, no cause reaches any
+    // history. The evidence tests run their stale-history checks under it and
+    // must fail; this pins that the lever does what they rely on, and that
+    // turning it off restores the policy.
+    TEST(TemporalHistoryRegistry, StaleHistoryFaultKeepsEveryLineage)
+    {
+        TemporalHistoryRegistry registry;
+        const auto acquired = registry.Acquire(MakeKey(), MakeDescriptor(), kAllViewDependencies);
+        {
+            const ScopedStaleHistoryFault fault;
+            EXPECT_EQ(registry.Invalidate(TemporalHistoryInvalidationCause::CameraCut), 0u);
+            EXPECT_EQ(registry.Invalidate(TemporalHistoryInvalidationCause::SamplingSequenceReset), 0u);
+            EXPECT_EQ(registry.Invalidate(TemporalHistoryInvalidationCause::Manual), 0u);
+            EXPECT_TRUE(registry.IsCurrent(acquired.Token));
+        }
+
+        EXPECT_EQ(registry.Invalidate(TemporalHistoryInvalidationCause::CameraCut), 1u);
+        EXPECT_FALSE(registry.IsCurrent(acquired.Token));
+    }
+
+    // The lineage AOV, driven through an external entry (ReSTIR PT's path
+    // records), which needs no texture to be produced. Age counts the frames
+    // that read the history and wrote it back; a break restarts it at 1 with
+    // the cause that broke it, and that cause survives later frames.
+    TEST(TemporalHistoryRegistry, LineageAgeCountsContinuedFramesAndRestartsWithItsCause)
+    {
+        TemporalHistoryRegistry registry;
+        const auto key = MakeKey(TemporalHistoryEffect::ReSTIRPT, TemporalHistoryPlane::ReservoirState);
+        const auto produce = [&]()
+        {
+            const auto acquired = registry.AcquireExternal(key, MakeDescriptor(), kAllViewDependencies, "PT");
+            EXPECT_TRUE(registry.MarkProduced(acquired.Token));
+            return registry.Snapshot()[0];
+        };
+
+        EXPECT_EQ(produce().Age, 1u);
+        EXPECT_EQ(produce().Age, 2u);
+        const auto third = produce();
+        EXPECT_EQ(third.Age, 3u);
+        EXPECT_EQ(third.LineageCause, TemporalHistoryInvalidationCause::FirstUse);
+
+        ASSERT_EQ(registry.Invalidate(TemporalHistoryInvalidationCause::CameraCut), 1u);
+        EXPECT_EQ(registry.Snapshot()[0].Age, 0u);
+        const auto afterCut = produce();
+        EXPECT_EQ(afterCut.Age, 1u);
+        EXPECT_EQ(afterCut.LineageCause, TemporalHistoryInvalidationCause::CameraCut);
+        EXPECT_EQ(afterCut.LastInvalidation, TemporalHistoryInvalidationCause::None);
+        const auto later = produce();
+        EXPECT_EQ(later.Age, 2u);
+        EXPECT_EQ(later.LineageCause, TemporalHistoryInvalidationCause::CameraCut)
+            << "the lineage cause is what started the lineage, not cleared by a produced frame";
+
+        // The negative control keeps the lineage climbing through a cut.
+        {
+            const ScopedStaleHistoryFault fault;
+            EXPECT_EQ(registry.Invalidate(TemporalHistoryInvalidationCause::CameraCut), 0u);
+        }
+        EXPECT_EQ(produce().Age, 3u);
+    }
+
+    // A frame whose copy never landed breaks the lineage too: the next
+    // produced frame starts at 1 with CopyFailed, even though no invalidation
+    // ran. RenderGraph marks every sink failed before its copies and produced
+    // after each one that lands; this is the frame where one did not.
+    TEST(TemporalHistoryRegistry, AFrameThatProducedNothingBreaksTheLineage)
+    {
+        TemporalHistoryRegistry registry;
+        const auto key = MakeKey(TemporalHistoryEffect::ReSTIRPT, TemporalHistoryPlane::ReservoirState);
+        auto acquired = registry.AcquireExternal(key, MakeDescriptor(), kAllViewDependencies);
+        ASSERT_TRUE(registry.MarkProduced(acquired.Token));
+        ASSERT_TRUE(registry.MarkProduced(acquired.Token));
+        ASSERT_EQ(registry.Snapshot()[0].Age, 2u);
+
+        ASSERT_TRUE(registry.MarkCopyFailed(acquired.Token)); // the copy that did not land
+        ASSERT_TRUE(registry.MarkCopyFailed(acquired.Token)); // next frame's pre-copy mark
+        ASSERT_TRUE(registry.MarkProduced(acquired.Token));
+        const auto snapshot = registry.Snapshot()[0];
+        EXPECT_EQ(snapshot.Age, 1u);
+        EXPECT_EQ(snapshot.LineageCause, TemporalHistoryInvalidationCause::CopyFailed);
+    }
+
+    // An external lineage is never imported, so it must not move the
+    // declaration key when it becomes valid: that would rebuild the frame
+    // graph on the first frame of every lineage for nothing.
+    TEST(TemporalHistoryRegistry, AnExternalLineageStaysOutOfTheValidityKey)
+    {
+        TemporalHistoryRegistry registry;
+        const auto acquired = registry.AcquireExternal(
+            MakeKey(TemporalHistoryEffect::ReSTIRPT, TemporalHistoryPlane::ReservoirState), MakeDescriptor(),
+            kAllViewDependencies);
+        const u64 before = registry.ComputeValidityKey();
+        ASSERT_TRUE(registry.MarkProduced(acquired.Token));
+        EXPECT_EQ(registry.ComputeValidityKey(), before);
+        EXPECT_TRUE(registry.HoldsAny(TemporalHistoryEffect::ReSTIRPT));
+        EXPECT_FALSE(registry.HoldsAny(TemporalHistoryEffect::ReSTIRDI));
+    }
+
+    // The populate sweep releases only what a populate could have acquired:
+    // an external lineage is acquired by its owner around the graph's
+    // execution, never by the populate, and must outlive every sweep.
+    TEST(TemporalHistoryRegistry, ThePopulateSweepLeavesExternalLineagesToTheirOwner)
+    {
+        TemporalHistoryRegistry registry;
+        const auto key = MakeKey(TemporalHistoryEffect::VolumetricFog, TemporalHistoryPlane::Signal);
+        const auto acquired = registry.AcquireExternal(key, MakeDescriptor(), kAllViewDependencies, "Fog");
+        ASSERT_TRUE(registry.MarkProduced(acquired.Token));
+        // A texture-less history the populate declared and never produced has
+        // nothing to release either.
+        (void)registry.Acquire(MakeKey(), MakeDescriptor(), kAllViewDependencies, "SSGI");
+
+        registry.BeginPopulate();
+        TArray<FString> released;
+        EXPECT_EQ(registry.ReleaseUnacquired(TemporalHistoryInvalidationCause::FeatureToggled, &released), 0u);
+        EXPECT_EQ(released.Num(), 0);
+        EXPECT_TRUE(registry.IsValid(acquired.Token));
+        EXPECT_EQ(registry.Snapshot()[0].Age, 1u);
+    }
+
+    // Releasing a live history ends its lineage with the stated cause, and a
+    // second release has nothing left to do.
+    TEST(TemporalHistoryRegistry, ReleasingALiveHistoryEndsItsLineage)
+    {
+        TemporalHistoryRegistry registry;
+        const auto key = MakeKey(TemporalHistoryEffect::ReSTIRPT, TemporalHistoryPlane::ReservoirState);
+        auto acquired = registry.AcquireExternal(key, MakeDescriptor(), kAllViewDependencies);
+        ASSERT_TRUE(registry.MarkProduced(acquired.Token));
+        EXPECT_TRUE(registry.Release(key, TemporalHistoryInvalidationCause::FeatureToggled));
+        EXPECT_FALSE(registry.IsCurrent(acquired.Token));
+        EXPECT_FALSE(registry.HoldsAny(TemporalHistoryEffect::ReSTIRPT));
+        EXPECT_FALSE(registry.Release(key, TemporalHistoryInvalidationCause::FeatureToggled));
+
+        acquired = registry.AcquireExternal(key, MakeDescriptor(), kAllViewDependencies);
+        ASSERT_TRUE(registry.MarkProduced(acquired.Token));
+        EXPECT_EQ(registry.Snapshot()[0].LineageCause, TemporalHistoryInvalidationCause::FeatureToggled);
+        EXPECT_EQ(registry.Snapshot()[0].Age, 1u);
     }
 } // namespace OloEngine::Tests

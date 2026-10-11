@@ -136,7 +136,15 @@ namespace OloEngine
         /// point it uses this.
         glm::vec3 PrevPosition{ 0.0f };
 
-        f32 Pad1 = 0.0f;
+        /// How many strands' coverage this ribbon stands for beyond its own. On a
+        /// card level, its coverage growth (GroomLodLevel::PointCoverageGrowth):
+        /// how much wider its members cover once a pixel spans far more than the
+        /// cook's, which the shader applies by GroomCardCoverageWiden. On the
+        /// strand tier, how many strands of its role a kept one stands for
+        /// (GroomRoleStandsFor, 1 unthinned), which the shader turns into the
+        /// coverage that many have once the strand is thinner than a pixel
+        /// (GroomStrandStrideWiden, #1558).
+        f32 CoverageGrowth = 1.0f;
     };
 
     // ── The GPU-deformed encoding of the same sixteen floats (#1427) ──────────
@@ -227,9 +235,9 @@ namespace OloEngine
         u32 MaxStrands = 100000;
 
         /// Upper bound on the SEGMENTS, which is what actually sizes the
-        /// buffer: 4 vertices and 6 indices each. 2M segments is 96 MB of
-        /// vertex data, which is the point past which a groom should be
-        /// answered with a budget rather than an allocation.
+        /// buffer: 4 vertices and 6 indices each. Kept separate from the
+        /// strand budget because long curves need more geometry per strand.
+        /// Scene submission uses the authored GroomComponent segment budget.
         u32 MaxSegments = 2000000;
 
         /// Draw only the guide curves. The authoring view, not a quality tier.
@@ -394,6 +402,10 @@ namespace OloEngine
         /// itself. How many base strands a level stands for per group is what
         /// scales the coat's per-strand jitter on a card (#1428).
         std::span<const GroomGroupRange> BaseGroupRanges{};
+
+        /// Per point of `Curves`: a card level's coverage growth (#1558). Empty
+        /// for the base groom, which reads as 1 everywhere.
+        std::span<const f32> CoverageGrowth{};
 
         [[nodiscard]] u32 SourceCurve(u32 curve) const noexcept
         {
@@ -740,6 +752,13 @@ namespace OloEngine
     // needed more than the cap allowed, so it is drawn thinner than authored.
     [[nodiscard]] f32 GroomRoleWidthCompensation(u32 available, u32 stride, f32 maxCompensation,
                                                  bool* outCapped = nullptr) noexcept;
+
+    // How many of a role's strands each kept one stands for (#1558): available
+    // over ceil(available / stride), uncapped; 1 for a role that was not thinned
+    // or has no strands. The build hands it to the shader per vertex, which draws
+    // a thinned strand thinner than a pixel at the coverage that many strands
+    // have (GroomStrandStrideWiden) rather than at their summed width.
+    [[nodiscard]] f32 GroomRoleStandsFor(u32 available, u32 stride) noexcept;
 
     // The largest per-role compensation `stats` was built with, and whether any
     // role hit the cap: the two LOD counters (GroomLodStats) for one groom.

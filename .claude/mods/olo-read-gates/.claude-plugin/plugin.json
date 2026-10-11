@@ -1,0 +1,8 @@
+{
+  "name": "olo-read-gates",
+  "version": "0.1.0",
+  "description": "Holds OloEngine's read-before-edit rules: the shader, component and test guides before those edits; no edits to vendor, vcpkg or generated files; new test sources must be built and classified.",
+  "author": {
+    "name": "OloEngine"
+  }
+}

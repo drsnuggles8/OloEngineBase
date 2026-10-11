@@ -393,7 +393,8 @@ namespace OloEngine
         const u32 current = m_FrameIndex % 2u;
         const u32 previous = 1u - current;
         const bool consecutiveFrame = m_FrameIndex != 0u && m_LastFrame == m_FrameIndex - 1u;
-        const bool historyIdentityMatches = m_HaveHistory && consecutiveFrame && m_LastEpoch == m_SceneEpoch;
+        const bool historyIdentityMatches =
+            m_HaveHistory && m_LineageContinues && consecutiveFrame && m_LastEpoch == m_SceneEpoch;
         const bool history = historyIdentityMatches && textures[4].IsValid();
         m_Stats.HistoryValid = history && m_Settings.TemporalReuse;
         ReSTIR::PT::Parameters params{};

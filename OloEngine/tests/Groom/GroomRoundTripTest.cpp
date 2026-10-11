@@ -522,4 +522,83 @@ TEST(GroomRoundTrip, CoatUserPropertiesWithoutARoleKeepTheRoleTheNameImplies)
     EXPECT_NEAR(coat.StiffnessScale, 1.5f, 1e-6f);
 }
 
+TEST(GroomRoundTrip, TheArchivesCardTierIsCookedUnlessTheCallerPassesOne)
+{
+    // Issue #1558. A groom source carries the card tier its author chose, so an
+    // import that passes no settings -- the editor's "Import as Groom" -- cooks
+    // the tier the author's pipeline ships; settings a caller passes replace it.
+    namespace Fixture = Tests::GroomFixture;
+
+    Fixture::CurvesPrim prim;
+    prim.Name = "body_guard";
+    prim.Positions = { { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.1f, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 1.0f, 0.1f, 0.0f } };
+    prim.VertexCounts = { 2, 2 };
+    prim.UserDoubles = { { "groom_card_cell_size", { 0.012 } } };
+    prim.UserInts = { { "groom_card_points", { 5 } } };
+    const std::filesystem::path abcPath = Tests::TempFile("cardtier.abc");
+    ASSERT_TRUE(Fixture::WriteArchive(abcPath, { prim }));
+
+    const auto authored = AlembicGroomImporter::Import(abcPath);
+    ASSERT_TRUE(authored.Succeeded()) << authored.Diagnostic;
+    ASSERT_TRUE(authored.AuthoredCards.has_value());
+    EXPECT_NEAR(authored.Cards.CellSize, 0.012f, 1e-7f);
+    EXPECT_EQ(authored.Cards.PointsPerCard, 5u);
+
+    AlembicGroomImporter::Options options;
+    GroomCardSettings mine;
+    mine.CellSize = 0.03f;
+    mine.PointsPerCard = 4;
+    options.Cards = mine;
+    const auto overridden = AlembicGroomImporter::Import(abcPath, options);
+    ASSERT_TRUE(overridden.Succeeded()) << overridden.Diagnostic;
+    EXPECT_NEAR(overridden.Cards.CellSize, 0.03f, 1e-7f);
+    EXPECT_EQ(overridden.Cards.PointsPerCard, 4u);
+    ASSERT_TRUE(overridden.AuthoredCards.has_value()) << "what the archive authored is still reported";
+    EXPECT_NEAR(overridden.AuthoredCards->CellSize, 0.012f, 1e-7f);
+
+    // An archive that authors none cooks the defaults, as every one before #1558 did.
+    Fixture::CurvesPrim plain = prim;
+    plain.UserDoubles.clear();
+    plain.UserInts.clear();
+    const std::filesystem::path plainPath = Tests::TempFile("cardtier-none.abc");
+    ASSERT_TRUE(Fixture::WriteArchive(plainPath, { plain }));
+    const auto defaults = AlembicGroomImporter::Import(plainPath);
+    ASSERT_TRUE(defaults.Succeeded()) << defaults.Diagnostic;
+    EXPECT_FALSE(defaults.AuthoredCards.has_value());
+    EXPECT_NEAR(defaults.Cards.CellSize, GroomCardSettings{}.CellSize, 1e-7f);
+    EXPECT_EQ(defaults.Cards.PointsPerCard, GroomCardSettings{}.PointsPerCard);
+}
+
+TEST(GroomRoundTrip, TheEditorsImportCooksTheCardTierTheArchiveAuthors)
+{
+    // The editor's own path (ImportAndCookToSidecar, no settings) and a cook
+    // given the same tier explicitly write the same bytes, card level included.
+    namespace Fixture = Tests::GroomFixture;
+
+    Fixture::CurvesPrim prim = Fixture::MakeAnimalFurGroom(4000u, 6u, 2u);
+    prim.UserDoubles.push_back({ "groom_card_cell_size", { 0.02 } });
+    prim.UserInts.push_back({ "groom_card_points", { 6 } });
+    const std::filesystem::path abcPath = Tests::TempFile("cardtier-editor.abc");
+    ASSERT_TRUE(Fixture::WriteArchive(abcPath, { prim }));
+
+    const std::filesystem::path sidecarPath = Tests::TempFile("cardtier-editor.ologroom");
+    const auto sidecar = AlembicGroomImporter::ImportAndCookToSidecar(abcPath, {}, sidecarPath);
+    ASSERT_TRUE(sidecar.Ok) << sidecar.Diagnostic;
+    std::ifstream in(sidecarPath, std::ios::binary);
+    const std::vector<u8> editorBytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+
+    AlembicGroomImporter::Options options;
+    GroomCardSettings tier;
+    tier.CellSize = 0.02f;
+    tier.PointsPerCard = 6;
+    options.Cards = tier;
+    const auto direct = AlembicGroomImporter::Import(abcPath, options);
+    ASSERT_TRUE(direct.Succeeded()) << direct.Diagnostic;
+    ASSERT_FALSE(direct.Groom->GetLodLevels().empty()) << "no card level was cooked: the comparison would be vacuous";
+    std::vector<u8> directBytes;
+    std::string reason;
+    ASSERT_TRUE(GroomCooker::CookToBytes(*direct.Groom, directBytes, reason)) << reason;
+    EXPECT_EQ(editorBytes, directBytes);
+}
+
 #endif // OLO_WITH_ALEMBIC

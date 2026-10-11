@@ -28,6 +28,11 @@ Host-level rules (the update timer, the GPU resets, what the runners share) are 
 [self-hosted-host-hygiene.md](self-hosted-host-hygiene.md); the root steps are one script,
 `scripts/setup-olo-ci-host.sh`.
 
+Git LFS is also required for the versioned model and fur sources. The host setup
+script installs it; an existing Rocky host needs `sudo dnf install git-lfs` once.
+CI checks `git lfs version`, restores cached objects and runs `git lfs pull` per
+checkout. It does not install system packages on a self-hosted runner.
+
 Neither pool requests the other's label, so a CI job can never queue in front of
 the nightly and the nightly can never starve CI. Do not "tidy" these into one
 label set.

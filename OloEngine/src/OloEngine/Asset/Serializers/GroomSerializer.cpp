@@ -216,6 +216,7 @@ namespace OloEngine
             lodBytes += levelCurves * sizeof(u16);        // groups
             lodBytes += levelCurves * sizeof(u8);         // flags
             lodBytes += levelCurves * sizeof(u32);        // source map
+            lodBytes += levelPoints * sizeof(f32);        // coverage growth
         }
 
         const u64 payloadSize = (static_cast<u64>(OloGroomFormat::kSectionCount) * sizeof(OloGroomFormat::SectionFrame)) +
@@ -371,6 +372,7 @@ namespace OloEngine
                 AppendBytes(bytes, level.CurveGroupIds.data(), level.CurveGroupIds.size() * sizeof(u16));
                 AppendBytes(bytes, level.CurveFlags.data(), level.CurveFlags.size() * sizeof(u8));
                 AppendBytes(bytes, level.SourceCurves.data(), level.SourceCurves.size() * sizeof(u32));
+                AppendBytes(bytes, level.PointCoverageGrowth.GetData(), level.PointCoverageGrowth.Num() * sizeof(f32));
             }
             AppendSection(payload, OloGroomFormat::SectionType::LodLevels, bytes.data(), bytes.size());
         }
@@ -705,7 +707,8 @@ namespace OloEngine
                                    static_cast<u64>(header.CurveCount) * sizeof(glm::vec2) +
                                    static_cast<u64>(header.CurveCount) * sizeof(u16) +
                                    static_cast<u64>(header.CurveCount) * sizeof(u8) +
-                                   static_cast<u64>(header.CurveCount) * sizeof(u32);
+                                   static_cast<u64>(header.CurveCount) * sizeof(u32) +
+                                   static_cast<u64>(header.PointCount) * sizeof(f32);
                 if (needed > reader.Remaining())
                 {
                     outReason = std::format("LOD level {} needs {} bytes but only {} payload bytes remain — "
@@ -737,6 +740,7 @@ namespace OloEngine
                 level.CurveGroupIds.resize(header.CurveCount);
                 level.CurveFlags.resize(header.CurveCount);
                 level.SourceCurves.resize(header.CurveCount);
+                level.PointCoverageGrowth.SetNum(header.PointCount);
 
                 if (!reader.Read(level.CurveOffsets.data(), level.CurveOffsets.size() * sizeof(u32)) ||
                     (header.PointCount != 0 &&
@@ -745,7 +749,9 @@ namespace OloEngine
                     !reader.Read(level.RootUVs.data(), level.RootUVs.size() * sizeof(glm::vec2)) ||
                     !reader.Read(level.CurveGroupIds.data(), level.CurveGroupIds.size() * sizeof(u16)) ||
                     !reader.Read(level.CurveFlags.data(), level.CurveFlags.size() * sizeof(u8)) ||
-                    !reader.Read(level.SourceCurves.data(), level.SourceCurves.size() * sizeof(u32)))
+                    !reader.Read(level.SourceCurves.data(), level.SourceCurves.size() * sizeof(u32)) ||
+                    (header.PointCount != 0 &&
+                     !reader.Read(level.PointCoverageGrowth.GetData(), level.PointCoverageGrowth.Num() * sizeof(f32))))
                 {
                     outReason = std::format("truncated inside LOD level {}", i);
                     return false;

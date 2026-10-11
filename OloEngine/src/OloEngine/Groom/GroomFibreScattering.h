@@ -134,8 +134,32 @@ namespace OloEngine
         // not an authoring mode.
         Absorption = 2,
 
+        // AUTHORED REFLECTANCE, PER STRAND (#1558). BaseColor's inversion
+        // applied to each strand's OWN colour -- the base colour times the coat
+        // tint the strand carries (its coat map, its group's root and tip
+        // tints, the shade jitter) -- so its pigment absorbs inside its fibre.
+        // Under BaseColor the tint multiplies the light a strand returns, which
+        // is exact for a coat whose regions differ a little in shade and wrong
+        // for one whose regions differ in pigment by orders of magnitude: over
+        // a nearly clear base fibre a black strand still forwards the sun
+        // through itself, at thirty times the lit coat, times one small tint --
+        // a Bernese's black read grey, and white where its coat was thick. A
+        // black strand here absorbs everything that enters it, as black hair
+        // does, and keeps only its surface reflection. The absorption is read
+        // from a table (GroomFibreParams::PigmentTable) because the inversion
+        // is a bisection, which runs once per groom, not per fragment.
+        BaseColorPerStrand = 3,
+
         Count
     };
+
+    // The table BaseColorPerStrand reads a strand's absorption from: sigma_a at
+    // kGroomFibrePigmentTableSize albedos spaced evenly in log2, from
+    // 2^-kGroomFibrePigmentTableOctaves to 1, linear between neighbours.
+    // Below the darkest entry every albedo is under a fibre's own surface
+    // reflection, which saturates the inversion anyway.
+    inline constexpr u32 kGroomFibrePigmentTableSize = 32;
+    inline constexpr f32 kGroomFibrePigmentTableOctaves = 10.0f;
 
     [[nodiscard]] inline constexpr bool IsValidGroomFibrePigmentMode(i32 value) noexcept
     {
@@ -312,11 +336,21 @@ namespace OloEngine
     // light crossed on its WAY there, once each. They are different fibres on
     // one path, which is what a coat is.
 
-    /// Zinke's density factors d_f and d_b: how much of the transport a real
-    /// coat's packing actually delivers, against the idealised layer the
-    /// formulas assume. 0.7 is the paper's value for hair; a coat constant,
-    /// not a material one.
+    /// Zinke's forward density factor d_f: how much of the forwarded light a
+    /// real coat's packing actually delivers to a strand in its depths,
+    /// against the idealised layer the formulas assume. 0.7 is the paper's
+    /// value for hair; a coat constant, not a material one.
     inline constexpr f32 kGroomCoatDensityFactor = 0.7f;
+
+    /// The back-scatter's density factor d_b (#1558): ONE. With A_b summed to
+    /// every order (GroomFibreComputeDualScattering) it is the light a deep
+    /// coat behind a strand returns, and in a coat that absorbs nothing that
+    /// is all of it -- packing changes where the light goes, not whether it
+    /// comes back. The paper's 0.7, fitted against heads of hair with its
+    /// series cut at three back scatters, lost a further 30 % of it: a coat
+    /// of clear fibres under a uniform sky read 0.39 of the sky at its median
+    /// (GroomEnvironmentFurnaceEvidenceTest), a white dog grey in the shade.
+    inline constexpr f32 kGroomCoatBackDensityFactor = 1.0f;
 
     /// One fibre's returned energy, split by the half-space it leaves into.
     /// FORWARD is the half the light was travelling towards (|phi| > pi/2 in
@@ -339,8 +373,8 @@ namespace OloEngine
         /// a_b: the fraction it sends back, averaged the same way.
         glm::vec3 BackwardScatter{ 0.0f };
         /// A_b: the light the fibres BEHIND a strand scatter back to it,
-        /// through every forward-back-forward path of up to three back
-        /// scatters (Zinke's A1 + A3).
+        /// through every forward-back-forward path of any number of back
+        /// scatters: Zinke's A1 + A3 series summed in closed form (#1558).
         glm::vec3 MultipleBackScatter{ 0.0f };
         /// The back-scatter lobe's centre and width, in radians of theta_h =
         /// (theta_i + theta_o) / 2. One value for all three channels.
@@ -383,6 +417,15 @@ namespace OloEngine
         /// fields above by MakeGroomFibreParams. Read only where the coat has
         /// a density volume to count the neighbours with.
         GroomFibreDualScattering Dual;
+
+        /// BaseColorPerStrand (#1558): the base colour each strand's coat tint
+        /// multiplies, and the table its absorption is read from
+        /// (GroomFibrePigmentSigmaA). SigmaA above is the base colour's own,
+        /// for the dual-scattering constants. PerStrand is false, and the rest
+        /// unread, for every other mode.
+        bool PerStrand = false;
+        glm::vec3 PigmentBase{ 1.0f };
+        std::array<f32, kGroomFibrePigmentTableSize> PigmentTable{};
 
         [[nodiscard]] bool operator==(const GroomFibreParams&) const = default;
     };
@@ -458,6 +501,18 @@ namespace OloEngine
     /// it is why black hair still has a white sheen — rather than a limitation
     /// of the solver.
     [[nodiscard]] glm::vec3 GroomFibreSigmaAForAlbedo(const glm::vec3& color, f32 eta, u32 hSamples) noexcept;
+
+    /// The pigment table for a fibre of index `eta` at `hSamples` (#1558):
+    /// GroomFibreSigmaAForAlbedo at each of its albedos, which the table is
+    /// defined by (kGroomFibrePigmentTableSize, kGroomFibrePigmentTableOctaves).
+    [[nodiscard]] std::array<f32, kGroomFibrePigmentTableSize> GroomFibrePigmentTable(f32 eta, u32 hSamples) noexcept;
+
+    /// sigma_a of a strand whose colour is `colour`, read from
+    /// params.PigmentTable exactly as the shader reads it
+    /// (include/GroomFibreCommon.glsl's oloGroomFibrePigmentSigmaA): per
+    /// channel, the colour clamped into the table's range and interpolated
+    /// linearly in log2 between the two entries either side.
+    [[nodiscard]] glm::vec3 GroomFibrePigmentSigmaA(const GroomFibreParams& params, const glm::vec3& colour) noexcept;
 
     [[nodiscard]] GroomFibreParams MakeGroomFibreParams(const GroomFibreAuthoring& authored) noexcept;
 

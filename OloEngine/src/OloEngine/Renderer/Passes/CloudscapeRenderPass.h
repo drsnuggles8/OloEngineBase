@@ -112,10 +112,10 @@ namespace OloEngine
             m_WeatherMapTextureID = weatherMap;
         }
 
-        // Pipeline-owned half-res history texture (the CloudsHistory sink
-        // target) + its validity for this frame. Must be set AFTER
-        // PopulateBlackboard ran (EnsureHistoryStorage may recreate the
-        // texture on resize) — UploadExecutionState is the call site.
+        // The half-res CloudsHistory registry texture + its validity for this
+        // frame. Must be set AFTER PopulateBlackboard ran (its acquire may
+        // recreate the texture on resize) — UploadExecutionState is the
+        // call site.
         void SetHistory(RHI::ResourceHandle historyTexture, bool valid) noexcept
         {
             m_HistoryTexture = historyTexture;

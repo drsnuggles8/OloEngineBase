@@ -148,4 +148,39 @@ namespace OloEngine::TemporalSequenceMetrics
     /// `reference` is a field that was never temporally filtered — the
     /// un-resolved current frame, or a supersampled ground truth.
     [[nodiscard]] DetailResult MeasureDetail(const std::vector<f32>& measured, const std::vector<f32>& reference);
+
+    // ---- PAIRED RESPONSE (#1348) -------------------------------------------
+    //
+    // GHOSTING measured against a PAIRED replay rather than one cold target.
+    // Three runs of the same sequence from the same sampling context
+    // (Renderer3D::ResetFrameSequences with one seed): BASELINE never leaves
+    // the old state, TARGET is in the new state from its first frame, and the
+    // measured run steps from one to the other. At every frame the three share
+    // their noise, so the residual below carries no noise floor: a resolve
+    // with no history at all reads exactly 0 on the step frame, and whatever
+    // it reads above 0 is history.
+    //
+    // NormalisedResidual(t) = sum |f(t) - target(t)| / sum |baseline(t) - target(t)|
+    // over the pixels where the step moved the answer by more than
+    // `stepThreshold` at frame t. 1 is "still showing the old state
+    // entirely", 0 is "fully responded".
+    struct PairedResponseResult
+    {
+        std::vector<f64> NormalisedResidual;
+        /// First frame from which every later NormalisedResidual is at or
+        /// below `settledFraction`, scanned backwards like SettlingFrames.
+        /// kNeverSettled if the last frame is still above it.
+        u32 ResponseFrames = kNeverSettled;
+        f64 FinalResidual = 0.0;
+        /// Mean over frames of the pixels the step moved, and of the step's
+        /// mean size over them. StepPixels == 0 means the step moved nothing
+        /// and every residual above is 0 by construction, not by response.
+        u32 StepPixels = 0;
+        f64 StepMagnitude = 0.0;
+    };
+
+    [[nodiscard]] PairedResponseResult MeasurePairedResponse(std::span<const std::vector<f32>> frames,
+                                                             std::span<const std::vector<f32>> targets,
+                                                             std::span<const std::vector<f32>> baselines,
+                                                             f64 settledFraction, f32 stepThreshold);
 } // namespace OloEngine::TemporalSequenceMetrics

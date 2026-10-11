@@ -909,4 +909,58 @@ namespace OloEngine::Tests
         const std::vector<f32> flat(64u, 0.5f);
         EXPECT_NEAR(MeasureDetail(flat, flat).RetainedFraction, 1.0, 1.0e-6);
     }
+
+    // #1348: the paired response. Three arms share their noise frame by frame,
+    // so an exponential history with feedback a reads exactly a^(t+1) on the
+    // step pixels, and a history-less resolve reads 0 from the step frame on.
+    TEST(TemporalSequenceMetricsContract, PairedResponseOfAnExponentialHistoryIsItsFeedbackPower)
+    {
+        constexpr u32 kFrames = 40u;
+        constexpr f32 kFeedback = 0.9f;
+        std::vector<std::vector<f32>> baselines;
+        std::vector<std::vector<f32>> targets;
+        std::vector<std::vector<f32>> history;
+        std::vector<std::vector<f32>> cold;
+        f32 accumulated = 1.0f; // settled in the old state
+        for (u32 t = 0u; t < kFrames; ++t)
+        {
+            // Shared per-frame noise on every arm, plus an untouched pixel the
+            // step never moves.
+            const f32 noise = 0.01f * static_cast<f32>((t * 7u) % 5u);
+            const f32 oldValue = 1.0f + noise;
+            const f32 newValue = 0.0f + noise;
+            accumulated = kFeedback * accumulated + (1.0f - kFeedback) * newValue;
+            baselines.push_back({ oldValue, 0.3f });
+            targets.push_back({ newValue, 0.3f });
+            history.push_back({ accumulated, 0.3f });
+            cold.push_back({ newValue, 0.3f });
+        }
+
+        const PairedResponseResult none = MeasurePairedResponse(cold, targets, baselines, 0.1, 1.0e-3f);
+        EXPECT_EQ(none.ResponseFrames, 0u) << "no history responds on the step frame";
+        EXPECT_NEAR(none.FinalResidual, 0.0, 1.0e-9);
+        EXPECT_EQ(none.StepPixels, 1u) << "the pixel the step never moved is not counted";
+
+        const PairedResponseResult exponential = MeasurePairedResponse(history, targets, baselines, 0.1, 1.0e-3f);
+        // Accumulated - new = 0.9^(t+1) (1 - noise_t) + O(noise), over a step of 1:
+        // 0.9^(t+1) <= 0.1 first at t = 21.
+        EXPECT_NEAR(exponential.NormalisedResidual[0], 0.9, 0.02);
+        EXPECT_NEAR(exponential.NormalisedResidual[9], std::pow(0.9, 10.0), 0.03); // 0.332 vs 0.349: the shared noise mixes in
+        EXPECT_GE(exponential.ResponseFrames, 20u);
+        EXPECT_LE(exponential.ResponseFrames, 22u);
+    }
+
+    // A step that moved nothing reports StepPixels 0, so a caller can tell an
+    // empty measurement from an instant response.
+    TEST(TemporalSequenceMetricsContract, PairedResponseOfANullStepIsFlaggedEmpty)
+    {
+        const std::vector<std::vector<f32>> same(4u, std::vector<f32>(8u, 0.5f));
+        const PairedResponseResult result = MeasurePairedResponse(same, same, same, 0.1, 1.0e-3f);
+        EXPECT_EQ(result.StepPixels, 0u);
+        EXPECT_EQ(result.ResponseFrames, 0u);
+
+        std::vector<std::vector<f32>> ragged = same;
+        ragged.pop_back();
+        EXPECT_TRUE(MeasurePairedResponse(ragged, same, same, 0.1, 1.0e-3f).NormalisedResidual.empty());
+    }
 } // namespace OloEngine::Tests

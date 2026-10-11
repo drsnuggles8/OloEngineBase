@@ -1,0 +1,471 @@
+{
+  "checkpoint": "Samoyed appearance 2026-10-09, roundchest3",
+  "userDirection": "Commit the Samoyed work and begin Bernese; renderer performance deferred.",
+  "assets": {
+    "OloEditor/SandboxProject/Assets/Models/Samoyed/Samoyed.abc": {
+      "sha256": "056f284d6413ea686b67199cccfcd9a77c0c5e5d4b34d1da32bc8e39ec85821a",
+      "bytes": 193518102
+    },
+    "OloEditor/SandboxProject/Assets/Models/Samoyed/Samoyed.bin": {
+      "sha256": "86bc502b4e44a04df4d94246ffb7642b3d4eb805531fe9a0cee040b62fd46181",
+      "bytes": 137320916
+    },
+    "OloEditor/SandboxProject/Assets/Models/Samoyed/Samoyed.gltf": {
+      "sha256": "273e0a04804bc434fca9213b5a93edd121a7900dc73ae77496c489dc630cc280",
+      "bytes": 742734
+    },
+    "OloEditor/SandboxProject/Assets/Models/Samoyed/Samoyed.rig.json": {
+      "sha256": "3218132cb506be1c3f9fb35a34cf55d370fe2ec6db247d2b28044b54abac20f0",
+      "bytes": 2121
+    },
+    "OloEditor/SandboxProject/Assets/Models/Samoyed/SamoyedCoatColor.png": {
+      "sha256": "80704ff84a9b89b84f90534f1437cec4e00e04dc0c6ed596feeff2c464dbe4f9",
+      "bytes": 462016
+    },
+    "OloEditor/SandboxProject/Assets/Models/Samoyed/SamoyedEye.oloskin": {
+      "sha256": "5968dc918389099c9fb56cf311dbdb6e78bb05071cbbe3873715ee80879bccbb",
+      "bytes": 1197
+    },
+    "OloEditor/SandboxProject/Assets/Models/Samoyed/SamoyedEyeball.bin": {
+      "sha256": "718a62f97fa14292f2081cc175002cca1fdbb283fd43f8057f3568185a748a85",
+      "bytes": 354880
+    },
+    "OloEditor/SandboxProject/Assets/Models/Samoyed/SamoyedEyeball.gltf": {
+      "sha256": "6780fd68b74537eab3d8cdcec2d74a8760a457b3dcece501bf9230bc7b9126d9",
+      "bytes": 1845
+    },
+    "OloEditor/SandboxProject/Assets/Models/Samoyed/SamoyedGumColor.png": {
+      "sha256": "cfba4494a009e9f0f9ad92837dcf4732db24d03e7261cb205b57d10b65218d35",
+      "bytes": 492408
+    },
+    "OloEditor/SandboxProject/Assets/Models/Samoyed/SamoyedGumOcclusion.png": {
+      "sha256": "2a0b118c94db8a112ab00adba69d1a6e1bee792434f7a06287ecbf30ab8b0cd3",
+      "bytes": 622956
+    },
+    "OloEditor/SandboxProject/Assets/Models/Samoyed/SamoyedIrisColor.png": {
+      "sha256": "3b8cc2da914cea7131e41484f5dcd714427f8f256d10604a64ee77c20e2e65a4",
+      "bytes": 1445826
+    },
+    "OloEditor/SandboxProject/Assets/Models/Samoyed/SamoyedLipOcclusion.png": {
+      "sha256": "7a9af85682282c52d7faaa072943bd2d5b28f0364b9e69b97927be0774beb0ec",
+      "bytes": 684271
+    },
+    "OloEditor/SandboxProject/Assets/Models/Samoyed/SamoyedNoseNormal.png": {
+      "sha256": "4dae1074aeac4250e6c95673f6114167a10ea16c08b7f889409ee9363d0e988a",
+      "bytes": 4231515
+    },
+    "OloEditor/SandboxProject/Assets/Models/Samoyed/SamoyedNoseOcclusion.png": {
+      "sha256": "6e6a14d428be3ff5cfb0f1df6e5a9e471eb871131f0f2c5aba6ba5c81b7cf4c6",
+      "bytes": 1116749
+    },
+    "OloEditor/SandboxProject/Assets/Models/Samoyed/SamoyedPadOcclusion.png": {
+      "sha256": "7954026406a6f7984185a6ce71910ed61795152a406b15d68d3754b348c99e24",
+      "bytes": 318053
+    },
+    "OloEditor/SandboxProject/Assets/Models/Samoyed/SamoyedTeethOcclusion.png": {
+      "sha256": "9799d6c39bb33660d3e8adc26d9b6e62b5fef1b4a74daca7f6af5df19ebca3fc",
+      "bytes": 755222
+    },
+    "OloEditor/SandboxProject/Assets/Models/Samoyed/SamoyedTongueColor.png": {
+      "sha256": "cbd6f61fb126556b1251c255114107f2e1f46d628a587f6b0b149663f9b1c6f5",
+      "bytes": 413427
+    },
+    "OloEditor/SandboxProject/Assets/Models/Samoyed/SamoyedTongueNormal.png": {
+      "sha256": "90c04aff7b2ac2a0284401ab0051f2a34c3cdb4d3477fd9fc5eb5996b447bd27",
+      "bytes": 1708720
+    },
+    "OloEditor/SandboxProject/Assets/Models/Samoyed/SamoyedTongueOcclusion.png": {
+      "sha256": "013c7461e8a4ad5e54bdda282525f5694135c5b3b8e1038b618bf769a2532b3d",
+      "bytes": 620958
+    },
+    "OloEditor/SandboxProject/Assets/Grooms/Samoyed/Samoyed.ologroom": {
+      "sha256": "c0d9fc7945036d8104a309b3710de591b38695c92f0d6316d4aef93afe9cecbe",
+      "bytes": 116251543
+    },
+    "OloEditor/SandboxProject/Assets/Grooms/Samoyed/Samoyed.ologroombinding": {
+      "sha256": "27c414567a39a353b7b650b4f91c54dd2bbb0735c1b2635c239f2d7c415d7042",
+      "bytes": 55681327
+    },
+    "OloEditor/SandboxProject/Assets/Scenes/Samoyed.olo": {
+      "sha256": "44853b0f6bf07a1836e0ecbe7b1cc38ab658899cbd3fcdf30e04b16ea0e91173",
+      "bytes": 24649
+    }
+  },
+  "morphTargets": 19,
+  "strands": 1999138,
+  "renderedSegments": 7091971,
+  "guides": 17009,
+  "cards": 15688,
+  "sourceControlPoints": 9091109,
+  "groups": 44,
+  "captures": {
+    "Rest-body": {
+      "sha256": "3bb9ea6ab724d5be4f0e100ab8b6e8a79fd6dfa1502ec62d9fed666245c92c6a",
+      "source": "samoyed-roundedchest3-preview",
+      "camera": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          1.2449486255645752,
+          0.5776561498641968,
+          1.742928147315979
+        ],
+        "forward": [
+          -0.5825749039649963,
+          -0.10253318399190903,
+          -0.806283712387085
+        ],
+        "fovDegrees": 25.0,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 5.885060787200928,
+        "position": [
+          1.2449486255645752,
+          0.5776561498641968,
+          1.742928147315979
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": -35.84973907470703
+      },
+      "frameIndex": 126,
+      "ticking": true,
+      "cameraVerified": true
+    },
+    "Rest-frontbody": {
+      "sha256": "ea03842ebab19e93d72af13712b001f3f2d0f9088d3e3ec52b6c551450cb97a1",
+      "source": "samoyed-roundedchest3-preview",
+      "camera": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          0.0,
+          0.39838355779647827,
+          1.8425239324569702
+        ],
+        "forward": [
+          0.0,
+          -0.016346588730812073,
+          -0.9998663663864136
+        ],
+        "fovDegrees": 30.0,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 0.9366322755813599,
+        "position": [
+          0.0,
+          0.39838355779647827,
+          1.8425239324569702
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": 0.0
+      },
+      "frameIndex": 233,
+      "ticking": true,
+      "cameraVerified": true
+    },
+    "Rest-side": {
+      "sha256": "23177b4f5765ae9bbe4105fe6116e91253b8d069e35da684b8290dec278234e7",
+      "source": "samoyed-roundedchest3-preview",
+      "camera": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          1.742928147315979,
+          0.38842397928237915,
+          0.0
+        ],
+        "forward": [
+          -0.999897837638855,
+          -0.011427409015595913,
+          0.008570432662963867
+        ],
+        "fovDegrees": 30.0,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 0.6547566056251526,
+        "position": [
+          1.742928147315979,
+          0.38842397928237915,
+          0.0
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": -90.49109649658203
+      },
+      "frameIndex": 347,
+      "ticking": true,
+      "cameraVerified": true
+    },
+    "Rest-chest": {
+      "sha256": "3fce57ecd5351b19369d9df3cbf1ac5028a526473fb29f67b56c3e7856b915d9",
+      "source": "samoyed-roundedchest3-preview",
+      "camera": {
+        "distance": 0.0,
+        "farClip": 1000.0,
+        "focalPoint": [
+          0.6499999761581421,
+          0.3199999928474426,
+          1.0
+        ],
+        "forward": [
+          -0.6303257346153259,
+          -0.029091957956552505,
+          -0.775785505771637
+        ],
+        "fovDegrees": 20.0,
+        "nearClip": 0.10000000149011612,
+        "pitchDegrees": 1.667081594467163,
+        "position": [
+          0.6499999761581421,
+          0.3199999928474426,
+          1.0
+        ],
+        "viewportHeight": 720,
+        "viewportWidth": 1280,
+        "yawDegrees": -39.09385681152344
+      },
+      "frameIndex": 464,
+      "ticking": true,
+      "cameraVerified": true
+    },
+    "Rest-front": {
+      "sha256": "3a41ff103ba25e257fe516bbc6d5cc0e8dce59e04f0d32d34f3d1eb67c4f602e",
+      "source": "samoyed-roundedchest-facefinal",
+      "camera": {
+        "position": [
+          0.0,
+          0.6164985672953939,
+          1.8192203819303234
+        ],
+        "target": [
+          0.0,
+          0.5637127448936881,
+          0.4398172870932951
+        ],
+        "fov": 11.5
+      },
+      "frameIndex": 327,
+      "ticking": true,
+      "cameraVerified": true
+    },
+    "Rest-threequarter": {
+      "sha256": "9b7a6bebfaf7315c75361ade4015edb8d17cfdb2a38cd218bdbca461ba093df6",
+      "source": "samoyed-roundedchest-facefinal",
+      "camera": {
+        "position": [
+          0.8465650762537719,
+          0.6812358966559764,
+          1.6001094210175824
+        ],
+        "target": [
+          0.0,
+          0.5637127448936881,
+          0.4398172870932951
+        ],
+        "fov": 11.5
+      },
+      "frameIndex": 504,
+      "ticking": true,
+      "cameraVerified": true
+    },
+    "Pant-front": {
+      "sha256": "1590764360486a19767de96cdd76bcd32f537f85e3a918a16c8b4f4028839fc2",
+      "source": "samoyed-roundedchest-facefinal",
+      "camera": {
+        "position": [
+          0.0,
+          0.6164985672953939,
+          1.8192203819303234
+        ],
+        "target": [
+          0.0,
+          0.5637127448936881,
+          0.4398172870932951
+        ],
+        "fov": 11.5
+      },
+      "frameIndex": 681,
+      "ticking": true,
+      "cameraVerified": true
+    },
+    "Pant-threequarter": {
+      "sha256": "79efabfb3f2585bbe94855884ad47b0963d6480af4d96295d0b21f3a10533678",
+      "source": "samoyed-roundedchest-remaining",
+      "camera": {
+        "position": [
+          0.8465650762537719,
+          0.6812358966559764,
+          1.6001094210175824
+        ],
+        "target": [
+          0.0,
+          0.5637127448936881,
+          0.4398172870932951
+        ],
+        "fov": 11.5
+      },
+      "frameIndex": 1134,
+      "ticking": true,
+      "cameraVerified": true
+    },
+    "HeadTilt-front": {
+      "sha256": "a9ef0f216d939ff7edd8fe4eef3cb7fc7ce2d7fd915cc5fe9ca6c0b9286fa06d",
+      "source": "samoyed-roundedchest-remaining",
+      "camera": {
+        "position": [
+          0.0,
+          0.6164985672953939,
+          1.8192203819303234
+        ],
+        "target": [
+          0.0,
+          0.5637127448936881,
+          0.4398172870932951
+        ],
+        "fov": 11.5
+      },
+      "frameIndex": 1313,
+      "ticking": true,
+      "cameraVerified": true
+    },
+    "HeadTilt-threequarter": {
+      "sha256": "6db245061f7ca2d815092447e5e65298c177a87abba2dcb9864507c26e676f9a",
+      "source": "samoyed-roundedchest-remaining",
+      "camera": {
+        "position": [
+          0.8465650762537719,
+          0.6812358966559764,
+          1.6001094210175824
+        ],
+        "target": [
+          0.0,
+          0.5637127448936881,
+          0.4398172870932951
+        ],
+        "fov": 11.5
+      },
+      "frameIndex": 1489,
+      "ticking": true,
+      "cameraVerified": true
+    },
+    "ClosedBlink-front": {
+      "sha256": "3c9a0fb4bb6e555197bf25b4858f519c9d8f609306179a475ba865726f75c481",
+      "source": "samoyed-roundedchest-remaining",
+      "camera": {
+        "position": [
+          0.0,
+          0.6164985672953939,
+          1.8192203819303234
+        ],
+        "target": [
+          0.0,
+          0.5637127448936881,
+          0.4398172870932951
+        ],
+        "fov": 11.5
+      },
+      "frameIndex": 1667,
+      "ticking": true,
+      "cameraVerified": true
+    },
+    "ClosedBlink-threequarter": {
+      "sha256": "2ff1c0761840367d5615d685d114044940a8ab7032d7038a7e9c75c49e901528",
+      "source": "samoyed-roundedchest-remaining",
+      "camera": {
+        "position": [
+          0.8465650762537719,
+          0.6812358966559764,
+          1.6001094210175824
+        ],
+        "target": [
+          0.0,
+          0.5637127448936881,
+          0.4398172870932951
+        ],
+        "fov": 11.5
+      },
+      "frameIndex": 1841,
+      "ticking": true,
+      "cameraVerified": true
+    }
+  },
+  "frozenNonSamoyedFilesVerified": 50,
+  "nativeEditorSha256": "541d08e8a1851ceea2a5f8be4ca445b897be344e4e2f59f79615cd39bee2a835",
+  "captureBackend": "Release OpenGL Forward, full fur, 1280x720",
+  "captureLighting": "suburban_soccer_park_2k IBL, neutral review floor",
+  "nativeLogErrors": "(no matching log messages)",
+  "limits": [
+    "This is an appearance checkpoint, not completion of issue 1558.",
+    "Backend, packaged-runtime and editor-import parity matrix remains outstanding.",
+    "Captures use the existing worktree editor; earlier shared groom/renderer WIP is separate.",
+    "Release shader error tracker unavailable.",
+    "Earlier drifted Pant-threequarter is excluded.",
+    "From-scratch generator consolidation remains outstanding."
+  ],
+  "chestCorrection": {
+    "parent": "samoyed-reference-softears-work",
+    "rows": [
+      {
+        "material": "DogSkin",
+        "moved": 10363,
+        "maxMM": 37.83865774341622,
+        "minimumTriangleAlignment": 0.767823569680937
+      },
+      {
+        "material": "DogNose",
+        "moved": 0,
+        "maxMM": 0.0,
+        "minimumTriangleAlignment": 1.0
+      },
+      {
+        "material": "DogLip",
+        "moved": 0,
+        "maxMM": 0.0,
+        "minimumTriangleAlignment": 1.0
+      },
+      {
+        "material": "DogGum",
+        "moved": 0,
+        "maxMM": 0.0,
+        "minimumTriangleAlignment": 1.0
+      },
+      {
+        "material": "DogTongue",
+        "moved": 0,
+        "maxMM": 0.0,
+        "minimumTriangleAlignment": 1.0
+      },
+      {
+        "material": "DogTeeth",
+        "moved": 0,
+        "maxMM": 0.0,
+        "minimumTriangleAlignment": 1.0
+      },
+      {
+        "material": "DogPad",
+        "moved": 0,
+        "maxMM": 0.0,
+        "minimumTriangleAlignment": 1.0
+      },
+      {
+        "material": "DogLid",
+        "moved": 0,
+        "maxMM": 0.0,
+        "minimumTriangleAlignment": 1.0
+      },
+      {
+        "material": "DogOralCavity",
+        "moved": 0,
+        "maxMM": 0.0,
+        "minimumTriangleAlignment": 1.0
+      },
+      {
+        "material": "DogOralCavity",
+        "moved": 0,
+        "maxMM": 0.0,
+        "minimumTriangleAlignment": 1.0
+      }
+    ],
+    "faceEyesNoseChinLegsAndBackExact": true,
+    "appearanceAccepted": false
+  }
+}

@@ -164,6 +164,46 @@ namespace OloEngine::Tests::Oracle
         EXPECT_FALSE(verdict.Pass);
     }
 
+    // #1348: the run-level interval. Values worked by hand: {1, 2, 3} has mean
+    // 2, sample sd 1, SE 1/sqrt(3) = 0.5774, and t(0.975, 2) = 4.303 makes the
+    // half-width 2.484.
+    TEST(OracleStatisticsTest, RunLevelIntervalIsAStudentTIntervalOverRunSummaries)
+    {
+        const RunInterval interval = MeanOverIndependentRuns({ 1.0, 2.0, 3.0 },
+                                                             SampleProvenance::IndependentRunSummaries);
+        ASSERT_TRUE(interval.Valid) << interval.WhyInvalid;
+        EXPECT_EQ(interval.Runs, 3u);
+        EXPECT_DOUBLE_EQ(interval.Mean, 2.0);
+        EXPECT_NEAR(interval.StandardError, 1.0 / std::sqrt(3.0), 1.0e-12);
+        EXPECT_NEAR(interval.HalfWidth, 4.303 / std::sqrt(3.0), 1.0e-9);
+        EXPECT_NEAR(interval.Lo(), 2.0 - 4.303 / std::sqrt(3.0), 1.0e-9);
+
+        // Past the table the approximation stays within 0.003 of the exact
+        // quantile: t(0.975, 40) = 2.021, t(0.975, 120) = 1.980.
+        EXPECT_NEAR(StudentT975(40u), 2.021, 3.0e-3);
+        EXPECT_NEAR(StudentT975(120u), 1.980, 3.0e-3);
+    }
+
+    // Correlated frames and reservoir M are refused outright: an interval over
+    // them would be narrower than the data supports by the correlation length.
+    // So are a single run and a non-finite summary.
+    TEST(OracleStatisticsTest, RunLevelIntervalRefusesWhatIsNotIndependent)
+    {
+        for (SampleProvenance p : { SampleProvenance::CorrelatedFrames, SampleProvenance::ReservoirM,
+                                    SampleProvenance::LowDiscrepancy })
+        {
+            const RunInterval refused = MeanOverIndependentRuns({ 1.0, 2.0, 3.0 }, p);
+            EXPECT_FALSE(refused.Valid) << ToString(p) << " was accepted as independent runs";
+            EXPECT_NE(refused.WhyInvalid.find("refused"), std::string::npos);
+        }
+        EXPECT_FALSE(MeanOverIndependentRuns({ 1.0 }, SampleProvenance::IndependentRunSummaries).Valid);
+        EXPECT_FALSE(MeanOverIndependentRuns({ 1.0, std::numeric_limits<f64>::quiet_NaN() },
+                                             SampleProvenance::IndependentRunSummaries)
+                         .Valid);
+        EXPECT_FALSE(IsValidForGoodnessOfFit(SampleProvenance::IndependentRunSummaries))
+            << "goodness of fit stays IID-only; run summaries feed the interval";
+    }
+
     TEST(OracleStatisticsTest, RunsHaveDistinctSeedsAndTheFamilyHasPower)
     {
         const IndependentRuns runs{};

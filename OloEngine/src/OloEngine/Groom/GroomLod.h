@@ -625,4 +625,41 @@ namespace OloEngine
                    GroomsAtCompensationCap == other.GroomsAtCompensationCap;
         }
     };
+    /// The card coverage growth blend the strand pass hands the shader
+    /// (u_GroomViewport.z, #1558): 1 - pixelSize / sourcePixelSize once the coat
+    /// is smaller than its card level was cooked for -- one minus the cook's
+    /// pixel footprint in units of a pixel now -- and 0 at or above that size
+    /// and for any non-positive or non-finite input, which the shader reads as
+    /// "draw the card as cooked".
+    [[nodiscard]] f32 GroomCardCoverageGrowthBlend(f32 pixelSize, f32 sourcePixelSize) noexcept;
+
+    /// How much wider a card is drawn than it was cooked (#1558): the CPU
+    /// mirror of GroomStrand.glsl's oloGroomCardCoverageWiden. Every argument is
+    /// in units of a pixel now: the card's cooked width, its members' summed
+    /// width (the cooked width times GroomLodLevel::PointCoverageGrowth) and the
+    /// cook's pixel footprint, 1 - GroomCardCoverageGrowthBlend.
+    ///
+    /// Bands of summed width S spread over an extent E, each drawn a pixel f
+    /// wide at alpha width / f and composited as independent layers, cover
+    /// about (E + f)(1 - exp(-S / (E + f))): the spread lock's union while the
+    /// pixel is smaller than it, one pixel's Poisson coverage once the pixel
+    /// outgrows it, S in the limit. The cooked width is that at the cook's
+    /// footprint, which fixes E; the result is the same curve at one pixel over
+    /// the cooked width, in [1, summed / cooked]. A cooked width under the E = 0
+    /// curve (the cook's eight-direction average can land there) scales that
+    /// curve instead. 1 for a footprint of 1 or more, a summed width no wider
+    /// than the cooked one, and any non-positive or non-finite input.
+    [[nodiscard]] f32 GroomCardCoverageWiden(f32 cooked, f32 summed, f32 footprint) noexcept;
+
+    /// How much wider a thinned strand is drawn than it was built (#1558): the
+    /// CPU mirror of GroomStrand.glsl's oloGroomStrandStrideWiden. `drawn` is its
+    /// built width in pixels (its own times min(standsFor, cap)), `standsFor` how
+    /// many strands of its role it replaces (GroomRoleStandsFor), `cap` the width
+    /// compensation's cap. Thinner than a pixel, those strands drawn at alpha
+    /// their own width cover 1 - (1 - own)^standsFor of it, which is what it is
+    /// drawn at: never wider than a pixel, so the cap does not apply. Wider, the
+    /// capped widening holds, continued from one pixel. 1 for any non-positive
+    /// or non-finite input, or a strand that stands for no other.
+    [[nodiscard]] f32 GroomStrandStrideWiden(f32 drawn, f32 standsFor, f32 cap) noexcept;
+
 } // namespace OloEngine

@@ -3,10 +3,12 @@
 
 #include "OloEngine/Renderer/Material.h"
 
+#include <assimp/GltfMaterial.h>
 #include <assimp/material.h>
 #include <assimp/scene.h>
 
 #include <atomic>
+#include <cmath>
 #include <limits>
 
 namespace OloEngine
@@ -27,6 +29,14 @@ namespace OloEngine
     {
         if (!mat)
             return;
+
+        // glTF's normalTexture.scale is stored separately from the texture.
+        // Both mesh importers load the map after this shared scalar import.
+        if (f32 normalScale = 1.0f;
+            mat->Get(AI_MATKEY_GLTF_TEXTURE_SCALE(aiTextureType_NORMALS, 0), normalScale) == AI_SUCCESS)
+        {
+            material.SetNormalScale(std::isfinite(normalScale) ? normalScale : 1.0f);
+        }
 
         // --- KHR_materials_transmission -----------------------------------
         // Absent on every non-glTF format and on a glTF that doesn't use the
