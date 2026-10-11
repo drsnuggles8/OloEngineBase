@@ -55,6 +55,7 @@ Plan (JSON; relative paths are relative to "repo")
       "extraCompetitors": [],
       "ignoreGpuProcesses": [],
       "idleGpuUtilMax": 30,
+      "testHostArgs": [],
       "contentionWaitSeconds": 600,
       "cells": [
         {"id": "gl-deferred-vsm", "host": "gl",
@@ -238,6 +239,9 @@ def load_plan(raw: dict, *, default_repo: Path, gate_ms=None, repeats=None, max_
             'competitors': COMPETITORS + [str(n) for n in raw.get('extraCompetitors', [])],
             'ignoreGpuProcesses': [str(n) for n in raw.get('ignoreGpuProcesses', [])],
             'idleGpuUtilMax': float(raw.get('idleGpuUtilMax', 30)),
+            # Extra arguments for the GL test host, e.g. --olo-rss-ceiling-mb=0 for a
+            # scene whose resident set legitimately exceeds the harness's guard.
+            'testHostArgs': [str(a) for a in raw.get('testHostArgs', [])],
             'contentionWaitSeconds': float(raw.get('contentionWaitSeconds', 600)),
             'cells': normalised_cells}
     for key in sorted({HOSTS[c['host']]['exeKey'] for c in normalised_cells}):
@@ -975,7 +979,8 @@ def run_attempt(plan: dict, cell: dict, round_index: int, attempt: int, output: 
             raise BuildChanged(f'binary, shader or asset fingerprint changed mid-campaign: '
                                f'{campaign["fingerprint"]} -> {current}')
         arm = {'exe': plan[host['exeKey']], 'repo': plan['repo'], 'host': host['captureHost'],
-               'backend': host['backend'], 'mcpPort': plan['mcpPort']}
+               'backend': host['backend'], 'mcpPort': plan['mcpPort'],
+               'extraArgs': plan.get('testHostArgs', [])}
         environment = {k: v for k, v in os.environ.items() if k != 'OLO_CAPTURE_TEST_DELAY_MS'}
         if plan['shaderCacheDir']:
             environment['OLO_SHADER_CACHE_DIR'] = plan['shaderCacheDir']
