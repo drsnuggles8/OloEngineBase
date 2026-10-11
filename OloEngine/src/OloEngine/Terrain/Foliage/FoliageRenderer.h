@@ -934,6 +934,10 @@ namespace OloEngine
         // invalidated once more after an influence moves or retires, so its
         // last bend does not stay baked into a page (#1580).
         mutable TArray<BoundingBox> m_PreviousInfluenceBoxes;
+        // Set when a shadow view's cull slot grows; the next
+        // CollectVsmInvalidations redraws every clip level once, so pages drawn
+        // while the slot overflowed are not kept by the cache (#1580, #1581).
+        mutable bool m_VsmRefreshAfterShadowGrow = false;
         u32 m_VisibleInstances = 0;
         f32 m_LegacyWindEnvelope = 2.0f;
         Ref<Shader> m_ImpostorDepthShader;

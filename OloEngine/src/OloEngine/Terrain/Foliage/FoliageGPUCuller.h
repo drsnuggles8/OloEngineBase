@@ -232,9 +232,12 @@ namespace OloEngine
         // that later sees more overflows the bounded-and-counted way it always
         // could (FoliageCullOutput / FoliageCullDropped), records how much it
         // wanted in the State header's demand pair, and the slot grows to that
-        // the first frame the demand has come back (FoliageCullDemandReadback):
-        // the frame that overflowed draws short, is counted, and is the only
-        // one. Grow-only; a regeneration keeps the capacity it had.
+        // the first frame the demand has come back (FoliageCullDemandReadback).
+        // Every frame until then draws short and is counted: up to the
+        // readback ring's depth, and for a shadow slot every view sharing it.
+        // A grown shadow slot redraws every virtual-shadow-map level once, so
+        // the cache keeps none of those pages. Grow-only; a regeneration keeps
+        // the capacity it had.
         struct ViewResources
         {
             // The compacted survivors. A VertexBuffer rather than a
@@ -556,6 +559,13 @@ namespace OloEngine
 
         [[nodiscard]] u32 GetSlotsInFlight() const;
 
+        // Captures still in flight describe a layout the owner no longer has
+        // (its layers were rebuilt): Poll retires them without returning their
+        // pairs, which would otherwise grow whatever slot now sits at their
+        // index. Nothing is lost: a slot that still overflows writes its
+        // demand again.
+        void DiscardInFlight();
+
         // Drop the staging buffers and fences. Call from the owner's teardown
         // as well as relying on the destructor -- see StagedBufferReadback::Release.
         void Release();
@@ -568,6 +578,7 @@ namespace OloEngine
             u64 Fence = 0;
             TArray<u8> Valid;
             bool Pending = false;
+            bool Discarded = false;
         };
         std::array<Slot, kRingSlots> m_Slots{};
         u32 m_Next = 0;

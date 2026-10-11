@@ -57,6 +57,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 
 namespace OloEngine
 {
@@ -1873,6 +1874,9 @@ namespace OloEngine
         for (sizet i = layers.Num(); i < m_Layers.Num(); ++i)
             ImpostorBaker::Free(m_Layers[i].Impostor);
         m_Layers.SetNum(layers.Num(), EAllowShrinking::No);
+        // A demand capture in flight indexes the layers as they were; applied to
+        // the rebuilt list it would grow whichever slot now sits at its index.
+        m_CullDemand.DiscardInFlight();
 
         // Canonical identity (issue #1230). Everything live becomes a candidate
         // for survival; a placement this pass does not re-emit — because its
@@ -2595,9 +2599,12 @@ namespace OloEngine
         }
 
         const u32 refresh = FSI::CoarseRefreshLevel(coarseUnion, inputs.Frame);
+        // A shadow cull slot grew: the frames before it drew short, so every
+        // level is redrawn once rather than keeping those pages.
+        const u32 afterGrow = std::exchange(m_VsmRefreshAfterShadowGrow, false) ? allLevels : 0u;
         for (const LayerPlan& plan : plans)
         {
-            const u32 mask = (plan.Wind | plan.EyeLevels | (refresh & ~plan.Wind)) & allLevels;
+            const u32 mask = (plan.Wind | plan.EyeLevels | (refresh & ~plan.Wind) | afterGrow) & allLevels;
             if (mask != 0u)
                 out.Add({ plan.World, mask });
         }
@@ -3546,6 +3553,12 @@ namespace OloEngine
                 view.GrowList = 0;
                 view.GrowMesh = 0;
                 ++m_CullStreamGrows;
+                // A shadow slot is shared by every shadow view and learns of an
+                // overflow only through the fenced readback, so the frames before
+                // this grow drew it short -- and a virtual shadow map's coarse
+                // levels keep such pages. Redraw every level once.
+                if (slotIndex != static_cast<u32>(FoliageGPUCuller::ViewSlot::Main))
+                    m_VsmRefreshAfterShadowGrow = true;
             }
             const bool recreated = m_Culler.EnsureViewCapacity(view.Resources, listWanted, meshWanted,
                                                                layer.CullLayer.GroupCount);

@@ -628,6 +628,15 @@ namespace OloEngine
         m_Next = 0;
     }
 
+    void FoliageCullDemandReadback::DiscardInFlight()
+    {
+        for (auto& slot : m_Slots)
+        {
+            if (slot.Pending)
+                slot.Discarded = true;
+        }
+    }
+
     u32 FoliageCullDemandReadback::GetSlotsInFlight() const
     {
         return static_cast<u32>(std::ranges::count_if(m_Slots, [](const Slot& slot)
@@ -686,6 +695,7 @@ namespace OloEngine
             return false;
         }
         slot.Pending = true;
+        slot.Discarded = false;
         m_Next = (m_Next + 1u) % kRingSlots;
         return true;
     }
@@ -702,13 +712,18 @@ namespace OloEngine
             if (!slot.Pending || !RenderCommand::IsFenceSignaled(slot.Fence))
                 continue;
 
+            RenderCommand::DestroyFence(slot.Fence);
+            slot.Fence = 0;
+            slot.Pending = false;
+            if (slot.Discarded)
+            {
+                slot.Discarded = false;
+                continue;
+            }
             const auto entries = static_cast<i32>(slot.Valid.Num());
             pairs.SetNumZeroed(entries);
             RenderCommand::ReadBufferSubData(slot.Buffer, 0, static_cast<u64>(entries) * sizeof(FoliageCullDemand),
                                              pairs.GetData());
-            RenderCommand::DestroyFence(slot.Fence);
-            slot.Fence = 0;
-            slot.Pending = false;
 
             if (out.Num() < entries)
                 out.SetNumZeroed(entries);
