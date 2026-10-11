@@ -72,8 +72,12 @@ key is hashed over.** The Windows ASan key now carries `-vk<version>` in both `k
 predecessor rather than stranding ~1230 MiB for thirty days.
 
 **Two failure modes, one symptom.** A cache that misses on everything looks the same
-whether the cap is too small or the key is too coarse. `du -sm` against the cap separates
-them: at or above the cap it is eviction, comfortably below it is invalidation.
+whether the cap is too small or the key is too coarse. Exact directory bytes show whether
+the cap has headroom; a full directory alone does not prove eviction. A rolling compiler
+can also fill it with incompatible objects. Compare matched source/toolchain runs and
+computed keys against the restored resident set, then change only the capacity in a
+controlled experiment. [windows-sccache-warm-reuse.md](windows-sccache-warm-reuse.md)
+records that distinction for the later MSVC Release regression.
 
 ## See also
 
