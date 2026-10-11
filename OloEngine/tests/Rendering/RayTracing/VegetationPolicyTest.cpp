@@ -601,4 +601,25 @@ namespace OloEngine::Tests
         }
         EXPECT_EQ(slices[4], (std::pair<sizet, sizet>{ keys.size() - 5u, 5u }));
     }
+
+    // The vegetation and groom proxies feed only the armed RT shadow tier and RT
+    // reflections (#1259): a light that asks for traced shadows on a frame whose
+    // shadow technique is the raster one builds nothing.
+    TEST(VegetationPolicy, HybridProducersRunOnlyForAnArmedConsumer)
+    {
+        using RayTracing::HybridProducersWanted;
+        // extraction, RT available, Deferred, lights ask, tier armed, reflections
+        EXPECT_TRUE(HybridProducersWanted(true, true, true, true, true, false));
+        EXPECT_TRUE(HybridProducersWanted(true, true, true, false, false, true));
+        EXPECT_TRUE(HybridProducersWanted(true, true, true, true, false, true));
+        // Lights ask, the tier is not armed, no reflections: the acceptance
+        // scene's Deferred cell, which built proxies for nothing.
+        EXPECT_FALSE(HybridProducersWanted(true, true, true, true, false, false));
+        // The tier is armed but no light asks.
+        EXPECT_FALSE(HybridProducersWanted(true, true, true, false, true, false));
+        // Any of the frame's preconditions missing.
+        EXPECT_FALSE(HybridProducersWanted(false, true, true, true, true, true));
+        EXPECT_FALSE(HybridProducersWanted(true, false, true, true, true, true));
+        EXPECT_FALSE(HybridProducersWanted(true, true, false, true, true, true));
+    }
 } // namespace OloEngine::Tests

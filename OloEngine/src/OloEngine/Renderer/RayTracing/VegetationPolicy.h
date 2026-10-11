@@ -689,4 +689,19 @@ namespace OloEngine::RayTracing
             Triangles = static_cast<u32>(std::min<u64>(VegetationPolicy::TrianglesPerFrame, static_cast<u64>(Triangles) + std::min<u64>(debt.Triangles, VegetationPolicy::TrianglesPerFrame)));
         }
     };
+
+    // WHETHER THE HYBRID PRODUCERS RUN THIS FRAME (#1259). Vegetation and groom
+    // proxies feed two consumers, the ray-traced shadow tier and ray-traced
+    // reflections, and both are Deferred-only. A light's request for traced
+    // shadows feeds nothing unless that tier is armed (shadows on, technique
+    // RayTraced), which is the condition RenderPipeline enables
+    // RayTracedShadowPass on: building proxies for an unarmed tier is work no
+    // ray reads.
+    [[nodiscard]] constexpr bool HybridProducersWanted(bool extractionActive, bool rayTracingAvailable, bool deferred,
+                                                       bool lightsRequestTracedShadows, bool tracedShadowTierArmed,
+                                                       bool tracedReflections)
+    {
+        return extractionActive && rayTracingAvailable && deferred &&
+               ((lightsRequestTracedShadows && tracedShadowTierArmed) || tracedReflections);
+    }
 } // namespace OloEngine::RayTracing

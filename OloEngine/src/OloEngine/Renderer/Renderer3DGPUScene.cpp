@@ -5,8 +5,10 @@
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Passes/GpuPathTracerPass.h"
+#include "OloEngine/Renderer/RayTracing/VegetationPolicy.h"
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
+#include "OloEngine/Renderer/Shadow/ShadowTechnique.h"
 #include "OloEngine/Renderer/SubmeshMaterialResolve.h"
 
 #include <algorithm>
@@ -762,9 +764,16 @@ namespace OloEngine
 
     bool Renderer3D::WantsRayTracingVegetation()
     {
-        return s_Data.GPUSceneExtractionActive && s_Data.SceneRT.IsAvailable() &&
-               s_Data.Settings.Path == RenderingPath::Deferred &&
-               (!s_Data.RayTracedShadowLightRequests.IsEmpty() || s_Data.PostProcess.RayTracedReflection.Enabled);
+        // Gated on the lights' requests alone, a scene whose lights ask for
+        // ray-traced shadows built vegetation and groom proxies on a
+        // raster-shadowed Deferred frame that no ray read: 24-58 ms of CPU in the
+        // #1259 acceptance scene.
+        const auto& shadows = s_Data.Shadow.GetSettings();
+        return RayTracing::HybridProducersWanted(
+            s_Data.GPUSceneExtractionActive, s_Data.SceneRT.IsAvailable(), s_Data.Settings.Path == RenderingPath::Deferred,
+            !s_Data.RayTracedShadowLightRequests.IsEmpty(),
+            shadows.Enabled && shadows.Technique == ShadowTechnique::RayTraced,
+            s_Data.PostProcess.RayTracedReflection.Enabled);
     }
 
     RayTracing::GroomSurfaceCache& Renderer3D::GetGroomSurfaceCache()
