@@ -113,6 +113,7 @@ namespace OloEngine::Tests
         const std::vector<Subject> subjects = {
             { "SandboxProject/Assets/Models/Horse", "Horse.gltf", { "ShortCoatHorse", "LongCoatHorse" } },
             { "assets/models/InfiniteScanHead", "HeadRigged.gltf", { "Human" } },
+            { "assets/models/Fox", "Fox.gltf", { "FoxShortCoat", "FoxLongCoat" } },
         };
 
         for (const Subject& subject : subjects)
