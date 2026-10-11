@@ -1112,13 +1112,19 @@ namespace OloEngine::Tests
         anim.m_CurrentTime = 0.0f;
         anim.m_IsPlaying = true;
         anim.m_PlaybackSpeed = 0.25f;
-        Entity camera = GetScene().CreateEntity("Hair runtime camera");
+        Entity camera = m_Camera;
         auto& transform = camera.GetComponent<TransformComponent>();
         transform.Translation = BustToWorld(kHeadCentre + kHairMotion.Eye);
         transform.SetRotationEuler({ -std::atan2(0.09f, 0.9f), 0.0f, 0.0f });
-        auto& cc = camera.AddComponent<CameraComponent>();
+        auto& cc = camera.GetComponent<CameraComponent>();
         cc.Camera.SetPerspective(glm::radians(30.0f), 0.01f, 400.0f);
         cc.Primary = true;
+        u32 primaryCameras = 0;
+        auto cameras = GetScene().GetAllEntitiesWith<CameraComponent>();
+        for (const auto entity : cameras)
+            primaryCameras += cameras.get<CameraComponent>(entity).Primary ? 1u : 0u;
+        ASSERT_EQ(primaryCameras, 1u);
+        ASSERT_EQ(GetScene().GetPrimaryCameraEntity(), camera);
         const fs::path scenePath = m_ProjectDir / "Assets/Hair1593.olo";
         SceneSerializer(GetSceneRef()).Serialize(scenePath.string());
         ASSERT_NE(static_cast<u64>(m_AssetManager->ImportAsset(scenePath)), 0u);
