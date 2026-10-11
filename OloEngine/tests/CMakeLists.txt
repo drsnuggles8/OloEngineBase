@@ -911,6 +911,7 @@ add_executable(OloEngine-Tests
 		# thrash" has a truth value.
 		Rendering/PropertyTests/AcceptanceSceneEvidenceTest.cpp
 		Rendering/PropertyTests/AnimalBudgetVisualEvidenceTest.cpp
+		Rendering/PropertyTests/GroomViewCullTest.cpp
 		Rendering/PropertyTests/GroomLodVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomVegetationStreamingEvidenceTest.cpp
 		Rendering/PropertyTests/GroomFibrePropertyTests.cpp

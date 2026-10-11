@@ -9409,6 +9409,57 @@ namespace OloEngine
         // Scene's lifetime.
         std::unordered_set<UUID> liveGroomLodEntities;
         std::unordered_set<UUID> liveGroomStreamingIdentities;
+        // THE VIEW A COAT HAS TO REACH (#1259). A coat no view can see, and
+        // whose shadow cannot fall into it, is not deformed, simulated or
+        // drawn this frame: before this, every coat in a scene paid its
+        // binding, simulation and upload every frame, and a 41-fox herd behind
+        // the camera cost ~80 ms of CPU and ~65 ms of root frames a frame.
+        // The frustum is the CULLING camera's, set by this frame's BeginScene,
+        // so a second camera rendering the scene culls against its own view.
+        // A coat that comes back into view resumes through the deformer's own
+        // DeformationSkipped history reset (and the simulation's re-seed from
+        // the binding), so it never integrates one stale step.
+        const bool cullGroomsByView = Renderer3D::IsFrustumCullingEnabled();
+        const Frustum& groomViewFrustum = Renderer3D::GetViewFrustum();
+        // Where a caster's shadow can land: along each shadowing sun for its
+        // shadow distance, and inside each shadowing local light whose range
+        // reaches the view. Gathered once; a handful of lights.
+        TArray<glm::vec3> groomSunSweeps;
+        struct GroomLocalShadowLight
+        {
+            glm::vec3 Center{ 0.0f };
+            f32 Radius = 0.0f;
+        };
+        TArray<GroomLocalShadowLight> groomLocalShadowLights;
+        if (cullGroomsByView)
+        {
+            for (const auto e : m_Registry.view<DirectionalLightComponent>())
+            {
+                const auto& light = m_Registry.get<DirectionalLightComponent>(e);
+                const f32 length = glm::length(light.m_Direction);
+                if (light.m_CastShadows && length > 1.0e-6f && std::isfinite(length) &&
+                    std::isfinite(light.m_MaxShadowDistance))
+                {
+                    groomSunSweeps.Add(light.m_Direction / length * std::max(0.0f, light.m_MaxShadowDistance));
+                }
+            }
+            const auto addLocal = [this, &groomViewFrustum, &groomLocalShadowLights](entt::entity e, f32 range)
+            {
+                const glm::vec3 center = glm::vec3(GetWorldTransform(e)[3]);
+                if (std::isfinite(range) && range > 0.0f && groomViewFrustum.IsSphereVisible(center, range))
+                    groomLocalShadowLights.Add({ center, range });
+            };
+            for (const auto e : m_Registry.view<PointLightComponent>())
+            {
+                if (const auto& light = m_Registry.get<PointLightComponent>(e); light.m_CastShadows)
+                    addLocal(e, light.m_Range);
+            }
+            for (const auto e : m_Registry.view<SpotLightComponent>())
+            {
+                if (const auto& light = m_Registry.get<SpotLightComponent>(e); light.m_CastShadows)
+                    addLocal(e, light.m_Range);
+            }
+        }
         const auto groomView = m_Registry.view<TransformComponent, GroomComponent>();
         for (const auto entity : groomView)
         {
@@ -9667,6 +9718,51 @@ namespace OloEngine
             request.Build.CoatDigest = GroomCoatDigest(request.Coat);
 
             liveGrooms.insert(groomComponent.m_Groom);
+
+            if (cullGroomsByView)
+            {
+                // The rest bounds, posed by the entity and padded: a bound coat
+                // follows a skinned body and its simulation sways, so neither
+                // stays inside the bind-pose box. A quarter of the extent plus
+                // 0.25 m covers a walk cycle's reach with room to spare.
+                BoundingBox restBounds;
+                restBounds.Min = groom->GetBoundsMin();
+                restBounds.Max = groom->GetBoundsMax();
+                BoundingBox worldBounds = restBounds.Transform(worldTransform);
+                const glm::vec3 pad = (worldBounds.Max - worldBounds.Min) * 0.25f + glm::vec3(0.25f);
+                worldBounds.Min -= pad;
+                worldBounds.Max += pad;
+                bool relevant = groomViewFrustum.IsBoxVisible(worldBounds.Min, worldBounds.Max);
+                if (!relevant && request.CastsSceneShadow)
+                {
+                    for (const glm::vec3& sweep : groomSunSweeps)
+                    {
+                        if (groomViewFrustum.IsBoxVisible(glm::min(worldBounds.Min, worldBounds.Min + sweep),
+                                                          glm::max(worldBounds.Max, worldBounds.Max + sweep)))
+                        {
+                            relevant = true;
+                            break;
+                        }
+                    }
+                    for (const auto& light : groomLocalShadowLights)
+                    {
+                        const glm::vec3 nearest = glm::clamp(light.Center, worldBounds.Min, worldBounds.Max);
+                        if (glm::dot(nearest - light.Center, nearest - light.Center) <= light.Radius * light.Radius)
+                        {
+                            relevant = true;
+                            break;
+                        }
+                    }
+                }
+                if (!relevant)
+                {
+                    // Still live: its caches (guide influence, streaming key,
+                    // LOD hysteresis) survive the frames it spends out of view.
+                    liveGroomStreamingIdentities.insert(groomEntity.GetUUID());
+                    continue;
+                }
+            }
+
             {
                 OLO_PERF_SCOPE_AUTO("Groom::Deform");
                 DeformGroomAgainstSurface(groomEntity, *groom, request);
