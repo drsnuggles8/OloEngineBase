@@ -1288,7 +1288,7 @@ jobs:
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: googletest_results_xml_shard_${{ matrix.shard }}
-        path: ${{runner.workspace}}/OloEngineBase/test_results/*.xml
+        path: ${{github.workspace}}/test_results/*.xml
         if-no-files-found: 'warn'
 
     - name: Upload this shard's case count
